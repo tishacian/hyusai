@@ -81,6 +81,19 @@ export function bindingKeyFrom(name: string, ingressId: string): string {
   return /^[a-z]/.test(key) ? key.slice(0, 120) : `app.${key}`.slice(0, 120);
 }
 
+export function uniqueBindingKey(
+  name: string,
+  systemId: string,
+  ingressId: string,
+  taken: readonly string[],
+): string {
+  const base = bindingKeyFrom(name, `${systemId}-${ingressId}`);
+  if (!taken.includes(base)) return base;
+  let n = 2;
+  while (taken.includes(`${base}.${n}`)) n += 1;
+  return `${base}.${n}`;
+}
+
 export function inventoryState(deployments: WorkDeployment[] | undefined): InventoryState {
   const list = deployments ?? [];
   if (list.some((item) => item.channel === 'live')) return 'live';
@@ -126,9 +139,24 @@ export function inventoryOrigin(row: StudioExperience): 'existing' | 'studio' {
   return liveHref(row.theme) ? 'existing' : 'studio';
 }
 
+/**
+ * Names of the other applications that use a binding. A binding is a
+ * workspace object, so its confirmation and unavailability rules are shared:
+ * the author has to see who else is affected before changing them.
+ */
+export function bindingSharedWith(
+  rows: readonly StudioExperience[],
+  key: string,
+  selfId: string | null,
+): string[] {
+  if (!key) return [];
+  return rows
+    .filter((row) => row.id !== selfId && (row.binding_keys ?? []).includes(key))
+    .map((row) => row.name);
+}
+
 export interface SeedLabels {
   subtitle: string;
-  submit: string;
   empty: string;
   approvalBody: string;
 }
@@ -149,11 +177,6 @@ export function seedDocument(
     id: 'seed-form',
     props: { schema: { type: 'object', properties: {} } },
   };
-  const action = {
-    type: 'action_button',
-    id: 'seed-action',
-    props: { label: labels.submit },
-  };
   const empty = {
     type: 'callout',
     id: 'seed-empty',
@@ -161,7 +184,7 @@ export function seedDocument(
   };
   switch (pattern) {
     case 'assistant':
-      return page(title, [header, form, action, { type: 'result', id: 'seed-result' }, { type: 'history', id: 'seed-history' }]);
+      return page(title, [header, form, { type: 'result', id: 'seed-result' }, { type: 'history', id: 'seed-history' }]);
     case 'queue':
       return page(title, [
         header,
@@ -199,7 +222,6 @@ export function seedDocument(
       return page(title, [
         header,
         form,
-        action,
         { type: 'runtime_status', id: 'seed-status' },
         { type: 'result', id: 'seed-result' },
         { type: 'evidence', id: 'seed-evidence' },

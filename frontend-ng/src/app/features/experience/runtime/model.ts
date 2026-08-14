@@ -74,6 +74,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * A `form` renders its own submit, so an `action_button` on the same binding is
+ * a second submit that sends a different payload. Releases are immutable, so
+ * the duplicate is dropped at render time rather than by rewriting documents.
+ */
+export function renderableComponents(
+  components: readonly ExperienceNode[],
+): ExperienceNode[] {
+  const bindingOf = (node: ExperienceNode) => String(node.props?.['bindingKey'] ?? '');
+  const submitting = new Set(
+    components.filter((node) => node.type === 'form').map(bindingOf),
+  );
+  return components.filter(
+    (node) => node.type !== 'action_button' || !submitting.has(bindingOf(node)),
+  );
+}
+
 export function parseDocument(raw: unknown): ExperienceDocument {
   if (!isRecord(raw) || !Array.isArray(raw['pages'])) return { pages: [] };
   const pages: ExperiencePage[] = [];

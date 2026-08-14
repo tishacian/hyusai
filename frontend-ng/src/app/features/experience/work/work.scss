@@ -94,10 +94,22 @@
   padding: 28px 24px 48px;
 }
 
+.xp-work-count {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ck-fg-4);
+}
+
 .xp-work-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px;
+  gap: 16px;
+}
+
+.xp-work-open {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ck-signal-cool);
 }
 
 .xp-work-card {

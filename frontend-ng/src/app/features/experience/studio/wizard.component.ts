@@ -8,11 +8,11 @@ import { apiMessage, StudioApiService, type StudioBinding, type StudioIngress } 
 import { pagesPayload } from './studio-document';
 import {
   ACCESS_ROLES,
-  bindingKeyFrom,
   CONFIRMATION_POLICIES,
   EXPERIENCE_PATTERNS,
   experienceSlug,
   seedDocument,
+  uniqueBindingKey,
   uniqueExperienceSlug,
   withAudience,
   type ExperiencePattern,
@@ -35,11 +35,14 @@ import type { ExperienceDocument } from '../runtime/model';
       <ck-help titleHelp id="concept.business-application" />
       <a actions routerLink="/create/apps" class="xp-btn">{{ i18n.t('common.back') }}</a>
 
-      <nav class="xp-steps" [attr.aria-label]="i18n.t('experience.wizard.step.of', { current: step(), total: 3 })">
-        <span [class.is-on]="step() === 1">1. {{ i18n.t('experience.wizard.step.model') }}</span>
-        <span [class.is-on]="step() === 2">2. {{ i18n.t('experience.wizard.step.bind') }}</span>
-        <span [class.is-on]="step() === 3">3. {{ i18n.t('experience.wizard.step.access') }}</span>
-      </nav>
+      <ol class="xp-steps" [attr.aria-label]="i18n.t('experience.wizard.step.of', { current: step(), total: 3 })">
+        @for (label of stepLabels; track label; let i = $index) {
+          <li [class.is-on]="step() === i + 1" [class.is-done]="step() > i + 1">
+            <span class="xp-step-n">{{ i + 1 }}</span>
+            {{ i18n.t(label) }}
+          </li>
+        }
+      </ol>
 
       @if (error(); as err) {
         <p class="xp-error" role="alert">{{ err }}</p>
@@ -57,7 +60,11 @@ import type { ExperienceDocument } from '../runtime/model';
               (input)="onName($event)"
             />
           </label>
-          <p class="xp-hint">{{ i18n.t('experience.wizard.slug') }} · /work/{{ slug() }}</p>
+          @if (slug()) {
+            <p class="xp-hint">{{ i18n.t('experience.wizard.slug') }} · /work/{{ slug() }}</p>
+          } @else {
+            <p class="xp-hint">{{ i18n.t('experience.wizard.slug.pending') }}</p>
+          }
 
           <div class="xp-cards" role="radiogroup" [attr.aria-label]="i18n.t('experience.wizard.pattern.aria')">
             @for (pattern of patterns; track pattern) {
@@ -68,8 +75,19 @@ import type { ExperienceDocument } from '../runtime/model';
                 [attr.aria-checked]="!fromHome() && selectedPattern() === pattern"
                 (click)="pickPattern(pattern)"
               >
-                <strong>{{ i18n.t('experience.work.pattern.' + pattern) }}</strong>
+                <span class="xp-thumb" aria-hidden="true">
+                  <i class="is-wide"></i>
+                  <i [class]="thumbLead(pattern)"></i>
+                  <i class="is-half"></i>
+                </span>
+                <span class="xp-choice-head">
+                  <strong>{{ i18n.t('experience.work.pattern.' + pattern) }}</strong>
+                  @if (!fromHome() && selectedPattern() === pattern) {
+                    <span class="xp-choice-on">{{ i18n.t('experience.wizard.pattern.selected') }}</span>
+                  }
+                </span>
                 <p>{{ i18n.t('experience.wizard.pattern.' + pattern + '.body') }}</p>
+                <p class="xp-choice-eg">{{ i18n.t('experience.wizard.pattern.' + pattern + '.example') }}</p>
               </button>
             }
             @if (homeDoc()) {
@@ -80,75 +98,103 @@ import type { ExperienceDocument } from '../runtime/model';
                 [attr.aria-checked]="fromHome()"
                 (click)="pickHome()"
               >
-                <strong>{{ i18n.t('experience.wizard.home.option') }}</strong>
+                <span class="xp-thumb" aria-hidden="true">
+                  <i class="is-wide is-accent"></i>
+                  <i class="is-wide is-tall"></i>
+                  <i class="is-half"></i>
+                </span>
+                <span class="xp-choice-head">
+                  <strong>{{ i18n.t('experience.wizard.home.option') }}</strong>
+                  @if (fromHome()) {
+                    <span class="xp-choice-on">{{ i18n.t('experience.wizard.pattern.selected') }}</span>
+                  }
+                </span>
                 <p>{{ i18n.t('experience.wizard.home.body') }}</p>
               </button>
             }
           </div>
         }
         @case (2) {
-          <section class="xp-bind" [attr.aria-label]="i18n.t('experience.wizard.bind.existing')">
-            <h3>{{ i18n.t('experience.wizard.bind.existing') }}</h3>
-            @if (bindings().length === 0) {
-              <p class="xp-hint">{{ i18n.t('experience.wizard.bind.empty') }}</p>
-            }
-            @for (row of bindings(); track row.binding_key) {
-              <label class="xp-check">
-                <input
-                  type="checkbox"
-                  [checked]="selectedKeys().includes(row.binding_key)"
-                  (change)="toggleKey(row.binding_key)"
-                />
-                <span>
-                  <strong>{{ i18n.t('experience.wizard.bind.calls') }}</strong>
-                  {{ systemName(row.system_id) }}
-                  · <strong>{{ i18n.t('experience.wizard.bind.inputs') }}</strong>
-                  {{ row.ingress_id }}
-                  · <strong>{{ i18n.t('experience.wizard.bind.confirmation') }}</strong>
-                  {{ confirmLabel(row.confirmation_policy) }}
-                </span>
-              </label>
-            }
-          </section>
-          <section class="xp-bind">
-            <h3>{{ i18n.t('experience.wizard.bind.create') }}</h3>
-            @if (systems().length === 0) {
-              <p class="xp-hint">{{ i18n.t('experience.wizard.bind.none_published') }}</p>
-            } @else {
-              <label class="xp-field">
-                <span>{{ i18n.t('experience.wizard.bind.system') }}</span>
-                <select [value]="newSystemId()" (change)="onSystem($event)">
-                  <option value="">—</option>
-                  @for (sys of systems(); track sys.id) {
-                    <option [value]="sys.id">{{ sys.name }}</option>
+          <p class="xp-note">{{ i18n.t('experience.wizard.bind.intro') }}</p>
+          <div class="xp-bind-grid">
+            <section class="xp-bind" [attr.aria-label]="i18n.t('experience.wizard.bind.catalog')">
+              <div class="xp-bind-head">
+                <h3>{{ i18n.t('experience.wizard.bind.catalog') }}</h3>
+                <ck-help id="concept.entry-point" />
+              </div>
+              @if (systems().length === 0) {
+                <p class="xp-hint">{{ i18n.t('experience.wizard.bind.none_published') }}</p>
+              }
+              @for (sys of systems(); track sys.id) {
+                <article class="xp-sys">
+                  <div class="xp-sys-head">
+                    <strong>{{ sys.name }}</strong>
+                    <span class="xp-bind-count">{{ entriesOf(sys.id).length }}</span>
+                  </div>
+                  @for (entry of entriesOf(sys.id); track entry.ingress_id) {
+                    <div class="xp-entry">
+                      <span>{{ entryLabel(entry) }}</span>
+                      @if (linkedKey(sys.id, entry.ingress_id)) {
+                        <span class="xp-entry-on">{{ i18n.t('experience.wizard.bind.linked') }}</span>
+                      } @else {
+                        <button
+                          type="button"
+                          class="xp-btn"
+                          [disabled]="busy()"
+                          (click)="link(sys.id, entry.ingress_id)"
+                        >
+                          {{ i18n.t('experience.wizard.bind.link') }}
+                        </button>
+                      }
+                    </div>
+                  } @empty {
+                    <p class="xp-hint">{{ i18n.t('experience.wizard.bind.no_entry') }}</p>
                   }
-                </select>
-              </label>
-              <label class="xp-field">
-                <span>{{ i18n.t('experience.wizard.bind.entry') }}</span>
-                <select [value]="newIngressId()" (change)="newIngressId.set(selectValue($event))">
-                  @for (entry of ingresses(); track entry.ingress_id) {
-                    <option [value]="entry.ingress_id">{{ entry.ingress_id }}</option>
-                  }
-                </select>
-              </label>
-              <label class="xp-field">
-                <span>{{ i18n.t('experience.wizard.bind.key') }}</span>
-                <input [value]="newKey()" (input)="newKey.set(inputValue($event))" />
-              </label>
-              <label class="xp-field">
-                <span>{{ i18n.t('experience.wizard.bind.confirm') }}</span>
-                <select [value]="newConfirm()" (change)="newConfirm.set(selectValue($event))">
-                  @for (policy of confirms; track policy) {
-                    <option [value]="policy">{{ confirmLabel(policy) }}</option>
-                  }
-                </select>
-              </label>
-              <button type="button" class="xp-btn" [disabled]="!canCreateBinding()" (click)="createBinding()">
-                {{ i18n.t('experience.wizard.bind.add') }}
-              </button>
-            }
-          </section>
+                </article>
+              }
+            </section>
+
+            <section class="xp-bind" [attr.aria-label]="i18n.t('experience.wizard.bind.selected')">
+              <div class="xp-bind-head">
+                <h3>{{ i18n.t('experience.wizard.bind.selected') }}</h3>
+                <span class="xp-bind-count">{{ selectedKeys().length }}</span>
+              </div>
+              @for (row of selectedBindings(); track row.binding_key) {
+                <article class="xp-bcard">
+                  <div class="xp-bcard-head">
+                    <strong>{{ systemName(row.system_id) }}</strong>
+                    <button type="button" class="xp-btn" (click)="toggleKey(row.binding_key)">
+                      {{ i18n.t('experience.wizard.bind.unlink') }}
+                    </button>
+                  </div>
+                  <dl class="xp-kv">
+                    <dt>{{ i18n.t('experience.wizard.bind.inputs') }}</dt>
+                    <dd>{{ row.ingress_id }}</dd>
+                    <dt>{{ i18n.t('experience.wizard.bind.confirmation') }}</dt>
+                    <dd>{{ confirmLabel(row.confirmation_policy) }}</dd>
+                  </dl>
+                  <details>
+                    <summary class="xp-hint">{{ i18n.t('experience.editor.action.advanced') }}</summary>
+                    <p class="xp-hint">{{ i18n.t('experience.editor.action.key') }} · {{ row.binding_key }}</p>
+                  </details>
+                </article>
+              } @empty {
+                <p class="xp-hint">{{ i18n.t('experience.wizard.bind.selected.empty') }}</p>
+              }
+              @if (reusable().length > 0) {
+                <p class="xp-hint">{{ i18n.t('experience.wizard.bind.existing') }}</p>
+                @for (row of reusable(); track row.binding_key) {
+                  <div class="xp-entry">
+                    <span>{{ systemName(row.system_id) }} · {{ row.ingress_id }}</span>
+                    <button type="button" class="xp-btn" (click)="toggleKey(row.binding_key)">
+                      {{ i18n.t('experience.wizard.bind.link') }}
+                    </button>
+                  </div>
+                }
+              }
+              <p class="xp-hint">{{ i18n.t('experience.wizard.bind.editable') }}</p>
+            </section>
+          </div>
         }
         @default {
           <div class="xp-row">
@@ -184,21 +230,28 @@ import type { ExperienceDocument } from '../runtime/model';
         }
       }
 
-      <div class="xp-row">
+      <div class="xp-foot">
         @if (step() > 1) {
           <button type="button" class="xp-btn" [disabled]="busy()" (click)="back()">
             {{ i18n.t('experience.wizard.back') }}
           </button>
-        }
-        @if (step() < 3) {
-          <button type="button" class="xp-btn xp-btn-primary" [disabled]="busy() || !canNext()" (click)="next()">
-            {{ busy() ? i18n.t('experience.wizard.saving') : i18n.t('experience.wizard.next') }}
-          </button>
         } @else {
-          <button type="button" class="xp-btn xp-btn-primary" [disabled]="busy()" (click)="finish()">
-            {{ busy() ? i18n.t('experience.wizard.saving') : i18n.t('experience.wizard.finish') }}
-          </button>
+          <a routerLink="/create/apps" class="xp-btn">{{ i18n.t('common.cancel') }}</a>
         }
+        <div class="xp-foot-end">
+          @if (step() === 1 && !canNext()) {
+            <span class="xp-hint">{{ i18n.t('experience.wizard.name.required') }}</span>
+          }
+          @if (step() < 3) {
+            <button type="button" class="xp-btn xp-btn-primary" [disabled]="busy() || !canNext()" (click)="next()">
+              {{ busy() ? i18n.t('experience.wizard.saving') : i18n.t('experience.wizard.next') }}
+            </button>
+          } @else {
+            <button type="button" class="xp-btn xp-btn-primary" [disabled]="busy()" (click)="finish()">
+              {{ busy() ? i18n.t('experience.wizard.saving') : i18n.t('experience.wizard.finish') }}
+            </button>
+          }
+        </div>
       </div>
     </ck-page-frame>
   `,
@@ -212,10 +265,15 @@ export class ExperienceWizardComponent {
   readonly patterns = EXPERIENCE_PATTERNS;
   readonly confirms = CONFIRMATION_POLICIES;
   readonly roles = ACCESS_ROLES;
+  readonly stepLabels = [
+    'experience.wizard.step.model',
+    'experience.wizard.step.bind',
+    'experience.wizard.step.access',
+  ] as const;
 
   readonly step = signal(1);
   readonly name = signal('');
-  readonly slug = signal('app');
+  readonly slug = signal('');
   readonly slugDirty = signal(false);
   readonly selectedPattern = signal<ExperiencePattern>('form_result');
   readonly fromHome = signal(false);
@@ -226,12 +284,8 @@ export class ExperienceWizardComponent {
   readonly bindings = signal<StudioBinding[]>([]);
   readonly selectedKeys = signal<string[]>([]);
   readonly systems = signal<Array<System & { published_flow_version_id?: string | null }>>([]);
-  readonly ingresses = signal<StudioIngress[]>([]);
-  readonly newSystemId = signal('');
-  readonly newIngressId = signal('');
-  readonly newKey = signal('');
-  readonly newConfirm = signal<string>('confirm');
-  readonly publishedVersionId = signal('');
+  readonly entries = signal<Record<string, StudioIngress[]>>({});
+  readonly versions = signal<Record<string, string>>({});
   readonly langs = signal<string[]>(['fr']);
   readonly themeMode = signal('default');
   readonly audience = signal<string[]>([]);
@@ -239,18 +293,102 @@ export class ExperienceWizardComponent {
 
   readonly previewDoc = computed(() => this.document());
 
+  /** Bindings attached to this app, in the order the author picked them. */
+  readonly selectedBindings = computed(() => {
+    const rows = this.bindings();
+    return this.selectedKeys()
+      .map((key) => rows.find((row) => row.binding_key === key))
+      .filter((row): row is StudioBinding => !!row);
+  });
+
+  /** Workspace bindings not attached yet — reusable without creating a twin. */
+  readonly reusable = computed(() => {
+    const picked = new Set(this.selectedKeys());
+    return this.bindings().filter((row) => !picked.has(row.binding_key));
+  });
+
   constructor() {
     this.api.listExperiences().subscribe((rows) => this.taken.set(rows.map((row) => row.slug)));
     this.api.listBindings().subscribe((rows) => this.bindings.set(rows));
-    this.api.publishedSystems().subscribe((rows) => this.systems.set(rows));
+    this.api.publishedSystems().subscribe((rows) => {
+      this.systems.set(rows);
+      const seeded: Record<string, string> = {};
+      for (const row of rows) {
+        const version = row.published_flow_version_id;
+        if (typeof version === 'string' && version) seeded[row.id] = version;
+      }
+      this.versions.set(seeded);
+    });
   }
 
   canNext(): boolean {
     return this.name().trim().length > 0;
   }
 
-  canCreateBinding(): boolean {
-    return !!this.newSystemId() && !!this.newIngressId() && !!this.newKey() && !!this.publishedVersionId();
+  entriesOf(systemId: string): StudioIngress[] {
+    return this.entries()[systemId] ?? [];
+  }
+
+  entryLabel(entry: StudioIngress): string {
+    return entry.kind ? `${entry.ingress_id} · ${entry.kind}` : entry.ingress_id;
+  }
+
+  /** The binding this app already uses for that System entry point, if any. */
+  linkedKey(systemId: string, ingressId: string): string | null {
+    const picked = new Set(this.selectedKeys());
+    const row = this.bindings().find(
+      (item) => picked.has(item.binding_key) && item.system_id === systemId && item.ingress_id === ingressId,
+    );
+    return row?.binding_key ?? null;
+  }
+
+  /**
+   * One click from an entry point to a usable action: reuse the workspace
+   * binding when one already points there, create it otherwise. Confirmation
+   * defaults to asking the user; the editor's Action tab can relax it.
+   */
+  link(systemId: string, ingressId: string): void {
+    const existing = this.bindings().find(
+      (row) => row.system_id === systemId && row.ingress_id === ingressId,
+    );
+    if (existing) {
+      this.selectedKeys.update((keys) =>
+        keys.includes(existing.binding_key) ? keys : [...keys, existing.binding_key],
+      );
+      return;
+    }
+    const version = this.versions()[systemId];
+    if (!version) {
+      this.error.set(this.i18n.t('experience.wizard.bind.no_version'));
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    this.api
+      .createBinding({
+        binding_key: uniqueBindingKey(
+          this.name() || this.slug(),
+          systemId,
+          ingressId,
+          this.bindings().map((row) => row.binding_key),
+        ),
+        system_id: systemId,
+        published_flow_version_id: version,
+        ingress_id: ingressId,
+        confirmation_policy: 'confirm',
+        on_unavailable: 'unavailable',
+      })
+      .subscribe({
+        next: (row) => {
+          this.bindings.update((list) => [...list, row]);
+          this.selectedKeys.update((keys) => [...keys, row.binding_key]);
+          this.busy.set(false);
+        },
+        error: (err) => {
+          this.error.set(apiMessage(err, this.i18n.t('experience.wizard.error')));
+          this.busy.set(false);
+        },
+      });
   }
 
   onName(event: Event): void {
@@ -266,6 +404,13 @@ export class ExperienceWizardComponent {
     this.selectedPattern.set(pattern);
   }
 
+  /** Sketches the shape of the template: a dense block, a queue, a single input. */
+  thumbLead(pattern: ExperiencePattern): string {
+    if (pattern === 'dashboard' || pattern === 'mission_cockpit') return 'is-wide is-tall';
+    if (pattern === 'queue' || pattern === 'approval') return 'is-half is-tall';
+    return 'is-wide is-accent';
+  }
+
   pickHome(): void {
     this.fromHome.set(true);
     this.selectedPattern.set('form_result');
@@ -273,11 +418,26 @@ export class ExperienceWizardComponent {
 
   next(): void {
     if (this.step() === 1) {
-      this.persistStep1(() => this.step.set(2));
+      this.persistStep1(() => {
+        this.step.set(2);
+        this.loadEntries();
+      });
       return;
     }
     if (this.step() === 2) {
       this.persistDraft(() => this.step.set(3));
+    }
+  }
+
+  /** Entry points are only needed once the author reaches the linking step. */
+  private loadEntries(): void {
+    const pending = this.systems().filter((row) => !(row.id in this.entries()));
+    for (const row of pending) {
+      this.api.listIngresses(row.id).subscribe((body) => {
+        this.entries.update((map) => ({ ...map, [row.id]: body?.ingresses ?? [] }));
+        const version = body?.published_flow_version_id;
+        if (version) this.versions.update((map) => ({ ...map, [row.id]: version }));
+      });
     }
   }
 
@@ -297,51 +457,6 @@ export class ExperienceWizardComponent {
     this.selectedKeys.set(
       current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
     );
-  }
-
-  onSystem(event: Event): void {
-    const id = this.selectValue(event);
-    this.newSystemId.set(id);
-    this.ingresses.set([]);
-    this.newIngressId.set('');
-    this.publishedVersionId.set('');
-    const sys = this.systems().find((item) => item.id === id);
-    const version = sys?.published_flow_version_id;
-    if (typeof version === 'string') this.publishedVersionId.set(version);
-    if (!id) return;
-    this.api.listIngresses(id).subscribe((body) => {
-      const list = body?.ingresses ?? [];
-      this.ingresses.set(list);
-      const first = list[0]?.ingress_id ?? '';
-      this.newIngressId.set(first);
-      if (body?.published_flow_version_id) this.publishedVersionId.set(body.published_flow_version_id);
-      this.newKey.set(bindingKeyFrom(this.name() || this.slug(), first));
-    });
-  }
-
-  createBinding(): void {
-    this.busy.set(true);
-    this.error.set(null);
-    this.api
-      .createBinding({
-        binding_key: this.newKey(),
-        system_id: this.newSystemId(),
-        published_flow_version_id: this.publishedVersionId(),
-        ingress_id: this.newIngressId(),
-        confirmation_policy: this.newConfirm(),
-        on_unavailable: 'unavailable',
-      })
-      .subscribe({
-        next: (row) => {
-          this.bindings.update((list) => [...list, row]);
-          this.selectedKeys.update((keys) => [...keys, row.binding_key]);
-          this.busy.set(false);
-        },
-        error: (err) => {
-          this.error.set(apiMessage(err, this.i18n.t('experience.wizard.error')));
-          this.busy.set(false);
-        },
-      });
   }
 
   toggleLang(code: string): void {
@@ -376,7 +491,6 @@ export class ExperienceWizardComponent {
     if (this.fromHome() && this.homeDoc()) return this.homeDoc()!;
     return seedDocument(this.selectedPattern(), this.name(), {
       subtitle: this.i18n.t('experience.home.subtitle'),
-      submit: this.i18n.t('experience.runtime.form.submit'),
       empty: this.i18n.t('state.empty.description'),
       approvalBody: this.i18n.t('experience.home.approval.body'),
     });
@@ -387,7 +501,9 @@ export class ExperienceWizardComponent {
     this.error.set(null);
     const body = {
       name: this.name().trim(),
-      slug: experienceSlug(this.slug()) || uniqueExperienceSlug(this.name(), this.taken()),
+      slug: this.slug()
+        ? experienceSlug(this.slug())
+        : uniqueExperienceSlug(this.name(), this.taken()),
       pattern: this.selectedPattern(),
       languages: this.langs(),
       theme: { mode: this.themeMode() },

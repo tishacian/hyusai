@@ -5,6 +5,7 @@ import {
   type ExperienceDocument,
   type ExperienceNode,
   type ExperiencePage,
+  renderableComponents,
   resolveCatalogType,
 } from './model';
 import { a11yOf, appearanceOf, pageAppearance } from './style';
@@ -59,7 +60,11 @@ export class ExperienceRuntimeHostComponent {
   readonly visiblePages = computed(() => {
     const pages = this.document().pages;
     const id = this.pageId();
-    return id ? pages.filter((page) => page.id === id) : pages;
+    const shown = id ? pages.filter((page) => page.id === id) : pages;
+    return shown.map((page) => ({
+      ...page,
+      components: renderableComponents(page.components),
+    }));
   });
 
   outlet(node: ExperienceNode): { component: Type<unknown>; inputs: { node: ExperienceNode } } | null {

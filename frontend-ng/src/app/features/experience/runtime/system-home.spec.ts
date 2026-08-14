@@ -68,10 +68,11 @@ test('compileSystemHome builds form_result from the manual contract', () => {
   assert.equal(doc.pages[0]?.title, 'Password reset');
   assert.deepEqual(
     doc.pages[0]?.components.map((node) => node.type),
-    ['header', 'form', 'action_button', 'runtime_status', 'result', 'evidence', 'history'],
+    ['header', 'form', 'runtime_status', 'result', 'evidence', 'history'],
   );
   const form = doc.pages[0]?.components.find((node) => node.type === 'form');
   assert.equal(form?.props?.['bindingKey'], 'home.password-reset.start.x');
+  assert.equal(form?.props?.['submitLabel'], 'Submit');
   assert.deepEqual(form?.props?.['schema'], CONTRACT.ingresses[1]?.input_schema);
   assert.equal(/flow|run|skill/i.test(doc.pages[0]?.title ?? ''), false);
 });

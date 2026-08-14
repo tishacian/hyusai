@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { HelpTooltipComponent } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
 import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.component';
 import { acceptAssistantPatch, proposeAssistantPatch, type AssistantProposal } from './studio-assistant';
@@ -22,6 +23,8 @@ import {
   emptyStack,
   findNode,
   newNodeId,
+  newPageId,
+  nodeIndex,
   pagesPayload,
   pushRevision,
   redoRevision,
@@ -32,9 +35,12 @@ import {
   ADDABLE_TYPES,
   CONFIRMATION_POLICIES,
   UNAVAILABLE_POLICIES,
+  bindingSharedWith,
   inventoryState,
   themeAudience,
+  type StudioExperience,
 } from './studio-model';
+import type { ReadyCheck } from './studio-publish';
 import { ExperiencePublishDialogComponent } from './publish-dialog.component';
 import type { CertifiedType, ExperienceDocument, ExperienceNode, ExperiencePage } from '../runtime/model';
 import { fieldsFromSchema } from '../runtime/model';
@@ -53,6 +59,8 @@ import {
   type NodeA11y,
 } from '../runtime/style';
 
+const READY_DEBOUNCE_MS = 1500;
+
 type Tab = 'content' | 'action' | 'appearance' | 'a11y';
 type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: string; nodeId: string };
 
@@ -60,36 +68,59 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
   selector: 'app-experience-editor',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, ExperienceRuntimeHostComponent, ExperiencePublishDialogComponent],
+  imports: [
+    RouterLink,
+    HelpTooltipComponent,
+    ExperienceRuntimeHostComponent,
+    ExperiencePublishDialogComponent,
+  ],
   styleUrl: './studio.scss',
   template: `
     <div class="xp-ed">
       <header class="xp-ed-chrome">
-        <a routerLink="/create/apps" class="xp-btn">{{ i18n.t('experience.editor.back') }}</a>
-        <strong>{{ name() }}</strong>
-        <div class="xp-row">
-          <label class="xp-check">
-            {{ i18n.t('experience.editor.preview_as') }}
-            <select [value]="previewAs()" (change)="previewAs.set(selectValue($event))">
-              <option value="viewer">{{ i18n.t('experience.editor.preview_as.viewer') }}</option>
-              <option value="contributor">{{ i18n.t('experience.editor.preview_as.contributor') }}</option>
-            </select>
-          </label>
-          <button type="button" class="xp-btn" [disabled]="stack().past.length === 0" (click)="undo()">
-            {{ i18n.t('experience.editor.undo') }}
-          </button>
-          <button type="button" class="xp-btn" [disabled]="stack().future.length === 0" (click)="redo()">
-            {{ i18n.t('experience.editor.redo') }}
-          </button>
-          <button type="button" class="xp-btn" [disabled]="saving()" (click)="flushSave()">
-            {{ saving() ? i18n.t('experience.editor.saving') : i18n.t('experience.editor.save') }}
-          </button>
-          @if (viewSlug(); as slug) {
-            <a class="xp-btn" [routerLink]="['/work', slug]">{{ i18n.t('experience.editor.view') }}</a>
+        <div class="xp-ed-id">
+          <a routerLink="/create/apps" class="xp-btn">{{ i18n.t('experience.editor.back') }}</a>
+          <strong>{{ name() }}</strong>
+          <span class="xp-tag">{{ stateLabel() }}</span>
+          @if (readyLabel(); as label) {
+            <span class="xp-tag" [class.xp-tag-ok]="readyTone() === 'ok'" [class.xp-tag-warn]="readyTone() === 'warn'">
+              {{ label }}
+            </span>
           }
-          <button type="button" class="xp-btn xp-btn-primary" (click)="publishOpen.set(true)">
-            {{ i18n.t('experience.editor.publish') }}
-          </button>
+        </div>
+        <div class="xp-ed-tools">
+          <div class="xp-ed-group">
+            <button
+              type="button"
+              class="xp-btn"
+              [disabled]="stack().past.length === 0"
+              (click)="undo()"
+            >
+              {{ i18n.t('experience.editor.undo') }}
+            </button>
+            <button
+              type="button"
+              class="xp-btn"
+              [disabled]="stack().future.length === 0"
+              (click)="redo()"
+            >
+              {{ i18n.t('experience.editor.redo') }}
+            </button>
+          </div>
+          <div class="xp-ed-group">
+            <button type="button" class="xp-btn" [disabled]="saving()" (click)="flushSave()">
+              {{ saving() ? i18n.t('experience.editor.saving') : i18n.t('experience.editor.save') }}
+            </button>
+            @if (viewSlug(); as slug) {
+              <a class="xp-btn" [routerLink]="['/work', slug]">{{ i18n.t('experience.editor.view') }}</a>
+            }
+          </div>
+          <div class="xp-ed-group">
+            <button type="button" class="xp-btn xp-btn-primary" (click)="publishOpen.set(true)">
+              {{ i18n.t('experience.editor.publish') }}
+            </button>
+            <ck-help id="concept.release" />
+          </div>
         </div>
       </header>
 
@@ -99,21 +130,21 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
 
       <div class="xp-ed-grid">
         <aside class="xp-ed-col" [attr.aria-label]="i18n.t('experience.editor.tree')">
-          <div class="xp-row">
+          <div class="xp-ed-col-head">
             <strong>{{ i18n.t('experience.editor.tree') }}</strong>
-            <label class="xp-field">
-              <span class="xp-hint">{{ i18n.t('experience.editor.add') }}</span>
-              <select [attr.aria-label]="i18n.t('experience.editor.add.aria')" (change)="addComponent($event)">
-                <option value="">{{ i18n.t('experience.editor.add') }}</option>
-                @for (type of addable; track type) {
-                  <option [value]="type">{{ type }}</option>
-                }
-              </select>
-            </label>
+            <button
+              type="button"
+              class="xp-btn xp-btn-icon"
+              [attr.aria-label]="i18n.t('experience.editor.page.add')"
+              [title]="i18n.t('experience.editor.page.add')"
+              (click)="addPage()"
+            >
+              +
+            </button>
           </div>
           <ul class="xp-tree">
             @for (page of doc().pages; track page.id) {
-              <li>
+              <li class="xp-tree-page">
                 <button
                   type="button"
                   [class.is-on]="isPageSelected(page.id)"
@@ -130,21 +161,113 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                         [class.is-on]="isNodeSelected(node.id)"
                         (click)="selectNode(page.id, node.id)"
                       >
-                        {{ node.type }}
+                        {{ typeLabel(node.type) }}
                       </button>
                     </li>
+                  } @empty {
+                    <li><p class="xp-hint is-child">{{ i18n.t('experience.editor.page.empty') }}</p></li>
                   }
                 </ul>
               </li>
             }
           </ul>
+          <label class="xp-field">
+            <span>{{ i18n.t('experience.editor.add') }}</span>
+            <select [attr.aria-label]="i18n.t('experience.editor.add.aria')" (change)="addComponent($event)">
+              <option value="">{{ i18n.t('experience.editor.add.choose') }}</option>
+              @for (type of addable; track type) {
+                <option [value]="type">{{ typeLabel(type) }}</option>
+              }
+            </select>
+          </label>
+          <p class="xp-hint">{{ i18n.t('experience.editor.add.hint') }}</p>
         </aside>
 
         <section class="xp-ed-col">
+          <form class="xp-assist" (submit)="$event.preventDefault(); propose()">
+            <div class="xp-assist-bar">
+              <input
+                type="text"
+                [value]="prompt()"
+                [placeholder]="i18n.t('experience.assistant.placeholder')"
+                [attr.aria-label]="i18n.t('experience.assistant.label')"
+                (input)="prompt.set(inputValue($event))"
+              />
+              <button type="submit" class="xp-btn">{{ i18n.t('experience.assistant.submit') }}</button>
+            </div>
+            @if (proposal(); as item) {
+              <p class="xp-hint">{{ proposalSummary(item) }}</p>
+              <div class="xp-row">
+                <button type="button" class="xp-btn xp-btn-primary" (click)="applyProposal()">
+                  {{ i18n.t('experience.assistant.apply') }}
+                </button>
+                <button type="button" class="xp-btn" (click)="proposal.set(null)">
+                  {{ i18n.t('common.cancel') }}
+                </button>
+              </div>
+            } @else if (assistantMiss()) {
+              <p class="xp-hint">{{ i18n.t('experience.assistant.unknown') }}</p>
+            } @else {
+              <p class="xp-hint">{{ i18n.t('experience.assistant.hint') }}</p>
+            }
+          </form>
           <app-experience-runtime-host [document]="doc()" [pageId]="pageId()" />
         </section>
 
         <aside class="xp-ed-col" [attr.aria-label]="i18n.t('experience.editor.inspector')">
+          @if (selectedNode(); as node) {
+            <div class="xp-node-bar">
+              <strong>{{ typeLabel(node.type) }}</strong>
+              <div>
+                <button
+                  type="button"
+                  class="xp-btn xp-btn-icon"
+                  [disabled]="!canMove(-1)"
+                  [attr.aria-label]="i18n.t('experience.editor.move_up')"
+                  [title]="i18n.t('experience.editor.move_up')"
+                  (click)="moveSelected(-1)"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  class="xp-btn xp-btn-icon"
+                  [disabled]="!canMove(1)"
+                  [attr.aria-label]="i18n.t('experience.editor.move_down')"
+                  [title]="i18n.t('experience.editor.move_down')"
+                  (click)="moveSelected(1)"
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  class="xp-btn xp-btn-icon"
+                  [attr.aria-label]="i18n.t('experience.editor.delete')"
+                  [title]="i18n.t('experience.editor.delete')"
+                  (click)="removeSelected()"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          } @else if (selectedPage(); as page) {
+            <div class="xp-node-bar">
+              <strong>{{ page.title }}</strong>
+              <div>
+                <button
+                  type="button"
+                  class="xp-btn xp-btn-icon"
+                  [disabled]="doc().pages.length <= 1"
+                  [attr.aria-label]="i18n.t('experience.editor.page.delete')"
+                  [title]="i18n.t('experience.editor.page.delete')"
+                  (click)="removePage(page.id)"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          }
+
           <div class="xp-tabs" role="tablist">
             @for (tab of tabs; track tab) {
               <button
@@ -203,28 +326,43 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                   <input [value]="str(node, 'value')" (input)="setProp(node, 'value', inputValue($event))" />
                 </label>
               }
-              <button type="button" class="xp-btn" (click)="removeSelected()">
-                {{ i18n.t('experience.editor.delete') }}
-              </button>
             }
           }
 
           @if (inspectorTab() === 'action') {
             @if (actionNode(); as node) {
-              <label class="xp-field">
-                <span>{{ i18n.t('experience.editor.action.calls') }}</span>
-                <select [value]="str(node, 'bindingKey')" (change)="setProp(node, 'bindingKey', selectValue($event))">
-                  <option value="">—</option>
-                  @for (row of bindings(); track row.binding_key) {
-                    <option [value]="row.binding_key">{{ row.binding_key }}</option>
+              <div class="xp-field">
+                <span class="xp-lbl">
+                  {{ i18n.t('experience.editor.action.calls') }}
+                  <ck-help id="concept.binding" />
+                </span>
+                <select
+                  [value]="str(node, 'bindingKey')"
+                  [attr.aria-label]="i18n.t('experience.editor.action.calls')"
+                  (change)="setProp(node, 'bindingKey', selectValue($event))"
+                >
+                  <option value="">{{ i18n.t('experience.editor.action.none_option') }}</option>
+                  @if (ownBindings().length > 0) {
+                    <optgroup [label]="i18n.t('experience.editor.action.group.app')">
+                      @for (row of ownBindings(); track row.binding_key) {
+                        <option [value]="row.binding_key">{{ bindingLabel(row) }}</option>
+                      }
+                    </optgroup>
+                  }
+                  @if (otherBindings().length > 0) {
+                    <optgroup [label]="i18n.t('experience.editor.action.group.other')">
+                      @for (row of otherBindings(); track row.binding_key) {
+                        <option [value]="row.binding_key">{{ bindingLabel(row) }}</option>
+                      }
+                    </optgroup>
                   }
                 </select>
-              </label>
+              </div>
               @if (bound(node); as row) {
                 <p class="xp-meta">
                   <span>{{ i18n.t('experience.editor.action.calls') }} · {{ row.system_id }}</span>
                 </p>
-                <p>
+                <p class="xp-hint">
                   <strong>{{ i18n.t('experience.editor.action.inputs') }}</strong>
                   @if (inputNames(node).length === 0) {
                     {{ i18n.t('experience.editor.action.inputs.empty') }}
@@ -232,9 +370,20 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                     {{ inputNames(node).join(', ') }}
                   }
                 </p>
-                <label class="xp-field">
-                  <span>{{ i18n.t('experience.editor.action.confirmation') }}</span>
+                @if (sharedWith(row.binding_key); as others) {
+                  @if (others.length > 0) {
+                    <p class="xp-warn" role="status">
+                      {{ i18n.t('experience.editor.action.shared', { apps: others.join(', ') }) }}
+                    </p>
+                  }
+                }
+                <div class="xp-field">
+                  <span class="xp-lbl">
+                    {{ i18n.t('experience.editor.action.confirmation') }}
+                    <ck-help id="concept.human-approval" />
+                  </span>
                   <select
+                    [attr.aria-label]="i18n.t('experience.editor.action.confirmation')"
                     [value]="row.confirmation_policy"
                     (change)="patchBinding(row.binding_key, { confirmation_policy: selectValue($event) })"
                   >
@@ -242,7 +391,7 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                       <option [value]="policy">{{ i18n.t('experience.editor.confirm.' + policy) }}</option>
                     }
                   </select>
-                </label>
+                </div>
                 <label class="xp-field">
                   <span>{{ i18n.t('experience.editor.action.after') }}</span>
                   <select [value]="str(node, 'afterSuccess') || 'stay'" (change)="setProp(node, 'afterSuccess', selectValue($event))">
@@ -270,6 +419,8 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                     · {{ row.input_schema_sha256 || '—' }}
                   </p>
                 </details>
+              } @else {
+                <p class="xp-hint">{{ i18n.t('experience.editor.action.pick') }}</p>
               }
             } @else {
               <p class="xp-hint">{{ i18n.t('experience.editor.action.none') }}</p>
@@ -386,39 +537,13 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
           }
         </aside>
       </div>
-
-      <form class="xp-assist" (submit)="$event.preventDefault(); propose()">
-        <p class="xp-hint">{{ i18n.t('experience.assistant.label') }} — {{ i18n.t('experience.assistant.hint') }}</p>
-        <div class="xp-assist-bar">
-          <input
-            type="text"
-            [value]="prompt()"
-            [placeholder]="i18n.t('experience.assistant.placeholder')"
-            [attr.aria-label]="i18n.t('experience.assistant.label')"
-            (input)="prompt.set(inputValue($event))"
-          />
-          <button type="submit" class="xp-btn">{{ i18n.t('experience.assistant.submit') }}</button>
-        </div>
-        @if (proposal(); as item) {
-          <p>{{ proposalSummary(item) }}</p>
-          <div class="xp-row">
-            <button type="button" class="xp-btn xp-btn-primary" (click)="applyProposal()">
-              {{ i18n.t('experience.assistant.apply') }}
-            </button>
-            <button type="button" class="xp-btn" (click)="proposal.set(null)">
-              {{ i18n.t('common.cancel') }}
-            </button>
-          </div>
-        } @else if (assistantMiss()) {
-          <p class="xp-hint">{{ i18n.t('experience.assistant.unknown') }}</p>
-        }
-      </form>
     </div>
 
     @if (id()) {
       <app-experience-publish-dialog
         [experienceId]="id()!"
         [audience]="audience()"
+        [summary]="summary()"
         [open]="publishOpen()"
         (closed)="publishOpen.set(false)"
         (deployed)="reload()"
@@ -448,7 +573,6 @@ export class ExperienceEditorComponent {
   readonly selection = signal<Selection | null>(null);
   readonly inspectorTab = signal<Tab>('content');
   readonly bindings = signal<StudioBinding[]>([]);
-  readonly previewAs = signal('viewer');
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly publishOpen = signal(false);
@@ -456,7 +580,10 @@ export class ExperienceEditorComponent {
   readonly proposal = signal<AssistantProposal | null>(null);
   readonly assistantMiss = signal(false);
   readonly bindingKeys = signal<string[]>([]);
+  readonly ready = signal<ReadyCheck | null>(null);
+  readonly apps = signal<StudioExperience[]>([]);
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private readyTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly doc = computed(() => this.stack().present);
   readonly pageId = computed(() => {
@@ -470,6 +597,50 @@ export class ExperienceEditorComponent {
   });
   readonly audience = computed(() => ({ roles: themeAudience(this.detail()?.theme) }));
 
+  /** Bindings this app already uses come first; the rest stay reachable. */
+  readonly ownBindings = computed(() => {
+    const keys = new Set(this.bindingKeys());
+    return this.bindings().filter((row) => keys.has(row.binding_key));
+  });
+
+  readonly otherBindings = computed(() => {
+    const keys = new Set(this.bindingKeys());
+    return this.bindings().filter((row) => !keys.has(row.binding_key));
+  });
+
+  readonly stateLabel = computed(() => {
+    const row = this.detail();
+    const state = this.i18n.t(`experience.apps.state.${inventoryState(row?.deployments)}`);
+    const n = row?.latest_release_number;
+    return n ? `${state} · ${this.i18n.t('experience.apps.release.n', { n })}` : state;
+  });
+
+  readonly readyTone = computed<'ok' | 'warn' | null>(() => {
+    const check = this.ready();
+    if (!check) return null;
+    if (check.blockers.length > 0) return 'warn';
+    return check.warnings.length > 0 ? null : 'ok';
+  });
+
+  readonly readyLabel = computed(() => {
+    const check = this.ready();
+    if (!check) return '';
+    if (check.blockers.length > 0) {
+      return this.i18n.t('experience.editor.ready.block', { n: check.blockers.length });
+    }
+    if (check.warnings.length > 0) {
+      return this.i18n.t('experience.editor.ready.warn', { n: check.warnings.length });
+    }
+    return this.i18n.t('experience.editor.ready.ok');
+  });
+
+  readonly summary = computed(() => ({
+    pages: this.doc().pages.length,
+    components: this.doc().pages.reduce((total, page) => total + page.components.length, 0),
+    bindingKeys: this.bindingKeys(),
+    languages: this.detail()?.languages ?? [],
+  }));
+
   constructor() {
     this.route.paramMap.subscribe((params) => {
       const id = params.get('id');
@@ -477,6 +648,7 @@ export class ExperienceEditorComponent {
       if (id) this.load(id);
     });
     this.api.listBindings().subscribe((rows) => this.bindings.set(rows));
+    this.api.listExperiences().subscribe((rows) => this.apps.set(rows));
   }
 
   @HostListener('document:keydown', ['$event'])
@@ -550,9 +722,24 @@ export class ExperienceEditorComponent {
     return typeof value === 'string' ? value : '';
   }
 
+  typeLabel(type: string): string {
+    const key = `experience.editor.type.${type}`;
+    const label = this.i18n.t(key);
+    return label === key ? type : label;
+  }
+
   bound(node: ExperienceNode): StudioBinding | null {
     const key = this.str(node, 'bindingKey');
     return this.bindings().find((row) => row.binding_key === key) ?? null;
+  }
+
+  bindingLabel(row: StudioBinding): string {
+    return `${row.system_id} · ${row.ingress_id}`;
+  }
+
+  /** Other applications this binding serves — editing its rules changes theirs too. */
+  sharedWith(key: string): string[] {
+    return bindingSharedWith(this.apps(), key, this.id());
   }
 
   inputNames(node: ExperienceNode): string[] {
@@ -579,6 +766,38 @@ export class ExperienceEditorComponent {
     if (sel?.kind !== 'node') return;
     this.commit(applyPatch(this.doc(), { kind: 'remove_component', pageId: sel.pageId, nodeId: sel.nodeId }));
     this.selection.set({ kind: 'page', pageId: sel.pageId });
+  }
+
+  canMove(delta: number): boolean {
+    const { index, total } = nodeIndex(this.doc(), this.selectedNode()?.id ?? null);
+    if (index < 0) return false;
+    const to = index + delta;
+    return to >= 0 && to < total;
+  }
+
+  moveSelected(delta: number): void {
+    const sel = this.selection();
+    if (sel?.kind !== 'node') return;
+    this.commit(
+      applyPatch(this.doc(), { kind: 'move_component', pageId: sel.pageId, nodeId: sel.nodeId, delta }),
+    );
+  }
+
+  addPage(): void {
+    const doc = this.doc();
+    const title = this.i18n.t('experience.editor.page.new', { n: doc.pages.length + 1 });
+    const pageId = newPageId(doc, title);
+    this.commit(applyPatch(doc, { kind: 'add_page', pageId, title }));
+    this.selection.set({ kind: 'page', pageId });
+  }
+
+  removePage(pageId: string): void {
+    const doc = this.doc();
+    if (doc.pages.length <= 1) return;
+    const next = applyPatch(doc, { kind: 'remove_page', pageId });
+    this.commit(next);
+    const first = next.pages[0]?.id;
+    this.selection.set(first ? { kind: 'page', pageId: first } : null);
   }
 
   renamePage(pageId: string, title: string): void {
@@ -721,12 +940,30 @@ export class ExperienceEditorComponent {
     }
     this.saving.set(true);
     this.api.saveDraft(id, pagesPayload(this.doc()), this.bindingKeys()).subscribe({
-      next: () => this.saving.set(false),
+      next: () => {
+        this.saving.set(false);
+        this.refreshReady(id);
+      },
       error: (err) => {
         this.error.set(apiMessage(err, this.i18n.t('experience.editor.save_error')));
         this.saving.set(false);
       },
     });
+  }
+
+  /**
+   * Keeps the "ready to publish" badge honest between two saves. Debounced
+   * well past the save debounce: the check walks the whole document, and a
+   * burst of keystrokes must not turn into a burst of checks.
+   */
+  private refreshReady(id: string): void {
+    if (this.readyTimer) clearTimeout(this.readyTimer);
+    this.readyTimer = setTimeout(() => {
+      this.api.readyCheck(id).subscribe({
+        next: (check) => this.ready.set(check),
+        error: () => this.ready.set(null),
+      });
+    }, READY_DEBOUNCE_MS);
   }
 
   reload(): void {
@@ -758,6 +995,7 @@ export class ExperienceEditorComponent {
     this.stack.set(emptyStack(doc));
     const first = doc.pages[0]?.id;
     this.selection.set(first ? { kind: 'page', pageId: first } : null);
+    this.refreshReady(row.id);
   }
 
   private commit(next: ExperienceDocument): void {

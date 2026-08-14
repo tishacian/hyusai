@@ -71,9 +71,9 @@ function slotOf(node: ExperienceNode, empty: boolean, loading = false, error = f
       }
       @case ('empty') {
         <app-empty-state
-          icon="inbox"
+          [icon]="emptyIcon()"
           size="sm"
-          [title]="i18n.t('state.empty.title')"
+          [title]="emptyTitle() || i18n.t('state.empty.title')"
           [description]="empty() || i18n.t('state.empty.description')"
         />
       }
@@ -88,6 +88,8 @@ export class RuntimeSlotComponent {
   readonly state = input<Slot>('ready');
   readonly detail = input('');
   readonly empty = input('');
+  readonly emptyTitle = input('');
+  readonly emptyIcon = input('inbox');
 }
 
 @Component({
@@ -369,16 +371,20 @@ export class ApprovalCardBlock {
   template: `
     <section class="xp-rt-block" [attr.aria-label]="i18n.t('experience.runtime.history.title')">
       <h3>{{ i18n.t('experience.runtime.history.title') }}</h3>
-      <ul class="xp-rt-list">
-        @for (item of items(); track $index) {
-          <li>
-            <span>{{ item.title }}</span>
-            @if (item.at) {
-              <span>{{ item.at }}</span>
-            }
-          </li>
-        }
-      </ul>
+      @if (items().length === 0) {
+        <p class="xp-rt-sub">{{ i18n.t('experience.runtime.history.pending') }}</p>
+      } @else {
+        <ul class="xp-rt-list">
+          @for (item of items(); track $index) {
+            <li>
+              <span>{{ item.title }}</span>
+              @if (item.at) {
+                <span>{{ item.at }}</span>
+              }
+            </li>
+          }
+        </ul>
+      }
     </section>
   `,
 })
@@ -421,7 +427,7 @@ export class RuntimeStatusBlock {
   });
   readonly label = computed(() => {
     const vocab = this.vocab();
-    if (!vocab) return this.i18n.t('state.empty.title');
+    if (!vocab) return this.i18n.t('experience.runtime.status.idle');
     return this.i18n.t(`experience.runtime.status.${vocab}`);
   });
   readonly tone = computed<CkTagTone>(() => {
@@ -450,7 +456,13 @@ export class RuntimeStatusBlock {
   template: `
     <section class="xp-rt-block" [attr.aria-label]="i18n.t('experience.runtime.result.title')">
       <h3>{{ i18n.t('experience.runtime.result.title') }}</h3>
-      <xp-rt-slot [state]="slot()" [detail]="errorText()">
+      <xp-rt-slot
+        [state]="slot()"
+        [detail]="errorText()"
+        emptyIcon="clock"
+        [emptyTitle]="i18n.t('experience.runtime.result.pending.title')"
+        [empty]="i18n.t('experience.runtime.result.pending.body')"
+      >
         @if (pairs(); as rows) {
           <dl class="xp-rt-kv">
             @for (row of rows; track row[0]) {
@@ -511,7 +523,7 @@ export class ResultBlock {
     <section class="xp-rt-block" [attr.aria-label]="i18n.t('experience.runtime.evidence.title')">
       <h3>{{ i18n.t('experience.runtime.evidence.title') }}</h3>
       @if (citations().length === 0) {
-        <p class="xp-rt-sub">{{ i18n.t('state.empty.description') }}</p>
+        <p class="xp-rt-sub">{{ i18n.t('experience.runtime.evidence.pending') }}</p>
       } @else {
         <ul class="xp-rt-list">
           @for (item of citations(); track $index) {
@@ -567,56 +579,69 @@ export class EvidenceBlock {
           [description]="unavailableBody()"
         />
       }
-      <xp-rt-slot [state]="slot()" [empty]="emptyText()">
-        @for (field of fields(); track field.name) {
-          <div class="xp-rt-field">
-            <label [for]="fid(field)">{{ field.label }}</label>
-            @switch (field.kind) {
-              @case ('boolean') {
-                <input
-                  type="checkbox"
-                  [id]="fid(field)"
-                  [checked]="values()[field.name] === true"
-                  [attr.aria-invalid]="!!errors()[field.name]"
-                  [attr.aria-describedby]="descId(field)"
-                  (change)="set(field.name, checkboxValue($event))"
-                />
+      @if (unlinked()) {
+        <app-empty-state
+          icon="link"
+          size="sm"
+          [title]="i18n.t('experience.runtime.form.no_link.title')"
+          [description]="i18n.t('experience.runtime.form.no_link.body')"
+        />
+      } @else {
+        <xp-rt-slot
+          [state]="slot()"
+          [emptyTitle]="i18n.t('experience.runtime.form.no_input.title')"
+          [empty]="emptyText() || i18n.t('experience.runtime.form.no_input.body')"
+        >
+          @for (field of fields(); track field.name) {
+            <div class="xp-rt-field">
+              <label [for]="fid(field)">{{ field.label }}</label>
+              @switch (field.kind) {
+                @case ('boolean') {
+                  <input
+                    type="checkbox"
+                    [id]="fid(field)"
+                    [checked]="values()[field.name] === true"
+                    [attr.aria-invalid]="!!errors()[field.name]"
+                    [attr.aria-describedby]="descId(field)"
+                    (change)="set(field.name, checkboxValue($event))"
+                  />
+                }
+                @case ('enum') {
+                  <select
+                    [id]="fid(field)"
+                    [value]="strVal(field.name)"
+                    [attr.aria-invalid]="!!errors()[field.name]"
+                    [attr.aria-describedby]="descId(field)"
+                    (change)="set(field.name, inputValue($event))"
+                  >
+                    <option value=""></option>
+                    @for (opt of field.options; track opt) {
+                      <option [value]="opt">{{ opt }}</option>
+                    }
+                  </select>
+                }
+                @default {
+                  <input
+                    [type]="inputType(field)"
+                    [id]="fid(field)"
+                    [value]="strVal(field.name)"
+                    [attr.aria-invalid]="!!errors()[field.name]"
+                    [attr.aria-describedby]="descId(field)"
+                    (input)="set(field.name, inputValue($event))"
+                  />
+                }
               }
-              @case ('enum') {
-                <select
-                  [id]="fid(field)"
-                  [value]="strVal(field.name)"
-                  [attr.aria-invalid]="!!errors()[field.name]"
-                  [attr.aria-describedby]="descId(field)"
-                  (change)="set(field.name, inputValue($event))"
-                >
-                  <option value=""></option>
-                  @for (opt of field.options; track opt) {
-                    <option [value]="opt">{{ opt }}</option>
-                  }
-                </select>
+              @if (field.kind === 'file') {
+                <p class="xp-rt-hint" [id]="fid(field) + '-hint'">{{ i18n.t('experience.runtime.form.file_hint') }}</p>
               }
-              @default {
-                <input
-                  [type]="inputType(field)"
-                  [id]="fid(field)"
-                  [value]="strVal(field.name)"
-                  [attr.aria-invalid]="!!errors()[field.name]"
-                  [attr.aria-describedby]="descId(field)"
-                  (input)="set(field.name, inputValue($event))"
-                />
+              @if (errors()[field.name]; as err) {
+                <p class="xp-rt-err" [id]="fid(field) + '-err'" role="alert">
+                  {{ i18n.t(err === 'required' ? 'experience.runtime.form.required' : 'experience.runtime.form.invalid') }}
+                </p>
               }
-            }
-            @if (field.kind === 'file') {
-              <p class="xp-rt-hint" [id]="fid(field) + '-hint'">{{ i18n.t('experience.runtime.form.file_hint') }}</p>
-            }
-            @if (errors()[field.name]; as err) {
-              <p class="xp-rt-err" [id]="fid(field) + '-err'" role="alert">
-                {{ i18n.t(err === 'required' ? 'experience.runtime.form.required' : 'experience.runtime.form.invalid') }}
-              </p>
-            }
-          </div>
-        }
+            </div>
+          }
+        </xp-rt-slot>
         @if (confirming()) {
           <div class="xp-rt-confirm" role="dialog" aria-modal="true" [attr.aria-labelledby]="confirmTitleId">
             <h3 [id]="confirmTitleId">{{ i18n.t('experience.runtime.form.confirm_title') }}</h3>
@@ -633,7 +658,7 @@ export class EvidenceBlock {
         } @else {
           <div class="xp-rt-actions">
             <button type="submit" class="xp-rt-btn" [disabled]="busy() || blocked()">
-              {{ i18n.t('experience.runtime.form.submit') }}
+              {{ submitLabel() }}
             </button>
             @if (canRetry()) {
               <button type="button" class="xp-rt-btn xp-rt-btn-ghost" (click)="retry()">
@@ -642,7 +667,7 @@ export class EvidenceBlock {
             }
           </div>
         }
-      </xp-rt-slot>
+      }
     </form>
   `,
 })
@@ -663,6 +688,10 @@ export class FormBlock {
   readonly ariaName = computed(() => a11yOf(this.node()).ariaLabel);
   readonly emptyText = computed(() => a11yOf(this.node()).emptyText);
   readonly bindingKey = computed(() => str(this.node(), 'bindingKey'));
+  readonly unlinked = computed(() => !this.bindingKey());
+  readonly submitLabel = computed(
+    () => str(this.node(), 'submitLabel') || this.i18n.t('experience.runtime.form.submit'),
+  );
   readonly busy = computed(
     () => this.runtime.phase() === 'loading' || this.runtime.phase() === 'running',
   );
@@ -793,12 +822,16 @@ export class FormBlock {
         <button
           type="button"
           class="xp-rt-btn"
-          [disabled]="busy() || blocked()"
+          [disabled]="busy() || blocked() || unlinked()"
           [attr.aria-label]="ariaName() || null"
+          [attr.aria-describedby]="unlinked() ? noLinkHintId : null"
           (click)="onClick()"
         >
           {{ label() }}
         </button>
+        @if (unlinked()) {
+          <p class="xp-rt-hint" [id]="noLinkHintId">{{ i18n.t('experience.runtime.action.no_link') }}</p>
+        }
       }
     </div>
   `,
@@ -816,6 +849,8 @@ export class ActionButtonBlock {
   );
   readonly ariaName = computed(() => a11yOf(this.node()).ariaLabel);
   readonly bindingKey = computed(() => str(this.node(), 'bindingKey'));
+  readonly unlinked = computed(() => !this.bindingKey());
+  readonly noLinkHintId = 'xp-rt-action-no-link';
   readonly busy = computed(
     () => this.runtime.phase() === 'loading' || this.runtime.phase() === 'running',
   );

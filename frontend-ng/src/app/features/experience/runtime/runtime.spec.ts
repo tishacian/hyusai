@@ -6,6 +6,7 @@ import {
   fieldsFromSchema,
   mapRunStatus,
   parseDocument,
+  renderableComponents,
   rendererPinMatches,
   resolveCatalogType,
   validateValues,
@@ -88,6 +89,41 @@ test('unknown types fall back; nested page is ignored', () => {
   assert.equal(resolveCatalogType(doc.pages[0]!.components[0]!.type).kind, 'skip');
   assert.equal(resolveCatalogType(doc.pages[0]!.components[1]!.type).kind, 'fallback');
   assert.equal(resolveCatalogType(doc.pages[0]!.components[2]!.type).kind, 'ok');
+});
+
+test('renderableComponents drops an action_button that duplicates the form submit', () => {
+  const ids = (nodes: ReturnType<typeof renderableComponents>) => nodes.map((node) => node.id);
+
+  assert.deepEqual(
+    ids(renderableComponents([
+      { type: 'form', id: 'f', props: { bindingKey: 'nawa.reset' } },
+      { type: 'action_button', id: 'a', props: { bindingKey: 'nawa.reset' } },
+    ])),
+    ['f'],
+  );
+
+  // Unbound seed pair: the button cannot run anything the form does not.
+  assert.deepEqual(
+    ids(renderableComponents([
+      { type: 'form', id: 'f' },
+      { type: 'action_button', id: 'a', props: { label: 'Send' } },
+    ])),
+    ['f'],
+  );
+
+  // A second action on its own binding stays.
+  assert.deepEqual(
+    ids(renderableComponents([
+      { type: 'form', id: 'f', props: { bindingKey: 'nawa.reset' } },
+      { type: 'action_button', id: 'a', props: { bindingKey: 'nawa.escalate' } },
+    ])),
+    ['f', 'a'],
+  );
+
+  assert.deepEqual(
+    ids(renderableComponents([{ type: 'action_button', id: 'a', props: { bindingKey: 'x' } }])),
+    ['a'],
+  );
 });
 
 test('appearance props persist on a page and a node', () => {

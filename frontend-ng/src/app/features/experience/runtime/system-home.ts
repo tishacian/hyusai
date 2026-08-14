@@ -105,13 +105,9 @@ export function compileSystemHome(input: {
       id: 'home-form',
       props: {
         bindingKey: input.bindingKey,
+        submitLabel: input.labels.submit,
         schema: input.ingress.input_schema ?? { type: 'object', properties: {} },
       },
-    });
-    components.push({
-      type: 'action_button',
-      id: 'home-action',
-      props: { bindingKey: input.bindingKey, label: input.labels.submit },
     });
   } else {
     components.push({

@@ -1,14 +1,15 @@
 .xp-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 0 12px;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
   border: 1px solid var(--ck-stroke-3);
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--ck-fg-2);
-  font-size: 12px;
+  font-family: var(--ck-font-sans);
+  font-size: 13px;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
@@ -34,11 +35,20 @@
   color: var(--ck-on-signal, #0b1220);
 }
 
+/** Square affordance for the ↑ / ↓ / ✕ controls that sit next to a label. */
+.xp-btn-icon {
+  min-height: 30px;
+  width: 30px;
+  padding: 0;
+  justify-content: center;
+  font-size: 14px;
+}
+
 .xp-life {
   display: flex;
   flex-wrap: wrap;
   gap: 0;
-  margin: 0 0 16px;
+  margin: 0 0 20px;
   padding: 0;
   list-style: none;
   font-family: var(--ck-font-mono);
@@ -62,15 +72,15 @@
 .xp-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 20px;
 }
 
 .xp-filters button {
-  min-height: 28px;
-  padding: 0 10px;
+  min-height: 32px;
+  padding: 0 12px;
   border: 1px solid var(--ck-stroke-3);
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--ck-fg-3);
   font-size: 12px;
@@ -94,7 +104,7 @@
 
 .xp-table th,
 .xp-table td {
-  padding: 10px 12px;
+  padding: 12px;
   text-align: left;
   border-bottom: 1px solid var(--ck-stroke-2);
   vertical-align: top;
@@ -131,7 +141,7 @@
 .xp-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 14px;
 }
 
 .xp-actions a {
@@ -145,29 +155,73 @@
 .xp-ed {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
 .xp-steps {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.xp-steps li {
+  display: flex;
+  align-items: center;
   gap: 8px;
   font-size: 12px;
   color: var(--ck-fg-4);
 }
 
-.xp-steps span.is-on {
-  color: var(--ck-signal-cool);
+.xp-steps li:not(:last-child)::after {
+  content: '';
+  width: 28px;
+  height: 1px;
+  background: var(--ck-stroke-3);
+}
+
+.xp-step-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--ck-stroke-3);
+  font-size: 11px;
   font-weight: 600;
+}
+
+.xp-steps li.is-on {
+  color: var(--ck-fg-1);
+  font-weight: 600;
+}
+
+.xp-steps li.is-on .xp-step-n {
+  background: var(--ck-signal-cool);
+  border-color: transparent;
+  color: var(--ck-on-signal, #0b1220);
+}
+
+.xp-steps li.is-done .xp-step-n {
+  border-color: var(--ck-signal-cool);
+  color: var(--ck-signal-cool);
 }
 
 .xp-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .xp-field > span,
-.xp-field > label {
+.xp-field > label,
+.xp-lbl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 600;
   color: var(--ck-fg-2);
@@ -176,10 +230,10 @@
 .xp-field input,
 .xp-field select,
 .xp-field textarea {
-  min-height: 32px;
-  padding: 6px 8px;
+  min-height: 36px;
+  padding: 8px 10px;
   border: 1px solid var(--ck-stroke-3);
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--ck-bg-inset);
   color: var(--ck-fg-1);
   font: 13px/1.4 var(--ck-font-sans);
@@ -187,21 +241,25 @@
 
 .xp-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
 }
 
 .xp-choice {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 12px;
+  gap: 8px;
+  padding: 14px;
   text-align: left;
   border: 1px solid var(--ck-stroke-2);
   border-radius: 8px;
   background: var(--ck-bg-panel);
   color: inherit;
   cursor: pointer;
+}
+
+.xp-choice:hover {
+  border-color: var(--ck-stroke-hot);
 }
 
 .xp-choice.is-on,
@@ -222,11 +280,80 @@
   color: var(--ck-fg-3);
 }
 
+.xp-choice-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.xp-choice-on {
+  font-family: var(--ck-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ck-signal-cool);
+}
+
+.xp-choice-eg {
+  margin: 0;
+  font-family: var(--ck-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4);
+}
+
+/**
+ * Template thumbnails are drawn in CSS: no asset pipeline, and they restyle
+ * with the theme. Each modifier arranges the same bars differently.
+ */
+.xp-thumb {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  height: 62px;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--ck-bg-inset);
+  overflow: hidden;
+}
+
+.xp-thumb i {
+  display: block;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--ck-stroke-2);
+}
+
+.xp-thumb i.is-wide { width: 100%; }
+.xp-thumb i.is-half { width: 55%; }
+.xp-thumb i.is-accent { background: var(--ck-signal-cool); }
+.xp-thumb i.is-tall { height: 18px; }
+
 .xp-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
   align-items: center;
+}
+
+.xp-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ck-stroke-2);
+}
+
+.xp-foot-end {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
 }
 
 .xp-error {
@@ -235,11 +362,35 @@
   font-size: 12px;
 }
 
+.xp-warn {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ck-status-warn-line);
+  border-radius: 6px;
+  background: var(--ck-status-warn-bg);
+  color: var(--ck-status-warn-fg);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.xp-note {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 6px;
+  background: var(--ck-bg-inset);
+  color: var(--ck-fg-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .xp-bind {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: 12px;
+  padding: 16px;
   border: 1px solid var(--ck-stroke-2);
   border-radius: 8px;
   background: var(--ck-bg-panel);
@@ -248,6 +399,111 @@
 .xp-bind h3 {
   margin: 0;
   font-size: 13px;
+}
+
+.xp-bind-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.xp-bind-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.xp-bind-count {
+  font-family: var(--ck-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4);
+}
+
+/** One published System and its entry points. */
+.xp-sys {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 6px;
+}
+
+.xp-sys-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.xp-sys-head strong {
+  font-size: 13px;
+  color: var(--ck-fg-1);
+}
+
+.xp-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--ck-stroke-1, var(--ck-stroke-2));
+  border-radius: 6px;
+}
+
+.xp-entry span {
+  font-size: 12px;
+  color: var(--ck-fg-2);
+}
+
+.xp-entry-on {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ck-signal-cool);
+}
+
+/** A binding as the author reads it: what it calls, and under which rules. */
+.xp-bcard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 6px;
+}
+
+.xp-bcard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.xp-bcard-head code {
+  font-family: var(--ck-font-mono);
+  font-size: 11px;
+  color: var(--ck-signal-cool);
+}
+
+.xp-kv {
+  display: grid;
+  grid-template-columns: minmax(88px, auto) 1fr;
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.xp-kv dt {
+  color: var(--ck-fg-4);
+}
+
+.xp-kv dd {
+  margin: 0;
+  color: var(--ck-fg-2);
 }
 
 .xp-meta {
@@ -262,24 +518,96 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 20px;
   flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--ck-stroke-2);
+}
+
+.xp-ed-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.xp-ed-id strong {
+  font-size: 15px;
+  color: var(--ck-fg-1);
+}
+
+.xp-ed-tools {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.xp-ed-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.xp-ed-group + .xp-ed-group {
+  padding-left: 20px;
+  border-left: 1px solid var(--ck-stroke-2);
+}
+
+.xp-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--ck-bg-inset);
+  color: var(--ck-fg-3);
+  font-family: var(--ck-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.xp-tag-ok {
+  background: var(--ck-status-ok-bg);
+  color: var(--ck-status-ok-fg);
+}
+
+.xp-tag-warn {
+  background: var(--ck-status-warn-bg);
+  color: var(--ck-status-warn-fg);
 }
 
 .xp-ed-grid {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 280px;
-  gap: 12px;
+  grid-template-columns: 230px minmax(0, 1fr) 300px;
+  gap: 16px;
   min-height: 480px;
 }
 
 .xp-ed-col {
-  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
   background: var(--ck-bg-panel);
   border: 1px solid var(--ck-stroke-2);
   border-radius: 8px;
   min-width: 0;
   overflow: auto;
+}
+
+.xp-ed-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.xp-ed-col-head strong {
+  font-size: 12px;
+  color: var(--ck-fg-2);
 }
 
 .xp-tree {
@@ -291,14 +619,19 @@
 .xp-tree button {
   display: block;
   width: 100%;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--ck-fg-2);
+  font-family: var(--ck-font-sans);
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+}
+
+.xp-tree button:hover {
+  background: var(--ck-bg-inset);
 }
 
 .xp-tree button.is-on {
@@ -307,62 +640,95 @@
 }
 
 .xp-tree .is-child {
-  padding-left: 18px;
+  padding-left: 20px;
+}
+
+.xp-tree-page + .xp-tree-page {
+  margin-top: 8px;
 }
 
 .xp-tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 10px;
+  flex-wrap: nowrap;
+  gap: 10px;
+  margin: 0;
+  border-bottom: 1px solid var(--ck-stroke-2);
 }
 
 .xp-tabs button {
-  min-height: 28px;
-  padding: 0 8px;
+  min-height: 32px;
+  padding: 0 2px;
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--ck-fg-3);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--ck-font-sans);
+  font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .xp-tabs button.is-on {
   color: var(--ck-signal-cool);
   border-bottom-color: var(--ck-signal-cool);
+  font-weight: 600;
+}
+
+/** Selected component: identity plus the moves that apply to it, on every tab. */
+.xp-node-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--ck-bg-inset);
+}
+
+.xp-node-bar strong {
+  font-size: 12px;
+  color: var(--ck-fg-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xp-node-bar div {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
 }
 
 .xp-assist {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 12px 14px;
   border: 1px solid var(--ck-stroke-2);
   border-radius: 8px;
-  background: var(--ck-bg-panel);
+  background: var(--ck-bg-inset);
 }
 
 .xp-assist-bar {
   display: flex;
-  gap: 8px;
+  gap: 10px;
 }
 
 .xp-assist-bar input {
   flex: 1;
-  min-height: 32px;
-  padding: 6px 8px;
+  min-height: 36px;
+  padding: 8px 10px;
   border: 1px solid var(--ck-stroke-3);
-  border-radius: 4px;
-  background: var(--ck-bg-inset);
+  border-radius: 6px;
+  background: var(--ck-bg-panel);
   color: var(--ck-fg-1);
+  font: 13px/1.4 var(--ck-font-sans);
 }
 
 .xp-hint {
   margin: 0;
   font-size: 11px;
+  line-height: 1.45;
   color: var(--ck-fg-4);
 }
 
@@ -394,10 +760,10 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   width: min(640px, calc(100vw - 32px));
   max-height: min(780px, calc(100vh - 32px));
-  padding: 18px;
+  padding: 22px;
   overflow: auto;
   border: 1px solid var(--ck-stroke-3);
   border-radius: 10px;
@@ -418,13 +784,55 @@
   margin: 0;
   padding-left: 18px;
   font-size: 12px;
+  line-height: 1.6;
 }
 
 .xp-issues.is-block {
   color: var(--ck-signal-neg);
 }
 
-@media (max-width: 960px) {
+/** What the release freezes — read-only, one line per locked facet. */
+.xp-recap {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) 1fr;
+  gap: 8px 14px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 8px;
+  background: var(--ck-bg-inset);
+  font-size: 12px;
+}
+
+.xp-recap dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ck-fg-4);
+}
+
+.xp-recap dd {
+  margin: 0;
+  color: var(--ck-fg-2);
+}
+
+.xp-recap code {
+  font-family: var(--ck-font-mono);
+  font-size: 11px;
+  color: var(--ck-fg-3);
+}
+
+@media (max-width: 1100px) {
+  .xp-ed-grid {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+
+  .xp-ed-grid > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
   .xp-ed-grid {
     grid-template-columns: 1fr;
   }

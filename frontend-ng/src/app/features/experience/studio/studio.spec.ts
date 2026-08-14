@@ -5,16 +5,20 @@ import {
   applyPatch,
   applyPatchOnStack,
   emptyStack,
+  newPageId,
+  nodeIndex,
   redoRevision,
   undoRevision,
   type DocumentPatch,
 } from './studio-document';
 import {
+  bindingSharedWith,
   experienceSlug,
   filterInventory,
   inventoryOrigin,
   inventoryState,
   slugify,
+  uniqueBindingKey,
   uniqueExperienceSlug,
   viewHref,
   type StudioExperience,
@@ -44,6 +48,30 @@ test('experienceSlug is a valid API slug and stays unique against taken values',
   assert.equal(experienceSlug(''), 'app');
   assert.equal(uniqueExperienceSlug('Home', ['home']), 'home-2');
   assert.equal(uniqueExperienceSlug('Home', ['home', 'home-2']), 'home-3');
+});
+
+test('a binding key names its System entry point and never collides', () => {
+  assert.equal(uniqueBindingKey('NAWA reset', 'itsd', 'start', []), 'nawa.reset.itsd.start');
+  assert.equal(
+    uniqueBindingKey('NAWA reset', 'itsd', 'start', ['nawa.reset.itsd.start']),
+    'nawa.reset.itsd.start.2',
+  );
+  // Two Systems exposing the same entry point stay distinguishable.
+  assert.notEqual(
+    uniqueBindingKey('App', 'alpha', 'start', []),
+    uniqueBindingKey('App', 'beta', 'start', []),
+  );
+});
+
+test('bindingSharedWith names the other applications a binding serves', () => {
+  const rows: StudioExperience[] = [
+    { id: 'a', name: 'Reset', slug: 'reset', pattern: 'form_result', binding_keys: ['k1'] },
+    { id: 'b', name: 'Help Desk', slug: 'itsd', pattern: 'queue', binding_keys: ['k1', 'k2'] },
+    { id: 'c', name: 'Other', slug: 'other', pattern: 'queue' },
+  ];
+  assert.deepEqual(bindingSharedWith(rows, 'k1', 'a'), ['Help Desk']);
+  assert.deepEqual(bindingSharedWith(rows, 'k2', 'b'), []);
+  assert.deepEqual(bindingSharedWith(rows, '', 'a'), []);
 });
 
 test('applyPatch add/remove/rename and undo/redo on the revision stack', () => {
@@ -84,6 +112,67 @@ test('applyPatch add/remove/rename and undo/redo on the revision stack', () => {
   assert.equal(stack.present.pages[0]?.title, 'Inbox');
   const stuck = undoRevision(undoRevision(stack));
   assert.equal(stuck.present.pages[0]?.title, 'Home');
+});
+
+test('pages can be added and removed, never below the last one', () => {
+  const two = applyPatch(DOC, { kind: 'add_page', pageId: 'inbox', title: 'Inbox' });
+  assert.deepEqual(two.pages.map((page) => page.id), ['home', 'inbox']);
+  assert.deepEqual(two.pages[1]?.components, []);
+
+  // A duplicate id or a blank title is a no-op rather than a broken page.
+  assert.equal(applyPatch(two, { kind: 'add_page', pageId: 'inbox', title: 'Other' }).pages.length, 2);
+  assert.equal(applyPatch(DOC, { kind: 'add_page', pageId: 'x', title: '  ' }).pages.length, 1);
+
+  assert.deepEqual(
+    applyPatch(two, { kind: 'remove_page', pageId: 'home' }).pages.map((page) => page.id),
+    ['inbox'],
+  );
+  assert.equal(applyPatch(DOC, { kind: 'remove_page', pageId: 'home' }).pages.length, 1);
+
+  assert.equal(newPageId(DOC, 'Ma page'), 'ma-page');
+  assert.equal(newPageId(DOC, 'Home'), 'home-2');
+  assert.equal(newPageId(DOC, '  '), 'page');
+});
+
+test('move_component reorders inside a page and stops at the edges', () => {
+  const three: ExperienceDocument = {
+    pages: [
+      {
+        id: 'home',
+        title: 'Home',
+        components: [
+          { type: 'header', id: 'a' },
+          { type: 'form', id: 'b' },
+          { type: 'result', id: 'c' },
+        ],
+      },
+    ],
+  };
+  const ids = (doc: ExperienceDocument) => doc.pages[0]?.components.map((node) => node.id);
+
+  assert.deepEqual(
+    ids(applyPatch(three, { kind: 'move_component', pageId: 'home', nodeId: 'c', delta: -1 })),
+    ['a', 'c', 'b'],
+  );
+  assert.deepEqual(
+    ids(applyPatch(three, { kind: 'move_component', pageId: 'home', nodeId: 'a', delta: 1 })),
+    ['b', 'a', 'c'],
+  );
+  assert.deepEqual(
+    ids(applyPatch(three, { kind: 'move_component', pageId: 'home', nodeId: 'a', delta: -1 })),
+    ['a', 'b', 'c'],
+  );
+  assert.deepEqual(
+    ids(applyPatch(three, { kind: 'move_component', pageId: 'home', nodeId: 'c', delta: 1 })),
+    ['a', 'b', 'c'],
+  );
+  assert.deepEqual(
+    ids(applyPatch(three, { kind: 'move_component', pageId: 'home', nodeId: 'zz', delta: 1 })),
+    ['a', 'b', 'c'],
+  );
+
+  assert.deepEqual(nodeIndex(three, 'b'), { index: 1, total: 3 });
+  assert.deepEqual(nodeIndex(three, 'zz'), { index: -1, total: 0 });
 });
 
 test('ready-check dialog cannot release with blockers or empty notes', () => {

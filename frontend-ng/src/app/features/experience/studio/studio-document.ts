@@ -4,10 +4,14 @@
  */
 
 import { CERTIFIED_TYPES, parseDocument, type ExperienceDocument, type ExperienceNode } from '../runtime/model';
+import { slugify } from '../runtime/system-home';
 
 export type DocumentPatch =
   | { kind: 'add_component'; pageId: string; node: ExperienceNode }
   | { kind: 'remove_component'; pageId: string; nodeId: string }
+  | { kind: 'move_component'; pageId: string; nodeId: string; delta: number }
+  | { kind: 'add_page'; pageId: string; title: string }
+  | { kind: 'remove_page'; pageId: string }
   | { kind: 'rename_page'; pageId: string; title: string }
   | { kind: 'set_empty_state'; pageId: string; body: string }
   | { kind: 'add_approval_card'; pageId: string; title: string; body: string }
@@ -82,6 +86,18 @@ export function redoRevision(stack: RevisionStack): RevisionStack {
 
 export function applyPatch(doc: ExperienceDocument, patch: DocumentPatch): ExperienceDocument {
   const next = cloneDocument(doc);
+  if (patch.kind === 'add_page') {
+    const title = patch.title.trim();
+    if (!title || next.pages.some((item) => item.id === patch.pageId)) return next;
+    next.pages = [...next.pages, { id: patch.pageId, title, components: [] }];
+    return next;
+  }
+  if (patch.kind === 'remove_page') {
+    // An Experience with no page cannot render; the last one is not removable.
+    if (next.pages.length <= 1) return next;
+    next.pages = next.pages.filter((item) => item.id !== patch.pageId);
+    return next;
+  }
   const page = next.pages.find((item) => item.id === patch.pageId);
   if (!page) return next;
   switch (patch.kind) {
@@ -92,6 +108,16 @@ export function applyPatch(doc: ExperienceDocument, patch: DocumentPatch): Exper
     case 'remove_component':
       page.components = page.components.filter((node) => node.id !== patch.nodeId);
       return next;
+    case 'move_component': {
+      const from = page.components.findIndex((node) => node.id === patch.nodeId);
+      const to = from + patch.delta;
+      if (from < 0 || to < 0 || to >= page.components.length) return next;
+      const list = [...page.components];
+      const [moved] = list.splice(from, 1);
+      if (moved) list.splice(to, 0, moved);
+      page.components = list;
+      return next;
+    }
     case 'rename_page': {
       const title = patch.title.trim();
       if (title) page.title = title;
@@ -146,6 +172,23 @@ export function applyPatchOnStack(stack: RevisionStack, patch: DocumentPatch): R
 
 export function newNodeId(type: string): string {
   return `${type}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function newPageId(doc: ExperienceDocument, title: string): string {
+  const base = slugify(title) || 'page';
+  const taken = new Set(doc.pages.map((page) => page.id));
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base}-${n}`)) n += 1;
+  return `${base}-${n}`;
+}
+
+export function nodeIndex(doc: ExperienceDocument, nodeId: string | null): { index: number; total: number } {
+  for (const page of doc.pages) {
+    const index = page.components.findIndex((node) => node.id === nodeId);
+    if (index >= 0) return { index, total: page.components.length };
+  }
+  return { index: -1, total: 0 };
 }
 
 export function isCertified(type: string): boolean {
