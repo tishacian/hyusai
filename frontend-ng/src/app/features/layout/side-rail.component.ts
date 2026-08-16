@@ -42,8 +42,10 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
       [class.ck-rail-expanded]="expanded()"
       (mouseenter)="onEnter()"
       (mouseleave)="onLeave()"
+      (focusin)="onFocusIn()"
+      (focusout)="onFocusOut($event)"
     >
-      <nav class="ck-rail-nav" aria-label="Cockpit workspaces">
+      <nav class="ck-rail-nav" [attr.aria-label]="i18n.t('nav.primary')">
         @for (v of visibleVerbs(); track v.key) {
           <a
             [routerLink]="routeTreeFor(v)"
@@ -148,6 +150,10 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
         color: var(--ck-fg-1);
         background: var(--ck-bg-panel-hi);
       }
+      .ck-rail-item:focus-visible {
+        outline: 2px solid var(--ck-signal-cool);
+        outline-offset: 2px;
+      }
       .ck-rail-item-active {
         color: var(--ck-signal-cool);
         background: rgba(125, 211, 252, 0.06);
@@ -213,6 +219,30 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
         width: 100%;
         text-align: left;
       }
+
+      @media (max-width: 700px) {
+        :host {
+          width: 48px;
+          min-width: 48px;
+          flex-basis: 48px;
+        }
+
+        .ck-rail,
+        .ck-rail-expanded {
+          width: 48px;
+        }
+
+        .ck-rail-nav,
+        .ck-rail-footer {
+          padding-inline: 4px;
+        }
+
+        .ck-rail-expanded .ck-rail-label {
+          opacity: 0;
+          transform: translateX(-6px);
+          pointer-events: none;
+        }
+      }
     `,
   ],
 })
@@ -235,13 +265,13 @@ export class SideRailComponent {
   }
 
   verbLabel(v: CockpitVerb): string {
-    return v.key === 'build' && this.workspace.experienceV1Enabled()
+    return v.key === 'build' && this.workspace.experienceStudioV1Enabled()
       ? this.i18n.t('nav.build.create')
       : this.i18n.t('nav.' + v.key);
   }
 
   verbHint(v: CockpitVerb): string {
-    return v.key === 'build' && this.workspace.experienceV1Enabled()
+    return v.key === 'build' && this.workspace.experienceStudioV1Enabled()
       ? this.i18n.t('nav.hint.build.create')
       : this.i18n.t('nav.hint.' + v.key);
   }
@@ -261,7 +291,7 @@ export class SideRailComponent {
   }
 
   private fallbackRoute(v: CockpitVerb): string {
-    if (v.key === 'build' && this.workspace.experienceV1Enabled()) {
+    if (v.key === 'build' && this.workspace.experienceStudioV1Enabled()) {
       return agentiumSurfaceRoute('create');
     }
     if (v.key === 'hypervisor' && this.navigation.axesV4Enabled()) {
@@ -297,6 +327,20 @@ export class SideRailComponent {
       this.expanded.set(false);
       this.collapseTimer = null;
     }, 180);
+  }
+
+  onFocusIn(): void {
+    if (this.expandTimer) clearTimeout(this.expandTimer);
+    if (this.collapseTimer) clearTimeout(this.collapseTimer);
+    this.expandTimer = null;
+    this.collapseTimer = null;
+    this.expanded.set(true);
+  }
+
+  onFocusOut(event: FocusEvent): void {
+    const rail = event.currentTarget as HTMLElement | null;
+    if (rail?.contains(event.relatedTarget as Node | null)) return;
+    this.onLeave();
   }
 
   openPalette(): void {

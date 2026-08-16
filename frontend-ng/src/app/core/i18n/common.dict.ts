@@ -20,6 +20,7 @@ export const COMMON_FR = {
   'common.back': 'Retour',
   'common.next': 'Suivant',
   'common.confirm': 'Confirmer',
+  'common.type_to_confirm': 'Saisissez « {phrase} » pour confirmer :',
   'common.copy': 'Copier',
   'common.copied': 'Copié',
   'common.open': 'Ouvrir',
@@ -40,8 +41,15 @@ export const COMMON_FR = {
   // --- Help affordance (ck-help button chrome; the panel content keeps
   // --- its own language preference, see CONVENTION.md §5) -----------
   'common.help.about': 'Aide sur {name}',
+  'common.help.missing': 'Aucune documentation pour {name}.',
   'common.help.language': "Langue de l'aide",
   'common.help.switch_language': "Afficher l'aide en {name}",
+  'common.orb.working': 'Traitement en cours…',
+  'common.orb.searching': 'Recherche en cours…',
+  'common.orb.solving': 'Résolution en cours…',
+  'common.orb.listening': 'Écoute en cours…',
+  'common.orb.composing': 'Rédaction en cours…',
+  'common.orb.shaping': 'Mise en forme en cours…',
 
   // --- Shared tabs chrome (ck-tabs) ---------------------------------
   'common.tabs.more': 'Plus',
@@ -88,6 +96,7 @@ export const COMMON_EN: Record<keyof typeof COMMON_FR, string> = {
   'common.back': 'Back',
   'common.next': 'Next',
   'common.confirm': 'Confirm',
+  'common.type_to_confirm': 'Type “{phrase}” to confirm:',
   'common.copy': 'Copy',
   'common.copied': 'Copied',
   'common.open': 'Open',
@@ -108,8 +117,15 @@ export const COMMON_EN: Record<keyof typeof COMMON_FR, string> = {
   // --- Help affordance (ck-help button chrome; the panel content keeps
   // --- its own language preference, see CONVENTION.md §5) -----------
   'common.help.about': 'Help about {name}',
+  'common.help.missing': 'No documentation for {name}.',
   'common.help.language': 'Help language',
   'common.help.switch_language': 'Switch help language to {name}',
+  'common.orb.working': 'Working…',
+  'common.orb.searching': 'Searching…',
+  'common.orb.solving': 'Solving…',
+  'common.orb.listening': 'Listening…',
+  'common.orb.composing': 'Composing…',
+  'common.orb.shaping': 'Shaping…',
 
   // --- Shared tabs chrome (ck-tabs) ---------------------------------
   'common.tabs.more': 'More',

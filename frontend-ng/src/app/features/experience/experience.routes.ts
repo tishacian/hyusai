@@ -1,5 +1,10 @@
 import { Routes } from '@angular/router';
-import { experienceStudioEditGuard, experienceStudioGuard, experienceV1Guard } from './experience.guard';
+import {
+  experienceStudioEditGuard,
+  experienceStudioGuard,
+  experienceUnsavedChangesGuard,
+  experienceV1Guard,
+} from './experience.guard';
 
 export const experienceRoutes: Routes = [
   {
@@ -23,6 +28,7 @@ export const experienceRoutes: Routes = [
   {
     path: 'apps/:id',
     canActivate: [experienceV1Guard, experienceStudioGuard],
+    canDeactivate: [experienceUnsavedChangesGuard],
     loadComponent: () =>
       import('./studio/editor.component').then((m) => m.ExperienceEditorComponent),
   },

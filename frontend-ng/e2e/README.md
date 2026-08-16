@@ -187,11 +187,61 @@ their respective `stage` or `finalize` write. Source and successful local
 compilation are only static evidence; behavior promotion requires execution on
 the attested deployed SHA.
 
+### Experience Studio lifecycle canary
+
+`tests/17-experience-studio-canary.spec.ts` discovers an enabled workspace and
+a compatible published manual ingress without embedding tenant, System, app,
+or release ids. It then drives the real three-step wizard, opens Studio, edits
+and saves the draft, checks readiness, creates an immutable release, and proves
+that the release is still absent from Work. The default run deletes both the
+undeployed Experience and any binding created by the wizard.
+
+It also checks the authoring shell and the created editor at 456 px and 320 px,
+roving keyboard focus, modal focus trapping/restoration, and—when a second
+principal is supplied—the reviewer-only route and editor contract:
+
+Studio and Work both run the same real-browser accessibility/visual matrix:
+FR/EN × light/dark × desktop/456/320 CSS px. Every state is scanned by axe for
+WCAG 2.0, 2.1 and 2.2 A/AA violations, captured as a PNG artifact, and checked
+for page-level horizontal overflow with reduced motion enabled. The 320 px case
+is the WCAG 1.4.10 reflow equivalent of a 1280 px viewport at 400% zoom. Once
+`E2E_EXPERIENCE_CANARY=1` is set, a missing enabled workspace or visible Work
+application fails the gate; it is never converted into a data-dependent skip.
+
+```bash
+E2E_EXPERIENCE_CANARY=1 \
+E2E_USERNAME='...' \
+E2E_PASSWORD='...' \
+E2E_EXPERIENCE_REVIEWER_USERNAME='...' \
+E2E_EXPERIENCE_REVIEWER_PASSWORD='...' \
+E2E_EXPERIENCE_REQUIRE_REVIEWER=1 \
+npx playwright test e2e/tests/17-experience-studio-canary.spec.ts
+```
+
+A real Pilot deployment is deliberately separate and opt-in. Deployment makes
+the canary Experience non-deletable, so the gate requires both an attested SHA
+and explicit acceptance that the uniquely named test application is retained:
+
+```bash
+E2E_EXPERIENCE_CANARY=1 \
+E2E_EXPERIENCE_DEPLOY=1 \
+E2E_EXPERIENCE_ALLOW_RETAINED=1 \
+E2E_EXPECTED_SHA='<40-char deployed SHA>' \
+E2E_USERNAME='...' \
+E2E_PASSWORD='...' \
+npx playwright test e2e/tests/17-experience-studio-canary.spec.ts
+```
+
+That path deploys only to Pilot with an Admin audience, verifies the same
+created app in `/work` at desktop, 456 px, and 320 px, then creates and deploys
+a second release and rolls the channel back to the first. It never executes the
+bound System action.
+
 ## Known limits
 
 - Targets a **shared VM** today. Tests create small throwaway systems
   and canonical answers. They clean up systems where the public API
   supports it; canonical answer cleanup remains backend-only until a
   DELETE endpoint exists.
-- No mobile profile — desktop Chrome only. Mobile is out-of-scope
-  until the companion app (post-Vague E).
+- The general suite still uses desktop Chrome; the Experience lifecycle canary
+  explicitly resizes that browser to 456 px and 320 px for its responsive gate.

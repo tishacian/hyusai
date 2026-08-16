@@ -7,6 +7,7 @@ import {
   inject,
   input,
   signal,
+  viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import {
@@ -46,12 +47,15 @@ import { I18nService } from '@app/core/i18n.service';
   template: `
     <span class="ck-help-root" (click)="$event.stopPropagation()">
       <button
+        #trigger
         #origin="cdkOverlayOrigin"
         cdkOverlayOrigin
         type="button"
         class="ck-help-button"
         (click)="toggleOpen()"
         [attr.aria-expanded]="open()"
+        aria-haspopup="dialog"
+        [attr.aria-controls]="panelId()"
         [attr.aria-label]="i18n.t('common.help.about', { name: titleText() || id() })"
       >
         ?
@@ -68,22 +72,26 @@ import { I18nService } from '@app/core/i18n.service';
         [cdkConnectedOverlayFlexibleDimensions]="true"
         cdkConnectedOverlayPanelClass="ck-help-overlay-panel"
         (overlayOutsideClick)="onOutsideClick($event)"
-        (detach)="open.set(false)"
+        (detach)="close(false)"
       >
         <div
+          #panel
           class="ck-help-panel"
+          [id]="panelId()"
           [style.width.px]="width()"
-          role="tooltip"
+          role="dialog"
+          [attr.aria-labelledby]="resolved() ? panelTitleId() : null"
+          [attr.aria-label]="resolved() ? null : i18n.t('common.help.missing', { name: id() })"
+          tabindex="-1"
         >
           @if (!resolved()) {
             <div class="ck-help-empty">
-              No documentation for
-              <code class="ck-help-code">{{ id() }}</code>.
+              {{ i18n.t('common.help.missing', { name: id() }) }}
             </div>
           } @else {
             <header class="ck-help-header">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="ck-help-title">{{ titleText() }}</span>
+                <span class="ck-help-title" [id]="panelTitleId()">{{ titleText() }}</span>
                 <span class="ck-help-category">{{ resolved()!.entry.category }}</span>
               </div>
               <div class="flex items-center gap-2 flex-wrap">
@@ -93,6 +101,7 @@ import { I18nService } from '@app/core/i18n.service';
                       type="button"
                       class="ck-help-persona"
                       [class.ck-help-persona-active]="help.persona() === p"
+                      [attr.aria-pressed]="help.persona() === p"
                       (click)="switchPersona(p)"
                     >
                       {{ help.personaLabelOf(p) }}
@@ -105,6 +114,7 @@ import { I18nService } from '@app/core/i18n.service';
                       type="button"
                       class="ck-help-persona"
                       [class.ck-help-persona-active]="help.language() === lang"
+                      [attr.aria-pressed]="help.language() === lang"
                       (click)="switchLanguage(lang)"
                       [attr.aria-label]="i18n.t('common.help.switch_language', { name: help.languageLabelOf(lang) })"
                     >
@@ -172,15 +182,15 @@ import { I18nService } from '@app/core/i18n.service';
         align-items: center;
       }
       .ck-help-button {
-        width: 16px;
-        height: 16px;
+        width: 24px;
+        height: 24px;
         border-radius: 50%;
         border: 1px solid var(--ck-stroke-soft);
         background: var(--ck-bg-inset);
         color: var(--ck-fg-4);
         font-family: var(--font-mono, ui-monospace, SFMono-Regular);
         font-size: 10px;
-        line-height: 14px;
+        line-height: 1;
         padding: 0;
         cursor: help;
         display: inline-flex;
@@ -203,6 +213,7 @@ import { I18nService } from '@app/core/i18n.service';
         font-size: 12px;
         line-height: 1.55;
         max-height: min(70vh, 640px);
+        max-width: calc(100vw - 16px);
         overflow-y: auto;
         overscroll-behavior: contain;
       }
@@ -307,12 +318,16 @@ export class HelpTooltipComponent {
   /** UI-locale chrome only (aria labels); panel copy follows `help.language()`. */
   readonly i18n = inject(I18nService);
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
+  private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
+  private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
 
   readonly id = input.required<string>();
   readonly width = input<number>(320);
   readonly personaOverride = input<Persona | null>(null);
 
   readonly open = signal(false);
+  readonly panelId = computed(() => `ck-help-${this.id().replace(/[^A-Za-z0-9_-]/g, '-')}`);
+  readonly panelTitleId = computed(() => `${this.panelId()}-title`);
   protected readonly personas: Persona[] = ['builder', 'operator', 'executive'];
   protected readonly languages: Language[] = ['en', 'fr'];
 
@@ -379,7 +394,21 @@ export class HelpTooltipComponent {
   }
 
   toggleOpen(): void {
-    this.open.update((v) => !v);
+    if (this.open()) {
+      this.close(true);
+      return;
+    }
+    this.open.set(true);
+    queueMicrotask(() => {
+      const panel = this.panel()?.nativeElement;
+      (panel?.querySelector<HTMLElement>('button, a[href]') ?? panel)?.focus();
+    });
+  }
+
+  close(restoreFocus: boolean): void {
+    if (!this.open()) return;
+    this.open.set(false);
+    if (restoreFocus) queueMicrotask(() => this.trigger()?.nativeElement.focus());
   }
 
   switchPersona(p: Persona): void {
@@ -393,12 +422,12 @@ export class HelpTooltipComponent {
   protected onOutsideClick(event: MouseEvent): void {
     if (!this.open()) return;
     if (!this.host.nativeElement.contains(event.target as Node)) {
-      this.open.set(false);
+      this.close(false);
     }
   }
 
   @HostListener('document:keydown.escape')
   protected onEsc(): void {
-    if (this.open()) this.open.set(false);
+    this.close(true);
   }
 }

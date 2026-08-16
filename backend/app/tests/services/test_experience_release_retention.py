@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.api.v1.endpoints import systems as systems_endpoint
 from app.models.experience import Experience, ExperienceRelease
 from app.models.system import System
+from app.models.system_binding import SystemBinding
 from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
@@ -110,6 +111,36 @@ def test_undeployed_release_blocks_system_delete(db_session) -> None:
 
 def test_release_version_is_protected_from_fifo_trimming(db_session, monkeypatch) -> None:
     _workspace, _user, system, versions = _seed(db_session)
+    monkeypatch.setattr(version_service.settings, "custom_chain_version_window", 1)
+
+    purged = version_service.purge_version_window(db=db_session, system_id=system.id)
+
+    assert purged == []
+    assert db_session.get(SystemVersion, versions[0].id) is not None
+    assert db_session.get(SystemVersion, versions[1].id) is not None
+
+
+def test_unreleased_system_binding_version_is_protected_from_fifo_trimming(
+    db_session, monkeypatch
+) -> None:
+    workspace, user, system, versions = _seed(db_session)
+    db_session.query(ExperienceRelease).delete()
+    db_session.add(
+        SystemBinding(
+            id="binding-xp-retention",
+            workspace_id=workspace.id,
+            binding_key="retained.read",
+            system_id=system.id,
+            published_flow_version_id=versions[0].id,
+            flow_sha256=versions[0].flow_sha256,
+            ingress_id="manual.input",
+            input_schema_sha256="a" * 64,
+            confirmation_policy="direct-safe",
+            on_unavailable="unavailable",
+            created_by=user.email,
+        )
+    )
+    db_session.commit()
     monkeypatch.setattr(version_service.settings, "custom_chain_version_window", 1)
 
     purged = version_service.purge_version_window(db=db_session, system_id=system.id)

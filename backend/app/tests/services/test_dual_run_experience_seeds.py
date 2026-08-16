@@ -243,7 +243,16 @@ def test_andritz_seeds_inventory_pointers_without_published_systems(bind):
 
 
 def test_andritz_bindings_when_published_and_seed_is_idempotent(bind):
-    workspaces, systems, versions, bindings, experiences, *_rest = _schema(bind)
+    (
+        workspaces,
+        systems,
+        versions,
+        bindings,
+        experiences,
+        _drafts,
+        releases,
+        _deployments,
+    ) = _schema(bind)
     _insert_workspace(bind, workspaces, workspace_id="ws-andritz", slug="andritz")
     _insert_published_system(
         bind,
@@ -278,6 +287,10 @@ def test_andritz_bindings_when_published_and_seed_is_idempotent(bind):
     ]
     assert bind.execute(sa.select(sa.func.count()).select_from(experiences)).scalar_one() == 4
     assert bind.execute(sa.select(sa.func.count()).select_from(bindings)).scalar_one() == 2
+    assert {
+        row[0]
+        for row in bind.execute(sa.select(releases.c.renderer_version)).all()
+    } == {"certified-components-0.2.0"}
 
 
 def test_sentinel_and_octocity_are_separate_inventory_pointers(bind):

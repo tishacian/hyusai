@@ -23,9 +23,10 @@ from app.models.system_binding import (
 from app.models.system_version import SystemVersion
 from app.services.audit_logger import emit_audit_event
 from app.services.systems import flow_ingress, flow_publication
-from app.services.workspace_features import feature_enabled
+from app.services.workspace_features import feature_enabled, graduated_feature_enabled
 
 FEATURE_KEY = "experience_v1"
+STUDIO_FEATURE_KEY = "experience_studio_v1"
 NAWA_PASSWORD_RESET_KEY = "nawa.password_reset"
 BINDING_KEY_RE = re.compile(r"^[a-z][a-z0-9._-]{0,119}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -58,6 +59,22 @@ def require_experience_v1(workspace: Any) -> None:
         raise BindingError(
             code="EXPERIENCE_V1_DISABLED",
             message="Experience bindings are not enabled for this workspace.",
+            status_code=404,
+        )
+
+
+def experience_studio_v1_enabled(workspace: Any) -> bool:
+    return experience_v1_enabled(workspace) and graduated_feature_enabled(
+        workspace, STUDIO_FEATURE_KEY
+    )
+
+
+def require_experience_studio_v1(workspace: Any) -> None:
+    require_experience_v1(workspace)
+    if not graduated_feature_enabled(workspace, STUDIO_FEATURE_KEY):
+        raise BindingError(
+            code="EXPERIENCE_STUDIO_V1_DISABLED",
+            message="Experience authoring is not enabled for this workspace.",
             status_code=404,
         )
 
@@ -163,6 +180,13 @@ def _output_schema_sha256(contract: Mapping[str, Any]) -> str | None:
     if isinstance(digest, str) and SHA256_RE.fullmatch(digest):
         return digest
     return None
+
+
+def _has_direct_hitl(flow: Mapping[str, Any]) -> bool:
+    nodes = flow.get("nodes")
+    return isinstance(nodes, list) and any(
+        isinstance(node, Mapping) and node.get("kind") == "hitl" for node in nodes
+    )
 
 
 def _snapshot_from_published(
@@ -345,6 +369,21 @@ def create_binding(
             status_code=409,
             details={"binding_key": key},
         ) from exc
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="experience.binding.created",
+        actor=actor or "unknown",
+        agent_id=system.id,
+        details={
+            "binding_key": row.binding_key,
+            "system_id": row.system_id,
+            "published_flow_version_id": row.published_flow_version_id,
+            "ingress_id": row.ingress_id,
+            "confirmation_policy": row.confirmation_policy,
+            "on_unavailable": row.on_unavailable,
+        },
+        db=db,
+    )
     return row
 
 
@@ -357,8 +396,10 @@ def update_binding(
     on_unavailable: str | None = None,
     published_flow_version_id: str | None = None,
     ingress_id: str | None = None,
+    actor: str | None = None,
 ) -> SystemBinding:
     row = get_binding(db, workspace_id=workspace.id, binding_key=binding_key)
+    before = serialize_binding(row)
     if confirmation_policy is not None:
         row.confirmation_policy = _validate_policy(
             confirmation_policy, CONFIRMATION_POLICIES, field="confirmation_policy"
@@ -382,8 +423,38 @@ def update_binding(
         row.ingress_id = snapshot["ingress_id"]
         row.input_schema_sha256 = snapshot["input_schema_sha256"]
         row.output_schema_sha256 = snapshot["output_schema_sha256"]
+    after = serialize_binding(row)
+    changed_fields = [
+        field
+        for field in (
+            "published_flow_version_id",
+            "flow_sha256",
+            "ingress_id",
+            "input_schema_sha256",
+            "output_schema_sha256",
+            "confirmation_policy",
+            "on_unavailable",
+        )
+        if before[field] != after[field]
+    ]
+    if not changed_fields:
+        return row
     row.updated_at = datetime.utcnow()
     db.flush()
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="experience.binding.updated",
+        actor=actor or "unknown",
+        agent_id=row.system_id,
+        details={
+            "binding_key": row.binding_key,
+            "system_id": row.system_id,
+            "changed_fields": changed_fields,
+            "from": {field: before[field] for field in changed_fields},
+            "to": {field: after[field] for field in changed_fields},
+        },
+        db=db,
+    )
     return row
 
 
@@ -496,8 +567,27 @@ def retarget_seed_stub_bindings(
     return updated
 
 
-def delete_binding(db: DBSession, *, workspace_id: str, binding_key: str) -> None:
+def delete_binding(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    binding_key: str,
+    actor: str | None = None,
+) -> None:
     row = get_binding(db, workspace_id=workspace_id, binding_key=binding_key)
+    emit_audit_event(
+        workspace_id=workspace_id,
+        event_type="experience.binding.deleted",
+        actor=actor or "unknown",
+        agent_id=row.system_id,
+        details={
+            "binding_key": row.binding_key,
+            "system_id": row.system_id,
+            "published_flow_version_id": row.published_flow_version_id,
+            "ingress_id": row.ingress_id,
+        },
+        db=db,
+    )
     db.delete(row)
     db.flush()
 
@@ -517,6 +607,8 @@ def resolve_binding(
     )
     if system is None:
         return _resolve_payload("unavailable", row, ["system_missing"])
+    if system.status != "active":
+        return _resolve_payload("unavailable", row, ["system_inactive"])
     version = (
         db.query(SystemVersion)
         .filter(
@@ -529,13 +621,14 @@ def resolve_binding(
     if version is None:
         return _resolve_payload("unavailable", row, ["published_version_missing"])
     try:
-        _, _flow, flow_sha256, contract = flow_publication.published_run_evidence(
+        _, flow, flow_sha256, contract = flow_publication.version_run_evidence(
             db,
             system=system,
             workspace=workspace,
+            version_id=row.published_flow_version_id,
         )
     except flow_publication.FlowPublicationError:
-        return _resolve_payload("unavailable", row, ["published_evidence_unavailable"])
+        return _resolve_payload("unavailable", row, ["locked_evidence_unavailable"])
     raw = contract.get("ingresses")
     ingress = next(
         (
@@ -552,11 +645,28 @@ def resolve_binding(
         reasons.append("flow_sha256_mismatch")
     if ingress is not None and input_sha != row.input_schema_sha256:
         reasons.append("input_schema_sha256_mismatch")
+    if _output_schema_sha256(contract) != row.output_schema_sha256:
+        reasons.append("output_schema_sha256_mismatch")
+    if system.published_flow_version_id is None:
+        return _resolve_payload("unavailable", row, ["published_version_missing"])
+    if system.published_flow_version_id != row.published_flow_version_id:
+        reasons.append("published_flow_version_id_mismatch")
     if any(item.endswith("_mismatch") for item in reasons):
         return _resolve_payload("drift", row, reasons)
     if reasons:
         return _resolve_payload("unavailable", row, reasons)
-    return _resolve_payload("ok", row, [])
+    if row.confirmation_policy == "hitl" and not _has_direct_hitl(flow):
+        return _resolve_payload("unavailable", row, ["hitl_gate_missing"])
+    payload = _resolve_payload("ok", row, [])
+    input_schema = ingress.get("input_schema") if isinstance(ingress, Mapping) else None
+    if isinstance(input_schema, Mapping):
+        payload["input_schema"] = copy.deepcopy(dict(input_schema))
+    outputs = contract.get("outputs")
+    if isinstance(outputs, list) and len(outputs) == 1 and isinstance(outputs[0], Mapping):
+        output_schema = outputs[0].get("schema")
+        if isinstance(output_schema, Mapping):
+            payload["output_schema"] = copy.deepcopy(dict(output_schema))
+    return payload
 
 
 def resolve_binding_snapshot(
@@ -620,7 +730,7 @@ def resolve_binding_snapshot(
     if system.status != "active":
         return {"status": "unavailable", "binding": binding, "reasons": ["system_inactive"]}
     try:
-        _version, _flow, flow_sha256, contract = flow_publication.version_run_evidence(
+        _version, flow, flow_sha256, contract = flow_publication.version_run_evidence(
             db,
             system=system,
             workspace=workspace,
@@ -643,6 +753,12 @@ def resolve_binding_snapshot(
         reasons.append("input_schema_sha256_mismatch")
     if _output_schema_sha256(contract) != binding.get("output_schema_sha256"):
         reasons.append("output_schema_sha256_mismatch")
+    if binding["confirmation_policy"] == "hitl" and not _has_direct_hitl(flow):
+        return {
+            "status": "unavailable",
+            "binding": binding,
+            "reasons": ["hitl_gate_missing"],
+        }
     return {
         "status": "drift" if reasons else "ok",
         "binding": binding,
@@ -690,10 +806,11 @@ def invoke_binding(
         )
     system = _owned_system(db, workspace_id=workspace.id, system_id=row.system_id)
     try:
-        _version, _flow, flow_sha256, contract = flow_publication.published_run_evidence(
+        _version, _flow, flow_sha256, contract = flow_publication.version_run_evidence(
             db,
             system=system,
             workspace=workspace,
+            version_id=row.published_flow_version_id,
         )
     except flow_publication.FlowPublicationError as exc:
         raise BindingError(
@@ -714,13 +831,14 @@ def invoke_binding(
             kind=kind,
             payload=payload,
             initiated_by_user_id=initiated_by_user_id,
-            expected_published_version_id=version_id,
-            expected_flow_sha256=flow_sha256,
+            expected_published_version_id=row.published_flow_version_id,
+            expected_flow_sha256=row.flow_sha256,
             adapter_evidence={
                 "surface": "experience",
                 "origin": f"experience:{row.binding_key}",
             },
             trigger="manual",
+            authority_version_id=row.published_flow_version_id,
         )
     except flow_ingress.FlowIngressError as exc:
         raise BindingError(
@@ -756,6 +874,8 @@ def invoke_binding_snapshot(
     initiated_by_user_id: str | None,
     actor: str,
     provenance: Mapping[str, Any],
+    trigger_dedup_key: str,
+    experience_idempotency_key: str,
 ) -> Run:
     """Invoke exactly the SystemVersion captured by an ExperienceRelease."""
     resolved = resolve_binding_snapshot(db, workspace=workspace, snapshot=snapshot)
@@ -799,6 +919,8 @@ def invoke_binding_snapshot(
             expected_flow_sha256=flow_sha256,
             adapter_evidence=copy.deepcopy(dict(provenance)),
             trigger="manual",
+            trigger_dedup_key=trigger_dedup_key,
+            experience_idempotency_key=experience_idempotency_key,
             authority_version_id=binding["published_flow_version_id"],
         )
     except (flow_publication.FlowPublicationError, flow_ingress.FlowIngressError) as exc:

@@ -226,7 +226,15 @@ function hasBothProofs(reply: string): boolean {
           </button>
         </div>
 
-        <div class="as-transcript" #transcript (scroll)="onScroll()">
+        <div
+          class="as-transcript"
+          #transcript
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions text"
+          [attr.aria-busy]="pending()"
+          (scroll)="onScroll()"
+        >
           @if (turns().length === 0 && !pending()) {
             <div class="as-empty">
               <strong>Tell the service desk what you need.</strong>
@@ -471,7 +479,7 @@ function hasBothProofs(reply: string): boolean {
           }
 
           @if (pending() && !hasOpenRun()) {
-            <div class="as-pending">
+            <div class="as-pending" role="status">
               <ck-thinking-orb state="searching" [size]="20" />
               Working on it…
             </div>

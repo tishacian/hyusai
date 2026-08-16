@@ -62,9 +62,16 @@ def _raise_binding(db: DBSession, exc: binding_service.BindingError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
 
 
-def _require_enabled(workspace: Workspace) -> None:
+def _require_runtime_enabled(workspace: Workspace) -> None:
     try:
         binding_service.require_experience_v1(workspace)
+    except binding_service.BindingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
+
+
+def _require_studio_enabled(workspace: Workspace) -> None:
+    try:
+        binding_service.require_experience_studio_v1(workspace)
     except binding_service.BindingError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
 
@@ -118,7 +125,7 @@ async def list_system_bindings(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
+    _require_studio_enabled(workspace)
     _enforce_view(db, user=user, workspace=workspace)
     rows = binding_service.list_bindings(db, workspace_id=workspace.id)
     return {"bindings": [binding_service.serialize_binding(row) for row in rows]}
@@ -130,7 +137,7 @@ async def list_drifted_system_bindings(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
+    _require_runtime_enabled(workspace)
     _enforce_view(db, user=user, workspace=workspace)
     return {"bindings": binding_service.list_drifted_bindings(db, workspace=workspace)}
 
@@ -142,7 +149,7 @@ async def get_system_binding(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
+    _require_studio_enabled(workspace)
     _enforce_view(db, user=user, workspace=workspace)
     try:
         row = binding_service.get_binding(db, workspace_id=workspace.id, binding_key=key)
@@ -158,7 +165,7 @@ async def resolve_system_binding(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
+    _require_studio_enabled(workspace)
     _enforce_view(db, user=user, workspace=workspace)
     try:
         return binding_service.resolve_binding(db, workspace=workspace, binding_key=key)
@@ -173,7 +180,7 @@ async def create_system_binding(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
+    _require_studio_enabled(workspace)
     _enforce_manage(db, user=user, workspace=workspace)
     try:
         row = binding_service.create_binding(
@@ -202,7 +209,7 @@ async def patch_system_binding(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
+    _require_studio_enabled(workspace)
     _enforce_manage(db, user=user, workspace=workspace)
     try:
         row = binding_service.update_binding(
@@ -213,6 +220,7 @@ async def patch_system_binding(
             on_unavailable=body.on_unavailable,
             published_flow_version_id=body.published_flow_version_id,
             ingress_id=body.ingress_id,
+            actor=_actor(user),
         )
         db.commit()
         db.refresh(row)
@@ -228,7 +236,7 @@ async def retarget_system_binding(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
+    _require_studio_enabled(workspace)
     _enforce_manage(db, user=user, workspace=workspace)
     try:
         row = binding_service.retarget_binding(
@@ -251,10 +259,15 @@ async def delete_system_binding(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
+    _require_studio_enabled(workspace)
     _enforce_manage(db, user=user, workspace=workspace)
     try:
-        binding_service.delete_binding(db, workspace_id=workspace.id, binding_key=key)
+        binding_service.delete_binding(
+            db,
+            workspace_id=workspace.id,
+            binding_key=key,
+            actor=_actor(user),
+        )
         db.commit()
     except binding_service.BindingError as exc:
         _raise_binding(db, exc)
@@ -269,7 +282,7 @@ async def invoke_system_binding(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
+    _require_studio_enabled(workspace)
     # Direct invocation is an author preview surface. End-user execution must
     # cross the deployed release boundary in /work/{slug}/bindings/{key}/runs.
     _enforce_manage(db, user=user, workspace=workspace)

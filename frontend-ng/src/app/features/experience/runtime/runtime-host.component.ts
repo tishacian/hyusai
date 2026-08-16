@@ -13,7 +13,7 @@ import {
   runtimeStateKey,
   textFallback,
 } from './model';
-import { a11yOf, appearanceOf, pageAppearance } from './style';
+import { a11yOf, appearanceOf, onAccentColor, pageAppearance } from './style';
 
 @Component({
   selector: 'app-experience-runtime-host',
@@ -42,6 +42,7 @@ import { a11yOf, appearanceOf, pageAppearance } from './style';
                 [class.xp-rt-comfortable]="nodeDensity(node) === 'comfortable'"
                 [class.xp-rt-accent]="!!nodeAccent(node)"
                 [style.--xp-accent]="nodeAccent(node) || null"
+                [style.--xp-on-accent]="nodeAccent(node) ? nodeAccentText(node) : null"
                 [attr.data-component-id]="item.context.componentId"
                 [attr.data-component-type]="node.type"
                 [attr.tabindex]="node.type === 'result' ? -1 : null"
@@ -147,6 +148,10 @@ export class ExperienceRuntimeHostComponent {
     return appearanceOf(node).accent;
   }
 
+  nodeAccentText(node: ExperienceNode): string {
+    return onAccentColor(this.nodeAccent(node));
+  }
+
   keyboardHint(node: ExperienceNode): string {
     return a11yOf(node).keyboardHint;
   }
@@ -155,9 +160,11 @@ export class ExperienceRuntimeHostComponent {
 const CONTEXT_TYPES = new Set([
   'form',
   'action_button',
+  'approval_card',
   'result',
   'runtime_status',
   'evidence',
+  'history',
   'table',
   'queue',
   'kpi',

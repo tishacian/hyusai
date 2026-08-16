@@ -1,8 +1,10 @@
 # Agentium Experience platform
 
-Flag: `settings.features.experience_v1` (opt-in). Off → existing Studio navigation is unchanged.
+Flags: `settings.features.experience_v1` enables the Work/runtime contract; optional
+`settings.features.experience_studio_v1 = false` keeps Work active while withholding
+authoring. When the Studio flag is absent it inherits `experience_v1` for backwards compatibility.
 
-Implementation baseline: 2026-08-14, migrations `087` through `092`. Lots 0–8 are integrated behind the flag; the certified component catalogue remains intentionally closed.
+Implementation baseline: 2026-08-14, migrations `087` through `094`. Lots 0–8 are integrated behind the flag as a release candidate; the certified component catalogue remains intentionally closed. “Integrated” is not a production acceptance claim: that requires a SHA-bound canary artifact from the deployed build.
 
 This document is the architecture for the **Experience** concept (on screen: **Application métier** / **Business application**). It does not replace Lot 9 Workspace Apps or Flow publication.
 
@@ -84,6 +86,14 @@ Ship in this order; later lots assume the primitives of earlier ones.
 7. **Release + deployment** — ready-check, immutable release, Pilot / In service, atomic rollback.
 8. **Certified renderer** — lock renderer version on the release; serve `/work`.
 
+The renderer registry is deliberately append-only. Releases produced by migrations
+`088`/`089` keep `certified-components-0.1.0`; the current catalogue and every new
+Release use `certified-components-0.2.0`. Both implementations remain separately
+routable in the SPA, and an unknown pin fails closed before any `live_href`
+redirect. Removing `0.1.0` requires an explicit release migration and its own
+acceptance evidence; a normal frontend cleanup must never rewrite historical UI
+semantics.
+
 NAWA and other Lot 9 packages stay on their current binding until a later, explicit cutover. Do not reuse Lot 9 install APIs for Experience drafts.
 
 ## Governance and audit
@@ -120,13 +130,16 @@ Binding invoke tags `input_ref._ingress.adapter.origin = "experience:{release_sl
 
 ## Quality gates
 
-Playwright canaries for `/work` and Studio are part of the default iteration gate alongside System360 and protected-runner canaries. They skip, rather than fail, when the feature flag is off; `/work` also skips when its server-filtered catalogue is empty.
+Playwright canaries for `/work` and Studio are part of the default iteration gate alongside System360 and protected-runner canaries. Setting `E2E_EXPERIENCE_CANARY=1` is an explicit acceptance contract: a missing enabled workspace, compatible published ingress or visible deployed app fails the run rather than silently skipping it.
 
 ```bash
 cd frontend-ng
 E2E_EXPERIENCE_CANARY=1 \
   E2E_USERNAME=... E2E_PASSWORD=... \
   E2E_EXPECTED_SHA=<40-hex> \
+  E2E_EXPERIENCE_REQUIRE_REVIEWER=1 \
+  E2E_EXPERIENCE_REVIEWER_USERNAME=... \
+  E2E_EXPERIENCE_REVIEWER_PASSWORD=... \
   E2E_EXPERIENCE_EVIDENCE=/tmp/experience.json \
   npx playwright test \
     e2e/tests/16-experience-work-canary.spec.ts \
@@ -134,13 +147,13 @@ E2E_EXPERIENCE_CANARY=1 \
     --project=chromium
 ```
 
-`scripts/run-iteration-canaries.sh <sha>` enables these specs and writes their JSON evidence by default. Traces stay off because the canaries use a live principal.
+`scripts/run-iteration-canaries.sh <sha>` enables these specs and writes their JSON evidence by default. It accepts only a root-owned, clean checkout whose Git HEAD and protected SHA marker equal that deployed SHA; the Experience specs, fixtures and package lock must all be tracked by that commit. The frozen Carakai dependencies must match the pinned lock before the gate starts. Pilot/Live mutations remain a separate, explicit canary mode because a deployed Experience is intentionally retained. Traces stay off because the canaries use a live principal.
 
 ## Deliberate boundaries and follow-ups
 
 - `candidate_config_sha256` remains on the IAM decision plane, not on Experience rows.
 - Runs `origin=` has no JSON index; very large workspaces may need one after measurement.
-- Preview is effect-free. A later governed “preview as role/group” projection may be added, but it must use server-computed effective access rather than impersonation in the client.
+- Preview is effect-free. Studio offers an explicitly advisory local role/group simulation for layout and denied-state review; it never borrows an identity, loads protected runtime data or replaces the server-computed access check used by Work and deployment.
 - Custom domains and arbitrary custom components are not part of the certified no-code runtime. A custom component still requires the WorkspaceAppPackage/Git/CI/SBOM path.
 - Chat / Client360 / capture stay id-resolved during dual-run. Mission Room rails prefer bindings when `experience_v1` is on.
 - First API Publish of an 089 seed-shaped contract auto-retargets seed bindings. Author bindings stay locked.

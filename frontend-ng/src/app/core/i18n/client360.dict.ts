@@ -78,6 +78,12 @@ export const CLIENT360_FR = {
   'client360.table.confidence': 'Confiance',
   'client360.table.action': 'Action',
   'client360.table.status': 'Statut',
+  'client360.opportunities.table_caption': 'Opportunités commerciales',
+  'client360.opportunities.open': 'Ouvrir l’opportunité pour {name}',
+  'client360.alerts.open': 'Ouvrir l’alerte {title}',
+  'client360.purchases.table_caption': 'Historique des achats et ventes',
+  'client360.purchases.open': 'Voir les opportunités pour la référence {reference}',
+  'client360.campaign.open': 'Ouvrir la campagne {name}',
 
   // ---- placeholders for missing data -------------------------------------
   'client360.placeholder.todo': 'À compléter',
@@ -566,6 +572,12 @@ export const CLIENT360_EN: Record<keyof typeof CLIENT360_FR, string> = {
   'client360.table.confidence': 'Confidence',
   'client360.table.action': 'Action',
   'client360.table.status': 'Status',
+  'client360.opportunities.table_caption': 'Sales opportunities',
+  'client360.opportunities.open': 'Open the opportunity for {name}',
+  'client360.alerts.open': 'Open alert {title}',
+  'client360.purchases.table_caption': 'Purchase and sales history',
+  'client360.purchases.open': 'View opportunities for reference {reference}',
+  'client360.campaign.open': 'Open campaign {name}',
 
   'client360.placeholder.todo': 'To be completed',
   'client360.placeholder.scope': 'Scope to be completed',

@@ -110,13 +110,22 @@ export function a11yOf(node: ExperienceNode): NodeA11y {
   };
 }
 
+/** Raw authoring value; runtime calls `a11yOf` only after document localisation. */
+export function a11yValue(node: ExperienceNode, key: keyof NodeA11y): unknown {
+  const raw = node.props?.['a11y'];
+  const bag = isRecord(raw) ? raw : {};
+  if (key === 'ariaLabel' && bag[key] === undefined) return node.props?.['ariaLabel'];
+  return bag[key];
+}
+
 export function a11yPayload(node: ExperienceNode, key: keyof NodeA11y, value: unknown): Record<string, unknown> {
-  const current = a11yOf(node);
   const next: Record<string, unknown> = {};
-  if (current.ariaLabel) next['ariaLabel'] = current.ariaLabel;
-  if (current.headingLevel) next['headingLevel'] = current.headingLevel;
-  if (current.emptyText) next['emptyText'] = current.emptyText;
-  if (current.keyboardHint) next['keyboardHint'] = current.keyboardHint;
+  for (const item of ['ariaLabel', 'emptyText', 'keyboardHint'] as const) {
+    const current = a11yValue(node, item);
+    if (current !== '' && current !== undefined && current !== null) next[item] = current;
+  }
+  const heading = a11yOf(node).headingLevel;
+  if (heading) next['headingLevel'] = heading;
   if (value === '' || value === undefined || value === null) delete next[key];
   else next[key] = value;
   return next;
@@ -152,6 +161,14 @@ export function accentContrastWarning(accent: string, theme: PageTheme): boolean
   if (theme === 'dark') return weakDark;
   if (theme === 'light') return weakLight;
   return weakDark || weakLight;
+}
+
+/** Chooses the higher-contrast text colour for any valid custom accent. */
+export function onAccentColor(accent: string): '#05070a' | '#ffffff' {
+  const rgb = parseHex(accent);
+  if (!rgb) return '#05070a';
+  const background = luminance(rgb);
+  return contrast(background, 0) >= contrast(background, 1) ? '#05070a' : '#ffffff';
 }
 
 function parseHex(value: string): { r: number; g: number; b: number } | null {

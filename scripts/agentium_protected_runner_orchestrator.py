@@ -67,7 +67,18 @@ NODE_RUNTIME_VERSION = "v22.23.1"
 BROWSERS_ROOT = Path("/opt/agentium-protected-runner/browsers")
 
 PACKAGE_LOCK_SHA256 = (
-    "e2d450397339be6fe89cdbcaf63ff7261e4bd915ef66a9d84d3e94bbc22218c7"
+    "a59bcb3348723cd855148111d8bf5744ec85ab15c67935ad2b8de79cc9b1bf97"
+)
+ITERATION_CANARY_SOURCE_PATHS = (
+    "frontend-ng/package.json",
+    "frontend-ng/package-lock.json",
+    "frontend-ng/playwright.config.ts",
+    "frontend-ng/e2e/fixtures/accessibility-matrix.ts",
+    "frontend-ng/e2e/fixtures/experience-canary.ts",
+    "frontend-ng/e2e/tests/11-system360-canary.spec.ts",
+    "frontend-ng/e2e/tests/12-protected-runner-canaries.spec.ts",
+    "frontend-ng/e2e/tests/16-experience-work-canary.spec.ts",
+    "frontend-ng/e2e/tests/17-experience-studio-canary.spec.ts",
 )
 MAX_ARTIFACT_BYTES = 1024 * 1024
 MAX_CLOCK_SKEW = timedelta(minutes=5)
@@ -746,6 +757,78 @@ def _safe_source_root(source_root: Path, source_sha: str) -> Path:
         or modules.resolve(strict=True) != (NODE_MODULES_ROOT / "node_modules").resolve(strict=True)
     ):
         raise OrchestratorError("frontend dependencies are not the frozen runtime")
+    return root
+
+
+def _safe_iteration_source_root(source_root: Path, source_sha: str) -> Path:
+    """Bind the lightweight canary checkout and its test bytes to one commit."""
+
+    root = _safe_source_root(source_root, source_sha)
+    git_env = {
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "PATH": "/usr/bin:/bin",
+    }
+    head = subprocess.run(
+        ["/usr/bin/git", "-C", str(root), "rev-parse", "--verify", "HEAD^{commit}"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+        env=git_env,
+    )
+    if head.returncode != 0 or head.stdout.strip() != source_sha:
+        raise OrchestratorError("iteration source checkout SHA differs")
+
+    status = subprocess.run(
+        [
+            "/usr/bin/git",
+            "-C",
+            str(root),
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+        env=git_env,
+    )
+    dirty = [
+        line
+        for line in status.stdout.splitlines()
+        if line != "?? .agentium-source-sha"
+    ]
+    if status.returncode != 0 or dirty:
+        raise OrchestratorError("iteration source checkout is dirty")
+
+    tracked = subprocess.run(
+        [
+            "/usr/bin/git",
+            "-C",
+            str(root),
+            "ls-files",
+            "--error-unmatch",
+            "--",
+            *ITERATION_CANARY_SOURCE_PATHS,
+        ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+        env=git_env,
+    )
+    if tracked.returncode != 0:
+        raise OrchestratorError("iteration canary source is not tracked at the requested SHA")
+    for relative_path in ITERATION_CANARY_SOURCE_PATHS:
+        path = root / relative_path
+        if not path.is_file() or path.is_symlink():
+            raise OrchestratorError("iteration canary source is unsafe")
     return root
 
 

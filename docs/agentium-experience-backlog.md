@@ -1,10 +1,12 @@
 # Agentium Experience — backlog (Lots 0–8)
 
-Version: 2026-08-14. Flag: `settings.features.experience_v1`.
+Version: 2026-08-14. Flags: `settings.features.experience_v1` (Work/runtime) and optional
+`settings.features.experience_studio_v1` (authoring rollout; inherits the first flag when absent).
+Migration head: `094`.
 
 Architecture: [`agentium-experience-platform.md`](./agentium-experience-platform.md). Mockups: [`docs/design/experience/`](./design/experience/README.md).
 
-Stories are compact on purpose. Lots 0–8 are now implemented behind the flag. This document is the acceptance ledger; future extensions must not weaken the immutable Release, server-side audience or certified-renderer contracts.
+Stories are compact on purpose. Lots 0–8 have an implementation candidate behind the flag. They are **not production-accepted** until the SHA-bound Experience canary completes creation, release and the configured deployment path on the dedicated QA workspace. Dual-run legacy routes are explicitly outside that cutover. This document is the acceptance ledger; future extensions must not weaken the immutable Release, server-side audience or certified-renderer contracts.
 
 ## Lot 0 — Foundation — delivered
 
@@ -76,7 +78,11 @@ Original Lot 0 boundary: nav, lexicon, hub and docs only. Backend, `/work` and t
 | --- | --- |
 | US-8.1 | Renderer version is a release pin, not “whatever the SPA currently ships”. |
 | US-8.2 | `/work` serves only that pin. Uncertified components cannot be added to a release. |
-| US-8.3 | Playwright canaries (`E2E_EXPERIENCE_CANARY=1`): `/work` launcher and `/create` Studio. Included in the default iteration gate; skip when the flag is off or `/work` has no deployed app. |
+| US-8.3 | Playwright canaries (`E2E_EXPERIENCE_CANARY=1`): full Studio create/save/ready/release lifecycle plus `/work`, responsive and WCAG matrix. Once enabled, missing workspace/app prerequisites fail instead of silently skipping. |
+
+Registry contract: historical Releases from `088`/`089` remain on
+`certified-components-0.1.0`; new Releases use `certified-components-0.2.0`.
+Both renderers are shipped as distinct implementations and unknown pins fail closed.
 
 ## Deliberate boundaries
 
@@ -101,4 +107,4 @@ Migrations `090_xp_dual_run` + `091_xp_sentinel_certified`. Live UIs stay on the
 - **Certified widgets** `map_panel`, `agenda_panel`, `intelligence_feed`, `decision_queue` are in the catalog. SENTINEL / Octocity / Mission Control seed pages use them. AYA stays a callout to the immersive shell.
 - **089 seed drift**: the first API Publish of a seed-shaped contract (`execution_contract` without `contract_sha256`) auto-retargets seed-created bindings (`created_by` starts with `system:`). Author-created bindings do not float.
 - Bindings are skipped when the System has no `published_flow_version_id`.
-- **Activate**: `alembic upgrade` through `092`, then `settings.features.experience_v1 = true`.
+- **Activate**: `alembic upgrade` through `094`, then `settings.features.experience_v1 = true`; acceptance still requires evidence bound to the deployed 40-character SHA.

@@ -132,6 +132,7 @@ def trigger_run(self, run_id: str) -> dict:
     from app.core.config import settings
     from app.db.base import SessionLocal
     from app.models.run import Run
+    from app.services.run_engine.dispatch_outbox import durable_initial_dispatch_source
     from app.services.run_engine.engine import schedule_run
     from app.services.run_engine.subflow_orchestration import postgres_coordination_lease
 
@@ -144,7 +145,7 @@ def trigger_run(self, run_id: str) -> dict:
             run = db.query(Run).filter(Run.id == run_id).first()
             if run is None:
                 return {"id": run_id, "status": "run_not_found"}
-            if run.trigger != "webhook" or not run.trigger_dedup_key:
+            if durable_initial_dispatch_source(run) is None:
                 return {"id": run_id, "status": "trigger_claim_invalid"}
             if run.status in {"completed", "failed", "cancelled"}:
                 return {"id": run_id, "status": run.status}

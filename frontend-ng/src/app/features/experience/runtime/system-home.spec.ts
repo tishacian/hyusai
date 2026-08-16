@@ -3,7 +3,9 @@ import { test } from 'node:test';
 import {
   compileSystemHome,
   firstManualIngress,
+  systemHomeBlocker,
   hasHitlHint,
+  remapSystemHomeBinding,
   uniqueBindingKey,
   uniqueSlug,
 } from './system-home';
@@ -42,6 +44,21 @@ test('firstManualIngress skips non-manual entries', () => {
   assert.equal(ingress?.ingress_id, 'start');
   assert.equal(firstManualIngress({ ingresses: [] }), null);
   assert.equal(firstManualIngress(null), null);
+});
+
+test('systemHomeBlocker rejects non-actionable one-click homes', () => {
+  assert.equal(systemHomeBlocker({ ingresses: [] }), 'missing-manual-ingress');
+  assert.equal(systemHomeBlocker({
+    ingresses: [{
+      ingress_id: 'manual.start',
+      kind: 'manual',
+      input_schema: {
+        type: 'object',
+        properties: { filters: { type: 'object' } },
+      },
+    }],
+  }), 'unsupported-input-schema');
+  assert.equal(systemHomeBlocker(CONTRACT), null);
 });
 
 test('hasHitlHint reads graph kinds and ingress ids', () => {
@@ -100,6 +117,27 @@ test('compileSystemHome adds approval_card when a hitl hint is present', () => {
   );
 });
 
+test('remapSystemHomeBinding keeps the generated source on the replacement key', () => {
+  const original = compileSystemHome({
+    systemName: 'Expenses',
+    bindingKey: 'home.expenses.start.v1',
+    ingress: firstManualIngress(CONTRACT),
+    hasHitl: false,
+    labels: LABELS,
+  });
+  const remapped = remapSystemHomeBinding(
+    original,
+    'home.expenses.start.v1',
+    'home.expenses.start.v2',
+  );
+  const form = remapped.pages[0]?.components.find((node) => node.type === 'form');
+  assert.equal(form?.props?.['bindingKey'], 'home.expenses.start.v2');
+  assert.equal(
+    original.pages[0]?.components.find((node) => node.type === 'form')?.props?.['bindingKey'],
+    'home.expenses.start.v1',
+  );
+});
+
 test('unique identifiers stay within the backend regexes', () => {
   assert.match(uniqueSlug('Password Reset', 'm9k2'), /^[a-z][a-z0-9-]{0,119}$/);
   assert.match(uniqueSlug('2024 Q1', 'aa'), /^[a-z][a-z0-9-]{0,119}$/);
@@ -107,4 +145,12 @@ test('unique identifiers stay within the backend regexes', () => {
     uniqueBindingKey('Password Reset', 'start', 'm9k2'),
     /^[a-z][a-z0-9._-]{0,119}$/,
   );
+  const longName = `System ${'a'.repeat(180)}`;
+  assert.notEqual(uniqueSlug(longName, 'nonce-one'), uniqueSlug(longName, 'nonce-two'));
+  assert.notEqual(
+    uniqueBindingKey(longName, 'entry', 'nonce-one'),
+    uniqueBindingKey(longName, 'entry', 'nonce-two'),
+  );
+  assert.equal(uniqueSlug(longName, 'nonce-one').length <= 120, true);
+  assert.equal(uniqueBindingKey(longName, 'entry', 'nonce-one').length <= 120, true);
 });

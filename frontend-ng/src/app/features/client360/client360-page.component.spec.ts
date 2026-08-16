@@ -467,6 +467,20 @@ test('Client360 landing page collapses alerts to a digest and pages the table', 
   }
 });
 
+test('Client360 business selections use named keyboard controls instead of clickable rows', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/features/client360/client360-page.component.ts'),
+    'utf8',
+  );
+
+  assert.doesNotMatch(source, /<(?:li|tr)[^>]+\(click\)=\"(?:openAlert|selectOpportunity|selectPurchasePart|selectCampaign)/);
+  for (const className of ['c360-list-action', 'c360-row-action', 'c360-campaign-action']) {
+    assert.match(source, new RegExp(`<button[\\s\\S]{0,260}class=\"${className}\"`));
+  }
+  assert.match(source, /<caption class="sr-only">\{\{ i18n\.t\('client360\.opportunities\.table_caption'\) \}\}<\/caption>/);
+  assert.match(source, /button:focus-visible/);
+});
+
 test('Client360 pins syncFromCollection to A and cancels refresh on A -> B', () => {
   const harness = createHarness();
   const { component, workspace, postCalls, getCalls } = harness;

@@ -30,12 +30,14 @@ import {
   ChangeDetectionStrategy,
   Component,
   EventEmitter,
+  HostListener,
   Input,
   Output,
   computed,
   inject,
   signal,
 } from '@angular/core';
+import { A11yModule } from '@angular/cdk/a11y';
 import {
   CanonicalApiService,
   type Capability,
@@ -89,12 +91,17 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
   selector: 'app-new-skill-dialog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent, HelpTooltipComponent, SchemaBuilderComponent],
+  imports: [A11yModule, GlyphComponent, HelpTooltipComponent, SchemaBuilderComponent],
   template: `
     <div class="fixed inset-0 z-50 flex items-start justify-center p-6 overflow-auto">
       <div class="absolute inset-0" style="background:var(--ck-scrim);" (click)="dismiss()"></div>
       <div
         class="relative ck-surface rounded-md"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="skill-dialog-title"
+        cdkTrapFocus
+        [cdkTrapFocusAutoCapture]="true"
         style="width:100%; max-width:760px; padding:24px 28px; border:1px solid var(--ck-stroke-strong);"
       >
         <div class="flex items-start justify-between gap-4" style="margin-bottom:16px;">
@@ -104,9 +111,9 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
               {{ i18n.t('skills.wizard.eyebrow') }}
               <ck-help id="concept.skill" />
             </div>
-            <h3 class="text-lg font-medium" style="color:var(--ck-fg-1); margin-top:6px;">
+            <h2 id="skill-dialog-title" class="text-lg font-medium" style="color:var(--ck-fg-1); margin-top:6px;">
               {{ i18n.t(editing() ? 'skills.wizard.title.edit' : 'skills.wizard.title.create') }}
-            </h3>
+            </h2>
             <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:4px;">
               {{ i18n.t(editing() ? 'skills.wizard.subtitle.edit' : 'skills.wizard.subtitle') }}
             </p>
@@ -117,14 +124,18 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
         </div>
 
         <!-- Steps -->
-        <div class="flex items-center" style="gap:6px; margin-bottom:6px;" role="tablist">
+        <div class="flex items-center ck-scroll" style="gap:6px; margin-bottom:6px; overflow-x:auto;" role="tablist">
           @for (name of steps; track name; let index = $index) {
             <button
               type="button"
               role="tab"
               class="ck-mono"
+              [id]="'skill-step-' + name"
+              [attr.aria-controls]="'skill-panel-' + name"
               [attr.aria-selected]="step() === name"
+              [tabIndex]="step() === name ? 0 : -1"
               (click)="goTo(name)"
+              (keydown)="onStepKey($event, index)"
               [style]="stepStyle"
               [style.color]="step() === name ? 'var(--ck-fg-1)' : 'var(--ck-fg-4)'"
               [style.background]="step() === name ? 'var(--ck-bg-inset)' : 'transparent'"
@@ -142,7 +153,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
         @if (stepBrdHint(); as brd) {
           <p
             class="ck-mono flex items-start gap-1"
-            style="font-size:9px; color:var(--ck-fg-5); line-height:1.5; margin:4px 0 0;"
+            style="font-size:9px; color:var(--ck-fg-4); line-height:1.5; margin:4px 0 0;"
           >
             <ck-help id="concept.business-requirements" />
             <span>{{ brd }}</span>
@@ -150,6 +161,11 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
         }
         <div style="height:14px;"></div>
 
+        <div
+          role="tabpanel"
+          [id]="'skill-panel-' + step()"
+          [attr.aria-labelledby]="'skill-step-' + step()"
+        >
         @switch (step()) {
           @case ('intent') {
             @if (!editing()) {
@@ -161,6 +177,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                       type="button"
                       (click)="applyPreset(option.id)"
                       class="text-left"
+                      [attr.aria-pressed]="preset() === option.id"
                       [style]="cardStyle"
                       [style.boxShadow]="preset() === option.id ? 'inset 0 0 0 1px var(--ck-stroke-strong)' : 'none'"
                     >
@@ -273,6 +290,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                     type="button"
                     (click)="selectKind(executor.kind)"
                     class="text-left"
+                    [attr.aria-pressed]="executorKind() === executor.kind"
                     style="padding:10px 12px; border-radius:4px; background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-soft);"
                     [style.boxShadow]="executorKind() === executor.kind ? 'inset 0 0 0 1px var(--ck-stroke-strong)' : 'none'"
                   >
@@ -284,7 +302,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                     </span>
                     <span
                       class="ck-mono"
-                      style="display:block; font-size:9px; color:var(--ck-fg-5); margin-top:4px;"
+                      style="display:block; font-size:9px; color:var(--ck-fg-4); margin-top:4px;"
                       [title]="i18n.t('skills.runtime.technical')"
                     >{{ i18n.t('skills.runtime.technical') }} · {{ executor.kind }}</span>
                   </button>
@@ -298,7 +316,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                   <label class="flex flex-col" style="gap:4px;">
                     <span class="ck-mono flex items-center gap-1" [style]="labelStyle">
                       {{ paramLabel(field) }}@if (!field.required) {
-                        <span style="color:var(--ck-fg-5);">· {{ i18n.t('skills.runtime.optional') }}</span>
+                        <span style="color:var(--ck-fg-4);">· {{ i18n.t('skills.runtime.optional') }}</span>
                       }
                       @if (field.control === 'preset_inputs') {
                         <ck-help id="concept.preset-inputs" />
@@ -426,7 +444,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                       }
                     }
                     @if (field.maxLength) {
-                      <span class="ck-mono ck-tnum" style="font-size:9px; color:var(--ck-fg-5);">
+                      <span class="ck-mono ck-tnum" style="font-size:9px; color:var(--ck-fg-4);">
                         {{ param(field.key).length }} / {{ field.maxLength }}
                       </span>
                     }
@@ -444,7 +462,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                   <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-1); text-align:right;">
                     {{ row.value }}
                     @if (row.note) {
-                      <span style="display:block; font-size:9px; color:var(--ck-fg-5);">{{ i18n.t(row.note) }}</span>
+                      <span style="display:block; font-size:9px; color:var(--ck-fg-4);">{{ i18n.t(row.note) }}</span>
                     }
                   </span>
                 </div>
@@ -452,6 +470,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
             </div>
           }
         }
+        </div>
 
         @if (problems().length) {
           <ul class="ck-mono" style="font-size:10px; color:var(--ck-warn); margin:16px 0 0; padding-left:16px;">
@@ -551,6 +570,9 @@ export class NewSkillDialogComponent {
   readonly submitting = signal(false);
   readonly error = signal<string | null>(null);
   private readonly existing = signal<Skill | null>(null);
+  private readonly previousFocus = typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
 
   protected readonly inputStyle =
     'padding:7px 10px; font-size:11px; border-radius:4px; background:var(--ck-bg-inset);'
@@ -558,7 +580,7 @@ export class NewSkillDialogComponent {
   protected readonly areaStyle = this.inputStyle + ' resize:vertical;';
   protected readonly labelStyle =
     'font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);';
-  protected readonly noteStyle = 'font-size:9px; color:var(--ck-fg-5); line-height:1.5;';
+  protected readonly noteStyle = 'font-size:9px; color:var(--ck-fg-4); line-height:1.5;';
   protected readonly ghostStyle =
     'padding:6px 10px; border-radius:4px; font-size:10px; letter-spacing:0.14em;'
     + ' text-transform:uppercase; background:var(--ck-bg-inset); color:var(--ck-fg-3);'
@@ -779,6 +801,19 @@ export class NewSkillDialogComponent {
     this.step.set(step);
   }
 
+  onStepKey(event: KeyboardEvent, index: number): void {
+    const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    if (!delta && event.key !== 'Home' && event.key !== 'End') return;
+    event.preventDefault();
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? STEPS.length - 1
+        : (index + delta + STEPS.length) % STEPS.length;
+    this.goTo(STEPS[next]);
+    queueMicrotask(() => document.getElementById(`skill-step-${STEPS[next]}`)?.focus());
+  }
+
   next(): void {
     this.step.set(STEPS[Math.min(this.stepIndex() + 1, STEPS.length - 1)]);
   }
@@ -886,6 +921,15 @@ export class NewSkillDialogComponent {
 
   dismiss(): void {
     this.dismissed.emit();
+    queueMicrotask(() => {
+      if (this.previousFocus?.isConnected) this.previousFocus.focus();
+    });
+  }
+
+  @HostListener('document:keydown.escape', ['$event'])
+  onEscape(event: Event): void {
+    event.preventDefault();
+    this.dismiss();
   }
 
   value(event: Event): string {

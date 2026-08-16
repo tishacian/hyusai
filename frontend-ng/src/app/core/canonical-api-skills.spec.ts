@@ -24,6 +24,24 @@ function serviceFor(error: Error): CanonicalApiService {
   return injector.get(CanonicalApiService);
 }
 
+function systemsServiceFor(error: Error): CanonicalApiService {
+  const injector = Injector.create({
+    providers: [
+      CanonicalApiService,
+      {
+        provide: ApiService,
+        useValue: {
+          get: (path: string) => {
+            assert.equal(path, '/systems');
+            return throwError(() => error);
+          },
+        },
+      },
+    ],
+  });
+  return injector.get(CanonicalApiService);
+}
+
 test('listSkills keeps the backwards-compatible empty fallback by default', async () => {
   const skills = await firstValueFrom(serviceFor(new Error('offline')).listSkills());
   assert.deepEqual(skills, []);
@@ -33,6 +51,18 @@ test('listSkills can propagate transport errors to truth-sensitive catalogs', as
   const error = new Error('catalog offline');
   await assert.rejects(
     firstValueFrom(serviceFor(error).listSkills({ propagateErrors: true })),
+    error,
+  );
+});
+
+test('listSystems preserves fallback compatibility but can fail closed for Studio', async () => {
+  assert.deepEqual(
+    await firstValueFrom(systemsServiceFor(new Error('offline')).listSystems()),
+    [],
+  );
+  const error = new Error('systems unavailable');
+  await assert.rejects(
+    firstValueFrom(systemsServiceFor(error).listSystems({ propagateErrors: true })),
     error,
   );
 });

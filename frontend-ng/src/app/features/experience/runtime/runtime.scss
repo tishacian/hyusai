@@ -137,7 +137,7 @@
   border: 0;
   border-radius: 4px;
   background: var(--xp-accent, var(--xp-app-accent, var(--ck-signal-cool)));
-  color: var(--ck-on-signal, #0b1220);
+  color: var(--xp-on-accent, var(--ck-on-signal, #0b1220));
   font-family: var(--ck-font-sans);
   font-size: 13px;
   font-weight: 600;
@@ -164,8 +164,20 @@
   border: 1px solid var(--ck-stroke-3);
 }
 
+.xp-rt-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.xp-rt-table-scroll:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--xp-app-accent, var(--ck-signal-cool)) 55%, transparent);
+  outline-offset: 2px;
+}
+
 .xp-rt-table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -176,6 +188,8 @@
   text-align: left;
   border-bottom: 1px solid var(--ck-stroke-2);
   color: var(--ck-fg-2);
+  max-width: 24rem;
+  overflow-wrap: anywhere;
 }
 
 .xp-rt-table th {
@@ -184,18 +198,6 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-}
-
-.xp-rt-pre {
-  margin: 0;
-  padding: 10px;
-  overflow: auto;
-  background: var(--ck-bg-code);
-  border-radius: 4px;
-  color: var(--ck-fg-2);
-  font-family: var(--ck-font-mono);
-  font-size: 12px;
-  line-height: 1.45;
 }
 
 .xp-rt-kv {
@@ -213,6 +215,13 @@
 .xp-rt-kv dd {
   margin: 0;
   color: var(--ck-fg-1);
+  overflow-wrap: anywhere;
+}
+
+.xp-rt-result-value {
+  margin: 0;
+  color: var(--ck-fg-1);
+  overflow-wrap: anywhere;
 }
 
 .xp-rt-list {

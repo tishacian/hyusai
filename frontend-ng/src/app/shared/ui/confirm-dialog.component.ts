@@ -1,5 +1,7 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, computed, signal } from '@angular/core';
+import { A11yModule } from '@angular/cdk/a11y';
+import { ChangeDetectionStrategy, Component, EventEmitter, HostListener, Input, Output, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from './icon.component';
 
 /**
@@ -10,7 +12,7 @@ import { IconComponent } from './icon.component';
 @Component({
   selector: 'app-confirm-dialog',
   standalone: true,
-  imports: [FormsModule, IconComponent],
+  imports: [A11yModule, FormsModule, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (open) {
@@ -18,6 +20,12 @@ import { IconComponent } from './icon.component';
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" (click)="onCancel()"></div>
         <div
           class="relative ck-surface rounded-lg border border-white/10 shadow-elevated max-w-md w-full p-6 animate-slide-up"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="confirm-dialog-title"
+          [attr.aria-describedby]="description ? 'confirm-dialog-description' : null"
+          cdkTrapFocus
+          [cdkTrapFocusAutoCapture]="true"
           (click)="$event.stopPropagation()"
         >
           <div class="flex items-start gap-4">
@@ -29,19 +37,20 @@ import { IconComponent } from './icon.component';
               <app-icon [name]="icon" [size]="20" />
             </div>
             <div class="flex-1 min-w-0">
-              <h2 class="text-base font-semibold text-white mb-1">{{ title }}</h2>
+              <h2 id="confirm-dialog-title" class="text-base font-semibold text-white mb-1">{{ title }}</h2>
               @if (description) {
-                <p class="text-sm text-gray-400 leading-relaxed">{{ description }}</p>
+                <p id="confirm-dialog-description" class="text-sm text-gray-400 leading-relaxed">{{ description }}</p>
               }
             </div>
           </div>
 
           @if (confirmPhrase) {
             <div class="mt-5 space-y-2">
-              <label class="block text-xs text-gray-400">
-                Type <span class="font-mono font-semibold" [style.color]="'var(--ck-status-neg-fg)'">{{ confirmPhrase }}</span> to confirm:
+              <label for="confirm-dialog-phrase" class="block text-xs text-gray-400">
+                {{ i18n.t('common.type_to_confirm', { phrase: confirmPhrase }) }}
               </label>
               <input
+                id="confirm-dialog-phrase"
                 [(ngModel)]="typed"
                 type="text"
                 class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-red-500/60"
@@ -56,7 +65,7 @@ import { IconComponent } from './icon.component';
               (click)="onCancel()"
               class="px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded transition"
             >
-              {{ cancelLabel }}
+              {{ cancelLabel || i18n.t('common.cancel') }}
             </button>
             <button
               type="button"
@@ -67,7 +76,7 @@ import { IconComponent } from './icon.component';
               [style.background]="tone === 'danger' ? 'var(--ck-signal-neg)' : null"
               [style.color]="tone === 'danger' ? 'var(--ck-on-signal)' : null"
             >
-              {{ confirmLabel }}
+              {{ confirmLabel || i18n.t('common.confirm') }}
             </button>
           </div>
         </div>
@@ -76,11 +85,23 @@ import { IconComponent } from './icon.component';
   `,
 })
 export class ConfirmDialogComponent {
-  @Input() open: boolean = false;
+  readonly i18n = inject(I18nService);
+  private _open = false;
+  private previousFocus: HTMLElement | null = null;
+  @Input()
+  set open(value: boolean) {
+    if (value === this._open) return;
+    if (value && typeof document !== 'undefined') {
+      this.previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+    this._open = value;
+    if (!value) this.restoreFocus();
+  }
+  get open(): boolean { return this._open; }
   @Input({ required: true }) title!: string;
   @Input() description?: string;
-  @Input() confirmLabel: string = 'Confirm';
-  @Input() cancelLabel: string = 'Cancel';
+  @Input() confirmLabel = '';
+  @Input() cancelLabel = '';
   @Input() tone: 'danger' | 'brand' = 'brand';
   @Input() icon: string = 'alert-triangle';
   /** If set, user must type this exact phrase to enable the confirm button. */
@@ -106,5 +127,21 @@ export class ConfirmDialogComponent {
   onCancel(): void {
     this.cancel.emit();
     this.typed = '';
+  }
+
+  @HostListener('document:keydown.escape', ['$event'])
+  onEscape(event: Event): void {
+    if (!this.open) return;
+    event.preventDefault();
+    this.onCancel();
+  }
+
+  private restoreFocus(): void {
+    const target = this.previousFocus;
+    this.previousFocus = null;
+    if (!target) return;
+    queueMicrotask(() => {
+      if (target.isConnected) target.focus();
+    });
   }
 }

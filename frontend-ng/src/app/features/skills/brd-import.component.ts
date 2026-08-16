@@ -17,10 +17,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   EventEmitter,
+  HostListener,
   Output,
   inject,
   signal,
 } from '@angular/core';
+import { A11yModule } from '@angular/cdk/a11y';
 import { CanonicalApiService, type BrdImport } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { GlyphComponent } from '@app/shared/cockpit';
@@ -30,12 +32,17 @@ import { backendMessage, type SkillDraftSeed } from './new-skill-dialog.componen
   selector: 'app-brd-import',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent],
+  imports: [A11yModule, GlyphComponent],
   template: `
     <div class="fixed inset-0 z-50 flex items-start justify-center p-6 overflow-auto">
       <div class="absolute inset-0" style="background:var(--ck-scrim);" (click)="dismiss()"></div>
       <div
         class="relative ck-surface rounded-md"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="brd-import-title"
+        cdkTrapFocus
+        [cdkTrapFocusAutoCapture]="true"
         style="width:100%; max-width:820px; padding:24px 28px; border:1px solid var(--ck-stroke-strong);"
       >
         <div class="flex items-start justify-between gap-4" style="margin-bottom:14px;">
@@ -44,9 +51,9 @@ import { backendMessage, type SkillDraftSeed } from './new-skill-dialog.componen
               <ck-glyph name="ledger" [size]="12" />
               {{ i18n.t('skills.list.import') }}
             </div>
-            <h3 class="text-lg font-medium" style="color:var(--ck-fg-1); margin-top:6px;">
+            <h2 id="brd-import-title" class="text-lg font-medium" style="color:var(--ck-fg-1); margin-top:6px;">
               {{ i18n.t('skills.import.title') }}
-            </h3>
+            </h2>
             <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:4px; max-width:60ch;">
               {{ i18n.t('skills.import.description') }}
             </p>
@@ -56,15 +63,22 @@ import { backendMessage, type SkillDraftSeed } from './new-skill-dialog.componen
           </button>
         </div>
 
-        <label class="ck-mono inline-flex items-center" [style]="ghostStyle" style="cursor:pointer;">
+        <button
+          type="button"
+          class="ck-mono inline-flex items-center"
+          [style]="ghostStyle"
+          (click)="fileInput.click()"
+        >
           {{ i18n.t('skills.import.pick') }}
-          <input
-            type="file"
-            accept=".docx"
-            hidden
-            (change)="pick($event)"
-          />
-        </label>
+        </button>
+        <input
+          #fileInput
+          class="sr-only"
+          type="file"
+          accept=".docx"
+          [attr.aria-label]="i18n.t('skills.import.pick')"
+          (change)="pick($event)"
+        />
 
         @if (loading()) {
           <p class="ck-mono" [style]="noteStyle">{{ i18n.t('skills.import.parsing') }}</p>
@@ -178,13 +192,16 @@ export class BrdImportComponent {
   readonly loading = signal(false);
   readonly result = signal<BrdImport | null>(null);
   readonly failure = signal<string | null>(null);
+  private readonly previousFocus = typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
 
   protected readonly eyebrowStyle =
     'font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);';
   protected readonly sectionStyle =
     'display:block; font-size:9px; letter-spacing:0.16em; text-transform:uppercase;'
     + ' color:var(--ck-fg-4); margin-bottom:6px;';
-  protected readonly noteStyle = 'font-size:10px; color:var(--ck-fg-5); line-height:1.5;';
+  protected readonly noteStyle = 'font-size:10px; color:var(--ck-fg-4); line-height:1.5;';
   protected readonly refStyle =
     'font-size:10px; color:var(--ck-fg-3); min-width:44px; letter-spacing:0.08em;';
   protected readonly rowStyle =
@@ -234,6 +251,15 @@ export class BrdImportComponent {
 
   dismiss(): void {
     this.dismissed.emit();
+    queueMicrotask(() => {
+      if (this.previousFocus?.isConnected) this.previousFocus.focus();
+    });
+  }
+
+  @HostListener('document:keydown.escape', ['$event'])
+  onEscape(event: Event): void {
+    event.preventDefault();
+    this.dismiss();
   }
 }
 

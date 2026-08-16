@@ -150,6 +150,17 @@ export class ZoomContextService implements OnDestroy {
     );
   });
 
+  readonly experienceStudioV1Enabled = computed(() => {
+    const features = this.workspace.current()?.settings?.['features'];
+    return Boolean(
+      features
+      && typeof features === 'object'
+      && !Array.isArray(features)
+      && (features as Record<string, unknown>)['experience_v1'] === true
+      && (features as Record<string, unknown>)['experience_studio_v1'] !== false,
+    );
+  });
+
   private generation = 0;
   private rememberedFlowSystem: { slug: string; systemId: string | null } | null = null;
   private graphSubscription = new Subscription();

@@ -53,7 +53,7 @@ from app.services.experience.keys import (
 )
 
 SEED_ORIGIN = "090_xp_dual_run"
-RENDERER_VERSION = "certified-components-0.1.0"
+RENDERER_VERSION = "certified-components-0.2.0"
 FSE_TEMPLATE_ID = "fse_intervention_v1"
 CHAT_VARIANT = "chat_transverse_v1"
 

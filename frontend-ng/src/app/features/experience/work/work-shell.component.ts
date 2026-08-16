@@ -1,4 +1,14 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { NgComponentOutlet } from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  ViewChild,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, timer } from 'rxjs';
@@ -7,24 +17,27 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { type Run } from '@app/core/canonical-api.service';
-import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.component';
 import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
 import {
-  localizeDocument,
-  rendererPinMatches,
   textFallback,
   type ExperienceDocument,
 } from '../runtime/model';
+import {
+  experienceRenderer,
+  type CertifiedExperienceRenderer,
+} from '../runtime/renderer-registry';
 import { WorkApiService } from './work-api.service';
 import {
   canEditExperience,
   documentNeedsValidations,
+  isInternalWorkHref,
   liveHref,
-  pendingValidationOrigins,
   studioHref,
   workPageHref,
   workTheme,
   workLocales,
+  workEmblem,
+  workIdentity,
   type WorkResolve,
 } from './work-catalog';
 
@@ -35,18 +48,23 @@ const POLL_MS = 8000;
   selector: 'app-work-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, EmptyStateComponent, ExperienceRuntimeHostComponent],
+  imports: [RouterLink, NgComponentOutlet, EmptyStateComponent],
   styleUrl: './work.scss',
   template: `
     <div
       class="xp-work"
       [attr.data-theme]="theme().mode"
       [style.--xp-app-accent]="theme().accent || null"
+      [style.--xp-on-accent]="theme().onAccent || null"
     >
       <header class="xp-work-bar">
-        <div class="xp-work-brand">
-          <a routerLink="/work">{{ i18n.t('experience.work.back') }}</a>
-          <h1>{{ title() }}</h1>
+        <div class="xp-work-brand-cluster">
+          <span class="xp-work-app-icon" aria-hidden="true">{{ emblem() }}</span>
+          <div class="xp-work-brand">
+            <a routerLink="/work">{{ i18n.t('experience.work.back') }}</a>
+            <h1 id="work-app-title">{{ title() }}</h1>
+            @if (description()) { <p>{{ description() }}</p> }
+          </div>
         </div>
         @if (state() === 'ready') {
           <nav class="xp-work-nav" [attr.aria-label]="i18n.t('experience.work.pages')">
@@ -73,23 +91,33 @@ const POLL_MS = 8000;
         }
         <div class="xp-work-actions">
           @if (locales().length > 1) {
-            @for (locale of locales(); track locale) {
-              <button
-                type="button"
-                class="xp-work-btn"
-                [class.xp-work-btn-primary]="i18n.locale() === locale"
-                (click)="i18n.setLocale(locale)"
-              >
-                {{ i18n.t(locale === 'fr' ? 'experience.work.lang.fr' : 'experience.work.lang.en') }}
-              </button>
-            }
+            <span class="xp-work-locales" role="group" [attr.aria-label]="i18n.t('experience.work.lang.label')">
+              @for (locale of locales(); track locale) {
+                <button
+                  type="button"
+                  class="xp-work-btn"
+                  [attr.aria-pressed]="i18n.locale() === locale"
+                  [class.xp-work-btn-primary]="i18n.locale() === locale"
+                  (click)="i18n.setLocale(locale)"
+                >
+                  {{ i18n.t(locale === 'fr' ? 'experience.work.lang.fr' : 'experience.work.lang.en') }}
+                </button>
+              }
+            </span>
           }
           @if (canEdit()) {
             <a class="xp-work-link" [routerLink]="studioLink()">{{ i18n.t('experience.work.edit_studio') }}</a>
           }
         </div>
       </header>
-      <main class="xp-work-main">
+      <section
+        #workMain
+        class="xp-work-main"
+        tabindex="-1"
+        aria-labelledby="work-app-title"
+        [attr.aria-busy]="state() === 'loading'"
+      >
+        <p class="sr-only" role="status" aria-live="polite">{{ announcement() }}</p>
         @switch (state()) {
           @case ('loading') {
             <app-empty-state icon="sparkles" size="lg" [title]="i18n.t('common.loading')" />
@@ -117,12 +145,23 @@ const POLL_MS = 8000;
           @default {
             @if (activePage() === validationsPage) {
               <section class="xp-work-hitl" [attr.aria-label]="i18n.t('experience.work.validations')">
-                @if (pending().length === 0) {
+                @if (decisionError()) {
+                  <p class="xp-work-note" role="alert">{{ i18n.t('experience.work.validations.error') }}</p>
+                }
+                @if (validationState() === 'error') {
+                  <div class="xp-work-note" role="alert">
+                    <p>{{ i18n.t('experience.work.validations.load_error') }}</p>
+                    <button type="button" class="xp-work-btn" (click)="retryValidations()">
+                      {{ i18n.t('common.retry') }}
+                    </button>
+                  </div>
+                } @else if (validationState() === 'loading' && pending().length === 0) {
+                  <p class="xp-work-note" role="status">{{ i18n.t('experience.work.validations.loading') }}</p>
+                } @else if (pending().length === 0) {
                   <app-empty-state
                     icon="inbox"
                     size="md"
                     [title]="i18n.t('experience.work.validations.empty')"
-                    [description]="leftover() ? i18n.t('experience.work.validations.leftover') : undefined"
                   />
                 }
                 @for (run of pending(); track run.id) {
@@ -139,10 +178,20 @@ const POLL_MS = 8000;
                       ></textarea>
                     </label>
                     <div class="xp-work-hitl-actions">
-                      <button type="button" class="xp-work-btn xp-work-btn-primary" (click)="decide(run, 'accept')">
+                      <button
+                        type="button"
+                        class="xp-work-btn xp-work-btn-primary"
+                        [disabled]="decisionBusy().has(run.id)"
+                        (click)="decide(run, 'accept')"
+                      >
                         {{ i18n.t('experience.work.validations.approve') }}
                       </button>
-                      <button type="button" class="xp-work-btn" (click)="decide(run, 'reject')">
+                      <button
+                        type="button"
+                        class="xp-work-btn"
+                        [disabled]="decisionBusy().has(run.id)"
+                        (click)="decide(run, 'reject')"
+                      >
                         {{ i18n.t('experience.work.validations.refuse') }}
                       </button>
                     </div>
@@ -153,20 +202,21 @@ const POLL_MS = 8000;
                 }
               </section>
             } @else {
-              <app-experience-runtime-host
-                [document]="document()"
-                [pageId]="activePage()"
-                [experienceSlug]="slug()"
-                mode="live"
-              />
+              @if (renderer(); as selectedRenderer) {
+                <ng-container
+                  [ngComponentOutlet]="selectedRenderer.host"
+                  [ngComponentOutletInputs]="runtimeInputs()"
+                />
+              }
             }
           }
         }
-      </main>
+      </section>
     </div>
   `,
 })
 export class WorkShellComponent {
+  @ViewChild('workMain') private workMain?: ElementRef<HTMLElement>;
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly api = inject(WorkApiService);
@@ -181,23 +231,45 @@ export class WorkShellComponent {
   private readonly requestedPage = signal<string | null>(null);
   readonly state = signal<'loading' | 'ready' | 'missing' | 'unavailable'>('loading');
   readonly title = signal('');
+  readonly description = signal('');
+  readonly emblem = signal('A');
+  readonly renderer = signal<CertifiedExperienceRenderer | null>(null);
   readonly rawDocument = signal<unknown>({ pages: [] });
-  readonly document = computed<ExperienceDocument>(() =>
-    localizeDocument(this.rawDocument(), this.i18n.locale()),
-  );
-  readonly theme = signal<{ mode: 'light' | 'dark'; accent: string }>({ mode: 'light', accent: '' });
+  readonly document = computed<ExperienceDocument>(() => {
+    const renderer = this.renderer();
+    return renderer
+      ? renderer.localizeDocument(this.rawDocument(), this.i18n.locale())
+      : { pages: [] };
+  });
+  readonly runtimeInputs = computed<Record<string, unknown>>(() => ({
+    document: this.document(),
+    pageId: this.activePage(),
+    experienceSlug: this.slug(),
+    mode: 'live',
+  }));
+  readonly theme = signal<{ mode: 'light' | 'dark'; accent: string; onAccent: string }>({
+    mode: 'light',
+    accent: '',
+    onAccent: '',
+  });
   readonly activePage = signal<string | null>(null);
   readonly locales = signal<Locale[]>([]);
   readonly pending = signal<Run[]>([]);
+  readonly validationState = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
   readonly reasons = signal<Record<string, string>>({});
   readonly reasonError = signal<string | null>(null);
-  readonly leftover = signal(false);
   readonly showValidations = signal(false);
   readonly pinMismatch = signal(false);
   readonly experienceId = signal<string | null>(null);
+  readonly releaseId = signal<string | null>(null);
+  readonly releaseNumber = signal<number | null>(null);
+  readonly announcement = signal('');
+  readonly decisionBusy = signal<ReadonlySet<string>>(new Set());
+  readonly decisionError = signal(false);
 
   readonly canEdit = computed(() =>
-    canEditExperience(this.workspace.current()?.role_template, this.workspace.isAdmin()),
+    this.workspace.experienceStudioV1Enabled()
+    && canEditExperience(this.workspace.current()?.role_template, this.workspace.isAdmin()),
   );
 
   constructor() {
@@ -226,7 +298,12 @@ export class WorkShellComponent {
   }
 
   studioLink(): string {
-    return studioHref(this.experienceId());
+    const requested = this.activePage() ?? this.requestedPage();
+    const pageId = requested === VALIDATIONS ? null : requested;
+    const returnTo = this.slug()
+      ? workPageHref(this.slug(), requested)
+      : null;
+    return studioHref(this.experienceId(), pageId, returnTo, this.releaseId(), this.releaseNumber());
   }
 
   pageHref(pageId: string): string {
@@ -247,48 +324,79 @@ export class WorkShellComponent {
   }
 
   decide(run: Run, action: 'accept' | 'reject'): void {
+    if (this.decisionBusy().has(run.id)) return;
     const note = (this.reasons()[run.id] ?? '').trim();
     if (action === 'reject' && !note) {
       this.reasonError.set(run.id);
       return;
     }
+    const title = run.hitl?.decision_title || run.hitl?.prompt || this.i18n.t('experience.work.validations.item');
+    this.decisionBusy.update((current) => new Set([...current, run.id]));
+    this.decisionError.set(false);
     this.api.decide(run.id, action, note).subscribe((updated) => {
-      if (!updated) return;
+      this.decisionBusy.update((current) => {
+        const next = new Set(current);
+        next.delete(run.id);
+        return next;
+      });
+      if (!updated) {
+        this.decisionError.set(true);
+        this.announcement.set(this.i18n.t('experience.work.validations.error'));
+        return;
+      }
+      this.runtime.resumeAfterDecision(updated);
       this.pending.update((rows) => rows.filter((item) => item.id !== run.id));
+      this.announcement.set(
+        this.i18n.t(
+          action === 'accept'
+            ? 'experience.work.validations.approved'
+            : 'experience.work.validations.refused',
+          { title },
+        ),
+      );
+      queueMicrotask(() => {
+        const next = this.workMain?.nativeElement.querySelector<HTMLElement>('.xp-work-hitl article button');
+        (next ?? this.workMain?.nativeElement)?.focus();
+      });
     });
   }
 
   private open(body: WorkResolve): void {
-    const href = liveHref(body.release.theme) ?? liveHref(body.experience.theme);
-    if (href && href !== `/work/${body.experience.slug}`) {
-      void this.router.navigateByUrl(href);
-      return;
-    }
     this.experienceId.set(body.experience.id);
-    const document = localizeDocument(body.release.pages, this.i18n.locale());
-    this.title.set(body.experience.name);
-    if (document.pages.length === 0) {
-      this.state.set('unavailable');
-      return;
-    }
-    if (!rendererPinMatches(body.release.renderer_version)) {
+    this.releaseId.set(body.release.id);
+    this.releaseNumber.set(body.release.release_number ?? null);
+    const identity = workIdentity(body.experience, body.release);
+    this.title.set(identity.name);
+    this.description.set(identity.description);
+    this.emblem.set(workEmblem(identity));
+    const renderer = experienceRenderer(body.release.renderer_version);
+    if (!renderer) {
       this.pinMismatch.set(true);
       this.rawDocument.set(body.release.pages);
       this.state.set('unavailable');
       return;
     }
+    const href = liveHref(body.release.theme) ?? liveHref(body.experience.theme);
+    if (href && !isInternalWorkHref(href, body.experience.slug)) {
+      void this.router.navigateByUrl(href);
+      return;
+    }
+    const document = renderer.localizeDocument(body.release.pages, this.i18n.locale());
+    if (document.pages.length === 0) {
+      this.state.set('unavailable');
+      return;
+    }
     const locales = workLocales(body.release.languages ?? body.experience.languages);
     if (locales.length === 1) this.i18n.setLocale(locales[0]!);
-    const origins = pendingValidationOrigins(body.release.bindings_snapshot, body.experience.slug);
     const needsQueue = documentNeedsValidations(document.pages, body.experience.pattern);
+    this.renderer.set(renderer);
     this.rawDocument.set(body.release.pages);
     this.theme.set(workTheme(body.release.theme ?? body.experience.theme));
     this.locales.set(locales);
     this.showValidations.set(needsQueue);
-    this.leftover.set(needsQueue && origins.length === 0);
     this.state.set('ready');
     this.activateRequestedPage(true);
-    this.watchValidations(origins, needsQueue);
+    this.watchValidations(body.experience.slug, needsQueue);
   }
 
   private activateRequestedPage(replaceInvalid: boolean): void {
@@ -303,29 +411,45 @@ export class WorkShellComponent {
           ? requested!
           : first;
     this.activePage.set(active);
+    const page = pages.find((item) => item.id === active);
+    this.announcement.set(
+      active === VALIDATIONS
+        ? this.i18n.t('experience.work.validations')
+        : page ? this.pageTitle(page.title) : '',
+    );
+    queueMicrotask(() => this.workMain?.nativeElement.focus());
     if (replaceInvalid && requested !== active) {
       void this.router.navigateByUrl(workPageHref(this.slug(), active), { replaceUrl: true });
     }
   }
 
-  private watchValidations(origins: string[], needsQueue: boolean): void {
+  private watchValidations(slug: string, needsQueue: boolean): void {
     this.validationWatch?.unsubscribe();
     this.validationWatch = null;
-    if (!needsQueue && origins.length === 0) return;
+    if (!needsQueue) {
+      this.validationState.set('idle');
+      return;
+    }
+    this.validationState.set('loading');
     this.validationWatch = timer(0, POLL_MS)
       .pipe(
-        switchMap(() => this.api.listPendingValidations(origins)),
+        switchMap(() => this.api.listPendingValidations(slug)),
         takeUntilDestroyed(this.destroy),
       )
-      .subscribe((rows) => {
-        const current = this.runtime.runs().find((run) => run.status === 'hitl_pending');
-        const merged = [...rows];
-        if (current?.status === 'hitl_pending' && !merged.some((item) => item.id === current.id)) {
-          merged.unshift(current);
+      .subscribe((result) => {
+        if (result.kind !== 'ok') {
+          this.validationState.set('error');
+          return;
         }
-        this.pending.set(merged);
-        if (merged.length > 0) this.showValidations.set(true);
+        this.pending.set(result.items);
+        this.validationState.set('ready');
+        if (result.items.length > 0) this.showValidations.set(true);
       });
+  }
+
+  retryValidations(): void {
+    if (!this.slug() || !this.showValidations()) return;
+    this.watchValidations(this.slug(), true);
   }
 
   private resetExperienceState(): void {
@@ -333,15 +457,23 @@ export class WorkShellComponent {
     this.validationWatch = null;
     this.runtime.reset();
     this.pending.set([]);
+    this.validationState.set('idle');
     this.reasons.set({});
     this.reasonError.set(null);
+    this.announcement.set('');
+    this.decisionBusy.set(new Set());
+    this.decisionError.set(false);
     this.showValidations.set(false);
-    this.leftover.set(false);
     this.pinMismatch.set(false);
     this.experienceId.set(null);
+    this.releaseId.set(null);
+    this.releaseNumber.set(null);
+    this.description.set('');
+    this.emblem.set('A');
+    this.renderer.set(null);
     this.rawDocument.set({ pages: [] });
     this.activePage.set(null);
     this.locales.set([]);
-    this.theme.set({ mode: 'light', accent: '' });
+    this.theme.set({ mode: 'light', accent: '', onAccent: '' });
   }
 }

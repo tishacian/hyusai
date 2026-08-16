@@ -507,3 +507,15 @@ test('pressing again after a failed turn does not open a second room', async () 
     injector.destroy();
   }
 });
+
+test('the NAWA transcript announces appended turns and its pending state', () => {
+  const source = readFileSync(
+    'src/app/features/nawa/nawa-assistant.component.ts',
+    'utf8',
+  );
+  assert.match(source, /class="as-transcript"[\s\S]{0,180}role="log"/);
+  assert.match(source, /aria-live="polite"/);
+  assert.match(source, /aria-relevant="additions text"/);
+  assert.match(source, /\[attr\.aria-busy\]="pending\(\)"/);
+  assert.match(source, /class="as-pending" role="status"/);
+});

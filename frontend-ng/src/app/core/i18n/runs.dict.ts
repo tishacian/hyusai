@@ -21,8 +21,16 @@ export const RUNS_FR = {
   'runs.list.description':
     "Chaque exécution est un Run : son entrée, son résultat, sa trace de skills. Cliquez une ligne pour l'ouvrir.",
   'runs.list.filter.all': 'Tous les statuts',
+  'runs.list.filter.experience': 'Application',
+  'runs.list.filter.experience.placeholder': 'adresse de l’application',
+  'runs.list.filter.experience.invalid':
+    "Saisissez l’adresse courte de l’application, par exemple nawa-reset.",
+  'runs.list.filter.apply': 'Filtrer',
+  'runs.list.filter.clear': 'Effacer',
   'runs.list.empty.title': 'Aucune exécution',
   'runs.list.empty.description': 'Déclenchez une exécution depuis un Système pour remplir cette liste.',
+  'runs.list.empty.experience_description':
+    'Aucune exécution ne provient de cette application avec les filtres actuels.',
   'runs.list.column.identity': 'ID · Système',
   'runs.list.column.status': 'Statut',
   'runs.list.column.started': 'Démarré',
@@ -140,8 +148,16 @@ export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
   'runs.list.description':
     'Every execution is a Run: its input, its outcome, its skill trail. Click a row to open it.',
   'runs.list.filter.all': 'All statuses',
+  'runs.list.filter.experience': 'Application',
+  'runs.list.filter.experience.placeholder': 'application address',
+  'runs.list.filter.experience.invalid':
+    'Enter the short application address, for example nawa-reset.',
+  'runs.list.filter.apply': 'Filter',
+  'runs.list.filter.clear': 'Clear',
   'runs.list.empty.title': 'No runs yet',
   'runs.list.empty.description': 'Trigger a run from a System to populate this list.',
+  'runs.list.empty.experience_description':
+    'No runs originate from this application with the current filters.',
   'runs.list.column.identity': 'ID · System',
   'runs.list.column.status': 'Status',
   'runs.list.column.started': 'Started',

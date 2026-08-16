@@ -40,6 +40,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       [open]="overlay.isOpen()"
       (openChange)="onOpenChange($event)"
       position="side"
+      [modal]="true"
       [eyebrow]="i18n.t('titlebar.chat.tooltip')"
       [title]="title()"
       [width]="panelWidth()"

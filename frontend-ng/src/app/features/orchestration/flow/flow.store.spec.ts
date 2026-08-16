@@ -346,6 +346,38 @@ test('undo/redo + connect/disconnect behave as single steps', () => {
   assert.equal(store.edgeCount(), 1);
 });
 
+test('accessible outline reorder shares canonical order and one undo frame with the canvas', () => {
+  const store = makeStore();
+  store.load(passthroughFlow());
+  store.setSelection('middle');
+  const revision = store.revision();
+  const edges = store.snapshot().edges;
+
+  store.reorderNode('middle', 1);
+
+  assert.deepEqual(store.nodes().map((node) => node.id), [
+    'upstream',
+    'downstream',
+    'middle',
+  ]);
+  assert.deepEqual(store.edges(), edges, 'presentation order never rewires execution');
+  assert.equal(store.selectedNodeId(), 'middle');
+  assert.equal(store.revision(), revision + 1);
+  assert.equal(store.dirty(), true);
+
+  store.undo();
+  assert.deepEqual(store.nodes().map((node) => node.id), [
+    'upstream',
+    'middle',
+    'downstream',
+  ]);
+  assert.equal(store.selectedNodeId(), 'middle');
+
+  const afterUndo = store.revision();
+  store.reorderNode('upstream', -1);
+  assert.equal(store.revision(), afterUndo, 'boundary moves are no-ops');
+});
+
 test('task deletion cuts incident routes and undo restores the exact graph atomically', () => {
   const store = makeStore();
   store.load(passthroughFlow());

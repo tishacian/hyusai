@@ -6,21 +6,6 @@
 
   <div class="xp-hub">
     @if (canEdit()) {
-    <form class="xp-composer" (submit)="$event.preventDefault()">
-      <span class="xp-composer-glyph" aria-hidden="true">
-        <ck-glyph name="focus" [size]="16" />
-      </span>
-      <input
-        type="text"
-        disabled
-        [placeholder]="i18n.t('experience.hub.composer.placeholder')"
-        [attr.aria-label]="i18n.t('experience.hub.composer.placeholder')"
-      />
-      <button type="button" class="xp-composer-submit" disabled [title]="i18n.t('experience.hub.composer.soon')">
-        {{ i18n.t('experience.hub.composer.submit') }}
-      </button>
-    </form>
-
     <div class="xp-intents">
       @for (intent of intents; track intent.route) {
         <article class="xp-card">
@@ -61,7 +46,20 @@
 
     <section class="xp-resume" [attr.aria-label]="i18n.t('experience.hub.resume.title')">
       <h2 class="xp-section-title">{{ i18n.t('experience.hub.resume.title') }}</h2>
-      @if (recentApps().length === 0) {
+      @if (recentState() === 'loading') {
+        <app-empty-state icon="sparkles" size="sm" [title]="i18n.t('common.loading')" />
+      } @else if (recentState() === 'error') {
+        <app-empty-state
+          icon="alert-triangle"
+          size="sm"
+          [title]="i18n.t('experience.work.unavailable.title')"
+          [description]="i18n.t('experience.work.unavailable.body')"
+        >
+          <button type="button" class="xp-card-cta xp-link-button" (click)="loadRecent()">
+            {{ i18n.t('common.retry') }}
+          </button>
+        </app-empty-state>
+      } @else if (recentApps().length === 0) {
         <app-empty-state
           icon="inbox"
           size="sm"
@@ -81,8 +79,10 @@
           }
         </ul>
       }
-      <p class="xp-resume-note">{{ i18n.t('experience.hub.resume.note') }}</p>
-      <a routerLink="/create/apps" class="xp-preview-link">{{ i18n.t('experience.hub.resume.all') }}</a>
+      @if (recentState() === 'ready') {
+        <p class="xp-resume-note">{{ i18n.t('experience.hub.resume.note') }}</p>
+        <a routerLink="/create/apps" class="xp-preview-link">{{ i18n.t('experience.hub.resume.all') }}</a>
+      }
     </section>
 
     <section class="xp-articulation" [attr.aria-label]="i18n.t('experience.hub.articulation.title')">

@@ -150,6 +150,24 @@
   scrollbar-gutter: stable;
 }
 
+.ck-flow-palette__ranked {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ck-flow-palette__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .ck-flow-palette__list {
   display: flex;
   flex-direction: column;

@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { FLOW_EN } from '@app/core/i18n/flow.dict';
+import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
+import { outlineSourceOptions, outlineTargetOptions } from './flow-outline.vm';
 
 function source(name: string): string {
   return readFileSync(
@@ -169,6 +171,78 @@ test('the runtime manifest is collapsed until asked for and the empty canvas off
     /startFromPalette\(\): void \{[\s\S]*?this\.paletteOpen\.set\(true\)/,
     'the call to action opens the one surface that can place a node',
   );
+});
+
+test('canvas and accessible outline are synchronized FlowStore projections', () => {
+  const builder = source('flow-builder.component.ts');
+  const outline = source('flow-outline.component.ts');
+  const toolbar = source('flow-toolbar.component.ts');
+
+  assert.match(builder, /surfaceMode = signal<'canvas' \| 'outline'>\('canvas'\)/);
+  assert.match(builder, /<app-flow-canvas[\s\S]*?<app-flow-outline/);
+  assert.match(builder, /\[hidden\]="surfaceMode\(\) !== 'canvas'"/);
+  assert.match(builder, /\[hidden\]="surfaceMode\(\) !== 'outline'"/);
+  assert.match(builder, /\(inspectNode\)="onOutlineInspect\(\$event\)"/);
+  assert.match(outline, /this\.store\.setSelection\(nodeId\)/);
+  assert.match(outline, /this\.store\.reorderNode\(nodeId, direction\)/);
+  assert.match(outline, /this\.store\.patchNode\(node\.id, \{ position:/);
+  assert.match(outline, /this\.store\.connect\(edge\)/);
+  assert.match(outline, /this\.store\.disconnect\(edge\)/);
+  assert.match(outline, /aria-keyshortcuts="ArrowUp ArrowDown Home End Alt\+ArrowUp Alt\+ArrowDown"/);
+  assert.match(outline, /role="status" aria-live="polite"/);
+  assert.match(toolbar, /canvasControlsDisabled = computed/);
+  assert.equal(FLOW_EN['flow.builder.view.outline'], 'Accessible outline');
+});
+
+test('outline connector picker mirrors rendered ports and filters self-loops and primitive mismatches', () => {
+  const nodes: CanonicalFlowNode[] = [
+    {
+      id: 'source',
+      type: 'source',
+      kind: 'source',
+      label: 'Request',
+      outputs: [{ name: 'text', schema: 'string' }],
+    },
+    {
+      id: 'same',
+      type: 'task',
+      kind: 'task',
+      label: 'Same node',
+      inputs: [{ name: 'text', schema: 'string' }],
+      outputs: [{ name: 'text', schema: 'string' }],
+    },
+    {
+      id: 'object-target',
+      type: 'task',
+      kind: 'task',
+      inputs: [{ name: 'payload', schema: 'object' }],
+    },
+    { id: 'implicit-target', type: 'task', kind: 'task', label: 'Implicit' },
+  ];
+
+  assert.deepEqual(
+    outlineSourceOptions(nodes).map((option) => option.id),
+    ['source::out::text', 'same::out::text', 'object-target::out::_', 'implicit-target::out::_'],
+  );
+  assert.deepEqual(
+    outlineTargetOptions(nodes, 'same::out::text').map((option) => option.id),
+    ['implicit-target::in::_'],
+    'the originating node and object input are excluded while an implicit input remains usable',
+  );
+});
+
+test('palette search exposes one real combobox/listbox active-descendant contract', () => {
+  const palette = source('flow-palette.component.ts');
+  assert.match(palette, /role="combobox"/);
+  assert.match(palette, /aria-autocomplete="list"/);
+  assert.match(palette, /\[attr\.aria-controls\]="rankedMode\(\) \? 'flow-palette-search-results' : null"/);
+  assert.match(palette, /\[attr\.aria-activedescendant\]="activeOptionId\(\)"/);
+  assert.match(palette, /id="flow-palette-search-results"[\s\S]*?role="listbox"/);
+  assert.match(palette, /\[attr\.role\]="comboboxOption \? 'option' : null"/);
+  assert.match(palette, /\[attr\.aria-selected\]="comboboxOption \? !!active : null"/);
+  assert.match(palette, /event\.key === 'Home'/);
+  assert.match(palette, /event\.key === 'End'/);
+  assert.ok(FLOW_EN['flow.palette.search.results.aria']);
 });
 
 test('builder focus mode has a native-fullscreen path and a CSS fallback', () => {

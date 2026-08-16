@@ -35,6 +35,7 @@ class WorkspaceStub {
   contextEpoch = () => this.epoch;
   current = () => ({ settings: {} });
   experienceV1Enabled = () => false;
+  experienceStudioV1Enabled = () => false;
 
   captureRequestScope(): WorkspaceRequestScope {
     return Object.freeze({ workspaceSlug: this.slug, workspaceId: `workspace-${this.slug}`, epoch: this.epoch });

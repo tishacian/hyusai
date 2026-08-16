@@ -42,6 +42,7 @@ import {
   FlowCanvasComponent,
   type ConnectFromHandleEvent,
 } from './flow-canvas.component';
+import { FlowOutlineComponent } from './flow-outline.component';
 import { FlowInspectorComponent } from './flow-inspector.component';
 import { FlowPaletteComponent } from './flow-palette.component';
 import { FlowToolbarComponent } from './flow-toolbar.component';
@@ -104,6 +105,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     RouterLink,
     IconComponent,
     FlowCanvasComponent,
+    FlowOutlineComponent,
     FlowInspectorComponent,
     FlowPaletteComponent,
     FlowToolbarComponent,
@@ -158,6 +160,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
         [compact]="toolbarCompact()"
         [workbenchOpen]="workbenchOpen()"
         [workbenchAvailable]="!!systemId()"
+        [canvasActive]="surfaceMode() === 'canvas'"
         [hydrationReady]="persistence.hydrationReady()"
         (undo)="store.undo()"
         (redo)="store.redo()"
@@ -297,35 +300,83 @@ const PUBLICATION_HYDRATION_CODES = new Set([
             />
           }
 
-          <div class="flow-builder__canvas">
-            <app-flow-canvas (connectFromHandle)="onConnectFromHandle($event)" />
-            @if (store.nodeCount() === 0) {
-              <!-- First-Flow guide. The three steps are the shape of every Flow,
-                   named in the words the palette uses, so the empty canvas
-                   teaches the model instead of only inviting a click. -->
-              <div class="flow-builder__canvas-empty">
-                <app-empty-state
-                  icon="git-branch"
-                  size="lg"
-                  [title]="i18n.t('flow.builder.empty.title')"
-                  [description]="i18n.t('flow.builder.empty.body')"
+          <div class="flow-builder__surface">
+            @if (!focusMode()) {
+              <div
+                class="flow-builder__view-switch"
+                role="group"
+                [attr.aria-label]="i18n.t('flow.builder.view.aria')"
+              >
+                <button
+                  id="flow-builder-view-canvas"
+                  type="button"
+                  [attr.aria-pressed]="surfaceMode() === 'canvas'"
+                  [class.is-active]="surfaceMode() === 'canvas'"
+                  aria-controls="flow-builder-canvas"
+                  (click)="setSurfaceMode('canvas')"
                 >
-                  <ol class="flow-builder__canvas-empty-steps">
-                    <li>{{ i18n.t('flow.builder.empty.step1') }}</li>
-                    <li>{{ i18n.t('flow.builder.empty.step2') }}</li>
-                    <li>{{ i18n.t('flow.builder.empty.step3') }}</li>
-                  </ol>
-                  <button
-                    type="button"
-                    class="flow-builder__canvas-empty-cta"
-                    (click)="startFromPalette()"
-                  >
-                    <app-icon name="plus" [size]="14" />
-                    <span>{{ i18n.t('flow.builder.empty.cta') }}</span>
-                  </button>
-                </app-empty-state>
+                  {{ i18n.t('flow.builder.view.canvas') }}
+                </button>
+                <button
+                  id="flow-builder-view-outline"
+                  type="button"
+                  [attr.aria-pressed]="surfaceMode() === 'outline'"
+                  [class.is-active]="surfaceMode() === 'outline'"
+                  aria-controls="flow-builder-outline"
+                  (click)="setSurfaceMode('outline')"
+                >
+                  {{ i18n.t('flow.builder.view.outline') }}
+                </button>
               </div>
             }
+
+            <div
+              id="flow-builder-canvas"
+              class="flow-builder__canvas"
+              role="region"
+              [attr.aria-labelledby]="!focusMode() ? 'flow-builder-view-canvas' : null"
+              [attr.aria-label]="focusMode() ? i18n.t('flow.builder.view.canvas') : null"
+              [hidden]="surfaceMode() !== 'canvas'"
+            >
+              <app-flow-canvas (connectFromHandle)="onConnectFromHandle($event)" />
+              @if (store.nodeCount() === 0) {
+                <!-- First-Flow guide. The three steps are the shape of every Flow,
+                     named in the words the palette uses, so the empty canvas
+                     teaches the model instead of only inviting a click. -->
+                <div class="flow-builder__canvas-empty">
+                  <app-empty-state
+                    icon="git-branch"
+                    size="lg"
+                    [title]="i18n.t('flow.builder.empty.title')"
+                    [description]="i18n.t('flow.builder.empty.body')"
+                  >
+                    <ol class="flow-builder__canvas-empty-steps">
+                      <li>{{ i18n.t('flow.builder.empty.step1') }}</li>
+                      <li>{{ i18n.t('flow.builder.empty.step2') }}</li>
+                      <li>{{ i18n.t('flow.builder.empty.step3') }}</li>
+                    </ol>
+                    <button
+                      type="button"
+                      class="flow-builder__canvas-empty-cta"
+                      (click)="startFromPalette()"
+                    >
+                      <app-icon name="plus" [size]="14" />
+                      <span>{{ i18n.t('flow.builder.empty.cta') }}</span>
+                    </button>
+                  </app-empty-state>
+                </div>
+              }
+            </div>
+
+            <app-flow-outline
+              id="flow-builder-outline"
+              class="flow-builder__outline"
+              role="region"
+              aria-labelledby="flow-builder-view-outline"
+              [hidden]="surfaceMode() !== 'outline'"
+              [editingLocked]="persistence.actionsDisabled()"
+              (inspectNode)="onOutlineInspect($event)"
+            />
           </div>
 
           @if (inspectorOpen() && !focusMode()) {
@@ -484,6 +535,7 @@ export class FlowBuilderComponent {
   protected readonly system = signal<System | null>(null);
   protected readonly paletteOpen = signal(true);
   protected readonly inspectorOpen = signal(false);
+  protected readonly surfaceMode = signal<'canvas' | 'outline'>('canvas');
   protected readonly focusMode = signal(false);
   protected readonly toolbarCompact = signal(false);
   protected readonly workbenchOpen = signal(false);
@@ -766,6 +818,19 @@ export class FlowBuilderComponent {
     this.scheduleCanvasFit();
   }
 
+  /** Canvas and Outline are two projections of the same FlowStore. Switching
+   * only changes presentation; selection, history and graph edits remain live. */
+  protected setSurfaceMode(mode: 'canvas' | 'outline'): void {
+    if (this.surfaceMode() === mode) return;
+    this.surfaceMode.set(mode);
+    if (mode === 'canvas') this.scheduleCanvasFit();
+  }
+
+  protected onOutlineInspect(nodeId: string): void {
+    this.store.setSelection(nodeId);
+    this.inspectorOpen.set(true);
+  }
+
   /** Empty-canvas call to action: bring the author back to the one surface
    *  that can put a node down, whatever state the shell was left in. */
   protected startFromPalette(): void {
@@ -839,6 +904,7 @@ export class FlowBuilderComponent {
     }
 
     this.handleMenu.set(null);
+    this.surfaceMode.set('canvas');
     this.focusMode.set(true);
     this.scheduleCanvasFit();
     if (typeof root.requestFullscreen !== 'function') return;

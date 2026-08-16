@@ -4,7 +4,11 @@
  * both call this; nothing here talks to Angular or HTTP.
  */
 
-import type { ExperienceDocument, ExperienceNode } from './model';
+import {
+  formSchemaSupported,
+  type ExperienceDocument,
+  type ExperienceNode,
+} from './model';
 
 export interface ContractIngress {
   ingress_id: string;
@@ -19,6 +23,23 @@ export interface SystemHomeLabels {
   missingEntry: string;
   approvalTitle: string;
   approvalBody: string;
+}
+
+/** Keep a generated Home document aligned when its immutable binding key changes. */
+export function remapSystemHomeBinding(
+  document: ExperienceDocument,
+  previousKey: string,
+  nextKey: string,
+): ExperienceDocument {
+  return {
+    ...document,
+    pages: document.pages.map((page) => ({
+      ...page,
+      components: page.components.map((node) => node.props?.['bindingKey'] === previousKey
+        ? { ...node, props: { ...node.props, bindingKey: nextKey } }
+        : node),
+    })),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -41,6 +62,17 @@ export function firstManualIngress(contract: unknown): ContractIngress | null {
     };
   }
   return null;
+}
+
+export type SystemHomeBlocker = 'missing-manual-ingress' | 'unsupported-input-schema';
+
+/** Explain why the one-click Home cannot produce a publishable no-code app. */
+export function systemHomeBlocker(contract: unknown): SystemHomeBlocker | null {
+  const ingress = firstManualIngress(contract);
+  if (!ingress) return 'missing-manual-ingress';
+  return formSchemaSupported(
+    ingress.input_schema ?? { type: 'object', properties: {} },
+  ) ? null : 'unsupported-input-schema';
 }
 
 export function hasHitlHint(
@@ -76,12 +108,15 @@ function headedSlug(name: string): string {
 }
 
 export function uniqueSlug(name: string, nonce: string): string {
-  return `${headedSlug(name)}-${nonce}`.slice(0, 120);
+  const suffix = `-${slugify(nonce).slice(-32) || 'x'}`;
+  return `${headedSlug(name).slice(0, 120 - suffix.length)}${suffix}`;
 }
 
 export function uniqueBindingKey(name: string, ingressId: string, nonce: string): string {
   const ingress = slugify(ingressId).replace(/-/g, '.') || 'submit';
-  return `home.${headedSlug(name)}.${ingress}.${nonce}`.slice(0, 120);
+  const suffix = `.${slugify(nonce).slice(-32) || 'x'}`;
+  const prefix = `home.${headedSlug(name)}.${ingress}`;
+  return `${prefix.slice(0, 120 - suffix.length)}${suffix}`;
 }
 
 export function compileSystemHome(input: {

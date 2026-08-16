@@ -43,18 +43,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
     SemanticZoomBreadcrumbComponent,
   ],
   template: `
-    <header
-      [style.position]="'relative'"
-      [style.zIndex]="40"
-      [style.height.px]="48"
-      [style.display]="'flex'"
-      [style.alignItems]="'center'"
-      [style.padding]="'0 14px'"
-      [style.background]="'var(--ck-bg-base)'"
-      [style.borderBottom]="'1px solid var(--ck-stroke-2)'"
-      [style.color]="'var(--ck-fg-1)'"
-      [style.gap.px]="14"
-    >
+    <header class="tb">
       <!-- Brand cluster. A white-labelled workspace carries its own identity
            here and the emblem returns to its business app; the platform
            navigation and its vocabulary are unchanged either way. -->
@@ -93,28 +82,29 @@ const THEME_ICONS: Record<ThemeMode, string> = {
         </div>
       }
 
-      <span class="ck-hairline-v" [style.height.px]="22" [style.flex]="'0 0 auto'"></span>
+      <span class="ck-hairline-v tb-divider tb-divider-brand" [style.height.px]="22" [style.flex]="'0 0 auto'"></span>
 
       <!-- Semantic zoom breadcrumb -->
-      <div [style.flex]="'1 1 auto'" [style.minWidth]="'0'" [style.overflow]="'hidden'">
+      <div class="tb-breadcrumb">
         <app-semantic-zoom-breadcrumb />
       </div>
 
       <!-- Readouts -->
-      <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="18" [style.flex]="'0 0 auto'">
+      <div class="tb-readouts">
         <ck-stat-readout label="THRPT"   [value]="thrpt()"   [tone]="hasTelemetry() ? 'cool' : 'neutral'"   [size]="12" align="end" />
         <ck-stat-readout label="LATENCY" [value]="latency()" [tone]="hasTelemetry() ? 'pos' : 'neutral'"    [size]="12" align="end" />
         <ck-stat-readout label="YIELD"   [value]="outputYield()" [tone]="hasTelemetry() ? 'violet' : 'neutral'" [size]="12" align="end" />
         <ck-live-dot [tone]="hasTelemetry() ? 'pos' : 'neutral'" [label]="hasTelemetry() ? 'Live' : 'Idle'" />
       </div>
 
-      <span class="ck-hairline-v" [style.height.px]="22" [style.flex]="'0 0 auto'"></span>
+      <span class="ck-hairline-v tb-divider tb-divider-telemetry" [style.height.px]="22" [style.flex]="'0 0 auto'"></span>
 
       <!-- Chat overlay trigger (Vague D / D0) — omnipresent chat entry
            point. Matches ⌘J global shortcut so operators never wonder
            where the playground went: icon stays in view on every route. -->
       <button
         type="button"
+        class="tb-icon-action"
         (click)="openChat()"
         [style.background]="chatOverlay.isOpen() ? 'var(--ck-bg-panel-hi)' : 'transparent'"
         [style.border]="'1px solid var(--ck-stroke-2)'"
@@ -135,6 +125,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       <!-- Theme switch: cycles system → light → dark. -->
       <button
         type="button"
+        class="tb-icon-action"
         data-testid="titlebar-theme-toggle"
         (click)="cycleTheme()"
         [style.background]="'transparent'"
@@ -154,11 +145,18 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       </button>
 
       <!-- Workspace switcher -->
-      <div [style.position]="'relative'" (click)="$event.stopPropagation()">
+      <div class="tb-menu tb-workspace" (click)="$event.stopPropagation()">
         <button
+          id="tb-workspace-toggle"
           type="button"
+          class="tb-workspace-toggle"
           data-testid="workspace-switcher-toggle"
           (click)="toggleWorkspaceMenu($event)"
+          [attr.aria-label]="i18n.t('titlebar.workspace') + ' · ' + (workspaceService.current()?.name || i18n.t('titlebar.workspace.none'))"
+          [attr.aria-expanded]="workspaceMenuOpen()"
+          aria-haspopup="dialog"
+          aria-controls="tb-workspace-popover"
+          (keydown.arrowdown)="openWorkspaceMenu($event)"
           [style.display]="'inline-flex'"
           [style.alignItems]="'center'"
           [style.gap.px]="8"
@@ -169,7 +167,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
           [style.borderRadius.px]="4"
           [style.color]="'var(--ck-fg-2)'"
           [style.cursor]="'pointer'"
-          [title]="workspaceService.current()?.name || 'Workspace'"
+          [title]="workspaceService.current()?.name || i18n.t('titlebar.workspace')"
         >
           @if (workspaceService.current(); as ws) {
             <span
@@ -185,7 +183,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
               [style.background]="'var(--ck-signal-cool)'"
             >{{ workspaceInitial(ws.name) }}</span>
             <span
-              class="ck-mono"
+              class="ck-mono tb-workspace-name"
               [style.fontSize.px]="11"
               [style.letterSpacing]="'0.04em'"
               [style.maxWidth.px]="160"
@@ -195,17 +193,16 @@ const THEME_ICONS: Record<ThemeMode, string> = {
               [style.color]="'var(--ck-fg-1)'"
             >{{ ws.name }}</span>
           } @else {
-            <span class="ck-mono" [style.fontSize.px]="10" [style.color]="'var(--ck-fg-3)'">No workspace</span>
+            <span class="ck-mono" [style.fontSize.px]="10" [style.color]="'var(--ck-fg-3)'">{{ i18n.t('titlebar.workspace.none') }}</span>
           }
-          <ck-glyph name="arrow-down" [size]="10" color="var(--ck-fg-4)" />
+          <ck-glyph class="tb-workspace-arrow" name="arrow-down" [size]="10" color="var(--ck-fg-4)" />
         </button>
 
         @if (workspaceMenuOpen()) {
           <div
-            [style.position]="'absolute'"
-            [style.top]="'calc(100% + 6px)'"
-            [style.right]="'0'"
-            [style.minWidth.px]="280"
+            id="tb-workspace-popover"
+            role="dialog"
+            [attr.aria-label]="i18n.t('titlebar.workspaces')"
             [style.maxHeight.px]="420"
             [style.overflowY]="'auto'"
             [style.background]="'var(--ck-bg-panel-hi)'"
@@ -214,9 +211,10 @@ const THEME_ICONS: Record<ThemeMode, string> = {
             [style.boxShadow]="'var(--ck-shadow-popover)'"
             [style.zIndex]="60"
             [style.padding]="'6px'"
-            class="ck-scroll"
+            data-testid="workspace-switcher-popover"
+            class="ck-scroll tb-popover"
           >
-            <div class="ck-label" [style.padding]="'4px 8px 6px'">Workspaces</div>
+            <div class="ck-label" [style.padding]="'4px 8px 6px'">{{ i18n.t('titlebar.workspaces') }}</div>
             @for (ws of workspaceService.workspaces(); track ws.id) {
               <button
                 type="button"
@@ -273,7 +271,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
               >
                 <ck-glyph name="sliders" [size]="12" />
                 <span class="ck-mono" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">
-                  Workspace settings
+                  {{ i18n.t('titlebar.workspace.settings') }}
                 </span>
               </button>
             }
@@ -293,14 +291,14 @@ const THEME_ICONS: Record<ThemeMode, string> = {
                 [style.cursor]="'pointer'"
                 [style.textAlign]="'left'"
               >
-                <ck-glyph name="bolt" [size]="12" /> New workspace
+                <ck-glyph name="bolt" [size]="12" /> {{ i18n.t('titlebar.workspace.create') }}
               </button>
             } @else {
               <form (ngSubmit)="createWorkspace()" [style.padding]="'6px 4px'" [style.display]="'flex'" [style.gap.px]="6">
                 <input
                   [(ngModel)]="newWorkspaceName"
                   name="newWorkspaceName"
-                  placeholder="Workspace name"
+                  [placeholder]="i18n.t('titlebar.workspace.name_placeholder')"
                   [style.flex]="'1 1 auto'"
                   [style.padding]="'4px 8px'"
                   [style.background]="'var(--ck-bg-inset)'"
@@ -321,7 +319,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
                   [style.fontSize.px]="11"
                   [style.fontWeight]="600"
                   [style.cursor]="'pointer'"
-                >{{ creating() ? '…' : 'Create' }}</button>
+                >{{ creating() ? '…' : i18n.t('common.create') }}</button>
               </form>
             }
           </div>
@@ -329,10 +327,17 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       </div>
 
       <!-- User menu -->
-      <div [style.position]="'relative'" (click)="$event.stopPropagation()">
+      <div class="tb-menu" (click)="$event.stopPropagation()">
         <button
+          id="tb-user-toggle"
           type="button"
+          class="tb-user-toggle"
           (click)="toggleUserMenu($event)"
+          [attr.aria-label]="i18n.t('titlebar.account') + ' · ' + (authStore.email() || initials())"
+          [attr.aria-expanded]="userMenuOpen()"
+          aria-haspopup="dialog"
+          aria-controls="tb-user-popover"
+          (keydown.arrowdown)="openUserMenu($event)"
           [style.display]="'inline-flex'"
           [style.alignItems]="'center'"
           [style.gap.px]="6"
@@ -361,6 +366,9 @@ const THEME_ICONS: Record<ThemeMode, string> = {
 
         @if (userMenuOpen()) {
           <div
+            id="tb-user-popover"
+            role="dialog"
+            [attr.aria-label]="i18n.t('titlebar.account')"
             [style.position]="'absolute'"
             [style.top]="'calc(100% + 6px)'"
             [style.right]="'0'"
@@ -373,8 +381,8 @@ const THEME_ICONS: Record<ThemeMode, string> = {
             [style.padding]="'6px'"
           >
             <div [style.padding]="'6px 8px'">
-              <div [style.fontSize.px]="12" [style.color]="'var(--ck-fg-1)'">{{ authStore.email() || 'User' }}</div>
-              <div class="ck-mono" [style.fontSize.px]="9" [style.color]="'var(--ck-fg-4)'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.12em'" [style.marginTop.px]="2">{{ authStore.role() || 'user' }}</div>
+              <div [style.fontSize.px]="12" [style.color]="'var(--ck-fg-1)'">{{ authStore.email() || i18n.t('account.user_fallback') }}</div>
+              <div class="ck-mono" [style.fontSize.px]="9" [style.color]="'var(--ck-fg-4)'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.12em'" [style.marginTop.px]="2">{{ authStore.role() || i18n.t('account.role_fallback') }}</div>
             </div>
             <div class="ck-hairline-h" [style.margin]="'4px 4px'"></div>
             <button type="button" (click)="navigate('/account/profile')" class="ck-mono" [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="8" [style.width]="'100%'" [style.padding]="'6px 8px'" [style.background]="'transparent'" [style.border]="'none'" [style.color]="'var(--ck-fg-2)'" [style.fontSize.px]="11" [style.textAlign]="'left'" [style.cursor]="'pointer'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.10em'">{{ i18n.t('account.profile') }}</button>
@@ -413,6 +421,42 @@ const THEME_ICONS: Record<ThemeMode, string> = {
     </header>
   `,
   styles: [`
+    .tb {
+      position: relative;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      height: 48px;
+      padding: 0 14px;
+      gap: 14px;
+      border-bottom: 1px solid var(--ck-stroke-2);
+      background: var(--ck-bg-base);
+      color: var(--ck-fg-1);
+    }
+
+    .tb-breadcrumb {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .tb-readouts {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex: 0 0 auto;
+    }
+
+    .tb-menu {
+      position: relative;
+      flex: 0 0 auto;
+    }
+
+    .tb :where(a, button):focus-visible {
+      outline: 2px solid var(--ck-signal-cool);
+      outline-offset: 2px;
+    }
+
     .tb-brand {
       display: flex;
       align-items: center;
@@ -456,6 +500,73 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       text-transform: uppercase;
       margin-top: 2px;
       color: var(--ck-fg-4);
+    }
+
+    .tb-popover {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      min-width: 280px;
+      max-width: calc(100vw - 16px);
+    }
+
+    @media (max-width: 1000px) {
+      .tb-readouts,
+      .tb-divider-telemetry {
+        display: none;
+      }
+    }
+
+    @media (max-width: 700px) {
+      .tb {
+        gap: 6px;
+        padding-inline: 8px;
+      }
+
+      .tb-divider,
+      .tb-breadcrumb,
+      .tb-workspace-name,
+      .tb-workspace-arrow {
+        display: none;
+      }
+
+      .tb-brand {
+        min-width: 0;
+        margin-right: auto;
+      }
+
+      .tb-emblem-brand {
+        max-width: 84px;
+        object-fit: contain;
+      }
+
+      .tb-workspace-toggle {
+        width: 30px;
+        padding-inline: 4px !important;
+      }
+
+      .tb-popover {
+        position: fixed;
+        inset: 54px 8px auto;
+        width: auto;
+        min-width: 0;
+        max-width: none;
+      }
+
+      .tb-user-toggle {
+        padding-right: 2px !important;
+      }
+    }
+
+    @media (max-width: 380px) {
+      .tb-brand-copy .tb-brand-line,
+      .tb-brand > .tb-brand-line {
+        display: none;
+      }
+
+      .tb-emblem-brand {
+        max-width: 64px;
+      }
     }
   `],
 })
@@ -627,20 +738,46 @@ export class TitleBarComponent {
   }
   @HostListener('document:keydown.escape')
   onEscape(): void {
+    const restoreId = this.workspaceMenuOpen()
+      ? 'tb-workspace-toggle'
+      : this.userMenuOpen()
+        ? 'tb-user-toggle'
+        : null;
     this.userMenuOpen.set(false);
     this.workspaceMenuOpen.set(false);
+    if (restoreId) queueMicrotask(() => document.getElementById(restoreId)?.focus());
   }
 
   toggleUserMenu(ev: Event): void {
     ev.stopPropagation();
     this.workspaceMenuOpen.set(false);
-    this.userMenuOpen.update((v) => !v);
+    const open = !this.userMenuOpen();
+    this.userMenuOpen.set(open);
+    if (open) this.focusPopover('tb-user-popover');
   }
 
   toggleWorkspaceMenu(ev: Event): void {
     ev.stopPropagation();
     this.userMenuOpen.set(false);
-    this.workspaceMenuOpen.update((v) => !v);
+    const open = !this.workspaceMenuOpen();
+    this.workspaceMenuOpen.set(open);
+    if (open) this.focusPopover('tb-workspace-popover');
+  }
+
+  openUserMenu(ev: Event): void {
+    ev.preventDefault();
+    if (!this.userMenuOpen()) this.toggleUserMenu(ev);
+  }
+
+  openWorkspaceMenu(ev: Event): void {
+    ev.preventDefault();
+    if (!this.workspaceMenuOpen()) this.toggleWorkspaceMenu(ev);
+  }
+
+  private focusPopover(id: string): void {
+    queueMicrotask(() => {
+      document.getElementById(id)?.querySelector<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')?.focus();
+    });
   }
 
   navigate(target: string | any[]): void {
@@ -667,12 +804,9 @@ export class TitleBarComponent {
     return trimmed.slice(0, 2).toUpperCase();
   }
 
-  selectWorkspace(slug: string): void {
-    const changed = this.workspaceService.switchWorkspace(slug);
+  async selectWorkspace(slug: string): Promise<void> {
     this.workspaceMenuOpen.set(false);
-    // Reset the tenant-owned route before rendering the next workspace.
-    // The root NavigationResolver remains the sole owner of the destination.
-    if (changed) void this.router.navigateByUrl('/');
+    await this.activateWorkspace(slug, '/');
   }
 
   openCreateForm(): void {
@@ -689,16 +823,36 @@ export class TitleBarComponent {
         this.creating.set(false);
         this.newWorkspaceName = '';
         this.showCreateForm.set(false);
-        this.workspaceService.switchWorkspace(ws.slug);
         this.workspaceMenuOpen.set(false);
-        this.toastr.success(`"${ws.name}" ready to go`, 'Workspace created');
-        this.router.navigate(['/workspace', ws.slug, 'settings']);
+        this.toastr.success(
+          this.i18n.t('titlebar.workspace.created.body', { name: ws.name }),
+          this.i18n.t('titlebar.workspace.created.title'),
+        );
+        void this.activateWorkspace(ws.slug, `/workspace/${encodeURIComponent(ws.slug)}/settings`);
       },
-      error: (err) => {
+      error: () => {
         this.creating.set(false);
-        this.toastr.error(err?.error?.detail || 'Failed to create workspace', 'Error');
+        this.toastr.error(
+          this.i18n.t('titlebar.workspace.create_error.body'),
+          this.i18n.t('titlebar.workspace.create_error.title'),
+        );
       },
     });
+  }
+
+  private async activateWorkspace(slug: string, destination: string): Promise<boolean> {
+    if (
+      !slug
+      || slug === this.workspaceService.currentSlug()
+      || !this.workspaceService.workspaces().some((workspace) => workspace.slug === slug)
+    ) {
+      return false;
+    }
+    // CanDeactivate runs while the old workspace is still the sole active
+    // context. Only a successful exit may publish the next tenant.
+    const leftCurrentWorkspace = await this.router.navigateByUrl('/hypervisor', { replaceUrl: true });
+    if (!leftCurrentWorkspace || !this.workspaceService.switchWorkspace(slug)) return false;
+    return this.router.navigateByUrl(destination, { replaceUrl: true });
   }
 
   logout(): void {

@@ -4,53 +4,6 @@
   gap: 28px;
 }
 
-.xp-composer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--ck-bg-panel);
-  border: 1px solid var(--ck-stroke-2);
-  border-radius: 8px;
-}
-
-.xp-composer-glyph {
-  flex: 0 0 auto;
-  color: var(--ck-signal-cool);
-}
-
-.xp-composer input {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 32px;
-  border: 0;
-  background: transparent;
-  color: var(--ck-fg-1);
-  font-family: var(--ck-font-sans);
-  font-size: 13px;
-}
-
-.xp-composer input::placeholder {
-  color: var(--ck-fg-4);
-}
-
-.xp-composer-submit {
-  flex: 0 0 auto;
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 4px;
-  background: var(--ck-signal-cool);
-  color: var(--ck-on-signal, #0b1220);
-  font-family: var(--ck-font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .xp-intents {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -129,6 +82,13 @@
 
 .xp-card-cta:hover {
   color: var(--ck-fg-1);
+}
+
+.xp-link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .xp-section-title {

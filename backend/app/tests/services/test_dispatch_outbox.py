@@ -1,10 +1,13 @@
 """Transactional and delivery contracts for the P4 Run dispatch outbox."""
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from threading import Barrier
 from uuid import uuid4
 
 import pytest
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.db.base import SessionLocal
 from app.models.decision import Decision
 from app.models.run import Run
 from app.models.run_dispatch_outbox import RunDispatchOutbox
@@ -96,6 +99,33 @@ def test_enqueue_is_uncommitted_idempotent_and_task_id_is_stable(db_session):
     assert db_session.query(RunDispatchOutbox).count() == 1
     db_session.rollback()
     assert db_session.query(RunDispatchOutbox).count() == 0
+
+
+def test_concurrent_initial_dispatch_producers_converge_on_one_row(db_session):
+    workspace, run = _workspace_and_run(db_session)
+    workspace_id, run_id = workspace.id, run.id
+    db_session.commit()
+    barrier = Barrier(2)
+
+    def ensure_dispatch() -> tuple[str, str]:
+        with SessionLocal() as db:
+            barrier.wait(timeout=5)
+            row = enqueue_dispatch(
+                db,
+                event_type=TRIGGER_RUN,
+                workspace_id=workspace_id,
+                run_id=run_id,
+                source_id="experience:concurrent-claim",
+            )
+            db.commit()
+            return row.id, row.task_id
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _index: ensure_dispatch(), range(2)))
+
+    db_session.expire_all()
+    assert results[0] == results[1]
+    assert db_session.query(RunDispatchOutbox).count() == 1
 
 
 @pytest.mark.parametrize("invalid_wave", [True, 1.0, "1", -1])
@@ -288,6 +318,55 @@ def test_repair_recovers_pending_trigger_run_without_outbox(db_session):
     workspace, run = _workspace_and_run(db_session)
     run.trigger = "webhook"
     run.trigger_dedup_key = "repair-trigger-key"
+    db_session.commit()
+
+    repaired = repair_dispatch_gaps(db_session, limit=5)
+    db_session.commit()
+
+    assert repaired[TRIGGER_RUN] == 1
+    row = db_session.query(RunDispatchOutbox).filter_by(event_type=TRIGGER_RUN).one()
+    assert (row.run_id, row.source_id, row.state) == (
+        run.id,
+        run.trigger_dedup_key,
+        "pending",
+    )
+
+
+@pytest.mark.parametrize("status", ["pending", "running"])
+def test_repair_recovers_only_attested_experience_run(db_session, status):
+    workspace, run = _workspace_and_run(db_session, status=status)
+    claim = "a" * 64
+    run.trigger = "manual"
+    run.started_at = datetime.utcnow() - timedelta(minutes=2)
+    run.execution_surface = "published_manual"
+    run.experience_idempotency_key = claim
+    run.trigger_dedup_key = f"experience:{claim}"
+    run.input_ref = {
+        "_ingress": {
+            "adapter": {
+                "surface": "experience",
+                "request_sha256": "b" * 64,
+                "experience_id": "experience-1",
+                "experience_slug": "operator-cockpit",
+                "experience_release_id": "release-1",
+                "experience_deployment_id": "deployment-1",
+                "binding_key": "work.run",
+                "page_id": "home",
+                "component_id": "launch",
+            }
+        }
+    }
+    malformed = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        status="pending",
+        trigger="manual",
+        execution_surface="published_manual",
+        experience_idempotency_key="c" * 64,
+        trigger_dedup_key=f"experience:{'c' * 64}",
+        input_ref={"_ingress": {"adapter": {"surface": "experience"}}},
+    )
+    db_session.add(malformed)
     db_session.commit()
 
     repaired = repair_dispatch_gaps(db_session, limit=5)

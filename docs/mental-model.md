@@ -4659,7 +4659,7 @@ Chaque action d'une release est résolue exclusivement dans son
 `bindings_snapshot`. L'invocation utilise la `SystemVersion`, le Flow SHA,
 l'ingress et les schemas figés par cette release. Retargeter ou supprimer le
 SystemBinding mutable ne peut donc ni modifier ni casser une application déjà
-déployée. Le serveur revalide workspace, audience, canal, release et composant ;
+en service. Le serveur revalide workspace, audience, canal, release et composant ;
 le client ne choisit jamais une autorité plus récente.
 
 Un membre éligible au canal Pilot voit Pilot avant Live afin que les deux

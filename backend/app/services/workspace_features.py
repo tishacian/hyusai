@@ -25,6 +25,9 @@ Default-on capabilities (absence means enabled):
 - ``flow_publication_v1`` — server draft separated from the immutable published
   pointer. Graduated because the alternative is the destructive posture: with
   it off, an editor write lands straight on the live executable graph.
+- ``experience_studio_v1`` — authoring surface split from the ``experience_v1``
+  Work runtime. Absence preserves the pre-split rollout; an explicit ``false``
+  keeps published applications usable while hiding authoring.
 
 Everything else stays an explicit opt-in flag. The ones that look ready but are
 not, with the reason they remain flags:
@@ -62,6 +65,7 @@ KNOWN_FAMILIES = frozenset(family.value for family in WorkspaceFamily)
 DEFAULT_ON_FEATURES: frozenset[str] = frozenset(
     {
         "chat_document_upload",
+        "experience_studio_v1",
         "flow_publication_v1",
     }
 )

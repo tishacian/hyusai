@@ -2,16 +2,20 @@ import {
   ChangeDetectionStrategy,
   Component,
   HostListener,
+  OnDestroy,
   computed,
   inject,
   signal,
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { HelpTooltipComponent } from '@app/shared/cockpit';
+import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { canEditExperienceStudio, canReleaseExperienceStudio } from '../experience-access';
 import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.component';
+import { workPageHref } from '../work/work-catalog';
 import { acceptAssistantPatch, proposeAssistantPatch, type AssistantProposal } from './studio-assistant';
 import {
   apiCode,
@@ -19,8 +23,11 @@ import {
   StudioApiService,
   type StudioBinding,
   type StudioDetail,
+  type StudioDeployment,
   type StudioDraft,
+  type StudioDraftRevision,
   type StudioDrift,
+  type StudioIngressList,
   type StudioRelease,
 } from './studio-api.service';
 import {
@@ -28,6 +35,7 @@ import {
   applyPatchOnStack,
   emptyStack,
   findNode,
+  hydrateDocument,
   cloneDocument,
   newNodeId,
   newPageId,
@@ -40,11 +48,14 @@ import {
 } from './studio-document';
 import {
   ADDABLE_TYPES,
+  ACCESS_ROLES,
   CONFIRMATION_POLICIES,
   UNAVAILABLE_POLICIES,
   bindingSharedWith,
-  experienceAudience,
+  experienceAccessPolicy,
   inventoryState,
+  schemaSelectorOptions,
+  simulatedExperienceAccess,
   type StudioExperience,
 } from './studio-model';
 import type { ReadyCheck } from './studio-publish';
@@ -56,35 +67,81 @@ import type {
   ExperiencePage,
   LocalizedText,
   RuntimeDataBinding,
+  RuntimeField,
 } from '../runtime/model';
 import {
   fieldsFromSchema,
+  formSchemaSupported,
+  humanizeIdentifier,
   localizeDocument,
   runtimeDataBinding,
   textFallback,
+  valuesToPayload,
 } from '../runtime/model';
 import {
   a11yOf,
   a11yPayload,
+  a11yValue,
   accentContrastWarning,
   appearanceOf,
   needsEmptyText,
   pageAppearance,
   supportsAccent,
-  supportsDescription,
   supportsHeading,
-  supportsTitle,
   themeOf,
   type NodeA11y,
 } from '../runtime/style';
 
 const READY_DEBOUNCE_MS = 1500;
 
+const RUN_OUTPUT_TARGETS = new Set<string>([
+  'result',
+  'table',
+  'queue',
+  'approval_card',
+  'runtime_status',
+  'evidence',
+  'history',
+  'kpi',
+  'map_panel',
+  'agenda_panel',
+  'intelligence_feed',
+  'decision_queue',
+]);
+const QUERY_TARGETS = new Set<string>([
+  'table',
+  'queue',
+  'approval_card',
+  'history',
+  'kpi',
+  'map_panel',
+  'agenda_panel',
+  'intelligence_feed',
+  'decision_queue',
+]);
+
 type Tab = 'content' | 'action' | 'appearance' | 'a11y';
 type LeftTab = 'pages' | 'components';
 type Viewport = 'desktop' | 'tablet' | 'mobile';
-type BottomTab = 'data' | 'actions' | 'tests' | 'journal';
+type BottomTab = 'data' | 'actions' | 'access' | 'tests' | 'journal';
 type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: string; nodeId: string };
+
+function documentBindingKeys(document: ExperienceDocument): string[] {
+  const seen = new Set<string>();
+  for (const page of document.pages) {
+    for (const node of page.components) {
+      const direct = node.props?.['bindingKey'];
+      const query = node.props?.['queryBinding'];
+      const queried = query && typeof query === 'object' && !Array.isArray(query)
+        ? (query as Record<string, unknown>)['bindingKey']
+        : null;
+      for (const raw of [direct, queried]) {
+        if (typeof raw === 'string' && raw.trim()) seen.add(raw.trim());
+      }
+    }
+  }
+  return [...seen];
+}
 
 @Component({
   selector: 'app-experience-editor',
@@ -95,16 +152,37 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
     HelpTooltipComponent,
     ExperienceRuntimeHostComponent,
     ExperiencePublishDialogComponent,
+    ConfirmDialogComponent,
   ],
   styleUrl: './studio.scss',
   template: `
-    <div class="xp-ed" [class.is-readonly]="readOnly()">
+    <div
+      class="xp-ed"
+      [class.is-readonly]="readOnly()"
+      [attr.inert]="draftHistoryBusy() ? '' : null"
+      [attr.aria-busy]="draftHistoryBusy()"
+    >
       <header class="xp-ed-chrome">
         <div class="xp-ed-id">
-          <a routerLink="/create/apps" class="xp-btn">{{ i18n.t('experience.editor.back') }}</a>
-          <strong>{{ name() }}</strong>
+          <a [routerLink]="backHref()" class="xp-btn">
+            {{ i18n.t(returnTo() ? 'experience.editor.back_to_work' : 'experience.editor.back') }}
+          </a>
+          <div class="xp-ed-heading">
+            <span class="xp-ed-workspace">
+              <span class="xp-ed-workspace-prefix">{{ i18n.t('titlebar.workspace') }} · </span>{{ workspace.current()?.name || i18n.t('titlebar.workspace') }}
+            </span>
+            <h1 id="experience-editor-title" tabindex="-1">{{ name() }}</h1>
+          </div>
           <span class="xp-tag">{{ stateLabel() }}</span>
           @if (readOnly()) { <span class="xp-tag">{{ i18n.t('experience.editor.review_mode') }}</span> }
+          @if (originReleaseId(); as releaseId) {
+            <span
+              class="xp-tag xp-tag-origin"
+              [title]="i18n.t('experience.editor.origin_release.hint') + ' · ' + releaseId"
+            >
+              {{ i18n.t('experience.editor.origin_release', { n: originReleaseNumber() ?? '—', id: releaseId }) }}
+            </span>
+          }
           @if (readyLabel(); as label) {
             <span class="xp-tag" [class.xp-tag-ok]="readyTone() === 'ok'" [class.xp-tag-warn]="readyTone() === 'warn'">
               {{ label }}
@@ -132,19 +210,26 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
             </button>
           </div>
           <div class="xp-ed-group">
-            <button type="button" class="xp-btn" [disabled]="saving()" (click)="flushSave()">
-              {{ saving() ? i18n.t('experience.editor.saving') : i18n.t('experience.editor.save') }}
+            <button type="button" class="xp-btn" [disabled]="saving() || saved()" (click)="flushSave()">
+              {{ saving()
+                ? i18n.t('experience.editor.saving')
+                : i18n.t(saved() ? 'experience.editor.saved' : 'experience.editor.save') }}
             </button>
           </div>
           }
           @if (viewSlug(); as slug) {
             <div class="xp-ed-group">
-              <a class="xp-btn" [routerLink]="['/work', slug]">{{ i18n.t('experience.editor.view') }}</a>
+              <a class="xp-btn" [routerLink]="workLink(slug)">{{ i18n.t('experience.editor.view') }}</a>
             </div>
           }
           <div class="xp-ed-group">
             @if (canRelease()) {
-            <button type="button" class="xp-btn xp-btn-primary" [disabled]="saving()" (click)="preparePublish()">
+            <button
+              type="button"
+              class="xp-btn xp-btn-primary"
+              [disabled]="saving() || metadataDirty() || metadataBusy() || !metadataValid()"
+              (click)="preparePublish()"
+            >
               {{ i18n.t('experience.editor.publish') }}
             </button>
             <ck-help id="concept.release" />
@@ -155,8 +240,25 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
         </div>
       </header>
 
+      <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {{ saving()
+          ? i18n.t('experience.editor.saving')
+          : (saved() ? i18n.t('experience.editor.saved') : (readyLabel() || '')) }}
+      </p>
+
       @if (error(); as err) {
         <p class="xp-error" role="alert">{{ err }}</p>
+      }
+      @if (catalogLoading()) {
+        <p class="sr-only" role="status">{{ i18n.t('experience.editor.catalog.loading') }}</p>
+      }
+      @if (catalogFailed()) {
+        <div class="xp-error xp-catalog-error" role="alert">
+          <span>{{ i18n.t('experience.editor.catalog.error') }}</span>
+          <button type="button" class="xp-btn" (click)="loadCatalogs()">
+            {{ i18n.t('experience.wizard.retry') }}
+          </button>
+        </div>
       }
 
       <div class="xp-ed-grid">
@@ -199,6 +301,7 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                 <button
                   type="button"
                   [class.is-on]="isPageSelected(page.id)"
+                  [attr.aria-current]="isPageSelected(page.id) ? 'page' : null"
                   (click)="selectPage(page.id)"
                 >
                   {{ pageTitle(page) }}
@@ -210,6 +313,7 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                         type="button"
                         class="is-child"
                         [class.is-on]="isNodeSelected(node.id)"
+                        [attr.aria-pressed]="isNodeSelected(node.id)"
                         (click)="selectNode(page.id, node.id)"
                         (keydown)="onOutlineKey($event, page.id, node.id)"
                         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
@@ -256,10 +360,45 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
             </div>
             <span class="xp-hint">{{ i18n.t('experience.editor.preview.safe') }}</span>
           </div>
+          <div class="xp-preview-access" [attr.aria-label]="i18n.t('experience.editor.preview_as')">
+            <strong>{{ i18n.t('experience.editor.preview_as') }}</strong>
+            <label>
+              <span class="sr-only">{{ i18n.t('experience.editor.preview_as.role') }}</span>
+              <select [value]="previewRole()" (change)="previewRole.set(selectValue($event))">
+                @for (role of accessRolesList; track role) {
+                  <option [value]="role">{{ i18n.t('governance.access.role.' + role) }}</option>
+                }
+              </select>
+            </label>
+            @if (accessGroups().length > 0) {
+              <label>
+                <span class="sr-only">{{ i18n.t('experience.editor.preview_as.group') }}</span>
+                <select [value]="previewGroup()" (change)="previewGroup.set(selectValue($event))">
+                  <option value="">{{ i18n.t('experience.editor.preview_as.no_group') }}</option>
+                  @for (group of accessGroups(); track group) { <option [value]="group">{{ group }}</option> }
+                </select>
+              </label>
+            }
+            <span
+              class="xp-tag"
+              [class.xp-tag-ok]="previewAllowed()"
+              [class.xp-tag-warn]="!previewAllowed()"
+              role="status"
+              aria-live="polite"
+            >{{ i18n.t(previewAllowed() ? 'experience.editor.preview_as.allowed' : 'experience.editor.preview_as.denied') }}</span>
+            <span class="xp-hint">{{ i18n.t('experience.editor.preview_as.local_only') }}</span>
+          </div>
           <div class="xp-canvas-stage" [class]="'is-' + viewport()">
-            <div class="xp-canvas-preview" inert>
-              <app-experience-runtime-host [document]="previewDoc()" [pageId]="pageId()" />
-            </div>
+            @if (previewAllowed()) {
+              <div class="xp-canvas-preview" inert>
+                <app-experience-runtime-host [document]="previewDoc()" [pageId]="pageId()" />
+              </div>
+            } @else {
+              <div class="xp-canvas-preview xp-preview-denied" role="status">
+                <strong>{{ i18n.t('experience.editor.preview_as.denied.title') }}</strong>
+                <p>{{ i18n.t('experience.editor.preview_as.denied.body') }}</p>
+              </div>
+            }
           </div>
           @if (!readOnly()) {
           <form class="xp-assist" (submit)="$event.preventDefault(); propose()">
@@ -347,7 +486,7 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
             </div>
           }
 
-          <div class="xp-tabs" role="tablist">
+          <div class="xp-tabs" role="tablist" [attr.aria-label]="i18n.t('experience.editor.inspector')">
             @for (tab of tabs; track tab; let index = $index) {
               <button
                 type="button"
@@ -428,6 +567,66 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                   <input [value]="str(node, 'value')" (input)="setProp(node, 'value', inputValue($event))" />
                 </label>
               }
+              @if (node.type === 'form') {
+                <section class="xp-inspector-section xp-form-copy">
+                  <h3>{{ i18n.t('experience.editor.form_copy.title') }}</h3>
+                  <p class="xp-hint">{{ i18n.t('experience.editor.form_copy.hint') }}</p>
+                  @for (field of formFields(node); track field.name) {
+                    <fieldset class="xp-form-copy-field">
+                      <legend>{{ field.name }}</legend>
+                      <label class="xp-field">
+                        <span>{{ i18n.t('experience.editor.form_copy.label') }}</span>
+                        <input
+                          [value]="formCopyValue(node, field, 'label')"
+                          (input)="setLocalizedFormCopy(node, field, 'label', inputValue($event))"
+                        />
+                      </label>
+                      @if (formCopyNeedsTranslation(node, field, 'label')) {
+                        <p class="xp-warn">
+                          {{ i18n.t('experience.editor.form_copy.translation_needed', { locale: contentLocale().toUpperCase() }) }}
+                          <button type="button" class="xp-btn" (click)="setLocalizedFormCopy(node, field, 'label', formCopyValue(node, field, 'label'))">
+                            {{ i18n.t('experience.editor.form_copy.use_fallback') }}
+                          </button>
+                        </p>
+                      }
+                      <label class="xp-field">
+                        <span>{{ i18n.t('experience.editor.form_copy.description') }}</span>
+                        <textarea
+                          [value]="formCopyValue(node, field, 'description')"
+                          (input)="setLocalizedFormCopy(node, field, 'description', inputValue($event))"
+                        ></textarea>
+                      </label>
+                      @if (formCopyNeedsTranslation(node, field, 'description')) {
+                        <p class="xp-warn">
+                          {{ i18n.t('experience.editor.form_copy.translation_needed', { locale: contentLocale().toUpperCase() }) }}
+                          <button type="button" class="xp-btn" (click)="setLocalizedFormCopy(node, field, 'description', formCopyValue(node, field, 'description'))">
+                            {{ i18n.t('experience.editor.form_copy.use_fallback') }}
+                          </button>
+                        </p>
+                      }
+                      @for (option of field.options; track option; let optionIndex = $index) {
+                        <label class="xp-field">
+                          <span>{{ i18n.t('experience.editor.form_copy.option', { value: option }) }}</span>
+                          <input
+                            [value]="formCopyValue(node, field, 'option', option)"
+                            (input)="setLocalizedFormCopy(node, field, 'option', inputValue($event), option, optionIndex)"
+                          />
+                        </label>
+                        @if (formCopyNeedsTranslation(node, field, 'option', option)) {
+                          <p class="xp-warn">
+                            {{ i18n.t('experience.editor.form_copy.translation_needed', { locale: contentLocale().toUpperCase() }) }}
+                            <button type="button" class="xp-btn" (click)="setLocalizedFormCopy(node, field, 'option', formCopyValue(node, field, 'option', option), option, optionIndex)">
+                              {{ i18n.t('experience.editor.form_copy.use_fallback') }}
+                            </button>
+                          </p>
+                        }
+                      }
+                    </fieldset>
+                  } @empty {
+                    <p class="xp-hint">{{ i18n.t('experience.editor.action.inputs.empty') }}</p>
+                  }
+                </section>
+              }
             }
             </div>
           }
@@ -444,18 +643,26 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                   [attr.aria-label]="i18n.t('experience.editor.action.calls')"
                   (change)="setActionBinding(node, selectValue($event))"
                 >
-                  <option value="">{{ i18n.t('experience.editor.action.none_option') }}</option>
+                  <option value="" [selected]="!str(node, 'bindingKey')">
+                    {{ i18n.t('experience.editor.action.none_option') }}
+                  </option>
                   @if (ownBindings().length > 0) {
                     <optgroup [label]="i18n.t('experience.editor.action.group.app')">
                       @for (row of ownBindings(); track row.binding_key) {
-                        <option [value]="row.binding_key">{{ bindingLabel(row) }}</option>
+                        <option
+                          [value]="row.binding_key"
+                          [selected]="str(node, 'bindingKey') === row.binding_key"
+                        >{{ bindingLabel(row) }}</option>
                       }
                     </optgroup>
                   }
                   @if (otherBindings().length > 0) {
                     <optgroup [label]="i18n.t('experience.editor.action.group.other')">
                       @for (row of otherBindings(); track row.binding_key) {
-                        <option [value]="row.binding_key">{{ bindingLabel(row) }}</option>
+                        <option
+                          [value]="row.binding_key"
+                          [selected]="str(node, 'bindingKey') === row.binding_key"
+                        >{{ bindingLabel(row) }}</option>
                       }
                     </optgroup>
                   }
@@ -463,7 +670,7 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
               </div>
               @if (bound(node); as row) {
                 <p class="xp-meta">
-                  <span>{{ i18n.t('experience.editor.action.calls') }} · {{ row.system_id }}</span>
+                  <span>{{ bindingLabel(row) }}</span>
                 </p>
                 <p class="xp-hint">
                   <strong>{{ i18n.t('experience.editor.action.inputs') }}</strong>
@@ -487,6 +694,7 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                   </span>
                   <select
                     [attr.aria-label]="i18n.t('experience.editor.action.confirmation')"
+                    [disabled]="appsState() !== 'ready'"
                     [value]="row.confirmation_policy"
                     (change)="patchBinding(row.binding_key, { confirmation_policy: selectValue($event) })"
                   >
@@ -513,6 +721,7 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                 <label class="xp-field">
                   <span>{{ i18n.t('experience.editor.action.unavailable') }}</span>
                   <select
+                    [disabled]="appsState() !== 'ready'"
                     [value]="row.on_unavailable"
                     (change)="patchBinding(row.binding_key, { on_unavailable: selectValue($event) })"
                   >
@@ -544,10 +753,17 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                   <span>{{ i18n.t('experience.editor.data.source') }}</span>
                   <select [value]="dataSource(node)" (change)="setDataSource(node, selectValue($event))">
                     <option value="none">{{ i18n.t('experience.editor.data.none') }}</option>
-                    <option value="run-output">{{ i18n.t('experience.editor.data.run') }}</option>
-                    <option value="system-binding">{{ i18n.t('experience.editor.data.query') }}</option>
+                    @if (supportsRunOutput(node)) {
+                      <option value="run-output">{{ i18n.t('experience.editor.data.run') }}</option>
+                    }
+                    @if (supportsQuery(node)) {
+                      <option value="system-binding">{{ i18n.t('experience.editor.data.query') }}</option>
+                    }
                   </select>
                 </label>
+                @if (!supportsRunOutput(node) && !supportsQuery(node)) {
+                  <p class="xp-hint">{{ i18n.t('experience.editor.data.unsupported') }}</p>
+                }
                 @if (dataSource(node) === 'run-output') {
                   <label class="xp-field">
                     <span>{{ i18n.t('experience.editor.data.component') }}</span>
@@ -568,18 +784,82 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                       }
                     </select>
                   </label>
-                  <label class="xp-field">
-                    <span>{{ i18n.t('experience.editor.data.input') }}</span>
-                    <textarea [value]="queryInput(node)" (change)="setQueryInput(node, inputValue($event))"></textarea>
-                  </label>
+                  @if (dataContractState(node) === 'loading') {
+                    <p class="xp-hint" role="status">{{ i18n.t('experience.editor.data.contract_loading') }}</p>
+                  } @else if (dataContractState(node) === 'error') {
+                    <p class="xp-error" role="alert">{{ i18n.t('experience.editor.data.contract_error') }}</p>
+                    <button type="button" class="xp-btn" (click)="retryDataContract(node)">
+                      {{ i18n.t('experience.wizard.retry') }}
+                    </button>
+                  } @else if (querySchemaSupported(node)) {
+                    <fieldset class="xp-data-fields">
+                      <legend>{{ i18n.t('experience.editor.data.parameters') }}</legend>
+                      @for (field of queryFields(node); track field.name) {
+                        <label class="xp-field">
+                          <span>
+                            {{ field.label }}
+                            @if (field.required) { <span aria-hidden="true"> *</span> }
+                          </span>
+                          @if (field.kind === 'boolean') {
+                            <input
+                              type="checkbox"
+                              [checked]="queryFieldChecked(node, field)"
+                              (change)="setQueryField(node, field, $event)"
+                            />
+                          } @else if (field.kind === 'enum') {
+                            <select [value]="queryFieldValue(node, field)" (change)="setQueryField(node, field, $event)">
+                              <option value="">{{ i18n.t('experience.editor.data.choose_value') }}</option>
+                              @for (option of field.options; track option; let optionIndex = $index) {
+                                <option [value]="option">{{ field.optionLabels[optionIndex] || option }}</option>
+                              }
+                            </select>
+                          } @else if (field.kind !== 'file') {
+                            <input
+                              [type]="queryFieldInputType(field)"
+                              [value]="queryFieldValue(node, field)"
+                              [attr.required]="field.required ? '' : null"
+                              [attr.aria-describedby]="field.description ? 'xp-query-help-' + field.name : null"
+                              (input)="setQueryField(node, field, $event)"
+                            />
+                          }
+                          @if (field.description) {
+                            <small [id]="'xp-query-help-' + field.name">{{ field.description }}</small>
+                          }
+                        </label>
+                      } @empty {
+                        <p class="xp-hint">{{ i18n.t('experience.editor.data.no_parameters') }}</p>
+                      }
+                    </fieldset>
+                  } @else if (dataBinding(node)?.bindingKey) {
+                    <p class="xp-warn">{{ i18n.t('experience.editor.data.parameters_advanced') }}</p>
+                  }
                   @if (dataError(); as dataErr) { <p class="xp-error" role="alert">{{ dataErr }}</p> }
                 }
                 @if (dataSource(node) !== 'none') {
                   <label class="xp-field">
-                    <span>{{ i18n.t('experience.editor.data.selector') }}</span>
-                    <input [value]="dataBinding(node)?.selector ?? ''" (input)="setDataField(node, 'selector', inputValue($event))" />
+                    <span>{{ i18n.t('experience.editor.data.path') }}</span>
+                    <select [value]="dataBinding(node)?.selector ?? ''" (change)="setDataField(node, 'selector', selectValue($event))">
+                      @for (option of dataSelectorOptions(node); track option.value) {
+                        <option [value]="option.value">
+                          {{ option.value ? option.label : i18n.t('experience.editor.data.whole_result') }}
+                        </option>
+                      }
+                    </select>
                   </label>
                   <p class="xp-hint">{{ i18n.t('experience.editor.data.explicit') }}</p>
+                  <details>
+                    <summary>{{ i18n.t('experience.editor.action.advanced') }}</summary>
+                    @if (dataSource(node) === 'system-binding') {
+                      <label class="xp-field">
+                        <span>{{ i18n.t('experience.editor.data.input') }}</span>
+                        <textarea [value]="queryInput(node)" (change)="setQueryInput(node, inputValue($event))"></textarea>
+                      </label>
+                    }
+                    <label class="xp-field">
+                      <span>{{ i18n.t('experience.editor.data.selector') }}</span>
+                      <input [value]="dataBinding(node)?.selector ?? ''" (input)="setDataField(node, 'selector', inputValue($event))" />
+                    </label>
+                  </details>
                 }
               </div>
             }
@@ -587,18 +867,6 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
 
           @if (inspectorTab() === 'appearance') {
             @if (selectedNode(); as node) {
-              @if (supportsTitle(node.type)) {
-                <label class="xp-field">
-                  <span>{{ i18n.t('experience.editor.field.title') }}</span>
-                  <input [value]="str(node, 'title')" (input)="setProp(node, 'title', inputValue($event))" />
-                </label>
-              }
-              @if (supportsDescription(node.type)) {
-                <label class="xp-field">
-                  <span>{{ i18n.t('experience.editor.field.description') }}</span>
-                  <textarea [value]="str(node, 'description')" (input)="setProp(node, 'description', inputValue($event))"></textarea>
-                </label>
-              }
               <label class="xp-field">
                 <span>{{ i18n.t('experience.editor.field.density') }}</span>
                 <select [value]="densityValue(node.props)" (change)="setProp(node, 'density', selectValue($event))">
@@ -613,17 +881,6 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                 </label>
               }
             } @else if (selectedPage(); as page) {
-              <label class="xp-field">
-                <span>{{ i18n.t('experience.editor.field.title') }}</span>
-                <input [value]="pageTitle(page)" (input)="renamePage(page.id, inputValue($event))" />
-              </label>
-              <label class="xp-field">
-                <span>{{ i18n.t('experience.editor.field.description') }}</span>
-                <textarea
-                  [value]="pageStr(page, 'description')"
-                  (input)="setPageProp(page.id, 'description', inputValue($event))"
-                ></textarea>
-              </label>
               <label class="xp-field">
                 <span>{{ i18n.t('experience.editor.field.density') }}</span>
                 <select
@@ -655,7 +912,7 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
             @if (selectedNode(); as node) {
               <label class="xp-field">
                 <span>{{ i18n.t('experience.editor.a11y.label') }}</span>
-                <input [value]="a11yStr(node, 'ariaLabel')" (input)="setA11y(node, 'ariaLabel', inputValue($event))" />
+                <input [value]="localizedA11y(node, 'ariaLabel')" (input)="setLocalizedA11y(node, 'ariaLabel', inputValue($event))" />
               </label>
               @if (supportsHeading(node.type)) {
                 <label class="xp-field">
@@ -671,19 +928,19 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                 <label class="xp-field">
                   <span>{{ i18n.t('experience.editor.a11y.empty') }}</span>
                   <textarea
-                    [value]="a11yStr(node, 'emptyText')"
-                    (input)="setA11y(node, 'emptyText', inputValue($event))"
+                    [value]="localizedA11y(node, 'emptyText')"
+                    (input)="setLocalizedA11y(node, 'emptyText', inputValue($event))"
                   ></textarea>
                 </label>
-                @if (!a11yStr(node, 'emptyText')) {
+                @if (!localizedA11y(node, 'emptyText')) {
                   <p class="xp-error" role="status">{{ i18n.t('experience.editor.a11y.empty.required') }}</p>
                 }
               }
               <label class="xp-field">
                 <span>{{ i18n.t('experience.editor.a11y.keyboard') }}</span>
                 <textarea
-                  [value]="a11yStr(node, 'keyboardHint')"
-                  (input)="setA11y(node, 'keyboardHint', inputValue($event))"
+                  [value]="localizedA11y(node, 'keyboardHint')"
+                  (input)="setLocalizedA11y(node, 'keyboardHint', inputValue($event))"
                 ></textarea>
               </label>
               @if (contrastWarn(node)) {
@@ -704,7 +961,10 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
               <button
                 type="button"
                 role="tab"
-                [attr.aria-selected]="bottomTab() === tab && bottomOpen()"
+                [id]="'xp-bottom-' + tab"
+                aria-controls="xp-bottom-panel"
+                [attr.aria-selected]="bottomTab() === tab"
+                [attr.aria-expanded]="bottomTab() === tab && bottomOpen()"
                 [tabIndex]="bottomTab() === tab ? 0 : -1"
                 [class.is-on]="bottomTab() === tab && bottomOpen()"
                 (click)="toggleBottom(tab)"
@@ -712,10 +972,15 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
               >{{ i18n.t('experience.editor.bottom.' + tab) }}</button>
             }
           </div>
-          <button type="button" class="xp-ready-link" (click)="openTests()">{{ readyLabel() || i18n.t('experience.publish.loading') }}</button>
+          <button type="button" class="xp-ready-link" (click)="openTests()">{{ readyLabel() }}</button>
         </div>
         @if (bottomOpen()) {
-          <section class="xp-bottom-panel" role="tabpanel" [attr.aria-label]="i18n.t('experience.editor.bottom.' + bottomTab())">
+          <section
+            id="xp-bottom-panel"
+            class="xp-bottom-panel"
+            role="tabpanel"
+            [attr.aria-labelledby]="'xp-bottom-' + bottomTab()"
+          >
             @switch (bottomTab()) {
               @case ('data') {
                 @if (selectedNode(); as node) {
@@ -732,6 +997,108 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                   } @empty { <p class="xp-hint">{{ i18n.t('experience.editor.action.none') }}</p> }
                 </div>
               }
+              @case ('access') {
+                <div class="xp-journal-grid">
+                  <label class="xp-field" for="xp-editor-description">
+                    <span>{{ i18n.t('experience.identity.description') }}</span>
+                    <textarea
+                      id="xp-editor-description"
+                      rows="2"
+                      maxlength="500"
+                      [value]="metadataDescription()"
+                      [disabled]="readOnly() || metadataBusy()"
+                      (input)="setMetadataDescription($event)"
+                    ></textarea>
+                    <small class="xp-hint">{{ i18n.t('experience.identity.description.hint') }}</small>
+                  </label>
+                  <label class="xp-field" for="xp-editor-emblem">
+                    <span>{{ i18n.t('experience.identity.emblem') }}</span>
+                    <select
+                      id="xp-editor-emblem"
+                      [value]="metadataEmblem()"
+                      [disabled]="readOnly() || metadataBusy()"
+                      (change)="setMetadataEmblem($event)"
+                    >
+                      @if (metadataEmblem() && !knownEmblem(metadataEmblem())) {
+                        <option [value]="metadataEmblem()">{{ metadataEmblem() }}</option>
+                      }
+                      @for (option of emblemOptions; track option.value) {
+                        <option [value]="option.value">{{ option.value }} · {{ i18n.t(option.label) }}</option>
+                      }
+                    </select>
+                  </label>
+                  <fieldset>
+                    <legend>{{ i18n.t('experience.wizard.access.languages') }}</legend>
+                    @for (locale of ['fr', 'en']; track locale) {
+                      <label>
+                        <input
+                          type="checkbox"
+                          [checked]="metadataLanguages().includes(locale)"
+                          [disabled]="readOnly() || metadataBusy()"
+                          (change)="toggleMetadataLanguage(locale)"
+                        />
+                        {{ locale.toUpperCase() }}
+                      </label>
+                    }
+                  </fieldset>
+                  <fieldset>
+                    <legend>{{ i18n.t('experience.wizard.access.who') }}</legend>
+                    <label>
+                      <input
+                        type="checkbox"
+                        [checked]="accessWhole()"
+                        [disabled]="readOnly() || metadataBusy()"
+                        (change)="toggleMetadataWhole()"
+                      />
+                      {{ i18n.t('experience.wizard.access.whole_workspace') }}
+                    </label>
+                    @for (role of accessRolesList; track role) {
+                      <label>
+                        <input
+                          type="checkbox"
+                          [checked]="accessRoles().includes(role)"
+                          [disabled]="readOnly() || metadataBusy() || accessWhole()"
+                          (change)="toggleMetadataRole(role)"
+                        />
+                        {{ i18n.t('governance.access.role.' + role) }}
+                      </label>
+                    }
+                    <label class="xp-field" for="xp-editor-access-groups">
+                      <span>{{ i18n.t('experience.wizard.access.groups') }}</span>
+                      <input
+                        id="xp-editor-access-groups"
+                        type="text"
+                        [value]="accessGroups().join(', ')"
+                        [disabled]="readOnly() || metadataBusy() || accessWhole()"
+                        (input)="setMetadataGroups($event)"
+                      />
+                    </label>
+                  </fieldset>
+                  <label class="xp-field" for="xp-editor-theme">
+                    <span>{{ i18n.t('experience.wizard.access.theme') }}</span>
+                    <select
+                      id="xp-editor-theme"
+                      [value]="metadataTheme()"
+                      [disabled]="readOnly() || metadataBusy()"
+                      (change)="setMetadataTheme($event)"
+                    >
+                      @for (mode of ['default', 'light', 'dark']; track mode) {
+                        <option [value]="mode">{{ i18n.t('experience.wizard.access.theme.' + mode) }}</option>
+                      }
+                    </select>
+                  </label>
+                  @if (!readOnly()) {
+                    <button
+                      type="button"
+                      class="xp-btn xp-btn-primary"
+                      [disabled]="metadataBusy() || !metadataDirty() || !metadataValid()"
+                      (click)="saveMetadata()"
+                    >
+                      {{ i18n.t(metadataBusy() ? 'experience.wizard.saving' : 'common.save') }}
+                    </button>
+                  }
+                </div>
+              }
               @case ('tests') {
                 @if (ready(); as check) {
                   <div class="xp-bottom-list">
@@ -739,14 +1106,80 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                     @for (item of check.warnings; track item.code ?? item.message) { <span class="xp-warn">{{ item.message || item.code }}</span> }
                     @if (check.blockers.length === 0 && check.warnings.length === 0) { <span>{{ i18n.t('experience.editor.ready.ok') }}</span> }
                   </div>
+                } @else if (readyState() === 'error') {
+                  <p class="xp-error" role="alert">{{ i18n.t('experience.editor.ready.error') }}</p>
+                  <button type="button" class="xp-btn" (click)="retryReady()">{{ i18n.t('experience.wizard.retry') }}</button>
                 } @else { <p class="xp-hint">{{ i18n.t('experience.publish.loading') }}</p> }
               }
               @case ('journal') {
                 <div class="xp-journal-grid">
+                  <section
+                    class="xp-journal-history"
+                    aria-labelledby="xp-draft-history-title"
+                    [attr.aria-busy]="draftHistoryState() === 'loading' || draftHistoryBusy()"
+                  >
+                    <h3 id="xp-draft-history-title" tabindex="-1">
+                      {{ i18n.t('experience.editor.history.title') }}
+                    </h3>
+                    <p class="xp-hint">{{ i18n.t('experience.editor.history.help') }}</p>
+                    @if (draftHistoryState() === 'loading' && draftHistory().length === 0) {
+                      <p class="xp-hint" role="status">{{ i18n.t('experience.editor.history.loading') }}</p>
+                    }
+                    @if (draftHistoryState() === 'error') {
+                      <div class="xp-row xp-error" role="alert">
+                        <span>{{ i18n.t('experience.editor.history.error') }}</span>
+                        <button type="button" class="xp-btn" (click)="retryDraftHistory()">
+                          {{ i18n.t('experience.wizard.retry') }}
+                        </button>
+                      </div>
+                    }
+                    <ol class="xp-history-list">
+                      @for (revision of draftHistory(); track revision.id) {
+                        <li class="xp-journal-row xp-history-row">
+                          <div class="xp-history-meta">
+                            <div class="xp-history-heading">
+                              <strong>{{ i18n.t('experience.editor.history.revision', { n: revision.revision }) }}</strong>
+                              @if (revision.revision === detail()?.draft?.revision) {
+                                <span class="xp-tag">{{ i18n.t('experience.editor.history.current') }}</span>
+                              }
+                            </div>
+                            <span>{{ i18n.t('experience.editor.history.saved_by', { name: revision.saved_by || i18n.t('experience.editor.history.unknown_author') }) }}</span>
+                            <time [attr.datetime]="revision.created_at || null">{{ historyDate(revision.created_at) }}</time>
+                            <code
+                              [title]="revision.content_sha256"
+                              [attr.aria-label]="i18n.t('experience.editor.history.hash', { hash: revision.content_sha256 })"
+                            >{{ shortHash(revision.content_sha256) }}</code>
+                          </div>
+                          @if (!readOnly() && revision.revision !== detail()?.draft?.revision) {
+                            <button
+                              type="button"
+                              class="xp-btn"
+                              [disabled]="!canRestoreRevision(revision)"
+                              [attr.title]="restoreDisabledHint(revision)"
+                              (click)="requestDraftRestore(revision)"
+                            >
+                              {{ i18n.t('experience.editor.history.restore') }}
+                            </button>
+                          }
+                        </li>
+                      } @empty {
+                        @if (draftHistoryState() === 'ready') {
+                          <li class="xp-hint">{{ i18n.t('experience.editor.history.empty') }}</li>
+                        }
+                      }
+                    </ol>
+                  </section>
                   <section>
                     <h3>{{ i18n.t('experience.editor.lifecycle.releases') }}</h3>
                     @for (release of releases(); track release.id) {
-                      <div class="xp-journal-row"><span>R{{ release.release_number }} · {{ release.created_at || '—' }}</span></div>
+                      <div class="xp-journal-row">
+                        <span>R{{ release.release_number }} · {{ release.created_at || '—' }}</span>
+                        @if (canRelease()) {
+                          <button type="button" class="xp-btn" [disabled]="lifecycleBusy()" (click)="openDeployment(release)">
+                            {{ i18n.t('experience.editor.lifecycle.deploy') }}
+                          </button>
+                        }
+                      </div>
                     } @empty { <p class="xp-hint">{{ i18n.t('experience.publish.recap.none') }}</p> }
                   </section>
                   <section>
@@ -755,7 +1188,12 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
                       <div class="xp-journal-row">
                         <span>{{ deployment.channel }} · {{ deployment.release_id }}</span>
                         @if (canRelease()) {
-                          <button type="button" class="xp-btn" [disabled]="lifecycleBusy()" (click)="rollback(deployment.channel)">{{ i18n.t('experience.editor.lifecycle.rollback') }}</button>
+                          <button
+                            type="button"
+                            class="xp-btn"
+                            [disabled]="lifecycleBusy() || !deployment.previous_release_id || !deployment.updated_at"
+                            (click)="rollback(deployment)"
+                          >{{ i18n.t('experience.editor.lifecycle.rollback') }}</button>
                         }
                       </div>
                     }
@@ -779,36 +1217,63 @@ type Selection = { kind: 'page'; pageId: string } | { kind: 'node'; pageId: stri
       </div>
     </div>
 
+    <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+      {{ draftHistoryStatus() }}
+    </p>
+
+    <app-confirm-dialog
+      [open]="restoreCandidate() !== null"
+      [title]="i18n.t('experience.editor.history.confirm.title', { n: restoreCandidate()?.revision ?? '—' })"
+      [description]="i18n.t('experience.editor.history.confirm.body', { current: detail()?.draft?.revision ?? '—', target: restoreCandidate()?.revision ?? '—' })"
+      [confirmLabel]="i18n.t('experience.editor.history.confirm.action')"
+      [cancelLabel]="i18n.t('common.cancel')"
+      tone="brand"
+      icon="history"
+      (confirm)="restoreDraftRevision()"
+      (cancel)="cancelDraftRestore()"
+    />
+
     @if (id(); as experienceId) {
       @if (lockedDraft(); as draft) {
       <app-experience-publish-dialog
         [experienceId]="experienceId"
         [draft]="draft"
+        [experienceUpdatedAt]="detail()?.updated_at ?? ''"
+        [deployments]="detail()?.deployments ?? []"
         [audience]="audience()"
         [summary]="summary()"
+        [initialRelease]="deploymentRelease()"
         [open]="publishOpen()"
         (closed)="closePublish()"
         (released)="reloadLifecycle()"
         (deployed)="reload()"
+        (refreshRequested)="reloadDeployments()"
       />
       }
     }
   `,
 })
-export class ExperienceEditorComponent {
+export class ExperienceEditorComponent implements OnDestroy {
   readonly i18n = inject(I18nService);
   private readonly api = inject(StudioApiService);
   private readonly route = inject(ActivatedRoute);
-  private readonly workspace = inject(WorkspaceService);
+  protected readonly workspace = inject(WorkspaceService);
   readonly addable = ADDABLE_TYPES;
   readonly confirms = CONFIRMATION_POLICIES;
   readonly unavailable = UNAVAILABLE_POLICIES;
   readonly tabs: Tab[] = ['content', 'action', 'appearance', 'a11y'];
   readonly leftTabs: LeftTab[] = ['pages', 'components'];
   readonly viewports: Viewport[] = ['desktop', 'tablet', 'mobile'];
-  readonly bottomTabs: BottomTab[] = ['data', 'actions', 'tests', 'journal'];
-  readonly supportsTitle = supportsTitle;
-  readonly supportsDescription = supportsDescription;
+  readonly bottomTabs: BottomTab[] = ['data', 'actions', 'access', 'tests', 'journal'];
+  readonly accessRolesList = ACCESS_ROLES;
+  readonly emblemOptions = [
+    { value: '◇', label: 'experience.identity.emblem.diamond' },
+    { value: '✦', label: 'experience.identity.emblem.sparkle' },
+    { value: '✓', label: 'experience.identity.emblem.check' },
+    { value: '▦', label: 'experience.identity.emblem.grid' },
+    { value: '◆', label: 'experience.identity.emblem.shield' },
+    { value: '⚑', label: 'experience.identity.emblem.flag' },
+  ] as const;
   readonly supportsAccent = supportsAccent;
   readonly supportsHeading = supportsHeading;
   readonly needsEmptyText = needsEmptyText;
@@ -822,11 +1287,14 @@ export class ExperienceEditorComponent {
   readonly inspectorTab = signal<Tab>('content');
   readonly leftTab = signal<LeftTab>('pages');
   readonly viewport = signal<Viewport>('desktop');
+  readonly previewRole = signal('workspace_viewer');
+  readonly previewGroup = signal('');
   readonly bottomTab = signal<BottomTab>('data');
   readonly bottomOpen = signal(false);
   readonly contentLocale = signal('fr');
   readonly bindings = signal<StudioBinding[]>([]);
   readonly saving = signal(false);
+  readonly saved = signal(false);
   readonly error = signal<string | null>(null);
   readonly publishOpen = signal(false);
   readonly prompt = signal('');
@@ -834,18 +1302,49 @@ export class ExperienceEditorComponent {
   readonly assistantMiss = signal(false);
   readonly bindingKeys = signal<string[]>([]);
   readonly ready = signal<ReadyCheck | null>(null);
+  readonly readyState = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
   readonly apps = signal<StudioExperience[]>([]);
   readonly lockedDraft = signal<StudioDraft | null>(null);
   readonly releases = signal<StudioRelease[]>([]);
+  readonly draftHistory = signal<StudioDraftRevision[]>([]);
+  readonly draftHistoryState = signal<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  readonly draftHistoryBusy = signal(false);
+  readonly draftHistoryStatus = signal('');
+  readonly restoreCandidate = signal<StudioDraftRevision | null>(null);
+  readonly deploymentRelease = signal<StudioRelease | null>(null);
   readonly drifts = signal<StudioDrift[]>([]);
   readonly publishedVersions = signal<Record<string, string>>({});
   readonly lifecycleBusy = signal(false);
   readonly dataError = signal<string | null>(null);
+  readonly dataContracts = signal<Record<string, StudioIngressList>>({});
+  readonly dataContractStates = signal<Record<string, 'loading' | 'ready' | 'error'>>({});
+  readonly requestedPageId = signal<string | null>(null);
+  readonly returnTo = signal<string | null>(null);
+  readonly originReleaseId = signal<string | null>(null);
+  readonly originReleaseNumber = signal<number | null>(null);
+  readonly backHref = computed(() => this.returnTo() ?? '/create/apps');
+  readonly accessRoles = signal<string[]>([]);
+  readonly accessGroups = signal<string[]>([]);
+  readonly accessWhole = signal(false);
+  readonly metadataLanguages = signal<string[]>([]);
+  readonly metadataTheme = signal('default');
+  readonly metadataDescription = signal('');
+  readonly metadataEmblem = signal('◇');
+  readonly metadataBusy = signal(false);
+  readonly metadataDirty = signal(false);
+  readonly bindingsState = signal<'loading' | 'ready' | 'error'>('loading');
+  readonly appsState = signal<'loading' | 'ready' | 'error'>('loading');
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
   private editGeneration = 0;
   private saveQueued = false;
   private publishRequested = false;
+  private loadGeneration = 0;
+  private readyGeneration = 0;
+  private routeScope = new Subscription();
+  private readonly routeSubscription: Subscription;
+  private readonly querySubscription: Subscription;
+  private readonly actionBindingRequests = new Map<string, Subscription>();
 
   readonly doc = computed(() => this.stack().present);
   readonly readOnly = computed(() => !canEditExperienceStudio(
@@ -876,7 +1375,18 @@ export class ExperienceEditorComponent {
     if (!row) return null;
     return inventoryState(row.deployments) === 'draft' ? null : row.slug;
   });
-  readonly audience = computed(() => ({ roles: experienceAudience(this.detail()) }));
+  readonly audience = computed<Record<string, unknown>>(() => experienceAccessPolicy(this.detail()));
+  readonly previewAccessPolicy = computed<Record<string, unknown>>(() => this.detail() ? {
+    roles: this.accessWhole() ? [] : this.accessRoles(),
+    groups: this.accessWhole() ? [] : this.accessGroups(),
+  } : {});
+  readonly previewAllowed = computed(() => simulatedExperienceAccess(
+    this.previewAccessPolicy(),
+    this.previewRole(),
+    this.previewGroup(),
+  ));
+  readonly catalogLoading = computed(() => this.bindingsState() === 'loading' || this.appsState() === 'loading');
+  readonly catalogFailed = computed(() => this.bindingsState() === 'error' || this.appsState() === 'error');
 
   readonly relevantDrifts = computed(() => {
     const keys = new Set(this.bindingKeys());
@@ -905,12 +1415,16 @@ export class ExperienceEditorComponent {
     const check = this.ready();
     if (!check) return null;
     if (check.blockers.length > 0) return 'warn';
-    return check.warnings.length > 0 ? null : 'ok';
+    return check.warnings.length > 0 ? 'warn' : 'ok';
   });
 
   readonly readyLabel = computed(() => {
     const check = this.ready();
-    if (!check) return '';
+    if (!check) {
+      return this.readyState() === 'error'
+        ? this.i18n.t('experience.editor.ready.error')
+        : this.i18n.t('experience.publish.loading');
+    }
     if (check.blockers.length > 0) {
       return this.i18n.t('experience.editor.ready.block', { n: check.blockers.length });
     }
@@ -928,13 +1442,46 @@ export class ExperienceEditorComponent {
   }));
 
   constructor() {
-    this.route.paramMap.subscribe((params) => {
-      const id = params.get('id');
-      this.id.set(id);
-      if (id) this.load(id);
+    this.routeSubscription = this.route.paramMap.subscribe((params) => this.openRoute(params.get('id')));
+    this.querySubscription = this.route.queryParamMap.subscribe((params) => {
+      const pageId = params.get('pageId');
+      this.requestedPageId.set(pageId && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(pageId) ? pageId : null);
+      const back = params.get('returnTo');
+      this.returnTo.set(back && /^\/work(?:\/|$)/.test(back) && !back.includes('\\') ? back : null);
+      const releaseId = params.get('releaseId');
+      this.originReleaseId.set(
+        releaseId && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(releaseId) ? releaseId : null,
+      );
+      const releaseNumber = Number(params.get('releaseNumber'));
+      this.originReleaseNumber.set(
+        Number.isSafeInteger(releaseNumber) && releaseNumber > 0 ? releaseNumber : null,
+      );
+      this.selectRequestedPage();
     });
-    this.api.listBindings().subscribe((rows) => this.bindings.set(rows));
-    this.api.listExperiences().subscribe((rows) => this.apps.set(rows));
+    this.loadCatalogs();
+  }
+
+  ngOnDestroy(): void {
+    this.routeSubscription.unsubscribe();
+    this.querySubscription.unsubscribe();
+    this.cancelRouteWork();
+  }
+
+  confirmDiscardChanges(): boolean {
+    return !this.hasPendingChanges()
+      || globalThis.confirm(this.i18n.t('experience.editor.discard_confirm'));
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(event: BeforeUnloadEvent): void {
+    if (!this.hasPendingChanges()) return;
+    event.preventDefault();
+    event.returnValue = '';
+  }
+
+  private hasPendingChanges(): boolean {
+    return !!this.detail()
+      && (!this.saved() || this.saving() || this.saveQueued || this.metadataDirty() || this.metadataBusy());
   }
 
   @HostListener('document:keydown', ['$event'])
@@ -964,6 +1511,8 @@ export class ExperienceEditorComponent {
   selectNode(pageId: string, nodeId: string | undefined): void {
     if (!nodeId) return;
     this.selection.set({ kind: 'node', pageId, nodeId });
+    const node = findNode(this.doc(), nodeId)?.node;
+    if (node) this.ensureNodeDataContract(node);
   }
 
   onLeftTabKey(event: KeyboardEvent, index: number): void {
@@ -1082,6 +1631,10 @@ export class ExperienceEditorComponent {
     return textFallback(page.title);
   }
 
+  workLink(slug: string): string {
+    return workPageHref(slug, this.pageId());
+  }
+
   pageFallback(page: ExperiencePage): string {
     return textFallback(page.title);
   }
@@ -1094,6 +1647,93 @@ export class ExperienceEditorComponent {
 
   localizedProp(node: ExperienceNode, key: string): string {
     return this.localizedValue(node.props?.[key]);
+  }
+
+  formFields(node: ExperienceNode): RuntimeField[] {
+    return node.type === 'form' ? fieldsFromSchema(node.props?.['schema']) : [];
+  }
+
+  formCopyValue(
+    node: ExperienceNode,
+    field: RuntimeField,
+    kind: 'label' | 'description' | 'option',
+    option: string | null = null,
+  ): string {
+    const value = this.formCopyRef(node, field.name, kind, option);
+    return this.localizedValue(value) || this.formCopyFallback(field, kind, option);
+  }
+
+  formCopyNeedsTranslation(
+    node: ExperienceNode,
+    field: RuntimeField,
+    kind: 'label' | 'description' | 'option',
+    option: string | null = null,
+  ): boolean {
+    if ((this.detail()?.languages?.length ?? 0) < 2) return false;
+    const value = this.formCopyRef(node, field.name, kind, option);
+    if (kind === 'description' && !field.description && !value) return false;
+    if (!this.isLocalized(value)) return true;
+    return !this.doc().i18n?.[this.contentLocale()]?.[value.$i18n]?.trim();
+  }
+
+  setLocalizedFormCopy(
+    node: ExperienceNode,
+    field: RuntimeField,
+    kind: 'label' | 'description' | 'option',
+    value: string,
+    option: string | null = null,
+    optionIndex = 0,
+  ): void {
+    if (this.readOnly() || !node.id) return;
+    const next = cloneDocument(this.doc());
+    const target = findNode(next, node.id)?.node;
+    if (!target) return;
+    const presentation = this.record(target.props?.['fieldPresentation']) ?? {};
+    const fieldCopy = this.record(presentation[field.name]) ?? {};
+    const options = this.record(fieldCopy['options']) ?? {};
+    const current = kind === 'option' && option !== null ? options[option] : fieldCopy[kind];
+    if (kind === 'description' && !current && !field.description && !value.trim()) return;
+    const suffix = kind === 'option' ? `option.${optionIndex}` : kind;
+    const key = this.isLocalized(current)
+      ? current.$i18n
+      : `component.${node.id}.field.${encodeURIComponent(field.name)}.${suffix}`;
+    const contractFallback = this.formCopyFallback(field, kind, option);
+    const fallback = typeof current === 'string'
+      ? current
+      : this.isLocalized(current)
+        ? contractFallback ? current.fallback : value.trim() || current.fallback
+        : contractFallback || value.trim();
+    const localized = { $i18n: key, fallback };
+    const nextFieldCopy = kind === 'option' && option !== null
+      ? { ...fieldCopy, options: { ...options, [option]: localized } }
+      : { ...fieldCopy, [kind]: localized };
+    target.props = {
+      ...(target.props ?? {}),
+      fieldPresentation: { ...presentation, [field.name]: nextFieldCopy },
+    };
+    this.setDictionaryValue(next, key, value);
+    this.commit(next);
+  }
+
+  private formCopyRef(
+    node: ExperienceNode,
+    field: string,
+    kind: 'label' | 'description' | 'option',
+    option: string | null,
+  ): unknown {
+    const presentation = this.record(node.props?.['fieldPresentation']);
+    const fieldCopy = this.record(presentation?.[field]);
+    return kind === 'option' && option !== null
+      ? this.record(fieldCopy?.['options'])?.[option]
+      : fieldCopy?.[kind];
+  }
+
+  private formCopyFallback(
+    field: RuntimeField,
+    kind: 'label' | 'description' | 'option',
+    option: string | null,
+  ): string {
+    return kind === 'label' ? field.label : kind === 'description' ? field.description : option ?? '';
   }
 
   setLocalizedPageTitle(page: ExperiencePage, value: string): void {
@@ -1144,7 +1784,9 @@ export class ExperienceEditorComponent {
   }
 
   bindingLabel(row: StudioBinding): string {
-    return `${row.system_id} · ${row.ingress_id}`;
+    const action = humanizeIdentifier(row.ingress_id);
+    const binding = humanizeIdentifier(row.binding_key);
+    return action && action !== binding ? `${action} · ${binding}` : action || binding;
   }
 
   /** Other applications this binding serves — editing its rules changes theirs too. */
@@ -1157,23 +1799,47 @@ export class ExperienceEditorComponent {
   }
 
   setActionBinding(node: ExperienceNode, key: string): void {
-    if (this.readOnly()) return;
+    if (this.readOnly() || !node.id) return;
+    this.actionBindingRequests.get(node.id)?.unsubscribe();
+    this.actionBindingRequests.delete(node.id);
     const binding = this.bindings().find((row) => row.binding_key === key);
-    if (!key || node.type !== 'form' || !binding) {
+    if (!key) {
       this.setProp(node, 'bindingKey', key);
       return;
     }
-    this.api.listIngresses(binding.system_id).subscribe({
+    if (!binding) {
+      this.error.set(this.i18n.t('experience.editor.catalog.error'));
+      return;
+    }
+    const routeId = this.id();
+    const nodeId = node.id;
+    const request = this.api.listIngresses(binding.system_id).subscribe({
       next: (body) => {
+        if (this.id() !== routeId || this.actionBindingRequests.get(nodeId) !== request) return;
         const ingress = body?.ingresses.find((row) => row.ingress_id === binding.ingress_id);
-        this.setProps(node, {
-          bindingKey: key,
-          ...(ingress?.input_schema ? { schema: ingress.input_schema } : {}),
-        });
+        const current = findNode(this.doc(), nodeId)?.node;
+        if (!ingress || !current) {
+          this.error.set(this.i18n.t('experience.editor.catalog.error'));
+          return;
+        }
+        const schema = ingress.input_schema ?? { type: 'object', properties: {} };
+        if (current.type === 'action_button' && fieldsFromSchema(schema).length > 0) {
+          this.error.set(this.i18n.t('experience.editor.action.requires_form'));
+          return;
+        }
+        this.setProps(current, current.type === 'form'
+          ? { bindingKey: key, schema }
+          : { bindingKey: key, input: {} });
         if (!this.bindingKeys().includes(key)) this.bindingKeys.update((keys) => [...keys, key]);
       },
-      error: () => this.setProp(node, 'bindingKey', key),
+      error: () => {
+        if (this.id() === routeId && this.actionBindingRequests.get(nodeId) === request) {
+          this.error.set(this.i18n.t('experience.editor.catalog.error'));
+        }
+      },
     });
+    this.actionBindingRequests.set(nodeId, request);
+    this.trackRoute(request);
   }
 
   dataSource(node: ExperienceNode): 'none' | RuntimeDataBinding['source'] {
@@ -1198,18 +1864,41 @@ export class ExperienceEditorComponent {
   }
 
   sourceNodes(node: ExperienceNode): ExperienceNode[] {
-    return this.selectedPage()?.components.filter((item) => item.id && item.id !== node.id) ?? [];
+    return this.selectedPage()?.components.filter(
+      (item) => item.id && item.id !== node.id && this.executableSource(item),
+    ) ?? [];
+  }
+
+  supportsRunOutput(node: ExperienceNode): boolean {
+    return RUN_OUTPUT_TARGETS.has(node.type);
+  }
+
+  supportsQuery(node: ExperienceNode): boolean {
+    return QUERY_TARGETS.has(node.type);
+  }
+
+  private executableSource(node: ExperienceNode): boolean {
+    if (node.type === 'form' || node.type === 'action_button') {
+      return !!this.str(node, 'bindingKey');
+    }
+    const query = this.record(node.props?.['queryBinding']);
+    return this.supportsQuery(node)
+      && query?.['source'] === 'system-binding'
+      && typeof query['bindingKey'] === 'string'
+      && !!query['bindingKey'].trim();
   }
 
   setDataSource(node: ExperienceNode, source: string): void {
     if (this.readOnly()) return;
     this.dataError.set(null);
-    if (source === 'run-output') {
+    this.dataContracts.set({});
+    this.dataContractStates.set({});
+    if (source === 'run-output' && this.supportsRunOutput(node)) {
       this.setProps(node, {
         dataBinding: { source, componentId: '', selector: '' },
         queryBinding: undefined,
       });
-    } else if (source === 'system-binding') {
+    } else if (source === 'system-binding' && this.supportsQuery(node)) {
       this.setProps(node, {
         queryBinding: { source, bindingKey: '', input: {}, selector: '' },
         dataBinding: undefined,
@@ -1229,6 +1918,77 @@ export class ExperienceEditorComponent {
     if (key === 'bindingKey' && value && !this.bindingKeys().includes(value)) {
       this.bindingKeys.update((keys) => [...keys, value]);
     }
+    if (key === 'bindingKey' && value) this.loadDataContract(value);
+    if (key === 'componentId' && value) {
+      const sourceNode = this.selectedPage()?.components.find((item) => item.id === value);
+      const sourceKey = sourceNode ? this.nodeBindingKey(sourceNode) : '';
+      if (sourceKey) this.loadDataContract(sourceKey);
+    }
+  }
+
+  dataContractState(node: ExperienceNode): 'idle' | 'loading' | 'ready' | 'error' {
+    const key = this.dataContractKey(node);
+    return key ? this.dataContractStates()[key] ?? 'idle' : 'idle';
+  }
+
+  retryDataContract(node: ExperienceNode): void {
+    const key = this.dataContractKey(node);
+    if (key) this.loadDataContract(key, true);
+  }
+
+  queryFields(node: ExperienceNode): RuntimeField[] {
+    const ingress = this.queryIngress(node);
+    if (!ingress || !formSchemaSupported(ingress.input_schema)) return [];
+    const fields = fieldsFromSchema(ingress.input_schema);
+    return fields.some((field) => field.kind === 'file') ? [] : fields;
+  }
+
+  querySchemaSupported(node: ExperienceNode): boolean {
+    const ingress = this.queryIngress(node);
+    return !!ingress
+      && formSchemaSupported(ingress.input_schema)
+      && !fieldsFromSchema(ingress.input_schema).some((field) => field.kind === 'file');
+  }
+
+  queryFieldValue(node: ExperienceNode, field: RuntimeField): string {
+    const value = this.dataBinding(node)?.input[field.name];
+    return value === undefined || value === null ? '' : String(value);
+  }
+
+  queryFieldChecked(node: ExperienceNode, field: RuntimeField): boolean {
+    return this.dataBinding(node)?.input[field.name] === true;
+  }
+
+  queryFieldInputType(field: RuntimeField): 'text' | 'number' | 'date' {
+    if (field.kind === 'number' || field.kind === 'integer') return 'number';
+    return field.kind === 'date' ? 'date' : 'text';
+  }
+
+  setQueryField(node: ExperienceNode, field: RuntimeField, event: Event): void {
+    if (this.readOnly()) return;
+    const target = event.target as HTMLInputElement | HTMLSelectElement;
+    const raw: unknown = field.kind === 'boolean' && target instanceof HTMLInputElement
+      ? target.checked
+      : target.value;
+    const converted = valuesToPayload([field], { [field.name]: raw });
+    const current = this.dataBinding(node)?.input ?? {};
+    const input = { ...current };
+    if (Object.prototype.hasOwnProperty.call(converted, field.name)) input[field.name] = converted[field.name];
+    else delete input[field.name];
+    const query = this.record(node.props?.['queryBinding']) ?? {};
+    this.setProp(node, 'queryBinding', { ...query, source: 'system-binding', input });
+    this.dataError.set(null);
+  }
+
+  dataSelectorOptions(node: ExperienceNode): Array<{ value: string; label: string }> {
+    const key = this.dataContractKey(node);
+    const schema = key ? this.dataContracts()[key]?.output_schema : null;
+    const options = schemaSelectorOptions(schema, node.type);
+    const current = this.dataBinding(node)?.selector ?? '';
+    if (current && !options.some((option) => option.value === current)) {
+      options.push({ value: current, label: humanizeIdentifier(current) || current });
+    }
+    return options.length > 0 ? options : [{ value: '', label: '' }];
   }
 
   queryInput(node: ExperienceNode): string {
@@ -1246,6 +2006,59 @@ export class ExperienceEditorComponent {
     } catch {
       this.dataError.set(this.i18n.t('experience.editor.data.json_error'));
     }
+  }
+
+  private queryIngress(node: ExperienceNode) {
+    const key = this.dataBinding(node)?.bindingKey;
+    if (!key) return null;
+    const binding = this.bindings().find((row) => row.binding_key === key);
+    const contract = this.dataContracts()[key];
+    return binding && contract
+      ? contract.ingresses.find((row) => row.ingress_id === binding.ingress_id) ?? null
+      : null;
+  }
+
+  private nodeBindingKey(node: ExperienceNode): string {
+    const direct = this.str(node, 'bindingKey');
+    if (direct) return direct;
+    const query = this.record(node.props?.['queryBinding']);
+    return typeof query?.['bindingKey'] === 'string' ? query['bindingKey'] : '';
+  }
+
+  private dataContractKey(node: ExperienceNode): string {
+    const binding = this.dataBinding(node);
+    if (!binding) return '';
+    if (binding.source === 'system-binding') return binding.bindingKey ?? '';
+    const sourceNode = this.selectedPage()?.components.find((item) => item.id === binding.componentId);
+    return sourceNode ? this.nodeBindingKey(sourceNode) : '';
+  }
+
+  private ensureNodeDataContract(node: ExperienceNode): void {
+    const key = this.dataContractKey(node);
+    if (key) this.loadDataContract(key);
+  }
+
+  private loadDataContract(key: string, force = false): void {
+    const state = this.dataContractStates()[key];
+    if (!force && (state === 'loading' || state === 'ready')) return;
+    const binding = this.bindings().find((row) => row.binding_key === key);
+    if (!binding) {
+      this.dataContractStates.update((states) => ({ ...states, [key]: 'error' }));
+      return;
+    }
+    this.dataContractStates.update((states) => ({ ...states, [key]: 'loading' }));
+    const request = this.api.listIngresses(binding.system_id).subscribe({
+      next: (contract) => {
+        if (contract.published_flow_version_id !== binding.published_flow_version_id) {
+          this.dataContractStates.update((states) => ({ ...states, [key]: 'error' }));
+          return;
+        }
+        this.dataContracts.update((contracts) => ({ ...contracts, [key]: contract }));
+        this.dataContractStates.update((states) => ({ ...states, [key]: 'ready' }));
+      },
+      error: () => this.dataContractStates.update((states) => ({ ...states, [key]: 'error' })),
+    });
+    this.trackRoute(request);
   }
 
   private setProps(node: ExperienceNode, props: Record<string, unknown>): void {
@@ -1367,8 +2180,8 @@ export class ExperienceEditorComponent {
     return appearanceOf(node).accent || '#7dd3fc';
   }
 
-  a11yStr(node: ExperienceNode, key: 'ariaLabel' | 'emptyText' | 'keyboardHint'): string {
-    return a11yOf(node)[key];
+  localizedA11y(node: ExperienceNode, key: 'ariaLabel' | 'emptyText' | 'keyboardHint'): string {
+    return this.localizedValue(a11yValue(node, key));
   }
 
   headingValue(node: ExperienceNode): string {
@@ -1384,6 +2197,26 @@ export class ExperienceEditorComponent {
     this.setProp(node, 'a11y', a11yPayload(node, key, value));
   }
 
+  setLocalizedA11y(
+    node: ExperienceNode,
+    keyName: 'ariaLabel' | 'emptyText' | 'keyboardHint',
+    value: string,
+  ): void {
+    if (this.readOnly() || !node.id) return;
+    const next = cloneDocument(this.doc());
+    const target = findNode(next, node.id)?.node;
+    if (!target) return;
+    const current = a11yValue(target, keyName);
+    const key = this.isLocalized(current) ? current.$i18n : `component.${node.id}.a11y.${keyName}`;
+    const fallback = typeof current === 'string' ? current : this.isLocalized(current) ? current.fallback : '';
+    target.props = {
+      ...(target.props ?? {}),
+      a11y: a11yPayload(target, keyName, { $i18n: key, fallback }),
+    };
+    this.setDictionaryValue(next, key, value);
+    this.commit(next);
+  }
+
   contrastWarn(node: ExperienceNode): boolean {
     const accent = appearanceOf(node).accent;
     if (!accent || !supportsAccent(node.type)) return false;
@@ -1392,19 +2225,23 @@ export class ExperienceEditorComponent {
   }
 
   patchBinding(key: string, body: Partial<{ confirmation_policy: string; on_unavailable: string }>): void {
-    if (this.readOnly()) return;
-    this.api.patchBinding(key, body).subscribe({
+    if (this.readOnly() || !this.confirmBindingChange(key)) return;
+    const request = this.api.patchBinding(key, body).subscribe({
       next: (row) => {
         this.bindings.update((list) => list.map((item) => (item.binding_key === row.binding_key ? row : item)));
       },
       error: (err) => this.error.set(studioError(this.i18n, err, 'experience.editor.save_error')),
     });
+    this.trackRoute(request);
   }
 
   undo(): void {
     if (this.readOnly()) return;
     this.stack.update(undoRevision);
     this.editGeneration += 1;
+    this.saved.set(false);
+    this.ready.set(null);
+    this.readyState.set('idle');
     this.scheduleSave();
   }
 
@@ -1412,6 +2249,9 @@ export class ExperienceEditorComponent {
     if (this.readOnly()) return;
     this.stack.update(redoRevision);
     this.editGeneration += 1;
+    this.saved.set(false);
+    this.ready.set(null);
+    this.readyState.set('idle');
     this.scheduleSave();
   }
 
@@ -1443,6 +2283,9 @@ export class ExperienceEditorComponent {
     }
     this.stack.update((stack) => applyPatchOnStack(stack, item.patch));
     this.editGeneration += 1;
+    this.saved.set(false);
+    this.ready.set(null);
+    this.readyState.set('idle');
     this.proposal.set(null);
     this.scheduleSave();
   }
@@ -1471,6 +2314,7 @@ export class ExperienceEditorComponent {
 
   preparePublish(): void {
     if (!this.canRelease()) return;
+    this.deploymentRelease.set(null);
     if (this.readOnly()) {
       const draft = this.detail()?.draft;
       if (draft) {
@@ -1486,7 +2330,17 @@ export class ExperienceEditorComponent {
 
   closePublish(): void {
     this.publishOpen.set(false);
+    this.deploymentRelease.set(null);
     this.lockedDraft.set(null);
+  }
+
+  openDeployment(release: StudioRelease): void {
+    if (!this.canRelease()) return;
+    const draft = this.detail()?.draft;
+    if (!draft) return;
+    this.deploymentRelease.set(release);
+    this.lockedDraft.set(draft);
+    this.publishOpen.set(true);
   }
 
   private requestSave(): void {
@@ -1507,19 +2361,24 @@ export class ExperienceEditorComponent {
       return;
     }
     const generation = this.editGeneration;
+    const bindingKeys = documentBindingKeys(this.doc());
+    this.bindingKeys.set(bindingKeys);
     this.saving.set(true);
+    this.saved.set(false);
     this.error.set(null);
-    this.api.saveDraft(id, pagesPayload(this.doc()), this.bindingKeys(), current.revision).subscribe({
+    const request = this.api.saveDraft(id, pagesPayload(this.doc()), bindingKeys, current.revision).subscribe({
       next: (draft) => {
+        if (this.id() !== id) return;
         this.detail.update((row) => row ? { ...row, draft, binding_keys: draft.binding_keys } : row);
         this.saving.set(false);
-        this.refreshReady(id);
         const changedWhileSaving = generation !== this.editGeneration;
         if (changedWhileSaving || this.saveQueued) {
           this.saveQueued = false;
           this.requestSave();
           return;
         }
+        this.refreshReady(id);
+        this.saved.set(true);
         if (this.publishRequested) {
           this.publishRequested = false;
           this.lockedDraft.set(draft);
@@ -1527,6 +2386,7 @@ export class ExperienceEditorComponent {
         }
       },
       error: (err) => {
+        if (this.id() !== id) return;
         this.error.set(
           apiCode(err) === 'EXPERIENCE_DRAFT_REVISION_CONFLICT'
             ? this.i18n.t('experience.editor.conflict')
@@ -1537,6 +2397,7 @@ export class ExperienceEditorComponent {
         this.saving.set(false);
       },
     });
+    this.trackRoute(request);
   }
 
   toggleBottom(tab: BottomTab): void {
@@ -1552,32 +2413,156 @@ export class ExperienceEditorComponent {
     this.bottomOpen.set(true);
   }
 
-  rollback(channel: string): void {
-    if (!this.canRelease()) return;
+  historyDate(value: string | null | undefined): string {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '—';
+    return new Intl.DateTimeFormat(this.i18n.locale() === 'en' ? 'en-GB' : 'fr-FR', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date);
+  }
+
+  shortHash(value: string): string {
+    const hash = value.trim();
+    return hash ? hash.slice(0, 12) : '—';
+  }
+
+  canRestoreRevision(revision: StudioDraftRevision): boolean {
+    const current = this.detail()?.draft;
+    return !this.readOnly()
+      && !this.draftHistoryBusy()
+      && !this.saving()
+      && this.saved()
+      && !this.metadataDirty()
+      && !this.metadataBusy()
+      && !!current
+      && revision.revision !== current.revision;
+  }
+
+  restoreDisabledHint(revision: StudioDraftRevision): string | null {
+    if (this.canRestoreRevision(revision)) return null;
+    if (this.draftHistoryBusy()) return this.i18n.t('experience.editor.history.restoring');
+    return this.i18n.t('experience.editor.history.save_first');
+  }
+
+  requestDraftRestore(revision: StudioDraftRevision): void {
+    if (!this.canRestoreRevision(revision)) return;
+    this.draftHistoryStatus.set('');
+    this.restoreCandidate.set(revision);
+  }
+
+  cancelDraftRestore(): void {
+    this.restoreCandidate.set(null);
+  }
+
+  restoreDraftRevision(): void {
     const id = this.id();
-    if (!id || (channel !== 'pilot' && channel !== 'live')) return;
-    this.lifecycleBusy.set(true);
-    this.api.rollback(id, channel).subscribe({
-      next: () => {
-        this.lifecycleBusy.set(false);
-        this.load(id);
+    const target = this.restoreCandidate();
+    const current = this.detail()?.draft;
+    if (!id || !target || !current || !this.canRestoreRevision(target)) {
+      this.restoreCandidate.set(null);
+      return;
+    }
+    const previousPageId = this.pageId();
+    const expectedRevision = current.revision;
+    this.restoreCandidate.set(null);
+    this.draftHistoryBusy.set(true);
+    this.error.set(null);
+    this.draftHistoryStatus.set(
+      this.i18n.t('experience.editor.history.restoring_revision', { n: target.revision }),
+    );
+    const request = this.api.restoreDraftRevision(id, target.revision, expectedRevision).subscribe({
+      next: (draft) => {
+        if (this.id() !== id) return;
+        const document = hydrateDocument(draft.pages);
+        this.detail.update((row) => row
+          ? { ...row, draft, binding_keys: draft.binding_keys }
+          : row);
+        this.bindingKeys.set(draft.binding_keys ?? []);
+        this.stack.set(emptyStack(document));
+        const pageId = document.pages.some((page) => page.id === previousPageId)
+          ? previousPageId
+          : document.pages[0]?.id ?? null;
+        this.selection.set(pageId ? { kind: 'page', pageId } : null);
+        this.editGeneration += 1;
+        this.saveQueued = false;
+        this.saved.set(true);
+        this.ready.set(null);
+        this.readyState.set('idle');
+        this.draftHistoryBusy.set(false);
+        this.draftHistoryStatus.set(this.i18n.t('experience.editor.history.restored', {
+          target: target.revision,
+          current: draft.revision,
+        }));
+        this.refreshReady(id);
+        this.loadDraftHistory(id);
+        this.focusDraftHistory();
       },
       error: (err) => {
-        this.lifecycleBusy.set(false);
-        this.error.set(studioError(this.i18n, err, 'experience.editor.lifecycle.error'));
+        if (this.id() !== id) return;
+        const conflict = apiCode(err) === 'EXPERIENCE_DRAFT_REVISION_CONFLICT';
+        const message = this.i18n.t(conflict
+          ? 'experience.editor.history.conflict'
+          : 'experience.editor.history.restore_error');
+        this.draftHistoryBusy.set(false);
+        this.error.set(message);
+        this.draftHistoryStatus.set(message);
+        if (conflict) this.load(id);
+        else this.loadDraftHistory(id);
+        this.focusDraftHistory();
       },
     });
+    this.trackRoute(request);
+  }
+
+  retryDraftHistory(): void {
+    const id = this.id();
+    if (id) this.loadDraftHistory(id);
+  }
+
+  rollback(deployment: StudioDeployment): void {
+    if (!this.canRelease()) return;
+    const id = this.id();
+    const channel = deployment.channel;
+    const targetReleaseId = deployment.previous_release_id;
+    const expectedDeploymentUpdatedAt = deployment.updated_at;
+    if (!id || (channel !== 'pilot' && channel !== 'live')) return;
+    if (!targetReleaseId || !expectedDeploymentUpdatedAt) return;
+    this.lifecycleBusy.set(true);
+    const request = this.api.rollback(id, channel, {
+      releaseId: targetReleaseId,
+      expectedCurrentReleaseId: deployment.release_id,
+      expectedDeploymentUpdatedAt,
+    }).subscribe({
+      next: () => {
+        if (this.id() !== id) return;
+        this.lifecycleBusy.set(false);
+        this.reloadDeployments();
+      },
+      error: (err) => {
+        if (this.id() !== id) return;
+        this.lifecycleBusy.set(false);
+        const conflict = apiCode(err) === 'EXPERIENCE_DEPLOYMENT_CONFLICT';
+        this.error.set(conflict
+          ? this.i18n.t('experience.deployment.conflict')
+          : studioError(this.i18n, err, 'experience.editor.lifecycle.error'));
+        if (conflict) this.reloadDeployments();
+      },
+    });
+    this.trackRoute(request);
   }
 
   repairDrift(drift: StudioDrift): void {
     if (this.readOnly()) return;
+    if (!this.confirmBindingChange(drift.binding.binding_key)) return;
     const version = this.publishedVersions()[drift.binding.system_id];
     if (!version) {
       this.error.set(this.i18n.t('experience.editor.lifecycle.no_version'));
       return;
     }
     this.lifecycleBusy.set(true);
-    this.api.patchBinding(drift.binding.binding_key, {
+    const request = this.api.patchBinding(drift.binding.binding_key, {
       published_flow_version_id: version,
       ingress_id: drift.binding.ingress_id,
     }).subscribe({
@@ -1585,12 +2570,15 @@ export class ExperienceEditorComponent {
         this.bindings.update((items) => items.map((item) => item.binding_key === row.binding_key ? row : item));
         this.lifecycleBusy.set(false);
         this.loadDrifts();
+        const id = this.id();
+        if (id) this.refreshReady(id);
       },
       error: (err) => {
         this.lifecycleBusy.set(false);
         this.error.set(studioError(this.i18n, err, 'experience.editor.lifecycle.error'));
       },
     });
+    this.trackRoute(request);
   }
 
   /**
@@ -1599,12 +2587,33 @@ export class ExperienceEditorComponent {
    * burst of keystrokes must not turn into a burst of checks.
    */
   private refreshReady(id: string): void {
+    const generation = ++this.readyGeneration;
+    this.readyState.set('loading');
     if (this.readyTimer) clearTimeout(this.readyTimer);
     this.readyTimer = setTimeout(() => {
-      this.api.readyCheck(id).subscribe({
-        next: (check) => this.ready.set(check),
-        error: () => this.ready.set(null),
+      this.readyTimer = null;
+      if (generation !== this.readyGeneration || this.id() !== id || !this.saved() || this.saving() || this.saveQueued) return;
+      const request = this.api.readyCheck(id).subscribe({
+        next: (check) => {
+          if (
+            generation === this.readyGeneration
+            && this.id() === id
+            && this.saved()
+            && !this.saving()
+            && !this.saveQueued
+          ) {
+            this.ready.set(check);
+            this.readyState.set('ready');
+          }
+        },
+        error: () => {
+          if (generation === this.readyGeneration && this.id() === id) {
+            this.ready.set(null);
+            this.readyState.set('error');
+          }
+        },
       });
+      this.trackRoute(request);
     }, READY_DEBOUNCE_MS);
   }
 
@@ -1613,9 +2622,132 @@ export class ExperienceEditorComponent {
     if (id) this.load(id);
   }
 
+  retryReady(): void {
+    const id = this.id();
+    if (id && this.saved() && !this.saving()) this.refreshReady(id);
+  }
+
   reloadLifecycle(): void {
     const id = this.id();
     if (id) this.loadLifecycle(id);
+  }
+
+  reloadDeployments(): void {
+    const id = this.id();
+    if (!id) return;
+    const request = this.api.getExperience(id).subscribe({
+      next: (row) => {
+        if (this.id() !== id) return;
+        this.detail.update((current) => current ? { ...current, deployments: row.deployments } : current);
+      },
+      error: () => undefined,
+    });
+    this.trackRoute(request);
+  }
+
+  metadataValid(): boolean {
+    return this.metadataLanguages().length > 0
+      && (this.accessWhole() || this.accessRoles().length > 0 || this.accessGroups().length > 0);
+  }
+
+  toggleMetadataLanguage(locale: string): void {
+    if (this.readOnly()) return;
+    const current = this.metadataLanguages();
+    this.metadataLanguages.set(
+      current.includes(locale) ? current.filter((item) => item !== locale) : [...current, locale],
+    );
+    this.metadataDirty.set(true);
+  }
+
+  toggleMetadataRole(role: string): void {
+    if (this.readOnly()) return;
+    this.accessWhole.set(false);
+    const current = this.accessRoles();
+    this.accessRoles.set(
+      current.includes(role) ? current.filter((item) => item !== role) : [...current, role],
+    );
+    this.metadataDirty.set(true);
+  }
+
+  toggleMetadataWhole(): void {
+    if (this.readOnly()) return;
+    const next = !this.accessWhole();
+    this.accessWhole.set(next);
+    if (next) {
+      this.accessRoles.set([]);
+      this.accessGroups.set([]);
+    }
+    this.metadataDirty.set(true);
+  }
+
+  setMetadataGroups(event: Event): void {
+    if (this.readOnly()) return;
+    const groups = this.inputValue(event)
+      .split(',')
+      .map((item) => item.trim())
+      .filter((item, index, all) => !!item && all.indexOf(item) === index);
+    this.accessGroups.set(groups);
+    if (groups.length > 0) this.accessWhole.set(false);
+    this.metadataDirty.set(true);
+  }
+
+  setMetadataTheme(event: Event): void {
+    if (this.readOnly()) return;
+    this.metadataTheme.set(this.selectValue(event));
+    this.metadataDirty.set(true);
+  }
+
+  setMetadataDescription(event: Event): void {
+    if (this.readOnly()) return;
+    this.metadataDescription.set(this.inputValue(event));
+    this.metadataDirty.set(true);
+  }
+
+  setMetadataEmblem(event: Event): void {
+    if (this.readOnly()) return;
+    this.metadataEmblem.set(this.selectValue(event));
+    this.metadataDirty.set(true);
+  }
+
+  knownEmblem(value: string): boolean {
+    return this.emblemOptions.some((option) => option.value === value);
+  }
+
+  saveMetadata(): void {
+    const row = this.detail();
+    if (this.readOnly() || this.metadataBusy() || !this.metadataValid() || !row?.updated_at) return;
+    this.metadataBusy.set(true);
+    this.error.set(null);
+    const request = this.api.patchExperience(row.id, {
+      languages: this.metadataLanguages(),
+      description: this.metadataDescription().trim() || null,
+      emblem: this.metadataEmblem().trim() || null,
+      theme: { ...(row.theme ?? {}), mode: this.metadataTheme() },
+      access_policy: {
+        roles: this.accessWhole() ? [] : this.accessRoles(),
+        groups: this.accessWhole() ? [] : this.accessGroups(),
+      },
+      expected_updated_at: row.updated_at,
+    }).subscribe({
+      next: (updated) => {
+        // Metadata and draft saves are independent HTTP requests. Preserve the
+        // newest locally-observed draft if their responses arrive out of order.
+        this.detail.update((current) => current?.id === updated.id
+          ? { ...updated, draft: current.draft, binding_keys: current.binding_keys }
+          : updated);
+        this.hydrateMetadata(updated);
+        this.metadataBusy.set(false);
+      },
+      error: (err) => {
+        this.metadataBusy.set(false);
+        this.error.set(
+          apiCode(err) === 'EXPERIENCE_METADATA_CONFLICT'
+            ? this.i18n.t('experience.editor.conflict')
+            : studioError(this.i18n, err, 'experience.editor.save_error'),
+        );
+      },
+    });
+    this.trackRoute(request);
   }
 
   inputValue(event: Event): string {
@@ -1626,21 +2758,98 @@ export class ExperienceEditorComponent {
     return (event.target as HTMLSelectElement).value;
   }
 
+  private openRoute(id: string | null): void {
+    if (id === this.id()) return;
+    this.cancelRouteWork();
+    this.routeScope = new Subscription();
+    this.id.set(id);
+    this.detail.set(null);
+    this.name.set('');
+    this.slug.set('');
+    this.stack.set(emptyStack({ pages: [] }));
+    this.selection.set(null);
+    this.bindingKeys.set([]);
+    this.ready.set(null);
+    this.readyState.set('idle');
+    this.lockedDraft.set(null);
+    this.releases.set([]);
+    this.draftHistory.set([]);
+    this.draftHistoryState.set('idle');
+    this.draftHistoryBusy.set(false);
+    this.draftHistoryStatus.set('');
+    this.restoreCandidate.set(null);
+    this.drifts.set([]);
+    this.publishedVersions.set({});
+    this.error.set(null);
+    this.dataError.set(null);
+    this.accessRoles.set([]);
+    this.accessGroups.set([]);
+    this.accessWhole.set(false);
+    this.metadataLanguages.set([]);
+    this.metadataTheme.set('default');
+    this.metadataDescription.set('');
+    this.metadataEmblem.set('◇');
+    this.metadataBusy.set(false);
+    this.metadataDirty.set(false);
+    this.publishOpen.set(false);
+    this.deploymentRelease.set(null);
+    this.proposal.set(null);
+    this.assistantMiss.set(false);
+    this.contentLocale.set('fr');
+    this.previewRole.set('workspace_viewer');
+    this.previewGroup.set('');
+    this.editGeneration = 0;
+    this.saved.set(false);
+    if (id) this.load(id);
+  }
+
+  private cancelRouteWork(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    if (this.readyTimer) clearTimeout(this.readyTimer);
+    this.saveTimer = null;
+    this.readyTimer = null;
+    this.routeScope.unsubscribe();
+    this.actionBindingRequests.clear();
+    this.loadGeneration += 1;
+    this.readyGeneration += 1;
+    this.saveQueued = false;
+    this.publishRequested = false;
+    this.saving.set(false);
+    this.lifecycleBusy.set(false);
+    this.draftHistoryBusy.set(false);
+    this.restoreCandidate.set(null);
+  }
+
+  private trackRoute(subscription: Subscription): void {
+    this.routeScope.add(subscription);
+  }
+
   private load(id: string): void {
-    this.api.getExperience(id).subscribe({
-      next: (row) => this.hydrate(row),
-      error: (err) => this.error.set(studioError(this.i18n, err, 'experience.editor.load_error')),
+    const generation = ++this.loadGeneration;
+    const request = this.api.getExperience(id).subscribe({
+      next: (row) => {
+        if (generation === this.loadGeneration && this.id() === id) this.hydrate(row);
+      },
+      error: (err) => {
+        if (generation === this.loadGeneration && this.id() === id) {
+          this.error.set(studioError(this.i18n, err, 'experience.editor.load_error'));
+        }
+      },
     });
+    this.trackRoute(request);
   }
 
   private hydrate(row: StudioDetail): void {
     this.detail.set(row);
+    this.hydrateMetadata(row);
     this.name.set(row.name);
     this.slug.set(row.slug);
     this.bindingKeys.set(row.draft?.binding_keys ?? row.binding_keys ?? []);
     const doc = this.api.draftDocument(row);
     this.stack.set(emptyStack(doc));
-    const first = doc.pages[0]?.id;
+    this.saved.set(true);
+    const requested = this.requestedPageId();
+    const first = doc.pages.find((page) => page.id === requested)?.id ?? doc.pages[0]?.id;
     this.selection.set(first ? { kind: 'page', pageId: first } : null);
     const locale = row.languages?.map((item) => item.toLowerCase().slice(0, 2)).find((item) => item === 'fr' || item === 'en');
     if (locale) this.contentLocale.set(locale);
@@ -1648,32 +2857,138 @@ export class ExperienceEditorComponent {
     this.loadLifecycle(row.id);
   }
 
+  private selectRequestedPage(): void {
+    const requested = this.requestedPageId();
+    if (requested && this.doc().pages.some((page) => page.id === requested)) {
+      this.selection.set({ kind: 'page', pageId: requested });
+    }
+  }
+
+  private hydrateMetadata(row: StudioDetail): void {
+    const policy = row.access_policy ?? {};
+    const roles = Array.isArray(policy['roles'])
+      ? policy['roles'].filter((item): item is string => typeof item === 'string')
+      : [];
+    const groups = Array.isArray(policy['groups'])
+      ? policy['groups'].filter((item): item is string => typeof item === 'string')
+      : [];
+    this.accessRoles.set(roles);
+    this.accessGroups.set(groups);
+    this.accessWhole.set(Array.isArray(policy['roles']) && roles.length === 0 && groups.length === 0);
+    this.metadataLanguages.set(
+      [...new Set((row.languages ?? []).map((item) => item.toLowerCase()).filter((item) => item === 'fr' || item === 'en'))],
+    );
+    const mode = row.theme?.['mode'];
+    this.metadataTheme.set(mode === 'light' || mode === 'dark' ? mode : 'default');
+    this.metadataDescription.set(row.description ?? '');
+    this.metadataEmblem.set(row.emblem ?? '◇');
+    this.metadataDirty.set(false);
+  }
+
   private commit(next: ExperienceDocument): void {
     if (this.readOnly()) return;
     this.stack.update((stack) => pushRevision(stack, next));
     this.editGeneration += 1;
+    this.saved.set(false);
+    this.ready.set(null);
+    this.readyState.set('idle');
     this.scheduleSave();
   }
 
   private scheduleSave(): void {
+    this.readyGeneration += 1;
     if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => this.flushSave(), 400);
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.flushSave();
+    }, 400);
   }
 
-  private loadLifecycle(id: string): void {
-    this.api.listReleases(id).subscribe({ next: (rows) => this.releases.set(rows), error: () => this.releases.set([]) });
-    this.loadDrifts();
-    this.api.publishedSystems().subscribe((rows) => {
-      const versions: Record<string, string> = {};
-      for (const row of rows) {
-        const version = row.published_flow_version_id;
-        if (version) versions[row.id] = version;
-      }
-      this.publishedVersions.set(versions);
+  private confirmBindingChange(key: string): boolean {
+    if (this.appsState() !== 'ready') {
+      this.error.set(this.i18n.t('experience.editor.catalog.error'));
+      return false;
+    }
+    const others = this.sharedWith(key);
+    return others.length === 0 || globalThis.confirm(
+      this.i18n.t('experience.editor.action.shared_confirm', { apps: others.join(', ') }),
+    );
+  }
+
+  loadCatalogs(): void {
+    this.bindingsState.set('loading');
+    this.appsState.set('loading');
+    this.api.listBindings().subscribe({
+      next: (rows) => {
+        this.bindings.set(rows);
+        this.bindingsState.set('ready');
+        const node = this.selectedNode();
+        if (node) this.ensureNodeDataContract(node);
+      },
+      error: () => this.bindingsState.set('error'),
+    });
+    this.api.listExperiences().subscribe({
+      next: (rows) => {
+        this.apps.set(rows);
+        this.appsState.set('ready');
+      },
+      error: () => this.appsState.set('error'),
     });
   }
 
+  private loadLifecycle(id: string): void {
+    this.loadDraftHistory(id);
+    this.trackRoute(this.api.listReleases(id).subscribe({
+      next: (rows) => {
+        if (this.id() === id) this.releases.set(rows);
+      },
+      error: () => {
+        if (this.id() === id) this.releases.set([]);
+      },
+    }));
+    this.loadDrifts();
+    this.trackRoute(this.api.publishedSystems().subscribe({
+      next: (rows) => {
+        if (this.id() !== id) return;
+        const versions: Record<string, string> = {};
+        for (const row of rows) {
+          const version = row.published_flow_version_id;
+          if (version) versions[row.id] = version;
+        }
+        this.publishedVersions.set(versions);
+      },
+      error: () => {
+        if (this.id() === id) this.publishedVersions.set({});
+      },
+    }));
+  }
+
   private loadDrifts(): void {
-    this.api.listDriftedBindings().subscribe({ next: (rows) => this.drifts.set(rows), error: () => this.drifts.set([]) });
+    this.trackRoute(this.api.listDriftedBindings().subscribe({
+      next: (rows) => this.drifts.set(rows),
+      error: () => this.drifts.set([]),
+    }));
+  }
+
+  private loadDraftHistory(id: string): void {
+    this.draftHistoryState.set('loading');
+    this.trackRoute(this.api.listDraftRevisions(id).subscribe({
+      next: (rows) => {
+        if (this.id() !== id) return;
+        this.draftHistory.set([...rows].sort((a, b) => b.revision - a.revision));
+        this.draftHistoryState.set('ready');
+      },
+      error: () => {
+        if (this.id() === id) this.draftHistoryState.set('error');
+      },
+    }));
+  }
+
+  private focusDraftHistory(): void {
+    queueMicrotask(() => {
+      if (typeof document !== 'undefined') {
+        document.getElementById('xp-draft-history-title')?.focus();
+      }
+    });
   }
 }

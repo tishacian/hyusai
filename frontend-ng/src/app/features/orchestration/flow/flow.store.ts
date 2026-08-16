@@ -598,6 +598,25 @@ export const FlowStore = signalStore(
         });
       },
 
+      /** Move a node one place in the canonical presentation order. Graph
+       * execution remains edge-driven; this order is shared by the canvas DOM,
+       * the accessible outline and the persisted payload. */
+      reorderNode(nodeId: string, direction: -1 | 1): void {
+        const nodes = store.nodes();
+        const index = nodes.findIndex((node) => node.id === nodeId);
+        const target = index + direction;
+        if (index < 0 || target < 0 || target >= nodes.length) return;
+        checkpoint();
+        const next = [...nodes];
+        const [moved] = next.splice(index, 1);
+        next.splice(target, 0, moved);
+        patchState(store, {
+          nodes: next,
+          dirty: true,
+          revision: store.revision() + 1,
+        });
+      },
+
       // ---- history -------------------------------------------------------
       /** Mark an undoable checkpoint (used by the canvas at drag-start). */
       checkpoint,

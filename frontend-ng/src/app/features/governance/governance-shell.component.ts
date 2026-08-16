@@ -5,6 +5,7 @@ import { filter, map, startWith } from 'rxjs';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { canGovernExperiences } from './experience-governance.models';
 
 interface Tab {
   /** Dictionary key rendered through `i18n.t()` so the strip follows the locale. */
@@ -14,6 +15,8 @@ interface Tab {
   exact?: boolean;
   /** When true the tab is only shown to workspace admins/owners. */
   adminOnly?: boolean;
+  /** Experience lifecycle evidence is reviewer-plus and feature-gated. */
+  experienceGovernance?: boolean;
 }
 
 /**
@@ -27,14 +30,19 @@ interface Tab {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, RouterOutlet, GlyphComponent],
   template: `
-    <div
-      [style.padding]="'0 32px'"
+    <nav
+      [attr.aria-label]="i18n.t('nav.governance')"
+      [style.padding]="'18px clamp(12px, 4vw, 32px) 0'"
       [style.maxWidth.px]="1480"
       [style.margin]="'0 auto'"
-      [style.paddingTop.px]="18"
+      [style.overflowX]="'auto'"
+      [style.overscrollBehaviorX]="'contain'"
+      [style.scrollbarWidth]="'thin'"
+      [style.scrollPaddingInline.px]="12"
     >
       <div
         [style.display]="'inline-flex'"
+        [style.minWidth]="'max-content'"
         [style.alignItems]="'center'"
         [style.gap.px]="2"
         [style.background]="'var(--ck-bg-panel)'"
@@ -60,13 +68,15 @@ interface Tab {
             [style.textTransform]="'uppercase'"
             [style.textDecoration]="'none'"
             [style.transition]="'background 120ms var(--ck-ease-out), color 120ms'"
+            [style.flex]="'0 0 auto'"
+            (focus)="revealTab($event)"
           >
             <ck-glyph [name]="t.glyph" [size]="12" />
             {{ i18n.t(t.labelKey) }}
           </a>
         }
       </div>
-    </div>
+    </nav>
 
     <router-outlet />
   `,
@@ -88,6 +98,7 @@ export class GovernanceShellComponent {
 
   readonly tabs: Tab[] = [
     { labelKey: 'governance.shell.audit',        glyph: 'ledger', route: '/governance/audit' },
+    { labelKey: 'governance.shell.experiences',  glyph: 'layers', route: '/governance/experiences', experienceGovernance: true },
     { labelKey: 'governance.shell.chat_history', glyph: 'ledger', route: '/governance/chat-history', adminOnly: true },
     { labelKey: 'governance.shell.canonical',    glyph: 'focus',  route: '/governance/canonical-answers' },
     { labelKey: 'governance.shell.access',       glyph: 'focus',  route: '/governance/access' },
@@ -98,12 +109,22 @@ export class GovernanceShellComponent {
 
   /** Hide admin-only tabs (e.g. Chat history) from non-admin members. */
   readonly visibleTabs = computed(() =>
-    this.tabs.filter((t) => !t.adminOnly || this.workspace.isAdmin()),
+    this.tabs.filter((t) => {
+      if (t.adminOnly && !this.workspace.isAdmin()) return false;
+      if (!t.experienceGovernance) return true;
+      const current = this.workspace.current();
+      return this.workspace.experienceV1Enabled()
+        && canGovernExperiences(current?.role_template, current?.role, this.workspace.isAdmin());
+    }),
   );
 
   isActive(t: Tab): boolean {
     const p = this.currentPath();
     if (t.exact) return p === t.route;
     return p === t.route || p.startsWith(t.route + '/');
+  }
+
+  revealTab(event: FocusEvent): void {
+    (event.currentTarget as HTMLElement).scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 }

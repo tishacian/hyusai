@@ -29,6 +29,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
           <a
             routerLink="/chat"
             routerLinkActive="business-nav-active"
+            ariaCurrentWhenActive="page"
             [routerLinkActiveOptions]="{ exact: true }"
             class="business-nav-link"
             [title]="i18n.t('workspace.business.search')"
@@ -47,6 +48,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
           <a
             routerLink="/client360"
             routerLinkActive="business-nav-active"
+            ariaCurrentWhenActive="page"
             class="business-nav-link"
             [title]="i18n.t('workspace.business.client360')"
             [attr.aria-label]="i18n.t('workspace.business.client360')"
@@ -64,6 +66,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
           <a
             routerLink="/knowledge/capture"
             routerLinkActive="business-nav-active"
+            ariaCurrentWhenActive="page"
             [routerLinkActiveOptions]="{ exact: true }"
             class="business-nav-link"
             [title]="i18n.t('nav.capture')"
@@ -80,6 +83,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
           <a
             routerLink="/knowledge/interventions"
             routerLinkActive="business-nav-active"
+            ariaCurrentWhenActive="page"
             [routerLinkActiveOptions]="{ exact: true }"
             class="business-nav-link"
             [title]="i18n.t('workspace.business.fse')"
@@ -420,9 +424,16 @@ export class BusinessShellHeaderComponent {
       .join('') || 'A';
   });
 
-  selectWorkspace(slug: string): void {
-    if (!slug || slug === this.workspace.currentSlug()) return;
-    this.workspace.switchWorkspace(slug);
+  async selectWorkspace(slug: string): Promise<void> {
+    if (
+      !slug
+      || slug === this.workspace.currentSlug()
+      || !this.workspace.workspaces().some((workspace) => workspace.slug === slug)
+    ) {
+      return;
+    }
+    const leftCurrentWorkspace = await this.router.navigateByUrl('/hypervisor', { replaceUrl: true });
+    if (!leftCurrentWorkspace || !this.workspace.switchWorkspace(slug)) return;
     const route = this.navigation.businessShellActive()
       ? this.navigation.effective().defaultRoute
       : '/hypervisor';
@@ -434,7 +445,7 @@ export class BusinessShellHeaderComponent {
       window.location.reload();
       return;
     }
-    this.router.navigateByUrl(route);
+    await this.router.navigateByUrl(route, { replaceUrl: true });
   }
 
   exitPreview(): void {

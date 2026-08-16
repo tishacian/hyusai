@@ -51,9 +51,9 @@ const SCOPE_ORDER: CockpitScopeType[] = [
   template: `
     @if (activeVerb(); as verb) {
       @if (visibleSections().length > 0) {
-        <aside class="ck-mini-rail" aria-label="Object index">
+        <aside class="ck-mini-rail" [attr.aria-label]="i18n.t('nav.object_index')">
           <header class="ck-mini-head">
-            <span class="ck-mini-eyebrow">SCOPE</span>
+            <span class="ck-mini-eyebrow">{{ i18n.t('nav.scope') }}</span>
             <span class="ck-mini-verb">{{ i18n.t('nav.' + verb.key) }}</span>
             @if (scopeSuffix()) {
               <span class="ck-mini-scope" [title]="scopeSuffixFull()">{{ scopeSuffix() }}</span>
@@ -167,6 +167,10 @@ const SCOPE_ORDER: CockpitScopeType[] = [
         color: var(--ck-fg-1);
         background: var(--ck-bg-panel-hi);
       }
+      .ck-mini-item:focus-visible {
+        outline: 2px solid var(--ck-signal-cool);
+        outline-offset: 2px;
+      }
       .ck-mini-item-active {
         color: var(--ck-signal-cool);
         background: rgba(125, 211, 252, 0.06);
@@ -192,6 +196,54 @@ const SCOPE_ORDER: CockpitScopeType[] = [
       .ck-mini-label {
         flex: 1 1 auto;
         font-weight: 500;
+      }
+
+      @media (max-width: 700px) {
+        .ck-mini-rail {
+          grid-column: 2;
+          grid-row: 1;
+          width: 100%;
+          max-width: 100%;
+          height: auto;
+          padding: 4px 6px;
+          border-right: 0;
+          border-bottom: 1px solid var(--ck-stroke-2);
+          gap: 0;
+          overflow: hidden;
+        }
+
+        .ck-mini-head {
+          display: none;
+        }
+
+        .ck-mini-nav {
+          flex-direction: row;
+          gap: 2px;
+          overflow-x: auto;
+          overscroll-behavior-inline: contain;
+          scrollbar-width: thin;
+        }
+
+        .ck-mini-group,
+        .ck-mini-item {
+          flex: 0 0 auto;
+        }
+
+        .ck-mini-group {
+          align-self: center;
+          padding: 0 6px;
+        }
+
+        .ck-mini-item {
+          min-height: 40px;
+          padding: 6px 9px;
+        }
+
+        .ck-mini-active-bar {
+          inset: auto 8px -4px;
+          width: auto;
+          height: 2px;
+        }
       }
     `,
   ],
@@ -226,7 +278,7 @@ export class MiniRailComponent {
     const sections = cockpitVerbSections(verb, {
       axesV3: this.navigation.axesV3Enabled(),
       axesV4: this.navigation.axesV4Enabled(),
-      experienceV1: this.navigation.experienceV1Enabled(),
+      experienceV1: this.navigation.experienceStudioV1Enabled(),
     });
     if (!sections.length) return [];
     const deepest = this.deepestResolvedScope();

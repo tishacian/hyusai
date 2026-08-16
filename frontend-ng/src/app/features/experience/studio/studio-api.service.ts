@@ -1,12 +1,12 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Observable, of } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
 import type { I18nService } from '@app/core/i18n.service';
 import { hydrateDocument } from './studio-document';
-import type { ReadyCheck } from './studio-publish';
+import type { ReadyBindingEvidence, ReadyCheck } from './studio-publish';
 import type { StudioExperience } from './studio-model';
 
 export interface StudioBinding {
@@ -31,6 +31,7 @@ export interface StudioIngressList {
   system_id: string;
   published_flow_version_id: string;
   flow_sha256?: string;
+  output_schema?: unknown | null;
   ingresses: StudioIngress[];
 }
 
@@ -39,6 +40,13 @@ export interface StudioDraft {
   binding_keys: string[];
   revision: number;
   content_sha256: string;
+}
+
+export interface StudioDraftRevision extends StudioDraft {
+  id: string;
+  experience_id: string;
+  saved_by?: string | null;
+  created_at?: string | null;
 }
 
 export interface StudioDeployment {
@@ -59,6 +67,12 @@ export interface StudioRelease {
   id: string;
   release_number: number;
   content_sha256?: string;
+  pages?: unknown;
+  bindings_snapshot?: ReadyBindingEvidence[];
+  access_snapshot?: Record<string, unknown>;
+  identity_snapshot?: Record<string, unknown>;
+  languages?: string[];
+  theme?: Record<string, unknown>;
   renderer_version?: string | null;
   notes?: string;
   created_at?: string | null;
@@ -113,7 +127,6 @@ export class StudioApiService {
   listExperiences(): Observable<StudioExperience[]> {
     return this.api.get<{ experiences: StudioExperience[] }>('/experiences').pipe(
       map((body) => body.experiences ?? []),
-      catchError(() => of([])),
     );
   }
 
@@ -123,6 +136,8 @@ export class StudioApiService {
 
   createExperience(body: {
     name: string;
+    description?: string | null;
+    emblem?: string | null;
     slug: string;
     pattern: string;
     languages: string[];
@@ -136,11 +151,14 @@ export class StudioApiService {
     id: string,
     body: Partial<{
       name: string;
+      description: string | null;
+      emblem: string | null;
       slug: string;
       pattern: string;
       languages: string[];
       theme: Record<string, unknown>;
       access_policy: Record<string, unknown>;
+      expected_updated_at: string;
     }>,
   ): Observable<StudioDetail> {
     return this.api.patch<StudioDetail>(`/experiences/${encodeURIComponent(id)}`, body);
@@ -159,18 +177,81 @@ export class StudioApiService {
     });
   }
 
+  listDraftRevisions(id: string): Observable<StudioDraftRevision[]> {
+    return this.api
+      .get<{ revisions: StudioDraftRevision[] }>(
+        `/experiences/${encodeURIComponent(id)}/draft/revisions`,
+      )
+      .pipe(map((body) => body.revisions ?? []));
+  }
+
+  restoreDraftRevision(
+    id: string,
+    revision: number,
+    expectedRevision: number,
+  ): Observable<StudioDraft> {
+    return this.api.post<StudioDraft>(
+      `/experiences/${encodeURIComponent(id)}/draft/revisions/${revision}/restore`,
+      { expected_revision: expectedRevision },
+    );
+  }
+
+  finalizeDraft(
+    id: string,
+    body: {
+      pages: unknown;
+      bindingKeys: readonly string[];
+      expectedRevision: number;
+      bindings: readonly StudioBinding[];
+      languages: readonly string[];
+      theme: Record<string, unknown>;
+      accessPolicy: Record<string, unknown>;
+      description?: string | null;
+      emblem?: string | null;
+      expectedExperienceUpdatedAt: string;
+    },
+  ): Observable<StudioDraft> {
+    return this.api.put<StudioDraft>(`/experiences/${encodeURIComponent(id)}/draft/finalize`, {
+      pages: body.pages,
+      binding_keys: [...body.bindingKeys],
+      expected_revision: body.expectedRevision,
+      bindings: body.bindings.map((row) => ({
+        binding_key: row.binding_key,
+        system_id: row.system_id,
+        published_flow_version_id: row.published_flow_version_id,
+        ingress_id: row.ingress_id,
+        confirmation_policy: row.confirmation_policy,
+        on_unavailable: row.on_unavailable,
+      })),
+      languages: [...body.languages],
+      theme: body.theme,
+      access_policy: body.accessPolicy,
+      description: body.description ?? null,
+      emblem: body.emblem ?? null,
+      expected_experience_updated_at: body.expectedExperienceUpdatedAt,
+    });
+  }
+
   readyCheck(id: string): Observable<ReadyCheck> {
     return this.api.get<ReadyCheck>(`/experiences/${encodeURIComponent(id)}/ready-check`);
   }
 
   createRelease(
     id: string,
-    body: { notes: string; expectedDraftRevision: number; expectedContentSha256: string },
+    body: {
+      notes: string;
+      expectedDraftRevision: number;
+      expectedContentSha256: string;
+      expectedExperienceUpdatedAt: string;
+      expectedBindingsSha256: string;
+    },
   ): Observable<StudioRelease> {
     return this.api.post<StudioRelease>(`/experiences/${encodeURIComponent(id)}/releases`, {
       notes: body.notes,
       expected_draft_revision: body.expectedDraftRevision,
       expected_content_sha256: body.expectedContentSha256,
+      expected_experience_updated_at: body.expectedExperienceUpdatedAt,
+      expected_bindings_sha256: body.expectedBindingsSha256,
     });
   }
 
@@ -182,22 +263,39 @@ export class StudioApiService {
 
   deploy(
     id: string,
-    body: { channel: 'pilot' | 'live'; release_id: string; audience?: Record<string, unknown> },
-  ): Observable<unknown> {
-    return this.api.post(`/experiences/${encodeURIComponent(id)}/deployments`, body);
+    body: {
+      channel: 'pilot' | 'live';
+      release_id: string;
+      expected_current_release_id: string | null;
+      expected_deployment_updated_at: string | null;
+      audience?: Record<string, unknown>;
+    },
+  ): Observable<StudioDeployment> {
+    return this.api.post<StudioDeployment>(`/experiences/${encodeURIComponent(id)}/deployments`, body);
   }
 
-  rollback(id: string, channel: 'pilot' | 'live', releaseId?: string): Observable<StudioDeployment> {
+  rollback(
+    id: string,
+    channel: 'pilot' | 'live',
+    body: {
+      releaseId: string;
+      expectedCurrentReleaseId: string;
+      expectedDeploymentUpdatedAt: string;
+    },
+  ): Observable<StudioDeployment> {
     return this.api.post<StudioDeployment>(
       `/experiences/${encodeURIComponent(id)}/deployments/${channel}/rollback`,
-      releaseId ? { release_id: releaseId } : {},
+      {
+        release_id: body.releaseId,
+        expected_current_release_id: body.expectedCurrentReleaseId,
+        expected_deployment_updated_at: body.expectedDeploymentUpdatedAt,
+      },
     );
   }
 
   listBindings(): Observable<StudioBinding[]> {
     return this.api.get<{ bindings: StudioBinding[] }>('/system-bindings').pipe(
       map((body) => body.bindings ?? []),
-      catchError(() => of([])),
     );
   }
 
@@ -231,20 +329,18 @@ export class StudioApiService {
   }
 
   publishedSystems(): Observable<Array<System & { published_flow_version_id?: string | null }>> {
-    return this.canonical.listSystems().pipe(
+    return this.canonical.listSystems({ propagateErrors: true }).pipe(
       map((rows) =>
         rows.filter((row) => {
           const id = (row as System & { published_flow_version_id?: string | null }).published_flow_version_id;
-          return typeof id === 'string' && !!id;
+          return row.status === 'active' && typeof id === 'string' && !!id;
         }),
       ),
     );
   }
 
-  listIngresses(systemId: string): Observable<StudioIngressList | null> {
-    return this.api.get<StudioIngressList>(`/systems/${encodeURIComponent(systemId)}/ingresses`).pipe(
-      catchError(() => of(null)),
-    );
+  listIngresses(systemId: string): Observable<StudioIngressList> {
+    return this.api.get<StudioIngressList>(`/systems/${encodeURIComponent(systemId)}/ingresses`);
   }
 
   draftDocument(detail: StudioDetail) {

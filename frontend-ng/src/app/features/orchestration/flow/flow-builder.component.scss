@@ -224,6 +224,57 @@
   overflow-y: auto;
 }
 
+.flow-builder__surface {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+}
+
+.flow-builder__view-switch {
+  display: inline-flex;
+  align-self: flex-start;
+  flex-shrink: 0;
+  padding: 3px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  background: var(--ck-bg-panel, #0c1015);
+
+  button {
+    min-height: 28px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: var(--ck-radius-sm, 4px);
+    background: transparent;
+    color: var(--ck-fg-3, #8891a0);
+    font: 600 10px / 1 var(--ck-font-mono, monospace);
+    cursor: pointer;
+
+    &:hover {
+      color: var(--ck-fg-1, #f2f5f8);
+      background: var(--ck-tint-faint, rgba(255, 255, 255, 0.04));
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+      outline-offset: 1px;
+    }
+
+    &.is-active {
+      border-color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 38%, transparent);
+      background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 10%, transparent);
+      color: var(--ck-signal-cool, #7dd3fc);
+    }
+  }
+}
+
+.flow-builder__canvas,
+.flow-builder__outline {
+  flex: 1 1 auto;
+  height: auto;
+}
+
 .flow-builder__canvas {
   position: relative;
   min-width: 0;
@@ -236,6 +287,11 @@
   app-flow-canvas {
     min-height: 0;
   }
+}
+
+.flow-builder__canvas[hidden],
+.flow-builder__outline[hidden] {
+  display: none;
 }
 
 /* Empty-canvas call to action. Pointer-transparent apart from its button, so

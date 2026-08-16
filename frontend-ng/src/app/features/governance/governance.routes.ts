@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { experienceGovernanceGuard } from './experience-governance.guard';
 import { workspaceAppAdminGuard } from './workspace-app-admin.guard';
 
 export const governanceRoutes: Routes = [
@@ -12,6 +13,12 @@ export const governanceRoutes: Routes = [
         path: 'audit',
         loadComponent: () =>
           import('./audit-logs.component').then((m) => m.AuditLogsComponent),
+      },
+      {
+        path: 'experiences',
+        canActivate: [experienceGovernanceGuard],
+        loadComponent: () =>
+          import('./experience-governance.component').then((m) => m.ExperienceGovernanceComponent),
       },
       {
         path: 'access',

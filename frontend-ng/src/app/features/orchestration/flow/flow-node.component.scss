@@ -106,22 +106,34 @@
 /* Per-node breakpoint dot (visible only while debug mode is armed). */
 .ck-flow-node__bp {
   flex-shrink: 0;
-  width: 12px;
-  height: 12px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   padding: 0;
   cursor: pointer;
   background: transparent;
-  border: 1.5px solid var(--ck-signal-neg, #ef5a6f);
+  border: 0;
   transition:
-    background var(--ck-dur-fast, 120ms) var(--ck-ease-out),
-    transform var(--ck-dur-fast, 120ms) var(--ck-ease-out);
+    background var(--ck-dur-fast, 120ms) var(--ck-ease-out);
 
-  &:hover {
+  &::before {
+    content: '';
+    display: block;
+    width: 12px;
+    height: 12px;
+    margin: auto;
+    border: 1.5px solid var(--ck-signal-neg, #ef5a6f);
+    border-radius: 50%;
+    transition:
+      background var(--ck-dur-fast, 120ms) var(--ck-ease-out),
+      transform var(--ck-dur-fast, 120ms) var(--ck-ease-out);
+  }
+
+  &:hover::before {
     transform: scale(1.2);
     background: color-mix(in srgb, var(--ck-signal-neg) 30%, transparent);
   }
-  &.is-on {
+  &.is-on::before {
     background: var(--ck-signal-neg, #ef5a6f);
     box-shadow: var(--ck-glow-neg);
   }

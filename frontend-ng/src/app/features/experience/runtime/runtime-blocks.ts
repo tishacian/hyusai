@@ -20,13 +20,18 @@ import {
   type ExperienceNode,
   type RuntimeField,
   type RuntimeNodeContext,
+  type RuntimeResultRow,
   extractCitations,
   extractResult,
   fieldsFromSchema,
+  humanizeIdentifier,
   isReadyFileReference,
   mapRunStatus,
   runtimeAfterSuccess,
   runtimeDataBinding,
+  runtimeItems,
+  runtimeResultRows,
+  runtimeSummary,
   seedFromSchema,
   selectRuntimeData,
   unavailablePolicy,
@@ -46,6 +51,21 @@ function list(value: unknown): unknown[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function itemLabel(value: unknown): string {
+  if (!isRecord(value)) return String(value ?? '');
+  for (const key of ['title', 'label', 'name', 'id']) {
+    if (typeof value[key] === 'string' && value[key]) return value[key];
+  }
+  return JSON.stringify(value) ?? '';
+}
+
+function firstString(value: Record<string, unknown>, keys: readonly string[]): string {
+  for (const key of keys) {
+    if (typeof value[key] === 'string' && value[key]) return value[key];
+  }
+  return '';
 }
 
 type Slot = 'ready' | 'loading' | 'empty' | 'error';
@@ -93,7 +113,7 @@ function dynamicSlot(
           icon="alert-triangle"
           size="sm"
           [title]="i18n.t('state.error.title')"
-          [description]="detail() || undefined"
+          [description]="errorDescription()"
         />
       }
       @case ('empty') {
@@ -114,6 +134,9 @@ export class RuntimeSlotComponent {
   readonly i18n = inject(I18nService);
   readonly state = input<Slot>('ready');
   readonly detail = input('');
+  readonly errorDescription = computed(() =>
+    this.detail() ? this.i18n.t('experience.runtime.error.body') : undefined,
+  );
   readonly empty = input('');
   readonly emptyTitle = input('');
   readonly emptyIcon = input('inbox');
@@ -251,7 +274,7 @@ export class CalloutBlock {
             type="button"
             class="xp-rt-btn xp-rt-btn-ghost"
             data-action-trigger
-            [disabled]="busy() || blocked()"
+            [disabled]="busy() || resolving() || blocked()"
             (click)="load()"
           >
             {{ i18n.t(hasRun() ? 'experience.runtime.query.refresh' : 'experience.runtime.query.load') }}
@@ -284,8 +307,9 @@ export class RuntimeQueryControlComponent {
   });
   readonly blocked = computed(() => {
     const status = this.resolveStatus();
-    return !!status && status !== 'ok';
+    return !!status && status !== 'ok' && status !== 'loading';
   });
+  readonly resolving = computed(() => this.resolveStatus() === 'loading');
   readonly hasRun = computed(() => !!this.runtime.run(this.context().stateKey));
   readonly confirmTitleId = computed(() =>
     `xp-rt-${this.context().stateKey.replace(/[^a-zA-Z0-9_-]/g, '-')}-query-confirm`,
@@ -299,6 +323,7 @@ export class RuntimeQueryControlComponent {
         this.resolveStatus.set(null);
         return;
       }
+      this.resolveStatus.set('loading');
       this.runtime.resolve(context, query.bindingKey).pipe(take(1)).subscribe((resolved) => {
         this.resolveStatus.set(resolved?.status ?? 'unavailable');
         this.confirmation = resolved?.binding.confirmation_policy === 'confirm';
@@ -307,7 +332,7 @@ export class RuntimeQueryControlComponent {
   }
 
   load(): void {
-    if (this.busy() || this.blocked()) return;
+    if (this.busy() || this.resolving() || this.blocked()) return;
     if (this.confirmation) {
       this.confirming.set(true);
       queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-confirm-accept]')?.focus());
@@ -320,6 +345,7 @@ export class RuntimeQueryControlComponent {
     const query = this.query();
     if (!query?.bindingKey) return;
     this.confirming.set(false);
+    if (confirmed) queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-action-trigger]')?.focus());
     const context = this.context();
     this.runtime.invoke(context, query.bindingKey, query.input, confirmed || undefined).subscribe((started) => {
       if (started?.id) this.runtime.poll(context, started.id).subscribe();
@@ -361,7 +387,8 @@ export class KpiBlock {
   readonly value = computed(() => {
     const dynamic = dynamicValue(this.runtime, this.node(), this.context());
     if (runtimeDataBinding(this.node())) {
-      return dynamic === undefined || dynamic === null ? '—' : String(dynamic);
+      const summary = runtimeSummary(dynamic);
+      return summary === undefined || summary === null ? '—' : String(summary);
     }
     const raw = this.node().props?.['value'];
     return raw === undefined || raw === null ? '—' : String(raw);
@@ -388,55 +415,63 @@ export class KpiBlock {
       }
       <xp-rt-query-control [node]="node()" [context]="context()" />
       <xp-rt-slot [state]="slot()" [empty]="emptyText()" [detail]="errorText()">
-        <table class="xp-rt-table">
-          @if (caption()) {
-            <caption class="xp-rt-sub">{{ caption() }}</caption>
-          }
-          <thead>
-            <tr>
-              @for (col of columns(); track col.key) {
-                <th scope="col">{{ col.label }}</th>
-              }
-            </tr>
-          </thead>
-          <tbody>
-            @for (row of rows(); track $index) {
+        <div
+          class="xp-rt-table-scroll"
+          role="region"
+          tabindex="0"
+          [attr.aria-label]="caption() || title() || i18n.t('experience.runtime.table.region')"
+        >
+          <table class="xp-rt-table">
+            @if (caption()) {
+              <caption class="xp-rt-sub">{{ caption() }}</caption>
+            }
+            <thead>
               <tr>
                 @for (col of columns(); track col.key) {
-                  <td>{{ cell(row, col.key) }}</td>
+                  <th scope="col">{{ col.label }}</th>
                 }
               </tr>
-            }
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              @for (row of rows(); track $index) {
+                <tr>
+                  @for (col of columns(); track col.key) {
+                    <td>{{ cell(row, col.key) }}</td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
       </xp-rt-slot>
     </div>
   `,
 })
 export class TableBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
+  readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
   readonly columns = computed(() => {
     const raw = list(this.node().props?.['columns']);
     const configured = raw.map((item, index) => {
-      if (typeof item === 'string') return { key: item, label: item };
+      if (typeof item === 'string') return { key: item, label: humanizeIdentifier(item) };
       if (isRecord(item) && typeof item['key'] === 'string') {
         return {
           key: item['key'],
-          label: typeof item['label'] === 'string' ? item['label'] : item['key'],
+          label: typeof item['label'] === 'string' ? item['label'] : humanizeIdentifier(item['key']),
         };
       }
       return { key: `c${index}`, label: String(item) };
     });
     if (configured.length > 0) return configured;
     const first = this.rows()[0];
-    return first ? Object.keys(first).map((key) => ({ key, label: key })) : [];
+    return first ? Object.keys(first).map((key) => ({ key, label: humanizeIdentifier(key) })) : [];
   });
   readonly rows = computed(() => {
     const dynamic = dynamicValue(this.runtime, this.node(), this.context());
     const value = runtimeDataBinding(this.node()) ? dynamic : this.node().props?.['rows'];
-    return list(value).filter(isRecord);
+    return runtimeItems(value).filter(isRecord);
   });
   readonly caption = computed(() => str(this.node(), 'caption'));
   readonly title = computed(() => appearanceOf(this.node()).title);
@@ -482,15 +517,11 @@ export class QueueBlock {
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
   readonly items = computed(() =>
-    list(
+    runtimeItems(
       runtimeDataBinding(this.node())
         ? dynamicValue(this.runtime, this.node(), this.context())
         : this.node().props?.['items'],
-    ).map((item) => {
-      if (typeof item === 'string') return item;
-      if (isRecord(item) && typeof item['title'] === 'string') return item['title'];
-      return String(item);
-    }),
+    ).map(itemLabel),
   );
   readonly title = computed(() => appearanceOf(this.node()).title);
   readonly description = computed(() => appearanceOf(this.node()).description);
@@ -506,10 +537,11 @@ export class QueueBlock {
   selector: 'xp-rt-approval',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RuntimeSlotComponent, TagComponent],
+  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent, TagComponent],
   styleUrl: './runtime.scss',
   template: `
     <article class="xp-rt-block" [attr.aria-label]="ariaName() || null">
+      <xp-rt-query-control [node]="node()" [context]="context()" />
       <xp-rt-slot [state]="slot()" [empty]="emptyText()">
         <div class="xp-rt-row">
           <h3>{{ title() }}</h3>
@@ -526,17 +558,30 @@ export class QueueBlock {
   `,
 })
 export class ApprovalCardBlock {
+  private readonly runtime = inject(ExperienceRuntimeService);
   readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
+  readonly data = computed(() => {
+    const value = dynamicValue(this.runtime, this.node(), this.context());
+    return runtimeDataBinding(this.node()) && isRecord(value) ? value : {};
+  });
   readonly title = computed(() =>
-    appearanceOf(this.node()).title || this.node().id || '',
+    firstString(this.data(), ['title', 'label', 'name'])
+      || appearanceOf(this.node()).title || this.node().id || '',
   );
-  readonly body = computed(() => str(this.node(), 'body'));
+  readonly body = computed(() =>
+    firstString(this.data(), ['body', 'description', 'message', 'summary']) || str(this.node(), 'body'),
+  );
   readonly description = computed(() => appearanceOf(this.node()).description);
   readonly ariaName = computed(() => a11yOf(this.node()).ariaLabel);
   readonly emptyText = computed(() => a11yOf(this.node()).emptyText);
-  readonly status = computed(() => str(this.node(), 'status'));
+  readonly status = computed(() =>
+    firstString(this.data(), ['status', 'state']) || str(this.node(), 'status'),
+  );
   readonly slot = computed(() =>
-    slotOf(this.node(), !this.title() && !this.body()),
+    runtimeDataBinding(this.node())
+      ? dynamicSlot(this.runtime, this.node(), this.context(), !this.title() && !this.body())
+      : slotOf(this.node(), !this.title() && !this.body()),
   );
 }
 
@@ -544,13 +589,17 @@ export class ApprovalCardBlock {
   selector: 'xp-rt-history',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RuntimeQueryControlComponent, RuntimeSlotComponent],
   styleUrl: './runtime.scss',
   template: `
     <section class="xp-rt-block" [attr.aria-label]="i18n.t('experience.runtime.history.title')">
       <h3>{{ i18n.t('experience.runtime.history.title') }}</h3>
-      @if (items().length === 0) {
-        <p class="xp-rt-sub">{{ i18n.t('experience.runtime.history.pending') }}</p>
-      } @else {
+      <xp-rt-query-control [node]="node()" [context]="context()" />
+      <xp-rt-slot
+        [state]="slot()"
+        [detail]="errorText()"
+        [empty]="i18n.t('experience.runtime.history.pending')"
+      >
         <ul class="xp-rt-list">
           @for (item of items(); track $index) {
             <li>
@@ -561,25 +610,45 @@ export class ApprovalCardBlock {
             </li>
           }
         </ul>
-      }
+      </xp-rt-slot>
     </section>
   `,
 })
 export class HistoryBlock {
+  private readonly runtime = inject(ExperienceRuntimeService);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
+  readonly implicit = computed(() => !runtimeDataBinding(this.node()) && this.node().props?.['items'] === undefined);
   readonly items = computed(() =>
-    list(this.node().props?.['items']).map((item) => {
+    runtimeItems(
+      runtimeDataBinding(this.node())
+        ? dynamicValue(this.runtime, this.node(), this.context())
+        : this.node().props?.['items'] ?? this.runtime.state(this.context().sourceStateKey).history,
+    ).map((item) => {
       if (typeof item === 'string') return { title: item, at: '' };
       if (isRecord(item)) {
         return {
-          title: typeof item['title'] === 'string' ? item['title'] : String(item['title'] ?? ''),
-          at: typeof item['at'] === 'string' ? item['at'] : '',
+          title: itemLabel(item),
+          at: typeof item['at'] === 'string' ? item['at'] : typeof item['when'] === 'string' ? item['when'] : '',
         };
       }
       return { title: String(item), at: '' };
     }),
   );
+  readonly slot = computed(() => {
+    if (runtimeDataBinding(this.node())) {
+      return dynamicSlot(this.runtime, this.node(), this.context(), this.items().length === 0);
+    }
+    const phase = this.runtime.phase(this.context().sourceStateKey);
+    return slotOf(
+      this.node(),
+      this.items().length === 0,
+      this.implicit() && (phase === 'loading' || phase === 'running'),
+      this.implicit() && phase === 'error',
+    );
+  });
+  readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
 }
 
 @Component({
@@ -600,8 +669,13 @@ export class RuntimeStatusBlock {
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
   readonly vocab = computed(() => {
-    const raw = str(this.node(), 'status') || this.runtime.run(this.context().sourceStateKey)?.status;
-    return mapRunStatus(raw);
+    const projected = runtimeDataBinding(this.node())
+      ? runtimeSummary(dynamicValue(this.runtime, this.node(), this.context()))
+      : undefined;
+    const value = typeof projected === 'string'
+      ? projected
+      : str(this.node(), 'status') || this.runtime.run(this.context().sourceStateKey)?.status;
+    return mapRunStatus(value);
   });
   readonly label = computed(() => {
     const vocab = this.vocab();
@@ -641,15 +715,15 @@ export class RuntimeStatusBlock {
         [emptyTitle]="i18n.t('experience.runtime.result.pending.title')"
         [empty]="i18n.t('experience.runtime.result.pending.body')"
       >
-        @if (pairs(); as rows) {
+        @if (rows().length === 1 && rows()[0]!.path.length === 0) {
+          <p class="xp-rt-result-value">{{ resultValue(rows()[0]!.value) }}</p>
+        } @else if (rows().length > 0) {
           <dl class="xp-rt-kv">
-            @for (row of rows; track row[0]) {
-              <dt>{{ row[0] }}</dt>
-              <dd>{{ row[1] }}</dd>
+            @for (row of rows(); track $index) {
+              <dt>{{ resultLabel(row) }}</dt>
+              <dd>{{ resultValue(row.value) }}</dd>
             }
           </dl>
-        } @else if (pretty()) {
-          <pre class="xp-rt-pre">{{ pretty() }}</pre>
         }
       </xp-rt-slot>
     </section>
@@ -661,50 +735,54 @@ export class ResultBlock {
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
   readonly data = computed(() => {
+    if (runtimeDataBinding(this.node())) {
+      return dynamicValue(this.runtime, this.node(), this.context());
+    }
     const fromProps = this.node().props?.['value'];
     if (fromProps !== undefined) return fromProps;
     return extractResult(this.runtime.run(this.context().sourceStateKey));
   });
-  readonly pairs = computed(() => {
-    const data = this.data();
-    if (!isRecord(data) || Array.isArray(data)) return null;
-    const entries = Object.entries(data).filter(([, value]) => !isRecord(value) && !Array.isArray(value));
-    return entries.length > 0 && entries.length === Object.keys(data).length
-      ? entries.map(([key, value]) => [key, String(value)] as const)
-      : null;
-  });
-  readonly pretty = computed(() => {
-    const data = this.data();
-    if (data === null || data === undefined) return '';
-    try {
-      return JSON.stringify(data, null, 2);
-    } catch {
-      return String(data);
-    }
-  });
-  readonly slot = computed(() =>
-    slotOf(
+  readonly rows = computed(() => runtimeResultRows(this.data()));
+  readonly slot = computed(() => runtimeDataBinding(this.node())
+    ? dynamicSlot(this.runtime, this.node(), this.context(), this.data() === null || this.data() === undefined)
+    : slotOf(
       this.node(),
       this.data() === null || this.data() === undefined,
       this.runtime.phase(this.context().sourceStateKey) === 'loading'
         || this.runtime.phase(this.context().sourceStateKey) === 'running',
       this.runtime.phase(this.context().sourceStateKey) === 'error',
-    ),
-  );
+    ));
   readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
+
+  resultLabel(row: RuntimeResultRow): string {
+    return row.path.map((part) => typeof part === 'number'
+      ? this.i18n.t('experience.runtime.result.item', { n: part })
+      : part).join(' · ');
+  }
+
+  resultValue(value: RuntimeResultRow['value']): string {
+    if (value === null) return '—';
+    if (typeof value === 'boolean') {
+      return this.i18n.t(value ? 'common.yes' : 'common.no');
+    }
+    return String(value);
+  }
 }
 
 @Component({
   selector: 'xp-rt-evidence',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RuntimeSlotComponent],
   styleUrl: './runtime.scss',
   template: `
     <section class="xp-rt-block" [attr.aria-label]="i18n.t('experience.runtime.evidence.title')">
       <h3>{{ i18n.t('experience.runtime.evidence.title') }}</h3>
-      @if (citations().length === 0) {
-        <p class="xp-rt-sub">{{ i18n.t('experience.runtime.evidence.pending') }}</p>
-      } @else {
+      <xp-rt-slot
+        [state]="slot()"
+        [detail]="errorText()"
+        [empty]="i18n.t('experience.runtime.evidence.pending')"
+      >
         <ul class="xp-rt-list">
           @for (item of citations(); track $index) {
             <li>
@@ -715,7 +793,7 @@ export class ResultBlock {
             </li>
           }
         </ul>
-      }
+      </xp-rt-slot>
     </section>
   `,
 })
@@ -725,12 +803,22 @@ export class EvidenceBlock {
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
   readonly citations = computed(() => {
+    if (runtimeDataBinding(this.node())) {
+      const value = dynamicValue(this.runtime, this.node(), this.context());
+      if (Array.isArray(value)) return extractCitations({ output_ref: { citations: value } });
+      if (isRecord(value)) return extractCitations({ output_ref: value });
+      return [];
+    }
     const fromProps = this.node().props?.['citations'];
     if (Array.isArray(fromProps)) {
       return extractCitations({ output_ref: { citations: fromProps } });
     }
     return extractCitations(this.runtime.run(this.context().sourceStateKey));
   });
+  readonly slot = computed(() => runtimeDataBinding(this.node())
+    ? dynamicSlot(this.runtime, this.node(), this.context(), this.citations().length === 0)
+    : slotOf(this.node(), this.citations().length === 0));
+  readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
 }
 
 @Component({
@@ -805,8 +893,8 @@ export class EvidenceBlock {
                     (change)="set(field.name, inputValue($event))"
                   >
                     <option value=""></option>
-                    @for (opt of field.options; track opt) {
-                      <option [value]="opt">{{ opt }}</option>
+                    @for (opt of field.options; track opt; let optionIndex = $index) {
+                      <option [value]="opt">{{ field.optionLabels[optionIndex] || opt }}</option>
                     }
                   </select>
                 }
@@ -882,7 +970,7 @@ export class EvidenceBlock {
               type="submit"
               class="xp-rt-btn"
               data-action-trigger
-              [disabled]="busy() || blocked() || context().mode === 'preview' || hasUpload()"
+              [disabled]="busy() || resolving() || blocked() || context().mode === 'preview' || hasUpload()"
             >
               {{ submitLabel() }}
             </button>
@@ -913,7 +1001,10 @@ export class FormBlock {
   readonly policy = signal(unavailablePolicy(undefined));
   readonly confirmTitleId = computed(() => `${this.domPrefix()}-confirm-title`);
 
-  readonly fields = computed(() => fieldsFromSchema(this.node().props?.['schema']));
+  readonly fields = computed(() => fieldsFromSchema(
+    this.node().props?.['schema'],
+    this.node().props?.['fieldPresentation'],
+  ));
   readonly title = computed(() => appearanceOf(this.node()).title);
   readonly description = computed(() => appearanceOf(this.node()).description);
   readonly ariaName = computed(() => a11yOf(this.node()).ariaLabel);
@@ -932,8 +1023,9 @@ export class FormBlock {
   readonly hasUpload = computed(() => Object.values(this.uploading()).some(Boolean));
   readonly blocked = computed(() => {
     const status = this.resolveStatus();
-    return !!status && status !== 'ok';
+    return !!status && status !== 'ok' && status !== 'loading';
   });
+  readonly resolving = computed(() => this.resolveStatus() === 'loading');
   readonly slot = computed<Slot>(() => slotOf(this.node(), this.fields().length === 0));
   readonly unavailableTitle = computed(() => {
     if (this.policy() === 'admin-repair') return this.i18n.t('experience.runtime.unavailable.repair.title');
@@ -965,6 +1057,7 @@ export class FormBlock {
         this.resolveStatus.set(null);
         return;
       }
+      this.resolveStatus.set('loading');
       this.runtime.resolve(context, key).pipe(take(1)).subscribe((resolved) => {
         if (!resolved) {
           this.resolveStatus.set('unavailable');
@@ -1053,6 +1146,7 @@ export class FormBlock {
     this.errors.set(next);
     if (
       Object.keys(next).length > 0
+      || this.resolving()
       || this.blocked()
       || !this.bindingKey()
       || this.context().mode !== 'live'
@@ -1068,6 +1162,7 @@ export class FormBlock {
 
   invoke(confirmed: boolean): void {
     this.confirming.set(false);
+    if (confirmed) queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-action-trigger]')?.focus());
     const payload = valuesToPayload(this.fields(), this.values());
     const context = this.context();
     this.runtime.invoke(context, this.bindingKey(), payload, confirmed || undefined).subscribe((started) => {
@@ -1161,7 +1256,7 @@ export class FormBlock {
           type="button"
           class="xp-rt-btn"
           data-action-trigger
-          [disabled]="busy() || blocked() || unlinked() || context().mode === 'preview'"
+          [disabled]="busy() || resolving() || blocked() || unlinked() || context().mode === 'preview'"
           [attr.aria-label]="ariaName() || null"
           [attr.aria-describedby]="unlinked() ? noLinkHintId() : null"
           (click)="onClick()"
@@ -1202,8 +1297,9 @@ export class ActionButtonBlock {
   );
   readonly blocked = computed(() => {
     const status = this.resolveStatus();
-    return !!status && status !== 'ok';
+    return !!status && status !== 'ok' && status !== 'loading';
   });
+  readonly resolving = computed(() => this.resolveStatus() === 'loading');
 
   constructor() {
     effect(() => {
@@ -1213,6 +1309,7 @@ export class ActionButtonBlock {
         this.resolveStatus.set(null);
         return;
       }
+      this.resolveStatus.set('loading');
       this.runtime.resolve(context, key).pipe(take(1)).subscribe((resolved) => {
         if (!resolved) {
           this.resolveStatus.set('unavailable');
@@ -1225,7 +1322,7 @@ export class ActionButtonBlock {
   }
 
   onClick(): void {
-    if (this.blocked() || !this.bindingKey() || this.context().mode !== 'live') return;
+    if (this.resolving() || this.blocked() || !this.bindingKey() || this.context().mode !== 'live') return;
     if (this.confirmation) {
       this.confirming.set(true);
       queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-confirm-accept]')?.focus());
@@ -1236,6 +1333,7 @@ export class ActionButtonBlock {
 
   invoke(confirmed: boolean): void {
     this.confirming.set(false);
+    if (confirmed) queueMicrotask(() => this.element.nativeElement.querySelector<HTMLElement>('[data-action-trigger]')?.focus());
     const input = this.node().props?.['input'];
     const payload = isRecord(input) ? input : {};
     const context = this.context();
@@ -1349,7 +1447,7 @@ export class FeedBlock {
     return trimmed;
   });
   readonly items = computed(() =>
-    list(
+    runtimeItems(
       runtimeDataBinding(this.node())
         ? dynamicValue(this.runtime, this.node(), this.context())
         : this.node().props?.['items'],
@@ -1377,7 +1475,7 @@ export class FeedBlock {
             ? item['title']
             : typeof item['label'] === 'string'
               ? item['label']
-              : String(item['title'] ?? ''),
+              : itemLabel(item),
         detail:
           typeof item['detail'] === 'string'
             ? item['detail']

@@ -179,7 +179,7 @@ type PillState = SaveState | 'hold';
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
           (click)="fit.emit()"
-          [disabled]="controlsDisabled()"
+          [disabled]="canvasControlsDisabled()"
           [title]="i18n.t('flow.toolbar.fit.aria')"
           [attr.aria-label]="i18n.t('flow.toolbar.fit.aria')"
         >
@@ -322,7 +322,7 @@ type PillState = SaveState | 'hold';
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
           [class.is-active]="focusMode()"
-          [disabled]="!hydrationReady()"
+          [disabled]="canvasControlsDisabled()"
           (click)="toggleFocus.emit()"
           [attr.aria-pressed]="focusMode()"
           [title]="
@@ -356,7 +356,7 @@ type PillState = SaveState | 'hold';
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
           (click)="cycleRouting.emit()"
-          [disabled]="controlsDisabled()"
+          [disabled]="canvasControlsDisabled()"
           [title]="i18n.t('flow.toolbar.routing', { mode: routingLabel() })"
           [attr.aria-label]="i18n.t('flow.toolbar.routing.aria')"
         >
@@ -366,7 +366,7 @@ type PillState = SaveState | 'hold';
           type="button"
           class="ck-flow-toolbar__btn"
           (click)="zoomIn.emit()"
-          [disabled]="controlsDisabled()"
+          [disabled]="canvasControlsDisabled()"
           [title]="i18n.t('flow.toolbar.zoom_in')"
           [attr.aria-label]="i18n.t('flow.toolbar.zoom_in')"
         >
@@ -376,7 +376,7 @@ type PillState = SaveState | 'hold';
           type="button"
           class="ck-flow-toolbar__btn"
           (click)="zoomOut.emit()"
-          [disabled]="controlsDisabled()"
+          [disabled]="canvasControlsDisabled()"
           [title]="i18n.t('flow.toolbar.zoom_out')"
           [attr.aria-label]="i18n.t('flow.toolbar.zoom_out')"
         >
@@ -386,7 +386,7 @@ type PillState = SaveState | 'hold';
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
           (click)="autoLayout.emit()"
-          [disabled]="controlsDisabled()"
+          [disabled]="canvasControlsDisabled()"
           [title]="i18n.t('flow.toolbar.arrange.hint')"
           [attr.aria-label]="i18n.t('flow.toolbar.arrange.aria')"
         >
@@ -497,6 +497,9 @@ export class FlowToolbarComponent {
   readonly compact = input(false);
   readonly workbenchOpen = input(false);
   readonly workbenchAvailable = input(false);
+  /** Canvas-only viewport controls are inert while the accessible Outline is
+   * the active projection; graph editing and persistence stay available. */
+  readonly canvasActive = input(true);
   /** The bound System must be authoritatively hydrated before controls can
    * read or mutate its graph. Scratchpad routes explicitly bind this to true. */
   readonly hydrationReady = input(false);
@@ -509,6 +512,9 @@ export class FlowToolbarComponent {
 
   protected readonly controlsDisabled = computed(
     () => this.persistence.actionsDisabled() || !this.hydrationReady(),
+  );
+  protected readonly canvasControlsDisabled = computed(
+    () => this.controlsDisabled() || !this.canvasActive(),
   );
 
   /**

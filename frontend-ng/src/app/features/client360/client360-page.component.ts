@@ -570,15 +570,22 @@ interface CampaignDraftsOutcome {
             </div>
             <ul class="alerts-list" [class.expanded]="alertsExpanded()">
               @for (alert of visibleAlerts(); track alert.id) {
-                <li [ngClass]="alert.severity" (click)="openAlert(alert)">
-                  <span class="alert-sev" [ngClass]="alert.severity">{{ labelAlertSeverity(alert.severity) }}</span>
-                  <div class="alert-body">
-                    <strong>{{ alert.title }}</strong>
-                    <small>{{ alert.message }}</small>
-                  </div>
-                  @if (alert.opportunity_label) {
-                    <span class="alert-target">{{ alert.opportunity_label }}</span>
-                  }
+                <li [ngClass]="alert.severity">
+                  <button
+                    type="button"
+                    class="c360-list-action"
+                    [attr.aria-label]="i18n.t('client360.alerts.open', { title: alert.title })"
+                    (click)="openAlert(alert)"
+                  >
+                    <span class="alert-sev" [ngClass]="alert.severity">{{ labelAlertSeverity(alert.severity) }}</span>
+                    <span class="alert-body">
+                      <strong>{{ alert.title }}</strong>
+                      <small>{{ alert.message }}</small>
+                    </span>
+                    @if (alert.opportunity_label) {
+                      <span class="alert-target">{{ alert.opportunity_label }}</span>
+                    }
+                  </button>
                 </li>
               }
             </ul>
@@ -654,6 +661,7 @@ interface CampaignDraftsOutcome {
             </div>
           } @else {
             <table>
+              <caption class="sr-only">{{ i18n.t('client360.opportunities.table_caption') }}</caption>
               <thead>
                 <tr>
                   <th>{{ i18n.t('client360.table.customer') }}</th>
@@ -671,10 +679,17 @@ interface CampaignDraftsOutcome {
               </thead>
               <tbody>
                 @for (opp of visibleOpportunities(); track opp.id) {
-                  <tr (click)="selectOpportunity(opp)">
+                  <tr>
                     <td>
-                      <strong>{{ opp.customer_name }}</strong>
-                      <small>{{ opp.technology || opp.line_label || opp.machine_label || i18n.t('client360.placeholder.scope') }}</small>
+                      <button
+                        type="button"
+                        class="c360-row-action"
+                        [attr.aria-label]="i18n.t('client360.opportunities.open', { name: opp.customer_name })"
+                        (click)="selectOpportunity(opp)"
+                      >
+                        <strong>{{ opp.customer_name }}</strong>
+                        <small>{{ opp.technology || opp.line_label || opp.machine_label || i18n.t('client360.placeholder.scope') }}</small>
+                      </button>
                     </td>
                     <td>
                       <strong>{{ opp.part_family }}</strong>
@@ -947,6 +962,7 @@ interface CampaignDraftsOutcome {
               @if ((fiche.purchases ?? []).length) {
                 <div class="table-wrap compact-table">
                   <table>
+                    <caption class="sr-only">{{ i18n.t('client360.purchases.table_caption') }}</caption>
                     <thead>
                       <tr>
                         <th>{{ i18n.t('client360.purchases.part') }}</th>
@@ -959,10 +975,17 @@ interface CampaignDraftsOutcome {
                     </thead>
                     <tbody>
                       @for (purchase of fichePurchases(); track purchase.part_reference) {
-                        <tr (click)="selectPurchasePart(purchase.part_reference)">
+                        <tr>
                           <td>
-                            <strong>{{ purchase.part_reference }}</strong>
-                            <small>{{ purchase.part_description || '' }}</small>
+                            <button
+                              type="button"
+                              class="c360-row-action"
+                              [attr.aria-label]="i18n.t('client360.purchases.open', { reference: purchase.part_reference })"
+                              (click)="selectPurchasePart(purchase.part_reference)"
+                            >
+                              <strong>{{ purchase.part_reference }}</strong>
+                              <small>{{ purchase.part_description || '' }}</small>
+                            </button>
                           </td>
                           <td>{{ formatQty(purchase.sales_known_qty) }}</td>
                           <td>{{ formatCurrency(purchase.sales_known_value, purchase.currency) }}</td>
@@ -1623,12 +1646,20 @@ interface CampaignDraftsOutcome {
             </div>
             <ul class="campaign-list">
               @for (campaign of campaigns(); track campaign.id) {
-                <li [ngClass]="{ active: selectedCampaign()?.id === campaign.id }" (click)="selectCampaign(campaign)">
-                  <div class="campaign-line">
-                    <strong>{{ campaign.name }}</strong>
-                    <span class="pill" [ngClass]="campaign.status">{{ labelCampaignStatus(campaign.status) }}</span>
-                  </div>
-                  <small>{{ labelCampaignType(campaign.campaign_type) }} · {{ campaign.drafts_count }} brouillon(s) / {{ campaign.targeted_count }} cible(s)</small>
+                <li [ngClass]="{ active: selectedCampaign()?.id === campaign.id }">
+                  <button
+                    type="button"
+                    class="c360-campaign-action"
+                    [attr.aria-label]="i18n.t('client360.campaign.open', { name: campaign.name })"
+                    [attr.aria-pressed]="selectedCampaign()?.id === campaign.id"
+                    (click)="selectCampaign(campaign)"
+                  >
+                    <span class="campaign-line">
+                      <strong>{{ campaign.name }}</strong>
+                      <span class="pill" [ngClass]="campaign.status">{{ labelCampaignStatus(campaign.status) }}</span>
+                    </span>
+                    <small>{{ labelCampaignType(campaign.campaign_type) }} · {{ campaign.drafts_count }} brouillon(s) / {{ campaign.targeted_count }} cible(s)</small>
+                  </button>
                 </li>
               } @empty {
                 <li class="muted">{{ i18n.t('client360.campaigns.empty') }}</li>
@@ -1812,7 +1843,8 @@ interface CampaignDraftsOutcome {
     .alerts-counts .pill-filter { font: inherit; font-size: 11px; cursor: pointer; }
     .alerts-counts .pill-filter:hover { border-color: var(--ck-stroke-3); }
     .alerts-counts .pill-filter.active { border-color: var(--ck-stroke-hot); color: var(--ck-signal-cool); }
-    .alerts-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset); cursor: pointer; }
+    .alerts-list li { border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset); }
+    .c360-list-action { display: flex; width: 100%; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: inherit; background: transparent; color: inherit; text-align: left; cursor: pointer; }
     .alerts-list li:hover { border-color: var(--ck-stroke-3); }
     .alerts-list li.high { border-left: 3px solid var(--ck-signal-neg); }
     .alerts-list li.medium { border-left: 3px solid var(--ck-signal-warn); }
@@ -1830,6 +1862,9 @@ interface CampaignDraftsOutcome {
       width: 100%; min-width: 0; box-sizing: border-box; min-height: 34px; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset);
       color: var(--ck-fg-1); padding: 0 10px; outline: 0; font: 500 13px/1.4 var(--ck-font-sans);
     }
+    input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, summary:focus-visible {
+      outline: 2px solid var(--ck-signal-cool); outline-offset: 2px;
+    }
     textarea { width: 100%; min-height: 360px; padding: 12px; resize: vertical; white-space: pre-wrap; }
     .small-textarea { min-height: 90px; }
     .table-wrap { overflow: auto; border-radius: var(--ck-radius-md); }
@@ -1838,8 +1873,9 @@ interface CampaignDraftsOutcome {
     th { color: var(--ck-fg-4); font: 700 10px/1 var(--ck-font-mono); text-transform: uppercase; letter-spacing: 0; }
     td strong { display: block; color: var(--ck-fg-1); font-size: 12px; }
     td small { display: block; margin-top: 4px; color: var(--ck-fg-4); line-height: 1.35; }
-    tbody tr { cursor: pointer; }
     tbody tr:hover { background: var(--ck-tint-faint); }
+    .c360-row-action { display: block; width: 100%; padding: 0; border: 0; border-radius: var(--ck-radius-sm); background: transparent; color: inherit; text-align: left; cursor: pointer; }
+    .c360-row-action:hover strong { color: var(--ck-signal-cool); }
     .pill, .status, .chips span { display: inline-flex; align-items: center; border-radius: var(--ck-radius-md); padding: 3px 8px; background: var(--ck-tint-faint); border: 1px solid var(--ck-stroke-2); color: var(--ck-fg-3); font-size: 11px; white-space: nowrap; }
     .pill.high { color: var(--ck-signal-pos); border-color: rgba(16,185,129,.35); }
     .pill.medium { color: var(--ck-signal-warn); border-color: rgba(245,158,11,.35); }
@@ -1889,7 +1925,11 @@ interface CampaignDraftsOutcome {
     }
     .c360-tree-part.linkish:hover { border: 0; background: color-mix(in oklab, var(--ck-signal-cool) 12%, transparent); }
     .compact-table table { min-width: 560px; }
-    .compact-table tbody tr { cursor: pointer; }
+    .campaign-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .campaign-list li { border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset); }
+    .campaign-list li.active { border-color: var(--ck-stroke-hot); }
+    .c360-campaign-action { display: grid; width: 100%; gap: 5px; padding: 9px 10px; border: 0; border-radius: inherit; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+    .campaign-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .detail-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 14px; }
     .detail-head.compact { margin-bottom: 10px; }
     .draft-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--ck-fg-4); font-size: 11px; }

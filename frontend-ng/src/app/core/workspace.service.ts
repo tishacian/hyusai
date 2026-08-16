@@ -429,6 +429,17 @@ export class WorkspaceService {
       && (features as Record<string, unknown>)['experience_v1'] === true,
     );
   });
+  /** Studio can roll out independently; absence preserves the pre-split flag. */
+  readonly experienceStudioV1Enabled = computed(() => {
+    const features = this.current()?.settings?.['features'];
+    return Boolean(
+      features
+      && typeof features === 'object'
+      && !Array.isArray(features)
+      && (features as Record<string, unknown>)['experience_v1'] === true
+      && (features as Record<string, unknown>)['experience_studio_v1'] !== false,
+    );
+  });
 
   captureRequestScope(): WorkspaceRequestScope {
     const state = this.state();

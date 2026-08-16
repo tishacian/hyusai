@@ -9,7 +9,7 @@
  */
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, distinctUntilChanged, map } from 'rxjs';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -19,6 +19,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { experienceOrigin, experienceSlugFromOrigin, normalizedExperienceOrigin } from './runs-origin';
 
 type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
 
@@ -32,6 +33,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
     EmptyStateComponent,
     PageFrameComponent,
     HelpTooltipComponent,
+    RouterLink,
   ],
   template: `
     <ck-page-frame
@@ -42,8 +44,64 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
       <ck-help titleHelp id="concept.run" />
       <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
         <ck-help id="runs.list" />
+        <form
+          [style.display]="'inline-flex'"
+          [style.alignItems]="'center'"
+          [style.gap.px]="4"
+          (submit)="applyOrigin($event)"
+        >
+          <label
+            class="ck-mono"
+            for="runs-experience-filter"
+            [style.color]="'var(--ck-fg-4)'"
+            [style.fontSize.px]="9"
+            [style.letterSpacing]="'0.08em'"
+            [style.textTransform]="'uppercase'"
+          >
+            {{ i18n.t('runs.list.filter.experience') }}
+          </label>
+          <input
+            id="runs-experience-filter"
+            name="experienceFilter"
+            [(ngModel)]="originDraft"
+            class="ck-mono"
+            [attr.aria-invalid]="originInvalid()"
+            [attr.aria-describedby]="originInvalid() ? 'runs-experience-filter-error' : null"
+            [style.height.px]="28"
+            [style.width.px]="150"
+            [style.padding]="'0 9px'"
+            [style.background]="'var(--ck-bg-inset)'"
+            [style.color]="'var(--ck-fg-1)'"
+            [style.border]="'1px solid ' + (originInvalid() ? 'var(--ck-signal-neg)' : 'var(--ck-stroke-2)')"
+            [style.borderRadius.px]="4"
+            [style.fontSize.px]="11"
+            [placeholder]="i18n.t('runs.list.filter.experience.placeholder')"
+          />
+          <button
+            type="submit"
+            class="inline-flex items-center px-2.5 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          >
+            {{ i18n.t('runs.list.filter.apply') }}
+          </button>
+          @if (originActive()) {
+            <button
+              type="button"
+              class="inline-flex items-center px-2.5 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+              (click)="clearOrigin()"
+            >
+              {{ i18n.t('runs.list.filter.clear') }}
+            </button>
+          }
+          @if (originInvalid()) {
+            <span id="runs-experience-filter-error" role="alert" class="sr-only">
+              {{ i18n.t('runs.list.filter.experience.invalid') }}
+            </span>
+          }
+        </form>
         <select
-          [(ngModel)]="statusFilter"
+          [ngModel]="statusFilter()"
+          (ngModelChange)="statusFilter.set($event)"
+          [attr.aria-label]="i18n.t('runs.list.column.status')"
           class="ck-mono"
           [style.height.px]="28"
           [style.padding]="'0 10px'"
@@ -72,7 +130,18 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
       </div>
 
       <div body>
-        @if (loading() && visibleRuns().length === 0) {
+        @if (loadError()) {
+          <div class="px-5 py-8 text-center" role="alert">
+            <p class="mb-3 text-sm text-red-300">{{ i18n.t('state.error.network') }}</p>
+            <button
+              type="button"
+              class="inline-flex items-center px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+              (click)="refresh()"
+            >
+              {{ i18n.t('common.retry') }}
+            </button>
+          </div>
+        } @else if (loading() && visibleRuns().length === 0) {
           <div class="divide-y divide-white/5">
             @for (_ of [0, 1, 2, 3, 4, 5]; track $index) {
               <div class="px-5 py-3 animate-pulse">
@@ -84,7 +153,9 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           <app-empty-state
             icon="activity"
             [title]="i18n.t('runs.list.empty.title')"
-            [description]="i18n.t('runs.list.empty.description')"
+            [description]="i18n.t(originActive()
+              ? 'runs.list.empty.experience_description'
+              : 'runs.list.empty.description')"
           />
         } @else {
           <div
@@ -99,10 +170,11 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           </div>
           <ul class="divide-y divide-white/5">
             @for (r of visibleRuns(); track r.id) {
-              <li
-                class="px-5 py-3 grid grid-cols-12 gap-3 items-center text-sm hover:bg-white/[0.02] cursor-pointer transition"
-                (click)="open(r)"
-              >
+              <li>
+                <a
+                  [routerLink]="runHref(r)"
+                  class="w-full px-5 py-3 grid grid-cols-12 gap-3 items-center text-left text-sm bg-transparent border-0 hover:bg-white/[0.02] cursor-pointer transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-cyan-400"
+                >
                 <div class="col-span-4 min-w-0">
                   <div class="font-mono text-xs text-white truncate">{{ r.id }}</div>
                   @if (r.system_id) {
@@ -152,6 +224,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
                     \${{ (r.outcome!.cost_internal ?? 0).toFixed(3) }}
                   }
                 </div>
+                </a>
               </li>
             }
           </ul>
@@ -167,7 +240,7 @@ export class RunsListComponent implements OnInit, OnDestroy {
   private readonly navigation = inject(ZoomContextService);
   readonly i18n = inject(I18nService);
   private readonly workspace = inject(WorkspaceService);
-  private scopeParams: { system_id?: string; capability_id?: string } | undefined;
+  private scopeParams: { system_id?: string; capability_id?: string; origin?: string } | undefined;
   private routeSubscription: Subscription | null = null;
   private contextRefreshSubscription: Subscription | null = null;
   private requestSubscription: Subscription | null = null;
@@ -179,23 +252,36 @@ export class RunsListComponent implements OnInit, OnDestroy {
 
   readonly runs = signal<Run[]>([]);
   readonly loading = signal(false);
-  statusFilter: StatusFilter = 'all';
+  readonly loadError = signal(false);
+  readonly originActive = signal(false);
+  readonly originInvalid = signal(false);
+  originDraft = '';
+  readonly statusFilter = signal<StatusFilter>('all');
 
   readonly visibleRuns = computed(() => {
     const list = this.runs();
-    if (this.statusFilter === 'all') return list;
-    return list.filter((r) => r.status === this.statusFilter);
+    const status = this.statusFilter();
+    if (status === 'all') return list;
+    return list.filter((r) => r.status === status);
   });
 
   ngOnInit(): void {
     this.routeSubscription = this.route.queryParamMap.pipe(
-      map((params) => this.effectiveScope(
-        params.get('systemId'),
-        params.get('capabilityId'),
-      )),
+      map((params) => {
+        const origin = normalizedExperienceOrigin(params.get('origin'));
+        this.originDraft = experienceSlugFromOrigin(origin);
+        this.originActive.set(!!origin);
+        this.originInvalid.set(false);
+        return this.effectiveScope(
+          params.get('systemId') ?? params.get('system_id'),
+          params.get('capabilityId') ?? params.get('capability_id'),
+          origin,
+        );
+      }),
       distinctUntilChanged((a, b) => (
         a?.system_id === b?.system_id
         && a?.capability_id === b?.capability_id
+        && a?.origin === b?.origin
       )),
     ).subscribe((scopeParams) => {
       this.scopeParams = scopeParams;
@@ -205,12 +291,14 @@ export class RunsListComponent implements OnInit, OnDestroy {
     this.contextRefreshSubscription = this.workspace.contextRefresh$.subscribe(() => {
       const params = this.route.snapshot.queryParamMap;
       const next = this.effectiveScope(
-        params.get('systemId'),
-        params.get('capabilityId'),
+        params.get('systemId') ?? params.get('system_id'),
+        params.get('capabilityId') ?? params.get('capability_id'),
+        normalizedExperienceOrigin(params.get('origin')),
       );
       if (
         next?.system_id === this.scopeParams?.system_id
         && next?.capability_id === this.scopeParams?.capability_id
+        && next?.origin === this.scopeParams?.origin
       ) {
         return;
       }
@@ -233,6 +321,7 @@ export class RunsListComponent implements OnInit, OnDestroy {
     this.requestSubscription = null;
     const request = this.workspaceView.beginRequest();
     this.loading.set(true);
+    this.loadError.set(false);
     const subscription = this.canonical.listRuns(this.scopeParams).subscribe({
       next: (list) => {
         if (!this.workspaceView.isCurrent(request)) return;
@@ -242,14 +331,42 @@ export class RunsListComponent implements OnInit, OnDestroy {
       error: () => {
         if (!this.workspaceView.isCurrent(request)) return;
         this.runs.set([]);
+        this.loadError.set(true);
         this.loading.set(false);
       },
     });
     this.requestSubscription = subscription.closed ? null : subscription;
   }
 
-  open(r: Run): void {
-    this.router.navigateByUrl(this.navigation.objectUrl('run', r.id));
+  runHref(r: Run): string {
+    return this.navigation.objectUrl('run', r.id);
+  }
+
+  applyOrigin(event: Event): void {
+    event.preventDefault();
+    const origin = this.originDraft.trim() ? experienceOrigin(this.originDraft) : null;
+    if (this.originDraft.trim() && !origin) {
+      this.originInvalid.set(true);
+      return;
+    }
+    this.originInvalid.set(false);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { origin },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  clearOrigin(): void {
+    this.originDraft = '';
+    this.originInvalid.set(false);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { origin: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   /**
@@ -281,20 +398,23 @@ export class RunsListComponent implements OnInit, OnDestroy {
   private effectiveScope(
     systemId: string | null,
     capabilityId: string | null,
-  ): { system_id?: string; capability_id?: string } | undefined {
-    if (!this.navigation.axesV3Enabled()) return undefined;
-    if (!systemId && !capabilityId) return undefined;
+    origin: string | null,
+  ): { system_id?: string; capability_id?: string; origin?: string } | undefined {
+    const axes = this.navigation.axesV3Enabled();
+    if (!origin && (!axes || (!systemId && !capabilityId))) return undefined;
     return {
-      ...(systemId ? { system_id: systemId } : {}),
-      ...(capabilityId ? { capability_id: capabilityId } : {}),
+      ...(axes && systemId ? { system_id: systemId } : {}),
+      ...(axes && capabilityId ? { capability_id: capabilityId } : {}),
+      ...(origin ? { origin } : {}),
     };
   }
 
   private reloadCurrentScope(): void {
     const params = this.route.snapshot.queryParamMap;
     this.scopeParams = this.effectiveScope(
-      params.get('systemId'),
-      params.get('capabilityId'),
+      params.get('systemId') ?? params.get('system_id'),
+      params.get('capabilityId') ?? params.get('capability_id'),
+      normalizedExperienceOrigin(params.get('origin')),
     );
     this.refresh();
   }
@@ -304,6 +424,7 @@ export class RunsListComponent implements OnInit, OnDestroy {
     this.requestSubscription = null;
     this.workspaceView.invalidate();
     this.runs.set([]);
+    this.loadError.set(false);
     this.loading.set(false);
   }
 
@@ -311,6 +432,7 @@ export class RunsListComponent implements OnInit, OnDestroy {
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
     this.runs.set([]);
+    this.loadError.set(false);
     this.loading.set(false);
   }
 }

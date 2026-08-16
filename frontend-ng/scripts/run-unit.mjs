@@ -46,12 +46,15 @@ const pureSpecs = [
   'src/app/core/theme-preference.spec.ts',
   'src/app/core/platform-brand.spec.ts',
   'src/app/shared/cockpit/thinking-orb/thinking-orb.spec.ts',
+  'src/app/shared/cockpit/cockpit-contrast.spec.ts',
   'src/app/shared/cockpit/yield-format.spec.ts',
   'src/app/shared/schema-builder/schema-builder.vm.spec.ts',
   'src/app/shared/ui/icon-registry.spec.ts',
+  'src/app/shared/ui/modal-contract.spec.ts',
   'src/app/core/workspace-experience.spec.ts',
   'src/app/core/workspace-app-canary.spec.ts',
   'src/app/features/governance/workspace-blueprint-plan.spec.ts',
+  'src/app/features/governance/experience-governance.models.spec.ts',
   'src/app/features/governance/workspace-app-lifecycle.models.spec.ts',
   'src/app/features/auth/signin-experience.spec.ts',
   'src/app/features/mission-room/mission-room.extension.spec.ts',
@@ -75,12 +78,15 @@ const pureSpecs = [
   'src/app/features/experience/runtime/system-home.spec.ts',
   'src/app/features/experience/experience.guard.spec.ts',
   'src/app/features/experience/work/work-catalog.spec.ts',
+  'src/app/features/experience/work/work-language.spec.ts',
   'src/app/features/experience/studio/studio.spec.ts',
+  'src/app/features/runs/runs-origin.spec.ts',
 ];
 
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
+  'src/app/features/experience/runtime/renderer-registry.spec.ts',
   'src/app/core/canonical-api-skills.spec.ts',
   'src/app/core/canonical-api-versions.spec.ts',
   'src/app/core/api.service.spec.ts',

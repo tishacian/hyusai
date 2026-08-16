@@ -41,6 +41,7 @@ from app.models.system import System
 from app.models.experience import (
     Experience,
     ExperienceDeployment,
+    ExperienceDraftHistory,
     ExperienceDraftRevision,
     ExperienceRelease,
 )
@@ -88,7 +89,7 @@ __all__ = [
     "Client360DataSource", "Client360Opportunity", "Client360MappingRule", "Client360MailDraft", "Client360ImpactEvent", "Client360Campaign",
     # Canonical
     "Capability", "Skill", "Context", "ControlPolicy", "AdaptivePolicy",
-    "System", "SystemBinding", "Experience", "ExperienceDraftRevision",
+    "System", "SystemBinding", "Experience", "ExperienceDraftRevision", "ExperienceDraftHistory",
     "ExperienceRelease", "ExperienceDeployment",
     "SystemFlowDraft", "SystemVersion", "Run", "SkillInvocation", "RunSchedule", "WebhookHook",
     "RunInbox", "SystemMemory", "RunDispatchOutbox", "TriggerEventClaim",

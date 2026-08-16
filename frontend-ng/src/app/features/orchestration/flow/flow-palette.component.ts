@@ -65,7 +65,13 @@ const MOST_USED_LIMIT = 5;
   imports: [IconComponent, NgTemplateOutlet, RouterLink],
   styleUrl: './flow-palette.component.scss',
   template: `
-    <ng-template #row let-item let-active="active">
+    <ng-template
+      #row
+      let-item
+      let-active="active"
+      let-optionId="optionId"
+      let-comboboxOption="comboboxOption"
+    >
       <button
         type="button"
         class="ck-flow-palette__row"
@@ -74,6 +80,10 @@ const MOST_USED_LIMIT = 5;
         [attr.data-tone]="item.tone"
         [disabled]="!!item.unavailableReason"
         [title]="detail(item)"
+        [id]="optionId || null"
+        [attr.role]="comboboxOption ? 'option' : null"
+        [attr.aria-selected]="comboboxOption ? !!active : null"
+        [attr.tabindex]="comboboxOption ? -1 : null"
         (click)="onPick(item)"
       >
         <app-icon class="ck-flow-palette__row-icon" [name]="item.icon" [size]="13" />
@@ -137,8 +147,15 @@ const MOST_USED_LIMIT = 5;
         <input
           type="search"
           class="ck-flow-palette__search-input"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
           [placeholder]="searchPlaceholder()"
           [attr.aria-label]="searchPlaceholder()"
+          [attr.aria-expanded]="rankedMode()"
+          [attr.aria-controls]="rankedMode() ? 'flow-palette-search-results' : null"
+          [attr.aria-activedescendant]="activeOptionId()"
+          [attr.aria-describedby]="rankedMode() ? 'flow-palette-search-status' : null"
           [value]="query()"
           (input)="onQuery($event)"
           (keydown)="onSearchKey($event)"
@@ -159,18 +176,36 @@ const MOST_USED_LIMIT = 5;
       } @else {
         <div class="ck-flow-palette__body">
           @if (rankedMode()) {
-            @for (item of rankedItems(); track itemKey(item); let i = $index) {
-              <ng-container
-                *ngTemplateOutlet="row; context: { $implicit: item, active: i === activeIndex() }"
-              />
-            } @empty {
-              <p class="ck-flow-palette__empty" role="status">{{ rankedEmptyMessage() }}</p>
-              @if (context()) {
-                <button type="button" class="ck-flow-palette__link" (click)="clearContext.emit()">
-                  {{ i18n.t('flow.palette.empty.show_all') }}
-                </button>
+            <span id="flow-palette-search-status" class="ck-flow-palette__sr-only" role="status" aria-live="polite">
+              {{ i18n.t('flow.palette.search.results', { count: rankedItems().length }) }}
+            </span>
+            <div
+              id="flow-palette-search-results"
+              class="ck-flow-palette__ranked"
+              role="listbox"
+              [attr.aria-label]="i18n.t('flow.palette.search.results.aria')"
+            >
+              @for (item of rankedItems(); track itemKey(item); let i = $index) {
+                <ng-container
+                  *ngTemplateOutlet="
+                    row;
+                    context: {
+                      $implicit: item,
+                      active: i === activeIndex(),
+                      optionId: optionId(item, i),
+                      comboboxOption: true,
+                    }
+                  "
+                />
+              } @empty {
+                <p class="ck-flow-palette__empty" role="status">{{ rankedEmptyMessage() }}</p>
+                @if (context()) {
+                  <button type="button" class="ck-flow-palette__link" (click)="clearContext.emit()">
+                    {{ i18n.t('flow.palette.empty.show_all') }}
+                  </button>
+                }
               }
-            }
+            </div>
             @if (rankedOverflow() > 0) {
               <p class="ck-flow-palette__more">
                 {{ i18n.t('flow.palette.overflow', { count: rankedOverflow() }) }}
@@ -405,6 +440,12 @@ export class FlowPaletteComponent {
   protected readonly rankedOverflow = computed(() =>
     Math.max(0, this.ranked().length - RANKED_LIMIT),
   );
+  protected readonly activeOptionId = computed(() => {
+    if (!this.rankedMode()) return null;
+    const index = this.activeIndex();
+    const item = this.rankedItems()[index];
+    return item ? this.optionId(item, index) : null;
+  });
 
   /** Registry rows matching the query that this workspace cannot use. The
    * reason travels with the row, so a dead end explains itself. */
@@ -490,10 +531,16 @@ export class FlowPaletteComponent {
     const items = this.rankedItems();
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      this.activeIndex.update((index) => Math.min(items.length - 1, index + 1));
+      this.activeIndex.update((index) => Math.max(0, Math.min(items.length - 1, index + 1)));
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       this.activeIndex.update((index) => Math.max(0, index - 1));
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      this.activeIndex.set(0);
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      this.activeIndex.set(Math.max(0, items.length - 1));
     } else if (event.key === 'Enter') {
       event.preventDefault();
       const item = items[this.activeIndex()];
@@ -550,6 +597,11 @@ export class FlowPaletteComponent {
 
   protected itemKey(item: PaletteItem): string {
     return `${item.type}:${paletteItemSlug(item)}`;
+  }
+
+  protected optionId(item: PaletteItem, index: number): string {
+    const key = this.itemKey(item).replace(/[^a-zA-Z0-9_-]+/g, '-');
+    return `flow-palette-option-${index}-${key}`;
   }
 
   protected detail(item: PaletteItem): string {

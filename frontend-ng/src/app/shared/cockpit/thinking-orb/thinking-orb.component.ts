@@ -35,17 +35,18 @@ import {
 import { MODE_DRAWS } from './vendor/engine/registry';
 import { resolvePreset } from './vendor/presets';
 import type { OrbSize, OrbState, OrbTheme } from './vendor/types';
+import { I18nService } from '@app/core/i18n.service';
 
 export type { OrbSize as CkOrbSize, OrbState as CkOrbState, OrbTheme as CkOrbTheme };
 
 /** Spoken by a screen reader in place of the animation. */
 const LABELS: Record<OrbState, string> = {
-  working: 'Working…',
-  searching: 'Searching…',
-  solving: 'Solving…',
-  listening: 'Listening…',
-  composing: 'Composing…',
-  shaping: 'Shaping…',
+  working: 'common.orb.working',
+  searching: 'common.orb.searching',
+  solving: 'common.orb.solving',
+  listening: 'common.orb.listening',
+  composing: 'common.orb.composing',
+  shaping: 'common.orb.shaping',
 };
 
 @Component({
@@ -72,6 +73,7 @@ const LABELS: Record<OrbState, string> = {
   ],
 })
 export class ThinkingOrbComponent {
+  private readonly i18n = inject(I18nService);
   /** Which kind of work is under way. */
   readonly state = input<OrbState>('working');
   /** 64 for a chat-avatar slot, 20 inline in a line of text. Not a scale factor. */
@@ -92,7 +94,7 @@ export class ThinkingOrbComponent {
   private readonly dark = signal(true);
   private readonly reduced = signal(false);
 
-  protected readonly fallbackLabel = computed(() => LABELS[this.state()]);
+  protected readonly fallbackLabel = computed(() => this.i18n.t(LABELS[this.state()]));
 
   private stop: (() => void) | null = null;
 

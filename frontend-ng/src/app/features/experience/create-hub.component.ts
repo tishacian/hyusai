@@ -34,6 +34,7 @@ export class CreateHubComponent {
   private readonly studioApi = inject(StudioApiService);
   private readonly workspace = inject(WorkspaceService);
   readonly recentApps = signal<StudioExperience[]>([]);
+  readonly recentState = signal<'loading' | 'ready' | 'error'>('loading');
   readonly canEdit = computed(() => canEditExperienceStudio(
     this.workspace.current()?.role_template,
     this.workspace.current()?.role,
@@ -41,7 +42,18 @@ export class CreateHubComponent {
   ));
 
   constructor() {
-    this.studioApi.listExperiences().subscribe((rows) => this.recentApps.set(rows.slice(0, 4)));
+    this.loadRecent();
+  }
+
+  loadRecent(): void {
+    this.recentState.set('loading');
+    this.studioApi.listExperiences().subscribe({
+      next: (rows) => {
+        this.recentApps.set(rows.slice(0, 4));
+        this.recentState.set('ready');
+      },
+      error: () => this.recentState.set('error'),
+    });
   }
 
   state(app: StudioExperience): string {

@@ -10,6 +10,28 @@ export const experienceEvidencePath = process.env['E2E_EXPERIENCE_EVIDENCE'];
 const username = process.env['E2E_USERNAME'];
 const password = process.env['E2E_PASSWORD'];
 
+export interface CanaryCredentials {
+  username: string;
+  password: string;
+}
+
+const reviewerUsername = process.env['E2E_EXPERIENCE_REVIEWER_USERNAME'];
+const reviewerPassword = process.env['E2E_EXPERIENCE_REVIEWER_PASSWORD'];
+
+export const reviewerCredentialsMisconfigured = !!reviewerUsername !== !!reviewerPassword;
+export const reviewerCredentials: CanaryCredentials | null =
+  reviewerUsername
+  && reviewerPassword
+    ? {
+        username: reviewerUsername,
+        password: reviewerPassword,
+      }
+    : null;
+
+export const reviewerRequired = process.env['E2E_EXPERIENCE_REQUIRE_REVIEWER'] === '1';
+export const deployExperience = process.env['E2E_EXPERIENCE_DEPLOY'] === '1';
+export const allowRetainedExperience = process.env['E2E_EXPERIENCE_ALLOW_RETAINED'] === '1';
+
 export interface WorkspaceSummary {
   id: string;
   slug: string;
@@ -70,9 +92,14 @@ export function writeEvidence(path: string | undefined, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
-export async function login(page: Page): Promise<WorkspaceSummary[]> {
-  expect(username, 'E2E_USERNAME is required for the Experience canary').toBeTruthy();
-  expect(password, 'E2E_PASSWORD is required for the Experience canary').toBeTruthy();
+export async function login(
+  page: Page,
+  credentials: CanaryCredentials | null = null,
+): Promise<WorkspaceSummary[]> {
+  const email = credentials?.username ?? username;
+  const secret = credentials?.password ?? password;
+  expect(email, 'E2E_USERNAME is required for the Experience canary').toBeTruthy();
+  expect(secret, 'E2E_PASSWORD is required for the Experience canary').toBeTruthy();
   await page.goto('/auth/signin');
   const result = await page.evaluate(
     async ({ email, secret }) => {
@@ -96,7 +123,7 @@ export async function login(page: Page): Promise<WorkspaceSummary[]> {
         workspaces: memberships.ok ? await memberships.json().catch(() => []) : [],
       };
     },
-    { email: username as string, secret: password as string },
+    { email: email as string, secret: secret as string },
   );
   expect(result.ok, `login or workspace discovery failed (${result.status})`).toBe(true);
   const memberships = (Array.isArray(result.workspaces) ? result.workspaces : []) as WorkspaceSummary[];
@@ -124,14 +151,18 @@ export async function api<T>(
   page: Page,
   workspaceSlug: string,
   path: string,
+  options: { method?: 'GET' | 'DELETE'; body?: unknown } = {},
 ): Promise<ApiResult<T>> {
   return page.evaluate(
-    async ({ slug, apiPath }) => {
+    async ({ slug, apiPath, request }) => {
       const response = await fetch(`/api/v1${apiPath}`, {
+        method: request.method ?? 'GET',
         headers: {
           Authorization: localStorage.getItem('agentium_token') || '',
           'X-Workspace-Slug': slug,
+          ...(request.body === undefined ? {} : { 'Content-Type': 'application/json' }),
         },
+        body: request.body === undefined ? undefined : JSON.stringify(request.body),
       });
       const text = await response.text();
       let body: unknown = null;
@@ -140,7 +171,7 @@ export async function api<T>(
       }
       return { ok: response.ok, status: response.status, body };
     },
-    { slug: workspaceSlug, apiPath: path },
+    { slug: workspaceSlug, apiPath: path, request: options },
   ) as Promise<ApiResult<T>>;
 }
 
@@ -151,6 +182,7 @@ export async function bindWorkspace(page: Page, slug: string): Promise<void> {
 export async function discoverExperienceWorkspace(
   page: Page,
   memberships: WorkspaceSummary[],
+  options: { studio?: boolean } = {},
 ): Promise<WorkspaceSummary | null> {
   for (const membership of memberships) {
     const detail = await api<WorkspaceSummary>(
@@ -158,7 +190,12 @@ export async function discoverExperienceWorkspace(
       membership.slug,
       `/auth/workspaces/${encodeURIComponent(membership.slug)}`,
     );
-    if (detail.ok && features(detail.body.settings)['experience_v1'] === true) {
+    const flags = detail.ok ? features(detail.body.settings) : {};
+    if (
+      detail.ok
+      && flags['experience_v1'] === true
+      && (!options.studio || flags['experience_studio_v1'] !== false)
+    ) {
       return detail.body;
     }
   }

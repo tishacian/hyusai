@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Observable, forkJoin, of } from 'rxjs';
+import { Observable, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
@@ -13,6 +13,10 @@ export type WorkResolveResult =
 
 export type WorkListResult =
   | { kind: 'ok'; items: WorkCatalogItem[] }
+  | { kind: 'unavailable' };
+
+export type WorkValidationsResult =
+  | { kind: 'ok'; items: Run[] }
   | { kind: 'unavailable' };
 
 @Injectable({ providedIn: 'root' })
@@ -39,18 +43,13 @@ export class WorkApiService {
     );
   }
 
-  listPendingValidations(origins: readonly string[]): Observable<Run[]> {
-    if (origins.length === 0) return of([]);
-    return forkJoin(
-      origins.map((origin) =>
-        this.api
-          .get<{ runs: Run[] } | Run[]>('/runs', { origin, status: 'hitl_pending' })
-          .pipe(
-            map((body) => (Array.isArray(body) ? body : body.runs ?? [])),
-            catchError(() => of([] as Run[])),
-          ),
-      ),
-    ).pipe(map((groups) => dedupeRuns(groups.flat())));
+  listPendingValidations(slug: string): Observable<WorkValidationsResult> {
+    return this.api
+      .get<{ runs: Run[] }>(`/work/${encodeURIComponent(slug)}/validations`)
+      .pipe(
+        map((body) => ({ kind: 'ok' as const, items: dedupeRuns(body.runs ?? []) })),
+        catchError(() => of({ kind: 'unavailable' as const })),
+      );
   }
 
   decide(runId: string, action: 'accept' | 'reject', note: string): Observable<Run | null> {

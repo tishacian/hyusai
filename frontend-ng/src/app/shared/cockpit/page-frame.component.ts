@@ -19,9 +19,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
-      [style.padding]="'24px 32px 48px'"
-      [style.maxWidth.px]="1480"
-      [style.margin]="'0 auto'"
+      class="ck-page-frame"
     >
       @if (eyebrow || title || hasActions) {
         <header [style.marginBottom.px]="20">
@@ -36,8 +34,9 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
               @if (eyebrow) {
                 <div class="ck-label" [style.color]="'var(--ck-signal-cool)'" [style.marginBottom.px]="6">{{ eyebrow }}</div>
               }
-              <div [style.display]="'flex'" [style.alignItems]="'baseline'" [style.gap.px]="12">
+              <div class="ck-page-title" [style.display]="'flex'" [style.alignItems]="'baseline'" [style.gap.px]="12">
                 <h1
+                  tabindex="-1"
                   [style.fontFamily]="'var(--ck-font-sans)'"
                   [style.fontSize.px]="28"
                   [style.fontWeight]="500"
@@ -55,6 +54,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
               }
             </div>
             <div
+              class="ck-page-actions"
               [style.display]="'inline-flex'"
               [style.alignItems]="'center'"
               [style.gap.px]="8"
@@ -69,6 +69,37 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
       <ng-content></ng-content>
     </section>
   `,
+  styles: [`
+    .ck-page-frame {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 24px 32px 48px;
+    }
+
+    .ck-page-title {
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+
+    .ck-page-title h1 {
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 640px) {
+      .ck-page-frame {
+        padding: 18px 14px 32px;
+      }
+
+      .ck-page-title h1 {
+        font-size: 24px !important;
+      }
+
+      .ck-page-actions {
+        max-width: 100%;
+        flex-wrap: wrap;
+      }
+    }
+  `],
 })
 export class PageFrameComponent {
   @Input() eyebrow = '';

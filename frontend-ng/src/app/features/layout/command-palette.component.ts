@@ -241,7 +241,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     { id: 'view.runs', label: this.i18n.t('palette.view.runs'), hint: this.i18n.t('palette.view.runs.hint'), tone: 'warn', kind: 'view', route: agentiumSurfaceRoute('runs'), keywords: 'runs traces executions logs history' },
     { id: 'action.new-system', label: this.i18n.t('palette.action.new_system'), hint: this.i18n.t('palette.action.new_system.hint'), tone: 'pos', kind: 'action', route: `${agentiumSurfaceRoute('systems')}/new`, keywords: 'create new build wizard' },
     ];
-    if (this.workspace.experienceV1Enabled()) {
+    if (this.workspace.experienceStudioV1Enabled()) {
       commands.push(
         {
           id: 'view.create',

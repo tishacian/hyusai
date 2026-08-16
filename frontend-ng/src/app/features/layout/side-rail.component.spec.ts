@@ -15,7 +15,12 @@ test('side rail delegates every lens route to the route-owned navigation project
       SideRailComponent,
       {
         provide: WorkspaceService,
-        useValue: { mode: () => 'portfolio', isDemoMode: () => false, experienceV1Enabled: () => false },
+        useValue: {
+          mode: () => 'portfolio',
+          isDemoMode: () => false,
+          experienceV1Enabled: () => false,
+          experienceStudioV1Enabled: () => false,
+        },
       },
       {
         provide: ZoomContextService,
@@ -56,6 +61,7 @@ test('demo rail uses Mission Room home only when the extension is enabled', () =
           mode: () => 'demo',
           isDemoMode: () => true,
           experienceV1Enabled: () => false,
+          experienceStudioV1Enabled: () => false,
         },
       },
       {
@@ -90,6 +96,7 @@ test('axes v4 makes Hypervisor the Portfolio home even in a demo workspace', () 
           mode: () => 'demo',
           isDemoMode: () => true,
           experienceV1Enabled: () => false,
+          experienceStudioV1Enabled: () => false,
         },
       },
       {
@@ -119,6 +126,7 @@ test('experience_v1 Build verb opens the Create hub', () => {
           mode: () => 'portfolio',
           isDemoMode: () => false,
           experienceV1Enabled: () => true,
+          experienceStudioV1Enabled: () => true,
         },
       },
       {

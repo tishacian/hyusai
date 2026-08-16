@@ -148,6 +148,7 @@ def _experience_body(**overrides) -> dict[str, Any]:
         "pattern": "form_result",
         "languages": ["en"],
         "theme": {},
+        "access_policy": {"roles": []},
     }
     body.update(overrides)
     return body
@@ -159,7 +160,7 @@ def _pages() -> dict[str, Any]:
             {
                 "id": "home",
                 "title": "Home",
-                "components": [{"type": "form", "id": "form"}],
+                "components": [{"type": "header", "id": "header"}],
             }
         ]
     }
@@ -189,11 +190,15 @@ def _ready_experience(admin_client: TestClient) -> str:
 
 
 def _release_body(client: TestClient, experience_id: str, notes: str) -> dict[str, Any]:
-    draft = client.get(f"/experiences/{experience_id}").json()["draft"]
+    detail = client.get(f"/experiences/{experience_id}").json()
+    draft = detail["draft"]
+    ready = client.get(f"/experiences/{experience_id}/ready-check").json()
     return {
         "notes": notes,
         "expected_draft_revision": draft["revision"],
         "expected_content_sha256": draft["content_sha256"],
+        "expected_experience_updated_at": detail["updated_at"],
+        "expected_bindings_sha256": ready["bindings_sha256"],
     }
 
 
@@ -216,7 +221,12 @@ def test_viewer_can_list_cannot_edit_release_deploy_or_manage(db_session) -> Non
     )
     deployed = client.post(
         f"/experiences/{experience_id}/deployments",
-        json={"channel": "pilot", "release_id": "missing"},
+        json={
+            "channel": "pilot",
+            "release_id": "missing",
+            "expected_current_release_id": None,
+            "expected_deployment_updated_at": None,
+        },
     )
     managed = client.post("/system-bindings", json=_binding_body(version))
 
@@ -255,7 +265,12 @@ def test_contributor_can_edit_and_manage_cannot_release_or_deploy(db_session) ->
     )
     deployed = client.post(
         f"/experiences/{experience_id}/deployments",
-        json={"channel": "pilot", "release_id": "missing"},
+        json={
+            "channel": "pilot",
+            "release_id": "missing",
+            "expected_current_release_id": None,
+            "expected_deployment_updated_at": None,
+        },
     )
 
     assert created.status_code == 201, created.text
@@ -283,7 +298,12 @@ def test_reviewer_can_release_and_deploy_cannot_edit_or_manage(db_session) -> No
     )
     deployed = client.post(
         f"/experiences/{experience_id}/deployments",
-        json={"channel": "pilot", "release_id": released.json()["id"]},
+        json={
+            "channel": "pilot",
+            "release_id": released.json()["id"],
+            "expected_current_release_id": None,
+            "expected_deployment_updated_at": None,
+        },
     )
 
     assert edited.status_code == 403
@@ -292,3 +312,97 @@ def test_reviewer_can_release_and_deploy_cannot_edit_or_manage(db_session) -> No
     assert deployed.status_code == 201, deployed.text
     assert db_session.query(SystemBinding).count() == 0
     assert db_session.query(ExperienceRelease).count() == 1
+
+
+def test_reviewer_governance_reads_survive_studio_opt_out_but_authoring_is_hidden(
+    db_session,
+) -> None:
+    workspace, admin, version = _seed(db_session, suffix="runtime-governance")
+    reviewer = _member(
+        db_session,
+        workspace,
+        suffix="runtime-governance",
+        role_template=WORKSPACE_REVIEWER,
+    )
+    admin_client = _client(db_session, workspace, admin)
+    experience_id = _ready_experience(admin_client)
+    release_payload = _release_body(admin_client, experience_id, "governed release")
+    released = admin_client.post(
+        f"/experiences/{experience_id}/releases",
+        json=release_payload,
+    )
+    assert released.status_code == 201, released.text
+    release_id = released.json()["id"]
+    deployed = admin_client.post(
+        f"/experiences/{experience_id}/deployments",
+        json={
+            "channel": "pilot",
+            "release_id": release_id,
+            "expected_current_release_id": None,
+            "expected_deployment_updated_at": None,
+        },
+    )
+    assert deployed.status_code == 201, deployed.text
+    binding = admin_client.post("/system-bindings", json=_binding_body(version))
+    assert binding.status_code == 201, binding.text
+
+    workspace.settings = {
+        "features": {
+            "experience_v1": True,
+            "experience_studio_v1": False,
+            "flow_publication_v1": True,
+        }
+    }
+    db_session.add(workspace)
+    db_session.commit()
+    client = _client(db_session, workspace, reviewer)
+
+    listed = client.get("/experiences")
+    audit = client.get("/experiences/audit")
+    releases = client.get(f"/experiences/{experience_id}/releases")
+    drift = client.get("/system-bindings/drift")
+
+    assert listed.status_code == 200, listed.text
+    governed = listed.json()["experiences"][0]
+    assert governed["id"] == experience_id
+    assert governed["deployments"][0]["release_id"] == release_id
+    assert audit.status_code == 200, audit.text
+    assert audit.json()["total"] > 0
+    assert releases.status_code == 200, releases.text
+    assert releases.json()["releases"][0]["id"] == release_id
+    assert drift.status_code == 200, drift.text
+
+    hidden = [
+        client.get(f"/experiences/{experience_id}"),
+        client.get(f"/experiences/{experience_id}/draft/revisions"),
+        client.get(f"/experiences/{experience_id}/ready-check"),
+        client.post(
+            "/experiences",
+            json=_experience_body(slug="studio-disabled"),
+        ),
+        client.post(
+            f"/experiences/{experience_id}/releases",
+            json=release_payload,
+        ),
+        client.post(
+            f"/experiences/{experience_id}/deployments",
+            json={
+                "channel": "pilot",
+                "release_id": release_id,
+                "expected_current_release_id": release_id,
+                "expected_deployment_updated_at": deployed.json()["updated_at"],
+            },
+        ),
+        client.post(
+            f"/experiences/{experience_id}/draft/revisions/1/restore",
+            json={"expected_revision": 2},
+        ),
+        client.patch(
+            "/system-bindings/expenses.submit",
+            json={"confirmation_policy": "confirm"},
+        ),
+    ]
+    assert {response.status_code for response in hidden} == {404}
+    assert {
+        response.json()["detail"]["code"] for response in hidden
+    } == {"EXPERIENCE_STUDIO_V1_DISABLED"}

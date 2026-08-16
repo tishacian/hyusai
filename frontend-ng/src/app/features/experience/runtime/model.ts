@@ -8,7 +8,7 @@
  * different `renderer_version` must not render — show the repair state instead.
  */
 
-export const CERTIFIED_RENDERER_VERSION = 'certified-components-0.1.0';
+export const CERTIFIED_RENDERER_VERSION = 'certified-components-0.2.0';
 
 export const CERTIFIED_TYPES = [
   'section',
@@ -96,13 +96,6 @@ export type CatalogResolution =
   | { kind: 'skip' }
   | { kind: 'ok'; type: CertifiedType }
   | { kind: 'fallback'; type: string };
-
-export function rendererPinMatches(
-  releaseVersion: string | null | undefined,
-  catalogVersion = CERTIFIED_RENDERER_VERSION,
-): boolean {
-  return releaseVersion === catalogVersion;
-}
 
 export function resolveCatalogType(type: string): CatalogResolution {
   if (type === 'page') return { kind: 'skip' };
@@ -290,16 +283,102 @@ export type RuntimeFieldKind =
 export interface RuntimeField {
   name: string;
   kind: RuntimeFieldKind;
+  valueType: string;
   required: boolean;
   label: string;
   description: string;
   options: readonly string[];
+  optionLabels: readonly string[];
   accept: string;
 }
 
-export function fieldsFromSchema(schema: unknown): RuntimeField[] {
+export function humanizeIdentifier(value: string): string {
+  const label = value
+    .trim()
+    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+    .replace(/[._/-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+  return label ? label[0]!.toUpperCase() + label.slice(1) : '';
+}
+
+export type RuntimeResultScalar = string | number | boolean | null;
+
+export interface RuntimeResultRow {
+  path: Array<string | number>;
+  value: RuntimeResultScalar;
+}
+
+/**
+ * Turns an arbitrary action result into a bounded list of business-readable
+ * leaves. Work never falls back to a JSON/code view: object keys are humanised,
+ * array positions stay explicit, and pathological depth/volume is truncated.
+ */
+export function runtimeResultRows(
+  value: unknown,
+  maxDepth = 6,
+  maxRows = 200,
+): RuntimeResultRow[] {
+  const rows: RuntimeResultRow[] = [];
+  const seen = new WeakSet<object>();
+  let truncated = false;
+
+  const push = (path: Array<string | number>, scalar: RuntimeResultScalar): void => {
+    if (rows.length >= maxRows) {
+      truncated = true;
+      return;
+    }
+    rows.push({ path, value: scalar });
+  };
+  const visit = (current: unknown, path: Array<string | number>, depth: number): void => {
+    if (rows.length >= maxRows) {
+      truncated = true;
+      return;
+    }
+    if (current === null || current === undefined) {
+      push(path, null);
+      return;
+    }
+    if (typeof current === 'string' || typeof current === 'number' || typeof current === 'boolean') {
+      push(path, current);
+      return;
+    }
+    if (typeof current !== 'object') {
+      push(path, String(current));
+      return;
+    }
+    if (depth >= maxDepth || seen.has(current)) {
+      push(path, '…');
+      return;
+    }
+    seen.add(current);
+    if (Array.isArray(current)) {
+      if (current.length === 0) push(path, null);
+      current.forEach((item, index) => visit(item, [...path, index + 1], depth + 1));
+      return;
+    }
+    const entries = Object.entries(current as Record<string, unknown>);
+    if (entries.length === 0) {
+      push(path, null);
+      return;
+    }
+    for (const [key, item] of entries) {
+      visit(item, [...path, humanizeIdentifier(key) || key], depth + 1);
+    }
+  };
+
+  visit(value, [], 0);
+  if (truncated) rows.push({ path: ['…'], value: '…' });
+  return rows;
+}
+
+/**
+ * Project the executable contract and its optional, document-owned copy.
+ * `presentation` never changes field names, values, types, or schema hashes.
+ */
+export function fieldsFromSchema(schema: unknown, presentation?: unknown): RuntimeField[] {
   if (!isRecord(schema)) return [];
   const properties = isRecord(schema['properties']) ? schema['properties'] : {};
+  const copyByField = isRecord(presentation) ? presentation : {};
   const required = new Set(
     (Array.isArray(schema['required']) ? schema['required'] : [])
       .filter((key): key is string => typeof key === 'string'),
@@ -307,20 +386,112 @@ export function fieldsFromSchema(schema: unknown): RuntimeField[] {
   const fields: RuntimeField[] = [];
   for (const [name, raw] of Object.entries(properties)) {
     const spec = isRecord(raw) ? raw : {};
+    const copy = isRecord(copyByField[name]) ? copyByField[name] : {};
     const options = Array.isArray(spec['enum'])
       ? spec['enum'].map((item) => String(item))
       : [];
+    const optionCopy = isRecord(copy['options']) ? copy['options'] : {};
+    const schemaLabel = typeof spec['title'] === 'string' && spec['title']
+      ? spec['title']
+      : humanizeIdentifier(name);
+    const schemaDescription = typeof spec['description'] === 'string' ? spec['description'] : '';
     fields.push({
       name,
       kind: fieldKind(spec, options.length > 0),
+      valueType: typeof spec['type'] === 'string' ? spec['type'] : 'string',
       required: required.has(name),
-      label: typeof spec['title'] === 'string' && spec['title'] ? spec['title'] : name,
-      description: typeof spec['description'] === 'string' ? spec['description'] : '',
+      label: typeof copy['label'] === 'string' && copy['label'].trim() ? copy['label'] : schemaLabel,
+      description: typeof copy['description'] === 'string' && copy['description'].trim()
+        ? copy['description']
+        : schemaDescription,
       options,
+      optionLabels: options.map((option) => {
+        const value = Object.prototype.hasOwnProperty.call(optionCopy, option)
+          ? optionCopy[option]
+          : undefined;
+        return typeof value === 'string' && value.trim() ? value : option;
+      }),
       accept: typeof spec['contentMediaType'] === 'string' ? spec['contentMediaType'] : '',
     });
   }
   return fields;
+}
+
+/** JSON Schema subset faithfully rendered by the certified no-code form. */
+export function formSchemaSupported(schema: unknown): boolean {
+  if (!isRecord(schema) || (schema['type'] ?? 'object') !== 'object') return false;
+  const supportedRoot = new Set([
+    '$schema', 'type', 'title', 'description', 'properties', 'required', 'additionalProperties',
+  ]);
+  if (Object.keys(schema).some((key) => !supportedRoot.has(key))) return false;
+  const unsupportedRoot = [
+    '$ref', 'oneOf', 'anyOf', 'allOf', 'not', 'if', 'then', 'else',
+    'dependentRequired', 'patternProperties', 'unevaluatedProperties',
+    'minProperties', 'maxProperties',
+  ];
+  if (unsupportedRoot.some((key) => key in schema)) return false;
+  const properties = schema['properties'] ?? {};
+  const required = schema['required'] ?? [];
+  if (!isRecord(properties) || !Array.isArray(required)) return false;
+  if (required.some((item) => typeof item !== 'string' || !(item in properties))) return false;
+  const unsupported = ['$ref', 'oneOf', 'anyOf', 'allOf', 'items', 'properties'];
+  const supportedFieldKeys = new Set([
+    'type', 'title', 'description', 'default', 'enum', 'format', 'contentMediaType', 'x-file',
+  ]);
+  for (const raw of Object.values(properties)) {
+    if (
+      !isRecord(raw)
+      || unsupported.some((key) => key in raw)
+      || Object.keys(raw).some((key) => !supportedFieldKeys.has(key))
+    ) return false;
+    const valueType = raw['type'] ?? 'string';
+    if (!['string', 'number', 'integer', 'boolean'].includes(String(valueType))) return false;
+    const fieldFormat = raw['format'];
+    if (fieldFormat !== undefined && fieldFormat !== 'date' && fieldFormat !== 'binary') return false;
+    if ((fieldFormat === 'date' || fieldFormat === 'binary') && valueType !== 'string') return false;
+    if ('contentMediaType' in raw && fieldFormat !== 'binary' && raw['x-file'] !== true) return false;
+    if ('x-file' in raw && raw['x-file'] !== true) return false;
+    const values = raw['enum'];
+    if (
+      ('contentMediaType' in raw || raw['x-file'] === true)
+      && fieldFormat !== undefined
+      && fieldFormat !== 'binary'
+    ) return false;
+    if (
+      (fieldFormat === 'binary' || 'contentMediaType' in raw || raw['x-file'] === true)
+      && (valueType !== 'string' || values !== undefined)
+    ) return false;
+    if (values !== undefined) {
+      if (!Array.isArray(values) || values.length === 0) return false;
+      if (valueType === 'string' && values.some((item) => typeof item !== 'string')) return false;
+      if (valueType === 'number' && values.some((item) => typeof item !== 'number')) return false;
+      if (valueType === 'integer' && values.some((item) => typeof item !== 'number' || !Number.isInteger(item))) return false;
+      if (valueType === 'boolean' && values.some((item) => typeof item !== 'boolean')) return false;
+    }
+  }
+  return true;
+}
+
+/** Common contract shapes projected without making authors write selectors. */
+export function runtimeItems(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (!isRecord(value)) return value === undefined || value === null ? [] : [value];
+  for (const key of ['items', 'rows', 'cases', 'requests', 'events', 'results', 'data']) {
+    if (Array.isArray(value[key])) return value[key];
+  }
+  return [value];
+}
+
+export function runtimeSummary(value: unknown): unknown {
+  if (Array.isArray(value)) return value.length;
+  if (!isRecord(value)) return value;
+  for (const key of ['count', 'total', 'value', 'status', 'state', 'summary']) {
+    const item = value[key];
+    if (item !== undefined && item !== null && !isRecord(item) && !Array.isArray(item)) return item;
+  }
+  const list = Object.values(value).find(Array.isArray);
+  if (list) return list.length;
+  return Object.values(value).find((item) => item !== undefined && item !== null && !isRecord(item));
 }
 
 function fieldKind(spec: Record<string, unknown>, hasEnum: boolean): RuntimeFieldKind {
@@ -397,6 +568,26 @@ export function valuesToPayload(
     }
     if (field.kind === 'boolean') {
       payload[field.name] = value === true || value === 'true';
+      continue;
+    }
+    if (field.kind === 'enum') {
+      if (field.valueType === 'number' || field.valueType === 'integer') {
+        const n = Number(value);
+        if (Number.isFinite(n)) payload[field.name] = field.valueType === 'integer' ? Math.trunc(n) : n;
+        continue;
+      }
+      if (field.valueType === 'boolean') {
+        payload[field.name] = value === true || value === 'true';
+        continue;
+      }
+    }
+    if (
+      field.kind === 'file'
+      && field.valueType === 'string'
+      && isRecord(value)
+      && typeof value['document_id'] === 'string'
+    ) {
+      payload[field.name] = value['document_id'];
       continue;
     }
     payload[field.name] = value;

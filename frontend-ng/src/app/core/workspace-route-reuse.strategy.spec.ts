@@ -67,6 +67,26 @@ test('hierarchy detail components are recreated when their route-owned id change
   );
 });
 
+test('Experience Studio editor is recreated when its application id changes', () => {
+  const strategy = new WorkspaceRouteReuseStrategy();
+  const routeConfig: Route = { path: 'apps/:id' };
+
+  assert.equal(
+    strategy.shouldReuseRoute(
+      snapshot(routeConfig, { id: 'app-b' }),
+      snapshot(routeConfig, { id: 'app-a' }),
+    ),
+    false,
+  );
+  assert.equal(
+    strategy.shouldReuseRoute(
+      snapshot(routeConfig, { id: 'app-a' }),
+      snapshot(routeConfig, { id: 'app-a' }),
+    ),
+    true,
+  );
+});
+
 test('unrelated parameterized routes keep Angular default reuse semantics', () => {
   const strategy = new WorkspaceRouteReuseStrategy();
   const routeConfig: Route = { path: ':presetId' };

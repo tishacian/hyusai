@@ -979,7 +979,8 @@ Le chemin de déploiement est désormais versionné (il remplace les overlays
   l'environnement : `AGENTIUM_IMAGE_TAG` (`<sha12>` ou `demo-agentic`,
   obligatoire, validé) et `AGENTIUM_BACKEND_WORKERS` (défaut 8).
   Sous-commandes `images`, `storage-check`, `migrate`, `up`, `ps` ; `up`
-  reste `--no-build --no-deps` sur les trois services applicatifs uniquement.
+  reste `--no-build --no-deps` sur les cinq services applicatifs uniquement
+  (backend, worker CPU, frontend, maintenance P4 et beat).
   `migrate` et `up` exécutent obligatoirement `storage-check` avant toute
   mutation. Le gateway Compose repart d'un environnement vide et ne propage
   que les contrôles applicatifs allowlistés ; `DOCKER_HOST`, `COMPOSE_*` et
@@ -1011,14 +1012,21 @@ Le gate ne lance ni `create`, ni `run`, ni `up` et ne recrée aucun service
 stateful.
 
 - `scripts/run-iteration-canaries.sh` — gate léger par itération, exécuté
-  sur carakai en root : specs `11-system360-canary` et
-  `12-protected-runner-canaries` contre le SHA déployé, sans orchestrateur
+  sur carakai en root : specs `11-system360-canary`,
+  `12-protected-runner-canaries`, `16-experience-work-canary` et
+  `17-experience-studio-canary` contre le SHA déployé, sans orchestrateur
   ni signature. Les identifiants sont lus depuis
   `/root/.attestation-username` / `/root/.attestation-password` (root-only)
   en mémoire, jamais écrits sur disque — corrige le `E2E_PASSWORD` en clair
-  de `/tmp/rb-job/job.env`. Les canaries Experience (`16-experience-work-canary`,
-  `17-experience-studio-canary`) restent hors de ce gate ; opt-in uniquement
-  via `E2E_EXPERIENCE_CANARY=1`.
+  de `/tmp/rb-job/job.env`. Le script active explicitement les canaries
+  Experience avec `E2E_EXPERIENCE_CANARY=1`; leurs prérequis manquants font
+  échouer le gate au lieu d'être assimilés à une réussite. Le checkout
+  Carakai doit être root-owned, propre, détaché sur le même SHA 40 caractères
+  que `build-info`, et porter un `.agentium-source-sha` root-owned identique.
+  Le symlink `frontend-ng/node_modules` doit viser le runtime gelé dont le
+  `package-lock.json` a le digest attendu par l'orchestrateur. Pour ce candidat,
+  ce runtime doit inclure `@axe-core/playwright`; un checkout ou un lock périmé
+  échoue volontairement avant tout test.
 
 Boucle d'itération cible :
 
@@ -1026,14 +1034,20 @@ Boucle d'itération cible :
 2. `git pull --ff-only` dans le worktree ;
 3. rebuild des services touchés, tag `<sha12>` ;
 4. `agentium-vm-deploy.sh storage-check` (facultatif comme affichage autonome,
-   obligatoire et rejoué automatiquement par l'étape suivante) ;
-5. `agentium-vm-deploy.sh up` ;
-6. `run-iteration-canaries.sh` (gate léger, non signé) ;
-7. aux jalons seulement : attestation signée 7 tokens
+   obligatoire et rejoué automatiquement par les étapes mutantes) ;
+5. créer et vérifier le dump PostgreSQL pré-bascule ;
+6. `AGENTIUM_IMAGE_TAG=<sha12> agentium-vm-deploy.sh migrate`, puis vérifier
+   que `alembic current` rend exactement la tête attendue ;
+7. `AGENTIUM_IMAGE_TAG=<sha12> agentium-vm-deploy.sh up` ;
+8. mettre le checkout et les dépendances gelées Carakai sur ce SHA/lock exact,
+   puis `run-iteration-canaries.sh <sha40>` (gate léger, non signé) ;
+9. aux jalons seulement : attestation signée 7 tokens
    (`scripts/agentium_protected_runner_orchestrator.py`, voie carakai).
 
 Rollback à toute itération : `AGENTIUM_IMAGE_TAG=<sha12 précédent>` puis
-`up`.
+`up`. Les migrations `093`/`094` sont additives et restent en place lors d'un
+rollback vers l'image précédente compatible ; ne pas exécuter de downgrade automatique.
+Le dump vérifié reste le recours si une restauration de données est nécessaire.
 
 ## Dette technique résorbée (31/07) — déployée sur `b0ce840a` / `97e3f182`
 

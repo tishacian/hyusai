@@ -410,7 +410,7 @@
             "label": "Business and immersive shell composition",
             "path": "frontend-ng/src/app/features/layout/shell.component.ts",
             "contains": [
-              "<app-business-shell-header>",
+              "<app-business-shell-header",
               "this.navigationProfile.businessShellActive()",
               "missionRoomUsesImmersiveShell"
             ]
@@ -2375,7 +2375,7 @@
               "data-testid=\"workspace-app-lifecycle\"",
               "data-testid=\"workspace-app-manifest-digest\"",
               "data-testid=\"workspace-app-plan-sha\"",
-              "No entitlement mutation"
+              "governance.apps.safety.entitlements"
             ]
           },
           {

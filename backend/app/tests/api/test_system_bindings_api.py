@@ -149,6 +149,30 @@ def test_bindings_are_feature_gated(db_session, monkeypatch) -> None:
     assert db_session.query(SystemBinding).count() == 0
 
 
+def test_binding_governance_drift_remains_visible_when_studio_is_disabled(
+    db_session, monkeypatch
+) -> None:
+    workspace, user, _system, version = _seed(db_session)
+    workspace.settings = {
+        "features": {"experience_v1": True, "experience_studio_v1": False}
+    }
+    db_session.add(workspace)
+    db_session.commit()
+    client = _client(db_session, workspace, user, monkeypatch)
+
+    listed = client.get("/system-bindings")
+    drift = client.get("/system-bindings/drift")
+    created = client.post("/system-bindings", json=_create_body(version))
+
+    assert listed.status_code == 404
+    assert listed.json()["detail"]["code"] == "EXPERIENCE_STUDIO_V1_DISABLED"
+    assert drift.status_code == 200
+    assert drift.json() == {"bindings": []}
+    assert created.status_code == 404
+    assert created.json()["detail"]["code"] == "EXPERIENCE_STUDIO_V1_DISABLED"
+    assert db_session.query(SystemBinding).count() == 0
+
+
 def test_create_and_list_bindings(db_session, monkeypatch) -> None:
     workspace, user, system, version = _seed(db_session)
     client = _client(db_session, workspace, user, monkeypatch)
@@ -197,7 +221,7 @@ def test_resolve_ok_unavailable_and_drift(db_session, monkeypatch) -> None:
     unavailable = client.get("/system-bindings/expenses.submit/resolve")
     assert unavailable.status_code == 200
     assert unavailable.json()["status"] == "unavailable"
-    assert "published_evidence_unavailable" in unavailable.json()["reasons"]
+    assert "published_version_missing" in unavailable.json()["reasons"]
 
     system.published_flow_version_id = version.id
     db_session.commit()
@@ -227,8 +251,97 @@ def test_resolve_ok_unavailable_and_drift(db_session, monkeypatch) -> None:
     drift = client.get("/system-bindings/expenses.submit/resolve")
     assert drift.status_code == 200, drift.text
     assert drift.json()["status"] == "drift"
-    assert "flow_sha256_mismatch" in drift.json()["reasons"]
-    assert "input_schema_sha256_mismatch" in drift.json()["reasons"]
+    assert drift.json()["reasons"] == ["published_flow_version_id_mismatch"]
+
+
+def test_identical_republish_does_not_make_binding_float(db_session, monkeypatch) -> None:
+    workspace, user, system, version = _seed(db_session)
+    client = _client(db_session, workspace, user, monkeypatch)
+    assert client.post("/system-bindings", json=_create_body(version)).status_code == 201
+    identical = SystemVersion(
+        id="version-binding-identical-v2",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        version_number=2,
+        flow_definition=version.flow_definition,
+        flow_sha256=version.flow_sha256,
+        release_kind="publish",
+        draft_revision=2,
+        execution_contract=version.execution_contract,
+        message="identical republish",
+        created_by=user.email,
+    )
+    db_session.add(identical)
+    db_session.flush()
+    system.published_flow_version_id = identical.id
+    db_session.commit()
+
+    resolved = client.get("/system-bindings/expenses.submit/resolve")
+    invoked = client.post(
+        "/system-bindings/expenses.submit/runs",
+        json={"payload": {"query": "reset"}},
+    )
+
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["status"] == "drift"
+    assert "published_flow_version_id_mismatch" in resolved.json()["reasons"]
+    assert invoked.status_code == 409
+    assert db_session.query(Run).count() == 0
+
+
+def test_hitl_policy_fails_closed_without_direct_hitl_gate(db_session, monkeypatch) -> None:
+    workspace, user, _system, version = _seed(db_session)
+    client = _client(db_session, workspace, user, monkeypatch)
+    body = _create_body(version)
+    body["confirmation_policy"] = "hitl"
+    assert client.post("/system-bindings", json=body).status_code == 201
+
+    resolved = client.get("/system-bindings/expenses.submit/resolve")
+    invoked = client.post(
+        "/system-bindings/expenses.submit/runs",
+        json={"payload": {"query": "reset"}},
+    )
+
+    assert resolved.json()["status"] == "unavailable"
+    assert resolved.json()["reasons"] == ["hitl_gate_missing"]
+    assert invoked.status_code == 409
+    assert db_session.query(Run).count() == 0
+
+
+def test_binding_crud_mutations_are_audited(db_session, monkeypatch) -> None:
+    workspace, user, _system, version = _seed(db_session)
+    client = _client(db_session, workspace, user, monkeypatch)
+
+    created = client.post("/system-bindings", json=_create_body(version))
+    updated = client.patch(
+        "/system-bindings/expenses.submit",
+        json={"confirmation_policy": "confirm"},
+    )
+    deleted = client.delete("/system-bindings/expenses.submit")
+
+    assert created.status_code == 201, created.text
+    assert updated.status_code == 200, updated.text
+    assert deleted.status_code == 204
+    logs = (
+        db_session.query(AuditLog)
+        .filter(
+            AuditLog.event_type.in_(
+                {
+                    "experience.binding.created",
+                    "experience.binding.updated",
+                    "experience.binding.deleted",
+                }
+            )
+        )
+        .order_by(AuditLog.timestamp)
+        .all()
+    )
+    assert [log.event_type for log in logs] == [
+        "experience.binding.created",
+        "experience.binding.updated",
+        "experience.binding.deleted",
+    ]
+    assert all(log.actor == user.email for log in logs)
 
 
 def test_drift_list_and_retarget_snapshots_current_publish(db_session, monkeypatch) -> None:

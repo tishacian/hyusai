@@ -360,6 +360,10 @@ test('privacy and surface helpers redact identifiers and reuse the catalog ids',
     '/workspace/:slug/settings',
   );
   assert.equal(
+    privacySafeNavigationRoute('/governance/experiences?application=private'),
+    '/governance/experiences',
+  );
+  assert.equal(
     privacySafeNavigationRoute('/client360/customers/Jean-Dupont'),
     '/client360/:segment/:segment',
   );

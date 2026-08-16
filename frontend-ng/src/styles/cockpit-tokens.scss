@@ -80,7 +80,7 @@
   /* ---- CALL TO ACTION (the one filled button per screen) ---- */
   --ck-cta-bg:       #00bcd4;
   --ck-cta-bg-hover: #00a0b4;
-  --ck-cta-fg:       #ffffff;
+  --ck-cta-fg:       var(--ck-on-signal);
 
   /* ---- GLOWS (touches Concept B: generous halos on live surfaces) ---- */
   --ck-glow-cool:    0 0 32px rgba(125, 211, 252, 0.32);

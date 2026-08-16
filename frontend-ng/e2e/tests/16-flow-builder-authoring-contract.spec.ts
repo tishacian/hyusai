@@ -611,6 +611,23 @@ test('clone → edit → validate → save → input → execute → result → 
   await expect(page.locator('app-flow-node').filter({ hasText: INITIAL_LABEL })).toBeVisible();
   await expect.poll(() => events.includes('api:validate:initial')).toBe(true);
 
+  // The keyboard-first Outline is a projection of the same graph, not a
+  // separate authoring mode. Prove that it opens, exposes every node and keeps
+  // focus plus selection coherent before returning to the canvas lifecycle.
+  const outlineToggle = page.locator('#flow-builder-view-outline');
+  await outlineToggle.click();
+  await expect(outlineToggle).toHaveAttribute('aria-pressed', 'true');
+  const outline = page.locator('#flow-builder-outline');
+  await expect(outline).toBeVisible();
+  const outlineNodes = outline.locator('.flow-outline__select');
+  await expect(outlineNodes).toHaveCount(2);
+  await outlineNodes.first().focus();
+  await outlineNodes.first().press('ArrowDown');
+  await expect(outlineNodes.nth(1)).toBeFocused();
+  await expect(outlineNodes.nth(1)).toHaveAttribute('aria-current', 'true');
+  await page.locator('#flow-builder-view-canvas').click();
+  await expect(page.locator('app-flow-node').filter({ hasText: INITIAL_LABEL })).toBeVisible();
+
   // Authoring is the default surface; running, debugging and previewing live
   // one disclosure away. Everything below stays reachable in two clicks.
   const operate = page.getByRole('button', { name: 'Operate', exact: true });

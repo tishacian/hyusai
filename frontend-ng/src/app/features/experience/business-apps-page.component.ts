@@ -4,11 +4,11 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { HelpTooltipComponent, PageFrameComponent, TagComponent } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
-import { canEditExperienceStudio } from './experience-access';
+import { canEditExperienceStudio, canReleaseExperienceStudio } from './experience-access';
 import { StudioApiService } from './studio/studio-api.service';
 import {
-  audienceLabel,
   filterInventory,
+  inventoryAudience,
   inventoryOrigin,
   inventoryState,
   viewHref,
@@ -65,14 +65,25 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
       </label>
       </div>
 
-      @if (rows().length === 0) {
+      @if (state() === 'loading') {
+        <app-empty-state icon="sparkles" size="lg" [title]="i18n.t('common.loading')" />
+      } @else if (state() === 'error') {
+        <app-empty-state
+          icon="alert-triangle"
+          size="lg"
+          [title]="i18n.t('experience.work.unavailable.title')"
+          [description]="i18n.t('experience.work.unavailable.body')"
+        >
+          <button type="button" class="xp-btn" (click)="load()">{{ i18n.t('common.retry') }}</button>
+        </app-empty-state>
+      } @else if (rows().length === 0) {
         <app-empty-state
           icon="layers"
           size="lg"
-          [title]="i18n.t('experience.apps.empty.title')"
-          [description]="i18n.t('experience.apps.empty.description')"
+          [title]="i18n.t(hasActiveFilter() ? 'experience.work.search.empty.title' : 'experience.apps.empty.title')"
+          [description]="i18n.t(hasActiveFilter() ? 'experience.work.search.empty.description' : 'experience.apps.empty.description')"
         >
-          @if (canEdit()) {
+          @if (canEdit() && !hasActiveFilter()) {
             <a routerLink="/create/apps/new" class="xp-btn xp-btn-primary">
               {{ i18n.t('experience.apps.new') }}
             </a>
@@ -81,6 +92,7 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
       } @else {
         <div class="xp-table-wrap">
           <table class="xp-table">
+            <caption class="xp-sr-only">{{ i18n.t('experience.apps.description') }}</caption>
             <thead>
               <tr>
                 <th>{{ i18n.t('experience.apps.col.name') }}</th>
@@ -122,6 +134,10 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
                             : i18n.t('experience.apps.action.edit')
                         }}
                       </a>
+                    } @else if (canReview()) {
+                      <a [routerLink]="['/create/apps', app.id]">
+                        {{ i18n.t('experience.apps.action.review') }}
+                      </a>
                     }
                     @if (viewHref(app); as href) {
                       <a [routerLink]="href">
@@ -144,8 +160,10 @@ export class BusinessAppsPageComponent {
   private readonly api = inject(StudioApiService);
   private readonly workspace = inject(WorkspaceService);
   readonly all = signal<StudioExperience[]>([]);
+  readonly state = signal<'loading' | 'ready' | 'error'>('loading');
   readonly filter = signal<InventoryFilter>('all');
   readonly query = signal('');
+  readonly hasActiveFilter = computed(() => this.filter() !== 'all' || this.query().trim().length > 0);
   readonly filters = ['all', 'live', 'pilot', 'drafts'] as const;
   readonly lifecycle = LIFECYCLE;
   readonly canEdit = computed(() => canEditExperienceStudio(
@@ -153,6 +171,11 @@ export class BusinessAppsPageComponent {
     this.workspace.current()?.role,
     this.workspace.isAdmin(),
   ));
+  readonly canReview = computed(() => canReleaseExperienceStudio(
+    this.workspace.current()?.role_template,
+    this.workspace.current()?.role,
+    this.workspace.isAdmin(),
+  ) && !this.canEdit());
   readonly rows = computed(() => {
     const filtered = filterInventory(this.all(), this.filter());
     const query = this.query().trim().toLocaleLowerCase();
@@ -162,7 +185,18 @@ export class BusinessAppsPageComponent {
   readonly viewHref = viewHref;
 
   constructor() {
-    this.api.listExperiences().subscribe((rows) => this.all.set(rows));
+    this.load();
+  }
+
+  load(): void {
+    this.state.set('loading');
+    this.api.listExperiences().subscribe({
+      next: (rows) => {
+        this.all.set(rows);
+        this.state.set('ready');
+      },
+      error: () => this.state.set('error'),
+    });
   }
 
   inputValue(event: Event): string {
@@ -207,15 +241,18 @@ export class BusinessAppsPageComponent {
   }
 
   audienceText(app: StudioExperience): string {
-    const roles = audienceLabel(app.deployments);
-    if (roles.length === 0) return this.i18n.t('experience.apps.audience.open');
-    return roles
+    const audience = inventoryAudience(app);
+    if (audience.kind === 'unknown') return this.i18n.t('experience.apps.audience.unknown');
+    if (audience.kind === 'open') return this.i18n.t('experience.apps.audience.open');
+    return [
+      ...audience.roles
       .map((role) => {
         const key = `governance.access.role.${role}`;
         const label = this.i18n.t(key);
         return label === key ? role : label;
-      })
-      .join(', ');
+      }),
+      ...audience.groups.map((group) => this.i18n.t('experience.publish.recap.group', { name: group })),
+    ].join(', ');
   }
 
   stateTone(state: InventoryState): 'neutral' | 'cool' | 'pos' {

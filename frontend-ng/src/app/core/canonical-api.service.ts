@@ -1425,7 +1425,11 @@ export class CanonicalApiService {
   }
 
   // ---- Systems -------------------------------------------------------------
-  listSystems(options?: { workspaceSlug?: string | null; capability_id?: string }): Observable<System[]> {
+  listSystems(options?: {
+    workspaceSlug?: string | null;
+    capability_id?: string;
+    propagateErrors?: boolean;
+  }): Observable<System[]> {
     const params = options?.capability_id ? { capability_id: options.capability_id } : undefined;
     return this.api
       .get<System[] | { systems: System[] }>('/systems', params, {
@@ -1433,7 +1437,9 @@ export class CanonicalApiService {
       })
       .pipe(
         map((r) => this.unwrap<System>(r, 'systems')),
-        catchError(() => of([] as System[])),
+        catchError((error: unknown) => options?.propagateErrors
+          ? throwError(() => error)
+          : of([] as System[])),
       );
   }
 
@@ -1992,15 +1998,15 @@ export class CanonicalApiService {
     return this.api.post<Run>(`/runs/${id}/rerun`, {}).pipe(catchError(() => of(null)));
   }
 
-  listRuns(params?: { system_id?: string; capability_id?: string }): Observable<Run[]> {
+  listRuns(params?: { system_id?: string; capability_id?: string; origin?: string }): Observable<Run[]> {
     const p: Record<string, string> = {};
     if (params?.system_id) p['system_id'] = params.system_id;
     if (params?.capability_id) p['capability_id'] = params.capability_id;
+    if (params?.origin) p['origin'] = params.origin;
     return this.api
       .get<Run[] | { runs: Run[] }>('/runs', p)
       .pipe(
         map((r) => this.unwrap<Run>(r, 'runs')),
-        catchError(() => of([] as Run[])),
       );
   }
 

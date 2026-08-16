@@ -109,6 +109,15 @@ def list_published_ingresses(
         if isinstance(raw, list)
         else []
     )
+    outputs = contract.get("outputs")
+    output_schema = None
+    if (
+        isinstance(outputs, list)
+        and len(outputs) == 1
+        and isinstance(outputs[0], Mapping)
+        and isinstance(outputs[0].get("schema"), Mapping)
+    ):
+        output_schema = copy.deepcopy(dict(outputs[0]["schema"]))
     return {
         "system_id": system.id,
         "system_status": system.status,
@@ -116,6 +125,7 @@ def list_published_ingresses(
         "flow_sha256": flow_sha256,
         "runtime_mode": contract.get("runtime_mode"),
         "validation_mode": contract.get("validation_mode"),
+        "output_schema": output_schema,
         "ingresses": sorted(ingresses, key=lambda item: str(item.get("ingress_id") or "")),
     }
 
@@ -207,6 +217,7 @@ def create_published_ingress_run(
     adapter_evidence: Mapping[str, Any] | None = None,
     trigger: str | None = None,
     trigger_dedup_key: str | None = None,
+    experience_idempotency_key: str | None = None,
     allow_debug: bool = False,
     authority_version_id: str | None = None,
 ) -> Run:
@@ -349,6 +360,7 @@ def create_published_ingress_run(
         started_at=datetime.utcnow(),
         trigger=trigger or {"schedule": "scheduler", "http": "webhook"}.get(kind, kind),
         trigger_dedup_key=trigger_dedup_key,
+        experience_idempotency_key=experience_idempotency_key,
         checkpoints=[
             {
                 "kind": "ingress_accepted",

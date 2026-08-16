@@ -44,6 +44,7 @@ from app.core.config import settings
 from app.models.run import Run
 from app.models.experience import ExperienceDeployment, ExperienceRelease
 from app.models.system import System
+from app.models.system_binding import SystemBinding
 from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.services.audit_logger import emit_audit_event
@@ -472,6 +473,12 @@ def _purge_window(*, db: DBSession, system_id: str) -> list[str]:
                 db.query(Run.flow_version_id).filter(
                     Run.system_id == system_id,
                     Run.flow_version_id.isnot(None),
+                )
+            )
+            .union_all(
+                db.query(SystemBinding.published_flow_version_id).filter(
+                    SystemBinding.system_id == system_id,
+                    SystemBinding.published_flow_version_id.isnot(None),
                 )
             )
             .all()

@@ -141,6 +141,20 @@ def test_ingress_api_is_feature_gated_before_read_or_run(
     assert db_session.query(Run).count() == 0
 
 
+def test_ingress_catalog_exposes_the_single_published_output_schema(
+    db_session,
+    monkeypatch,
+) -> None:
+    workspace, admin, _viewer, system, version = _seed(db_session)
+
+    listed = _client(db_session, workspace, admin, monkeypatch).get(
+        f"/systems/{system.id}/ingresses"
+    )
+
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["output_schema"] == version.execution_contract["outputs"][0]["schema"]
+
+
 @pytest.mark.parametrize("kind", ["chat", "http", "schedule", "event"])
 def test_operator_ingress_cannot_impersonate_adapter_kind(
     db_session,

@@ -29,6 +29,7 @@ export interface BindingInvokeResult {
   experience_deployment_id?: string;
   channel?: string;
   origin?: string;
+  idempotent_replay?: boolean;
 }
 
 export interface RuntimeFileReference {
@@ -52,6 +53,7 @@ export interface RuntimeExecutionState {
     bindingKey: string;
     payload: Record<string, unknown>;
     confirmed?: boolean;
+    idempotencyKey: string;
   } | null;
 }
 
@@ -139,6 +141,7 @@ export class ExperienceRuntimeService {
     bindingKey: string,
     payload: Record<string, unknown>,
     confirmed?: boolean,
+    idempotencyKey = invocationKey(),
   ): Observable<BindingInvokeResult | null> {
     if (context.mode !== 'live' || !context.experienceSlug) {
       this.patch(context.stateKey, { phase: 'error', lastError: 'preview_disabled' });
@@ -147,7 +150,7 @@ export class ExperienceRuntimeService {
     this.patch(context.stateKey, {
       phase: 'loading',
       lastError: null,
-      lastInvoke: { context, bindingKey, payload, confirmed },
+      lastInvoke: { context, bindingKey, payload, confirmed, idempotencyKey },
     });
     const body: {
       payload: Record<string, unknown>;
@@ -163,7 +166,9 @@ export class ExperienceRuntimeService {
     const slug = encodeURIComponent(context.experienceSlug);
     const key = encodeURIComponent(bindingKey);
     return this.api
-      .post<BindingInvokeResult>(`/work/${slug}/bindings/${key}/runs`, body)
+      .post<BindingInvokeResult>(`/work/${slug}/bindings/${key}/runs`, body, {
+        headers: { 'Idempotency-Key': idempotencyKey },
+      })
       .pipe(
         tap((started) => {
           const run: Run = {
@@ -216,7 +221,34 @@ export class ExperienceRuntimeService {
   retry(context: RuntimeNodeContext): Observable<BindingInvokeResult | null> {
     const previous = this.state(context.stateKey).lastInvoke;
     if (!previous) return of(null);
-    return this.invoke(context, previous.bindingKey, previous.payload, true);
+    return this.invoke(
+      context,
+      previous.bindingKey,
+      previous.payload,
+      previous.confirmed,
+      previous.idempotencyKey,
+    );
+  }
+
+  /** Resume the component that owns a Run after its HITL decision. */
+  resumeAfterDecision(run: Run): void {
+    const match = Object.entries(this.executions()).find(([, state]) =>
+      state.run?.id === run.id || state.history.some((item) => item.id === run.id),
+    );
+    if (!match) return;
+    const [stateKey, state] = match;
+    // The canonical HITL endpoint returns the status captured before the
+    // decision commit. Treat hitl_pending as a transition and re-read the Run.
+    const staleDecisionStatus = run.status === 'hitl_pending';
+    const settled = !staleDecisionStatus && runIsSettled(run.status);
+    this.patch(stateKey, {
+      run,
+      history: upsertRun(state.history, run),
+      phase: run.status === 'failed' ? 'error' : settled ? 'idle' : 'running',
+      lastError: run.status === 'failed' ? run.error ?? 'failed' : null,
+    });
+    const context = state.lastInvoke?.context;
+    if (context && (!settled || staleDecisionStatus)) this.poll(context, run.id).subscribe();
   }
 
   uploadFile(
@@ -301,6 +333,11 @@ export class ExperienceRuntimeService {
       }),
     );
   }
+}
+
+function invocationKey(): string {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `experience-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function upsertRun(history: readonly Run[], run: Run): Run[] {

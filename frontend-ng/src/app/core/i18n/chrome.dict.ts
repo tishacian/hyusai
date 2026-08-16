@@ -7,6 +7,7 @@
  */
 
 export const CHROME_FR = {
+  'nav.skip_to_content': 'Aller au contenu principal',
   // --- Title bar ---------------------------------------------------
   'titlebar.chat': 'Chat',
   'titlebar.chat.tooltip': 'Chat · ⌘J',
@@ -20,7 +21,17 @@ export const CHROME_FR = {
   'titlebar.theme.dark': 'Thème : Sombre · cliquer → Système',
   'titlebar.theme.system': 'Thème : Système · cliquer → Clair',
   'titlebar.workspace': 'Workspace',
+  'titlebar.workspace.none': 'Aucun workspace',
+  'titlebar.workspaces': 'Workspaces',
+  'titlebar.workspace.settings': 'Paramètres du workspace',
+  'titlebar.workspace.create': 'Nouveau workspace',
+  'titlebar.workspace.name_placeholder': 'Nom du workspace',
+  'titlebar.workspace.created.title': 'Workspace créé',
+  'titlebar.workspace.created.body': '« {name} » est prêt.',
+  'titlebar.workspace.create_error.title': 'Erreur',
+  'titlebar.workspace.create_error.body': 'Le workspace n’a pas pu être créé.',
   // --- Side rail / primary navigation ------------------------------
+  'nav.primary': 'Navigation principale',
   'nav.hypervisor': 'Hyperviseur',
   'nav.build': 'Construire',
   'nav.operate': 'Opérer',
@@ -58,6 +69,8 @@ export const CHROME_FR = {
   'nav.build.create': 'Créer',
   'nav.palette': 'Aller à…',
   'nav.palette.hint': '⌘K palette',
+  'nav.object_index': 'Index des objets',
+  'nav.scope': 'Périmètre',
   // --- Semantic zoom breadcrumb (title bar) ------------------------
   'nav.zoom.portfolio': 'Portefeuille',
   'nav.zoom.capability': 'Capability',
@@ -89,6 +102,8 @@ export const CHROME_FR = {
   'account.theme.light': 'Clair',
   'account.theme.system': 'Système',
   'account.signout': 'Se déconnecter',
+  'account.user_fallback': 'Utilisateur',
+  'account.role_fallback': 'utilisateur',
   // --- Auth flows --------------------------------------------------
   'auth.signin.title': 'Connexion',
   'auth.signin.submit': 'Se connecter',
@@ -757,6 +772,7 @@ export const CHROME_FR = {
  * other, before the guard even runs.
  */
 export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
+  'nav.skip_to_content': 'Skip to main content',
   // --- Title bar ---------------------------------------------------
   'titlebar.chat': 'Chat',
   'titlebar.chat.tooltip': 'Chat · ⌘J',
@@ -770,7 +786,17 @@ export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
   'titlebar.theme.dark': 'Theme: Dark · click → System',
   'titlebar.theme.system': 'Theme: System · click → Light',
   'titlebar.workspace': 'Workspace',
+  'titlebar.workspace.none': 'No workspace',
+  'titlebar.workspaces': 'Workspaces',
+  'titlebar.workspace.settings': 'Workspace settings',
+  'titlebar.workspace.create': 'New workspace',
+  'titlebar.workspace.name_placeholder': 'Workspace name',
+  'titlebar.workspace.created.title': 'Workspace created',
+  'titlebar.workspace.created.body': '“{name}” is ready.',
+  'titlebar.workspace.create_error.title': 'Error',
+  'titlebar.workspace.create_error.body': 'The workspace could not be created.',
   // --- Side rail / primary navigation ------------------------------
+  'nav.primary': 'Primary navigation',
   'nav.hypervisor': 'Hypervisor',
   'nav.build': 'Build',
   'nav.operate': 'Operate',
@@ -808,6 +834,8 @@ export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
   'nav.build.create': 'Create',
   'nav.palette': 'Jump to…',
   'nav.palette.hint': '⌘K palette',
+  'nav.object_index': 'Object index',
+  'nav.scope': 'Scope',
   'nav.zoom.portfolio': 'Portfolio',
   'nav.zoom.capability': 'Capability',
   'nav.zoom.system': 'System',
@@ -837,6 +865,8 @@ export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
   'account.theme.light': 'Light',
   'account.theme.system': 'System',
   'account.signout': 'Sign out',
+  'account.user_fallback': 'User',
+  'account.role_fallback': 'user',
   // --- Auth flows --------------------------------------------------
   'auth.signin.title': 'Sign in',
   'auth.signin.submit': 'Sign in',

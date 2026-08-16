@@ -28,6 +28,14 @@ export class WorkspaceRouteReuseStrategy extends BaseRouteReuseStrategy {
       return false;
     }
 
+    if (
+      routePath === 'apps/:id' &&
+      future.routeConfig === current.routeConfig &&
+      future.paramMap.get('id') !== current.paramMap.get('id')
+    ) {
+      return false;
+    }
+
     const hierarchyParam = routePath === ':capabilityId'
       ? 'capabilityId'
       : routePath === ':systemId' || routePath === ':systemId/flow' || routePath === ':systemId/capture'

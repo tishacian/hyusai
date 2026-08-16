@@ -92,6 +92,7 @@ spec = importlib.util.spec_from_file_location(
 )
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+source_root = module._safe_iteration_source_root(source_root, tested_sha)
 produced = module._playwright_runtime_attestation(work, source_root, tested_sha)
 assert produced == work / "playwright-runtime.json", produced
 PY

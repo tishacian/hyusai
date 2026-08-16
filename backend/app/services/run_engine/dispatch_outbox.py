@@ -44,6 +44,7 @@ _TASK_NAMES = {
 }
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 _RESOLVED_DECISION_STATUSES = {"accepted", "applied", "rejected"}
+_EXPERIENCE_RECOVERY_GRACE_SECONDS = 60
 
 
 class DispatchLeaseLost(RuntimeError):
@@ -60,6 +61,44 @@ class ObsoleteDispatch(RuntimeError):
 
 class DispatchNotReady(RuntimeError):
     """Raised when committed coordination state is not publishable yet."""
+
+
+def durable_initial_dispatch_source(run: Run) -> str | None:
+    """Return the server-owned claim that authorises initial Run recovery."""
+    if run.trigger == "webhook" and run.trigger_dedup_key:
+        return str(run.trigger_dedup_key)
+    claim = str(run.experience_idempotency_key or "")
+    source = str(run.trigger_dedup_key or "")
+    ingress = (run.input_ref or {}).get("_ingress")
+    adapter = ingress.get("adapter") if isinstance(ingress, dict) else None
+    request_sha256 = adapter.get("request_sha256") if isinstance(adapter, dict) else None
+    required_provenance = (
+        "experience_id",
+        "experience_slug",
+        "experience_release_id",
+        "experience_deployment_id",
+        "binding_key",
+        "page_id",
+        "component_id",
+    )
+    if (
+        run.trigger != "manual"
+        or not str(run.execution_surface or "").startswith("published_")
+        or len(claim) != 64
+        or any(character not in "0123456789abcdef" for character in claim)
+        or source != f"experience:{claim}"
+        or not isinstance(adapter, dict)
+        or adapter.get("surface") != "experience"
+        or not isinstance(request_sha256, str)
+        or len(request_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in request_sha256)
+        or any(
+            not isinstance(adapter.get(field), str) or not adapter[field].strip()
+            for field in required_provenance
+        )
+    ):
+        return None
+    return source
 
 
 def _utc_naive(value: datetime | None) -> datetime | None:
@@ -508,9 +547,10 @@ def _task_envelope(
     if run is None:
         raise PermanentDispatchError("dispatch Run no longer exists")
     if row.event_type == TRIGGER_RUN:
-        if run.trigger != "webhook" or not run.trigger_dedup_key:
-            raise PermanentDispatchError("trigger dispatch Run has no durable event claim")
-        if str(row.source_id or "") != str(run.trigger_dedup_key):
+        source = durable_initial_dispatch_source(run)
+        if source is None:
+            raise PermanentDispatchError("trigger dispatch Run has no durable initial claim")
+        if str(row.source_id or "") != source:
             raise PermanentDispatchError("trigger dispatch does not match the Run claim")
         if run.status in _TERMINAL_RUN_STATUSES:
             raise ObsoleteDispatch("trigger Run is already terminal")
@@ -753,6 +793,9 @@ def repair_dispatch_gaps(
     ensured = {event_type: 0 for event_type in DISPATCH_EVENT_TYPES}
     if limit <= 0:
         return ensured
+    experience_recovery_before = datetime.utcnow() - timedelta(
+        seconds=_EXPERIENCE_RECOVERY_GRACE_SECONDS
+    )
     trigger_dispatch_exists = (
         db.query(RunDispatchOutbox.id)
         .filter(
@@ -766,24 +809,41 @@ def repair_dispatch_gaps(
         db.query(Run)
         .filter(
             Run.workspace_id.isnot(None),
-            Run.trigger == "webhook",
-            Run.trigger_dedup_key.isnot(None),
-            Run.status == "pending",
+            or_(
+                and_(
+                    Run.trigger == "webhook",
+                    Run.trigger_dedup_key.isnot(None),
+                ),
+                and_(
+                    Run.trigger == "manual",
+                    Run.started_at <= experience_recovery_before,
+                    Run.experience_idempotency_key.isnot(None),
+                    Run.trigger_dedup_key.isnot(None),
+                    Run.input_ref["_ingress"]["adapter"]["surface"].as_string()
+                    == "experience",
+                ),
+            ),
+            Run.status.in_(("pending", "running")),
             ~trigger_dispatch_exists,
         )
         .order_by(Run.started_at, Run.id)
-        .limit(limit)
+        .limit(max(limit * 4, limit))
         .all()
     )
     for run in trigger_candidates:
+        source = durable_initial_dispatch_source(run)
+        if source is None:
+            continue
         enqueue_dispatch(
             db,
             event_type=TRIGGER_RUN,
             workspace_id=str(run.workspace_id),
             run_id=run.id,
-            source_id=str(run.trigger_dedup_key),
+            source_id=source,
         )
         ensured[TRIGGER_RUN] += 1
+        if ensured[TRIGGER_RUN] >= limit:
+            break
     initial_dispatch_exists = (
         db.query(RunDispatchOutbox.id)
         .filter(

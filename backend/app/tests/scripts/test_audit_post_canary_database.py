@@ -34,9 +34,15 @@ SFTP_LABEL = "Private release canary"
 SFTP_PASSWORD_HASH = "$2b$12$private-hash-never-in-a-receipt"
 SFTP_OPERATOR = "private.operator@example.invalid"
 SFTP_AUDIT_IDS = [f"50000000-0000-0000-0000-00000000000{index}" for index in range(1, 5)]
-SFTP_TIMESTAMPS = [
-    datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=10 - index) for index in range(6)
-]
+SFTP_TIMESTAMPS: list[datetime] = []
+
+
+@pytest.fixture(autouse=True)
+def _refresh_sftp_timestamps() -> None:
+    SFTP_TIMESTAMPS[:] = [
+        datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=10 - index)
+        for index in range(6)
+    ]
 
 
 def _pair(primary_key: str, content: str) -> tuple[str, str]:

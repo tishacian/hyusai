@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { runAccessibilityMatrix } from '../fixtures/accessibility-matrix';
 import {
   api,
   assertDeployedRevision,
@@ -19,9 +20,9 @@ import {
  * US-8 — authenticated /work launcher canary.
  *
  * Discovers `settings.features.experience_v1` from the live principal's
- * workspaces. No tenant, app or row id is embedded. Skips (does not fail)
- * when the flag is off or no Pilot/In-service app is visible. Traces stay
- * off because login uses a live principal.
+ * workspaces. No tenant, app or row id is embedded. Once the canary flag is
+ * enabled, missing configuration or test data is a failure rather than a
+ * silent skip. Traces stay off because login uses a live principal.
  */
 
 const ENGINE_JARGON = /\b(Flows?|Skills?|Runs?)\b/;
@@ -48,27 +49,22 @@ test.describe('US-8 — Experience /work canary', () => {
   test.afterEach(async ({ page }) => logout(page));
 
   test('opens the launcher or a deployed app without cockpit chrome', async ({ page }, testInfo) => {
+    test.setTimeout(180_000);
     await assertDeployedRevision(page);
     const memberships = await login(page);
     const workspace = await discoverExperienceWorkspace(page, memberships);
-    if (!workspace) {
-      test.skip(true, 'experience_v1 is off on every authorized workspace');
-      return;
-    }
+    expect(workspace, 'experience_v1 must be enabled on an authorized workspace').toBeTruthy();
 
     const listed = await api<{ experiences: WorkCatalogItem[] }>(
       page,
-      workspace.slug,
+      workspace!.slug,
       '/work',
     );
     expect(listed.ok, `GET /work failed (${listed.status})`).toBe(true);
     const apps = listed.body.experiences ?? [];
-    if (apps.length === 0) {
-      test.skip(true, 'no Pilot/In-service Experience is visible to this principal');
-      return;
-    }
+    expect(apps.length, 'at least one Pilot/In-service Experience must be visible').toBeGreaterThan(0);
 
-    await bindWorkspace(page, workspace.slug);
+    await bindWorkspace(page, workspace!.slug);
     await page.goto('/work');
     await expect.poll(async () => workSurface(page)).not.toBeNull();
     const surface = await workSurface(page);
@@ -97,20 +93,32 @@ test.describe('US-8 — Experience /work canary', () => {
         .not.toMatch(ENGINE_JARGON);
     }
 
+    const matrix = await runAccessibilityMatrix({
+      page,
+      testInfo,
+      path: new URL(page.url()).pathname,
+      readySelector: surface === 'launcher' ? 'app-work-launcher' : 'app-work-shell',
+      surface: 'work',
+    });
+
     const evidence = {
-      schema_version: 1,
+      schema_version: 2,
       kind: 'experience_work_canary',
       claim: 'US-8-WORK-LAUNCHER',
       outcome: 'passed',
       tested_revision: expectedSha || null,
       generated_at: new Date().toISOString(),
-      target: { workspace_sha256: sha256(workspace.id) },
+      target: { workspace_sha256: sha256(workspace!.id) },
       checks: {
         experience_v1: true,
         work_surface: surface,
         no_side_rail: true,
         no_engine_jargon: true,
         main_landmark: true,
+        accessibility_matrix: matrix.combinations,
+        wcag_aa_axe: true,
+        reduced_motion: true,
+        reflow_320_css_px: true,
       },
     };
     writeEvidence(evidencePathFor('work'), evidence);

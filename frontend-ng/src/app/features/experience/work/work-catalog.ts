@@ -7,6 +7,10 @@
  * whether this principal receives Pilot or Live.
  */
 
+import { onAccentColor } from '../runtime/style';
+import { CERTIFIED_RENDERER_VERSION as CURRENT_RENDERER_VERSION } from '../runtime/model';
+import { CERTIFIED_RENDERER_VERSION as LEGACY_RENDERER_VERSION } from '../runtime/v0_1/model';
+
 export type WorkChannel = 'live' | 'pilot';
 
 export interface WorkDeployment {
@@ -18,6 +22,8 @@ export interface WorkDeployment {
 export interface WorkExperience {
   id: string;
   name: string;
+  description?: string | null;
+  emblem?: string | null;
   slug: string;
   pattern: string;
   languages?: string[];
@@ -35,6 +41,7 @@ export interface WorkCatalogItem {
     languages?: string[];
     theme?: Record<string, unknown>;
     renderer_version?: string | null;
+    identity_snapshot?: Record<string, unknown>;
   };
 }
 
@@ -43,11 +50,13 @@ export interface WorkResolve {
   channel: WorkChannel | string;
   release: {
     id: string;
+    release_number?: number;
     pages: unknown;
     bindings_snapshot: Array<Record<string, unknown>>;
     languages?: string[];
     theme?: Record<string, unknown>;
     renderer_version?: string | null;
+    identity_snapshot?: Record<string, unknown>;
   };
 }
 
@@ -55,6 +64,40 @@ export type LauncherDecision =
   | { kind: 'empty' }
   | { kind: 'redirect'; slug: string; href: string }
   | { kind: 'list'; apps: WorkExperience[] };
+
+export interface WorkIdentity {
+  name: string;
+  description: string;
+  emblem: string;
+}
+
+/** Prefer the immutable release identity; fall back only for legacy releases. */
+export function workIdentity(
+  experience: WorkExperience,
+  release?: { identity_snapshot?: Record<string, unknown> } | null,
+): WorkIdentity {
+  const snapshot = release?.identity_snapshot;
+  const value = (key: 'name' | 'description' | 'emblem', fallback: unknown): string => {
+    const raw = snapshot && Object.prototype.hasOwnProperty.call(snapshot, key) ? snapshot[key] : fallback;
+    return typeof raw === 'string' ? raw.trim() : '';
+  };
+  return {
+    name: value('name', experience.name) || experience.name,
+    description: value('description', experience.description),
+    emblem: value('emblem', experience.emblem),
+  };
+}
+
+export function workEmblem(identity: WorkIdentity): string {
+  if (identity.emblem && !/^[a-z][a-z0-9_-]{0,31}$/i.test(identity.emblem)) return identity.emblem;
+  const source = identity.emblem || identity.name;
+  return source
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'A';
+}
 
 export function liveHref(theme: Record<string, unknown> | null | undefined): string | null {
   const href = theme?.['live_href'];
@@ -69,6 +112,12 @@ export function launchHref(app: WorkExperience): string {
 }
 
 export function catalogLaunchHref(item: WorkCatalogItem): string {
+  if (
+    item.release.renderer_version !== CURRENT_RENDERER_VERSION
+    && item.release.renderer_version !== LEGACY_RENDERER_VERSION
+  ) {
+    return `/work/${item.experience.slug}`;
+  }
   return liveHref(item.release.theme) ?? launchHref(item.experience);
 }
 
@@ -77,15 +126,21 @@ export function workPageHref(slug: string, pageId?: string | null): string {
   return pageId ? `${root}/${encodeURIComponent(pageId)}` : root;
 }
 
+export function isInternalWorkHref(href: string, slug: string): boolean {
+  const root = `/work/${encodeURIComponent(slug)}`;
+  return href === root || href.startsWith(`${root}/`);
+}
+
 export function workTheme(theme: Record<string, unknown> | null | undefined): {
   mode: 'light' | 'dark';
   accent: string;
+  onAccent: string;
 } {
   const mode = theme?.['mode'] === 'dark' ? 'dark' : 'light';
   const accent = typeof theme?.['accent'] === 'string' && /^#[0-9a-f]{6}$/i.test(theme['accent'])
     ? theme['accent']
     : '';
-  return { mode, accent };
+  return { mode, accent, onAccent: accent ? onAccentColor(accent) : '' };
 }
 
 export function launcherDecision(apps: readonly WorkExperience[]): LauncherDecision {
@@ -97,8 +152,27 @@ export function launcherDecision(apps: readonly WorkExperience[]): LauncherDecis
   return { kind: 'list', apps: [...apps] };
 }
 
-export function studioHref(experienceId: string | null | undefined): string {
-  return experienceId ? `/create/apps/${experienceId}` : '/create/apps';
+export function studioHref(
+  experienceId: string | null | undefined,
+  pageId?: string | null,
+  returnTo?: string | null,
+  releaseId?: string | null,
+  releaseNumber?: number | null,
+): string {
+  if (!experienceId) return '/create/apps';
+  const root = `/create/apps/${encodeURIComponent(experienceId)}`;
+  const params = new URLSearchParams();
+  const page = pageId?.trim() ?? '';
+  if (/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(page)) params.set('pageId', page);
+  const back = returnTo?.trim() ?? '';
+  if (/^\/work(?:\/|$)/.test(back) && !back.includes('\\')) params.set('returnTo', back);
+  const release = releaseId?.trim() ?? '';
+  if (/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(release)) params.set('releaseId', release);
+  if (Number.isSafeInteger(releaseNumber) && (releaseNumber ?? 0) > 0) {
+    params.set('releaseNumber', String(releaseNumber));
+  }
+  const query = params.toString();
+  return query ? `${root}?${query}` : root;
 }
 
 export function canEditExperience(roleTemplate?: string | null, isAdmin = false): boolean {
@@ -147,14 +221,6 @@ export function bindingKeys(snapshot: readonly Record<string, unknown>[]): strin
     }
   }
   return keys;
-}
-
-export function pendingValidationOrigins(
-  _snapshot: readonly Record<string, unknown>[],
-  experienceSlug: string,
-): string[] {
-  const slug = experienceSlug.trim();
-  return slug ? [`experience:${slug}`] : [];
 }
 
 export function workLocales(languages: readonly string[] | undefined): Array<'fr' | 'en'> {

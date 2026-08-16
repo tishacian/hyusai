@@ -6,6 +6,8 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
+import { A11yModule } from '@angular/cdk/a11y';
 import { Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -14,11 +16,13 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import {
   ExperienceApiMissingError,
   SystemHomeService,
+  type SystemHomeCreateInput,
 } from '@app/features/experience/system-home.service';
 import {
   compileSystemHome,
   firstManualIngress,
   hasHitlHint,
+  systemHomeBlocker,
   uniqueBindingKey,
   uniqueSlug,
 } from '@app/features/experience/runtime/system-home';
@@ -30,7 +34,7 @@ import { FlowPersistenceService } from './flow-persistence.service';
 @Component({
   selector: 'app-flow-publication-panel',
   standalone: true,
-  imports: [IconComponent],
+  imports: [A11yModule, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './flow-publication-panel.component.scss',
   template: `
@@ -39,7 +43,7 @@ import { FlowPersistenceService } from './flow-persistence.service';
         <button
           type="button"
           class="ck-publish__backdrop"
-          aria-label="Close publication review"
+          [attr.aria-label]="i18n.t('flow.publish.close')"
           [disabled]="persistence.publishing()"
           (click)="close()"
         ></button>
@@ -48,6 +52,9 @@ import { FlowPersistenceService } from './flow-persistence.service';
           role="dialog"
           aria-modal="true"
           aria-labelledby="ck-publish-title"
+          cdkTrapFocus
+          [cdkTrapFocusAutoCapture]="true"
+          (keydown.escape)="close()"
         >
           <header class="ck-publish__header">
             <div>
@@ -68,12 +75,12 @@ import { FlowPersistenceService } from './flow-persistence.service';
 
           <div class="ck-publish__identities">
             <span>
-              Draft r{{ persistence.draftRevision() }}
+              {{ i18n.t('flow.toolbar.version.draft', { revision: persistence.draftRevision() ?? '' }) }}
               <code>{{ shortHash(persistence.savedFlowSha256()) }}</code>
             </span>
             <app-icon name="arrow-right" [size]="13" />
             <span>
-              Published v{{ persistence.publishedVersionNumber() }}
+              {{ i18n.t('flow.toolbar.version.published', { version: persistence.publishedVersionNumber() ?? '' }) }}
               <code>{{ shortHash(persistence.publishedFlowSha256()) }}</code>
             </span>
           </div>
@@ -149,6 +156,7 @@ import { FlowPersistenceService } from './flow-persistence.service';
               [placeholder]="i18n.t('flow.publish.message.placeholder')"
               [value]="message()"
               [disabled]="persistence.publishing()"
+              cdkFocusInitial
               (input)="onMessage($event)"
             ></textarea>
           </label>
@@ -171,7 +179,7 @@ import { FlowPersistenceService } from './flow-persistence.service';
                 <button
                   type="button"
                   class="is-primary"
-                  [disabled]="creating() || apiMissing()"
+                  [disabled]="creating() || apiMissing() || homeBlocker() !== null"
                   (click)="createHome()"
                 >
                   @if (creating()) {
@@ -183,6 +191,13 @@ import { FlowPersistenceService } from './flow-persistence.service';
               </div>
               @if (apiMissing()) {
                 <p class="ck-publish__home-note">{{ i18n.t('experience.home.create.unavailable') }}</p>
+              }
+              @if (homeBlocker(); as blocker) {
+                <p class="ck-publish__home-note" role="status">
+                  {{ i18n.t(blocker === 'missing-manual-ingress'
+                    ? 'experience.home.create.no_manual_ingress'
+                    : 'experience.home.create.unsupported_schema') }}
+                </p>
               }
               @if (createError(); as err) {
                 <p class="ck-publish__error" role="alert">{{ err }}</p>
@@ -224,10 +239,13 @@ export class FlowPublicationPanelComponent {
   private readonly home = inject(SystemHomeService);
   private readonly router = inject(Router);
   private readonly toastr = inject(ToastrService);
+  private readonly document = inject(DOCUMENT);
   protected readonly message = signal('');
   protected readonly creating = signal(false);
   protected readonly apiMissing = signal(false);
   protected readonly createError = signal<string | null>(null);
+  private pendingHomeCreate: SystemHomeCreateInput | null = null;
+  private previousFocus: HTMLElement | null = null;
   protected readonly canSubmit = computed(
     () =>
       this.message().trim().length > 0 &&
@@ -235,15 +253,23 @@ export class FlowPublicationPanelComponent {
   );
   protected readonly showHome = computed(
     () =>
-      this.workspace.experienceV1Enabled() &&
+      this.workspace.experienceStudioV1Enabled() &&
       this.persistence.publishedExecutionContract() !== null,
+  );
+  protected readonly homeBlocker = computed(() =>
+    systemHomeBlocker(this.persistence.publishedExecutionContract()),
   );
 
   constructor() {
     effect(() => {
-      if (!this.persistence.publishReviewOpen()) {
+      if (this.persistence.publishReviewOpen()) {
+        this.previousFocus = this.document.activeElement instanceof HTMLElement
+          ? this.document.activeElement
+          : null;
+      } else {
         this.message.set('');
         this.createError.set(null);
+        this.pendingHomeCreate = null;
       }
     });
   }
@@ -267,13 +293,27 @@ export class FlowPublicationPanelComponent {
   }
 
   protected close(): void {
+    const target = this.previousFocus;
     this.persistence.closePublicationReview();
+    queueMicrotask(() => target?.focus());
   }
 
   protected previewHome(): void {
     const compiled = this.compileHome();
     if (!compiled) return;
-    this.home.provide(compiled.document);
+    const systemId = this.persistence.systemId();
+    const publishedVersionId = this.persistence.publishedVersionId();
+    const binding = compiled.ingressId && systemId && publishedVersionId
+      ? {
+          binding_key: compiled.bindingKey,
+          system_id: systemId,
+          published_flow_version_id: publishedVersionId,
+          ingress_id: compiled.ingressId,
+          confirmation_policy: 'confirm',
+          on_unavailable: 'unavailable',
+        }
+      : null;
+    this.home.provide(compiled.document, binding);
     void this.router.navigate(['/create/preview'], { queryParams: { source: 'home' } });
   }
 
@@ -281,28 +321,39 @@ export class FlowPublicationPanelComponent {
     const compiled = this.compileHome();
     const systemId = this.persistence.systemId();
     const publishedVersionId = this.persistence.publishedVersionId();
-    if (!compiled || !systemId || !publishedVersionId || this.creating() || this.apiMissing()) {
+    if (
+      !compiled
+      || !systemId
+      || !publishedVersionId
+      || this.creating()
+      || this.apiMissing()
+      || this.homeBlocker() !== null
+    ) {
       return;
     }
     this.creating.set(true);
     this.createError.set(null);
     const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const name = compiled.systemName;
+    const input = this.pendingHomeCreate ?? {
+      name,
+      slug: uniqueSlug(name, nonce),
+      languages: [this.i18n.locale()],
+      document: compiled.document,
+      bindingKey: compiled.bindingKey,
+      systemId,
+      publishedVersionId,
+      ingressId: compiled.ingressId,
+    };
+    this.pendingHomeCreate = input;
     this.home
-      .createDraft({
-        name,
-        slug: uniqueSlug(name, nonce),
-        languages: [this.i18n.locale()],
-        document: compiled.document,
-        bindingKey: compiled.bindingKey,
-        systemId,
-        publishedVersionId,
-        ingressId: compiled.ingressId,
-      })
+      .createDraft(input)
       .subscribe({
-        next: () => {
+        next: (created) => {
           this.creating.set(false);
+          this.pendingHomeCreate = null;
           this.toastr.success(this.i18n.t('experience.home.created'));
+          void this.router.navigate(['/create/apps', created.id]);
         },
         error: (err: unknown) => {
           this.creating.set(false);

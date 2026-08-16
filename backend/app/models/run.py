@@ -107,6 +107,9 @@ class Run(Base):
     # event kind and canonical payload hash; NULL keeps historical/manual Runs
     # outside this uniqueness domain.
     trigger_dedup_key = Column(String(255), nullable=True)
+    # Stable claim for a business-app action. Unlike trigger_dedup_key, this
+    # identity intentionally survives a deployment pointer change.
+    experience_idempotency_key = Column(String(64), nullable=True, unique=True)
 
     # Vague E / E1.5.2 — replay lineage. ``parent_run_id`` points to the
     # run that was the source for a "Re-run with override" replay

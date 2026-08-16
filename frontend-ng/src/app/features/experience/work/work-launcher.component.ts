@@ -8,7 +8,10 @@ import {
   canEditExperience,
   catalogLaunchHref,
   studioHref,
+  workEmblem,
+  workIdentity,
   type WorkCatalogItem,
+  type WorkIdentity,
 } from './work-catalog';
 
 @Component({
@@ -36,13 +39,18 @@ import {
           />
         </label>
       </header>
-      <main class="xp-work-main xp-work-home">
+      <section class="xp-work-main xp-work-home" aria-labelledby="work-launcher-title">
         <div class="xp-work-intro">
           <div>
             <p class="xp-work-eyebrow">{{ i18n.t('experience.work.title') }}</p>
-            <h1>{{ i18n.t('experience.work.welcome') }}</h1>
+            <h1 id="work-launcher-title">{{ i18n.t('experience.work.welcome') }}</h1>
             @if (state() === 'ready') {
-              <p>{{ i18n.t('experience.work.home.count', { n: items().length }) }}</p>
+              <p [attr.aria-live]="hasQuery() ? 'polite' : null">
+                {{ i18n.t(
+                  hasQuery() ? 'experience.work.search.count' : 'experience.work.home.count',
+                  { n: items().length }
+                ) }}
+              </p>
             }
           </div>
           @if (canEdit()) {
@@ -63,17 +71,19 @@ import {
               size="lg"
               [title]="i18n.t('experience.work.unavailable.title')"
               [description]="i18n.t('experience.work.unavailable.body')"
-            />
+            >
+              <button type="button" class="xp-work-btn" (click)="load()">{{ i18n.t('common.retry') }}</button>
+            </app-empty-state>
           }
           @default {
             @if (items().length === 0) {
               <app-empty-state
                 icon="layers"
                 size="lg"
-                [title]="i18n.t('experience.work.empty.title')"
-                [description]="i18n.t('experience.work.empty.description')"
+                [title]="i18n.t(hasQuery() ? 'experience.work.search.empty.title' : 'experience.work.empty.title')"
+                [description]="i18n.t(hasQuery() ? 'experience.work.search.empty.description' : 'experience.work.empty.description')"
               >
-                @if (canEdit()) {
+                @if (canEdit() && !hasQuery()) {
                   <a class="xp-work-btn xp-work-btn-primary" [routerLink]="studioLink">
                     {{ i18n.t('experience.work.empty.create') }}
                   </a>
@@ -84,7 +94,7 @@ import {
                 @for (item of items(); track item.experience.id) {
                   <a class="xp-work-card" [routerLink]="launchHref(item)">
                     <div class="xp-work-card-head">
-                      <span class="xp-work-app-icon" aria-hidden="true">{{ initials(item) }}</span>
+                      <span class="xp-work-app-icon" aria-hidden="true">{{ emblem(item) }}</span>
                       <span
                         class="xp-work-status"
                         [class.xp-work-status-live]="item.channel === 'live'"
@@ -92,8 +102,8 @@ import {
                         {{ i18n.t(item.channel === 'live' ? 'experience.work.status.live' : 'experience.work.status.pilot') }}
                       </span>
                     </div>
-                    <h2>{{ item.experience.name }}</h2>
-                    <p>{{ patternLabel(item.experience.pattern) }}</p>
+                    <h2>{{ identity(item).name }}</h2>
+                    <p>{{ identity(item).description || patternLabel(item.experience.pattern) }}</p>
                     <span class="xp-work-open">{{ i18n.t('experience.work.open') }} →</span>
                   </a>
                 }
@@ -101,7 +111,7 @@ import {
             }
           }
         }
-      </main>
+      </section>
     </div>
   `,
 })
@@ -114,21 +124,30 @@ export class WorkLauncherComponent {
   readonly state = signal<'loading' | 'ready' | 'error'>('loading');
   readonly allItems = signal<WorkCatalogItem[]>([]);
   readonly query = signal('');
+  readonly hasQuery = computed(() => this.query().trim().length > 0);
   readonly studioLink = studioHref(null);
   readonly launchHref = catalogLaunchHref;
   readonly items = computed(() => {
     const query = this.query().trim().toLocaleLowerCase(this.i18n.locale());
     if (!query) return this.allItems();
     return this.allItems().filter((item) =>
-      `${item.experience.name} ${item.experience.pattern}`.toLocaleLowerCase(this.i18n.locale()).includes(query),
+      `${this.identity(item).name} ${this.identity(item).description} ${item.experience.pattern}`
+        .toLocaleLowerCase(this.i18n.locale())
+        .includes(query),
     );
   });
 
   readonly canEdit = computed(() =>
-    canEditExperience(this.workspace.current()?.role_template, this.workspace.isAdmin()),
+    this.workspace.experienceStudioV1Enabled()
+    && canEditExperience(this.workspace.current()?.role_template, this.workspace.isAdmin()),
   );
 
   constructor() {
+    this.load();
+  }
+
+  load(): void {
+    this.state.set('loading');
     this.api.listExperiences().subscribe((result) => {
       if (result.kind !== 'ok') {
         this.state.set('error');
@@ -147,18 +166,17 @@ export class WorkLauncherComponent {
     return (event.target as HTMLInputElement).value;
   }
 
-  initials(item: WorkCatalogItem): string {
-    return item.experience.name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join('') || 'A';
+  identity(item: WorkCatalogItem): WorkIdentity {
+    return workIdentity(item.experience, item.release);
+  }
+
+  emblem(item: WorkCatalogItem): string {
+    return workEmblem(this.identity(item));
   }
 
   patternLabel(pattern: string): string {
     const key = `experience.work.pattern.${pattern}`;
     const label = this.i18n.t(key);
-    return label === key ? pattern : label;
+    return label === key ? this.i18n.t('experience.work.pattern.other') : label;
   }
 }

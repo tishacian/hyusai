@@ -78,6 +78,7 @@ const NAVIGATION_PRIVACY_TEMPLATES = [
   '/account/sessions',
   '/account/danger',
   '/governance/audit',
+  '/governance/experiences',
   '/governance/access',
   '/governance/chat-history',
   '/governance/surface-map',

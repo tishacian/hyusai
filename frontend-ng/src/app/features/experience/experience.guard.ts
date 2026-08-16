@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { CanActivateFn, Router } from '@angular/router';
+import { CanActivateFn, CanDeactivateFn, Router } from '@angular/router';
 import { catchError, map, of } from 'rxjs';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { canAccessExperienceStudio, canEditExperienceStudio } from './experience-access';
@@ -22,6 +22,7 @@ function studioGuard(edit: boolean): CanActivateFn {
     const workspace = inject(WorkspaceService);
     const router = inject(Router);
     const decide = () => {
+      if (!workspace.experienceStudioV1Enabled()) return router.parseUrl('/work');
       const current = workspace.current();
       const allowed = edit
         ? canEditExperienceStudio(current?.role_template, current?.role, workspace.isAdmin())
@@ -41,3 +42,10 @@ export const experienceStudioGuard = studioGuard(false);
 
 /** Mutating routes stay unavailable to reviewers even though they can inspect lifecycle state. */
 export const experienceStudioEditGuard = studioGuard(true);
+
+export interface ExperiencePendingChanges {
+  confirmDiscardChanges(): boolean;
+}
+
+export const experienceUnsavedChangesGuard: CanDeactivateFn<ExperiencePendingChanges> =
+  (component) => component.confirmDiscardChanges();

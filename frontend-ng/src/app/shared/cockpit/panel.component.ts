@@ -1,3 +1,5 @@
+import { DOCUMENT } from '@angular/common';
+import { A11yModule } from '@angular/cdk/a11y';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -14,6 +16,7 @@ import {
 } from '@angular/core';
 import { GlyphComponent } from './glyph.component';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { I18nService } from '@app/core/i18n.service';
 
 export type CkPanelPosition = 'side' | 'bottom' | 'floating';
 
@@ -81,13 +84,15 @@ let panelCounter = 0;
   selector: 'ck-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent],
+  imports: [A11yModule, GlyphComponent],
   template: `
     @if (open) {
       <div
-        [attr.role]="position === 'floating' ? 'dialog' : 'complementary'"
-        [attr.aria-modal]="position === 'floating' ? 'true' : null"
+        [attr.role]="modal || position === 'floating' ? 'dialog' : 'complementary'"
+        [attr.aria-modal]="modal || position === 'floating' ? 'true' : null"
         [attr.aria-label]="title || 'Panel'"
+        [cdkTrapFocus]="modal || position === 'floating'"
+        [cdkTrapFocusAutoCapture]="modal || position === 'floating'"
         [style.position]="'fixed'"
         [style.top]="position === 'side' ? '0' : (position === 'bottom' ? 'auto' : '50%')"
         [style.right]="position === 'side' ? '0' : (position === 'bottom' ? '0' : '50%')"
@@ -95,6 +100,8 @@ let panelCounter = 0;
         [style.left]="position === 'side' ? 'auto' : (position === 'bottom' ? '0' : '50%')"
         [style.transform]="position === 'floating' ? 'translate(50%, -50%)' : 'none'"
         [style.width]="position === 'side' ? width : (position === 'bottom' ? '100%' : width)"
+        [style.maxWidth]="'100vw'"
+        [style.boxSizing]="'border-box'"
         [style.height]="position === 'bottom' ? height : (position === 'side' ? '100vh' : 'auto')"
         [style.maxHeight]="position === 'floating' ? '80vh' : 'none'"
         [style.background]="'var(--ck-bg-1, #0a0e14)'"
@@ -105,7 +112,7 @@ let panelCounter = 0;
         [style.boxShadow]="'var(--ck-shadow-panel)'"
         [style.display]="'flex'"
         [style.flexDirection]="'column'"
-        [style.zIndex]="40"
+        [style.zIndex]="modal || position === 'floating' ? 1400 : 40"
         [style.animation]="enterAnim"
       >
         <header
@@ -150,8 +157,8 @@ let panelCounter = 0;
             [style.padding]="'4px 6px'"
             [style.cursor]="'pointer'"
             [style.color]="'var(--ck-fg-3)'"
-            [attr.aria-label]="'Close panel'"
-            title="Close (Esc)"
+            [attr.aria-label]="i18n.t('common.close')"
+            [title]="i18n.t('common.close')"
           >
             <ck-glyph name="x" [size]="12" color="currentColor" />
           </button>
@@ -169,7 +176,7 @@ let panelCounter = 0;
           [style.position]="'fixed'"
           [style.inset]="'0'"
           [style.background]="'var(--ck-scrim)'"
-          [style.zIndex]="39"
+          [style.zIndex]="1399"
           [style.animation]="'ckPanelFade 160ms var(--ck-ease-out, ease-out)'"
           (click)="close()"
           aria-hidden="true"
@@ -201,8 +208,14 @@ export class CkPanelComponent implements OnInit, OnDestroy {
   @Input()
   set open(value: boolean) {
     if (value === this._open) return;
+    if (value) {
+      this.previousFocus = this.document.activeElement instanceof HTMLElement
+        ? this.document.activeElement
+        : null;
+    }
     this._open = value;
     this.syncRegistration();
+    if (!value) this.restoreFocus();
   }
   get open(): boolean { return this._open; }
   @Output() openChange = new EventEmitter<boolean>();
@@ -211,10 +224,14 @@ export class CkPanelComponent implements OnInit, OnDestroy {
   @Input() eyebrow = '';
   @Input() width = '420px';
   @Input() height = '320px';
+  @Input() modal = false;
 
   private readonly panelHost = inject(PanelHostService);
+  private readonly document = inject(DOCUMENT);
+  readonly i18n = inject(I18nService);
   private readonly id = `ck-panel-${++panelCounter}`;
   private registered = false;
+  private previousFocus: HTMLElement | null = null;
 
   ngOnInit(): void {
     this.syncRegistration();
@@ -225,6 +242,7 @@ export class CkPanelComponent implements OnInit, OnDestroy {
       this.panelHost.pop(this.id);
       this.registered = false;
     }
+    this.restoreFocus();
   }
 
   private syncRegistration(): void {
@@ -249,6 +267,16 @@ export class CkPanelComponent implements OnInit, OnDestroy {
       this.registered = false;
     }
     this.openChange.emit(false);
+    this.restoreFocus();
+  }
+
+  private restoreFocus(): void {
+    const target = this.previousFocus;
+    this.previousFocus = null;
+    if (!target) return;
+    queueMicrotask(() => {
+      if (target.isConnected) target.focus();
+    });
   }
 
   get enterAnim(): string {
@@ -277,10 +305,6 @@ export class CkPanelHostComponent {
   @HostListener('window:keydown.escape', ['$event'])
   onEscape(ev: Event): void {
     if (!this.panelHost.open()) return;
-    const target = ev.target as HTMLElement | null;
-    const tag = target?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    if (target?.isContentEditable) return;
     ev.preventDefault();
     this.panelHost.closeTop();
   }

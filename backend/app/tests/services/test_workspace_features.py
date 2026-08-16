@@ -94,7 +94,11 @@ def test_flow_publication_honours_an_explicit_workspace_opt_out():
 
 
 def test_graduated_features_are_declared_for_audit():
-    assert DEFAULT_ON_FEATURES == {"chat_document_upload", FLOW_PUBLICATION_FEATURE}
+    assert DEFAULT_ON_FEATURES == {
+        "chat_document_upload",
+        "experience_studio_v1",
+        FLOW_PUBLICATION_FEATURE,
+    }
     for feature in DEFAULT_ON_FEATURES:
         assert graduated_feature_enabled(_workspace(settings={}), feature)
         assert not graduated_feature_enabled(

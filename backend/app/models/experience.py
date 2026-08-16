@@ -31,7 +31,7 @@ EXPERIENCE_PATTERNS = (
     "mission_cockpit",
 )
 DEPLOYMENT_CHANNELS = ("pilot", "live")
-DEFAULT_RENDERER_VERSION = "certified-components-0.1.0"
+DEFAULT_RENDERER_VERSION = "certified-components-0.2.0"
 
 
 def _enum_check(column: str, values: tuple[str, ...]) -> str:
@@ -49,6 +49,8 @@ class Experience(Base):
         index=True,
     )
     name = Column(String(255), nullable=False)
+    description = Column(String(500), nullable=True)
+    emblem = Column(String(32), nullable=True)
     slug = Column(String(120), nullable=False)
     pattern = Column(String(32), nullable=False)
     languages = Column(JSON, nullable=False, default=list)
@@ -109,6 +111,44 @@ class ExperienceDraftRevision(Base):
     )
 
 
+class ExperienceDraftHistory(Base):
+    """Append-only snapshots behind draft history and CAS restore."""
+
+    __tablename__ = "experience_draft_history"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    experience_id = Column(
+        String(36),
+        ForeignKey("experiences.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    workspace_id = Column(
+        String(36),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    revision = Column(Integer, nullable=False)
+    pages = Column(JSON, nullable=False)
+    binding_keys = Column(JSON, nullable=False)
+    content_sha256 = Column(String(64), nullable=False)
+    saved_by = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "experience_id",
+            "revision",
+            name="uq_experience_draft_history_experience_revision",
+        ),
+        CheckConstraint(
+            "revision >= 1",
+            name="ck_experience_draft_history_revision_positive",
+        ),
+    )
+
+
 class ExperienceRelease(Base):
     """Immutable snapshot. Creating one never moves a deployment pointer."""
 
@@ -128,6 +168,7 @@ class ExperienceRelease(Base):
         index=True,
     )
     release_number = Column(Integer, nullable=False)
+    creation_request_sha256 = Column(String(64), nullable=True)
     content_sha256 = Column(String(64), nullable=False)
     pages = Column(JSON, nullable=False)
     bindings_snapshot = Column(JSON, nullable=False)
@@ -149,6 +190,11 @@ class ExperienceRelease(Base):
             "experience_id",
             "release_number",
             name="uq_experience_releases_experience_number",
+        ),
+        UniqueConstraint(
+            "experience_id",
+            "creation_request_sha256",
+            name="uq_experience_releases_creation_request",
         ),
         CheckConstraint(
             "release_number >= 1",
@@ -187,7 +233,9 @@ class ExperienceDeployment(Base):
         ForeignKey("experience_releases.id", ondelete="SET NULL"),
         nullable=True,
     )
+    previous_audience = Column(JSON, nullable=True)
     audience = Column(JSON, nullable=False, default=dict)
+    last_mutation_sha256 = Column(String(64), nullable=True)
     updated_by = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
