@@ -3839,3 +3839,35 @@ présent). Ancien tree `frontend-deps-e2d45039…` conservé.
 | Alias | tag mobile `demo-agentic` **non déplacé** (reste `400f1bdf452c`) |
 | Canaris carakai | **5 passed / 3 failed** en 1,2 min, artefacts `/tmp/iteration-canaries-20260823T072846Z.CZra7M` (`playwright-runtime.json` : `candidate_sha 6d15e521…`, producer `result: passed`). Spec 12 (5) verte. Échecs : **11** rail `Build` absent sous `experience_v1` (le verbe ouvre Create), **16** `GET /work` = 0 Experience Pilot/In-service, **17** overflow title-bar à 320px (`415 > 321`). |
 | Rollback | migration déjà appliquée : pas de restore dump. Images précédentes : `AGENTIUM_IMAGE_TAG=491ca889579b` puis `up` uniquement si on accepte un backend sans colonnes 093/094. Sinon fix-forward. |
+
+## Itération du 23/08 — Builder AgentLoop UX sur `18eba715`
+
+GO deploy depuis un Cloud Agent. Slice frontend-only : inspecteur AgentLoop
+(enveloppe goal / allowlist / budget / privilege), porte humaine, starter
+`Trigger → Agent loop → Human gate → Output`. Aucune migration Alembic.
+`build:prod` local puis VM vert après `18eba715` (privilege fail-closed).
+
+Canaris carakai : checkout runner était à `6d15e521`, origin = bundle
+`/tmp` périmé. Bundle incrémental `6d15e521..demo/agentic` (sha256
+`008eefdc30f31fb5ffd064e5de359e701659e07f7755a250f2f038c04f094e3a`
+identique des deux côtés), `cat-file -e`, checkout détaché `18eba715`,
+marqueur `.agentium-source-sha` aligné. `node_modules` symlink inchangé
+(lock `a59bcb33…`).
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `8e4a8711` → `18eba715` (`d8ac82c8` inspector + `18eba715` type-gate privilege) |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
+| Worktree | `fetch origin demo/agentic` + `merge --ff-only FETCH_HEAD` → `18eba7156650f325a29459f4bae2406a881adbed`, porcelain vide |
+| Build | trois images au tag `18eba7156650`, label 40-hex identique sur backend / worker / frontend |
+| Dump | aucun — pas de fichier sous `backend/alembic/versions/` dans le delta |
+| `storage-check` | sortie 0, autonome puis rejoué dans `up` |
+| `up` | cinq services applicatifs recréés, backend et frontend `healthy` |
+| `build-info` | `revision: 18eba7156650f325a29459f4bae2406a881adbed`, `revision_verified: true` (localhost Host) |
+| Logs | 0 `traceback`/`exception` backend depuis la bascule ; `/` = 200 |
+| Infra | `agentium-sftp`, LiveKit, pg, Keycloak, Qdrant, MinIO, RabbitMQ intouchés (Up 2 weeks) |
+| Alias | tag mobile `demo-agentic` **non déplacé** (reste `400f1bdf452c`) |
+| Canaris carakai | **5 passed / 3 failed** en 1,2 min, artefacts `/tmp/iteration-canaries-20260823T081941Z.LUneEX` (`playwright-runtime.json` : `candidate_sha 18eba715…`, producer `result: passed`). Spec 12 (5) verte. Échecs inchangés vs `6d15e521` : **11** rail `Build` absent sous `experience_v1`, **16** `GET /work` = 0 Experience Pilot/In-service, **17** overflow title-bar à 320px (`415 > 321`). |
+| Rollback | pas de migration : `AGENTIUM_IMAGE_TAG=6d15e52151e0` puis `up`. |
