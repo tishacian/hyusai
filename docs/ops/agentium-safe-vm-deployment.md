@@ -3811,8 +3811,14 @@ HITL intra-loop, privilege tiers, steer, fan-out). Le premier `build:prod`
 VM a échoué : `agent_loop_no_budget` / `agent_loop_allowlist` absents de
 l'union `FlowValidationIssue` — corrigé par `6d15e521` avant le switch.
 
-Canaris carakai **non joués** : cet agent a la clé `omnirag-demo`, pas
-`carakai` (`79.137.18.231` → `Permission denied (publickey)`).
+Canaris carakai joués le 23/08 contre le SHA live (clé acceptée). Le
+checkout runner était à `8fbf440b`, origin = bundle `/tmp` périmé. Bundle
+incrémental `8fbf440b..demo/agentic` (sha256
+`bdc5dfc1d07c08d34ab4e589d060d550141ea19dc663da16f5faf3f017146a7c`
+identique des deux côtés), `cat-file -e`, checkout détaché `6d15e521`,
+marqueur `.agentium-source-sha` aligné. Dépendances gelées retargetées
+`e2d45039…` → `a59bcb33…` (`npm ci` du lock du candidat, `@axe-core/playwright`
+présent). Ancien tree `frontend-deps-e2d45039…` conservé.
 
 ### Observables du déploiement
 
@@ -3831,5 +3837,5 @@ Canaris carakai **non joués** : cet agent a la clé `omnirag-demo`, pas
 | Logs | 0 `traceback`/`exception` backend depuis la bascule ; `/` = 200 |
 | Infra | `agentium-sftp`, LiveKit, pg, Keycloak, Qdrant, MinIO, RabbitMQ intouchés (Up 2 weeks) |
 | Alias | tag mobile `demo-agentic` **non déplacé** (reste `400f1bdf452c`) |
-| Canaris carakai | **non exécutés** — pas de pubkey sur `carakai` |
+| Canaris carakai | **5 passed / 3 failed** en 1,2 min, artefacts `/tmp/iteration-canaries-20260823T072846Z.CZra7M` (`playwright-runtime.json` : `candidate_sha 6d15e521…`, producer `result: passed`). Spec 12 (5) verte. Échecs : **11** rail `Build` absent sous `experience_v1` (le verbe ouvre Create), **16** `GET /work` = 0 Experience Pilot/In-service, **17** overflow title-bar à 320px (`415 > 321`). |
 | Rollback | migration déjà appliquée : pas de restore dump. Images précédentes : `AGENTIUM_IMAGE_TAG=491ca889579b` puis `up` uniquement si on accepte un backend sans colonnes 093/094. Sinon fix-forward. |
