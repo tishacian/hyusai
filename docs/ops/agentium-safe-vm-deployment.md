@@ -3801,3 +3801,35 @@ le push de cette itération ; **ils ne sont pas dans les images servies**.
 | Canaris carakai | **6/6 vertes** en 57,5 s au premier passage, artefacts `/tmp/iteration-canaries-20260813T152250Z.al600y` (`candidate_sha e678d21a…`, `result: passed`) |
 | Piège bundle | rejoué : carakai ne connaissait pas `e678d21a` — bundle incrémental `664e68b7..demo/agentic` (sha256 `76c8fe8a…` identique des deux côtés), `cat-file -e` avant lancement. Le checkout runner reste à `8fbf440b` |
 | Alias | `demo-agentic` déplacé sur `e678d21aa76b` (ids identiques sur les trois) ; rollback : `AGENTIUM_IMAGE_TAG=664e68b760de` puis `up` |
+
+## Itération du 23/08 — déployée sur `6d15e521`, AgentLoop + Experience apps
+
+GO deploy depuis un Cloud Agent. `origin/demo/agentic` avançait de
+`491ca889` (live) à `6d15e521` : Experience no-code (`22ede41f`, migrations
+`093` + `094`) puis AgentLoop L0–L5 (`decide_next_v1`, kind `agent_loop`,
+HITL intra-loop, privilege tiers, steer, fan-out). Le premier `build:prod`
+VM a échoué : `agent_loop_no_budget` / `agent_loop_allowlist` absents de
+l'union `FlowValidationIssue` — corrigé par `6d15e521` avant le switch.
+
+Canaris carakai **non joués** : cet agent a la clé `omnirag-demo`, pas
+`carakai` (`79.137.18.231` → `Permission denied (publickey)`).
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `491ca889` → `6d15e521` (dont `3fadcc73` docs SSH + `6d15e521` union TS) |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
+| Worktree | `fetch origin demo/agentic` + `merge --ff-only FETCH_HEAD` → `6d15e52151e003aafabf39fb6b602370d5a9da0a`, porcelain vide |
+| Build | trois images au tag `6d15e52151e0`, label 40-hex identique sur backend / worker / frontend |
+| Dump | `/srv/agentium-data/agentloop-deployments/2026-08-23-6d15e52151e0/pre-6d15e52151e0.dump` sha256 `8b1d56b44207c2ec3d4939ac699b574c5396ae7a3ef8eaf672eabcecaed96d04` |
+| `migrate` | `092_experience_access_policy` → `093_experience_run_idempotency` → `094_experience_brand_history` |
+| `storage-check` | sortie 0, autonome puis rejoué dans `up` |
+| `up` | cinq services applicatifs recréés (07:17:19Z), backend et frontend `healthy` |
+| `build-info` | `revision: 6d15e52151e003aafabf39fb6b602370d5a9da0a`, `revision_verified: true` (localhost Host + `https://agentium.papai.ai`) |
+| Alembic | `094_experience_brand_history (head)` après bascule |
+| Logs | 0 `traceback`/`exception` backend depuis la bascule ; `/` = 200 |
+| Infra | `agentium-sftp`, LiveKit, pg, Keycloak, Qdrant, MinIO, RabbitMQ intouchés (Up 2 weeks) |
+| Alias | tag mobile `demo-agentic` **non déplacé** (reste `400f1bdf452c`) |
+| Canaris carakai | **non exécutés** — pas de pubkey sur `carakai` |
+| Rollback | migration déjà appliquée : pas de restore dump. Images précédentes : `AGENTIUM_IMAGE_TAG=491ca889579b` puis `up` uniquement si on accepte un backend sans colonnes 093/094. Sinon fix-forward. |
