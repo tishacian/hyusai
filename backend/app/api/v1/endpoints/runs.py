@@ -724,6 +724,14 @@ class HitlResolve(BaseModel):
     note: Optional[str] = Field(default=None, description="Audit trail note.")
 
 
+class SteerBody(BaseModel):
+    op: Literal["set_tier", "set_allowlist", "inject_note", "escalate"]
+    privilege_tier: Optional[str] = None
+    skill_allowlist: Optional[List[str]] = None
+    note: Optional[str] = None
+    escalate_to: Optional[str] = None
+
+
 def _actor_label(user: User) -> str:
     """Return the authenticated identity written to the Decision audit trail."""
     return (
@@ -1215,6 +1223,52 @@ class DebugStep(BaseModel):
         except DebugContractError as exc:
             raise ValueError(exc.message) from exc
         return list(normalized["breakpoints"])
+
+
+@router.post("/{run_id}/steer")
+def steer_run(
+    run_id: str,
+    body: SteerBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Redirect an in-flight AgentLoop without starting a new Run."""
+
+    from app.services.run_engine.agent_loop import (
+        flow_has_agent_loop,
+        persist_steer,
+    )
+
+    run = _visible_run_or_404(db, run_id=run_id, user=user, workspace=workspace)
+    if run.status not in {"running", "hitl_pending"}:
+        raise HTTPException(409, f"Run cannot be steered (status={run.status!r})")
+    flow = run.flow_snapshot if isinstance(run.flow_snapshot, dict) else {}
+    if not flow:
+        system = db.query(System).filter(System.id == run.system_id).first()
+        flow = (system.flow_definition if system else {}) or {}
+    if not flow_has_agent_loop(flow):
+        raise HTTPException(409, "Run has no agent_loop to steer")
+    updated = persist_steer(
+        run,
+        op=body.op,
+        privilege_tier=body.privilege_tier,
+        skill_allowlist=body.skill_allowlist,
+        note=body.note,
+        escalate_to=body.escalate_to,
+    )
+    checkpoints = list(run.checkpoints or [])
+    checkpoints.append(
+        {
+            "kind": "steer",
+            "t": datetime.utcnow().isoformat(),
+            "op": body.op,
+            "steer": updated,
+        }
+    )
+    run.checkpoints = checkpoints
+    db.commit()
+    return {"id": run.id, "status": run.status, "steer": updated}
 
 
 @router.post("/{run_id}/step")

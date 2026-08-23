@@ -865,6 +865,20 @@ def compile_execution_contract(
                         ),
                     }
                 )
+            if str(node.get("kind") or "") == "agent_loop":
+                raw_allowlist = config.get("skill_allowlist") or []
+                allowlist = [
+                    str(item).strip()
+                    for item in raw_allowlist
+                    if isinstance(item, str) and item.strip()
+                ][:8]
+                node_contracts[node_id]["skill_allowlist"] = allowlist
+                if not allowlist:
+                    raise FlowContractError(
+                        code="agent_loop_allowlist_empty",
+                        message=f"AgentLoop {node_id!r} published with an empty skill_allowlist.",
+                        path=f"nodes/{node_id}/config/skill_allowlist",
+                    )
 
         if str(node.get("kind") or "") == "sink":
             raw_schema = config.get("output_schema")

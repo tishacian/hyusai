@@ -71,6 +71,31 @@ def run_correlation_key(run: Run) -> Optional[str]:
     return None
 
 
+def find_running_agent_loop_runs(
+    db: DBSession,
+    *,
+    system_id: str,
+    correlation_key: Optional[str] = None,
+) -> List[Run]:
+    """Running AgentLoop runs that can absorb a mid-flight steer / event."""
+
+    from app.services.run_engine.agent_loop import run_has_agent_loop
+
+    running = (
+        db.query(Run)
+        .filter(Run.system_id == system_id, Run.status == "running")
+        .order_by(Run.started_at.desc())
+        .all()
+    )
+    matched = [row for row in running if run_has_agent_loop(row)]
+    if not matched:
+        return []
+    if not correlation_key:
+        return matched[:1]
+    exact = [row for row in matched if run_correlation_key(row) == correlation_key]
+    return exact[:1] if exact else []
+
+
 def find_paused_runs_for_event(
     db: DBSession,
     *,
@@ -225,6 +250,10 @@ def try_buffer_event(
     """
     corr = extract_correlation_key(payload)
     paused = find_paused_runs_for_event(db, system_id=system_id, correlation_key=corr)
+    if not paused:
+        paused = find_running_agent_loop_runs(
+            db, system_id=system_id, correlation_key=corr
+        )
     if not paused:
         return None
     target = paused[0]

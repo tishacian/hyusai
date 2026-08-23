@@ -1032,6 +1032,28 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
                         node_id=nid,
                     )
                 )
+        elif kind == "agent_loop":
+            budget = (cfg.get("budget") or {}) if isinstance(cfg.get("budget"), dict) else {}
+            max_turns = budget.get("max_turns", cfg.get("max_turns"))
+            if not isinstance(max_turns, int) or isinstance(max_turns, bool) or max_turns <= 0:
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="agent_loop_no_budget",
+                        message=f"AgentLoop {node.get('label') or nid!r} is missing a positive max_turns budget.",
+                        node_id=nid,
+                    )
+                )
+            allowlist = cfg.get("skill_allowlist")
+            if not isinstance(allowlist, list) or not allowlist or len(allowlist) > 8:
+                issues.append(
+                    ValidationIssue(
+                        level="error",
+                        code="agent_loop_allowlist",
+                        message=f"AgentLoop {node.get('label') or nid!r} needs a skill_allowlist of 1–8 slugs.",
+                        node_id=nid,
+                    )
+                )
         elif kind == "retry":
             attempts = cfg.get("max_attempts")
             if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts <= 0:

@@ -62,6 +62,7 @@ export type NodeKind =
   | 'fork'      // Fan out: N branches run in parallel.
   | 'join'      // Fan in: wait for N incoming branches.
   | 'loop'      // Repeat body until condition or max_iterations.
+  | 'agent_loop' // Bounded think → gate → act loop (chooses next skill).
   | 'retry'     // Retry target on error with backoff.
   | 'hitl'      // Pause for Human-in-the-loop approval.
   | 'subflow'   // Nested execution of another System.
@@ -208,6 +209,20 @@ export interface LoopNodeConfig {
   iterator?: string;
 }
 
+export interface AgentLoopNodeConfig {
+  goal: {
+    objective: string;
+    done_when: string[];
+    status?: 'active' | 'blocked' | 'needs_approval' | 'complete';
+  };
+  decide_skill?: 'decide_next_v1';
+  skill_allowlist: string[];
+  confidence_floor?: number;
+  budget: { max_turns: number; max_cost?: number; deadline_ms?: number };
+  privilege_tier?: 'recommend' | 'act' | 'act_with_approval';
+  on_budget?: 'exit' | 'ask_human';
+}
+
 export interface RetryNodeConfig {
   max_attempts: number;
   backoff_ms: number;
@@ -220,6 +235,7 @@ export interface HitlNodeConfig {
   timeout_ms?: number;
   /** Roles allowed to approve/reject. */
   approvers?: string[];
+  prompt_kind?: 'choice' | 'validate_draft' | 'missing_file' | 'approve_write';
 }
 
 export interface SubflowNodeConfig {
@@ -235,6 +251,7 @@ export type KindConfig =
   | ForkNodeConfig
   | JoinNodeConfig
   | LoopNodeConfig
+  | AgentLoopNodeConfig
   | RetryNodeConfig
   | HitlNodeConfig
   | SubflowNodeConfig
@@ -1149,6 +1166,31 @@ export class FlowSerializerService {
             node_id: n.id,
             code: 'loop_no_budget',
             message: `Loop "${n.label ?? n.id}" is missing a positive max_iterations budget.`,
+          });
+        }
+      }
+      if (kind === 'agent_loop') {
+        const budget = (cfg['budget'] ?? {}) as { max_turns?: unknown };
+        const maxTurns = budget.max_turns ?? cfg['max_turns'];
+        if (
+          typeof maxTurns !== 'number' ||
+          !Number.isSafeInteger(maxTurns) ||
+          maxTurns <= 0
+        ) {
+          issues.push({
+            level: 'error',
+            node_id: n.id,
+            code: 'agent_loop_no_budget',
+            message: `Agent loop "${n.label ?? n.id}" is missing a positive max_turns budget.`,
+          });
+        }
+        const allowlist = cfg['skill_allowlist'];
+        if (!Array.isArray(allowlist) || allowlist.length < 1 || allowlist.length > 8) {
+          issues.push({
+            level: 'error',
+            node_id: n.id,
+            code: 'agent_loop_allowlist',
+            message: `Agent loop "${n.label ?? n.id}" needs a skill_allowlist of 1–8 slugs.`,
           });
         }
       }
