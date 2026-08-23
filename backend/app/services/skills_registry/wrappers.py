@@ -4670,6 +4670,64 @@ def _coerce_plan(
     }
 
 
+async def _decide_next_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """JSON-only next-skill choice inside a mandate-filtered catalog."""
+
+    from app.services.run_engine.agent_loop import (
+        DEFAULT_CONFIDENCE_FLOOR,
+        build_decide_prompt,
+        coerce_decide_output,
+    )
+
+    ctx = ctx or {}
+    visible = payload.get("visible_skills") or ctx.get("visible_skills") or []
+    floor = payload.get("confidence_floor")
+    try:
+        confidence_floor = float(floor) if floor is not None else DEFAULT_CONFIDENCE_FLOOR
+    except (TypeError, ValueError):
+        confidence_floor = DEFAULT_CONFIDENCE_FLOOR
+    prompt = build_decide_prompt(
+        goal=payload.get("goal") or ctx.get("goal") or {},
+        observations=list(payload.get("observations") or ctx.get("observations") or []),
+        visible_skills=list(visible),
+        budget=payload.get("budget") or ctx.get("budget") or {},
+    )
+    model = payload.get("model") or ctx.get("default_model")
+    completion = ""
+    try:
+        completion = await _route_llm_complete(prompt, model, ctx)
+    except Exception as exc:  # noqa: BLE001 — fail-closed, never raise into the walker
+        logger.warning("decide_next_v1: model call failed, blocking", error=str(exc))
+        return coerce_decide_output({}, visible, confidence_floor=confidence_floor)
+    parsed = _loads_lenient_json(completion)
+    if parsed is None:
+        return coerce_decide_output({}, visible, confidence_floor=confidence_floor)
+    return coerce_decide_output(parsed, visible, confidence_floor=confidence_floor)
+
+
+async def _skill_search_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Search only the mandate-visible skill catalog."""
+
+    from app.services.run_engine.agent_loop import compile_mandate_view, skill_search
+
+    ctx = ctx or {}
+    allowlist = payload.get("skill_allowlist") or ctx.get("skill_allowlist") or []
+    mandate = compile_mandate_view(
+        allowlist,
+        privilege_tier=payload.get("privilege_tier") or ctx.get("privilege_tier") or "recommend",
+    )
+    try:
+        limit = int(payload.get("limit") or 8)
+    except (TypeError, ValueError):
+        limit = 8
+    hits = skill_search(str(payload.get("query") or ""), mandate, limit=limit)
+    return {"skills": hits, "count": len(hits)}
+
+
 async def _chat_agentic_plan_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -5256,6 +5314,8 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "chain_naive_v1": (_chain_naive_v1, "app.services.rag.chains.naive", "bound"),
     "chain_hybrid_v1": (_chain_hybrid_v1, "app.services.rag.chains.hybrid", "bound"),
     "chain_mixed_hah_v1": (_chain_mixed_hah_v1, "app.services.rag.chains.mixed_hah", "bound"),
+    "decide_next_v1": (_decide_next_v1, "app.services.model_router", "bound"),
+    "skill_search_v1": (_skill_search_v1, None, "bound"),
     "chat_agentic_plan_v1": (_chat_agentic_plan_v1, "app.services.model_router", "bound"),
     "chat_self_correct_v1": (_chat_self_correct_v1, "app.services.model_router", "bound"),
     "response_eval_v1": (_response_eval_v1, "app.services.metrics.evaluator", "bound"),
