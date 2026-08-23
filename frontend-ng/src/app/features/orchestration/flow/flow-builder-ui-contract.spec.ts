@@ -171,6 +171,43 @@ test('the runtime manifest is collapsed until asked for and the empty canvas off
     /startFromPalette\(\): void \{[\s\S]*?this\.paletteOpen\.set\(true\)/,
     'the call to action opens the one surface that can place a node',
   );
+  assert.doesNotMatch(
+    builder,
+    /loadItsdStarter/,
+    'the overlay starter lives in the inspector, not as a second empty-canvas CTA',
+  );
+});
+
+test('the inspector exposes the AgentLoop envelope and a HumanGate that resumes', () => {
+  const inspector = source('flow-inspector.component.ts');
+  for (const key of [
+    'flow.inspector.section.agent_loop',
+    'flow.inspector.agent_loop.objective',
+    'flow.inspector.agent_loop.done_when',
+    'flow.inspector.agent_loop.allowlist',
+    'flow.inspector.agent_loop.turns',
+    'flow.inspector.agent_loop.confidence',
+    'flow.inspector.agent_loop.privilege',
+    'flow.inspector.agent_loop.cost',
+    'flow.inspector.agent_loop.deadline',
+    'flow.inspector.section.human_gate',
+    'flow.inspector.human_gate.kind',
+  ] as const) {
+    assert.match(inspector, new RegExp(key.replace(/\./g, '\\.')));
+    assert.ok(FLOW_EN[key]?.trim(), `${key} resolves to copy`);
+  }
+  assert.match(inspector, /\(click\)="loadItsdStarter\(\)"/);
+  assert.match(inspector, /ck-flow-empty[\s\S]*?loadItsdStarter\(\)/);
+  assert.match(
+    inspector,
+    /loadItsdStarter\(\): void \{[\s\S]*?itsdAgentLoopStarterFlow\(\)[\s\S]*?setSelection\('loop\.itsd'\)/,
+  );
+  assert.match(FLOW_EN['flow.inspector.agent_loop.hint'], /which skill to call next/);
+  assert.match(FLOW_EN['flow.inspector.human_gate.hint'], /resumes on the same run/);
+  assert.equal(
+    FLOW_EN['flow.inspector.agent_loop.load_starter'],
+    'Load Trigger → Agent loop → Human gate → Output',
+  );
 });
 
 test('canvas and accessible outline are synchronized FlowStore projections', () => {

@@ -91,8 +91,13 @@ test('every trigger type the backend maps to an event is reachable from the pale
   assert.deepEqual(deposit?.outputs?.map((port) => port.name), ['collection_slug', 'file_ids']);
   const agentLoop = DEFAULT_PALETTE.find((item) => item.kind === 'agent_loop');
   assert.equal(agentLoop?.label, 'Agent loop');
+  const allowlist = agentLoop?.config?.['skill_allowlist'];
+  assert.ok(Array.isArray(allowlist));
+  assert.ok(allowlist.length >= 1 && allowlist.length <= 8);
+  assert.equal(agentLoop?.config?.['privilege_tier'], 'act_with_approval');
   const humanGate = DEFAULT_PALETTE.find((item) => item.kind === 'hitl');
   assert.equal(humanGate?.label, 'Human gate');
+  assert.equal(humanGate?.config?.['prompt_kind'], 'approve_write');
 });
 
 test('the visibility verdict and the usage count travel with the palette entry', () => {

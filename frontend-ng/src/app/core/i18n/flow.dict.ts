@@ -39,9 +39,9 @@ export const FLOW_FR = {
     "L'atelier d'essai est ouvert : rien n'est enregistré automatiquement. Fermez-le, ou enregistrez explicitement.",
   'flow.builder.empty.title': 'Commencez votre premier Flow',
   'flow.builder.empty.body':
-    'Trois étapes suffisent : ce qui le démarre, ce qui fait le travail, où part le résultat.',
+    'Trois étapes suffisent : ce qui le démarre, le travail (une skill, ou une boucle agent qui choisit la prochaine), où part le résultat.',
   'flow.builder.empty.step1': '1 · Déclencheur — ce qui démarre le Flow',
-  'flow.builder.empty.step2': '2 · Skill — le travail réalisé',
+  'flow.builder.empty.step2': '2 · Skill ou Boucle agent — le travail, ou l’enveloppe qui choisit',
   'flow.builder.empty.step3': '3 · Sortie — où part le résultat',
   'flow.builder.empty.cta': 'Ajouter le premier nœud',
   'flow.builder.handle.aria': 'Insérer un nœud connecté',
@@ -227,8 +227,10 @@ export const FLOW_FR = {
   'flow.node.kind.fork': 'DIVISION',
   'flow.node.kind.join': 'FUSION',
   'flow.node.kind.loop': 'BOUCLE',
+  'flow.node.kind.agent_loop': 'BOUCLE AGENT',
+  'flow.node.agent_loop.empty_objective': 'Objectif encore vide — ouvrez l’inspecteur',
   'flow.node.kind.retry': 'RÉESSAI',
-  'flow.node.kind.hitl': 'APPROBATION',
+  'flow.node.kind.hitl': 'PORTE HUMAINE',
   'flow.node.kind.subflow': 'SOUS-FLOW',
   'flow.node.kind.skill': 'SKILL',
   'flow.node.kind.runtime': 'EXÉCUTION',
@@ -344,6 +346,10 @@ export const FLOW_FR = {
     'Une branche de cette Décision ne mène nulle part. Tracez sa liaison vers l’étape suivante.',
   'flow.checklist.code.loop_no_budget':
     'La Boucle « {name} » n’a pas de nombre maximum d’itérations. Fixez-en un pour qu’une exécution ne tourne pas indéfiniment.',
+  'flow.checklist.code.agent_loop_no_budget':
+    'La Boucle agent « {name} » n’a pas de nombre maximum de tours. Fixez-en un pour que le choix de la prochaine skill s’arrête.',
+  'flow.checklist.code.agent_loop_allowlist':
+    'La Boucle agent « {name} » doit lister entre 1 et 8 skills autorisées. C’est l’enveloppe : le modèle ne voit que cette liste.',
   'flow.checklist.code.retry_no_target':
     'Le Réessai « {name} » n’a pas de nombre maximum de tentatives. Fixez-en un pour qu’un échec finisse par s’arrêter.',
   'flow.checklist.code.hitl_no_prompt':
@@ -400,7 +406,7 @@ export const FLOW_FR = {
   'flow.inspector.aria': 'Inspecteur de nœud',
   'flow.inspector.empty.title': 'Aucun nœud sélectionné',
   'flow.inspector.empty.body':
-    'Sélectionnez un nœud sur le canevas pour l’inspecter et le modifier.',
+    'Sélectionnez un nœud sur le canevas pour l’inspecter. Ou chargez le départ Déclencheur → Boucle agent → Porte humaine → Sortie.',
   'flow.inspector.close': 'Fermer (Échap)',
   'flow.inspector.close.aria': 'Fermer l’inspecteur',
   'flow.inspector.unsaved': 'Non enregistré',
@@ -417,6 +423,43 @@ export const FLOW_FR = {
   'flow.inspector.field.description.placeholder': 'Ce que fait ce nœud',
   'flow.inspector.section.ports': 'Entrées et sorties',
   'flow.inspector.section.decision': 'Branches de décision',
+  'flow.inspector.section.agent_loop': 'Enveloppe de la boucle agent',
+  'flow.inspector.agent_loop.hint':
+    'Le mou = quelle skill appeler ensuite. Les writes restent derrière une approbation. Le modèle ne voit que la liste autorisée.',
+  'flow.inspector.agent_loop.objective': 'Objectif',
+  'flow.inspector.agent_loop.objective.placeholder':
+    'Le résultat à atteindre, pas les étapes — ex. réinitialiser le mot de passe AD sous la politique ITSD',
+  'flow.inspector.agent_loop.done_when': 'Terminé quand (un critère par ligne)',
+  'flow.inspector.agent_loop.done_when.placeholder': 'identity_verified\naudit_log_v1',
+  'flow.inspector.agent_loop.allowlist': 'Skills que la boucle peut appeler (1 à 8)',
+  'flow.inspector.agent_loop.allowlist.placeholder': 'azure_llm_v1\naudit_log_v1',
+  'flow.inspector.agent_loop.allowlist.count': '{count} / 8 skills dans l’enveloppe',
+  'flow.inspector.agent_loop.turns': 'Tours max.',
+  'flow.inspector.agent_loop.confidence': 'Seuil de confiance',
+  'flow.inspector.agent_loop.privilege': 'Niveau de privilège',
+  'flow.inspector.agent_loop.privilege.recommend': 'Recommander seulement — aucun write',
+  'flow.inspector.agent_loop.privilege.act': 'Agir (lab seulement)',
+  'flow.inspector.agent_loop.privilege.act_with_approval': 'Agir après approbation',
+  'flow.inspector.agent_loop.on_budget': 'Budget épuisé',
+  'flow.inspector.agent_loop.on_budget.exit': 'Sortir — aucun write de plus',
+  'flow.inspector.agent_loop.on_budget.ask_human': 'Demander une personne',
+  'flow.inspector.agent_loop.cost': 'Budget $ (optionnel)',
+  'flow.inspector.agent_loop.deadline': 'Délai en minutes (optionnel)',
+  'flow.inspector.agent_loop.envelope':
+    '{objective} · {turns} tours · {skills}/8 skills · {privilege}',
+  'flow.inspector.agent_loop.apply_itsd': 'Remplir depuis l’overlay mot de passe',
+  'flow.inspector.agent_loop.load_starter':
+    'Charger Déclencheur → Boucle agent → Porte humaine → Sortie',
+  'flow.inspector.section.human_gate': 'Pause structurée',
+  'flow.inspector.human_gate.hint':
+    'La boucle s’arrête ici, puis reprend sur le même run. Jamais un redémarrage.',
+  'flow.inspector.human_gate.prompt': 'Question posée à la personne',
+  'flow.inspector.human_gate.prompt.placeholder': 'Approuver cette écriture ?',
+  'flow.inspector.human_gate.kind': 'Type de décision',
+  'flow.inspector.human_gate.kind.choice': 'Choix A / B',
+  'flow.inspector.human_gate.kind.validate_draft': 'Valider un brouillon',
+  'flow.inspector.human_gate.kind.missing_file': 'Fournir un fichier manquant',
+  'flow.inspector.human_gate.kind.approve_write': 'Approuver une écriture',
   'flow.inspector.decision.add': '+ Branche',
   'flow.inspector.decision.hint':
     'Les conditions sont évaluées de haut en bas. La première qui correspond gagne ; la branche par défaut ne sert que si aucune ne correspond.',
@@ -1023,6 +1066,11 @@ export const FLOW_FR = {
   'flow.palette.desc.fork': 'Déploie des branches parallèles',
   'flow.palette.desc.join': 'Rassemble des branches parallèles',
   'flow.palette.desc.loop': 'Répète jusqu’à un budget ou une condition',
+  'flow.palette.desc.agent_loop':
+    'Boucle bornée : choisit la prochaine skill autorisée jusqu’à l’objectif',
+  'flow.palette.desc.hitl': 'Pause pour une décision humaine, puis reprise',
+  'flow.palette.label.agent_loop': 'Boucle agent',
+  'flow.palette.label.hitl': 'Porte humaine',
   'flow.palette.desc.sink': 'Là où le Flow livre son résultat',
   // Groupe sentinelle de la palette : skills visibles sans Capability porteuse
   // (nom/indice fabriqués par la VM, traduits au rendu via le slug sentinelle).
@@ -1060,9 +1108,9 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'The workbench is open, so nothing is saved automatically. Close it, or save explicitly.',
   'flow.builder.empty.title': 'Start your first Flow',
   'flow.builder.empty.body':
-    'Three steps make a Flow: what starts it, what does the work, where the result goes.',
+    'Three steps make a Flow: what starts it, the work (a skill, or an agent loop that chooses the next one), where the result goes.',
   'flow.builder.empty.step1': '1 · Trigger — what starts the Flow',
-  'flow.builder.empty.step2': '2 · Skill — the work it does',
+  'flow.builder.empty.step2': '2 · Skill or Agent loop — the work, or the envelope that chooses',
   'flow.builder.empty.step3': '3 · Output — where the result goes',
   'flow.builder.empty.cta': 'Add the first node',
   'flow.builder.handle.aria': 'Insert connected node',
@@ -1246,8 +1294,10 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.node.kind.fork': 'SPLIT',
   'flow.node.kind.join': 'MERGE',
   'flow.node.kind.loop': 'LOOP',
+  'flow.node.kind.agent_loop': 'AGENT LOOP',
+  'flow.node.agent_loop.empty_objective': 'Objective still empty — open the inspector',
   'flow.node.kind.retry': 'RETRY',
-  'flow.node.kind.hitl': 'APPROVAL',
+  'flow.node.kind.hitl': 'HUMAN GATE',
   'flow.node.kind.subflow': 'SUBFLOW',
   'flow.node.kind.skill': 'SKILL',
   'flow.node.kind.runtime': 'RUNTIME',
@@ -1360,6 +1410,10 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'One branch of this Decision leads nowhere. Draw its connection to the next step.',
   'flow.checklist.code.loop_no_budget':
     'Loop “{name}” has no maximum number of iterations. Set one so a run cannot spin forever.',
+  'flow.checklist.code.agent_loop_no_budget':
+    'Agent loop “{name}” has no maximum number of turns. Set one so choosing the next skill has to stop.',
+  'flow.checklist.code.agent_loop_allowlist':
+    'Agent loop “{name}” must list between 1 and 8 allowed skills. That list is the envelope: the model sees nothing else.',
   'flow.checklist.code.retry_no_target':
     'Retry “{name}” has no maximum number of attempts. Set one so a failure eventually stops.',
   'flow.checklist.code.hitl_no_prompt':
@@ -1413,7 +1467,8 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   // ---- inspector ---------------------------------------------------------
   'flow.inspector.aria': 'Node inspector',
   'flow.inspector.empty.title': 'No node selected',
-  'flow.inspector.empty.body': 'Select a node on the canvas to inspect and edit it.',
+  'flow.inspector.empty.body':
+    'Select a node on the canvas to inspect it. Or load the Trigger → Agent loop → Human gate → Output start.',
   'flow.inspector.close': 'Close (Esc)',
   'flow.inspector.close.aria': 'Close inspector',
   'flow.inspector.unsaved': 'Unsaved',
@@ -1429,6 +1484,43 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.inspector.field.description.placeholder': 'What this node does',
   'flow.inspector.section.ports': 'Inputs and outputs',
   'flow.inspector.section.decision': 'Decision branches',
+  'flow.inspector.section.agent_loop': 'Agent loop envelope',
+  'flow.inspector.agent_loop.hint':
+    'Softness = which skill to call next. Writes still go through approval. The model only sees the allowed list.',
+  'flow.inspector.agent_loop.objective': 'Objective',
+  'flow.inspector.agent_loop.objective.placeholder':
+    'The result to reach, not the steps — e.g. reset the AD password under ITSD policy',
+  'flow.inspector.agent_loop.done_when': 'Done when (one criterion per line)',
+  'flow.inspector.agent_loop.done_when.placeholder': 'identity_verified\naudit_log_v1',
+  'flow.inspector.agent_loop.allowlist': 'Skills the loop may call (1 to 8)',
+  'flow.inspector.agent_loop.allowlist.placeholder': 'azure_llm_v1\naudit_log_v1',
+  'flow.inspector.agent_loop.allowlist.count': '{count} / 8 skills in the envelope',
+  'flow.inspector.agent_loop.turns': 'Max turns',
+  'flow.inspector.agent_loop.confidence': 'Confidence floor',
+  'flow.inspector.agent_loop.privilege': 'Privilege tier',
+  'flow.inspector.agent_loop.privilege.recommend': 'Recommend only — no writes',
+  'flow.inspector.agent_loop.privilege.act': 'Act (lab only)',
+  'flow.inspector.agent_loop.privilege.act_with_approval': 'Act after approval',
+  'flow.inspector.agent_loop.on_budget': 'When the budget is spent',
+  'flow.inspector.agent_loop.on_budget.exit': 'Exit — no further writes',
+  'flow.inspector.agent_loop.on_budget.ask_human': 'Ask a person',
+  'flow.inspector.agent_loop.cost': 'Budget $ (optional)',
+  'flow.inspector.agent_loop.deadline': 'Deadline in minutes (optional)',
+  'flow.inspector.agent_loop.envelope':
+    '{objective} · {turns} turns · {skills}/8 skills · {privilege}',
+  'flow.inspector.agent_loop.apply_itsd': 'Fill from the password-reset overlay',
+  'flow.inspector.agent_loop.load_starter':
+    'Load Trigger → Agent loop → Human gate → Output',
+  'flow.inspector.section.human_gate': 'Structured pause',
+  'flow.inspector.human_gate.hint':
+    'The loop stops here, then resumes on the same run. Never a restart.',
+  'flow.inspector.human_gate.prompt': 'Question for the person',
+  'flow.inspector.human_gate.prompt.placeholder': 'Approve this write?',
+  'flow.inspector.human_gate.kind': 'Decision type',
+  'flow.inspector.human_gate.kind.choice': 'Choice A / B',
+  'flow.inspector.human_gate.kind.validate_draft': 'Validate a draft',
+  'flow.inspector.human_gate.kind.missing_file': 'Provide a missing file',
+  'flow.inspector.human_gate.kind.approve_write': 'Approve a write',
   'flow.inspector.decision.add': '+ Branch',
   'flow.inspector.decision.hint':
     'Conditions run top to bottom. The first match wins; the default branch is used only when nothing matches.',
@@ -2027,6 +2119,11 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.palette.desc.fork': 'Fan out parallel branches',
   'flow.palette.desc.join': 'Fan in parallel branches',
   'flow.palette.desc.loop': 'Repeat until a budget or condition',
+  'flow.palette.desc.agent_loop':
+    'Bounded loop: chooses the next allowed skill until the objective',
+  'flow.palette.desc.hitl': 'Pause for a human decision, then resume',
+  'flow.palette.label.agent_loop': 'Agent loop',
+  'flow.palette.label.hitl': 'Human gate',
   'flow.palette.desc.sink': 'Where the Flow delivers its result',
   // Palette sentinel group: skills visible without a carrying Capability
   // (name/hint built by the VM, translated at render via the sentinel slug).

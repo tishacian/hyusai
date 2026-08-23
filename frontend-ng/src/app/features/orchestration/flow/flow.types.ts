@@ -282,7 +282,7 @@ export const DEFAULT_PALETTE: PaletteItem[] = [
     config: {
       skill_slug: 'decide_next_v1',
       decide_skill: 'decide_next_v1',
-      skill_allowlist: [],
+      skill_allowlist: ['azure_llm_v1', 'audit_log_v1', 'semantic_search_v1'],
       confidence_floor: 0.55,
       privilege_tier: 'act_with_approval',
       on_budget: 'exit',
