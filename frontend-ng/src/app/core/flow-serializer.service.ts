@@ -418,6 +418,8 @@ export interface FlowValidationIssue {
     | 'variable_contract_invalid'
     | 'hitl_no_prompt'
     | 'loop_no_budget'
+    | 'agent_loop_no_budget'
+    | 'agent_loop_allowlist'
     | 'retry_no_target'
     | 'ingress_kind_invalid'
     | 'ingress_node_kind_invalid'
