@@ -14,6 +14,7 @@ vocabulary introduced by FlowSerializer v2:
 * ``hitl``                           — pause the run, await operator
                                        ``accept`` / ``reject`` on a Decision
 * ``loop``                           — iterate a Skill over a context list
+* ``agent_loop``                     — bounded think → gate → act → observe loop
 
 The walker is a Kahn-style ready queue: a node becomes ready once every
 incoming edge has been "delivered". Fan-out is materialised by firing
@@ -316,7 +317,7 @@ class DagGraph:
         return [nid for nid, ins in self.in_edges.items() if not ins]
 
 
-_SKILL_EXECUTING_NODE_KINDS = frozenset({"task", "retry", "loop"})
+_SKILL_EXECUTING_NODE_KINDS = frozenset({"task", "retry", "loop", "agent_loop"})
 
 
 def validate_graph_skill_bindings(
@@ -369,6 +370,28 @@ def validate_graph_skill_bindings(
                 code="flow_skill_binding_ambiguous",
                 field=field,
             )
+        if node.kind == "agent_loop":
+            allowlist = (node.config or {}).get("skill_allowlist") or []
+            if not isinstance(allowlist, list):
+                continue
+            for item in allowlist:
+                extra = str(item or "").strip()
+                if not extra:
+                    continue
+                extra_field = f"flow_definition.nodes.{node.id}.config.skill_allowlist"
+                extra_matches = bound_by_slug.get(extra, 0)
+                if extra_matches == 0:
+                    raise SystemCatalogBindingError(
+                        "AgentLoop allowlist Skill is not bound to the System",
+                        code="flow_skill_not_bound",
+                        field=extra_field,
+                    )
+                if extra_matches != 1:
+                    raise SystemCatalogBindingError(
+                        "AgentLoop allowlist Skill binding is ambiguous",
+                        code="flow_skill_binding_ambiguous",
+                        field=extra_field,
+                    )
 
 
 # ---------------------------------------------------------------------------
@@ -848,6 +871,7 @@ async def resume_run_dag(
         # ``_run_subflow`` then drives the recorded child to completion rather
         # than spawning a duplicate child Run.
         is_subflow_pause = paused_node is not None and paused_node.kind == "subflow"
+        is_agent_loop_pause = paused_node is not None and paused_node.kind == "agent_loop"
 
         dec = None
         checkpoint_decision_id = pause_cp.get("decision_id")
@@ -898,6 +922,21 @@ async def resume_run_dag(
             # Nothing to settle for the parent — the child resume (driven by
             # ``_run_subflow`` on re-entry) owns the decision and its own ctx.
             pass
+        elif is_agent_loop_pause:
+            # Intra-loop HumanGate: the agent_loop node is still unfinished.
+            # Re-entry continues turns from ``ctx._agent_loop`` + this verdict.
+            state.ctx["hitl_approved"] = approved
+            state.ctx["hitl_decision"] = dec.status if dec else None
+            loops = dict(state.ctx.get("_agent_loop") or {})
+            loop_state = dict(loops.get(hitl_node_id) or {})
+            loop_state["human"] = {
+                "approved": approved,
+                "rejected": rejected,
+                "decision_id": target_decision_id,
+                "decision_status": dec.status if dec else None,
+            }
+            loops[hitl_node_id] = loop_state
+            state.ctx["_agent_loop"] = loops
         elif hitl_node_id and hitl_node_id in graph.nodes:
             hitl_output = {
                 "approved": approved,
@@ -983,7 +1022,7 @@ async def _walk(
         serial: List[str] = []
         for nid in ready:
             kind = graph.nodes[nid].kind
-            serial_kind = kind in ("hitl", "loop") or (
+            serial_kind = kind in ("hitl", "loop", "agent_loop") or (
                 kind == "subflow" and not subflow_celery_enabled(system)
             )
             (serial if serial_kind else parallel).append(nid)
@@ -2214,6 +2253,17 @@ async def _execute_node(
             )
             return result
 
+        if node.kind == "agent_loop":
+            result = await _run_agent_loop(
+                db,
+                run,
+                node,
+                state,
+                control=control,
+                upstream=node_input,
+            )
+            return result
+
         if node.kind == "hitl":
             result = _run_hitl(db, run, node, state, control=control, upstream=node_input)
             return result
@@ -2820,6 +2870,384 @@ async def _run_loop(
     }
 
 
+async def _run_agent_loop(
+    db: DBSession,
+    run: Run,
+    node: DagNode,
+    state: WalkerState,
+    *,
+    control,
+    upstream: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Bounded think → gate → act loop. Does not call ``_run_loop``."""
+
+    from app.services.run_engine.agent_loop import (
+        DECIDE_SKILL,
+        DEFAULT_CONFIDENCE_FLOOR,
+        apply_steer,
+        budget_exhausted,
+        clamp_max_turns,
+        coerce_decide_output,
+        coerce_privilege_tier,
+        compile_mandate_view,
+        evaluate_done_when,
+        gate_skill,
+    )
+
+    config = node.config or {}
+    merged = dict(upstream or {})
+    goal = dict(config.get("goal") or merged.get("goal") or {})
+    if not goal.get("objective"):
+        goal["objective"] = str(merged.get("objective") or goal.get("objective") or "")
+    goal.setdefault("done_when", list(config.get("done_when") or goal.get("done_when") or []))
+    goal.setdefault("status", "active")
+    allowlist = list(config.get("skill_allowlist") or merged.get("skill_allowlist") or [])
+    decide_slug = (
+        config.get("decide_skill") or node.skill_slug or DECIDE_SKILL
+    )
+    try:
+        floor = float(config.get("confidence_floor") if config.get("confidence_floor") is not None else DEFAULT_CONFIDENCE_FLOOR)
+    except (TypeError, ValueError):
+        floor = DEFAULT_CONFIDENCE_FLOOR
+    budget_cfg = config.get("budget") if isinstance(config.get("budget"), dict) else {}
+    max_turns = clamp_max_turns(budget_cfg.get("max_turns") or config.get("max_turns"))
+    try:
+        max_cost = float(budget_cfg["max_cost"]) if budget_cfg.get("max_cost") is not None else None
+    except (TypeError, ValueError):
+        max_cost = None
+    try:
+        deadline_ms = float(budget_cfg["deadline_ms"]) if budget_cfg.get("deadline_ms") is not None else None
+    except (TypeError, ValueError):
+        deadline_ms = None
+    on_budget = str(config.get("on_budget") or "exit")
+    privilege = coerce_privilege_tier(config.get("privilege_tier"))
+    if merged.get("_fork_branches") or config.get("worker_read_only"):
+        privilege = "recommend"
+
+    steer_raw = {}
+    if isinstance(run.input_ref, dict):
+        steer_raw = dict(run.input_ref.get("_steer") or {})
+    if steer_raw:
+        steered = apply_steer(
+            {"privilege_tier": privilege, "skill_allowlist": allowlist},
+            op=str(steer_raw.get("op") or "set_tier"),
+            privilege_tier=steer_raw.get("privilege_tier"),
+            skill_allowlist=steer_raw.get("skill_allowlist"),
+            note=steer_raw.get("note"),
+            escalate_to=steer_raw.get("escalate_to"),
+        )
+        privilege = coerce_privilege_tier(steered.get("privilege_tier"), default=privilege)
+        if steered.get("skill_allowlist"):
+            allowlist = list(steered["skill_allowlist"])
+
+    loops = dict(state.ctx.get("_agent_loop") or {})
+    resume = dict(loops.get(node.id) or {})
+    observations: List[Dict[str, Any]] = list(resume.get("observations") or [])
+    if steer_raw.get("note"):
+        observations.append(
+            {
+                "turn": int(resume.get("next_turn") or 1),
+                "skill": "steer",
+                "ok": True,
+                "summary": str(steer_raw.get("note")),
+            }
+        )
+    start_turn = int(resume.get("next_turn") or 1)
+    pending_write = resume.get("pending_write")
+    human = resume.get("human") if isinstance(resume.get("human"), dict) else {}
+    if human and not pending_write:
+        observations.append(
+            {
+                "turn": max(start_turn - 1, 1),
+                "skill": "human",
+                "ok": bool(human.get("approved")),
+                "summary": "human_approved" if human.get("approved") else "human_rejected",
+            }
+        )
+        if human.get("rejected"):
+            goal["status"] = "blocked"
+            loops[node.id] = {
+                "observations": observations,
+                "next_turn": start_turn,
+                "goal": goal,
+                "pending_write": None,
+            }
+            state.ctx["_agent_loop"] = loops
+            return {
+                "output": {
+                    "goal": goal,
+                    "observations": observations,
+                    "exit": "blocked",
+                    "turns": start_turn,
+                    "privilege_tier": privilege,
+                    "visible_skills": [],
+                }
+            }
+
+    mandate = compile_mandate_view(allowlist, control=control, privilege_tier=privilege)
+    visible = [item.to_dict() for item in mandate.visible]
+    start_ms = state.accumulated_ms
+
+    async def _invoke(slug: str, payload: Dict[str, Any], *, turn: int, kind: str):
+        invocation = await _execute_task_node(
+            db,
+            run,
+            {**state.ctx, **merged},
+            slug,
+            control=control,
+            last_output=payload,
+            node_id=node.id,
+            resolved_input=payload,
+            attempt_kind=kind,
+            attempt_index=turn,
+        )
+        if invocation is not None:
+            state.invocation_ids.append(invocation.id)
+            state.total_cost += invocation.cost or 0.0
+        return invocation
+
+    def _persist_resume(next_turn: int, extra: Optional[Dict[str, Any]] = None) -> None:
+        loops[node.id] = {
+            "observations": observations,
+            "next_turn": next_turn,
+            "goal": goal,
+            "pending_write": pending_write,
+            **(extra or {}),
+        }
+        state.ctx["_agent_loop"] = loops
+
+    def _output(*, exit_value: Optional[str]) -> Dict[str, Any]:
+        return {
+            "goal": goal,
+            "observations": observations,
+            "exit": exit_value,
+            "turns": start_turn,
+            "privilege_tier": privilege,
+            "visible_skills": [row["slug"] for row in visible],
+        }
+
+    if pending_write:
+        if human.get("approved"):
+            invocation = await _invoke(
+                str(pending_write),
+                {**merged, "observations": observations, "goal": goal},
+                turn=max(start_turn - 1, 1),
+                kind="agent_loop_act",
+            )
+            ok = bool(invocation is not None and invocation.status == "completed")
+            observations.append(
+                {
+                    "turn": max(start_turn - 1, 1),
+                    "skill": pending_write,
+                    "ok": ok,
+                    "summary": "human_approved_write" if ok else "write_failed",
+                }
+            )
+            pending_write = None
+            _persist_resume(start_turn)
+            if evaluate_done_when(goal.get("done_when") or [], observations=observations, claimed=True):
+                goal["status"] = "complete"
+                return {"output": _output(exit_value="complete")}
+        else:
+            goal["status"] = "blocked"
+            observations.append(
+                {
+                    "turn": max(start_turn - 1, 1),
+                    "skill": pending_write,
+                    "ok": False,
+                    "summary": "human_rejected_write",
+                }
+            )
+            pending_write = None
+            _persist_resume(start_turn)
+            return {"output": _output(exit_value="blocked")}
+
+    for turn in range(start_turn, max_turns + 1):
+        elapsed = state.accumulated_ms - start_ms + (time.monotonic() - state.start_monotonic) * 1000
+        if budget_exhausted(
+            turn=turn,
+            max_turns=max_turns,
+            total_cost=state.total_cost,
+            max_cost=max_cost,
+            elapsed_ms=elapsed,
+            deadline_ms=deadline_ms,
+        ) or turn > max_turns:
+            goal["status"] = "blocked" if on_budget != "ask_human" else "needs_approval"
+            if on_budget == "ask_human":
+                _persist_resume(turn)
+                return await _pause_agent_loop_for_human(
+                    db,
+                    run,
+                    node,
+                    state,
+                    control=control,
+                    prompt="Loop budget exhausted. Continue or stop?",
+                    upstream=merged,
+                )
+            return {"output": _output(exit_value="budget")}
+
+        remaining = {
+            "turns_left": max_turns - turn + 1,
+            "cost_left": None if max_cost is None else max(0.0, max_cost - state.total_cost),
+            "deadline_ms_left": None if deadline_ms is None else max(0.0, deadline_ms - elapsed),
+        }
+        decide_payload = {
+            "goal": goal,
+            "observations": observations,
+            "visible_skills": visible,
+            "budget": remaining,
+            "confidence_floor": floor,
+            "agent_loop_node_id": node.id,
+        }
+        invocation = await _invoke(
+            str(decide_slug),
+            decide_payload,
+            turn=turn,
+            kind="agent_loop_decide",
+        )
+        raw = (
+            invocation.output_ref
+            if invocation is not None and isinstance(invocation.output_ref, dict)
+            else {}
+        )
+        decide = coerce_decide_output(raw, visible, confidence_floor=floor)
+        _append_checkpoint(
+            db,
+            run,
+            {
+                "kind": "agent_loop_turn",
+                "t": datetime.utcnow().isoformat(),
+                "node_id": node.id,
+                "turn": turn,
+                "decide": decide,
+                "skill": decide.get("next_skill"),
+                "cost": state.total_cost,
+            },
+        )
+
+        if decide.get("needs_human") or decide.get("exit") == "ask_human":
+            goal["status"] = "needs_approval"
+            _persist_resume(turn + 1)
+            return await _pause_agent_loop_for_human(
+                db,
+                run,
+                node,
+                state,
+                control=control,
+                prompt=decide.get("human_prompt") or "The agent needs a human decision.",
+                upstream=merged,
+            )
+
+        if decide.get("exit") in {"blocked", "policy_block", "budget"}:
+            goal["status"] = "blocked"
+            return {"output": _output(exit_value=decide.get("exit"))}
+
+        claimed_done = bool(decide.get("done") or decide.get("exit") == "complete")
+        if claimed_done and evaluate_done_when(
+            goal.get("done_when") or [],
+            observations=observations,
+            claimed=True,
+        ):
+            goal["status"] = "complete"
+            return {"output": _output(exit_value="complete")}
+
+        next_skill = decide.get("next_skill")
+        if not next_skill:
+            if claimed_done:
+                goal["status"] = "active"
+            else:
+                goal["status"] = "blocked"
+            return {"output": _output(exit_value=decide.get("exit") or "blocked")}
+
+        gate = gate_skill(str(next_skill), mandate)
+        if not gate.allowed:
+            _append_checkpoint(
+                db,
+                run,
+                {
+                    "kind": "agent_loop_policy_block",
+                    "node_id": node.id,
+                    "turn": turn,
+                    "skill": next_skill,
+                    "reason": gate.reason,
+                },
+            )
+            if gate.needs_human:
+                pending_write = str(next_skill)
+                goal["status"] = "needs_approval"
+                _persist_resume(turn + 1)
+                return await _pause_agent_loop_for_human(
+                    db,
+                    run,
+                    node,
+                    state,
+                    control=control,
+                    prompt=f"Approve write skill {next_skill}?",
+                    upstream=merged,
+                    prompt_kind="approve_write",
+                )
+            goal["status"] = "blocked"
+            return {"output": _output(exit_value="policy_block")}
+
+        invocation = await _invoke(
+            str(next_skill),
+            {**merged, "goal": goal, "observations": observations, "decide": decide},
+            turn=turn,
+            kind="agent_loop_act",
+        )
+        ok = bool(invocation is not None and invocation.status == "completed")
+        summary = ""
+        if invocation is not None and isinstance(invocation.output_ref, dict):
+            summary = str(
+                invocation.output_ref.get("summary")
+                or invocation.output_ref.get("completion")
+                or invocation.output_ref.get("status")
+                or ""
+            )
+        observations.append(
+            {"turn": turn, "skill": next_skill, "ok": ok, "summary": summary}
+        )
+        if evaluate_done_when(
+            goal.get("done_when") or [],
+            observations=observations,
+            claimed=bool(decide.get("done")),
+        ):
+            goal["status"] = "complete"
+            return {"output": _output(exit_value="complete")}
+
+    goal["status"] = "blocked"
+    return {"output": _output(exit_value="budget")}
+
+
+async def _pause_agent_loop_for_human(
+    db: DBSession,
+    run: Run,
+    node: DagNode,
+    state: WalkerState,
+    *,
+    control,
+    prompt: str,
+    upstream: Dict[str, Any],
+    prompt_kind: str = "choice",
+) -> Dict[str, Any]:
+    """HITL pause owned by the agent_loop node so resume re-enters the loop."""
+
+    hitl_node = DagNode(
+        id=node.id,
+        type=node.type,
+        kind="hitl",
+        label=node.label,
+        config={
+            "prompt": prompt,
+            "prompt_kind": prompt_kind,
+            "approvers": (node.config or {}).get("approvers") or [],
+        },
+        skill_slug=None,
+        data=node.data,
+    )
+    return _run_hitl(db, run, hitl_node, state, control=control, upstream=upstream)
+
+
 def _run_hitl(
     db: DBSession,
     run: Run,
@@ -2856,6 +3284,7 @@ def _run_hitl(
         "node_id": node.id,
         "node_label": node.label,
         "prompt": prompt,
+        "prompt_kind": config.get("prompt_kind") or "approve_write",
         "approvers": approvers,
         "membrane_gate": membrane_gate,
         "ctx_snapshot": _sanitize(state.ctx),

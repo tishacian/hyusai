@@ -635,6 +635,24 @@ test('ingress kind typos and inbound source nodes are blocking', () => {
   );
 });
 
+test('agent loop requires a turn budget and a compact allowlist', () => {
+  const flow: CanonicalFlow = {
+    schema_version: 3,
+    nodes: [
+      {
+        id: 'loop.itsd',
+        type: 'agent_loop',
+        kind: 'agent_loop',
+        config: { budget: { max_turns: 0 }, skill_allowlist: [] },
+      },
+    ],
+    edges: [],
+  };
+  const codes = svc().validateFlow(flow).map((issue) => issue.code);
+  assert.ok(codes.includes('agent_loop_no_budget'));
+  assert.ok(codes.includes('agent_loop_allowlist'));
+});
+
 test('loop and retry budgets must be finite positive integers', () => {
   for (const [kind, field] of [
     ['loop', 'max_iterations'],

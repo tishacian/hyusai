@@ -20,7 +20,7 @@ RUNTIME_MODES: frozenset[str] = frozenset(
     {"dag_strict", "dag_overlay", "sequential_legacy"}
 )
 CONTROL_KINDS: frozenset[str] = frozenset(
-    {"decision", "fork", "join", "retry", "hitl", "subflow", "loop"}
+    {"decision", "fork", "join", "retry", "hitl", "subflow", "loop", "agent_loop"}
 )
 WORKBENCH_EXECUTION_SURFACES: frozenset[str] = frozenset(
     {"builder_preview", "node_preview", "golden_preview"}
