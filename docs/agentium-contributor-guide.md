@@ -156,6 +156,11 @@ commit. A dirty `git status` is not a parking lot: finish or stash.
 
 - Bitbucket: `datategy-root/omnirag`, push rights on `demo/agentic`.
 - SSH alias `omnirag-demo` with sudo (VM access — needed for releases only).
+  Host `217.182.104.99` = `agentium.papai.ai`, user `ubuntu`. A Cloud Agent
+  environment must carry that private key (or have its pubkey in the VM
+  `authorized_keys`). Port 22 reachable + `Permission denied (publickey)`
+  means the iteration loop stops at release-process §3 — do not rsync around
+  it.
 - A demo account on `https://agentium.papai.ai` for manual QA.
 
 ## 9. Reading list, in order

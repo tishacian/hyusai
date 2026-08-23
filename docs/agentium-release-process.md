@@ -59,6 +59,11 @@ prefix is `<sha12>`).
 The worktree is root-administered and its tracking refs are **not** the ones
 you fetch — always merge `FETCH_HEAD`, and always with `--ff-only`:
 
+A Cloud Agent without a key accepted by `ubuntu@217.182.104.99` cannot
+run this section. Authorize the agent's pubkey (or inject the operator
+key as an environment secret) first. `Permission denied (publickey)` is
+a hard stop — never `rsync`/`scp` the tree to skip it.
+
 ```bash
 ssh omnirag-demo
 sudo git -C /srv/agentium-data/worktrees/demo-agentic fetch origin demo/agentic
