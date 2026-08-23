@@ -31,17 +31,22 @@ Read [`mental-model.md`](./mental-model.md) first. Then
 
 ## 2. The branch
 
-`demo/agentic` is both the integration branch and the deployed branch. Rules:
+`demo/agentic` is both the integration branch and the deployed branch. It is
+the place of record. Rules:
 
 - Start from an up-to-date branch: `git checkout demo/agentic && git pull
   --ff-only origin demo/agentic`. For isolated work, branch off
-  (`feat/<topic>`) and merge back into `demo/agentic`.
+  (`feat/<topic>`, or a Cloud-agent `cursor/<topic>` branch) and merge back
+  with `--ff-only`. After the land, keep working **on** `demo/agentic` —
+  the topic branch is not a second integration line.
 - Conventional commits, message explains the **why**:
   `feat(experience): …`, `fix(rag): …`, `docs(ops): …`.
 - Never force-push. Never rewrite pushed history.
 - Commit, push, and deploy only on explicit request/approval — the repo policy
   treats each of these as a separate GO
-  ([`dev-deploy-policy.md`](./dev-deploy-policy.md)).
+  ([`dev-deploy-policy.md`](./dev-deploy-policy.md)). Landing on
+  `origin/demo/agentic` is **not** a VM switch; that is the
+  [release process](./agentium-release-process.md).
 - Never `rsync`/`scp` code to the VM. Code reaches the VM through git only.
 
 ## 3. Repo map
@@ -162,3 +167,4 @@ commit. A dirty `git status` is not a parking lot: finish or stash.
 5. [`dev-deploy-policy.md`](./dev-deploy-policy.md) — the git/deploy policy and its anti-patterns.
 6. [`agentium-release-process.md`](./agentium-release-process.md) — how a commit reaches the VM.
 7. [`ops/agentium-safe-vm-deployment.md`](./ops/agentium-safe-vm-deployment.md) — the full operator runbook (milestones, incidents, storage protections).
+8. [`agent-loop-openclaw-dev-plan.md`](./agent-loop-openclaw-dev-plan.md) — AgentLoop contract (deterministic envelope, non-deterministic interior). Lands on `demo/agentic`; deploy remains the release process.
