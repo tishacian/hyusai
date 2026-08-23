@@ -87,7 +87,7 @@ const MOST_USED_LIMIT = 5;
         (click)="onPick(item)"
       >
         <app-icon class="ck-flow-palette__row-icon" [name]="item.icon" [size]="13" />
-        <span class="ck-flow-palette__row-name">{{ item.label }}</span>
+        <span class="ck-flow-palette__row-name">{{ itemName(item) }}</span>
         <span class="ck-flow-palette__row-intent">{{ intent(item) }}</span>
         @if (isInFlow(item)) {
           <span class="ck-flow-palette__row-flag" [title]="i18n.t('flow.palette.row.in_flow.hint')">{{
@@ -630,6 +630,14 @@ export class FlowPaletteComponent {
     const key = `flow.palette.desc.${item.type}`;
     const label = this.i18n.t(key);
     return label === key ? item.description : label;
+  }
+
+  /** Structural labels are chrome (`flow.palette.label.<type>`); catalog
+   *  skill names stay data and keep the raw `item.label`. */
+  protected itemName(item: PaletteItem): string {
+    const key = `flow.palette.label.${item.type}`;
+    const label = this.i18n.t(key);
+    return label === key ? item.label : label;
   }
 
   /** The VM's sentinel "uncarried" bucket is chrome; real Capability names

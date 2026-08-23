@@ -3,9 +3,9 @@
  *
  * Projects the live `/skills` catalog (each Skill carrying its typed
  * `input_schema`) into `PaletteItem`s the palette can render and drop. The
- * structural graph primitives (source / sink / decision / fork / join / loop)
- * stay client-defined in `DEFAULT_PALETTE` — they are graph semantics, not
- * catalog entries.
+ * structural graph primitives (source / sink / decision / fork / join / loop /
+ * agent_loop / hitl) stay client-defined in `DEFAULT_PALETTE` — they are graph
+ * semantics, not catalog entries.
  *
  * Two things beyond the entries themselves, both already served and until now
  * unconsumed:

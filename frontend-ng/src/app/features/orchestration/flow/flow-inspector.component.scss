@@ -286,6 +286,23 @@
   }
 }
 
+.ck-flow-agent-loop__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.ck-flow-agent-loop__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ck-flow-hint--mono {
+  font-family: var(--ck-font-mono, monospace);
+  font-size: 11px;
+}
+
 .ck-flow-field__label {
   font: 600 10px / 1 var(--ck-font-mono, monospace);
   letter-spacing: 0.1em;

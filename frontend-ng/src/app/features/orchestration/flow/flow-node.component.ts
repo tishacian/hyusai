@@ -209,7 +209,15 @@ export class FlowNodeComponent {
     const runtime = cfg['runtime_ref'] ?? data['runtime_ref'];
     if (typeof runtime === 'string' && runtime.trim()) return runtime.trim();
     const skill = cfg['skill_slug'];
-    if (typeof skill === 'string' && skill.trim()) return skill.trim();
+    if (typeof skill === 'string' && skill.trim() && (node.kind ?? 'task') !== 'agent_loop') {
+      return skill.trim();
+    }
+    if ((node.kind ?? 'task') === 'agent_loop') {
+      const cfgBag = (node.config ?? {}) as Record<string, unknown>;
+      const goal = (cfgBag['goal'] ?? {}) as Record<string, unknown>;
+      const objective = typeof goal['objective'] === 'string' ? goal['objective'].trim() : '';
+      return objective || this.i18n.t('flow.node.agent_loop.empty_objective');
+    }
     return null;
   });
 
@@ -227,9 +235,11 @@ export class FlowNodeComponent {
       case 'subflow':
         return 'violet';
       case 'loop':
+      case 'agent_loop':
       case 'retry':
-      case 'hitl':
         return 'amber';
+      case 'hitl':
+        return 'rose';
       default:
         break;
     }

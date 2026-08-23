@@ -50,6 +50,27 @@ import { FlowTriggersPanelComponent } from './flow-triggers-panel.component';
 import { FlowIngressEditorComponent } from './flow-ingress-editor.component';
 import { FlowDecisionBindingsComponent } from './flow-decision-bindings.component';
 import { FlowSchemaEditorComponent } from './flow-schema-editor.component';
+import {
+  PRIVILEGE_TIERS,
+  PROMPT_KINDS,
+  agentLoopEnvelopeParts,
+  clampConfidence,
+  clampTurns,
+  deadlineMinutes,
+  formatDoneWhen,
+  formatSlugList,
+  itsdAgentLoopStarterFlow,
+  itsdOverlayLoopConfig,
+  minutesToDeadlineMs,
+  parseDoneWhen,
+  parseOptionalCost,
+  parseSlugList,
+  readAgentLoopConfig,
+  readHitlConfig,
+  type OnBudget,
+  type PrivilegeTier,
+  type PromptKind,
+} from './agent-loop-inspector.vm';
 
 /** Engine kind of the node the lexicon calls an Output. */
 const OUTPUT_NODE_KIND = 'sink';
@@ -199,6 +220,171 @@ export function buildRetrievalDocumentOptions(
               ></textarea>
             </label>
           </section>
+
+          @if ((n.kind ?? 'task') === 'agent_loop') {
+            <section class="ck-flow-section ck-flow-agent-loop">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.agent_loop') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.agent_loop.hint') }}</p>
+              @if (agentLoopLine(n); as line) {
+                <p class="ck-flow-hint ck-flow-hint--mono">{{
+                  i18n.t('flow.inspector.agent_loop.envelope', {
+                    objective: line.objective || '—',
+                    turns: line.turns,
+                    skills: line.skills,
+                    privilege: line.privilege,
+                  })
+                }}</p>
+              }
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.objective') }}</span>
+                <textarea
+                  class="ck-flow-input ck-flow-input--area"
+                  rows="3"
+                  [value]="agentLoopConfig(n).goal.objective"
+                  (input)="onAgentLoopObjective($event)"
+                  [attr.placeholder]="i18n.t('flow.inspector.agent_loop.objective.placeholder')"
+                ></textarea>
+              </label>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.done_when') }}</span>
+                <textarea
+                  class="ck-flow-input ck-flow-input--area"
+                  rows="3"
+                  [value]="formatDoneWhen(agentLoopConfig(n).goal.done_when)"
+                  (input)="onAgentLoopDoneWhen($event)"
+                  [attr.placeholder]="i18n.t('flow.inspector.agent_loop.done_when.placeholder')"
+                ></textarea>
+              </label>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.allowlist') }}</span>
+                <textarea
+                  class="ck-flow-input ck-flow-input--area"
+                  rows="4"
+                  [value]="formatSlugList(agentLoopConfig(n).skill_allowlist)"
+                  (input)="onAgentLoopAllowlist($event)"
+                  [attr.placeholder]="i18n.t('flow.inspector.agent_loop.allowlist.placeholder')"
+                ></textarea>
+                <p class="ck-flow-hint">{{
+                  i18n.t('flow.inspector.agent_loop.allowlist.count', {
+                    count: agentLoopConfig(n).skill_allowlist.length,
+                  })
+                }}</p>
+              </label>
+              <div class="ck-flow-agent-loop__row">
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.turns') }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="number"
+                    min="1"
+                    max="32"
+                    [value]="agentLoopConfig(n).budget.max_turns"
+                    (input)="onAgentLoopTurns($event)"
+                  />
+                </label>
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.confidence') }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    [value]="agentLoopConfig(n).confidence_floor"
+                    (input)="onAgentLoopConfidence($event)"
+                  />
+                </label>
+              </div>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.privilege') }}</span>
+                <select
+                  class="ck-flow-input"
+                  [value]="agentLoopConfig(n).privilege_tier"
+                  (change)="onAgentLoopPrivilege($event)"
+                >
+                  @for (tier of privilegeTiers; track tier) {
+                    <option [value]="tier">{{ i18n.t('flow.inspector.agent_loop.privilege.' + tier) }}</option>
+                  }
+                </select>
+              </label>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.on_budget') }}</span>
+                <select
+                  class="ck-flow-input"
+                  [value]="agentLoopConfig(n).on_budget"
+                  (change)="onAgentLoopOnBudget($event)"
+                >
+                  <option value="exit">{{ i18n.t('flow.inspector.agent_loop.on_budget.exit') }}</option>
+                  <option value="ask_human">{{ i18n.t('flow.inspector.agent_loop.on_budget.ask_human') }}</option>
+                </select>
+              </label>
+              <div class="ck-flow-agent-loop__row">
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.cost') }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    [value]="agentLoopConfig(n).budget.max_cost ?? ''"
+                    (input)="onAgentLoopCost($event)"
+                  />
+                </label>
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.agent_loop.deadline') }}</span>
+                  <input
+                    class="ck-flow-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    [value]="deadlineMinutes(agentLoopConfig(n).budget.deadline_ms)"
+                    (input)="onAgentLoopDeadline($event)"
+                  />
+                </label>
+              </div>
+              <div class="ck-flow-agent-loop__actions">
+                <button type="button" class="ck-flow-mini-action" (click)="applyItsdLoopDefaults()">
+                  {{ i18n.t('flow.inspector.agent_loop.apply_itsd') }}
+                </button>
+                <button type="button" class="ck-flow-mini-action" (click)="loadItsdStarter()">
+                  {{ i18n.t('flow.inspector.agent_loop.load_starter') }}
+                </button>
+              </div>
+            </section>
+          }
+
+          @if ((n.kind ?? 'task') === 'hitl') {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.human_gate') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.human_gate.hint') }}</p>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.human_gate.prompt') }}</span>
+                <textarea
+                  class="ck-flow-input ck-flow-input--area"
+                  rows="3"
+                  [value]="hitlConfig(n).prompt"
+                  (input)="onHitlPrompt($event)"
+                  [attr.placeholder]="i18n.t('flow.inspector.human_gate.prompt.placeholder')"
+                ></textarea>
+              </label>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">{{ i18n.t('flow.inspector.human_gate.kind') }}</span>
+                <select
+                  class="ck-flow-input"
+                  [value]="hitlConfig(n).prompt_kind"
+                  (change)="onHitlPromptKind($event)"
+                >
+                  @for (kind of promptKinds; track kind) {
+                    <option [value]="kind">{{ i18n.t('flow.inspector.human_gate.kind.' + kind) }}</option>
+                  }
+                </select>
+              </label>
+            </section>
+          }
 
           @if ((n.kind ?? 'task') === 'decision') {
             <section class="ck-flow-section ck-flow-decision">
@@ -613,7 +799,16 @@ export function buildRetrievalDocumentOptions(
               size="sm"
               [title]="i18n.t('flow.inspector.empty.title')"
               [description]="i18n.t('flow.inspector.empty.body')"
-            />
+            >
+              <button
+                type="button"
+                class="ck-flow-mini-action"
+                (click)="loadItsdStarter()"
+                [disabled]="editingLocked()"
+              >
+                {{ i18n.t('flow.inspector.agent_loop.load_starter') }}
+              </button>
+            </app-empty-state>
           </div>
         }
       </div>
@@ -758,6 +953,145 @@ export class FlowInspectorComponent {
     const key = `flow.node.kind.${kind}`;
     const label = this.i18n.t(key);
     return label === key ? kind : label;
+  }
+
+  readonly privilegeTiers = PRIVILEGE_TIERS;
+  readonly promptKinds = PROMPT_KINDS;
+  readonly formatSlugList = formatSlugList;
+  readonly formatDoneWhen = formatDoneWhen;
+  readonly deadlineMinutes = deadlineMinutes;
+
+  agentLoopConfig(node: CanonicalFlowNode) {
+    return readAgentLoopConfig(node);
+  }
+
+  agentLoopLine(node: CanonicalFlowNode) {
+    return agentLoopEnvelopeParts(node);
+  }
+
+  hitlConfig(node: CanonicalFlowNode) {
+    return readHitlConfig(node);
+  }
+
+  onAgentLoopObjective(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(id, 'goal.objective', (event.target as HTMLTextAreaElement).value);
+  }
+
+  onAgentLoopDoneWhen(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'goal.done_when',
+      parseDoneWhen((event.target as HTMLTextAreaElement).value),
+    );
+  }
+
+  onAgentLoopAllowlist(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'skill_allowlist',
+      parseSlugList((event.target as HTMLTextAreaElement).value),
+    );
+  }
+
+  onAgentLoopTurns(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'budget.max_turns',
+      clampTurns((event.target as HTMLInputElement).value),
+    );
+  }
+
+  onAgentLoopConfidence(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'confidence_floor',
+      clampConfidence((event.target as HTMLInputElement).value),
+    );
+  }
+
+  onAgentLoopCost(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'budget.max_cost',
+      parseOptionalCost((event.target as HTMLInputElement).value),
+    );
+  }
+
+  onAgentLoopDeadline(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'budget.deadline_ms',
+      minutesToDeadlineMs((event.target as HTMLInputElement).value),
+    );
+  }
+
+  onAgentLoopPrivilege(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'privilege_tier',
+      (event.target as HTMLSelectElement).value as PrivilegeTier,
+    );
+  }
+
+  onAgentLoopOnBudget(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'on_budget',
+      (event.target as HTMLSelectElement).value as OnBudget,
+    );
+  }
+
+  applyItsdLoopDefaults(): void {
+    const node = this.node();
+    if (!node || (node.kind ?? 'task') !== 'agent_loop') return;
+    const defaults = itsdOverlayLoopConfig();
+    this.store.patchNode(node.id, {
+      config: {
+        ...(node.config ?? {}),
+        skill_slug: 'decide_next_v1',
+        decide_skill: 'decide_next_v1',
+        ...defaults,
+      },
+    });
+  }
+
+  loadItsdStarter(): void {
+    this.store.replaceAsEdit(itsdAgentLoopStarterFlow());
+    this.store.setSelection('loop.itsd');
+  }
+
+  onHitlPrompt(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(id, 'prompt', (event.target as HTMLTextAreaElement).value);
+  }
+
+  onHitlPromptKind(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'prompt_kind',
+      (event.target as HTMLSelectElement).value as PromptKind,
+    );
   }
 
   /** An Output node publishes what it consumes; every other node, what it emits. */
