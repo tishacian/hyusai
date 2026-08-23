@@ -16,6 +16,10 @@ pushed commits, built on the VM itself (no external registry), addressed by
 immutable image tags. At any moment you must be able to answer *"which commit
 is live?"* with a SHA — `/api/v1/build-info` is that answer.
 
+A land on `origin/demo/agentic` (including an AgentLoop / Flow Builder slice)
+is not a VM switch. The iteration loop below is the only path; there is no
+sidecar deploy for a `cursor/…` or `feat/…` branch.
+
 ```
 local gates ──push──> origin/demo/agentic ──fetch+ff──> VM worktree ──docker build──> images:<sha12> ──up──> live
 ```

@@ -1,9 +1,16 @@
 # Plan de dev — AgentLoop (enveloppe déterministe, intérieur mou)
 
-Date : 2026-08-22
-Branche cible : `demo/agentic`
-Statut : **contrat de plan** — pas une attestation, pas une autorisation de
-déployer, pas une migration.
+Date : 2026-08-22 · land : 2026-08-23
+Branche de record : `demo/agentic` (`origin/demo/agentic` @ `b5b5481f`)
+Statut : **L0–L5 atterris sur `origin/demo/agentic`** — pas une attestation,
+pas une autorisation de déployer, pas une migration.
+
+Processus (prend le dessus sur toute branche agent `cursor/…`) :
+
+- Dev quotidien : [`agentium-contributor-guide.md`](./agentium-contributor-guide.md)
+- Land ≠ VM : [`agentium-release-process.md`](./agentium-release-process.md)
+- Commit / push / deploy = trois GO séparés :
+  [`dev-deploy-policy.md`](./dev-deploy-policy.md)
 
 Ce document transforme le mapping OpenClaw → NAWA / PIH en un plan d'implémentation
 **collé au runtime existant**. Il est la source de vérité des contrats L0–L5
