@@ -220,7 +220,7 @@ export function agentLoopEnvelopeParts(node: CanonicalFlowNode): {
     objective: cfg.goal.objective.trim(),
     turns: cfg.budget.max_turns,
     skills: cfg.skill_allowlist.length,
-    privilege: cfg.privilege_tier,
+    privilege: cfg.privilege_tier ?? 'act_with_approval',
   };
 }
 
