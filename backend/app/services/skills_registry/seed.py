@@ -2064,6 +2064,24 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "roi_model": {"type": "value_minus_cost"},
     },
     {
+        # Carrier for the Flow Builder recipe node: without a claiming
+        # capability the catalog policy files python_recipe_v1 under
+        # `unclaimed`, which blocks System binding and greys the palette row
+        # in every workspace.
+        "slug": "python_recipes",
+        "name": "Python Recipes",
+        "tier": "universal",
+        "description": "Author-written Python recipes executed as Flow nodes in managed, content-addressed environments on the async worker plane, with per-execution status tracking and cancellation.",
+        "input_unit": "recipe_execution",
+        "output_unit": "structured_result",
+        "skill_slugs": ["python_recipe_v1"],
+        "pricing": {"unit": "per_execution", "unit_price": 0.02, "currency": "USD"},
+        "value_per_outcome": 1.00,
+        "confidence_threshold": 0.60,
+        "sla": {"max_latency_ms": 600_000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
         "slug": "market_signal_brief",
         "name": "Market Signal Brief",
         "tier": "industry",
