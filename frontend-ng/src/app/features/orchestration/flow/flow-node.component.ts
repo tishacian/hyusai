@@ -178,9 +178,19 @@ export class FlowNodeComponent {
 
   readonly kind = computed(() => this.node().kind ?? 'task');
 
-  readonly label = computed(
-    () => this.node().label || String(this.node().type),
-  );
+  /**
+   * Authored label, else the canonical type, else the bound skill slug, else
+   * the localized kind pill. API-authored nodes may carry none of the first
+   * three; the old `String(type)` fallback printed a literal "undefined".
+   */
+  readonly label = computed(() => {
+    const node = this.node();
+    if (node.label) return node.label;
+    if (node.type) return String(node.type);
+    const slug = ((node.config ?? {}) as Record<string, unknown>)['skill_slug'];
+    if (typeof slug === 'string' && slug.trim()) return slug.trim();
+    return this.typeLabel();
+  });
 
   /**
    * The pill names the node's role in plain words. API kinds (`sink`, `hitl`)
