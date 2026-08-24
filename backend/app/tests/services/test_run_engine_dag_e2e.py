@@ -1108,6 +1108,74 @@ async def test_strict_control_node_rejects_invalid_raw_skill_output(
     assert "not-a-boolean" not in str(violations[0])
 
 
+async def test_recipe_failure_envelope_strips_the_graph_owned_recipe_block(
+    db_session,
+    monkeypatch,
+):
+    """A failed recipe node soft-fails into a ``_error``/``_status`` envelope
+    that passes upstream data through — but never the injected ``_recipe``
+    block, whose script text (up to 200KB) is graph configuration, not data."""
+
+    received: list[dict[str, Any]] = []
+
+    async def failing_recipe(payload, _ctx):
+        received.append(payload)
+        raise ValueError("recipe_execution_cancelled: cancel_requested")
+
+    _install_fake_registry(monkeypatch, {"python_recipe_v1": failing_recipe})
+    skill = _mk_skill(db_session, "python_recipe_v1")
+    flow = {
+        "schema_version": 3,
+        "io_mode": "strict",
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {
+                "id": "recipe",
+                "kind": "task",
+                "config": {
+                    "skill_slug": "python_recipe_v1",
+                    "params": {
+                        "code": "def main(inputs):\n    return {}",
+                        "requirements_text": "pandas\n",
+                        "timeout_s": 30,
+                    },
+                },
+            },
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "recipe"},
+            {"from": "recipe", "to": "sink"},
+        ],
+    }
+    system = _mk_system(db_session, flow=flow)
+    run = _mk_run(db_session, system, input_ref={"seconds": 90})
+    run.flow_snapshot = flow
+    run.execution_contract = compile_execution_contract(
+        db_session,
+        flow=flow,
+        workspace_id=None,
+        runtime_mode="dag_strict",
+        allowed_skill_ids={skill.id},
+    )
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+
+    # The walker's continue-on-error contract: the run settles, the failure
+    # rides the output envelope for downstream decision nodes.
+    assert summary["status"] == "completed"
+    # The wrapper did receive its graph-owned block…
+    assert received and received[0]["_recipe"]["requirements_text"] == "pandas\n"
+    db_session.expire_all()
+    persisted = db_session.query(Run).filter(Run.id == run.id).one()
+    assert persisted.output_ref["_status"] == "failed"
+    assert "recipe_execution_cancelled" in persisted.output_ref["_error"]
+    assert persisted.output_ref["seconds"] == 90
+    # …but the envelope never echoes it back into run outputs.
+    assert "_recipe" not in persisted.output_ref
+
+
 # ---------------------------------------------------------------------------
 # 6a — HITL: pause then resume with an accepted Decision
 # ---------------------------------------------------------------------------

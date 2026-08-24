@@ -1994,6 +1994,16 @@ _RECIPE_PARAM_KEYS = (
 )
 
 
+def _passthrough_without_recipe(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Task failure envelopes pass upstream data through; the graph-owned
+    ``_recipe`` block is configuration (the full script text), not data, so
+    it never rides a ``_error``/``_status`` envelope into run outputs."""
+
+    passthrough = dict(data or {})
+    passthrough.pop("_recipe", None)
+    return passthrough
+
+
 def _apply_recipe_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
     """Project the graph-owned recipe configuration into the skill input.
 
@@ -2398,7 +2408,7 @@ async def _run_task(
     # On failure / skipped: pass through upstream data but preserve the error
     # in the ctx for downstream decision nodes.
     err_output = {
-        **(last_output or {}),
+        **_passthrough_without_recipe(last_output),
         "_error": invocation.error,
         "_status": invocation.status,
     }
@@ -2790,7 +2800,7 @@ async def _run_retry(
             await asyncio.sleep(backoff_ms / 1000.0)
     return {
         "output": {
-            **(last_output or {}),
+            **_passthrough_without_recipe(last_output),
             "_error": last_error,
             "_status": "failed",
             "_retry_attempts": max_attempts,
