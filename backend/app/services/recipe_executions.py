@@ -52,6 +52,7 @@ logger = get_logger(__name__)
 
 RECIPE_EXECUTE_TASK = "agentium.recipe_execute"
 RECIPE_ENV_BUILD_TASK = "agentium.recipe_env_build"
+RECIPE_ENV_SWEEP_TASK = "agentium.recipe_env_sweep"
 
 _HARNESS_PATH = (
     Path(__file__).resolve().parent.parent / "resources" / "recipe_harness.py"
@@ -488,6 +489,7 @@ def resolve_env_for_spec(
 
 __all__ = [
     "RECIPE_ENV_BUILD_TASK",
+    "RECIPE_ENV_SWEEP_TASK",
     "RECIPE_EXECUTE_TASK",
     "clamp_timeout",
     "create_execution",

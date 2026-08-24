@@ -526,6 +526,49 @@ def _active_env_ids(db: DBSession) -> set[str]:
     return {row[0] for row in rows if row[0]}
 
 
+def _reconcile_orphan_dirs(db: DBSession) -> int:
+    """Remove on-disk env directories whose row is gone or ``evicted``.
+
+    The API containers do not mount the venv store (only the Celery worker
+    does), so a manual eviction flips the row without freeing worker-side
+    bytes. This pass makes the hourly sweep — and the sweep dispatched right
+    after a manual eviction — the disk reconciler. The row status is re-read
+    immediately before each removal so a rebuild that just re-claimed
+    ``building`` is never raced beyond its own first-step cleanup.
+    """
+
+    root = envs_root()
+    if not root.exists():
+        return 0
+    removed = 0
+    for workspace_dir in root.iterdir():
+        if not workspace_dir.is_dir() or workspace_dir.name.startswith("."):
+            continue
+        for fingerprint_dir in workspace_dir.iterdir():
+            if not fingerprint_dir.is_dir():
+                continue
+            env = (
+                db.query(PythonEnv)
+                .filter(
+                    PythonEnv.workspace_id == workspace_dir.name,
+                    PythonEnv.fingerprint == fingerprint_dir.name,
+                )
+                .first()
+            )
+            if env is not None:
+                db.refresh(env)
+            if env is None or env.status == "evicted":
+                shutil.rmtree(fingerprint_dir, ignore_errors=True)
+                removed += 1
+        try:
+            next(workspace_dir.iterdir())
+        except StopIteration:
+            workspace_dir.rmdir()
+        except OSError:
+            pass
+    return removed
+
+
 def _cap_pip_cache(max_bytes: int) -> int:
     """Delete oldest pip cache files until under the cap; returns bytes freed."""
 
@@ -600,12 +643,14 @@ def sweep_envs(db: DBSession) -> dict[str, Any]:
             total_bytes -= size
             evicted_lru += 1
 
+    orphan_dirs_removed = _reconcile_orphan_dirs(db)
     cache_freed = _cap_pip_cache(int(settings.recipe_pip_cache_max_bytes))
     report = {
         "reclaimed_builds": reclaimed,
         "evicted_ttl": evicted_ttl,
         "evicted_lru": evicted_lru,
         "ready_bytes": total_bytes,
+        "orphan_dirs_removed": orphan_dirs_removed,
         "pip_cache_bytes_freed": cache_freed,
     }
     logger.info("recipe_envs: sweep", **report)

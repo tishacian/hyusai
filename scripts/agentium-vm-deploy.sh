@@ -24,6 +24,7 @@ readonly ENV_HELPER="$R/scripts/agentium_runtime_env_bundle.py"
 readonly DATA_ROOT=/srv/agentium-data
 readonly EXPECTED_DATA_SOURCE=/dev/sdb
 readonly OBJECT_STORE_ROOT="$DATA_ROOT/object_store"
+readonly RECIPE_ENVS_ROOT="$DATA_ROOT/recipe_envs"
 readonly SECURE_DEPOSIT_ROOT=/home/ubuntu/omnirag/backend/data/secure_deposit
 readonly EXPECTED_SECURE_SOURCE=/dev/sdc
 readonly FAISS_ROOT=/home/ubuntu/omnirag/backend/faiss_db
@@ -161,6 +162,7 @@ storage_check() {
   assert_protected_data_path "$DATA_ROOT/qdrant"
   assert_protected_data_path "$DATA_ROOT/qdrant-snapshots"
   assert_protected_data_path "$OBJECT_STORE_ROOT"
+  assert_protected_data_path "$RECIPE_ENVS_ROOT"
   assert_exact_backing_path \
     "$SECURE_DEPOSIT_ROOT" "$EXPECTED_SECURE_SOURCE" "$SECURE_DEPOSIT_ROOT"
   assert_exact_backing_path "$FAISS_ROOT" "$EXPECTED_ROOT_SOURCE" /

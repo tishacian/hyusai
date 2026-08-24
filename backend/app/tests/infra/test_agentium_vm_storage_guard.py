@@ -25,6 +25,7 @@ EXPECTED_ENV = {
     "AGENTIUM_OBJECT_STORE_PATH": "/srv/agentium-data/object_store",
     "AGENTIUM_QDRANT_VOLUME": "agentium_qdrant_block",
     "AGENTIUM_QDRANT_SNAPSHOT_PATH": "/srv/agentium-data/qdrant-snapshots",
+    "AGENTIUM_RECIPE_ENVS_PATH": "/srv/agentium-data/recipe_envs",
     "AGENTIUM_SECURE_DEPOSIT_PATH": (
         "/home/ubuntu/omnirag/backend/data/secure_deposit"
     ),
@@ -120,6 +121,14 @@ def _compose_model() -> dict:
             },
             "agentium-worker-cpu": {
                 "volumes": application_mounts(secure_read_only=True)
+                + [
+                    {
+                        "type": "bind",
+                        "source": EXPECTED_ENV["AGENTIUM_RECIPE_ENVS_PATH"],
+                        "target": "/data/recipe_envs",
+                        "read_only": False,
+                    }
+                ]
             },
             "agentium-p4-maintenance": {
                 "volumes": application_mounts(secure_read_only=True)
@@ -214,7 +223,15 @@ def _active_containers() -> list[dict]:
         {
             "Name": "/agentium-worker-cpu",
             "State": {"Running": True},
-            "Mounts": application_mounts(secure_read_only=True),
+            "Mounts": application_mounts(secure_read_only=True)
+            + [
+                {
+                    "Type": "bind",
+                    "Source": EXPECTED_ENV["AGENTIUM_RECIPE_ENVS_PATH"],
+                    "Destination": "/data/recipe_envs",
+                    "RW": True,
+                }
+            ],
         },
         {
             "Name": "/agentium-p4-maintenance",
@@ -282,6 +299,20 @@ def test_rendered_compose_requires_literal_block_volumes_and_snapshot_bind() -> 
             "/data/faiss_db",
             "source",
             "/tmp/faiss_db",
+            "source or access mode differs",
+        ),
+        (
+            "agentium-worker-cpu",
+            "/data/recipe_envs",
+            "source",
+            "/home/ubuntu/agentium-data/recipe_envs",
+            "source or access mode differs",
+        ),
+        (
+            "agentium-worker-cpu",
+            "/data/recipe_envs",
+            "read_only",
+            True,
             "source or access mode differs",
         ),
         (
@@ -365,6 +396,71 @@ def test_rendered_compose_rejects_missing_and_out_of_boundary_protected_mounts()
     }
     with pytest.raises(module.RuntimeEnvBundleError, match="approved boundary"):
         module.assert_vm_compose_storage(leaked)
+
+
+def test_rendered_compose_recipe_envs_bind_is_worker_only_and_required() -> None:
+    module = _module()
+
+    missing = _compose_model()
+    missing["services"]["agentium-worker-cpu"]["volumes"] = [
+        row
+        for row in missing["services"]["agentium-worker-cpu"]["volumes"]
+        if row["target"] != "/data/recipe_envs"
+    ]
+    with pytest.raises(module.RuntimeEnvBundleError, match="inventory is incomplete"):
+        module.assert_vm_compose_storage(missing)
+
+    leaked = _compose_model()
+    leaked["services"]["agentium-backend"]["volumes"].append(
+        {
+            "type": "bind",
+            "source": EXPECTED_ENV["AGENTIUM_RECIPE_ENVS_PATH"],
+            "target": "/data/recipe_envs",
+            "read_only": False,
+        }
+    )
+    with pytest.raises(module.RuntimeEnvBundleError, match="approved boundary"):
+        module.assert_vm_compose_storage(leaked)
+
+
+def test_active_mounts_tolerate_only_the_pre_recipe_worker_generation() -> None:
+    module = _module()
+
+    # The generation deployed before the recipe slice has no venv-store bind;
+    # the pre-mutation gate must keep passing so that generation can be
+    # replaced through `migrate`/`up`.
+    previous_generation = _active_containers()
+    previous_generation[3]["Mounts"] = [
+        row
+        for row in previous_generation[3]["Mounts"]
+        if row["Destination"] != "/data/recipe_envs"
+    ]
+    module.assert_vm_active_storage_mounts(previous_generation)
+
+    # When the bind is present it must carry the protected identity.
+    wrong_source = _active_containers()
+    recipe_mount = next(
+        row
+        for row in wrong_source[3]["Mounts"]
+        if row["Destination"] == "/data/recipe_envs"
+    )
+    recipe_mount["Source"] = "/home/ubuntu/agentium-data/recipe_envs"
+    with pytest.raises(module.RuntimeEnvBundleError, match="mount identity differs"):
+        module.assert_vm_active_storage_mounts(wrong_source)
+
+    # The tolerance is scoped to the worker: any other container gaining the
+    # target keeps failing closed.
+    leaked = _active_containers()
+    leaked[2]["Mounts"].append(
+        {
+            "Type": "bind",
+            "Source": EXPECTED_ENV["AGENTIUM_RECIPE_ENVS_PATH"],
+            "Destination": "/data/recipe_envs",
+            "RW": True,
+        }
+    )
+    with pytest.raises(module.RuntimeEnvBundleError, match="mount targets differ"):
+        module.assert_vm_active_storage_mounts(leaked)
 
 
 @pytest.mark.parametrize(
@@ -730,6 +826,7 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
         in storage
     )
     assert 'assert_protected_data_path "$OBJECT_STORE_ROOT"' in storage
+    assert 'assert_protected_data_path "$RECIPE_ENVS_ROOT"' in storage
     assert (
         '"$SECURE_DEPOSIT_ROOT" "$EXPECTED_SECURE_SOURCE" "$SECURE_DEPOSIT_ROOT"'
         in storage

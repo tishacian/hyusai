@@ -355,6 +355,39 @@ def test_sweep_respects_min_idle_grace(db_session, workspace, envs_root, monkeyp
     assert hot.status == "ready"
 
 
+def test_sweep_reconciles_orphan_dirs_left_by_api_side_eviction(
+    db_session, workspace, envs_root, monkeypatch
+):
+    """A row evicted from a container without the store still frees its bytes.
+
+    The API containers do not mount /data/recipe_envs, so a manual eviction
+    flips the row while the worker-side directory survives. The sweep is the
+    reconciler: evicted rows and unknown fingerprints lose their directory,
+    live rows keep theirs.
+    """
+
+    monkeypatch.setattr(settings, "recipe_envs_idle_ttl_days", 365)
+    monkeypatch.setattr(settings, "recipe_envs_max_total_bytes", 0)
+
+    kept = _ready_env(db_session, workspace, size=10, last_used_days_ago=1)
+    orphaned = _ready_env(db_session, workspace, size=10, last_used_days_ago=1)
+    orphaned.status = "evicted"
+    db_session.commit()
+
+    kept_dir = recipe_envs.env_dir(workspace.id, kept.fingerprint)
+    orphan_dir = recipe_envs.env_dir(workspace.id, orphaned.fingerprint)
+    rowless_dir = recipe_envs.env_dir(workspace.id, "f" * 64)
+    for directory in (kept_dir, orphan_dir, rowless_dir):
+        directory.mkdir(parents=True)
+        (directory / "marker.txt").write_text("x", encoding="utf-8")
+
+    report = sweep_envs(db_session)
+    assert report["orphan_dirs_removed"] == 2
+    assert kept_dir.exists()
+    assert not orphan_dir.exists()
+    assert not rowless_dir.exists()
+
+
 def test_cap_pip_cache_deletes_oldest_first(envs_root, monkeypatch):
     cache = recipe_envs.pip_cache_dir()
     cache.mkdir(parents=True)
