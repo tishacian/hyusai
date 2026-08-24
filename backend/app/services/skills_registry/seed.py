@@ -820,8 +820,10 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "slug": "python_recipe_v1",
         "version": "1",
         "name": "Python Recipe",
+        # Plain text only: catalog descriptions render verbatim in the UI,
+        # so markdown backticks would show up literally.
         "description": (
-            "Runs an author-written Python script (`main(inputs) -> dict`) in a "
+            "Runs an author-written Python script (main(inputs) -> dict) in a "
             "managed, content-addressed virtual environment on the async worker "
             "plane, with per-execution status tracking and cancellation."
         ),
