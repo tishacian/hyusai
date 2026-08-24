@@ -33,6 +33,7 @@ from app.services.recipe_envs import (
 )
 from app.services.recipe_executions import (
     RECIPE_ENV_BUILD_TASK,
+    RECIPE_ENV_SWEEP_TASK,
     request_cancel,
     serialize_execution,
 )
@@ -170,7 +171,13 @@ async def evict_python_env(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    """Manual eviction: frees the disk bytes, keeps the row + lock for rebuilds."""
+    """Manual eviction: frees the disk bytes, keeps the row + lock for rebuilds.
+
+    The API container does not mount the venv store (only the Celery worker
+    does), so the row flip here is authoritative and a sweep is dispatched so
+    the worker reconciles the on-disk bytes right away instead of waiting for
+    the hourly beat pass.
+    """
 
     env = _get_env_or_404(db, env_id=env_id, workspace_id=workspace.id)
     active = (
@@ -200,6 +207,13 @@ async def evict_python_env(
             },
         )
     evict_env(db, env, reason="manual")
+    if settings.recipe_execution_enabled and not settings.worker_eager_mode:
+        from app.workers.celery_app import celery_app
+
+        celery_app.send_task(
+            RECIPE_ENV_SWEEP_TASK,
+            queue=settings.celery_task_default_queue,
+        )
     return {"env": serialize_env(env)}
 
 

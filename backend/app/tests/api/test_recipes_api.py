@@ -202,6 +202,26 @@ def test_evict_endpoint_frees_ready_env(client, db_session, workspace, envs_root
     assert response.json()["env"]["status"] == "evicted"
 
 
+def test_evict_endpoint_dispatches_worker_sweep(
+    client, db_session, workspace, envs_root, monkeypatch
+):
+    """API containers never mount the store: eviction hands the disk work to
+    the worker by dispatching one sweep pass."""
+
+    monkeypatch.setattr(settings, "recipe_execution_enabled", True)
+    monkeypatch.setattr(settings, "worker_eager_mode", False)
+    from app.workers.celery_app import celery_app
+
+    sent: list[str] = []
+    monkeypatch.setattr(
+        celery_app, "send_task", lambda name, **kwargs: sent.append(name)
+    )
+    env = _seed_env(db_session, workspace, status="ready")
+    response = client.delete(f"/python-envs/{env.id}")
+    assert response.status_code == 200
+    assert sent == ["agentium.recipe_env_sweep"]
+
+
 # ---------------------------------------------------------------------------
 # /recipe-executions
 # ---------------------------------------------------------------------------

@@ -63,6 +63,7 @@ VM_STORAGE_ENVIRONMENT = {
 VM_APPLICATION_STORAGE_ENVIRONMENT = {
     "AGENTIUM_FAISS_PATH": "/home/ubuntu/omnirag/backend/faiss_db",
     "AGENTIUM_OBJECT_STORE_PATH": "/srv/agentium-data/object_store",
+    "AGENTIUM_RECIPE_ENVS_PATH": "/srv/agentium-data/recipe_envs",
     "AGENTIUM_SECURE_DEPOSIT_PATH": (
         "/home/ubuntu/omnirag/backend/data/secure_deposit"
     ),
@@ -82,6 +83,7 @@ VM_APPLICATION_STORAGE_MOUNTS = {
         "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
         "/data/secure_deposit": ("AGENTIUM_SECURE_DEPOSIT_PATH", True),
         "/data/faiss_db": ("AGENTIUM_FAISS_PATH", False),
+        "/data/recipe_envs": ("AGENTIUM_RECIPE_ENVS_PATH", False),
     },
     "agentium-p4-maintenance": {
         "/data/object_store": ("AGENTIUM_OBJECT_STORE_PATH", False),
@@ -95,6 +97,16 @@ VM_APPLICATION_STORAGE_MOUNTS = {
 VM_BIND_BACKED_VOLUMES = {
     "agentium_minio_block": "/srv/agentium-data/minio",
     "agentium_qdrant_block": "/srv/agentium-data/qdrant",
+}
+# Targets added to the contract after their service already ran in
+# production. The pre-mutation gate inspects the PREVIOUS container
+# generation, which legitimately predates the bind; it may be absent on the
+# running container but, when present, must match the contract exactly. The
+# rendered-compose check still requires the bind unconditionally, so every
+# generation created through the deploy script carries it. Remove an entry
+# once no pre-contract generation can still be running.
+VM_RUNTIME_TRANSITIONAL_TARGETS = {
+    ("agentium-worker-cpu", "/data/recipe_envs"),
 }
 VM_DOCKER_VOLUME_ROOT = "/var/lib/docker/volumes"
 
@@ -466,9 +478,15 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
             for row in mounts
             if isinstance(row, dict) and isinstance(row.get("Destination"), str)
         }
-        if len(by_target) != len(mounts) or set(by_target) != set(required):
+        applicable = {
+            target: contract
+            for target, contract in required.items()
+            if (name, target) not in VM_RUNTIME_TRANSITIONAL_TARGETS
+            or target in by_target
+        }
+        if len(by_target) != len(mounts) or set(by_target) != set(applicable):
             raise RuntimeEnvBundleError("VM active storage mount targets differ")
-        for target, (kind, volume_name, source, read_write) in required.items():
+        for target, (kind, volume_name, source, read_write) in applicable.items():
             row = by_target[target]
             if (
                 row.get("Type") != kind
