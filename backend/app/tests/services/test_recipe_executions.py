@@ -437,6 +437,29 @@ def test_wrapper_is_registered_and_bound():
     assert wrappers.runtime_status("python_recipe_v1") == "bound"
 
 
+def test_recipe_skill_is_claimed_by_a_universal_capability():
+    """An unclaimed skill is filtered from every workspace catalog, which
+    blocks System binding (`skill_not_visible`) and greys the palette row.
+    The recipe node is a universal Flow Builder primitive, so a universal
+    capability must carry it."""
+
+    from app.services.skills_registry.seed import SEED_CAPABILITIES, SEED_SKILLS
+
+    assert any(
+        entry["slug"] == "python_recipe_v1" for entry in SEED_SKILLS
+    ), "the recipe skill must stay in the seeded registry"
+    carriers = [
+        entry
+        for entry in SEED_CAPABILITIES
+        if "python_recipe_v1" in entry.get("skill_slugs", ())
+    ]
+    assert carriers, "python_recipe_v1 must be claimed by a seeded capability"
+    assert any(entry.get("tier") == "universal" for entry in carriers), (
+        "at least one carrier must be universal so every workspace can bind "
+        "the recipe node"
+    )
+
+
 # ---------------------------------------------------------------------------
 # DAG projection of the graph-owned recipe config
 # ---------------------------------------------------------------------------
