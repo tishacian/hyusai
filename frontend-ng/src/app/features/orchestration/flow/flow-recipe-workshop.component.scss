@@ -321,6 +321,17 @@
   overflow-wrap: anywhere;
 }
 
+/* Machine detail kept next to the localized failure sentence (stderr line,
+   build error): mono and subdued so the sentence stays the loud part. */
+.ck-recipe-workshop__reason-detail {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--ck-font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--ck-fg-3, #8891a0);
+  overflow-wrap: anywhere;
+}
+
 .ck-recipe-workshop__env-card {
   display: flex;
   flex-direction: column;
