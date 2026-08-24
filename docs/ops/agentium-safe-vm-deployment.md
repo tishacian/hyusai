@@ -3940,3 +3940,51 @@ Environnement `pandas` : fingerprint `92a4d755…`, 149 778 965 octets, lock
 | Éviction | `DELETE /python-envs/{id}` → row `evicted` + dispatch du sweep vers le worker (le backend ne monte pas le store) ; sweep `orphan_dirs_removed=1`, disque 157 Mio → 28 Mio (cache pip seul) |
 | Run D (rebuild) | 18,0 s ; `env_building → running → succeeded`, build log « Using cached …whl » sur les quatre paquets (cache pip chaud, zéro re-téléchargement), même lock, `use_count` 5 |
 | Atelier UI (live) | workshop CodeMirror ouvert depuis l'inspector, env `READY` (Python 3.12, 143 Mio, versions verrouillées), test isolé `QUEUED → … → SUCCEEDED` en ~11 s avec sortie JSON et stdout — enregistrement vidéo archivé côté agent |
+
+## Itération du 24/08 (bis) — Polish QA recettes sur `f31eecad`
+
+GO deploy depuis un Cloud Agent, suite directe de la QA du matin : les
+quatre items de polish qualifiés non bloquants sont corrigés et livrés.
+Cinq petits commits (`1b16cb0b` → `f31eecad`), aucune migration Alembic,
+aucun changement de lock frontend (l'attestation `95689c8c…` reste valide).
+
+- `1b16cb0b` — le `flow-schema-editor` partagé (inspector, atelier E/S,
+  éditeur d'entrée) parle le dictionnaire : « Dériver des ports » /
+  « Effacer » / « Déclaré — c'est ce que la publication fige. » (FR+EN,
+  clés `flow.schema.*`) au lieu d'anglais en dur dans toutes les locales.
+- `aae14a8a` — l'onglet Test de l'atelier ne montre plus le code machine
+  (`cancel_requested`, `recipe_exit_1: …`) : `recipeExecutionReason()`
+  projette l'inventaire complet des codes du superviseur sur des clés
+  `flow.recipe.reason.*` + détail utile (dernière ligne stderr, erreur de
+  build) en mono discret ; repli honnête pour un code inconnu. Spec de
+  contrat sur tout l'inventaire.
+- `20344b2a` — plus de « undefined » sur le canvas : libellé du nœud en
+  repli `label → type → skill_slug → pastille de kind localisée`.
+- `23815bbb` — le sweep purge les rows `pending` jamais construites que
+  rien ne référence, passé `RECIPE_ENVS_PENDING_PURGE_HOURS` (défaut 24 h) ;
+  `resolve` recrée une spec purgée à la demande ; rows référencées par une
+  exécution conservées. Nouveau champ `purged_pending` dans le rapport.
+- `f31eecad` — description seed de `python_recipe_v1` en texte brut (les
+  backticks s'affichaient littéralement dans le catalogue).
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `4a1c2a49` → `f31eecad` (5 commits) |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** |
+| Worktree | `f31eecad6e2af9482b2ec3380b26e2a87fdcc45c`, porcelain vide |
+| Build | trois images au tag `f31eecad6e2a` en 8 min (13:02 → 13:10Z), label 40-hex identique backend / worker / frontend |
+| Dump / `migrate` | aucun — pas de fichier sous `backend/alembic/versions/` dans le delta |
+| `storage-check` | sortie 0, autonome puis rejoué dans `up` |
+| `up` | cinq services applicatifs recréés, backend et frontend `healthy` |
+| `build-info` | `revision: f31eecad6e2af9482b2ec3380b26e2a87fdcc45c`, `revision_verified: true` (`https://agentium.papai.ai`) ; `/` = 200 |
+| Activation | `RECIPE_EXECUTION_ENABLED=true` effectif dans backend **et** worker ; `RECIPE_ENVS_PATH=/data/recipe_envs` monté worker |
+| Reseed | le seed ne tournant pas au boot, upsert rejoué one-off dans le backend (`seed_skills_and_capabilities` : 92 skills / 27 capabilities rafraîchies) — description sans backticks vérifiée en base |
+| Sweep | déclenché one-off post-bascule : rapport avec la nouvelle clé `purged_pending=0` (l'unique row `pending` a ~2 h, dans la fenêtre 24 h — conservée, comportement voulu) |
+| Logs | 0 `traceback`/`exception` backend et worker depuis la bascule |
+| Infra | PostgreSQL, RabbitMQ, Qdrant, MinIO, Keycloak, LiveKit, SFTP intouchés |
+| Alias | tag mobile `demo-agentic` **non déplacé** |
+| Canaris carakai | checkout avancé par bundle incrémental (sha256 `d366b631…` identique des deux côtés), marqueur `.agentium-source-sha` aligné, lock inchangé. **5 passed / 3 failed** en 1,2 min, artefacts `/tmp/iteration-canaries-20260824T131546Z.J7KVQ6` (`playwright-runtime.json` : `candidate_sha f31eecad…`, `package_lock_sha256 95689c8c…`, producer `result: passed`). Échecs inchangés vs `4a1c2a49` : **11** rail `Build`, **16** `GET /work` vide, **17** overflow title-bar 320px |
+| Vérif UI live | après hard-reload du bundle : nœud API sans label affiche `python_recipe_v1` (plus de « undefined ») ; onglet E/S en français (« DÉRIVER DES PORTS » / « EFFACER » grisé tant qu'aucun schéma n'est déclaré) ; essai annulé depuis l'atelier → « Annulée » + « Exécution annulée à la demande. », le code brut `cancel_requested` n'apparaît plus — vidéo archivée côté agent |
+| Rollback | pas de migration : `AGENTIUM_IMAGE_TAG=4a1c2a493df6` puis `up` |
