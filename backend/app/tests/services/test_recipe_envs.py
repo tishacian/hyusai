@@ -388,6 +388,53 @@ def test_sweep_reconciles_orphan_dirs_left_by_api_side_eviction(
     assert not rowless_dir.exists()
 
 
+def test_sweep_purges_stale_pending_rows_nothing_references(
+    db_session, workspace, envs_root, monkeypatch
+):
+    """Specs that never reach a build accumulate as ``pending`` rows with no
+    disk, no lock and no history; past the purge window the sweep deletes
+    them. A fresh spec and a pending row an execution references both stay
+    (resolve recreates a purged spec on demand)."""
+
+    monkeypatch.setattr(settings, "recipe_envs_idle_ttl_days", 365)
+    monkeypatch.setattr(settings, "recipe_envs_max_total_bytes", 0)
+    monkeypatch.setattr(settings, "recipe_envs_pending_purge_hours", 24)
+
+    def _pending(created_hours_ago: float) -> PythonEnv:
+        env = PythonEnv(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            fingerprint=uuid4().hex + uuid4().hex[:32],
+            python_version="3.12",
+            requirements_text="pandas\n",
+            status="pending",
+            created_at=datetime.utcnow() - timedelta(hours=created_hours_ago),
+        )
+        db_session.add(env)
+        db_session.commit()
+        return env
+
+    stale = _pending(48)
+    fresh = _pending(1)
+    referenced = _pending(48)
+    db_session.add(
+        RecipeExecution(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            env_id=referenced.id,
+            status="failed",
+        )
+    )
+    db_session.commit()
+
+    report = sweep_envs(db_session)
+    assert report["purged_pending"] == 1
+    remaining = {env.id for env in db_session.query(PythonEnv).all()}
+    assert stale.id not in remaining
+    assert fresh.id in remaining
+    assert referenced.id in remaining
+
+
 def test_cap_pip_cache_deletes_oldest_first(envs_root, monkeypatch):
     cache = recipe_envs.pip_cache_dir()
     cache.mkdir(parents=True)

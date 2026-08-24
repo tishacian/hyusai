@@ -599,6 +599,39 @@ def _cap_pip_cache(max_bytes: int) -> int:
     return freed
 
 
+def _purge_stale_pending(db: DBSession, now: datetime) -> int:
+    """Delete never-built ``pending`` rows that nothing references.
+
+    Every distinct spec an author commits in the workshop resolves to a row,
+    and most of those specs never reach a build. Such rows hold no disk, no
+    lock and no history, so past the purge window they are inventory noise —
+    resolve simply recreates one on demand if the author returns to the spec.
+    Rows referenced by any execution (even a settled one) are kept: they are
+    part of that execution's story.
+    """
+
+    horizon = now - timedelta(hours=settings.recipe_envs_pending_purge_hours)
+    referenced = db.query(RecipeExecution.env_id).filter(
+        RecipeExecution.env_id.isnot(None)
+    )
+    stale = (
+        db.query(PythonEnv)
+        .filter(
+            PythonEnv.status == "pending",
+            PythonEnv.lock_text.is_(None),
+            (PythonEnv.use_count.is_(None)) | (PythonEnv.use_count == 0),
+            PythonEnv.created_at < horizon,
+            ~PythonEnv.id.in_(referenced),
+        )
+        .all()
+    )
+    for env in stale:
+        db.delete(env)
+    if stale:
+        db.commit()
+    return len(stale)
+
+
 def sweep_envs(db: DBSession) -> dict[str, Any]:
     """One governor pass: TTL eviction, LRU-to-watermark eviction, cache cap."""
 
@@ -643,6 +676,7 @@ def sweep_envs(db: DBSession) -> dict[str, Any]:
             total_bytes -= size
             evicted_lru += 1
 
+    purged_pending = _purge_stale_pending(db, now)
     orphan_dirs_removed = _reconcile_orphan_dirs(db)
     cache_freed = _cap_pip_cache(int(settings.recipe_pip_cache_max_bytes))
     report = {
@@ -650,6 +684,7 @@ def sweep_envs(db: DBSession) -> dict[str, Any]:
         "evicted_ttl": evicted_ttl,
         "evicted_lru": evicted_lru,
         "ready_bytes": total_bytes,
+        "purged_pending": purged_pending,
         "orphan_dirs_removed": orphan_dirs_removed,
         "pip_cache_bytes_freed": cache_freed,
     }

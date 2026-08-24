@@ -560,6 +560,9 @@ class Settings(BaseSettings):
     recipe_envs_low_watermark_bytes: int = Field(default=8 * 1024**3, ge=0)
     recipe_envs_idle_ttl_days: int = Field(default=14, ge=1)
     recipe_envs_min_idle_minutes: int = Field(default=60, ge=0)
+    # Never-built `pending` rows nothing references are deleted past this
+    # window; resolve recreates them on demand, so only DB noise is at stake.
+    recipe_envs_pending_purge_hours: int = Field(default=24, ge=1)
     recipe_pip_cache_max_bytes: int = Field(default=2 * 1024**3, ge=0)
 
     # Secure Deposit — public drop links backed by workspace membership.
