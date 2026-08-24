@@ -29,6 +29,7 @@ import {
   input,
 } from '@angular/core';
 import type { CanonicalFlowNode, NodePort } from '@app/core/flow-serializer.service';
+import { I18nService } from '@app/core/i18n.service';
 import { SchemaBuilderComponent } from '@app/shared/schema-builder/schema-builder.component';
 import { FlowStore } from './flow.store';
 import { schemaFromPorts } from './flow-contract-bindings.vm';
@@ -48,13 +49,13 @@ import { schemaFromPorts } from './flow-contract-bindings.vm';
         (valueChange)="write($event)"
       />
       @if (declared()) {
-        <p class="ck-schema__hint">Declared — this is what publication freezes.</p>
+        <p class="ck-schema__hint">{{ i18n.t('flow.schema.declared') }}</p>
       } @else {
         <p class="ck-schema__hint">{{ fallbackHint() }}</p>
       }
       <div class="ck-schema__actions">
         <button type="button" class="ck-schema__btn" (click)="deriveFromPorts()">
-          Derive from ports
+          {{ i18n.t('flow.schema.derive_from_ports') }}
         </button>
         <button
           type="button"
@@ -62,7 +63,7 @@ import { schemaFromPorts } from './flow-contract-bindings.vm';
           [disabled]="!declared()"
           (click)="write(null)"
         >
-          Clear
+          {{ i18n.t('flow.schema.clear') }}
         </button>
       </div>
     </div>
@@ -70,6 +71,7 @@ import { schemaFromPorts } from './flow-contract-bindings.vm';
 })
 export class FlowSchemaEditorComponent {
   private readonly store = inject(FlowStore);
+  protected readonly i18n = inject(I18nService);
 
   /** Config key written on the selected node (`input_schema` / `output_schema`). */
   readonly configKey = input.required<string>();
