@@ -3871,3 +3871,72 @@ marqueur `.agentium-source-sha` aligné. `node_modules` symlink inchangé
 | Alias | tag mobile `demo-agentic` **non déplacé** (reste `400f1bdf452c`) |
 | Canaris carakai | **5 passed / 3 failed** en 1,2 min, artefacts `/tmp/iteration-canaries-20260823T081941Z.LUneEX` (`playwright-runtime.json` : `candidate_sha 18eba715…`, producer `result: passed`). Spec 12 (5) verte. Échecs inchangés vs `6d15e521` : **11** rail `Build` absent sous `experience_v1`, **16** `GET /work` = 0 Experience Pilot/In-service, **17** overflow title-bar à 320px (`415 > 321`). |
 | Rollback | pas de migration : `AGENTIUM_IMAGE_TAG=6d15e52151e0` puis `up`. |
+
+## Itération du 24/08 — Nœud « Recette Python » sur `4a1c2a49`
+
+GO deploy depuis un Cloud Agent. `origin/demo/agentic` avançait de
+`18eba715` (live) à `4a1c2a49` : plan d'exécution des recettes Python
+(`6fbf1550` venvs content-addressed + tâches Celery + API, migration
+`095_python_recipes`), tests (`30101df8`), atelier Flow Builder CodeMirror
+(`005c8f70`), admission du store `/srv/agentium-data/recipe_envs` dans le
+contrat de stockage (`fa688667`, montage **worker seul** `/data/recipe_envs`,
+cible transitionnelle tolérée sur l'ancienne génération pendant la bascule),
+puis trois correctifs trouvés par la boucle e2e sur la VM (ci-dessous).
+
+Quatre générations d'images ont été construites et basculées dans la même
+fenêtre — la boucle e2e a servi de découvreur de défauts :
+
+1. `fa688667` (07:45, `migrate` 095 + `up`) : le setup e2e a échoué deux
+   fois — la skill seedée `python_recipe_v1` était **non réclamée** par une
+   capability, donc filtrée du catalogue (`skill_not_visible`, palette grisée,
+   binding System refusé).
+2. `af06849a` : capability universelle « Python Recipes » réclame la skill
+   (seed + test épinglant la réclamation). Runs A/B verts ; l'annulation (Run C)
+   a montré que l'enveloppe d'échec du walker rejouait le bloc `_recipe`
+   (script complet, jusqu'à 200 Ko) dans `output_ref`.
+3. `b5a6075a` : le walker retire `_recipe` des enveloppes d'échec de nœud
+   task (`_passthrough_without_recipe` + test e2e DAG). Scénario e2e complet
+   vert à 08:39.
+4. `4a1c2a49` : attestation seulement — à 08:41 l'orchestrateur carakai a
+   refusé **avant tout test** (« frontend dependency lock differs », dossiers
+   artefacts vides) : `PACKAGE_LOCK_SHA256` ne connaissait pas le lock
+   CodeMirror. Constante retargetée, rebuild/rebascule pour garder
+   l'invariant checkout HEAD == SHA déployé.
+
+Canaris carakai : checkout runner avancé `18eba715` → `4a1c2a49`,
+dépendances gelées retargetées `a59bcb33…` → lock `95689c8c…` (`npm ci` du
+lock candidat avec `codemirror` + `@codemirror/lang-python`), ancien tree
+conservé.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `18eba715` → `4a1c2a49` (8 commits, dont le journal 23/08) |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
+| Worktree | `4a1c2a493df67caa928a958e2a6d7c3ae913a5db`, porcelain vide |
+| Build | quatre générations (`fa6886672f73`, `af06849a7ab4`, `b5a6075a0894`, `4a1c2a493df6`), label 40-hex identique sur backend / worker / frontend à chaque bascule |
+| Dump | `/srv/agentium-data/recipe-deployments/2026-08-24-fa6886672f73/pre-fa6886672f73.dump` sha256 `a2e97e73028cd445d756eea43a807e07d4255865917e07f735389efc944a8557`, pris avant l'unique `migrate` |
+| `migrate` | `094_experience_brand_history` → `095_python_recipes` (une seule fois, les rebascules suivantes étaient sans migration) ; `alembic current` = `095_python_recipes (head)` |
+| `storage-check` | sortie 0 au tag final, autonome puis rejoué dans `up` — inclut le nouveau garde `recipe_envs` (bind `/dev/sdb`, UID 1000, env `AGENTIUM_RECIPE_ENVS_PATH`) |
+| `up` | cinq services applicatifs recréés (dernière bascule 08:53:06Z), backend et frontend `healthy` |
+| `build-info` | `revision: 4a1c2a493df67caa928a958e2a6d7c3ae913a5db`, `revision_verified: true` (`https://agentium.papai.ai`) ; `/` = 200 |
+| Logs | 0 `traceback`/`exception` backend **et worker** depuis la bascule finale |
+| Infra | `agentium-sftp`, LiveKit, pg, Keycloak, Qdrant, MinIO, RabbitMQ intouchés (Up 2 weeks) |
+| Alias | tag mobile `demo-agentic` **non déplacé** (reste `400f1bdf452c`) |
+| Canaris carakai | **5 passed / 3 failed** en 1,2 min, artefacts `/tmp/iteration-canaries-20260824T085353Z.49IYJ4` (`playwright-runtime.json` : `candidate_sha 4a1c2a49…`, `package_lock_sha256 95689c8c…`, producer `result: passed`). Spec 12 (5) verte, 5 artefacts `evidence/`. Échecs inchangés vs `18eba715` : **11** rail `Build` absent sous `experience_v1`, **16** `GET /work` = 0 Experience Pilot/In-service, **17** overflow title-bar à 320px (`415 > 321`). |
+| Rollback | migration 095 additive appliquée : `AGENTIUM_IMAGE_TAG=18eba7156650` puis `up` si on accepte un backend sans `python_envs`/`recipe_executions` ; sinon fix-forward, dump vérifié en recours |
+
+### Scénario e2e recette (driver API, Système `test`, node runs workbench)
+
+Environnement `pandas` : fingerprint `92a4d755…`, 149 778 965 octets, lock
+`pandas 3.0.5 / numpy 2.5.2 / python-dateutil 2.9.0.post0 / six 1.17.0`.
+
+| Phase | Observé |
+|---|---|
+| Run A (1er run) | 21,3 s ; exécution `queued → env_building → running → succeeded` (build 16,98 s, téléchargements pip) ; sortie `pandas_version 3.0.5` ; run `completed` |
+| Run B (réutilisation) | 4,1 s ; `running → succeeded`, **aucun** `env_building`, `use_count` 1 → 2 |
+| Run C (annulation) | sleep 90 s, cancel API à ~1 s ; exécution `running → cancelled`, run `completed` avec enveloppe `{"seconds": 90, "_error": "recipe_execution_cancelled: cancel_requested", "_status": "failed"}` — **sans** `_recipe` (contrat continue-on-error du walker) |
+| Éviction | `DELETE /python-envs/{id}` → row `evicted` + dispatch du sweep vers le worker (le backend ne monte pas le store) ; sweep `orphan_dirs_removed=1`, disque 157 Mio → 28 Mio (cache pip seul) |
+| Run D (rebuild) | 18,0 s ; `env_building → running → succeeded`, build log « Using cached …whl » sur les quatre paquets (cache pip chaud, zéro re-téléchargement), même lock, `use_count` 5 |
+| Atelier UI (live) | workshop CodeMirror ouvert depuis l'inspector, env `READY` (Python 3.12, 143 Mio, versions verrouillées), test isolé `QUEUED → … → SUCCEEDED` en ~11 s avec sortie JSON et stdout — enregistrement vidéo archivé côté agent |
