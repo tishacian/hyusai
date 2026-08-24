@@ -42,7 +42,7 @@ WORKDIR /app
 COPY --chown=$USERNAME:$USERNAME . .
 
 RUN chmod +x ./run_celery.sh \
-    && mkdir -p /data/object_store /app/vector_store \
+    && mkdir -p /data/object_store /data/recipe_envs /app/vector_store \
     && chown -R "$USERNAME":"$USERNAME" /data /app/vector_store
 
 USER $USERNAME

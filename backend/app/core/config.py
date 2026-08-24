@@ -536,6 +536,32 @@ class Settings(BaseSettings):
     p4_maintenance_batch_size: int = Field(default=50, ge=1, le=1000)
     p4_maintenance_lease_seconds: int = Field(default=60, ge=5, le=3600)
 
+    # Python recipe nodes — author-written scripts executed on the Celery
+    # worker inside content-addressed virtual environments. Fail-closed by
+    # default (same rollout posture as enable_p4_maintenance): the wrapper
+    # refuses to dispatch and the worker refuses to execute until the
+    # deployment explicitly enables the plane AND mounts the envs volume.
+    recipe_execution_enabled: bool = False
+    recipe_envs_path: str = "./data/recipe_envs"
+    recipe_pip_default_index_url: str = ""  # empty = pip default (PyPI)
+    recipe_execution_default_timeout_s: float = Field(default=120.0, ge=1.0)
+    recipe_execution_max_timeout_s: float = Field(default=600.0, ge=1.0)
+    recipe_execution_memory_limit_mb: int = Field(default=1024, ge=64)
+    recipe_execution_cpu_limit_s: int = Field(default=300, ge=1)
+    recipe_execution_output_max_bytes: int = Field(default=512 * 1024, ge=1024)
+    recipe_execution_log_tail_chars: int = Field(default=4000, ge=200)
+    recipe_execution_max_code_bytes: int = Field(default=200 * 1024, ge=1024)
+    recipe_env_build_timeout_s: float = Field(default=600.0, ge=10.0)
+    # Storage governor for the venv store: above the quota the sweep evicts
+    # least-recently-used ready envs down to the low watermark; idle envs past
+    # the TTL are evicted regardless. The shared pip cache keeps rebuild cost
+    # near zero and is itself capped.
+    recipe_envs_max_total_bytes: int = Field(default=10 * 1024**3, ge=0)
+    recipe_envs_low_watermark_bytes: int = Field(default=8 * 1024**3, ge=0)
+    recipe_envs_idle_ttl_days: int = Field(default=14, ge=1)
+    recipe_envs_min_idle_minutes: int = Field(default=60, ge=0)
+    recipe_pip_cache_max_bytes: int = Field(default=2 * 1024**3, ge=0)
+
     # Secure Deposit — public drop links backed by workspace membership.
     secure_deposit_enabled_workspace_slugs: str = "andritz"
     secure_deposit_public_base_url: Optional[str] = None

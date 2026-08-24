@@ -191,6 +191,8 @@ def db_session():
         "evaluation_presets",
         "rag_presets",
         "run_dispatch_outbox",
+        "recipe_executions",
+        "python_envs",
         "runs",
         "system_bindings",
         "experience_deployments",

@@ -48,6 +48,7 @@ from app.models.experience import (
 from app.models.system_binding import SystemBinding
 from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
+from app.models.recipe import PythonEnv, RecipeExecution
 from app.models.run import Run, SkillInvocation
 from app.models.run_schedule import RunSchedule
 from app.models.webhook_hook import WebhookHook
@@ -92,6 +93,7 @@ __all__ = [
     "System", "SystemBinding", "Experience", "ExperienceDraftRevision", "ExperienceDraftHistory",
     "ExperienceRelease", "ExperienceDeployment",
     "SystemFlowDraft", "SystemVersion", "Run", "SkillInvocation", "RunSchedule", "WebhookHook",
+    "PythonEnv", "RecipeExecution",
     "RunInbox", "SystemMemory", "RunDispatchOutbox", "TriggerEventClaim",
     "Impact", "Decision",
     "ValueLoopOperation", "ValueScenario", "ValueSimulation",

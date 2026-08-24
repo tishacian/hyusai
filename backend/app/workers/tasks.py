@@ -806,6 +806,50 @@ def visual_snapshot_capture(job_id: str) -> dict:
     return run_visual_capture_job(job_id)
 
 
+@celery_app.task(
+    name="agentium.recipe_execute",
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def recipe_execute(self, execution_id: str, code: str) -> dict:
+    """Settle one Python recipe execution (venv resolve/build + supervised run)."""
+
+    from app.services.recipe_executions import run_recipe_execution
+
+    result = run_recipe_execution(execution_id, code)
+    return {**result, "task_id": str(self.request.id)}
+
+
+@celery_app.task(name="agentium.recipe_env_build")
+def recipe_env_build(env_id: str) -> dict:
+    """Explicit prebuild of one recipe venv (inspector 'prepare now')."""
+
+    from app.db.base import SessionLocal
+    from app.services.recipe_envs import RecipeError, build_env
+
+    with SessionLocal() as db:
+        try:
+            env = build_env(db, env_id)
+        except RecipeError as exc:
+            return {"id": env_id, "status": "error", "code": exc.code}
+        return {"id": env.id, "status": env.status, "size_bytes": int(env.size_bytes or 0)}
+
+
+@celery_app.task(name="agentium.recipe_env_sweep")
+def recipe_env_sweep() -> dict:
+    """Beat entrypoint: venv storage governor (TTL + LRU quota + pip cache cap)."""
+
+    from app.core.config import settings as app_settings
+    from app.db.base import SessionLocal
+    from app.services.recipe_envs import sweep_envs
+
+    if not app_settings.recipe_execution_enabled:
+        return {"status": "disabled"}
+    with SessionLocal() as db:
+        return {"status": "ok", **sweep_envs(db)}
+
+
 @celery_app.task(name="agentium.refresh_macro_indicators")
 def refresh_macro_indicators_task(workspace_slug: str = "sentinel-ci", force: bool = False) -> dict:
     """Periodic refresh (24h) of the macro indicators cache.

@@ -817,6 +817,26 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "slug": "python_recipe_v1",
+        "version": "1",
+        "name": "Python Recipe",
+        "description": (
+            "Runs an author-written Python script (`main(inputs) -> dict`) in a "
+            "managed, content-addressed virtual environment on the async worker "
+            "plane, with per-execution status tracking and cancellation."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {"mode": "async", "timeout_ms": 600_000, "retryable": False, "idempotent": False},
+        "pricing": {"unit": "per_execution", "unit_price": 0.0, "currency": "USD"},
+        # The concrete contract is author-declared on the node
+        # (config.input_schema / config.output_schema); the catalog schema
+        # stays generic object→object.
+        "input_schema": {"type": "object", "properties": {}},
+        "output_schema": {"type": "object", "properties": {}},
+    },
+    {
         "slug": "action_plan_create_v1",
         "version": "1",
         "name": "Action Plan Create",
@@ -2483,6 +2503,7 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "ollama_llm_v1": "LLM",
     "osint_signal_prioritize_v1": "Analysis",
     "project_risk_explainer_v1": "Analysis",
+    "python_recipe_v1": "Automation",
     "reconciliation_report_v1": "Governance",
     "response_eval_v1": "Governance",
     "rpa_dispatch_v1": "Automation",
