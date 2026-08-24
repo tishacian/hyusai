@@ -810,6 +810,11 @@ export const FLOW_FR = {
   'flow.workbench.error.http': 'La requête de l’atelier a échoué (HTTP {status}).',
   'flow.workbench.error.failed': 'La requête de l’atelier a échoué.',
 
+  // ---- éditeur de schéma de contrat (partagé inspector / ateliers) --------
+  'flow.schema.declared': 'Déclaré — c’est ce que la publication fige.',
+  'flow.schema.derive_from_ports': 'Dériver des ports',
+  'flow.schema.clear': 'Effacer',
+
   // ---- recette Python (nœud, inspector, atelier de rédaction) -------------
   'flow.inspector.section.recipe': 'Recette Python',
   'flow.recipe.inspector.hint':
@@ -865,6 +870,20 @@ export const FLOW_FR = {
   'flow.recipe.execution.status.failed': 'En échec',
   'flow.recipe.execution.status.cancelled': 'Annulée',
   'flow.recipe.execution.status.timed_out': 'Délai dépassé',
+  'flow.recipe.reason.cancel_requested': 'Exécution annulée à la demande.',
+  'flow.recipe.reason.env_not_found':
+    'L’Environnement Python n’existe plus — relancez pour le reconstruire.',
+  'flow.recipe.reason.worker_lost':
+    'Le service d’exécution a été interrompu en cours de route ; par prudence, le script n’a pas été rejoué.',
+  'flow.recipe.reason.disabled':
+    'L’exécution de recettes est désactivée sur ce déploiement.',
+  'flow.recipe.reason.output_too_large': 'La sortie dépasse la taille maximale autorisée.',
+  'flow.recipe.reason.output_not_object': 'main doit retourner un dict (objet JSON).',
+  'flow.recipe.reason.output_unreadable': 'La sortie n’a pas pu être lue comme du JSON.',
+  'flow.recipe.reason.timeout': 'Délai dépassé après {seconds} s.',
+  'flow.recipe.reason.env_build_failed': 'La construction de l’environnement a échoué.',
+  'flow.recipe.reason.exit': 'Le script s’est terminé avec le code {code}.',
+  'flow.recipe.reason.unknown': 'L’exécution a échoué.',
   'flow.recipe.io.hint':
     'Le contrat du nœud : ce que la recette reçoit dans inputs, et la forme du dict que main retourne.',
   'flow.recipe.io.input.label': 'Schéma d’entrée',
@@ -1941,6 +1960,11 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.workbench.error.http': 'The workbench request failed (HTTP {status}).',
   'flow.workbench.error.failed': 'The workbench request failed.',
 
+  // ---- contract schema editor (shared inspector / workshops) --------------
+  'flow.schema.declared': 'Declared — this is what publication freezes.',
+  'flow.schema.derive_from_ports': 'Derive from ports',
+  'flow.schema.clear': 'Clear',
+
   // ---- Python recipe (node, inspector, authoring workshop) ----------------
   'flow.inspector.section.recipe': 'Python recipe',
   'flow.recipe.inspector.hint':
@@ -1996,6 +2020,19 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.recipe.execution.status.failed': 'Failed',
   'flow.recipe.execution.status.cancelled': 'Cancelled',
   'flow.recipe.execution.status.timed_out': 'Timed out',
+  'flow.recipe.reason.cancel_requested': 'Execution cancelled on request.',
+  'flow.recipe.reason.env_not_found':
+    'The Python environment no longer exists — run again to rebuild it.',
+  'flow.recipe.reason.worker_lost':
+    'The execution service was interrupted mid-run; the script was not replayed as a precaution.',
+  'flow.recipe.reason.disabled': 'Recipe execution is switched off on this deployment.',
+  'flow.recipe.reason.output_too_large': 'The output exceeds the maximum allowed size.',
+  'flow.recipe.reason.output_not_object': 'main must return a dict (JSON object).',
+  'flow.recipe.reason.output_unreadable': 'The output could not be read as JSON.',
+  'flow.recipe.reason.timeout': 'Timed out after {seconds} s.',
+  'flow.recipe.reason.env_build_failed': 'The environment build failed.',
+  'flow.recipe.reason.exit': 'The script exited with code {code}.',
+  'flow.recipe.reason.unknown': 'The execution failed.',
   'flow.recipe.io.hint':
     'The node contract: what the recipe receives in inputs, and the shape of the dict main returns.',
   'flow.recipe.io.input.label': 'Input schema',
