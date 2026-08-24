@@ -184,6 +184,52 @@ export function isActiveRecipeExecution(status: string): boolean {
   return (RECIPE_EXECUTION_ACTIVE_STATUSES as readonly string[]).includes(status);
 }
 
+/** A localisable projection of `RecipeExecution.error` (a machine code). */
+export interface RecipeExecutionReason {
+  /** Dictionary key for the human sentence. */
+  key: string;
+  params?: Record<string, string | number>;
+  /** Machine detail worth keeping next to the sentence (stderr line, build error). */
+  detail?: string;
+}
+
+/**
+ * Map the server's machine reason (`cancel_requested`, `recipe_exit_1: …`) to
+ * an i18n key plus the detail worth surfacing. The raw code never reaches the
+ * author untranslated; unknown codes fall back to a generic sentence with the
+ * code kept as detail.
+ */
+export function recipeExecutionReason(error: string): RecipeExecutionReason {
+  const raw = error.trim();
+  const plain: Record<string, string> = {
+    cancel_requested: 'flow.recipe.reason.cancel_requested',
+    recipe_env_not_found: 'flow.recipe.reason.env_not_found',
+    recipe_worker_lost_after_claim: 'flow.recipe.reason.worker_lost',
+    recipe_execution_disabled: 'flow.recipe.reason.disabled',
+    recipe_output_too_large: 'flow.recipe.reason.output_too_large',
+    recipe_output_not_object: 'flow.recipe.reason.output_not_object',
+    recipe_output_unreadable: 'flow.recipe.reason.output_unreadable',
+  };
+  if (plain[raw]) return { key: plain[raw] };
+  const timeout = /^recipe_timeout_after_(\d+)s$/.exec(raw);
+  if (timeout) {
+    return { key: 'flow.recipe.reason.timeout', params: { seconds: timeout[1] } };
+  }
+  const build = /^recipe_env_build_failed(?::\s*([\s\S]*))?$/.exec(raw);
+  if (build) {
+    return { key: 'flow.recipe.reason.env_build_failed', detail: build[1] || undefined };
+  }
+  const exit = /^recipe_exit_(-?\d+)(?::\s*([\s\S]*))?$/.exec(raw);
+  if (exit) {
+    return {
+      key: 'flow.recipe.reason.exit',
+      params: { code: exit[1] },
+      detail: exit[2] || undefined,
+    };
+  }
+  return { key: 'flow.recipe.reason.unknown', detail: raw };
+}
+
 /** Visual step state for the Test-tab timeline. */
 export type RecipeTimelineStepState = 'done' | 'current' | 'upcoming';
 

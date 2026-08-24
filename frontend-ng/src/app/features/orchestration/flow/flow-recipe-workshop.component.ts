@@ -53,6 +53,7 @@ import {
   readRecipeParams,
   recipeCodeLineCount,
   recipeEnvStatusKey,
+  recipeExecutionReason,
   recipeExecutionStatusKey,
   recipeSpecKey,
   recipeTimeline,
@@ -359,8 +360,13 @@ const CODE_WRITE_DEBOUNCE_MS = 400;
                         @if (exec.cancel_requested && isActive(exec.status)) {
                           <p class="ck-recipe-workshop__hint">{{ i18n.t('flow.recipe.test.cancel_requested') }}</p>
                         }
-                        @if (exec.error) {
-                          <p class="ck-recipe-workshop__error" role="alert">{{ exec.error }}</p>
+                        @if (executionReason(); as reason) {
+                          <p class="ck-recipe-workshop__error" role="alert">
+                            {{ i18n.t(reason.key, reason.params) }}
+                            @if (reason.detail) {
+                              <code class="ck-recipe-workshop__reason-detail">{{ reason.detail }}</code>
+                            }
+                          </p>
                         }
                         @if (exec.output_json) {
                           <span class="ck-recipe-workshop__stream-label">{{ i18n.t('flow.recipe.test.output') }}</span>
@@ -426,6 +432,11 @@ export class FlowRecipeWorkshopComponent {
   protected readonly cancelBusy = signal(false);
   protected readonly testError = signal<string | null>(null);
   protected readonly execution = signal<RecipeExecutionDto | null>(null);
+  /** Machine failure code of the settled execution, projected for i18n. */
+  protected readonly executionReason = computed(() => {
+    const error = this.execution()?.error;
+    return error ? recipeExecutionReason(error) : null;
+  });
 
   protected readonly timeoutMax = RECIPE_TIMEOUT_MAX_S;
   protected readonly fingerprint = shortFingerprint;

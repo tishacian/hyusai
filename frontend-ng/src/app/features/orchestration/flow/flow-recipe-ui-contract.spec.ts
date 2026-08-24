@@ -15,6 +15,7 @@ import {
   RECIPE_DEFAULT_CODE,
   RECIPE_SKILL_SLUG,
   RECIPE_TIMEOUT_DEFAULT_S,
+  recipeExecutionReason,
 } from './flow-recipe.vm';
 
 function source(name: string): string {
@@ -151,6 +152,55 @@ test('the workshop is a modal dialog that edits the graph through the store', ()
     assert.match(workshop, new RegExp(key.replace(/\./g, '\\.')));
     assertKey(key);
   }
+});
+
+test('machine failure codes reach the author as localized sentences', () => {
+  // Every code recipe_executions.py can write maps to a dictionary key; the
+  // detail worth keeping (stderr line, build error) survives as `detail`.
+  const cases: Array<[string, string, Record<string, string | number>?, string?]> = [
+    ['cancel_requested', 'flow.recipe.reason.cancel_requested'],
+    ['recipe_env_not_found', 'flow.recipe.reason.env_not_found'],
+    ['recipe_worker_lost_after_claim', 'flow.recipe.reason.worker_lost'],
+    ['recipe_execution_disabled', 'flow.recipe.reason.disabled'],
+    ['recipe_output_too_large', 'flow.recipe.reason.output_too_large'],
+    ['recipe_output_not_object', 'flow.recipe.reason.output_not_object'],
+    ['recipe_output_unreadable', 'flow.recipe.reason.output_unreadable'],
+    ['recipe_timeout_after_120s', 'flow.recipe.reason.timeout', { seconds: '120' }],
+    ['recipe_env_build_failed: pip failed', 'flow.recipe.reason.env_build_failed', undefined, 'pip failed'],
+    ['recipe_env_build_failed', 'flow.recipe.reason.env_build_failed'],
+    ['recipe_exit_1: ValueError: boom', 'flow.recipe.reason.exit', { code: '1' }, 'ValueError: boom'],
+    ['recipe_exit_-9', 'flow.recipe.reason.exit', { code: '-9' }],
+  ];
+  for (const [code, key, params, detail] of cases) {
+    const reason = recipeExecutionReason(code);
+    assert.equal(reason.key, key, `${code} → ${key}`);
+    assert.deepEqual(reason.params, params, `${code} params`);
+    assert.equal(reason.detail, detail, `${code} detail`);
+    assertKey(key);
+  }
+  // Unknown codes stay honest: generic sentence, raw code kept as detail.
+  const unknown = recipeExecutionReason('recipe_next_gen_code');
+  assert.equal(unknown.key, 'flow.recipe.reason.unknown');
+  assert.equal(unknown.detail, 'recipe_next_gen_code');
+  assertKey('flow.recipe.reason.unknown');
+  // The workshop renders the projection, never the raw machine string.
+  const workshop = source('flow-recipe-workshop.component.ts');
+  assert.match(workshop, /executionReason\(\); as reason/);
+  assert.doesNotMatch(workshop, /\{\{ exec\.error \}\}/);
+});
+
+test('the shared schema editor speaks the dictionary, not hardcoded English', () => {
+  const editor = source('flow-schema-editor.component.ts');
+  for (const key of [
+    'flow.schema.declared',
+    'flow.schema.derive_from_ports',
+    'flow.schema.clear',
+  ]) {
+    assert.match(editor, new RegExp(key.replace(/\./g, '\\.')));
+    assertKey(key);
+  }
+  assert.doesNotMatch(editor, />\s*Derive from ports\s*</);
+  assert.doesNotMatch(editor, />\s*Clear\s*</);
 });
 
 test('the recipe poll budget outlasts an env build and names its own timeout label', () => {
