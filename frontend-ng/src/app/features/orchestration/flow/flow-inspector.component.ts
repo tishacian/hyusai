@@ -71,6 +71,16 @@ import {
   type PrivilegeTier,
   type PromptKind,
 } from './agent-loop-inspector.vm';
+import { FlowRecipeService } from './flow-recipe.service';
+import {
+  isPythonRecipeNode,
+  previewRequirements,
+  readRecipeParams,
+  recipeCodeSummary,
+  recipeEnvStatusKey,
+  shortFingerprint,
+  type RecipeNodeParams,
+} from './flow-recipe.vm';
 
 /** Engine kind of the node the lexicon calls an Output. */
 const OUTPUT_NODE_KIND = 'sink';
@@ -352,6 +362,37 @@ export function buildRetrievalDocumentOptions(
                   {{ i18n.t('flow.inspector.agent_loop.load_starter') }}
                 </button>
               </div>
+            </section>
+          }
+
+          @if (isRecipeNode(n)) {
+            <section class="ck-flow-section" data-testid="recipe-summary">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.recipe') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.recipe.inspector.hint') }}</p>
+              <dl class="ck-flow-kv">
+                <dt>{{ i18n.t('flow.recipe.inspector.script') }}</dt>
+                <dd class="mono">{{ recipeSummary(n) }}</dd>
+                <dt>{{ i18n.t('flow.recipe.inspector.timeout') }}</dt>
+                <dd class="mono">{{
+                  i18n.t('flow.recipe.inspector.timeout.value', {
+                    seconds: recipeParams(n).timeout_s,
+                  })
+                }}</dd>
+                <dt>{{ i18n.t('flow.recipe.inspector.env') }}</dt>
+                <dd class="mono">{{ recipeEnvLine(n) }}</dd>
+              </dl>
+              <button
+                type="button"
+                class="ck-flow-action"
+                data-testid="open-recipe-workshop"
+                (click)="openRecipeWorkshop.emit()"
+                [attr.aria-label]="i18n.t('flow.recipe.inspector.open.aria')"
+              >
+                <ck-glyph name="focus" [size]="12" color="currentColor" />
+                {{ i18n.t('flow.recipe.inspector.open') }}
+              </button>
             </section>
           }
 
@@ -821,6 +862,8 @@ export class FlowInspectorComponent {
   readonly i18n = inject(I18nService);
   /** Optional: present whenever the inspector renders inside the builder shell. */
   private readonly persistence = inject(FlowPersistenceService, { optional: true });
+  /** Optional: the builder provides it; the summary then shows the live env. */
+  private readonly recipeSvc = inject(FlowRecipeService, { optional: true });
 
   /** Active trigger source node types (mirror of the backend
    *  `triggers.TRIGGER_TYPE_TO_EVENT`) — the nodes that offer piloting. */
@@ -894,6 +937,8 @@ export class FlowInspectorComponent {
   private lastRetrievalScopeNodeId: string | null = null;
 
   readonly close = output<void>();
+  /** The workshop dialog is mounted by the builder shell, not by this panel. */
+  readonly openRecipeWorkshop = output<void>();
 
   constructor() {
     effect(() => {
@@ -916,6 +961,17 @@ export class FlowInspectorComponent {
         }
       }
     });
+    // Same lazy stance for the recipe plane: resolve the managed env only
+    // once a recipe node is actually inspected. The service deduplicates by
+    // spec key, so re-selecting the node costs nothing.
+    effect(() => {
+      const n = this.node();
+      if (!n || !this.recipeSvc || !this.isRecipeNode(n)) return;
+      const params = this.recipeParams(n);
+      const preview = previewRequirements(params.requirements_text);
+      if (preview.invalid.length > 0 || preview.tooMany) return;
+      void this.recipeSvc.ensureResolved(params);
+    });
   }
 
   /** Retry the collections fetch after a load error (manual-entry fallback
@@ -935,6 +991,37 @@ export class FlowInspectorComponent {
   /** True for the SFTP arrival trigger specifically (offers the deposit link). */
   isSftpTrigger(n: CanonicalFlowNode): boolean {
     return (n.kind ?? 'task') === 'source' && String(n.type).startsWith('source.sftp');
+  }
+
+  /** True for a task node bound to the Python recipe Skill. */
+  isRecipeNode(n: CanonicalFlowNode): boolean {
+    return isPythonRecipeNode(n);
+  }
+
+  recipeParams(n: CanonicalFlowNode): RecipeNodeParams {
+    return readRecipeParams(n);
+  }
+
+  /** First `def` line of the script — enough to recognise the recipe. */
+  recipeSummary(n: CanonicalFlowNode): string {
+    return recipeCodeSummary(this.recipeParams(n).code) || '—';
+  }
+
+  /**
+   * One line about the managed environment: the live resolved row when the
+   * builder shell provides the recipe service, otherwise the declared spec.
+   */
+  recipeEnvLine(n: CanonicalFlowNode): string {
+    const env = this.recipeSvc?.env() ?? null;
+    if (env) {
+      const status = this.i18n.t(recipeEnvStatusKey(env.status));
+      const fingerprint = shortFingerprint(env.fingerprint);
+      return fingerprint ? `${status} · ${fingerprint}` : status;
+    }
+    const count = previewRequirements(this.recipeParams(n).requirements_text).lines.length;
+    return count === 0
+      ? this.i18n.t('flow.recipe.inspector.env.base')
+      : this.i18n.t('flow.recipe.env.packages', { count });
   }
 
   /** Nodes whose published output schema is authored rather than derived.

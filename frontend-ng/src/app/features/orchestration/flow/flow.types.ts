@@ -16,6 +16,7 @@ import type {
   NodePort,
 } from '@app/core/flow-serializer.service';
 import type { Skill } from '@app/core/canonical-api.service';
+import { RECIPE_SKILL_SLUG, recipeDefaultParams } from './flow-recipe.vm';
 
 export type NodeTone = 'brand' | 'cyan' | 'violet' | 'emerald' | 'amber' | 'rose';
 
@@ -420,6 +421,7 @@ export function portsFromSchema(
 
 /** Pick a Lucide icon (registered in icon-registry) for a skill. */
 function iconForSkill(skill: Skill): string {
+  if (skill.slug === RECIPE_SKILL_SLUG) return 'code-2';
   const hay = `${skill.type ?? ''} ${skill.slug} ${skill.name ?? ''}`.toLowerCase();
   if (/retriev|rag|search|lookup|fetch/.test(hay)) return 'search';
   if (/generat|answer|llm|summar|writ|draft/.test(hay)) return 'cpu';
@@ -454,7 +456,13 @@ export function skillToPaletteItem(skill: Skill): PaletteItem {
   const status = skill.runtime_status ?? 'catalog_only';
   const bound = status === 'bound';
   const description = (skill.description ?? '').trim() || skill.slug;
-  const params = defaultParamsFromSchema(skill.input_schema);
+  let params = defaultParamsFromSchema(skill.input_schema);
+  // The recipe Skill's catalog schema is generic object→object (the concrete
+  // contract is authored on the node), so the executable defaults — the
+  // `main` template and the timeout — are seeded here at drop time.
+  if (skill.slug === RECIPE_SKILL_SLUG) {
+    params = { ...recipeDefaultParams(), ...params };
+  }
   const category = skillPaletteSection(skill);
 
   const config: Record<string, unknown> = {

@@ -59,6 +59,9 @@ import { FlowValidationService } from './flow-validation.service';
 import { FlowPublicationPanelComponent } from './flow-publication-panel.component';
 import { FlowWorkbenchPanelComponent } from './flow-workbench-panel.component';
 import { FlowWorkbenchService } from './flow-workbench.service';
+import { FlowRecipeService } from './flow-recipe.service';
+import { FlowRecipeWorkshopComponent } from './flow-recipe-workshop.component';
+import { isPythonRecipeNode } from './flow-recipe.vm';
 import {
   toNodeView,
   type ParsedConnector,
@@ -100,6 +103,9 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     FlowWorkbenchService,
     FlowPersistenceService,
     FlowValidationService,
+    // One env-resolution cache per builder shell: the inspector summary and
+    // the recipe workshop read the same resolved row.
+    FlowRecipeService,
   ],
   imports: [
     RouterLink,
@@ -116,6 +122,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     FlowValidationStripComponent,
     FlowPublicationPanelComponent,
     FlowWorkbenchPanelComponent,
+    FlowRecipeWorkshopComponent,
     ConfirmDialogComponent,
     EmptyStateComponent,
     HelpTooltipComponent,
@@ -384,6 +391,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
               class="flow-builder__inspector"
               [systemId]="systemId()"
               (close)="closeInspector()"
+              (openRecipeWorkshop)="openRecipeWorkshop()"
             />
           }
         </div>
@@ -394,6 +402,10 @@ const PUBLICATION_HYDRATION_CODES = new Set([
             [open]="true"
             (close)="closeWorkbench()"
           />
+        }
+
+        @if (recipeWorkshopOpen()) {
+          <app-flow-recipe-workshop (close)="closeRecipeWorkshop()" />
         }
       } @else {
         <div class="flow-builder__load-state" role="status">
@@ -539,6 +551,8 @@ export class FlowBuilderComponent {
   protected readonly focusMode = signal(false);
   protected readonly toolbarCompact = signal(false);
   protected readonly workbenchOpen = signal(false);
+  /** Full-screen authoring dialog for the SELECTED Python recipe node. */
+  protected readonly recipeWorkshopOpen = signal(false);
   protected readonly versionsOpen = signal(false);
   /** Runtime manifest is operator context, not authoring context: collapsed
    *  until asked for, expanded state kept for the rest of the session. */
@@ -878,6 +892,18 @@ export class FlowBuilderComponent {
     this.workbenchOpen.set(false);
     this.persistence.setWorkbenchAutosaveHold(false);
     this.scheduleCanvasFit();
+  }
+
+  /** The inspector asks; the shell mounts the dialog over the whole builder.
+   * Unlike the workbench, autosave keeps running: workshop edits are ordinary
+   * node-config edits, meant to be versioned with the flow. */
+  protected openRecipeWorkshop(): void {
+    if (!isPythonRecipeNode(this.store.selectedNode())) return;
+    this.recipeWorkshopOpen.set(true);
+  }
+
+  protected closeRecipeWorkshop(): void {
+    this.recipeWorkshopOpen.set(false);
   }
 
   /** Enter browser fullscreen when permitted; the fixed-position CSS class is
