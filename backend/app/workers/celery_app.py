@@ -35,4 +35,10 @@ celery_app.conf.beat_schedule = {
         "task": "agentium.scheduler_tick",
         "schedule": 60.0,
     },
+    # Python recipe venv storage governor (TTL + LRU quota + pip cache cap).
+    # The task itself no-ops unless recipe execution is enabled.
+    "recipe-env-sweep-1h": {
+        "task": "agentium.recipe_env_sweep",
+        "schedule": 60 * 60,
+    },
 }

@@ -242,6 +242,9 @@ services:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
       - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit:ro
       - ${AGENTIUM_FAISS_PATH:-/home/ubuntu/omnirag/backend/faiss_db}:/data/faiss_db
+      # Python recipe venv store + shared pip cache. Only the Celery worker
+      # builds/executes inside it; the backend never mounts it.
+      - ${AGENTIUM_RECIPE_ENVS_PATH:-/home/ubuntu/agentium-data/recipe_envs}:/data/recipe_envs
     depends_on:
       agentium-rabbitmq:
         condition: service_healthy

@@ -48,6 +48,7 @@ from app.api.v1.endpoints import (
     observability,
     presets,
     reasoning,
+    recipes,
     reports,
     rpa,
     runs,
@@ -126,6 +127,12 @@ api_router.include_router(value_loop.router,    prefix="/systems",       tags=["
 api_router.include_router(capabilities.router,  prefix="/capabilities",  tags=["capabilities"])
 api_router.include_router(skills.router,        prefix="/skills",        tags=["skills"])
 api_router.include_router(runs.router,          prefix="/runs",          tags=["runs"])
+api_router.include_router(recipes.envs_router, prefix="/python-envs", tags=["python-envs"])
+api_router.include_router(
+    recipes.executions_router,
+    prefix="/recipe-executions",
+    tags=["recipe-executions"],
+)
 api_router.include_router(impact.router,        prefix="/impact",        tags=["impact"])
 api_router.include_router(hypervisor.router,    prefix="/hypervisor",    tags=["hypervisor"])
 api_router.include_router(control_plane.router, prefix="/control-plane", tags=["control-plane"])

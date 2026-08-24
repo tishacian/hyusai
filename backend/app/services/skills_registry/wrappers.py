@@ -1320,6 +1320,127 @@ async def _rpa_dispatch_v1(
             db.close()
 
 
+async def _python_recipe_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Dispatch an author-written Python script to the Celery recipe plane.
+
+    The wrapper computes nothing itself: it resolves the content-addressed
+    venv row, creates a ``RecipeExecution``, enqueues
+    ``agentium.recipe_execute`` and polls the row (~1s) until terminal. The
+    graph-owned ``_recipe`` block is injected by the DAG walker
+    (:func:`app.services.run_engine.dag._apply_recipe_node_config`); caller
+    input can never smuggle code in. Fail-closed on every invalid shape and
+    while ``recipe_execution_enabled`` is off.
+    """
+    import asyncio
+    import time as time_mod
+
+    from app.core.config import settings as app_settings
+    from app.db.base import SessionLocal
+    from app.models.recipe import RECIPE_EXECUTION_TERMINAL_STATUSES, RecipeExecution
+    from app.services import recipe_executions as recipe_exec
+    from app.services.recipe_envs import RecipeError, resolve_env, spec_from_params
+
+    ctx = ctx or {}
+    recipe = payload.get("_recipe")
+    if not isinstance(recipe, dict):
+        raise ValueError(
+            "recipe_config_missing: this Skill only runs as a Flow node "
+            "carrying its graph-owned recipe configuration"
+        )
+    if not app_settings.recipe_execution_enabled:
+        raise ValueError("recipe_execution_disabled")
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("recipe_workspace_required")
+
+    try:
+        code = recipe_exec.validate_code(recipe.get("code"))
+        spec = spec_from_params(recipe)
+    except RecipeError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+    timeout_s = recipe_exec.clamp_timeout(recipe.get("timeout_s"))
+    inputs = {key: value for key, value in payload.items() if key != "_recipe"}
+
+    with SessionLocal() as db:
+        env = resolve_env(db, workspace_id=str(workspace_id), spec=spec)
+        env_ready = env.status == "ready"
+        execution = recipe_exec.create_execution(
+            db,
+            workspace_id=str(workspace_id),
+            env=env,
+            code=code,
+            inputs=inputs,
+            timeout_s=timeout_s,
+            run_id=ctx.get("run_id"),
+            node_id=str(recipe.get("node_id") or "") or None,
+        )
+        db.commit()
+        execution_id = execution.id
+        recipe_exec.dispatch_execution(db, execution, code=code)
+
+    # Wait budget: script timeout + env build allowance (first run only)
+    # + queue/dispatch buffer. The Celery side enforces its own hard limits;
+    # this outer deadline only protects the walker from a stuck plane.
+    deadline = (
+        time_mod.monotonic()
+        + timeout_s
+        + (0.0 if env_ready else float(app_settings.recipe_env_build_timeout_s))
+        + 30.0
+    )
+    status: str | None = None
+    output: dict[str, Any] | None = None
+    error: str | None = None
+    stderr_tail: str | None = None
+    try:
+        while True:
+            await asyncio.sleep(1.0)
+            with SessionLocal() as db:
+                row = (
+                    db.query(RecipeExecution)
+                    .filter(RecipeExecution.id == execution_id)
+                    .first()
+                )
+                if row is None:
+                    raise RuntimeError("recipe_execution_missing")
+                if row.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
+                    status = row.status
+                    output = row.output_json if isinstance(row.output_json, dict) else None
+                    error = row.error
+                    stderr_tail = row.stderr_tail
+                    break
+            if time_mod.monotonic() > deadline:
+                with SessionLocal() as db:
+                    row = (
+                        db.query(RecipeExecution)
+                        .filter(RecipeExecution.id == execution_id)
+                        .first()
+                    )
+                    if row is not None:
+                        recipe_exec.request_cancel(db, row)
+                raise RuntimeError("recipe_wait_deadline_expired")
+    except asyncio.CancelledError:
+        # Run cancelled while we wait: flip the cooperative flag so the
+        # worker kills the subprocess, then let the walker settle.
+        with SessionLocal() as db:
+            row = (
+                db.query(RecipeExecution)
+                .filter(RecipeExecution.id == execution_id)
+                .first()
+            )
+            if row is not None:
+                recipe_exec.request_cancel(db, row)
+        raise
+
+    if status == "succeeded":
+        return dict(output or {})
+    detail = (error or "").strip()
+    tail_lines = (stderr_tail or "").strip().splitlines()
+    suffix = f" — {tail_lines[-1][:200]}" if tail_lines else ""
+    raise RuntimeError(f"recipe_execution_{status}: {detail}{suffix}"[:480])
+
+
 async def _calendar_create_event_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -5163,6 +5284,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "rpa_dispatch_v1": (
         _rpa_dispatch_v1,
         "app.services.connectors.rpa.service",
+        "bound",
+    ),
+    "python_recipe_v1": (
+        _python_recipe_v1,
+        "app.services.recipe_executions",
         "bound",
     ),
     "calendar_create_event_v1": (

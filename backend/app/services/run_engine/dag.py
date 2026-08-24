@@ -1984,6 +1984,41 @@ def _apply_retrieval_node_scope(node: DagNode, node_input: Dict[str, Any]) -> No
         node_input.pop("retrieval_filters", None)
 
 
+_RECIPE_SKILL_SLUG = "python_recipe_v1"
+_RECIPE_PARAM_KEYS = (
+    "code",
+    "requirements_text",
+    "index_url",
+    "extra_index_urls",
+    "timeout_s",
+)
+
+
+def _apply_recipe_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
+    """Project the graph-owned recipe configuration into the skill input.
+
+    The ``_recipe`` block is authoritative graph configuration: caller input
+    and upstream nodes can never inject or alter the executable script or its
+    environment spec. On non-recipe nodes the reserved key is stripped so an
+    ingress payload cannot smuggle one toward a downstream recipe node.
+    """
+
+    if node.skill_slug != _RECIPE_SKILL_SLUG:
+        node_input.pop("_recipe", None)
+        return
+    config = node.config if isinstance(node.config, dict) else {}
+    params = config.get("params") if isinstance(config.get("params"), dict) else {}
+    node_input["_recipe"] = {
+        **{key: params.get(key) for key in _RECIPE_PARAM_KEYS},
+        "node_id": node.id,
+    }
+    # In strict mode the palette-params merge above may also have seeded the
+    # raw config keys as plain input defaults; drop them so the script's
+    # ``inputs`` dict carries data only.
+    for key in _RECIPE_PARAM_KEYS:
+        node_input.pop(key, None)
+
+
 # ---------------------------------------------------------------------------
 # Per-node dispatcher
 # ---------------------------------------------------------------------------
@@ -2149,6 +2184,8 @@ async def _execute_node(
             },
         )
         return {"output": {}, "terminal_error": str(exc)}
+
+    _apply_recipe_node_config(node, node_input)
 
     invocations_before = len(state.invocation_ids)
     result: Dict[str, Any] = {}
