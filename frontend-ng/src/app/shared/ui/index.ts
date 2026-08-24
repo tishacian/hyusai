@@ -8,3 +8,4 @@ export * from './skeleton.component';
 export * from './drawer.component';
 export * from './confirm-dialog.component';
 export * from './search-input.component';
+export * from './code-editor.component';

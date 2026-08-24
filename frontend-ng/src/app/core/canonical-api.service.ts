@@ -719,6 +719,76 @@ export interface SystemFlowWorkbenchGoldenRunResponse {
   runs: FlowWorkbenchRun[];
 }
 
+// ---- Python recipe plane (managed venvs + executions) ----------------------
+
+/** A managed, content-addressed Python environment (`GET /python-envs`). */
+export interface PythonEnvDto {
+  id: string;
+  fingerprint: string;
+  python_version: string;
+  requirements_text: string;
+  /** True once a successful build captured `pip freeze` — the exact lock a
+   * rebuild after eviction reinstalls from. */
+  has_lock: boolean;
+  index_url: string | null;
+  extra_index_urls: string[];
+  status: 'pending' | 'building' | 'ready' | 'failed' | 'evicted';
+  size_bytes: number;
+  build_error: string | null;
+  build_log_tail: string | null;
+  built_at: string | null;
+  build_duration_ms: number | null;
+  last_used_at: string | null;
+  use_count: number;
+  created_at: string | null;
+}
+
+export interface PythonEnvResolveRequest {
+  requirements_text: string;
+  index_url?: string | null;
+  extra_index_urls?: string[];
+}
+
+export interface PythonEnvResponse {
+  env: PythonEnvDto;
+  /** Deployment-level switch: false means dispatches will fail closed. */
+  feature?: { enabled: boolean };
+}
+
+export interface PythonEnvBuildResponse {
+  env: PythonEnvDto;
+  dispatched: boolean;
+}
+
+/** One recipe execution row (`GET /recipe-executions/{id}`). */
+export interface RecipeExecutionDto {
+  id: string;
+  run_id: string | null;
+  node_id: string | null;
+  invocation_id: string | null;
+  env_id: string | null;
+  env_fingerprint: string | null;
+  status:
+    | 'queued'
+    | 'env_building'
+    | 'running'
+    | 'succeeded'
+    | 'failed'
+    | 'cancelled'
+    | 'timed_out';
+  cancel_requested: boolean;
+  timeout_s: number;
+  exit_code: number | null;
+  stdout_tail: string | null;
+  stderr_tail: string | null;
+  output_json: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+}
+
 /** Immutable published evidence shown by the operator Runner.  The mutable
  * server draft is intentionally absent from this transport. */
 export interface FlowRunnerPublished {
@@ -2055,6 +2125,68 @@ export class CanonicalApiService {
         `/runs/${encodeURIComponent(runId)}/invocations/${encodeURIComponent(invocationId)}/perspective`,
         { lens, window },
       );
+  }
+
+  // ---- Python recipe plane -------------------------------------------------
+  // Errors propagate (no catchError → null): the workshop distinguishes a
+  // spec the server refused (422 with {code,message}) from a transport fault,
+  // and a cancel that failed must never look like a cancel that happened.
+
+  /** Normalize a spec and return its (existing or newly pending) env row. */
+  resolvePythonEnv(body: PythonEnvResolveRequest): Observable<PythonEnvResponse> {
+    return this.api.post<PythonEnvResponse>('/python-envs/resolve', body);
+  }
+
+  getPythonEnv(envId: string): Observable<PythonEnvResponse> {
+    return this.api.get<PythonEnvResponse>(`/python-envs/${encodeURIComponent(envId)}`);
+  }
+
+  /** "Prepare now": dispatch an async build; the row status is the tracker. */
+  buildPythonEnv(envId: string): Observable<PythonEnvBuildResponse> {
+    return this.api.post<PythonEnvBuildResponse>(
+      `/python-envs/${encodeURIComponent(envId)}/build`,
+      {},
+    );
+  }
+
+  /** Manual eviction — frees disk bytes, keeps the row + lock for rebuilds. */
+  evictPythonEnv(envId: string): Observable<PythonEnvResponse> {
+    return this.api.delete<PythonEnvResponse>(`/python-envs/${encodeURIComponent(envId)}`);
+  }
+
+  listRecipeExecutions(params?: {
+    run_id?: string;
+    node_id?: string;
+    limit?: number;
+  }): Observable<RecipeExecutionDto[]> {
+    const query: Record<string, string> = {};
+    if (params?.run_id) query['run_id'] = params.run_id;
+    if (params?.node_id) query['node_id'] = params.node_id;
+    if (params?.limit != null) query['limit'] = String(params.limit);
+    return this.api
+      .get<{ executions: RecipeExecutionDto[] }>(
+        '/recipe-executions',
+        Object.keys(query).length ? query : undefined,
+      )
+      .pipe(map((r) => r?.executions ?? []));
+  }
+
+  getRecipeExecution(executionId: string): Observable<RecipeExecutionDto> {
+    return this.api
+      .get<{ execution: RecipeExecutionDto }>(
+        `/recipe-executions/${encodeURIComponent(executionId)}`,
+      )
+      .pipe(map((r) => r.execution));
+  }
+
+  /** Cooperative cancel: revoke when still queued, else `cancel_requested`. */
+  cancelRecipeExecution(executionId: string): Observable<RecipeExecutionDto> {
+    return this.api
+      .post<{ execution: RecipeExecutionDto }>(
+        `/recipe-executions/${encodeURIComponent(executionId)}/cancel`,
+        {},
+      )
+      .pipe(map((r) => r.execution));
   }
 
   workspaceOverview(window = '24h'): Observable<WorkspaceOverview | null> {

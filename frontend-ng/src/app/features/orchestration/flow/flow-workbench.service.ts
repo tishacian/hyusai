@@ -54,6 +54,16 @@ export const FLOW_WORKBENCH_GOLDEN_POLL_POLICY: FlowWorkbenchPollPolicy = Object
   maxAttempts: 1_200,
   timeoutLabelKey: 'flow.workbench.timeout.golden',
 });
+
+/** A Python recipe run may first BUILD its environment (pip install), which
+ * the two-minute interactive budget cannot absorb. Thirty minutes covers the
+ * env-build ceiling plus the max execution timeout, at a 1 s cadence that
+ * matches the recipe status granularity. */
+export const FLOW_WORKBENCH_RECIPE_POLL_POLICY: FlowWorkbenchPollPolicy = Object.freeze({
+  intervalMs: 1_000,
+  maxAttempts: 1_800,
+  timeoutLabelKey: 'flow.workbench.timeout.recipe',
+});
 const TERMINAL_STATUSES = new Set<Run['status']>([
   'completed',
   'failed',
@@ -409,6 +419,7 @@ export class FlowWorkbenchService {
     nodeId: string,
     input: Record<string, unknown>,
     acknowledgeRealSideEffects = false,
+    pollPolicy: FlowWorkbenchPollPolicy = FLOW_WORKBENCH_INTERACTIVE_POLL_POLICY,
   ): Promise<FlowWorkbenchRun | null> {
     const normalizedNodeId = nodeId.trim();
     if (!normalizedNodeId) {
@@ -443,7 +454,7 @@ export class FlowWorkbenchService {
         output: isRecord(initial.output_ref) ? initial.output_ref : {},
         successful: false,
       });
-      const run = await this.pollRun(initial, validated);
+      const run = await this.pollRun(initial, validated, pollPolicy);
       const result: FlowWorkbenchNodeResult = {
         nodeId: normalizedNodeId,
         run,
