@@ -93,6 +93,7 @@ _NAVIGATION_SURFACES = frozenset(
         "contexts",
         "create",
         "create-apps",
+        "data",
         "external-deposit",
         "fse-reports",
         "governance",

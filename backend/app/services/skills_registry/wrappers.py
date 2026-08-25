@@ -1441,6 +1441,60 @@ async def _python_recipe_v1(
     raise RuntimeError(f"recipe_execution_{status}: {detail}{suffix}"[:480])
 
 
+async def _sql_transform_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Run the node's graph-owned SQL over its dataset inputs (duckdb, in-process).
+
+    The statement and the output name are authoritative graph configuration
+    injected as ``_transform`` by the DAG walker
+    (:func:`app.services.run_engine.dag._apply_transform_node_config`), so
+    caller input can never rewrite the query. Inputs are resolved by reference
+    from the payload (upstream dataset envelopes) and from the pins declared on
+    the node.
+
+    Execution is offloaded to a thread: duckdb is synchronous and CPU-bound, and
+    the walker's event loop still has other nodes to settle.
+    """
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_transforms import run_sql_transform
+
+    ctx = ctx or {}
+    transform = payload.get("_transform")
+    if not isinstance(transform, dict):
+        raise ValueError(
+            "transform_config_missing: this Skill only runs as a Flow node "
+            "carrying its graph-owned SQL configuration"
+        )
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("transform_workspace_required")
+
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    sources = transform.get("sources")
+
+    def _run() -> dict[str, Any]:
+        with SessionLocal() as db:
+            return run_sql_transform(
+                db,
+                workspace_id=str(workspace_id),
+                sql=transform.get("sql"),
+                output_name=str(transform.get("output_name") or "sql result"),
+                declared=sources if isinstance(sources, list) else None,
+                payload=inputs,
+                run_id=ctx.get("run_id"),
+                node_id=str(transform.get("node_id") or "") or None,
+            )
+
+    try:
+        return await asyncio.to_thread(_run)
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+
 async def _calendar_create_event_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -5289,6 +5343,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "python_recipe_v1": (
         _python_recipe_v1,
         "app.services.recipe_executions",
+        "bound",
+    ),
+    "sql_transform_v1": (
+        _sql_transform_v1,
+        "app.services.tabular_transforms",
         "bound",
     ),
     "calendar_create_event_v1": (
