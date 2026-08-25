@@ -39,6 +39,41 @@ import { flowValidationFingerprint } from './flow-validation.service';
 const SOURCE_SHA = 'a'.repeat(64);
 const ISOLATED_SHA = 'b'.repeat(64);
 
+/**
+ * Make the mocked `setInterval` honour a `clearInterval` issued from inside its
+ * own callback.
+ *
+ * Node's `MockTimers` do not: an interval cleared from within the tick that
+ * fired it stays armed and fires again on the next `tick()`. RxJS clears its
+ * interval exactly there — `AsyncAction` recycles its handle while executing —
+ * so the second firing reaches an action that is already unsubscribed and the
+ * scheduler throws `executing a cancelled action`. Any test that both mocks
+ * `setInterval` and advances time across an RxJS `timer()` hits it.
+ *
+ * Call after `enable()`; the runner restores the globals when the test ends.
+ */
+function honourInCallbackClears(): void {
+  const schedule = globalThis.setInterval;
+  const cancel = globalThis.clearInterval;
+  const cleared = new Set<unknown>();
+  globalThis.setInterval = ((
+    handler: (...args: unknown[]) => void,
+    ms?: number,
+    ...args: unknown[]
+  ) => {
+    let id: unknown;
+    // Assigned before any tick can run the callback, so the guard sees it.
+    id = schedule(() => {
+      if (!cleared.has(id)) handler(...args);
+    }, ms);
+    return id;
+  }) as typeof globalThis.setInterval;
+  globalThis.clearInterval = ((id: unknown) => {
+    cleared.add(id);
+    return cancel(id as Parameters<typeof globalThis.clearInterval>[0]);
+  }) as typeof globalThis.clearInterval;
+}
+
 type Store = InstanceType<typeof FlowStore>;
 
 interface ScheduledEffect {
@@ -557,6 +592,7 @@ test('golden polling has a distinct one-hour budget without changing interactive
   );
 
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  honourInCallbackClears();
   const { api, service } = harness();
   const queued = workbenchRun('golden_preview', 'pending', {
     id: 'golden-never-finishes',
