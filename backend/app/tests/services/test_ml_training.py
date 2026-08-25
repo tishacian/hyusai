@@ -37,6 +37,7 @@ from app.services.tabular_ml import (
     ALGOS,
     CLASSIFICATION,
     REGRESSION,
+    TRAIN_STEPS,
     catalog_payload,
     estimator_params,
     get_model,
@@ -328,8 +329,24 @@ def _summary(**overrides) -> dict:
     return body
 
 
-def _stub_harness(monkeypatch, *, exit_code=0, summary=None, status=None, files=None):
-    """Stand in for the training subprocess: write what a real harness would."""
+def _stub_harness(
+    monkeypatch,
+    *,
+    exit_code=0,
+    summary=None,
+    status=None,
+    files=None,
+    progress=(),
+    observe=None,
+):
+    """Stand in for the training subprocess: write what a real harness would.
+
+    ``progress`` names the steps the stubbed child claims. Each is appended to
+    the manifest's progress file and followed by the supervisor's own poll tick,
+    which is how the worker republishes a step onto the polled row. ``observe``
+    is read after each tick, so a caller can assert what the row said *while* the
+    run was in flight rather than only once it settled.
+    """
 
     captured: dict = {}
 
@@ -338,6 +355,15 @@ def _stub_harness(monkeypatch, *, exit_code=0, summary=None, status=None, files=
         captured.update(kwargs)
         manifest = json.loads(Path(argv[2]).read_text(encoding="utf-8"))
         captured["manifest"] = manifest
+        observed: list[str | None] = []
+        for step in progress:
+            with open(manifest["progress_path"], "a", encoding="utf-8") as handle:
+                handle.write(f"{step}\n")
+            if kwargs.get("on_poll") is not None:
+                kwargs["on_poll"]()
+            if observe is not None:
+                observed.append(observe())
+        captured["observed"] = observed
         result_path = Path(argv[3])
         if exit_code == 0 and status is None:
             model_dir = Path(manifest["model_dir"])
@@ -664,6 +690,83 @@ def test_the_manifest_carries_the_resolved_spec_and_not_the_catalog_vocabulary(
     assert manifest["test_size"] == 0.3
 
 
+# ---------------------------------------------------------------------------
+# Progress: what the row says while a fit runs
+# ---------------------------------------------------------------------------
+
+
+def test_a_run_publishes_step_codes_and_never_a_sentence(
+    db_session, workspace, dataset, enabled, monkeypatch, store
+):
+    """The row is polled by a French page and an English one, so what it carries
+    while it works has to be a code both can name — never a worker's sentence."""
+
+    from app.services.tabular_ml import create_model
+
+    def observe() -> str | None:
+        db_session.expire_all()
+        return db_session.query(MLModel).filter_by(id=model.id).one().status_detail
+
+    captured = _stub_harness(
+        monkeypatch,
+        progress=("reading", "fitting", "scoring"),
+        observe=observe,
+    )
+    spec = validate_training(dataset, task=None, target="churn")
+    model = create_model(db_session, workspace_id=workspace.id, spec=spec)
+    db_session.commit()
+    # Queued, before the worker has claimed anything: a step, not a spinner.
+    assert model.status_detail == "queued"
+    assert model.status_detail in TRAIN_STEPS
+
+    run_training(model.id)
+
+    # The harness owns the steps inside the fit, and the worker republished each
+    # one as the child claimed it.
+    assert captured["observed"] == ["reading", "fitting", "scoring"]
+    assert captured["manifest"]["progress_path"].endswith("progress.txt")
+    db_session.expire_all()
+    row = db_session.query(MLModel).filter_by(id=model.id).one()
+    assert row.status == "ready", row.error
+    # A settled run has no step left to be on.
+    assert row.status_detail is None
+
+
+def test_a_step_the_worker_cannot_name_is_not_published(tmp_path):
+    """A progress file is written by a subprocess, so it can be caught truncated
+    or carry a line from a harness this deployment does not know. Either becomes
+    no step rather than a status no surface can translate."""
+
+    from app.services.tabular_ml import read_progress
+
+    assert read_progress(tmp_path) is None, "no file yet is no step"
+    progress = tmp_path / "progress.txt"
+    progress.write_text("reading\nfitting\nsomething-else\n", encoding="utf-8")
+    assert read_progress(tmp_path) == "fitting", "the last step it can name"
+    progress.write_text("wat\n", encoding="utf-8")
+    assert read_progress(tmp_path) is None
+
+
+def test_republishing_the_same_step_does_not_write(
+    db_session, workspace, dataset, enabled, monkeypatch, store
+):
+    """The worker reads the progress file once a second for the length of a fit.
+    Committing the unchanged step each time would be a write per second for
+    nothing, so `mark_step` is a no-op when the step has not moved."""
+
+    from app.services.tabular_ml import create_model
+
+    spec = validate_training(dataset, task=None, target="churn")
+    model = create_model(db_session, workspace_id=workspace.id, spec=spec)
+    db_session.commit()
+    tabular_ml.mark_step(db_session, model, "fitting")
+    stamped = model.updated_at
+    tabular_ml.mark_step(db_session, model, "fitting")
+    assert model.updated_at == stamped
+    tabular_ml.mark_step(db_session, model, "scoring")
+    assert model.updated_at != stamped
+
+
 def test_deleting_a_version_takes_its_bytes_with_it(
     db_session, workspace, dataset, enabled, monkeypatch, store
 ):
@@ -697,6 +800,7 @@ def _run_harness(tmp_path: Path, manifest: dict) -> tuple[int, dict, str]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     manifest_path = tmp_path / "manifest.json"
     result_path = tmp_path / "result.json"
+    manifest.setdefault("progress_path", str(tmp_path / "progress.txt"))
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     completed = subprocess.run(  # noqa: S603 - our interpreter, our harness
         [sys.executable, str(harness_path()), str(manifest_path), str(result_path)],
@@ -819,6 +923,12 @@ def test_the_harness_writes_the_evidence_the_model_card_reads(churn_parquet, tmp
     assert summary["input_example"]
     # JSON that Postgres will accept: no NaN, no Infinity anywhere.
     json.dumps(summary, allow_nan=False)
+
+    # Only this process knows when the reading ends and the fitting begins, so
+    # it claims each step for the worker to republish onto the polled row.
+    claimed = (tmp_path / "run" / "progress.txt").read_text(encoding="utf-8").split()
+    assert claimed == ["reading", "fitting", "scoring", "saving"]
+    assert set(claimed) <= set(TRAIN_STEPS)
 
 
 @pytest.mark.slow

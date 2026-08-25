@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.models.tabular import TabularDataset
 from app.models.workspace import Workspace
 from app.services.tabular_datasets import (
+    INGEST_STEPS,
     KIND_BOOLEAN,
     KIND_DATETIME,
     KIND_FLOAT,
@@ -134,7 +135,10 @@ def test_upload_then_ingest_writes_parquet_and_the_full_read_model(
     )
     db_session.commit()
     assert dataset.status == "pending"
-    assert dataset.status_detail  # never a mute spinner
+    # A step, never a mute spinner — and a code, because the page reading it is
+    # French on one deployment and English on the next.
+    assert dataset.status_detail == "queued"
+    assert dataset.status_detail in INGEST_STEPS
     assert dataset.storage_key is None
 
     result = ingest_dataset(dataset.id)
@@ -160,6 +164,40 @@ def test_upload_then_ingest_writes_parquet_and_the_full_read_model(
     frame = read_frame(dataset)
     assert frame.height == 4
     assert frame.get_column("contract").to_list()[0] == "monthly"
+
+
+def test_ingest_walks_the_declared_steps_in_order(
+    db_session, workspace, object_store_root, monkeypatch
+):
+    """The steps a surface renders as a check-list are the ones the worker walks,
+    in the order it walks them — so `INGEST_STEPS` is a contract, not a label."""
+
+    from app.services import tabular_datasets
+
+    walked: list[str] = []
+    real = tabular_datasets.mark_step
+
+    def spy(db, dataset, step):
+        walked.append(step)
+        real(db, dataset, step)
+
+    monkeypatch.setattr(tabular_datasets, "mark_step", spy)
+
+    dataset = create_upload(
+        db_session,
+        workspace_id=workspace.id,
+        name="Churn export",
+        filename="churn.csv",
+        content_type="text/csv",
+        payload=CSV.encode("utf-8"),
+    )
+    db_session.commit()
+    ingest_dataset(dataset.id)
+
+    assert walked == ["reading", "profiling", "writing"]
+    # Plus the queued one the API stamps before the worker exists, which is the
+    # whole list.
+    assert ["queued", *walked] == list(INGEST_STEPS)
 
 
 def test_ingest_failure_records_a_reason_instead_of_hanging_in_progress(

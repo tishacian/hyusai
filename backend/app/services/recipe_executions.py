@@ -424,6 +424,7 @@ def supervise_harness(
     scratch: Path,
     timeout_s: float,
     should_cancel: Callable[[], bool] | None = None,
+    on_poll: Callable[[], None] | None = None,
     timeout_error: str | None = None,
     memory_limit_mb: int | None = None,
     cpu_limit_s: int | None = None,
@@ -449,6 +450,13 @@ def supervise_harness(
     * ``fsize_limit_mb`` caps any single file the child writes, so an engine
       that writes its own artifact (a serialized pipeline is megabytes) needs
       more room than one that writes a Parquet result.
+
+    ``on_poll`` runs on the same once-a-second tick as the cancel check, which
+    is the only moment this function is awake while the child works. An engine
+    whose child reports its own progress (a fit passes through reading, fitting,
+    scoring and saving over minutes) uses it to publish that progress; it must
+    not raise, because the supervision of a running process is not a place to
+    fail from.
     """
 
     budget = int(
@@ -500,6 +508,11 @@ def supervise_harness(
                 break
             if now - last_cancel_check >= 1.0:
                 last_cancel_check = now
+                if on_poll is not None:
+                    try:
+                        on_poll()
+                    except Exception:  # noqa: BLE001 - progress is never fatal
+                        logger.warning("harness: progress hook failed", exc_info=True)
                 if should_cancel is not None and should_cancel():
                     _kill_process_group(process)
                     process.wait(timeout=10)
