@@ -17,6 +17,10 @@ import type {
 } from '@app/core/flow-serializer.service';
 import type { Skill } from '@app/core/canonical-api.service';
 import { RECIPE_SKILL_SLUG, recipeDefaultParams } from './flow-recipe.vm';
+import {
+  SQL_TRANSFORM_SKILL_SLUG,
+  sqlTransformDefaultParams,
+} from './flow-transform.vm';
 
 export type NodeTone = 'brand' | 'cyan' | 'violet' | 'emerald' | 'amber' | 'rose';
 
@@ -422,6 +426,7 @@ export function portsFromSchema(
 /** Pick a Lucide icon (registered in icon-registry) for a skill. */
 function iconForSkill(skill: Skill): string {
   if (skill.slug === RECIPE_SKILL_SLUG) return 'code-2';
+  if (skill.slug === SQL_TRANSFORM_SKILL_SLUG) return 'database';
   const hay = `${skill.type ?? ''} ${skill.slug} ${skill.name ?? ''}`.toLowerCase();
   if (/retriev|rag|search|lookup|fetch/.test(hay)) return 'search';
   if (/generat|answer|llm|summar|writ|draft/.test(hay)) return 'cpu';
@@ -462,6 +467,12 @@ export function skillToPaletteItem(skill: Skill): PaletteItem {
   // `main` template and the timeout — are seeded here at drop time.
   if (skill.slug === RECIPE_SKILL_SLUG) {
     params = { ...recipeDefaultParams(), ...params };
+  }
+  // Same reason for the transform Skill: its catalog schema is a dataset
+  // envelope, so the executable defaults — the starter statement and the empty
+  // pin list — are seeded here at drop time.
+  if (skill.slug === SQL_TRANSFORM_SKILL_SLUG) {
+    params = { ...sqlTransformDefaultParams(), ...params };
   }
   const category = skillPaletteSection(skill);
 

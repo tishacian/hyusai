@@ -903,6 +903,92 @@ export const FLOW_FR = {
   'flow.recipe.test.output': 'Sortie',
   'flow.recipe.test.duration': 'Durée : {seconds} s',
   'flow.recipe.test.dispatching': 'Envoi de l’essai…',
+
+  // ---- atelier SQL (node sql_transform_v1) -------------------------------
+  'flow.inspector.section.transform': 'Transformation SQL',
+  'flow.transform.inspector.hint':
+    'La requête est portée par le graphe : elle est versionnée avec le Flow et produit un nouveau jeu de données à chaque exécution.',
+  'flow.transform.inspector.open': 'Ouvrir l’atelier SQL',
+  'flow.transform.inspector.open.aria': 'Ouvrir l’atelier de transformation SQL',
+  'flow.transform.inspector.statement': 'Requête',
+  'flow.transform.inspector.output': 'Sortie',
+  'flow.transform.inspector.output.auto': 'Nom du node',
+  'flow.transform.inspector.sources': 'Entrées épinglées',
+  'flow.transform.inspector.sources.none': 'Aucune — les jeux de données amont sont utilisés',
+  'flow.transform.inspector.sources.count': '{count} épinglée(s)',
+  'flow.transform.workshop.title': 'Atelier SQL',
+  'flow.transform.workshop.close': 'Fermer l’atelier SQL',
+  'flow.transform.editor.label': 'Requête',
+  'flow.transform.editor.engine': 'duckdb · lecture seule',
+  'flow.transform.editor.lines': '{count} ligne(s)',
+  'flow.transform.editor.aria': 'Requête SQL de la transformation',
+  'flow.transform.editor.placeholder': 'SELECT * FROM input',
+  'flow.transform.run': 'Tester la requête',
+  'flow.transform.run.busy': 'Exécution…',
+  'flow.transform.run.shortcut': 'Ctrl + Entrée',
+  'flow.transform.tabs.aria': 'Panneaux de la transformation',
+  'flow.transform.tab.sources': 'Entrées',
+  'flow.transform.tab.output': 'Sortie',
+
+  // entrées
+  'flow.transform.sources.hint':
+    'Épinglez les jeux de données que la requête interroge. À l’exécution, les jeux de données arrivant des nodes amont s’ajoutent automatiquement.',
+  'flow.transform.sources.add': 'Épingler un jeu de données',
+  'flow.transform.sources.remove': 'Retirer',
+  'flow.transform.sources.empty':
+    'Aucune entrée épinglée : épinglez un jeu de données pour écrire et tester la requête ici.',
+  'flow.transform.sources.loading': 'Chargement des jeux de données…',
+  'flow.transform.sources.none_available':
+    'Aucun jeu de données prêt dans cet espace de travail. Importez-en un depuis la page Données.',
+  'flow.transform.sources.rows': '{rows} lignes · {columns} colonnes',
+  'flow.transform.sources.alias': 'aussi : {aliases}',
+  'flow.transform.sources.columns': 'Colonnes',
+  'flow.transform.sources.starter': 'Requête de départ',
+  'flow.transform.sources.starter.aria': 'Écrire une requête de départ sur {view}',
+  'flow.transform.sources.catalog': 'Tables interrogeables',
+
+  // sortie
+  'flow.transform.output.name': 'Nom du jeu de données produit',
+  'flow.transform.output.name.placeholder': 'ex. clients enrichis',
+  'flow.transform.output.hint':
+    'Chaque exécution écrit une nouvelle version de ce jeu de données, avec son lignage vers les entrées.',
+  'flow.transform.output.versioning':
+    'Versionné : v1, v2, v3… La page Données affiche l’historique complet.',
+  'flow.transform.output.open_data': 'Voir la page Données',
+
+  // résultat
+  'flow.transform.result.title': 'Résultat',
+  'flow.transform.result.empty':
+    'Lancez la requête pour voir les lignes, le schéma et le profil des colonnes.',
+  'flow.transform.result.caption': '{rows} lignes · {columns} colonnes · {duration} ms',
+  'flow.transform.result.truncated': 'Aperçu limité à {limit} lignes',
+  'flow.transform.result.no_rows': 'La requête n’a retourné aucune ligne.',
+
+  // refus
+  'flow.transform.error.SQL_EMPTY': 'Écrivez une requête SELECT avant de lancer le test.',
+  'flow.transform.error.SQL_TOO_LONG': 'La requête est trop longue pour être exécutée.',
+  'flow.transform.error.SQL_MULTIPLE_STATEMENTS':
+    'Une seule requête à la fois : une transformation produit une table.',
+  'flow.transform.error.SQL_FORBIDDEN_KEYWORD':
+    'Mot-clé refusé : une transformation lit ses entrées et retourne des lignes, elle ne modifie rien.',
+  'flow.transform.error.SQL_NOT_READ_ONLY':
+    'Seules les requêtes en lecture sont autorisées (SELECT, WITH, FROM).',
+  'flow.transform.error.SQL_FORBIDDEN_FUNCTION':
+    'Fonction refusée : interrogez les entrées déclarées plutôt que des fichiers.',
+  'flow.transform.error.SQL_EXECUTION_FAILED': 'Le moteur a refusé la requête.',
+  'flow.transform.error.SQL_RESULT_TOO_LARGE':
+    'Le résultat dépasse la taille maximale : filtrez ou agrégez davantage.',
+  'flow.transform.error.SQL_NO_COLUMNS': 'La requête ne retourne aucune colonne.',
+  'flow.transform.error.TRANSFORM_NO_INPUT':
+    'Épinglez un jeu de données ou connectez un node amont avant de lancer la transformation.',
+  'flow.transform.error.TRANSFORM_WORKSPACE_REQUIRED':
+    'La transformation doit s’exécuter dans le contexte d’un espace de travail.',
+  'flow.transform.error.DATASET_NOT_FOUND': 'Le jeu de données référencé n’existe plus.',
+  'flow.transform.error.DATASET_NOT_READY':
+    'Le jeu de données est encore en préparation — réessayez dans un instant.',
+  'flow.transform.error.TABULAR_DISABLED': 'Le plan data est désactivé sur cette instance.',
+  'flow.transform.error.unknown': 'La transformation a échoué.',
+
   'flow.validation.error.server': 'Le Flow courant n’a pas pu être validé par le serveur.',
   'flow.run.input.error.json':
     'Saisissez du JSON valide.',
@@ -2052,6 +2138,87 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.recipe.test.output': 'Output',
   'flow.recipe.test.duration': 'Duration: {seconds} s',
   'flow.recipe.test.dispatching': 'Dispatching the test run…',
+
+  'flow.inspector.section.transform': 'SQL transform',
+  'flow.transform.inspector.hint':
+    'The statement is graph-owned: it is versioned with the Flow and produces a new dataset on every run.',
+  'flow.transform.inspector.open': 'Open the SQL workshop',
+  'flow.transform.inspector.open.aria': 'Open the SQL transform workshop',
+  'flow.transform.inspector.statement': 'Statement',
+  'flow.transform.inspector.output': 'Output',
+  'flow.transform.inspector.output.auto': 'Node name',
+  'flow.transform.inspector.sources': 'Pinned inputs',
+  'flow.transform.inspector.sources.none': 'None — upstream datasets are used',
+  'flow.transform.inspector.sources.count': '{count} pinned',
+  'flow.transform.workshop.title': 'SQL workshop',
+  'flow.transform.workshop.close': 'Close the SQL workshop',
+  'flow.transform.editor.label': 'Statement',
+  'flow.transform.editor.engine': 'duckdb · read-only',
+  'flow.transform.editor.lines': '{count} line(s)',
+  'flow.transform.editor.aria': 'SQL statement of the transform',
+  'flow.transform.editor.placeholder': 'SELECT * FROM input',
+  'flow.transform.run': 'Test the statement',
+  'flow.transform.run.busy': 'Running…',
+  'flow.transform.run.shortcut': 'Ctrl + Enter',
+  'flow.transform.tabs.aria': 'Transform panels',
+  'flow.transform.tab.sources': 'Inputs',
+  'flow.transform.tab.output': 'Output',
+
+  'flow.transform.sources.hint':
+    'Pin the datasets the statement queries. At run time, datasets arriving from upstream nodes are added automatically.',
+  'flow.transform.sources.add': 'Pin a dataset',
+  'flow.transform.sources.remove': 'Remove',
+  'flow.transform.sources.empty':
+    'No pinned input: pin a dataset to write and test the statement here.',
+  'flow.transform.sources.loading': 'Loading datasets…',
+  'flow.transform.sources.none_available':
+    'No ready dataset in this workspace. Import one from the Data page.',
+  'flow.transform.sources.rows': '{rows} rows · {columns} columns',
+  'flow.transform.sources.alias': 'also: {aliases}',
+  'flow.transform.sources.columns': 'Columns',
+  'flow.transform.sources.starter': 'Starter statement',
+  'flow.transform.sources.starter.aria': 'Write a starter statement over {view}',
+  'flow.transform.sources.catalog': 'Queryable tables',
+
+  'flow.transform.output.name': 'Name of the produced dataset',
+  'flow.transform.output.name.placeholder': 'e.g. enriched customers',
+  'flow.transform.output.hint':
+    'Every run writes a new version of this dataset, with its lineage back to the inputs.',
+  'flow.transform.output.versioning':
+    'Versioned: v1, v2, v3… The Data page shows the full history.',
+  'flow.transform.output.open_data': 'Open the Data page',
+
+  'flow.transform.result.title': 'Result',
+  'flow.transform.result.empty':
+    'Run the statement to see the rows, the schema and the column profile.',
+  'flow.transform.result.caption': '{rows} rows · {columns} columns · {duration} ms',
+  'flow.transform.result.truncated': 'Preview capped at {limit} rows',
+  'flow.transform.result.no_rows': 'The statement returned no rows.',
+
+  'flow.transform.error.SQL_EMPTY': 'Write a SELECT statement before running the test.',
+  'flow.transform.error.SQL_TOO_LONG': 'The statement is too long to be executed.',
+  'flow.transform.error.SQL_MULTIPLE_STATEMENTS':
+    'One statement at a time: a transform produces one table.',
+  'flow.transform.error.SQL_FORBIDDEN_KEYWORD':
+    'Keyword refused: a transform reads its inputs and returns rows, it never modifies anything.',
+  'flow.transform.error.SQL_NOT_READ_ONLY':
+    'Only read-only statements are allowed (SELECT, WITH, FROM).',
+  'flow.transform.error.SQL_FORBIDDEN_FUNCTION':
+    'Function refused: query the declared inputs instead of reading files.',
+  'flow.transform.error.SQL_EXECUTION_FAILED': 'The engine refused the statement.',
+  'flow.transform.error.SQL_RESULT_TOO_LARGE':
+    'The result exceeds the maximum size: filter or aggregate further.',
+  'flow.transform.error.SQL_NO_COLUMNS': 'The statement returns no column.',
+  'flow.transform.error.TRANSFORM_NO_INPUT':
+    'Pin a dataset or connect an upstream node before running the transform.',
+  'flow.transform.error.TRANSFORM_WORKSPACE_REQUIRED':
+    'The transform must run in the context of a workspace.',
+  'flow.transform.error.DATASET_NOT_FOUND': 'The referenced dataset no longer exists.',
+  'flow.transform.error.DATASET_NOT_READY':
+    'The dataset is still being prepared — try again in a moment.',
+  'flow.transform.error.TABULAR_DISABLED': 'The data plane is disabled on this instance.',
+  'flow.transform.error.unknown': 'The transform failed.',
+
   'flow.validation.error.server': 'The current Flow could not be validated by the server.',
   'flow.run.input.error.json':
     'Enter valid JSON.',

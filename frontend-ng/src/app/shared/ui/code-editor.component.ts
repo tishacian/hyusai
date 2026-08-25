@@ -27,7 +27,16 @@ import {
 } from '@angular/core';
 
 /** Languages the editor knows how to highlight. Anything else stays plain. */
-export type CodeEditorLanguage = 'python' | 'text';
+export type CodeEditorLanguage = 'python' | 'sql' | 'text';
+
+/**
+ * Tables the SQL editor completes against: view name → column names.
+ *
+ * Passed by the SQL workshop from the source catalog the server resolved, so
+ * `input.` offers the real columns of the real dataset instead of a keyword
+ * list. Reconfigured in place when the sources change (see `languageSlot`).
+ */
+export type SqlCompletionSchema = Record<string, string[]>;
 
 /** The slice of the CodeMirror API this component uses (typed loosely on
  * purpose: the real types live in the lazy chunk). */
@@ -38,6 +47,12 @@ interface CodeMirrorHandle {
     dispatch(spec: unknown): void;
     contentDOM: HTMLElement;
   };
+}
+
+/** A CodeMirror `Compartment`, narrowed to what this component calls. */
+interface LanguageSlot {
+  of(extension: unknown): unknown;
+  reconfigure(extension: unknown): unknown;
 }
 
 @Component({
@@ -103,6 +118,7 @@ interface CodeMirrorHandle {
           autocapitalize="off"
           autocomplete="off"
           (input)="onFallbackInput($event)"
+          (keydown)="onFallbackKeydown($event)"
         ></textarea>
       }
       <div
@@ -122,7 +138,11 @@ export class CodeEditorComponent {
   readonly readOnly = input(false);
   readonly placeholder = input('');
   readonly ariaLabel = input('');
+  /** SQL only: the tables and columns completion should offer. */
+  readonly sqlSchema = input<SqlCompletionSchema | null>(null);
   readonly valueChange = output<string>();
+  /** Mod-Enter: the "run this" gesture every query editor is expected to have. */
+  readonly submit = output<void>();
 
   /** True once the CodeMirror chunk mounted; the textarea serves until then. */
   readonly editorReady = signal(false);
@@ -131,10 +151,29 @@ export class CodeEditorComponent {
   /** Last doc text this component pushed out or received; the loop breaker. */
   private lastKnownValue = '';
   private destroyed = false;
+  /** Compartment holding the language extension, so a schema change is a
+   *  reconfigure rather than a remount (which would lose cursor and history). */
+  private languageSlot: LanguageSlot | null = null;
+  private buildSqlExtension:
+    | ((schema: SqlCompletionSchema | null) => unknown)
+    | null = null;
+  private appliedSqlSchema = '';
 
   constructor() {
     this.lastKnownValue = this.value();
     afterNextRender(() => void this.mountEditor());
+    // Sources resolve after the first paint (and change as the author pins
+    // datasets): the completion schema follows without disturbing the doc.
+    effect(() => {
+      const schema = this.sqlSchema();
+      const signature = JSON.stringify(schema ?? {});
+      if (!this.handle || !this.languageSlot || !this.buildSqlExtension) return;
+      if (signature === this.appliedSqlSchema) return;
+      this.appliedSqlSchema = signature;
+      this.handle.view.dispatch({
+        effects: this.languageSlot.reconfigure(this.buildSqlExtension(schema)),
+      });
+    });
     // External rewrites (undo, node switch, requirements import) land in the
     // editor without echoing back the edits the editor itself just emitted.
     effect(() => {
@@ -160,21 +199,41 @@ export class CodeEditorComponent {
     this.valueChange.emit(next);
   }
 
+  /** The run gesture must work before the editor chunk lands, too. */
+  onFallbackKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return;
+    event.preventDefault();
+    this.submit.emit();
+  }
+
   private async mountEditor(): Promise<void> {
     if (typeof window === 'undefined') return;
     try {
-      const [{ basicSetup }, { EditorView, keymap }, { EditorState }, { indentWithTab }] =
-        await Promise.all([
-          import('codemirror'),
-          import('@codemirror/view'),
-          import('@codemirror/state'),
-          import('@codemirror/commands'),
-        ]);
+      const [
+        { basicSetup },
+        { EditorView, keymap },
+        { Compartment, EditorState },
+        { indentWithTab },
+      ] = await Promise.all([
+        import('codemirror'),
+        import('@codemirror/view'),
+        import('@codemirror/state'),
+        import('@codemirror/commands'),
+      ]);
       if (this.destroyed) return;
 
       const extensions: unknown[] = [
         basicSetup,
-        keymap.of([indentWithTab]),
+        keymap.of([
+          indentWithTab,
+          {
+            key: 'Mod-Enter',
+            run: () => {
+              this.submit.emit();
+              return true;
+            },
+          },
+        ]),
         this.ckTheme(EditorView),
         EditorView.updateListener.of((update: { docChanged: boolean }) => {
           if (!update.docChanged || !this.handle) return;
@@ -191,6 +250,23 @@ export class CodeEditorComponent {
         const { python } = await import('@codemirror/lang-python');
         if (this.destroyed) return;
         extensions.push(python());
+      }
+      if (this.language() === 'sql') {
+        const { PostgreSQL, sql } = await import('@codemirror/lang-sql');
+        if (this.destroyed) return;
+        // `lang-sql` takes the schema as configuration, so a schema change is
+        // a language reconfigure; the compartment is what makes that cheap.
+        this.buildSqlExtension = (schema: SqlCompletionSchema | null) =>
+          sql({
+            dialect: PostgreSQL,
+            upperCaseKeywords: true,
+            schema: schema ?? {},
+            defaultTable: schema && schema['input'] ? 'input' : undefined,
+          });
+        const slot = new Compartment() as unknown as LanguageSlot;
+        this.languageSlot = slot;
+        this.appliedSqlSchema = JSON.stringify(this.sqlSchema() ?? {});
+        extensions.push(slot.of(this.buildSqlExtension(this.sqlSchema())));
       }
 
       const view = new EditorView({

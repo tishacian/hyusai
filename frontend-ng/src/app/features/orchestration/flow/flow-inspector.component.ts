@@ -81,6 +81,12 @@ import {
   shortFingerprint,
   type RecipeNodeParams,
 } from './flow-recipe.vm';
+import {
+  isSqlTransformNode,
+  readSqlTransformParams,
+  sqlSummary,
+  type SqlTransformParams,
+} from './flow-transform.vm';
 
 /** Engine kind of the node the lexicon calls an Output. */
 const OUTPUT_NODE_KIND = 'sink';
@@ -392,6 +398,33 @@ export function buildRetrievalDocumentOptions(
               >
                 <ck-glyph name="focus" [size]="12" color="currentColor" />
                 {{ i18n.t('flow.recipe.inspector.open') }}
+              </button>
+            </section>
+          }
+
+          @if (isSqlNode(n)) {
+            <section class="ck-flow-section" data-testid="transform-summary">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.transform') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.transform.inspector.hint') }}</p>
+              <dl class="ck-flow-kv">
+                <dt>{{ i18n.t('flow.transform.inspector.statement') }}</dt>
+                <dd class="mono">{{ sqlStatementSummary(n) }}</dd>
+                <dt>{{ i18n.t('flow.transform.inspector.output') }}</dt>
+                <dd class="mono">{{ sqlOutputLine(n) }}</dd>
+                <dt>{{ i18n.t('flow.transform.inspector.sources') }}</dt>
+                <dd class="mono">{{ sqlSourcesLine(n) }}</dd>
+              </dl>
+              <button
+                type="button"
+                class="ck-flow-action"
+                data-testid="open-sql-workshop"
+                (click)="openSqlWorkshop.emit()"
+                [attr.aria-label]="i18n.t('flow.transform.inspector.open.aria')"
+              >
+                <ck-glyph name="focus" [size]="12" color="currentColor" />
+                {{ i18n.t('flow.transform.inspector.open') }}
               </button>
             </section>
           }
@@ -937,8 +970,9 @@ export class FlowInspectorComponent {
   private lastRetrievalScopeNodeId: string | null = null;
 
   readonly close = output<void>();
-  /** The workshop dialog is mounted by the builder shell, not by this panel. */
+  /** The workshop dialogs are mounted by the builder shell, not by this panel. */
   readonly openRecipeWorkshop = output<void>();
+  readonly openSqlWorkshop = output<void>();
 
   constructor() {
     effect(() => {
@@ -1000,6 +1034,35 @@ export class FlowInspectorComponent {
 
   recipeParams(n: CanonicalFlowNode): RecipeNodeParams {
     return readRecipeParams(n);
+  }
+
+  /** True for a task node bound to the SQL transform Skill. */
+  isSqlNode(n: CanonicalFlowNode): boolean {
+    return isSqlTransformNode(n);
+  }
+
+  sqlParams(n: CanonicalFlowNode): SqlTransformParams {
+    return readSqlTransformParams(n);
+  }
+
+  /** First SQL line of the statement — enough to recognise the transform. */
+  sqlStatementSummary(n: CanonicalFlowNode): string {
+    return sqlSummary(this.sqlParams(n).sql) || '—';
+  }
+
+  /** The dataset each run versions, or the node label it defaults to. */
+  sqlOutputLine(n: CanonicalFlowNode): string {
+    return (
+      this.sqlParams(n).output_name ||
+      this.i18n.t('flow.transform.inspector.output.auto')
+    );
+  }
+
+  sqlSourcesLine(n: CanonicalFlowNode): string {
+    const count = this.sqlParams(n).sources.length;
+    return count === 0
+      ? this.i18n.t('flow.transform.inspector.sources.none')
+      : this.i18n.t('flow.transform.inspector.sources.count', { count });
   }
 
   /** First `def` line of the script — enough to recognise the recipe. */

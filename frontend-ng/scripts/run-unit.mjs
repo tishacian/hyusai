@@ -32,6 +32,8 @@ const pureSpecs = [
   'src/app/features/orchestration/flow/flow-keyboard-target.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-recipe.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-recipe-ui-contract.spec.ts',
+  'src/app/features/orchestration/flow/flow-transform.vm.spec.ts',
+  'src/app/features/orchestration/flow/flow-transform-ui-contract.spec.ts',
   'src/app/features/orchestration/flow/flow-semantic-diff.vm.spec.ts',
   'src/app/features/orchestration/flow/flow.types.spec.ts',
   'src/app/features/orchestration/flow/flow-palette.vm.spec.ts',
