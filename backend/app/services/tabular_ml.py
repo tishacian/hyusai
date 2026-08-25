@@ -82,7 +82,17 @@ ML_TRAIN_TASK = "agentium.ml_train"
 # the same row. The last three are claimed by the harness itself — only the child
 # knows when a fit ends and its scoring begins — which is why it writes them to
 # ``progress.txt`` and the worker republishes what it reads there.
-TRAIN_STEPS: tuple[str, ...] = ("queued", "reading", "fitting", "scoring", "saving")
+TRAIN_STEPS: tuple[str, ...] = (
+    "queued",
+    "reading",
+    "fitting",
+    "scoring",
+    # Cross-validation refits the pipeline once per fold, so it is the longest
+    # step of a run that asked for it and the one a silent spinner would hurt
+    # most. Only emitted when folds were requested.
+    "validating",
+    "saving",
+)
 _HARNESS_STEPS = frozenset(TRAIN_STEPS)
 # The file the harness appends its current step to, inside the run's scratch.
 _PROGRESS_FILE = "progress.txt"
@@ -1187,6 +1197,11 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                     "OPENBLAS_NUM_THREADS": threads,
                     "MKL_NUM_THREADS": threads,
                     "NUMEXPR_NUM_THREADS": threads,
+                    # The child only serializes a model directory; the registry
+                    # is this process's job, through an explicit client. Pinning
+                    # the child's tracking URI to its own scratch keeps it from
+                    # discovering an ambient one and opening a database
+                    # connection from inside a resource-capped subprocess.
                     "MLFLOW_TRACKING_URI": str(scratch / "mlruns"),
                 },
             )

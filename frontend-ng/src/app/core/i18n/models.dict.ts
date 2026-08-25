@@ -166,6 +166,7 @@ export const MODELS_FR = {
   'models.progress.step.reading': 'Lecture du jeu de données',
   'models.progress.step.fitting': 'Ajustement du modèle',
   'models.progress.step.scoring': 'Évaluation sur les lignes de test',
+  'models.progress.step.validating': 'Validation croisée, un pli après l’autre',
   'models.progress.step.saving': 'Enregistrement de l’artefact',
   'models.progress.step.done': 'Terminé',
 
@@ -606,6 +607,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.progress.step.reading': 'Reading the dataset',
   'models.progress.step.fitting': 'Fitting the model',
   'models.progress.step.scoring': 'Scoring the test rows',
+  'models.progress.step.validating': 'Cross-validating, one fold at a time',
   'models.progress.step.saving': 'Saving the artifact',
   'models.progress.step.done': 'Done',
 

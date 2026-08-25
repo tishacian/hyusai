@@ -13,6 +13,13 @@
 # pair a backup rather than two files: that every artifact the restored registry
 # would ask for is present in the window.
 #
+# There is a third part, on the same instance: the `mlflow` database backing the
+# MLflow Model Registry — runs, model versions, champion/challenger aliases. It
+# is what makes our artifacts loadable by a stock MLflow client, and it does not
+# rebuild itself for models already trained, so it is dumped rather than treated
+# as a cache. Its absence is not an error (a pre-slice VM, or one running with
+# ML_REGISTRY_ENABLED=false) but it is always reported.
+#
 # Scope comes from the registry, not from a path glob. Only workspaces that own
 # datasets or models are mirrored, and only their `tabular/` and `ml/` prefixes
 # — never a whole workspace, which would drag in knowledge collections an order
@@ -22,7 +29,8 @@
 #   sudo scripts/agentium-data-plane-dump.sh <sha12> [slice]
 #
 # Writes /srv/agentium-data/<slice>-deployments/<date>-<sha12>/ holding
-# pre-<sha12>.dump, objects/, their checksums, MANIFEST.json and .ready.
+# pre-<sha12>.dump, pre-<sha12>-mlflow.dump, objects/, their checksums,
+# MANIFEST.json and .ready.
 # `.ready` is written last and only when the artifact check passed, so its
 # presence — not the directory's existence — is what says the window is
 # restorable.
@@ -33,6 +41,12 @@ readonly PG_CONTAINER=agentium-pg
 readonly BACKEND_CONTAINER=agentium-backend
 readonly MINIO_CONTAINER=agentium-minio
 readonly DB=agentium
+# The MLflow Model Registry's backend store: a second database on the same
+# instance, holding the runs, model versions and champion/challenger aliases that
+# make our artifacts readable by a stock MLflow client. Losing it is survivable —
+# `ml_models` keeps training, serving and promoting — but it does not rebuild
+# itself for models already trained, so it is dumped, not treated as a cache.
+readonly REGISTRY_DB=mlflow
 readonly DB_USER=agentium
 readonly STAGE=/tmp/agentium-data-plane-dump
 # A ceiling, because the mirror stages inside the MinIO container's writable
@@ -61,6 +75,7 @@ TODAY="$(date +%F)"
 readonly SHA SLICE TODAY
 readonly WINDOW="$DATA_ROOT/$SLICE-deployments/$TODAY-$SHA"
 readonly DUMP="$WINDOW/pre-$SHA.dump"
+readonly REGISTRY_DUMP="$WINDOW/pre-$SHA-$REGISTRY_DB.dump"
 
 [ -d "$DATA_ROOT" ] || fail "$DATA_ROOT is not mounted"
 [ -e "$WINDOW/.ready" ] && fail "$WINDOW is already a completed window"
@@ -110,6 +125,26 @@ docker cp "$PG_CONTAINER:/tmp/pre-$SHA.dump" "$DUMP"
 docker exec "$PG_CONTAINER" rm -f "/tmp/pre-$SHA.dump"
 sha256sum "$DUMP" > "$DUMP.sha256"
 printf 'postgres: pre-%s.dump (%s)\n' "$SHA" "$(du -h "$DUMP" | cut -f1)"
+
+# The registry database. Absent before this slice is deployed, and absent on a
+# deployment that runs with ML_REGISTRY_ENABLED=false — neither is an error, but
+# both are said out loud so a missing file is never mistaken for a failed dump.
+REGISTRY_PRESENT=$(docker exec "$PG_CONTAINER" psql -U "$DB_USER" -d postgres -At \
+  -c "select 1 from pg_database where datname = '$REGISTRY_DB'")
+if [ "${REGISTRY_PRESENT:-}" = "1" ]; then
+  docker exec "$PG_CONTAINER" pg_dump -U "$DB_USER" -d "$REGISTRY_DB" -Fc \
+    -f "/tmp/pre-$SHA-$REGISTRY_DB.dump"
+  docker cp "$PG_CONTAINER:/tmp/pre-$SHA-$REGISTRY_DB.dump" "$REGISTRY_DUMP"
+  docker exec "$PG_CONTAINER" rm -f "/tmp/pre-$SHA-$REGISTRY_DB.dump"
+  sha256sum "$REGISTRY_DUMP" > "$REGISTRY_DUMP.sha256"
+  REGISTRY_VERSIONS=$(docker exec "$PG_CONTAINER" psql -U "$DB_USER" -d "$REGISTRY_DB" -At \
+    -c "select count(*) from model_versions" 2>/dev/null || printf '0')
+  printf 'registry: pre-%s-%s.dump (%s, %s model versions)\n' \
+    "$SHA" "$REGISTRY_DB" "$(du -h "$REGISTRY_DUMP" | cut -f1)" "$REGISTRY_VERSIONS"
+else
+  REGISTRY_VERSIONS=""
+  printf 'registry: none — no %s database on %s yet\n' "$REGISTRY_DB" "$PG_CONTAINER"
+fi
 
 # ---------------------------------------------------------------------------
 # The objects the registry points at
@@ -209,6 +244,9 @@ cat > "$WINDOW/MANIFEST.json" <<EOF
   "taken_at": "$(date -Is)",
   "database": "$DB",
   "postgres_dump": "pre-$SHA.dump",
+  "registry_database": $([ "${REGISTRY_PRESENT:-}" = "1" ] && printf '"%s"' "$REGISTRY_DB" || echo null),
+  "registry_dump": $([ "${REGISTRY_PRESENT:-}" = "1" ] && printf '"pre-%s-%s.dump"' "$SHA" "$REGISTRY_DB" || echo null),
+  "registry_model_versions": ${REGISTRY_VERSIONS:-null},
   "data_plane_deployed": $([ "$PLANE_TABLES" -eq 0 ] && echo false || echo true),
   "object_files": $OBJECTS,
   "registry_artifacts_missing": $missing

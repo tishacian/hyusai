@@ -903,10 +903,29 @@ def test_the_harness_writes_the_evidence_the_model_card_reads(churn_parquet, tmp
         "recall",
         "f1",
     }
+    # skore's own additions: calibration, not just ranking. A gauge on a
+    # prediction form is a probability, and these are the two numbers that say
+    # whether that probability deserves to be believed.
+    assert {score["key"] for score in metrics["scores"]} >= {
+        "log_loss",
+        "brier_score",
+    }
     assert metrics["confusion"]["labels"] == ["0", "1"]
     assert len(metrics["confusion"]["matrix"]) == 2
     assert 2 <= len(metrics["curves"]["roc"]) <= 40
     assert 0 < metrics["curves"]["baseline"] < 1
+
+    # Balanced accuracy is the mean of the per-class recalls, and on an
+    # imbalanced target it must not equal the positive recall. With `pos_label`
+    # set, skore reports that positive recall under the bare name `recall`, so
+    # reading balanced accuracy off the metric table instead of the confusion
+    # matrix produces exactly that collision — silently, and only on the class
+    # imbalance every churn dataset has.
+    scores = {score["key"]: score["value"] for score in metrics["scores"]}
+    matrix = metrics["confusion"]["matrix"]
+    recalls = [row[index] / sum(row) for index, row in enumerate(matrix) if sum(row)]
+    assert scores["balanced_accuracy"] == pytest.approx(sum(recalls) / len(recalls))
+    assert scores["balanced_accuracy"] != pytest.approx(scores["recall"])
     assert metrics["target"]["positive"] == "1"
     assert sum(entry["count"] for entry in metrics["target"]["balance"]) == 400
     # A column with one value cannot separate anything; the card says so rather
@@ -985,6 +1004,39 @@ def test_the_harness_exit_codes_name_the_author_mistake(
         tmp_path / "run", _manifest_for(churn_parquet, tmp_path, **overrides)
     )
     assert exit_code == code, stderr
+
+
+@pytest.mark.slow
+def test_cross_validation_reports_a_spread_per_metric_and_not_one_number(
+    churn_parquet, tmp_path
+):
+    """A single split reports one number and hides its own variance.
+
+    The point of asking for folds is to know whether "0.86" is a property of the
+    model or of the split, which takes a spread — and a spread per metric, since
+    a fit can be stable in accuracy and unstable in recall.
+    """
+
+    code, summary, stderr = _run_harness(
+        tmp_path / "run", _manifest_for(churn_parquet, tmp_path, cv=3)
+    )
+    assert code == 0, stderr
+
+    folded = summary["metrics"]["cv"]
+    assert "error" not in folded, folded
+    assert folded["folds"] == 3
+    assert folded["metric"] == "roc_auc"
+
+    rows = {row["key"]: row for row in folded["metrics"]}
+    assert {"roc_auc", "accuracy", "precision", "recall"} <= set(rows)
+    # The headline agrees with the row it was taken from.
+    assert folded["mean"] == pytest.approx(rows["roc_auc"]["mean"])
+    for key, row in rows.items():
+        assert row["std"] is not None, key
+        assert row["std"] >= 0, key
+    # Timings are not evidence about a model, and a per-class row has no label
+    # on the card.
+    assert not {key for key in rows if key.endswith("_time")}
 
 
 @pytest.mark.slow
