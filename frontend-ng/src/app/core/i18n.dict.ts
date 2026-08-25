@@ -25,6 +25,7 @@ import { CHROME_EN, CHROME_FR } from './i18n/chrome.dict';
 import { CLIENT360_EN, CLIENT360_FR } from './i18n/client360.dict';
 import { COMMON_EN, COMMON_FR } from './i18n/common.dict';
 import { CONTEXTS_EN, CONTEXTS_FR } from './i18n/contexts.dict';
+import { DATA_EN, DATA_FR } from './i18n/data.dict';
 import { DEPOSIT_EN, DEPOSIT_FR } from './i18n/deposit.dict';
 import { EXPERIENCE_EN, EXPERIENCE_FR } from './i18n/experience.dict';
 import { FLOW_EN, FLOW_FR } from './i18n/flow.dict';
@@ -68,6 +69,7 @@ export const I18N_DOMAINS = {
   experience: { prefixes: ['experience'], fr: EXPERIENCE_FR, en: EXPERIENCE_EN },
   knowledge: { prefixes: ['knowledge'], fr: KNOWLEDGE_FR, en: KNOWLEDGE_EN },
   contexts: { prefixes: ['contexts'], fr: CONTEXTS_FR, en: CONTEXTS_EN },
+  data: { prefixes: ['data'], fr: DATA_FR, en: DATA_EN },
   governance: { prefixes: ['governance'], fr: GOVERNANCE_FR, en: GOVERNANCE_EN },
   settings: { prefixes: ['settings', 'presets'], fr: SETTINGS_FR, en: SETTINGS_EN },
   tasks: { prefixes: ['tasks'], fr: TASKS_FR, en: TASKS_EN },
@@ -100,6 +102,7 @@ export const FR_DICT = {
   ...EXPERIENCE_FR,
   ...KNOWLEDGE_FR,
   ...CONTEXTS_FR,
+  ...DATA_FR,
   ...GOVERNANCE_FR,
   ...SETTINGS_FR,
   ...TASKS_FR,
@@ -125,6 +128,7 @@ export const EN_DICT: Record<I18nKey, string> = {
   ...EXPERIENCE_EN,
   ...KNOWLEDGE_EN,
   ...CONTEXTS_EN,
+  ...DATA_EN,
   ...GOVERNANCE_EN,
   ...SETTINGS_EN,
   ...TASKS_EN,

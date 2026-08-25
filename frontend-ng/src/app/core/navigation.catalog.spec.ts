@@ -292,6 +292,7 @@ test('experience_v1 Build menu replaces the flat sections and drops the scratchp
     'capabilities',
     'skills',
     'knowledge',
+    'data',
     'flows',
   ]);
 
@@ -300,6 +301,7 @@ test('experience_v1 Build menu replaces the flat sections and drops the scratchp
     'business_apps',
     'systems',
     'knowledge',
+    'data',
     'capabilities',
     'skills',
     'certified',
