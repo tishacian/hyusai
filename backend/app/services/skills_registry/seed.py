@@ -998,6 +998,91 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "slug": "ml_predict_v1",
+        "version": "1",
+        "name": "Predict with Model",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Answers one record with a trained model: the prediction, the class "
+            "probabilities and the confidence, inline in the run. This is also "
+            "what a model published as a Skill runs, so an agent asking about a "
+            "single customer and a Flow scoring an event take the same path. The "
+            "version that answers is whichever one currently serves the model's "
+            "lineage, so promoting a retrain changes the answer without editing "
+            "the Flow."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 60_000,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_prediction", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"rows": {"type": "array"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "served": {"type": "object"},
+                "task": {"type": "string"},
+                "target": {"type": "string"},
+                "classes": {"type": "array"},
+                "positive_label": {"type": "string"},
+                "predictions": {"type": "array"},
+                "rows": {"type": "integer"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
+        "slug": "ml_batch_score_v1",
+        "version": "1",
+        "name": "Batch Score Dataset",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Scores a whole dataset with a trained model and writes a new "
+            "versioned dataset carrying every input column plus the prediction, "
+            "its confidence and the positive-class score. Keeping the input "
+            "columns is what makes the output joinable back to the customer it "
+            "describes. The version that answers is whichever one currently "
+            "serves the model's lineage."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 300_000,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_scored_dataset", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "scored_rows": {"type": "integer"},
+                "added_columns": {"type": "array"},
+                "model": {"type": "object"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
         "slug": "action_plan_create_v1",
         "version": "1",
         "name": "Action Plan Create",
@@ -2270,10 +2355,14 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "slug": "tabular_models",
         "name": "Tabular Models",
         "tier": "universal",
-        "description": "No-code supervised learning over workspace datasets: skrub decides the preprocessing per column, the estimator comes from a curated scikit-learn catalog, and every run computes its own metrics, curves and feature importances. Models are saved in the MLflow format and versioned as a lineage with one serving champion.",
+        "description": "No-code supervised learning over workspace datasets: skrub decides the preprocessing per column, the estimator comes from a curated scikit-learn catalog, and every run computes its own metrics, curves and feature importances. Models are saved in the MLflow format and versioned as a lineage with one serving champion, and that champion is what answers a prediction — over a whole dataset or one record at a time.",
         "input_unit": "dataset",
         "output_unit": "model",
-        "skill_slugs": ["ml_train_sklearn_v1"],
+        "skill_slugs": [
+            "ml_train_sklearn_v1",
+            "ml_predict_v1",
+            "ml_batch_score_v1",
+        ],
         "pricing": {"unit": "per_training", "unit_price": 0.05, "currency": "USD"},
         "value_per_outcome": 4.00,
         "confidence_threshold": 0.60,
@@ -2723,6 +2812,8 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "map_zone_score_v1": "Decision Support",
     "maritime_snapshot_read_v1": "Connections",
     "ministerial_briefing_v1": "LLM",
+    "ml_batch_score_v1": "Models",
+    "ml_predict_v1": "Models",
     "ml_train_sklearn_v1": "Models",
     "multi_hop_retrieve_v1": "Retrieval",
     "news_signal_synthesis_v1": "Analysis",

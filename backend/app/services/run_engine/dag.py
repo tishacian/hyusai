@@ -2035,21 +2035,40 @@ _TRAIN_PARAM_KEYS = (
 )
 _TRAIN_SKILL_SLUGS = frozenset({_ML_TRAIN_SKILL_SLUG})
 
+_ML_PREDICT_SKILL_SLUG = "ml_predict_v1"
+_ML_SCORE_SKILL_SLUG = "ml_batch_score_v1"
+# Which model answers is the graph's decision for the same reason a target is:
+# a payload that could redirect a scoring node to another model would make the
+# published Flow's output mean something different without the Flow changing.
+# One block for both serving nodes, as with the three transform engines: the keys
+# are a union, and `output_name` is simply unread by the single-record node.
+_PREDICT_PARAM_KEYS = (
+    "model_id",
+    "model_slug",
+    "pinned_version",
+    "output_name",
+    "explain",
+    "sources",
+)
+_PREDICT_SKILL_SLUGS = frozenset({_ML_PREDICT_SKILL_SLUG, _ML_SCORE_SKILL_SLUG})
+
 # The reserved keys a node's graph configuration travels under. Written once as
-# data because the invariant is the same for all three and repeating it is how
-# one of them eventually stops being stripped on the other nodes.
+# data because the invariant is the same for all of them, and repeating it is how
+# one eventually stops being stripped on the other nodes.
 _GRAPH_OWNED_BLOCKS: tuple[tuple[str, frozenset, tuple[str, ...]], ...] = (
     ("_recipe", frozenset({_RECIPE_SKILL_SLUG}), _RECIPE_PARAM_KEYS),
     ("_transform", _TRANSFORM_SKILL_SLUGS, _TRANSFORM_PARAM_KEYS),
     ("_train", _TRAIN_SKILL_SLUGS, _TRAIN_PARAM_KEYS),
+    ("_predict", _PREDICT_SKILL_SLUGS, _PREDICT_PARAM_KEYS),
 )
 
 
 def _passthrough_without_recipe(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Task failure envelopes pass upstream data through; the graph-owned
-    ``_recipe``, ``_transform`` and ``_train`` blocks are configuration (the full
-    script, statement text or training spec), not data, so they never ride a
-    ``_error``/``_status`` envelope into run outputs."""
+    ``_recipe``, ``_transform``, ``_train`` and ``_predict`` blocks are
+    configuration (the full script, statement text, training spec or model
+    reference), not data, so they never ride a ``_error``/``_status`` envelope
+    into run outputs."""
 
     passthrough = dict(data or {})
     for key, _slugs, _params in _GRAPH_OWNED_BLOCKS:
@@ -2117,6 +2136,16 @@ def _apply_train_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
         key="_train",
         slugs=_TRAIN_SKILL_SLUGS,
         param_keys=_TRAIN_PARAM_KEYS,
+    )
+
+
+def _apply_predict_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
+    _apply_graph_owned_config(
+        node,
+        node_input,
+        key="_predict",
+        slugs=_PREDICT_SKILL_SLUGS,
+        param_keys=_PREDICT_PARAM_KEYS,
     )
 
 
