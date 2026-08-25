@@ -178,6 +178,66 @@ async def preview_sql_transform(
     return {"preview": result, "sources": result["sources"]}
 
 
+class PolarsPreviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(default="", max_length=200_000)
+    requirements_text: str = Field(default="", max_length=60_000)
+    sources: list[TransformSourceBody] = Field(default_factory=list, max_length=8)
+    row_limit: int = Field(default=50, ge=1, le=500)
+    timeout_s: Optional[float] = Field(default=None, ge=1, le=600)
+
+
+@router.post("/polars-preview")
+async def preview_polars_transform(
+    body: PolarsPreviewBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Dispatch a Polars transform preview — the Python workshop's Test button.
+
+    Unlike the SQL preview this one cannot answer inline: author-written Python
+    only ever runs on a managed venv interpreter, in the worker container that
+    mounts the venv store. So the call stages a ``RecipeExecution``, dispatches
+    it and answers with the row; the workshop follows it through
+    ``/recipe-executions/{id}`` and reads the profile off ``output_json``.
+
+    The source catalog is resolved synchronously either way, because the editor
+    needs it to autocomplete before any run has settled.
+    """
+
+    from app.services.recipe_executions import serialize_execution
+    from app.services.tabular_polars import submit_polars_run
+    from app.services.tabular_transforms import resolve_sources, source_catalog
+
+    declared = [entry.model_dump(exclude_none=True) for entry in body.sources]
+    try:
+        if not body.code.strip():
+            # No script yet: the editor still needs the catalog of frames the
+            # `inputs` dict will carry, so answer with sources only.
+            sources = resolve_sources(
+                db, workspace_id=workspace.id, declared=declared, payload=None
+            )
+            return {"execution": None, "sources": source_catalog(sources)}
+        execution, sources = submit_polars_run(
+            db,
+            workspace_id=workspace.id,
+            code=body.code,
+            requirements_text=body.requirements_text,
+            declared=declared,
+            persist=False,
+            row_limit=body.row_limit,
+            timeout_s=body.timeout_s,
+        )
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {
+        "execution": serialize_execution(execution),
+        "sources": source_catalog(sources),
+    }
+
+
 @router.get("/{dataset_id}")
 async def get_dataset_detail(
     dataset_id: str,

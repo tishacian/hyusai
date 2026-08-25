@@ -226,7 +226,7 @@ def test_run_recipe_execution_cooperative_cancel(
         return calls["count"] >= 2
 
     monkeypatch.setattr(
-        recipe_executions, "_cancel_requested", flag_flips_on_second_check
+        recipe_executions, "cancel_requested", flag_flips_on_second_check
     )
     code = "import time\ndef main(inputs):\n    time.sleep(30)\n    return {}\n"
     execution = _execution(db_session, workspace, ready_env, code, timeout_s=60.0)

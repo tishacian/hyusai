@@ -256,6 +256,88 @@ def test_sql_preview_without_a_source_says_what_to_do(client):
     assert response.json()["detail"]["code"] == "TRANSFORM_NO_INPUT"
 
 
+def test_polars_preview_answers_with_the_catalog_before_a_script_is_written(client):
+    """The Python editor completes on `inputs[...]`, so it needs the frames."""
+
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/polars-preview",
+        json={"code": "", "sources": [{"dataset_id": dataset["id"]}]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["execution"] is None
+    assert response.json()["sources"][0]["rows"] == 2
+
+
+def test_polars_preview_dispatches_a_tracked_run_instead_of_answering_inline(
+    client, db_session, monkeypatch
+):
+    """Author-written Python only ever runs where the venv store is mounted, so
+    the API hands back a row to follow, not a result."""
+
+    dataset = _upload(client).json()["dataset"]
+    monkeypatch.setattr(settings, "worker_eager_mode", False)
+    monkeypatch.setattr(settings, "recipe_execution_enabled", True)
+    from app.workers.celery_app import celery_app
+
+    sent: list[tuple[str, tuple]] = []
+
+    class _Result:
+        id = "task-1"
+
+    monkeypatch.setattr(
+        celery_app,
+        "send_task",
+        lambda name, **kwargs: (sent.append((name, kwargs.get("args"))), _Result())[1],
+    )
+
+    response = client.post(
+        "/datasets/polars-preview",
+        json={
+            "code": "def transform(inputs):\n    return inputs['input']\n",
+            "sources": [{"view": "input", "dataset_id": dataset["id"]}],
+            "row_limit": 25,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["execution"]["status"] == "queued"
+    assert body["sources"][0]["view"] == "input"
+    assert sent and sent[0][0] == "agentium.tabular_polars_execute"
+    assert sent[0][1][0] == body["execution"]["id"]
+
+
+def test_polars_preview_refuses_a_disabled_plane_with_a_coded_error(
+    client, monkeypatch
+):
+    monkeypatch.setattr(settings, "recipe_execution_enabled", False)
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/polars-preview",
+        json={
+            "code": "def transform(inputs):\n    return inputs['input']\n",
+            "sources": [{"dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "POLARS_EXECUTION_DISABLED"
+
+
+def test_polars_preview_without_a_source_says_what_to_do(client):
+    response = client.post(
+        "/datasets/polars-preview",
+        json={"code": "def transform(inputs):\n    return inputs['input']\n"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "TRANSFORM_NO_INPUT"
+
+
 def test_queued_ingest_dispatches_to_the_worker_plane(
     client, db_session, monkeypatch
 ):

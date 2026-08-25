@@ -821,6 +821,25 @@ def recipe_execute(self, execution_id: str, code: str) -> dict:
     return {**result, "task_id": str(self.request.id)}
 
 
+@celery_app.task(
+    name="agentium.tabular_polars_execute",
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def tabular_polars_execute(self, execution_id: str, code: str) -> dict:
+    """Settle one Polars transform run — workshop preview or persisted node run.
+
+    Same row type and same isolation as a Python recipe: only the worker mounts
+    the venv store, so an author's Polars script never executes anywhere else.
+    """
+
+    from app.services.tabular_polars import run_polars_execution
+
+    result = run_polars_execution(execution_id, code)
+    return {**result, "task_id": str(self.request.id)}
+
+
 @celery_app.task(name="agentium.recipe_env_build")
 def recipe_env_build(env_id: str) -> dict:
     """Explicit prebuild of one recipe venv (inspector 'prepare now')."""
