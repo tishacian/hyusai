@@ -878,6 +878,43 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "slug": "polars_transform_v1",
+        "version": "1",
+        "name": "Polars Transform",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Runs an author-written Polars transform over the node's dataset "
+            "inputs on a managed, isolated Python environment, and persists the "
+            "result as a new versioned dataset with its lineage."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 300_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_transform", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
         "slug": "action_plan_create_v1",
         "version": "1",
         "name": "Action Plan Create",
@@ -2129,10 +2166,10 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "slug": "tabular_transforms",
         "name": "Tabular Transforms",
         "tier": "universal",
-        "description": "Read-only SQL transformations over workspace datasets, executed with duckdb over Parquet and persisted as versioned datasets carrying their lineage.",
+        "description": "Tabular transformations over workspace datasets: read-only SQL executed with duckdb over Parquet, or an author-written Polars script on an isolated managed environment. Both persist versioned datasets carrying their lineage.",
         "input_unit": "dataset",
         "output_unit": "dataset",
-        "skill_slugs": ["sql_transform_v1"],
+        "skill_slugs": ["sql_transform_v1", "polars_transform_v1"],
         "pricing": {"unit": "per_transform", "unit_price": 0.01, "currency": "USD"},
         "value_per_outcome": 1.00,
         "confidence_threshold": 0.60,
@@ -2579,6 +2616,7 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "ollama_llm_v1": "LLM",
     "osint_signal_prioritize_v1": "Analysis",
     "project_risk_explainer_v1": "Analysis",
+    "polars_transform_v1": "Analysis",
     "python_recipe_v1": "Automation",
     "reconciliation_report_v1": "Governance",
     "response_eval_v1": "Governance",

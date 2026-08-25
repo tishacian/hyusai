@@ -580,6 +580,19 @@ class Settings(BaseSettings):
     # size and a result past this row count is truncated rather than persisted.
     tabular_sql_max_chars: int = Field(default=40_000, ge=100)
     tabular_transform_max_rows: int = Field(default=5_000_000, ge=1)
+    # Polars transform node. Author code runs on the venv interpreter, so the
+    # engine itself has to be IN the venv: this pin is prepended to the node's
+    # requirements and is therefore part of the env fingerprint. Keep it aligned
+    # with the pin in requirements.txt so a frame written by the worker and a
+    # frame written by the harness stay format-compatible.
+    tabular_polars_requirement: str = "polars==1.44.0"
+    tabular_polars_default_timeout_s: float = Field(default=180.0, ge=1.0)
+    # A dataframe engine needs a wider ceiling than a plain script: RLIMIT_AS
+    # caps VIRTUAL memory and polars' arena allocator reserves far more than it
+    # commits (at 1 GiB it cannot even spawn its background threads). Thread
+    # count is capped too so one node cannot monopolise the worker's cores.
+    tabular_polars_memory_limit_mb: int = Field(default=3072, ge=512)
+    tabular_polars_max_threads: int = Field(default=2, ge=1, le=32)
     # MLflow tracking/registry. Empty means "derive from DATABASE_URL" (the
     # registry needs a SQL backend; a file store cannot register models).
     mlflow_tracking_uri: str = ""

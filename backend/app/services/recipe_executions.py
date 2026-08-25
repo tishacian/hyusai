@@ -24,9 +24,10 @@ import signal
 import subprocess
 import tempfile
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
@@ -157,18 +158,25 @@ def request_cancel(db: DBSession, execution: RecipeExecution) -> RecipeExecution
                 logger.warning(
                     "recipe_executions: revoke failed", execution_id=execution.id
                 )
-        _finalize(execution, status="cancelled", error="cancel_requested")
+        finalize_execution(execution, status="cancelled", error="cancel_requested")
     db.commit()
     return execution
 
 
-def _finalize(
+def finalize_execution(
     execution: RecipeExecution,
     *,
     status: str,
     error: str | None = None,
     exit_code: int | None = None,
 ) -> None:
+    """Stamp a terminal status, its reason and the measured duration.
+
+    Shared with the Polars transform plane, which settles the same row type: the
+    lifecycle of a ``RecipeExecution`` has to be written in exactly one place or
+    the Builder's polling would read two different truths.
+    """
+
     execution.status = status
     execution.error = error
     if exit_code is not None:
@@ -214,10 +222,12 @@ def serialize_execution(execution: RecipeExecution) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _subprocess_env(venv_python: Path, scratch: Path) -> dict[str, str]:
+def _subprocess_env(
+    venv_python: Path, scratch: Path, extra: dict[str, str] | None = None
+) -> dict[str, str]:
     """Minimal environment: venv first on PATH, no application secrets."""
 
-    return {
+    env = {
         "PATH": f"{venv_python.parent}:/usr/local/bin:/usr/bin:/bin",
         "HOME": str(scratch),
         "TMPDIR": str(scratch),
@@ -226,13 +236,15 @@ def _subprocess_env(venv_python: Path, scratch: Path) -> dict[str, str]:
         "PYTHONDONTWRITEBYTECODE": "1",
         "VIRTUAL_ENV": str(venv_python.parent.parent),
     }
+    env.update(extra or {})
+    return env
 
 
-def _apply_rlimits() -> None:  # pragma: no cover - runs in the child process
+def _apply_rlimits(memory_limit_mb: int) -> None:  # pragma: no cover - child process
     import resource
 
     cpu_s = int(settings.recipe_execution_cpu_limit_s)
-    mem_bytes = int(settings.recipe_execution_memory_limit_mb) * 1024 * 1024
+    mem_bytes = int(memory_limit_mb) * 1024 * 1024
     fsize = 64 * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_s, cpu_s + 5))
     try:
@@ -261,7 +273,9 @@ def _read_tail(path: Path) -> str:
     return text if len(text) <= limit else text[-limit:]
 
 
-def _cancel_requested(db: DBSession, execution_id: str) -> bool:
+def cancel_requested(db: DBSession, execution_id: str) -> bool:
+    """Re-read the cooperative cancel flag (the supervisor's stop condition)."""
+
     db.expire_all()
     value = (
         db.query(RecipeExecution.cancel_requested)
@@ -271,16 +285,23 @@ def _cancel_requested(db: DBSession, execution_id: str) -> bool:
     return bool(value)
 
 
-def _ensure_env_ready(
+def ensure_env_ready(
     db: DBSession, execution: RecipeExecution
 ) -> Optional[PythonEnv]:
+    """Bring the row's venv to ``ready``, flipping the row to ``env_building``.
+
+    Returns ``None`` after finalizing the execution as failed, so the caller's
+    only job is to stop. Shared with the Polars plane: a first run in a
+    workspace pays the build once, and the author watches that status.
+    """
+
     env = (
         db.query(PythonEnv).filter(PythonEnv.id == execution.env_id).first()
         if execution.env_id
         else None
     )
     if env is None:
-        _finalize(execution, status="failed", error="recipe_env_not_found")
+        finalize_execution(execution, status="failed", error="recipe_env_not_found")
         db.commit()
         return None
     if env.status != "ready" or not env_python(env.workspace_id, env.fingerprint).exists():
@@ -288,7 +309,7 @@ def _ensure_env_ready(
         db.commit()
         env = build_env(db, env.id)
         if env.status != "ready":
-            _finalize(
+            finalize_execution(
                 execution,
                 status="failed",
                 error=f"recipe_env_build_failed: {env.build_error or env.status}",
@@ -316,30 +337,30 @@ def run_recipe_execution(execution_id: str, code: str) -> dict[str, Any]:
         if execution.status == "running":
             # acks_late redelivery of a lost worker. The script may already
             # have produced side effects; fail closed instead of replaying.
-            _finalize(
+            finalize_execution(
                 execution, status="failed", error="recipe_worker_lost_after_claim"
             )
             db.commit()
             return {"id": execution_id, "status": "failed"}
         if not settings.recipe_execution_enabled:
-            _finalize(execution, status="failed", error="recipe_execution_disabled")
+            finalize_execution(execution, status="failed", error="recipe_execution_disabled")
             db.commit()
             return {"id": execution_id, "status": "failed"}
         if execution.cancel_requested:
-            _finalize(execution, status="cancelled", error="cancel_requested")
+            finalize_execution(execution, status="cancelled", error="cancel_requested")
             db.commit()
             return {"id": execution_id, "status": "cancelled"}
 
-        env = _ensure_env_ready(db, execution)
+        env = ensure_env_ready(db, execution)
         if env is None:
             return {"id": execution_id, "status": execution.status}
-        if _cancel_requested(db, execution_id):
+        if cancel_requested(db, execution_id):
             execution = (
                 db.query(RecipeExecution)
                 .filter(RecipeExecution.id == execution_id)
                 .first()
             )
-            _finalize(execution, status="cancelled", error="cancel_requested")
+            finalize_execution(execution, status="cancelled", error="cancel_requested")
             db.commit()
             return {"id": execution_id, "status": "cancelled"}
 
@@ -365,7 +386,7 @@ def run_recipe_execution(execution_id: str, code: str) -> dict[str, Any]:
         execution.stdout_tail = stdout_tail
         execution.stderr_tail = stderr_tail
         execution.output_json = output
-        _finalize(execution, status=status, error=error, exit_code=exit_code)
+        finalize_execution(execution, status=status, error=error, exit_code=exit_code)
         mark_env_used(db, env)
         db.commit()
         logger.info(
@@ -376,6 +397,107 @@ def run_recipe_execution(execution_id: str, code: str) -> dict[str, Any]:
             duration_ms=execution.duration_ms,
         )
         return {"id": execution.id, "status": status}
+
+
+@dataclass(slots=True)
+class SupervisedRun:
+    """Outcome of one supervised harness subprocess.
+
+    ``status`` is ``None`` when the process settled on its own — the caller then
+    interprets ``exit_code`` against its harness contract. It is ``timed_out``
+    or ``cancelled`` when the supervisor is the one that ended the process.
+    """
+
+    status: str | None
+    error: str | None
+    exit_code: int | None
+    stdout_tail: str
+    stderr_tail: str
+
+
+def supervise_harness(
+    argv: list[str],
+    *,
+    venv_python: Path,
+    scratch: Path,
+    timeout_s: float,
+    should_cancel: Callable[[], bool] | None = None,
+    timeout_error: str | None = None,
+    memory_limit_mb: int | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> SupervisedRun:
+    """Run one harness under rlimits, a hard timeout and a cooperative cancel.
+
+    Shared by every node that executes author-written Python in a managed venv
+    (recipes, Polars transforms): the isolation posture is a property of the
+    platform, not of one node type, so it lives in one place. The environment
+    handed to the child carries no application variable — the venv on ``PATH``
+    and a scratch ``HOME``/``TMPDIR``, plus whatever ``extra_env`` the caller's
+    engine needs.
+
+    ``memory_limit_mb`` is a per-engine budget because ``RLIMIT_AS`` caps the
+    **virtual** address space: an arena allocator reserves far more than it
+    commits, so a dataframe engine needs a wider ceiling than a plain script to
+    even finish importing.
+    """
+
+    budget = int(
+        memory_limit_mb
+        if memory_limit_mb is not None
+        else settings.recipe_execution_memory_limit_mb
+    )
+
+    stdout_path = scratch / "stdout.log"
+    stderr_path = scratch / "stderr.log"
+    deadline = time.monotonic() + timeout_s
+    status: str | None = None
+    error: str | None = None
+    with (
+        open(stdout_path, "wb") as stdout_handle,
+        open(stderr_path, "wb") as stderr_handle,
+    ):
+        process = subprocess.Popen(  # noqa: S603 - venv python + harness path
+            argv,
+            cwd=scratch,
+            stdout=stdout_handle,
+            stderr=stderr_handle,
+            stdin=subprocess.DEVNULL,
+            env=_subprocess_env(venv_python, scratch, extra_env),
+            start_new_session=True,
+            # noqa: PLW1509 - single-threaded fork point
+            preexec_fn=lambda: _apply_rlimits(budget),
+        )
+        last_cancel_check = 0.0
+        while True:
+            exit_code = process.poll()
+            if exit_code is not None:
+                break
+            now = time.monotonic()
+            if now > deadline:
+                _kill_process_group(process)
+                process.wait(timeout=10)
+                status, error, exit_code = (
+                    "timed_out",
+                    timeout_error or f"recipe_timeout_after_{int(timeout_s)}s",
+                    None,
+                )
+                break
+            if now - last_cancel_check >= 1.0:
+                last_cancel_check = now
+                if should_cancel is not None and should_cancel():
+                    _kill_process_group(process)
+                    process.wait(timeout=10)
+                    status, error, exit_code = ("cancelled", "cancel_requested", None)
+                    break
+            time.sleep(_CANCEL_POLL_INTERVAL_S)
+
+    return SupervisedRun(
+        status=status,
+        error=error,
+        exit_code=exit_code,
+        stdout_tail=_read_tail(stdout_path),
+        stderr_tail=_read_tail(stderr_path),
+    )
 
 
 def _run_supervised(
@@ -395,64 +517,27 @@ def _run_supervised(
         script_path = scratch / "recipe.py"
         input_path = scratch / "input.json"
         output_path = scratch / "output.json"
-        stdout_path = scratch / "stdout.log"
-        stderr_path = scratch / "stderr.log"
         script_path.write_text(code, encoding="utf-8")
         input_path.write_text(json.dumps(inputs, ensure_ascii=False), encoding="utf-8")
 
-        deadline = time.monotonic() + timeout_s
-        with (
-            open(stdout_path, "wb") as stdout_handle,
-            open(stderr_path, "wb") as stderr_handle,
-        ):
-            process = subprocess.Popen(  # noqa: S603 - venv python + harness path
-                [
-                    str(venv_python),
-                    str(harness_path()),
-                    str(script_path),
-                    str(input_path),
-                    str(output_path),
-                ],
-                cwd=scratch,
-                stdout=stdout_handle,
-                stderr=stderr_handle,
-                stdin=subprocess.DEVNULL,
-                env=_subprocess_env(venv_python, scratch),
-                start_new_session=True,
-                preexec_fn=_apply_rlimits,  # noqa: PLW1509 - single-threaded fork point
-            )
-            status: str | None = None
-            error: str | None = None
-            last_cancel_check = 0.0
-            while True:
-                exit_code = process.poll()
-                if exit_code is not None:
-                    break
-                now = time.monotonic()
-                if now > deadline:
-                    _kill_process_group(process)
-                    process.wait(timeout=10)
-                    status, error, exit_code = (
-                        "timed_out",
-                        f"recipe_timeout_after_{int(timeout_s)}s",
-                        None,
-                    )
-                    break
-                if now - last_cancel_check >= 1.0:
-                    last_cancel_check = now
-                    if _cancel_requested(db, execution_id):
-                        _kill_process_group(process)
-                        process.wait(timeout=10)
-                        status, error, exit_code = (
-                            "cancelled",
-                            "cancel_requested",
-                            None,
-                        )
-                        break
-                time.sleep(_CANCEL_POLL_INTERVAL_S)
-
-        stdout_tail = _read_tail(stdout_path)
-        stderr_tail = _read_tail(stderr_path)
+        run = supervise_harness(
+            [
+                str(venv_python),
+                str(harness_path()),
+                str(script_path),
+                str(input_path),
+                str(output_path),
+            ],
+            venv_python=venv_python,
+            scratch=scratch,
+            timeout_s=timeout_s,
+            should_cancel=lambda: cancel_requested(db, execution_id),
+        )
+        status = run.status
+        error = run.error
+        exit_code = run.exit_code
+        stdout_tail = run.stdout_tail
+        stderr_tail = run.stderr_tail
         output: dict[str, Any] | None = None
         if status is None:
             if exit_code == 0:
@@ -491,14 +576,19 @@ __all__ = [
     "RECIPE_ENV_BUILD_TASK",
     "RECIPE_ENV_SWEEP_TASK",
     "RECIPE_EXECUTE_TASK",
+    "SupervisedRun",
+    "cancel_requested",
     "clamp_timeout",
     "create_execution",
     "dispatch_execution",
+    "ensure_env_ready",
     "env_dir",
+    "finalize_execution",
     "harness_path",
     "request_cancel",
     "resolve_env_for_spec",
     "run_recipe_execution",
     "serialize_execution",
+    "supervise_harness",
     "validate_code",
 ]

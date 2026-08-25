@@ -1320,6 +1320,63 @@ async def _rpa_dispatch_v1(
             db.close()
 
 
+async def _await_managed_execution(
+    execution_id: str, *, deadline: float
+) -> tuple[str | None, dict[str, Any] | None, str | None, str | None]:
+    """Poll one ``RecipeExecution`` to terminal; returns its evidence.
+
+    Shared by every node whose work is settled by the worker plane on a managed
+    venv (Python recipes, Polars transforms): the walker never executes author
+    code itself, it only follows the row. On the outer deadline or on run
+    cancellation the cooperative cancel flag is flipped so the worker kills the
+    subprocess instead of leaking it.
+    """
+
+    import asyncio
+    import time as time_mod
+
+    from app.db.base import SessionLocal
+    from app.models.recipe import RECIPE_EXECUTION_TERMINAL_STATUSES, RecipeExecution
+    from app.services import recipe_executions as recipe_exec
+
+    def _cancel() -> None:
+        with SessionLocal() as db:
+            row = (
+                db.query(RecipeExecution)
+                .filter(RecipeExecution.id == execution_id)
+                .first()
+            )
+            if row is not None:
+                recipe_exec.request_cancel(db, row)
+
+    try:
+        while True:
+            await asyncio.sleep(1.0)
+            with SessionLocal() as db:
+                row = (
+                    db.query(RecipeExecution)
+                    .filter(RecipeExecution.id == execution_id)
+                    .first()
+                )
+                if row is None:
+                    raise RuntimeError("recipe_execution_missing")
+                if row.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
+                    return (
+                        row.status,
+                        row.output_json if isinstance(row.output_json, dict) else None,
+                        row.error,
+                        row.stderr_tail,
+                    )
+            if time_mod.monotonic() > deadline:
+                _cancel()
+                raise RuntimeError("recipe_wait_deadline_expired")
+    except asyncio.CancelledError:
+        # Run cancelled while we wait: flip the cooperative flag so the worker
+        # kills the subprocess, then let the walker settle.
+        _cancel()
+        raise
+
+
 async def _python_recipe_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -1333,12 +1390,10 @@ async def _python_recipe_v1(
     input can never smuggle code in. Fail-closed on every invalid shape and
     while ``recipe_execution_enabled`` is off.
     """
-    import asyncio
     import time as time_mod
 
     from app.core.config import settings as app_settings
     from app.db.base import SessionLocal
-    from app.models.recipe import RECIPE_EXECUTION_TERMINAL_STATUSES, RecipeExecution
     from app.services import recipe_executions as recipe_exec
     from app.services.recipe_envs import RecipeError, resolve_env, spec_from_params
 
@@ -1389,49 +1444,9 @@ async def _python_recipe_v1(
         + (0.0 if env_ready else float(app_settings.recipe_env_build_timeout_s))
         + 30.0
     )
-    status: str | None = None
-    output: dict[str, Any] | None = None
-    error: str | None = None
-    stderr_tail: str | None = None
-    try:
-        while True:
-            await asyncio.sleep(1.0)
-            with SessionLocal() as db:
-                row = (
-                    db.query(RecipeExecution)
-                    .filter(RecipeExecution.id == execution_id)
-                    .first()
-                )
-                if row is None:
-                    raise RuntimeError("recipe_execution_missing")
-                if row.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
-                    status = row.status
-                    output = row.output_json if isinstance(row.output_json, dict) else None
-                    error = row.error
-                    stderr_tail = row.stderr_tail
-                    break
-            if time_mod.monotonic() > deadline:
-                with SessionLocal() as db:
-                    row = (
-                        db.query(RecipeExecution)
-                        .filter(RecipeExecution.id == execution_id)
-                        .first()
-                    )
-                    if row is not None:
-                        recipe_exec.request_cancel(db, row)
-                raise RuntimeError("recipe_wait_deadline_expired")
-    except asyncio.CancelledError:
-        # Run cancelled while we wait: flip the cooperative flag so the
-        # worker kills the subprocess, then let the walker settle.
-        with SessionLocal() as db:
-            row = (
-                db.query(RecipeExecution)
-                .filter(RecipeExecution.id == execution_id)
-                .first()
-            )
-            if row is not None:
-                recipe_exec.request_cancel(db, row)
-        raise
+    status, output, error, stderr_tail = await _await_managed_execution(
+        execution_id, deadline=deadline
+    )
 
     if status == "succeeded":
         return dict(output or {})
@@ -1493,6 +1508,97 @@ async def _sql_transform_v1(
         return await asyncio.to_thread(_run)
     except TabularError as exc:
         raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+
+async def _polars_transform_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Dispatch the node's graph-owned Polars script to the worker plane.
+
+    Same injection contract as the SQL node (``_transform`` comes from the DAG
+    walker, never from caller input), but the execution posture is the recipe
+    one: author-written Python only ever runs on a managed venv interpreter, in
+    the container that mounts the venv store. So this wrapper stages a
+    ``RecipeExecution``, enqueues ``agentium.tabular_polars_execute`` and polls
+    the row until terminal, exactly like ``python_recipe_v1``.
+    """
+    import time as time_mod
+
+    from app.core.config import settings as app_settings
+    from app.db.base import SessionLocal
+    from app.models.recipe import RECIPE_EXECUTION_TERMINAL_STATUSES, RecipeExecution
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_polars import clamp_timeout, submit_polars_run
+
+    ctx = ctx or {}
+    transform = payload.get("_transform")
+    if not isinstance(transform, dict):
+        raise ValueError(
+            "transform_config_missing: this Skill only runs as a Flow node "
+            "carrying its graph-owned transform configuration"
+        )
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("transform_workspace_required")
+
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    sources = transform.get("sources")
+    timeout_s = clamp_timeout(transform.get("timeout_s"))
+
+    try:
+        with SessionLocal() as db:
+            execution, _ = submit_polars_run(
+                db,
+                workspace_id=str(workspace_id),
+                code=transform.get("code"),
+                requirements_text=transform.get("requirements_text"),
+                declared=sources if isinstance(sources, list) else None,
+                payload=inputs,
+                output_name=str(transform.get("output_name") or "polars result"),
+                persist=True,
+                timeout_s=timeout_s,
+                run_id=ctx.get("run_id"),
+                node_id=str(transform.get("node_id") or "") or None,
+            )
+            execution_id = execution.id
+            already_settled = execution.status in RECIPE_EXECUTION_TERMINAL_STATUSES
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    if already_settled:
+        # Eager mode (dev/tests) settled the row inside the dispatch call.
+        with SessionLocal() as db:
+            row = (
+                db.query(RecipeExecution)
+                .filter(RecipeExecution.id == execution_id)
+                .first()
+            )
+            status, output, error, stderr_tail = (
+                row.status,
+                row.output_json if isinstance(row.output_json, dict) else None,
+                row.error,
+                row.stderr_tail,
+            )
+    else:
+        # Wait budget: script timeout + a first-run env build allowance + a
+        # queue buffer. The worker enforces its own hard limits; this outer
+        # deadline only protects the walker from a stuck plane.
+        deadline = (
+            time_mod.monotonic()
+            + timeout_s
+            + float(app_settings.recipe_env_build_timeout_s)
+            + 30.0
+        )
+        status, output, error, stderr_tail = await _await_managed_execution(
+            execution_id, deadline=deadline
+        )
+
+    if status == "succeeded":
+        return dict(output or {})
+    detail = (error or "").strip()
+    tail_lines = (stderr_tail or "").strip().splitlines()
+    suffix = f" — {tail_lines[-1][:200]}" if tail_lines else ""
+    raise RuntimeError(f"polars_transform_{status}: {detail}{suffix}"[:480])
 
 
 async def _calendar_create_event_v1(
@@ -5348,6 +5454,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "sql_transform_v1": (
         _sql_transform_v1,
         "app.services.tabular_transforms",
+        "bound",
+    ),
+    "polars_transform_v1": (
+        _polars_transform_v1,
+        "app.services.tabular_polars",
         "bound",
     ),
     "calendar_create_event_v1": (

@@ -1995,7 +1995,26 @@ _RECIPE_PARAM_KEYS = (
 
 
 _SQL_TRANSFORM_SKILL_SLUG = "sql_transform_v1"
-_TRANSFORM_PARAM_KEYS = ("sql", "output_name", "sources")
+_POLARS_TRANSFORM_SKILL_SLUG = "polars_transform_v1"
+_DBT_TRANSFORM_SKILL_SLUG = "dbt_transform_v1"
+# Every param a transform node may carry, whatever its engine: the block is
+# projected whole so each wrapper reads only the keys it knows.
+_TRANSFORM_PARAM_KEYS = (
+    "sql",
+    "code",
+    "models",
+    "requirements_text",
+    "timeout_s",
+    "output_name",
+    "sources",
+)
+_TRANSFORM_SKILL_SLUGS = frozenset(
+    {
+        _SQL_TRANSFORM_SKILL_SLUG,
+        _POLARS_TRANSFORM_SKILL_SLUG,
+        _DBT_TRANSFORM_SKILL_SLUG,
+    }
+)
 
 
 def _passthrough_without_recipe(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -2036,15 +2055,15 @@ def _apply_recipe_node_config(node: DagNode, node_input: Dict[str, Any]) -> None
 
 
 def _apply_transform_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
-    """Project the graph-owned SQL transform configuration into the skill input.
+    """Project the graph-owned transform configuration into the skill input.
 
-    Same posture as ``_recipe``: the statement is graph configuration, so caller
-    input and upstream nodes can neither inject nor alter it, and the reserved
-    key is stripped on every other node so an ingress payload cannot smuggle one
-    toward a downstream transform.
+    Same posture as ``_recipe``: the statement or the script is graph
+    configuration, so caller input and upstream nodes can neither inject nor
+    alter it, and the reserved key is stripped on every other node so an ingress
+    payload cannot smuggle one toward a downstream transform.
     """
 
-    if node.skill_slug != _SQL_TRANSFORM_SKILL_SLUG:
+    if node.skill_slug not in _TRANSFORM_SKILL_SLUGS:
         node_input.pop("_transform", None)
         return
     config = node.config if isinstance(node.config, dict) else {}
