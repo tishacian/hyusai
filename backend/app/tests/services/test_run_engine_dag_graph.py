@@ -11,8 +11,9 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.flow_skill_binding import FlowSkillBindingError
-from app.services.run_engine.dag import DagGraph, should_use_dag
+from app.services.run_engine.dag import _GRAPH_OWNED_BLOCKS, DagGraph, should_use_dag
 from app.services.run_engine.execution_contract import (
+    GRAPH_OWNED_CONFIG_SKILLS,
     canonical_flow_sha256,
     resolve_flow_execution,
     resolve_run_flow_execution,
@@ -76,6 +77,78 @@ def test_runtime_resolver_names_strict_overlay_and_legacy_truthfully() -> None:
     assert canonical_flow_sha256({"b": 1, "a": 2}) == canonical_flow_sha256(
         {"a": 2, "b": 1}
     )
+
+
+def test_a_data_plane_flow_routes_to_the_walker_that_configures_its_nodes() -> None:
+    """A dataset chain has one runnable walker, and the resolver has to pick it.
+
+    Nothing about a SQL → Polars → train → score Flow is a control node, so the
+    task-only rule sent it to the sequential walker — the one walker that does
+    not inject ``_transform``/``_train``, which meant every node refused for lack
+    of the configuration the graph was holding. The Flow Builder writes exactly
+    this shape when an author wires the data palette, so the failure was the
+    default rather than an edge case.
+    """
+
+    flow = {
+        "schema_version": 3,
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {
+                "id": "task.clean",
+                "kind": "task",
+                "config": {"skill_slug": "sql_transform_v1", "params": {"sql": "SELECT 1"}},
+            },
+            {
+                "id": "task.train",
+                "kind": "task",
+                "config": {"skill_slug": "ml_train_sklearn_v1", "params": {"target": "churn"}},
+            },
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "task.clean"},
+            {"from": "task.clean", "to": "task.train"},
+            {"from": "task.train", "to": "sink"},
+        ],
+    }
+    resolution = resolve_flow_execution(flow)
+    assert resolution.runtime_mode == "dag_overlay"
+    assert resolution.reason == "graph_owned_config_requires_compatibility_dag"
+
+    # A strict workspace still gets the strict walker: this rule only rescues the
+    # flows that would otherwise have had no walker at all.
+    strict_workspace = SimpleNamespace(
+        settings={"features": {"flow_v3_dag_authoritative": True}}
+    )
+    assert (
+        resolve_flow_execution({**flow, "io_mode": "strict"}, strict_workspace).runtime_mode
+        == "dag_strict"
+    )
+    # And a Flow of ordinary skills is untouched — the legacy path stays the
+    # default for everything that does not need graph-owned configuration.
+    plain = {
+        "schema_version": 3,
+        "nodes": [
+            {"id": "task.answer", "kind": "task", "config": {"skill_slug": "llm_rag_answer_v1"}}
+        ],
+        "edges": [],
+    }
+    assert resolve_flow_execution(plain).runtime_mode == "sequential_legacy"
+
+
+def test_the_routing_list_and_the_injection_table_name_the_same_skills() -> None:
+    """Two lists, one fact: which nodes are configured by the graph.
+
+    The resolver has to know the answer before ``dag`` is importable, so the set
+    lives in the contract module while the block table lives in the walker. A
+    skill added to one and not the other is the silent version of the bug this
+    rule exists to prevent — routed to the sequential walker, or routed to the
+    DAG and still handed no configuration.
+    """
+
+    injected = {slug for _key, slugs, _params in _GRAPH_OWNED_BLOCKS for slug in slugs}
+    assert injected == set(GRAPH_OWNED_CONFIG_SKILLS)
 
 
 def test_run_runtime_uses_even_an_empty_frozen_snapshot_and_pinned_mode() -> None:
