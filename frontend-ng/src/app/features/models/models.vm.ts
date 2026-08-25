@@ -145,6 +145,391 @@ export interface ModelDto {
   model_uri?: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// The serving plane
+// ---------------------------------------------------------------------------
+
+/** One credential, as the card is allowed to know it: never the secret. */
+export interface ApiKeyRow {
+  id: string;
+  name: string;
+  prefix: string;
+  revoked: boolean;
+  revoked_at?: string | null;
+  last_used_at?: string | null;
+  use_count: number;
+  created_at?: string | null;
+  /** Present exactly once, in the response that minted it. */
+  secret?: string;
+}
+
+export interface PublishedSkillDto {
+  slug: string;
+  name: string;
+  description: string;
+  category?: string;
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+}
+
+/** Everything the Playground and the key panel render, in one read. */
+export interface ServingBlock {
+  enabled: boolean;
+  callable: boolean;
+  serving_version: number | null;
+  serving_model_id: string | null;
+  is_serving: boolean;
+  max_rows: number;
+  fields: SignatureField[];
+  classes: string[];
+  positive_label: string | null;
+  predict_count: number;
+  last_predict_at: string | null;
+  published_skill: PublishedSkillDto | null;
+  keys: ApiKeyRow[];
+  endpoint: string;
+  key_header: string;
+}
+
+export interface ClassProbability {
+  label: string;
+  value: number;
+}
+
+/** One field's measured effect on this row's answer. */
+export interface Contribution {
+  field: string;
+  value: unknown;
+  typical: unknown;
+  effect: number;
+}
+
+export interface PredictionRow {
+  prediction: string | number | null;
+  confidence?: number;
+  score?: number | null;
+  probabilities?: ClassProbability[];
+  contributions?: Contribution[];
+}
+
+export interface PredictAnswer {
+  served: {
+    model_id: string;
+    name?: string;
+    slug?: string;
+    version: number;
+    is_champion?: boolean;
+    task?: ModelTask;
+  };
+  task: ModelTask;
+  target: string;
+  classes: string[];
+  positive_label: string | null;
+  predictions: PredictionRow[];
+  rows: number;
+  duration_ms: number;
+  load_ms?: number;
+}
+
+/**
+ * The values a prediction form opens on.
+ *
+ * Pre-filled from the training set's own typical row — the median of a numeric
+ * column, the most frequent level of a categorical one, both computed at fit
+ * time — and overridden by the model's `input_example` where it has one. Nobody
+ * demos a model by typing forty fields, and a form that opens empty makes the
+ * first click "fill in the blanks" instead of "change one thing and watch".
+ */
+export function playgroundSeed(
+  fields: readonly SignatureField[],
+  example: readonly Record<string, unknown>[] | undefined,
+): Record<string, string> {
+  const sample = example?.[0] ?? {};
+  const seed: Record<string, string> = {};
+  for (const field of fields) {
+    const raw = sample[field.name] ?? field.default;
+    seed[field.name] =
+      raw === null || raw === undefined ? '' : String(raw);
+  }
+  return seed;
+}
+
+/**
+ * Turn form strings into the JSON the endpoint's contract accepts.
+ *
+ * An empty box is sent as `null` rather than as `""`: a hole is a legitimate
+ * production value and the pipeline was fitted to take one, whereas an empty
+ * string in a numeric column is a type error the endpoint would (correctly)
+ * refuse.
+ */
+export function predictPayload(
+  fields: readonly SignatureField[],
+  values: Record<string, string>,
+): Record<string, unknown> {
+  const row: Record<string, unknown> = {};
+  for (const field of fields) {
+    const raw = (values[field.name] ?? '').trim();
+    if (!raw) {
+      row[field.name] = null;
+    } else if (field.kind === 'number') {
+      const number = Number(raw);
+      row[field.name] = Number.isFinite(number) ? number : raw;
+    } else {
+      row[field.name] = raw;
+    }
+  }
+  return row;
+}
+
+export interface GaugeView {
+  /** 0–1: the probability of the class the gauge is about. */
+  value: number;
+  percent: string;
+  /** The class this number is about — a bare number would mean nothing. */
+  label: string;
+  predicted: string;
+  /** The prediction landed in the class the model was asked to find. */
+  flagged: boolean;
+  /** Arc length for the SVG dash, so the fill can be animated by CSS. */
+  dash: number;
+}
+
+/** Length of the gauge's semicircular track, in user units (r = 56). */
+export const GAUGE_ARC = Math.PI * 56;
+
+/**
+ * A classification answer as one number with its class named.
+ *
+ * The number is the positive class's probability when the model has one, and the
+ * winning class's confidence otherwise: on a three-class model there is no
+ * "positive", and the honest single number is how sure it is of what it said.
+ */
+export function gaugeView(
+  row: PredictionRow | null | undefined,
+  positive: string | null | undefined,
+  locale = 'en',
+): GaugeView | null {
+  if (!row) return null;
+  const predicted = row.prediction === null || row.prediction === undefined
+    ? ''
+    : String(row.prediction);
+  const vector = row.probabilities ?? [];
+  const named = positive
+    ? vector.find((entry) => entry.label === positive)
+    : undefined;
+  const raw = named?.value ?? row.score ?? row.confidence;
+  if (raw === null || raw === undefined || !Number.isFinite(raw)) return null;
+  const value = Math.min(1, Math.max(0, Number(raw)));
+  return {
+    value,
+    percent: `${(value * 100).toLocaleString(locale, { maximumFractionDigits: 1 })}%`,
+    label: named ? String(named.label) : predicted,
+    predicted,
+    flagged: !!positive && predicted === positive,
+    dash: Math.round(value * GAUGE_ARC * 100) / 100,
+  };
+}
+
+export interface ContributionBar {
+  field: string;
+  value: string;
+  typical: string;
+  effect: number;
+  /** 0–100 relative to the strongest effect on this row. */
+  width: number;
+  /** This value pushed the answer up rather than down. */
+  raises: boolean;
+}
+
+/**
+ * Per-row contributions as signed bars, strongest first.
+ *
+ * Each one is a measured counterfactual: what the answer would have been had
+ * this field held its training-typical value. Bars are normalized against the
+ * strongest effect on *this* row, because the question a viewer has is "which of
+ * these values is doing the work", not "how does this row compare to others".
+ */
+export function contributionBars(
+  contributions: readonly Contribution[] | undefined,
+  limit = 6,
+): ContributionBar[] {
+  const usable = (contributions ?? []).filter(
+    (row) => row?.field && Number.isFinite(row.effect),
+  );
+  if (!usable.length) return [];
+  const strongest = Math.max(...usable.map((row) => Math.abs(row.effect)));
+  return usable.slice(0, limit).map((row) => ({
+    field: row.field,
+    value: cellText(row.value),
+    typical: cellText(row.typical),
+    effect: row.effect,
+    width: strongest ? Math.round((Math.abs(row.effect) / strongest) * 100) : 0,
+    raises: row.effect > 0,
+  }));
+}
+
+function cellText(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? String(value) : String(Math.round(value * 1000) / 1000);
+  }
+  return String(value);
+}
+
+/**
+ * The request, as a shell command that runs.
+ *
+ * Written against the real endpoint with the real payload, because a snippet
+ * that has to be edited before it works is a snippet the audience does not
+ * believe. The secret is only substituted in the one response that carried it;
+ * afterwards the prefix stands in, since this platform cannot show a key twice.
+ */
+export function curlSnippet(options: {
+  origin: string;
+  endpoint: string;
+  header: string;
+  row: Record<string, unknown>;
+  secret?: string | null;
+  prefix?: string | null;
+}): string {
+  const key = options.secret
+    ? options.secret
+    : options.prefix
+      ? `${options.prefix}…`
+      : 'YOUR_API_KEY';
+  const body = JSON.stringify({ inputs: [options.row] });
+  return [
+    `curl -X POST ${options.origin}${options.endpoint} \\`,
+    `  -H '${options.header}: ${key}' \\`,
+    `  -H 'Content-Type: application/json' \\`,
+    `  -d '${body}'`,
+  ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Comparison across versions
+// ---------------------------------------------------------------------------
+
+export interface MetricDelta {
+  key: string;
+  /** Signed difference in the metric's own units. */
+  value: number;
+  display: string;
+  /** The change is an improvement for this metric, whichever direction that is. */
+  better: boolean;
+  /** Too small to be worth a verdict, so it is rendered as flat. */
+  flat: boolean;
+}
+
+/** Below this, in ratio units, a difference is noise on a demo-sized test set. */
+const DELTA_EPSILON = 0.001;
+
+/**
+ * How this version's score moved against the one before it.
+ *
+ * The reason the model card has deltas at all: "AUC 0.87" is a number, "AUC 0.87
+ * · +0.03" is a story about a retrain. Sign is reported raw and the verdict comes
+ * from the metric, so a smaller MAE reads as an improvement rather than a drop.
+ */
+export function metricDelta(
+  key: string,
+  current: number | null | undefined,
+  previous: number | null | undefined,
+  locale = 'en',
+): MetricDelta | null {
+  if (
+    current === null ||
+    current === undefined ||
+    previous === null ||
+    previous === undefined ||
+    !Number.isFinite(current) ||
+    !Number.isFinite(previous)
+  ) {
+    return null;
+  }
+  const value = current - previous;
+  const scale = metricScale(key);
+  const digits = scale === 'ratio' ? 3 : scale === 'percent' ? 1 : 3;
+  const magnitude = Math.abs(value);
+  const flat = scale === 'ratio' ? magnitude < DELTA_EPSILON : magnitude === 0;
+  const sign = value > 0 ? '+' : value < 0 ? '−' : '';
+  return {
+    key,
+    value,
+    display: flat
+      ? '='
+      : `${sign}${magnitude.toLocaleString(locale, { maximumFractionDigits: digits })}`,
+    better: higherIsBetter(key) ? value > 0 : value < 0,
+    flat,
+  };
+}
+
+/**
+ * The version a delta is measured against: the newest trained one below this.
+ *
+ * Not "the champion" and not "version n-1": a lineage can hold a failed retrain,
+ * and comparing against a run that never produced a score would silence the
+ * delta on the version after it.
+ */
+export function previousVersion(
+  current: ModelDto | null | undefined,
+  versions: readonly ModelDto[],
+): ModelDto | null {
+  if (!current) return null;
+  const earlier = versions
+    .filter(
+      (row) =>
+        row.id !== current.id &&
+        row.status === 'ready' &&
+        row.version < current.version,
+    )
+    .sort((a, b) => b.version - a.version);
+  return earlier[0] ?? null;
+}
+
+export interface ComparisonRow {
+  key: string;
+  left: string;
+  right: string;
+  delta: MetricDelta | null;
+  /** Which side this metric favours, for the winner marker. */
+  winner: 'left' | 'right' | 'tie';
+}
+
+/**
+ * Two versions' scores, aligned on the metrics they share.
+ *
+ * Only shared metrics are shown: a classification version next to a regression
+ * one has nothing to compare, and inventing a row for a metric one side lacks
+ * would read as a regression to zero.
+ */
+export function comparisonRows(
+  left: ModelDto | null | undefined,
+  right: ModelDto | null | undefined,
+  locale = 'en',
+): ComparisonRow[] {
+  const leftScores = new Map(
+    (left?.metrics?.scores ?? []).map((score) => [score.key, score.value]),
+  );
+  const rightScores = new Map(
+    (right?.metrics?.scores ?? []).map((score) => [score.key, score.value]),
+  );
+  const rows: ComparisonRow[] = [];
+  for (const [key, leftValue] of leftScores) {
+    if (!rightScores.has(key)) continue;
+    const rightValue = rightScores.get(key) ?? null;
+    const delta = metricDelta(key, rightValue, leftValue, locale);
+    rows.push({
+      key,
+      left: formatMetric(key, leftValue, locale),
+      right: formatMetric(key, rightValue, locale),
+      delta,
+      winner: !delta || delta.flat ? 'tie' : delta.better ? 'right' : 'left',
+    });
+  }
+  return rows;
+}
+
 export interface KnobDescriptor {
   key: string;
   kind: 'int' | 'float';
@@ -694,6 +1079,50 @@ export function refusalField(
     default:
       return null;
   }
+}
+
+/**
+ * Coded refusals the serving surfaces render.
+ *
+ * Kept apart from the training refusals because they are a different
+ * conversation: a training refusal is a form answer about a choice not yet made,
+ * whereas these are about a call that just happened — a field the model never
+ * saw, a key that was revoked, an artifact that will not load.
+ */
+export const SERVING_ERROR_CODES = [
+  'ML_PREDICT_DISABLED',
+  'ML_PREDICT_ROWS_REQUIRED',
+  'ML_PREDICT_ROW_NOT_OBJECT',
+  'ML_PREDICT_TOO_MANY_ROWS',
+  'ML_PREDICT_FIELD_UNKNOWN',
+  'ML_PREDICT_FIELD_MISSING',
+  'ML_PREDICT_FIELD_NOT_NUMERIC',
+  'ML_PREDICT_FIELD_NOT_BOOLEAN',
+  'ML_PREDICT_FAILED',
+  'ML_CONTRACT_MISSING',
+  'ML_ARTIFACT_UNLOADABLE',
+  'ML_NOTHING_SERVES',
+  'ML_VERSION_UNKNOWN',
+  'ML_MODEL_NOT_READY',
+  'ML_MODEL_NOT_FOUND',
+  'ML_SCORE_TOO_MANY_ROWS',
+  'ML_SCORE_COLUMN_MISSING',
+  'ML_KEY_LIMIT',
+  'ML_KEY_NOT_FOUND',
+  'ML_KEY_REQUIRED',
+  'ML_KEY_INVALID',
+  'ML_KEY_REVOKED',
+  'ML_KEY_WRONG_MODEL',
+  'ML_PUBLISH_NAME_TAKEN',
+  'ML_PUBLISH_NAME_INVALID',
+] as const;
+
+const SERVING_ERROR_SET: ReadonlySet<string> = new Set(SERVING_ERROR_CODES);
+
+/** The dictionary key for a serving refusal, or `null` to fall back to its own text. */
+export function servingErrorKey(code: string | undefined | null): string | null {
+  if (!code || !SERVING_ERROR_SET.has(code)) return null;
+  return `models.serving.error.${code.toLowerCase()}`;
 }
 
 export const PLAN_WARNING_CODES = ['ML_FEATURE_IDENTIFIER'] as const;

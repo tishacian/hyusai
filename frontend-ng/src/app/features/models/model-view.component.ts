@@ -39,24 +39,30 @@ import { CkTabComponent, CkTabsComponent } from '@app/shared/cockpit/tabs.compon
 import { formatBytes } from '@app/shared/ui/data-table.vm';
 import { I18nService } from '@app/core/i18n.service';
 import { DataService } from '@app/features/data/data.service';
+import { ModelPlaygroundComponent } from './model-playground.component';
 import { ModelTrainComponent, type TrainSeed } from './model-train.component';
 import { ModelsService, isModelActive, type ModelDetailDto } from './models.service';
 import {
   UNIT_DOMAIN,
   balanceBars,
+  comparisonRows,
   confusionView,
   curveDomain,
   curvePath,
   formatMetric,
   importanceBars,
+  metricDelta,
   metricTone,
+  previousVersion,
   primaryScore,
   splitError,
   trainingErrorKey,
+  type ComparisonRow,
   type CurveBox,
   type CvBlock,
   type MetricTone,
   type ModelDto,
+  type ServingBlock,
   type SignatureField,
 } from './models.vm';
 
@@ -76,6 +82,7 @@ const CHART: CurveBox = { width: 300, height: 190 };
     CkObjectHeaderComponent,
     CkTabsComponent,
     CkTabComponent,
+    ModelPlaygroundComponent,
     ModelTrainComponent,
   ],
   template: `
@@ -187,12 +194,32 @@ const CHART: CurveBox = { width: 300, height: 190 };
                       <div class="ck-score-card__label">
                         {{ i18n.t('models.metric.' + score.key) }}
                       </div>
+                      @if (score.delta; as delta) {
+                        <div
+                          class="ck-delta ck-mono"
+                          [attr.data-move]="delta.flat ? 'flat' : delta.better ? 'up' : 'down'"
+                          [title]="deltaTitle()"
+                        >
+                          {{ delta.display }}
+                        </div>
+                      }
                     </div>
                   }
                 </div>
-                @if (rowsLine(); as line) {
-                  <div class="text-[11px] ck-mono mt-2" style="color: var(--ck-fg-4)">{{ line }}</div>
-                }
+                <div class="flex items-baseline gap-2 flex-wrap mt-2">
+                  @if (rowsLine(); as line) {
+                    <span class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">{{ line }}</span>
+                  }
+                  @if (against(); as earlier) {
+                    <a
+                      [routerLink]="['/models', earlier.id]"
+                      class="text-[11px] ck-mono transition"
+                      style="color: var(--ck-fg-4)"
+                    >
+                      {{ deltaTitle() }}
+                    </a>
+                  }
+                </div>
               </section>
 
               <div class="ck-charts">
@@ -387,6 +414,92 @@ const CHART: CurveBox = { width: 300, height: 190 };
                     }
                   </div>
                 </section>
+              }
+            </div>
+          }
+        </ck-tab>
+
+        <!-- ── Playground ──────────────────────────────────────────────────── -->
+        <ck-tab id="play" [label]="i18n.t('models.detail.tab.play')">
+          @if (serving(); as plane) {
+            <app-model-playground
+              [model]="row"
+              [serving]="plane"
+              (servingChange)="serving.set($event)"
+              (changed)="reload()"
+            />
+          }
+        </ck-tab>
+
+        <!-- ── Comparison ──────────────────────────────────────────────────── -->
+        <ck-tab id="compare" [label]="i18n.t('models.detail.tab.compare')">
+          @if (!comparison().length) {
+            <app-empty-state
+              icon="git-compare"
+              [title]="i18n.t('models.compare.none.title')"
+              [description]="i18n.t('models.compare.none.description')"
+            />
+          } @else {
+            <div class="space-y-3">
+              <div class="ck-hint">{{ i18n.t('models.compare.hint') }}</div>
+              <div class="ck-versus">
+                @for (side of sides(); track side.id) {
+                  <div class="ck-versus__side" [attr.data-role]="side.role">
+                    <div class="ck-section-label">
+                      {{ i18n.t('models.versions.label', { version: side.version }) }}
+                    </div>
+                    <div class="text-[12px]" style="color: var(--ck-fg-1)">{{ side.name }}</div>
+                    <div class="text-[10.5px] ck-mono" style="color: var(--ck-fg-4)">
+                      {{ side.line }}
+                    </div>
+                  </div>
+                }
+              </div>
+              <div class="ck-surface rounded-md overflow-hidden">
+                <table class="w-full text-sm ck-schema">
+                  <thead>
+                    <tr>
+                      <th class="ck-schema__th">{{ i18n.t('models.compare.metric') }}</th>
+                      <th class="ck-schema__th">{{ i18n.t('models.compare.before') }}</th>
+                      <th class="ck-schema__th">{{ i18n.t('models.compare.after') }}</th>
+                      <th class="ck-schema__th">{{ i18n.t('models.compare.move') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (line of comparison(); track line.key) {
+                      <tr class="ck-schema__tr">
+                        <td class="ck-schema__td">{{ i18n.t('models.metric.' + line.key) }}</td>
+                        <td
+                          class="ck-schema__td ck-mono"
+                          [class.ck-versus__win]="line.winner === 'left'"
+                        >
+                          {{ line.left }}
+                        </td>
+                        <td
+                          class="ck-schema__td ck-mono"
+                          [class.ck-versus__win]="line.winner === 'right'"
+                        >
+                          {{ line.right }}
+                        </td>
+                        <td class="ck-schema__td">
+                          @if (line.delta; as delta) {
+                            <span
+                              class="ck-delta ck-mono"
+                              [attr.data-move]="
+                                delta.flat ? 'flat' : delta.better ? 'up' : 'down'
+                              "
+                            >
+                              {{ delta.display }}
+                            </span>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              @if (verdict(); as sentence) {
+                <div class="text-[12px]" style="color: var(--ck-fg-2)">{{ sentence }}</div>
               }
             </div>
           }
@@ -590,6 +703,44 @@ const CHART: CurveBox = { width: 300, height: 190 };
         letter-spacing: 0.07em;
         color: var(--ck-fg-4, #8891a0);
         margin-top: 2px;
+      }
+      /* The delta is the sentence "this retrain was worth keeping", so it is
+         coloured by verdict rather than by sign: a smaller MAE reads as green. */
+      .ck-delta {
+        display: inline-block;
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+        margin-top: 3px;
+        color: var(--ck-fg-4, #8891a0);
+      }
+      .ck-delta[data-move='up'] {
+        color: var(--ck-signal-pos, #34d399);
+      }
+      .ck-delta[data-move='down'] {
+        color: var(--ck-signal-neg, #ef5a6f);
+      }
+      .ck-versus {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+      @media (min-width: 720px) {
+        .ck-versus {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .ck-versus__side {
+        padding: 10px 12px;
+        border-radius: 6px;
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.03));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.07));
+      }
+      .ck-versus__side[data-role='after'] {
+        box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.28);
+      }
+      .ck-versus__win {
+        color: var(--ck-fg-1, #e6e9ef) !important;
+        font-weight: 600;
       }
       .ck-charts {
         display: grid;
@@ -819,6 +970,14 @@ export class ModelViewComponent implements OnInit {
   protected readonly loading = signal(false);
   protected readonly tab = signal('evidence');
   protected readonly studioOpen = signal(false);
+  /**
+   * The serving plane, held apart from the detail it arrived with.
+   *
+   * A mint, a revoke or a publish returns a fresh block, and re-reading the whole
+   * card to learn that a key now exists would throw away the secret the Playground
+   * is still showing — a secret this platform cannot show twice.
+   */
+  protected readonly serving = signal<ServingBlock | null>(null);
 
   private modelId = '';
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -828,12 +987,36 @@ export class ModelViewComponent implements OnInit {
   protected readonly versions = computed(() => this.detail()?.versions ?? []);
   private readonly metrics = computed(() => this.model()?.metrics ?? null);
 
-  protected readonly scores = computed(() =>
-    (this.metrics()?.scores ?? []).map((score) => ({
+  /**
+   * The version this one's scores are read against.
+   *
+   * The newest *trained* version below it, not the champion and not `n-1`: a
+   * lineage can hold a failed retrain, and measuring against a run that never
+   * produced a score would silence the delta on the version after it.
+   */
+  protected readonly against = computed(() =>
+    previousVersion(this.model(), this.versions()),
+  );
+
+  protected readonly scores = computed(() => {
+    const earlier = new Map(
+      (this.against()?.metrics?.scores ?? []).map((score) => [score.key, score.value]),
+    );
+    return (this.metrics()?.scores ?? []).map((score) => ({
       key: score.key,
       display: formatMetric(score.key, score.value, this.i18n.locale()),
       tone: metricTone(score.key, score.value),
-    })),
+      delta: metricDelta(
+        score.key,
+        score.value,
+        earlier.get(score.key),
+        this.i18n.locale(),
+      ),
+    }));
+  });
+
+  protected readonly comparison = computed<ComparisonRow[]>(() =>
+    comparisonRows(this.against(), this.model(), this.i18n.locale()),
   );
 
   protected readonly confusion = computed(() => confusionView(this.metrics()?.confusion));
@@ -1106,6 +1289,79 @@ export class ModelViewComponent implements OnInit {
     };
   }
 
+  /** What a delta is measured against, said once instead of on every tile. */
+  protected deltaTitle(): string {
+    const earlier = this.against();
+    if (!earlier) return '';
+    return this.i18n.t('models.evidence.delta.against', { version: earlier.version });
+  }
+
+  protected sides(): {
+    id: string;
+    role: 'before' | 'after';
+    version: number;
+    name: string;
+    line: string;
+  }[] {
+    const earlier = this.against();
+    const current = this.model();
+    if (!earlier || !current) return [];
+    return [
+      {
+        id: earlier.id,
+        role: 'before' as const,
+        version: earlier.version,
+        name: earlier.name,
+        line: this.versionLine(earlier),
+      },
+      {
+        id: current.id,
+        role: 'after' as const,
+        version: current.version,
+        name: current.name,
+        line: this.versionLine(current),
+      },
+    ];
+  }
+
+  /**
+   * The comparison in one sentence, on the metric the task is judged by.
+   *
+   * A table of six deltas states facts; the room wants to know whether the
+   * retrain was worth keeping, which is a claim about one number.
+   */
+  protected verdict(): string {
+    const current = this.model();
+    const earlier = this.against();
+    if (!current || !earlier) return '';
+    const score = primaryScore(current);
+    if (!score) return '';
+    const before = (earlier.metrics?.scores ?? []).find((row) => row.key === score.key);
+    const delta = metricDelta(
+      score.key,
+      score.value,
+      before?.value,
+      this.i18n.locale(),
+    );
+    if (!delta) return '';
+    const key = delta.flat
+      ? 'models.compare.verdict.flat'
+      : delta.better
+        ? 'models.compare.verdict.better'
+        : 'models.compare.verdict.worse';
+    return this.i18n.t(key, {
+      metric: this.i18n.t('models.metric.' + score.key),
+      delta: delta.display,
+      version: current.version,
+      previous: earlier.version,
+    });
+  }
+
+  /** Publishing a lineage changes the row, so the card re-reads it. */
+  protected reload(): void {
+    void this.load();
+  }
+
   /** The failure named in the product's own words, not the harness's. */
   protected errorSentence(): string {
     const { code, detail } = splitError(this.model()?.error);
@@ -1186,10 +1442,13 @@ export class ModelViewComponent implements OnInit {
     if (!this.modelId) return;
     this.loading.set(true);
     try {
-      this.detail.set(await this.models.detail(this.modelId));
+      const detail = await this.models.detail(this.modelId);
+      this.detail.set(detail);
+      this.serving.set(detail.serving ?? null);
       this.syncPolling();
     } catch {
       this.detail.set(null);
+      this.serving.set(null);
     } finally {
       this.loading.set(false);
     }

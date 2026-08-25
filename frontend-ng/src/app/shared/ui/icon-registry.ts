@@ -217,6 +217,13 @@ import {
   Pin,
   Inbox,
   Camera,
+  // Model serving plane
+  Key,
+  Ban,
+  BadgeCheck,
+  Share2,
+  ZapOff,
+  GitCompare,
 } from 'lucide-angular';
 
 export const REGISTERED_LUCIDE_ICONS = {
@@ -429,6 +436,12 @@ export const REGISTERED_LUCIDE_ICONS = {
   Pin,
   Inbox,
   Camera,
+  Key,
+  Ban,
+  BadgeCheck,
+  Share2,
+  ZapOff,
+  GitCompare,
   // Aliases — sentinel-ci prompt_pack + chat-panel use Lucide-style kebab
   // names. Map them so suggestion icons render without throwing during
   // change detection (which previously blocked the Quick Panel on cockpit).

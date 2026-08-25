@@ -11,6 +11,11 @@
  * imply — the task a target suggests, the features it leaves, the columns that
  * will not generalize — or the coded refusal to render inline, without fitting
  * anything.
+ *
+ * The serving calls at the bottom talk to the same endpoint a customer's system
+ * does, with the session this app already holds instead of an API key. That is
+ * deliberate: the Playground cannot drift from the documented request shape,
+ * because there is only one shape.
  */
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
@@ -18,11 +23,15 @@ import { firstValueFrom } from 'rxjs';
 import type { DatasetDto } from '@app/features/data/data.service';
 import {
   isActiveStatus,
+  type ApiKeyRow,
   type CodedRefusal,
   type ModelCatalog,
   type ModelDto,
   type ModelTask,
   type PlanColumn,
+  type PredictAnswer,
+  type PublishedSkillDto,
+  type ServingBlock,
   type TrainingPlan,
 } from './models.vm';
 
@@ -36,6 +45,8 @@ export interface ModelDetailDto {
   dataset: DatasetDto | null;
   versions: ModelDto[];
   catalog: ModelCatalog;
+  /** The serving plane: the contract, the keys, the published Skill. */
+  serving: ServingBlock;
 }
 
 export interface PlanResponseDto {
@@ -169,6 +180,81 @@ export class ModelsService {
   async remove(modelId: string): Promise<void> {
     await firstValueFrom(this.http.delete(`${this.base}/${modelId}`));
     this.models.update((rows) => rows.filter((row) => row.id !== modelId));
+  }
+
+  // -------------------------------------------------------------------------
+  // Serving
+  // -------------------------------------------------------------------------
+
+  /**
+   * Score one row now, in the request.
+   *
+   * `inputs` rather than `rows` on purpose: it is MLflow's serving key, so the
+   * cURL the card offers next to this form is the same request, and neither has
+   * to be translated to match the other.
+   */
+  predict(
+    modelId: string,
+    row: Record<string, unknown>,
+    options: { explain?: boolean; version?: number } = {},
+  ): Promise<PredictAnswer> {
+    return firstValueFrom(
+      this.http.post<PredictAnswer>(`${this.base}/${modelId}/predict`, {
+        inputs: [row],
+        ...(options.explain ? { explain: true } : {}),
+        ...(options.version ? { version: options.version } : {}),
+      }),
+    );
+  }
+
+  /** Mint a key. Its secret is in this response and nowhere else, ever. */
+  async mintKey(
+    modelId: string,
+    name: string,
+  ): Promise<{ key: ApiKeyRow; serving: ServingBlock }> {
+    return firstValueFrom(
+      this.http.post<{ key: ApiKeyRow; serving: ServingBlock }>(
+        `${this.base}/${modelId}/keys`,
+        { name },
+      ),
+    );
+  }
+
+  async revokeKey(modelId: string, keyId: string): Promise<ServingBlock> {
+    const response = await firstValueFrom(
+      this.http.delete<{ serving: ServingBlock }>(
+        `${this.base}/${modelId}/keys/${keyId}`,
+      ),
+    );
+    return response.serving;
+  }
+
+  async publish(
+    modelId: string,
+  ): Promise<{ skill: PublishedSkillDto; model: ModelDto; serving: ServingBlock }> {
+    const response = await firstValueFrom(
+      this.http.post<{
+        skill: PublishedSkillDto;
+        model: ModelDto;
+        serving: ServingBlock;
+      }>(`${this.base}/${modelId}/publish`, {}),
+    );
+    this.replace(response.model);
+    return response;
+  }
+
+  async unpublish(
+    modelId: string,
+  ): Promise<{ withdrawn: string | null; model: ModelDto; serving: ServingBlock }> {
+    const response = await firstValueFrom(
+      this.http.delete<{
+        withdrawn: string | null;
+        model: ModelDto;
+        serving: ServingBlock;
+      }>(`${this.base}/${modelId}/publish`),
+    );
+    this.replace(response.model);
+    return response;
   }
 
   private replace(model: ModelDto): void {
