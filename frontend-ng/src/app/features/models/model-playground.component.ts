@@ -398,7 +398,7 @@ import {
           } @else {
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-violet-500 hover:bg-violet-600 text-white transition mt-3"
+              class="ck-btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium mt-3"
               [disabled]="publishing()"
               (click)="publish()"
             >
