@@ -8,8 +8,11 @@ Two tables, one operator's month:
   keep by cleaning it, and the badge on that node reads
   **8 412 → 6 903 lignes** because those two numbers are exact, not sampled.
 * ``network_cell_frame()`` — hourly radio KPIs per cell, with a busy hour, a
-  weekend, a handful of chronically congested cells and three that degrade over
-  the window. That is what gives the dbt node something true to assert.
+  weekend, six chronically congested cells, three that degrade sharply inside
+  the recent week and two a capacity upgrade relieved. That is what gives the
+  dbt node something true to assert: its watchlist comes back with nine cells in
+  the ``critique`` band, of which the three the delta column singles out were
+  healthy a fortnight ago.
 
 Everything is a pure function of a seed. The same seed gives the same bytes on
 any machine, which is what lets the demo be rehearsed: the churn label is a
@@ -148,6 +151,33 @@ NETWORK_ROWS = CELLS * KPI_DAYS * 24
 #: The window ends the evening before the reference date, so "last 7 days" in a
 #: dbt model is a full week and not a partial one.
 REFERENCE_DATE = date(2026, 8, 24)
+
+#: PRB points per unit of offered load, below saturation. Set so a median cell's
+#: busy hour reads near 50%, which is where an operator's fleet actually sits.
+PRB_PER_LOAD = 44.0
+#: Below this, a cell schedules everything it is offered and utilisation *is* the
+#: offered load. Above it the counter bends: see ``_prb_from_offered_load``.
+PRB_KNEE = 65.0
+#: A share of a finite resource. Approached, never reached.
+PRB_CEILING = 100.0
+#: Where quality starts to bend. Below it a cell has slack and a subscriber
+#: notices nothing; from here to the ceiling, throughput falls and latency and
+#: dropped calls climb superlinearly, so the *perceived* knee lands near 80%.
+PRB_QUALITY_ONSET = 62.0
+
+#: The three populations the watchlist exists to separate, disjoint by
+#: construction so a test can name them.
+#:
+#: Chronically saturated cells are the standing entries an engineer already
+#: knows about. The ones that *matter* are the next two groups, and they are
+#: drawn from the middle of the load distribution on purpose: a watchlist whose
+#: movers are all cells already at the ceiling has nothing to say that a level
+#: threshold did not already say.
+CONGESTED_CELLS = 6
+DEGRADING_CELLS = 3
+#: And two that a capacity upgrade fixed mid-window, so the trend column reads
+#: in both directions instead of being a one-way ratchet.
+RECOVERING_CELLS = 2
 
 SITE_PREFIXES = {
     "Casablanca-Settat": "CAS",
@@ -540,12 +570,70 @@ def clean_churn_frame(raw: Any | None = None, *, seed: int = 20260825):
 # ---------------------------------------------------------------------------
 
 
+def _cell_roles(base_load: Any, rng: Any, np: Any) -> tuple[Any, Any, Any]:
+    """Which cells are chronically congested, which are moving, and which way.
+
+    The congested ones are the heaviest cells, because that is what chronic
+    congestion is. The movers are drawn from the middle of the distribution and
+    are disjoint from them, so a cell that degrades starts inside the healthy
+    band and ends outside it — the mart then flags it on the *trend*, days before
+    a level threshold would have, which is the entire argument for the node.
+    """
+
+    heaviest = np.argsort(base_load)[::-1]
+    congested = np.sort(heaviest[:CONGESTED_CELLS])
+
+    middle = np.flatnonzero(
+        (base_load >= np.quantile(base_load, 0.45))
+        & (base_load <= np.quantile(base_load, 0.88))
+    )
+    candidates = np.setdiff1d(middle, congested)
+    movers = rng.permutation(candidates)[: DEGRADING_CELLS + RECOVERING_CELLS]
+    return (
+        congested,
+        np.sort(movers[:DEGRADING_CELLS]),
+        np.sort(movers[DEGRADING_CELLS:]),
+    )
+
+
+def _prb_from_offered_load(offered: Any, np: Any) -> Any:
+    """Offered traffic in, a utilisation counter out, saturating smoothly.
+
+    Below the knee a cell schedules everything it is handed, so utilisation is
+    the offered load and the mapping is the identity. Above it the curve bends
+    towards ``PRB_CEILING``: continuous, slope 1 at the knee, and asymptotic, so
+    a cell offered five times its capacity reports 94% rather than 100%.
+
+    Asymptotic and not clipped, which matters more than it looks. Clipping puts a
+    large share of the busy hours on exactly 100.0, and the week-over-week delta
+    of a constant is zero — so the cells degrading fastest become invisible to
+    the trend column, precisely the ones the radio node exists to surface, and
+    the watchlist's top rows collapse into a wall of ``100.00 / 0.00``. A
+    saturating counter keeps the ordering informative all the way up.
+    """
+
+    slack = PRB_CEILING - PRB_KNEE
+    linear = offered * PRB_PER_LOAD
+    # Evaluated everywhere and then min-ed rather than branched on: at the knee
+    # the bent curve equals the linear one, so the minimum switches between them
+    # exactly there, and the denominator stays positive for every input.
+    bent = PRB_CEILING - slack**2 / (np.maximum(linear, PRB_KNEE) - PRB_KNEE + slack)
+    return np.minimum(linear, bent)
+
+
 def network_cell_frame(*, seed: int = 20260825, cells: int = CELLS, days: int = KPI_DAYS):
-    """Hourly radio KPIs, with a busy hour, a weekend and cells that degrade.
+    """Hourly radio KPIs, with a busy hour, a weekend and cells that move.
 
     Written long (one row per cell-hour) rather than pre-aggregated, because the
     demo's dbt models are the aggregation — a table that arrived already bucketed
     would make them decoration.
+
+    Three populations are planted in it, disjoint and named in the constants
+    above: cells that are chronically saturated, cells that climb into trouble
+    inside the recent week, and cells a capacity upgrade relieved. The watchlist
+    the dbt node builds is only worth showing because all three are there — one
+    band tells you where to go, and the delta column tells you which of those the
+    engineer has not already seen.
     """
 
     import numpy as np
@@ -568,16 +656,17 @@ def network_cell_frame(*, seed: int = 20260825, cells: int = CELLS, days: int = 
 
     # Load per cell: a dense-urban tail carries far more traffic than the median,
     # which is what makes a "top congested cells" model worth writing.
-    capacity = np.where(technology == "5G", 620.0, 210.0)
-    base_load = np.clip(rng.lognormal(mean=0.0, sigma=0.42, size=count), 0.35, 3.1)
-    # Twelve cells are chronically congested; three of them get worse across the
-    # window, so a 7-day-versus-previous-7 comparison has something to find.
-    hot = rng.choice(count, size=12, replace=False)
+    full_cell_sessions = np.where(technology == "5G", 620.0, 210.0)
+    base_load = np.clip(rng.lognormal(mean=0.0, sigma=0.34, size=count), 0.42, 2.0)
+
+    congested, degrading, recovering = _cell_roles(base_load, rng, np)
     congestion_bias = np.zeros(count)
-    congestion_bias[hot] = rng.uniform(0.55, 0.95, hot.size)
-    degrading = hot[:3]
-    drift = np.zeros(count)
-    drift[degrading] = rng.uniform(0.9, 1.5, degrading.size)
+    congestion_bias[congested] = rng.uniform(0.62, 1.05, congested.size)
+    # Signed, because the two groups are disjoint: a cell either grew into a
+    # problem over the fortnight or was relieved of one.
+    trend = np.zeros(count)
+    trend[degrading] = rng.uniform(1.5, 1.9, degrading.size)
+    trend[recovering] = -rng.uniform(0.30, 0.42, recovering.size)
 
     hours = int(days) * 24
     start = datetime.combine(REFERENCE_DATE, datetime.min.time()) - timedelta(hours=hours)
@@ -593,25 +682,37 @@ def network_cell_frame(*, seed: int = 20260825, cells: int = CELLS, days: int = 
     )
     diurnal = np.where(is_weekend, diurnal * 0.86 + 0.10, diurnal)
     progress = np.arange(hours) / max(hours - 1, 1)
+    # A change of regime rather than a slope: most of the movement lands inside
+    # the recent week, which is what "this cell was fine a fortnight ago" looks
+    # like in the counters — and what makes the mart's 7-day comparison read the
+    # full size of the change instead of half of it.
+    ramp = 1.0 / (1.0 + np.exp(-(progress - 0.55) / 0.09))
 
     cell_axis = np.repeat(np.arange(count), hours)
     time_axis = np.tile(np.arange(hours), count)
     total = count * hours
 
-    load = (
+    offered = (
         base_load[cell_axis]
         * diurnal[time_axis]
         * (1.0 + congestion_bias[cell_axis])
-        * (1.0 + drift[cell_axis] * progress[time_axis])
+        * (1.0 + trend[cell_axis] * ramp[time_axis])
         * rng.normal(1.0, 0.075, total)
     )
-    prb = np.round(np.clip(load * 58.0, 1.0, 100.0), 1)
+    prb = np.round(_prb_from_offered_load(offered, np), 1)
+    # Everything below reads the *served* utilisation rather than the traffic
+    # offered to the cell, because that is what the counters on a base station
+    # measure: a full cell stops admitting sessions and stops drawing more power,
+    # however much demand is queued behind it.
+    utilisation = prb / PRB_CEILING
     active_users = np.maximum(
-        1, np.round(load * capacity[cell_axis] * rng.normal(1.0, 0.11, total))
+        8,
+        np.round(full_cell_sessions[cell_axis] * utilisation * rng.normal(1.0, 0.11, total)),
     ).astype("int64")
-    # Throughput collapses as the cell saturates; latency and drops climb. The
-    # knee near 80% PRB is the story the network engineer in the room expects.
-    saturation = np.clip((prb - 62.0) / 38.0, 0.0, 1.0)
+    # Throughput collapses as the cell saturates; latency and drops climb.
+    saturation = np.clip(
+        (prb - PRB_QUALITY_ONSET) / (PRB_CEILING - PRB_QUALITY_ONSET), 0.0, 1.0
+    )
     peak_mbps = np.where(technology == "5G", 340.0, 96.0)[cell_axis]
     throughput = np.round(
         np.clip(peak_mbps * (1.0 - 0.78 * saturation) * rng.normal(1.0, 0.09, total), 1.0, None),
@@ -633,13 +734,12 @@ def network_cell_frame(*, seed: int = 20260825, cells: int = CELLS, days: int = 
     handover = np.round(
         np.clip(99.4 - 6.2 * saturation**1.5 + rng.normal(0, 0.22, total), 80.0, 100.0), 2
     )
+    # A radio's draw is a fixed baseline plus a part that follows how much of the
+    # spectrum it is actually lighting up. 5G idles higher and swings wider.
+    idle_kw = np.where(technology == "5G", 1.35, 0.78)[cell_axis]
+    dynamic_kw = np.where(technology == "5G", 2.10, 1.15)[cell_axis]
     energy = np.round(
-        np.clip(
-            (np.where(technology == "5G", 4.1, 2.6)[cell_axis]) * (0.55 + 0.72 * load)
-            + rng.normal(0, 0.11, total),
-            0.4,
-            None,
-        ),
+        np.clip(idle_kw + dynamic_kw * utilisation + rng.normal(0, 0.06, total), 0.2, None),
         2,
     )
 
@@ -687,6 +787,9 @@ def describe() -> dict[str, Any]:
         "network_rows": NETWORK_ROWS,
         "network_cells": CELLS,
         "network_days": KPI_DAYS,
+        "network_congested_cells": CONGESTED_CELLS,
+        "network_degrading_cells": DEGRADING_CELLS,
+        "network_recovering_cells": RECOVERING_CELLS,
         "reference_date": REFERENCE_DATE.isoformat(),
     }
 

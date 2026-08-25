@@ -22,6 +22,27 @@ RUNTIME_MODES: frozenset[str] = frozenset(
 CONTROL_KINDS: frozenset[str] = frozenset(
     {"decision", "fork", "join", "retry", "hitl", "subflow", "loop", "agent_loop"}
 )
+#: Skills whose configuration is owned by the graph rather than by the caller:
+#: the statement of a SQL node, the script of a Polars or recipe node, the target
+#: of a training node, the model a serving node answers from. Only the DAG walker
+#: injects those blocks (``dag._GRAPH_OWNED_BLOCKS``), so a Flow that carries one
+#: of these nodes has exactly one walker that can run it — routing it to the
+#: sequential one would refuse every node for want of a configuration the graph
+#: was holding all along. Kept here, in the dependency-light module, because the
+#: routing decision has to be made before ``dag`` is importable; the block table
+#: over there stays the authority on *what* is injected, and
+#: ``test_run_engine_dag_graph`` pins the two lists to each other.
+GRAPH_OWNED_CONFIG_SKILLS: frozenset[str] = frozenset(
+    {
+        "python_recipe_v1",
+        "sql_transform_v1",
+        "polars_transform_v1",
+        "dbt_transform_v1",
+        "ml_train_sklearn_v1",
+        "ml_predict_v1",
+        "ml_batch_score_v1",
+    }
+)
 WORKBENCH_EXECUTION_SURFACES: frozenset[str] = frozenset(
     {"builder_preview", "node_preview", "golden_preview"}
 )
@@ -143,23 +164,35 @@ def resolve_flow_execution(
             reason="flow_v3_strict_workspace_authoritative",
         )
 
-    has_control_node = bool(
-        schema_version >= 2
-        and any(
+    if schema_version >= 2:
+        if any(
             isinstance(node, Mapping) and node.get("kind") in CONTROL_KINDS
             for node in nodes
-        )
-    )
-    if has_control_node:
-        return FlowExecutionResolution(
-            runtime_mode="dag_overlay",
-            reason="control_node_requires_compatibility_dag",
-        )
+        ):
+            return FlowExecutionResolution(
+                runtime_mode="dag_overlay",
+                reason="control_node_requires_compatibility_dag",
+            )
+        if any(_node_skill_slug(node) in GRAPH_OWNED_CONFIG_SKILLS for node in nodes):
+            return FlowExecutionResolution(
+                runtime_mode="dag_overlay",
+                reason="graph_owned_config_requires_compatibility_dag",
+            )
 
     return FlowExecutionResolution(
         runtime_mode="sequential_legacy",
         reason="legacy_or_task_only_flow",
     )
+
+
+def _node_skill_slug(node: Any) -> str:
+    """The skill a task node dispatches to, as the graph spells it."""
+
+    if not isinstance(node, Mapping):
+        return ""
+    config = node.get("config")
+    slug = config.get("skill_slug") if isinstance(config, Mapping) else None
+    return slug if isinstance(slug, str) else ""
 
 
 def resolve_run_flow_execution(
