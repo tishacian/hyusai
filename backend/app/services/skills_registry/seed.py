@@ -915,6 +915,45 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "slug": "dbt_transform_v1",
+        "version": "1",
+        "name": "dbt Transform",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Builds an author-written dbt project (several models linked by ref, "
+            "plus data tests) over the node's dataset inputs with dbt-duckdb on a "
+            "managed, isolated environment. Publishes the selected model as a new "
+            "versioned dataset, and refuses to publish when a data test fails."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 600_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_transform", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "duration_ms": {"type": "number"},
+                "dbt": {"type": "object"},
+            },
+        },
+    },
+    {
         "slug": "action_plan_create_v1",
         "version": "1",
         "name": "Action Plan Create",
@@ -2166,10 +2205,14 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "slug": "tabular_transforms",
         "name": "Tabular Transforms",
         "tier": "universal",
-        "description": "Tabular transformations over workspace datasets: read-only SQL executed with duckdb over Parquet, or an author-written Polars script on an isolated managed environment. Both persist versioned datasets carrying their lineage.",
+        "description": "Tabular transformations over workspace datasets: read-only SQL executed with duckdb over Parquet, an author-written Polars script, or a dbt project whose data tests gate publication. All run on isolated managed environments and persist versioned datasets carrying their lineage.",
         "input_unit": "dataset",
         "output_unit": "dataset",
-        "skill_slugs": ["sql_transform_v1", "polars_transform_v1"],
+        "skill_slugs": [
+            "sql_transform_v1",
+            "polars_transform_v1",
+            "dbt_transform_v1",
+        ],
         "pricing": {"unit": "per_transform", "unit_price": 0.01, "currency": "USD"},
         "value_per_outcome": 1.00,
         "confidence_threshold": 0.60,
@@ -2588,6 +2631,7 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "chat_self_correct_v1": "LLM",
     "chat_trivial_bypass_v1": "Governance",
     "claim_audit_v1": "Governance",
+    "dbt_transform_v1": "Analysis",
     "decision_option_rank_v1": "Decision Support",
     "decide_next_v1": "Decision Support",
     "document_ingestion_v1": "Ingestion",

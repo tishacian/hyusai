@@ -238,6 +238,76 @@ async def preview_polars_transform(
     }
 
 
+class DbtModelBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(default="", max_length=64)
+    sql: str = Field(default="", max_length=60_000)
+
+
+class DbtPreviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    models: list[DbtModelBody] = Field(default_factory=list, max_length=32)
+    tests_yml: str = Field(default="", max_length=60_000)
+    output_model: str = Field(default="", max_length=64)
+    requirements_text: str = Field(default="", max_length=60_000)
+    sources: list[TransformSourceBody] = Field(default_factory=list, max_length=8)
+    row_limit: int = Field(default=50, ge=1, le=500)
+    timeout_s: Optional[float] = Field(default=None, ge=1, le=600)
+
+
+@router.post("/dbt-preview")
+async def preview_dbt_transform(
+    body: DbtPreviewBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Dispatch a dbt build over the node's inputs — the dbt workshop's Test button.
+
+    Same transport as the Polars preview and for the same reason: a dbt project
+    compiles Jinja and runs adapter macros, so it only ever executes on a
+    managed venv interpreter in the worker container. The call stages a
+    ``RecipeExecution``, dispatches it and answers with the row; the workshop
+    follows it and reads the profile — and the test verdicts — off
+    ``output_json``.
+    """
+
+    from app.services.recipe_executions import serialize_execution
+    from app.services.tabular_dbt import submit_dbt_run
+    from app.services.tabular_transforms import resolve_sources, source_catalog
+
+    declared = [entry.model_dump(exclude_none=True) for entry in body.sources]
+    models = [entry.model_dump() for entry in body.models]
+    try:
+        if not any(str(entry.get("sql") or "").strip() for entry in models):
+            # No project yet: the editor still needs the catalog of relations
+            # its `source()` calls can address, so answer with sources only.
+            sources = resolve_sources(
+                db, workspace_id=workspace.id, declared=declared, payload=None
+            )
+            return {"execution": None, "sources": source_catalog(sources)}
+        execution, sources = submit_dbt_run(
+            db,
+            workspace_id=workspace.id,
+            models=models,
+            tests_yml=body.tests_yml,
+            output_model=body.output_model,
+            requirements_text=body.requirements_text,
+            declared=declared,
+            persist=False,
+            row_limit=body.row_limit,
+            timeout_s=body.timeout_s,
+        )
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {
+        "execution": serialize_execution(execution),
+        "sources": source_catalog(sources),
+    }
+
+
 @router.get("/{dataset_id}")
 async def get_dataset_detail(
     dataset_id: str,

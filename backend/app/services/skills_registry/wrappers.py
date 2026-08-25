@@ -1601,6 +1601,98 @@ async def _polars_transform_v1(
     raise RuntimeError(f"polars_transform_{status}: {detail}{suffix}"[:480])
 
 
+async def _dbt_transform_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Dispatch the node's graph-owned dbt project to the worker plane.
+
+    Same injection contract and same execution posture as the Polars node — the
+    project comes from ``_transform``, never from caller input, and it runs on a
+    managed venv interpreter in the container that mounts the venv store. The
+    one difference is what a failure means: a build whose data tests refused the
+    result raises rather than publishing, so a downstream node never receives a
+    dataset the project itself declared unfit.
+    """
+    import time as time_mod
+
+    from app.core.config import settings as app_settings
+    from app.db.base import SessionLocal
+    from app.models.recipe import RECIPE_EXECUTION_TERMINAL_STATUSES, RecipeExecution
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_dbt import clamp_timeout, submit_dbt_run
+
+    ctx = ctx or {}
+    transform = payload.get("_transform")
+    if not isinstance(transform, dict):
+        raise ValueError(
+            "transform_config_missing: this Skill only runs as a Flow node "
+            "carrying its graph-owned transform configuration"
+        )
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("transform_workspace_required")
+
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    sources = transform.get("sources")
+    timeout_s = clamp_timeout(transform.get("timeout_s"))
+
+    try:
+        with SessionLocal() as db:
+            execution, _ = submit_dbt_run(
+                db,
+                workspace_id=str(workspace_id),
+                models=transform.get("models"),
+                tests_yml=transform.get("tests_yml"),
+                output_model=transform.get("output_model"),
+                requirements_text=transform.get("requirements_text"),
+                declared=sources if isinstance(sources, list) else None,
+                payload=inputs,
+                output_name=str(transform.get("output_name") or "dbt result"),
+                persist=True,
+                timeout_s=timeout_s,
+                run_id=ctx.get("run_id"),
+                node_id=str(transform.get("node_id") or "") or None,
+            )
+            execution_id = execution.id
+            already_settled = execution.status in RECIPE_EXECUTION_TERMINAL_STATUSES
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    if already_settled:
+        # Eager mode (dev/tests) settled the row inside the dispatch call.
+        with SessionLocal() as db:
+            row = (
+                db.query(RecipeExecution)
+                .filter(RecipeExecution.id == execution_id)
+                .first()
+            )
+            status, output, error, stderr_tail = (
+                row.status,
+                row.output_json if isinstance(row.output_json, dict) else None,
+                row.error,
+                row.stderr_tail,
+            )
+    else:
+        # A dbt project pays a compile pass before its first model runs, so the
+        # outer budget is the node timeout plus a first-run env build allowance.
+        deadline = (
+            time_mod.monotonic()
+            + timeout_s
+            + float(app_settings.recipe_env_build_timeout_s)
+            + 30.0
+        )
+        status, output, error, stderr_tail = await _await_managed_execution(
+            execution_id, deadline=deadline
+        )
+
+    if status == "succeeded":
+        return dict(output or {})
+    detail = (error or "").strip()
+    tail_lines = (stderr_tail or "").strip().splitlines()
+    suffix = f" — {tail_lines[-1][:200]}" if tail_lines else ""
+    raise RuntimeError(f"dbt_transform_{status}: {detail}{suffix}"[:480])
+
+
 async def _calendar_create_event_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -5459,6 +5551,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "polars_transform_v1": (
         _polars_transform_v1,
         "app.services.tabular_polars",
+        "bound",
+    ),
+    "dbt_transform_v1": (
+        _dbt_transform_v1,
+        "app.services.tabular_dbt",
         "bound",
     ),
     "calendar_create_event_v1": (

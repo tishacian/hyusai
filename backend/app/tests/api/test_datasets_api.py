@@ -338,6 +338,112 @@ def test_polars_preview_without_a_source_says_what_to_do(client):
     assert response.json()["detail"]["code"] == "TRANSFORM_NO_INPUT"
 
 
+def test_dbt_preview_answers_with_the_catalog_before_a_model_is_written(client):
+    """An empty project is the state of a freshly dropped node; the editor still
+    needs the relations its `source()` calls can address."""
+
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/dbt-preview",
+        json={
+            "models": [{"name": "stg_input", "sql": "   "}],
+            "sources": [{"dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["execution"] is None
+    assert response.json()["sources"][0]["rows"] == 2
+
+
+def test_dbt_preview_dispatches_a_tracked_run_instead_of_answering_inline(
+    client, db_session, monkeypatch
+):
+    """A dbt project compiles Jinja and runs adapter macros, so it executes
+    where the venv store is mounted: the API hands back a row to follow."""
+
+    dataset = _upload(client).json()["dataset"]
+    monkeypatch.setattr(settings, "worker_eager_mode", False)
+    monkeypatch.setattr(settings, "recipe_execution_enabled", True)
+    from app.workers.celery_app import celery_app
+
+    sent: list[tuple[str, tuple]] = []
+
+    class _Result:
+        id = "task-2"
+
+    monkeypatch.setattr(
+        celery_app,
+        "send_task",
+        lambda name, **kwargs: (sent.append((name, kwargs.get("args"))), _Result())[1],
+    )
+
+    response = client.post(
+        "/datasets/dbt-preview",
+        json={
+            "models": [
+                {"name": "stg_input", "sql": "select * from {{ source('inputs','input') }}"},
+                {"name": "mart_input", "sql": "select * from {{ ref('stg_input') }}"},
+            ],
+            "tests_yml": "version: 2\n",
+            "sources": [{"view": "input", "dataset_id": dataset["id"]}],
+            "row_limit": 25,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["execution"]["status"] == "queued"
+    assert body["sources"][0]["view"] == "input"
+    assert sent and sent[0][0] == "agentium.tabular_dbt_execute"
+    # The project rides on the row, not on the broker payload.
+    assert sent[0][1] == (body["execution"]["id"],)
+
+
+def test_dbt_preview_refuses_a_misnamed_model_before_queueing_anything(client):
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/dbt-preview",
+        json={
+            "models": [{"name": "Mart Value", "sql": "select 1 as a"}],
+            "sources": [{"dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "DBT_MODEL_NAME_INVALID"
+    assert "Mart Value" in detail["message"]
+
+
+def test_dbt_preview_refuses_a_disabled_plane_with_a_coded_error(client, monkeypatch):
+    monkeypatch.setattr(settings, "recipe_execution_enabled", False)
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/dbt-preview",
+        json={
+            "models": [{"name": "mart", "sql": "select 1 as a"}],
+            "sources": [{"dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "DBT_EXECUTION_DISABLED"
+
+
+def test_dbt_preview_without_a_source_says_what_to_do(client):
+    response = client.post(
+        "/datasets/dbt-preview",
+        json={"models": [{"name": "mart", "sql": "select 1 as a"}]},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "TRANSFORM_NO_INPUT"
+
+
 def test_queued_ingest_dispatches_to_the_worker_plane(
     client, db_session, monkeypatch
 ):
