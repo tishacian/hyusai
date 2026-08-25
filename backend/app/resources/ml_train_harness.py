@@ -284,27 +284,30 @@ def _classification_metrics(report, classes, *, curve_points: int) -> dict:
     positive = _label(labels[-1]) if binary else None
     table = _summary_table(report.metrics.summarize())
 
+    matrix = [[0 for _ in labels] for _ in labels]
+    index = {_label(value): position for position, value in enumerate(labels)}
+    for row in report.metrics.confusion_matrix().frame().itertuples():
+        true_at = index.get(_label(row.true_label))
+        predicted_at = index.get(_label(row.predicted_label))
+        if true_at is not None and predicted_at is not None:
+            matrix[true_at][predicted_at] = int(row.value)
+
     precision = _pick(table, "precision", positive)
     recall = _pick(table, "recall", positive)
     f1 = None
     if precision is not None and recall is not None and (precision + recall) > 0:
         f1 = _number(2 * precision * recall / (precision + recall))
-    balanced = _pick(table, "recall", None)
-    if balanced is None and not binary:
-        per_class = [
-            table[f"recall_{_label(value)}"]
-            for value in labels
-            if table.get(f"recall_{_label(value)}") is not None
-        ]
-        balanced = _number(sum(per_class) / len(per_class)) if per_class else None
-    elif binary:
-        per_class = [
-            table[key]
-            for key in (f"recall_{_label(value)}" for value in labels)
-            if table.get(key) is not None
-        ]
-        if len(per_class) == len(labels):
-            balanced = _number(sum(per_class) / len(per_class))
+    # Balanced accuracy is the mean of the per-class recalls, and it is read off
+    # the matrix rather than the metric table on purpose: with ``pos_label`` set
+    # skore reports the *positive* class's recall under the bare name ``recall``,
+    # so averaging what the table offers would report the positive recall twice
+    # and call it balanced.
+    per_class = [
+        row[position] / sum(row)
+        for position, row in enumerate(matrix)
+        if sum(row)
+    ]
+    balanced = _number(sum(per_class) / len(per_class)) if per_class else None
 
     ordered = [
         ("roc_auc", _pick(table, "roc_auc", positive)),
@@ -340,14 +343,6 @@ def _classification_metrics(report, classes, *, curve_points: int) -> dict:
         except Exception:  # noqa: BLE001 - a curve is never worth failing a fit on
             curves.pop("roc", None)
             curves.pop("pr", None)
-
-    matrix = [[0 for _ in labels] for _ in labels]
-    index = {_label(value): position for position, value in enumerate(labels)}
-    for row in report.metrics.confusion_matrix().frame().itertuples():
-        true_at = index.get(_label(row.true_label))
-        predicted_at = index.get(_label(row.predicted_label))
-        if true_at is not None and predicted_at is not None:
-            matrix[true_at][predicted_at] = int(row.value)
 
     return {
         "primary": scores[0] if scores else {"key": "accuracy", "value": None},

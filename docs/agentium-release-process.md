@@ -134,20 +134,34 @@ DUMP=/srv/agentium-data/worktrees/demo-agentic/scripts/agentium-data-plane-dump.
 sudo "$DUMP" <sha12> <slice>
 ```
 
-It takes the same `pg_dump`, mirrors out the `tabular/` and `ml/` prefixes of
-every workspace the registry actually references, checksums both halves, and
-then verifies that every artifact the registry names is present in the window.
-`.ready` appears only if that check passed — so `.ready`, not the directory,
-is what says the window can be restored from. It also runs safely against a
-pre-096 database, where it reports that there is no plane and skips the mirror
-rather than writing an empty `objects/` that would look like a failed mirror.
+It takes the same `pg_dump`, adds a dump of the `mlflow` registry database,
+mirrors out the `tabular/` and `ml/` prefixes of every workspace the registry
+actually references, checksums each part, and then verifies that every artifact
+the registry names is present in the window. `.ready` appears only if that check
+passed — so `.ready`, not the directory, is what says the window can be restored
+from. It also runs safely against a pre-096 database, where it reports that there
+is no plane and skips the mirror rather than writing an empty `objects/` that
+would look like a failed mirror.
 
 Do not substitute `mc mirror` of the whole `workspaces/` prefix: knowledge
 collections are an order of magnitude larger and are rebuilt from their sources,
 not restored.
 
-Provisioning notes for the plane — including why there is deliberately **no
-`mlflow` database and no tracking server** to create — are in
+**One provisioning step this slice adds:** a `mlflow` database on the same
+instance, backing the MLflow Model Registry.
+
+```bash
+docker exec agentium-pg psql -U agentium -d postgres \
+  -c "SELECT 1 FROM pg_database WHERE datname='mlflow'" -At \
+  || docker exec agentium-pg createdb -U agentium mlflow
+```
+
+The backend creates it on first use if the role may, so this is belt-and-braces —
+but doing it here means a permissions problem fails the deploy loudly instead of
+the first training run logging a warning and carrying on without a registry.
+There is still **no MLflow server**: the client writes straight to that database,
+which is the only kind of store an MLflow registry works against. Details, and
+what the registry buys that `ml_models` cannot, are in
 [`ops/agentium-data-plane-provisioning.md`](ops/agentium-data-plane-provisioning.md).
 
 ## 6. Switch

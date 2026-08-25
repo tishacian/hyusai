@@ -7,51 +7,76 @@ Applies from Alembic revision `096_tabular_data_plane` / `097_ml_training_plane`
 onward. As of 25/08/2026 the VM is still at `095_python_recipes`, so nothing
 here has been applied there yet.
 
-## There is no MLflow database, and no MLflow server
+## There is an MLflow database, and no MLflow server
 
-The plan for this slice said "create the `mlflow` database". Do not. Nothing
-would connect to it.
+Those two halves are both load-bearing, and confusing them is the mistake this
+section exists to prevent.
 
-MLflow is used here as an **artifact format**, not as a service. A fit writes a
-standard MLflow model directory — `MLmodel`, `model.skops`, `conda.yaml`,
-`python_env.yaml`, `requirements.txt`, `input_example.json` — and that directory
-is uploaded to the object store under
-`workspaces/<workspace>/ml/models/<model>/model`. The registry is the
-`ml_models` table: version, algorithm, metrics, signature, lineage, champion
-flag, predict counters. A tracking server would hold a second, weaker copy of
-facts that table already holds authoritatively, and would add a stateful service
-to the demo VM for no capability.
+**The database.** MLflow's Model Registry requires a **SQL backend store**. A
+bare `mlruns/` file store does not support it — `create_registered_model` raises
+against one — so "registry without a server" means "client writing straight to
+SQL". `backend/app/services/ml_registry.py` derives that store from
+`DATABASE_URL` by swapping the database name to `mlflow`, which is why the
+provisioning step is one `CREATE DATABASE` on the instance already running and
+not a second credential. The service creates it on first use if the role is
+allowed to; pre-creating it is still preferable, because then the deploy fails
+loudly rather than the first fit logging a warning and carrying on.
 
-The code says so in two places, and both are worth checking before anyone
-reopens the question:
+**No server.** Nothing runs `mlflow server`. There is no port, no container, no
+supervised process — the Python client opens a connection, writes a run and a
+model version, and closes it. What the database buys is a registry a *stranger*
+can read: point a stock MLflow at the same store and it resolves
+`models:/<workspace>.<slug>@champion`, follows the version's `source` to MinIO
+and loads the pipeline knowing nothing about Agentium. That is the "no lock-in"
+claim, and it is checkable in one command instead of asserted:
 
-- `backend/app/core/config.py` carries `mlflow_tracking_uri`,
-  `mlflow_artifact_root` and `mlflow_experiment_name`, all defaulting to empty
-  and **read by nothing**. They are a placeholder for a later phase.
-- `backend/app/services/tabular_ml.py` sets `MLFLOW_TRACKING_URI` in the training
-  subprocess's environment to a throwaway directory inside that run's scratch
-  space. That is deliberate: it stops the MLflow client from discovering an
-  ambient tracking URI and trying to log to it. A tracking server configured at
-  the VM level therefore could not be reached by a fit even if one existed —
-  the per-run value overrides it.
+```bash
+# read-only inspection of the registry this deployment writes
+mlflow server --backend-store-uri postgresql://agentium:…@agentium-pg:5432/mlflow
+```
+
+**Two records, one fact each.** `ml_models` stays the operational row — status
+machine, API keys, what the UI lists and paginates. The registry holds the
+portable record — run, version, `source`, alias. They are joined by
+`ml_models.mlflow_run_id`. Promotion writes both: `set_champion` flips the row's
+`is_champion` and moves the registry's `champion` alias, so an operator who
+promotes in our UI and then resolves `@champion` from a foreign client gets the
+version they chose.
+
+**Artifacts are not logged through MLflow.** The bytes go to the object store
+through the same `ObjectStore` facade as everything else, and the model version
+is created with an explicit `source` pointing at that location
+(`s3://agentium-artifacts/workspaces/<ws>/ml/models/<id>/model`). So there is one
+copy of the bytes, one storage contract and one backup routine — and
+`MLFLOW_S3_ENDPOINT_URL` is **not** needed by our writer. A *foreign* MLflow
+client resolving that `source` does need it, along with S3 credentials; that is
+the reader's configuration, not ours.
+
+**The training subprocess is deliberately cut off from all of this.**
+`tabular_ml.py` pins the harness's `MLFLOW_TRACKING_URI` to a throwaway
+directory inside the run's scratch. The child serializes a model directory and
+nothing else; the registry write happens in the worker process afterwards,
+through an explicit client. A resource-capped subprocess should not be holding a
+database connection.
 
 Consequences for provisioning:
 
-- **Do not** create a `mlflow` database or role on `agentium-pg`. The only
-  application database stays `agentium`.
-- **Do not** set `MLFLOW_TRACKING_URI` in the compose environment. It is unset
-  today (`docker exec agentium-backend printenv | grep MLFLOW` returns nothing),
-  which is correct.
-- If a tracking server is ever genuinely wanted — for cross-workspace experiment
-  comparison, say — it is a new slice: a database, a service, a bucket policy,
-  and a decision about which of the two registries wins. It is not a
-  provisioning step for this one.
+- **Do** ensure a `mlflow` database exists on `agentium-pg`, owned by the
+  `agentium` role. No new role, no new credential.
+- **Do not** set `MLFLOW_TRACKING_URI` in the compose environment. The client is
+  configured in code; an ambient value would only confuse the subprocess pinning
+  described above. `ML_REGISTRY_URI` exists for the case where the registry must
+  live somewhere other than beside the application database.
+- `ML_REGISTRY_ENABLED=false` turns the mirror off. Training, serving and
+  promotion all keep working — only the portable record stops being written.
 
 ## What does have to exist
 
 **1. The migrations.** `096_tabular_data_plane` then `097_ml_training_plane`,
 applied by the ordinary `agentium-vm-deploy.sh migrate` path. They chain from
-`095_python_recipes`, which is the VM's current head.
+`095_python_recipes`, which is the VM's current head. MLflow migrates its own
+schema inside the `mlflow` database on first connection; that is not an Alembic
+revision and does not appear in our history.
 
 **2. The object-store prefixes.** None to create by hand. The backend writes to
 `workspaces/<workspace>/tabular/datasets/<id>/…` and
@@ -83,17 +108,24 @@ about 345 MB, cached by dependency fingerprint under `recipe_envs`. The first
 run of that node pays roughly 13 s; later runs pay nothing. Budget the space and
 warm it before a demo rather than during one.
 
-## Backups: the dump is now two halves
+## Backups: the dump is now three parts
 
-A Postgres-only dump stops being restorable the moment `096` is applied, because
-`tabular_datasets.storage_key` and `ml_models.model_uri` point outside the
-database. `scripts/agentium-data-plane-dump.sh` takes both halves into one
-window and then checks that every artifact the registry names is present in it —
-see [§5b of the release process](../agentium-release-process.md#5b-once-the-dataml-plane-is-deployed-that-dump-is-no-longer-a-backup).
+A Postgres-only dump of `agentium` stops being restorable the moment `096` is
+applied, because `tabular_datasets.storage_key` and `ml_models.model_uri` point
+outside the database. `scripts/agentium-data-plane-dump.sh` takes all three
+parts into one window — the `agentium` database, the `mlflow` database, and the
+object-store prefixes they reference — and then checks that every artifact the
+registry names is present in it. See
+[§5b of the release process](../agentium-release-process.md#5b-once-the-dataml-plane-is-deployed-that-dump-is-no-longer-a-backup).
 
-To restore: `pg_restore` the dump, then `mc mirror` the window's `objects/` back
-under the bucket root. The keys in `objects.sha256` are already relative to that
-root, so they go back exactly where the registry expects them.
+To restore: `pg_restore` both dumps, then `mc mirror` the window's `objects/`
+back under the bucket root. The keys in `objects.sha256` are already relative to
+that root, so they go back exactly where both registries expect them.
+
+Losing the `mlflow` half alone is survivable and worth knowing: the models keep
+training, serving and promoting from `ml_models`, and what is gone is the
+portable record — runs, versions, aliases. It does not rebuild itself for models
+already trained, so it is dumped rather than treated as a cache.
 
 Recipe venvs under `recipe_envs` are **not** backed up and should not be: they
 are rebuilt from their dependency fingerprints, and a stale venv restored over a
