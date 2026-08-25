@@ -144,3 +144,28 @@ test('the score tiles carry a delta and the comparison tab is mounted', () => {
   // Coloured by verdict, not by sign: a smaller MAE has to read as green.
   assert.match(CARD, /\.ck-delta\[data-move='up'\] \{\s*color: var\(--ck-signal-pos/);
 });
+
+test('the card names the challenger, and takes that fact from the server', () => {
+  // Champion and challenger are one story; a card that showed only the crown
+  // would leave the audience without the version promotion would put in.
+  assert.match(CARD, /class="ck-badge ck-badge--challenger ck-mono"/);
+  assert.match(CARD, /models\.detail\.challenger/);
+  assert.match(CARD, /models\.versions\.challenger/);
+  // Rendered from `challenger_id`, not worked out here: the same rule drives the
+  // registry's `@challenger` alias, and a second implementation would drift.
+  assert.match(CARD, /challenger_id \?\? null/);
+  assert.match(CLIENT, /challenger_id: string \| null/);
+  assert.doesNotMatch(
+    CARD,
+    /is_champion\s*\)\s*\.sort\(/,
+    'the card does not rank versions to guess a challenger',
+  );
+  // A distinct tone: a contender, not a peer of the version that answers.
+  assert.match(CARD, /\.ck-badge--challenger \{\s*color: var\(--ck-signal-warm/);
+});
+
+test('promotion hands back both halves of the lineage', () => {
+  // Otherwise the crown moves and the challenger badge keeps naming the winner.
+  assert.match(CLIENT, /\$\{this\.base\}\/\$\{modelId\}\/champion/);
+  assert.match(CLIENT, /challenger_id: string \| null;\s*\}>\(/);
+});
