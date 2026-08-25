@@ -56,6 +56,7 @@ import {
   previousVersion,
   primaryScore,
   splitError,
+  trainStepKey,
   trainingErrorKey,
   type ComparisonRow,
   type CurveBox,
@@ -161,7 +162,7 @@ const CHART: CurveBox = { width: 300, height: 190 };
             {{ i18n.t('models.detail.progress.title') }}
           </div>
           <div class="text-[11px] ck-mono mt-1" style="color: var(--ck-signal-cool)">
-            {{ row.status_detail || i18n.t('models.detail.progress.queued') }}
+            {{ i18n.t(stepKey(row.status_detail)) }}
           </div>
         </div>
       } @else if (row.status === 'failed') {
@@ -1160,6 +1161,11 @@ export class ModelViewComponent implements OnInit {
 
   protected isActive(model: ModelDto): boolean {
     return isModelActive(model);
+  }
+
+  /** The worker names its step as a code; the locale supplies the sentence. */
+  protected stepKey(detail: string | null | undefined): string {
+    return trainStepKey(detail);
   }
 
   protected formatMetric(key: string, value: number | null | undefined): string {

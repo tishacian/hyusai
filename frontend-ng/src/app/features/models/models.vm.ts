@@ -1153,6 +1153,38 @@ export function splitError(error: string | undefined | null): {
   return { code: match[1], detail: match[2].trim() };
 }
 
+/**
+ * The steps a training run reports, in order — a mirror of the backend's
+ * `TRAIN_STEPS`.
+ *
+ * The first two are the worker's own; the last three belong to the harness,
+ * because only the subprocess doing the fit knows when the fit ends and the
+ * scoring begins. A row carries the current one as a bare code in
+ * `status_detail`, which is what lets a minute-long fit read as a check-list in
+ * whichever language the page is in.
+ */
+export const TRAIN_STEPS: readonly string[] = [
+  'queued',
+  'reading',
+  'fitting',
+  'scoring',
+  'saving',
+];
+
+/**
+ * Dictionary key for the step a run is on, falling back to the queued one.
+ *
+ * Anything unrecognised falls back rather than being shown: a worker from an
+ * older deployment still writes an English sentence, and rendering it would put
+ * that sentence on the French page.
+ */
+export function trainStepKey(detail: string | null | undefined): string {
+  const step = (detail ?? '').trim();
+  return TRAIN_STEPS.includes(step)
+    ? `models.progress.step.${step}`
+    : 'models.progress.step.queued';
+}
+
 export const TRAINING_ERROR_CODES = [
   'ML_TIMEOUT',
   'ML_FIT_FAILED',

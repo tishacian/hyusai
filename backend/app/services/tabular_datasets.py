@@ -49,6 +49,12 @@ logger = get_logger(__name__)
 
 DATASET_INGEST_TASK = "agentium.dataset_ingest"
 
+# The ingest steps a row reports through ``status_detail``, in order. They are
+# codes rather than sentences because two locales poll the same row; see
+# :func:`mark_step`. The frontend mirrors this tuple to render the whole
+# check-list, so appending a step here is a contract change for both.
+INGEST_STEPS: tuple[str, ...] = ("queued", "reading", "profiling", "writing")
+
 # Canonical column kinds. The UI maps these to icons and the training plane uses
 # them to split numeric from categorical features, so they must stay stable and
 # storage-agnostic (never a raw polars/duckdb dtype string).
@@ -444,7 +450,7 @@ def create_upload(
         description=(description or None),
         source="upload",
         status="pending",
-        status_detail="Queued for ingest",
+        status_detail=INGEST_STEPS[0],
         original_filename=str(filename or "")[:400],
         content_type=(content_type or None),
         size_bytes=len(payload),
@@ -459,10 +465,17 @@ def create_upload(
     return dataset
 
 
-def mark_step(db: DBSession, dataset: TabularDataset, detail: str) -> None:
-    """Publish one human-readable ingest step for the UI to poll."""
+def mark_step(db: DBSession, dataset: TabularDataset, step: str) -> None:
+    """Publish which ingest step the worker is on, as a code the UI translates.
 
-    dataset.status_detail = detail[:300]
+    A code and not a sentence: this row is polled by a French and an English
+    surface, and a worker that wrote "Reading the uploaded file" would put an
+    English string on both. The codes are :data:`INGEST_STEPS`, in the order the
+    worker passes through them, so a client can render the whole list and mark
+    how far it got instead of showing one line at a time.
+    """
+
+    dataset.status_detail = step[:300]
     dataset.updated_at = datetime.utcnow()
     db.commit()
 
@@ -486,7 +499,7 @@ def ingest_dataset(dataset_id: str) -> dict[str, Any]:
             return {"id": dataset_id, "status": "failed"}
 
         dataset.status = "ingesting"
-        mark_step(db, dataset, "Reading the uploaded file")
+        mark_step(db, dataset, "reading")
         fmt = str((dataset.lineage_json or {}).get("format") or "csv")
         try:
             with tempfile.TemporaryDirectory(prefix="agentium-ingest-") as tmp:
@@ -504,13 +517,9 @@ def ingest_dataset(dataset_id: str) -> dict[str, Any]:
                         code="DATASET_TOO_WIDE",
                         message=f"The file has more than {max_columns} columns.",
                     )
-                mark_step(
-                    db,
-                    dataset,
-                    f"Parsed {frame.height:,} rows — profiling {frame.width} columns",
-                )
+                mark_step(db, dataset, "profiling")
                 profile = profile_frame(frame)
-                mark_step(db, dataset, "Writing the Parquet copy")
+                mark_step(db, dataset, "writing")
                 key, size = _write_frame(
                     frame,
                     workspace_id=dataset.workspace_id,
@@ -806,6 +815,7 @@ def resolve_dataset_ref(
 
 __all__ = [
     "DATASET_INGEST_TASK",
+    "INGEST_STEPS",
     "KIND_BOOLEAN",
     "KIND_DATETIME",
     "KIND_FLOAT",

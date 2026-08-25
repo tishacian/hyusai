@@ -155,11 +155,19 @@ export const MODELS_FR = {
     'Supprimer « {name} » v{version} ? Le modèle et ses résultats disparaissent définitivement.',
   'models.detail.deleted': '« {name} » a été supprimé',
   'models.detail.progress.title': 'Entraînement en cours',
-  'models.detail.progress.queued': 'En file d’attente',
   'models.detail.error.title': 'L’entraînement a échoué',
   'models.detail.trained_at': 'Entraîné le {date}',
   'models.detail.dataset': 'Jeu de données',
   'models.detail.dataset.open': 'Ouvrir le jeu de données',
+
+  // ---- progression d'entraînement ----------------------------------------
+  // Les codes que l'ouvrier et le harnais publient dans `status_detail`.
+  'models.progress.step.queued': 'En file d’attente',
+  'models.progress.step.reading': 'Lecture du jeu de données',
+  'models.progress.step.fitting': 'Ajustement du modèle',
+  'models.progress.step.scoring': 'Évaluation sur les lignes de test',
+  'models.progress.step.saving': 'Enregistrement de l’artefact',
+  'models.progress.step.done': 'Terminé',
 
   // ---- résultats ----------------------------------------------------------
   'models.evidence.scores': 'Scores sur les lignes de test',
@@ -583,11 +591,17 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'Delete “{name}” v{version}? The model and its results are gone for good.',
   'models.detail.deleted': '“{name}” was deleted',
   'models.detail.progress.title': 'Training in progress',
-  'models.detail.progress.queued': 'Queued',
   'models.detail.error.title': 'Training failed',
   'models.detail.trained_at': 'Trained on {date}',
   'models.detail.dataset': 'Dataset',
   'models.detail.dataset.open': 'Open the dataset',
+
+  'models.progress.step.queued': 'Queued',
+  'models.progress.step.reading': 'Reading the dataset',
+  'models.progress.step.fitting': 'Fitting the model',
+  'models.progress.step.scoring': 'Scoring the test rows',
+  'models.progress.step.saving': 'Saving the artifact',
+  'models.progress.step.done': 'Done',
 
   'models.evidence.scores': 'Scores on the test rows',
   'models.evidence.rows': '{total} rows · {train} for learning · {test} for testing',

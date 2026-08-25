@@ -76,6 +76,16 @@ logger = get_logger(__name__)
 ML_TRAIN_SKILL_SLUG = "ml_train_sklearn_v1"
 ML_TRAIN_TASK = "agentium.ml_train"
 
+# The steps a training row reports through ``status_detail``, in order. Codes
+# rather than sentences for the same reason as the ingest plane: two locales poll
+# the same row. The last three are claimed by the harness itself — only the child
+# knows when a fit ends and its scoring begins — which is why it writes them to
+# ``progress.txt`` and the worker republishes what it reads there.
+TRAIN_STEPS: tuple[str, ...] = ("queued", "reading", "fitting", "scoring", "saving")
+_HARNESS_STEPS = frozenset(TRAIN_STEPS)
+# The file the harness appends its current step to, inside the run's scratch.
+_PROGRESS_FILE = "progress.txt"
+
 _HARNESS_PATH = (
     Path(__file__).resolve().parent.parent / "resources" / "ml_train_harness.py"
 )
@@ -640,7 +650,7 @@ def create_model(
             "warnings": list(spec.warnings),
         },
         status="pending",
-        status_detail="Queued for training",
+        status_detail=TRAIN_STEPS[0],
         dataset_id=spec.dataset.id,
         dataset_slug=spec.dataset.slug,
         row_count=int(spec.dataset.row_count or 0),
@@ -984,8 +994,17 @@ def cancel_requested(db: DBSession, model_id: str) -> bool:
     )
 
 
-def mark_step(db: DBSession, model: MLModel, detail: str) -> None:
-    model.status_detail = detail[:300]
+def mark_step(db: DBSession, model: MLModel, step: str) -> None:
+    """Publish which training step the run is on, as a :data:`TRAIN_STEPS` code.
+
+    Idempotent by design: the worker republishes whatever the harness last wrote
+    on every poll tick, and committing the same value once a second for the
+    length of a fit would be a write per second for nothing.
+    """
+
+    if model.status_detail == step:
+        return
+    model.status_detail = step[:300]
     model.updated_at = datetime.utcnow()
     db.commit()
 
@@ -1018,10 +1037,28 @@ def _write_manifest(scratch: Path, model: MLModel, data_path: Path) -> Path:
         "max_classes": int(settings.ml_train_max_classes),
         "curve_points": int(settings.ml_train_curve_points),
         "importance_rows": int(settings.ml_train_importance_rows),
+        "progress_path": str(scratch / _PROGRESS_FILE),
     }
     path = scratch / "manifest.json"
     path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
     return path
+
+
+def read_progress(scratch: Path) -> str | None:
+    """The last step the harness claimed, or ``None`` when it claimed nothing.
+
+    Only a known code is returned: the file is written by a subprocess and a
+    truncated or half-flushed line must not become a status the UI cannot name.
+    """
+
+    try:
+        lines = (scratch / _PROGRESS_FILE).read_text(encoding="utf-8").split()
+    except OSError:
+        return None
+    for step in reversed(lines):
+        if step in _HARNESS_STEPS:
+            return step
+    return None
 
 
 def _harness_failure(run: Any, timeout_s: float) -> str:
@@ -1041,6 +1078,14 @@ def read_summary(path: Path) -> dict[str, Any]:
     except (OSError, ValueError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _publish_progress(db: DBSession, model: MLModel, scratch: Path) -> None:
+    """Republish the harness's own step onto the polled row."""
+
+    step = read_progress(scratch)
+    if step is not None:
+        mark_step(db, model, step)
 
 
 def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear lifecycle
@@ -1091,12 +1136,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
 
         model.status = "training"
         model.error = None
-        estimator = str((model.params_json or {}).get("estimator") or "estimator")
-        mark_step(
-            db,
-            model,
-            f"Fitting {estimator.rsplit('.', 1)[-1]} on {int(dataset.row_count or 0):,} rows",
-        )
+        mark_step(db, model, "reading")
 
         timeout_s = clamp_timeout(settings.ml_train_timeout_s)
         scratch = Path(tempfile.mkdtemp(prefix="ml-train-"))
@@ -1122,6 +1162,9 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 scratch=scratch,
                 timeout_s=timeout_s,
                 should_cancel=lambda: cancel_requested(db, model_id),
+                # The three steps inside the fit are the child's to name, so the
+                # worker republishes them rather than guessing at the boundaries.
+                on_poll=lambda: _publish_progress(db, model, scratch),
                 timeout_error=f"ML_TIMEOUT: exceeded {int(timeout_s)}s",
                 memory_limit_mb=int(settings.ml_train_memory_limit_mb),
                 cpu_limit_s=int(settings.ml_train_cpu_limit_s),
@@ -1148,6 +1191,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                         "ML_SUMMARY_MISSING: the run produced no evidence",
                     )
                 else:
+                    mark_step(db, model, "saving")
                     uri, size = upload_model_dir(
                         scratch / "model",
                         workspace_id=model.workspace_id,
@@ -1236,6 +1280,7 @@ __all__ = [
     "ML_TRAIN_TASK",
     "REGRESSION",
     "TASKS",
+    "TRAIN_STEPS",
     "Algo",
     "Knob",
     "TrainingSpec",
@@ -1253,6 +1298,7 @@ __all__ = [
     "infer_task",
     "model_prefix",
     "model_reference",
+    "read_progress",
     "read_summary",
     "request_cancel",
     "run_training",

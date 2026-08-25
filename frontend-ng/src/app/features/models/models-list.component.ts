@@ -36,6 +36,7 @@ import {
   formatMetric,
   metricTone,
   primaryScore,
+  trainStepKey,
   type ModelDto,
   type ModelTask,
 } from './models.vm';
@@ -187,7 +188,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
                       style="color: var(--ck-signal-cool)"
                     >
                       <span class="ck-pulse"></span>
-                      {{ row.status_detail || i18n.t('models.detail.progress.queued') }}
+                      {{ i18n.t(stepKey(row.status_detail)) }}
                     </div>
                   } @else if (row.status === 'failed') {
                     <div class="text-[11px] ck-mono mt-1" style="color: var(--ck-signal-neg)">
@@ -410,6 +411,11 @@ export class ModelsListComponent implements OnInit {
 
   protected isActive(model: ModelDto): boolean {
     return isModelActive(model);
+  }
+
+  /** The worker names its step as a code; the locale supplies the sentence. */
+  protected stepKey(detail: string | null | undefined): string {
+    return trainStepKey(detail);
   }
 
   protected algoIcon(algo: string): string {

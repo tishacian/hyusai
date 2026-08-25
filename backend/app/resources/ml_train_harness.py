@@ -38,6 +38,13 @@ by the very contract training wrote.
 Exit codes are the machine contract with the supervising worker:
   0 success · 1 the fit raised · 2 the target is unusable · 3 too few usable rows ·
   4 the artifact could not be written or trusted · 5 harness/manifest error
+
+Progress is the other half of that contract. A fit of a few hundred thousand rows
+runs for minutes, and only this process knows when the reading ends, the fitting
+ends and the scoring begins — so it appends those step names to
+``manifest['progress_path']`` and the worker republishes what it reads onto the
+polled row. A bare code, never a sentence: the surfaces reading it are French and
+English.
 """
 from __future__ import annotations
 
@@ -65,6 +72,24 @@ _MAX_CHOICES = 12
 def _fail(code: int, message: str) -> int:
     print(message, file=sys.stderr, flush=True)
     return code
+
+
+def _progress(path, step: str) -> None:
+    """Append one step name for the supervising worker to pick up.
+
+    Appended and flushed line by line so a reader that catches the file mid-write
+    sees the previous step rather than a partial one, and never fatal: a fit is
+    not worth failing because a scratch file could not be touched.
+    """
+
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(f"{step}\n")
+            handle.flush()
+    except OSError:
+        pass
 
 
 def _number(value) -> float | None:
@@ -424,6 +449,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     ):
         return _fail(5, "ml_manifest_incomplete")
 
+    progress_path = manifest.get("progress_path")
     seed = int(manifest.get("random_state") or 42)
     test_size = float(manifest.get("test_size") or 0.25)
     folds = int(manifest.get("cv") or 0)
@@ -437,6 +463,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     except ImportError as exc:  # pragma: no cover - the app venv has pandas
         return _fail(5, f"pandas_missing: {exc}")
 
+    _progress(progress_path, "reading")
     try:
         frame = pd.read_parquet(data_path, columns=list({*features, target}))
     except Exception as exc:  # noqa: BLE001
@@ -535,11 +562,13 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         steps.append(StandardScaler())
     pipeline = make_pipeline(*steps, estimator)
     print(f"fitting {type(estimator).__name__} on {len(x_train)} rows", flush=True)
+    _progress(progress_path, "fitting")
     try:
         pipeline.fit(x_train, y_train)
     except Exception as exc:  # noqa: BLE001 - the algorithm's refusal is the answer
         return _fail(1, f"ml_fit_failed: {type(exc).__name__}: {exc}")
 
+    _progress(progress_path, "scoring")
     predicted = pipeline.predict(x_test)
     proba = None
     if task == "classification" and hasattr(pipeline, "predict_proba"):
@@ -616,6 +645,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     except ValueError:
         declared_inputs = []
 
+    _progress(progress_path, "saving")
     try:
         trusted = _trusted_types(pipeline)
         mlflow.sklearn.save_model(
