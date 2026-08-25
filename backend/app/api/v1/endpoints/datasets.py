@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
@@ -120,6 +121,61 @@ async def upload_dataset(
         "dataset": serialize_dataset(refreshed or dataset),
         "queued": queued,
     }
+
+
+class TransformSourceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    view: Optional[str] = Field(default=None, max_length=64)
+    dataset_id: Optional[str] = Field(default=None, max_length=36)
+    dataset_slug: Optional[str] = Field(default=None, max_length=200)
+
+
+class SqlPreviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sql: str = Field(default="", max_length=60_000)
+    sources: list[TransformSourceBody] = Field(default_factory=list, max_length=8)
+    row_limit: int = Field(default=50, ge=1, le=500)
+
+
+@router.post("/sql-preview")
+async def preview_sql_transform(
+    body: SqlPreviewBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Run a transform without persisting it — the SQL workshop's Test button.
+
+    Returns the same profile shape the dataset pages render (schema, preview
+    rows, per-column stats) plus the source catalog the editor autocompletes
+    from, so the workshop needs exactly one call to be useful.
+    """
+
+    from app.services.tabular_transforms import preview_sql, resolve_sources, source_catalog
+
+    declared = [
+        entry.model_dump(exclude_none=True) for entry in body.sources
+    ]
+    try:
+        if not str(body.sql or "").strip():
+            # No statement yet: the editor still needs the catalog to
+            # autocomplete against, so answer with sources only.
+            sources = resolve_sources(
+                db, workspace_id=workspace.id, declared=declared, payload=None
+            )
+            return {"preview": None, "sources": source_catalog(sources)}
+        result = preview_sql(
+            db,
+            workspace_id=workspace.id,
+            sql=body.sql,
+            declared=declared,
+            row_limit=body.row_limit,
+        )
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {"preview": result, "sources": result["sources"]}
 
 
 @router.get("/{dataset_id}")

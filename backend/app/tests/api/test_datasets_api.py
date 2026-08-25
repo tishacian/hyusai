@@ -196,6 +196,66 @@ def test_reingest_retries_a_failed_parse_without_a_new_upload(client, db_session
     assert response.json()["dataset"]["error"]
 
 
+def test_sql_preview_returns_rows_stats_and_the_editor_source_catalog(client):
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/sql-preview",
+        json={
+            "sql": "SELECT contract, count(*) AS n FROM input GROUP BY 1 ORDER BY 1",
+            "sources": [{"view": "input", "dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["preview"]["row_count"] == 2
+    assert [col["name"] for col in body["preview"]["schema"]] == ["contract", "n"]
+    assert body["preview"]["duration_ms"] >= 0
+    # The catalog is what the editor autocompletes from.
+    assert body["sources"][0]["view"] == "input"
+    assert {col["name"] for col in body["sources"][0]["columns"]} >= {"contract"}
+
+
+def test_sql_preview_answers_with_the_catalog_before_a_statement_is_written(client):
+    """An empty editor still needs to know what it can autocomplete."""
+
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/sql-preview",
+        json={"sql": "", "sources": [{"dataset_id": dataset["id"]}]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["preview"] is None
+    assert response.json()["sources"][0]["rows"] == 2
+
+
+def test_sql_preview_surfaces_a_refusal_as_a_coded_error(client):
+    dataset = _upload(client).json()["dataset"]
+
+    response = client.post(
+        "/datasets/sql-preview",
+        json={
+            "sql": "DROP TABLE input",
+            "sources": [{"dataset_id": dataset["id"]}],
+        },
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "SQL_FORBIDDEN_KEYWORD"
+    assert "DROP" in detail["message"]
+
+
+def test_sql_preview_without_a_source_says_what_to_do(client):
+    response = client.post("/datasets/sql-preview", json={"sql": "SELECT 1"})
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "TRANSFORM_NO_INPUT"
+
+
 def test_queued_ingest_dispatches_to_the_worker_plane(
     client, db_session, monkeypatch
 ):

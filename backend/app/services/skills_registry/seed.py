@@ -839,6 +839,45 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "output_schema": {"type": "object", "properties": {}},
     },
     {
+        "slug": "sql_transform_v1",
+        "version": "1",
+        "name": "SQL Transform",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Runs an author-written read-only SQL statement over the node's "
+            "dataset inputs with duckdb, and persists the result as a new "
+            "versioned dataset with its lineage."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 300_000,
+            "retryable": True,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_transform", "unit_price": 0.0, "currency": "USD"},
+        # Datasets travel by reference, so the contract is a dataset envelope in
+        # and a dataset envelope out; the concrete columns are author-declared.
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "dataset_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "rows": {"type": "integer"},
+                "columns": {"type": "integer"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
         "slug": "action_plan_create_v1",
         "version": "1",
         "name": "Action Plan Create",
@@ -2084,6 +2123,23 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "roi_model": {"type": "time_saved"},
     },
     {
+        # Carrier for the Flow Builder transform nodes: without a claiming
+        # capability the catalog policy files them under `unclaimed`, which
+        # blocks System binding and greys the palette row in every workspace.
+        "slug": "tabular_transforms",
+        "name": "Tabular Transforms",
+        "tier": "universal",
+        "description": "Read-only SQL transformations over workspace datasets, executed with duckdb over Parquet and persisted as versioned datasets carrying their lineage.",
+        "input_unit": "dataset",
+        "output_unit": "dataset",
+        "skill_slugs": ["sql_transform_v1"],
+        "pricing": {"unit": "per_transform", "unit_price": 0.01, "currency": "USD"},
+        "value_per_outcome": 1.00,
+        "confidence_threshold": 0.60,
+        "sla": {"max_latency_ms": 300_000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
         "slug": "market_signal_brief",
         "name": "Market Signal Brief",
         "tier": "industry",
@@ -2539,6 +2595,7 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "situation_posture_score_v1": "Decision Support",
     "source_registry_refresh_v1": "Ingestion",
     "spreadsheet_table_extract_v1": "Analysis",
+    "sql_transform_v1": "Analysis",
     "summarize_long_document_v1": "LLM",
     "territorial_action_window_v1": "Decision Support",
     "territorial_signal_map_v1": "Analysis",

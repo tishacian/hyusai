@@ -1994,13 +1994,19 @@ _RECIPE_PARAM_KEYS = (
 )
 
 
+_SQL_TRANSFORM_SKILL_SLUG = "sql_transform_v1"
+_TRANSFORM_PARAM_KEYS = ("sql", "output_name", "sources")
+
+
 def _passthrough_without_recipe(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Task failure envelopes pass upstream data through; the graph-owned
-    ``_recipe`` block is configuration (the full script text), not data, so
-    it never rides a ``_error``/``_status`` envelope into run outputs."""
+    ``_recipe`` and ``_transform`` blocks are configuration (the full script or
+    statement text), not data, so they never ride a ``_error``/``_status``
+    envelope into run outputs."""
 
     passthrough = dict(data or {})
     passthrough.pop("_recipe", None)
+    passthrough.pop("_transform", None)
     return passthrough
 
 
@@ -2026,6 +2032,28 @@ def _apply_recipe_node_config(node: DagNode, node_input: Dict[str, Any]) -> None
     # raw config keys as plain input defaults; drop them so the script's
     # ``inputs`` dict carries data only.
     for key in _RECIPE_PARAM_KEYS:
+        node_input.pop(key, None)
+
+
+def _apply_transform_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
+    """Project the graph-owned SQL transform configuration into the skill input.
+
+    Same posture as ``_recipe``: the statement is graph configuration, so caller
+    input and upstream nodes can neither inject nor alter it, and the reserved
+    key is stripped on every other node so an ingress payload cannot smuggle one
+    toward a downstream transform.
+    """
+
+    if node.skill_slug != _SQL_TRANSFORM_SKILL_SLUG:
+        node_input.pop("_transform", None)
+        return
+    config = node.config if isinstance(node.config, dict) else {}
+    params = config.get("params") if isinstance(config.get("params"), dict) else {}
+    node_input["_transform"] = {
+        **{key: params.get(key) for key in _TRANSFORM_PARAM_KEYS},
+        "node_id": node.id,
+    }
+    for key in _TRANSFORM_PARAM_KEYS:
         node_input.pop(key, None)
 
 
@@ -2196,6 +2224,7 @@ async def _execute_node(
         return {"output": {}, "terminal_error": str(exc)}
 
     _apply_recipe_node_config(node, node_input)
+    _apply_transform_node_config(node, node_input)
 
     invocations_before = len(state.invocation_ids)
     result: Dict[str, Any] = {}
