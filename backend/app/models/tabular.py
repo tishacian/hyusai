@@ -42,7 +42,8 @@ DATASET_TERMINAL_STATUSES = frozenset({"ready", "failed", "deleted"})
 DATASET_SOURCES = ("upload", "transform", "score", "generated")
 
 MODEL_TASKS = ("classification", "regression")
-MODEL_STATUSES = ("pending", "training", "ready", "failed")
+MODEL_STATUSES = ("pending", "training", "ready", "failed", "cancelled")
+MODEL_TERMINAL_STATUSES = frozenset({"ready", "failed", "cancelled"})
 
 
 class TabularDataset(Base):
@@ -111,13 +112,23 @@ class TabularDataset(Base):
 
 
 class MLModel(Base):
-    """One trained sklearn pipeline, logged in the MLflow format.
+    """One trained sklearn pipeline, saved in the MLflow model format.
 
     The row is the read model every surface renders: metrics and curves live in
-    ``metrics_json`` (computed by skore at train time), the input contract in
+    ``metrics_json`` (computed at train time), the input contract in
     ``signature_json`` (derived from the MLflow signature, which also types the
     published skill and the prediction playground form). The artifact itself is
-    an MLflow model directory addressed by ``model_uri``.
+    an MLflow model directory in the ObjectStore, addressed by ``model_uri``.
+
+    The row is ALSO the registry: ``slug``/``version`` name the lineage of
+    retrains and ``is_champion`` names the one that serves. That is deliberate —
+    a tracking server would be a second database to operate for facts this table
+    already holds, while the on-disk format stays MLflow's so the artifact is
+    loadable by anything that speaks ``mlflow.pyfunc``.
+
+    ``status_detail`` carries the human-readable step of an in-flight training
+    run ("Fitting HistGradientBoostingClassifier") for the same reason the
+    dataset row does: a run that takes a minute should say what it is doing.
     """
 
     __tablename__ = "ml_models"
@@ -141,10 +152,13 @@ class MLModel(Base):
     features = Column(JSON, default=list)
     params_json = Column(JSON, default=dict)
 
-    # pending | training | ready | failed
+    # pending | training | ready | failed | cancelled
     status = Column(String(16), default="pending", nullable=False, index=True)
     status_detail = Column(String(300), nullable=True)
     error = Column(Text, nullable=True)
+    # Cooperative stop, read by the supervisor between polls — same posture as
+    # RecipeExecution.cancel_requested: a fit cannot be interrupted from inside.
+    cancel_requested = Column(Boolean, default=False, nullable=False)
     # Champion alias mirrors the MLflow registry alias so the UI can badge the
     # serving version without a registry round-trip.
     is_champion = Column(Boolean, default=False, nullable=False)
@@ -163,9 +177,17 @@ class MLModel(Base):
     metrics_json = Column(JSON, default=dict)
     signature_json = Column(JSON, default=dict)
     input_example_json = Column(JSON, default=dict)
+    # Classification only: the labels, in the order predict_proba returns them,
+    # so a probability vector can be named without loading the pipeline.
+    classes_json = Column(JSON, default=list)
     model_uri = Column(String(500), nullable=True)
+    artifact_bytes = Column(BigInteger, nullable=True)
     mlflow_run_id = Column(String(64), nullable=True)
     mlflow_model_name = Column(String(300), nullable=True)
+
+    # Serving counters: what makes a published model visibly in use.
+    predict_count = Column(BigInteger, default=0, nullable=False)
+    last_predict_at = Column(DateTime, nullable=True)
 
     run_id = Column(String(36), nullable=True, index=True)
     node_id = Column(String(160), nullable=True)

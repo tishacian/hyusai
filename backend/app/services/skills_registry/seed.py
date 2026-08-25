@@ -954,6 +954,50 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "slug": "ml_train_sklearn_v1",
+        "version": "1",
+        "name": "Train sklearn Model",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Trains a scikit-learn model on a workspace dataset without writing "
+            "code: skrub decides the preprocessing per column, the estimator "
+            "comes from a curated catalog, and the run computes its own metrics, "
+            "curves and feature importances. The model is saved in the MLflow "
+            "format and registered as a version of its lineage."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "async",
+            "timeout_ms": 900_000,
+            "retryable": False,
+            "idempotent": False,
+        },
+        "pricing": {"unit": "per_training", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {"dataset_id": {"type": "string"}},
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "model_id": {"type": "string"},
+                "name": {"type": "string"},
+                "slug": {"type": "string"},
+                "version": {"type": "integer"},
+                "task": {"type": "string"},
+                "algo": {"type": "string"},
+                "target": {"type": "string"},
+                "metric": {"type": "object"},
+                "is_champion": {"type": "boolean"},
+                "rows": {"type": "integer"},
+                "features": {"type": "integer"},
+                "duration_ms": {"type": "number"},
+            },
+        },
+    },
+    {
         "slug": "action_plan_create_v1",
         "version": "1",
         "name": "Action Plan Create",
@@ -2220,6 +2264,23 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "roi_model": {"type": "time_saved"},
     },
     {
+        # Carrier for the model plane, same reason as `tabular_transforms`:
+        # without a claiming capability the catalog files the skill under
+        # `unclaimed`, which greys its palette row in every workspace.
+        "slug": "tabular_models",
+        "name": "Tabular Models",
+        "tier": "universal",
+        "description": "No-code supervised learning over workspace datasets: skrub decides the preprocessing per column, the estimator comes from a curated scikit-learn catalog, and every run computes its own metrics, curves and feature importances. Models are saved in the MLflow format and versioned as a lineage with one serving champion.",
+        "input_unit": "dataset",
+        "output_unit": "model",
+        "skill_slugs": ["ml_train_sklearn_v1"],
+        "pricing": {"unit": "per_training", "unit_price": 0.05, "currency": "USD"},
+        "value_per_outcome": 4.00,
+        "confidence_threshold": 0.60,
+        "sla": {"max_latency_ms": 900_000},
+        "roi_model": {"type": "time_saved"},
+    },
+    {
         "slug": "market_signal_brief",
         "name": "Market Signal Brief",
         "tier": "industry",
@@ -2605,8 +2666,15 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
 #   Voice             speech in, speech out
 #   Governance        policy, audit, compliance and human gates
 #   Analysis          characterise material already in hand
+#   Data              turn one tabular dataset into another
+#   Models            fit a model on a dataset, or serve one
 #   Decision Support  score, rank and compare options to act on
 #   Automation        drive a side effect or orchestrate a pipeline stage
+#
+# Data and Models are deliberately narrow rather than folded into Analysis: a
+# transform PRODUCES a dataset and a training run produces a model, whereas
+# Analysis characterises material in hand. Reusing it would also have made it
+# the catalog's catch-all, which is the shape the taxonomy exists to avoid.
 SKILL_CATEGORIES: Dict[str, str] = {
     "action_plan_cancel_v1": "Automation",
     "action_plan_create_v1": "Automation",
@@ -2631,7 +2699,7 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "chat_self_correct_v1": "LLM",
     "chat_trivial_bypass_v1": "Governance",
     "claim_audit_v1": "Governance",
-    "dbt_transform_v1": "Analysis",
+    "dbt_transform_v1": "Data",
     "decision_option_rank_v1": "Decision Support",
     "decide_next_v1": "Decision Support",
     "document_ingestion_v1": "Ingestion",
@@ -2655,12 +2723,13 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "map_zone_score_v1": "Decision Support",
     "maritime_snapshot_read_v1": "Connections",
     "ministerial_briefing_v1": "LLM",
+    "ml_train_sklearn_v1": "Models",
     "multi_hop_retrieve_v1": "Retrieval",
     "news_signal_synthesis_v1": "Analysis",
     "ollama_llm_v1": "LLM",
     "osint_signal_prioritize_v1": "Analysis",
     "project_risk_explainer_v1": "Analysis",
-    "polars_transform_v1": "Analysis",
+    "polars_transform_v1": "Data",
     "python_recipe_v1": "Automation",
     "reconciliation_report_v1": "Governance",
     "response_eval_v1": "Governance",
@@ -2677,7 +2746,7 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "situation_posture_score_v1": "Decision Support",
     "source_registry_refresh_v1": "Ingestion",
     "spreadsheet_table_extract_v1": "Analysis",
-    "sql_transform_v1": "Analysis",
+    "sql_transform_v1": "Data",
     "summarize_long_document_v1": "LLM",
     "territorial_action_window_v1": "Decision Support",
     "territorial_signal_map_v1": "Analysis",

@@ -85,3 +85,16 @@ hdbcli>=2.20
 polars>=1.0.0
 duckdb>=1.0.0
 pyarrow>=16.0.0
+
+# Machine learning plane (no-code sklearn training, MLflow-format artifacts)
+# - pandas: the frame sklearn and skrub are fit on (polars is the storage side)
+# - skrub: automatic preprocessing of heterogeneous columns, so "no-code" means
+#   no feature engineering rather than numeric-only datasets
+# - mlflow-skinny: the MLmodel FORMAT and the pyfunc loader. Skinny on purpose:
+#   the ml_models table is the registry, so no tracking server is operated
+# - skops: how the pipeline is serialized. Unlike pickle it refuses to
+#   reconstruct a type that was not declared trusted when the model was saved
+pandas>=2.2
+skrub>=0.5
+mlflow-skinny>=3.0,<4
+skops>=0.10

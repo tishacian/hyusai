@@ -39,6 +39,8 @@ export const SKILL_PALETTE_CATEGORIES = [
   'Voice',
   'Governance',
   'Analysis',
+  'Data',
+  'Models',
   'Decision Support',
   'Automation',
 ] as const;
