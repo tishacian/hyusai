@@ -344,7 +344,9 @@ interface RenderedColumn {
         padding: 9px 10px 10px;
         border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.1));
         border-radius: 8px;
-        background: var(--ck-bg-elevated, #14161c);
+        /* Opaque, and from the theme: the panel floats over table rows, and a
+           translucent background would let digits show through the figures. */
+        background: var(--ck-bg-panel-hi, #11161c);
         box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
         white-space: normal;
         cursor: default;
