@@ -82,10 +82,12 @@ import {
   type RecipeNodeParams,
 } from './flow-recipe.vm';
 import {
-  isSqlTransformNode,
-  readSqlTransformParams,
-  sqlSummary,
-  type SqlTransformParams,
+  TRANSFORM_ENGINES,
+  isTransformNode,
+  programSummary,
+  readTransformParams,
+  transformEngineOf,
+  type TransformParams,
 } from './flow-transform.vm';
 
 /** Engine kind of the node the lexicon calls an Output. */
@@ -402,29 +404,29 @@ export function buildRetrievalDocumentOptions(
             </section>
           }
 
-          @if (isSqlNode(n)) {
+          @if (isTransformNode(n)) {
             <section class="ck-flow-section" data-testid="transform-summary">
               <span class="ck-flow-section__label">
-                {{ i18n.t('flow.inspector.section.transform') }}
+                {{ i18n.t(transformCopy(n).section) }}
               </span>
-              <p class="ck-flow-hint">{{ i18n.t('flow.transform.inspector.hint') }}</p>
+              <p class="ck-flow-hint">{{ i18n.t(transformCopy(n).hint) }}</p>
               <dl class="ck-flow-kv">
-                <dt>{{ i18n.t('flow.transform.inspector.statement') }}</dt>
-                <dd class="mono">{{ sqlStatementSummary(n) }}</dd>
+                <dt>{{ i18n.t(transformCopy(n).program) }}</dt>
+                <dd class="mono">{{ transformProgramSummary(n) }}</dd>
                 <dt>{{ i18n.t('flow.transform.inspector.output') }}</dt>
-                <dd class="mono">{{ sqlOutputLine(n) }}</dd>
+                <dd class="mono">{{ transformOutputLine(n) }}</dd>
                 <dt>{{ i18n.t('flow.transform.inspector.sources') }}</dt>
-                <dd class="mono">{{ sqlSourcesLine(n) }}</dd>
+                <dd class="mono">{{ transformSourcesLine(n) }}</dd>
               </dl>
               <button
                 type="button"
                 class="ck-flow-action"
-                data-testid="open-sql-workshop"
-                (click)="openSqlWorkshop.emit()"
-                [attr.aria-label]="i18n.t('flow.transform.inspector.open.aria')"
+                data-testid="open-transform-workshop"
+                (click)="openTransformWorkshop.emit()"
+                [attr.aria-label]="i18n.t(transformCopy(n).openAria)"
               >
                 <ck-glyph name="focus" [size]="12" color="currentColor" />
-                {{ i18n.t('flow.transform.inspector.open') }}
+                {{ i18n.t(transformCopy(n).open) }}
               </button>
             </section>
           }
@@ -972,7 +974,7 @@ export class FlowInspectorComponent {
   readonly close = output<void>();
   /** The workshop dialogs are mounted by the builder shell, not by this panel. */
   readonly openRecipeWorkshop = output<void>();
-  readonly openSqlWorkshop = output<void>();
+  readonly openTransformWorkshop = output<void>();
 
   constructor() {
     effect(() => {
@@ -1036,30 +1038,36 @@ export class FlowInspectorComponent {
     return readRecipeParams(n);
   }
 
-  /** True for a task node bound to the SQL transform Skill. */
-  isSqlNode(n: CanonicalFlowNode): boolean {
-    return isSqlTransformNode(n);
+  /** True for a task node bound to any tabular transform Skill. */
+  isTransformNode(n: CanonicalFlowNode): boolean {
+    return isTransformNode(n);
   }
 
-  sqlParams(n: CanonicalFlowNode): SqlTransformParams {
-    return readSqlTransformParams(n);
+  /** Dictionary keys of the node's engine, so one section serves both. */
+  transformCopy(n: CanonicalFlowNode) {
+    return TRANSFORM_ENGINES[transformEngineOf(n) ?? 'sql'].copy;
   }
 
-  /** First SQL line of the statement — enough to recognise the transform. */
-  sqlStatementSummary(n: CanonicalFlowNode): string {
-    return sqlSummary(this.sqlParams(n).sql) || '—';
+  transformParams(n: CanonicalFlowNode): TransformParams {
+    return readTransformParams(n);
+  }
+
+  /** First meaningful line of the program — enough to recognise the transform. */
+  transformProgramSummary(n: CanonicalFlowNode): string {
+    const engine = transformEngineOf(n) ?? 'sql';
+    return programSummary(this.transformParams(n).program, engine) || '—';
   }
 
   /** The dataset each run versions, or the node label it defaults to. */
-  sqlOutputLine(n: CanonicalFlowNode): string {
+  transformOutputLine(n: CanonicalFlowNode): string {
     return (
-      this.sqlParams(n).output_name ||
+      this.transformParams(n).output_name ||
       this.i18n.t('flow.transform.inspector.output.auto')
     );
   }
 
-  sqlSourcesLine(n: CanonicalFlowNode): string {
-    const count = this.sqlParams(n).sources.length;
+  transformSourcesLine(n: CanonicalFlowNode): string {
+    const count = this.transformParams(n).sources.length;
     return count === 0
       ? this.i18n.t('flow.transform.inspector.sources.none')
       : this.i18n.t('flow.transform.inspector.sources.count', { count });

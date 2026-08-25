@@ -1,7 +1,9 @@
-/* SQL workshop — statement on top, result underneath, catalog on the side.
-   Tokenised, AA contrast, same chrome as the recipe workshop. */
+/* Transform workshop — program on top, result underneath, catalog on the side.
+   One chrome for every engine (SQL, Polars): switching engine must not feel
+   like switching tool. Tokenised, AA contrast, same chrome as the recipe
+   workshop. */
 
-.ck-sql-workshop {
+.ck-transform-workshop {
   position: fixed;
   inset: 0;
   z-index: 55;
@@ -11,14 +13,14 @@
   padding: 18px;
 }
 
-.ck-sql-workshop__backdrop {
+.ck-transform-workshop__backdrop {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(3px);
 }
 
-.ck-sql-workshop__panel {
+.ck-transform-workshop__panel {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -31,7 +33,7 @@
   overflow: hidden;
 }
 
-.ck-sql-workshop__head {
+.ck-transform-workshop__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -41,7 +43,7 @@
   flex-shrink: 0;
 }
 
-.ck-sql-workshop__identity {
+.ck-transform-workshop__identity {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -63,14 +65,14 @@
   }
 }
 
-.ck-sql-workshop__head-actions {
+.ck-transform-workshop__head-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
 
-.ck-sql-workshop__badge {
+.ck-transform-workshop__badge {
   display: inline-grid;
   place-items: center;
   width: 30px;
@@ -81,7 +83,7 @@
   flex-shrink: 0;
 }
 
-.ck-sql-workshop__close {
+.ck-transform-workshop__close {
   display: inline-grid;
   place-items: center;
   width: 30px;
@@ -102,7 +104,7 @@
   }
 }
 
-.ck-sql-workshop__body {
+.ck-transform-workshop__body {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
@@ -117,7 +119,7 @@
 
 /* The query/result split: 40% statement, 60% rows. A transform is read by its
    output, so the table gets the larger half. */
-.ck-sql-workshop__main {
+.ck-transform-workshop__main {
   display: grid;
   grid-template-rows: minmax(160px, 2fr) minmax(180px, 3fr);
   min-height: 0;
@@ -130,7 +132,7 @@
   }
 }
 
-.ck-sql-workshop__editor {
+.ck-transform-workshop__editor {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -139,7 +141,7 @@
   gap: 8px;
 }
 
-.ck-sql-workshop__editor-head {
+.ck-transform-workshop__editor-head {
   display: flex;
   align-items: baseline;
   gap: 10px;
@@ -157,18 +159,18 @@
   }
 }
 
-.ck-sql-workshop__editor-lines {
+.ck-transform-workshop__editor-lines {
   margin-left: auto;
   font: 10px / 1 var(--ck-font-mono, monospace);
   color: var(--ck-fg-4, #5a6270);
 }
 
-.ck-sql-workshop__cm {
+.ck-transform-workshop__cm {
   flex: 1 1 auto;
   min-height: 120px;
 }
 
-.ck-sql-workshop__result {
+.ck-transform-workshop__result {
   min-height: 0;
   min-width: 0;
   padding: 0 12px 12px;
@@ -183,7 +185,7 @@
   }
 }
 
-.ck-sql-workshop__placeholder {
+.ck-transform-workshop__placeholder {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
@@ -203,14 +205,14 @@
   }
 }
 
-.ck-sql-workshop__side {
+.ck-transform-workshop__side {
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
 }
 
-.ck-sql-workshop__tabs {
+.ck-transform-workshop__tabs {
   display: flex;
   gap: 4px;
   padding: 10px 12px 0;
@@ -243,7 +245,7 @@
   }
 }
 
-.ck-sql-workshop__tabpane {
+.ck-transform-workshop__tabpane {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -253,14 +255,14 @@
   gap: 12px;
 }
 
-.ck-sql-workshop__label {
+.ck-transform-workshop__label {
   font: 600 9px / 1 var(--ck-font-mono, monospace);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--ck-fg-3, #8891a0);
 }
 
-.ck-sql-workshop__field {
+.ck-transform-workshop__field {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -297,7 +299,7 @@
   }
 }
 
-.ck-sql-workshop__action {
+.ck-transform-workshop__action {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -342,7 +344,7 @@
   }
 }
 
-.ck-sql-workshop__mini {
+.ck-transform-workshop__mini {
   padding: 4px 7px;
   border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
   border-radius: 3px;
@@ -366,7 +368,7 @@
 }
 
 /* One queryable table: the name to type, then what it holds. */
-.ck-sql-workshop__source {
+.ck-transform-workshop__source {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -376,7 +378,7 @@
   background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 3%, transparent);
 }
 
-.ck-sql-workshop__source-head {
+.ck-transform-workshop__source-head {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -391,14 +393,14 @@
   }
 }
 
-.ck-sql-workshop__source-meta {
+.ck-transform-workshop__source-meta {
   margin: 0;
   font: 10.5px / 1.4 var(--ck-font-mono, monospace);
   color: var(--ck-fg-3, #8891a0);
   overflow-wrap: anywhere;
 }
 
-.ck-sql-workshop__columns {
+.ck-transform-workshop__columns {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -428,14 +430,14 @@
   }
 }
 
-.ck-sql-workshop__hint {
+.ck-transform-workshop__hint {
   margin: 0;
   font-size: 11px;
   line-height: 1.5;
   color: var(--ck-fg-3, #8891a0);
 }
 
-.ck-sql-workshop__error {
+.ck-transform-workshop__error {
   margin: 0;
   padding: 9px 11px;
   border: 1px solid color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 40%, transparent);
@@ -448,11 +450,64 @@
 }
 
 /* The engine's own words, kept next to the localized sentence. */
-.ck-sql-workshop__detail {
+.ck-transform-workshop__detail {
   display: block;
   margin-top: 4px;
   font-family: var(--ck-font-mono, ui-monospace, monospace);
   font-size: 10.5px;
   color: var(--ck-fg-2, #c8cdd4);
+  overflow-wrap: anywhere;
+}
+
+/* A queued run is not instant: the first Polars run in a workspace builds its
+   environment. The phase is stated rather than hidden behind a spinner. */
+.ck-transform-workshop__phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-warn, #f5b84a) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ck-signal-warn, #f5b84a) 10%, transparent);
+  font: 600 10px / 1 var(--ck-font-sans, sans-serif);
+  color: var(--ck-signal-warn, #f5b84a);
+  white-space: nowrap;
+}
+
+.ck-transform-workshop__textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 108px;
+  padding: 8px 10px;
+  font: 11.5px / 1.55 var(--ck-font-mono, monospace);
+  color: var(--ck-fg-1, #f2f5f8);
+  background: var(--ck-bg-inset, #0a0d11);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  resize: vertical;
+
+  &::placeholder {
+    color: var(--ck-fg-4, #5a6270);
+  }
+  &:focus {
+    outline: none;
+    border-color: var(--ck-signal-cool, #7dd3fc);
+    box-shadow: 0 0 0 1px var(--ck-signal-cool, #7dd3fc);
+  }
+}
+
+/* A Python transform is debugged by its prints, so they belong to the answer
+   rather than to a log someone has to go looking for. */
+.ck-transform-workshop__stdout {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 140px;
+  overflow: auto;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  background: var(--ck-bg-inset, #0a0d11);
+  font: 10.5px / 1.5 var(--ck-font-mono, monospace);
+  color: var(--ck-fg-2, #c8cdd4);
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

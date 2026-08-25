@@ -63,8 +63,8 @@ import { FlowRecipeService } from './flow-recipe.service';
 import { FlowRecipeWorkshopComponent } from './flow-recipe-workshop.component';
 import { isPythonRecipeNode } from './flow-recipe.vm';
 import { FlowTransformService } from './flow-transform.service';
-import { FlowSqlWorkshopComponent } from './flow-sql-workshop.component';
-import { isSqlTransformNode } from './flow-transform.vm';
+import { FlowTransformWorkshopComponent } from './flow-transform-workshop.component';
+import { isTransformNode } from './flow-transform.vm';
 import {
   toNodeView,
   type ParsedConnector,
@@ -129,7 +129,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     FlowPublicationPanelComponent,
     FlowWorkbenchPanelComponent,
     FlowRecipeWorkshopComponent,
-    FlowSqlWorkshopComponent,
+    FlowTransformWorkshopComponent,
     ConfirmDialogComponent,
     EmptyStateComponent,
     HelpTooltipComponent,
@@ -399,7 +399,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
               [systemId]="systemId()"
               (close)="closeInspector()"
               (openRecipeWorkshop)="openRecipeWorkshop()"
-              (openSqlWorkshop)="openSqlWorkshop()"
+              (openTransformWorkshop)="openTransformWorkshop()"
             />
           }
         </div>
@@ -416,8 +416,8 @@ const PUBLICATION_HYDRATION_CODES = new Set([
           <app-flow-recipe-workshop (close)="closeRecipeWorkshop()" />
         }
 
-        @if (sqlWorkshopOpen()) {
-          <app-flow-sql-workshop (close)="closeSqlWorkshop()" />
+        @if (transformWorkshopOpen()) {
+          <app-flow-transform-workshop (close)="closeTransformWorkshop()" />
         }
       } @else {
         <div class="flow-builder__load-state" role="status">
@@ -566,7 +566,7 @@ export class FlowBuilderComponent {
   /** Full-screen authoring dialog for the SELECTED Python recipe node. */
   protected readonly recipeWorkshopOpen = signal(false);
   /** Same, for the SELECTED SQL transform node. */
-  protected readonly sqlWorkshopOpen = signal(false);
+  protected readonly transformWorkshopOpen = signal(false);
   protected readonly versionsOpen = signal(false);
   /** Runtime manifest is operator context, not authoring context: collapsed
    *  until asked for, expanded state kept for the rest of the session. */
@@ -922,13 +922,13 @@ export class FlowBuilderComponent {
 
   /** Same contract for the SQL transform node: ordinary node-config edits, so
    * autosave keeps running while the workshop is open. */
-  protected openSqlWorkshop(): void {
-    if (!isSqlTransformNode(this.store.selectedNode())) return;
-    this.sqlWorkshopOpen.set(true);
+  protected openTransformWorkshop(): void {
+    if (!isTransformNode(this.store.selectedNode())) return;
+    this.transformWorkshopOpen.set(true);
   }
 
-  protected closeSqlWorkshop(): void {
-    this.sqlWorkshopOpen.set(false);
+  protected closeTransformWorkshop(): void {
+    this.transformWorkshopOpen.set(false);
   }
 
   /** Enter browser fullscreen when permitted; the fixed-position CSS class is
