@@ -25,7 +25,12 @@
  * Angular-free on purpose so `run-unit.mjs` can exercise it in plain Node.
  */
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
-import { TRAIN_STEPS } from '@app/features/models/models.vm';
+import {
+  TRAIN_STEPS,
+  refusalKey,
+  servingErrorKey,
+  trainingErrorKey,
+} from '@app/features/models/models.vm';
 import type { ModelDto, ModelTask } from '@app/features/models/models.vm';
 
 export const ML_TRAIN_SKILL_SLUG = 'ml_train_sklearn_v1';
@@ -284,27 +289,72 @@ export interface MlFailure {
 }
 
 /**
+ * Refusals the model NODES own, and nothing else.
+ *
+ * Deliberately short. Every refusal about a *spec* — a target that is not in
+ * the table, one class, too few rows, an estimator that cannot do the task —
+ * already has one sentence in the model plane's dictionary, and a second copy
+ * under a `flow.` key would be a second sentence to keep true. What is left
+ * here is the two the node wrappers raise about WIRING (`ML_NO_DATASET`,
+ * `ML_SCORE_DATASET_REQUIRED` — a canvas concern the Models page cannot have)
+ * and the two this module raises itself before spending a round-trip.
+ */
+export const FLOW_ML_ERROR_CODES: readonly string[] = [
+  'ML_NO_DATASET',
+  'ML_SCORE_DATASET_REQUIRED',
+  'ML_MODEL_REQUIRED',
+  'ML_TARGET_IN_FEATURES',
+];
+
+/**
+ * Project a refusal code into a translated sentence plus its detail.
+ *
+ * Resolution order is a claim about ownership: a node refusal is a node
+ * refusal, and everything else is the model plane's to phrase — the same
+ * sentence whether the fit was dispatched from the Models page or from a node.
+ * An unknown code keeps the server's own words rather than rendering a blank:
+ * a refusal nobody can name is still a refusal the author has to read.
+ */
+export function mlFailure(
+  code: string | null | undefined,
+  message?: string | null,
+): MlFailure {
+  const normalized = (code ?? '').trim().toUpperCase();
+  const detail = (message ?? '').trim() || undefined;
+  if (FLOW_ML_ERROR_CODES.includes(normalized)) {
+    return { key: `flow.ml.error.${normalized.toLowerCase()}` };
+  }
+  const shared =
+    refusalKey(normalized) ??
+    trainingErrorKey(normalized) ??
+    servingErrorKey(normalized);
+  if (shared) return { key: shared, detail };
+  return { key: 'flow.ml.error.unknown', detail };
+}
+
+/**
  * Client-side pre-check of a training node, kept narrower than the server's.
  *
- * Only the two refusals an author hits by construction are worth blocking a
- * round-trip for: no dataset to fit on, and no column to predict. Everything
- * else — too few rows, a target with one class, a feature that memorises the
- * table — is the plan endpoint's call, and it answers it against the real data
- * rather than against this bag.
+ * Only the refusals an author hits by construction are worth blocking a
+ * round-trip for: no dataset to fit on, no column to predict, an empty feature
+ * set, and the target smuggled into its own features. Everything else — too few
+ * rows, a target with one class, a feature that memorises the table — is the
+ * plan endpoint's call, and it answers it against the real data rather than
+ * against this bag.
  */
 export function preflightTrain(
   params: TrainNodeParams,
   options: { wired?: boolean } = {},
 ): MlFailure | null {
   if (params.sources.length === 0 && !options.wired) {
-    return { key: 'flow.ml.error.ML_NO_DATASET' };
+    return mlFailure('ML_NO_DATASET');
   }
-  if (!params.target) return { key: 'flow.ml.error.ML_TARGET_REQUIRED' };
+  if (!params.target) return mlFailure('ML_TARGET_REQUIRED');
   if (params.features !== null && params.features.length === 0) {
-    return { key: 'flow.ml.error.ML_NO_FEATURES' };
+    return mlFailure('ML_FEATURES_REQUIRED');
   }
   if (params.features !== null && params.features.includes(params.target)) {
-    return { key: 'flow.ml.error.ML_TARGET_IN_FEATURES', detail: params.target };
+    return { ...mlFailure('ML_TARGET_IN_FEATURES'), detail: params.target };
   }
   return null;
 }
@@ -316,66 +366,12 @@ export function preflightServing(
   options: { wired?: boolean } = {},
 ): MlFailure | null {
   if (!params.model_id && !params.model_slug) {
-    return { key: 'flow.ml.error.ML_MODEL_REQUIRED' };
+    return mlFailure('ML_MODEL_REQUIRED');
   }
   if (descriptor.writesDataset && params.sources.length === 0 && !options.wired) {
-    return { key: 'flow.ml.error.ML_SCORE_DATASET_REQUIRED' };
+    return mlFailure('ML_SCORE_DATASET_REQUIRED');
   }
   return null;
-}
-
-/** The refusal codes the model surfaces translate; anything else falls back. */
-export const ML_ERROR_CODES: readonly string[] = [
-  'ML_NO_DATASET',
-  'ML_TARGET_REQUIRED',
-  'ML_NO_FEATURES',
-  'ML_TARGET_IN_FEATURES',
-  'ML_MODEL_REQUIRED',
-  'ML_MODEL_NOT_FOUND',
-  'ML_SCORE_DATASET_REQUIRED',
-  'ML_TRAIN_DISABLED',
-  'ML_PREDICT_DISABLED',
-  'ML_NOT_TRAINED',
-  'ML_TOO_FEW_ROWS',
-  'ML_TOO_MANY_ROWS',
-  'ML_TOO_MANY_FEATURES',
-  'ML_TOO_MANY_CLASSES',
-  'ML_TARGET_CONSTANT',
-  'ML_TARGET_NOT_NUMERIC',
-  'ML_UNKNOWN_ALGO',
-  'ML_ALGO_TASK_MISMATCH',
-  'DATASET_NOT_FOUND',
-  'DATASET_NOT_READY',
-  'TABULAR_DISABLED',
-];
-
-/** Refusals whose own words ARE the information the author needs. */
-const VERBATIM_DETAIL_CODES: readonly string[] = [
-  'ML_MODEL_NOT_FOUND',
-  'ML_TARGET_CONSTANT',
-  'ML_TARGET_NOT_NUMERIC',
-  'ML_TOO_FEW_ROWS',
-  'ML_TOO_MANY_ROWS',
-  'ML_TOO_MANY_FEATURES',
-  'ML_TOO_MANY_CLASSES',
-  'ML_UNKNOWN_ALGO',
-  'ML_ALGO_TASK_MISMATCH',
-];
-
-/** Project a backend refusal into a translated sentence plus its detail. */
-export function mlFailure(
-  code: string | null | undefined,
-  message?: string | null,
-): MlFailure {
-  const normalized = (code ?? '').trim().toUpperCase();
-  const detail = (message ?? '').trim() || undefined;
-  if (normalized && ML_ERROR_CODES.includes(normalized)) {
-    return {
-      key: `flow.ml.error.${normalized}`,
-      detail: VERBATIM_DETAIL_CODES.includes(normalized) ? detail : undefined,
-    };
-  }
-  return { key: 'flow.ml.error.unknown', detail };
 }
 
 /**

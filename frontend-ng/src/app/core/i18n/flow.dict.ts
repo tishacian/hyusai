@@ -1135,6 +1135,114 @@ export const FLOW_FR = {
     'Le projet a dépassé son budget temps et a été arrêté.',
   'flow.transform.error.DBT_CANCELLED': 'Construction arrêtée à votre demande.',
 
+  // ---- plan modèle : nodes train / predict / score -----------------------
+  // Trois formes, pas trois options d’un même node : un ajustement s’écrit —
+  // donc un atelier — tandis qu’une prédiction se choisit — donc une section
+  // d’inspecteur. Le vocabulaire des refus partagés reste celui de la page
+  // Modèles : une même raison ne mérite pas deux phrases à tenir à jour.
+  'flow.inspector.section.train': 'Entraînement du modèle',
+  'flow.ml.train.inspector.hint':
+    'La cible, les variables, l’algorithme et la découpe sont portés par le graphe : une charge entrante ne peut pas réécrire ce que ce node apprend.',
+  'flow.ml.train.inspector.target': 'Cible',
+  'flow.ml.train.inspector.target.none': 'à choisir',
+  'flow.ml.train.inspector.dataset': 'Jeu de données',
+  'flow.ml.train.inspector.dataset.wire': 'celui reçu en amont',
+  'flow.ml.train.inspector.output': 'Modèle produit',
+  'flow.ml.train.inspector.output.auto': 'nommé d’après la cible',
+  'flow.ml.train.inspector.open': 'Ouvrir l’atelier d’entraînement',
+  'flow.ml.train.inspector.open.aria': 'Ouvrir l’atelier d’entraînement du modèle',
+
+  // atelier d’entraînement
+  'flow.ml.train.title': 'Atelier d’entraînement',
+  'flow.ml.train.close': 'Fermer l’atelier d’entraînement',
+  'flow.ml.train.run': 'Entraîner',
+  'flow.ml.train.busy': 'Entraînement…',
+  'flow.ml.train.cancel': 'Arrêter',
+  'flow.ml.train.target': 'Colonne à prédire',
+  'flow.ml.train.target.hint':
+    'Seules les colonnes qu’un modèle peut apprendre sont proposées, et leur type détermine la tâche.',
+  'flow.ml.train.target.none':
+    'Aucune colonne de ce jeu de données ne peut servir de cible.',
+  'flow.ml.train.distinct': '{count} valeurs distinctes',
+  'flow.ml.train.dataset.required':
+    'Épinglez un jeu de données pour voir ses colonnes.',
+  'flow.ml.train.task': 'Tâche',
+  'flow.ml.train.task.suggested': 'Déduite du type de la colonne cible.',
+  'flow.ml.train.features': 'Variables explicatives',
+  'flow.ml.train.features.count': '{selected} / {total}',
+  'flow.ml.train.features.all': 'Toutes',
+  'flow.ml.train.features.hint':
+    'Par défaut, toutes les colonnes sauf la cible. Une colonne unique par ligne est signalée : elle ferait mémoriser le tableau au modèle au lieu de le faire généraliser.',
+  'flow.ml.train.algo': 'Algorithme',
+  'flow.ml.train.knobs': 'Réglages',
+  'flow.ml.train.knobs.reset': 'Par défaut',
+  'flow.ml.train.split': 'Lignes de test',
+  'flow.ml.train.split.hint':
+    'Ces lignes ne servent pas à l’ajustement : ce sont elles qui produisent les scores.',
+  'flow.ml.train.cv': 'Validation croisée',
+  'flow.ml.train.cv.off': 'Désactivée',
+  'flow.ml.train.cv.folds': '{folds} plis',
+  'flow.ml.train.cv.hint':
+    'La validation croisée donne un écart-type par métrique — plus long, mais un score isolé peut être un coup de chance.',
+  'flow.ml.train.evidence.empty':
+    'Lancez un entraînement : les étapes s’affichent ici, puis les scores obtenus sur les lignes de test.',
+  'flow.ml.train.registered': 'Enregistré : {name} v{version}',
+  'flow.ml.train.open_card': 'Voir la fiche',
+  'flow.ml.train.tabs.aria': 'Panneaux de l’atelier d’entraînement',
+  'flow.ml.train.tab.dataset': 'Données',
+  'flow.ml.train.tab.output': 'Modèle',
+  'flow.ml.train.dataset': 'Jeu de données',
+  'flow.ml.train.dataset.hint':
+    'Épinglé par lignée : le node suit la dernière version prête. Sans épingle, il apprend sur le jeu de données reçu en amont.',
+  'flow.ml.train.dataset.loading': 'Chargement…',
+  'flow.ml.train.dataset.wire': 'Celui reçu en amont',
+  'flow.ml.train.dataset.meta': '{rows} lignes · {columns} colonnes',
+  'flow.ml.train.plan': 'Ce que ferait cet ajustement',
+  'flow.ml.train.plan.rows': '{rows} lignes, dont {test} en test',
+  'flow.ml.train.plan.features': '{count} variables retenues',
+  'flow.ml.train.name': 'Nom du modèle',
+  'flow.ml.train.name.hint':
+    'Le nom de la lignée ; chaque entraînement en crée une nouvelle version.',
+  'flow.ml.train.name.placeholder': 'Déduit de la cible',
+  'flow.ml.train.versioning':
+    'Un entraînement n’est jamais un essai à blanc : l’artefact EST le produit, donc chaque exécution enregistre une version dans le registre.',
+  'flow.ml.train.open_models': 'Ouvrir les modèles',
+
+  // nodes de service : une section, pas un atelier
+  'flow.inspector.section.predict': 'Prédiction',
+  'flow.inspector.section.score': 'Scoring du jeu de données',
+  'flow.ml.predict.inspector.hint':
+    'Ce node répond pour un enregistrement, pendant l’exécution. Le modèle appelé est porté par le graphe, jamais par la charge entrante.',
+  'flow.ml.score.inspector.hint':
+    'Ce node lit un jeu de données et en écrit une version scorée, colonnes de prédiction comprises.',
+  'flow.ml.serving.model': 'Modèle',
+  'flow.ml.serving.model.none': 'Aucun modèle choisi',
+  'flow.ml.serving.version': 'Version',
+  'flow.ml.serving.version.champion': 'Suivre le champion',
+  'flow.ml.serving.version.pinned': 'v{version} figée',
+  'flow.ml.serving.version.hint':
+    'Suivre le champion, c’est répondre avec la version promue du moment ; figer une version, c’est répondre toujours la même chose.',
+  'flow.ml.serving.empty':
+    'Aucun modèle entraîné dans cet espace de travail : entraînez-en un avant de brancher ce node.',
+  'flow.ml.serving.output': 'Jeu de données produit',
+  'flow.ml.serving.output.auto': 'Déduit du modèle',
+  'flow.ml.serving.explain': 'Contributions par ligne',
+  'flow.ml.serving.explain.hint':
+    'Ajoute à la réponse les variables qui ont le plus pesé — utile pour une synthèse en aval, un peu plus coûteux à calculer.',
+
+  // refus propres aux nodes du plan modèle (le reste parle le dictionnaire
+  // de la page Modèles)
+  'flow.ml.error.ml_no_dataset':
+    'Branchez un jeu de données en amont, ou épinglez-en un sur le node, avant d’entraîner.',
+  'flow.ml.error.ml_score_dataset_required':
+    'Branchez un jeu de données en amont, ou épinglez-en un sur le node, avant de scorer.',
+  'flow.ml.error.ml_model_required':
+    'Choisissez le modèle avec lequel ce node répond.',
+  'flow.ml.error.ml_target_in_features':
+    'La cible ne peut pas figurer parmi ses propres variables explicatives.',
+  'flow.ml.error.unknown': 'La demande a été refusée sans motif exploitable.',
+  'flow.ml.run.cancelled': 'Entraînement arrêté à votre demande.',
+
   'flow.validation.error.server': 'Le Flow courant n’a pas pu être validé par le serveur.',
   'flow.run.input.error.json':
     'Saisissez du JSON valide.',
@@ -2509,6 +2617,107 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.transform.error.DBT_TIMEOUT':
     'The project exceeded its time budget and was stopped.',
   'flow.transform.error.DBT_CANCELLED': 'Build stopped at your request.',
+
+  // ---- the model plane: train / predict / score nodes --------------------
+  'flow.inspector.section.train': 'Model training',
+  'flow.ml.train.inspector.hint':
+    'The target, the features, the estimator and the split are graph-owned: an incoming payload cannot rewrite what this node learns.',
+  'flow.ml.train.inspector.target': 'Target',
+  'flow.ml.train.inspector.target.none': 'to be chosen',
+  'flow.ml.train.inspector.dataset': 'Dataset',
+  'flow.ml.train.inspector.dataset.wire': 'whatever arrives upstream',
+  'flow.ml.train.inspector.output': 'Model produced',
+  'flow.ml.train.inspector.output.auto': 'named after the target',
+  'flow.ml.train.inspector.open': 'Open the training studio',
+  'flow.ml.train.inspector.open.aria': 'Open the model training studio',
+
+  // the training studio
+  'flow.ml.train.title': 'Training studio',
+  'flow.ml.train.close': 'Close the training studio',
+  'flow.ml.train.run': 'Train',
+  'flow.ml.train.busy': 'Training…',
+  'flow.ml.train.cancel': 'Stop',
+  'flow.ml.train.target': 'Column to predict',
+  'flow.ml.train.target.hint':
+    'Only columns a model can learn are offered, and their type decides the task.',
+  'flow.ml.train.target.none': 'No column of this dataset can serve as a target.',
+  'flow.ml.train.distinct': '{count} distinct values',
+  'flow.ml.train.dataset.required': 'Pin a dataset to see its columns.',
+  'flow.ml.train.task': 'Task',
+  'flow.ml.train.task.suggested': 'Inferred from the target column’s type.',
+  'flow.ml.train.features': 'Features',
+  'flow.ml.train.features.count': '{selected} / {total}',
+  'flow.ml.train.features.all': 'All',
+  'flow.ml.train.features.hint':
+    'Every column but the target, by default. A column unique per row is flagged: it would make the model memorise the table instead of generalising.',
+  'flow.ml.train.algo': 'Estimator',
+  'flow.ml.train.knobs': 'Settings',
+  'flow.ml.train.knobs.reset': 'Defaults',
+  'flow.ml.train.split': 'Test rows',
+  'flow.ml.train.split.hint':
+    'These rows take no part in the fit: they are the ones that produce the scores.',
+  'flow.ml.train.cv': 'Cross-validation',
+  'flow.ml.train.cv.off': 'Off',
+  'flow.ml.train.cv.folds': '{folds} folds',
+  'flow.ml.train.cv.hint':
+    'Cross-validation gives a standard deviation per metric — slower, but a single score can be luck.',
+  'flow.ml.train.evidence.empty':
+    'Train once: the steps show up here, then the scores earned on the test rows.',
+  'flow.ml.train.registered': 'Registered: {name} v{version}',
+  'flow.ml.train.open_card': 'Open the card',
+  'flow.ml.train.tabs.aria': 'Training studio panels',
+  'flow.ml.train.tab.dataset': 'Data',
+  'flow.ml.train.tab.output': 'Model',
+  'flow.ml.train.dataset': 'Dataset',
+  'flow.ml.train.dataset.hint':
+    'Pinned by lineage: the node follows the latest ready version. Unpinned, it learns on the dataset handed to it upstream.',
+  'flow.ml.train.dataset.loading': 'Loading…',
+  'flow.ml.train.dataset.wire': 'Whatever arrives upstream',
+  'flow.ml.train.dataset.meta': '{rows} rows · {columns} columns',
+  'flow.ml.train.plan': 'What this fit would be',
+  'flow.ml.train.plan.rows': '{rows} rows, {test} of them held out',
+  'flow.ml.train.plan.features': '{count} features kept',
+  'flow.ml.train.name': 'Model name',
+  'flow.ml.train.name.hint':
+    'The lineage name; every training run adds a version to it.',
+  'flow.ml.train.name.placeholder': 'Derived from the target',
+  'flow.ml.train.versioning':
+    'A fit is never a dry run: the artifact IS the product, so every run registers a version in the registry.',
+  'flow.ml.train.open_models': 'Open models',
+
+  // serving nodes: a section, not a studio
+  'flow.inspector.section.predict': 'Prediction',
+  'flow.inspector.section.score': 'Dataset scoring',
+  'flow.ml.predict.inspector.hint':
+    'This node answers for one record, inside the run. Which model answers is graph-owned, never carried by the incoming payload.',
+  'flow.ml.score.inspector.hint':
+    'This node reads a dataset and writes a scored version of it, prediction columns included.',
+  'flow.ml.serving.model': 'Model',
+  'flow.ml.serving.model.none': 'No model chosen',
+  'flow.ml.serving.version': 'Version',
+  'flow.ml.serving.version.champion': 'Follow the champion',
+  'flow.ml.serving.version.pinned': 'v{version} pinned',
+  'flow.ml.serving.version.hint':
+    'Following the champion answers with whichever version is promoted; pinning a version answers the same thing forever.',
+  'flow.ml.serving.empty':
+    'No trained model in this workspace: train one before wiring this node.',
+  'flow.ml.serving.output': 'Dataset produced',
+  'flow.ml.serving.output.auto': 'Derived from the model',
+  'flow.ml.serving.explain': 'Per-row contributions',
+  'flow.ml.serving.explain.hint':
+    'Adds the features that weighed most to the answer — useful for a summary downstream, slightly more expensive to compute.',
+
+  // refusals the model nodes own (everything else speaks the Models
+  // dictionary)
+  'flow.ml.error.ml_no_dataset':
+    'Wire a dataset upstream, or pin one on the node, before training.',
+  'flow.ml.error.ml_score_dataset_required':
+    'Wire a dataset upstream, or pin one on the node, before scoring.',
+  'flow.ml.error.ml_model_required': 'Choose the model this node answers with.',
+  'flow.ml.error.ml_target_in_features':
+    'The target cannot be one of its own features.',
+  'flow.ml.error.unknown': 'The request was refused without an actionable reason.',
+  'flow.ml.run.cancelled': 'Training stopped at your request.',
 
   'flow.validation.error.server': 'The current Flow could not be validated by the server.',
   'flow.run.input.error.json':

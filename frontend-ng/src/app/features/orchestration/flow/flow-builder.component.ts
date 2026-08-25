@@ -65,6 +65,9 @@ import { isPythonRecipeNode } from './flow-recipe.vm';
 import { FlowTransformService } from './flow-transform.service';
 import { FlowTransformWorkshopComponent } from './flow-transform-workshop.component';
 import { isTransformNode } from './flow-transform.vm';
+import { FlowMlService } from './flow-ml.service';
+import { FlowTrainWorkshopComponent } from './flow-train-workshop.component';
+import { isTrainNode } from './flow-ml.vm';
 import {
   toNodeView,
   type ParsedConnector,
@@ -112,6 +115,9 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     // Same for the data plane: one dataset catalog and one preview client per
     // shell, shared by every transform node the author opens.
     FlowTransformService,
+    // And one for the model plane: the registry the serving pickers read and the
+    // training run the workshop follows, shared by every model node in the graph.
+    FlowMlService,
   ],
   imports: [
     RouterLink,
@@ -130,6 +136,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     FlowWorkbenchPanelComponent,
     FlowRecipeWorkshopComponent,
     FlowTransformWorkshopComponent,
+    FlowTrainWorkshopComponent,
     ConfirmDialogComponent,
     EmptyStateComponent,
     HelpTooltipComponent,
@@ -400,6 +407,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
               (close)="closeInspector()"
               (openRecipeWorkshop)="openRecipeWorkshop()"
               (openTransformWorkshop)="openTransformWorkshop()"
+              (openTrainWorkshop)="openTrainWorkshop()"
             />
           }
         </div>
@@ -418,6 +426,10 @@ const PUBLICATION_HYDRATION_CODES = new Set([
 
         @if (transformWorkshopOpen()) {
           <app-flow-transform-workshop (close)="closeTransformWorkshop()" />
+        }
+
+        @if (trainWorkshopOpen()) {
+          <app-flow-train-workshop (close)="closeTrainWorkshop()" />
         }
       } @else {
         <div class="flow-builder__load-state" role="status">
@@ -567,6 +579,8 @@ export class FlowBuilderComponent {
   protected readonly recipeWorkshopOpen = signal(false);
   /** Same, for the SELECTED SQL transform node. */
   protected readonly transformWorkshopOpen = signal(false);
+  /** Same, for the SELECTED sklearn training node. */
+  protected readonly trainWorkshopOpen = signal(false);
   protected readonly versionsOpen = signal(false);
   /** Runtime manifest is operator context, not authoring context: collapsed
    *  until asked for, expanded state kept for the rest of the session. */
@@ -929,6 +943,17 @@ export class FlowBuilderComponent {
 
   protected closeTransformWorkshop(): void {
     this.transformWorkshopOpen.set(false);
+  }
+
+  /** And for the training node. A fit registers a real version, so nothing here
+   * is held back either: the spec is node config and it autosaves with the flow. */
+  protected openTrainWorkshop(): void {
+    if (!isTrainNode(this.store.selectedNode())) return;
+    this.trainWorkshopOpen.set(true);
+  }
+
+  protected closeTrainWorkshop(): void {
+    this.trainWorkshopOpen.set(false);
   }
 
   /** Enter browser fullscreen when permitted; the fixed-position CSS class is

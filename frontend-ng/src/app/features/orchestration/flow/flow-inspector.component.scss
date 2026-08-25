@@ -365,6 +365,12 @@
   &--error {
     color: var(--ck-signal-danger, #fb7185);
   }
+
+  /* A configuration gap, not a failure: a serving node with no model chosen is
+     incomplete, and saying so in the danger colour would over-state it. */
+  &--warn {
+    color: var(--ck-signal-warn, #f5b84a);
+  }
 }
 
 .ck-flow-hint__btn {
