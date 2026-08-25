@@ -900,6 +900,35 @@ def test_the_predict_node_answers_one_record_from_its_named_inputs(db_session, m
     assert answer["served"]["model_id"] == model.id
 
 
+def test_the_score_node_scores_the_dataset_it_pins_when_nothing_is_wired(
+    db_session, model, scoring_dataset
+):
+    """A pinned node is a runnable node: no upstream edge required.
+
+    The pin is written the way the builder writes it (``dataset_slug``), which
+    is the spelling that used to be dropped on the floor — a node configured in
+    the UI then refused at run time for lack of an input it had been given.
+    """
+    import asyncio
+
+    from app.services.skills_registry.wrappers import resolve
+
+    answer = asyncio.run(
+        resolve("ml_batch_score_v1")(
+            {
+                "_predict": {
+                    "model_slug": model.slug,
+                    "sources": [{"dataset_slug": scoring_dataset.slug}],
+                }
+            },
+            {"workspace_id": model.workspace_id},
+        )
+    )
+
+    assert answer["scored_rows"] == 30
+    assert answer["model"]["model_id"] == model.id
+
+
 def test_the_score_node_says_a_dataset_is_missing_rather_than_scoring_nothing(
     db_session, model
 ):
@@ -907,10 +936,10 @@ def test_the_score_node_says_a_dataset_is_missing_rather_than_scoring_nothing(
 
     from app.services.skills_registry.wrappers import resolve
 
-    with pytest.raises(ValueError, match="score_dataset_required"):
+    with pytest.raises(ValueError, match="ML_SCORE_DATASET_REQUIRED"):
         asyncio.run(
             resolve("ml_batch_score_v1")(
-                {"_predict": {"model_slug": model.slug}},
+                {"_predict": {"model_slug": model.slug, "sources": []}},
                 {"workspace_id": model.workspace_id},
             )
         )

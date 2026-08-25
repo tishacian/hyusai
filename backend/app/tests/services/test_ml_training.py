@@ -1126,6 +1126,45 @@ async def test_a_pin_on_the_node_wins_over_the_dataset_on_the_wire(
     assert row.dataset_id == other.id
 
 
+@pytest.mark.asyncio
+async def test_a_pin_by_lineage_is_honoured_the_way_the_builder_writes_it(
+    db_session, workspace, dataset, enabled, monkeypatch, store
+):
+    """A slug pin follows the lineage, and `dataset_slug` is how it is spelled.
+
+    The workshop writes `dataset_slug` so the node fits on whatever the latest
+    ready version of that lineage is. A resolver that only read `slug` accepted
+    the node, ignored the pin and trained on the wire instead — the shape of bug
+    that produces a plausible model of the wrong table.
+    """
+    from app.services.skills_registry.wrappers import _ml_train_sklearn_v1
+    from app.services.tabular_datasets import register_frame
+
+    pinned = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Pinned features",
+        frame=_frame(),
+        source="upload",
+    )
+    db_session.commit()
+    _stub_harness(monkeypatch)
+
+    result = await _ml_train_sklearn_v1(
+        {
+            "input": {"dataset_id": dataset.id},
+            "_train": {
+                "target": "churn",
+                "sources": [{"dataset_slug": pinned.slug}],
+            },
+        },
+        {"workspace_id": workspace.id},
+    )
+
+    row = db_session.query(MLModel).filter_by(id=result["model_id"]).one()
+    assert row.dataset_id == pinned.id
+
+
 def test_the_dag_projects_the_training_spec_as_graph_configuration():
     from app.services.run_engine.dag import DagNode, _apply_train_node_config
 
