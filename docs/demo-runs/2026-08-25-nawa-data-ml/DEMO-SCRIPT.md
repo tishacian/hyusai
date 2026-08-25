@@ -14,18 +14,23 @@ Ce runbook est le script présentateur. Les chiffres qu'il cite ne sont pas illu
 ils viennent du seed rejoué le 25/08 et sont reproductibles par graine
 (`--seed 20260825`, la valeur par défaut).
 
-## Identifiants (état du seed rejoué le 25/08)
+## Identifiants (état du seed rejoué le 25/08, 20 h 18 UTC)
+
+Les UUID changent à chaque seed — c'est le seul contenu de ce runbook qui ne soit
+pas reproductible par graine. Ceux-ci sont ceux de la dernière répétition ; les
+rejouer produit d'autres identifiants et les **mêmes** chiffres.
 
 | Objet | Valeur |
 |---|---|
-| Workspace | `nawa` — id `f6e94159-1e81-4430-9a3f-5f3829e1e0d4` |
-| System 1 | `Churn Radar` — id `14b9c0dc-3aa8-4be9-9595-73fd68ec93d0`, actif |
-| System 2 | `Radio Watch` — id `3e176090-7080-46ec-ad4e-dfead5d8fbc2`, actif |
-| Modèle servi | `Churn Radar` **v1** (`linear`) — id `6445be44-c21a-4e2c-8c10-99db4b2952d0` |
-| Skill publiée | `ws.f6e94159-….predict_churn_radar` |
-| Clé API | préfixe `agpk_cdukue9` (le secret complet ne s'affiche qu'à la création) |
-| Run churn | `84d79dd1-f09b-4a22-af06-767f8d2b0a6d` — completed, 7 nœuds |
-| Run radio | `d587a9f6-e792-4036-81ce-fc7add4fa39e` — completed, 3 nœuds |
+| Workspace | `nawa` — id `1f949967-6376-442e-ad3f-16a318e3588d` |
+| System 1 | `Churn Radar` — id `5154e29b-126c-44eb-9e2d-54fe9677bf35`, actif |
+| System 2 | `Radio Watch` — id `a76996ed-411b-41ce-a438-984e255d3ddf`, actif |
+| Modèle servi | `Churn Radar` **v1** (`linear`) — id `d55698ce-0c29-4813-8b7f-0f60a207686b` |
+| Skill publiée | `ws.1f949967-….predict_churn_radar` |
+| Clé API | préfixe `agpk_xdT-Y8q` (le secret complet ne s'affiche qu'à la création) |
+| Run churn | `436987e3-0162-4bb1-913e-1e04d8e51955` — completed, 7 nœuds |
+| Run radio | `57b61f49-8fc0-4376-9816-f077731055be` — completed, 3 nœuds |
+| Registre MLflow | database `mlflow`, modèle enregistré `1f949967.churn-radar`, alias `champion` → v1, `challenger` → v2 |
 
 Sept datasets, et la lignée se lit dans l'ordre :
 
@@ -147,13 +152,34 @@ notebook sur le poste de quelqu'un.
 
 1. **Le nœud d'entraînement** : `ml_train_sklearn_v1`. Cible `churn`, 29 colonnes,
    estimateur et découpe déclarés dans la configuration du graphe. Le badge du run
-   du 25/08 lit `6 903 lignes · roc_auc 0.855853` en 15,6 s.
+   du 25/08 lit `6 903 lignes · roc_auc 0.855853` en 15,7 s.
 2. **La page Models, trois versions de la même lignée.** Ouvrir **v2** — la model card
    est faite pour être projetée : métriques, matrice de confusion, courbes ROC et
    précision/rappel, importances, signature d'entrée, lignée vers le dataset exact.
-3. **Où vivent les artefacts** : format MLflow sur l'object store (MinIO en VM), registre
-   sur Postgres. Un modèle est un objet gouverné, pas un `.pkl` dans un bucket.
-4. **Le détail qui fait tiquer les data scientists dans la salle** : `nps` a 1 144 trous
+3. **Où vivent les artefacts** : format MLflow sur l'object store (MinIO en VM), et un
+   **vrai Model Registry MLflow** dans une database `mlflow` du Postgres existant — pas
+   de serveur MLflow à opérer, le client écrit directement dans le store SQL. Un modèle
+   est un objet gouverné, pas un `.pkl` dans un bucket.
+4. **Et la phrase « pas de lock-in » est vérifiable en séance**, avec un client MLflow
+   standard qui ne sait rien d'Agentium — c'est le moment pour les sceptiques de la salle :
+
+   ```python
+   from mlflow.tracking import MlflowClient
+   c = MlflowClient(tracking_uri="postgresql://…/mlflow", registry_uri="postgresql://…/mlflow")
+   v = c.get_model_version_by_alias("1f949967.churn-radar", "champion")   # → v1
+   import mlflow.pyfunc; mlflow.pyfunc.load_model(v.source).predict(rows)  # les octets sur MinIO
+   ```
+
+   Mesuré le 25/08 : `champion` → v1, signature à 20 colonnes, `roc_auc` du run
+   **0,835206** — le chiffre de la carte, lu depuis le registre.
+5. **L'évaluation elle-même est conservée**, pas seulement son résumé : la carte affiche
+   « Évaluation conservée — 173 ko, rapport skore 0.25.0, rechargeable ». Le run porte son
+   emplacement (tag `agentium.skore_report_state`), et `EstimatorReport.from_dict` la
+   rouvre avec ses **1 726 lignes de test** et ses prédictions en cache. Conséquence
+   concrète : une métrique que personne n'avait demandée au moment du fit se calcule
+   après coup **sur les lignes dont la carte parle** (`precision` = 0,7049 sur v1), au
+   lieu de se rejouer sur une découpe qui ne serait plus la même.
+6. **Le détail qui fait tiquer les data scientists dans la salle** : `nps` a 1 144 trous
    dans la base nettoyée. Les arbres boostés les routent dans une branche et **lisent**
    l'absence de réponse ; la régression logistique ne sait pas faire — le harness lui
    ajoute donc un `SimpleImputer(strategy="median")`, décidé par estimateur d'après le
@@ -164,7 +190,8 @@ notebook sur le poste de quelqu'un.
 
 **Click-path** : Build → Models → comparer v1 / v2 / v3 → **Promouvoir** v2.
 
-1. **Le classement, mesuré sur les mêmes 6 903 lignes, la même découpe, la même graine** :
+1. **Le classement, tel que chaque carte l'a enregistré** — même base de 6 903 lignes,
+   même graine, et pour v1/v2 la même découpe (v3 s'entraîne sur les features dérivées) :
 
    | Version | Estimateur | Colonnes | ROC AUC |
    |---|---|---|---|
@@ -179,8 +206,52 @@ notebook sur le poste de quelqu'un.
    qui est non additif.
 3. **v3 ne gagne pas** (0,855853 < 0,859632) et on le montre. Un registre qui ne saurait
    pas dire « ce réentraînement a perdu » ne servirait à rien. Personne ne promeut v3.
-4. **Promouvoir v2**, et rester sur la page : la puce « sert » se déplace, la provenance
-   de la skill publiée suit toute seule (temps 6).
+4. **« Comparer sur les mêmes lignes » → Réévaluer les deux versions**, dans l'onglet
+   Comparaison, et c'est le point qui distingue une plateforme d'un tableau de bord.
+   Les tuiles à delta soustraient
+   deux résultats *enregistrés* ; là, les deux pipelines sont rescorés sur **une seule**
+   découpe et la table jointe vient de `skore.ComparisonReport`. Mesuré le 25/08, v1
+   contre v2 sur les mêmes 1 726 lignes :
+
+   | Métrique | v1 `linear` | v2 `gradient_boosting` |
+   |---|---|---|
+   | ROC AUC | 0,835206 | **0,859632** |
+   | Exactitude | 0,836037 | **0,851101** |
+   | Précision | 0,704918 | **0,758197** |
+   | Rappel | 0,449086 | **0,483029** |
+   | Log loss | 0,391460 | **0,371024** |
+   | Brier | 0,122305 | **0,110612** |
+
+   Les deux colonnes retombent **exactement** sur ce que chaque carte annonce, ce qui est
+   la preuve que la découpe a bien été reconstruite. Et v2 gagne sur les six, y compris
+   les deux métriques de calibration — le score n'est pas seulement mieux classé, il est
+   mieux *croyable*, ce qui est ce qui compte quand il s'affiche en jauge au temps 6.
+5. **Comparer v2 et v3 affiche un avertissement**, et il faut le lire à voix haute : v3 a
+   été entraîné sur `base-clients-features`, pas sur `base-clients-nettoyee`. La
+   comparaison se fait donc sur le dataset du plus récent des deux et signale que l'autre
+   a été ajusté ailleurs (`0,859632` contre `0,855853` sur les mêmes lignes). Refuser
+   aurait rendu impossible la seule comparaison intéressante ; répondre sans le dire
+   aurait été pire.
+6. **Le registre nomme aussi la prétendante**, et c'est ce qui rend l'histoire
+   champion/challenger lisible de l'extérieur. La puce jaune « Prétendante » sur la carte
+   est le même fait que l'alias `challenger` : **la meilleure version qui ne sert pas**,
+   pas la plus récente. Avant la promotion, `champion` → v1 et `challenger` → v2 — donc
+   v2, pas v3, même si v3 est le dernier entraînement. Le dire à voix haute : un registre
+   qui nommerait « le dernier » nommerait souvent le pire, et c'est précisément pour ça
+   que la promotion reste un geste humain.
+
+   ```python
+   c.get_model_version_by_alias("1f949967.churn-radar", "champion")    # → v1, roc_auc 0,835206
+   c.get_model_version_by_alias("1f949967.churn-radar", "challenger")  # → v2, roc_auc 0,859632
+   ```
+
+   Un A/B entre le sortant et son concurrent ne demande donc **rien** de nos tables : deux
+   alias suffisent.
+7. **Promouvoir v2**, et rester sur la page : la puce « sert » se déplace, l'alias
+   `champion` du registre MLflow suit (vérifié : `1` → `2`), **et les deux alias
+   s'échangent** — `challenger` retombe sur v1, la version qui vient d'être déposée, au
+   lieu de rester sur la gagnante. La provenance de la skill publiée suit toute seule
+   (temps 6).
 
 ## Temps 6 — Servir : Playground, skill, clé API (~7 min)
 
@@ -196,8 +267,12 @@ notebook sur le poste de quelqu'un.
 
    | Profil | Score churn |
    |---|---|
-   | Prépayé, 4 mois, 3 tickets, 7 appels coupés, questionnaire sans réponse | **0,980** |
-   | Postpayé 2 ans, 74 mois, fibre, 4 lignes, 0 ticket, NPS 9 | **0,002** |
+   | Prépayé, 4 mois, 3 tickets, 7 appels coupés, questionnaire sans réponse | **0,989584** |
+   | Postpayé 2 ans, 74 mois, fibre, 4 lignes, 0 ticket, NPS 9 | **0,000729** |
+
+   Et les contributions de la première ligne se lisent dans l'ordre où on les
+   raconterait : `tenure_months` 4 contre 49 typiques (+0,0856), `support_tickets` 3
+   contre 1 (+0,0233), la promo en cours (+0,0094).
 
 4. **Publier comme Skill** : le modèle devient appelable par un agent. Aller sur la page
    Skills montrer la **puce de provenance** — elle dit « répond depuis Churn Radar v1 »,
@@ -206,12 +281,16 @@ notebook sur le poste de quelqu'un.
 5. **La clé API, et le cURL** :
 
    ```bash
-   curl -X POST "$AGENTIUM/api/v1/ml-models/6445be44-c21a-4e2c-8c10-99db4b2952d0/predict" \
-     -H "X-API-Key: agpk_cdukue9…" -H 'Content-Type: application/json' \
+   curl -X POST "$AGENTIUM/api/v1/ml-models/d55698ce-0c29-4813-8b7f-0f60a207686b/predict" \
+     -H "X-API-Key: agpk_xdT-Y8q…" -H 'Content-Type: application/json' \
      -d '{"inputs":[{"region":"casablanca-settat","plan":"prepaid","contract":"monthly",
           "tenure_months":4,"arpu_mad":38.5,"support_tickets":3,"dropped_calls":7,
           "nps":null, …}]}'
    ```
+
+   Les 20 colonnes de la signature sont **obligatoires et closes** : en oublier une, ou en
+   inventer une, renvoie `ML_PREDICT_FIELD_UNKNOWN` avec la liste des champs fautifs. Un
+   contrat qui accepterait n'importe quoi ne serait pas un contrat.
 
    La convention de charge utile est celle de `mlflow models serve` (`{"inputs": […]}`) :
    un client MLflow existant marche sans adaptateur.
@@ -219,13 +298,14 @@ notebook sur le poste de quelqu'un.
 6. **Trois choses à faire remarquer dans la réponse** :
    - un bloc `served` — quelle version a répondu, quel estimateur, quelle métrique. Une
      prédiction sans son émetteur n'est pas auditable ;
-   - `cached: false, load_ms: 5355.5` au premier appel du processus,
+   - `cached: false, load_ms: 5206.7` au premier appel du processus,
      `cached: true, load_ms: 0.0` au second, **même prédiction**. `load_ms` est ce que
      *cet* appel a payé pour avoir le pipeline en mémoire — le cache est une
      optimisation, pas un second chemin de code ;
    - après la promotion du temps 5, **la même clé et la même URL répondent depuis v2**
-     (`cached: false` : l'empreinte a changé, l'ancien pipeline est évincé). Promouvoir,
-     c'est déplacer ce que la production sert.
+     (mesuré : `served.version` 2, `gradient_boosting`, score 0,999282,
+     `cached: false, load_ms: 326.9` — l'empreinte a changé, l'ancien pipeline est
+     évincé). Promouvoir, c'est déplacer ce que la production sert.
 7. **Clé absente ou fausse → 401.** L'usage est compté par clé (`use_count`,
    `last_used_at`) : une clé qui traîne se voit.
 
@@ -299,16 +379,24 @@ notebook sur le poste de quelqu'un.
 |---|---|
 | Seed rejoué sur base vide + object store vide | 7 datasets `ready`, 3 modèles, 2 systems actifs |
 | `base-clients-nettoyee` | 6 903 lignes depuis 8 412, exact |
-| Fit v1 / v2 / v3 | roc_auc 0,835206 / 0,859632 / 0,855853 |
+| Fit v1 / v2 / v3 | roc_auc 0,835206 / 0,859632 / 0,855853 — **identiques à la répétition précédente**, autre base, autres UUID |
 | Champion après seed | v1, non réattribué |
-| Run Churn Radar `84d79dd1…` | completed, 7 nœuds (clean 60 ms · features 6,8 s · train 15,6 s · score 4,4 s) |
-| Run Radio Watch `d587a9f6…` | completed, 3 nœuds, dbt 72 lignes en 17,7 s |
-| Skill publiée + clé mintée | `predict_churn_radar`, préfixe `agpk_cdukue9` |
-| `POST /predict` avec la clé | 200, `served` v1, score 0,980159 sur la ligne à risque et 0,00182 sur la ligne fidèle |
-| Cache pyfunc | appel 1 `cached:false load_ms:5355.5` · appel 2 `cached:true load_ms:0.0`, prédiction identique |
-| Promotion v2 → même clé, même URL | répond depuis v2 (score 0,998972), `cached:false` — empreinte invalidée, v1 évincée |
-| Clé fausse / absente | 401 / 401 ; `use_count` incrémenté sur les appels valides |
-| Watchlist radio | 9 critique / 8 surveillé / 55 sain ; 3 movers à +21…+28, 2 à −17…−21 |
+| Run Churn Radar `436987e3…` | completed, 7 nœuds (clean 69 ms · features 6,8 s · train 15,7 s · score 3,7 s · brief 1 ms) |
+| Run Radio Watch `57b61f49…` | completed, 3 nœuds, dbt 72 lignes en 17,7 s |
+| Venvs construits une fois | polars 5,2 s / 243 Mo · dbt-duckdb 13,2 s / 345 Mo, mis en cache par empreinte |
+| Registre MLflow | database `mlflow` créée à la volée, 3 versions de `1f949967.churn-radar`, `source` → l'object store, alias `champion` → v1, `challenger` → v2 |
+| Client MLflow **étranger** | `get_model_version_by_alias(…, "champion")` → v1, `pyfunc.load_model(v.source)` charge, signature 20 colonnes, `roc_auc` du run 0,835206 |
+| Alias `challenger`, même client | → v2 (`roc_auc` 0,859632), `source` distincte de celle du champion — **la meilleure perdante, pas la plus récente** (v3 est le dernier fit) |
+| Évaluation conservée | 3 états skore (173 / 522 / 566 ko) ; `from_dict` rouvre v1 avec ses 1 726 lignes de test et retrouve 0,835206 |
+| Comparaison sur les mêmes lignes | v2 > v1 sur les 6 métriques ; les deux colonnes retombent sur les chiffres des cartes |
+| Comparaison v2/v3 (datasets différents) | répond et signale `TRAINED_ON_ANOTHER_DATASET` sur v2 |
+| Skill publiée + clé mintée | `predict_churn_radar`, préfixe `agpk_xdT-Y8q` |
+| `POST /predict` avec la clé (HTTP réel, uvicorn) | 200, `served` v1, 0,989584 sur la ligne à risque et 0,000729 sur la ligne fidèle |
+| Cache pyfunc | appel 1 `cached:false load_ms:5206.7` · appel 2 `cached:true load_ms:0.0`, prédiction identique |
+| Colonne inventée dans la charge utile | 422 `ML_PREDICT_FIELD_UNKNOWN` avec la liste des champs fautifs |
+| Promotion v2 → même clé, même URL | répond depuis v2 (0,999282), `cached:false load_ms:326.9` ; alias registre `1` → `2` |
+| Clé fausse / absente | 401 / 401 ; `use_count` = 4 après les appels valides |
+| Watchlist radio | 9 critique / 8 surveillé / 55 sain |
 | Aucune cellule-heure au plafond | 0 / 24 192 à 100,0 % de PRB |
 
 ## Déploiement — ce qu'il reste à faire
@@ -318,18 +406,25 @@ Rien de tout ceci n'est encore sur `omnirag-demo`. Le chemin est celui de
 `origin/demo/agentic`** : il n'y a pas de déploiement latéral d'une branche `cursor/…`.
 Dans l'ordre, après la fusion de la PR :
 
-1. **dump des deux moitiés** — `scripts/agentium-data-plane-dump.sh <sha12>` : à partir
+1. **dump des trois parties** — `scripts/agentium-data-plane-dump.sh <sha12>` : à partir
    de la révision 096, un `pg_dump` seul n'est plus restaurable (les lignes de datasets
    et de modèles désignent des objets MinIO qui ne sont pas dans le dump). Le script
-   prend les deux et vérifie que chaque artefact que le registre nomme est bien là ;
-2. `migrate` — la tranche apporte `096_tabular_data_plane` puis `097_ml_training_plane`,
-   qui s'enchaînent sur le `095_python_recipes` de la VM ;
-3. **il n'y a pas de base `mlflow` à créer** — MLflow est ici un *format* d'artefact, pas
-   un service : le registre est la table `ml_models`. Les prérequis réels (les deux
-   réglages `RECIPE_EXECUTION_ENABLED` / `WORKER_EAGER_MODE`, la place disque des venvs,
-   la restauration) sont dans
+   prend la database `agentium`, la database `mlflow` et les préfixes d'objets, puis
+   vérifie que chaque artefact que le registre nomme est bien dans la fenêtre ;
+2. **créer la database `mlflow`** sur `agentium-pg`, propriétaire `agentium` —
+   `createdb -U agentium mlflow`. Le Model Registry MLflow exige un backend SQL (un
+   store fichier `mlruns/` ne sait pas enregistrer de modèle, c'est le piège documenté),
+   et le client écrit dedans directement : **aucun serveur MLflow à opérer**, aucun port,
+   aucun conteneur. MLflow crée son propre schéma à la première connexion — ce n'est pas
+   une révision Alembic. Ne **pas** poser `MLFLOW_TRACKING_URI` dans l'environnement
+   compose : le client est configuré en code. Les autres prérequis (les deux réglages
+   `RECIPE_EXECUTION_ENABLED` / `WORKER_EAGER_MODE`, la place disque des venvs, la
+   restauration) sont dans
    [`agentium-data-plane-provisioning.md`](../../ops/agentium-data-plane-provisioning.md) ;
+3. `migrate` — la tranche apporte `096_tabular_data_plane` puis `097_ml_training_plane`,
+   qui s'enchaînent sur le `095_python_recipes` de la VM ;
 4. `storage-check` puis `up` au tag `<sha12>` ;
-5. canaris carakai + e2e, puis rejouer ce runbook sur la VM et remplacer la section
-   « preuves de répétition » par les identifiants de la VM ;
+5. canaris carakai (avec le retarget de `PACKAGE_LOCK_SHA256`, le lock npm ayant bougé)
+   + e2e, puis rejouer ce runbook sur la VM et remplacer la section « preuves de
+   répétition » par les identifiants de la VM ;
 6. journal de déploiement dans `docs/ops/agentium-safe-vm-deployment.md`.

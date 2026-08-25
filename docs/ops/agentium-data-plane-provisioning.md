@@ -43,6 +43,17 @@ portable record — run, version, `source`, alias. They are joined by
 promotes in our UI and then resolves `@champion` from a foreign client gets the
 version they chose.
 
+**`challenger` is derived, not chosen.** It names the best *ready* version that
+is not serving — by score, with the higher version breaking a tie — so a foreign
+client can A/B the incumbent against its contender knowing only two alias names.
+Deliberately not "the newest version": a retrain is frequently worse, which is
+the whole reason promotion is a human decision. `sync_challenger` re-derives it
+after every fit, every promotion and every delete, and **clears** it when a
+lineage is down to one version or the contender's row is gone — an alias
+resolving to a version nobody can audit any more is worse than an absent one,
+because it fails silently. Expect `@challenger` to be absent on a
+single-version lineage; that is correct, not a provisioning fault.
+
 **Artifacts are not logged through MLflow.** The bytes go to the object store
 through the same `ObjectStore` facade as everything else, and the model version
 is created with an explicit `source` pointing at that location
