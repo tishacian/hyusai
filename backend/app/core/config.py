@@ -565,6 +565,30 @@ class Settings(BaseSettings):
     recipe_envs_pending_purge_hours: int = Field(default=24, ge=1)
     recipe_pip_cache_max_bytes: int = Field(default=2 * 1024**3, ge=0)
 
+    # Tabular data plane — datasets (Parquet in the ObjectStore), SQL/Polars
+    # transform nodes and the sklearn training plane. Unlike recipe execution
+    # this runs no author-written code by itself, so it ships enabled; the
+    # transform/train nodes that DO run author code stay gated behind
+    # ``recipe_execution_enabled``.
+    tabular_data_enabled: bool = True
+    tabular_upload_max_bytes: int = Field(default=256 * 1024**2, ge=1024)
+    tabular_preview_rows: int = Field(default=50, ge=1, le=500)
+    tabular_max_columns: int = Field(default=512, ge=1)
+    tabular_histogram_bins: int = Field(default=12, ge=2, le=64)
+    tabular_top_values: int = Field(default=6, ge=1, le=50)
+    # Guard for the in-worker duckdb SQL node: a statement is refused past this
+    # size and a result past this row count is truncated rather than persisted.
+    tabular_sql_max_chars: int = Field(default=40_000, ge=100)
+    tabular_transform_max_rows: int = Field(default=5_000_000, ge=1)
+    # MLflow tracking/registry. Empty means "derive from DATABASE_URL" (the
+    # registry needs a SQL backend; a file store cannot register models).
+    mlflow_tracking_uri: str = ""
+    mlflow_artifact_root: str = ""
+    mlflow_experiment_name: str = "agentium"
+    ml_train_max_rows: int = Field(default=2_000_000, ge=100)
+    ml_train_timeout_s: float = Field(default=900.0, ge=10.0)
+    ml_predict_cache_size: int = Field(default=4, ge=1, le=64)
+
     # Secure Deposit — public drop links backed by workspace membership.
     secure_deposit_enabled_workspace_slugs: str = "andritz"
     secure_deposit_public_base_url: Optional[str] = None

@@ -836,6 +836,15 @@ def recipe_env_build(env_id: str) -> dict:
         return {"id": env.id, "status": env.status, "size_bytes": int(env.size_bytes or 0)}
 
 
+@celery_app.task(name="agentium.dataset_ingest", acks_late=True)
+def dataset_ingest(dataset_id: str) -> dict:
+    """Parse a staged tabular upload into Parquet + column profile."""
+
+    from app.services.tabular_datasets import ingest_dataset
+
+    return ingest_dataset(dataset_id)
+
+
 @celery_app.task(name="agentium.recipe_env_sweep")
 def recipe_env_sweep() -> dict:
     """Beat entrypoint: venv storage governor (TTL + LRU quota + pip cache cap)."""

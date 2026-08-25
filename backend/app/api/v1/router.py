@@ -20,6 +20,7 @@ from app.api.v1.endpoints import (
     client360,
     contexts,
     control_plane,
+    datasets,
     documents,
     evaluation,
     flow_diffs,
@@ -133,6 +134,7 @@ api_router.include_router(
     prefix="/recipe-executions",
     tags=["recipe-executions"],
 )
+api_router.include_router(datasets.router, prefix="/datasets", tags=["datasets"])
 api_router.include_router(impact.router,        prefix="/impact",        tags=["impact"])
 api_router.include_router(hypervisor.router,    prefix="/hypervisor",    tags=["hypervisor"])
 api_router.include_router(control_plane.router, prefix="/control-plane", tags=["control-plane"])
