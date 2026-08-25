@@ -70,6 +70,22 @@ class ObjectStore:
             return f"{settings.object_store_s3_bucket}/{clean}"
         return clean
 
+    def uri(self, key: str) -> str:
+        """The absolute URI of a key, for readers that are not this facade.
+
+        Every path *inside* Agentium travels as a bare key and is resolved by
+        this class. This method exists for the one reader that is deliberately
+        outside it: a stock MLflow client pointed at our registry, which is
+        handed a model version's ``source`` and must resolve it with no
+        knowledge of our conventions. That portability is the reason the
+        artifacts are an MLflow directory in the first place.
+        """
+
+        clean = _clean_key(key)
+        if self.backend == "s3":
+            return f"s3://{settings.object_store_s3_bucket}/{clean}"
+        return self._local_path(clean).as_uri()
+
     def write_bytes(self, key: str, content: bytes) -> str:
         clean = _clean_key(key)
         if self.backend == "local":

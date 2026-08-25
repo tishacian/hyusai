@@ -30,6 +30,18 @@ Two things, and they are different in kind:
   the choices and ranges a prediction form can be built from without ever
   loading the pipeline.
 
+Every number in that read model comes from **skore**, the evaluation library the
+scikit-learn maintainers write. Not for the name: an ``EstimatorReport`` caches
+its predictions, so the metric table, the ROC, the PR curve, the confusion matrix
+and the permutation importances are all read off *one* pass over the test split
+instead of the five a hand-rolled evaluation pays. It also reports ``log_loss``
+and ``brier_score``, which say whether a probability is *calibrated* — the
+question that matters when the number is about to be shown as a gauge on a
+prediction form and believed. Binary fits pass ``pos_label`` explicitly, which is
+what makes skore name the columns ``precision``/``recall`` rather than
+``precision_<class>``: the positive class is a property of the question being
+asked, not something to infer from label ordering.
+
 Integer feature columns are cast to float before the fit. It looks cosmetic and
 is not: MLflow enforces the signature at predict time, and an integer column
 cannot carry a missing value, so a production row with one hole would be refused
@@ -67,6 +79,26 @@ TRUSTED_MODULE_PREFIXES = (
 )
 
 _MAX_CHOICES = 12
+
+# The metric vocabulary the model card has labels and hints for. skore's tables
+# are wider than this (timings, per-class rows), and a chip whose label is a raw
+# key is worse than no chip.
+_CARD_METRICS = frozenset(
+    {
+        "roc_auc",
+        "accuracy",
+        "balanced_accuracy",
+        "f1",
+        "precision",
+        "recall",
+        "log_loss",
+        "brier_score",
+        "r2",
+        "mae",
+        "rmse",
+        "mape",
+    }
+)
 
 
 def _fail(code: int, message: str) -> int:
@@ -204,142 +236,159 @@ def _input_contract(frame, signature_inputs: list[dict]) -> list[dict]:
     return contract
 
 
-def _classification_metrics(
-    y_test, predicted, proba, classes, *, curve_points: int
-) -> dict:
-    from sklearn.metrics import (
-        accuracy_score,
-        balanced_accuracy_score,
-        confusion_matrix,
-        f1_score,
-        precision_recall_curve,
-        precision_score,
-        recall_score,
-        roc_auc_score,
-        roc_curve,
+def _summary_table(display) -> dict:
+    """A skore metrics summary as a flat ``{metric: value}`` mapping.
+
+    ``frame()`` is a Series for a lone estimator and a one-column frame when
+    skore decides otherwise; both are the same reading.
+    """
+
+    frame = display.frame()
+    series = frame.iloc[:, 0] if hasattr(frame, "columns") else frame
+    return {str(name): _number(value) for name, value in series.items()}
+
+
+def _pick(table: dict, base: str, positive: str | None) -> float | None:
+    """Read a metric skore may have named per class, per macro average, or bare.
+
+    With ``pos_label`` set skore writes ``recall``; without it — the multiclass
+    case — the same quantity is ``recall_avg_macro``, and the per-class values
+    sit under ``recall_<label>``.
+    """
+
+    for key in (base, f"{base}_avg_macro", f"{base}_{positive}" if positive else ""):
+        if key and key in table and table[key] is not None:
+            return table[key]
+    return None
+
+
+def _curve(frame, x_column: str, y_column: str, *, limit: int) -> list[dict]:
+    """Thin one of skore's tidy curve frames into plottable points."""
+
+    return _thin(
+        frame[x_column].to_numpy(), frame[y_column].to_numpy(), limit
     )
+
+
+def _classification_metrics(report, classes, *, curve_points: int) -> dict:
+    """The model card's classification read model, entirely from skore.
+
+    ``f1`` and ``balanced_accuracy`` are not in skore's default table, and are
+    not recomputed here either: both are definitions over numbers skore already
+    reported — f1 is the harmonic mean of precision and recall, balanced
+    accuracy is the macro recall — so deriving them keeps one source of truth.
+    """
 
     labels = list(classes)
     binary = len(labels) == 2
+    positive = _label(labels[-1]) if binary else None
+    table = _summary_table(report.metrics.summarize())
+
+    precision = _pick(table, "precision", positive)
+    recall = _pick(table, "recall", positive)
+    f1 = None
+    if precision is not None and recall is not None and (precision + recall) > 0:
+        f1 = _number(2 * precision * recall / (precision + recall))
+    balanced = _pick(table, "recall", None)
+    if balanced is None and not binary:
+        per_class = [
+            table[f"recall_{_label(value)}"]
+            for value in labels
+            if table.get(f"recall_{_label(value)}") is not None
+        ]
+        balanced = _number(sum(per_class) / len(per_class)) if per_class else None
+    elif binary:
+        per_class = [
+            table[key]
+            for key in (f"recall_{_label(value)}" for value in labels)
+            if table.get(key) is not None
+        ]
+        if len(per_class) == len(labels):
+            balanced = _number(sum(per_class) / len(per_class))
+
+    ordered = [
+        ("roc_auc", _pick(table, "roc_auc", positive)),
+        ("accuracy", table.get("accuracy")),
+        ("balanced_accuracy", balanced),
+        ("f1", f1),
+        ("precision", precision),
+        ("recall", recall),
+        ("log_loss", table.get("log_loss")),
+        ("brier_score", table.get("brier_score")),
+    ]
     scores = [
-        {"key": "accuracy", "value": _number(accuracy_score(y_test, predicted))},
-        {
-            "key": "balanced_accuracy",
-            "value": _number(balanced_accuracy_score(y_test, predicted)),
-        },
-        {
-            "key": "f1",
-            "value": _number(
-                f1_score(
-                    y_test,
-                    predicted,
-                    average="binary" if binary else "macro",
-                    pos_label=labels[-1] if binary else 1,
-                    zero_division=0,
-                )
-            ),
-        },
-        {
-            "key": "precision",
-            "value": _number(
-                precision_score(
-                    y_test,
-                    predicted,
-                    average="binary" if binary else "macro",
-                    pos_label=labels[-1] if binary else 1,
-                    zero_division=0,
-                )
-            ),
-        },
-        {
-            "key": "recall",
-            "value": _number(
-                recall_score(
-                    y_test,
-                    predicted,
-                    average="binary" if binary else "macro",
-                    pos_label=labels[-1] if binary else 1,
-                    zero_division=0,
-                )
-            ),
-        },
+        {"key": key, "value": value} for key, value in ordered if value is not None
     ]
 
     curves: dict = {}
-    auc = None
-    if proba is not None:
+    if binary:
         try:
-            if binary:
-                positive = proba[:, -1]
-                auc = _number(roc_auc_score(y_test, positive))
-                fpr, tpr, _ = roc_curve(y_test, positive, pos_label=labels[-1])
-                curves["roc"] = _thin(fpr, tpr, curve_points)
-                precision, recall, _ = precision_recall_curve(
-                    y_test, positive, pos_label=labels[-1]
-                )
-                curves["pr"] = _thin(recall, precision, curve_points)
-                curves["baseline"] = _number(
-                    sum(1 for value in y_test if value == labels[-1]) / len(y_test)
-                )
-            else:
-                auc = _number(
-                    roc_auc_score(y_test, proba, multi_class="ovr", average="macro")
-                )
+            curves["roc"] = _curve(
+                report.metrics.roc().frame(), "fpr", "tpr", limit=curve_points
+            )
+            curves["pr"] = _curve(
+                report.metrics.precision_recall().frame(),
+                "recall",
+                "precision",
+                limit=curve_points,
+            )
+            # The PR curve's chance line is the positive rate, not 0.5.
+            truth = report.y_test
+            curves["baseline"] = _number(
+                sum(1 for value in truth if _label(value) == positive) / len(truth)
+            )
         except Exception:  # noqa: BLE001 - a curve is never worth failing a fit on
-            auc = None
-    if auc is not None:
-        scores.insert(0, {"key": "roc_auc", "value": auc})
+            curves.pop("roc", None)
+            curves.pop("pr", None)
 
-    matrix = confusion_matrix(y_test, predicted, labels=labels)
+    matrix = [[0 for _ in labels] for _ in labels]
+    index = {_label(value): position for position, value in enumerate(labels)}
+    for row in report.metrics.confusion_matrix().frame().itertuples():
+        true_at = index.get(_label(row.true_label))
+        predicted_at = index.get(_label(row.predicted_label))
+        if true_at is not None and predicted_at is not None:
+            matrix[true_at][predicted_at] = int(row.value)
+
     return {
-        "primary": scores[0],
+        "primary": scores[0] if scores else {"key": "accuracy", "value": None},
         "scores": scores,
         "confusion": {
             "labels": [_label(value) for value in labels],
-            "matrix": [[int(cell) for cell in row] for row in matrix],
+            "matrix": matrix,
         },
         "curves": curves,
     }
 
 
-def _regression_metrics(y_test, predicted, *, curve_points: int) -> dict:
-    import numpy as np
-    from sklearn.metrics import (
-        mean_absolute_error,
-        mean_squared_error,
-        r2_score,
-    )
+def _regression_metrics(report, *, curve_points: int) -> dict:
+    """The regression read model. skore reports rmse and mape natively.
 
-    actual = np.asarray(y_test, dtype="float64")
-    guess = np.asarray(predicted, dtype="float64")
-    scores = [
-        {"key": "r2", "value": _number(r2_score(actual, guess))},
-        {"key": "mae", "value": _number(mean_absolute_error(actual, guess))},
-        {
-            "key": "rmse",
-            "value": _number(math.sqrt(mean_squared_error(actual, guess))),
-        },
+    Note the unit skew: skore's ``mape`` is a ratio, the card's tile is a
+    percentage.
+    """
+
+    import numpy as np
+
+    table = _summary_table(report.metrics.summarize())
+    ordered = [
+        ("r2", table.get("r2")),
+        ("mae", table.get("mae")),
+        ("rmse", table.get("rmse")),
+        (
+            "mape",
+            None if table.get("mape") is None else _number(table["mape"] * 100),
+        ),
     ]
-    nonzero = actual != 0
-    if nonzero.any():
-        scores.append(
-            {
-                "key": "mape",
-                "value": _number(
-                    float(
-                        np.mean(
-                            np.abs(
-                                (actual[nonzero] - guess[nonzero]) / actual[nonzero]
-                            )
-                        )
-                        * 100
-                    )
-                ),
-            }
-        )
+    scores = [
+        {"key": key, "value": value} for key, value in ordered if value is not None
+    ]
+
+    errors = report.metrics.prediction_error().frame()
+    actual = np.asarray(errors["y_true"], dtype="float64")
+    guess = np.asarray(errors["y_pred"], dtype="float64")
     order = np.argsort(actual)
     return {
-        "primary": scores[0],
+        "primary": scores[0] if scores else {"key": "r2", "value": None},
         "scores": scores,
         "curves": {
             # Predicted against actual: the regression equivalent of a ROC, and
@@ -353,35 +402,30 @@ def _regression_metrics(y_test, predicted, *, curve_points: int) -> dict:
     }
 
 
-def _importances(pipeline, x_test, y_test, *, rows: int, scoring: str, seed: int):
+def _importances(report, *, rows: int, scoring: str, seed: int):
     """Permutation importance on a capped sample: the honest feature ranking.
 
-    Capped because it refits nothing but predicts ``n_repeats`` times per
-    column, and a model card is not worth minutes of CPU.
+    Capped by ``max_samples`` because it refits nothing but predicts
+    ``n_repeats`` times per column, and a model card is not worth minutes of CPU.
     """
 
-    from sklearn.inspection import permutation_importance
-
-    take = min(int(rows), len(x_test))
-    if take < 20:
+    test_rows = len(report.X_test)
+    if test_rows < 20:
         return []
-    sample_x = x_test.iloc[:take]
-    sample_y = y_test.iloc[:take]
+    fraction = 1.0 if rows >= test_rows else max(float(rows) / test_rows, 0.01)
     try:
-        result = permutation_importance(
-            pipeline,
-            sample_x,
-            sample_y,
+        frame = report.inspection.permutation_importance(
+            metric=scoring,
             n_repeats=3,
-            random_state=seed,
-            scoring=scoring,
+            max_samples=fraction,
+            seed=seed,
             n_jobs=1,
-        )
+        ).frame()
     except Exception:  # noqa: BLE001 - decoration, never a blocker
         return []
     ranked = [
-        {"feature": str(name), "value": _number(value)}
-        for name, value in zip(sample_x.columns, result.importances_mean)
+        {"feature": str(row.feature), "value": _number(row.value_mean)}
+        for row in frame.itertuples()
     ]
     ranked.sort(key=lambda row: abs(row["value"] or 0.0), reverse=True)
     return ranked
@@ -549,6 +593,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             )
         x, y = x[keep.values], y[keep]
 
+    from sklearn.base import clone
     from sklearn.model_selection import train_test_split
     from sklearn.pipeline import make_pipeline
 
@@ -599,20 +644,34 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         return _fail(1, f"ml_fit_failed: {type(exc).__name__}: {exc}")
 
     _progress(progress_path, "scoring")
-    predicted = pipeline.predict(x_test)
-    proba = None
-    if task == "classification" and hasattr(pipeline, "predict_proba"):
-        try:
-            proba = pipeline.predict_proba(x_test)
-            classes = list(pipeline.classes_)
-        except Exception:  # noqa: BLE001
-            proba = None
+    if task == "classification" and hasattr(pipeline, "classes_"):
+        classes = list(pipeline.classes_)
+
+    try:
+        from skore import EstimatorReport
+    except ImportError as exc:  # pragma: no cover - the app venv has skore
+        return _fail(5, f"skore_missing: {exc}")
+
+    # One report, one pass over the test split: skore caches the predictions, so
+    # the table, the curves, the matrix and the importances below all read the
+    # same cached arrays. The estimator is already fitted, so no train data is
+    # handed over — skore rejects that combination on purpose.
+    binary = task == "classification" and len(classes) == 2
+    try:
+        report = EstimatorReport(
+            pipeline,
+            X_test=x_test,
+            y_test=y_test,
+            **({"pos_label": classes[-1]} if binary else {}),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _fail(1, f"ml_report_failed: {type(exc).__name__}: {exc}")
 
     if task == "classification":
         metrics = _classification_metrics(
-            y_test, predicted, proba, classes, curve_points=curve_points
+            report, classes, curve_points=curve_points
         )
-        scoring = "roc_auc" if len(classes) == 2 else "accuracy"
+        scoring = "roc_auc" if binary else "accuracy"
         balance = [
             {"label": _label(value), "count": int(count)}
             for value, count in y.value_counts().sort_index().items()
@@ -624,7 +683,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             "balance": balance,
         }
     else:
-        metrics = _regression_metrics(y_test, predicted, curve_points=curve_points)
+        metrics = _regression_metrics(report, curve_points=curve_points)
         scoring = "r2"
         metrics["target"] = {
             "name": str(target),
@@ -644,22 +703,56 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         "dropped": dropped,
     }
     metrics["importances"] = _importances(
-        pipeline, x_test, y_test, rows=importance_rows, scoring=scoring, seed=seed
+        report, rows=importance_rows, scoring=scoring, seed=seed
     )
 
     if folds >= 2:
-        from sklearn.model_selection import cross_val_score
+        # A single split reports one number and hides its own variance. skore's
+        # cross-validation report gives every metric a spread across folds, which
+        # is the honest way to say "0.86" — and the only way to tell a real
+        # improvement from a lucky split when two versions are compared.
+        from skore import CrossValidationReport
 
+        _progress(progress_path, "validating")
         try:
-            values = cross_val_score(
-                pipeline, x_train, y_train, cv=folds, scoring=scoring, n_jobs=1
+            folded = CrossValidationReport(
+                clone(pipeline),
+                X=x_train,
+                y=y_train,
+                splitter=folds,
+                n_jobs=1,
+                **({"pos_label": classes[-1]} if binary else {}),
             )
+            table = folded.metrics.summarize().frame()
+            means = [name for name in table.columns if name.endswith("_mean")]
+            spreads = [name for name in table.columns if name.endswith("_std")]
+            per_metric = []
+            for name in table.index:
+                # Only the keys the card has a label for. skore also reports
+                # timings, and per-class rows when the target is multiclass;
+                # neither belongs in a row of "metric ± spread" chips.
+                if str(name) not in _CARD_METRICS:
+                    continue
+                mean = _number(table.loc[name, means[0]]) if means else None
+                spread = _number(table.loc[name, spreads[0]]) if spreads else None
+                if str(name) == "mape":
+                    # Same unit skew as the single-split table: skore reports a
+                    # ratio, the card's tile reads a percentage.
+                    mean = None if mean is None else _number(mean * 100)
+                    spread = None if spread is None else _number(spread * 100)
+                if mean is not None:
+                    per_metric.append(
+                        {"key": str(name), "mean": mean, "std": spread}
+                    )
+            headline = next(
+                (row for row in per_metric if row["key"] == scoring), None
+            ) or next(iter(per_metric), None)
             metrics["cv"] = {
                 "folds": folds,
                 "metric": scoring,
-                "mean": _number(values.mean()),
-                "std": _number(values.std()),
-                "scores": [_number(value) for value in values],
+                "mean": (headline or {}).get("mean"),
+                "std": (headline or {}).get("std"),
+                "metrics": per_metric,
             }
         except Exception as exc:  # noqa: BLE001 - a fold that fails is not a fit that fails
             metrics["cv"] = {"folds": folds, "metric": scoring, "error": str(exc)[:200]}
