@@ -113,6 +113,95 @@ export function nullPercent(stats: TabularColumnStats | null | undefined): numbe
   return Math.round(stats.null_ratio * 100);
 }
 
+/** The statistics a column profile can state, in the order a reader wants them. */
+export type ProfileFactKey =
+  | 'rows'
+  | 'nulls'
+  | 'distinct'
+  | 'min'
+  | 'max'
+  | 'mean'
+  | 'std';
+
+export interface ProfileFact {
+  key: ProfileFactKey;
+  /** Typed as the backend measured it; the caller formats for its locale. */
+  value: number | string;
+  /** Share of rows, `nulls` only, rendered as a percentage beside the count. */
+  ratio?: number;
+}
+
+const NUMERIC_ONLY_FACTS: readonly ProfileFactKey[] = ['mean', 'std'];
+
+/**
+ * A column profile as an ordered list of facts, for the popover a header opens.
+ *
+ * Counts come first (how much data, how much of it is missing, how many
+ * different values), then the range, then central tendency. Absent statistics
+ * are dropped rather than shown as "—": a profile that lists only what was
+ * actually measured reads faster than one padded with holes. `nulls` is the
+ * exception and is always stated, because "no missing values" is a finding.
+ */
+export function profileFacts(
+  stats: TabularColumnStats | null | undefined,
+  numeric: boolean,
+  rowCount?: number | null,
+): ProfileFact[] {
+  if (!stats) return [];
+  const facts: ProfileFact[] = [];
+  if (typeof rowCount === 'number' && rowCount > 0) {
+    facts.push({ key: 'rows', value: rowCount });
+  }
+  facts.push({
+    key: 'nulls',
+    value: stats.nulls ?? 0,
+    ratio: stats.null_ratio ?? 0,
+  });
+  if (typeof stats.distinct === 'number' && stats.distinct > 0) {
+    facts.push({ key: 'distinct', value: stats.distinct });
+  }
+  for (const key of ['min', 'max', 'mean', 'std'] as const) {
+    if (NUMERIC_ONLY_FACTS.includes(key) && !numeric) continue;
+    const value = stats[key];
+    if (value === null || value === undefined || value === '') continue;
+    facts.push({ key, value });
+  }
+  return facts;
+}
+
+/** One ranked value of a categorical column, with its share of the rows. */
+export interface TopValueBar {
+  label: string;
+  count: number;
+  /** Percentage of the most frequent value, so the longest bar is full width. */
+  width: number;
+}
+
+/**
+ * The top values of a column as ranked bars, widest first.
+ *
+ * Widths are relative to the most frequent value rather than to the row count:
+ * a column whose top value covers 3% of rows would otherwise render as seven
+ * invisible slivers, which hides exactly the high-cardinality shape the reader
+ * opened the popover to see.
+ */
+export function topValueBars(
+  stats: TabularColumnStats | null | undefined,
+  nullLabel = 'null',
+): TopValueBar[] {
+  const values = stats?.top_values ?? [];
+  if (!values.length) return [];
+  const peak = Math.max(...values.map((entry) => entry.count), 1);
+  return values.map((entry) => ({
+    label:
+      entry.value === null || entry.value === undefined
+        ? nullLabel
+        : String(entry.value),
+    count: entry.count,
+    width: Math.max(2, Math.round((entry.count / peak) * 100)),
+  }));
+}
+
 /**
  * Human-readable byte size. The UI shows volumes, never raw byte counts, and
  * keeps one decimal below 10 units so "1.4 MB" doesn't collapse to "1 MB".

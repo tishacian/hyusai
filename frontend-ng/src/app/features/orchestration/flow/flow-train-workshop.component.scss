@@ -269,6 +269,13 @@
   white-space: nowrap;
 }
 
+/* Pushes the distribution glyph to the right of the name, so the shapes stack
+   into one readable column instead of floating after names of varying length. */
+.ck-train-workshop__spark {
+  margin-left: auto;
+  display: inline-flex;
+}
+
 /* Classification or regression. The plan infers it; this is the override. */
 .ck-train-workshop__seg {
   display: flex;

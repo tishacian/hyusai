@@ -114,3 +114,59 @@ test('the detail page badges the scored columns and links back to the card', () 
     assert.ok((DATA_EN as Record<string, string>)[key]?.trim(), `${key} has EN copy`);
   }
 });
+
+test('a column header opens its own profile, and only when it has one', () => {
+  const table = readFileSync(
+    join(process.cwd(), 'src/app/shared/ui/data-table.component.ts'),
+    'utf8',
+  );
+  // The sparkline answers "what shape"; the popover answers "what numbers".
+  // Without the second half the header is a picture with no legend.
+  assert.match(table, /data-testid="column-profile-toggle"/);
+  assert.match(table, /data-testid="column-profile"/);
+  assert.match(table, /openable\(col\)/, 'a header with no profile is not a button');
+  assert.match(table, /aria-expanded/, 'the toggle announces its state');
+  assert.match(table, /role="dialog"/, 'and the panel is announced as one');
+  // Escape and an outside click both close it: a popover that traps the reader
+  // inside a table they are trying to scroll is worse than a tooltip.
+  assert.match(table, /'\(document:keydown\.escape\)': 'closeProfile\(\)'/);
+  assert.match(table, /'\(document:click\)': 'onDocumentClick\(\$event\)'/);
+  assert.match(table, /profileFacts\(profile, numeric, this\.rowCount\(\)\)/);
+  assert.match(table, /topValueBars\(profile, nullLabel\)/);
+});
+
+test('the profile popover names every statistic it prints, in both languages', () => {
+  for (const key of [
+    'data.table.profile.open',
+    'data.table.profile.title',
+    'data.table.profile.rows',
+    'data.table.profile.nulls',
+    'data.table.profile.distinct',
+    'data.table.profile.min',
+    'data.table.profile.max',
+    'data.table.profile.mean',
+    'data.table.profile.std',
+    'data.table.profile.top',
+  ]) {
+    assert.ok((DATA_FR as Record<string, string>)[key]?.trim(), `${key} has FR copy`);
+    assert.ok((DATA_EN as Record<string, string>)[key]?.trim(), `${key} has EN copy`);
+  }
+});
+
+test('the surfaces that show a preview tell the table how many rows there are', () => {
+  // Without it the profile can state the nulls but not what they are out of,
+  // which is the one figure that turns "12 nulls" into a judgement.
+  const view = readFileSync(
+    join(process.cwd(), 'src/app/features/data/data-view.component.ts'),
+    'utf8',
+  );
+  const workshop = readFileSync(
+    join(
+      process.cwd(),
+      'src/app/features/orchestration/flow/flow-transform-workshop.component.ts',
+    ),
+    'utf8',
+  );
+  assert.match(view, /\[rowCount\]="ds\.row_count \?\? null"/);
+  assert.match(workshop, /\[rowCount\]="result\.row_count"/);
+});

@@ -327,6 +327,7 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                     [columns]="result.schema"
                     [rows]="result.preview"
                     [stats]="result.stats"
+                    [rowCount]="result.row_count"
                     maxHeight="100%"
                     [caption]="
                       i18n.t('flow.transform.result.caption', {

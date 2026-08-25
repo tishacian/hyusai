@@ -12,6 +12,7 @@
  * paths, a confusion matrix into cells that carry their own intensity, feature
  * importances into bars normalized against the strongest one.
  */
+import type { TabularColumnStats } from '@app/shared/ui/data-table.vm';
 
 // ---------------------------------------------------------------------------
 // Transport shapes
@@ -617,13 +618,18 @@ export interface ModelCatalog {
   };
 }
 
-/** One candidate column, carrying the task it suggests. */
+/** One candidate column, carrying the task it suggests and its profile. */
 export interface PlanColumn {
   name: string;
   kind: string;
   distinct: number;
   nulls: number;
   suggested_task: ModelTask;
+  /**
+   * The ingest-time profile, in the shape `<ck-data-table>` already reads, so
+   * the picker draws the same distribution glyph as the dataset page.
+   */
+  profile?: TabularColumnStats;
 }
 
 export interface TrainingPlan {

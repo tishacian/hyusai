@@ -29,6 +29,7 @@ import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { ColumnSparkComponent } from '@app/shared/ui/column-spark.component';
 import type { DatasetDto } from '@app/features/data/data.service';
 import { ModelsService } from './models.service';
 import {
@@ -71,7 +72,7 @@ export interface TrainSeed {
   selector: 'app-model-train',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [A11yModule, FormsModule, IconComponent],
+  imports: [A11yModule, ColumnSparkComponent, FormsModule, IconComponent],
   template: `
     <div class="fixed inset-0 z-50 flex items-start justify-center p-4 md:p-6 overflow-auto">
       <div class="absolute inset-0" style="background: var(--ck-scrim)" (click)="dismiss()"></div>
@@ -168,6 +169,12 @@ export interface TrainSeed {
                       <app-icon [name]="taskIcon(column.suggested_task)" [size]="13" />
                       <span class="ck-picker__name ck-mono">{{ column.name }}</span>
                       <span class="ck-kind">{{ i18n.t('data.kind.' + column.kind) }}</span>
+                      <span class="ck-picker__spark">
+                        <ck-column-spark
+                          [stats]="column.profile ?? null"
+                          [kind]="column.kind"
+                        />
+                      </span>
                       <span class="ck-picker__meta ck-mono">
                         {{ i18n.t('models.studio.target.distinct', { count: column.distinct }) }}
                       </span>
@@ -243,6 +250,12 @@ export interface TrainSeed {
                       @if (flaggedFeatures().has(column.name)) {
                         <app-icon name="alert-triangle" [size]="10" />
                       }
+                      <ck-column-spark
+                        [stats]="column.profile ?? null"
+                        [kind]="column.kind"
+                        [width]="20"
+                        [height]="9"
+                      />
                       {{ column.name }}
                     </button>
                   }
@@ -533,6 +546,12 @@ export interface TrainSeed {
         font-size: 10px;
         color: var(--ck-fg-4, #8891a0);
         flex-shrink: 0;
+      }
+      /* Pushes the distribution glyph to the right edge of the row, so the
+         names stay left-aligned and the shapes read as one column of shapes. */
+      .ck-picker__spark {
+        margin-left: auto;
+        display: inline-flex;
       }
       .ck-kind {
         font-size: 9.5px;

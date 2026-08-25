@@ -121,6 +121,16 @@ export const DATA_FR = {
   'data.table.distinct': '{count} distinctes',
   'data.table.nulls': '{count} nulles',
   'data.table.rows_columns': '{rows} lignes · {columns} colonnes',
+  'data.table.profile.open': 'Profil de la colonne {column}',
+  'data.table.profile.title': 'Profil — {column}',
+  'data.table.profile.rows': 'Lignes',
+  'data.table.profile.nulls': 'Nulles',
+  'data.table.profile.distinct': 'Distinctes',
+  'data.table.profile.min': 'Minimum',
+  'data.table.profile.max': 'Maximum',
+  'data.table.profile.mean': 'Moyenne',
+  'data.table.profile.std': 'Écart-type',
+  'data.table.profile.top': 'Valeurs les plus fréquentes',
 } as const;
 
 export const DATA_EN: Record<keyof typeof DATA_FR, string> = {
@@ -225,4 +235,14 @@ export const DATA_EN: Record<keyof typeof DATA_FR, string> = {
   'data.table.distinct': '{count} distinct',
   'data.table.nulls': '{count} null',
   'data.table.rows_columns': '{rows} rows · {columns} columns',
+  'data.table.profile.open': 'Profile of column {column}',
+  'data.table.profile.title': 'Profile — {column}',
+  'data.table.profile.rows': 'Rows',
+  'data.table.profile.nulls': 'Null',
+  'data.table.profile.distinct': 'Distinct',
+  'data.table.profile.min': 'Minimum',
+  'data.table.profile.max': 'Maximum',
+  'data.table.profile.mean': 'Mean',
+  'data.table.profile.std': 'Std deviation',
+  'data.table.profile.top': 'Most frequent values',
 };
