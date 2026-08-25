@@ -18,9 +18,9 @@ import type {
 import type { Skill } from '@app/core/canonical-api.service';
 import { RECIPE_SKILL_SLUG, recipeDefaultParams } from './flow-recipe.vm';
 import {
-  POLARS_TRANSFORM_SKILL_SLUG,
-  SQL_TRANSFORM_SKILL_SLUG,
+  TRANSFORM_ENGINES,
   transformDefaultParams,
+  type TransformEngine,
 } from './flow-transform.vm';
 
 export type NodeTone = 'brand' | 'cyan' | 'violet' | 'emerald' | 'amber' | 'rose';
@@ -424,11 +424,19 @@ export function portsFromSchema(
   return ports;
 }
 
+/** The transform engine a skill slug names, or `null` for anything else. */
+function transformEngineOfSlug(slug: string): TransformEngine | null {
+  for (const descriptor of Object.values(TRANSFORM_ENGINES)) {
+    if (descriptor.skillSlug === slug) return descriptor.engine;
+  }
+  return null;
+}
+
 /** Pick a Lucide icon (registered in icon-registry) for a skill. */
 function iconForSkill(skill: Skill): string {
   if (skill.slug === RECIPE_SKILL_SLUG) return 'code-2';
-  if (skill.slug === SQL_TRANSFORM_SKILL_SLUG) return 'database';
-  if (skill.slug === POLARS_TRANSFORM_SKILL_SLUG) return 'code';
+  const engine = transformEngineOfSlug(skill.slug);
+  if (engine) return TRANSFORM_ENGINES[engine].icon;
   const hay = `${skill.type ?? ''} ${skill.slug} ${skill.name ?? ''}`.toLowerCase();
   if (/retriev|rag|search|lookup|fetch/.test(hay)) return 'search';
   if (/generat|answer|llm|summar|writ|draft/.test(hay)) return 'cpu';
@@ -473,11 +481,9 @@ export function skillToPaletteItem(skill: Skill): PaletteItem {
   // Same reason for the transform Skills: their catalog schema is a dataset
   // envelope, so the executable defaults — the starter program and the empty
   // pin list — are seeded here at drop time.
-  if (skill.slug === SQL_TRANSFORM_SKILL_SLUG) {
-    params = { ...transformDefaultParams('sql'), ...params };
-  }
-  if (skill.slug === POLARS_TRANSFORM_SKILL_SLUG) {
-    params = { ...transformDefaultParams('polars'), ...params };
+  const engine = transformEngineOfSlug(skill.slug);
+  if (engine) {
+    params = { ...transformDefaultParams(engine), ...params };
   }
   const category = skillPaletteSection(skill);
 

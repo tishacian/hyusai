@@ -10,17 +10,23 @@
  *    persisting anything, answering with the same profile shape the dataset
  *    pages render plus the source catalog the editor completes from.
  *
- * The two engines differ only in transport, and that difference is a property
- * of the platform rather than a choice:
+ * The engines differ only in transport, and that difference is a property of
+ * the platform rather than a choice:
  *
  *  - **SQL** is answered inline by `/datasets/sql-preview` — duckdb runs in the
  *    API process for the length of one statement.
- *  - **Polars** cannot be: author-written Python only ever runs on a managed
- *    venv interpreter, in the worker container that mounts the venv store. So
- *    `/datasets/polars-preview` hands back a `RecipeExecution` row and this
- *    service follows it to terminal, surfacing `env_building` on the way — the
- *    first run in a workspace pays for the environment, and the author should
- *    see that rather than a mute spinner.
+ *  - **Polars and dbt** cannot be: author-written Python, and the Jinja plus
+ *    adapter macros of a dbt project, only ever run on a managed venv
+ *    interpreter, in the worker container that mounts the venv store. So
+ *    `/datasets/polars-preview` and `/datasets/dbt-preview` hand back a
+ *    `RecipeExecution` row and this service follows it to terminal, surfacing
+ *    `env_building` on the way — the first run in a workspace pays for the
+ *    environment, and the author should see that rather than a mute spinner.
+ *
+ * A dbt row carries one thing a Polars row does not: the build verdict, on
+ * success AND on refusal. `dbtReport` is therefore populated from a failed row
+ * too — "which test refused how many rows" is the answer, not the absence of
+ * one.
  *
  * The server is the authority on what a transform may do: refusals arrive as
  * `{code, message}` (inline) or as `"CODE: detail"` on the row (queued) and are
@@ -37,11 +43,14 @@ import {
 } from '@app/core/canonical-api.service';
 import { DataService, type DatasetDto } from '@app/features/data/data.service';
 import {
+  dbtReportFrom,
   editorSqlSchema,
   transformFailure,
   transformFailureFromExecution,
+  type DbtReport,
   type TransformEngine,
   type TransformFailure,
+  type TransformModel,
   type TransformSourceCatalogEntry,
   type TransformSourcePin,
 } from './flow-transform.vm';
@@ -62,12 +71,24 @@ interface SqlPreviewResponse {
   sources: TransformSourceCatalogEntry[];
 }
 
-interface PolarsPreviewResponse {
+/** Both queued engines answer with a row to follow, not with a result. */
+interface QueuedPreviewResponse {
   execution: RecipeExecutionDto | null;
   sources: TransformSourceCatalogEntry[];
 }
 
-/** Poll cadence while a queued Polars preview settles. */
+/** Everything a transform run needs beyond its program and its pins. */
+export interface TransformRunOptions {
+  rowLimit?: number;
+  requirementsText?: string;
+  timeoutS?: number;
+  /** dbt only: the project, its tests and the model it publishes. */
+  models?: readonly TransformModel[];
+  testsYml?: string;
+  outputModel?: string;
+}
+
+/** Poll cadence while a queued preview settles. */
 const EXECUTION_POLL_MS = 900;
 /** Give up following a row after this long; the worker's own limits are hard. */
 const EXECUTION_POLL_TIMEOUT_MS = 15 * 60 * 1000;
@@ -98,6 +119,8 @@ export class FlowTransformService {
   readonly stdout = signal<string>('');
   /** The row a queued run is following, so the author can cancel it. */
   readonly execution = signal<RecipeExecutionDto | null>(null);
+  /** dbt only: which models built and which tests passed, pass or fail. */
+  readonly dbtReport = signal<DbtReport | null>(null);
   /** Ready datasets available for pinning; loaded once per builder shell. */
   readonly datasets = signal<DatasetDto[]>([]);
   readonly datasetsLoading = signal(false);
@@ -145,10 +168,14 @@ export class FlowTransformService {
       return;
     }
     try {
+      // An empty program resolves the catalog without running anything, on
+      // every engine: that is the contract the three preview endpoints share.
       const sources =
         engine === 'polars'
           ? (await this.postPolars({ code: '', sources: pins, row_limit: 1 })).sources
-          : (await this.postSql({ sql: '', sources: pins, row_limit: 1 })).sources;
+          : engine === 'dbt'
+            ? (await this.postDbt({ models: [], sources: pins, row_limit: 1 })).sources
+            : (await this.postSql({ sql: '', sources: pins, row_limit: 1 })).sources;
       if (this.disposed) return;
       this.sources.set(sources ?? []);
       this.failure.set(null);
@@ -164,17 +191,42 @@ export class FlowTransformService {
     engine: TransformEngine,
     program: string,
     pins: readonly TransformSourcePin[],
-    options: { rowLimit?: number; requirementsText?: string; timeoutS?: number } = {},
+    options: TransformRunOptions = {},
   ): Promise<void> {
     if (this.busy()) return;
     this.busy.set(true);
     this.failure.set(null);
     this.stdout.set('');
     this.execution.set(null);
+    this.dbtReport.set(null);
     this.phase.set('queued');
     try {
       if (engine === 'polars') {
-        await this.runPolars(program, pins, options);
+        await this.runQueued(
+          () =>
+            this.postPolars({
+              code: program,
+              sources: pins,
+              row_limit: options.rowLimit ?? 50,
+              requirements_text: options.requirementsText ?? '',
+              timeout_s: options.timeoutS,
+            }),
+          'POLARS_CANCELLED',
+        );
+      } else if (engine === 'dbt') {
+        await this.runQueued(
+          () =>
+            this.postDbt({
+              models: options.models ?? [],
+              tests_yml: options.testsYml ?? '',
+              output_model: options.outputModel ?? '',
+              sources: pins,
+              row_limit: options.rowLimit ?? 50,
+              requirements_text: options.requirementsText ?? '',
+              timeout_s: options.timeoutS,
+            }),
+          'DBT_CANCELLED',
+        );
       } else {
         const response = await this.postSql({
           sql: program,
@@ -212,27 +264,23 @@ export class FlowTransformService {
     this.failure.set(null);
     this.stdout.set('');
     this.execution.set(null);
+    this.dbtReport.set(null);
   }
 
   /**
-   * Dispatch a Polars preview and follow its row to terminal.
+   * Dispatch a queued preview and follow its row to terminal.
    *
    * The row IS the answer: `output_json` carries the profile on success, and
    * `error` carries `"CODE: detail"` on refusal. Nothing is persisted either
-   * way — the worker profiles the frame instead of registering it.
+   * way — the worker profiles the frame instead of registering it. A dbt build
+   * that broke or failed its tests still writes a verdict on `output_json`, so
+   * the report is read on both paths.
    */
-  private async runPolars(
-    code: string,
-    pins: readonly TransformSourcePin[],
-    options: { rowLimit?: number; requirementsText?: string; timeoutS?: number },
+  private async runQueued(
+    dispatch: () => Promise<QueuedPreviewResponse>,
+    cancelledCode: string,
   ): Promise<void> {
-    const response = await this.postPolars({
-      code,
-      sources: pins,
-      row_limit: options.rowLimit ?? 50,
-      requirements_text: options.requirementsText ?? '',
-      timeout_s: options.timeoutS,
-    });
+    const response = await dispatch();
     if (this.disposed) return;
     if (response.sources?.length) this.sources.set(response.sources);
     if (!response.execution) {
@@ -242,11 +290,12 @@ export class FlowTransformService {
     const settled = await this.follow(response.execution);
     if (this.disposed || !settled) return;
     this.stdout.set(settled.stdout_tail ?? '');
+    this.dbtReport.set(dbtReportFrom(settled.output_json));
     if (settled.status !== 'succeeded') {
       this.preview.set(null);
       this.failure.set(
         settled.status === 'cancelled'
-          ? { key: 'flow.transform.error.POLARS_CANCELLED' }
+          ? { key: `flow.transform.error.${cancelledCode}` }
           : transformFailureFromExecution(settled.error),
       );
       return;
@@ -320,10 +369,32 @@ export class FlowTransformService {
     row_limit: number;
     requirements_text?: string;
     timeout_s?: number;
-  }): Promise<PolarsPreviewResponse> {
+  }): Promise<QueuedPreviewResponse> {
     return firstValueFrom(
-      this.http.post<PolarsPreviewResponse>('/api/v1/datasets/polars-preview', {
+      this.http.post<QueuedPreviewResponse>('/api/v1/datasets/polars-preview', {
         code: body.code,
+        sources: this.pinBody(body.sources),
+        row_limit: body.row_limit,
+        requirements_text: body.requirements_text ?? '',
+        ...(body.timeout_s ? { timeout_s: body.timeout_s } : {}),
+      }),
+    );
+  }
+
+  private postDbt(body: {
+    models: readonly TransformModel[];
+    sources: readonly TransformSourcePin[];
+    row_limit: number;
+    tests_yml?: string;
+    output_model?: string;
+    requirements_text?: string;
+    timeout_s?: number;
+  }): Promise<QueuedPreviewResponse> {
+    return firstValueFrom(
+      this.http.post<QueuedPreviewResponse>('/api/v1/datasets/dbt-preview', {
+        models: body.models.map((model) => ({ name: model.name, sql: model.sql })),
+        tests_yml: body.tests_yml ?? '',
+        output_model: body.output_model ?? '',
         sources: this.pinBody(body.sources),
         row_limit: body.row_limit,
         requirements_text: body.requirements_text ?? '',

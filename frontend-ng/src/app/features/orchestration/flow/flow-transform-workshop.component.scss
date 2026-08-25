@@ -1,6 +1,6 @@
 /* Transform workshop — program on top, result underneath, catalog on the side.
-   One chrome for every engine (SQL, Polars): switching engine must not feel
-   like switching tool. Tokenised, AA contrast, same chrome as the recipe
+   One chrome for every engine (SQL, Polars, dbt): switching engine must not
+   feel like switching tool. Tokenised, AA contrast, same chrome as the recipe
    workshop. */
 
 .ck-transform-workshop {
@@ -117,11 +117,13 @@
   }
 }
 
-/* The query/result split: 40% statement, 60% rows. A transform is read by its
-   output, so the table gets the larger half. */
+/* The program/result split: 40% program, 60% rows. A transform is read by its
+   output, so the table gets the larger half. Flex rather than grid because a
+   dbt run inserts a build ribbon between the two, and it must take its own
+   height instead of eating one of the halves. */
 .ck-transform-workshop__main {
-  display: grid;
-  grid-template-rows: minmax(160px, 2fr) minmax(180px, 3fr);
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   min-width: 0;
   border-right: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
@@ -133,17 +135,86 @@
 }
 
 .ck-transform-workshop__editor {
+  flex: 2 1 0;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: 160px;
   min-width: 0;
   padding: 12px;
   gap: 8px;
 }
 
+/* The project as a file rail: dbt models plus schema.yml, published one badged.
+   Reads as an editor tab strip because that is what it is. */
+.ck-transform-workshop__files {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.ck-transform-workshop__file {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--ck-radius-sm, 4px);
+  background: transparent;
+  color: var(--ck-fg-3, #8891a0);
+  font: 11px / 1 var(--ck-font-mono, monospace);
+  white-space: nowrap;
+  cursor: pointer;
+
+  &[aria-selected='true'] {
+    color: var(--ck-fg-1, #f2f5f8);
+    background: var(--ck-bg-inset, #0a0d11);
+    border-color: var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  }
+  &[data-kind='tests'] {
+    color: var(--ck-signal-warn, #f5b84a);
+  }
+  &[data-published='true'] {
+    color: var(--ck-signal-cool, #7dd3fc);
+  }
+  &:hover:not(:disabled) {
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+
+  &--add {
+    margin-left: auto;
+    font-family: var(--ck-font-sans, sans-serif);
+    font-weight: 600;
+  }
+}
+
+/* Which model this node publishes — the one fact a dbt project's file list
+   cannot express on its own. */
+.ck-transform-workshop__pill {
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 18%, transparent);
+  color: var(--ck-signal-cool, #7dd3fc);
+  font: 600 8.5px / 1 var(--ck-font-sans, sans-serif);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .ck-transform-workshop__editor-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   flex-shrink: 0;
 
@@ -159,6 +230,98 @@
   }
 }
 
+/* A model's relation name is edited where the model is: `ref()` addresses this
+   string, so it belongs to the editor head, not to a settings panel. */
+.ck-transform-workshop__rename {
+  width: 18ch;
+  padding: 4px 7px;
+  font: 600 11.5px / 1 var(--ck-font-mono, monospace);
+  color: var(--ck-fg-1, #f2f5f8);
+  background: var(--ck-bg-inset, #0a0d11);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: 3px;
+
+  &:focus {
+    outline: none;
+    border-color: var(--ck-signal-cool, #7dd3fc);
+    box-shadow: 0 0 0 1px var(--ck-signal-cool, #7dd3fc);
+  }
+}
+
+/* The dbt verdict. Rendered on a refusal too: a build that failed its data
+   tests is exactly the run whose report matters most. */
+.ck-transform-workshop__build {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 12px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  background: var(--ck-bg-inset, #0a0d11);
+}
+
+.ck-transform-workshop__build-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font: 600 11px / 1 var(--ck-font-sans, sans-serif);
+  }
+  span[data-ok='true'] {
+    color: var(--ck-signal-pos, #4ec9a0);
+  }
+  span[data-ok='false'] {
+    color: var(--ck-signal-neg, #ef5a6f);
+  }
+  code {
+    margin-left: auto;
+    font: 10.5px / 1 var(--ck-font-mono, monospace);
+    color: var(--ck-signal-cool, #7dd3fc);
+  }
+}
+
+.ck-transform-workshop__build-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 76px;
+  overflow-y: auto;
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 3px;
+    border: 1px solid var(--ck-stroke-1, rgba(255, 255, 255, 0.04));
+    background: var(--ck-bg-panel, #0c1014);
+    font: 10px / 1 var(--ck-font-mono, monospace);
+    color: var(--ck-fg-2, #c8cdd4);
+  }
+  li[data-ok='true'] {
+    color: var(--ck-signal-pos, #4ec9a0);
+    border-color: color-mix(in srgb, var(--ck-signal-pos, #4ec9a0) 30%, transparent);
+  }
+  li[data-ok='false'] {
+    color: var(--ck-signal-neg, #ef5a6f);
+    border-color: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 45%, transparent);
+    background: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 8%, transparent);
+  }
+  em {
+    font-style: normal;
+    font-weight: 600;
+  }
+}
+
 .ck-transform-workshop__editor-lines {
   margin-left: auto;
   font: 10px / 1 var(--ck-font-mono, monospace);
@@ -171,7 +334,8 @@
 }
 
 .ck-transform-workshop__result {
-  min-height: 0;
+  flex: 3 1 0;
+  min-height: 180px;
   min-width: 0;
   padding: 0 12px 12px;
   display: flex;
