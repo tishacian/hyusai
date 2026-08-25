@@ -407,6 +407,25 @@ def _trusted_types(model) -> list[str]:
     return sorted(str(name) for name in untrusted)
 
 
+def _tolerates_missing(estimator, *, fallback: bool) -> bool:
+    """Whether this estimator reads a hole as a value, per sklearn's own tags.
+
+    Asked of the estimator rather than tabulated here because the estimator is
+    the authority: the boosted trees send NaN down a branch of their own and
+    would lose that signal to an imputed median, while a logistic regression
+    refuses the row outright. If a future sklearn moves the tag, the catalog's
+    ``scale`` flag stands in — it marks the same two families, for the
+    neighbouring reason that they read magnitudes rather than splits.
+    """
+
+    try:
+        from sklearn.utils import get_tags
+
+        return bool(get_tags(estimator).input_tags.allow_nan)
+    except Exception:  # noqa: BLE001 - the catalog still knows, see above
+        return fallback
+
+
 def _resolve_estimator(dotted: str, params: dict):
     module_name, _, class_name = str(dotted).rpartition(".")
     if not module_name or not class_name:
@@ -553,6 +572,17 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         return _fail(5, str(exc))
 
     steps = [TableVectorizer()]
+    if not _tolerates_missing(estimator, fallback=not manifest.get("scale")):
+        # skrub encodes the categories but leaves numeric holes exactly as it
+        # found them, so an estimator that refuses NaN refuses them here — and
+        # would go on refusing them at predict time, which is the worse half:
+        # the signature this fit writes says a numeric column is nullable, so a
+        # model without this step would reject production rows its own contract
+        # accepts. Median rather than mean because a survey score or an ARPU is
+        # skewed often enough that the mean is not a plausible value.
+        from sklearn.impute import SimpleImputer
+
+        steps.append(SimpleImputer(strategy="median"))
     if manifest.get("scale"):
         # Linear and distance-based estimators read magnitudes as importance, so
         # an unscaled ARPU column would outvote an unscaled ticket count. Trees
