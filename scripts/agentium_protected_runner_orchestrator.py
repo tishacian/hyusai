@@ -67,7 +67,7 @@ NODE_RUNTIME_VERSION = "v22.23.1"
 BROWSERS_ROOT = Path("/opt/agentium-protected-runner/browsers")
 
 PACKAGE_LOCK_SHA256 = (
-    "5024a8ea6ce5d6f3b00a3f5900255ecd26110a212a65e770a01ff9c432ac3d19"
+    "cfded9c960a9db04bdb4ac9646140211852e1e6b92d1adb42a0002e6fae95685"
 )
 ITERATION_CANARY_SOURCE_PATHS = (
     "frontend-ng/package.json",
