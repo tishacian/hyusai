@@ -53,6 +53,7 @@ from app.services.tabular_ml import (
     get_model,
     infer_task,
     request_cancel,
+    runner_up,
     serialize_model,
     set_champion,
     submit_training,
@@ -75,6 +76,29 @@ router = APIRouter()
 
 def _raise_tabular(exc: TabularError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
+
+
+def _lineage(db: DBSession, *, workspace: Workspace, model: MLModel) -> dict[str, Any]:
+    """Every version of a lineage, and which of them is the challenger.
+
+    The challenger is named here rather than worked out in the browser because
+    it is the same fact the registry's ``@challenger`` alias records, and one
+    rule that two places implement is a rule that will disagree with itself.
+    """
+
+    versions = (
+        db.query(MLModel)
+        .filter(MLModel.workspace_id == workspace.id, MLModel.slug == model.slug)
+        .order_by(MLModel.version.desc())
+        .limit(50)
+        .all()
+    )
+    champion = next((row for row in versions if row.is_champion), model)
+    contender = runner_up(db, champion)
+    return {
+        "versions": [serialize_model(row) for row in versions],
+        "challenger_id": contender.id if contender is not None else None,
+    }
 
 
 class TrainBody(BaseModel):
@@ -290,20 +314,10 @@ async def get_model_detail(
         if model.dataset_id
         else None
     )
-    versions = (
-        db.query(MLModel)
-        .filter(
-            MLModel.workspace_id == workspace.id,
-            MLModel.slug == model.slug,
-        )
-        .order_by(MLModel.version.desc())
-        .limit(50)
-        .all()
-    )
     return {
         "model": serialize_model(model, include_detail=True),
         "dataset": serialize_dataset(dataset) if dataset is not None else None,
-        "versions": [serialize_model(row) for row in versions],
+        **_lineage(db, workspace=workspace, model=model),
         "catalog": catalog_payload(),
         "serving": serving_block(db, model),
     }
@@ -367,16 +381,9 @@ async def promote_model(
         model = set_champion(db, model)
     except TabularError as exc:
         _raise_tabular(exc)
-    versions = (
-        db.query(MLModel)
-        .filter(MLModel.workspace_id == workspace.id, MLModel.slug == model.slug)
-        .order_by(MLModel.version.desc())
-        .limit(50)
-        .all()
-    )
     return {
         "model": serialize_model(model, include_detail=True),
-        "versions": [serialize_model(row) for row in versions],
+        **_lineage(db, workspace=workspace, model=model),
     }
 
 

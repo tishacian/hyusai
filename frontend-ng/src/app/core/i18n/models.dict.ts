@@ -143,6 +143,9 @@ export const MODELS_FR = {
   'models.detail.tab.versions': 'Versions',
   'models.detail.tab.setup': 'Réglages',
   'models.detail.serving': 'En service',
+  'models.detail.challenger': 'Prétendante',
+  'models.detail.challenger_hint':
+    'La meilleure version qui ne répond pas : le registre la nomme « challenger », donc models:/<modèle>@challenger la résout sans passer par Agentium.',
   'models.detail.promote': 'Mettre en service',
   'models.detail.promoted': '« {name} » v{version} répond désormais',
   'models.detail.promote_hint':
@@ -410,6 +413,7 @@ export const MODELS_FR = {
   'models.versions.label': 'v{version}',
   'models.versions.current': 'Version affichée',
   'models.versions.serving': 'Répond',
+  'models.versions.challenger': 'Prétendante',
   'models.versions.trained': 'Entraîné le {date}',
   'models.versions.hint':
     'Chaque entraînement crée une version. Réentraîner ne remplace pas celle qui répond : c’est vous qui décidez.',
@@ -616,6 +620,9 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.detail.tab.versions': 'Versions',
   'models.detail.tab.setup': 'Settings',
   'models.detail.serving': 'Serving',
+  'models.detail.challenger': 'Challenger',
+  'models.detail.challenger_hint':
+    'The best version that is not answering. The registry names it “challenger”, so models:/<model>@challenger resolves it without going through Agentium.',
   'models.detail.promote': 'Put in service',
   'models.detail.promoted': '“{name}” v{version} now answers',
   'models.detail.promote_hint':
@@ -871,6 +878,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.versions.label': 'v{version}',
   'models.versions.current': 'Shown version',
   'models.versions.serving': 'Answers',
+  'models.versions.challenger': 'Challenger',
   'models.versions.trained': 'Trained on {date}',
   'models.versions.hint':
     'Every training run creates a version. Retraining does not replace the one that answers: that call is yours.',
