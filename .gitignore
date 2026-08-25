@@ -47,9 +47,15 @@ knowledge-bases/*
 src/models
 
 # Data
-data/
-!data/hkunlp_embeddings.npy
-!data/url_suffixes.npy
+# Anchored on purpose. An unanchored `data/` matches a directory called `data`
+# at any depth, which silently swallowed `frontend-ng/src/app/features/data/`
+# — source that builds locally and is simply absent from the repo. Only these
+# two roots hold runtime bytes (asset caches, the local object store, recipe
+# venvs, secure deposit, Qdrant snapshots).
+/data/
+!/data/hkunlp_embeddings.npy
+!/data/url_suffixes.npy
+/backend/data/
 .trash
 pdfs/
 *.mdc

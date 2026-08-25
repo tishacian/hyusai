@@ -63,7 +63,10 @@ faiss_db/
 Thumbs.db
 
 # Project specific
-data/
+# Anchored: unanchored `data/` matches any directory of that name at any depth,
+# so a future `app/**/data/` package would vanish from the repo while still
+# building locally. Only `backend/data/` holds runtime bytes.
+/data/
 /models/
 .cache/
 uploads/
