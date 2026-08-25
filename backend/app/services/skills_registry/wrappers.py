@@ -1730,18 +1730,9 @@ async def _ml_train_sklearn_v1(
         raise ValueError("ML_TRAIN_DISABLED: model training is off on this instance")
 
     inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
-    sources = train.get("sources")
-    pinned = next(
-        (
-            entry
-            for entry in (sources if isinstance(sources, list) else [])
-            if isinstance(entry, dict) and (entry.get("dataset_id") or entry.get("slug"))
-        ),
-        None,
-    )
     # A pin wins over the wire, because a training node pinned to a dataset is
     # the author saying "this one", and an upstream envelope is a default.
-    dataset_ref = pinned or _first_dataset_ref(inputs)
+    dataset_ref = _pinned_dataset_ref(train) or _first_dataset_ref(inputs)
     if dataset_ref is None:
         raise ValueError(
             "ML_NO_DATASET: connect a dataset upstream or pin one on the node "
@@ -1932,11 +1923,13 @@ async def _ml_batch_score_v1(
     ctx = ctx or {}
     spec, workspace_id = _predict_spec(payload, ctx)
     inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
-    dataset_ref = _first_dataset_ref(inputs)
+    # Same precedence as the training node: an explicit pin is the author's
+    # decision, the wire is the default.
+    dataset_ref = _pinned_dataset_ref(spec) or _first_dataset_ref(inputs)
     if dataset_ref is None:
         raise ValueError(
-            "score_dataset_required: wire a dataset into this node, or pick one "
-            "in the node's inputs"
+            "ML_SCORE_DATASET_REQUIRED: wire a dataset into this node, or pin "
+            "one on it, before scoring"
         )
 
     def _run() -> dict[str, Any]:
@@ -1959,6 +1952,25 @@ async def _ml_batch_score_v1(
         return await asyncio.to_thread(_run)
     except TabularError as exc:
         raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+
+def _pinned_dataset_ref(block: dict[str, Any]) -> dict[str, Any] | None:
+    """The dataset a model node pins in its graph-owned block, if it pins one.
+
+    Both spellings of a lineage pin are accepted for the same reason
+    ``resolve_dataset_ref`` accepts both: the transform surfaces write
+    ``dataset_slug``, the run envelopes carry ``slug``, and a node whose pin was
+    silently ignored would train on whatever the wire happened to hand it — a
+    wrong answer that looks like a working run.
+    """
+
+    sources = block.get("sources")
+    for entry in sources if isinstance(sources, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("dataset_id") or entry.get("slug") or entry.get("dataset_slug"):
+            return entry
+    return None
 
 
 def _first_dataset_ref(payload: dict[str, Any]) -> dict[str, Any] | None:

@@ -771,7 +771,13 @@ def get_dataset(
 def resolve_dataset_ref(
     db: DBSession, *, workspace_id: str, ref: Any, ready_only: bool = True
 ) -> TabularDataset:
-    """Accept an id, a ``{dataset_id: ...}`` envelope or a ``slug`` and resolve it."""
+    """Accept an id, a ``{dataset_id: ...}`` envelope or a slug and resolve it.
+
+    Both ``slug`` and ``dataset_slug`` are read: the first is how an upstream
+    envelope names its own lineage, the second is how a node pins one. They mean
+    the same thing — follow the latest ready version of that lineage — and a
+    resolver that honoured only one silently ignored half the pins ever written.
+    """
 
     dataset_id: str | None = None
     slug: str | None = None
@@ -780,7 +786,7 @@ def resolve_dataset_ref(
     elif isinstance(ref, dict):
         raw_id = ref.get("dataset_id") or ref.get("id")
         dataset_id = str(raw_id).strip() if raw_id else None
-        raw_slug = ref.get("slug")
+        raw_slug = ref.get("slug") or ref.get("dataset_slug")
         slug = str(raw_slug).strip() if raw_slug else None
     if dataset_id:
         try:
