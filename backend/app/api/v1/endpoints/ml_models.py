@@ -194,27 +194,29 @@ async def plan_training(
     except TabularError as exc:
         _raise_tabular(exc)
 
-    columns = [
-        {
-            "name": str(column.get("name")),
-            "kind": str(column.get("kind") or "other"),
-            "distinct": int(
-                ((dataset.stats_json or {}).get(str(column.get("name"))) or {}).get(
-                    "distinct"
-                )
-                or 0
-            ),
-            "nulls": int(
-                ((dataset.stats_json or {}).get(str(column.get("name"))) or {}).get(
-                    "nulls"
-                )
-                or 0
-            ),
-            "suggested_task": infer_task(dataset, str(column.get("name"))),
-        }
-        for column in (dataset.schema_json or [])
-        if column.get("name")
-    ]
+    profiles = dataset.stats_json if isinstance(dataset.stats_json, dict) else {}
+    columns = []
+    for column in dataset.schema_json or []:
+        name = str(column.get("name") or "")
+        if not name:
+            continue
+        profile = profiles.get(name)
+        profile = profile if isinstance(profile, dict) else {}
+        columns.append(
+            {
+                "name": name,
+                "kind": str(column.get("kind") or "other"),
+                "distinct": int(profile.get("distinct") or 0),
+                "nulls": int(profile.get("nulls") or 0),
+                # The whole profile, in the shape `<ck-data-table>` already reads,
+                # so the picker draws the same sparkline as the dataset page
+                # instead of asking for the dataset a second time. Bounded by the
+                # histogram-bin and top-value settings, so it stays small enough
+                # to ride along on a form that is re-planned on every keystroke.
+                "profile": profile,
+                "suggested_task": infer_task(dataset, name),
+            }
+        )
     payload: dict[str, Any] = {
         "dataset": serialize_dataset(dataset),
         "columns": columns,

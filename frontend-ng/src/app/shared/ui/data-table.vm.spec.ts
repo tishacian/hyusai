@@ -15,6 +15,8 @@ import {
   isNumericKind,
   nullPercent,
   profileBars,
+  profileFacts,
+  topValueBars,
   type TabularColumnStats,
 } from './data-table.vm';
 
@@ -100,6 +102,113 @@ test('every column kind has a header glyph so no column renders unlabelled', () 
   ] as const) {
     assert.ok(COLUMN_KIND_GLYPH[kind], `${kind} has a glyph`);
   }
+});
+
+test('a numeric profile states counts, then range, then central tendency', () => {
+  const stats: TabularColumnStats = {
+    kind: 'float',
+    nulls: 12,
+    null_ratio: 0.0015,
+    distinct: 402,
+    min: 0.5,
+    max: 99.5,
+    mean: 42.25,
+    std: 11.5,
+  };
+
+  const facts = profileFacts(stats, true, 8000);
+
+  assert.deepEqual(
+    facts.map((fact) => fact.key),
+    ['rows', 'nulls', 'distinct', 'min', 'max', 'mean', 'std'],
+  );
+  assert.equal(facts[0].value, 8000);
+  assert.equal(facts[1].ratio, 0.0015, 'the null count carries its share of rows');
+  assert.equal(facts[6].value, 11.5);
+});
+
+test('a categorical profile leaves out the statistics that would be meaningless', () => {
+  const facts = profileFacts(
+    { kind: 'string', nulls: 0, distinct: 4, mean: 3, std: 1 },
+    false,
+  );
+
+  // `mean` and `std` of a string column are an artefact, never a finding.
+  assert.deepEqual(
+    facts.map((fact) => fact.key),
+    ['nulls', 'distinct'],
+  );
+});
+
+test('a clean column still says so, because "no missing values" is a finding', () => {
+  const facts = profileFacts({ kind: 'integer', nulls: 0 }, true);
+
+  assert.deepEqual(facts, [{ key: 'nulls', value: 0, ratio: 0 }]);
+});
+
+test('a datetime column keeps its range without inventing an average', () => {
+  const facts = profileFacts(
+    { kind: 'datetime', nulls: 0, min: '2026-01-01', max: '2026-08-25' },
+    false,
+  );
+
+  assert.deepEqual(
+    facts.map((fact) => [fact.key, fact.value]),
+    [
+      ['nulls', 0],
+      ['min', '2026-01-01'],
+      ['max', '2026-08-25'],
+    ],
+  );
+});
+
+test('a column with no profile at all offers no facts to open', () => {
+  assert.deepEqual(profileFacts(null, true, 8000), []);
+  assert.deepEqual(profileFacts(undefined, false), []);
+});
+
+test('a row count is only stated when it is one', () => {
+  assert.ok(!profileFacts({ nulls: 0 }, true, 0).some((fact) => fact.key === 'rows'));
+  assert.ok(!profileFacts({ nulls: 0 }, true, null).some((fact) => fact.key === 'rows'));
+});
+
+test('top values rank widest first, relative to the most frequent one', () => {
+  const bars = topValueBars({
+    top_values: [
+      { value: 'fiber', count: 300 },
+      { value: 'dsl', count: 150 },
+      { value: null, count: 3 },
+    ],
+  });
+
+  assert.deepEqual(
+    bars.map((bar) => [bar.label, bar.count, bar.width]),
+    [
+      ['fiber', 300, 100],
+      ['dsl', 150, 50],
+      // Floored, so a rare value is still a visible bar rather than nothing.
+      ['null', 3, 2],
+    ],
+  );
+});
+
+test('a high-cardinality column still shows shape, not seven empty slivers', () => {
+  // Every value covers ~1% of an 8k-row dataset: normalizing against the row
+  // count would render this as nothing at all.
+  const bars = topValueBars({
+    top_values: [
+      { value: 'a', count: 90 },
+      { value: 'b', count: 45 },
+    ],
+  });
+
+  assert.equal(bars[0].width, 100);
+  assert.equal(bars[1].width, 50);
+});
+
+test('a numeric column has no top values, so its popover shows only figures', () => {
+  assert.deepEqual(topValueBars({ histogram: [{ upper: 1, count: 4 }] }), []);
+  assert.deepEqual(topValueBars(null), []);
 });
 
 test('byte sizes read as volumes, keeping a decimal only where it informs', () => {

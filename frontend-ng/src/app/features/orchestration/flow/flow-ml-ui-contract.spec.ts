@@ -286,6 +286,45 @@ test('the studio is no-code because the server answers every edit', () => {
   }
 });
 
+test('the columns a fit is built from carry their shape, not just their name', () => {
+  // The judgement the studio asks for — "is this a target, is this a feature" —
+  // is a judgement about a distribution. Sending the author to the dataset page
+  // to see it is how a no-code studio stops being one.
+  const spark = readFileSync(
+    join(process.cwd(), 'src/app/shared/ui/column-spark.component.ts'),
+    'utf8',
+  );
+  assert.match(spark, /profileBars\(this\.stats\(\), this\.numeric\(\)/);
+  assert.match(spark, /profileFacts\(this\.stats\(\), this\.numeric\(\)\)/);
+
+  // Both training surfaces draw it, from the profile the plan already carries,
+  // rather than each fetching the dataset a second time.
+  for (const [name, text] of [
+    ['flow studio', source('flow-train-workshop.component.ts')],
+    [
+      'models studio',
+      readFileSync(
+        join(process.cwd(), 'src/app/features/models/model-train.component.ts'),
+        'utf8',
+      ),
+    ],
+  ] as const) {
+    assert.match(text, /<ck-column-spark/, `${name} draws the glyph`);
+    assert.match(
+      text,
+      /\[stats\]="column\.profile \?\? null"/,
+      `${name} reads it from the plan`,
+    );
+    assert.match(text, /ColumnSparkComponent/, `${name} imports the component`);
+    // Twice: once beside a candidate target, once inside a feature chip.
+    assert.equal(
+      [...text.matchAll(/<ck-column-spark/g)].length,
+      2,
+      `${name} draws it for targets and for features`,
+    );
+  }
+});
+
 test('the split, the folds and the knobs are bounded by the view model', () => {
   const workshop = source('flow-train-workshop.component.ts');
   // Every numeric edit goes through a clamp, so a dragged slider cannot write a

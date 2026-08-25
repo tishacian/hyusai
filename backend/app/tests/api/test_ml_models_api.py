@@ -199,6 +199,59 @@ def test_plan_without_a_target_answers_with_the_candidate_columns(client, datase
     assert columns["region"]["distinct"] == 3
 
 
+def test_plan_columns_carry_the_profile_the_picker_draws(client, dataset):
+    """Choosing a target is a judgement about a distribution, so it travels.
+
+    The picker draws the same sparkline as the dataset page. Without the profile
+    on the plan it would have to fetch the dataset a second time on every
+    keystroke, or show typed names with no shape behind them.
+    """
+
+    body = client.post("/ml-models/plan", json={"dataset_id": dataset.id}).json()
+    columns = {row["name"]: row for row in body["columns"]}
+
+    # Numeric column: the histogram is what a sparkline is drawn from.
+    arpu = columns["arpu"]["profile"]
+    assert arpu["kind"] == "float"
+    assert arpu["histogram"] and all(
+        {"upper", "count"} <= set(bin_) for bin_ in arpu["histogram"]
+    )
+    assert arpu["min"] is not None and arpu["max"] is not None
+    assert arpu["mean"] is not None
+
+    # Categorical column: top values instead, same as the table header draws.
+    region = columns["region"]["profile"]
+    assert region["kind"] == "string"
+    assert [entry["value"] for entry in region["top_values"]]
+    assert sum(entry["count"] for entry in region["top_values"]) <= 60
+
+    # And the flat fields the picker already showed stay where they were.
+    assert columns["region"]["distinct"] == region["distinct"]
+    assert columns["region"]["nulls"] == region["nulls"]
+
+
+def test_a_plan_survives_a_dataset_whose_profile_was_never_computed(client, dataset, db_session):
+    """A dataset ingested before profiling, or one the profiler gave up on.
+
+    The picker must still list its columns: an empty profile draws no sparkline,
+    which is the correct outcome, whereas a 500 here would take the whole
+    training form down with it.
+    """
+
+    dataset.stats_json = None
+    db_session.commit()
+
+    response = client.post("/ml-models/plan", json={"dataset_id": dataset.id})
+
+    assert response.status_code == 200
+    columns = response.json()["columns"]
+    assert len(columns) == 6
+    assert all(row["profile"] == {} for row in columns)
+    assert all(row["distinct"] == 0 and row["nulls"] == 0 for row in columns)
+    # The suggestion comes from the schema, so it survives a missing profile.
+    assert {row["name"]: row["suggested_task"] for row in columns}["arpu"] == "regression"
+
+
 def test_plan_with_a_target_resolves_the_run_without_fitting_anything(client, dataset):
     response = client.post(
         "/ml-models/plan",

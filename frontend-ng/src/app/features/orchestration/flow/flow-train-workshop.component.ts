@@ -49,6 +49,7 @@ import {
 import { A11yModule } from '@angular/cdk/a11y';
 import { RouterLink } from '@angular/router';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { ColumnSparkComponent } from '@app/shared/ui/column-spark.component';
 import { I18nService } from '@app/core/i18n.service';
 import {
   algoFor,
@@ -98,7 +99,7 @@ const SCORE_LIMIT = 4;
   selector: 'app-flow-train-workshop',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [A11yModule, RouterLink, IconComponent],
+  imports: [A11yModule, ColumnSparkComponent, RouterLink, IconComponent],
   styleUrl: './flow-train-workshop.component.scss',
   template: `
     <div
@@ -197,6 +198,12 @@ const SCORE_LIMIT = 4;
                             <span class="ck-train-workshop__kind">
                               {{ i18n.t('data.kind.' + column.kind) }}
                             </span>
+                            <span class="ck-train-workshop__spark">
+                              <ck-column-spark
+                                [stats]="column.profile ?? null"
+                                [kind]="column.kind"
+                              />
+                            </span>
                             <span class="ck-train-workshop__row-meta">
                               {{
                                 i18n.t('flow.ml.train.distinct', { count: column.distinct })
@@ -284,6 +291,12 @@ const SCORE_LIMIT = 4;
                             @if (flagged().has(column.name)) {
                               <app-icon name="alert-triangle" [size]="10" />
                             }
+                            <ck-column-spark
+                              [stats]="column.profile ?? null"
+                              [kind]="column.kind"
+                              [width]="20"
+                              [height]="9"
+                            />
                             {{ column.name }}
                           </button>
                         }

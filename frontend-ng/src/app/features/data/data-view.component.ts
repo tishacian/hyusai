@@ -121,6 +121,7 @@ const POLL_INTERVAL_MS = 1500;
             [columns]="columns()"
             [rows]="ds.preview ?? []"
             [stats]="ds.stats ?? null"
+            [rowCount]="ds.row_count ?? null"
             [caption]="previewCaption()"
           />
         </ck-tab>
