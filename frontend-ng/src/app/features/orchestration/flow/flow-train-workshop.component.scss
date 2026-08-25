@@ -1,0 +1,790 @@
+/* Train workshop — the spec on top, the evidence underneath, the catalog on the
+   side. Same chrome as the transform workshop on purpose: switching from
+   authoring a statement to authoring a fit should feel like changing subject,
+   not tool. Tokenised, AA contrast. */
+
+.ck-train-workshop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.ck-train-workshop__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.ck-train-workshop__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1360px, 100%);
+  height: min(880px, 100%);
+  background: var(--ck-bg-panel, #0c1014);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.ck-train-workshop__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  flex-shrink: 0;
+}
+
+.ck-train-workshop__identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+
+  h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+  p {
+    margin: 0;
+    font: 10px / 1.4 var(--ck-font-mono, monospace);
+    color: var(--ck-fg-3, #8891a0);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.ck-train-workshop__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* A model node reads as a model node wherever it appears: same glyph as the
+   palette entry and the canvas badge. */
+.ck-train-workshop__badge {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--ck-radius-sm, 4px);
+  background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 14%, transparent);
+  color: var(--ck-signal-cool, #7dd3fc);
+  flex-shrink: 0;
+}
+
+.ck-train-workshop__close {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  background: transparent;
+  color: var(--ck-fg-3, #8891a0);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ck-fg-1, #f2f5f8);
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+}
+
+/* The step a fit is on, named in the header so a minute of CPU reads as work. */
+.ck-train-workshop__phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-warn, #f5b84a) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ck-signal-warn, #f5b84a) 10%, transparent);
+  font: 600 10px / 1 var(--ck-font-sans, sans-serif);
+  color: var(--ck-signal-warn, #f5b84a);
+  white-space: nowrap;
+}
+
+.ck-train-workshop__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+
+  @media (max-width: 1080px) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(320px, 1fr) minmax(0, auto);
+    overflow-y: auto;
+  }
+}
+
+.ck-train-workshop__main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border-right: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+
+  @media (max-width: 1080px) {
+    border-right: 0;
+    border-bottom: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  }
+}
+
+/* Two columns of decisions: WHAT to predict on the left, HOW to fit it on the
+   right. They are read in that order and they interact, so they sit side by
+   side rather than stacked behind a tab. */
+.ck-train-workshop__spec {
+  flex: 3 1 0;
+  min-height: 200px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 14px;
+  overflow-y: auto;
+
+  @media (max-width: 860px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ck-train-workshop__col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.ck-train-workshop__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ck-train-workshop__field-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ck-train-workshop__label {
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+.ck-train-workshop__count {
+  margin-left: auto;
+  font: 10px / 1 var(--ck-font-mono, monospace);
+  color: var(--ck-fg-4, #5a6270);
+}
+
+.ck-train-workshop__hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+/* Which column to predict — a list of candidates rather than a text field: the
+   dataset already knows its columns, and typing one is a way to get it wrong. */
+.ck-train-workshop__picker {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 216px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.ck-train-workshop__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--ck-stroke-1, rgba(255, 255, 255, 0.04));
+  border-radius: var(--ck-radius-sm, 4px);
+  background: var(--ck-bg-inset, #0a0d11);
+  color: var(--ck-fg-2, #c8cdd4);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ck-fg-1, #f2f5f8);
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+  &--on {
+    color: var(--ck-signal-cool, #7dd3fc);
+    border-color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 45%, transparent);
+    background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 10%, transparent);
+  }
+}
+
+.ck-train-workshop__row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 600 11.5px / 1 var(--ck-font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ck-train-workshop__kind {
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--ck-bg-panel, #0c1014);
+  border: 1px solid var(--ck-stroke-1, rgba(255, 255, 255, 0.04));
+  font: 600 8.5px / 1 var(--ck-font-sans, sans-serif);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+.ck-train-workshop__row-meta {
+  font: 10px / 1 var(--ck-font-mono, monospace);
+  color: var(--ck-fg-4, #5a6270);
+  white-space: nowrap;
+}
+
+/* Classification or regression. The plan infers it; this is the override. */
+.ck-train-workshop__seg {
+  display: flex;
+  gap: 4px;
+}
+
+.ck-train-workshop__seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0;
+  justify-content: center;
+  padding: 7px 10px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  background: var(--ck-bg-inset, #0a0d11);
+  color: var(--ck-fg-3, #8891a0);
+  font: 600 11px / 1 var(--ck-font-sans, sans-serif);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+  &--on {
+    color: var(--ck-signal-cool, #7dd3fc);
+    border-color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 45%, transparent);
+    background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 12%, transparent);
+  }
+}
+
+.ck-train-workshop__inferred {
+  margin: 0;
+  font: 10px / 1.4 var(--ck-font-mono, monospace);
+  color: var(--ck-signal-cool, #7dd3fc);
+}
+
+.ck-train-workshop__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.ck-train-workshop__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--ck-stroke-1, rgba(255, 255, 255, 0.04));
+  border-radius: 999px;
+  background: var(--ck-bg-inset, #0a0d11);
+  color: var(--ck-fg-4, #5a6270);
+  font: 10.5px / 1 var(--ck-font-mono, monospace);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ck-fg-2, #c8cdd4);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+  &--on {
+    color: var(--ck-fg-1, #f2f5f8);
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+    background: var(--ck-bg-panel, #0c1014);
+  }
+  /* A column unique per row memorises the table: flagged before a fit, not
+     explained after one. */
+  &--flagged {
+    color: var(--ck-signal-warn, #f5b84a);
+    border-color: color-mix(in srgb, var(--ck-signal-warn, #f5b84a) 40%, transparent);
+  }
+}
+
+.ck-train-workshop__algos {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ck-train-workshop__algo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--ck-stroke-1, rgba(255, 255, 255, 0.04));
+  border-radius: var(--ck-radius-sm, 4px);
+  background: var(--ck-bg-inset, #0a0d11);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+  &--on {
+    border-color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 45%, transparent);
+    background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 10%, transparent);
+  }
+}
+
+.ck-train-workshop__algo-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 11.5px / 1 var(--ck-font-sans, sans-serif);
+  color: var(--ck-fg-1, #f2f5f8);
+}
+
+.ck-train-workshop__algo-hint {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+.ck-train-workshop__knob {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  input[type='range'] {
+    width: 100%;
+    accent-color: var(--ck-signal-cool, #7dd3fc);
+
+    &:focus-visible {
+      outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+      outline-offset: 3px;
+    }
+  }
+}
+
+.ck-train-workshop__knob-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+
+  span {
+    font-size: 11px;
+    color: var(--ck-fg-2, #c8cdd4);
+  }
+  code {
+    margin-left: auto;
+    font: 600 10.5px / 1 var(--ck-font-mono, monospace);
+    color: var(--ck-signal-cool, #7dd3fc);
+  }
+}
+
+.ck-train-workshop__input-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  > span {
+    font: 600 10px / 1 var(--ck-font-mono, monospace);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ck-fg-3, #8891a0);
+  }
+
+  input,
+  select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    font-size: 12.5px;
+    color: var(--ck-fg-1, #f2f5f8);
+    background: var(--ck-bg-inset, #0a0d11);
+    border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+    border-radius: var(--ck-radius-sm, 4px);
+
+    &::placeholder {
+      color: var(--ck-fg-4, #5a6270);
+    }
+    &:focus {
+      outline: none;
+      border-color: var(--ck-signal-cool, #7dd3fc);
+      box-shadow: 0 0 0 1px var(--ck-signal-cool, #7dd3fc);
+    }
+    &:disabled {
+      opacity: 0.5;
+    }
+  }
+}
+
+/* What the fit actually earned. Below the spec, where the result table sits in
+   the transform workshop: same place, same role. */
+.ck-train-workshop__evidence {
+  flex: 2 1 0;
+  min-height: 168px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 14px 14px;
+  overflow-y: auto;
+}
+
+.ck-train-workshop__steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    border: 1px solid var(--ck-stroke-1, rgba(255, 255, 255, 0.04));
+    border-radius: 999px;
+    background: var(--ck-bg-inset, #0a0d11);
+    font: 10.5px / 1 var(--ck-font-sans, sans-serif);
+    color: var(--ck-fg-4, #5a6270);
+  }
+  li[data-state='done'] {
+    color: var(--ck-signal-pos, #4ec9a0);
+    border-color: color-mix(in srgb, var(--ck-signal-pos, #4ec9a0) 32%, transparent);
+  }
+  li[data-state='current'] {
+    color: var(--ck-signal-cool, #7dd3fc);
+    border-color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 45%, transparent);
+    background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 10%, transparent);
+    font-weight: 600;
+  }
+}
+
+.ck-train-workshop__scores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+/* A score with the move it made. A number alone cannot say whether a retrain
+   was worth running. */
+.ck-train-workshop__score {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  background: var(--ck-bg-inset, #0a0d11);
+
+  strong {
+    font: 600 18px / 1.1 var(--ck-font-sans, sans-serif);
+    font-variant-numeric: tabular-nums;
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+  em {
+    font-style: normal;
+    font: 600 10.5px / 1 var(--ck-font-mono, monospace);
+    font-variant-numeric: tabular-nums;
+    color: var(--ck-fg-3, #8891a0);
+  }
+  em[data-better='true'] {
+    color: var(--ck-signal-pos, #4ec9a0);
+  }
+  em[data-better='false'] {
+    color: var(--ck-signal-neg, #ef5a6f);
+  }
+
+  &[data-tone='pos'] strong {
+    color: var(--ck-signal-pos, #4ec9a0);
+  }
+  &[data-tone='warn'] strong {
+    color: var(--ck-signal-warn, #f5b84a);
+  }
+  &[data-tone='neg'] strong {
+    color: var(--ck-signal-neg, #ef5a6f);
+  }
+}
+
+.ck-train-workshop__score-name {
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+/* A fit is not a dry run: it registered a version, and the panel says which. */
+.ck-train-workshop__registered {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ck-fg-2, #c8cdd4);
+}
+
+.ck-train-workshop__placeholder {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  color: var(--ck-fg-4, #5a6270);
+
+  p {
+    margin: 0;
+    max-width: 42ch;
+    text-align: center;
+    font-size: 11.5px;
+    line-height: 1.5;
+  }
+}
+
+.ck-train-workshop__side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.ck-train-workshop__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 12px 0;
+  flex-shrink: 0;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--ck-radius-sm, 4px);
+    background: transparent;
+    color: var(--ck-fg-3, #8891a0);
+    font: 600 11px / 1 var(--ck-font-sans, sans-serif);
+    cursor: pointer;
+
+    &[aria-selected='true'] {
+      color: var(--ck-fg-1, #f2f5f8);
+      background: var(--ck-bg-inset, #0a0d11);
+      border-color: var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+    }
+    &:hover {
+      color: var(--ck-fg-1, #f2f5f8);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+      outline-offset: 2px;
+    }
+  }
+}
+
+.ck-train-workshop__tabpane {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ck-train-workshop__source {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 3%, transparent);
+
+  code {
+    font: 600 11.5px / 1 var(--ck-font-mono, monospace);
+    color: var(--ck-signal-cool, #7dd3fc);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  p {
+    margin: 0;
+    font: 10.5px / 1.4 var(--ck-font-mono, monospace);
+    color: var(--ck-fg-3, #8891a0);
+    overflow-wrap: anywhere;
+  }
+}
+
+/* What the server says this spec WOULD be, before anything is fitted. */
+.ck-train-workshop__plan {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  background: var(--ck-bg-inset, #0a0d11);
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--ck-fg-2, #c8cdd4);
+  }
+  code {
+    font: 10.5px / 1.4 var(--ck-font-mono, monospace);
+    color: var(--ck-signal-cool, #7dd3fc);
+    overflow-wrap: anywhere;
+  }
+}
+
+.ck-train-workshop__warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ck-signal-warn, #f5b84a);
+}
+
+/* A plan refusal, rendered against the field that caused it. */
+.ck-train-workshop__refusal {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ck-signal-neg, #ef5a6f);
+  overflow-wrap: anywhere;
+}
+
+.ck-train-workshop__error {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 40%, transparent);
+  border-radius: var(--ck-radius-md, 6px);
+  background: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 8%, transparent);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ck-signal-neg, #ef5a6f);
+  overflow-wrap: anywhere;
+}
+
+/* The worker's own words, kept next to the localized sentence. */
+.ck-train-workshop__detail {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--ck-font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--ck-fg-2, #c8cdd4);
+  overflow-wrap: anywhere;
+}
+
+.ck-train-workshop__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  background: var(--ck-bg-inset, #0a0d11);
+  color: var(--ck-fg-2, #c8cdd4);
+  font: 600 11px / 1 var(--ck-font-sans, sans-serif);
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    color: var(--ck-fg-1, #f2f5f8);
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+
+  &--primary {
+    border-color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 45%, transparent);
+    background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 12%, transparent);
+    color: var(--ck-signal-cool, #7dd3fc);
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 20%, transparent);
+    }
+  }
+}
+
+.ck-train-workshop__mini {
+  padding: 4px 7px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ck-fg-3, #8891a0);
+  font: 600 9.5px / 1 var(--ck-font-sans, sans-serif);
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ck-fg-1, #f2f5f8);
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+}

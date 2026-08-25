@@ -90,6 +90,23 @@ import {
   transformEngineOf,
   type TransformParams,
 } from './flow-transform.vm';
+import { FlowMlService } from './flow-ml.service';
+import {
+  chooseModelPatch,
+  isTrainNode,
+  lineageVersions,
+  pinVersionPatch,
+  pinnedDataset,
+  preflightServing,
+  readPredictParams,
+  readTrainParams,
+  servableModels,
+  servingDescriptor,
+  type MlFailure,
+  type PredictNodeParams,
+  type ServingRoleDescriptor,
+  type TrainNodeParams,
+} from './flow-ml.vm';
 
 /** Engine kind of the node the lexicon calls an Output. */
 const OUTPUT_NODE_KIND = 'sink';
@@ -429,6 +446,130 @@ export function buildRetrievalDocumentOptions(
                 <ck-glyph name="focus" [size]="12" color="currentColor" />
                 {{ i18n.t(transformCopy(n).open) }}
               </button>
+            </section>
+          }
+
+          @if (isTrainNode(n)) {
+            <section class="ck-flow-section" data-testid="train-summary">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.train') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.ml.train.inspector.hint') }}</p>
+              <dl class="ck-flow-kv">
+                <dt>{{ i18n.t('flow.ml.train.inspector.target') }}</dt>
+                <dd class="mono">{{ trainTargetLine(n) }}</dd>
+                <dt>{{ i18n.t('flow.ml.train.inspector.dataset') }}</dt>
+                <dd class="mono">{{ trainDatasetLine(n) }}</dd>
+                <dt>{{ i18n.t('flow.ml.train.inspector.output') }}</dt>
+                <dd class="mono">{{ trainOutputLine(n) }}</dd>
+              </dl>
+              <button
+                type="button"
+                class="ck-flow-action"
+                data-testid="open-train-workshop"
+                (click)="openTrainWorkshop.emit()"
+                [attr.aria-label]="i18n.t('flow.ml.train.inspector.open.aria')"
+              >
+                <ck-glyph name="focus" [size]="12" color="currentColor" />
+                {{ i18n.t('flow.ml.train.inspector.open') }}
+              </button>
+            </section>
+          }
+
+          <!-- Serving nodes get a section, not a dialog: which model answers is
+               one dropdown, and a workshop for one dropdown is ceremony. -->
+          @if (servingCopy(n); as copy) {
+            <section class="ck-flow-section" data-testid="serving-summary">
+              <span class="ck-flow-section__label">{{ i18n.t(copy.section) }}</span>
+              <p class="ck-flow-hint">{{ i18n.t(copy.hint) }}</p>
+
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">
+                  {{ i18n.t('flow.ml.serving.model') }}
+                </span>
+                <select
+                  class="ck-flow-input"
+                  data-testid="serving-model"
+                  [value]="servingParams(n).model_slug"
+                  (change)="onServingModel($event)"
+                >
+                  <option value="">{{ i18n.t('flow.ml.serving.model.none') }}</option>
+                  @for (lineage of servingLineages(); track lineage.slug) {
+                    <option [value]="lineage.slug">
+                      {{ lineage.name }}
+                    </option>
+                  }
+                </select>
+              </label>
+
+              @if (servingParams(n).model_slug) {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">
+                    {{ i18n.t('flow.ml.serving.version') }}
+                  </span>
+                  <select
+                    class="ck-flow-input"
+                    data-testid="serving-version"
+                    [value]="servingParams(n).pinned_version ?? ''"
+                    (change)="onServingVersion($event)"
+                  >
+                    <option value="">{{ i18n.t('flow.ml.serving.version.champion') }}</option>
+                    @for (version of servingVersions(n); track version.id) {
+                      <option [value]="version.version">
+                        {{
+                          i18n.t('flow.ml.serving.version.pinned', {
+                            version: version.version,
+                          })
+                        }}
+                      </option>
+                    }
+                  </select>
+                </label>
+                <p class="ck-flow-hint">{{ i18n.t('flow.ml.serving.version.hint') }}</p>
+              } @else if (!servingLineages().length) {
+                <p class="ck-flow-hint" data-testid="serving-empty">
+                  {{ i18n.t('flow.ml.serving.empty') }}
+                </p>
+              }
+
+              @if (copy.writesDataset) {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">
+                    {{ i18n.t('flow.ml.serving.output') }}
+                  </span>
+                  <input
+                    class="ck-flow-input"
+                    type="text"
+                    maxlength="200"
+                    spellcheck="false"
+                    data-testid="serving-output"
+                    [value]="servingParams(n).output_name"
+                    [attr.placeholder]="i18n.t('flow.ml.serving.output.auto')"
+                    (change)="onServingOutput($event)"
+                  />
+                </label>
+              }
+
+              @if (copy.supportsExplain) {
+                <label class="ck-flow-field ck-flow-field--row">
+                  <input
+                    type="checkbox"
+                    data-testid="serving-explain"
+                    [checked]="servingParams(n).explain"
+                    (change)="onServingExplain($event)"
+                  />
+                  <span class="ck-flow-field__label">
+                    {{ i18n.t('flow.ml.serving.explain') }}
+                  </span>
+                </label>
+                <p class="ck-flow-hint">{{ i18n.t('flow.ml.serving.explain.hint') }}</p>
+              }
+
+              @if (servingRefusal(n); as reason) {
+                <p class="ck-flow-hint ck-flow-hint--warn" role="alert">
+                  {{ i18n.t(reason.key) }}
+                </p>
+              }
             </section>
           }
 
@@ -900,6 +1041,9 @@ export class FlowInspectorComponent {
   private readonly persistence = inject(FlowPersistenceService, { optional: true });
   /** Optional: the builder provides it; the summary then shows the live env. */
   private readonly recipeSvc = inject(FlowRecipeService, { optional: true });
+  /** Optional, same reason: the registry is what turns the model picker into a
+   *  list of real lineages rather than a slug someone has to remember. */
+  private readonly mlSvc = inject(FlowMlService, { optional: true });
 
   /** Active trigger source node types (mirror of the backend
    *  `triggers.TRIGGER_TYPE_TO_EVENT`) — the nodes that offer piloting. */
@@ -976,6 +1120,7 @@ export class FlowInspectorComponent {
   /** The workshop dialogs are mounted by the builder shell, not by this panel. */
   readonly openRecipeWorkshop = output<void>();
   readonly openTransformWorkshop = output<void>();
+  readonly openTrainWorkshop = output<void>();
 
   constructor() {
     effect(() => {
@@ -1008,6 +1153,13 @@ export class FlowInspectorComponent {
       const preview = previewRequirements(params.requirements_text);
       if (preview.invalid.length > 0 || preview.tooMany) return;
       void this.recipeSvc.ensureResolved(params);
+    });
+    // And for the model plane: the registry is only fetched once a serving node
+    // is actually inspected, and once per builder shell after that.
+    effect(() => {
+      const n = this.node();
+      if (!n || !this.mlSvc || !servingDescriptor(n)) return;
+      void this.mlSvc.ensureRegistry();
     });
   }
 
@@ -1075,6 +1227,127 @@ export class FlowInspectorComponent {
     return count === 0
       ? this.i18n.t('flow.transform.inspector.sources.none')
       : this.i18n.t('flow.transform.inspector.sources.count', { count });
+  }
+
+  // -------------------------------------------------------------------------
+  // Model nodes — a summary + a workshop for the fit, a picker for the serving
+  // -------------------------------------------------------------------------
+
+  /** True for a task node bound to the sklearn training Skill. */
+  isTrainNode(n: CanonicalFlowNode): boolean {
+    return isTrainNode(n);
+  }
+
+  trainParams(n: CanonicalFlowNode): TrainNodeParams {
+    return readTrainParams(n);
+  }
+
+  /** What the node predicts — the one line that identifies a fit. */
+  trainTargetLine(n: CanonicalFlowNode): string {
+    return this.trainParams(n).target || this.i18n.t('flow.ml.train.inspector.target.none');
+  }
+
+  /** The table it fits on: a pin, or whatever the wire hands it. */
+  trainDatasetLine(n: CanonicalFlowNode): string {
+    const pin = pinnedDataset(this.trainParams(n).sources);
+    return (
+      pin?.dataset_slug ||
+      pin?.dataset_id ||
+      this.i18n.t('flow.ml.train.inspector.dataset.wire')
+    );
+  }
+
+  /** The lineage each run versions, or the name the plan will derive. */
+  trainOutputLine(n: CanonicalFlowNode): string {
+    return (
+      this.trainParams(n).model_name || this.i18n.t('flow.ml.train.inspector.output.auto')
+    );
+  }
+
+  /** The serving shape's own vocabulary, or `null` when the node serves none. */
+  servingCopy(
+    n: CanonicalFlowNode,
+  ): (ServingRoleDescriptor['copy'] & Pick<
+    ServingRoleDescriptor,
+    'writesDataset' | 'supportsExplain'
+  >) | null {
+    const descriptor = servingDescriptor(n);
+    if (!descriptor) return null;
+    return {
+      ...descriptor.copy,
+      writesDataset: descriptor.writesDataset,
+      supportsExplain: descriptor.supportsExplain,
+    };
+  }
+
+  servingParams(n: CanonicalFlowNode): PredictNodeParams {
+    return readPredictParams(n);
+  }
+
+  /** One entry per lineage, newest version first: the picker chooses a lineage,
+   *  and the version pin below it chooses whether to follow or to freeze. */
+  servingLineages(): { slug: string; name: string }[] {
+    const seen = new Set<string>();
+    const lineages: { slug: string; name: string }[] = [];
+    for (const model of servableModels(this.mlSvc?.registry() ?? [])) {
+      if (seen.has(model.slug)) continue;
+      seen.add(model.slug);
+      lineages.push({ slug: model.slug, name: model.name });
+    }
+    return lineages;
+  }
+
+  servingVersions(n: CanonicalFlowNode) {
+    return lineageVersions(this.mlSvc?.registry() ?? [], this.servingParams(n).model_slug);
+  }
+
+  /** The client-side gap, so an unfinished node says so before it is run. */
+  servingRefusal(n: CanonicalFlowNode): MlFailure | null {
+    const descriptor = servingDescriptor(n);
+    if (!descriptor) return null;
+    // `wired: true` because the inspector cannot know what the upstream edge
+    // carries — an unwired score node is the run's refusal to make, not this
+    // panel's.
+    return preflightServing(this.servingParams(n), descriptor, { wired: true });
+  }
+
+  onServingModel(event: Event): void {
+    const slug = (event.target as HTMLSelectElement).value;
+    const model = servableModels(this.mlSvc?.registry() ?? []).find(
+      (row) => row.slug === slug,
+    );
+    this.writeServing(
+      model ? chooseModelPatch(model) : { model_slug: '', model_id: '', pinned_version: null },
+    );
+  }
+
+  onServingVersion(event: Event): void {
+    const raw = (event.target as HTMLSelectElement).value;
+    this.writeServing(pinVersionPatch(raw ? Number(raw) : null));
+  }
+
+  onServingOutput(event: Event): void {
+    this.writeServing({
+      output_name: (event.target as HTMLInputElement).value.trim(),
+    });
+  }
+
+  onServingExplain(event: Event): void {
+    this.writeServing({ explain: (event.target as HTMLInputElement).checked });
+  }
+
+  /** One store write per gesture, merged into the RAW params bag so a key this
+   *  view model does not know about survives the edit. */
+  private writeServing(patch: Record<string, unknown>): void {
+    const node = this.node();
+    if (!node) return;
+    const config = (node.config ?? {}) as Record<string, unknown>;
+    const raw = config['params'];
+    const current =
+      raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+    this.store.updateNodeConfig(node.id, 'params', { ...current, ...patch });
   }
 
   /** First `def` line of the script — enough to recognise the recipe. */

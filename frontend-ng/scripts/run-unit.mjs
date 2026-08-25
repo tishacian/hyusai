@@ -34,6 +34,8 @@ const pureSpecs = [
   'src/app/features/orchestration/flow/flow-recipe-ui-contract.spec.ts',
   'src/app/features/orchestration/flow/flow-transform.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-transform-ui-contract.spec.ts',
+  'src/app/features/orchestration/flow/flow-ml.vm.spec.ts',
+  'src/app/features/orchestration/flow/flow-ml-ui-contract.spec.ts',
   'src/app/features/orchestration/flow/flow-node-run.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-semantic-diff.vm.spec.ts',
   'src/app/features/orchestration/flow/flow.types.spec.ts',

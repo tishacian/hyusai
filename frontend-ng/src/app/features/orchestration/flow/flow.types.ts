@@ -16,6 +16,12 @@ import type {
   NodePort,
 } from '@app/core/flow-serializer.service';
 import type { Skill } from '@app/core/canonical-api.service';
+import {
+  ML_TRAIN_SKILL_SLUG,
+  SERVING_ROLES,
+  predictDefaultParams,
+  trainDefaultParams,
+} from './flow-ml.vm';
 import { RECIPE_SKILL_SLUG, recipeDefaultParams } from './flow-recipe.vm';
 import {
   TRANSFORM_ENGINES,
@@ -434,11 +440,25 @@ function transformEngineOfSlug(slug: string): TransformEngine | null {
   return null;
 }
 
+/** Which serving shape a skill slug names, or `null` for anything else. */
+function servingRoleOfSlug(slug: string): 'predict' | 'score' | null {
+  for (const descriptor of Object.values(SERVING_ROLES)) {
+    if (descriptor.skillSlug === slug) return descriptor.role;
+  }
+  return null;
+}
+
 /** Pick a Lucide icon (registered in icon-registry) for a skill. */
 function iconForSkill(skill: Skill): string {
   if (skill.slug === RECIPE_SKILL_SLUG) return 'code-2';
   const engine = transformEngineOfSlug(skill.slug);
   if (engine) return TRANSFORM_ENGINES[engine].icon;
+  // The three model nodes are three shapes, and the canvas says which: a fit
+  // produces a model, a single-record call is instant, a batch score aims at a
+  // table. Sharing one brain glyph would hide the distinction that matters.
+  if (skill.slug === ML_TRAIN_SKILL_SLUG) return 'brain';
+  const servingRole = servingRoleOfSlug(skill.slug);
+  if (servingRole) return SERVING_ROLES[servingRole].icon;
   const hay = `${skill.type ?? ''} ${skill.slug} ${skill.name ?? ''}`.toLowerCase();
   if (/retriev|rag|search|lookup|fetch/.test(hay)) return 'search';
   if (/generat|answer|llm|summar|writ|draft/.test(hay)) return 'cpu';
@@ -486,6 +506,17 @@ export function skillToPaletteItem(skill: Skill): PaletteItem {
   const engine = transformEngineOfSlug(skill.slug);
   if (engine) {
     params = { ...transformDefaultParams(engine), ...params };
+  }
+  // And for the model Skills. A training node drops unconfigured on purpose —
+  // there is no starter target the way there is a starter SELECT, because what
+  // to predict is the one thing only the author knows — but it drops with the
+  // full param bag so the workshop edits fields rather than creating them.
+  if (skill.slug === ML_TRAIN_SKILL_SLUG) {
+    params = { ...trainDefaultParams(), ...params };
+  }
+  const servingRole = servingRoleOfSlug(skill.slug);
+  if (servingRole) {
+    params = { ...predictDefaultParams(servingRole), ...params };
   }
   const category = skillPaletteSection(skill);
 
