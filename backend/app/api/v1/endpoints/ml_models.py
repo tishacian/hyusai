@@ -41,6 +41,7 @@ from app.db.base import get_db
 from app.models.tabular import MLModel, TabularDataset
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services import ml_comparison
 from app.services.tabular_datasets import (
     TabularError,
     resolve_dataset_ref,
@@ -306,6 +307,33 @@ async def get_model_detail(
         "catalog": catalog_payload(),
         "serving": serving_block(db, model),
     }
+
+
+@router.get("/{model_id}/comparison")
+async def compare_model_versions(
+    model_id: str,
+    against: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Two versions scored on one test split, as skore's comparison table.
+
+    Distinct from the deltas on the card, which subtract two recorded results:
+    this re-scores both pipelines over the same rows, so the gap is a property of
+    the models rather than of two different samples.
+
+    In a worker thread for the same reason as ``predict``, only more so: this
+    reads a Parquet holdout and runs two pipelines over all of it.
+    """
+
+    try:
+        left = get_model(db, model_id=against, workspace_id=workspace.id)
+        right = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        table = await run_in_threadpool(ml_comparison.compare, db, left=left, right=right)
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return table
 
 
 @router.post("/{model_id}/cancel")

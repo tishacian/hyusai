@@ -400,6 +400,57 @@ def test_promoting_a_version_moves_the_alias_and_returns_the_new_lineage(
     )
 
 
+def test_the_comparison_route_refuses_a_version_against_itself(
+    client, dataset, monkeypatch
+):
+    """The refusal codes reach the page as codes, not as a 500.
+
+    Scoring two real pipelines needs real artifacts, which this module stubs; the
+    table itself is covered in the service tests. What the route owes the card is
+    that a mismatch arrives as something the UI can translate.
+    """
+
+    _stub_harness(monkeypatch)
+    model = _train(client, dataset).json()["model"]
+
+    response = client.get(f"/ml-models/{model['id']}/comparison?against={model['id']}")
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "ML_COMPARE_SAME_VERSION"
+
+
+def test_the_comparison_route_is_workspace_scoped_on_both_sides(
+    client, dataset, monkeypatch, db_session
+):
+    _stub_harness(monkeypatch)
+    model = _train(client, dataset).json()["model"]
+    other = Workspace(
+        id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={}
+    )
+    db_session.add(other)
+    foreign = MLModel(
+        id=str(uuid4()),
+        workspace_id=other.id,
+        name="Foreign",
+        slug="foreign",
+        version=1,
+        task="classification",
+        algo="linear",
+        target="churn",
+        features=["arpu"],
+        status="ready",
+    )
+    db_session.add(foreign)
+    db_session.commit()
+
+    # The other side is read through the same scoped lookup, so a foreign id is
+    # not merely refused by the comparison — it is not found at all.
+    response = client.get(f"/ml-models/{model['id']}/comparison?against={foreign.id}")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "ML_MODEL_NOT_FOUND"
+
+
 def test_an_untrained_version_cannot_be_promoted(client, dataset, monkeypatch):
     _stub_harness(monkeypatch, exit_code=1)
     failed = _train(client, dataset).json()["model"]
