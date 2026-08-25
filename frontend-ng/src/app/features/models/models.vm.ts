@@ -721,6 +721,50 @@ export function higherIsBetter(key: string): boolean {
   return METRIC_SPECS[key]?.higherIsBetter ?? true;
 }
 
+/**
+ * What a provenance line needs to know, and nothing more.
+ *
+ * Narrower than the transport's `SkillProvenance` on purpose: the sentence is
+ * built from a name, a version and at most one score, so those are what the
+ * function asks for. Structural typing makes the transport shape assignable
+ * without this module importing from the Angular side of the app.
+ */
+export interface ProvenanceSource {
+  name: string;
+  version: number;
+  metric?: { key: string; value: number } | null;
+}
+
+/**
+ * The i18n parameters of the provenance line a published Skill carries.
+ *
+ * One sentence — `models.publish.provenance` — serves both places it is shown:
+ * the model card, where you have just published, and the skills catalog, where
+ * a reader is deciding whether to trust a row among forty. Two keys saying
+ * "Model Churn v3 — AUC 0.87" would be two sentences to keep in step.
+ *
+ * `evidence` is deliberately allowed to be empty. A regression whose primary
+ * score has no absolute reading still deserves to say which version answers;
+ * quoting a number nobody can interpret is worse than quoting none.
+ */
+export function provenanceLineParams(
+  provenance: ProvenanceSource | null | undefined,
+  metricName: (key: string) => string,
+  locale = 'en',
+): { name: string; version: number; evidence: string } | null {
+  if (!provenance?.name) return null;
+  const metric = provenance.metric;
+  const evidence =
+    metric && Number.isFinite(metric.value)
+      ? `${metricName(metric.key)} ${formatMetric(metric.key, metric.value, locale)}`
+      : '';
+  return {
+    name: provenance.name,
+    version: Math.max(1, Math.round(provenance.version || 1)),
+    evidence,
+  };
+}
+
 /** The one score a list row and the header KPI show. */
 export function primaryScore(model: ModelDto | null | undefined): MetricScore | null {
   const primary = model?.primary_metric ?? model?.metrics?.primary ?? null;

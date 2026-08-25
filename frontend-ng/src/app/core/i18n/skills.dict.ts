@@ -50,6 +50,8 @@ export const SKILLS_FR = {
   'skills.list.column.price': 'Prix unitaire',
   'skills.list.open': 'Ouvrir',
   'skills.list.open.hint': 'Ouvrir le détail de la skill',
+  'skills.provenance.hint':
+    'Cette skill répond depuis un modèle entraîné ici. Ouvrir sa fiche.',
 
   // -- Certification levels (API values) ----------------------------------
   'skills.cert.basic': 'Base',
@@ -301,6 +303,8 @@ export const SKILLS_EN: Record<keyof typeof SKILLS_FR, string> = {
   'skills.list.column.price': 'Unit price',
   'skills.list.open': 'Open',
   'skills.list.open.hint': 'Open the skill detail',
+  'skills.provenance.hint':
+    'This skill answers from a model trained here. Open its card.',
 
   // -- Certification levels (API values) ----------------------------------
   'skills.cert.basic': 'Basic',

@@ -74,6 +74,22 @@ export interface Skill {
    * does not fail on a refused claim: the Skill exists either way, and the
    * caller is told which of the two happened. */
   capability_claim?: { attached: boolean; capability_name?: string | null; reason?: string | null };
+  /** The model a Skill published from a lineage answers from, resolved server
+   * side to the version that currently serves it. Absent on every other Skill,
+   * and never stale: the backend derives it from the frozen binding on read
+   * rather than copying it at publication. */
+  provenance?: SkillProvenance | null;
+}
+
+/** Where a published Skill's answer comes from, for its catalog chip. */
+export interface SkillProvenance {
+  model_id: string;
+  model_slug: string;
+  name: string;
+  version: number;
+  task?: string | null;
+  target?: string | null;
+  metric?: { key: string; value: number } | null;
 }
 
 export interface ListSkillsOptions {

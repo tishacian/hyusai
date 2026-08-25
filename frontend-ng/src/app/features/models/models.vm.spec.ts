@@ -45,6 +45,7 @@ import {
   primaryScore,
   refusalField,
   refusalKey,
+  provenanceLineParams,
   servingErrorKey,
   splitError,
   targetCandidates,
@@ -623,6 +624,47 @@ test('with no key at all the snippet says where one goes rather than looking don
     row: {},
   });
   assert.match(snippet, /X-API-Key: YOUR_API_KEY/);
+});
+
+test('a provenance line names the serving version and quotes its score', () => {
+  const params = provenanceLineParams(
+    { name: 'Churn risk', version: 3, metric: { key: 'roc_auc', value: 0.8712 } },
+    (key) => (key === 'roc_auc' ? 'AUC' : key),
+    'en',
+  );
+  assert.deepEqual(params, {
+    name: 'Churn risk',
+    version: 3,
+    evidence: 'AUC 87.1%',
+  });
+});
+
+test('a provenance with no readable score still says which version answers', () => {
+  // A number nobody can interpret is worse than no number, but "which version
+  // answers" is never the part worth dropping.
+  const params = provenanceLineParams(
+    { name: 'Cell load', version: 2, metric: null },
+    (key) => key,
+    'en',
+  );
+  assert.deepEqual(params, { name: 'Cell load', version: 2, evidence: '' });
+  const broken = provenanceLineParams(
+    { name: 'Cell load', version: 2, metric: { key: 'r2', value: Number.NaN } },
+    (key) => key,
+    'en',
+  );
+  assert.equal(broken?.evidence, '');
+});
+
+test('a skill that answers from no model claims no provenance', () => {
+  assert.equal(provenanceLineParams(null, (key) => key), null);
+  assert.equal(provenanceLineParams(undefined, (key) => key), null);
+  // A version the transport left at 0 or below still reads as v1 rather than as
+  // a version that cannot exist.
+  assert.equal(
+    provenanceLineParams({ name: 'Churn', version: 0 }, (key) => key)?.version,
+    1,
+  );
 });
 
 test('every coded serving refusal has a sentence of its own', () => {

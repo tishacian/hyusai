@@ -20,7 +20,7 @@ from app.models.tabular import MLModel, MLModelApiKey
 from app.models.workspace import Workspace
 from app.services import tabular_predict
 from app.services.tabular_datasets import TabularError, register_frame
-from app.services.tabular_ml import upload_model_dir
+from app.services.tabular_ml import set_champion, upload_model_dir
 from app.tests.ml_artifacts import (
     CHURN_FEATURES,
     CHURN_ROWS,
@@ -801,6 +801,77 @@ def test_deleting_one_version_keeps_the_lineage_skill_the_others_serve(
     delete_model(db_session, first)
 
     assert db_session.query(Skill).count() == 1
+
+
+def test_the_catalog_can_name_the_model_a_published_skill_answers_from(
+    db_session, model
+):
+    """The provenance chip's data, read off the executor the run dispatches.
+
+    A published Skill in a catalog of forty is indistinguishable from a hand
+    written one unless it says where its answer comes from. That claim has to be
+    derived from the binding rather than from a second field somebody remembered
+    to fill in.
+    """
+
+    published = tabular_predict.publish_as_skill(db_session, model=model)
+    row = db_session.query(Skill).filter(Skill.slug == published["slug"]).one()
+
+    provenance = tabular_predict.skill_provenance(db_session, [row])[row.slug]
+
+    assert provenance["model_id"] == model.id
+    assert provenance["name"] == model.name
+    assert provenance["version"] == 1
+    assert provenance["target"] == "churn"
+    assert provenance["metric"]["key"] == "roc_auc"
+    assert 0.0 <= provenance["metric"]["value"] <= 1.0
+
+
+def test_the_provenance_follows_a_promotion_instead_of_freezing_on_publication(
+    db_session, workspace, churn_artifact
+):
+    """Promoting v2 must move the chip, because it moves the answer.
+
+    The Skill is bound to a lineage, so what it replies with changes the moment
+    another version is promoted. A provenance copied at publication would go on
+    claiming v1 — a chip that lies is worse than no chip, because it is quoted.
+    """
+
+    first = _register(db_session, workspace, churn_artifact, version=1, champion=True)
+    tabular_predict.publish_as_skill(db_session, model=first)
+    row = db_session.query(Skill).one()
+    assert tabular_predict.skill_provenance(db_session, [row])[row.slug]["version"] == 1
+
+    second = _register(db_session, workspace, churn_artifact, version=2, champion=False)
+    set_champion(db_session, second)
+
+    provenance = tabular_predict.skill_provenance(db_session, [row])[row.slug]
+    assert provenance["version"] == 2
+    assert provenance["model_id"] == second.id
+
+
+def test_a_skill_that_answers_from_no_model_claims_no_provenance(db_session, model):
+    """Absent, not empty: a hand-written Skill has nothing to attribute."""
+
+    hand_written = Skill(
+        id=uuid4().hex,
+        workspace_id=model.workspace_id,
+        slug=f"ws.{model.workspace_id}.hand_written",
+        name="Hand written",
+        type="workflow",
+        executor={"kind": "http_call", "params": {}},
+    )
+    db_session.add(hand_written)
+    db_session.commit()
+
+    assert tabular_predict.skill_provenance(db_session, [hand_written]) == {}
+    # A lineage whose every version was deleted is the same answer: the Skill is
+    # gone with it, and until it is there is nothing true to say.
+    published = tabular_predict.publish_as_skill(db_session, model=model)
+    row = db_session.query(Skill).filter(Skill.slug == published["slug"]).one()
+    model.status = "pending"
+    db_session.commit()
+    assert tabular_predict.skill_provenance(db_session, [row]) == {}
 
 
 def test_an_untrained_model_cannot_be_published(db_session, workspace, churn_artifact):
