@@ -834,8 +834,12 @@ def churn_parquet(tmp_path):
             "arpu": rng.normal(85, 25, rows).round(2),
             "support_tickets": rng.poisson(0.9, rows),
             "constant": 1,
+            # A survey nobody is obliged to answer: the hole real tabular data
+            # arrives with, and the one skrub encodes around rather than fills.
+            "nps": rng.integers(0, 11, rows).astype("float64"),
         }
     )
+    frame.loc[frame.index[: rows // 3], "nps"] = numpy.nan
     logit = (
         -1.0
         + 0.05 * (60 - frame["tenure_months"]).clip(lower=0)
@@ -861,6 +865,7 @@ def _manifest_for(churn_parquet: Path, tmp_path: Path, **overrides) -> dict:
             "arpu",
             "support_tickets",
             "constant",
+            "nps",
         ],
         "estimator": "sklearn.ensemble.HistGradientBoostingClassifier",
         "params": {"max_iter": 40, "learning_rate": 0.2, "random_state": 42},
@@ -1009,6 +1014,95 @@ def test_the_harness_regresses_a_continuous_target_with_a_scaled_pipeline(
     assert metrics["curves"]["fit"] and len(metrics["curves"]["ideal"]) == 2
     assert metrics["target"]["min"] < metrics["target"]["mean"] < metrics["target"]["max"]
     assert summary["classes"] == []
+
+
+@pytest.mark.slow
+def test_a_baseline_fits_and_serves_a_hole_the_boosted_trees_would_have_kept(
+    churn_parquet, tmp_path
+):
+    """The two baselines refuse NaN, and the data has one. Both ends must hold.
+
+    skrub encodes the categories and leaves numeric holes as it found them, so
+    before the pipeline imputed them a logistic regression failed outright — the
+    linear baseline of a churn deck, unavailable on any dataset with an
+    unanswered survey question. The predict end is the subtler half: the
+    signature this fit writes declares those columns nullable, so a saved model
+    that cannot score a holed row rejects production traffic its own contract
+    accepts.
+    """
+
+    pytest.importorskip("mlflow.pyfunc")
+    import pandas as pd
+
+    code, summary, stderr = _run_harness(
+        tmp_path / "run",
+        _manifest_for(
+            churn_parquet,
+            tmp_path,
+            estimator="sklearn.linear_model.LogisticRegression",
+            params={"max_iter": 500, "random_state": 42},
+            scale=True,
+        ),
+    )
+    assert code == 0, stderr
+    assert summary["metrics"]["primary"]["key"] == "roc_auc"
+    # The holed column survives as a feature rather than being dropped: an
+    # unanswered survey is a third of these rows, and dropping them would be a
+    # different model than the one the author asked for.
+    assert "nps" in summary["metrics"]["columns"]["used"]
+    assert summary["metrics"]["rows"]["total"] == 400
+
+    import mlflow.pyfunc
+    import mlflow.sklearn
+
+    # Imputed before scaled, so the scaler's statistics are computed on a
+    # complete column rather than on whichever rows happened to be answered.
+    assert [name for name, _step in mlflow.sklearn.load_model(str(tmp_path / "model")).steps] == [
+        "tablevectorizer",
+        "simpleimputer",
+        "standardscaler",
+        "logisticregression",
+    ]
+
+    loaded = mlflow.pyfunc.load_model(str(tmp_path / "model"))
+    holed = pd.DataFrame(summary["input_example"])
+    holed.loc[holed.index[0], "nps"] = None
+    holed.loc[holed.index[0], "arpu"] = None
+    assert len(loaded.predict(holed)) == len(holed)
+
+
+@pytest.mark.slow
+def test_the_boosted_trees_keep_the_hole_the_baselines_have_to_lose(
+    churn_parquet, tmp_path
+):
+    """Imputation is per-estimator, and that distinction is the whole point.
+
+    ``HistGradientBoosting`` routes a missing value down a branch of its own, so
+    filling it with a median would destroy a signal the algorithm was built to
+    read. Asking the estimator's own sklearn tag is what keeps the imputer on
+    the two families that need it and off the two that do not.
+    """
+
+    from app.resources.ml_train_harness import _tolerates_missing
+    from sklearn.ensemble import HistGradientBoostingClassifier
+    from sklearn.linear_model import LogisticRegression
+
+    assert _tolerates_missing(HistGradientBoostingClassifier(), fallback=False) is True
+    assert _tolerates_missing(LogisticRegression(), fallback=True) is False
+    # A stand-in for a future sklearn that moves the tag: the catalog's own
+    # ``scale`` flag marks the same two families, so the fallback is not a guess.
+    assert _tolerates_missing(object(), fallback=True) is True
+
+    pytest.importorskip("mlflow.sklearn")
+    code, _summary, stderr = _run_harness(
+        tmp_path / "run", _manifest_for(churn_parquet, tmp_path)
+    )
+    assert code == 0, stderr
+
+    import mlflow.sklearn
+
+    steps = [name for name, _step in mlflow.sklearn.load_model(str(tmp_path / "model")).steps]
+    assert steps == ["tablevectorizer", "histgradientboostingclassifier"]
 
 
 # ---------------------------------------------------------------------------
