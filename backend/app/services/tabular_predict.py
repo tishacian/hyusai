@@ -154,13 +154,25 @@ def _evict(entry: LoadedModel) -> None:
 
 
 def load_pipeline(model: MLModel) -> LoadedModel:
-    """Return the model's pipeline, from cache when the artifact is unchanged.
+    """Return the model's pipeline, from cache when the artifact is unchanged."""
+
+    entry, _ = load_pipeline_traced(model)
+    return entry
+
+
+def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
+    """As ``load_pipeline``, plus whether the pipeline was already resident.
 
     Loaded through MLflow's sklearn flavor rather than its pyfunc wrapper: the
     wrapper exposes ``predict`` only, and a churn model whose answer is "1"
     without "0.87" is a demo that does not land. The directory is the same
     MLflow model either way, so nothing about the artifact's portability is
     given up by reading it as what it is.
+
+    The residency flag exists because callers report timings. ``load_ms`` on the
+    entry is what building *that entry* cost, so quoting it on a hit tells an
+    operator a request spent five seconds loading a model it never loaded — and
+    the whole claim of this cache is that the second call does not pay that.
     """
 
     if not settings.ml_predict_enabled:
@@ -182,7 +194,7 @@ def load_pipeline(model: MLModel) -> LoadedModel:
         cached = _cache.get(model.id)
         if cached is not None and cached.fingerprint == fingerprint:
             _cache.move_to_end(model.id)
-            return cached
+            return cached, True
         if cached is not None:
             _cache.pop(model.id, None)
             _evict(cached)
@@ -224,7 +236,7 @@ def load_pipeline(model: MLModel) -> LoadedModel:
         while len(_cache) > int(settings.ml_predict_cache_size):
             _, dropped = _cache.popitem(last=False)
             _evict(dropped)
-        return entry
+        return entry, False
 
 
 def _classes_of(model: MLModel, pipeline: Any) -> list[str]:
@@ -716,7 +728,7 @@ def predict_rows(
 
     served = serving_version(db, model, version=version)
     coerced = coerce_rows(served, rows)
-    entry = load_pipeline(served)
+    entry, resident = load_pipeline_traced(served)
     started = time.monotonic()
     fields = contract_fields(served)
     frame = build_frame(fields, coerced)
@@ -752,7 +764,10 @@ def predict_rows(
         "predictions": answers,
         "rows": len(answers),
         "duration_ms": elapsed_ms,
-        "load_ms": entry.load_ms,
+        # What *this* request paid to get a pipeline in memory. Zero on a hit,
+        # which is the number the cache exists to produce.
+        "load_ms": 0.0 if resident else entry.load_ms,
+        "cached": resident,
     }
 
 
@@ -1452,6 +1467,7 @@ __all__ = [
     "explain_row",
     "list_api_keys",
     "load_pipeline",
+    "load_pipeline_traced",
     "mint_api_key",
     "predict_input_schema",
     "predict_output_schema",
