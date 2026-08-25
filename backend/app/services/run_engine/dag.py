@@ -2467,7 +2467,15 @@ async def _execute_node(
         # Enrich node_end with whatever we learned during execution so
         # the SSE consumer can render informative terminal lines without
         # fetching /runs/:id for each event.
-        summary = _summarise_node_execution(db, run, node, result, state, invocations_before)
+        summary = _summarise_node_execution(
+            db,
+            run,
+            node,
+            result,
+            state,
+            invocations_before,
+            node_input=node_input if isinstance(node_input, dict) else None,
+        )
         _append_checkpoint(
             db,
             run,
@@ -4207,6 +4215,103 @@ def _collect_terminal_output(graph: DagGraph, state: WalkerState) -> Any:
     return dict(state.ctx.get("input") or {})
 
 
+def _envelope_rows(payload: Any) -> Optional[int]:
+    """Row count of the first dataset envelope in a payload, if there is one.
+
+    Datasets travel by reference (``{dataset_id, rows, schema}``), so the size
+    of what a node read and of what it wrote is already on the wire — this only
+    finds it, one level deep, the same way the serving wrappers find their
+    input dataset.
+    """
+
+    def _rows(candidate: Any) -> Optional[int]:
+        if not isinstance(candidate, dict) or not candidate.get("dataset_id"):
+            return None
+        rows = candidate.get("rows")
+        if isinstance(rows, bool) or not isinstance(rows, (int, float)):
+            return None
+        return int(rows)
+
+    direct = _rows(payload)
+    if direct is not None:
+        return direct
+    if not isinstance(payload, dict):
+        return None
+    for key, value in payload.items():
+        if isinstance(key, str) and key.startswith("_"):
+            continue
+        nested = _rows(value)
+        if nested is not None:
+            return nested
+    return None
+
+
+def _metric_block(payload: Any) -> Optional[Dict[str, Any]]:
+    """A ``{key, value}`` primary metric, as a model reference carries it."""
+
+    if not isinstance(payload, dict):
+        return None
+    metric = payload.get("metric")
+    if not isinstance(metric, dict):
+        return None
+    key = metric.get("key")
+    value = metric.get("value")
+    if not isinstance(key, str) or not key:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return {"key": key, "value": float(value)}
+
+
+def _node_data_badge(
+    node_input: Optional[Dict[str, Any]], result: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """What the canvas badges a settled node with, read off its envelopes.
+
+    The numbers are not computed here and they are not new: a transform node
+    already receives a dataset envelope and returns one, a training node returns
+    its model reference with the primary metric, a serving node names the
+    version that answered. This only lifts them into the ``node_end``
+    checkpoint, so the badge is one SSE frame rather than a fetch per node —
+    which is what lets the figures land on the graph as the run walks it.
+    """
+
+    output = result.get("output")
+    badge: Dict[str, Any] = {}
+    rows_in = _envelope_rows(node_input)
+    if rows_in is not None:
+        badge["rows_in"] = rows_in
+    rows_out = _envelope_rows(output)
+    if rows_out is not None:
+        badge["rows_out"] = rows_out
+    if isinstance(output, dict):
+        # A training node's own metric; a serving node reports the model that
+        # answered under ``model``/``served``, and its metric is that version's.
+        metric = _metric_block(output)
+        served = output.get("model") or output.get("served")
+        if metric is not None:
+            badge["metric"] = metric
+        if isinstance(output.get("model_id"), str) and output["model_id"]:
+            badge["model_id"] = output["model_id"]
+        if isinstance(served, dict):
+            slug = served.get("slug") or served.get("name")
+            version = served.get("version")
+            if isinstance(slug, str) and slug:
+                badge["model"] = {
+                    "slug": slug,
+                    **(
+                        {"version": int(version)}
+                        if isinstance(version, (int, float))
+                        and not isinstance(version, bool)
+                        else {}
+                    ),
+                }
+        predictions = output.get("predictions")
+        if isinstance(predictions, list):
+            badge["predictions"] = len(predictions)
+    return badge or None
+
+
 def _summarise_node_execution(
     db: DBSession,
     run: Run,
@@ -4214,6 +4319,7 @@ def _summarise_node_execution(
     result: Dict[str, Any],
     state: WalkerState,
     invocations_before: int,
+    node_input: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Distil whatever the handler returned into a few SSE-friendly fields.
 
@@ -4224,10 +4330,15 @@ def _summarise_node_execution(
       pulled from the invocation(s) that this handler produced.
     * Decision nodes surface ``chosen_branch``.
     * Any handler that signalled a pause propagates ``pause=True``.
+    * Data-plane nodes surface ``data``: rows read, rows written, the metric a
+      fit produced, the model version that answered.
     """
     summary: Dict[str, Any] = {}
     if not isinstance(result, dict):
         return summary
+    badge = _node_data_badge(node_input, result)
+    if badge is not None:
+        summary["data"] = badge
     if result.get("pause"):
         summary["pause"] = True
     if node.kind == "decision":

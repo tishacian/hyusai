@@ -234,6 +234,12 @@ export const FLOW_FR = {
   'flow.node.kind.subflow': 'SOUS-FLOW',
   'flow.node.kind.skill': 'SKILL',
   'flow.node.kind.runtime': 'EXÉCUTION',
+  'flow.node.run.rows_delta': '{from} → {to} lignes',
+  'flow.node.run.rows': '{rows} lignes',
+  'flow.node.run.predictions': '{count} prédiction(s)',
+  'flow.node.run.metric': '{metric} {value}',
+  'flow.node.run.duration': '{duration}',
+  'flow.node.run.model': 'Modèle qui a répondu sur ce nœud',
 
   // ---- palette -----------------------------------------------------------
   'flow.palette.aria': 'Palette de nœuds',
@@ -1622,6 +1628,12 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.node.kind.subflow': 'SUBFLOW',
   'flow.node.kind.skill': 'SKILL',
   'flow.node.kind.runtime': 'RUNTIME',
+  'flow.node.run.rows_delta': '{from} → {to} rows',
+  'flow.node.run.rows': '{rows} rows',
+  'flow.node.run.predictions': '{count} prediction(s)',
+  'flow.node.run.metric': '{metric} {value}',
+  'flow.node.run.duration': '{duration}',
+  'flow.node.run.model': 'Model that answered on this node',
 
   // ---- palette -----------------------------------------------------------
   'flow.palette.aria': 'Node palette',

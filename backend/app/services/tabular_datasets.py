@@ -682,7 +682,36 @@ def serialize_dataset(
     if include_preview:
         payload["preview"] = list(dataset.preview_json or [])
         payload["stats"] = dict(dataset.stats_json or {})
+        payload["lineage"] = _public_lineage(dataset)
     return payload
+
+
+# Which of a producer's lineage notes the detail surface is allowed to render.
+# A curated list rather than the whole bag: the block also holds the authored
+# statement, and a dataset page is not where a Flow's program is published.
+_PUBLIC_LINEAGE_KEYS = (
+    "engine",
+    "model",
+    "added_columns",
+    "output_model",
+    "models",
+    "tests_total",
+    "tests_failed",
+    "code_lines",
+    "duration_ms",
+)
+
+
+def _public_lineage(dataset: TabularDataset) -> dict[str, Any]:
+    """How this dataset was produced, as the detail page tells the story.
+
+    The interesting entry is ``model``: a scored dataset knows which model
+    version wrote its extra columns, which is what lets those columns carry a
+    "scored by Churn v3" badge instead of appearing out of nowhere.
+    """
+
+    raw = dataset.lineage_json if isinstance(dataset.lineage_json, dict) else {}
+    return {key: raw[key] for key in _PUBLIC_LINEAGE_KEYS if key in raw}
 
 
 def dataset_reference(dataset: TabularDataset) -> dict[str, Any]:
