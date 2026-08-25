@@ -32,10 +32,13 @@ def _enum_check() -> str:
 
 
 def _format_check(dialect: str) -> str:
+    # No LIKE wildcard here: this string is embedded into DDL, and psycopg2
+    # interpolates '%' in whatever statement it is handed. See the matching note
+    # on ``app.models.workspace._app_key_common_check``.
     common = (
         "length(app_key) BETWEEN 1 AND 80 "
         "AND app_key = lower(trim(app_key)) "
-        "AND app_key NOT LIKE '% %'"
+        "AND app_key = replace(app_key, ' ', '')"
     )
     if dialect == "postgresql":
         return common + " AND app_key ~ '^[a-z0-9][a-z0-9.-]{0,79}$'"

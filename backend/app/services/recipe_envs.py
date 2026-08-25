@@ -220,7 +220,17 @@ def build_env_spec(
 
 
 def envs_root() -> Path:
-    return Path(settings.recipe_envs_path)
+    """Where the venvs live, always as an absolute path.
+
+    Absolute is not tidiness. Every harness is launched with
+    ``Popen(argv, cwd=scratch)`` where ``argv[0]`` is one of these interpreters,
+    and the child applies ``cwd`` *before* resolving the executable — so a
+    relative root (the shipped default is ``./data/recipe_envs``) makes the
+    lookup happen inside the scratch directory and every Polars, dbt and recipe
+    run dies on ``FileNotFoundError`` naming a path that is right there on disk.
+    """
+
+    return Path(settings.recipe_envs_path).expanduser().resolve()
 
 
 def pip_cache_dir() -> Path:
