@@ -45,6 +45,12 @@ export interface ModelDetailDto {
   model: ModelDto;
   dataset: DatasetDto | null;
   versions: ModelDto[];
+  /**
+   * The version the registry's `@challenger` alias names: the best of the
+   * lineage that is not serving. Sent by the API rather than derived here, so
+   * the badge and the alias cannot disagree.
+   */
+  challenger_id: string | null;
   catalog: ModelCatalog;
   /** The serving plane: the contract, the keys, the published Skill. */
   serving: ServingBlock;
@@ -179,14 +185,17 @@ export class ModelsService {
     return response.model;
   }
 
-  async promote(
-    modelId: string,
-  ): Promise<{ model: ModelDto; versions: ModelDto[] }> {
+  async promote(modelId: string): Promise<{
+    model: ModelDto;
+    versions: ModelDto[];
+    challenger_id: string | null;
+  }> {
     const response = await firstValueFrom(
-      this.http.post<{ model: ModelDto; versions: ModelDto[] }>(
-        `${this.base}/${modelId}/champion`,
-        {},
-      ),
+      this.http.post<{
+        model: ModelDto;
+        versions: ModelDto[];
+        challenger_id: string | null;
+      }>(`${this.base}/${modelId}/champion`, {}),
     );
     // Promotion moves an alias, so every version of the lineage changed.
     for (const version of response.versions ?? []) this.replace(version);

@@ -112,6 +112,16 @@ const CHART: CurveBox = { width: 300, height: 190 };
             <span class="ck-badge ck-badge--champion ck-mono">
               <app-icon name="crown" [size]="10" /> {{ i18n.t('models.detail.serving') }}
             </span>
+          } @else if (row.id === challengerId()) {
+            <!-- The other half of champion/challenger, and the same fact the
+                 registry alias records: this is what promotion would serve. -->
+            <span
+              class="ck-badge ck-badge--challenger ck-mono"
+              [title]="i18n.t('models.detail.challenger_hint')"
+            >
+              <app-icon name="medal" [size]="10" />
+              {{ i18n.t('models.detail.challenger') }}
+            </span>
           }
           <span
             class="ck-badge ck-mono"
@@ -670,6 +680,11 @@ const CHART: CurveBox = { width: 300, height: 190 };
                       <span class="ck-badge ck-badge--champion ck-mono">
                         <app-icon name="crown" [size]="9" /> {{ i18n.t('models.versions.serving') }}
                       </span>
+                    } @else if (version.id === challengerId()) {
+                      <span class="ck-badge ck-badge--challenger ck-mono">
+                        <app-icon name="medal" [size]="9" />
+                        {{ i18n.t('models.versions.challenger') }}
+                      </span>
                     }
                     <span class="flex-1 text-[11px] ck-mono" style="color: var(--ck-fg-4)">
                       {{ versionLine(version) }}
@@ -1020,6 +1035,12 @@ const CHART: CurveBox = { width: 300, height: 190 };
         background: rgba(52, 211, 153, 0.1);
         box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.28);
       }
+      /* Deliberately cooler than the champion's green: a contender, not a peer. */
+      .ck-badge--challenger {
+        color: var(--ck-signal-warm, #fbbf24);
+        background: rgba(251, 191, 36, 0.1);
+        box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.28);
+      }
       .ck-badge--on {
         color: var(--ck-signal-cool, #7dd3fc);
         background: rgba(125, 211, 252, 0.1);
@@ -1089,6 +1110,10 @@ export class ModelViewComponent implements OnInit {
   protected readonly model = computed(() => this.detail()?.model ?? null);
   protected readonly dataset = computed(() => this.detail()?.dataset ?? null);
   protected readonly versions = computed(() => this.detail()?.versions ?? []);
+  /** Named by the API, because the registry alias is derived from the same rule. */
+  protected readonly challengerId = computed(
+    () => this.detail()?.challenger_id ?? null,
+  );
   private readonly metrics = computed(() => this.model()?.metrics ?? null);
 
   /**

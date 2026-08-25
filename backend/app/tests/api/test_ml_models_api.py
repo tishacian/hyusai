@@ -395,9 +395,47 @@ def test_promoting_a_version_moves_the_alias_and_returns_the_new_lineage(
     assert body["model"]["is_champion"] is True
     serving = {row["version"]: row["is_champion"] for row in body["versions"]}
     assert serving == {2: True, 1: False}
+    # The card shows champion *and* challenger, so promotion has to hand back
+    # both halves: the version just displaced is now the contender.
+    assert body["challenger_id"] == first["id"]
     assert client.get(f"/ml-models/{first['id']}").json()["model"]["is_champion"] is (
         False
     )
+
+
+def test_the_card_names_the_challenger_as_the_best_loser_not_the_newest(
+    client, dataset, monkeypatch
+):
+    """The badge mirrors the registry alias, and both mean "what promotion would serve".
+
+    Version order would nominate the newest fit, which is frequently the worse
+    one — the whole reason promotion is a human decision. So the contender is
+    ranked by score, and here the middle version wins.
+    """
+
+    def _score(value: float):
+        _stub_harness(monkeypatch)
+        from app.services import tabular_ml
+
+        original = tabular_ml._apply_summary
+
+        def scored(model, summary):
+            original(model, summary)
+            model.metrics_json = {
+                **(model.metrics_json or {}),
+                "primary": {"key": "roc_auc", "value": value},
+            }
+
+        monkeypatch.setattr(tabular_ml, "_apply_summary", scored)
+        return _train(client, dataset).json()["model"]
+
+    champion = _score(0.83)
+    best_loser = _score(0.88)
+    _score(0.85)
+
+    body = client.get(f"/ml-models/{champion['id']}").json()
+    assert body["model"]["is_champion"] is True
+    assert body["challenger_id"] == best_loser["id"]
 
 
 def test_the_comparison_route_refuses_a_version_against_itself(

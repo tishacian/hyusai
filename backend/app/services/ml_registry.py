@@ -245,6 +245,24 @@ def set_alias(
         return False
 
 
+def clear_alias(*, model_name: str, alias: str = _ALIAS_CHALLENGER) -> bool:
+    """Remove an alias. False when unavailable — including "it was never set".
+
+    Needed because an alias that is merely *stale* is worse than one that is
+    absent: ``models:/name@challenger`` resolving to a version whose row was
+    deleted hands a caller bytes nobody can audit any more, and it does so
+    silently, which is the one failure mode a registry is supposed to prevent.
+    """
+
+    if not settings.ml_registry_enabled:
+        return False
+    try:
+        _client().delete_registered_model_alias(model_name, alias)
+        return True
+    except Exception:  # noqa: BLE001 - nothing to clear is the common case
+        return False
+
+
 def version_of_run(*, model_name: str, run_id: str) -> str | None:
     """The registered version a run produced, looked up rather than stored.
 
@@ -284,6 +302,7 @@ def alias_version(*, model_name: str, alias: str = _ALIAS_CHAMPION) -> str | Non
 
 __all__ = [
     "alias_version",
+    "clear_alias",
     "ensure_database",
     "publish",
     "registry_uri",

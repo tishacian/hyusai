@@ -809,6 +809,95 @@ def request_cancel(db: DBSession, model: MLModel) -> MLModel:
     return model
 
 
+# The primary score is the first entry of the harness's ordered list, which in
+# practice is ``roc_auc`` or ``r2`` — both higher-is-better. But the harness
+# falls further down that list when the head is unavailable, and ``rmse`` down
+# there is not, so the direction is checked rather than assumed. An unrecognised
+# key means "do not rank on this", never "assume up is good".
+_HIGHER_IS_BETTER = frozenset(
+    {
+        "accuracy",
+        "balanced_accuracy",
+        "f1",
+        "precision",
+        "r2",
+        "recall",
+        "roc_auc",
+    }
+)
+
+
+def runner_up(db: DBSession, model: MLModel) -> MLModel | None:
+    """The best ready version of this lineage that is not the one serving.
+
+    Version order would have been the cheap answer, and the wrong one: the newest
+    retrain is frequently *worse*, which is precisely why an operator is asked to
+    promote by hand. A challenger is the version with a case to make, so it is the
+    runner-up by score, with the higher version breaking a tie.
+
+    Deliberately says nothing about the registry. This is the rule the model card
+    renders and the rule the alias follows, and if it asked whether a row had been
+    registered then a registry outage would silently change what the card claims.
+    """
+
+    rows = (
+        db.query(MLModel)
+        .filter(
+            MLModel.workspace_id == model.workspace_id,
+            MLModel.slug == model.slug,
+            MLModel.status == "ready",
+            MLModel.is_champion.is_(False),
+        )
+        .all()
+    )
+    ranked = []
+    for row in rows:
+        primary = (row.metrics_json or {}).get("primary") or {}
+        value = primary.get("value")
+        if primary.get("key") in _HIGHER_IS_BETTER and isinstance(
+            value, (int, float)
+        ):
+            ranked.append((float(value), int(row.version or 0), row))
+    if not ranked:
+        return None
+    return max(ranked, key=lambda entry: (entry[0], entry[1]))[2]
+
+
+def sync_challenger(db: DBSession, model: MLModel) -> str | None:
+    """Point ``challenger`` at the lineage's runner-up, or remove it.
+
+    Half of the champion/challenger story is already told by ``is_champion`` and
+    its alias. This tells the other half *in the registry*, where it can be read
+    without this codebase: ``models:/<name>@challenger`` resolves to the version
+    that would be promoted if the incumbent lost, so a comparison between the two
+    needs no knowledge of our tables at all.
+
+    Clearing matters as much as setting. When a lineage is down to one version —
+    or the runner-up's row was deleted — an alias left behind would resolve to
+    something nobody can audit, quietly. Returns the version now aliased.
+    """
+
+    if not model.mlflow_model_name:
+        return None
+    contender = runner_up(db, model)
+    if contender is None or not contender.mlflow_run_id:
+        # Either nothing contends, or the contender was never registered and so
+        # has no version an alias could name. Both mean: do not leave one behind.
+        ml_registry.clear_alias(model_name=model.mlflow_model_name)
+        return None
+    version = ml_registry.version_of_run(
+        model_name=model.mlflow_model_name,
+        run_id=str(contender.mlflow_run_id),
+    )
+    if version and ml_registry.set_alias(
+        model_name=model.mlflow_model_name,
+        version=version,
+        alias=ml_registry._ALIAS_CHALLENGER,
+    ):
+        return version
+    return None
+
+
 def set_champion(db: DBSession, model: MLModel) -> MLModel:
     """Promote one version to the serving alias of its lineage.
 
@@ -846,6 +935,10 @@ def set_champion(db: DBSession, model: MLModel) -> MLModel:
                 model_name=model.mlflow_model_name, run_id=model.mlflow_run_id
             ),
         )
+    # The version this one just displaced is the obvious contender, so the pair
+    # of aliases moves together or the demoted champion would still be named
+    # nothing at all.
+    sync_challenger(db, model)
     return model
 
 
@@ -882,11 +975,17 @@ def delete_model(db: DBSession, model: MLModel) -> str:
     db.delete(model)
     db.commit()
 
-    survivors = (
+    remaining = (
         db.query(MLModel)
         .filter(MLModel.workspace_id == workspace_id, MLModel.slug == slug)
-        .count()
+        .all()
     )
+    survivors = len(remaining)
+    if remaining:
+        # The deleted row may have been the one ``challenger`` named. Re-deriving
+        # it from what is left is the only way the alias cannot outlive its
+        # version.
+        sync_challenger(db, remaining[0])
     if published and survivors == 0:
         (
             db.query(Skill)
@@ -1304,6 +1403,13 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         else:
             _finalize(model, status=status, error=error)
         db.commit()
+        if status == "ready":
+            # A retrain that did not take over is exactly what "challenger"
+            # means, so the alias is settled here and not only on promotion.
+            # After the commit on purpose: the session does not autoflush, so the
+            # row this fit just wrote would otherwise be invisible to the
+            # ranking query and a lineage's newest contender would never win.
+            sync_challenger(db, model)
         logger.info(
             "tabular_ml: settled",
             model_id=model_id,
@@ -1431,9 +1537,11 @@ __all__ = [
     "read_summary",
     "request_cancel",
     "run_training",
+    "runner_up",
     "serialize_model",
     "set_champion",
     "submit_training",
+    "sync_challenger",
     "training_summary",
     "upload_model_dir",
     "validate_training",

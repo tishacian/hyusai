@@ -28,6 +28,7 @@ from app.services import ml_registry
 # keep true.
 from app.tests.services.test_ml_training import (  # noqa: F401
     _stub_harness,
+    _summary,
     dataset,
     enabled,
     store,
@@ -322,6 +323,152 @@ def test_promoting_a_version_moves_the_alias_with_the_row(
 
     set_champion(db_session, db_session.query(MLModel).filter_by(id=second.id).one())
     assert ml_registry.alias_version(model_name=name) == "2"
+
+
+# ---------------------------------------------------------------------------
+# The other half of the story: challenger
+# ---------------------------------------------------------------------------
+
+
+def _train(db_session, workspace, dataset, monkeypatch, *, roc_auc):
+    """One version whose card scores exactly ``roc_auc``."""
+
+    from app.services.tabular_ml import submit_training
+
+    _stub_harness(
+        monkeypatch,
+        summary=_summary(
+            metrics={
+                "task": "classification",
+                "primary": {"key": "roc_auc", "value": roc_auc},
+                "scores": [{"key": "roc_auc", "value": roc_auc}],
+                "rows": {"total": 60, "train": 45, "test": 15},
+                "target": {"name": "churn", "classes": ["0", "1"], "positive": "1"},
+            }
+        ),
+    )
+    return submit_training(
+        db_session,
+        workspace_id=workspace.id,
+        dataset_ref={"dataset_id": dataset.id},
+        target="churn",
+        algo="gradient_boosting",
+    )
+
+
+def test_the_runner_up_is_the_best_loser_and_not_merely_the_newest(
+    db_session, workspace, dataset, enabled, registry, monkeypatch, store
+):
+    """``@challenger`` has to name the version with a case, not the latest fit.
+
+    Version order was the tempting rule and it is the wrong one: a retrain is
+    frequently worse, which is exactly why promotion is a human decision. Here v2
+    beats v3, so v2 is the contender even though v3 came last.
+    """
+
+    from app.models.tabular import MLModel
+
+    first = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.83)
+    _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.88)
+    _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.85)
+    db_session.expire_all()
+
+    name = db_session.query(MLModel).filter_by(id=first.id).one().mlflow_model_name
+    # v1 promoted itself because nothing served the lineage; it stays champion.
+    assert ml_registry.alias_version(model_name=name) == "1"
+    assert ml_registry.alias_version(model_name=name, alias="challenger") == "2"
+
+
+def test_promotion_moves_both_aliases_so_the_demoted_version_is_still_named(
+    db_session, workspace, dataset, enabled, registry, monkeypatch, store
+):
+    """After a promotion the pair has to describe the new arrangement, not half of it."""
+
+    from app.models.tabular import MLModel
+    from app.services.tabular_ml import set_champion
+
+    first = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.83)
+    second = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.88)
+    db_session.expire_all()
+    name = db_session.query(MLModel).filter_by(id=first.id).one().mlflow_model_name
+    assert ml_registry.alias_version(model_name=name, alias="challenger") == "2"
+
+    set_champion(db_session, db_session.query(MLModel).filter_by(id=second.id).one())
+
+    assert ml_registry.alias_version(model_name=name) == "2"
+    # The version just displaced is the obvious contender, so the aliases swap
+    # rather than both pointing at the winner.
+    assert ml_registry.alias_version(model_name=name, alias="challenger") == "1"
+
+
+def test_a_lineage_with_one_version_names_no_challenger(
+    db_session, workspace, dataset, enabled, registry, monkeypatch, store
+):
+    """Nothing to contend with, so the alias is absent rather than self-referential."""
+
+    from app.models.tabular import MLModel
+
+    only = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.83)
+    db_session.expire_all()
+    name = db_session.query(MLModel).filter_by(id=only.id).one().mlflow_model_name
+
+    assert ml_registry.alias_version(model_name=name) == "1"
+    assert ml_registry.alias_version(model_name=name, alias="challenger") is None
+
+
+def test_deleting_the_contender_takes_its_alias_with_it(
+    db_session, workspace, dataset, enabled, registry, monkeypatch, store
+):
+    """A stale alias is worse than none: it hands out bytes nobody can audit."""
+
+    from app.models.tabular import MLModel
+    from app.services.tabular_ml import delete_model
+
+    first = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.83)
+    second = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.88)
+    db_session.expire_all()
+    name = db_session.query(MLModel).filter_by(id=first.id).one().mlflow_model_name
+    assert ml_registry.alias_version(model_name=name, alias="challenger") == "2"
+
+    delete_model(db_session, db_session.query(MLModel).filter_by(id=second.id).one())
+
+    assert ml_registry.alias_version(model_name=name, alias="challenger") is None
+    # The champion is untouched: only the contender left.
+    assert ml_registry.alias_version(model_name=name) == "1"
+
+
+def test_a_metric_whose_direction_is_unknown_is_not_ranked_on(
+    db_session, workspace, dataset, enabled, registry, monkeypatch, store
+):
+    """``rmse`` sorted as if bigger were better would nominate the worst model.
+
+    The harness normally leads its ordered list with a higher-is-better score,
+    but it falls further down that list when one is unavailable — so an
+    unrecognised key means "do not rank", never "assume up is good".
+    """
+
+    from app.models.tabular import MLModel
+    from app.services.tabular_ml import sync_challenger
+
+    first = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.83)
+    second = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.88)
+    db_session.expire_all()
+
+    contender = db_session.query(MLModel).filter_by(id=second.id).one()
+    contender.metrics_json = {
+        **contender.metrics_json,
+        "primary": {"key": "rmse", "value": 12.5},
+    }
+    db_session.commit()
+
+    champion = db_session.query(MLModel).filter_by(id=first.id).one()
+    assert sync_challenger(db_session, champion) is None
+    assert (
+        ml_registry.alias_version(
+            model_name=champion.mlflow_model_name, alias="challenger"
+        )
+        is None
+    )
 
 
 def test_a_registry_outage_does_not_fail_a_training_run(
