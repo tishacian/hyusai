@@ -41,8 +41,9 @@ Sept datasets, et la lignée se lit dans l'ordre :
 
 ## Les chiffres à connaître par cœur
 
-- **8 412 → 6 903.** Exact, pas échantillonné : 412 doublons + 640 lignes suspendues
-  + 297 ARPU vides + 160 ARPU à `-1`, blocs disjoints par construction.
+- **8 412 → 6 903.** Exact, pas échantillonné, et dans cet ordre : 412 doublons
+  d'abord (reste 8 000), puis sur ce qui reste 640 lignes suspendues + 297 ARPU vides
+  + 160 ARPU à `-1`, trois blocs disjoints. 8 000 − 1 097 = 6 903.
 - **Trois versions, un classement mesuré** : v1 `linear` **0,835206** · v2
   `gradient_boosting` **0,859632** · v3 `gradient_boosting` sur les 29 colonnes
   **0,855853**. La promotion v1 → v2 vaut **+0,024426** ROC AUC.
@@ -84,7 +85,8 @@ Sept datasets, et la lignée se lit dans l'ordre :
    - `arpu_mad` : **310 vides** et **170 à `-1`**. Le `-1` est le piège : c'est un
      « inconnu » que l'export écrit comme un nombre. Un modèle entraîné dessus apprend
      que *−1 MAD prédit le churn*.
-   - `line_status` : 677 lignes `suspended` — des abonnés qui ne peuvent pas résilier.
+   - `line_status` : 677 lignes `suspended` — des abonnés qui ne peuvent pas résilier
+     et qui n'ont donc rien à apprendre à un modèle de churn volontaire.
    - `msisdn` : **412 numéros apparaissent deux fois**, avec un `snapshot_date` plus
      ancien et des compteurs plus vieux. Un dédoublonnage naïf garderait la mauvaise ligne.
    - `nps` : 1 383 vides. **Celle-là ne se nettoie pas** — un abonné qui ne répond plus
@@ -109,8 +111,13 @@ du SQL du temps 2, et le total des lignes retirées est vérifiable à l'unité.
    l'est pas. duckdb est parallèle : sans elle, l'ordre des lignes change d'un run à
    l'autre, la découpe train/test est positionnelle, et les métriques citées sur scène
    cessent d'être celles de la répétition.
-4. **Le badge du nœud : `8 412 → 6 903 lignes`.** Faire l'addition en direct :
-   412 + 640 + 297 + 160 = 1 509. C'est exact, pas arrondi.
+4. **Le badge du nœud : `8 412 → 6 903 lignes`.** Faire l'addition en direct, et
+   c'est là que l'ordre des opérations devient un argument : le brut contient 677
+   lignes suspendues, 310 ARPU vides et 170 sentinelles, mais le dédoublonnage passe
+   **d'abord** et emporte 412 lignes périmées — dont une partie était justement
+   suspendue ou trouée. Sur les 8 000 qui restent : 640 + 297 + 160 = 1 097, et
+   8 000 − 1 097 = **6 903**. Exact, pas arrondi. Filtrer avant de dédoublonner
+   donnerait un autre nombre, et le mauvais.
 
 **Argumentaire** : le nettoyage est une transformation gouvernée, versionnée, avec sa
 lignée — `base-clients-nettoyee` v2 pointe sur `base-clients-export-brut` v1. Pas un
@@ -130,8 +137,9 @@ notebook sur le poste de quelqu'un.
 3. **`nps_answered`** : la non-réponse devient une colonne. On rend explicite le signal
    que le trou portait déjà.
 4. **Le harness** : le Python de l'auteur tourne dans un venv isolé, construit à la
-   demande et mis en cache par empreinte de dépendances (le premier build de ce nœud a
-   coûté 5,2 s ; les suivants, rien). Ce n'est pas `exec()` dans le worker.
+   demande et mis en cache par empreinte de dépendances — celui-ci, `polars==1.44.0`,
+   a coûté 5,2 s et 231 Mo une seule fois, et rien aux runs suivants. Ce n'est pas
+   `exec()` dans le worker.
 
 ## Temps 4 — L'entraînement et la model card (~6 min)
 
@@ -211,8 +219,10 @@ notebook sur le poste de quelqu'un.
 6. **Trois choses à faire remarquer dans la réponse** :
    - un bloc `served` — quelle version a répondu, quel estimateur, quelle métrique. Une
      prédiction sans son émetteur n'est pas auditable ;
-   - `cached: false, load_ms: 5268.4` au premier appel, `cached: true, load_ms: 0.0` au
-     second, **même prédiction**. Le cache est une optimisation, pas un chemin de code ;
+   - `cached: false, load_ms: 5355.5` au premier appel du processus,
+     `cached: true, load_ms: 0.0` au second, **même prédiction**. `load_ms` est ce que
+     *cet* appel a payé pour avoir le pipeline en mémoire — le cache est une
+     optimisation, pas un second chemin de code ;
    - après la promotion du temps 5, **la même clé et la même URL répondent depuis v2**
      (`cached: false` : l'empreinte a changé, l'ancien pipeline est évincé). Promouvoir,
      c'est déplacer ce que la production sert.
@@ -228,27 +238,32 @@ notebook sur le poste de quelqu'un.
 2. **Le mart dit ce qu'il fait** : heure de pointe seulement (19h–23h — une cellule
    saturée à 3 h du matin n'est pas un problème client), et les 7 derniers jours contre
    les 7 précédents, parce qu'un niveau sans tendance ne dit pas à un ingénieur où aller.
-3. **La watchlist telle qu'elle sort** — 9 `critique`, 8 `surveillé`, 55 `sain` :
+3. **La bande `critique` en entier** — 9 cellules sur 72 (plus 8 `surveillé`, 55 `sain`) :
 
-   | Cellule | PRB % | Δ 7 j | Δ taux de coupure | Bande |
+   | Cellule | PRB % | Δ 7 j | Coupure % | Δ coupure |
    |---|---|---|---|---|
-   | `CAS-773-L54` | 92,84 | +0,05 | −0,039 | critique |
-   | `AGA-132-N66` | 92,68 | 0,00 | +0,036 | critique |
-   | `TNG-818-L59` | 92,67 | 0,00 | +0,004 | critique |
-   | `OUJ-917-N09` | 90,91 | −0,02 | −0,008 | critique |
-   | **`RBA-932-L41`** | 88,42 | **+21,32** | **+1,469** | critique |
-   | **`AGA-270-L69`** | 86,65 | **+27,80** | **+1,380** | critique |
-   | **`RBA-440-L31`** | 86,14 | **+27,56** | **+1,263** | critique |
+   | `CAS-773-L54` | 92,84 | +0,05 | 2,487 | −0,039 |
+   | `AGA-132-N66` | 92,68 | 0,00 | 2,470 | +0,036 |
+   | `TNG-818-L59` | 92,67 | 0,00 | 2,451 | +0,004 |
+   | `AGA-528-L36` | 91,42 | −0,33 | 2,292 | 0,000 |
+   | `FEZ-613-L48` | 91,26 | +0,34 | 2,249 | +0,039 |
+   | `OUJ-917-N09` | 90,91 | −0,02 | 2,240 | −0,008 |
+   | **`RBA-932-L41`** | 88,42 | **+21,32** | 1,893 | **+1,469** |
+   | **`AGA-270-L69`** | 86,65 | **+27,80** | 1,689 | **+1,380** |
+   | **`RBA-440-L31`** | 86,14 | **+27,56** | 1,636 | **+1,263** |
 
-4. **Le geste star, c'est la colonne delta.** Les six premières cellules sont saturées
-   depuis des mois : l'ingénieur radio les connaît, elles sont déjà à son planning. Les
-   trois en gras étaient **saines il y a quinze jours** (67, 59 et 59 % de PRB) et sont
-   passées critiques dans la dernière semaine, avec un taux de coupure d'appel qui monte
-   de plus d'un point. Ce sont les trois seules lignes de la table qui bougent : le
-   quatrième plus gros mouvement est à +2,42. Un seuil sur le niveau les aurait mélangées
-   aux six autres ; la tendance les isole.
-5. **Et ça se lit dans les deux sens** : `CAS-831-N65` à **−20,64** et `RBA-142-L70` à
-   **−17,43** — deux cellules qu'une montée en capacité a soulagées. Une colonne de
+4. **Le geste star, c'est la colonne delta.** Les six premières lignes sont saturées
+   depuis des mois — deltas entre −0,33 et +0,34, c'est-à-dire immobiles : l'ingénieur
+   radio les connaît, elles sont déjà à son planning et elles n'apprennent rien à
+   personne. Les trois en gras étaient **saines il y a quinze jours** (67, 59 et 59 %
+   de PRB) et sont passées critiques dans la dernière semaine, avec un taux de coupure
+   d'appel qui monte de plus d'un point. Ce sont les trois seules lignes de toute la
+   table qui bougent vraiment : le quatrième plus gros mouvement du fichier est à
+   **+2,42**. Un seuil sur le niveau les aurait noyées dans les six autres ; la
+   tendance les isole.
+5. **Et ça se lit dans les deux sens** : `CAS-831-N65` à **−20,64** (50,86 % de PRB) et
+   `RBA-142-L70` à **−17,43** (45,09 %) — deux cellules qu'une montée en capacité a
+   soulagées, et le troisième mouvement négatif n'est qu'à −1,34. Une colonne de
    tendance qui ne descendrait jamais ne serait pas crue.
 6. **Les tests dbt, et pourquoi ils sont le sujet** : `unique` et `not_null` sur `cell_id`,
    `accepted_values` sur `risk_band`. Une cellule qui apparaîtrait deux fois dans une
@@ -269,8 +284,9 @@ notebook sur le poste de quelqu'un.
 3. **Deux réglages obligatoires** pour que les nœuds Polars et dbt s'exécutent :
    `RECIPE_EXECUTION_ENABLED=true` et, sans worker Celery, `WORKER_EAGER_MODE=true`.
    Sans eux le run se termine quand même, mais ces deux nœuds rapportent leur refus.
-4. **Premier run dbt lent** : il construit un venv `dbt-duckdb` (13 s la première fois,
-   345 Mo). Faire tourner Radio Watch une fois avant la démo.
+4. **Premier run dbt lent** : il construit un venv `dbt-duckdb`, mesuré à 13,2 s pour
+   329 Mo, mis en cache ensuite par empreinte de dépendances. Faire tourner Radio Watch
+   une fois avant la démo.
 5. **Deux versions de `base-clients-nettoyee`** dans la page Data (v1 du seed, v2 du Flow).
    C'est correct et c'est explicable : le seed prépare l'état, le Flow refait le travail
    pour de vrai. Ne pas la présenter comme un doublon accidentel.
@@ -288,9 +304,9 @@ notebook sur le poste de quelqu'un.
 | Run Churn Radar `84d79dd1…` | completed, 7 nœuds (clean 60 ms · features 6,8 s · train 15,6 s · score 4,4 s) |
 | Run Radio Watch `d587a9f6…` | completed, 3 nœuds, dbt 72 lignes en 17,7 s |
 | Skill publiée + clé mintée | `predict_churn_radar`, préfixe `agpk_cdukue9` |
-| `POST /predict` avec la clé | 200, `served` v1, score 0,980159 |
-| Cache pyfunc | appel 1 `cached:false load_ms:5268.4` · appel 2 `cached:true load_ms:0.0`, même prédiction |
-| Promotion v2 → même clé, même URL | répond depuis v2, `cached:false` (empreinte invalidée) |
+| `POST /predict` avec la clé | 200, `served` v1, score 0,980159 sur la ligne à risque et 0,00182 sur la ligne fidèle |
+| Cache pyfunc | appel 1 `cached:false load_ms:5355.5` · appel 2 `cached:true load_ms:0.0`, prédiction identique |
+| Promotion v2 → même clé, même URL | répond depuis v2 (score 0,998972), `cached:false` — empreinte invalidée, v1 évincée |
 | Clé fausse / absente | 401 / 401 ; `use_count` incrémenté sur les appels valides |
 | Watchlist radio | 9 critique / 8 surveillé / 55 sain ; 3 movers à +21…+28, 2 à −17…−21 |
 | Aucune cellule-heure au plafond | 0 / 24 192 à 100,0 % de PRB |
