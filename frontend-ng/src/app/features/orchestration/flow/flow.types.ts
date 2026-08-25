@@ -18,8 +18,9 @@ import type {
 import type { Skill } from '@app/core/canonical-api.service';
 import { RECIPE_SKILL_SLUG, recipeDefaultParams } from './flow-recipe.vm';
 import {
+  POLARS_TRANSFORM_SKILL_SLUG,
   SQL_TRANSFORM_SKILL_SLUG,
-  sqlTransformDefaultParams,
+  transformDefaultParams,
 } from './flow-transform.vm';
 
 export type NodeTone = 'brand' | 'cyan' | 'violet' | 'emerald' | 'amber' | 'rose';
@@ -427,6 +428,7 @@ export function portsFromSchema(
 function iconForSkill(skill: Skill): string {
   if (skill.slug === RECIPE_SKILL_SLUG) return 'code-2';
   if (skill.slug === SQL_TRANSFORM_SKILL_SLUG) return 'database';
+  if (skill.slug === POLARS_TRANSFORM_SKILL_SLUG) return 'code';
   const hay = `${skill.type ?? ''} ${skill.slug} ${skill.name ?? ''}`.toLowerCase();
   if (/retriev|rag|search|lookup|fetch/.test(hay)) return 'search';
   if (/generat|answer|llm|summar|writ|draft/.test(hay)) return 'cpu';
@@ -468,11 +470,14 @@ export function skillToPaletteItem(skill: Skill): PaletteItem {
   if (skill.slug === RECIPE_SKILL_SLUG) {
     params = { ...recipeDefaultParams(), ...params };
   }
-  // Same reason for the transform Skill: its catalog schema is a dataset
-  // envelope, so the executable defaults — the starter statement and the empty
+  // Same reason for the transform Skills: their catalog schema is a dataset
+  // envelope, so the executable defaults — the starter program and the empty
   // pin list — are seeded here at drop time.
   if (skill.slug === SQL_TRANSFORM_SKILL_SLUG) {
-    params = { ...sqlTransformDefaultParams(), ...params };
+    params = { ...transformDefaultParams('sql'), ...params };
+  }
+  if (skill.slug === POLARS_TRANSFORM_SKILL_SLUG) {
+    params = { ...transformDefaultParams('polars'), ...params };
   }
   const category = skillPaletteSection(skill);
 

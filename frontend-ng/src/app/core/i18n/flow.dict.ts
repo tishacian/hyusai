@@ -989,6 +989,70 @@ export const FLOW_FR = {
   'flow.transform.error.TABULAR_DISABLED': 'Le plan data est désactivé sur cette instance.',
   'flow.transform.error.unknown': 'La transformation a échoué.',
 
+  // ---- atelier Polars (node polars_transform_v1) -------------------------
+  // Même atelier, autre langage : seules les phrases propres au moteur
+  // changent, tout le reste est partagé avec le bloc SQL ci-dessus.
+  'flow.inspector.section.transform.polars': 'Transformation Polars',
+  'flow.transform.polars.inspector.hint':
+    'Le script est porté par le graphe : il est versionné avec le Flow et s’exécute dans un environnement Python managé et isolé, jamais dans le processus de l’application.',
+  'flow.transform.polars.inspector.open': 'Ouvrir l’atelier Polars',
+  'flow.transform.polars.inspector.open.aria': 'Ouvrir l’atelier de transformation Polars',
+  'flow.transform.polars.inspector.script': 'Script',
+  'flow.transform.polars.workshop.title': 'Atelier Polars',
+  'flow.transform.polars.workshop.close': 'Fermer l’atelier Polars',
+  'flow.transform.polars.editor.label': 'Script',
+  'flow.transform.polars.editor.engine': 'polars · environnement managé',
+  'flow.transform.polars.editor.aria': 'Script Polars de la transformation',
+  'flow.transform.polars.editor.placeholder':
+    'def transform(inputs): return inputs["input"]',
+  'flow.transform.polars.run': 'Tester le script',
+  'flow.transform.polars.sources.hint':
+    'Épinglez les jeux de données que le script reçoit. Chaque entrée est une DataFrame dans le dictionnaire « inputs » ; les jeux de données amont s’ajoutent automatiquement à l’exécution.',
+  'flow.transform.polars.result.empty':
+    'Lancez le script pour voir les lignes, le schéma et le profil des colonnes produits.',
+
+  // phases d’un essai mis en file (le worker porte l’environnement managé)
+  'flow.transform.phase.queued': 'En file…',
+  'flow.transform.phase.env_building': 'Préparation de l’environnement…',
+  'flow.transform.phase.running': 'Exécution…',
+  'flow.transform.run.cancel': 'Arrêter',
+  'flow.transform.stdout': 'Sortie du script',
+
+  // environnement
+  'flow.transform.tab.environment': 'Librairies',
+  'flow.transform.environment.hint':
+    'Polars est déjà fourni. Déclarez ici les librairies supplémentaires : l’environnement est identifié par son empreinte, préparé au premier essai puis réutilisé.',
+  'flow.transform.environment.requirements': 'Librairies (une par ligne)',
+  'flow.transform.environment.requirements.placeholder':
+    'scikit-learn==1.5.0\nstatsmodels==0.14.2',
+  'flow.transform.environment.count': '{count} librairie(s) déclarée(s)',
+  'flow.transform.environment.timeout': 'Budget temps (secondes)',
+
+  // refus propres au moteur Python
+  'flow.transform.error.POLARS_CODE_REQUIRED':
+    'Écrivez une fonction transform(inputs) avant de lancer l’essai.',
+  'flow.transform.error.POLARS_CODE_TOO_LARGE': 'Le script dépasse la taille autorisée.',
+  'flow.transform.error.POLARS_EXECUTION_DISABLED':
+    'Les transformations Python sont désactivées sur cette instance : le plan d’environnements managés n’est pas activé.',
+  'flow.transform.error.POLARS_ENV_NOT_READY':
+    'L’environnement Python de cette transformation n’a pas pu être préparé.',
+  'flow.transform.error.POLARS_SCRIPT_RAISED': 'Le script a levé une exception.',
+  'flow.transform.error.POLARS_TRANSFORM_MISSING':
+    'Définissez « def transform(inputs) » : c’est le point d’entrée que le node appelle.',
+  'flow.transform.error.POLARS_RESULT_NOT_TABULAR':
+    'transform() doit retourner une DataFrame polars (une LazyFrame, un dict de colonnes ou une liste de lignes conviennent aussi).',
+  'flow.transform.error.POLARS_RESULT_UNWRITABLE':
+    'Le résultat n’a pas pu être écrit sur le disque de travail.',
+  'flow.transform.error.POLARS_RESULT_MISSING':
+    'Le script n’a produit aucune table : retournez une DataFrame.',
+  'flow.transform.error.POLARS_RESULT_TOO_LARGE':
+    'Le résultat dépasse la taille maximale : filtrez ou agrégez davantage.',
+  'flow.transform.error.POLARS_HARNESS_ERROR':
+    'L’exécution du script a échoué avant d’atteindre transform().',
+  'flow.transform.error.POLARS_TIMEOUT':
+    'Le script a dépassé son budget temps et a été arrêté.',
+  'flow.transform.error.POLARS_CANCELLED': 'Essai arrêté à votre demande.',
+
   'flow.validation.error.server': 'Le Flow courant n’a pas pu être validé par le serveur.',
   'flow.run.input.error.json':
     'Saisissez du JSON valide.',
@@ -2218,6 +2282,70 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'The dataset is still being prepared — try again in a moment.',
   'flow.transform.error.TABULAR_DISABLED': 'The data plane is disabled on this instance.',
   'flow.transform.error.unknown': 'The transform failed.',
+
+  // ---- Polars workshop (polars_transform_v1 node) ------------------------
+  // Same workshop, other language: only the engine-specific sentences change,
+  // everything else is shared with the SQL block above.
+  'flow.inspector.section.transform.polars': 'Polars transform',
+  'flow.transform.polars.inspector.hint':
+    'The script is graph-owned: it is versioned with the Flow and runs on a managed, isolated Python environment — never in the application process.',
+  'flow.transform.polars.inspector.open': 'Open the Polars workshop',
+  'flow.transform.polars.inspector.open.aria': 'Open the Polars transform workshop',
+  'flow.transform.polars.inspector.script': 'Script',
+  'flow.transform.polars.workshop.title': 'Polars workshop',
+  'flow.transform.polars.workshop.close': 'Close the Polars workshop',
+  'flow.transform.polars.editor.label': 'Script',
+  'flow.transform.polars.editor.engine': 'polars · managed environment',
+  'flow.transform.polars.editor.aria': 'Polars script of the transform',
+  'flow.transform.polars.editor.placeholder':
+    'def transform(inputs): return inputs["input"]',
+  'flow.transform.polars.run': 'Test the script',
+  'flow.transform.polars.sources.hint':
+    'Pin the datasets the script receives. Every input is a DataFrame in the `inputs` dict; datasets arriving from upstream nodes are added automatically at run time.',
+  'flow.transform.polars.result.empty':
+    'Run the script to see the rows, the schema and the column profile it produces.',
+
+  // phases of a queued test run (the worker owns the managed environment)
+  'flow.transform.phase.queued': 'Queued…',
+  'flow.transform.phase.env_building': 'Preparing the environment…',
+  'flow.transform.phase.running': 'Running…',
+  'flow.transform.run.cancel': 'Stop',
+  'flow.transform.stdout': 'Script output',
+
+  // environment
+  'flow.transform.tab.environment': 'Libraries',
+  'flow.transform.environment.hint':
+    'Polars is already provided. Declare the extra libraries here: the environment is identified by its fingerprint, prepared on the first test run and reused afterwards.',
+  'flow.transform.environment.requirements': 'Libraries (one per line)',
+  'flow.transform.environment.requirements.placeholder':
+    'scikit-learn==1.5.0\nstatsmodels==0.14.2',
+  'flow.transform.environment.count': '{count} declared library(ies)',
+  'flow.transform.environment.timeout': 'Time budget (seconds)',
+
+  // refusals specific to the Python engine
+  'flow.transform.error.POLARS_CODE_REQUIRED':
+    'Write a transform(inputs) function before running the test.',
+  'flow.transform.error.POLARS_CODE_TOO_LARGE': 'The script exceeds the allowed size.',
+  'flow.transform.error.POLARS_EXECUTION_DISABLED':
+    'Python transforms are disabled on this instance: the managed environment plane is not enabled.',
+  'flow.transform.error.POLARS_ENV_NOT_READY':
+    'The Python environment of this transform could not be prepared.',
+  'flow.transform.error.POLARS_SCRIPT_RAISED': 'The script raised an exception.',
+  'flow.transform.error.POLARS_TRANSFORM_MISSING':
+    'Define `def transform(inputs)`: it is the entry point the node calls.',
+  'flow.transform.error.POLARS_RESULT_NOT_TABULAR':
+    'transform() must return a polars DataFrame (a LazyFrame, a dict of columns or a list of rows also work).',
+  'flow.transform.error.POLARS_RESULT_UNWRITABLE':
+    'The result could not be written to the scratch disk.',
+  'flow.transform.error.POLARS_RESULT_MISSING':
+    'The script produced no table: return a DataFrame.',
+  'flow.transform.error.POLARS_RESULT_TOO_LARGE':
+    'The result exceeds the maximum size: filter or aggregate further.',
+  'flow.transform.error.POLARS_HARNESS_ERROR':
+    'The script run failed before reaching transform().',
+  'flow.transform.error.POLARS_TIMEOUT':
+    'The script exceeded its time budget and was stopped.',
+  'flow.transform.error.POLARS_CANCELLED': 'Test run stopped at your request.',
 
   'flow.validation.error.server': 'The current Flow could not be validated by the server.',
   'flow.run.input.error.json':
