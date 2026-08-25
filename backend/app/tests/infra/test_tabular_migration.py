@@ -1,24 +1,29 @@
-"""Migration 096, executed against PostgreSQL and compared to the ORM.
+"""The slice's migrations, executed against PostgreSQL and compared to the ORM.
 
 Every other suite builds its schema with ``Base.metadata.create_all``, which
 never opens a migration file. The VM does the opposite: it restores a dump and
-then runs ``alembic upgrade``. So the two schemas are produced by two different
-sources of truth, and nothing was comparing them — a column declared on the
-model and forgotten in the migration passes the whole test suite and then fails
-every ``SELECT`` on the VM, because SQLAlchemy names all mapped columns.
+then runs ``alembic upgrade``. So the two schemas come from two different sources
+of truth, and nothing was comparing them — which is invisible until a deployment,
+and then loud: a column the model maps and the migration forgot fails *every*
+``SELECT`` on the table, because SQLAlchemy names all mapped columns.
 
-That is not hypothetical: ``ml_models`` shipped with five such columns
-(``cancel_requested``, ``classes_json``, ``artifact_bytes``, ``predict_count``,
-``last_predict_at``). This module is the check that finds the next one.
+Both directions of that disagreement have already happened here, which is why
+the chain is walked one revision at a time rather than read:
 
-The migration runs for real, on a scratch database, from a stamp at 096's
-parent — so what is asserted is what the ``alembic upgrade`` in the deployment
-runbook actually produces, not a reading of the file.
+* a column mapped and not migrated — the failure above;
+* the same five columns added by **both** 096 and 097, so the second one raised
+  ``DuplicateColumn`` and the whole upgrade rolled back. A test that stopped at
+  096 and compared to the ORM was satisfied by that, and the VM was not.
+
+So the fixture stamps the parent of the slice and upgrades through the slice's
+head, one step at a time: what is asserted is what the ``migrate`` step of the
+deployment runbook actually produces.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from urllib.parse import urlsplit
@@ -26,12 +31,16 @@ from urllib.parse import urlsplit
 import pytest
 from sqlalchemy import create_engine, inspect
 
-MIGRATION = "096_tabular_data_plane"
+# The slice, in the order the deployment applies it. Listed rather than resolved
+# from ``alembic heads`` so that a third revision has to be admitted here
+# deliberately, and so a step-by-step upgrade is possible at all.
+CHAIN = ("096_tabular_data_plane", "097_ml_training_plane")
+HEAD = CHAIN[-1]
 PARENT = "095_python_recipes"
-SCRATCH_DB = "agentium_p4_migration_096"
+SCRATCH_DB = "agentium_p4_migration_data_plane"
 
-# The tables 096 owns. Their DDL has one source of truth per environment, and
-# this module's whole job is to prove the two agree.
+# The tables the slice owns. Their DDL has one source of truth per environment,
+# and this module's whole job is to prove the two agree.
 PLANE_TABLES = ("tabular_datasets", "ml_models", "ml_model_api_keys")
 
 
@@ -116,11 +125,16 @@ def _alembic(*argv: str) -> None:
 
 @pytest.fixture()
 def migrated():
-    """A database holding exactly what ``alembic upgrade 096`` produces.
+    """A database holding exactly what the slice's ``alembic upgrade`` produces.
 
     The pre-096 state is reduced to the one table 096 points a foreign key at.
     Restoring the real 95-revision history is neither possible from scratch in
-    this repository nor the point: what has to be proven is 096's own DDL.
+    this repository nor the point: what has to be proven is the slice's own DDL.
+
+    The upgrade goes one revision at a time. A single jump to the head would
+    prove the same end state but not that each step lands — and an intermediate
+    revision that fails is exactly what a deployment hits, because it applies
+    them in the same order against a database that stops at the failure.
     """
 
     if not (shutil.which("psql") and shutil.which("alembic")):
@@ -135,7 +149,8 @@ def migrated():
     try:
         _psql(SCRATCH_DB, "create table workspaces (id varchar(36) primary key)")
         _alembic("stamp", PARENT)
-        _alembic("upgrade", MIGRATION)
+        for revision in CHAIN:
+            _alembic("upgrade", revision)
         engine = create_engine(_dsn())
         try:
             yield engine
@@ -296,9 +311,9 @@ def test_a_row_the_application_would_write_actually_inserts(migrated):
         session.commit()
 
         stored = session.get(MLModel, "m-1")
-        # The columns the migration was missing are exactly the ones a fresh row
-        # has to be able to report, so read them back rather than trusting the
-        # insert alone.
+        # The five columns the second revision adds are exactly the ones a fresh
+        # row has to be able to report, so read them back rather than trusting
+        # the insert alone.
         assert stored is not None
         assert stored.cancel_requested is False
         assert stored.predict_count == 0
@@ -307,7 +322,36 @@ def test_a_row_the_application_would_write_actually_inserts(migrated):
         assert stored.dataset_id == "ds-1"
 
 
-def test_the_migration_reverts_cleanly_so_a_rollback_is_real(migrated):
+def test_no_two_revisions_of_the_slice_add_the_same_column(migrated):
+    """The bug this pins: a column added by 096 *and* by 097.
+
+    The second ``ADD COLUMN`` raises ``DuplicateColumn``, alembic's transaction
+    rolls back, and the deployment ends with the whole slice absent — the
+    schema is intact, so nothing looks broken until someone reads the log. The
+    chain in the fixture is already the reproduction; this states the invariant
+    so the failure reads as what it is instead of as a fixture error.
+    """
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    added: dict[str, str] = {}
+    for revision in CHAIN:
+        path = os.path.join(root, "alembic", "versions", f"{revision}.py")
+        with open(path) as handle:
+            source = handle.read()
+        upgrade = source.split("def upgrade", 1)[-1].split("def downgrade", 1)[0]
+        for match in re.finditer(
+            r"add_column\(\s*\"(?P<table>\w+)\",\s*sa\.Column\(\s*\n?\s*\"(?P<column>\w+)\"",
+            upgrade,
+        ):
+            key = f"{match.group('table')}.{match.group('column')}"
+            assert key not in added, (
+                f"{key} is added by both {added[key]} and {revision} — the "
+                "second one will fail and roll the whole upgrade back"
+            )
+            added[key] = revision
+
+
+def test_the_slice_reverts_cleanly_so_a_rollback_is_real(migrated):
     """The deployment runbook dumps before migrating; a downgrade that leaves
     half a schema behind makes that dump the only way back."""
 
@@ -316,5 +360,5 @@ def test_the_migration_reverts_cleanly_so_a_rollback_is_real(migrated):
     remaining = set(inspect(migrated).get_table_names())
     assert remaining & set(PLANE_TABLES) == set()
     # And forward again, because a one-way downgrade is not a rollback.
-    _alembic("upgrade", MIGRATION)
+    _alembic("upgrade", HEAD)
     assert set(PLANE_TABLES) <= set(inspect(migrated).get_table_names())
