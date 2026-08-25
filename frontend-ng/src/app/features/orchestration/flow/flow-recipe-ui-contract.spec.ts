@@ -95,7 +95,11 @@ test('the inspector shows a recipe summary and one way into the workshop', () =>
 
 test('the builder mounts one workshop dialog for the selected recipe node', () => {
   const builder = source('flow-builder.component.ts');
-  assert.match(builder, /FlowRecipeService,\s*\n\s*\]/, 'one env cache per builder shell');
+  assert.match(
+    builder,
+    /providers: \[[\s\S]*?\n    FlowRecipeService,/,
+    'one env cache per builder shell',
+  );
   assert.match(builder, /\(openRecipeWorkshop\)="openRecipeWorkshop\(\)"/);
   assert.match(builder, /@if \(recipeWorkshopOpen\(\)\) \{\s*<app-flow-recipe-workshop/);
   assert.match(builder, /\(close\)="closeRecipeWorkshop\(\)"/);
