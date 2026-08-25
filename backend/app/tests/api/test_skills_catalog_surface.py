@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app.api.v1.endpoints import skills
 from app.models.capability import Capability
 from app.models.skill import Skill
+from app.models.tabular import MLModel
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.skills_registry.seed import SEED_SKILLS, SKILL_CATEGORIES
@@ -144,6 +145,73 @@ def test_category_filter_narrows_the_catalog(db_session):
             "/skills", params={"include_filtered": True, "category": "Analysis"}
         ).json()["skills"]
     ] == ["orphaned_v1"]
+
+
+def test_a_skill_published_from_a_model_carries_its_provenance(db_session):
+    """The chip's data reaches the catalog, and only where it is true.
+
+    A published Skill sits in the same list as forty hand-written ones, and what
+    distinguishes it is that its answer has a measured source. The row has to
+    carry that, or the catalog is the one surface in the product where a model's
+    provenance is lost.
+    """
+
+    workspace, user = _seed(db_session)
+    published = Skill(
+        id="skill-published",
+        workspace_id=workspace.id,
+        slug=f"ws.{workspace.id}.predict_churn_risk",
+        name="Predict · Churn risk",
+        type="workflow",
+        category="Retrieval",
+        executor={
+            "kind": "registry_call",
+            "params": {
+                "skill_slug": "ml_predict_v1",
+                "frozen_input": {
+                    "_predict": {
+                        "model_id": "model-2",
+                        "model_slug": "churn-risk",
+                        "workspace_id": workspace.id,
+                    }
+                },
+            },
+        },
+    )
+    db_session.add(published)
+    db_session.add_all(
+        MLModel(
+            id=f"model-{version}",
+            workspace_id=workspace.id,
+            name="Churn risk",
+            slug="churn-risk",
+            version=version,
+            task="classification",
+            algo="gradient_boosting",
+            target="churn",
+            status="ready",
+            is_champion=version == 2,
+            metrics_json={"primary": {"key": "roc_auc", "value": 0.85 + version / 100}},
+        )
+        for version in (1, 2)
+    )
+    db_session.commit()
+
+    rows = {
+        row["slug"]: row
+        for row in _client(db_session, workspace, user)
+        .get("/skills", params={"include_filtered": True})
+        .json()["skills"]
+    }
+
+    provenance = rows[published.slug]["provenance"]
+    assert provenance["model_id"] == "model-2", "the champion answers, not the newest"
+    assert provenance["version"] == 2
+    assert provenance["name"] == "Churn risk"
+    assert provenance["metric"] == {"key": "roc_auc", "value": 0.87}
+    # Absent rather than null on every other row: a hand-written Skill has
+    # nothing to attribute, and an empty block would render an empty chip.
+    assert "provenance" not in rows["carried_v1"]
 
 
 def test_every_seeded_slug_has_a_wrapper_and_a_category():

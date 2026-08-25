@@ -21,6 +21,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { provenanceLineParams } from '@app/features/models/models.vm';
 import { BrdImportComponent } from './brd-import.component';
 import {
   NewSkillDialogComponent,
@@ -198,6 +199,22 @@ interface SkillsScope {
                   <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
                     {{ sk.slug }}<span style="color:var(--ck-fg-5); margin:0 4px;">·</span>{{ sk.version || 'v1' }}
                   </div>
+                  <!-- A Skill that answers from a model says which one, and how
+                       well it scored: in a catalog of forty rows that is the
+                       difference between a name and a thing you can trust. -->
+                  @if (provenanceLine(sk); as line) {
+                    <a
+                      [routerLink]="['/models', sk.provenance!.model_id]"
+                      (click)="$event.stopPropagation()"
+                      data-testid="skill-provenance"
+                      class="ck-mono"
+                      style="display:inline-flex; align-items:center; gap:4px; margin-top:3px; font-size:9px; letter-spacing:0.04em; color:var(--ck-accent); border:1px solid var(--ck-stroke-soft); border-radius:999px; padding:1px 7px; text-decoration:none;"
+                      [title]="i18n.t('skills.provenance.hint')"
+                    >
+                      <ck-glyph name="chart" [size]="9" color="currentColor" />
+                      {{ line }}
+                    </a>
+                  }
                 </div>
                 <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-3);">{{ sk.type || '—' }}</span>
                 <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-2); text-align:right;">
@@ -234,6 +251,18 @@ interface SkillsScope {
                 </div>
                 <h3 class="text-xl font-medium" style="color:var(--ck-fg-1);">{{ sk.name }}</h3>
                 <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4); margin-top:4px;">{{ sk.slug }}</p>
+                @if (provenanceLine(sk); as line) {
+                  <a
+                    [routerLink]="['/models', sk.provenance!.model_id]"
+                    data-testid="skill-provenance-detail"
+                    class="ck-mono"
+                    style="display:inline-flex; align-items:center; gap:5px; margin-top:6px; font-size:10px; color:var(--ck-accent); text-decoration:none;"
+                  >
+                    <ck-glyph name="chart" [size]="11" color="currentColor" />
+                    {{ line }}
+                    <span style="color:var(--ck-fg-5);">→</span>
+                  </a>
+                }
                 @if (owns(sk)) {
                   <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-5); margin-top:2px;">
                     {{ i18n.t('skills.detail.owned') }}
@@ -752,6 +781,30 @@ export class SkillsComponent implements OnInit, OnDestroy {
     const key = `skills.cert.${cert}` as I18nKey;
     const label = this.i18n.t(key);
     return label === key ? cert : label;
+  }
+
+  /**
+   * The model behind a published Skill, as one sentence — or nothing.
+   *
+   * The same key the model card uses, so "Model Churn v3 — AUC 0.87" is written
+   * once. The version is whichever one currently serves the lineage, because
+   * that is what the Skill actually answers with; the backend resolves it on
+   * read for exactly that reason.
+   */
+  provenanceLine(skill: Skill): string | null {
+    const params = provenanceLineParams(
+      skill.provenance,
+      (key) => this.metricName(key),
+      this.i18n.locale(),
+    );
+    if (!params) return null;
+    return this.i18n.t('models.publish.provenance', params);
+  }
+
+  private metricName(key: string): string {
+    const dictKey = `models.metric.${key}` as I18nKey;
+    const label = this.i18n.t(dictKey);
+    return label === dictKey ? key.toUpperCase() : label;
   }
 
   certTone(cert: string | undefined): 'pos' | 'cool' | 'violet' {

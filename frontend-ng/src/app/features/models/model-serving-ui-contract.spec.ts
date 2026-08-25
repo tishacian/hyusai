@@ -105,6 +105,38 @@ test('publishing links into the catalog and carries the model’s provenance', (
   assert.match(PLAYGROUND, /\(changed\)|changed\.emit\(\)/);
 });
 
+test('the catalog card says which model a published skill answers from', () => {
+  const catalog = readFileSync(
+    join(process.cwd(), 'src/app/features/skills/skills.component.ts'),
+    'utf8',
+  );
+  // Both surfaces the chip appears on: the row a reader scans, and the panel
+  // they open. Each links to the model card, because the chip is a claim and a
+  // claim should be checkable in one click.
+  assert.match(catalog, /data-testid="skill-provenance"/);
+  assert.match(catalog, /data-testid="skill-provenance-detail"/);
+  assert.match(catalog, /\[routerLink\]="\['\/models', sk\.provenance!\.model_id\]"/);
+  // The same sentence the model card uses — written once, so the two cannot
+  // drift into saying the model differently.
+  assert.match(catalog, /this\.i18n\.t\('models\.publish\.provenance', params\)/);
+  assert.match(catalog, /provenanceLineParams\(/);
+  assert.ok(
+    (MODELS_FR as Record<string, string>)['models.publish.provenance']?.trim(),
+    'models.publish.provenance has FR copy',
+  );
+  assert.ok(
+    (MODELS_EN as Record<string, string>)['models.publish.provenance']?.trim(),
+    'models.publish.provenance has EN copy',
+  );
+  // Derived server side from the frozen binding, so the version it names is the
+  // one that currently serves rather than the one that served at publication.
+  assert.doesNotMatch(
+    catalog,
+    /provenance\s*=\s*\{/,
+    'the client never assembles a provenance of its own',
+  );
+});
+
 test('the score tiles carry a delta and the comparison tab is mounted', () => {
   assert.match(CARD, /<ck-tab id="compare"/);
   assert.match(CARD, /class="ck-delta ck-mono"/);

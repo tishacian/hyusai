@@ -53,7 +53,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -1308,6 +1308,82 @@ def published_skill(db: DBSession, model: MLModel) -> dict[str, Any] | None:
         .first()
     )
     return serialize_published_skill(row) if row is not None else None
+
+
+def pinned_lineage(executor: Any) -> tuple[str, str] | None:
+    """The ``(workspace_id, model_slug)`` a published Skill froze, if it froze one.
+
+    Read off the executor rather than off a marker column: the frozen input IS
+    the binding a run dispatches through, so anything derived from it describes
+    what the Skill actually calls rather than what a second field claims it does.
+    """
+
+    if not isinstance(executor, dict) or executor.get("kind") != "registry_call":
+        return None
+    params = executor.get("params")
+    if not isinstance(params, dict) or params.get("skill_slug") != ML_PREDICT_SKILL_SLUG:
+        return None
+    frozen = params.get("frozen_input")
+    spec = frozen.get("_predict") if isinstance(frozen, dict) else None
+    if not isinstance(spec, dict):
+        return None
+    workspace_id = spec.get("workspace_id")
+    slug = spec.get("model_slug")
+    if not isinstance(workspace_id, str) or not isinstance(slug, str):
+        return None
+    return (workspace_id, slug) if workspace_id and slug else None
+
+
+def skill_provenance(
+    db: DBSession, skills: Sequence[Skill]
+) -> dict[str, dict[str, Any]]:
+    """The model each published Skill answers from, keyed by Skill slug.
+
+    Derived on read rather than copied at publication, and that is the whole
+    point. The Skill is bound to a *lineage*, not to a version, so the chip has
+    to name whichever version currently serves it — a snapshot taken when the
+    Skill was created would still claim v3 the morning v4 was promoted, and a
+    provenance chip that lies is worse than no chip.
+
+    One query per distinct lineage, and none at all for a catalog that publishes
+    no model, so the list endpoint pays only for what it shows.
+    """
+
+    wanted: dict[str, tuple[str, str]] = {}
+    for row in skills:
+        lineage = pinned_lineage(row.executor)
+        if lineage is not None:
+            wanted[row.slug] = lineage
+    if not wanted:
+        return {}
+
+    champions: dict[tuple[str, str], MLModel | None] = {}
+    provenance: dict[str, dict[str, Any]] = {}
+    for skill_slug, lineage in wanted.items():
+        if lineage not in champions:
+            workspace_id, model_slug = lineage
+            champions[lineage] = champion_for(
+                db, workspace_id=workspace_id, slug=model_slug
+            )
+        model = champions[lineage]
+        if model is None:
+            continue
+        metric = (model.metrics_json or {}).get("primary") or {}
+        value = _finite(metric.get("value"))
+        provenance[skill_slug] = {
+            "model_id": model.id,
+            "model_slug": model.slug,
+            "name": model.name,
+            "version": int(model.version or 1),
+            "task": model.task,
+            "target": model.target,
+            "metric": (
+                {"key": str(metric.get("key")), "value": value}
+                if metric.get("key") and value is not None
+                else None
+            ),
+        }
+    return provenance
 
 
 # ---------------------------------------------------------------------------

@@ -50,6 +50,7 @@ from app.services.skills_registry.executors import (
 )
 from app.services.skills_registry.published_bindings import published_skill_bindings
 from app.services.skills_registry.seed import SKILL_CATEGORIES
+from app.services.tabular_predict import skill_provenance
 
 router = APIRouter()
 
@@ -140,6 +141,7 @@ def _serialize(
     s: Skill,
     metrics: Optional[Dict[str, Any]] = None,
     visibility: Optional[SkillVisibility] = None,
+    provenance: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     payload = {
         "id": s.id,
@@ -165,6 +167,10 @@ def _serialize(
     }
     if visibility is not None:
         payload["visibility"] = visibility.to_dict()
+    # Only ever set for a Skill published from a model lineage, so a catalog
+    # that trains nothing carries no extra field.
+    if provenance is not None:
+        payload["provenance"] = provenance
     return payload
 
 
@@ -493,12 +499,17 @@ async def list_skills(
         user=user,
         slugs=[row.slug for row in view.visible],
     )
+    # The model behind a published Skill, resolved to the version that currently
+    # serves its lineage. One query per distinct lineage, none for a catalog that
+    # publishes no model.
+    provenance_by_slug = skill_provenance(db, rows)
     return {
         "skills": [
             _serialize(
                 s,
                 metrics_by_slug.get(s.slug),
                 view.visibility_by_id.get(str(s.id)),
+                provenance_by_slug.get(s.slug),
             )
             for s in rows
         ],
@@ -650,7 +661,12 @@ async def get_skill(
         user=user,
         slugs=[s.slug],
     ).get(s.slug)
-    return _serialize(s, metrics, view.visibility_by_id.get(str(s.id)))
+    return _serialize(
+        s,
+        metrics,
+        view.visibility_by_id.get(str(s.id)),
+        skill_provenance(db, [s]).get(s.slug),
+    )
 
 
 @router.patch("/{slug}")
