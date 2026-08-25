@@ -55,6 +55,16 @@ test('secondary text meets WCAG AA on cockpit panels', () => {
   }
 });
 
+test('secondary text meets WCAG AA on raised surfaces too', () => {
+  // Popovers and dropdowns sit on `--ck-bg-panel-hi`, not `--ck-bg-panel`, and
+  // in the light theme that is pure white — a lighter background than the one
+  // the caption colour was chosen against. The column profile panel labels its
+  // figures in `--ck-fg-4`, so the pairing has to hold on both surfaces.
+  for (const block of [dark, light]) {
+    assert.ok(contrast(token(block, '--ck-fg-4'), token(block, '--ck-bg-panel-hi')) >= 4.5);
+  }
+});
+
 test('every cockpit token a component names is a token the theme defines', () => {
   // A misspelled or invented token is silent: `var(--ck-bg-elevated, #14161c)`
   // compiles, renders, and looks right in whichever theme the fallback happens
