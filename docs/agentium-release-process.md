@@ -118,6 +118,38 @@ sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" migrate
 
 Verify the Alembic head advanced to the expected revision before switching.
 
+### 5b. Once the data/ML plane is deployed, that dump is no longer a backup
+
+From revision `096_tabular_data_plane` on, Postgres stops being the whole state.
+A `tabular_datasets` row names a Parquet object by `storage_key` and an
+`ml_models` row names an MLflow model directory by `model_uri`, both living in
+the MinIO bucket. Restoring the dump above and nothing else gives back a registry
+of dangling URIs: `/predict` answers `ML_ARTIFACT_MISSING`, dataset previews
+fail, and the failure is silent until someone clicks.
+
+So from that revision on, replace the block above with:
+
+```bash
+DUMP=/srv/agentium-data/worktrees/demo-agentic/scripts/agentium-data-plane-dump.sh
+sudo "$DUMP" <sha12> <slice>
+```
+
+It takes the same `pg_dump`, mirrors out the `tabular/` and `ml/` prefixes of
+every workspace the registry actually references, checksums both halves, and
+then verifies that every artifact the registry names is present in the window.
+`.ready` appears only if that check passed — so `.ready`, not the directory,
+is what says the window can be restored from. It also runs safely against a
+pre-096 database, where it reports that there is no plane and skips the mirror
+rather than writing an empty `objects/` that would look like a failed mirror.
+
+Do not substitute `mc mirror` of the whole `workspaces/` prefix: knowledge
+collections are an order of magnitude larger and are rebuilt from their sources,
+not restored.
+
+Provisioning notes for the plane — including why there is deliberately **no
+`mlflow` database and no tracking server** to create — are in
+[`ops/agentium-data-plane-provisioning.md`](ops/agentium-data-plane-provisioning.md).
+
 ## 6. Switch
 
 ```bash

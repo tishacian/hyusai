@@ -3988,3 +3988,64 @@ aucun changement de lock frontend (l'attestation `95689c8c…` reste valide).
 | Canaris carakai | checkout avancé par bundle incrémental (sha256 `d366b631…` identique des deux côtés), marqueur `.agentium-source-sha` aligné, lock inchangé. **5 passed / 3 failed** en 1,2 min, artefacts `/tmp/iteration-canaries-20260824T131546Z.J7KVQ6` (`playwright-runtime.json` : `candidate_sha f31eecad…`, `package_lock_sha256 95689c8c…`, producer `result: passed`). Échecs inchangés vs `4a1c2a49` : **11** rail `Build`, **16** `GET /work` vide, **17** overflow title-bar 320px |
 | Vérif UI live | après hard-reload du bundle : nœud API sans label affiche `python_recipe_v1` (plus de « undefined ») ; onglet E/S en français (« DÉRIVER DES PORTS » / « EFFACER » grisé tant qu'aucun schéma n'est déclaré) ; essai annulé depuis l'atelier → « Annulée » + « Exécution annulée à la demande. », le code brut `cancel_requested` n'apparaît plus — vidéo archivée côté agent |
 | Rollback | pas de migration : `AGENTIUM_IMAGE_TAG=4a1c2a493df6` puis `up` |
+
+## Préparation du 25/08 — plan data/ML, **non déployée**, routine de dump étendue
+
+Entrée de préparation et non de déploiement : la tranche data/ML
+(datasets tabulaires, nœuds SQL / Polars / dbt, entraînement et service de
+modèles, démo Nawa) est répétée en local mais **n'a pas été portée sur la VM**.
+La VM reste à `095_python_recipes`, sans aucune des tables du plan
+(`tabular_datasets`, `ml_models`, `ml_model_api_keys` : absentes, vérifié).
+Ce qui suit est ce qui a été préparé et vérifié *contre* la VM, sans la modifier.
+
+### La routine de dump du §5 n'était plus une sauvegarde
+
+À partir de `096_tabular_data_plane`, Postgres cesse d'être l'état complet :
+`tabular_datasets.storage_key` désigne un objet Parquet et `ml_models.model_uri`
+un répertoire de modèle MLflow, tous deux dans le bucket MinIO. Restaurer le
+`pg_dump` seul rend un registre d'URI pendantes — `/predict` répond
+`ML_ARTIFACT_MISSING`, les aperçus de datasets échouent — c'est-à-dire la pire
+sauvegarde, celle qui a l'air d'avoir marché.
+
+`scripts/agentium-data-plane-dump.sh` prend les deux moitiés dans une seule
+fenêtre, puis vérifie que chaque artefact que le registre nomme y est présent ;
+`.ready` n'est écrit qu'après ce contrôle. Le périmètre vient du registre et non
+d'un glob de chemins : seuls les préfixes `tabular/` et `ml/` des workspaces qui
+possèdent réellement des datasets ou des modèles sont miroirés — jamais un
+workspace entier, dont les collections de connaissance sont un ordre de grandeur
+plus grosses et se reconstruisent depuis leurs sources.
+
+### Il n'y a pas de base `mlflow` à créer
+
+Le plan demandait de provisionner une base `mlflow`. Rien ne s'y connecterait :
+MLflow est utilisé ici comme **format** d'artefact, pas comme service, et le
+registre est la table `ml_models`. Les trois réglages `mlflow_*` de
+`config.py` sont des jalons pour une phase ultérieure, lus par personne, et
+l'entraînement force `MLFLOW_TRACKING_URI` vers un répertoire jetable du scratch
+du run — donc un serveur configuré au niveau VM ne serait de toute façon pas
+joignable depuis un fit. Décision et conséquences :
+[`agentium-data-plane-provisioning.md`](agentium-data-plane-provisioning.md).
+
+### Observables (contre la VM, sans la modifier)
+
+| Pas | Observé |
+|---|---|
+| Tête Alembic VM | `095_python_recipes` ; la tranche apporte `096_tabular_data_plane` → `097_ml_training_plane`, chaînés dessus |
+| Tables du plan | `tabular_datasets`, `ml_models`, `ml_model_api_keys` **absentes** — le plan n'est pas déployé |
+| Bucket | `agentium-artifacts` (`OBJECT_STORE_BACKEND=s3`, endpoint `http://agentium-minio:9000`) ; aucun préfixe `tabular/` ni `ml/` sous `workspaces/` |
+| Bases Postgres | `agentium` seule (+ `postgres`, `template0/1`) ; **aucune** base `mlflow`, et aucune variable `MLFLOW_*` dans l'environnement backend — état correct |
+| `agentium-data-plane-dump.sh` | shellcheck 0 finding ; essai réel sur la VM : dump `pg_dump -Fc` de 433 Mo, sha256 revérifié `OK`, archive listable (`pg_restore -l` : 1276 entrées TOC), détection correcte du schéma pré-096 (mirroir sauté et annoncé), `MANIFEST.json` + `.ready` écrits. Fenêtre d'essai supprimée ensuite (disque revenu à 219 G / 268 G libres) |
+| Moitié objets du script | vérifiée séparément contre de vrais octets MinIO : parse `mc du --json` (46 315 o), préfixe absent lu comme 0 (cas d'un workspace sans modèles), `mc mirror` → `docker cp` → 7 fichiers sortis, checksums par clé relative, contrôle d'existence positif sur une clé réelle |
+| Fuite de secret | aucune : l'alias `mc` est assemblé **dans** le conteneur MinIO depuis son propre environnement, jamais sur la ligne de commande de l'hôte ni dans la fenêtre |
+| Divergence de schéma connue | `070` a été réécrite (`NOT LIKE '% %'` → `replace(app_key, ' ', '')`) pour débloquer `create_all` sur Postgres neuf. Déjà appliquée sur la VM, donc la contrainte vive garde la forme `!~~ '% %'` : équivalente (et la regex frère exclut déjà l'espace), rien à réparer — noté pour qu'un diff futur se lise comme prévu |
+| Attestation lock frontend | `PACKAGE_LOCK_SHA256 = cfded9c9…` = sha256 réel de `frontend-ng/package-lock.json`, alignée |
+| Infra | PostgreSQL, RabbitMQ, Qdrant, MinIO, Keycloak, LiveKit, SFTP **intouchés** ; aucun conteneur recréé, aucune image construite, aucun tag déplacé |
+
+### Ce qu'il reste pour déployer
+
+Le chemin normal du process, avec le §5 remplacé par le §5b : dump des deux
+moitiés, `migrate` (096 puis 097), `storage-check`, `up`, canaris carakai + e2e,
+puis rejouer le runbook des sept temps sur la VM et remplacer sa section
+« preuves de répétition » par les identifiants VM. `RECIPE_EXECUTION_ENABLED`
+doit être actif côté backend **et** worker pour que les temps Polars et dbt
+s'exécutent ; `WORKER_EAGER_MODE` reste éteint sur la VM, où un worker tourne.
