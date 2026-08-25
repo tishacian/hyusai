@@ -593,6 +593,16 @@ class Settings(BaseSettings):
     # count is capped too so one node cannot monopolise the worker's cores.
     tabular_polars_memory_limit_mb: int = Field(default=3072, ge=512)
     tabular_polars_max_threads: int = Field(default=2, ge=1, le=32)
+    # dbt transform node. Same posture as Polars — the engine lives in the venv
+    # and is therefore part of the env fingerprint — with one addition: dbt is a
+    # project, not a statement, so the node carries a small model tree and the
+    # caps below bound how large that tree may get.
+    tabular_dbt_requirement: str = "dbt-duckdb==1.9.4"
+    tabular_dbt_default_timeout_s: float = Field(default=300.0, ge=1.0)
+    tabular_dbt_memory_limit_mb: int = Field(default=3072, ge=512)
+    tabular_dbt_max_threads: int = Field(default=2, ge=1, le=32)
+    tabular_dbt_max_models: int = Field(default=12, ge=1, le=100)
+    tabular_dbt_max_model_chars: int = Field(default=40_000, ge=100)
     # MLflow tracking/registry. Empty means "derive from DATABASE_URL" (the
     # registry needs a SQL backend; a file store cannot register models).
     mlflow_tracking_uri: str = ""

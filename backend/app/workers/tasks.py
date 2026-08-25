@@ -840,6 +840,26 @@ def tabular_polars_execute(self, execution_id: str, code: str) -> dict:
     return {**result, "task_id": str(self.request.id)}
 
 
+@celery_app.task(
+    name="agentium.tabular_dbt_execute",
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def tabular_dbt_execute(self, execution_id: str) -> dict:
+    """Settle one dbt transform run — workshop preview or persisted node run.
+
+    The project itself travels on the execution row rather than as a task
+    argument: a model tree is too large for a broker payload, and the row is
+    what the Builder polls anyway.
+    """
+
+    from app.services.tabular_dbt import run_dbt_execution
+
+    result = run_dbt_execution(execution_id)
+    return {**result, "task_id": str(self.request.id)}
+
+
 @celery_app.task(name="agentium.recipe_env_build")
 def recipe_env_build(env_id: str) -> dict:
     """Explicit prebuild of one recipe venv (inspector 'prepare now')."""

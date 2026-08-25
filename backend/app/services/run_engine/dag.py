@@ -2003,6 +2003,8 @@ _TRANSFORM_PARAM_KEYS = (
     "sql",
     "code",
     "models",
+    "tests_yml",
+    "output_model",
     "requirements_text",
     "timeout_s",
     "output_name",
