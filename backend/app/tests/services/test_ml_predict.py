@@ -401,6 +401,27 @@ def test_the_second_prediction_reuses_the_resident_pipeline(db_session, model):
     assert tabular_predict.cache_state()["size"] == 1
 
 
+def test_an_answer_says_whether_it_paid_to_load_the_model(db_session, model):
+    """The cache's whole claim, in the field a caller reads.
+
+    ``LoadedModel.load_ms`` is what building that entry cost once. Reporting it
+    on every answer told an operator each request spent seconds loading a model
+    that had been resident for hours — so the response carries what *this* call
+    paid, and says plainly whether it was served from memory.
+    """
+
+    cold = tabular_predict.predict_rows(db_session, model, [_row()])
+    warm = tabular_predict.predict_rows(db_session, model, [_row()])
+
+    assert cold["cached"] is False
+    assert cold["load_ms"] > 0
+
+    assert warm["cached"] is True
+    assert warm["load_ms"] == 0.0
+    # Same answer either way: the cache is an optimisation, not a code path.
+    assert warm["predictions"] == cold["predictions"]
+
+
 def test_a_retrained_artifact_is_never_answered_by_its_predecessor(db_session, model):
     resident = tabular_predict.load_pipeline(model)
     directory = resident.directory

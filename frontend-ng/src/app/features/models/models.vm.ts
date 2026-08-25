@@ -228,7 +228,9 @@ export interface PredictAnswer {
   predictions: PredictionRow[];
   rows: number;
   duration_ms: number;
+  /** What this call paid to get the pipeline in memory. Zero when `cached`. */
   load_ms?: number;
+  cached?: boolean;
 }
 
 /**
