@@ -77,3 +77,11 @@ cryptography>=43.0.0
 # SAP HANA Cloud connector
 # - hdbcli: official SAP HANA client (SQL over TLS to BTP / HANA Cloud)
 hdbcli>=2.20
+
+# Tabular data plane (datasets, SQL/Polars transform nodes)
+# - polars: CSV/XLSX parsing, Parquet IO, column profiling at ingest time
+# - duckdb: in-worker SQL engine for the sql_transform node
+# - pyarrow: Parquet interchange between polars, duckdb and pandas
+polars>=1.0.0
+duckdb>=1.0.0
+pyarrow>=16.0.0
