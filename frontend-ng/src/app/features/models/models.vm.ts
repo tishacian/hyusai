@@ -53,6 +53,38 @@ export interface CvMetric {
   std?: number | null;
 }
 
+/**
+ * Two versions re-scored over one test split, as skore's `ComparisonReport`
+ * returns them.
+ *
+ * The card's delta tiles subtract two *recorded* results, each measured on its
+ * own split — fine as history, misleading as a ranking. This is the ranking:
+ * same rows, same labels, one value per version per metric. `warnings` names
+ * the caveats the table cannot show, chiefly a version that was fitted on a
+ * different dataset and may therefore have seen some of these rows.
+ */
+export interface ComparisonMetricRow {
+  key: string;
+  /** Keyed by model id: one value per side. */
+  [modelId: string]: string | number | null;
+}
+
+export interface ComparisonDto {
+  task: ModelTask;
+  target: string;
+  dataset: { id: string; name: string; slug: string; version: number };
+  split: { rows: number; test_size: number; random_state: number };
+  models: {
+    model_id: string;
+    column: string;
+    version: number;
+    algo: string;
+    is_champion: boolean;
+  }[];
+  metrics: ComparisonMetricRow[];
+  warnings: { code: string; model_id: string }[];
+}
+
 export interface CvBlock {
   folds: number;
   metric: string;
@@ -1177,6 +1209,33 @@ export const SERVING_ERROR_CODES = [
 ] as const;
 
 const SERVING_ERROR_SET: ReadonlySet<string> = new Set(SERVING_ERROR_CODES);
+
+/**
+ * Why two versions cannot be scored on one split.
+ *
+ * Separate from the serving vocabulary because these are not about a prediction
+ * failing: each one names a mismatch between two versions, and the author's next
+ * move differs per code — pick another version, or accept that no shared dataset
+ * exists.
+ */
+export const COMPARE_ERROR_CODES = [
+  'ML_COMPARE_SAME_VERSION',
+  'ML_COMPARE_CROSS_WORKSPACE',
+  'ML_COMPARE_DIFFERENT_QUESTION',
+  'ML_COMPARE_NO_COMMON_DATASET',
+  'ML_COMPARE_DATASET_TOO_LARGE',
+  'ML_COMPARE_SPLIT_FAILED',
+  'ML_COMPARE_FAILED',
+] as const;
+
+const COMPARE_ERROR_SET: ReadonlySet<string> = new Set(COMPARE_ERROR_CODES);
+
+/** The dictionary key for a comparison refusal, serving's, or `null`. */
+export function compareErrorKey(code: string | undefined | null): string | null {
+  if (!code) return null;
+  if (COMPARE_ERROR_SET.has(code)) return `models.compare.error.${code.toLowerCase()}`;
+  return servingErrorKey(code);
+}
 
 /** The dictionary key for a serving refusal, or `null` to fall back to its own text. */
 export function servingErrorKey(code: string | undefined | null): string | null {
