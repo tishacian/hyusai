@@ -11,30 +11,41 @@ import assert from 'node:assert/strict';
 
 import { MODELS_EN, MODELS_FR } from '@app/core/i18n/models.dict';
 import {
+  GAUGE_ARC,
   MODEL_ACTIVE_STATUSES,
   PLAN_WARNING_CODES,
   REFUSAL_CODES,
+  SERVING_ERROR_CODES,
   TRAINING_ERROR_CODES,
   UNIT_DOMAIN,
   algoIcon,
   balanceBars,
   bestScore,
   clampKnob,
+  comparisonRows,
   confusionView,
+  contributionBars,
+  curlSnippet,
   curveDomain,
   curvePath,
   defaultFeatures,
   defaultKnobs,
   formatMetric,
+  gaugeView,
   higherIsBetter,
   importanceBars,
   isActiveStatus,
   knobIsAuto,
+  metricDelta,
   metricScale,
   metricTone,
+  playgroundSeed,
+  predictPayload,
+  previousVersion,
   primaryScore,
   refusalField,
   refusalKey,
+  servingErrorKey,
   splitError,
   targetCandidates,
   taskIcon,
@@ -44,6 +55,7 @@ import {
   type ModelDto,
   type ModelStatus,
   type PlanColumn,
+  type SignatureField,
 } from './models.vm';
 
 // ---------------------------------------------------------------------------
@@ -452,6 +464,275 @@ test('every terminal failure the worker writes has a sentence of its own', () =>
 });
 
 // ---------------------------------------------------------------------------
+// The serving plane
+// ---------------------------------------------------------------------------
+
+const CONTRACT: SignatureField[] = [
+  { name: 'tenure_months', type: 'double', kind: 'number', min: 1, max: 72, default: 24 },
+  {
+    name: 'contract',
+    type: 'string',
+    kind: 'category',
+    choices: ['month_to_month', 'one_year'],
+    default: 'one_year',
+  },
+];
+
+test('the form opens on the example the fit carried, not on the contract default', () => {
+  assert.deepEqual(
+    playgroundSeed(CONTRACT, [{ tenure_months: 3, contract: 'month_to_month' }]),
+    { tenure_months: '3', contract: 'month_to_month' },
+  );
+});
+
+test('with no example the form still opens filled, from the typical row', () => {
+  assert.deepEqual(playgroundSeed(CONTRACT, undefined), {
+    tenure_months: '24',
+    contract: 'one_year',
+  });
+});
+
+test('a field with neither example nor default opens empty rather than as "undefined"', () => {
+  const fields: SignatureField[] = [{ name: 'plan', type: 'string', kind: 'category' }];
+  assert.deepEqual(playgroundSeed(fields, [{}]), { plan: '' });
+});
+
+test('a numeric box is sent as a number and a cleared box as a hole', () => {
+  assert.deepEqual(
+    predictPayload(CONTRACT, { tenure_months: '18', contract: 'month_to_month' }),
+    { tenure_months: 18, contract: 'month_to_month' },
+  );
+  // A hole is a production value the pipeline was fitted to take; an empty
+  // string in a numeric column is a type error the endpoint would refuse.
+  assert.deepEqual(predictPayload(CONTRACT, { tenure_months: '  ', contract: '' }), {
+    tenure_months: null,
+    contract: null,
+  });
+});
+
+test('a numeric field holding text is sent as it was typed, so the refusal names it', () => {
+  assert.deepEqual(
+    predictPayload(CONTRACT, { tenure_months: 'twelve', contract: 'one_year' }),
+    { tenure_months: 'twelve', contract: 'one_year' },
+  );
+});
+
+test('the gauge is about the positive class, named, not a bare number', () => {
+  const dial = gaugeView(
+    {
+      prediction: 'yes',
+      probabilities: [
+        { label: 'no', value: 0.13 },
+        { label: 'yes', value: 0.87 },
+      ],
+    },
+    'yes',
+    'en',
+  );
+  assert.equal(dial?.label, 'yes');
+  assert.equal(dial?.percent, '87%');
+  assert.equal(dial?.predicted, 'yes');
+  assert.ok(dial?.flagged);
+  assert.equal(dial?.dash, Math.round(0.87 * GAUGE_ARC * 100) / 100);
+});
+
+test('landing outside the positive class reads as a probability of it, not of the answer', () => {
+  const dial = gaugeView(
+    {
+      prediction: 'no',
+      probabilities: [
+        { label: 'no', value: 0.78 },
+        { label: 'yes', value: 0.22 },
+      ],
+    },
+    'yes',
+    'en',
+  );
+  assert.equal(dial?.percent, '22%');
+  assert.equal(dial?.label, 'yes');
+  assert.equal(dial?.predicted, 'no');
+  assert.ok(!dial?.flagged);
+});
+
+test('with no positive class the gauge falls back to how sure the model is', () => {
+  const dial = gaugeView(
+    { prediction: 'fibre', confidence: 0.61, probabilities: [] },
+    null,
+    'en',
+  );
+  assert.equal(dial?.label, 'fibre');
+  assert.equal(dial?.percent, '61%');
+  assert.ok(!dial?.flagged);
+});
+
+test('a row with nothing to show on the dial draws no dial at all', () => {
+  assert.equal(gaugeView(null, 'yes'), null);
+  assert.equal(gaugeView({ prediction: 'yes' }, 'yes'), null);
+  assert.equal(gaugeView({ prediction: 'yes', confidence: Number.NaN }, 'yes'), null);
+});
+
+test('contributions are normalized against the strongest effect on this row', () => {
+  const bars = contributionBars([
+    { field: 'contract', value: 'month_to_month', typical: 'one_year', effect: 0.24 },
+    { field: 'tenure_months', value: 2, typical: 24.5, effect: -0.12 },
+  ]);
+  assert.deepEqual(
+    bars.map((bar) => [bar.field, bar.width, bar.raises]),
+    [
+      ['contract', 100, true],
+      ['tenure_months', 50, false],
+    ],
+  );
+  // Values are rendered, so a float does not print fifteen decimals and a hole
+  // does not print "undefined".
+  assert.equal(bars[1]?.typical, '24.5');
+  assert.deepEqual(contributionBars(undefined), []);
+  assert.deepEqual(contributionBars([{ field: 'x', value: 1, typical: 1, effect: NaN }]), []);
+});
+
+test('the snippet is the request that was just made, key masked to its prefix', () => {
+  const snippet = curlSnippet({
+    origin: 'https://agentium.papai.ai',
+    endpoint: '/api/v1/ml-models/m1/predict',
+    header: 'X-API-Key',
+    row: { tenure_months: 2 },
+    prefix: 'agk_9f3c',
+  });
+  assert.match(snippet, /curl -X POST https:\/\/agentium\.papai\.ai\/api\/v1\/ml-models\/m1\/predict/);
+  assert.match(snippet, /-H 'X-API-Key: agk_9f3c…'/);
+  assert.match(snippet, /-d '\{"inputs":\[\{"tenure_months":2\}\]\}'/);
+});
+
+test('the one response that carried a secret puts it in the snippet verbatim', () => {
+  const snippet = curlSnippet({
+    origin: '',
+    endpoint: '/predict',
+    header: 'X-API-Key',
+    row: {},
+    secret: 'agk_live_secret',
+    prefix: 'agk_live',
+  });
+  assert.match(snippet, /X-API-Key: agk_live_secret/);
+});
+
+test('with no key at all the snippet says where one goes rather than looking done', () => {
+  const snippet = curlSnippet({
+    origin: '',
+    endpoint: '/predict',
+    header: 'X-API-Key',
+    row: {},
+  });
+  assert.match(snippet, /X-API-Key: YOUR_API_KEY/);
+});
+
+test('every coded serving refusal has a sentence of its own', () => {
+  for (const code of SERVING_ERROR_CODES) {
+    assert.equal(servingErrorKey(code), `models.serving.error.${code.toLowerCase()}`);
+  }
+  assert.equal(servingErrorKey('ML_SOMETHING_ELSE'), null);
+  assert.equal(servingErrorKey(null), null);
+});
+
+// ---------------------------------------------------------------------------
+// Comparison across versions
+// ---------------------------------------------------------------------------
+
+function version(
+  id: string,
+  number: number,
+  scores: { key: string; value: number }[],
+  status: ModelStatus = 'ready',
+): ModelDto {
+  return {
+    id,
+    version: number,
+    status,
+    primary_metric: scores[0] ?? null,
+    metrics: { scores },
+  } as unknown as ModelDto;
+}
+
+test('a delta is judged by the metric, so a smaller error is an improvement', () => {
+  const auc = metricDelta('roc_auc', 0.87, 0.84, 'en');
+  assert.equal(auc?.display, '+0.03');
+  assert.ok(auc?.better);
+  assert.ok(!auc?.flat);
+
+  const mae = metricDelta('mae', 3.1, 4.4, 'en');
+  assert.equal(mae?.display, '−1.3');
+  assert.ok(mae?.better, 'a smaller MAE is a better model');
+});
+
+test('a move too small to mean anything is rendered flat, not as a win', () => {
+  const delta = metricDelta('roc_auc', 0.8701, 0.87, 'en');
+  assert.equal(delta?.display, '=');
+  assert.ok(delta?.flat);
+});
+
+test('with nothing to compare against there is no delta rather than a fake zero', () => {
+  assert.equal(metricDelta('roc_auc', 0.87, null), null);
+  assert.equal(metricDelta('roc_auc', 0.87, undefined), null);
+  assert.equal(metricDelta('roc_auc', null, 0.84), null);
+});
+
+test('a delta is measured against the newest trained version below this one', () => {
+  const current = version('v3', 3, [{ key: 'roc_auc', value: 0.87 }]);
+  const earlier = previousVersion(current, [
+    current,
+    version('v2b', 2, [], 'failed'),
+    version('v2', 2, [{ key: 'roc_auc', value: 0.84 }]),
+    version('v1', 1, [{ key: 'roc_auc', value: 0.79 }]),
+  ]);
+  assert.equal(earlier?.id, 'v2');
+});
+
+test('a lineage of one has nothing to measure against', () => {
+  const only = version('v1', 1, [{ key: 'roc_auc', value: 0.8 }]);
+  assert.equal(previousVersion(only, [only]), null);
+  assert.equal(previousVersion(null, []), null);
+});
+
+test('a failed retrain never becomes the version a delta is read against', () => {
+  const current = version('v3', 3, [{ key: 'roc_auc', value: 0.87 }]);
+  const earlier = previousVersion(current, [
+    current,
+    version('v2', 2, [{ key: 'roc_auc', value: 0.9 }], 'failed'),
+    version('v1', 1, [{ key: 'roc_auc', value: 0.79 }]),
+  ]);
+  assert.equal(earlier?.id, 'v1');
+});
+
+test('comparison aligns two versions and marks the side each metric favours', () => {
+  const rows = comparisonRows(
+    version('v2', 2, [
+      { key: 'roc_auc', value: 0.84 },
+      { key: 'recall', value: 0.7 },
+    ]),
+    version('v3', 3, [
+      { key: 'roc_auc', value: 0.87 },
+      { key: 'recall', value: 0.62 },
+    ]),
+    'en',
+  );
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.winner, row.delta?.display]),
+    [
+      ['roc_auc', 'right', '+0.03'],
+      ['recall', 'left', '−0.08'],
+    ],
+  );
+});
+
+test('a metric only one side produced is left out rather than shown as a drop to zero', () => {
+  const rows = comparisonRows(
+    version('v1', 1, [{ key: 'r2', value: 0.6 }]),
+    version('v2', 2, [{ key: 'roc_auc', value: 0.9 }]),
+    'en',
+  );
+  assert.deepEqual(rows, []);
+});
+
+// ---------------------------------------------------------------------------
 // Copy coverage
 // ---------------------------------------------------------------------------
 
@@ -465,6 +746,7 @@ test('every key the model plane assembles at runtime has FR and EN copy', () => 
   const keys = [
     ...REFUSAL_CODES.map((code) => `models.refusal.${code.toLowerCase()}`),
     ...TRAINING_ERROR_CODES.map((code) => `models.error.${code.toLowerCase()}`),
+    ...SERVING_ERROR_CODES.map((code) => `models.serving.error.${code.toLowerCase()}`),
     ...PLAN_WARNING_CODES.map((code) => `models.warning.${code.toLowerCase()}`),
     ...(['pending', 'training', 'ready', 'failed', 'cancelled'] as const).map(
       (status) => `models.status.${status}`,

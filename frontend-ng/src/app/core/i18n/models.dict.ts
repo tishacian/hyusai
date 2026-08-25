@@ -137,6 +137,8 @@ export const MODELS_FR = {
   // ---- carte modèle -------------------------------------------------------
   'models.detail.back': 'Retour aux modèles',
   'models.detail.tab.evidence': 'Résultats',
+  'models.detail.tab.play': 'Prédire',
+  'models.detail.tab.compare': 'Comparaison',
   'models.detail.tab.contract': 'Contrat d’entrée',
   'models.detail.tab.versions': 'Versions',
   'models.detail.tab.setup': 'Réglages',
@@ -190,6 +192,24 @@ export const MODELS_FR = {
   'models.evidence.dropped': 'Colonnes écartées',
   'models.evidence.dropped.constant': '{name} — une seule valeur',
   'models.evidence.none': 'Aucun résultat : ce modèle n’a pas encore été entraîné.',
+  'models.evidence.delta.against': 'Écarts mesurés contre la v{version}',
+
+  // ---- comparaison de versions -------------------------------------------
+  'models.compare.hint':
+    'Deux versions du même modèle, sur les mêmes métriques. Seules celles que les deux ont produites sont comparables.',
+  'models.compare.metric': 'Métrique',
+  'models.compare.before': 'Avant',
+  'models.compare.after': 'Après',
+  'models.compare.move': 'Écart',
+  'models.compare.none.title': 'Rien à comparer pour l’instant',
+  'models.compare.none.description':
+    'La comparaison s’ouvre dès qu’une deuxième version a été entraînée : réentraînez pour voir bouger les scores.',
+  'models.compare.verdict.better':
+    'v{version} : {metric} {delta} contre la v{previous}. Ce réentraînement mérite d’être mis en service.',
+  'models.compare.verdict.worse':
+    'v{version} : {metric} {delta} contre la v{previous}. Gardez la version précédente en service.',
+  'models.compare.verdict.flat':
+    'v{version} : {metric} inchangé contre la v{previous}. Rien n’oblige à changer ce qui répond.',
 
   // ---- métriques ----------------------------------------------------------
   'models.metric.roc_auc': 'AUC',
@@ -232,6 +252,116 @@ export const MODELS_FR = {
   'models.contract.output.classification': 'Une classe parmi : {classes}',
   'models.contract.output.regression': 'Une valeur de {target}',
   'models.contract.example': 'Exemple de ligne',
+
+  // ---- atelier de prédiction ---------------------------------------------
+  'models.play.unavailable.title': 'Ce modèle ne répond pas encore',
+  'models.play.unavailable.untrained':
+    'Un modèle répond une fois entraîné : lancez l’entraînement, le formulaire se construira depuis son contrat.',
+  'models.play.unavailable.disabled':
+    'La prédiction n’est pas activée sur cette instance. Un administrateur peut l’ouvrir dans la configuration.',
+  'models.play.inputs': 'Le client à évaluer',
+  'models.play.inputs.hint':
+    'Champs construits depuis le contrat du modèle et pré-remplis avec une ligne typique de l’entraînement. Changez une valeur, la réponse suit.',
+  'models.play.run': 'Prédire',
+  'models.play.reset': 'Revenir à la ligne typique',
+  'models.play.answer': 'Ce que le modèle répond',
+  'models.play.idle': 'Lancez une prédiction pour voir la réponse.',
+  'models.play.probability': 'probabilité que {target} vaille {label}',
+  'models.play.predicted': 'Réponse : {label}',
+  'models.play.estimate': '{target} estimé',
+  'models.play.range': 'plage vue à l’entraînement',
+  'models.play.range.bounds': '{min} → {max}',
+  'models.play.why': 'Ce qui a fait cette réponse',
+  'models.play.why.typical': 'valeur typique : {value}',
+  'models.play.why.hint':
+    'Chaque barre est mesurée : le modèle est réinterrogé avec ce seul champ ramené à sa valeur typique, l’écart est ce qu’il a coûté.',
+  'models.play.timing': 'Répondu en {ms} ms',
+  'models.play.served': 'répondu par la v{version}',
+  'models.play.failed': 'La prédiction a échoué',
+  'models.play.curl': 'Le même appel, depuis un système',
+  'models.play.curl.hint':
+    'Exactement la requête que ce formulaire vient d’envoyer : même route, même corps, seule la preuve d’identité change.',
+  'models.play.copy': 'Copier',
+  'models.play.copied': 'Copié',
+
+  // ---- clés API -----------------------------------------------------------
+  'models.keys.title': 'Clés d’accès',
+  'models.keys.hint':
+    'Une clé n’ouvre que la prédiction de ce modèle, et rien d’autre de l’API. Le secret n’est montré qu’une fois.',
+  'models.keys.name.placeholder': 'Nom de la clé',
+  'models.keys.name.default': 'Clé de démonstration',
+  'models.keys.mint': 'Créer une clé',
+  'models.keys.minted': 'Clé créée',
+  'models.keys.minted.hint':
+    'Copiez-la maintenant : elle n’est stockée que sous forme de hachage et ne sera plus jamais affichée.',
+  'models.keys.col.name': 'Nom',
+  'models.keys.col.prefix': 'Préfixe',
+  'models.keys.col.uses': 'Appels',
+  'models.keys.col.state': 'État',
+  'models.keys.live': 'Active',
+  'models.keys.revoked': 'Révoquée',
+  'models.keys.revoke': 'Révoquer',
+  'models.keys.revoked.toast': '« {name} » ne répond plus',
+  'models.keys.uses': '{count} appels',
+
+  // ---- publier comme skill ------------------------------------------------
+  'models.publish.title': 'Publier comme skill',
+  'models.publish.hint':
+    'Le modèle devient une skill de l’espace de travail, typée depuis son contrat : appelable dans un system ou dans le chat, figée sur cette lignée.',
+  'models.publish.action': 'Publier comme skill',
+  'models.publish.live': 'Publiée',
+  'models.publish.open': 'Ouvrir dans le catalogue',
+  'models.publish.withdraw': 'Retirer du catalogue',
+  'models.publish.done': '« {name} » est dans le catalogue de skills',
+  'models.publish.withdrawn': 'La skill a été retirée du catalogue',
+  'models.publish.provenance': 'Modèle {name} v{version} — {evidence}',
+
+  // ---- refus du plan de service ------------------------------------------
+  'models.serving.error.ml_predict_disabled':
+    'La prédiction n’est pas activée sur cette instance.',
+  'models.serving.error.ml_predict_rows_required':
+    'Aucune ligne à prédire n’a été envoyée.',
+  'models.serving.error.ml_predict_row_not_object':
+    'Chaque ligne doit être un objet champ → valeur.',
+  'models.serving.error.ml_predict_too_many_rows':
+    'Trop de lignes dans un seul appel : découpez la demande.',
+  'models.serving.error.ml_predict_field_unknown':
+    'Un champ envoyé ne fait pas partie du contrat du modèle.',
+  'models.serving.error.ml_predict_field_missing':
+    'Il manque un champ que le modèle attend.',
+  'models.serving.error.ml_predict_field_not_numeric':
+    'Un champ numérique a reçu une valeur qui n’est pas un nombre.',
+  'models.serving.error.ml_predict_field_not_boolean':
+    'Un champ booléen a reçu une valeur qui n’est ni vraie ni fausse.',
+  'models.serving.error.ml_predict_failed':
+    'Le modèle n’a pas pu répondre sur cette ligne.',
+  'models.serving.error.ml_contract_missing':
+    'Ce modèle n’a pas de contrat d’entrée : réentraînez-le.',
+  'models.serving.error.ml_artifact_unloadable':
+    'L’artefact du modèle est introuvable ou illisible dans le stockage.',
+  'models.serving.error.ml_nothing_serves':
+    'Aucune version de ce modèle n’est en service.',
+  'models.serving.error.ml_version_unknown':
+    'Cette version n’existe pas dans cette lignée.',
+  'models.serving.error.ml_model_not_ready': 'Seul un modèle entraîné peut répondre.',
+  'models.serving.error.ml_model_not_found':
+    'Ce modèle n’existe pas dans cet espace de travail.',
+  'models.serving.error.ml_score_too_many_rows':
+    'Ce jeu de données dépasse le plafond de lignes autorisé au scoring.',
+  'models.serving.error.ml_score_column_missing':
+    'Il manque au jeu de données une colonne que le modèle attend.',
+  'models.serving.error.ml_key_limit':
+    'Ce modèle a atteint son nombre maximal de clés actives.',
+  'models.serving.error.ml_key_not_found': 'Cette clé n’existe pas sur ce modèle.',
+  'models.serving.error.ml_key_required': 'Aucune preuve d’identité fournie.',
+  'models.serving.error.ml_key_invalid': 'Cette clé n’est pas reconnue.',
+  'models.serving.error.ml_key_revoked': 'Cette clé a été révoquée.',
+  'models.serving.error.ml_key_wrong_model':
+    'Cette clé a été créée pour un autre modèle.',
+  'models.serving.error.ml_publish_name_taken':
+    'Une skill porte déjà ce nom dans cet espace de travail.',
+  'models.serving.error.ml_publish_name_invalid':
+    'Le nom du modèle ne donne pas un identifiant de skill valide.',
 
   // ---- versions -----------------------------------------------------------
   'models.versions.label': 'v{version}',
@@ -435,6 +565,8 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
 
   'models.detail.back': 'Back to models',
   'models.detail.tab.evidence': 'Results',
+  'models.detail.tab.play': 'Predict',
+  'models.detail.tab.compare': 'Comparison',
   'models.detail.tab.contract': 'Input contract',
   'models.detail.tab.versions': 'Versions',
   'models.detail.tab.setup': 'Settings',
@@ -487,6 +619,23 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.evidence.dropped': 'Columns dropped',
   'models.evidence.dropped.constant': '{name} — a single value',
   'models.evidence.none': 'No results: this model has not been trained yet.',
+  'models.evidence.delta.against': 'Deltas measured against v{version}',
+
+  'models.compare.hint':
+    'Two versions of the same model, on the same metrics. Only the ones both produced can be compared.',
+  'models.compare.metric': 'Metric',
+  'models.compare.before': 'Before',
+  'models.compare.after': 'After',
+  'models.compare.move': 'Delta',
+  'models.compare.none.title': 'Nothing to compare yet',
+  'models.compare.none.description':
+    'Comparison opens as soon as a second version has been trained: retrain to watch the scores move.',
+  'models.compare.verdict.better':
+    'v{version}: {metric} {delta} against v{previous}. This retrain is worth putting in service.',
+  'models.compare.verdict.worse':
+    'v{version}: {metric} {delta} against v{previous}. Keep the previous version in service.',
+  'models.compare.verdict.flat':
+    'v{version}: {metric} unchanged against v{previous}. Nothing forces a change to what answers.',
 
   'models.metric.roc_auc': 'AUC',
   'models.metric.accuracy': 'Accuracy',
@@ -527,6 +676,112 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.contract.output.classification': 'One class among: {classes}',
   'models.contract.output.regression': 'A value of {target}',
   'models.contract.example': 'Example row',
+
+  'models.play.unavailable.title': 'This model does not answer yet',
+  'models.play.unavailable.untrained':
+    'A model answers once it is trained: start a training run and the form will be built from its contract.',
+  'models.play.unavailable.disabled':
+    'Prediction is not enabled on this deployment. An administrator can open it in the configuration.',
+  'models.play.inputs': 'The customer to score',
+  'models.play.inputs.hint':
+    'Fields built from the model’s contract and pre-filled with a typical training row. Change one value and the answer follows.',
+  'models.play.run': 'Predict',
+  'models.play.reset': 'Back to the typical row',
+  'models.play.answer': 'What the model answers',
+  'models.play.idle': 'Run a prediction to see the answer.',
+  'models.play.probability': 'probability that {target} is {label}',
+  'models.play.predicted': 'Answer: {label}',
+  'models.play.estimate': '{target}, estimated',
+  'models.play.range': 'range seen in training',
+  'models.play.range.bounds': '{min} → {max}',
+  'models.play.why': 'What made this answer',
+  'models.play.why.typical': 'typical value: {value}',
+  'models.play.why.hint':
+    'Every bar is measured: the model is asked again with that one field back at its typical value, and the gap is what it cost.',
+  'models.play.timing': 'Answered in {ms} ms',
+  'models.play.served': 'answered by v{version}',
+  'models.play.failed': 'The prediction failed',
+  'models.play.curl': 'The same call, from a system',
+  'models.play.curl.hint':
+    'Exactly the request this form just sent: same route, same body, only the proof of identity differs.',
+  'models.play.copy': 'Copy',
+  'models.play.copied': 'Copied',
+
+  'models.keys.title': 'Access keys',
+  'models.keys.hint':
+    'A key opens this model’s prediction and nothing else on the API. The secret is shown once.',
+  'models.keys.name.placeholder': 'Key name',
+  'models.keys.name.default': 'Demo key',
+  'models.keys.mint': 'Create a key',
+  'models.keys.minted': 'Key created',
+  'models.keys.minted.hint':
+    'Copy it now: only a hash is stored and it will never be shown again.',
+  'models.keys.col.name': 'Name',
+  'models.keys.col.prefix': 'Prefix',
+  'models.keys.col.uses': 'Calls',
+  'models.keys.col.state': 'State',
+  'models.keys.live': 'Live',
+  'models.keys.revoked': 'Revoked',
+  'models.keys.revoke': 'Revoke',
+  'models.keys.revoked.toast': '“{name}” no longer answers',
+  'models.keys.uses': '{count} calls',
+
+  'models.publish.title': 'Publish as a skill',
+  'models.publish.hint':
+    'The model becomes a workspace skill, typed from its contract: callable in a system or in chat, frozen on this lineage.',
+  'models.publish.action': 'Publish as a skill',
+  'models.publish.live': 'Published',
+  'models.publish.open': 'Open in the catalog',
+  'models.publish.withdraw': 'Withdraw from the catalog',
+  'models.publish.done': '“{name}” is in the skill catalog',
+  'models.publish.withdrawn': 'The skill was withdrawn from the catalog',
+  'models.publish.provenance': 'Model {name} v{version} — {evidence}',
+
+  'models.serving.error.ml_predict_disabled':
+    'Prediction is not enabled on this deployment.',
+  'models.serving.error.ml_predict_rows_required': 'No row to predict was sent.',
+  'models.serving.error.ml_predict_row_not_object':
+    'Every row must be a field-to-value object.',
+  'models.serving.error.ml_predict_too_many_rows':
+    'Too many rows in a single call: split the request.',
+  'models.serving.error.ml_predict_field_unknown':
+    'A field that was sent is not part of the model’s contract.',
+  'models.serving.error.ml_predict_field_missing':
+    'A field the model expects is missing.',
+  'models.serving.error.ml_predict_field_not_numeric':
+    'A numeric field was given a value that is not a number.',
+  'models.serving.error.ml_predict_field_not_boolean':
+    'A boolean field was given a value that is neither true nor false.',
+  'models.serving.error.ml_predict_failed':
+    'The model could not answer on this row.',
+  'models.serving.error.ml_contract_missing':
+    'This model has no input contract: retrain it.',
+  'models.serving.error.ml_artifact_unloadable':
+    'The model artifact is missing from storage or cannot be read.',
+  'models.serving.error.ml_nothing_serves':
+    'No version of this model is in service.',
+  'models.serving.error.ml_version_unknown':
+    'That version does not exist in this lineage.',
+  'models.serving.error.ml_model_not_ready': 'Only a trained model can answer.',
+  'models.serving.error.ml_model_not_found':
+    'That model does not exist in this workspace.',
+  'models.serving.error.ml_score_too_many_rows':
+    'This dataset is over the row ceiling allowed for scoring.',
+  'models.serving.error.ml_score_column_missing':
+    'The dataset is missing a column the model expects.',
+  'models.serving.error.ml_key_limit':
+    'This model has reached its maximum number of live keys.',
+  'models.serving.error.ml_key_not_found':
+    'That key does not exist on this model.',
+  'models.serving.error.ml_key_required': 'No proof of identity was given.',
+  'models.serving.error.ml_key_invalid': 'That key is not recognized.',
+  'models.serving.error.ml_key_revoked': 'That key was revoked.',
+  'models.serving.error.ml_key_wrong_model':
+    'That key was created for another model.',
+  'models.serving.error.ml_publish_name_taken':
+    'A skill already carries that name in this workspace.',
+  'models.serving.error.ml_publish_name_invalid':
+    'The model’s name does not yield a valid skill identifier.',
 
   'models.versions.label': 'v{version}',
   'models.versions.current': 'Shown version',
