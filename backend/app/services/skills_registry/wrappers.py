@@ -1811,6 +1811,156 @@ async def _ml_train_sklearn_v1(
     raise RuntimeError(f"ml_train_{status}: {(error or '').strip()}"[:480])
 
 
+def _predict_spec(
+    payload: dict[str, Any], ctx: dict[str, Any]
+) -> tuple[dict[str, Any], str]:
+    """The model reference and workspace both serving skills run under.
+
+    The model, the version pin and the output name always come from
+    ``_predict`` — graph configuration on a node, frozen executor parameters on a
+    published Skill — and never from the ingress payload, so neither a caller nor
+    an LLM can redirect a prediction at a different model.
+    """
+
+    from app.core.config import settings as app_settings
+
+    spec = payload.get("_predict")
+    if not isinstance(spec, dict):
+        raise ValueError(
+            "predict_config_missing: this Skill only runs as a Flow node or a "
+            "published model, both of which carry their model reference"
+        )
+    workspace_id = (
+        ctx.get("workspace_id") or spec.get("workspace_id") or payload.get("workspace_id")
+    )
+    if not workspace_id:
+        raise ValueError("predict_workspace_required")
+    if not app_settings.ml_predict_enabled:
+        raise ValueError("ML_PREDICT_DISABLED: prediction is off on this instance")
+    return spec, str(workspace_id)
+
+
+def _resolve_model(db, spec: dict[str, Any], workspace_id: str):
+    """The configured model row, by id when pinned and by lineage otherwise."""
+
+    from app.models.tabular import MLModel
+
+    query = db.query(MLModel).filter(MLModel.workspace_id == workspace_id)
+    model_id = str(spec.get("model_id") or "").strip()
+    if model_id:
+        row = query.filter(MLModel.id == model_id).first()
+        if row is not None:
+            return row
+    slug = str(spec.get("model_slug") or "").strip()
+    if slug:
+        row = (
+            query.filter(MLModel.slug == slug, MLModel.status == "ready")
+            .order_by(MLModel.is_champion.desc(), MLModel.version.desc())
+            .first()
+        )
+        if row is not None:
+            return row
+    raise ValueError("ML_MODEL_NOT_FOUND: pick the model this node predicts with")
+
+
+async def _ml_predict_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Answer one record: the Skill a published model runs as.
+
+    Feature values arrive either under ``rows`` (a Flow node wiring named
+    fields) or as the payload itself (an agent calling the published Skill,
+    whose input schema *is* the model's contract).
+
+    Runs in a thread rather than on the walker's loop: a fitted pipeline's
+    ``predict`` is C code that does not yield, so scoring on the event loop
+    would stall every other node in the run.
+    """
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_predict import predict_rows
+
+    ctx = ctx or {}
+    spec, workspace_id = _predict_spec(payload, ctx)
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    rows = inputs.pop("rows", None)
+    if rows is None and inputs:
+        rows = [inputs]
+
+    def _run() -> dict[str, Any]:
+        with SessionLocal() as db:
+            model = _resolve_model(db, spec, workspace_id)
+            answer = predict_rows(
+                db,
+                model,
+                rows,
+                version=spec.get("pinned_version"),
+                caller="flow",
+                explain=bool(spec.get("explain")),
+            )
+            # A one-row call is flattened so a downstream node (or an agent
+            # reading a tool result) does not have to index into a list to find
+            # the only answer there was.
+            if len(answer.get("predictions") or []) == 1:
+                return {**answer, **answer["predictions"][0]}
+            return answer
+
+    try:
+        return await asyncio.to_thread(_run)
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+
+async def _ml_batch_score_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Score the upstream dataset into a new versioned one.
+
+    Separate from ``ml_predict_v1`` because they are different shapes on the
+    canvas, not different options of one node: this one takes a dataset port and
+    emits a dataset envelope, which is what lets a downstream transform or an
+    LLM summary node consume the scores.
+    """
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.tabular_datasets import TabularError, resolve_dataset_ref
+    from app.services.tabular_predict import score_dataset
+
+    ctx = ctx or {}
+    spec, workspace_id = _predict_spec(payload, ctx)
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    dataset_ref = _first_dataset_ref(inputs)
+    if dataset_ref is None:
+        raise ValueError(
+            "score_dataset_required: wire a dataset into this node, or pick one "
+            "in the node's inputs"
+        )
+
+    def _run() -> dict[str, Any]:
+        with SessionLocal() as db:
+            model = _resolve_model(db, spec, workspace_id)
+            dataset = resolve_dataset_ref(
+                db, workspace_id=workspace_id, ref=dataset_ref
+            )
+            return score_dataset(
+                db,
+                model=model,
+                dataset=dataset,
+                output_name=str(spec.get("output_name") or "") or None,
+                version=spec.get("pinned_version"),
+                run_id=ctx.get("run_id"),
+                node_id=str(spec.get("node_id") or "") or None,
+            )
+
+    try:
+        return await asyncio.to_thread(_run)
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+
 def _first_dataset_ref(payload: dict[str, Any]) -> dict[str, Any] | None:
     """The first dataset envelope an upstream node put on the wire, if any."""
 
@@ -5696,6 +5846,16 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "ml_train_sklearn_v1": (
         _ml_train_sklearn_v1,
         "app.services.tabular_ml",
+        "bound",
+    ),
+    "ml_predict_v1": (
+        _ml_predict_v1,
+        "app.services.tabular_predict",
+        "bound",
+    ),
+    "ml_batch_score_v1": (
+        _ml_batch_score_v1,
+        "app.services.tabular_predict",
         "bound",
     ),
     "calendar_create_event_v1": (

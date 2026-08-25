@@ -53,9 +53,11 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.models.skill import Skill
 from app.models.tabular import (
     MODEL_TERMINAL_STATUSES,
     MLModel,
+    MLModelApiKey,
     TabularDataset,
 )
 from app.services.object_store import get_object_store
@@ -790,18 +792,57 @@ def delete_model(db: DBSession, model: MLModel) -> str:
     Hard-deleted, unlike a dataset: a dataset is a fact other rows are lineage
     of, whereas a retired model version is only reachable through the row that
     is being removed — and leaving a serving alias pointing at a retired version
-    would be worse than losing it. Its API keys go with it (FK cascade).
+    would be worse than losing it.
+
+    Three things must not outlive the row, and all three are deleted here rather
+    than left to a foreign key: a credential that still authenticates, a resident
+    pipeline that still answers, and — once the last version of a lineage is
+    gone — a published Skill whose every call would now fail. A cascade would
+    cover the first only, and only on a backend that enforces it.
     """
 
     model_id = model.id
+    workspace_id = model.workspace_id
+    slug = model.slug
+    published = model.published_skill_slug
     store = get_object_store()
     if store.backend == "local":
         try:
             store.delete_prefix(model_prefix(model.workspace_id, model.id))
         except Exception:  # noqa: BLE001 - the row delete stays authoritative
             logger.debug("tabular_ml: local artifact delete skipped", model_id=model.id)
+    (
+        db.query(MLModelApiKey)
+        .filter(MLModelApiKey.model_id == model_id)
+        .delete(synchronize_session=False)
+    )
     db.delete(model)
     db.commit()
+
+    survivors = (
+        db.query(MLModel)
+        .filter(MLModel.workspace_id == workspace_id, MLModel.slug == slug)
+        .count()
+    )
+    if published and survivors == 0:
+        (
+            db.query(Skill)
+            .filter(Skill.slug == published, Skill.workspace_id == workspace_id)
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        logger.info(
+            "tabular_ml: published skill withdrawn with its last version",
+            skill_slug=published,
+        )
+
+    # Deferred import: the serving plane reads this module, so the dependency
+    # only points one way at import time.
+    from app.services.tabular_predict import drop_from_cache
+
+    # A resident pipeline outliving its row would keep answering as something
+    # nobody can audit any more.
+    drop_from_cache(model_id)
     return model_id
 
 

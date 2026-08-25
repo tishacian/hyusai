@@ -10,17 +10,32 @@ indexed SELECT, which is what lets the Models page poll a run without cost.
 any run: the form has to be able to say what a choice implies (the task a target
 suggests, the features it leaves, the columns that will not generalize) before
 the author commits to a fit.
+
+The serving half of the plane lives here too — ``/predict`` for the playground,
+``/keys`` to mint the credential a customer's system uses, ``/publish`` to turn a
+lineage into a Skill an agent can call — with one shared rule: a prediction is
+answered by the version the lineage promoted, and the answer says which one that
+was. Pinning a version stays possible, explicitly, per request.
+
+``/predict`` is deliberately **one** route with two ways to prove who you are: a
+workspace session for the playground, or a model-scoped API key in ``X-API-Key``
+for a customer's system. Two routes would be two contracts to keep honest, and
+the demo's whole point is that the cURL on the slide hits the same endpoint the
+UI does.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session as DBSession
 
-from app.core.auth import get_current_user, get_current_workspace
+from app.core.auth import get_current_user, get_current_workspace, security
 from app.core.config import settings
 from app.db.base import get_db
 from app.models.tabular import MLModel, TabularDataset
@@ -41,6 +56,17 @@ from app.services.tabular_ml import (
     set_champion,
     submit_training,
     validate_training,
+)
+from app.services.tabular_predict import (
+    API_KEY_HEADER,
+    authenticate_key,
+    mint_api_key,
+    predict_rows,
+    publish_as_skill,
+    revoke_api_key,
+    serialize_api_key,
+    serving_block,
+    unpublish_skill,
 )
 
 router = APIRouter()
@@ -278,6 +304,7 @@ async def get_model_detail(
         "dataset": serialize_dataset(dataset) if dataset is not None else None,
         "versions": [serialize_model(row) for row in versions],
         "catalog": catalog_payload(),
+        "serving": serving_block(db, model),
     }
 
 
@@ -337,3 +364,226 @@ async def remove_model(
     except TabularError as exc:
         _raise_tabular(exc)
     return {"deleted": delete_model(db, model)}
+
+
+# ---------------------------------------------------------------------------
+# Serving
+# ---------------------------------------------------------------------------
+
+
+class PredictBody(BaseModel):
+    """MLflow's serving shape, so the demo cURL is the one the audience knows.
+
+    ``inputs`` is what ``mlflow models serve`` takes and what this reads first;
+    ``dataframe_records`` is MLflow's other record-oriented name for the same
+    thing and is accepted so a client written against either lands. ``rows`` is
+    this platform's own spelling, kept because the Playground and the Flow node
+    speak it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    inputs: Optional[list[dict[str, Any]]] = Field(default=None, max_length=1_000)
+    dataframe_records: Optional[list[dict[str, Any]]] = Field(
+        default=None, max_length=1_000
+    )
+    rows: Optional[list[dict[str, Any]]] = Field(default=None, max_length=1_000)
+    # Absent means "whatever serves this lineage", which is the behaviour an
+    # integration wants; a number is a caller asking for reproducibility.
+    version: Optional[int] = Field(default=None, ge=1)
+    # Off by default: a counterfactual explanation costs a second predict, and a
+    # batch integration scoring a thousand rows never wants it.
+    explain: bool = False
+
+    def records(self) -> list[dict[str, Any]]:
+        for candidate in (self.inputs, self.dataframe_records, self.rows):
+            if candidate is not None:
+                return candidate
+        return []
+
+
+@dataclass(slots=True)
+class PredictCaller:
+    """Who is asking, once either credential has been resolved to a workspace."""
+
+    workspace_id: str
+    kind: str
+    user_id: Optional[str] = None
+    # Set for a key: the one lineage it may call. A version within that lineage
+    # is fair game, because following a promotion is what the key is for.
+    lineage: Optional[str] = None
+
+    def authorize(self, model: MLModel) -> None:
+        if self.kind != "api_key" or self.lineage is None:
+            return
+        if str(model.slug) != self.lineage:
+            raise TabularError(
+                code="ML_KEY_WRONG_MODEL",
+                message="That key is not scoped to this model.",
+                status_code=403,
+            )
+
+
+def predict_caller(
+    x_api_key: Optional[str] = Header(default=None, alias=API_KEY_HEADER),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    x_workspace_slug: Optional[str] = Header(default=None, alias="X-Workspace-Slug"),
+    db: DBSession = Depends(get_db),
+) -> PredictCaller:
+    """Resolve either credential to the workspace whose models may be called.
+
+    A model-scoped key wins when present, and it carries its own workspace: that
+    is the whole point of minting it per model — the holder of a churn key cannot
+    read a dataset, list a Skill, or call another model, because nothing else on
+    this API accepts the header at all. Absent a key, this is an ordinary
+    workspace session and the ordinary session rules apply, unchanged.
+    """
+
+    if x_api_key:
+        try:
+            _, model = authenticate_key(db, x_api_key)
+        except TabularError as exc:
+            _raise_tabular(exc)
+        return PredictCaller(
+            workspace_id=model.workspace_id, kind="api_key", lineage=str(model.slug)
+        )
+
+    user = get_current_user(credentials=credentials, db=db)
+    workspace = get_current_workspace(user=user, x_workspace_slug=x_workspace_slug, db=db)
+    return PredictCaller(
+        workspace_id=workspace.id, kind="session", user_id=getattr(user, "id", None)
+    )
+
+
+@router.post("/{model_id}/predict")
+async def predict(
+    model_id: str,
+    body: PredictBody,
+    caller: PredictCaller = Depends(predict_caller),
+    db: DBSession = Depends(get_db),
+):
+    """Score rows now, in the request. The Playground's call and the cURL's.
+
+    Runs in a worker thread: a fitted pipeline's ``predict`` is C code that does
+    not yield, so scoring on the event loop would stall every other request for
+    its duration.
+    """
+
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=caller.workspace_id)
+        caller.authorize(model)
+        answer = await run_in_threadpool(
+            predict_rows,
+            db,
+            model,
+            body.records(),
+            version=body.version,
+            caller=caller.kind,
+            explain=body.explain,
+        )
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return answer
+
+
+class KeyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = Field(default=None, max_length=200)
+
+
+@router.get("/{model_id}/keys")
+async def list_keys(
+    model_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {"serving": serving_block(db, model)}
+
+
+@router.post("/{model_id}/keys")
+async def create_key(
+    model_id: str,
+    body: KeyBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Mint a key for this lineage. The secret is in this response and nowhere else."""
+
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        row, secret = mint_api_key(
+            db, model=model, name=body.name, created_by=getattr(user, "id", None)
+        )
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {
+        "key": serialize_api_key(row, secret=secret),
+        "serving": serving_block(db, model),
+    }
+
+
+@router.delete("/{model_id}/keys/{key_id}")
+async def revoke_key(
+    model_id: str,
+    key_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        revoke_api_key(db, model=model, key_id=key_id)
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {"serving": serving_block(db, model)}
+
+
+@router.post("/{model_id}/publish")
+async def publish(
+    model_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Expose the lineage as a workspace Skill, typed from the model's contract."""
+
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        skill = publish_as_skill(
+            db, model=model, created_by=getattr(user, "id", None)
+        )
+    except TabularError as exc:
+        _raise_tabular(exc)
+    db.expire(model)
+    return {
+        "skill": skill,
+        "model": serialize_model(model, include_detail=True),
+        "serving": serving_block(db, model),
+    }
+
+
+@router.delete("/{model_id}/publish")
+async def unpublish(
+    model_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        withdrawn = unpublish_skill(db, model=model)
+    except TabularError as exc:
+        _raise_tabular(exc)
+    db.expire(model)
+    return {
+        "withdrawn": withdrawn,
+        "model": serialize_model(model, include_detail=True),
+        "serving": serving_block(db, model),
+    }

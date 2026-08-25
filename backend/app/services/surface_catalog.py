@@ -484,7 +484,11 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         ("/models", "/models/:id"),
         notes=(
             "No-code sklearn training over datasets: algorithm catalog, training "
-            "runs, model cards and the version that serves."
+            "runs, model cards and the version that serves. Also the serving half "
+            "— inline predictions, scoped API keys, publish-as-Skill. Its "
+            "/{id}/predict route is the one place on this API that a non-session "
+            "credential reaches: a model-scoped X-API-Key, which authorizes that "
+            "one lineage and nothing else."
         ),
     ),
     SurfaceMetadata(

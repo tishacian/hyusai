@@ -633,7 +633,22 @@ class Settings(BaseSettings):
     # comparison and not a coin toss — the demo claim "v2 beats v1" has to mean
     # something.
     ml_train_random_state: int = Field(default=42, ge=0)
+    # Serving. A loaded pyfunc is tens of megabytes of resident pipeline, so the
+    # cache is small by design: it exists to make the second prediction of a
+    # demo instant, not to hold a workspace's whole registry in memory.
+    ml_predict_enabled: bool = True
     ml_predict_cache_size: int = Field(default=4, ge=1, le=64)
+    # Inline predictions answer in the request, so the batch has to stay small
+    # enough to be a request. Scoring a whole dataset is the Flow node's job and
+    # is bounded by ``tabular_transform_max_rows`` instead.
+    ml_predict_max_rows: int = Field(default=100, ge=1, le=10_000)
+    ml_predict_timeout_s: float = Field(default=60.0, ge=1.0)
+    # Scoring a dataset is a Flow node, so it may be large — but it is still one
+    # in-process pass, which is why it stops well below the transform ceiling.
+    ml_score_max_rows: int = Field(default=1_000_000, ge=1)
+    # Keys are per model and minted from the model card, so the ceiling is about
+    # keeping a card readable, not about capacity.
+    ml_predict_max_keys: int = Field(default=8, ge=1, le=64)
 
     # Secure Deposit — public drop links backed by workspace membership.
     secure_deposit_enabled_workspace_slugs: str = "andritz"
