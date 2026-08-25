@@ -33,6 +33,7 @@ import { GOVERNANCE_EN, GOVERNANCE_FR } from './i18n/governance.dict';
 import { HYPERVISOR_EN, HYPERVISOR_FR } from './i18n/hypervisor.dict';
 import { KNOWLEDGE_EN, KNOWLEDGE_FR } from './i18n/knowledge.dict';
 import { MISSION_EN, MISSION_FR } from './i18n/mission.dict';
+import { MODELS_EN, MODELS_FR } from './i18n/models.dict';
 import { RESOURCES_EN, RESOURCES_FR } from './i18n/resources.dict';
 import { RUNS_EN, RUNS_FR } from './i18n/runs.dict';
 import { SETTINGS_EN, SETTINGS_FR } from './i18n/settings.dict';
@@ -70,6 +71,7 @@ export const I18N_DOMAINS = {
   knowledge: { prefixes: ['knowledge'], fr: KNOWLEDGE_FR, en: KNOWLEDGE_EN },
   contexts: { prefixes: ['contexts'], fr: CONTEXTS_FR, en: CONTEXTS_EN },
   data: { prefixes: ['data'], fr: DATA_FR, en: DATA_EN },
+  models: { prefixes: ['models'], fr: MODELS_FR, en: MODELS_EN },
   governance: { prefixes: ['governance'], fr: GOVERNANCE_FR, en: GOVERNANCE_EN },
   settings: { prefixes: ['settings', 'presets'], fr: SETTINGS_FR, en: SETTINGS_EN },
   tasks: { prefixes: ['tasks'], fr: TASKS_FR, en: TASKS_EN },
@@ -103,6 +105,7 @@ export const FR_DICT = {
   ...KNOWLEDGE_FR,
   ...CONTEXTS_FR,
   ...DATA_FR,
+  ...MODELS_FR,
   ...GOVERNANCE_FR,
   ...SETTINGS_FR,
   ...TASKS_FR,
@@ -129,6 +132,7 @@ export const EN_DICT: Record<I18nKey, string> = {
   ...KNOWLEDGE_EN,
   ...CONTEXTS_EN,
   ...DATA_EN,
+  ...MODELS_EN,
   ...GOVERNANCE_EN,
   ...SETTINGS_EN,
   ...TASKS_EN,

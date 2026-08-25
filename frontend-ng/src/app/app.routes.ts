@@ -118,6 +118,11 @@ export const routes: Routes = [
         loadChildren: () => import('./features/data/data.routes').then((m) => m.dataRoutes),
       },
       {
+        path: 'models',
+        loadChildren: () =>
+          import('./features/models/models.routes').then((m) => m.modelsRoutes),
+      },
+      {
         path: 'governance',
         loadChildren: () =>
           import('./features/governance/governance.routes').then((m) => m.governanceRoutes),

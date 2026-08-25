@@ -156,6 +156,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'Tabular datasets, column profiles, transformations and lineage.',
   },
   {
+    id: 'models',
+    label: 'Models',
+    route: '/models',
+    lens: 'build',
+    object: 'Model',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/ml-models',
+    status: 'canonical',
+    audience: 'workspace-user',
+    description: 'Trained models, their evidence, their versions and the one that serves.',
+  },
+  {
     id: 'knowledge-capture',
     label: 'Capture de connaissances',
     route: '/knowledge/capture',
@@ -560,6 +572,7 @@ export type CockpitScopeType =
   | 'skill'
   | 'knowledge'
   | 'dataset'
+  | 'model'
   | 'flow'
   | 'run'
   | 'skill_invocation'
@@ -574,6 +587,7 @@ export type CockpitSectionKey =
   | 'skills'
   | 'knowledge'
   | 'data'
+  | 'models'
   | 'flows'
   | 'runs'
   | 'observability'
@@ -813,6 +827,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       ...hierarchySections(),
       section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
       section('data', 'Data', 'table', 'data', 'dataset'),
+      section('models', 'Models', 'chart', 'models', 'model'),
       section('flows', 'Flow builder', 'flow', 'orchestration', 'flow', undefined, true),
     ],
     legacySections: [
@@ -821,6 +836,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       section('skills', 'Skills', 'bolt', 'skills', 'skill'),
       section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
       section('data', 'Data', 'table', 'data', 'dataset'),
+      section('models', 'Models', 'chart', 'models', 'model'),
       section('flows', 'Flow builder', 'flow', 'orchestration', 'flow'),
     ],
     experienceSections: [
@@ -828,6 +844,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       { ...section('systems', 'Systems', 'cube', 'systems', 'system'), group: 'create' },
       { ...section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'), group: 'create' },
       { ...section('data', 'Data', 'table', 'data', 'dataset'), group: 'create' },
+      { ...section('models', 'Models', 'chart', 'models', 'model'), group: 'create' },
       { ...section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability'), group: 'library' },
       { ...section('skills', 'Skills', 'bolt', 'skills', 'skill'), group: 'library' },
       { ...section('certified', 'Certified components', 'check', 'apps', 'app'), group: 'library' },

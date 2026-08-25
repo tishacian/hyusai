@@ -439,6 +439,55 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         ("/systems/new", "/settings/legacy"),
     ),
     SurfaceMetadata(
+        "/api/v1/python-envs",
+        "Build",
+        "Flow",
+        "canonical",
+        "workspace-user",
+        "Platform",
+        ("/systems/:id/flow",),
+        notes=(
+            "Content-addressed managed venvs backing the Python recipe and "
+            "transform nodes; read and rebuilt from the Flow workshop."
+        ),
+    ),
+    SurfaceMetadata(
+        "/api/v1/recipe-executions",
+        "Build",
+        "Flow",
+        "canonical",
+        "workspace-user",
+        "Platform",
+        ("/systems/:id/flow",),
+        notes=(
+            "Execution rows for the recipe and transform harnesses, polled by "
+            "the Flow workshop while a preview or a run is in flight."
+        ),
+    ),
+    SurfaceMetadata(
+        "/api/v1/datasets",
+        "Build",
+        "Dataset",
+        "canonical",
+        "workspace-user",
+        "Platform",
+        ("/data", "/data/:id"),
+        notes="Tabular datasets: ingest, column profile, SQL preview and lineage.",
+    ),
+    SurfaceMetadata(
+        "/api/v1/ml-models",
+        "Build",
+        "Model",
+        "canonical",
+        "workspace-user",
+        "Platform",
+        ("/models", "/models/:id"),
+        notes=(
+            "No-code sklearn training over datasets: algorithm catalog, training "
+            "runs, model cards and the version that serves."
+        ),
+    ),
+    SurfaceMetadata(
         "/api/v1/chat",
         "Operate",
         "Workbench",
