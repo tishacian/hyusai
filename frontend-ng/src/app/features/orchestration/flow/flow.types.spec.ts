@@ -28,6 +28,8 @@ test('the canonical Skill taxonomy has the exact product order', () => {
     'Voice',
     'Governance',
     'Analysis',
+    'Data',
+    'Models',
     'Decision Support',
     'Automation',
   ]);

@@ -603,13 +603,36 @@ class Settings(BaseSettings):
     tabular_dbt_max_threads: int = Field(default=2, ge=1, le=32)
     tabular_dbt_max_models: int = Field(default=12, ge=1, le=100)
     tabular_dbt_max_model_chars: int = Field(default=40_000, ge=100)
-    # MLflow tracking/registry. Empty means "derive from DATABASE_URL" (the
-    # registry needs a SQL backend; a file store cannot register models).
+    # MLflow tracking/registry. Kept for a later phase: today the artifact is
+    # written in the MLflow model FORMAT into the ObjectStore and the ml_models
+    # table is the registry, so no tracking server has to be operated for facts
+    # that table already holds.
     mlflow_tracking_uri: str = ""
     mlflow_artifact_root: str = ""
     mlflow_experiment_name: str = "agentium"
+    # No-code training node. Unlike the transform engines this one runs NO
+    # author-written code — the estimator comes from a curated catalog — so it
+    # runs on the APPLICATION interpreter rather than a managed venv: the
+    # serving path unpickles what training pickled, and a version skew between
+    # two sklearn installs is a load failure with no useful error.
+    ml_train_enabled: bool = True
     ml_train_max_rows: int = Field(default=2_000_000, ge=100)
+    ml_train_min_rows: int = Field(default=40, ge=4)
+    ml_train_max_features: int = Field(default=256, ge=1)
+    ml_train_max_classes: int = Field(default=24, ge=2)
     ml_train_timeout_s: float = Field(default=900.0, ge=10.0)
+    ml_train_memory_limit_mb: int = Field(default=6144, ge=1024)
+    ml_train_cpu_limit_s: int = Field(default=1800, ge=30)
+    # A fitted forest is megabytes, not kilobytes: the harness writes the model
+    # directory itself, so its file-size ceiling has to fit an artifact.
+    ml_train_artifact_limit_mb: int = Field(default=512, ge=16)
+    ml_train_importance_rows: int = Field(default=2_000, ge=100)
+    ml_train_curve_points: int = Field(default=120, ge=10, le=1_000)
+    ml_train_threads: int = Field(default=2, ge=1, le=64)
+    # Fixed by default so retraining the same dataset with the same knobs is a
+    # comparison and not a coin toss — the demo claim "v2 beats v1" has to mean
+    # something.
+    ml_train_random_state: int = Field(default=42, ge=0)
     ml_predict_cache_size: int = Field(default=4, ge=1, le=64)
 
     # Secure Deposit — public drop links backed by workspace membership.

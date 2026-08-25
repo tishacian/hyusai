@@ -2018,64 +2018,106 @@ _TRANSFORM_SKILL_SLUGS = frozenset(
     }
 )
 
+_ML_TRAIN_SKILL_SLUG = "ml_train_sklearn_v1"
+# A training node is configured, not scripted: what makes it graph-owned is the
+# same argument as for a statement — the target of a model must not be something
+# an ingress payload can rewrite between two runs.
+_TRAIN_PARAM_KEYS = (
+    "task",
+    "target",
+    "features",
+    "algo",
+    "knobs",
+    "test_size",
+    "cross_validation",
+    "model_name",
+    "sources",
+)
+_TRAIN_SKILL_SLUGS = frozenset({_ML_TRAIN_SKILL_SLUG})
+
+# The reserved keys a node's graph configuration travels under. Written once as
+# data because the invariant is the same for all three and repeating it is how
+# one of them eventually stops being stripped on the other nodes.
+_GRAPH_OWNED_BLOCKS: tuple[tuple[str, frozenset, tuple[str, ...]], ...] = (
+    ("_recipe", frozenset({_RECIPE_SKILL_SLUG}), _RECIPE_PARAM_KEYS),
+    ("_transform", _TRANSFORM_SKILL_SLUGS, _TRANSFORM_PARAM_KEYS),
+    ("_train", _TRAIN_SKILL_SLUGS, _TRAIN_PARAM_KEYS),
+)
+
 
 def _passthrough_without_recipe(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Task failure envelopes pass upstream data through; the graph-owned
-    ``_recipe`` and ``_transform`` blocks are configuration (the full script or
-    statement text), not data, so they never ride a ``_error``/``_status``
-    envelope into run outputs."""
+    ``_recipe``, ``_transform`` and ``_train`` blocks are configuration (the full
+    script, statement text or training spec), not data, so they never ride a
+    ``_error``/``_status`` envelope into run outputs."""
 
     passthrough = dict(data or {})
-    passthrough.pop("_recipe", None)
-    passthrough.pop("_transform", None)
+    for key, _slugs, _params in _GRAPH_OWNED_BLOCKS:
+        passthrough.pop(key, None)
     return passthrough
 
 
-def _apply_recipe_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
-    """Project the graph-owned recipe configuration into the skill input.
+def _apply_graph_owned_config(
+    node: DagNode,
+    node_input: Dict[str, Any],
+    *,
+    key: str,
+    slugs: frozenset,
+    param_keys: tuple[str, ...],
+) -> None:
+    """Project one graph-owned configuration block into the skill input.
 
-    The ``_recipe`` block is authoritative graph configuration: caller input
-    and upstream nodes can never inject or alter the executable script or its
-    environment spec. On non-recipe nodes the reserved key is stripped so an
-    ingress payload cannot smuggle one toward a downstream recipe node.
+    The block is authoritative graph configuration: caller input and upstream
+    nodes can never inject or alter the executable script, the statement or the
+    training spec. On every other node the reserved key is stripped, so an
+    ingress payload cannot smuggle one toward a downstream node that would read
+    it.
     """
 
-    if node.skill_slug != _RECIPE_SKILL_SLUG:
-        node_input.pop("_recipe", None)
+    if node.skill_slug not in slugs:
+        node_input.pop(key, None)
         return
     config = node.config if isinstance(node.config, dict) else {}
     params = config.get("params") if isinstance(config.get("params"), dict) else {}
-    node_input["_recipe"] = {
-        **{key: params.get(key) for key in _RECIPE_PARAM_KEYS},
+    node_input[key] = {
+        **{name: params.get(name) for name in param_keys},
         "node_id": node.id,
     }
-    # In strict mode the palette-params merge above may also have seeded the
-    # raw config keys as plain input defaults; drop them so the script's
-    # ``inputs`` dict carries data only.
-    for key in _RECIPE_PARAM_KEYS:
-        node_input.pop(key, None)
+    # In strict mode the palette-params merge may also have seeded the raw config
+    # keys as plain input defaults; drop them so the node's data inputs stay
+    # data only.
+    for name in param_keys:
+        node_input.pop(name, None)
+
+
+def _apply_recipe_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
+    _apply_graph_owned_config(
+        node,
+        node_input,
+        key="_recipe",
+        slugs=frozenset({_RECIPE_SKILL_SLUG}),
+        param_keys=_RECIPE_PARAM_KEYS,
+    )
 
 
 def _apply_transform_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
-    """Project the graph-owned transform configuration into the skill input.
+    _apply_graph_owned_config(
+        node,
+        node_input,
+        key="_transform",
+        slugs=_TRANSFORM_SKILL_SLUGS,
+        param_keys=_TRANSFORM_PARAM_KEYS,
+    )
 
-    Same posture as ``_recipe``: the statement or the script is graph
-    configuration, so caller input and upstream nodes can neither inject nor
-    alter it, and the reserved key is stripped on every other node so an ingress
-    payload cannot smuggle one toward a downstream transform.
-    """
 
-    if node.skill_slug not in _TRANSFORM_SKILL_SLUGS:
-        node_input.pop("_transform", None)
-        return
-    config = node.config if isinstance(node.config, dict) else {}
-    params = config.get("params") if isinstance(config.get("params"), dict) else {}
-    node_input["_transform"] = {
-        **{key: params.get(key) for key in _TRANSFORM_PARAM_KEYS},
-        "node_id": node.id,
-    }
-    for key in _TRANSFORM_PARAM_KEYS:
-        node_input.pop(key, None)
+def _apply_train_node_config(node: DagNode, node_input: Dict[str, Any]) -> None:
+    _apply_graph_owned_config(
+        node,
+        node_input,
+        key="_train",
+        slugs=_TRAIN_SKILL_SLUGS,
+        param_keys=_TRAIN_PARAM_KEYS,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2244,8 +2286,14 @@ async def _execute_node(
         )
         return {"output": {}, "terminal_error": str(exc)}
 
-    _apply_recipe_node_config(node, node_input)
-    _apply_transform_node_config(node, node_input)
+    for _block_key, _block_slugs, _block_params in _GRAPH_OWNED_BLOCKS:
+        _apply_graph_owned_config(
+            node,
+            node_input,
+            key=_block_key,
+            slugs=_block_slugs,
+            param_keys=_block_params,
+        )
 
     invocations_before = len(state.invocation_ids)
     result: Dict[str, Any] = {}

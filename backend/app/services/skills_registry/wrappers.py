@@ -1693,6 +1693,141 @@ async def _dbt_transform_v1(
     raise RuntimeError(f"dbt_transform_{status}: {detail}{suffix}"[:480])
 
 
+async def _ml_train_sklearn_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Fit the node's graph-owned model spec on its upstream dataset.
+
+    Same injection contract as the transform nodes — the target, the features
+    and the algorithm come from ``_train``, never from caller input — and the
+    same transport reason for polling a row rather than computing here: a fit is
+    minutes of CPU in a killable subprocess, which belongs to the worker plane.
+
+    The block it returns is a model *reference*, not a model: downstream nodes
+    (and the predict node in particular) resolve the id, and the canvas badges
+    read the metric straight off it.
+    """
+    import asyncio
+    import time as time_mod
+
+    from app.core.config import settings as app_settings
+    from app.db.base import SessionLocal
+    from app.models.tabular import MODEL_TERMINAL_STATUSES, MLModel
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_ml import submit_training, training_summary
+
+    ctx = ctx or {}
+    train = payload.get("_train")
+    if not isinstance(train, dict):
+        raise ValueError(
+            "train_config_missing: this Skill only runs as a Flow node carrying "
+            "its graph-owned training configuration"
+        )
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("train_workspace_required")
+    if not app_settings.ml_train_enabled:
+        raise ValueError("ML_TRAIN_DISABLED: model training is off on this instance")
+
+    inputs = {key: value for key, value in payload.items() if not key.startswith("_")}
+    sources = train.get("sources")
+    pinned = next(
+        (
+            entry
+            for entry in (sources if isinstance(sources, list) else [])
+            if isinstance(entry, dict) and (entry.get("dataset_id") or entry.get("slug"))
+        ),
+        None,
+    )
+    # A pin wins over the wire, because a training node pinned to a dataset is
+    # the author saying "this one", and an upstream envelope is a default.
+    dataset_ref = pinned or _first_dataset_ref(inputs)
+    if dataset_ref is None:
+        raise ValueError(
+            "ML_NO_DATASET: connect a dataset upstream or pin one on the node "
+            "before training"
+        )
+
+    def _submit() -> str:
+        with SessionLocal() as db:
+            model = submit_training(
+                db,
+                workspace_id=str(workspace_id),
+                dataset_ref=dataset_ref,
+                task=train.get("task"),
+                target=train.get("target"),
+                features=train.get("features"),
+                algo=train.get("algo"),
+                knobs=train.get("knobs"),
+                test_size=train.get("test_size"),
+                cross_validation=train.get("cross_validation"),
+                name=train.get("model_name"),
+                run_id=ctx.get("run_id"),
+                node_id=str(train.get("node_id") or "") or None,
+            )
+            return model.id
+
+    try:
+        # Dispatch is synchronous DB work, and in eager mode it is the whole
+        # fit: either way it must not block the walker's loop.
+        model_id = await asyncio.to_thread(_submit)
+    except TabularError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+
+    deadline = time_mod.monotonic() + float(app_settings.ml_train_timeout_s) + 60.0
+
+    def _cancel() -> None:
+        from app.services.tabular_ml import request_cancel
+
+        with SessionLocal() as db:
+            row = db.query(MLModel).filter(MLModel.id == model_id).first()
+            if row is not None:
+                request_cancel(db, row)
+
+    def _read() -> tuple[str, dict[str, Any], str | None]:
+        with SessionLocal() as db:
+            row = db.query(MLModel).filter(MLModel.id == model_id).first()
+            if row is None:
+                raise RuntimeError("ml_model_missing")
+            return row.status, training_summary(row), row.error
+
+    try:
+        while True:
+            status, summary, error = await asyncio.to_thread(_read)
+            if status in MODEL_TERMINAL_STATUSES:
+                break
+            if time_mod.monotonic() > deadline:
+                await asyncio.to_thread(_cancel)
+                raise RuntimeError("ml_train_deadline_expired")
+            await asyncio.sleep(2.0)
+    except asyncio.CancelledError:
+        # Run cancelled while we wait: flip the cooperative flag so the worker
+        # kills the fit instead of leaking it, then let the walker settle.
+        await asyncio.to_thread(_cancel)
+        raise
+
+    if status == "ready":
+        return summary
+    raise RuntimeError(f"ml_train_{status}: {(error or '').strip()}"[:480])
+
+
+def _first_dataset_ref(payload: dict[str, Any]) -> dict[str, Any] | None:
+    """The first dataset envelope an upstream node put on the wire, if any."""
+
+    if payload.get("dataset_id") or payload.get("dataset_slug"):
+        return payload
+    for key, value in payload.items():
+        if key.startswith("_"):
+            continue
+        if isinstance(value, dict) and (value.get("dataset_id") or value.get("slug")):
+            return value
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict) and item.get("dataset_id"):
+                    return item
+    return None
+
+
 async def _calendar_create_event_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -5556,6 +5691,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "dbt_transform_v1": (
         _dbt_transform_v1,
         "app.services.tabular_dbt",
+        "bound",
+    ),
+    "ml_train_sklearn_v1": (
+        _ml_train_sklearn_v1,
+        "app.services.tabular_ml",
         "bound",
     ),
     "calendar_create_event_v1": (

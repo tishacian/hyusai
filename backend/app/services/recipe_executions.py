@@ -240,12 +240,14 @@ def _subprocess_env(
     return env
 
 
-def _apply_rlimits(memory_limit_mb: int) -> None:  # pragma: no cover - child process
+def _apply_rlimits(
+    memory_limit_mb: int, cpu_limit_s: int, fsize_limit_mb: int
+) -> None:  # pragma: no cover - child process
     import resource
 
-    cpu_s = int(settings.recipe_execution_cpu_limit_s)
+    cpu_s = int(cpu_limit_s)
     mem_bytes = int(memory_limit_mb) * 1024 * 1024
-    fsize = 64 * 1024 * 1024
+    fsize = int(fsize_limit_mb) * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_s, cpu_s + 5))
     try:
         resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
@@ -424,21 +426,29 @@ def supervise_harness(
     should_cancel: Callable[[], bool] | None = None,
     timeout_error: str | None = None,
     memory_limit_mb: int | None = None,
+    cpu_limit_s: int | None = None,
+    fsize_limit_mb: int = 64,
     extra_env: dict[str, str] | None = None,
 ) -> SupervisedRun:
     """Run one harness under rlimits, a hard timeout and a cooperative cancel.
 
-    Shared by every node that executes author-written Python in a managed venv
-    (recipes, Polars transforms): the isolation posture is a property of the
-    platform, not of one node type, so it lives in one place. The environment
-    handed to the child carries no application variable — the venv on ``PATH``
-    and a scratch ``HOME``/``TMPDIR``, plus whatever ``extra_env`` the caller's
-    engine needs.
+    Shared by every node that runs work in a subprocess it does not trust to
+    stop on its own (recipes, Polars and dbt transforms, sklearn training): the
+    isolation posture is a property of the platform, not of one node type, so it
+    lives in one place. The environment handed to the child carries no
+    application variable — the interpreter on ``PATH`` and a scratch
+    ``HOME``/``TMPDIR``, plus whatever ``extra_env`` the caller's engine needs.
 
-    ``memory_limit_mb`` is a per-engine budget because ``RLIMIT_AS`` caps the
-    **virtual** address space: an arena allocator reserves far more than it
-    commits, so a dataframe engine needs a wider ceiling than a plain script to
-    even finish importing.
+    The three budgets are per-engine because the engines are not comparable:
+
+    * ``memory_limit_mb`` caps the **virtual** address space (``RLIMIT_AS``), and
+      an arena allocator reserves far more than it commits, so a dataframe
+      engine needs a wider ceiling than a plain script to even finish importing;
+    * ``cpu_limit_s`` is the last resort against a runaway loop, and a model fit
+      is legitimately CPU-bound for minutes where a transform is not;
+    * ``fsize_limit_mb`` caps any single file the child writes, so an engine
+      that writes its own artifact (a serialized pipeline is megabytes) needs
+      more room than one that writes a Parquet result.
     """
 
     budget = int(
@@ -446,6 +456,12 @@ def supervise_harness(
         if memory_limit_mb is not None
         else settings.recipe_execution_memory_limit_mb
     )
+    cpu_budget = int(
+        cpu_limit_s
+        if cpu_limit_s is not None
+        else settings.recipe_execution_cpu_limit_s
+    )
+    fsize_budget = int(fsize_limit_mb)
 
     stdout_path = scratch / "stdout.log"
     stderr_path = scratch / "stderr.log"
@@ -465,7 +481,7 @@ def supervise_harness(
             env=_subprocess_env(venv_python, scratch, extra_env),
             start_new_session=True,
             # noqa: PLW1509 - single-threaded fork point
-            preexec_fn=lambda: _apply_rlimits(budget),
+            preexec_fn=lambda: _apply_rlimits(budget, cpu_budget, fsize_budget),
         )
         last_cancel_check = 0.0
         while True:

@@ -894,7 +894,7 @@ def test_the_skill_is_registered_bound_and_claimed_by_a_universal_capability():
 
     assert wrappers.runtime_status("dbt_transform_v1") == "bound"
     assert any(entry["slug"] == "dbt_transform_v1" for entry in SEED_SKILLS)
-    assert skill_category("dbt_transform_v1") == "Analysis"
+    assert skill_category("dbt_transform_v1") == "Data"
     carriers = [
         entry
         for entry in SEED_CAPABILITIES
