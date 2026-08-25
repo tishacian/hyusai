@@ -1,7 +1,22 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
+
+/**
+ * Every file that can style something, recursively.
+ *
+ * Specs are excluded: they name tokens in prose and in assertions about tokens,
+ * neither of which paints a pixel.
+ */
+function sources(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) return sources(path);
+    if (/\.spec\.ts$/.test(entry.name)) return [];
+    return /\.(ts|scss|css|html)$/.test(entry.name) ? [path] : [];
+  });
+}
 
 const source = readFileSync(join(process.cwd(), 'src/styles/cockpit-tokens.scss'), 'utf8');
 const dark = source.slice(source.indexOf(':root {'), source.indexOf('html:not(.dark)'));
@@ -38,4 +53,33 @@ test('secondary text meets WCAG AA on cockpit panels', () => {
   for (const block of [dark, light]) {
     assert.ok(contrast(token(block, '--ck-fg-4'), token(block, '--ck-bg-panel')) >= 4.5);
   }
+});
+
+test('every cockpit token a component names is a token the theme defines', () => {
+  // A misspelled or invented token is silent: `var(--ck-bg-elevated, #14161c)`
+  // compiles, renders, and looks right in whichever theme the fallback happens
+  // to suit — then shows dark text on a dark panel in the other one. The
+  // fallback is what hides it, so the reference itself has to be checked.
+  const defined = new Set(
+    [...source.matchAll(/^\s*(--ck-[a-z0-9-]+)\s*:/gm)].map((match) => match[1]),
+  );
+  const referenced = new Map<string, string>();
+  for (const file of sources(join(process.cwd(), 'src/app'))) {
+    for (const match of readFileSync(file, 'utf8').matchAll(
+      /var\(\s*(--ck-[a-z0-9-]+)/g,
+    )) {
+      // A trailing hyphen is a prefix the code completes at runtime
+      // (`var(--ck-signal-${tone})`); no token is named that, and which one is
+      // meant is not knowable from the source.
+      if (match[1].endsWith('-')) continue;
+      if (!referenced.has(match[1])) referenced.set(match[1], file);
+    }
+  }
+
+  assert.ok(referenced.size > 50, 'the scan found the references, not none of them');
+  const unknown = [...referenced].filter(([name]) => !defined.has(name));
+  assert.deepEqual(
+    unknown.map(([name, file]) => `${name} (${file.replace(process.cwd(), '')})`),
+    [],
+  );
 });
