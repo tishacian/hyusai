@@ -92,6 +92,9 @@ def upgrade() -> None:
         sa.Column("status_detail", sa.String(300), nullable=True),
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column(
+            "cancel_requested", sa.Boolean(), nullable=False, server_default=sa.false()
+        ),
+        sa.Column(
             "is_champion", sa.Boolean(), nullable=False, server_default=sa.false()
         ),
         sa.Column(
@@ -107,9 +110,13 @@ def upgrade() -> None:
         sa.Column("metrics_json", sa.JSON(), nullable=True),
         sa.Column("signature_json", sa.JSON(), nullable=True),
         sa.Column("input_example_json", sa.JSON(), nullable=True),
+        sa.Column("classes_json", sa.JSON(), nullable=True),
         sa.Column("model_uri", sa.String(500), nullable=True),
+        sa.Column("artifact_bytes", sa.BigInteger(), nullable=True),
         sa.Column("mlflow_run_id", sa.String(64), nullable=True),
         sa.Column("mlflow_model_name", sa.String(300), nullable=True),
+        sa.Column("predict_count", sa.BigInteger(), nullable=False, server_default="0"),
+        sa.Column("last_predict_at", sa.DateTime(), nullable=True),
         sa.Column("run_id", sa.String(36), nullable=True),
         sa.Column("node_id", sa.String(160), nullable=True),
         sa.Column("celery_task_id", sa.String(255), nullable=True),
