@@ -338,6 +338,7 @@ def _stub_harness(
     files=None,
     progress=(),
     observe=None,
+    report_state=None,
 ):
     """Stand in for the training subprocess: write what a real harness would.
 
@@ -345,7 +346,9 @@ def _stub_harness(
     the manifest's progress file and followed by the supervisor's own poll tick,
     which is how the worker republishes a step onto the polled row. ``observe``
     is read after each tick, so a caller can assert what the row said *while* the
-    run was in flight rather than only once it settled.
+    run was in flight rather than only once it settled. ``report_state`` stands in
+    for skore's serialized evaluation, which a real harness writes beside the
+    model directory rather than inside it.
     """
 
     captured: dict = {}
@@ -372,10 +375,19 @@ def _stub_harness(
                 target = model_dir / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content, encoding="utf-8")
-            result_path.write_text(
-                json.dumps(summary if summary is not None else _summary()),
-                encoding="utf-8",
-            )
+            body = summary if summary is not None else _summary()
+            if report_state is not None:
+                state_path = Path(manifest["report_path"])
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                state_path.write_bytes(report_state)
+                body = {
+                    **body,
+                    "report_state": {
+                        "bytes": len(report_state),
+                        "skore": "0.25.0",
+                    },
+                }
+            result_path.write_text(json.dumps(body), encoding="utf-8")
         return SupervisedRun(
             status=status,
             error=None,
@@ -985,6 +997,72 @@ def test_the_artifact_loads_back_and_scores_a_row_with_a_hole(churn_parquet, tmp
     holed = example.copy()
     holed.loc[holed.index[0], "arpu"] = None
     assert len(loaded.predict(holed)) == len(holed)
+
+
+@pytest.mark.slow
+def test_the_report_state_is_kept_so_the_evaluation_can_be_reopened(
+    churn_parquet, tmp_path
+):
+    """`result.json` is a reading of the evaluation; this is the evaluation.
+
+    The card's blob cannot answer a question nobody flattened it for, and
+    recomputing one later would need the same rows back — which is precisely what
+    a fresh split cannot promise. So skore's own state is kept, and the property
+    under test is that a *stock* skore reopens it and finds the same numbers.
+    """
+
+    state_path = tmp_path / "report" / "state.joblib"
+    code, summary, stderr = _run_harness(
+        tmp_path / "run",
+        _manifest_for(
+            churn_parquet,
+            tmp_path,
+            report_path=str(state_path),
+            report_state_limit_mb=64,
+        ),
+    )
+    assert code == 0, stderr
+
+    assert summary["report_state"]["bytes"] == state_path.stat().st_size
+    assert summary["report_state"]["skore"]
+
+    import joblib
+    from skore import EstimatorReport
+
+    reopened = EstimatorReport.from_dict(joblib.load(state_path))
+    table = reopened.metrics.summarize().frame()
+    recorded = {score["key"]: score["value"] for score in summary["metrics"]["scores"]}
+    assert float(table.loc["roc_auc"]) == pytest.approx(recorded["roc_auc"], abs=1e-6)
+    # The rows are in there too, which is the part that makes a later metric
+    # comparable with the ones the card already published.
+    assert len(reopened.y_test) == summary["metrics"]["rows"]["test"]
+
+
+@pytest.mark.slow
+def test_a_report_state_over_the_ceiling_is_dropped_rather_than_stored(
+    churn_parquet, tmp_path
+):
+    """Evidence is worth megabytes, not hundreds of them — and never a failed fit."""
+
+    state_path = tmp_path / "report" / "state.joblib"
+    code, summary, stderr = _run_harness(
+        tmp_path / "run",
+        _manifest_for(
+            churn_parquet,
+            tmp_path,
+            report_path=str(state_path),
+            # Small enough that a 400-row report cannot fit under it.
+            report_state_limit_mb=0.000_001,
+        ),
+    )
+
+    assert code == 0, stderr
+    assert summary["report_state"] == {
+        "skipped": "too_large",
+        "bytes": summary["report_state"]["bytes"],
+    }
+    assert not state_path.exists()
+    assert not state_path.with_suffix(".partial").exists()
 
 
 @pytest.mark.slow

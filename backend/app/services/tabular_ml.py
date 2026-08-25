@@ -96,6 +96,10 @@ TRAIN_STEPS: tuple[str, ...] = (
 _HARNESS_STEPS = frozenset(TRAIN_STEPS)
 # The file the harness appends its current step to, inside the run's scratch.
 _PROGRESS_FILE = "progress.txt"
+# skore's own serialization of the evaluation, kept beside the model rather than
+# inside it: serving downloads the model directory on every cold load and has no
+# use for the training split.
+_REPORT_STATE_FILE = "state.joblib"
 
 _HARNESS_PATH = (
     Path(__file__).resolve().parent.parent / "resources" / "ml_train_harness.py"
@@ -570,6 +574,34 @@ def validate_training(
 def model_prefix(workspace_id: str, model_id: str) -> str:
     store = get_object_store()
     return store.key("workspaces", workspace_id, "ml", "models", model_id, "model")
+
+
+def report_state_key(workspace_id: str, model_id: str) -> str:
+    """Where the skore report state lives: beside the model, not inside it."""
+
+    store = get_object_store()
+    return store.key(
+        "workspaces", workspace_id, "ml", "models", model_id, "report",
+        _REPORT_STATE_FILE,
+    )
+
+
+def upload_report_state(local: Path, *, workspace_id: str, model_id: str) -> str | None:
+    """Publish the report state if the harness wrote one. Never raises.
+
+    Absence is normal — a state over the ceiling is skipped by design — and a
+    fit that trained, scored and uploaded has succeeded either way.
+    """
+
+    if not local.is_file():
+        return None
+    key = report_state_key(workspace_id, model_id)
+    try:
+        get_object_store().write_bytes(key, local.read_bytes())
+    except Exception:  # noqa: BLE001 - evidence about a fit, not the fit
+        logger.warning("tabular_ml: report state not stored", model_id=model_id)
+        return None
+    return key
 
 
 def upload_model_dir(local: Path, *, workspace_id: str, model_id: str) -> tuple[str, int]:
@@ -1059,6 +1091,8 @@ def _write_manifest(scratch: Path, model: MLModel, data_path: Path) -> Path:
         "curve_points": int(settings.ml_train_curve_points),
         "importance_rows": int(settings.ml_train_importance_rows),
         "progress_path": str(scratch / _PROGRESS_FILE),
+        "report_path": str(scratch / "report" / _REPORT_STATE_FILE),
+        "report_state_limit_mb": int(settings.ml_train_report_state_limit_mb),
     }
     path = scratch / "manifest.json"
     path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
@@ -1226,6 +1260,11 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                     status, error = "ready", None
                     summary["model_uri"] = uri
                     summary["artifact_bytes"] = size
+                    summary["report_state_uri"] = upload_report_state(
+                        scratch / "report" / _REPORT_STATE_FILE,
+                        workspace_id=model.workspace_id,
+                        model_id=model.id,
+                    )
         except TabularError as exc:
             status, error = "failed", f"{exc.code}: {exc.message}"
         except Exception as exc:  # noqa: BLE001 - the row is the error channel
@@ -1274,6 +1313,13 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
         return {"id": model_id, "status": status}
 
 
+def _report_state_uri(model: MLModel) -> str | None:
+    """The absolute location of this model's report state, when it has one."""
+
+    key = ((model.metrics_json or {}).get("report") or {}).get("key")
+    return get_object_store().uri(str(key)) if key else None
+
+
 def _register_version(model: MLModel) -> None:
     """Mirror a ready model into the MLflow registry, and never fail over it.
 
@@ -1303,6 +1349,10 @@ def _register_version(model: MLModel) -> None:
             "agentium.workspace_id": model.workspace_id,
             "agentium.dataset_id": model.dataset_id or "",
             "agentium.version": model.version,
+            # So the run points at the evaluation, not just at the pipeline: a
+            # reader who has only the registry can still find the rows the
+            # published metrics were measured on.
+            "agentium.skore_report_state": _report_state_uri(model) or "",
         },
     )
     if not published:
@@ -1318,6 +1368,16 @@ def _register_version(model: MLModel) -> None:
 
 def _apply_summary(model: MLModel, summary: dict[str, Any]) -> None:
     metrics = dict(summary.get("metrics") or {})
+    state = summary.get("report_state")
+    if summary.get("report_state_uri") and isinstance(state, dict):
+        # In ``metrics_json`` because that is already the run's evidence blob, and
+        # because a stored key needs no column and no migration to say where the
+        # rows behind these numbers went.
+        metrics["report"] = {
+            "key": str(summary["report_state_uri"]),
+            "bytes": int(state.get("bytes") or 0),
+            "skore": str(state.get("skore") or ""),
+        }
     model.metrics_json = metrics
     model.signature_json = dict(summary.get("signature") or {})
     model.input_example_json = summary.get("input_example") or []

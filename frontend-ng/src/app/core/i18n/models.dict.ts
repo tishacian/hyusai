@@ -423,6 +423,8 @@ export const MODELS_FR = {
   'models.setup.target': 'Colonne prédite',
   'models.setup.features': 'Variables explicatives',
   'models.setup.artifact': 'Artefact',
+  'models.setup.evaluation': 'Évaluation conservée',
+  'models.setup.evaluation.value': '{size} — rapport skore {skore}, rechargeable',
   'models.setup.preprocessing': 'Prétraitement',
   'models.setup.preprocessing.value':
     'Automatique : chaque colonne est encodée selon son type.',
@@ -881,6 +883,8 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.setup.target': 'Predicted column',
   'models.setup.features': 'Features',
   'models.setup.artifact': 'Artifact',
+  'models.setup.evaluation': 'Evaluation kept',
+  'models.setup.evaluation.value': '{size} — skore {skore} report, reloadable',
   'models.setup.preprocessing': 'Preprocessing',
   'models.setup.preprocessing.value':
     'Automatic: every column is encoded according to its type.',

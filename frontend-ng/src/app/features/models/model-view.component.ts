@@ -1244,6 +1244,18 @@ export class ModelViewComponent implements OnInit {
         value: formatBytes(row.artifact_bytes, this.i18n.locale()),
       });
     }
+    const evaluation = row.metrics?.report;
+    if (evaluation?.bytes) {
+      // Says the evaluation itself was kept, not just its summary: the split and
+      // the predictions behind every number on this card are still on disk.
+      entries.push({
+        label: this.i18n.t('models.setup.evaluation'),
+        value: this.i18n.t('models.setup.evaluation.value', {
+          size: formatBytes(evaluation.bytes, this.i18n.locale()),
+          skore: evaluation.skore ?? '',
+        }),
+      });
+    }
     return entries;
   });
 

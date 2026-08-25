@@ -111,6 +111,12 @@ export interface MetricsBlock {
   columns?: { used?: string[]; dropped?: { name: string; reason: string }[] };
   importances?: FeatureImportance[];
   cv?: CvBlock;
+  /**
+   * Where skore's serialized evaluation was kept, when it was small enough to
+   * keep. Not a metric — the pointer that lets someone reopen the report these
+   * numbers were read from, on the rows they were read from.
+   */
+  report?: { key?: string; bytes?: number; skore?: string };
   target?: {
     name?: string;
     classes?: string[];
