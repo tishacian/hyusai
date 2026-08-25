@@ -52,6 +52,7 @@ import {
   runtimeModeKey,
 } from './flow-manifest.service';
 import { FlowPersistenceService } from './flow-persistence.service';
+import { readNodeRunSummary, type NodeRunSummary } from './flow-node-run.vm';
 import type { DebugMode, RunLogEntry, RunUiStatus } from './flow-run.types';
 
 /** Cap so a chatty run can never grow the terminal unbounded. */
@@ -218,6 +219,22 @@ export class FlowRunService {
   /** Node currently executing / paused on — drives the canvas run overlay. */
   readonly activeNodeId = signal<string | null>(null);
 
+  /**
+   * What each node did on its last execution, keyed by node id.
+   *
+   * Fed from the `node_end` frames — live over SSE, and by the same replay that
+   * fills the terminal when a finished run is loaded — so the canvas badges are
+   * populated whether you watched the run or opened it afterwards. Ephemeral by
+   * design: this is evidence about a run, never part of the graph, so it is
+   * neither saved nor allowed to dirty the flow.
+   */
+  private readonly _nodeRuns = signal<Record<string, NodeRunSummary>>({});
+  readonly nodeRuns = this._nodeRuns.asReadonly();
+
+  nodeRunFor(nodeId: string): NodeRunSummary | null {
+    return this._nodeRuns()[nodeId] ?? null;
+  }
+
   /** Versions are per-System but do not require an executable runtime. */
   readonly canUseSystemActions = computed(
     () =>
@@ -284,6 +301,7 @@ export class FlowRunService {
     this.selectedDraftIngressId.set('');
     this.staleRejectedSha256.set(null);
     this.activeNodeId.set(null);
+    this._nodeRuns.set({});
     this.seenCheckpoints.clear();
     this.seenInvocationIds.clear();
   });
@@ -503,6 +521,8 @@ export class FlowRunService {
     this.stopStream();
     this.seenInvocationIds.clear();
     this.seenCheckpoints.clear();
+    // A new run makes every figure on the canvas stale at once.
+    this._nodeRuns.set({});
     this.streamFellBackToPoll = false;
     this.resultLogged = false;
     this.terminalOpen.set(true);
@@ -1034,7 +1054,12 @@ export class FlowRunService {
         this.push({ tone: 'info', tag: 'START', text: this.i18n.t('flow.run.log.walker_booted') });
         break;
       case 'node_start': {
-        if (data.node_id) this.activeNodeId.set(data.node_id);
+        if (data.node_id) {
+          this.activeNodeId.set(data.node_id);
+          // The previous run's figure must not sit next to the pulse of this
+          // one: a node that starts again has, for now, nothing to report.
+          this.forgetNodeRun(data.node_id);
+        }
         const tag = (data.node_kind ?? 'NODE').toUpperCase();
         this.push({
           tone: 'info',
@@ -1044,6 +1069,7 @@ export class FlowRunService {
         break;
       }
       case 'node_end': {
+        this.recordNodeRun(event.data);
         const tag = (data.node_kind ?? 'NODE').toUpperCase();
         const latency = data.latency_ms != null ? ` · ${Math.round(data.latency_ms)}ms` : '';
         const branch = data.chosen_branch ? ` · branch=${data.chosen_branch}` : '';
@@ -1159,6 +1185,22 @@ export class FlowRunService {
           text: JSON.stringify(data).slice(0, 120),
         });
     }
+  }
+
+  /** Remember what a node just did, for the canvas badge. */
+  private recordNodeRun(frame: unknown): void {
+    const summary = readNodeRunSummary(frame);
+    if (!summary) return;
+    this._nodeRuns.update((runs) => ({ ...runs, [summary.nodeId]: summary }));
+  }
+
+  private forgetNodeRun(nodeId: string): void {
+    this._nodeRuns.update((runs) => {
+      if (!(nodeId in runs)) return runs;
+      const next = { ...runs };
+      delete next[nodeId];
+      return next;
+    });
   }
 
   /** Grow a single streaming line in place instead of one entry per chunk. */

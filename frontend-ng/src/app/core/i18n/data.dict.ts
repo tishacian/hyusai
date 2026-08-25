@@ -104,6 +104,11 @@ export const DATA_FR = {
   'data.lineage.produced_by': 'Produit par {producer}',
   'data.lineage.origin': 'Fichier importé : {filename}',
   'data.lineage.run': 'Exécution {run}',
+  'data.lineage.model': 'Modèle',
+  'data.lineage.scored_by': 'scoré par {model}',
+  'data.lineage.scored_by.hint':
+    'Colonne ajoutée par le modèle {model} — elle n’était pas dans le jeu de données amont.',
+  'data.lineage.added_columns': 'Colonnes ajoutées : {columns}',
 
   // ---- versions ----------------------------------------------------------
   'data.versions.current': 'Version courante',
@@ -205,6 +210,11 @@ export const DATA_EN: Record<keyof typeof DATA_FR, string> = {
   'data.lineage.produced_by': 'Produced by {producer}',
   'data.lineage.origin': 'Uploaded file: {filename}',
   'data.lineage.run': 'Run {run}',
+  'data.lineage.model': 'Model',
+  'data.lineage.scored_by': 'scored by {model}',
+  'data.lineage.scored_by.hint':
+    'Column written by model {model} — it was not in the upstream dataset.',
+  'data.lineage.added_columns': 'Added columns: {columns}',
 
   'data.versions.current': 'Current version',
   'data.versions.label': 'v{version}',

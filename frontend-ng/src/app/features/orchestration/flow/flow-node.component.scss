@@ -265,6 +265,78 @@
   max-width: 240px;
 }
 
+/* What the node DID on the last run: the figure the walker measured, the model
+   that answered, the time it took. It appears after the node settles, so the
+   card grows once per run rather than reserving empty space forever. */
+.ck-flow-node__run {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+  animation: ckNodeRunIn var(--ck-dur-slow, 260ms) var(--ck-ease-out) both;
+
+  &[data-failed='true'] .ck-flow-node__run-figure {
+    color: var(--ck-signal-neg, #ef5a6f);
+    background: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 14%, transparent);
+    border-color: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 40%, transparent);
+  }
+
+  /* A metric is the answer on a training node, so it carries the accent. */
+  &[data-kind='metric'] .ck-flow-node__run-figure {
+    color: var(--ck-signal-pos, #4ade80);
+    background: color-mix(in srgb, var(--ck-signal-pos, #4ade80) 14%, transparent);
+    border-color: color-mix(in srgb, var(--ck-signal-pos, #4ade80) 40%, transparent);
+  }
+}
+
+.ck-flow-node__run-figure {
+  font:
+    600 10px / 1 var(--ck-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  padding: 3px 6px;
+  border-radius: var(--ck-radius-sm, 4px);
+  color: var(--ck-signal-cool, #7dd3fc);
+  background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 34%, transparent);
+}
+
+.ck-flow-node__run-model {
+  font: 500 9.5px / 1 var(--ck-font-mono, monospace);
+  padding: 2.5px 5px;
+  border-radius: 999px;
+  color: var(--ck-signal-violet, #a78bfa);
+  background: color-mix(in srgb, var(--ck-signal-violet, #a78bfa) 12%, transparent);
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ck-flow-node__run-time {
+  font: 9.5px / 1 var(--ck-font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--ck-fg-4, #5a6270);
+}
+
+@keyframes ckNodeRunIn {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ck-flow-node__run {
+    animation: none;
+  }
+}
+
 /* Ports / connectors — one circular socket per side.
    Connected state fills the socket; the edge itself has no endpoint chrome,
    so we never get a "double point" (port + Foblex drag-handle / marker). */

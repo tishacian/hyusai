@@ -33,6 +33,11 @@ import { I18nService } from '@app/core/i18n.service';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import type { FlowNodeView } from './flow-foblex.adapter';
 import { FlowManifestService } from './flow-manifest.service';
+import {
+  metricLabelKey,
+  nodeRunBadge,
+  type NodeRunBadge,
+} from './flow-node-run.vm';
 import { FlowPersistenceService } from './flow-persistence.service';
 import { FlowRunService } from './flow-run.service';
 import { FlowStore } from './flow.store';
@@ -120,6 +125,27 @@ interface RuntimeBadge {
         <div class="ck-flow-node__desc">{{ desc }}</div>
       }
 
+      @if (runBadge(); as run) {
+        <div
+          class="ck-flow-node__run"
+          data-testid="node-run-badge"
+          [attr.data-kind]="run.kind"
+          [attr.data-failed]="run.failed"
+        >
+          <span class="ck-flow-node__run-figure">{{
+            i18n.t(run.key, badgeParams(run))
+          }}</span>
+          @if (run.model; as model) {
+            <span class="ck-flow-node__run-model" [title]="i18n.t('flow.node.run.model')">
+              {{ model }}
+            </span>
+          }
+          @if (run.duration && run.kind !== 'duration') {
+            <span class="ck-flow-node__run-time">{{ run.duration }}</span>
+          }
+        </div>
+      }
+
       @for (inp of view().inputs; track inp.id; let i = $index) {
         <div
           fNodeInput
@@ -162,6 +188,30 @@ export class FlowNodeComponent {
   /** Pulse overlay while this node is the one currently executing / paused. */
   readonly runActive = computed(() => this.run?.isActiveNode(this.node().id) ?? false);
   readonly editingLocked = computed(() => this.persistence?.actionsDisabled() ?? false);
+
+  /**
+   * What this node did on its last execution — the figure that makes a run
+   * visible on the graph instead of only in the terminal. Absent until the node
+   * settles, and cleared the moment it starts again.
+   */
+  readonly runBadge = computed<NodeRunBadge | null>(() =>
+    this.run
+      ? nodeRunBadge(this.run.nodeRunFor(this.node().id), this.i18n.locale())
+      : null,
+  );
+
+  /**
+   * The badge's own parameters, with a metric's raw name resolved to the label
+   * the model card uses ("roc_auc" → "AUC"), so a number never appears on the
+   * canvas under a name it does not carry anywhere else in the product.
+   */
+  badgeParams(badge: NodeRunBadge): Record<string, string | number> {
+    const metric = badge.params['metric'];
+    if (typeof metric !== 'string' || !metric) return badge.params;
+    const key = metricLabelKey(metric);
+    const label = this.i18n.t(key);
+    return { ...badge.params, metric: label === key ? metric.toUpperCase() : label };
+  }
 
   onToggleBreakpoint(event: MouseEvent): void {
     event.stopPropagation();

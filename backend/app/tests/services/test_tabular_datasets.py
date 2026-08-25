@@ -338,3 +338,57 @@ def test_serialize_keeps_the_heavy_blocks_out_of_list_payloads(
     assert "preview" not in listed and "stats" not in listed
     assert listed["schema"] and listed["row_count"] == 2
     assert detail["preview"] and detail["stats"]["b"]["top_values"]
+
+
+def test_the_detail_payload_credits_the_model_that_scored_the_dataset(
+    db_session, workspace, object_store_root
+):
+    """A column nobody uploaded must say where it came from.
+
+    The lineage block is curated on the way out: the model and the columns it
+    added are what the detail page badges, while the producer's own program is
+    not republished on a dataset page.
+    """
+
+    dataset = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Base scored",
+        frame=pl.DataFrame({"msisdn": ["a", "b"], "prediction": ["1", "0"]}),
+        source="score",
+        lineage={
+            "engine": "sklearn",
+            "model": {"model_id": "m1", "slug": "churn-risk", "version": 3},
+            "added_columns": ["prediction"],
+            "duration_ms": 412.0,
+            "sql": "select * from secrets",
+        },
+    )
+    db_session.commit()
+
+    listed = serialize_dataset(dataset)
+    detail = serialize_dataset(dataset, include_preview=True)
+
+    assert "lineage" not in listed, "a list row does not carry provenance blocks"
+    assert detail["lineage"]["model"] == {
+        "model_id": "m1",
+        "slug": "churn-risk",
+        "version": 3,
+    }
+    assert detail["lineage"]["added_columns"] == ["prediction"]
+    assert detail["lineage"]["engine"] == "sklearn"
+    assert "sql" not in detail["lineage"]
+
+
+def test_an_uploaded_dataset_has_an_empty_lineage_rather_than_none(
+    db_session, workspace, object_store_root
+):
+    dataset = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Plain",
+        frame=pl.DataFrame({"a": [1]}),
+    )
+    db_session.commit()
+
+    assert serialize_dataset(dataset, include_preview=True)["lineage"] == {}
