@@ -24,7 +24,9 @@ export type CkGlyphName =
   | 'orbit'
   | 'brand'
   | 'shield'
-  | 'layers';
+  | 'layers'
+  | 'table'
+  | 'chart';
 
 /**
  * Custom 14×14 line glyphs ported from docs/mockups (chrome.jsx, primitives.jsx).
@@ -138,4 +140,11 @@ const GLYPHS: Record<CkGlyphName, string> = {
     `<path d="M7 1.5 L12.5 4 L7 6.5 L1.5 4 Z" />` +
     `<path d="M1.5 7 L7 9.5 L12.5 7" />` +
     `<path d="M1.5 10 L7 12.5 L12.5 10" />`,
+  table:
+    `<rect x="1.5" y="2" width="11" height="10" rx="1" />` +
+    `<path d="M1.5 5.5 H12.5 M5.5 5.5 V12 M9 5.5 V12" />`,
+  chart:
+    `<path d="M1.5 12.5 V1.5" />` +
+    `<path d="M1.5 12.5 H12.5" />` +
+    `<path d="M4 10 V7 M7 10 V4 M10 10 V6" />`,
 };

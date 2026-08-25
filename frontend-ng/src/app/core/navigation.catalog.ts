@@ -25,6 +25,8 @@ export type AgentiumObjectType =
   | 'Workbench'
   | 'Run'
   | 'Knowledge'
+  | 'Dataset'
+  | 'Model'
   | 'Review Queue'
   | 'Connector'
   | 'Governance';
@@ -140,6 +142,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     status: 'canonical',
     audience: 'workspace-user',
     description: 'Collections, documents, previews and vectorization jobs.',
+  },
+  {
+    id: 'data',
+    label: 'Data',
+    route: '/data',
+    lens: 'build',
+    object: 'Dataset',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/datasets',
+    status: 'canonical',
+    audience: 'workspace-user',
+    description: 'Tabular datasets, column profiles, transformations and lineage.',
   },
   {
     id: 'knowledge-capture',
@@ -545,6 +559,7 @@ export type CockpitScopeType =
   | 'system'
   | 'skill'
   | 'knowledge'
+  | 'dataset'
   | 'flow'
   | 'run'
   | 'skill_invocation'
@@ -558,6 +573,7 @@ export type CockpitSectionKey =
   | 'capabilities'
   | 'skills'
   | 'knowledge'
+  | 'data'
   | 'flows'
   | 'runs'
   | 'observability'
@@ -796,6 +812,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     sections: [
       ...hierarchySections(),
       section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
+      section('data', 'Data', 'table', 'data', 'dataset'),
       section('flows', 'Flow builder', 'flow', 'orchestration', 'flow', undefined, true),
     ],
     legacySections: [
@@ -803,12 +820,14 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability'),
       section('skills', 'Skills', 'bolt', 'skills', 'skill'),
       section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
+      section('data', 'Data', 'table', 'data', 'dataset'),
       section('flows', 'Flow builder', 'flow', 'orchestration', 'flow'),
     ],
     experienceSections: [
       { ...section('business_apps', 'Business application', 'orbit', 'create-apps', 'app'), group: 'create' },
       { ...section('systems', 'Systems', 'cube', 'systems', 'system'), group: 'create' },
       { ...section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'), group: 'create' },
+      { ...section('data', 'Data', 'table', 'data', 'dataset'), group: 'create' },
       { ...section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability'), group: 'library' },
       { ...section('skills', 'Skills', 'bolt', 'skills', 'skill'), group: 'library' },
       { ...section('certified', 'Certified components', 'check', 'apps', 'app'), group: 'library' },

@@ -114,6 +114,10 @@ export const routes: Routes = [
           import('./features/knowledge/knowledge.routes').then((m) => m.knowledgeRoutes),
       },
       {
+        path: 'data',
+        loadChildren: () => import('./features/data/data.routes').then((m) => m.dataRoutes),
+      },
+      {
         path: 'governance',
         loadChildren: () =>
           import('./features/governance/governance.routes').then((m) => m.governanceRoutes),
