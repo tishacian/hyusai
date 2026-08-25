@@ -228,6 +228,72 @@ def test_a_ready_model_is_mirrored_and_the_row_keeps_the_run_id(
     assert registered.source.endswith(row.model_uri)
 
 
+def test_the_run_points_at_the_evaluation_and_not_only_at_the_pipeline(
+    db_session, workspace, dataset, enabled, registry, monkeypatch, store
+):
+    """skore's report state is an artifact too, and the run has to name it.
+
+    Otherwise it is a file in a bucket that only our own database knows about —
+    which is the lock-in this plane exists to avoid. With the tag, a reader who
+    has the registry and nothing else can fetch the rows the published metrics
+    were measured on.
+    """
+
+    from app.services.tabular_ml import report_state_key, submit_training
+    from app.services.object_store import get_object_store
+
+    _stub_harness(monkeypatch, report_state=b"skore-state-bytes")
+    model = submit_training(
+        db_session,
+        workspace_id=workspace.id,
+        dataset_ref={"dataset_id": dataset.id},
+        target="churn",
+        algo="gradient_boosting",
+    )
+
+    db_session.expire_all()
+    row = db_session.query(MLModel).filter_by(id=model.id).one()
+    assert row.status == "ready", row.error
+
+    key = report_state_key(row.workspace_id, row.id)
+    stored = row.metrics_json["report"]
+    assert stored["key"] == key
+    assert stored["bytes"] == len(b"skore-state-bytes")
+    assert stored["skore"] == "0.25.0"
+    # Beside the model, not inside it: serving pulls the model directory on every
+    # cold load and has no use for the training split.
+    store = get_object_store()
+    assert store.read_bytes(key) == b"skore-state-bytes"
+    assert key not in store.list_keys(row.model_uri)
+
+    run = ml_registry._client().get_run(row.mlflow_run_id)
+    assert run.data.tags["agentium.skore_report_state"] == store.uri(key)
+
+
+def test_a_fit_whose_evaluation_was_too_large_to_keep_still_lands(
+    db_session, workspace, dataset, enabled, registry, monkeypatch, store
+):
+    """The state is optional by construction, so its absence is not a gap in the row."""
+
+    from app.services.tabular_ml import submit_training
+
+    _stub_harness(monkeypatch)
+    model = submit_training(
+        db_session,
+        workspace_id=workspace.id,
+        dataset_ref={"dataset_id": dataset.id},
+        target="churn",
+        algo="gradient_boosting",
+    )
+
+    db_session.expire_all()
+    row = db_session.query(MLModel).filter_by(id=model.id).one()
+    assert row.status == "ready", row.error
+    assert "report" not in (row.metrics_json or {})
+    run = ml_registry._client().get_run(row.mlflow_run_id)
+    assert run.data.tags["agentium.skore_report_state"] == ""
+
+
 def test_promoting_a_version_moves_the_alias_with_the_row(
     db_session, workspace, dataset, enabled, registry, monkeypatch, store
 ):

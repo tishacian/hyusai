@@ -626,6 +626,11 @@ class Settings(BaseSettings):
     # A fitted forest is megabytes, not kilobytes: the harness writes the model
     # directory itself, so its file-size ceiling has to fit an artifact.
     ml_train_artifact_limit_mb: int = Field(default=512, ge=16)
+    # skore's report state is the evaluation itself — the split rows and the
+    # cached predictions — so it is kept as an artifact and its size tracks the
+    # dataset. Above this it is dropped rather than stored: a metric that can be
+    # recomputed later is worth a few megabytes, not a few hundred. 0 to disable.
+    ml_train_report_state_limit_mb: int = Field(default=64, ge=0)
     ml_train_importance_rows: int = Field(default=2_000, ge=100)
     ml_train_curve_points: int = Field(default=120, ge=10, le=1_000)
     ml_train_threads: int = Field(default=2, ge=1, le=64)

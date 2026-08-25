@@ -52,6 +52,25 @@ copy of the bytes, one storage contract and one backup routine — and
 client resolving that `source` does need it, along with S3 credentials; that is
 the reader's configuration, not ours.
 
+**The evaluation is an artifact too.** A fit keeps skore's own report state next
+to the model, at `…/ml/models/<id>/report/state.joblib`, and the run carries its
+location as the tag `agentium.skore_report_state`. `metrics_json` is a *reading*
+of the evaluation flattened for one card; the state is the evaluation, split rows
+and cached predictions included, so a metric nobody asked for at fit time can
+still be computed on the rows the card reports on:
+
+```python
+import joblib
+from skore import EstimatorReport
+report = EstimatorReport.from_dict(joblib.load("state.joblib"))
+report.metrics.summarize().frame()
+```
+
+It sits beside the model directory rather than inside it because serving
+downloads that directory on every cold load and has no use for a training split.
+Above `ML_TRAIN_REPORT_STATE_LIMIT_MB` (64 by default) it is dropped rather than
+stored, so its absence on a large fit is by design and not a failure.
+
 **The training subprocess is deliberately cut off from all of this.**
 `tabular_ml.py` pins the harness's `MLFLOW_TRACKING_URI` to a throwaway
 directory inside the run's scratch. The child serializes a model directory and
@@ -80,7 +99,7 @@ revision and does not appear in our history.
 
 **2. The object-store prefixes.** None to create by hand. The backend writes to
 `workspaces/<workspace>/tabular/datasets/<id>/…` and
-`workspaces/<workspace>/ml/models/<id>/model/…` inside the existing
+`workspaces/<workspace>/ml/models/<id>/{model,report}/…` inside the existing
 `agentium-artifacts` bucket, and MinIO creates prefixes on write. The bucket and
 its credentials are already configured (`OBJECT_STORE_BACKEND=s3`,
 `OBJECT_STORE_S3_BUCKET=agentium-artifacts`,

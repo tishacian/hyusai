@@ -29,6 +29,13 @@ Two things, and they are different in kind:
   balance, permutation importances, and a per-feature input contract carrying
   the choices and ranges a prediction form can be built from without ever
   loading the pipeline.
+* ``report_path`` — the skore report's own state, as ``to_dict()`` writes it.
+  ``result.json`` is a *reading* of the evaluation, flattened for one card; this
+  is the evaluation itself, carrying the split rows and the cached predictions,
+  so ``EstimatorReport.from_dict`` rebuilds it and answers a question we did not
+  think to flatten — without refitting and, more importantly, without guessing
+  which rows the published numbers came from. Optional by construction: it is
+  skipped above a row ceiling and never fails a fit.
 
 Every number in that read model comes from **skore**, the evaluation library the
 scikit-learn maintainers write. Not for the name: an ``EstimatorReport`` caches
@@ -62,8 +69,10 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
 import time
+from pathlib import Path
 
 # Types the saved pipeline is allowed to reference. The estimator comes from our
 # own catalog and the preprocessing from skrub, so anything outside this set is
@@ -480,6 +489,43 @@ def _resolve_estimator(dotted: str, params: dict):
     return factory(**dict(params or {}))
 
 
+def _persist_report(report, path: str | None, *, limit_bytes: int) -> dict | None:
+    """Write the report's own state beside the model. ``None`` when it is skipped.
+
+    ``to_dict`` is skore's documented way to persist a report — deliberately not
+    a pickle of the object, so a later skore can still read it. The state carries
+    the split and the cached predictions, which is exactly the part
+    ``result.json`` throws away: with it, a metric nobody asked for at fit time
+    can still be computed later on *the rows the card reports on*.
+
+    Guarded by a byte ceiling rather than a row count, because what makes a state
+    large is the width of the frame as much as its length, and only the finished
+    dump knows. Written to a temporary name and moved into place, so a reader
+    never finds a half-written state; skipped, never fatal, because this is
+    evidence about a fit and not the fit.
+    """
+
+    if not path:
+        return None
+    try:
+        import joblib
+        import skore
+
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staging = target.with_suffix(".partial")
+        joblib.dump(report.to_dict(), staging, compress=3)
+        written = staging.stat().st_size
+        if written > limit_bytes:
+            staging.unlink(missing_ok=True)
+            return {"skipped": "too_large", "bytes": int(written)}
+        os.replace(staging, target)
+        return {"bytes": int(written), "skore": str(skore.__version__)}
+    except Exception as exc:  # noqa: BLE001 - evidence about a fit, not the fit
+        print(f"ml_report_state_unwritten: {exc}", file=sys.stderr, flush=True)
+        return None
+
+
 def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top down
     if len(argv) != 3:
         return _fail(5, "usage: ml_train_harness.py MANIFEST_JSON RESULT_JSON")
@@ -508,6 +554,8 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         return _fail(5, "ml_manifest_incomplete")
 
     progress_path = manifest.get("progress_path")
+    report_path = manifest.get("report_path")
+    report_limit_mb = float(manifest.get("report_state_limit_mb") or 0)
     seed = int(manifest.get("random_state") or 42)
     test_size = float(manifest.get("test_size") or 0.25)
     folds = int(manifest.get("cv") or 0)
@@ -752,6 +800,16 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         except Exception as exc:  # noqa: BLE001 - a fold that fails is not a fit that fails
             metrics["cv"] = {"folds": folds, "metric": scoring, "error": str(exc)[:200]}
 
+    # After the metrics, so the state carries the predictions they were read
+    # from rather than making the next reader recompute them.
+    report_state = (
+        _persist_report(
+            report, report_path, limit_bytes=int(report_limit_mb * 1024 * 1024)
+        )
+        if report_limit_mb > 0
+        else None
+    )
+
     import mlflow.sklearn
     from mlflow.models import infer_signature
 
@@ -792,6 +850,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
             for _, row in example.iterrows()
         ],
         "trusted_types": trusted,
+        "report_state": report_state,
         "duration_ms": round((time.monotonic() - started) * 1000, 1),
     }
     try:

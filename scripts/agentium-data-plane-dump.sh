@@ -30,7 +30,9 @@
 #
 # Writes /srv/agentium-data/<slice>-deployments/<date>-<sha12>/ holding
 # pre-<sha12>.dump, pre-<sha12>-mlflow.dump, objects/, their checksums,
-# MANIFEST.json and .ready.
+# MANIFEST.json and .ready. The mirror covers each workspace's whole `ml/`
+# prefix, so a model's skore report state — the evaluation its card was read
+# from — travels with the model directory rather than needing its own pass.
 # `.ready` is written last and only when the artifact check passed, so its
 # presence — not the directory's existence — is what says the window is
 # restorable.
@@ -211,6 +213,8 @@ fi
 # ---------------------------------------------------------------------------
 
 missing=0
+REPORT_STATES=0
+REPORT_STATES_MISSING=0
 if [ -n "$WORKSPACES" ]; then
   # Checked against the bytes just copied out, not against the store: the store
   # is not what a restore will have. A dataset row names one Parquet object; a
@@ -235,6 +239,24 @@ EOF
 $(query "select model_uri from ml_models
          where model_uri is not null and status = 'ready'")
 EOF
+  # The skore report state: the evaluation a model card's numbers were read
+  # from. Not fatal — a model whose state was dropped still trains, serves and
+  # promotes — but a row that *names* one and a window that lacks it means the
+  # restored card would point at nothing, which is worth counting out loud.
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    if [ -f "$WINDOW/objects/$key" ]; then
+      REPORT_STATES=$((REPORT_STATES + 1))
+    else
+      printf 'MISSING report state %s\n' "$key" >&2
+      REPORT_STATES_MISSING=$((REPORT_STATES_MISSING + 1))
+    fi
+  done <<EOF
+$(query "select metrics_json->'report'->>'key' from ml_models
+         where metrics_json->'report'->>'key' is not null")
+EOF
+  printf 'evaluations: %s report state(s) kept, %s named but absent\n' \
+    "$REPORT_STATES" "$REPORT_STATES_MISSING"
 fi
 
 cat > "$WINDOW/MANIFEST.json" <<EOF
@@ -249,7 +271,9 @@ cat > "$WINDOW/MANIFEST.json" <<EOF
   "registry_model_versions": ${REGISTRY_VERSIONS:-null},
   "data_plane_deployed": $([ "$PLANE_TABLES" -eq 0 ] && echo false || echo true),
   "object_files": $OBJECTS,
-  "registry_artifacts_missing": $missing
+  "registry_artifacts_missing": $missing,
+  "report_states": $REPORT_STATES,
+  "report_states_missing": $REPORT_STATES_MISSING
 }
 EOF
 
