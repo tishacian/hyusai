@@ -85,6 +85,7 @@ import {
   TRANSFORM_ENGINES,
   isTransformNode,
   programSummary,
+  publishedProgram,
   readTransformParams,
   transformEngineOf,
   type TransformParams,
@@ -1052,10 +1053,13 @@ export class FlowInspectorComponent {
     return readTransformParams(n);
   }
 
-  /** First meaningful line of the program — enough to recognise the transform. */
+  /** First meaningful line of the program — enough to recognise the transform.
+   *  For dbt that is the model the node PUBLISHES, not the last one authored:
+   *  the inspector names what leaves the node. */
   transformProgramSummary(n: CanonicalFlowNode): string {
     const engine = transformEngineOf(n) ?? 'sql';
-    return programSummary(this.transformParams(n).program, engine) || '—';
+    const params = this.transformParams(n);
+    return programSummary(publishedProgram(params, engine), engine) || '—';
   }
 
   /** The dataset each run versions, or the node label it defaults to. */

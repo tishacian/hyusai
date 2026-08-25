@@ -943,8 +943,9 @@ export const FLOW_FR = {
   'flow.transform.sources.rows': '{rows} lignes · {columns} colonnes',
   'flow.transform.sources.alias': 'aussi : {aliases}',
   'flow.transform.sources.columns': 'Colonnes',
-  'flow.transform.sources.starter': 'Requête de départ',
-  'flow.transform.sources.starter.aria': 'Écrire une requête de départ sur {view}',
+  // Neutre par moteur : le bouton écrit un select, un script ou un modèle dbt.
+  'flow.transform.sources.starter': 'Exemple de départ',
+  'flow.transform.sources.starter.aria': 'Écrire un exemple de départ sur {view}',
   'flow.transform.sources.catalog': 'Tables interrogeables',
 
   // sortie
@@ -1052,6 +1053,81 @@ export const FLOW_FR = {
   'flow.transform.error.POLARS_TIMEOUT':
     'Le script a dépassé son budget temps et a été arrêté.',
   'flow.transform.error.POLARS_CANCELLED': 'Essai arrêté à votre demande.',
+
+  // ---- atelier dbt (node dbt_transform_v1) -------------------------------
+  // Le seul moteur qui peut refuser son propre résultat : les tests de données
+  // déclarés dans schema.yml sont une condition de publication, pas un rapport.
+  'flow.inspector.section.transform.dbt': 'Transformation dbt',
+  'flow.transform.dbt.inspector.hint':
+    'Le projet dbt est porté par le graphe : plusieurs modèles liés par ref(), les entrées adressées par source(), et des tests de données qui conditionnent la publication du jeu de données.',
+  'flow.transform.dbt.inspector.open': 'Ouvrir l’atelier dbt',
+  'flow.transform.dbt.inspector.open.aria': 'Ouvrir l’atelier de transformation dbt',
+  'flow.transform.dbt.inspector.project': 'Modèle publié',
+  'flow.transform.dbt.workshop.title': 'Atelier dbt',
+  'flow.transform.dbt.workshop.close': 'Fermer l’atelier dbt',
+  'flow.transform.dbt.editor.label': 'Modèle',
+  'flow.transform.dbt.editor.engine': 'dbt-duckdb · environnement managé',
+  'flow.transform.dbt.editor.aria': 'Modèle dbt de la transformation',
+  'flow.transform.dbt.editor.placeholder': "select * from {{ ref('stg_input') }}",
+  'flow.transform.dbt.run': 'Construire le projet',
+  'flow.transform.dbt.sources.hint':
+    'Épinglez les jeux de données que le projet reçoit. Chaque entrée est adressable par source(\'inputs\', \'nom\') ; les jeux de données amont s’ajoutent automatiquement à l’exécution.',
+  'flow.transform.dbt.result.empty':
+    'Construisez le projet pour voir les lignes du modèle publié, son schéma et le verdict des tests.',
+
+  // rail de fichiers du projet
+  'flow.transform.files.aria': 'Fichiers du projet dbt',
+  'flow.transform.files.add': 'Nouveau modèle',
+  'flow.transform.files.remove': 'Supprimer',
+  'flow.transform.files.publish': 'Publier',
+  'flow.transform.files.publish.hint':
+    'Faire de ce modèle le jeu de données produit par le node.',
+  'flow.transform.files.published': 'publié',
+  'flow.transform.files.published.hint':
+    'C’est ce modèle qui devient le jeu de données versionné à chaque exécution.',
+  'flow.transform.files.rename.aria': 'Nom de relation du modèle',
+  'flow.transform.files.tests.label': 'Tests',
+
+  // verdict de construction
+  'flow.transform.dbt.build.passed':
+    '{models} modèle(s) construit(s) · {tests} test(s) passé(s)',
+  'flow.transform.dbt.build.refused': '{count} test(s) en échec — rien n’est publié',
+  'flow.transform.dbt.build.failures': '{count} ligne(s)',
+
+  // refus propres au moteur dbt
+  'flow.transform.error.DBT_MODELS_REQUIRED':
+    'Écrivez au moins un modèle avant de construire le projet.',
+  'flow.transform.error.DBT_MODEL_NAME_INVALID':
+    'Un nom de modèle est un nom de relation : minuscules, chiffres et « _ », commençant par une lettre.',
+  'flow.transform.error.DBT_MODEL_NAME_DUPLICATE':
+    'Deux modèles portent le même nom : dbt ne saurait pas lequel ref() désigne.',
+  'flow.transform.error.DBT_MODEL_EMPTY': 'Ce modèle est vide : écrivez un select.',
+  'flow.transform.error.DBT_MODEL_TOO_LARGE': 'Ce modèle dépasse la taille autorisée.',
+  'flow.transform.error.DBT_MODEL_SHADOWS_SOURCE':
+    'Un modèle porte le nom d’une entrée : renommez-le pour que source() reste sans ambiguïté.',
+  'flow.transform.error.DBT_TOO_MANY_MODELS':
+    'Le projet dépasse le nombre de modèles autorisé pour un node.',
+  'flow.transform.error.DBT_TESTS_TOO_LARGE': 'Le fichier de tests dépasse la taille autorisée.',
+  'flow.transform.error.DBT_OUTPUT_MODEL_MISSING':
+    'Le modèle publié n’existe pas dans le projet.',
+  'flow.transform.error.DBT_EXECUTION_DISABLED':
+    'Les transformations dbt sont désactivées sur cette instance : le plan d’environnements managés n’est pas activé.',
+  'flow.transform.error.DBT_BUILD_FAILED': 'dbt a refusé de construire le projet.',
+  'flow.transform.error.DBT_TESTS_FAILED':
+    'Des tests de données ont échoué : le node ne publie pas un résultat qu’il sait faux.',
+  'flow.transform.error.DBT_RESULT_NO_COLUMNS':
+    'Le modèle publié ne retourne aucune colonne.',
+  'flow.transform.error.DBT_RESULT_UNWRITABLE':
+    'Le résultat n’a pas pu être écrit sur le disque de travail.',
+  'flow.transform.error.DBT_RESULT_MISSING':
+    'Le projet n’a produit aucune table : vérifiez le modèle publié.',
+  'flow.transform.error.DBT_RESULT_TOO_LARGE':
+    'Le résultat dépasse la taille maximale : filtrez ou agrégez davantage.',
+  'flow.transform.error.DBT_HARNESS_ERROR':
+    'L’exécution du projet a échoué avant que dbt ne démarre.',
+  'flow.transform.error.DBT_TIMEOUT':
+    'Le projet a dépassé son budget temps et a été arrêté.',
+  'flow.transform.error.DBT_CANCELLED': 'Construction arrêtée à votre demande.',
 
   'flow.validation.error.server': 'Le Flow courant n’a pas pu être validé par le serveur.',
   'flow.run.input.error.json':
@@ -2240,8 +2316,9 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.transform.sources.rows': '{rows} rows · {columns} columns',
   'flow.transform.sources.alias': 'also: {aliases}',
   'flow.transform.sources.columns': 'Columns',
-  'flow.transform.sources.starter': 'Starter statement',
-  'flow.transform.sources.starter.aria': 'Write a starter statement over {view}',
+  // Engine-neutral: the button writes a select, a script or a dbt model.
+  'flow.transform.sources.starter': 'Starter example',
+  'flow.transform.sources.starter.aria': 'Write a starter example over {view}',
   'flow.transform.sources.catalog': 'Queryable tables',
 
   'flow.transform.output.name': 'Name of the produced dataset',
@@ -2346,6 +2423,80 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.transform.error.POLARS_TIMEOUT':
     'The script exceeded its time budget and was stopped.',
   'flow.transform.error.POLARS_CANCELLED': 'Test run stopped at your request.',
+
+  // ---- dbt workshop (dbt_transform_v1 node) ------------------------------
+  // The only engine that can refuse its own result: the data tests declared in
+  // schema.yml are a publication condition, not a report.
+  'flow.inspector.section.transform.dbt': 'dbt transform',
+  'flow.transform.dbt.inspector.hint':
+    'The dbt project is carried by the graph: several models linked by ref(), inputs addressed through source(), and data tests that gate whether the dataset is published at all.',
+  'flow.transform.dbt.inspector.open': 'Open the dbt workshop',
+  'flow.transform.dbt.inspector.open.aria': 'Open the dbt transform workshop',
+  'flow.transform.dbt.inspector.project': 'Published model',
+  'flow.transform.dbt.workshop.title': 'dbt workshop',
+  'flow.transform.dbt.workshop.close': 'Close the dbt workshop',
+  'flow.transform.dbt.editor.label': 'Model',
+  'flow.transform.dbt.editor.engine': 'dbt-duckdb · managed environment',
+  'flow.transform.dbt.editor.aria': 'dbt model of the transform',
+  'flow.transform.dbt.editor.placeholder': "select * from {{ ref('stg_input') }}",
+  'flow.transform.dbt.run': 'Build the project',
+  'flow.transform.dbt.sources.hint':
+    "Pin the datasets the project reads. Each input is addressable as source('inputs', 'name'); upstream datasets are added automatically at run time.",
+  'flow.transform.dbt.result.empty':
+    'Build the project to see the rows of the published model, its schema and the test verdict.',
+
+  // project file rail
+  'flow.transform.files.aria': 'dbt project files',
+  'flow.transform.files.add': 'New model',
+  'flow.transform.files.remove': 'Delete',
+  'flow.transform.files.publish': 'Publish',
+  'flow.transform.files.publish.hint':
+    'Make this model the dataset the node produces.',
+  'flow.transform.files.published': 'published',
+  'flow.transform.files.published.hint':
+    'This is the model that becomes the versioned dataset on every run.',
+  'flow.transform.files.rename.aria': 'Relation name of the model',
+  'flow.transform.files.tests.label': 'Tests',
+
+  // build verdict
+  'flow.transform.dbt.build.passed': '{models} model(s) built · {tests} test(s) passed',
+  'flow.transform.dbt.build.refused': '{count} test(s) failed — nothing is published',
+  'flow.transform.dbt.build.failures': '{count} row(s)',
+
+  // dbt-specific refusals
+  'flow.transform.error.DBT_MODELS_REQUIRED':
+    'Write at least one model before building the project.',
+  'flow.transform.error.DBT_MODEL_NAME_INVALID':
+    'A model name is a relation name: lowercase, digits and “_”, starting with a letter.',
+  'flow.transform.error.DBT_MODEL_NAME_DUPLICATE':
+    'Two models share a name: dbt would not know which one ref() addresses.',
+  'flow.transform.error.DBT_MODEL_EMPTY': 'This model is empty: write a select.',
+  'flow.transform.error.DBT_MODEL_TOO_LARGE': 'This model exceeds the allowed size.',
+  'flow.transform.error.DBT_MODEL_SHADOWS_SOURCE':
+    'A model carries the name of an input: rename it so source() stays unambiguous.',
+  'flow.transform.error.DBT_TOO_MANY_MODELS':
+    'The project exceeds the number of models allowed on one node.',
+  'flow.transform.error.DBT_TESTS_TOO_LARGE': 'The tests file exceeds the allowed size.',
+  'flow.transform.error.DBT_OUTPUT_MODEL_MISSING':
+    'The published model does not exist in the project.',
+  'flow.transform.error.DBT_EXECUTION_DISABLED':
+    'dbt transforms are disabled on this instance: the managed environment plane is not enabled.',
+  'flow.transform.error.DBT_BUILD_FAILED': 'dbt refused to build the project.',
+  'flow.transform.error.DBT_TESTS_FAILED':
+    'Data tests failed: the node does not publish a result it knows to be wrong.',
+  'flow.transform.error.DBT_RESULT_NO_COLUMNS':
+    'The published model returns no column.',
+  'flow.transform.error.DBT_RESULT_UNWRITABLE':
+    'The result could not be written to the scratch disk.',
+  'flow.transform.error.DBT_RESULT_MISSING':
+    'The project produced no table: check the published model.',
+  'flow.transform.error.DBT_RESULT_TOO_LARGE':
+    'The result exceeds the maximum size: filter or aggregate further.',
+  'flow.transform.error.DBT_HARNESS_ERROR':
+    'The project run failed before dbt started.',
+  'flow.transform.error.DBT_TIMEOUT':
+    'The project exceeded its time budget and was stopped.',
+  'flow.transform.error.DBT_CANCELLED': 'Build stopped at your request.',
 
   'flow.validation.error.server': 'The current Flow could not be validated by the server.',
   'flow.run.input.error.json':

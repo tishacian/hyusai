@@ -57,6 +57,24 @@ function usedNames(): Map<string, string[]> {
   return used;
 }
 
+/**
+ * Icon names declared as DATA rather than written in a template: palette
+ * entries, catalog rows, engine descriptors. They reach the same directive by
+ * the same lookup, so they fail the same way — a template scan alone misses
+ * them, which is how a palette entry can throw on the first drop.
+ */
+function declaredNames(): Map<string, string[]> {
+  const declared = new Map<string, string[]>();
+  for (const file of walk(APP_ROOT)) {
+    const source = readFileSync(file, 'utf8');
+    for (const match of source.matchAll(/\bicon: '([a-z0-9-]+)'/g)) {
+      const name = match[1];
+      declared.set(name, [...(declared.get(name) ?? []), file.slice(APP_ROOT.length + 1)]);
+    }
+  }
+  return declared;
+}
+
 test('every icon name used in a template resolves in the registry', () => {
   const keys = registeredKeys();
   const used = usedNames();
@@ -70,6 +88,22 @@ test('every icon name used in a template resolves in the registry', () => {
     unresolved,
     [],
     `these names throw at render time and leave a hole on the page:\n  ${unresolved.join('\n  ')}`,
+  );
+});
+
+test('every icon name declared as data resolves in the registry too', () => {
+  const keys = registeredKeys();
+  const declared = declaredNames();
+  assert.ok(declared.size > 20, 'the data scanner stopped finding icon declarations');
+
+  const unresolved = [...declared.entries()]
+    .filter(([name]) => !keys.has(toPascalCase(name)))
+    .map(([name, files]) => `${name} (→ ${toPascalCase(name)}) declared in ${files[0]}`);
+
+  assert.deepEqual(
+    unresolved,
+    [],
+    `these names throw the moment the row they name is rendered:\n  ${unresolved.join('\n  ')}`,
   );
 });
 

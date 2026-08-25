@@ -27,7 +27,7 @@ import {
 } from '@angular/core';
 
 /** Languages the editor knows how to highlight. Anything else stays plain. */
-export type CodeEditorLanguage = 'python' | 'sql' | 'text';
+export type CodeEditorLanguage = 'python' | 'sql' | 'yaml' | 'text';
 
 /**
  * Tables the SQL editor completes against: view name → column names.
@@ -151,28 +151,25 @@ export class CodeEditorComponent {
   /** Last doc text this component pushed out or received; the loop breaker. */
   private lastKnownValue = '';
   private destroyed = false;
-  /** Compartment holding the language extension, so a schema change is a
-   *  reconfigure rather than a remount (which would lose cursor and history). */
+  /** Compartment holding the language extension, so a schema change — or a
+   *  switch between two files of one project — is a reconfigure rather than a
+   *  remount (which would lose the cursor and the undo history). */
   private languageSlot: LanguageSlot | null = null;
-  private buildSqlExtension:
-    | ((schema: SqlCompletionSchema | null) => unknown)
-    | null = null;
-  private appliedSqlSchema = '';
+  private appliedLanguage = '';
 
   constructor() {
     this.lastKnownValue = this.value();
     afterNextRender(() => void this.mountEditor());
-    // Sources resolve after the first paint (and change as the author pins
-    // datasets): the completion schema follows without disturbing the doc.
+    // Two things move under the editor after the first paint: the resolved
+    // sources (so SQL completion gains real columns) and the active file of a
+    // multi-file project (so `schema.yml` highlights as YAML, not as SQL).
+    // Both are the same reconfigure.
     effect(() => {
-      const schema = this.sqlSchema();
-      const signature = JSON.stringify(schema ?? {});
-      if (!this.handle || !this.languageSlot || !this.buildSqlExtension) return;
-      if (signature === this.appliedSqlSchema) return;
-      this.appliedSqlSchema = signature;
-      this.handle.view.dispatch({
-        effects: this.languageSlot.reconfigure(this.buildSqlExtension(schema)),
-      });
+      const signature = this.languageSignature();
+      if (!this.handle || !this.languageSlot) return;
+      if (signature === this.appliedLanguage) return;
+      this.appliedLanguage = signature;
+      void this.reconfigureLanguage();
     });
     // External rewrites (undo, node switch, requirements import) land in the
     // editor without echoing back the edits the editor itself just emitted.
@@ -246,28 +243,11 @@ export class CodeEditorComponent {
       if (this.readOnly()) {
         extensions.push(EditorState.readOnly.of(true), EditorView.editable.of(false));
       }
-      if (this.language() === 'python') {
-        const { python } = await import('@codemirror/lang-python');
-        if (this.destroyed) return;
-        extensions.push(python());
-      }
-      if (this.language() === 'sql') {
-        const { PostgreSQL, sql } = await import('@codemirror/lang-sql');
-        if (this.destroyed) return;
-        // `lang-sql` takes the schema as configuration, so a schema change is
-        // a language reconfigure; the compartment is what makes that cheap.
-        this.buildSqlExtension = (schema: SqlCompletionSchema | null) =>
-          sql({
-            dialect: PostgreSQL,
-            upperCaseKeywords: true,
-            schema: schema ?? {},
-            defaultTable: schema && schema['input'] ? 'input' : undefined,
-          });
-        const slot = new Compartment() as unknown as LanguageSlot;
-        this.languageSlot = slot;
-        this.appliedSqlSchema = JSON.stringify(this.sqlSchema() ?? {});
-        extensions.push(slot.of(this.buildSqlExtension(this.sqlSchema())));
-      }
+      const slot = new Compartment() as unknown as LanguageSlot;
+      this.languageSlot = slot;
+      this.appliedLanguage = this.languageSignature();
+      extensions.push(slot.of((await this.languageExtension()) ?? []));
+      if (this.destroyed) return;
 
       const view = new EditorView({
         doc: this.value(),
@@ -283,6 +263,53 @@ export class CodeEditorComponent {
     } catch {
       // Chunk unavailable (offline build, blocked CDN…): the textarea stays.
     }
+  }
+
+  /** What the active highlighting depends on: the language and, for SQL, the
+   *  tables completion offers. */
+  private languageSignature(): string {
+    const language = this.language();
+    if (language !== 'sql') return language;
+    return `sql:${JSON.stringify(this.sqlSchema() ?? {})}`;
+  }
+
+  /** The language extension for the current inputs, or `null` for plain text.
+   *
+   * Every grammar is a lazy import of its own: a workspace that only ever
+   * writes SQL never fetches the Python or YAML chunk. */
+  private async languageExtension(): Promise<unknown | null> {
+    switch (this.language()) {
+      case 'python': {
+        const { python } = await import('@codemirror/lang-python');
+        return python();
+      }
+      case 'yaml': {
+        const { yaml } = await import('@codemirror/lang-yaml');
+        return yaml();
+      }
+      case 'sql': {
+        const { PostgreSQL, sql } = await import('@codemirror/lang-sql');
+        const schema = this.sqlSchema();
+        // `lang-sql` takes the schema as configuration, so a schema change is
+        // a language reconfigure; the compartment is what makes that cheap.
+        return sql({
+          dialect: PostgreSQL,
+          upperCaseKeywords: true,
+          schema: schema ?? {},
+          defaultTable: schema && schema['input'] ? 'input' : undefined,
+        });
+      }
+      default:
+        return null;
+    }
+  }
+
+  private async reconfigureLanguage(): Promise<void> {
+    const extension = await this.languageExtension();
+    if (this.destroyed || !this.handle || !this.languageSlot) return;
+    this.handle.view.dispatch({
+      effects: this.languageSlot.reconfigure(extension ?? []),
+    });
   }
 
   /** Design-token theme: the editor inherits the cockpit, not the reverse. */

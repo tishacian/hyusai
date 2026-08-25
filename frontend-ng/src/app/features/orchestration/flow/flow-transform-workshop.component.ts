@@ -7,25 +7,31 @@
  * libraries are versioned with the flow like any other node config.
  *
  * The layout is the one every query tool trained analysts on: program on top,
- * result underneath, catalog on the side. **One chrome for both engines** —
- * switching from SQL to Polars must feel like switching language, not tool — so
- * everything engine-specific is read from `TRANSFORM_ENGINES` rather than
- * branched here.
+ * result underneath, catalog on the side. **One chrome for every engine** —
+ * switching from SQL to Polars to dbt must feel like switching language, not
+ * tool — so everything engine-specific is read from `TRANSFORM_ENGINES` rather
+ * than branched here. Even the number of files is: the editor always shows one
+ * `TransformFile`, and a single-statement engine simply has exactly one.
  *
- *  - **Editor** — `ck-code-editor` in the engine's language. In SQL mode it
- *    completes against the REAL columns of the resolved sources (`FROM input`
+ *  - **Files** — dbt only: the model tree plus `schema.yml`, with the published
+ *    model badged. Adding, renaming, publishing and deleting a model are one
+ *    store write each, so a rename is one Ctrl+Z.
+ *  - **Editor** — `ck-code-editor` in the ACTIVE FILE's language. In SQL mode
+ *    it completes against the REAL columns of the resolved sources (`FROM input`
  *    then `input.` offers the dataset's own columns). Ctrl/⌘+Enter runs.
+ *  - **Build** — dbt only: which models built and which tests passed, rendered
+ *    on refusal too, because "which test refused how many rows" IS the answer.
  *  - **Result** — the shared `ck-data-table`, so the preview of a transform is
  *    literally the table the produced dataset will show, column profiles
  *    included. For Polars, whatever the author printed is shown under it.
  *  - **Inputs** — the pin picker plus the catalog of addressable names, which
  *    is what makes a program writable without leaving the dialog.
- *  - **Libraries** — Polars only: the extra requirements its managed venv
- *    carries. The first run in a workspace builds it, and the run phase says so.
+ *  - **Libraries** — managed engines only: the extra requirements their venv
+ *    carries. The first run in a workspace builds it, and the phase says so.
  *  - **Output** — the name of the dataset each run versions.
  *
- * Nothing here validates a program beyond the two habitual mistakes: refusals
- * come back coded from the server and are rendered as translated sentences
+ * Nothing here validates a program beyond the habitual mistakes: refusals come
+ * back coded from the server and are rendered as translated sentences
  * (`flow.transform.error.*`).
  */
 import {
@@ -47,19 +53,31 @@ import { I18nService } from '@app/core/i18n.service';
 import { FlowStore } from './flow.store';
 import { FlowTransformService } from './flow-transform.service';
 import {
+  DBT_MAX_MODELS,
   TRANSFORM_ENGINES,
+  addDbtModel,
   clampTransformTimeout,
+  dbtNodePassed,
   defaultOutputName,
+  fileWrite,
   isTransformNode,
-  preflightProgram,
+  modelIndexOf,
+  preflightTransform,
   programLineCount,
+  publishDbtModel,
   readTransformParams,
+  removeDbtModel,
+  renameDbtModel,
   requirementLines,
   starterProgramFor,
   transformEngineOf,
+  transformFiles,
   transformViewName,
+  type DbtNodeResult,
   type TransformFailure,
+  type TransformFile,
   type TransformParams,
+  type TransformParamsPatch,
   type TransformSourceCatalogEntry,
   type TransformSourcePin,
 } from './flow-transform.vm';
@@ -95,7 +113,7 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
         <header class="ck-transform-workshop__head">
           <div class="ck-transform-workshop__identity">
             <span class="ck-transform-workshop__badge">
-              <app-icon [name]="engine() === 'polars' ? 'code' : 'database'" [size]="15" />
+              <app-icon [name]="descriptor().icon" [size]="15" />
             </span>
             <div>
               <h2 id="ck-transform-workshop-title">{{ i18n.t(copy().title) }}</h2>
@@ -148,8 +166,83 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
           <div class="ck-transform-workshop__body">
             <div class="ck-transform-workshop__main">
               <div class="ck-transform-workshop__editor">
+                @if (descriptor().multiFile) {
+                  <div
+                    class="ck-transform-workshop__files"
+                    role="tablist"
+                    data-testid="transform-files"
+                    [attr.aria-label]="i18n.t('flow.transform.files.aria')"
+                  >
+                    @for (file of files(); track file.id) {
+                      <button
+                        type="button"
+                        role="tab"
+                        class="ck-transform-workshop__file"
+                        [attr.data-kind]="file.kind"
+                        [attr.data-published]="file.published ? 'true' : null"
+                        [attr.aria-selected]="file.id === activeFile().id"
+                        (click)="activeFileId.set(file.id)"
+                      >
+                        <app-icon
+                          [name]="file.kind === 'tests' ? 'shield-check' : 'file-code'"
+                          [size]="12"
+                        />
+                        {{ file.name }}
+                        @if (file.published) {
+                          <span
+                            class="ck-transform-workshop__pill"
+                            [title]="i18n.t('flow.transform.files.published.hint')"
+                          >
+                            {{ i18n.t('flow.transform.files.published') }}
+                          </span>
+                        }
+                      </button>
+                    }
+                    <button
+                      type="button"
+                      class="ck-transform-workshop__file ck-transform-workshop__file--add"
+                      data-testid="add-dbt-model"
+                      [disabled]="!canAddModel()"
+                      (click)="addModel()"
+                    >
+                      <app-icon name="plus" [size]="12" />
+                      {{ i18n.t('flow.transform.files.add') }}
+                    </button>
+                  </div>
+                }
                 <div class="ck-transform-workshop__editor-head">
-                  <span>{{ i18n.t(copy().editorLabel) }}</span>
+                  @if (activeModelIndex() !== null) {
+                    <input
+                      class="ck-transform-workshop__rename"
+                      type="text"
+                      spellcheck="false"
+                      data-testid="dbt-model-name"
+                      [value]="activeModelName()"
+                      [attr.aria-label]="i18n.t('flow.transform.files.rename.aria')"
+                      (change)="onModelName($event)"
+                    />
+                    <button
+                      type="button"
+                      class="ck-transform-workshop__mini"
+                      data-testid="publish-dbt-model"
+                      [disabled]="activeFile().published"
+                      [title]="i18n.t('flow.transform.files.publish.hint')"
+                      (click)="publishActiveModel()"
+                    >
+                      {{ i18n.t('flow.transform.files.publish') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="ck-transform-workshop__mini ck-transform-workshop__mini--danger"
+                      data-testid="remove-dbt-model"
+                      [disabled]="params().models.length <= 1"
+                      (click)="removeActiveModel()"
+                    >
+                      {{ i18n.t('flow.transform.files.remove') }}
+                    </button>
+                  } @else {
+                    <span>{{ i18n.t(activeFile().kind === 'tests' ? 'flow.transform.files.tests.label' : copy().editorLabel) }}</span>
+                  }
                   <code>{{ i18n.t(copy().editorEngine) }}</code>
                   <span class="ck-transform-workshop__editor-lines">
                     {{ i18n.t('flow.transform.editor.lines', { count: lineCount() }) }}
@@ -157,8 +250,8 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                 </div>
                 <ck-code-editor
                   class="ck-transform-workshop__cm"
-                  [language]="descriptor().language"
-                  [value]="params().program"
+                  [language]="activeFile().language"
+                  [value]="activeFile().content"
                   [sqlSchema]="transform.editorSchema()"
                   [ariaLabel]="i18n.t(copy().editorAria)"
                   [placeholder]="i18n.t(copy().editorPlaceholder)"
@@ -166,6 +259,56 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                   (submit)="runPreview()"
                 />
               </div>
+
+              @if (transform.dbtReport(); as report) {
+                <div class="ck-transform-workshop__build" data-testid="dbt-report">
+                  <div class="ck-transform-workshop__build-head">
+                    <span [attr.data-ok]="report.tests_failed === 0 ? 'true' : 'false'">
+                      <app-icon
+                        [name]="report.tests_failed === 0 ? 'check' : 'x-circle'"
+                        [size]="12"
+                      />
+                      {{
+                        report.tests_failed === 0
+                          ? i18n.t('flow.transform.dbt.build.passed', {
+                              models: report.models_total,
+                              tests: report.tests_total,
+                            })
+                          : i18n.t('flow.transform.dbt.build.refused', {
+                              count: report.tests_failed,
+                            })
+                      }}
+                    </span>
+                    @if (report.selected) {
+                      <code>{{ report.selected }}</code>
+                    }
+                  </div>
+                  <ul class="ck-transform-workshop__build-nodes">
+                    @for (dbtNode of report.nodes; track dbtNode.kind + dbtNode.name) {
+                      <li
+                        [attr.data-kind]="dbtNode.kind"
+                        [attr.data-ok]="passed(dbtNode) ? 'true' : 'false'"
+                        [title]="dbtNode.message || dbtNode.status"
+                      >
+                        <app-icon
+                          [name]="dbtNode.kind === 'test' ? 'shield-check' : 'file-code'"
+                          [size]="11"
+                        />
+                        {{ dbtNode.name }}
+                        @if (dbtNode.failures > 0) {
+                          <em>
+                            {{
+                              i18n.t('flow.transform.dbt.build.failures', {
+                                count: dbtNode.failures,
+                              })
+                            }}
+                          </em>
+                        }
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
 
               <div class="ck-transform-workshop__result">
                 @if (failure(); as reason) {
@@ -422,7 +565,35 @@ export class FlowTransformWorkshopComponent {
   protected readonly params = computed<TransformParams>(() =>
     readTransformParams(this.node(), this.engine()),
   );
-  protected readonly lineCount = computed(() => programLineCount(this.params().program));
+  protected readonly files = computed<TransformFile[]>(() =>
+    transformFiles(this.params(), this.engine()),
+  );
+  /** Which file the editor shows; `null` means "the engine's first one". */
+  protected readonly activeFileId = signal<string | null>(null);
+  /**
+   * The file being edited, resolved against the CURRENT file set.
+   *
+   * Deriving it rather than storing it is what keeps deleting a model safe:
+   * the selection follows the tree instead of pointing at a gone file.
+   */
+  protected readonly activeFile = computed<TransformFile>(() => {
+    const files = this.files();
+    const requested = this.activeFileId();
+    return files.find((file) => file.id === requested) ?? files[0];
+  });
+  protected readonly activeModelIndex = computed(() =>
+    this.engine() === 'dbt' ? modelIndexOf(this.activeFile().id) : null,
+  );
+  protected readonly activeModelName = computed(() => {
+    const index = this.activeModelIndex();
+    return index === null ? '' : (this.params().models[index]?.name ?? '');
+  });
+  protected readonly canAddModel = computed(
+    () => this.params().models.length < DBT_MAX_MODELS,
+  );
+  protected readonly lineCount = computed(() =>
+    programLineCount(this.activeFile().content),
+  );
   protected readonly declaredLibraries = computed(() =>
     requirementLines(this.params().requirements_text),
   );
@@ -454,13 +625,23 @@ export class FlowTransformWorkshopComponent {
   private programFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingProgram: string | null = null;
   private pendingProgramNodeId: string | null = null;
+  private pendingProgramFileId: string | null = null;
   private lastResolvedPins = '';
+  private lastNodeId: string | null = null;
 
   constructor() {
     // The workshop exists FOR the selected transform node; if it stops being
     // one (deletion, undo, external selection change) the dialog closes itself.
     effect(() => {
       if (!isTransformNode(this.node())) this.close.emit();
+    });
+    // A different node is a different project: the file selection cannot carry
+    // over, or `models.3` would open the wrong model of the new node.
+    effect(() => {
+      const id = this.node()?.id ?? null;
+      if (id === this.lastNodeId) return;
+      this.lastNodeId = id;
+      this.activeFileId.set(null);
     });
     // Pins are what make the editor useful: resolving them yields the columns
     // completion offers. Re-resolves whenever the author pins or unpins one.
@@ -481,6 +662,7 @@ export class FlowTransformWorkshopComponent {
     if (!id) return;
     this.pendingProgram = program;
     this.pendingProgramNodeId = id;
+    this.pendingProgramFileId = this.activeFile().id;
     this.preflight.set(null);
     if (this.programFlushTimer !== null) clearTimeout(this.programFlushTimer);
     this.programFlushTimer = setTimeout(
@@ -489,24 +671,27 @@ export class FlowTransformWorkshopComponent {
     );
   }
 
-  /** Land the pending program edit in the store (idempotent). Runs on the
-   * debounce tick, before a preview, and on destroy — so no keystroke is ever
-   * lost to the debounce window. */
+  /** Land the pending file edit in the store (idempotent). Runs on the
+   * debounce tick, before a preview, before any project gesture, and on
+   * destroy — so no keystroke is ever lost to the debounce window.
+   *
+   * The FILE the edit belongs to is captured with it: switching file mid-window
+   * must not land the previous model's text in the one just opened. */
   private flushProgram(): void {
     if (this.programFlushTimer !== null) {
       clearTimeout(this.programFlushTimer);
       this.programFlushTimer = null;
     }
-    if (this.pendingProgram === null || this.pendingProgramNodeId === null) return;
     const program = this.pendingProgram;
     const nodeId = this.pendingProgramNodeId;
+    const fileId = this.pendingProgramFileId;
     this.pendingProgram = null;
     this.pendingProgramNodeId = null;
-    this.store.updateNodeConfig(
-      nodeId,
-      `params.${this.descriptor().programField}`,
-      program,
-    );
+    this.pendingProgramFileId = null;
+    if (program === null || nodeId === null || fileId === null) return;
+    const write = fileWrite(this.params(), this.engine(), fileId, program);
+    if (!write) return;
+    this.store.updateNodeConfig(nodeId, write.path, write.value);
   }
 
   protected onOutputName(event: Event): void {
@@ -548,19 +733,69 @@ export class FlowTransformWorkshopComponent {
     this.writeParam('sources', remaining);
   }
 
-  /** Write a ready-to-run program over one source into the editor. */
+  /** Write a ready-to-run program over one source into the active file. */
   protected useStarter(source: TransformSourceCatalogEntry): void {
     const id = this.node()?.id;
     if (!id) return;
-    this.pendingProgram = null;
-    this.pendingProgramNodeId = null;
-    this.preflight.set(null);
-    this.store.updateNodeConfig(
-      id,
-      `params.${this.descriptor().programField}`,
+    this.discardPending();
+    const target = this.activeFile();
+    // `schema.yml` is not a place a starter select belongs; the tests file is
+    // skipped in favour of the model this node publishes.
+    const fileId =
+      target.kind === 'tests'
+        ? (this.files().find((file) => file.published)?.id ?? target.id)
+        : target.id;
+    this.activeFileId.set(fileId);
+    const write = fileWrite(
+      this.params(),
+      this.engine(),
+      fileId,
       starterProgramFor(source, this.engine()),
     );
+    if (!write) return;
+    this.store.updateNodeConfig(id, write.path, write.value);
     this.transform.clearResult();
+  }
+
+  /** Add a model that already selects from the published one, and open it. */
+  protected addModel(): void {
+    this.flushProgram();
+    const params = this.params();
+    if (params.models.length >= DBT_MAX_MODELS) return;
+    if (!this.writeProject(addDbtModel(params))) return;
+    this.activeFileId.set(`models.${params.models.length}`);
+  }
+
+  protected publishActiveModel(): void {
+    const name = this.activeModelName();
+    if (!name) return;
+    this.flushProgram();
+    this.writeProject(publishDbtModel(this.params(), name));
+  }
+
+  protected removeActiveModel(): void {
+    const index = this.activeModelIndex();
+    if (index === null) return;
+    // The pending edit belongs to the file being deleted: writing it back would
+    // resurrect the model the author just dropped.
+    this.discardPending();
+    if (!this.writeProject(removeDbtModel(this.params(), index))) return;
+    this.activeFileId.set(null);
+  }
+
+  protected onModelName(event: Event): void {
+    const index = this.activeModelIndex();
+    const input = event.target as HTMLInputElement;
+    if (index === null) return;
+    // The rename rewrites `params.models` wholesale, so a pending SQL edit on
+    // the same array has to land first or it would be overwritten.
+    this.flushProgram();
+    const patch = renameDbtModel(this.params(), index, input.value);
+    if (!this.writeProject(patch)) input.value = this.activeModelName();
+  }
+
+  protected passed(node: DbtNodeResult): boolean {
+    return dbtNodePassed(node);
   }
 
   protected async runPreview(): Promise<void> {
@@ -569,13 +804,16 @@ export class FlowTransformWorkshopComponent {
     this.flushProgram();
     const params = this.params();
     const engine = this.engine();
-    const refusal = preflightProgram(params.program, engine);
+    const refusal = preflightTransform(params, engine);
     this.preflight.set(refusal);
     if (refusal) return;
     await this.transform.run(engine, params.program, params.sources, {
       rowLimit: PREVIEW_ROW_LIMIT,
       requirementsText: params.requirements_text,
       timeoutS: params.timeout_s,
+      models: params.models,
+      testsYml: params.tests_yml,
+      outputModel: params.output_model,
     });
   }
 
@@ -583,5 +821,38 @@ export class FlowTransformWorkshopComponent {
     const id = this.node()?.id;
     if (!id) return;
     this.store.updateNodeConfig(id, `params.${field}`, value);
+  }
+
+  /**
+   * Apply a multi-field project patch as ONE store write.
+   *
+   * A rename touches the models AND the publication; two `updateNodeConfig`
+   * calls would be two undo steps for one gesture. Merging into the raw params
+   * bag rather than the read one also preserves any key this view model does
+   * not know about.
+   */
+  private writeProject(patch: TransformParamsPatch): boolean {
+    const node = this.node();
+    if (!node || Object.keys(patch).length === 0) return false;
+    const config = (node.config ?? {}) as Record<string, unknown>;
+    const raw = config['params'];
+    const current =
+      raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+    this.store.updateNodeConfig(node.id, 'params', { ...current, ...patch });
+    return true;
+  }
+
+  /** Forget the debounced edit without writing it. */
+  private discardPending(): void {
+    if (this.programFlushTimer !== null) {
+      clearTimeout(this.programFlushTimer);
+      this.programFlushTimer = null;
+    }
+    this.pendingProgram = null;
+    this.pendingProgramNodeId = null;
+    this.pendingProgramFileId = null;
+    this.preflight.set(null);
   }
 }

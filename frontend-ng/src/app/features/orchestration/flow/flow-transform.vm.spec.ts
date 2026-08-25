@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import {
+  DBT_MAX_MODELS,
+  DBT_TRANSFORM_DEFAULT_MODELS,
+  DBT_TRANSFORM_DEFAULT_TESTS_YML,
+  DBT_TRANSFORM_SKILL_SLUG,
   POLARS_TRANSFORM_DEFAULT_CODE,
   POLARS_TRANSFORM_SKILL_SLUG,
   SQL_MAX_CHARS,
@@ -9,17 +13,28 @@ import {
   SQL_TRANSFORM_SKILL_SLUG,
   TRANSFORM_ENGINES,
   TRANSFORM_ERROR_CODES,
+  addDbtModel,
   clampTransformTimeout,
+  dbtNodePassed,
+  dbtReportFrom,
   defaultOutputName,
   editorSqlSchema,
+  fileWrite,
+  isDbtTransformNode,
   isPolarsTransformNode,
   isSqlTransformNode,
   isTransformNode,
+  modelIndexOf,
   preflightProgram,
   preflightSql,
+  preflightTransform,
   programLineCount,
   programSummary,
+  publishDbtModel,
+  publishedProgram,
   readTransformParams,
+  removeDbtModel,
+  renameDbtModel,
   requirementLines,
   starterProgramFor,
   starterSqlFor,
@@ -27,7 +42,9 @@ import {
   transformEngineOf,
   transformFailure,
   transformFailureFromExecution,
+  transformFiles,
   transformViewName,
+  type TransformParams,
   type TransformSourceCatalogEntry,
 } from './flow-transform.vm';
 import { FLOW_EN, FLOW_FR } from '@app/core/i18n/flow.dict';
@@ -335,6 +352,276 @@ test('declared libraries drop blanks and comments', () => {
   assert.deepEqual(requirementLines(''), []);
 });
 
+// ---------------------------------------------------------------------------
+// dbt engine — a project of models, gated by its own data tests
+// ---------------------------------------------------------------------------
+
+function dbtNode(config: Record<string, unknown> = {}): CanonicalFlowNode {
+  return {
+    id: 'task.dbt',
+    type: 'skill',
+    kind: 'task',
+    label: 'Churn marts',
+    config: { skill_slug: DBT_TRANSFORM_SKILL_SLUG, ...config },
+  };
+}
+
+function project(
+  models: Array<{ name: string; sql: string }>,
+  output_model = models.at(-1)?.name ?? '',
+): TransformParams {
+  return readTransformParams(
+    dbtNode({ params: { models, output_model, tests_yml: 'version: 2\n' } }),
+  );
+}
+
+test('a dropped dbt node carries a staging model, a mart and a tests file', () => {
+  const params = transformDefaultParams('dbt');
+  assert.deepEqual(params['models'], DBT_TRANSFORM_DEFAULT_MODELS.map((m) => ({ ...m })));
+  assert.equal(params['tests_yml'], DBT_TRANSFORM_DEFAULT_TESTS_YML);
+  assert.equal(params['output_model'], 'mart_output');
+  assert.equal(params['timeout_s'], 300, 'a project compiles before its first model runs');
+  assert.equal(transformEngineOf(dbtNode()), 'dbt');
+  assert.equal(isDbtTransformNode(dbtNode()), true);
+  assert.equal(isDbtTransformNode(sqlNode()), false);
+  assert.equal(isTransformNode(dbtNode()), true);
+});
+
+test('a dbt node with no chosen mart still publishes its last model', () => {
+  const params = readTransformParams(
+    dbtNode({ params: { models: [{ name: 'a', sql: 'select 1' }, { name: 'b', sql: 'select 2' }] } }),
+  );
+  assert.equal(params.output_model, 'b', 'mirrors resolve_output_model on the server');
+  assert.equal(publishedProgram(params, 'dbt'), 'select 2');
+  // An explicit choice wins over the positional default.
+  assert.equal(publishedProgram(project([{ name: 'a', sql: 'select 1' }, { name: 'b', sql: 'select 2' }], 'a'), 'dbt'), 'select 1');
+});
+
+test('the file list is the project: models first, the tests gate last', () => {
+  const params = project([
+    { name: 'stg', sql: 'select 1' },
+    { name: 'mart', sql: 'select 2' },
+  ]);
+  const files = transformFiles(params, 'dbt');
+  assert.deepEqual(
+    files.map((file) => [file.id, file.name, file.language, file.kind]),
+    [
+      ['models.0', 'stg.sql', 'sql', 'model'],
+      ['models.1', 'mart.sql', 'sql', 'model'],
+      ['tests_yml', 'schema.yml', 'yaml', 'tests'],
+    ],
+  );
+  assert.equal(files[1].published, true, 'the mart is badged, not the staging model');
+  assert.equal(files[0].published, false);
+  // A single-statement engine yields exactly one file, so one editor serves all.
+  const single = transformFiles(readTransformParams(sqlNode()), 'sql');
+  assert.equal(single.length, 1);
+  assert.equal(single[0].name, 'transform.sql');
+  assert.equal(transformFiles(readTransformParams(polarsNode()), 'polars')[0].name, 'transform.py');
+});
+
+test('editing a file writes to the params path that file lives in', () => {
+  const params = project([
+    { name: 'stg', sql: 'select 1' },
+    { name: 'mart', sql: 'select 2' },
+  ]);
+  assert.deepEqual(fileWrite(params, 'dbt', 'models.0', 'select 9'), {
+    path: 'params.models',
+    value: [
+      { name: 'stg', sql: 'select 9' },
+      { name: 'mart', sql: 'select 2' },
+    ],
+  });
+  assert.deepEqual(fileWrite(params, 'dbt', 'tests_yml', 'version: 2\n'), {
+    path: 'params.tests_yml',
+    value: 'version: 2\n',
+  });
+  assert.equal(
+    fileWrite(params, 'dbt', 'models.7', 'select 9'),
+    null,
+    'a stale file id writes nothing rather than growing the project',
+  );
+  // A single-file engine writes the field its descriptor owns.
+  assert.deepEqual(fileWrite(readTransformParams(sqlNode()), 'sql', 'sql', 'SELECT 2'), {
+    path: 'params.sql',
+    value: 'SELECT 2',
+  });
+  assert.equal(modelIndexOf('models.3'), 3);
+  assert.equal(modelIndexOf('tests_yml'), null);
+});
+
+test('renaming a model follows its refs and its publication', () => {
+  const params = project([
+    { name: 'stg_input', sql: "select * from {{ source('inputs', 'input') }}" },
+    { name: 'mart', sql: "select * from {{ ref('stg_input') }}\nunion all\nselect * from {{ ref( \"stg_input\" ) }}" },
+  ]);
+  const patch = renameDbtModel(params, 0, ' stg_subscribers ');
+  const models = patch['models'] as Array<{ name: string; sql: string }>;
+  assert.equal(models[0].name, 'stg_subscribers');
+  assert.match(models[1].sql, /ref\('stg_subscribers'\)/);
+  assert.match(models[1].sql, /ref\( "stg_subscribers" \)/, 'both quote styles move');
+  assert.doesNotMatch(models[1].sql, /stg_input/);
+  assert.equal(patch['output_model'], 'mart', 'renaming a staging model changes nothing else');
+  // Renaming the published model hands the publication over with it.
+  assert.equal(renameDbtModel(params, 1, 'mart_churn')['output_model'], 'mart_churn');
+  // A no-op rename writes nothing at all.
+  assert.deepEqual(renameDbtModel(params, 0, 'stg_input'), {});
+  assert.deepEqual(renameDbtModel(params, 0, '   '), {});
+});
+
+test('adding a model chains it onto the published one', () => {
+  const params = project([{ name: 'stg', sql: 'select 1' }]);
+  const models = addDbtModel(params)['models'] as Array<{ name: string; sql: string }>;
+  assert.equal(models.length, 2);
+  assert.equal(models[1].name, 'new_model');
+  assert.match(models[1].sql, /from \{\{ ref\('stg'\) \}\}/, 'the new model reads the old mart');
+  // Names never collide, so `ref()` is never ambiguous.
+  const twice = addDbtModel(project(models))['models'] as Array<{ name: string }>;
+  assert.equal(twice[2].name, 'new_model_2');
+});
+
+test('deleting a model hands the publication over, and the last one is kept', () => {
+  const params = project([
+    { name: 'stg', sql: 'select 1' },
+    { name: 'mart', sql: "select * from {{ ref('stg') }}" },
+  ]);
+  const patch = removeDbtModel(params, 1);
+  assert.deepEqual(patch['models'], [{ name: 'stg', sql: 'select 1' }]);
+  assert.equal(patch['output_model'], 'stg', 'something is always published');
+  // Deleting a model a survivor still refs leaves the ref dangling ON PURPOSE:
+  // the build refusal is more honest than a silent re-point.
+  const upstream = removeDbtModel(params, 0);
+  assert.match(
+    (upstream['models'] as Array<{ sql: string }>)[0].sql,
+    /ref\('stg'\)/,
+  );
+  assert.deepEqual(
+    removeDbtModel(project([{ name: 'only', sql: 'select 1' }]), 0),
+    {},
+    'a project cannot become empty',
+  );
+});
+
+test('publishing another model is the only field it touches', () => {
+  const params = project([
+    { name: 'stg', sql: 'select 1' },
+    { name: 'mart', sql: 'select 2' },
+  ]);
+  assert.deepEqual(publishDbtModel(params, 'stg'), { output_model: 'stg' });
+  assert.deepEqual(
+    publishDbtModel(params, 'ghost'),
+    {},
+    'a model that is not in the project cannot be published',
+  );
+});
+
+test('the dbt preflight refuses the project shapes dbt could not compile', () => {
+  assert.deepEqual(preflightTransform(project([{ name: 'a', sql: '  ' }]), 'dbt'), {
+    key: 'flow.transform.error.DBT_MODELS_REQUIRED',
+  });
+  assert.deepEqual(
+    preflightTransform(project([{ name: 'Stg Input', sql: 'select 1' }]), 'dbt'),
+    { key: 'flow.transform.error.DBT_MODEL_NAME_INVALID', detail: 'Stg Input' },
+  );
+  assert.deepEqual(
+    preflightTransform(
+      project([
+        { name: 'stg', sql: 'select 1' },
+        { name: 'stg', sql: 'select 2' },
+      ]),
+      'dbt',
+    ),
+    { key: 'flow.transform.error.DBT_MODEL_NAME_DUPLICATE', detail: 'stg' },
+  );
+  assert.deepEqual(
+    preflightTransform(
+      project([
+        { name: 'stg', sql: 'select 1' },
+        { name: 'mart', sql: '   ' },
+      ]),
+      'dbt',
+    ),
+    { key: 'flow.transform.error.DBT_MODEL_EMPTY', detail: 'mart' },
+  );
+  assert.deepEqual(
+    preflightTransform(project([{ name: 'stg', sql: 'select 1' }], 'ghost'), 'dbt'),
+    { key: 'flow.transform.error.DBT_OUTPUT_MODEL_MISSING', detail: 'ghost' },
+  );
+  const tooMany = Array.from({ length: DBT_MAX_MODELS + 1 }, (_v, i) => ({
+    name: `m_${i}`,
+    sql: 'select 1',
+  }));
+  assert.deepEqual(preflightTransform(project(tooMany), 'dbt'), {
+    key: 'flow.transform.error.DBT_TOO_MANY_MODELS',
+  });
+  assert.equal(
+    preflightTransform(
+      project([
+        { name: 'stg_input', sql: "select * from {{ source('inputs', 'input') }}" },
+        { name: 'mart_output', sql: "select * from {{ ref('stg_input') }}" },
+      ]),
+      'dbt',
+    ),
+    null,
+  );
+  // A broken ref, an unknown column, a shadowed source: still the server's call.
+  assert.equal(
+    preflightTransform(project([{ name: 'stg', sql: "select * from {{ ref('gone') }}" }]), 'dbt'),
+    null,
+  );
+});
+
+test('the dbt starter teaches source(), not the bare relation', () => {
+  const starter = starterProgramFor(source('subscribers', ['msisdn', 'arpu']), 'dbt');
+  assert.match(starter, /from \{\{ source\('inputs', 'subscribers'\) \}\}/);
+  assert.match(starter, /select\n {2}msisdn,\n {2}arpu/);
+  assert.doesNotMatch(starter, /LIMIT/, 'a dbt model materialises, it does not sample');
+});
+
+test('the build verdict is read off the row on success and on refusal alike', () => {
+  const report = dbtReportFrom({
+    kind: 'dbt_failed',
+    dbt: {
+      nodes: [
+        { kind: 'model', name: 'stg_input', status: 'success', failures: 0, duration_ms: 12 },
+        { kind: 'test', name: 'not_null_mart_msisdn', status: 'fail', failures: 37 },
+      ],
+      models_total: 1,
+      tests_total: 1,
+      tests_failed: 1,
+      selected: 'mart_output',
+    },
+  });
+  assert.ok(report);
+  assert.equal(report.tests_failed, 1);
+  assert.equal(report.selected, 'mart_output');
+  assert.equal(dbtNodePassed(report.nodes[0]), true);
+  assert.equal(dbtNodePassed(report.nodes[1]), false);
+  assert.equal(report.nodes[1].failures, 37, 'how many rows refused IS the answer');
+  // A Polars row carries no verdict, and that must not read as a failed build.
+  assert.equal(dbtReportFrom({ kind: 'polars_preview', row_count: 3 }), null);
+  assert.equal(dbtReportFrom(null), null);
+});
+
+test('a worker-side dbt refusal parses back into its code and its words', () => {
+  assert.deepEqual(
+    transformFailureFromExecution(
+      'DBT_TESTS_FAILED: not_null_mart_output_msisdn (37 rows)',
+    ),
+    {
+      key: 'flow.transform.error.DBT_TESTS_FAILED',
+      detail: 'not_null_mart_output_msisdn (37 rows)',
+    },
+  );
+  assert.deepEqual(
+    transformFailureFromExecution('DBT_BUILD_FAILED: Referenced column "churn" not found'),
+    {
+      key: 'flow.transform.error.DBT_BUILD_FAILED',
+      detail: 'Referenced column "churn" not found',
+    },
+  );
+});
+
 test('every engine label the workshop renders has FR and EN copy', () => {
   for (const descriptor of Object.values(TRANSFORM_ENGINES)) {
     for (const key of Object.values(descriptor.copy)) {
@@ -355,6 +642,19 @@ test('every engine label the workshop renders has FR and EN copy', () => {
     'flow.transform.environment.count',
     'flow.transform.environment.timeout',
     'flow.transform.error.POLARS_CANCELLED',
+    'flow.transform.error.DBT_CANCELLED',
+    'flow.transform.files.aria',
+    'flow.transform.files.add',
+    'flow.transform.files.remove',
+    'flow.transform.files.publish',
+    'flow.transform.files.publish.hint',
+    'flow.transform.files.published',
+    'flow.transform.files.published.hint',
+    'flow.transform.files.rename.aria',
+    'flow.transform.files.tests.label',
+    'flow.transform.dbt.build.passed',
+    'flow.transform.dbt.build.refused',
+    'flow.transform.dbt.build.failures',
   ]) {
     assert.ok(FLOW_FR[key as keyof typeof FLOW_FR], `missing FR copy for ${key}`);
     assert.ok(FLOW_EN[key as keyof typeof FLOW_EN], `missing EN copy for ${key}`);

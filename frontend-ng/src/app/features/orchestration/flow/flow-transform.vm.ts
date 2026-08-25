@@ -10,16 +10,20 @@
  *  - `sql_transform_v1` — a read-only duckdb statement, answered inline.
  *  - `polars_transform_v1` — an author-written `transform(inputs)` function,
  *    run on a managed venv interpreter by the worker plane.
+ *  - `dbt_transform_v1` — several models linked by `ref()` plus a `schema.yml`
+ *    of data tests, built by dbt-duckdb on the same managed plane.
  *
- * One workshop authors both, so the differences are described as data here
+ * One workshop authors all three, so the differences are described as data here
  * (`TRANSFORM_ENGINES`) rather than branched in the component: the engine
  * decides the editor language, the dictionary keys and the preview transport,
- * and nothing else.
+ * and nothing else. Even the number of files is data — a program is always a
+ * list of `TransformFile`, of length one for the single-statement engines.
  *
  * This module mirrors — never replaces — the backend rules in
- * `app/services/tabular_transforms.py` and `app/services/tabular_polars.py`:
- * the server validates and refuses, the client only pre-reads the bag and
- * projects statuses so the workshop can fail fast and speak the dictionary.
+ * `app/services/tabular_transforms.py`, `app/services/tabular_polars.py` and
+ * `app/services/tabular_dbt.py`: the server validates and refuses, the client
+ * only pre-reads the bag and projects statuses so the workshop can fail fast
+ * and speak the dictionary.
  *
  * Angular-free on purpose so `run-unit.mjs` can exercise it in plain Node.
  */
@@ -28,6 +32,7 @@ import type { TabularColumn } from '@app/shared/ui/data-table.vm';
 
 export const SQL_TRANSFORM_SKILL_SLUG = 'sql_transform_v1';
 export const POLARS_TRANSFORM_SKILL_SLUG = 'polars_transform_v1';
+export const DBT_TRANSFORM_SKILL_SLUG = 'dbt_transform_v1';
 
 /** Mirror of `settings.tabular_sql_max_chars`. */
 export const SQL_MAX_CHARS = 20_000;
@@ -50,11 +55,54 @@ def transform(inputs: dict[str, pl.DataFrame]) -> pl.DataFrame:
     return inputs["input"]
 `;
 
+/** Mirror of `tabular_dbt.DBT_DEFAULT_MODELS`. */
+export const DBT_TRANSFORM_DEFAULT_MODELS: readonly TransformModel[] = [
+  {
+    name: 'stg_input',
+    sql: `-- Staging: rename and cast, one row per source row.
+select *
+from {{ source('inputs', 'input') }}
+`,
+  },
+  {
+    name: 'mart_output',
+    sql: `-- Mart: what this node publishes.
+select *
+from {{ ref('stg_input') }}
+`,
+  },
+];
+
+/** Mirror of `tabular_dbt.DBT_DEFAULT_TESTS_YML`. */
+export const DBT_TRANSFORM_DEFAULT_TESTS_YML = `version: 2
+
+models:
+  - name: mart_output
+    description: The dataset this node publishes.
+    # Declare a test and the node refuses to publish a result that fails it.
+    # columns:
+    #   - name: msisdn
+    #     tests: [not_null, unique]
+`;
+
+/** The file the dbt tests live in, as dbt itself names it. */
+export const DBT_TESTS_FILE_NAME = 'schema.yml';
+
 /** Mirror of `settings.tabular_polars_default_timeout_s`. */
 export const POLARS_TIMEOUT_DEFAULT_S = 180;
-export const POLARS_TIMEOUT_MAX_S = 600;
+/** Mirror of `settings.tabular_dbt_default_timeout_s`: a project compiles
+ *  before its first model runs, so it gets a longer default than a script. */
+export const DBT_TIMEOUT_DEFAULT_S = 300;
+export const TRANSFORM_TIMEOUT_MAX_S = 600;
+/** Kept for the call sites that predate the third engine. */
+export const POLARS_TIMEOUT_MAX_S = TRANSFORM_TIMEOUT_MAX_S;
 
-export type TransformEngine = 'sql' | 'polars';
+/** Mirror of `settings.tabular_dbt_max_models`. */
+export const DBT_MAX_MODELS = 12;
+/** Mirror of `tabular_dbt._MODEL_NAME_RE`: a model name is a relation name. */
+export const DBT_MODEL_NAME_RE = /^[a-z][a-z0-9_]{0,62}$/;
+
+export type TransformEngine = 'sql' | 'polars' | 'dbt';
 
 export interface TransformSourcePin {
   /** Name the program addresses this dataset by. */
@@ -64,15 +112,50 @@ export interface TransformSourcePin {
   dataset_id?: string;
 }
 
+/** One dbt model file: its relation name and the select it materializes. */
+export interface TransformModel {
+  name: string;
+  sql: string;
+}
+
 export interface TransformParams {
-  /** The authored program: a statement for SQL, a script for Polars. */
+  /** The authored program of a single-file engine: a statement, or a script. */
   program: string;
   output_name: string;
   sources: TransformSourcePin[];
-  /** Polars only: extra libraries the venv must carry. */
+  /** Managed engines only: extra libraries the venv must carry. */
   requirements_text: string;
-  /** Polars only: the run's own time budget. */
+  /** Managed engines only: the run's own time budget. */
   timeout_s: number;
+  /** dbt only: the model tree. */
+  models: TransformModel[];
+  /** dbt only: the `schema.yml` where data tests are declared. */
+  tests_yml: string;
+  /** dbt only: which model is published as the dataset. */
+  output_model: string;
+}
+
+/** Editor language of one file. */
+export type TransformFileLanguage = 'sql' | 'python' | 'yaml';
+
+/**
+ * One editable file of a transform node.
+ *
+ * A single-statement engine has exactly one, whose `path` is the params field
+ * it is stored under; a dbt node has one per model plus the tests file. The
+ * workshop only ever edits `TransformFile`s, which is what lets one editor
+ * serve a statement, a script and a project without branching.
+ */
+export interface TransformFile {
+  /** Stable identity for the rail and for `track`. */
+  id: string;
+  /** What the author reads, and what dbt writes on disk. */
+  name: string;
+  language: TransformFileLanguage;
+  content: string;
+  kind: 'program' | 'model' | 'tests';
+  /** True for the dbt model this node publishes. */
+  published?: boolean;
 }
 
 /** One addressable table, as the preview endpoints describe it. */
@@ -96,12 +179,18 @@ export interface TransformEngineDescriptor {
   engine: TransformEngine;
   skillSlug: string;
   /** `config.params` field the authored program lives in. */
-  programField: 'sql' | 'code';
-  /** `ck-code-editor` language. */
-  language: 'sql' | 'python';
+  programField: 'sql' | 'code' | 'models';
+  /** Default `ck-code-editor` language; a multi-file engine overrides it per file. */
+  language: TransformFileLanguage;
   defaultProgram: string;
+  /** Registered icon name — the engine's identity, in the palette and the head. */
+  icon: string;
   /** True when the engine needs a venv, hence a libraries panel. */
   managedEnvironment: boolean;
+  /** True when the node carries a file tree rather than one program. */
+  multiFile: boolean;
+  /** Seconds a run gets when the node declares nothing. */
+  defaultTimeoutS: number;
   copy: {
     section: string;
     hint: string;
@@ -129,7 +218,10 @@ export const TRANSFORM_ENGINES: Readonly<
     programField: 'sql',
     language: 'sql',
     defaultProgram: SQL_TRANSFORM_DEFAULT_SQL,
+    icon: 'database',
     managedEnvironment: false,
+    multiFile: false,
+    defaultTimeoutS: POLARS_TIMEOUT_DEFAULT_S,
     copy: {
       section: 'flow.inspector.section.transform',
       hint: 'flow.transform.inspector.hint',
@@ -153,7 +245,10 @@ export const TRANSFORM_ENGINES: Readonly<
     programField: 'code',
     language: 'python',
     defaultProgram: POLARS_TRANSFORM_DEFAULT_CODE,
+    icon: 'code',
     managedEnvironment: true,
+    multiFile: false,
+    defaultTimeoutS: POLARS_TIMEOUT_DEFAULT_S,
     copy: {
       section: 'flow.inspector.section.transform.polars',
       hint: 'flow.transform.polars.inspector.hint',
@@ -169,6 +264,33 @@ export const TRANSFORM_ENGINES: Readonly<
       run: 'flow.transform.polars.run',
       sourcesHint: 'flow.transform.polars.sources.hint',
       resultEmpty: 'flow.transform.polars.result.empty',
+    },
+  },
+  dbt: {
+    engine: 'dbt',
+    skillSlug: DBT_TRANSFORM_SKILL_SLUG,
+    programField: 'models',
+    language: 'sql',
+    defaultProgram: DBT_TRANSFORM_DEFAULT_MODELS[0].sql,
+    icon: 'layers',
+    managedEnvironment: true,
+    multiFile: true,
+    defaultTimeoutS: DBT_TIMEOUT_DEFAULT_S,
+    copy: {
+      section: 'flow.inspector.section.transform.dbt',
+      hint: 'flow.transform.dbt.inspector.hint',
+      open: 'flow.transform.dbt.inspector.open',
+      openAria: 'flow.transform.dbt.inspector.open.aria',
+      program: 'flow.transform.dbt.inspector.project',
+      title: 'flow.transform.dbt.workshop.title',
+      close: 'flow.transform.dbt.workshop.close',
+      editorLabel: 'flow.transform.dbt.editor.label',
+      editorEngine: 'flow.transform.dbt.editor.engine',
+      editorAria: 'flow.transform.dbt.editor.aria',
+      editorPlaceholder: 'flow.transform.dbt.editor.placeholder',
+      run: 'flow.transform.dbt.run',
+      sourcesHint: 'flow.transform.dbt.sources.hint',
+      resultEmpty: 'flow.transform.dbt.result.empty',
     },
   },
 };
@@ -207,19 +329,35 @@ export function isPolarsTransformNode(
   return transformEngineOf(node) === 'polars';
 }
 
+/** True when the node is a `task` bound to the dbt transform Skill. */
+export function isDbtTransformNode(
+  node: CanonicalFlowNode | null | undefined,
+): boolean {
+  return transformEngineOf(node) === 'dbt';
+}
+
 /** The `config.params` bag a freshly dropped node carries. */
 export function transformDefaultParams(
   engine: TransformEngine,
 ): Record<string, unknown> {
   const descriptor = TRANSFORM_ENGINES[engine];
-  const params: Record<string, unknown> = {
-    [descriptor.programField]: descriptor.defaultProgram,
-    output_name: '',
-    sources: [],
-  };
+  const params: Record<string, unknown> =
+    engine === 'dbt'
+      ? {
+          models: DBT_TRANSFORM_DEFAULT_MODELS.map((model) => ({ ...model })),
+          tests_yml: DBT_TRANSFORM_DEFAULT_TESTS_YML,
+          output_model: DBT_TRANSFORM_DEFAULT_MODELS.at(-1)?.name ?? '',
+          output_name: '',
+          sources: [],
+        }
+      : {
+          [descriptor.programField]: descriptor.defaultProgram,
+          output_name: '',
+          sources: [],
+        };
   if (descriptor.managedEnvironment) {
     params['requirements_text'] = '';
-    params['timeout_s'] = POLARS_TIMEOUT_DEFAULT_S;
+    params['timeout_s'] = descriptor.defaultTimeoutS;
   }
   return params;
 }
@@ -237,10 +375,23 @@ function readSourcePin(value: unknown): TransformSourcePin | null {
   return pin.dataset_id || pin.dataset_slug ? pin : null;
 }
 
-export function clampTransformTimeout(value: unknown): number {
+export function clampTransformTimeout(
+  value: unknown,
+  engine: TransformEngine = 'polars',
+): number {
+  const fallback = TRANSFORM_ENGINES[engine].defaultTimeoutS;
   const parsed = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return POLARS_TIMEOUT_DEFAULT_S;
-  return Math.min(Math.round(parsed), POLARS_TIMEOUT_MAX_S);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.round(parsed), TRANSFORM_TIMEOUT_MAX_S);
+}
+
+/** Normalise one dbt model entry, dropping the rows that carry nothing. */
+function readModel(value: unknown): TransformModel | null {
+  if (!isRecord(value)) return null;
+  const name = typeof value['name'] === 'string' ? value['name'].trim() : '';
+  const sql = typeof value['sql'] === 'string' ? value['sql'] : '';
+  if (!name && !sql.trim()) return null;
+  return { name, sql };
 }
 
 /** Read the transform params off a node, with defaults for anything unset. */
@@ -258,15 +409,229 @@ export function readTransformParams(
         .map(readSourcePin)
         .filter((pin): pin is TransformSourcePin => pin !== null)
     : [];
+  const models = Array.isArray(params['models'])
+    ? params['models'].map(readModel).filter((m): m is TransformModel => m !== null)
+    : [];
+  const effectiveModels =
+    resolved === 'dbt' && models.length === 0
+      ? DBT_TRANSFORM_DEFAULT_MODELS.map((model) => ({ ...model }))
+      : models;
+  const requestedOutput =
+    typeof params['output_model'] === 'string' ? params['output_model'].trim() : '';
   return {
-    program: typeof program === 'string' ? program : descriptor.defaultProgram,
+    program:
+      typeof program === 'string'
+        ? program
+        : resolved === 'dbt'
+          ? (effectiveModels.at(-1)?.sql ?? descriptor.defaultProgram)
+          : descriptor.defaultProgram,
     output_name:
       typeof params['output_name'] === 'string' ? params['output_name'].trim() : '',
     sources,
     requirements_text:
       typeof params['requirements_text'] === 'string' ? params['requirements_text'] : '',
-    timeout_s: clampTransformTimeout(params['timeout_s']),
+    timeout_s: clampTransformTimeout(params['timeout_s'], resolved),
+    models: effectiveModels,
+    tests_yml:
+      typeof params['tests_yml'] === 'string'
+        ? params['tests_yml']
+        : resolved === 'dbt'
+          ? DBT_TRANSFORM_DEFAULT_TESTS_YML
+          : '',
+    // Mirrors `resolve_output_model`: the last model reads as the mart, so a
+    // node that never chose one still publishes something.
+    output_model:
+      requestedOutput ||
+      (resolved === 'dbt' ? (effectiveModels.at(-1)?.name ?? '') : ''),
   };
+}
+
+/**
+ * The files the workshop edits, for any engine.
+ *
+ * Single-statement engines yield one file named after their field; a dbt node
+ * yields one per model — flagged with which one is published — plus the tests
+ * file, always last so the gate reads as the end of the project.
+ */
+export function transformFiles(
+  params: TransformParams,
+  engine: TransformEngine,
+): TransformFile[] {
+  if (engine !== 'dbt') {
+    const descriptor = TRANSFORM_ENGINES[engine];
+    return [
+      {
+        id: descriptor.programField,
+        name: engine === 'sql' ? 'transform.sql' : 'transform.py',
+        language: descriptor.language,
+        content: params.program,
+        kind: 'program',
+      },
+    ];
+  }
+  const files: TransformFile[] = params.models.map((model, index) => ({
+    id: `models.${index}`,
+    name: `${model.name || 'model'}.sql`,
+    language: 'sql',
+    content: model.sql,
+    kind: 'model',
+    published: model.name === params.output_model,
+  }));
+  files.push({
+    id: 'tests_yml',
+    name: DBT_TESTS_FILE_NAME,
+    language: 'yaml',
+    content: params.tests_yml,
+    kind: 'tests',
+  });
+  return files;
+}
+
+/** The text the inspector summarises: for dbt, the model that gets published. */
+export function publishedProgram(
+  params: TransformParams,
+  engine: TransformEngine,
+): string {
+  if (engine !== 'dbt') return params.program;
+  const published =
+    params.models.find((model) => model.name === params.output_model) ??
+    params.models.at(-1);
+  return published?.sql ?? '';
+}
+
+/** A model name free of collisions, for the "add model" gesture. */
+export function nextModelName(
+  taken: readonly string[],
+  base = 'new_model',
+): string {
+  if (!taken.includes(base)) return base;
+  for (let suffix = 2; suffix < 100; suffix += 1) {
+    const candidate = `${base}_${suffix}`;
+    if (!taken.includes(candidate)) return candidate;
+  }
+  return `model_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * The `config.params` patch one workshop gesture implies.
+ *
+ * dbt gestures are never a single-field write: renaming a model has to follow
+ * the `ref()` calls that address it and the `output_model` that publishes it,
+ * and deleting one has to hand the publication over. Returning the whole patch
+ * keeps that a SINGLE store write, so the author undoes a rename once.
+ */
+export type TransformParamsPatch = Record<string, unknown>;
+
+/** The params path a file's content is stored under, and the value to write. */
+export function fileWrite(
+  params: TransformParams,
+  engine: TransformEngine,
+  fileId: string,
+  content: string,
+): { path: string; value: unknown } | null {
+  if (engine !== 'dbt') {
+    return { path: `params.${TRANSFORM_ENGINES[engine].programField}`, value: content };
+  }
+  if (fileId === 'tests_yml') return { path: 'params.tests_yml', value: content };
+  const index = modelIndexOf(fileId);
+  if (index === null || index >= params.models.length) return null;
+  return {
+    path: 'params.models',
+    value: params.models.map((model, at) =>
+      at === index ? { ...model, sql: content } : { ...model },
+    ),
+  };
+}
+
+/** The model a `models.N` file id addresses, or `null` for anything else. */
+export function modelIndexOf(fileId: string): number | null {
+  const match = /^models\.(\d+)$/.exec(fileId);
+  if (!match) return null;
+  return Number(match[1]);
+}
+
+/** `{{ ref('from') }}` → `{{ ref('to') }}`, in every model of the project. */
+function retargetRefs(sql: string, from: string, to: string): string {
+  if (!from || from === to) return sql;
+  const quoted = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return sql.replace(
+    new RegExp(`(ref\\s*\\(\\s*)(['"])${quoted}\\2(\\s*\\))`, 'g'),
+    (_match, open: string, quote: string, close: string) =>
+      `${open}${quote}${to}${quote}${close}`,
+  );
+}
+
+/**
+ * Rename one model, following its `ref()`s and the publication.
+ *
+ * The refs move because a dbt project that renames a model without them is
+ * broken on the next build, and an author who has to fix that by hand learns
+ * that the file rail lies about being a project view.
+ */
+export function renameDbtModel(
+  params: TransformParams,
+  index: number,
+  requested: string,
+): TransformParamsPatch {
+  const previous = params.models[index]?.name ?? '';
+  const name = requested.trim();
+  if (!name || name === previous) return {};
+  const models = params.models.map((model, at) =>
+    at === index
+      ? { name, sql: model.sql }
+      : { name: model.name, sql: retargetRefs(model.sql, previous, name) },
+  );
+  return {
+    models,
+    output_model: params.output_model === previous ? name : params.output_model,
+  };
+}
+
+/** Append an empty model that already selects from the published one. */
+export function addDbtModel(params: TransformParams): TransformParamsPatch {
+  const taken = params.models.map((model) => model.name);
+  const name = nextModelName(taken);
+  const upstream = params.output_model || params.models.at(-1)?.name || '';
+  const sql = upstream
+    ? `select *\nfrom {{ ref('${upstream}') }}\n`
+    : `select *\nfrom {{ source('inputs', 'input') }}\n`;
+  return { models: [...params.models.map((model) => ({ ...model })), { name, sql }] };
+}
+
+/**
+ * Drop one model, handing the publication to the last one left.
+ *
+ * The refs of the deleted model are NOT rewritten: a dangling `ref()` is what
+ * makes the build refuse, and that refusal is more honest than silently
+ * re-pointing the author's model at something they did not choose.
+ */
+export function removeDbtModel(
+  params: TransformParams,
+  index: number,
+): TransformParamsPatch {
+  if (params.models.length <= 1 || index < 0 || index >= params.models.length) {
+    return {};
+  }
+  const removed = params.models[index].name;
+  const models = params.models
+    .filter((_model, at) => at !== index)
+    .map((model) => ({ ...model }));
+  return {
+    models,
+    output_model:
+      params.output_model === removed
+        ? (models.at(-1)?.name ?? '')
+        : params.output_model,
+  };
+}
+
+/** Publish another model as the node's dataset. */
+export function publishDbtModel(
+  params: TransformParams,
+  name: string,
+): TransformParamsPatch {
+  if (!params.models.some((model) => model.name === name)) return {};
+  return { output_model: name };
 }
 
 /**
@@ -291,7 +656,7 @@ export function transformViewName(label: string, taken: readonly string[] = []):
 
 /** One-line summary of the authored program for the inspector. */
 export function programSummary(program: string, engine: TransformEngine): string {
-  const comment = engine === 'sql' ? '--' : '#';
+  const comment = engine === 'polars' ? '#' : '--';
   const line = program
     .split(/\r?\n/)
     .map((raw) => raw.trim())
@@ -356,6 +721,54 @@ export function preflightSql(sql: string): TransformFailure | null {
   return preflightProgram(sql, 'sql');
 }
 
+/**
+ * Client-side pre-check of a whole node, whatever its shape.
+ *
+ * For dbt this is the only place a preflight can live: a project is refused for
+ * what its file *set* looks like — a duplicate relation name, a published model
+ * that is not in the tree — not for the contents of the file being edited.
+ */
+export function preflightTransform(
+  params: TransformParams,
+  engine: TransformEngine,
+): TransformFailure | null {
+  if (engine !== 'dbt') return preflightProgram(params.program, engine);
+  const written = params.models.filter((model) => model.sql.trim());
+  if (written.length === 0) {
+    return { key: 'flow.transform.error.DBT_MODELS_REQUIRED' };
+  }
+  if (params.models.length > DBT_MAX_MODELS) {
+    return { key: 'flow.transform.error.DBT_TOO_MANY_MODELS' };
+  }
+  const seen = new Set<string>();
+  for (const model of params.models) {
+    if (!model.name && !model.sql.trim()) continue;
+    if (!DBT_MODEL_NAME_RE.test(model.name)) {
+      return {
+        key: 'flow.transform.error.DBT_MODEL_NAME_INVALID',
+        detail: model.name || undefined,
+      };
+    }
+    if (seen.has(model.name)) {
+      return {
+        key: 'flow.transform.error.DBT_MODEL_NAME_DUPLICATE',
+        detail: model.name,
+      };
+    }
+    seen.add(model.name);
+    if (!model.sql.trim()) {
+      return { key: 'flow.transform.error.DBT_MODEL_EMPTY', detail: model.name };
+    }
+  }
+  if (params.output_model && !seen.has(params.output_model)) {
+    return {
+      key: 'flow.transform.error.DBT_OUTPUT_MODEL_MISSING',
+      detail: params.output_model,
+    };
+  }
+  return null;
+}
+
 /** The refusal codes the workshop translates; anything else falls back. */
 export const TRANSFORM_ERROR_CODES: readonly string[] = [
   'SQL_EMPTY',
@@ -379,6 +792,24 @@ export const TRANSFORM_ERROR_CODES: readonly string[] = [
   'POLARS_RESULT_TOO_LARGE',
   'POLARS_HARNESS_ERROR',
   'POLARS_TIMEOUT',
+  'DBT_MODELS_REQUIRED',
+  'DBT_MODEL_NAME_INVALID',
+  'DBT_MODEL_NAME_DUPLICATE',
+  'DBT_MODEL_EMPTY',
+  'DBT_MODEL_TOO_LARGE',
+  'DBT_MODEL_SHADOWS_SOURCE',
+  'DBT_TOO_MANY_MODELS',
+  'DBT_TESTS_TOO_LARGE',
+  'DBT_OUTPUT_MODEL_MISSING',
+  'DBT_EXECUTION_DISABLED',
+  'DBT_BUILD_FAILED',
+  'DBT_TESTS_FAILED',
+  'DBT_RESULT_NO_COLUMNS',
+  'DBT_RESULT_UNWRITABLE',
+  'DBT_RESULT_MISSING',
+  'DBT_RESULT_TOO_LARGE',
+  'DBT_HARNESS_ERROR',
+  'DBT_TIMEOUT',
   'TRANSFORM_NO_INPUT',
   'TRANSFORM_WORKSPACE_REQUIRED',
   'DATASET_NOT_FOUND',
@@ -393,6 +824,13 @@ const VERBATIM_DETAIL_CODES: readonly string[] = [
   'POLARS_HARNESS_ERROR',
   'POLARS_RESULT_NOT_TABULAR',
   'POLARS_ENV_NOT_READY',
+  'DBT_BUILD_FAILED',
+  'DBT_TESTS_FAILED',
+  'DBT_HARNESS_ERROR',
+  'DBT_MODEL_NAME_INVALID',
+  'DBT_MODEL_NAME_DUPLICATE',
+  'DBT_MODEL_SHADOWS_SOURCE',
+  'DBT_OUTPUT_MODEL_MISSING',
 ];
 
 /**
@@ -461,6 +899,12 @@ export function starterProgramFor(
   engine: TransformEngine,
 ): string {
   const columns = source.columns.slice(0, 6).map((column) => column.name);
+  if (engine === 'dbt') {
+    const projection = columns.length ? columns.join(',\n  ') : '*';
+    // `source()` rather than the bare relation: a dbt project's whole value is
+    // that its inputs are declared, so the starter teaches the idiom.
+    return `select\n  ${projection}\nfrom {{ source('inputs', '${source.view}') }}\n`;
+  }
   if (engine === 'polars') {
     const projection = columns.length
       ? columns.map((name) => `"${name}"`).join(', ')
@@ -500,4 +944,55 @@ export function requirementLines(text: string): string[] {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith('#'));
+}
+
+/** One dbt node's verdict, as the harness summary describes it. */
+export interface DbtNodeResult {
+  kind: 'model' | 'test';
+  name: string;
+  status: string;
+  failures: number;
+  duration_ms?: number;
+  message?: string;
+}
+
+export interface DbtReport {
+  nodes: DbtNodeResult[];
+  models_total: number;
+  tests_total: number;
+  tests_failed: number;
+  selected: string;
+}
+
+/**
+ * Read the dbt verdict off an execution's `output_json`.
+ *
+ * Present on a success (`dbt_preview`, `dbt_transform`) AND on a refusal
+ * (`dbt_failed`), because the whole point of the engine is that a build which
+ * failed its data tests still has something to show: which test, how many rows.
+ */
+export function dbtReportFrom(output: unknown): DbtReport | null {
+  if (!isRecord(output)) return null;
+  const raw = output['dbt'];
+  if (!isRecord(raw)) return null;
+  const nodes = Array.isArray(raw['nodes']) ? raw['nodes'] : [];
+  return {
+    nodes: nodes.filter(isRecord).map((node) => ({
+      kind: node['kind'] === 'test' ? 'test' : 'model',
+      name: typeof node['name'] === 'string' ? node['name'] : '',
+      status: typeof node['status'] === 'string' ? node['status'] : '',
+      failures: Number(node['failures'] ?? 0) || 0,
+      duration_ms: Number(node['duration_ms'] ?? 0) || 0,
+      message: typeof node['message'] === 'string' ? node['message'] : '',
+    })),
+    models_total: Number(raw['models_total'] ?? 0) || 0,
+    tests_total: Number(raw['tests_total'] ?? 0) || 0,
+    tests_failed: Number(raw['tests_failed'] ?? 0) || 0,
+    selected: typeof raw['selected'] === 'string' ? raw['selected'] : '',
+  };
+}
+
+/** True when a dbt node result counts as passing. */
+export function dbtNodePassed(node: DbtNodeResult): boolean {
+  return node.status === 'pass' || node.status === 'success';
 }
