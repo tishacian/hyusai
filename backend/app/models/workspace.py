@@ -31,10 +31,20 @@ def _default_workspace_settings() -> dict[str, str]:
 
 
 def _app_key_common_check() -> str:
+    """The portable half of the check: length, lower-cased, and no whitespace.
+
+    "No whitespace" is spelled with ``replace`` rather than the ``NOT LIKE
+    '% %'`` it reads as, because this string is embedded verbatim into DDL and
+    psycopg2 interpolates ``%`` in any statement it is handed — so a LIKE
+    wildcard here made ``create_all`` raise "immutabledict is not a sequence"
+    against Postgres and took the whole schema bootstrap with it. ``replace`` is
+    understood by every dialect this runs on and says the same thing.
+    """
+
     return (
         "length(app_key) BETWEEN 1 AND 80 "
         "AND app_key = lower(trim(app_key)) "
-        "AND app_key NOT LIKE '% %'"
+        "AND app_key = replace(app_key, ' ', '')"
     )
 
 

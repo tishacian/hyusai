@@ -491,6 +491,13 @@ def test_app_key_check_compiles_as_one_dialect_specific_constraint() -> None:
     assert "app_key ~ '^[a-z0-9][a-z0-9.-]{0,79}$'" in postgresql_ddl
     assert "GLOB" not in postgresql_ddl
 
+    # No bare '%' in DDL that psycopg2 will be handed. It interpolates the
+    # statement it is given, so one LIKE wildcard in a CHECK constraint fails
+    # `create_all` against Postgres with "immutabledict is not a sequence" — an
+    # error that names neither this table nor this column, and which takes the
+    # entire schema bootstrap down with it.
+    assert "%" not in postgresql_ddl
+
 
 def _constraint_columns(constraint: sa.Constraint) -> tuple[str, ...]:
     return tuple(column.name for column in constraint.columns)

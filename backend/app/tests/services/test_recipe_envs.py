@@ -42,6 +42,33 @@ def envs_root(tmp_path, monkeypatch):
     return tmp_path / "envs"
 
 
+def test_the_interpreter_path_is_absolute_whatever_the_setting_says(monkeypatch):
+    """A relative envs root would break every harness launch, silently.
+
+    Harnesses run as ``Popen(argv, cwd=scratch)`` with one of these interpreters
+    as ``argv[0]``, and the child honours ``cwd`` before it resolves the
+    executable — so a relative path is looked up inside the scratch directory,
+    where it will never be. The shipped default *is* relative
+    (``./data/recipe_envs``), which makes this the out-of-the-box behaviour
+    rather than a misconfiguration, and the failure names a path that is sitting
+    on disk exactly where it was built.
+    """
+
+    monkeypatch.setattr(settings, "recipe_envs_path", "./data/recipe_envs")
+    assert recipe_envs.envs_root().is_absolute()
+    assert recipe_envs.env_python("ws-1", "fp-1").is_absolute()
+    assert recipe_envs.pip_cache_dir().is_absolute()
+    # And the layout underneath is unchanged: <root>/<workspace>/<fingerprint>.
+    assert recipe_envs.env_python("ws-1", "fp-1").parts[-6:] == (
+        "recipe_envs",
+        "ws-1",
+        "fp-1",
+        "venv",
+        "bin",
+        "python",
+    )
+
+
 # ---------------------------------------------------------------------------
 # normalize_requirements
 # ---------------------------------------------------------------------------
