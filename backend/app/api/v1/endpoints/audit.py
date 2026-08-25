@@ -104,6 +104,7 @@ _NAVIGATION_SURFACES = frozenset(
         "legacy-settings",
         "mission-room",
         "model-portal",
+        "models",
         "nawa-itsd",
         "observability",
         "orchestration",

@@ -1,0 +1,151 @@
+"""The training form's vocabulary must exist in both languages.
+
+The Models surface builds its labels from the catalog the API serves: an
+algorithm becomes ``models.algo.<key>``, a knob becomes
+``models.studio.knob.<key>``, a tag becomes ``models.tag.<tag>``. A key with no
+dictionary entry does not fail — `I18nService.t` returns the key verbatim — so
+adding a knob here puts ``models.studio.knob.min_samples_split`` on screen next
+to a slider, in front of whoever is watching the demo.
+
+The same holds for a refusal: `validate_training` answers with a code the form
+renders as a sentence, and a code without copy is a raw identifier shown against
+a form field.
+
+So this test reads the frontend dictionary and asserts it names everything this
+service can produce. It parses the TypeScript rather than executing it, which
+keeps the check free of a node toolchain.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+
+from app.services.tabular_ml import ALGOS, TASKS, catalog_payload
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+DICT = (
+    REPO_ROOT
+    / "frontend-ng"
+    / "src"
+    / "app"
+    / "core"
+    / "i18n"
+    / "models.dict.ts"
+)
+
+# Both dictionaries are flat object literals of `'key': 'copy',` lines, and
+# FR/EN parity inside the file is already enforced at compile time by
+# `Record<keyof typeof MODELS_FR, string>`. Collecting the keys is enough.
+_KEY = re.compile(r"^  '([a-z0-9_.]+)':", re.MULTILINE)
+
+# Codes `validate_training` and `submit_training` can raise, which the studio
+# renders inline against the field that caused them.
+_REFUSAL_CODES = (
+    "ML_TRAIN_DISABLED",
+    "DATASET_NOT_READY",
+    "ML_DATASET_UNPROFILED",
+    "ML_TARGET_REQUIRED",
+    "ML_TARGET_UNKNOWN",
+    "ML_TASK_UNKNOWN",
+    "ML_TARGET_NOT_NUMERIC",
+    "ML_TARGET_TOO_MANY_CLASSES",
+    "ML_TARGET_SINGLE_CLASS",
+    "ML_FEATURE_UNKNOWN",
+    "ML_FEATURES_REQUIRED",
+    "ML_TOO_MANY_FEATURES",
+    "ML_ROWS_INSUFFICIENT",
+    "ML_ROWS_TOO_MANY",
+    "ML_ALGO_UNKNOWN",
+    "ML_ALGO_TASK_MISMATCH",
+    "ML_MODEL_NOT_READY",
+    "ML_MODEL_NOT_FOUND",
+)
+
+# Terminal failures the worker writes into `MLModel.error` as `CODE: detail`.
+_TRAINING_ERROR_CODES = (
+    "ML_TIMEOUT",
+    "ML_FIT_FAILED",
+    "ML_TARGET_UNUSABLE",
+    "ML_ROWS_INSUFFICIENT",
+    "ML_ARTIFACT_UNWRITABLE",
+    "ML_HARNESS_ERROR",
+    "ML_SUMMARY_MISSING",
+    "ML_DATASET_UNAVAILABLE",
+    "ML_ARTIFACT_EMPTY",
+    "ML_TRAIN_DISABLED",
+)
+
+
+def _dictionary_keys() -> set[str]:
+    if not DICT.exists():  # pragma: no cover - only outside a full checkout
+        pytest.skip(f"models dictionary not found at {DICT}")
+    keys = set(_KEY.findall(DICT.read_text(encoding="utf-8")))
+    assert len(keys) > 100, "the dictionary parser stopped matching entries"
+    return keys
+
+
+def test_every_algorithm_knob_and_tag_in_the_catalog_has_copy():
+    keys = _dictionary_keys()
+    expected: set[str] = set()
+    for algo in ALGOS:
+        expected.add(f"models.algo.{algo.key}")
+        # The hint is what tells an author why they would pick this family; a
+        # picker card without one is four names and no argument.
+        expected.add(f"models.algo.{algo.key}.hint")
+        for tag in algo.tags:
+            expected.add(f"models.tag.{tag}")
+        for knob in algo.knobs:
+            expected.add(f"models.studio.knob.{knob.key}")
+    missing = sorted(expected - keys)
+    assert not missing, (
+        "the training form builds these keys from the algorithm catalog, so each "
+        f"one renders as its own identifier on screen: {missing}"
+    )
+
+
+def test_every_task_the_catalog_offers_has_a_name_and_a_hint():
+    keys = _dictionary_keys()
+    expected = {f"models.task.{task}" for task in TASKS} | {
+        f"models.task.{task}.hint" for task in TASKS
+    }
+    assert not sorted(expected - keys)
+
+
+def test_every_refusal_and_failure_code_has_copy():
+    keys = _dictionary_keys()
+    expected = {f"models.refusal.{code.lower()}" for code in _REFUSAL_CODES}
+    expected |= {f"models.error.{code.lower()}" for code in _TRAINING_ERROR_CODES}
+    missing = sorted(expected - keys)
+    assert not missing, (
+        "these codes reach the UI as coded refusals and would be shown raw: "
+        f"{missing}"
+    )
+
+
+def test_the_catalog_payload_is_shaped_the_way_the_form_reads_it():
+    """A guard on the contract the studio's view-model is typed against."""
+
+    payload = catalog_payload()
+    assert set(payload) >= {"enabled", "tasks", "algos", "limits", "defaults"}
+    assert payload["tasks"] == list(TASKS)
+    assert payload["defaults"]["algo"] in {algo.key for algo in ALGOS}
+    assert payload["defaults"]["task"] in TASKS
+    assert set(payload["limits"]) == {
+        "min_rows",
+        "max_rows",
+        "max_features",
+        "max_classes",
+        "timeout_s",
+    }
+    for algo in payload["algos"]:
+        assert set(algo) == {"key", "tasks", "estimators", "scale", "tags", "knobs"}
+        assert algo["tasks"], f"{algo['key']} claims no task"
+        for knob in algo["knobs"]:
+            assert set(knob) >= {"key", "kind", "default", "min", "max", "step"}
+            assert knob["kind"] in {"int", "float"}
+            # The slider mirrors these bounds to stay honest mid-drag, so a
+            # default outside them would render a thumb the form then moves.
+            assert knob["min"] <= knob["default"] <= knob["max"]
