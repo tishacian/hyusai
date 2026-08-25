@@ -220,6 +220,34 @@ export const MODELS_FR = {
   'models.compare.verdict.flat':
     'v{version} : {metric} inchangé contre la v{previous}. Rien n’oblige à changer ce qui répond.',
 
+  // ---- comparaison sur les mêmes lignes -----------------------------------
+  'models.compare.same.title': 'Comparer sur les mêmes lignes',
+  'models.compare.same.hint':
+    'Le tableau ci-dessus rapproche deux résultats enregistrés, chacun mesuré sur son propre découpage. Ici les deux modèles sont réévalués sur un seul jeu de test : l’écart devient une propriété des modèles, pas de l’échantillonnage.',
+  'models.compare.same.action': 'Réévaluer les deux versions',
+  'models.compare.same.running': 'Réévaluation en cours…',
+  'models.compare.same.provenance':
+    '{rows} lignes de test · {dataset} v{version} · table jointe calculée par skore',
+  'models.compare.same.warn.TRAINED_ON_ANOTHER_DATASET':
+    'Une des versions a été entraînée sur un autre jeu de données : certaines de ces lignes ont pu servir à son apprentissage, sa colonne peut donc être flattée.',
+  'models.compare.same.warn.DIFFERENT_SPLIT_SIZE':
+    'Les deux versions n’ont pas été entraînées avec la même taille de test ; le découpage utilisé ici est celui de la version la plus récente.',
+  'models.compare.failed': 'Ces deux versions n’ont pas pu être évaluées sur les mêmes lignes.',
+  'models.compare.error.ml_compare_same_version':
+    'Une version ne se compare pas à elle-même.',
+  'models.compare.error.ml_compare_cross_workspace':
+    'Ces deux modèles appartiennent à des espaces de travail différents.',
+  'models.compare.error.ml_compare_different_question':
+    'Ces versions ne répondent pas à la même question : un seul tableau ne peut pas les classer.',
+  'models.compare.error.ml_compare_no_common_dataset':
+    'Aucun des deux jeux d’entraînement ne porte toutes les colonnes nécessaires aux deux modèles.',
+  'models.compare.error.ml_compare_dataset_too_large':
+    'Ce jeu de données dépasse le plafond de lignes autorisé pour une comparaison.',
+  'models.compare.error.ml_compare_split_failed':
+    'Le découpage de test n’a pas pu être reconstruit sur ce jeu de données.',
+  'models.compare.error.ml_compare_failed':
+    'Ces deux versions n’ont pas pu être évaluées sur les mêmes lignes.',
+
   // ---- métriques ----------------------------------------------------------
   'models.metric.roc_auc': 'AUC',
   'models.metric.accuracy': 'Exactitude',
@@ -658,6 +686,33 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'v{version}: {metric} {delta} against v{previous}. Keep the previous version in service.',
   'models.compare.verdict.flat':
     'v{version}: {metric} unchanged against v{previous}. Nothing forces a change to what answers.',
+
+  'models.compare.same.title': 'Compare on the same rows',
+  'models.compare.same.hint':
+    'The table above puts two recorded results side by side, each measured on its own split. Here both models are re-scored over a single test split, so the gap becomes a property of the models rather than of the sampling.',
+  'models.compare.same.action': 'Re-score both versions',
+  'models.compare.same.running': 'Re-scoring…',
+  'models.compare.same.provenance':
+    '{rows} test rows · {dataset} v{version} · joint table computed by skore',
+  'models.compare.same.warn.TRAINED_ON_ANOTHER_DATASET':
+    'One version was trained on a different dataset, so some of these rows may have taught it. Its column can read better than it would on unseen data.',
+  'models.compare.same.warn.DIFFERENT_SPLIT_SIZE':
+    'The two versions were not trained with the same test size; the split used here is the newer version’s.',
+  'models.compare.failed': 'These two versions could not be scored on the same rows.',
+  'models.compare.error.ml_compare_same_version':
+    'A version cannot be compared with itself.',
+  'models.compare.error.ml_compare_cross_workspace':
+    'These two models belong to different workspaces.',
+  'models.compare.error.ml_compare_different_question':
+    'These versions do not answer the same question, so one table cannot rank them.',
+  'models.compare.error.ml_compare_no_common_dataset':
+    'Neither training dataset carries every column the two models need.',
+  'models.compare.error.ml_compare_dataset_too_large':
+    'This dataset is over the row ceiling allowed for a comparison.',
+  'models.compare.error.ml_compare_split_failed':
+    'The test split could not be rebuilt on this dataset.',
+  'models.compare.error.ml_compare_failed':
+    'These two versions could not be scored on the same rows.',
 
   'models.metric.roc_auc': 'AUC',
   'models.metric.accuracy': 'Accuracy',

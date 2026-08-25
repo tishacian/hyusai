@@ -27,6 +27,7 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -49,7 +50,9 @@ import {
   confusionView,
   curveDomain,
   curvePath,
+  compareErrorKey,
   formatMetric,
+  higherIsBetter,
   importanceBars,
   metricDelta,
   metricTone,
@@ -58,6 +61,8 @@ import {
   splitError,
   trainStepKey,
   trainingErrorKey,
+  type ComparisonDto,
+  type ComparisonMetricRow,
   type ComparisonRow,
   type CurveBox,
   type CvBlock,
@@ -508,6 +513,89 @@ const CHART: CurveBox = { width: 300, height: 190 };
               @if (verdict(); as sentence) {
                 <div class="text-[12px]" style="color: var(--ck-fg-2)">{{ sentence }}</div>
               }
+
+              <!-- Same rows: skore's joint table, on request -->
+              <section class="pt-1">
+                <div class="ck-section-label">{{ i18n.t('models.compare.same.title') }}</div>
+                <div class="ck-hint">{{ i18n.t('models.compare.same.hint') }}</div>
+                @if (!sameRows()) {
+                  <button
+                    type="button"
+                    class="ck-btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium mt-2"
+                    [disabled]="scoring()"
+                    (click)="scoreOnTheSameRows()"
+                  >
+                    <app-icon name="scale" [size]="14" />
+                    {{
+                      scoring()
+                        ? i18n.t('models.compare.same.running')
+                        : i18n.t('models.compare.same.action')
+                    }}
+                  </button>
+                } @else if (sameRows(); as joint) {
+                  <div class="mt-2 space-y-2">
+                    <div class="text-[11px] ck-mono" style="color: var(--ck-fg-3)">
+                      {{
+                        i18n.t('models.compare.same.provenance', {
+                          rows: joint.split.rows,
+                          dataset: joint.dataset.name,
+                          version: joint.dataset.version,
+                        })
+                      }}
+                    </div>
+                    @for (caveat of joint.warnings; track caveat.code + caveat.model_id) {
+                      <div
+                        class="text-[11px] ck-mono"
+                        style="color: var(--ck-signal-warn)"
+                      >
+                        {{ i18n.t('models.compare.same.warn.' + caveat.code) }}
+                      </div>
+                    }
+                    <div class="ck-surface rounded-md overflow-hidden">
+                      <table class="w-full text-sm ck-schema">
+                        <thead>
+                          <tr>
+                            <th class="ck-schema__th">
+                              {{ i18n.t('models.compare.metric') }}
+                            </th>
+                            @for (side of joint.models; track side.model_id) {
+                              <th class="ck-schema__th">
+                                {{
+                                  i18n.t('models.versions.label', {
+                                    version: side.version,
+                                  })
+                                }}
+                              </th>
+                            }
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (line of joint.metrics; track line.key) {
+                            <tr class="ck-schema__tr">
+                              <td
+                                class="ck-schema__td"
+                                [title]="i18n.t('models.metric.' + line.key + '.hint')"
+                              >
+                                {{ i18n.t('models.metric.' + line.key) }}
+                              </td>
+                              @for (side of joint.models; track side.model_id) {
+                                <td
+                                  class="ck-schema__td ck-mono"
+                                  [class.ck-versus__win]="
+                                    sameRowsWinner(line, side.model_id)
+                                  "
+                                >
+                                  {{ sameRowsCell(line, side.model_id) }}
+                                </td>
+                              }
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                }
+              </section>
             </div>
           }
         </ck-tab>
@@ -985,6 +1073,15 @@ export class ModelViewComponent implements OnInit {
    * is still showing — a secret this platform cannot show twice.
    */
   protected readonly serving = signal<ServingBlock | null>(null);
+  /**
+   * skore's joint table, once asked for.
+   *
+   * Not loaded with the card: it re-scores two pipelines over a test split, so
+   * it costs a model load and a pass over the rows. The recorded-vs-recorded
+   * table above it is free and already on screen.
+   */
+  protected readonly sameRows = signal<ComparisonDto | null>(null);
+  protected readonly scoring = signal(false);
 
   private modelId = '';
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -1410,6 +1507,63 @@ export class ModelViewComponent implements OnInit {
     } catch {
       this.toast.error(this.i18n.t('models.studio.failed'));
     }
+  }
+
+  /** Re-score both versions over one split, and render skore's joint table. */
+  protected async scoreOnTheSameRows(): Promise<void> {
+    const row = this.model();
+    const earlier = this.against();
+    if (!row || !earlier) return;
+    this.scoring.set(true);
+    try {
+      this.sameRows.set(await this.models.comparison(row.id, earlier.id));
+    } catch (error) {
+      // The refusals are coded and each one names what does not line up, so the
+      // code is worth translating rather than replacing with "failed".
+      this.toast.error(this.compareFailure(error));
+    } finally {
+      this.scoring.set(false);
+    }
+  }
+
+  /** A coded comparison refusal in the product's words, or the server's own. */
+  private compareFailure(error: unknown): string {
+    const detail =
+      error instanceof HttpErrorResponse
+        ? (error.error?.detail ?? error.error)
+        : null;
+    const code = typeof detail === 'object' && detail ? String(detail.code ?? '') : '';
+    const key = compareErrorKey(code);
+    if (key) return this.i18n.t(key);
+    const message =
+      typeof detail === 'object' && detail ? String(detail.message ?? '') : '';
+    return message || this.i18n.t('models.compare.failed');
+  }
+
+  /** One cell of skore's table: keyed by model id, formatted in its own unit. */
+  protected sameRowsCell(row: ComparisonMetricRow, modelId: string): string {
+    const value = row[modelId];
+    return formatMetric(
+      row.key,
+      typeof value === 'number' ? value : null,
+      this.i18n.locale(),
+    );
+  }
+
+  /** Which side of skore's table won a metric, for the highlight. */
+  protected sameRowsWinner(row: ComparisonMetricRow, modelId: string): boolean {
+    const table = this.sameRows();
+    if (!table) return false;
+    const values = table.models
+      .map((side) => row[side.model_id])
+      .filter((value): value is number => typeof value === 'number');
+    if (values.length < 2) return false;
+    const mine = row[modelId];
+    if (typeof mine !== 'number') return false;
+    const best = higherIsBetter(row.key)
+      ? Math.max(...values)
+      : Math.min(...values);
+    return mine === best && values[0] !== values[1];
   }
 
   protected async cancel(): Promise<void> {

@@ -25,6 +25,7 @@ import {
   isActiveStatus,
   type ApiKeyRow,
   type CodedRefusal,
+  type ComparisonDto,
   type ModelCatalog,
   type ModelDto,
   type ModelTask,
@@ -153,6 +154,21 @@ export class ModelsService {
 
   detail(modelId: string): Promise<ModelDetailDto> {
     return firstValueFrom(this.http.get<ModelDetailDto>(`${this.base}/${modelId}`));
+  }
+
+  /**
+   * Re-score two versions over one test split and return skore's joint table.
+   *
+   * Different in kind from the deltas on the card, which subtract two results
+   * that were each measured on their own split. This measures both on the same
+   * rows, so the gap is a property of the models.
+   */
+  comparison(modelId: string, againstId: string): Promise<ComparisonDto> {
+    return firstValueFrom(
+      this.http.get<ComparisonDto>(`${this.base}/${modelId}/comparison`, {
+        params: { against: againstId },
+      }),
+    );
   }
 
   async cancel(modelId: string): Promise<ModelDto> {

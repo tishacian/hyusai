@@ -224,6 +224,7 @@ import {
   Share2,
   ZapOff,
   GitCompare,
+  Scale,
 } from 'lucide-angular';
 
 export const REGISTERED_LUCIDE_ICONS = {
@@ -442,6 +443,7 @@ export const REGISTERED_LUCIDE_ICONS = {
   Share2,
   ZapOff,
   GitCompare,
+  Scale,
   // Aliases — sentinel-ci prompt_pack + chat-panel use Lucide-style kebab
   // names. Map them so suggestion icons render without throwing during
   // change detection (which previously blocked the Quick Panel on cockpit).
