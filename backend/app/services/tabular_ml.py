@@ -60,6 +60,7 @@ from app.models.tabular import (
     MLModelApiKey,
     TabularDataset,
 )
+from app.services import ml_registry
 from app.services.object_store import get_object_store
 from app.services.recipe_executions import supervise_harness
 from app.services.tabular_datasets import (
@@ -793,6 +794,16 @@ def set_champion(db: DBSession, model: MLModel) -> MLModel:
     model.is_champion = True
     model.updated_at = datetime.utcnow()
     db.commit()
+    # Move the registry alias with the row. Two names for one fact would be worse
+    # than one: an operator who promotes here and then resolves
+    # ``models:/<name>@champion`` elsewhere must get the version they just chose.
+    if model.mlflow_model_name and model.mlflow_run_id:
+        ml_registry.set_alias(
+            model_name=model.mlflow_model_name,
+            version=ml_registry.version_of_run(
+                model_name=model.mlflow_model_name, run_id=model.mlflow_run_id
+            ),
+        )
     return model
 
 
@@ -1235,6 +1246,7 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
                 .first()
             )
             model.is_champion = serving is None
+            _register_version(model)
         else:
             _finalize(model, status=status, error=error)
         db.commit()
@@ -1245,6 +1257,48 @@ def run_training(model_id: str) -> dict[str, Any]:  # noqa: C901 - one linear li
             duration_ms=model.train_duration_ms,
         )
         return {"id": model_id, "status": status}
+
+
+def _register_version(model: MLModel) -> None:
+    """Mirror a ready model into the MLflow registry, and never fail over it.
+
+    The bytes are already on the object store, so the version is created against
+    that location rather than uploaded again — see ``ml_registry``. What this
+    call adds to the row is ``mlflow_run_id``: the handle that ties our record to
+    a run a foreign MLflow client can read.
+    """
+
+    if not model.model_uri or not model.mlflow_model_name:
+        return
+    published = ml_registry.publish(
+        model_name=model.mlflow_model_name,
+        source_uri=get_object_store().uri(model.model_uri),
+        metrics=model.metrics_json or {},
+        params={
+            "algo": model.algo,
+            "task": model.task,
+            "target": model.target,
+            "features": len(list(model.features or [])),
+            "test_size": model.test_size,
+            "cross_validation": model.cross_validation or 0,
+            "agentium_version": model.version,
+        },
+        tags={
+            "agentium.model_id": model.id,
+            "agentium.workspace_id": model.workspace_id,
+            "agentium.dataset_id": model.dataset_id or "",
+            "agentium.version": model.version,
+        },
+    )
+    if not published:
+        return
+    model.mlflow_run_id = published["run_id"]
+    if model.is_champion:
+        # The lineage had nothing serving, so this version is what answers —
+        # the alias has to say the same thing the row does.
+        ml_registry.set_alias(
+            model_name=model.mlflow_model_name, version=published["version"]
+        )
 
 
 def _apply_summary(model: MLModel, summary: dict[str, Any]) -> None:

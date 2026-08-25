@@ -39,7 +39,10 @@ weasyprint>=62.3
 # ingestion and the preview panel all surface title/author/keywords/token-count
 # instead of falling back to filename-only metadata.
 tiktoken>=0.7.0
-scikit-learn>=1.4.0
+# Floor raised from 1.4 for the ML plane: skore is tested against 1.6–1.9, and
+# the training harness reads `get_tags(estimator).input_tags.allow_nan` to decide
+# whether a pipeline needs an imputer — an API that does not exist before 1.6.
+scikit-learn>=1.6.0
 nltk>=3.9.0
 chardet>=5.2.0
 Pillow>=10.0.0
@@ -86,15 +89,26 @@ polars>=1.0.0
 duckdb>=1.0.0
 pyarrow>=16.0.0
 
-# Machine learning plane (no-code sklearn training, MLflow-format artifacts)
+# Machine learning plane (no-code sklearn training, MLflow format + registry)
 # - pandas: the frame sklearn and skrub are fit on (polars is the storage side)
 # - skrub: automatic preprocessing of heterogeneous columns, so "no-code" means
 #   no feature engineering rather than numeric-only datasets
-# - mlflow-skinny: the MLmodel FORMAT and the pyfunc loader. Skinny on purpose:
-#   the ml_models table is the registry, so no tracking server is operated
+# - skore: the evaluation engine, from the scikit-learn maintainers. One report
+#   per fit caches its predictions, so the metric table, the ROC, the PR curve,
+#   the confusion matrix and the permutation importances are one pass over the
+#   test split; it also reports log_loss and brier_score, which say whether a
+#   probability is calibrated rather than merely ranked. Pulls matplotlib and
+#   plotly as its display layer; we read the tidy .frame() and chart in the
+#   browser, so nothing renders server side
+# - mlflow (NOT mlflow-skinny): the MLmodel format, the pyfunc loader, AND the
+#   SQL-backed Model Registry. Skinny omits the SQL stores, and a SQL store is
+#   the only kind that supports a registry — a bare mlruns/ file store raises on
+#   create_registered_model. No MLflow *server* is operated: the client writes
+#   straight to a `mlflow` database on the Postgres instance already running
 # - skops: how the pipeline is serialized. Unlike pickle it refuses to
 #   reconstruct a type that was not declared trusted when the model was saved
 pandas>=2.2
 skrub>=0.5
-mlflow-skinny>=3.0,<4
+skore>=0.25,<0.26
+mlflow>=3.15,<4
 skops>=0.10

@@ -392,9 +392,15 @@ const CHART: CurveBox = { width: 300, height: 190 };
                       {{ cvSummary(folds) }}
                     </div>
                     <div class="flex items-center gap-1.5 flex-wrap mt-1.5">
-                      @for (score of folds.scores ?? []; track $index) {
+                      @for (row of folds.metrics ?? []; track row.key) {
                         <span class="ck-fold ck-mono">
-                          {{ formatMetric(folds.metric, score) }}
+                          {{ i18n.t('models.metric.' + row.key) }}
+                          {{ formatMetric(row.key, row.mean) }}
+                          @if (row.std !== null && row.std !== undefined) {
+                            <span style="color: var(--ck-fg-3)"
+                              >± {{ formatMetric(row.key, row.std) }}</span
+                            >
+                          }
                         </span>
                       }
                     </div>

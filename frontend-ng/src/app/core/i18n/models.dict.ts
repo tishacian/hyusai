@@ -230,6 +230,8 @@ export const MODELS_FR = {
   'models.metric.mae': 'MAE',
   'models.metric.rmse': 'RMSE',
   'models.metric.mape': 'MAPE',
+  'models.metric.log_loss': 'Log loss',
+  'models.metric.brier_score': 'Score de Brier',
   'models.metric.roc_auc.hint':
     'Probabilité que le modèle classe un positif au-dessus d’un négatif. 0,5 est le hasard.',
   'models.metric.accuracy.hint': 'Part des lignes de test où le modèle a répondu juste.',
@@ -243,6 +245,10 @@ export const MODELS_FR = {
   'models.metric.mae.hint': 'Écart moyen, dans l’unité de la colonne prédite.',
   'models.metric.rmse.hint': 'Comme la MAE, mais les grosses erreurs pèsent plus.',
   'models.metric.mape.hint': 'Écart moyen en pourcentage de la valeur réelle.',
+  'models.metric.log_loss.hint':
+    'Pénalise les erreurs commises avec assurance. Plus bas est meilleur : il dit si la probabilité est honnête, pas seulement la réponse.',
+  'models.metric.brier_score.hint':
+    'Erreur quadratique moyenne de la probabilité annoncée. Plus bas est meilleur — le chiffre derrière une jauge qu’on veut croire.',
 
   // ---- contrat d'entrée ---------------------------------------------------
   'models.contract.title': 'Ce que le modèle attend en entrée',
@@ -661,6 +667,8 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.metric.mae': 'MAE',
   'models.metric.rmse': 'RMSE',
   'models.metric.mape': 'MAPE',
+  'models.metric.log_loss': 'Log loss',
+  'models.metric.brier_score': 'Brier score',
   'models.metric.roc_auc.hint':
     'The chance the model ranks a positive above a negative. 0.5 is a coin toss.',
   'models.metric.accuracy.hint': 'Share of test rows the model answered right.',
@@ -674,6 +682,10 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.metric.mae.hint': 'Average error, in the predicted column’s own unit.',
   'models.metric.rmse.hint': 'Like MAE, but large errors weigh more.',
   'models.metric.mape.hint': 'Average error as a percentage of the actual value.',
+  'models.metric.log_loss.hint':
+    'Penalises confident mistakes. Lower is better: it reads whether the probability is honest, not just the answer.',
+  'models.metric.brier_score.hint':
+    'Mean squared error of the predicted probability. Lower is better — the number behind a gauge you intend to believe.',
 
   'models.contract.title': 'What the model expects as input',
   'models.contract.hint':

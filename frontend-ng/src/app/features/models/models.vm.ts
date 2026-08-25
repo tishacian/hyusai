@@ -46,12 +46,20 @@ export interface FeatureImportance {
 }
 
 /** A cross-validation result, or the reason it did not produce one. */
+/** One metric's spread across folds, as skore's cross-validation report reports it. */
+export interface CvMetric {
+  key: string;
+  mean?: number | null;
+  std?: number | null;
+}
+
 export interface CvBlock {
   folds: number;
   metric: string;
   mean?: number | null;
   std?: number | null;
-  scores?: (number | null)[];
+  /** Every metric, not just the headline one: a fold spread per row. */
+  metrics?: CvMetric[];
   error?: string;
 }
 
@@ -673,6 +681,11 @@ const METRIC_SPECS: Record<string, MetricSpec> = {
   mape: { scale: 'percent', good: 10, poor: 25, higherIsBetter: false },
   mae: { scale: 'value', higherIsBetter: false },
   rmse: { scale: 'value', higherIsBetter: false },
+  // Calibration, from skore. No good/poor thresholds on purpose: what counts as
+  // a good log loss depends on how imbalanced the target is, so an absolute
+  // colour would lie. The delta against the previous version still reads.
+  log_loss: { scale: 'value', higherIsBetter: false },
+  brier_score: { scale: 'value', higherIsBetter: false },
 };
 
 export function metricScale(key: string): MetricScale {

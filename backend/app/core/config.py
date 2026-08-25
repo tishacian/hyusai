@@ -649,6 +649,17 @@ class Settings(BaseSettings):
     # Keys are per model and minted from the model card, so the ceiling is about
     # keeping a card readable, not about capacity.
     ml_predict_max_keys: int = Field(default=8, ge=1, le=64)
+    # MLflow tracking + Model Registry. There is no MLflow *server* to operate:
+    # the client writes straight to a SQL backend store, which is the only store
+    # that supports the registry at all (a bare ``mlruns/`` file store does not,
+    # a documented trap). Empty means "derive a database named `mlflow` from
+    # DATABASE_URL", so the registry lands in the same Postgres instance and the
+    # same dump routine as everything else. The payoff is portability, and it is
+    # checkable: `mlflow server --backend-store-uri <this>` serves the registry
+    # read-only, and a stock MLflow client resolves a version's `source`
+    # straight off MinIO.
+    ml_registry_enabled: bool = True
+    ml_registry_uri: str = ""
 
     # Secure Deposit — public drop links backed by workspace membership.
     secure_deposit_enabled_workspace_slugs: str = "andritz"
