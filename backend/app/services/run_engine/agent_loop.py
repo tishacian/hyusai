@@ -24,6 +24,9 @@ DEFAULT_MAX_TURNS = 6
 MAX_AUTHOR_TURNS = 20
 MAX_ALLOWLIST = 8
 MAX_RATIONALE = 400
+# A purpose rides in every Decide prompt, once per visible skill. An authored
+# description is free text, so it is capped here rather than trusted to be short.
+MAX_PURPOSE = 240
 
 # Skills that mutate an external or ledger-visible system of record.
 # Unlisted slugs default to read / recommend.
@@ -96,10 +99,18 @@ def side_effect_class_for(slug: str) -> str:
     return "write" if slug in WRITE_SKILLS else "read"
 
 
-def catalog_entry(slug: str) -> VisibleSkill:
+def catalog_entry(slug: str, *, purpose: str | None = None) -> VisibleSkill:
+    """One line of the catalog the planner reads.
+
+    ``purpose`` is for slugs the static table cannot know — a Skill authored in
+    a workspace, whose description lives in its row. Falling back to the slug
+    keeps this total, but a slug is a name, not a reason to call something.
+    """
+
+    described = str(purpose or "").strip() or SKILL_PURPOSES.get(slug, slug)
     return VisibleSkill(
         slug=slug,
-        purpose=SKILL_PURPOSES.get(slug, slug),
+        purpose=described[:MAX_PURPOSE],
         side_effect_class=side_effect_class_for(slug),
         privilege_tier="act_with_approval"
         if side_effect_class_for(slug) == "write"
@@ -237,12 +248,19 @@ def compile_mandate_view(
     control: Any = None,
     privilege_tier: str = "act_with_approval",
     extra_blocked: Iterable[str] = (),
+    purposes: Mapping[str, str] | None = None,
 ) -> MandateView:
-    """Intersect the loop allowlist with Membrane + privilege before the prompt."""
+    """Intersect the loop allowlist with Membrane + privilege before the prompt.
+
+    ``purposes`` describes slugs the static table does not know, and is read
+    only to write the catalog line. It cannot widen the mandate: a slug absent
+    from the allowlist, or blocked by the membrane, stays out whatever it says.
+    """
 
     tier = coerce_privilege_tier(privilege_tier)
     slugs = coerce_allowlist(list(allowlist))
     spec = resolve_membrane_spec(control=control)
+    described = dict(purposes or {})
     membrane_blocked: list[str] = []
     visible: list[VisibleSkill] = []
     extra = {str(item) for item in extra_blocked}
@@ -253,7 +271,7 @@ def compile_mandate_view(
         if not gate.allowed:
             membrane_blocked.extend(gate.violations)
             continue
-        entry = catalog_entry(slug)
+        entry = catalog_entry(slug, purpose=described.get(slug))
         if tier == "recommend" and entry.side_effect_class == "write":
             continue
         visible.append(entry)

@@ -54,11 +54,14 @@ from scripts.seed_nawa_data_demo import (
     ENGINEERED_COLUMNS,
     MODEL_NAME,
     SEED_ACTOR,
+    DESK_SYSTEM_NAME,
     _reusable_dataset,
     _reusable_model,
     assert_runs_are_green,
     churn_flow,
+    desk_flow,
     ensure_system,
+    pick_at_risk,
     promote_if_nobody_has,
     radio_flow,
     reset,
@@ -401,6 +404,58 @@ def test_the_seeded_flows_route_to_a_walker_that_can_configure_them():
         resolution = resolve_flow_execution(flow)
         assert resolution.runtime_mode == "dag_overlay", resolution
         assert resolution.reason == "graph_owned_config_requires_compatibility_dag"
+
+
+def test_the_desk_can_reach_the_published_model_and_nothing_else():
+    """The agentic half of the demo, and the reason it is not decoration.
+
+    The catalog the planner sees is the node's allowlist, and the walker refuses
+    any slug on it the System has not bound. So the two things worth pinning are
+    that the published Skill is *on* the list — otherwise the agent has no way
+    to reach the model and the beat is a mock — and that the list stops there.
+    """
+
+    slug = "ws.7f3a.predict_churn_radar"
+    flow = desk_flow(predict_slug=slug)
+    loop = next(node for node in flow["nodes"] if node["kind"] == "agent_loop")
+
+    assert loop["config"]["skill_allowlist"] == [slug, "azure_llm_v1"]
+    # Read-only: neither skill writes, so nothing pauses on a human gate mid-demo.
+    assert loop["config"]["privilege_tier"] == "recommend"
+    # And the loop is not finished until the model has actually answered.
+    assert loop["config"]["goal"]["done_when"] == [slug]
+    assert loop["config"]["budget"]["max_turns"] <= 4
+
+    edges = {(edge["from"], edge["to"]) for edge in flow["edges"]}
+    assert edges == {("src", "loop.desk"), ("loop.desk", "sink")}
+
+
+def test_the_desk_is_walked_by_the_engine_that_knows_agent_loops():
+    """Routed to the sequential runtime, the loop node would never turn."""
+
+    resolution = resolve_flow_execution(desk_flow(predict_slug="ws.a.predict_x"))
+    assert resolution.runtime_mode == "dag_overlay", resolution
+
+
+def test_the_desk_is_asked_about_a_subscriber_the_model_will_accept(cleaned):
+    """The row rides in on the run input, and the contract is closed.
+
+    An AgentLoop hands the skill it picked the envelope it already has, so the
+    model's twenty columns have to be *there* — the planner is choosing a tool,
+    not inventing feature values. Reading the row out of the cleaned table is
+    what makes that true by construction rather than by careful typing.
+    """
+
+    asked = pick_at_risk(cleaned)
+
+    assert set(asked) == set(CHURN_FEATURE_COLUMNS)
+    # JSON is what ``Run.input_ref`` is, so nothing exotic may ride in it.
+    for name, value in asked.items():
+        assert value is None or isinstance(value, (str, int, float, bool)), (name, value)
+    # And it is a subscriber the demo can tell a story about, every re-seed.
+    assert asked["plan"] == "prepaid"
+    assert asked["support_tickets"] >= 3
+    assert pick_at_risk(cleaned) == asked
 
 
 def test_the_scoring_node_is_fed_by_both_the_fit_and_the_feature_table():
@@ -888,6 +943,10 @@ def test_a_reset_discards_the_draft_that_would_pin_the_retired_slugs(
     """
 
     mine = _system(db_session, workspace, name=CHURN_SYSTEM_NAME, flow={"nodes": []})
+    # The desk names the published Skill in its allowlist, and the reset revokes
+    # that Skill with the model it belonged to — so a preserved draft here is the
+    # same trap as on the pipelines, pointing at a slug that no longer resolves.
+    desk = _system(db_session, workspace, name=DESK_SYSTEM_NAME, flow={"nodes": []})
     theirs = _system(
         db_session,
         workspace,
@@ -896,13 +955,18 @@ def test_a_reset_discards_the_draft_that_would_pin_the_retired_slugs(
         created_by="alice@acme.test",
     )
     _draft(db_session, mine, updated_by="thibaud@datategy.net")
+    _draft(db_session, desk, updated_by="thibaud@datategy.net")
     _draft(db_session, theirs, updated_by="alice@acme.test")
 
     tally = reset(db_session, workspace)
 
-    assert tally["drafts"] == 1
+    assert tally["drafts"] == 2
     assert (
         db_session.query(SystemFlowDraft).filter_by(system_id=mine.id).one_or_none()
+        is None
+    )
+    assert (
+        db_session.query(SystemFlowDraft).filter_by(system_id=desk.id).one_or_none()
         is None
     )
     assert (

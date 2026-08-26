@@ -20,6 +20,7 @@ from app.services.skills_registry.binding import (
     workspace_skill_slug,
 )
 from app.services.skills_registry.seed import SEED_SKILLS, seed_skills_and_capabilities
+from app.services.skills_registry.workspace_skills import workspace_skill_purposes
 
 
 def test_the_two_vocabularies_cannot_intersect():
@@ -94,6 +95,45 @@ def test_case_and_padding_are_normalised_rather_than_refused():
         workspace_skill_slug(workspace_id="ws-1", local_name="  Reset_Ticket ").slug
         == workspace_skill_slug(workspace_id="ws-1", local_name="reset_ticket").slug
     )
+
+
+def test_an_agent_is_told_what_an_authored_slug_is_for(db_session):
+    """The catalog line an AgentLoop reads, for a Skill the static table cannot know.
+
+    Publishing a model writes the sentence a human reads on the Skill card. An
+    agent choosing between tools needs the same sentence: the slug alone names
+    a lineage and says nothing about when to call it.
+    """
+
+    slug = workspace_skill_slug(workspace_id="ws-1", local_name="predict_churn").slug
+    db_session.add(
+        Skill(
+            id="published-churn",
+            workspace_id="ws-1",
+            slug=slug,
+            name="Predict · Churn Radar",
+            description="Classifies 'churn' for one record. Test roc_auc 0.837.",
+            type="workflow",
+            category="Models",
+            input_schema={"type": "object"},
+            executor={"kind": "registry_call", "params": {"skill_slug": "ml_predict_v1"}},
+            is_seeded="N",
+        )
+    )
+    db_session.commit()
+
+    described = workspace_skill_purposes(db_session, workspace_id="ws-1", slugs=[slug])
+    assert described[slug].startswith("Predict · Churn Radar — Classifies 'churn'")
+
+    # A seeded slug is not this module's business, and another workspace's row
+    # is not readable from here — both would be a line in someone else's prompt.
+    mixed = workspace_skill_purposes(
+        db_session,
+        workspace_id="ws-1",
+        slugs=[slug, "azure_llm_v1"],
+    )
+    assert set(mixed) == {slug}
+    assert workspace_skill_purposes(db_session, workspace_id="ws-2", slugs=[slug]) == {}
 
 
 def test_a_reseed_cannot_capture_an_authored_row(db_session):

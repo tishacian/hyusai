@@ -8,7 +8,7 @@ paid before this tranche.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from sqlalchemy.orm import Session as DBSession
@@ -73,4 +73,43 @@ def workspace_skill_callable(
     return bind_executor(row.executor)
 
 
-__all__ = ["workspace_skill_callable"]
+def workspace_skill_purposes(
+    db: DBSession, *, workspace_id: str | None, slugs: Iterable[str]
+) -> dict[str, str]:
+    """What each authored slug in ``slugs`` is for, in its own catalog words.
+
+    An agent choosing between skills is given a slug and a purpose. Seeded slugs
+    have their purpose written into the loop's static table, but an authored one
+    is named after the thing it wraps — ``ws.<id>.predict_churn_radar`` — and a
+    slug repeated back as its own description tells a planner nothing about when
+    to reach for it. The row already carries the sentence the catalog card shows
+    a human; this hands the same sentence to the model.
+
+    Foreign or missing slugs are simply absent from the result: this feeds a
+    prompt, and the authority over what may actually run is the mandate view,
+    which is computed separately and does not consult this.
+    """
+
+    wanted = {
+        slug
+        for slug in (str(item or "").strip() for item in slugs)
+        if slug and is_workspace_skill_slug(slug)
+    }
+    if not wanted or not workspace_id:
+        return {}
+    rows = (
+        db.query(Skill.slug, Skill.name, Skill.description)
+        .filter(Skill.slug.in_(sorted(wanted)), Skill.workspace_id == str(workspace_id))
+        .all()
+    )
+    described: dict[str, str] = {}
+    for slug, name, description in rows:
+        # Name first: a description opens with what the model does, and the
+        # planner also needs to know which model, which is what the name says.
+        sentence = " — ".join(part for part in (name, description) if part)
+        if sentence.strip():
+            described[str(slug)] = sentence.strip()
+    return described
+
+
+__all__ = ["workspace_skill_callable", "workspace_skill_purposes"]

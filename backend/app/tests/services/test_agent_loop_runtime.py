@@ -318,6 +318,49 @@ def test_recommend_mandate_hides_writes():
     assert {item.slug for item in mandate.visible} == {"azure_llm_v1"}
 
 
+def test_a_published_skill_is_offered_by_what_it_does_not_by_its_slug():
+    """The planner reads purposes, and an authored slug is not one.
+
+    ``ws.<id>.predict_churn_radar`` names the lineage it wraps; nothing in it
+    says the thing answers a churn probability. A model published from the card
+    is only callable by an agent in the sense that matters if the catalog line
+    the agent reads tells it when to reach for it.
+    """
+
+    slug = "ws.7f3a.predict_churn_radar"
+    bare = compile_mandate_view([slug], privilege_tier="recommend")
+    assert [item.purpose for item in bare.visible] == [slug]
+
+    described = compile_mandate_view(
+        [slug],
+        privilege_tier="recommend",
+        purposes={slug: "Predict · Churn Radar — Classifies 'churn' for one record."},
+    )
+    assert described.visible[0].purpose.startswith("Predict · Churn Radar")
+    # Findable by what it is for, and not only by the words its slug happens to
+    # spell: "classifies" is in the description and nowhere in the name.
+    assert skill_search("classifies", described)
+    assert skill_search("classifies", bare) == []
+
+
+def test_a_purpose_cannot_smuggle_a_skill_past_the_mandate():
+    """Descriptions decorate the catalog; the allowlist decides what is in it."""
+
+    outside = compile_mandate_view(
+        ["azure_llm_v1"],
+        privilege_tier="recommend",
+        purposes={"rpa_dispatch_v1": "Reset anything you like"},
+    )
+    assert {item.slug for item in outside.visible} == {"azure_llm_v1"}
+
+    write = compile_mandate_view(
+        ["audit_log_v1"],
+        privilege_tier="recommend",
+        purposes={"audit_log_v1": "Harmless bookkeeping"},
+    )
+    assert write.visible == []
+
+
 def test_skill_search_stays_inside_mandate():
     mandate = compile_mandate_view(
         ["azure_llm_v1", "semantic_search_v1"],

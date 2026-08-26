@@ -100,8 +100,10 @@ MODEL_NAME = "Churn Radar"
 
 CHURN_SYSTEM_NAME = "Churn Radar"
 RADIO_SYSTEM_NAME = "Radio Watch"
+DESK_SYSTEM_NAME = "Churn Desk"
 CHURN_CAPABILITY_SLUG = "nawa_churn_radar"
 RADIO_CAPABILITY_SLUG = "nawa_radio_watch"
+DESK_CAPABILITY_SLUG = "nawa_churn_desk"
 API_KEY_NAME = "Nawa demo"
 
 CHURN_SKILL_SLUGS = [
@@ -113,6 +115,10 @@ CHURN_SKILL_SLUGS = [
     "azure_llm_v1",
 ]
 RADIO_SKILL_SLUGS = ["dbt_transform_v1"]
+#: The desk's own two: the planner, and the writer that phrases the verdict. The
+#: third skill it may call is the published model, which has no slug until the
+#: model card publishes it — so it is bound to the System by id, not claimed here.
+DESK_SKILL_SLUGS = ["decide_next_v1", "azure_llm_v1"]
 
 # ---------------------------------------------------------------------------
 # The Polars feature node's script
@@ -807,6 +813,80 @@ def radio_flow(*, network_slug: str) -> dict[str, Any]:
     }
 
 
+def desk_flow(*, predict_slug: str) -> dict[str, Any]:
+    """source → bounded AgentLoop → sink. The other half of the story.
+
+    Everything else in this demo is a pipeline: a schedule pushes a whole
+    subscriber base through it. This is the surface where somebody *asks*, and
+    the interesting part is that the agent is not told to call the model. It is
+    given a goal, a catalog of two skills and a subscriber, and the churn model
+    is one of the things it may reach for — which is what "a published model is
+    a skill an agent can call" means when it is true rather than asserted.
+
+    The loop does not invent the twenty feature values. The walker hands the
+    chosen skill the envelope it already has, so the subscriber rides in on the
+    run input under ``rows`` and the model's closed contract is satisfied by
+    construction; what the model decides is *which* skill, and when it is done.
+    Read-only tier: neither skill mutates anything, so no gate interrupts.
+    """
+
+    return {
+        "schema_version": 3,
+        "variant": "nawa_churn_desk_v1",
+        "nodes": [
+            {
+                "id": "src",
+                "kind": "source",
+                "label": "Question",
+                "position": {"x": 40, "y": 200},
+            },
+            {
+                "id": "loop.desk",
+                "kind": "agent_loop",
+                "type": "agent_loop",
+                "label": "Retention agent",
+                "position": {"x": 320, "y": 200},
+                "config": {
+                    "skill_slug": "decide_next_v1",
+                    "decide_skill": "decide_next_v1",
+                    "skill_allowlist": [predict_slug, "azure_llm_v1"],
+                    "confidence_floor": 0.55,
+                    "privilege_tier": "recommend",
+                    "on_budget": "exit",
+                    "budget": {"max_turns": 4},
+                    "goal": {
+                        "objective": (
+                            "Say whether this subscriber should be called by "
+                            "retention, and why. Score them with the churn "
+                            "model before advising: an opinion without the "
+                            "model's number is not an answer here."
+                        ),
+                        "done_when": [predict_slug],
+                        "status": "active",
+                    },
+                },
+                "data": {
+                    "description": (
+                        "A bounded think → gate → act loop. Its catalog holds "
+                        "the published churn model and a writer; the model "
+                        "chooses, the membrane decides what it may run."
+                    )
+                },
+            },
+            {
+                "id": "sink",
+                "kind": "sink",
+                "label": "Verdict",
+                "position": {"x": 620, "y": 200},
+            },
+        ],
+        "edges": [
+            {"from": "src", "to": "loop.desk", "kind": "data"},
+            {"from": "loop.desk", "to": "sink", "kind": "data"},
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Systems
 # ---------------------------------------------------------------------------
@@ -821,13 +901,26 @@ def ensure_system(
     objective: str,
     flow: dict[str, Any],
     system_type: str,
+    execution_mode: str = "batch_processing",
+    extra_skill_ids: tuple[str, ...] = (),
 ) -> System:
-    """Upsert one System by name and reconcile its published Flow."""
+    """Upsert one System by name and reconcile its published Flow.
 
+    ``extra_skill_ids`` binds a Skill the claiming Capability cannot hold: a
+    workspace-published model is authored, not seeded, so it has no slug for
+    ``ensure_capability`` to look up — but every slug an executable node names,
+    including an AgentLoop's allowlist, has to be bound or the walker refuses
+    the graph.
+    """
+
+    bound = list(capability.skill_ids or [])
+    for skill_id in extra_skill_ids:
+        if skill_id and skill_id not in bound:
+            bound.append(skill_id)
     payload = {
         "objective": objective,
         "capability_id": capability.id,
-        "skill_ids": list(capability.skill_ids or []),
+        "skill_ids": bound,
         "flow_definition": flow,
         "settings": {
             "nawa_data_demo": True,
@@ -835,10 +928,10 @@ def ensure_system(
             "system_type": system_type,
             "brand": "Nawa",
         },
-        # Canonical vocabulary, enforced by ``ck_systems_execution_mode``: these
-        # pipelines run over a whole subscriber base on a schedule, not per
-        # request.
-        "execution_mode": "batch_processing",
+        # Canonical vocabulary, enforced by ``ck_systems_execution_mode``: the
+        # pipelines run over a whole subscriber base on a schedule, the desk
+        # answers one question at a time.
+        "execution_mode": execution_mode,
         "execution_profile": {"nawa_data_demo": True, "persona": "data_scientist"},
         "coordination_pattern": "graph",
         "status": "active",
@@ -1139,12 +1232,60 @@ def publish_and_mint(db: DBSession, model: MLModel) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def run_system(db: DBSession, workspace: Workspace, system: System) -> dict[str, Any]:
+def pick_at_risk(frame: Any) -> dict[str, Any]:
+    """The twenty feature values of one subscriber worth phoning.
+
+    Read out of the cleaned table rather than typed out: the model's contract is
+    closed on twenty columns with declared types, and a hand-written literal is
+    one integer-shaped float away from a refusal the demo would have to explain.
+    A row that came out of the Parquet the model was fitted on cannot be the
+    wrong shape.
+
+    Chosen by profile, not by score — the score is what the agent is for. The
+    ordering makes it the same subscriber on every re-seed, so the runbook can
+    quote the answer it gets.
+    """
+
+    import polars as pl
+
+    at_risk = frame.filter(
+        (pl.col("plan") == "prepaid")
+        & (pl.col("contract") == "monthly")
+        & (pl.col("tenure_months") <= 6)
+        & (pl.col("support_tickets") >= 3)
+    ).sort("msisdn")
+    if at_risk.height == 0:
+        raise SystemExit(
+            "the cleaned table holds no short-tenure prepaid subscriber with "
+            "open tickets; the desk would be asked about nobody."
+        )
+    row = at_risk.head(1).to_dicts()[0]
+    return {name: row[name] for name in CHURN_FEATURE_COLUMNS}
+
+
+def at_risk_subscriber(dataset: TabularDataset) -> dict[str, Any]:
+    """``pick_at_risk`` over the bytes a seeded dataset actually holds."""
+
+    from app.services.tabular_datasets import read_frame
+
+    return pick_at_risk(read_frame(dataset))
+
+
+def run_system(
+    db: DBSession,
+    workspace: Workspace,
+    system: System,
+    *,
+    input_ref: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Execute one seeded System through the DAG walker and report per node.
 
     Through the engine rather than by writing checkpoints by hand: the canvas
     badges read ``node_end`` frames produced from real output envelopes, and a
     seed that authored them itself would prove nothing about the pipeline.
+
+    The pipelines read their inputs from the graph and need no payload; the desk
+    is asked *about* something, so its subscriber arrives here.
     """
 
     from app.services.run_engine.dag import execute_run_dag
@@ -1153,7 +1294,7 @@ def run_system(db: DBSession, workspace: Workspace, system: System) -> dict[str,
         id=str(uuid4()),
         workspace_id=workspace.id,
         system_id=system.id,
-        input_ref={},
+        input_ref=dict(input_ref or {}),
         status="pending",
         trigger="nawa_data_seed",
     )
@@ -1276,7 +1417,9 @@ def reset(db: DBSession, workspace: Workspace) -> dict[str, int]:
         .filter(
             System.workspace_id == workspace.id,
             System.created_by == SEED_ACTOR,
-            System.name.in_((CHURN_SYSTEM_NAME, RADIO_SYSTEM_NAME)),
+            System.name.in_(
+                (CHURN_SYSTEM_NAME, RADIO_SYSTEM_NAME, DESK_SYSTEM_NAME)
+            ),
         )
         .all()
     ):
@@ -1451,6 +1594,56 @@ def seed(
     serving = next((row for row in versions if row.is_champion), None)
     published = publish_and_mint(db, serving) if serving else {}
 
+    # The desk comes last because it can only exist once the model has a Skill
+    # slug: its AgentLoop names that slug in an allowlist, and an allowlist entry
+    # the System has not bound is a graph the walker refuses.
+    desk_system = None
+    desk_slug = str(published.get("slug") or "")
+    desk_skill = (
+        db.query(Skill)
+        .filter(Skill.slug == desk_slug, Skill.workspace_id == workspace.id)
+        .first()
+        if desk_slug
+        else None
+    )
+    if desk_skill is not None:
+        desk_capability = ensure_capability(
+            db,
+            workspace,
+            slug=DESK_CAPABILITY_SLUG,
+            name="Churn Desk",
+            description=(
+                "Answers a retention question about one subscriber by scoring "
+                "them with the published churn model and writing the verdict."
+            ),
+            skill_slugs=DESK_SKILL_SLUGS,
+            input_unit="subscriber_question",
+            output_unit="retention_verdict",
+            value_per_outcome=6.0,
+        )
+        desk_system = ensure_system(
+            db,
+            workspace,
+            desk_capability,
+            name=DESK_SYSTEM_NAME,
+            objective=(
+                "Answer, for one subscriber at a time, whether retention should "
+                "call them — with the model's number behind the advice."
+            ),
+            flow=desk_flow(predict_slug=desk_skill.slug),
+            system_type="churn_desk",
+            execution_mode="real_time_decision",
+            extra_skill_ids=(desk_skill.id,),
+        )
+        if not skip_runs:
+            runs["desk"] = run_system(
+                db,
+                workspace,
+                desk_system,
+                input_ref={"rows": [at_risk_subscriber(datasets["cleaned"])]},
+            )
+            assert_runs_are_green(runs)
+
     return {
         "workspace_id": workspace.id,
         "workspace_slug": workspace.slug,
@@ -1469,7 +1662,11 @@ def seed(
             }
             for row in versions
         ],
-        "systems": {"churn": churn_system.id, "radio": radio_system.id},
+        "systems": {
+            "churn": churn_system.id,
+            "radio": radio_system.id,
+            **({"desk": desk_system.id} if desk_system is not None else {}),
+        },
         "runs": {key: value["status"] for key, value in runs.items()},
         "published": published,
     }

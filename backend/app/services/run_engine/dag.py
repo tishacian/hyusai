@@ -3075,6 +3075,7 @@ async def _run_agent_loop(
         evaluate_done_when,
         gate_skill,
     )
+    from app.services.skills_registry.workspace_skills import workspace_skill_purposes
 
     config = node.config or {}
     merged = dict(upstream or {})
@@ -3166,7 +3167,14 @@ async def _run_agent_loop(
                 }
             }
 
-    mandate = compile_mandate_view(allowlist, control=control, privilege_tier=privilege)
+    mandate = compile_mandate_view(
+        allowlist,
+        control=control,
+        privilege_tier=privilege,
+        purposes=workspace_skill_purposes(
+            db, workspace_id=run.workspace_id, slugs=allowlist
+        ),
+    )
     visible = [item.to_dict() for item in mandate.visible]
     start_ms = state.accumulated_ms
 
