@@ -13,8 +13,10 @@ import {
   confusionShade,
   confusionView,
   curveDomain,
+  curveFill,
   curveSeries,
   referenceSeries,
+  revealFraction,
   tokenAlpha,
 } from './viz.vm';
 
@@ -125,6 +127,67 @@ test('a colour nothing can parse fills with nothing, not with everything', () =>
   for (const unparseable of ['', 'oklch(70% 0.1 220)', 'var(--ck-accent)', '#12345']) {
     assert.equal(tokenAlpha(unparseable, 0.2), 'transparent');
   }
+});
+
+// ---------------------------------------------------------------------------
+// Depth
+// ---------------------------------------------------------------------------
+
+test('the wash under a curve is spent against the line and none of it on the floor', () => {
+  const stops = curveFill('#7dd3fc', 0.34);
+  assert.deepEqual(
+    stops.map((stop) => stop.offset),
+    [0, 0.45, 1],
+  );
+  // The top of the plot carries the whole peak and the bottom carries nothing,
+  // which is what makes the area read as light off the curve rather than as a
+  // filled polygon with a soft edge.
+  assert.equal(stops[0].color, 'rgba(125, 211, 252, 0.34)');
+  assert.equal(stops[2].color, 'rgba(125, 211, 252, 0)');
+
+  const alphas = stops.map((stop) => Number(/([\d.]+)\)$/.exec(stop.color)![1]));
+  assert.deepEqual(alphas, [...alphas].sort((a, b) => b - a));
+  // And the middle is well under half, or the falloff is a straight ramp and
+  // the eye reads the midpoint as the fill.
+  assert.ok(alphas[1] < alphas[0] / 2, `${alphas[1]} is not under half of ${alphas[0]}`);
+});
+
+test('a wash nothing can parse is no wash, not an opaque one', () => {
+  // Same failure mode `tokenAlpha` guards: a fill that silently went solid
+  // would hide the curve it sits under.
+  for (const stop of curveFill('var(--ck-accent)')) {
+    assert.equal(stop.color, 'transparent');
+  }
+  // A peak of zero is a legible request — draw no wash — and not an error.
+  for (const stop of curveFill('#7dd3fc', 0)) {
+    assert.match(stop.color, /, 0\)$/);
+  }
+});
+
+test('a reveal starts closed, ends open, and never reverses', () => {
+  assert.equal(revealFraction(0, 800), 0);
+  assert.equal(revealFraction(800, 800), 1);
+  // Past the end and before the start are both the nearest end of the wipe,
+  // because a frame can arrive at either.
+  assert.equal(revealFraction(4000, 800), 1);
+  assert.equal(revealFraction(-50, 800), 0);
+
+  const steps = [0, 100, 200, 400, 600, 800].map((at) => revealFraction(at, 800));
+  assert.deepEqual(steps, [...steps].sort((a, b) => a - b));
+  // Eased out: half the time has uncovered well over half the plot, so the
+  // wipe hurries past the origin and settles where the curve flattens.
+  assert.ok(revealFraction(400, 800) > 0.8, `${revealFraction(400, 800)} is not eased`);
+});
+
+test('a reveal with no time to run is already over', () => {
+  // Which is how reduced motion is expressed: the caller passes zero rather
+  // than the component keeping a second code path for it.
+  for (const duration of [0, -1, Number.NaN]) {
+    assert.equal(revealFraction(0, duration), 1);
+  }
+  // A frame whose clock produced nothing usable is the start of the wipe, not
+  // a jump to the end: NaN would otherwise clip the plot to nothing at all.
+  assert.equal(revealFraction(Number.NaN, 800), 0);
 });
 
 // ---------------------------------------------------------------------------

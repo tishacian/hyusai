@@ -62,6 +62,7 @@ const pureSpecs = [
   'src/app/shared/ui/data-table.vm.spec.ts',
   'src/app/shared/ui/icon-registry.spec.ts',
   'src/app/features/data/data.vm.spec.ts',
+  'src/app/features/data/viz/viz.vm.spec.ts',
   'src/app/features/models/models.vm.spec.ts',
   'src/app/features/models/model-serving-ui-contract.spec.ts',
   'src/app/shared/ui/modal-contract.spec.ts',

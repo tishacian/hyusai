@@ -189,6 +189,76 @@ function round(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
+/** One stop of the wash under a curve, at `offset` down the plot. */
+export interface CurveStop {
+  offset: number;
+  color: string;
+}
+
+/**
+ * How the wash under a curve falls off, as `[offset, share of the peak]`.
+ *
+ * Three stops rather than two because a straight ramp from solid to nothing
+ * reads as a flat slab of colour with a soft bottom edge: the eye sees the
+ * midpoint, and a linear midpoint is exactly half, which is still a lot of
+ * paint. Pulling the middle stop down to two fifths bends the falloff so the
+ * colour is concentrated against the curve and the plot floor is genuinely
+ * clear — which is what makes the area read as light coming off the line
+ * rather than as a filled polygon.
+ */
+const CURVE_FILL_RAMP: readonly (readonly [number, number])[] = [
+  [0, 1],
+  [0.45, 0.4],
+  [1, 0],
+];
+
+/**
+ * The wash under a curve, as stops down the height of the plot.
+ *
+ * A flat fill is the honest thing to do and the wrong thing to look at: the
+ * area under a ROC *is* the metric, so it wants to be the loudest object in
+ * the panel, and a single alpha either drowns the gridlines or is invisible.
+ * A gradient spends its opacity where the curve is and none of it on the
+ * floor.
+ *
+ * Stops rather than a `CanvasGradient` because a gradient needs a canvas
+ * context and a laid-out plot area, neither of which exists until chart.js is
+ * mid-draw. The arithmetic of the ramp is decided here; the component adds
+ * these to whatever gradient the renderer hands it.
+ *
+ * An unparseable colour yields stops that are all `transparent`, for the same
+ * reason {@link tokenAlpha} does: a fill that silently went opaque would hide
+ * the curve it sits under.
+ */
+export function curveFill(color: string, peak = 0.34): CurveStop[] {
+  const bounded = Math.max(0, Math.min(1, Number(peak) || 0));
+  return CURVE_FILL_RAMP.map(([offset, share]) => ({
+    offset,
+    color: tokenAlpha(color, bounded * share),
+  }));
+}
+
+/**
+ * How much of a plot is uncovered `elapsed` ms into its reveal.
+ *
+ * The curves are drawn by wiping left to right rather than by fading in, and
+ * the wipe is a clip on the plot area, so the whole entrance is this one
+ * number. Left-to-right because a ROC is read that way — the climb out of the
+ * origin is the part that says the model separates — and a curve that arrives
+ * already finished asks the viewer to reconstruct which end it started from.
+ *
+ * Eased out, so the wipe is quickest where there is least to see and settles
+ * into the top-right corner where the curve flattens. A non-positive duration
+ * is a finished reveal rather than a division by zero, which is also how
+ * reduced motion is expressed: the caller passes zero and every frame is the
+ * final one.
+ */
+export function revealFraction(elapsed: number, duration: number): number {
+  if (!(duration > 0)) return 1;
+  const linear = Math.max(0, Math.min(1, (Number(elapsed) || 0) / duration));
+  return 1 - (1 - linear) ** 3;
+}
+
 // ---------------------------------------------------------------------------
 // Confusion matrix
 // ---------------------------------------------------------------------------
