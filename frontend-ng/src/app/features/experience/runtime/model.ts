@@ -530,7 +530,7 @@ export function chartPalette(value: unknown): ChartPalette {
 }
 
 /**
- * `count` colours spread evenly across `stops`, interpolated in sRGB.
+ * `count` colours spread evenly across `stops`.
  *
  * A ramp has to work for however many bars the series turned out to have: three
  * bands and eleven both need the ends of the scale to mean the same thing, so
@@ -538,6 +538,14 @@ export function chartPalette(value: unknown): ChartPalette {
  * colour is passed straight back — a token can resolve to `rgb()` or to a name
  * on a browser this does not know, and a chart drawn in the wrong colour is
  * better than a chart drawn in `NaN`.
+ *
+ * Interpolated in OkLCH, which is the difference between a ramp and a smear.
+ * Fading green to amber through their channel averages walks *through* grey,
+ * because the shortest line between two saturated hues in sRGB passes near the
+ * middle of the cube: the band between them comes out a dead olive that reads
+ * as a rendering fault. Moving along the hue circle instead keeps the chroma
+ * of the anchors, so the same two stops give the yellow everyone already
+ * expects between green and orange.
  */
 export function chartRamp(stops: readonly string[], count: number): string[] {
   if (count <= 0) return [];
@@ -545,23 +553,33 @@ export function chartRamp(stops: readonly string[], count: number): string[] {
   if (stops.length === 0 || parsed.some((stop) => stop === null)) {
     return Array.from({ length: count }, (_, index) => stops[index % stops.length] ?? '');
   }
-  const anchors = parsed as { r: number; g: number; b: number }[];
-  if (count === 1) return [channelHex(anchors[0]!)];
+  const anchors = (parsed as Rgb[]).map(toOklch);
+  if (count === 1) return [fromOklch(anchors[0]!)];
   return Array.from({ length: count }, (_, index) => {
     const position = (index / (count - 1)) * (anchors.length - 1);
     const lower = Math.floor(position);
     const upper = Math.min(lower + 1, anchors.length - 1);
-    return channelHex(mixChannels(anchors[lower]!, anchors[upper]!, position - lower));
+    return fromOklch(mixOklch(anchors[lower]!, anchors[upper]!, position - lower));
   });
 }
 
-interface Channels {
+interface Rgb {
   r: number;
   g: number;
   b: number;
 }
 
-function parseChartHex(value: string): Channels | null {
+/** Lightness 0–1, chroma, hue in degrees. */
+interface Oklch {
+  l: number;
+  c: number;
+  h: number;
+}
+
+/** Below this a colour has no hue to interpolate, only a direction to borrow. */
+const ACHROMATIC = 1e-4;
+
+function parseChartHex(value: string): Rgb | null {
   const match = value.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
   if (!match) return null;
   const hex =
@@ -569,22 +587,72 @@ function parseChartHex(value: string): Channels | null {
       ? match[1]!.split('').map((channel) => channel + channel).join('')
       : match[1]!;
   return {
-    r: Number.parseInt(hex.slice(0, 2), 16),
-    g: Number.parseInt(hex.slice(2, 4), 16),
-    b: Number.parseInt(hex.slice(4, 6), 16),
+    r: Number.parseInt(hex.slice(0, 2), 16) / 255,
+    g: Number.parseInt(hex.slice(2, 4), 16) / 255,
+    b: Number.parseInt(hex.slice(4, 6), 16) / 255,
   };
 }
 
-function mixChannels(from: Channels, to: Channels, ratio: number): Channels {
+function toLinear(channel: number): number {
+  return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+}
+
+function toGamma(channel: number): number {
+  return channel <= 0.0031308 ? channel * 12.92 : 1.055 * channel ** (1 / 2.4) - 0.055;
+}
+
+function toOklch({ r, g, b }: Rgb): Oklch {
+  const lr = toLinear(r);
+  const lg = toLinear(g);
+  const lb = toLinear(b);
+  const long = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+  const medium = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+  const short = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+  const l = 0.2104542553 * long + 0.793617785 * medium - 0.0040720468 * short;
+  const a = 1.9779984951 * long - 2.428592205 * medium + 0.4505937099 * short;
+  const bAxis = 0.0259040371 * long + 0.7827717662 * medium - 0.808675766 * short;
   return {
-    r: Math.round(from.r + (to.r - from.r) * ratio),
-    g: Math.round(from.g + (to.g - from.g) * ratio),
-    b: Math.round(from.b + (to.b - from.b) * ratio),
+    l,
+    c: Math.hypot(a, bAxis),
+    h: ((Math.atan2(bAxis, a) * 180) / Math.PI + 360) % 360,
   };
 }
 
-function channelHex({ r, g, b }: Channels): string {
-  return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+function fromOklch({ l, c, h }: Oklch): string {
+  const radians = (h * Math.PI) / 180;
+  const a = c * Math.cos(radians);
+  const bAxis = c * Math.sin(radians);
+  const long = (l + 0.3963377774 * a + 0.2158037573 * bAxis) ** 3;
+  const medium = (l - 0.1055613458 * a - 0.0638541728 * bAxis) ** 3;
+  const short = (l - 0.0894841775 * a - 1.291485548 * bAxis) ** 3;
+  const channels = [
+    4.0767416621 * long - 3.3077115913 * medium + 0.2309699292 * short,
+    -1.2684380046 * long + 2.6097574011 * medium - 0.3413193965 * short,
+    -0.0041960863 * long - 0.7034186147 * medium + 1.707614701 * short,
+  ];
+  // Clipped rather than gamut-mapped: an anchor is a real colour and the path
+  // between two of them barely leaves sRGB, so the elaborate correction would
+  // change nothing a reader could see.
+  return `#${channels
+    .map((channel) => Math.max(0, Math.min(255, Math.round(toGamma(channel) * 255))))
+    .map((channel) => channel.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+function mixOklch(from: Oklch, to: Oklch, ratio: number): Oklch {
+  // Grey has coordinates but no hue: its `atan2` is whatever rounding left
+  // behind, and interpolating towards it would swing the arc somewhere
+  // arbitrary. Borrow the hue of the end that has one.
+  const fromHue = from.c < ACHROMATIC ? to.h : from.h;
+  const toHue = to.c < ACHROMATIC ? from.h : to.h;
+  // The short way round, so green → red passes through yellow rather than
+  // taking the long trip back through blue.
+  const arc = (((toHue - fromHue + 540) % 360) - 180) * ratio;
+  return {
+    l: from.l + (to.l - from.l) * ratio,
+    c: from.c + (to.c - from.c) * ratio,
+    h: (fromHue + arc + 360) % 360,
+  };
 }
 
 export interface ChartPoint {

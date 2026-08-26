@@ -242,14 +242,24 @@ test('a share is only offered for a series that is a whole to take a share of', 
 });
 
 test('a ramp spans its anchors however many bars the run came back with', () => {
-  const stops = ['#000000', '#808080', '#ffffff'];
+  // The signals the severity palette is actually built from, dark theme.
+  const signals = ['#34d399', '#f5b84a', '#ef5a6f'];
 
-  // The ends mean the same thing at every length: three bands and five both
-  // start at the first anchor and finish at the last.
-  assert.deepEqual(chartRamp(stops, 3), ['#000000', '#808080', '#ffffff']);
-  assert.deepEqual(chartRamp(stops, 5), ['#000000', '#404040', '#808080', '#c0c0c0', '#ffffff']);
-  assert.deepEqual(chartRamp(stops, 1), ['#000000']);
-  assert.deepEqual(chartRamp(stops, 0), []);
+  // As many bands as anchors returns the anchors: the interpolation adds
+  // nothing and must therefore change nothing.
+  assert.deepEqual(chartRamp(signals, 3), signals);
+
+  // The ends mean the same thing at every length, which is what lets a reader
+  // compare this morning's four bands with last week's six.
+  for (const count of [2, 4, 5, 9]) {
+    const ramp = chartRamp(signals, count);
+    assert.equal(ramp.length, count);
+    assert.equal(ramp[0], signals[0]);
+    assert.equal(ramp.at(-1), signals.at(-1));
+  }
+
+  assert.deepEqual(chartRamp(signals, 1), [signals[0]]);
+  assert.deepEqual(chartRamp(signals, 0), []);
 
   // Short hex is a colour too, and a token can resolve to one.
   assert.deepEqual(chartRamp(['#000', '#fff'], 2), ['#000000', '#ffffff']);
@@ -258,6 +268,31 @@ test('a ramp spans its anchors however many bars the run came back with', () => 
   // than turned into `#NaNNaNNaN`: the wrong colour still draws a chart.
   assert.deepEqual(chartRamp(['rgb(1 2 3)', '#ffffff'], 2), ['rgb(1 2 3)', '#ffffff']);
   assert.deepEqual(chartRamp([], 2), ['', '']);
+});
+
+test('a ramp between two hues stays a colour instead of passing through grey', () => {
+  // The whole reason the interpolation is not done on the channels. Averaging
+  // this green and this amber gives #b5c164, a dead olive that reads as a
+  // rendering fault sitting between two saturated bars.
+  const [, midpoint] = chartRamp(['#34d399', '#f5b84a'], 3);
+  const [red, green, blue] = [1, 3, 5].map((at) => Number.parseInt(midpoint!.slice(at, at + 2), 16));
+
+  // Chroma survives the trip: the least channel is far below the greatest,
+  // which is exactly what a washed-out midpoint loses.
+  assert.ok(
+    Math.max(red!, green!, blue!) - Math.min(red!, green!, blue!) > 110,
+    `${midpoint} is washed out`,
+  );
+  // And it lands on the yellow anyone would expect between green and amber,
+  // rather than on the olive the shorter path through the cube produces.
+  assert.ok(blue! < red! && blue! < green!, `${midpoint} is not a yellow`);
+
+  // Grey has no hue to walk, so a ramp through it is a lightness ramp and must
+  // not pick up a colour cast from an arbitrary angle.
+  for (const shade of chartRamp(['#000000', '#ffffff'], 5)) {
+    const [r, g, b] = [1, 3, 5].map((at) => Number.parseInt(shade.slice(at, at + 2), 16));
+    assert.ok(Math.max(r!, g!, b!) - Math.min(r!, g!, b!) <= 1, `${shade} is not grey`);
+  }
 });
 
 test('a palette is opt-in, because a ramp claims an order the data may not have', () => {

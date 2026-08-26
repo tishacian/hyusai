@@ -680,7 +680,7 @@ export class ChartBlock {
    * was, which is the first thing anyone asks it. Withheld on a series that is
    * not a whole, for the same reason the shares are.
    */
-  protected readonly totalDisplay = computed(() => {
+  readonly totalDisplay = computed(() => {
     const points = this.series().points;
     if (points.length === 0 || points.some((point) => point.share === null)) return '';
     return points

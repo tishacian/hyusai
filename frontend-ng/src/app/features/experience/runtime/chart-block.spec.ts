@@ -232,7 +232,7 @@ test('a donut says what the ring adds up to', () => {
     type: 'chart',
     id: 'risk-bands',
     props: { kind: 'donut', series: BANDS },
-  }) as ChartBlock & ChartControls & { totalDisplay(): string };
+  });
 
   assert.equal(block.totalDisplay(), '94');
 
@@ -242,7 +242,7 @@ test('a donut says what the ring adds up to', () => {
     type: 'chart',
     id: 'c',
     props: { kind: 'donut', series: [{ label: 'up', value: 5 }, { label: 'down', value: -2 }] },
-  }) as ChartBlock & { totalDisplay(): string };
+  });
   assert.equal(signed.totalDisplay(), '');
 });
 
