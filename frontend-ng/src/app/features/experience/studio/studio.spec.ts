@@ -841,6 +841,24 @@ test('Appearance owns only visual properties while localised copy stays in Conte
   assert.match(EDITOR_SOURCE, /setLocalizedPageTitle/);
 });
 
+test('Appearance offers a width to the blocks that may share a row', () => {
+  // A width a document can carry but the inspector never offers is a width only
+  // reachable by hand-editing JSON, which is the one thing the certified
+  // authoring path exists to avoid. The renderer and the field ask the same
+  // predicate so neither can drift into offering what the other ignores.
+  const appearance = EDITOR_SOURCE.slice(
+    EDITOR_SOURCE.indexOf("inspectorTab() === 'appearance'"),
+    EDITOR_SOURCE.indexOf("inspectorTab() === 'a11y'"),
+  );
+  assert.match(appearance, /@if \(supportsSpan\(node\.type\)\)/);
+  assert.match(appearance, /i18n\.t\('experience\.editor\.field\.span'\)/);
+  assert.match(appearance, /setProp\(node, 'span', selectValue\(\$event\)\)/);
+  // Options come from the closed set itself rather than a second list beside
+  // it, so a width added there cannot go unoffered here.
+  assert.match(appearance, /for \(span of spans; track span\)/);
+  assert.match(EDITOR_SOURCE, /readonly spans = NODE_SPANS;/);
+});
+
 test('application identity flows through create, metadata edit, and localised a11y authoring', () => {
   assert.match(WIZARD_SOURCE, /description: this\.description\(\)\.trim\(\) \|\| null/);
   assert.match(WIZARD_SOURCE, /emblem: this\.emblem\(\)\.trim\(\) \|\| null/);

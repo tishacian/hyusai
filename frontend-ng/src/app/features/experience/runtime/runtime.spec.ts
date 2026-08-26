@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
   CERTIFIED_RENDERER_VERSION,
@@ -24,13 +25,21 @@ import {
   valuesToPayload,
 } from './model';
 import {
+  NODE_SPANS,
+  PAGE_COLUMNS,
   a11yOf,
   a11yPayload,
   appearanceOf,
   needsEmptyText,
   onAccentColor,
   pageAppearance,
+  spanColumns,
+  spanOf,
+  supportsSpan,
 } from './style';
+
+const RUNTIME_CSS = readFileSync('src/app/features/experience/runtime/runtime.scss', 'utf8');
+const FROZEN_CSS = readFileSync('src/app/features/experience/runtime/v0_1/runtime.scss', 'utf8');
 
 const SCHEMA = {
   type: 'object',
@@ -458,6 +467,80 @@ test('appearance props persist on a page and a node', () => {
   assert.equal(appearanceOf(node).description, 'Today');
   assert.equal(appearanceOf(node).density, 'compact');
   assert.equal(appearanceOf(node).accent, '#0ea5e9');
+});
+
+test('a width nobody wrote, or wrote wrong, is the whole row', () => {
+  // Every document published so far declares no width, and a released one is
+  // only ever checked for shape: `span: 7` and `span: 'two-thirds'` both reach
+  // the renderer exactly as an author typed them. Reading either as the full
+  // row leaves such a page readable, where honouring it would tile a row that
+  // does not add up.
+  assert.equal(spanOf(undefined), 'full');
+  assert.equal(spanOf({}), 'full');
+  assert.equal(spanOf({ span: 'half' }), 'half');
+  assert.equal(spanOf({ span: 7 }), 'full');
+  assert.equal(spanOf({ span: 'two-thirds' }), 'full');
+  assert.equal(spanOf({ span: null }), 'full');
+  // A membership test written with `in` answers for the prototype chain too,
+  // and would let this one through as a width.
+  assert.equal(spanOf({ span: 'toString' }), 'full');
+  assert.equal(appearanceOf({ type: 'kpi', props: { span: 'quarter' } }).span, 'quarter');
+  assert.equal(appearanceOf({ type: 'kpi' }).span, 'full');
+});
+
+test('each width divides a page row with nothing left over', () => {
+  // This is the whole reason the vocabulary is named fractions instead of a
+  // column count: an author cannot ask for a width that leaves a strip of the
+  // row unused. Four tiles, three panels or two panels have to fill the row
+  // they share.
+  for (const span of NODE_SPANS) {
+    assert.equal(PAGE_COLUMNS % spanColumns(span), 0);
+  }
+  assert.equal(spanColumns('full'), PAGE_COLUMNS);
+  assert.equal(spanColumns('half') * 2, PAGE_COLUMNS);
+  assert.equal(spanColumns('third') * 3, PAGE_COLUMNS);
+  assert.equal(spanColumns('quarter') * 4, PAGE_COLUMNS);
+});
+
+test('a header keeps its row while the panels of a board may share one', () => {
+  // The inspector decides which widths an author is ever offered, and a header
+  // or a section carries the page's own name — narrowed, a board would announce
+  // itself from a corner.
+  assert.equal(supportsSpan('kpi'), true);
+  assert.equal(supportsSpan('chart'), true);
+  assert.equal(supportsSpan('table'), true);
+  assert.equal(supportsSpan('header'), false);
+  assert.equal(supportsSpan('section'), false);
+});
+
+test('the page grid is cut into the tracks the width projection counts', () => {
+  // The track count is stated twice, in two languages: `PAGE_COLUMNS` for the
+  // projection and the inspector, a `repeat()` for the browser. Nothing makes
+  // them agree, so a quarter authored against twelve tracks and drawn on ten
+  // would tile wrong with each half of the pair looking right on its own.
+  assert.match(RUNTIME_CSS, new RegExp(`repeat\\(${PAGE_COLUMNS}, minmax\\(0, 1fr\\)\\)`));
+  assert.match(
+    RUNTIME_CSS,
+    new RegExp(`\\.xp-rt-page > \\* \\{\\s*grid-column: span ${spanColumns('full')};`),
+  );
+  for (const span of NODE_SPANS.filter((value) => value !== 'full')) {
+    assert.match(
+      RUNTIME_CSS,
+      new RegExp(`\\[data-span='${span}'\\] \\{\\s*grid-column: span ${spanColumns(span)};`),
+    );
+  }
+  // A third of a page is unreadable on a phone, so the narrow viewport takes
+  // every width back to the row it would have had anyway.
+  assert.match(RUNTIME_CSS, /@media \(max-width: 900px\)/);
+});
+
+test('the renderer a pinned release draws through never learned about columns', () => {
+  // `runtime/v0_1/` is the catalog `certified-components-0.1.0` was signed off
+  // against, and it carries its own stylesheet for exactly this reason: a
+  // layout decision taken for the current catalog must not reach a release
+  // whose pixels somebody already approved.
+  assert.match(FROZEN_CSS, /\.xp-rt-page \{\s*display: flex;/);
+  assert.doesNotMatch(FROZEN_CSS, /data-span/);
 });
 
 test('custom accents always choose the higher-contrast text colour', () => {

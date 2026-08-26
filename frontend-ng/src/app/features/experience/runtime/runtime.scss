@@ -4,10 +4,41 @@
   gap: 16px;
 }
 
+/* A page is twelve tracks wide so a block can ask for a half, a third or a
+   quarter of a row and still land on a track boundary. `minmax(0, …)` rather
+   than a bare `1fr`: a table wider than the page must stay inside its own
+   horizontal scroller instead of stretching the track that holds it. */
 .xp-rt-page {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 12px;
+}
+
+/* The title, the page description and any block that declares no width take
+   the row to themselves — the single column every published document was
+   written against. */
+.xp-rt-page > * {
+  grid-column: span 12;
+}
+
+.xp-rt-page > .xp-rt-node[data-span='half'] {
+  grid-column: span 6;
+}
+
+.xp-rt-page > .xp-rt-node[data-span='third'] {
+  grid-column: span 4;
+}
+
+.xp-rt-page > .xp-rt-node[data-span='quarter'] {
+  grid-column: span 3;
+}
+
+/* Where the cockpit collapses its own multi-column panels: below it a third of
+   a row is narrower than the figures a tile is there to show. */
+@media (max-width: 900px) {
+  .xp-rt-page > .xp-rt-node[data-span] {
+    grid-column: span 12;
+  }
 }
 
 .xp-rt-node {
