@@ -333,11 +333,18 @@ const PAGE_SIZE = 50;
         <div class="h-3 w-48 rounded" style="background: rgba(255,255,255,0.05)"></div>
       </div>
     } @else {
+      <!-- Not "no datasets yet": there are datasets, this id is not one of
+           them. Saying the list's empty copy here sends the reader looking for
+           an import button to solve a bad link. -->
       <app-empty-state
         icon="table"
-        [title]="i18n.t('data.list.empty.title')"
-        [description]="i18n.t('data.list.empty.description')"
-      />
+        [title]="i18n.t('data.detail.gone.title')"
+        [description]="i18n.t('data.detail.gone.description')"
+      >
+        <a routerLink="/data" class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm">
+          <app-icon name="chevron-left" [size]="13" /> {{ i18n.t('data.detail.back') }}
+        </a>
+      </app-empty-state>
     }
   `,
   styles: [

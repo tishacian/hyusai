@@ -30,6 +30,11 @@ import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { ColumnSparkComponent } from '@app/shared/ui/column-spark.component';
+import type {
+  TabularColumn,
+  TabularColumnStats,
+} from '@app/shared/ui/data-table.vm';
+import { DatasetPreviewComponent } from '@app/features/data/dataset-preview.component';
 import type { DatasetDto } from '@app/features/data/data.service';
 import { ModelsService } from './models.service';
 import {
@@ -72,7 +77,13 @@ export interface TrainSeed {
   selector: 'app-model-train',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [A11yModule, ColumnSparkComponent, FormsModule, IconComponent],
+  imports: [
+    A11yModule,
+    ColumnSparkComponent,
+    DatasetPreviewComponent,
+    FormsModule,
+    IconComponent,
+  ],
   template: `
     <div class="fixed inset-0 z-50 flex items-start justify-center p-4 md:p-6 overflow-auto">
       <div class="absolute inset-0" style="background: var(--ck-scrim)" (click)="dismiss()"></div>
@@ -143,6 +154,20 @@ export interface TrainSeed {
                       columns: ds.column_count ?? 0
                     })
                   }}
+                </div>
+                <!-- The rows behind the choice. A dataset name and a row count
+                     are not enough to tell two exports apart, and the columns
+                     picked below are picked from what is in here. -->
+                <div class="ck-studio__sample" data-testid="train-sample">
+                  <span class="ck-studio__sample-label">
+                    {{ i18n.t('models.studio.dataset.sample') }}
+                  </span>
+                  <ck-dataset-preview
+                    [datasetId]="ds.id"
+                    [columnsHint]="sampleColumns()"
+                    [statsHint]="sampleStats()"
+                    maxHeight="168px"
+                  />
                 </div>
               }
               @if (refusalFor('dataset'); as message) {
@@ -476,6 +501,19 @@ export interface TrainSeed {
         display: flex;
         flex-direction: column;
         gap: 6px;
+      }
+      .ck-studio__sample {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-top: 4px;
+        min-width: 0;
+      }
+      .ck-studio__sample-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--ck-fg-4, #8891a0);
       }
       .ck-label {
         font-size: 10px;
@@ -825,6 +863,29 @@ export class ModelTrainComponent implements OnInit {
   protected readonly dataset = computed(
     () => this.readyDatasets().find((row) => row.id === this.datasetId()) ?? null,
   );
+
+  /**
+   * The plan's columns, in the shape the shared table reads.
+   *
+   * Handed over rather than left for the preview to fetch, so the sparkline on
+   * a table header and the one on the target row beside it are the same
+   * numbers rather than two reads of the same profile.
+   */
+  protected readonly sampleColumns = computed<TabularColumn[]>(() =>
+    this.columns().map((column) => ({
+      name: column.name,
+      kind: column.kind as TabularColumn['kind'],
+      dtype: column.kind,
+    })),
+  );
+
+  protected readonly sampleStats = computed<Record<string, TabularColumnStats>>(() => {
+    const stats: Record<string, TabularColumnStats> = {};
+    for (const column of this.columns()) {
+      if (column.profile) stats[column.name] = column.profile;
+    }
+    return stats;
+  });
 
   protected readonly candidates = computed(() =>
     targetCandidates(this.columns(), this.catalog().limits.max_classes),

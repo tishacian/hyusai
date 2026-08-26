@@ -94,6 +94,28 @@ test('a lineage block that names no model produces no half-written badge', () =>
   assert.equal(scoredByLabel({ model: { version: 3 } }), null);
 });
 
+test('a dead link to a dataset says so, and offers the way back', () => {
+  // The fallback used to render the *list* empty state, which reads "no
+  // dataset yet — import one". That sends a reader who followed a stale link
+  // looking for an import button to fix a bad id.
+  const view = readFileSync(
+    join(process.cwd(), 'src/app/features/data/data-view.component.ts'),
+    'utf8',
+  );
+  assert.match(view, /data\.detail\.gone\.title/);
+  assert.match(view, /data\.detail\.gone\.description/);
+  assert.ok(
+    !/data\.list\.empty\.title/.test(view),
+    'the detail page does not borrow the list page empty copy',
+  );
+  // An empty state with nothing to click is a dead end.
+  assert.match(view, /routerLink="\/data"[\s\S]{0,220}data\.detail\.back/);
+  for (const key of ['data.detail.gone.title', 'data.detail.gone.description']) {
+    assert.ok((DATA_FR as Record<string, string>)[key]?.trim(), `${key} has FR copy`);
+    assert.ok((DATA_EN as Record<string, string>)[key]?.trim(), `${key} has EN copy`);
+  }
+});
+
 test('the detail page badges the scored columns and links back to the card', () => {
   const view = readFileSync(
     join(process.cwd(), 'src/app/features/data/data-view.component.ts'),

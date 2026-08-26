@@ -325,6 +325,32 @@ test('the columns a fit is built from carry their shape, not just their name', (
   }
 });
 
+test('both training surfaces show the rows the fit will read, in the shared table', () => {
+  // A dataset name and a row count do not tell two exports apart, and the
+  // columns picked on these surfaces are picked from what is in the rows. The
+  // studio reached from the models list used to be the one train surface that
+  // never showed them.
+  for (const [name, text] of [
+    ['flow studio', source('flow-train-workshop.component.ts')],
+    [
+      'models studio',
+      readFileSync(
+        join(process.cwd(), 'src/app/features/models/model-train.component.ts'),
+        'utf8',
+      ),
+    ],
+  ] as const) {
+    assert.match(text, /<ck-dataset-preview/, `${name} embeds the preview`);
+    assert.match(text, /DatasetPreviewComponent/, `${name} imports it`);
+    assert.match(text, /data-testid="train-sample"/, `${name} labels the sample`);
+    // Handed the plan's own profile rather than fetching a second one, so the
+    // glyph on a table header and the one on the chip beside it are the same
+    // numbers.
+    assert.match(text, /\[columnsHint\]="sampleColumns\(\)"/, `${name} hands columns over`);
+    assert.match(text, /\[statsHint\]="sampleStats\(\)"/, `${name} hands stats over`);
+  }
+});
+
 test('the split, the folds and the knobs are bounded by the view model', () => {
   const workshop = source('flow-train-workshop.component.ts');
   // Every numeric edit goes through a clamp, so a dragged slider cannot write a
