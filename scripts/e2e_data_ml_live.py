@@ -195,8 +195,55 @@ def subscriber_csv(rows: int, *, seed: int) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+# The vocabularies the two planes narrate through, in the order they are
+# written. Kept here rather than imported: this driver talks HTTP to a deployed
+# host and must not need the application package to be importable.
+INGEST_STEPS = ("queued", "reading", "profiling", "writing")
+TRAIN_STEPS = ("queued", "reading", "fitting", "scoring", "validating", "saving")
+
+
+def step_of(detail: str) -> str:
+    """The step code in a ``status_detail``, which may carry a row count.
+
+    Ingest writes ``profiling:8412`` so the page can say "Profiling — 8 412
+    rows" without a second request; the step is the part before the colon.
+    """
+
+    return detail.split(":", 1)[0].strip()
+
+
+def check_narration(observed: list[str], vocabulary: tuple[str, ...], what: str) -> None:
+    """That the field a page renders instead of a spinner was actually written.
+
+    Counting distinct steps is the obvious check and the wrong one: on a small
+    file the whole ingest is faster than one poll, so a correct plane looks mute
+    and the run fails for being quick. What can be asserted without a race is
+    that every value came from the declared vocabulary, that the sequence never
+    walks backwards through it, and that at least one value is real work rather
+    than ``queued`` — a row that only ever said "queued" then "ready" is exactly
+    the mute spinner this is here to catch.
+    """
+
+    steps = [step_of(detail) for detail in observed]
+    unknown = [step for step in steps if step not in vocabulary]
+    check(not unknown, f"{what} narrated steps outside its vocabulary: {unknown}")
+    positions = [vocabulary.index(step) for step in steps]
+    check(
+        positions == sorted(positions),
+        f"{what} narrated its steps out of order: {observed}",
+    )
+    check(
+        any(step != vocabulary[0] for step in steps),
+        f"{what} never narrated any work, only {observed or '[]'}",
+    )
+
+
 def wait_for_dataset(api: Api, dataset_id: str, *, timeout: float = 240.0) -> dict:
-    """Poll a dataset to ready, collecting the steps it narrated on the way."""
+    """Poll a dataset to ready, collecting the steps it narrated on the way.
+
+    Polled without a pause: the steps are the point, and an ingest of a few
+    thousand rows finishes inside a one-second sleep.
+    """
 
     deadline = time.time() + timeout
     details: list[str] = []
@@ -211,7 +258,6 @@ def wait_for_dataset(api: Api, dataset_id: str, *, timeout: float = 240.0) -> di
             return {"dataset": dataset, "details": details}
         if status == "failed":
             raise Failure(f"ingest failed: {dataset.get('error')}")
-        time.sleep(1.0)
     raise Failure(f"dataset {dataset_id} never became ready (saw {details})")
 
 
@@ -229,7 +275,7 @@ def wait_for_model(api: Api, model_id: str, *, timeout: float = 600.0) -> dict:
             return {"model": model, "details": details}
         if status in {"failed", "cancelled"}:
             raise Failure(f"training {status}: {model.get('error')}")
-        time.sleep(2.0)
+        time.sleep(0.25)
     raise Failure(f"model {model_id} never became ready (saw {details})")
 
 
