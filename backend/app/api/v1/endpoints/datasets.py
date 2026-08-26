@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session as DBSession
 
@@ -27,6 +28,7 @@ from app.services.tabular_datasets import (
     create_upload,
     get_dataset,
     ingest_dataset,
+    read_page,
     serialize_dataset,
     soft_delete,
 )
@@ -363,6 +365,49 @@ async def get_dataset_detail(
         },
         "versions": [serialize_dataset(row) for row in versions],
         "feature": _feature_payload(),
+    }
+
+
+@router.get("/{dataset_id}/preview")
+async def get_dataset_preview(
+    dataset_id: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int | None = Query(default=None, ge=1),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """A window of a dataset's rows, read from the Parquet.
+
+    The detail route already carries the fifty rows cached at ingest, which is
+    what opens the page without a second request. This route exists for the
+    question that cache cannot answer: every dataset here is immutable, so row
+    8 400 of an 8 412-row dataset is a fact that exists and simply is not in the
+    cache. A reader who scrolls past the fiftieth row asks for it, and asking is
+    cheap — the slice is pushed into the Parquet reader, which skips whole row
+    groups rather than loading the file.
+
+    Offloaded to a thread because it touches the ObjectStore and a file: on the
+    event loop it would stall every other request for the length of the read.
+    """
+
+    try:
+        dataset = get_dataset(db, dataset_id=dataset_id, workspace_id=workspace.id)
+        if dataset.status != "ready":
+            raise TabularError(
+                code="DATASET_NOT_READY",
+                message="The dataset is still being prepared.",
+                status_code=409,
+            )
+        page = await run_in_threadpool(
+            read_page, dataset, offset=offset, limit=limit
+        )
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {
+        "dataset_id": dataset.id,
+        "schema": list(dataset.schema_json or []),
+        **page,
     }
 
 

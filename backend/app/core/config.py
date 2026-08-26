@@ -573,6 +573,11 @@ class Settings(BaseSettings):
     tabular_data_enabled: bool = True
     tabular_upload_max_bytes: int = Field(default=256 * 1024**2, ge=1024)
     tabular_preview_rows: int = Field(default=50, ge=1, le=500)
+    # Ceiling on a page the preview route serves. The fifty rows cached on the
+    # row answer the page load; this answers "show me more", and it is bounded
+    # because the read happens in the web process — a caller asking for a
+    # hundred thousand rows would be asking it to hold them.
+    tabular_preview_page_max: int = Field(default=500, ge=1, le=5_000)
     tabular_max_columns: int = Field(default=512, ge=1)
     tabular_histogram_bins: int = Field(default=12, ge=2, le=64)
     tabular_top_values: int = Field(default=6, ge=1, le=50)

@@ -35,6 +35,7 @@ import {
   profileBars,
   type TabularColumn,
   type TabularColumnStats,
+  type TabularRow,
 } from '@app/shared/ui/data-table.vm';
 import { I18nService } from '@app/core/i18n.service';
 import {
@@ -46,6 +47,8 @@ import {
 import { ingestStepKey, scoredByLabel, scoredColumns } from './data.vm';
 
 const POLL_INTERVAL_MS = 1500;
+/** Rows per window past the cached preview — the same size the cache holds. */
+const PAGE_SIZE = 50;
 
 @Component({
   selector: 'app-data-view',
@@ -119,11 +122,39 @@ const POLL_INTERVAL_MS = 1500;
         <ck-tab id="preview" [label]="i18n.t('data.detail.tab.preview')">
           <ck-data-table
             [columns]="columns()"
-            [rows]="ds.preview ?? []"
+            [rows]="previewRows()"
             [stats]="ds.stats ?? null"
             [rowCount]="ds.row_count ?? null"
             [caption]="previewCaption()"
-          />
+          >
+            <span caption-actions class="flex items-center gap-1.5">
+              @if (paging()) {
+                <app-icon name="loader-2" [size]="12" class="animate-spin" />
+              }
+              <button
+                type="button"
+                class="ck-page"
+                data-testid="preview-prev"
+                [disabled]="!canPrev() || paging()"
+                [attr.aria-label]="i18n.t('data.detail.preview.prev')"
+                [title]="i18n.t('data.detail.preview.prev')"
+                (click)="page(-1)"
+              >
+                <app-icon name="chevron-left" [size]="13" />
+              </button>
+              <button
+                type="button"
+                class="ck-page"
+                data-testid="preview-next"
+                [disabled]="!canNext() || paging()"
+                [attr.aria-label]="i18n.t('data.detail.preview.next')"
+                [title]="i18n.t('data.detail.preview.next')"
+                (click)="page(1)"
+              >
+                <app-icon name="chevron-right" [size]="13" />
+              </button>
+            </span>
+          </ck-data-table>
         </ck-tab>
 
         <ck-tab id="schema" [label]="i18n.t('data.detail.tab.schema')">
@@ -421,6 +452,28 @@ const POLL_INTERVAL_MS = 1500;
         color: var(--ck-signal-pos, #34d399);
         background: rgba(52, 211, 153, 0.1);
       }
+      /* Paging the preview: two quiet steppers in the caption bar, disabled at
+         the ends rather than hidden, so the reader can see where they are. */
+      .ck-page {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 4px;
+        color: var(--ck-fg-3, #9aa4b2);
+        background: var(--ck-bg-inset, rgba(255, 255, 255, 0.04));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.06));
+        transition: all var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
+      }
+      .ck-page:hover:not(:disabled) {
+        color: var(--ck-signal-cool, #7dd3fc);
+        box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.35);
+      }
+      .ck-page:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
       /* A column nobody uploaded says who wrote it, on its own row. */
       .ck-scored {
         display: inline-flex;
@@ -449,6 +502,10 @@ export class DataViewComponent implements OnInit {
   protected readonly detail = signal<DatasetDetailDto | null>(null);
   protected readonly loading = signal(false);
   protected readonly tab = signal('preview');
+  /** Where the window on screen starts, and the rows it holds once paged. */
+  protected readonly offset = signal(0);
+  protected readonly paging = signal(false);
+  private readonly pageRows = signal<TabularRow[] | null>(null);
 
   private datasetId = '';
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -458,6 +515,23 @@ export class DataViewComponent implements OnInit {
   protected readonly columns = computed<TabularColumn[]>(
     () => this.dataset()?.schema ?? [],
   );
+  /**
+   * The rows on screen: the ingest cache until the reader asks for more.
+   *
+   * The first window costs nothing because the worker already folded it into
+   * the row; every window after it is a read of the Parquet, which is the only
+   * place row 8 400 exists.
+   */
+  protected readonly previewRows = computed<TabularRow[]>(
+    () => this.pageRows() ?? this.dataset()?.preview ?? [],
+  );
+
+  protected readonly canPrev = computed(() => this.offset() > 0);
+  protected readonly canNext = computed(() => {
+    const total = this.dataset()?.row_count ?? 0;
+    return this.offset() + this.previewRows().length < total;
+  });
+
   protected readonly parents = computed(() => this.detail()?.lineage.parents ?? []);
   protected readonly children = computed(() => this.detail()?.lineage.children ?? []);
   protected readonly versions = computed(() => this.detail()?.versions ?? []);
@@ -547,11 +621,46 @@ export class DataViewComponent implements OnInit {
   protected previewCaption(): string {
     const ds = this.dataset();
     if (!ds) return '';
+    const shown = this.previewRows().length;
+    if (!shown) return '';
     // The shape — how many rows, how many columns — is the table's own badge.
-    // What only this page knows is that these are the first fifty of them.
+    // What only this page knows is which of them are on screen.
+    const locale = this.i18n.locale();
     return this.i18n.t('data.detail.preview.caption', {
-      shown: (ds.preview ?? []).length,
+      from: (this.offset() + 1).toLocaleString(locale),
+      to: (this.offset() + shown).toLocaleString(locale),
     });
+  }
+
+  /**
+   * Move the window one page forward or back.
+   *
+   * The first page is the cached preview and costs nothing to return to, so
+   * stepping back to zero drops the fetched rows instead of asking for them
+   * again.
+   */
+  protected async page(step: number): Promise<void> {
+    const ds = this.dataset();
+    if (!ds || this.paging()) return;
+    const size = this.previewRows().length || PAGE_SIZE;
+    const next = Math.max(0, this.offset() + step * size);
+    if (next === this.offset()) return;
+    if (next === 0) {
+      this.offset.set(0);
+      this.pageRows.set(null);
+      return;
+    }
+    this.paging.set(true);
+    try {
+      const page = await this.data.preview(ds.id, { offset: next, limit: PAGE_SIZE });
+      if (!page.rows.length) return;
+      this.offset.set(page.offset);
+      this.pageRows.set(page.rows);
+    } catch {
+      this.toast.error(this.i18n.t('data.detail.preview.failed'));
+    } finally {
+      this.paging.set(false);
+    }
   }
 
   protected subtitleFor(dataset: DatasetDto): string {
@@ -570,6 +679,10 @@ export class DataViewComponent implements OnInit {
   }
 
   protected async retry(): Promise<void> {
+    // A re-ingest rewrites the Parquet, so any window read from the old one is
+    // no longer about this dataset.
+    this.offset.set(0);
+    this.pageRows.set(null);
     await this.data.reingest(this.datasetId);
     await this.load();
   }
