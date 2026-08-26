@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -225,13 +226,24 @@ def serialize_execution(execution: RecipeExecution) -> dict[str, Any]:
 def _subprocess_env(
     venv_python: Path, scratch: Path, extra: dict[str, str] | None = None
 ) -> dict[str, str]:
-    """Minimal environment: venv first on PATH, no application secrets."""
+    """Minimal environment: venv first on PATH, no application secrets.
+
+    ``MALLOC_ARENA_MAX`` is here because ``RLIMIT_AS`` counts *reserved* address
+    space, and glibc reserves a 64 MiB arena per thread up to eight per core. On
+    a 4-core laptop that is a rounding error; on the 16-core demo host it is a
+    ceiling of its own, and the first thread a threaded engine starts past it
+    dies in the allocator — ``cannot allocate memory for thread-local data:
+    ABORT``, before any of the engine's own code runs. The budget the caller
+    passes has to mean the same thing on both machines, so the arena count is
+    pinned rather than left to the host's core count.
+    """
 
     env = {
         "PATH": f"{venv_python.parent}:/usr/local/bin:/usr/bin:/bin",
         "HOME": str(scratch),
         "TMPDIR": str(scratch),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "MALLOC_ARENA_MAX": "2",
         "PYTHONUNBUFFERED": "1",
         "PYTHONDONTWRITEBYTECODE": "1",
         "VIRTUAL_ENV": str(venv_python.parent.parent),
@@ -273,6 +285,38 @@ def _read_tail(path: Path) -> str:
     except OSError:
         return ""
     return text if len(text) <= limit else text[-limit:]
+
+
+# A warning printed by the interpreter as it shuts down, and the source line
+# python echoes underneath it. Both arrive *after* whatever actually killed the
+# child, so the last line of stderr is routinely the least informative one.
+_NOISE_TAIL = re.compile(
+    r"(?:^\s*warnings\.warn\()"
+    r"|(?:\b(?:User|Deprecation|Future|Resource|Runtime)Warning\b)"
+    r"|(?:^\s*(?:self\.|from |import )?_?warn)"
+)
+
+
+def harness_error_line(stderr_tail: str, fallback: str) -> str:
+    """The last line of a dead child's stderr that says something.
+
+    Every engine here reports a failure by quoting the end of stderr, which is
+    right until the child dies during interpreter shutdown: a threaded engine
+    aborting under ``RLIMIT_AS`` prints ``cannot allocate memory for
+    thread-local data: ABORT`` and *then* two lines of leaked-semaphore warning,
+    so quoting the last line hands the operator ``warnings.warn('...')`` and
+    hides the only sentence that explains the exit. Warning lines are skipped
+    from the end; if that is all there was, the last line is still returned,
+    because a real warning is better evidence than a generic sentence.
+    """
+
+    lines = [line for line in (stderr_tail or "").strip().splitlines() if line.strip()]
+    if not lines:
+        return fallback
+    for line in reversed(lines):
+        if _NOISE_TAIL.search(line) is None:
+            return line.strip()
+    return lines[-1].strip()
 
 
 def cancel_requested(db: DBSession, execution_id: str) -> bool:
@@ -583,11 +627,11 @@ def _run_supervised(
                 except (OSError, ValueError):
                     status, error = "failed", "recipe_output_unreadable"
             else:
-                summary = stderr_tail.strip().splitlines()
                 status = "failed"
+                detail = harness_error_line(stderr_tail, "")
                 error = (
-                    f"recipe_exit_{exit_code}: {summary[-1][:300]}"
-                    if summary
+                    f"recipe_exit_{exit_code}: {detail[:300]}"
+                    if detail
                     else f"recipe_exit_{exit_code}"
                 )
         return status, error, exit_code, stdout_tail, stderr_tail, output
