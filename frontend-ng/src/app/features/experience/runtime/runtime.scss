@@ -405,6 +405,7 @@
     0 0 0 1px color-mix(in srgb, var(--xp-bar, var(--ck-accent)) 22%, transparent),
     0 2px 12px color-mix(in srgb, var(--xp-bar, var(--ck-accent)) 30%, transparent);
   transform-origin: left center;
+  transition: filter 160ms ease;
   animation: xp-rt-bar-sweep 720ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
   animation-delay: calc(var(--xp-bar-order, 0) * 80ms);
 }
