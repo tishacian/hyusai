@@ -18,7 +18,7 @@ the point is that the specification can be arbitrated from the bytes alone.
 Usage:
     cd backend
     python -m scripts.papai_mirror_facts                 # counts, seconds
-    python -m scripts.papai_mirror_facts --with-fits     # + the three ROC AUCs
+    python -m scripts.papai_mirror_facts --with-fits     # + the three metric tables
     python -m scripts.papai_mirror_facts --json          # machine-readable
 """
 
@@ -94,29 +94,79 @@ def _counts(series: Any) -> dict[str, int]:
     }
 
 
-def fits(cleaned: Any, features: Any) -> dict[str, float]:
-    """The three ROC AUCs the demo's registry holds, refitted from the frames.
+def _as_float_frame(frame: Any, columns: list[str]) -> Any:
+    """The feature matrix as the harness hands it to skrub.
+
+    Integer columns are cast to float for the reason the harness gives: an
+    integer column cannot carry a hole, and the input signature written at fit
+    time is enforced at predict time.
+    """
+
+    x = frame.to_pandas()[columns].copy()
+    for column in x.columns:
+        if str(x[column].dtype).startswith(("int", "Int")):
+            x[column] = x[column].astype("float64")
+    return x
+
+
+def _batch_score(pipeline: Any, features: Any, columns: list[str]) -> dict[str, Any]:
+    """The business figures of the scoring step, read off the serving version.
+
+    The whole feature table is scored, training rows included, because that is
+    what the demo's batch-score node does: the sheet exists to be joined back to
+    a subscriber, not to measure the model.
+    """
+
+    table = features.to_pandas()
+    probability = pipeline.predict_proba(_as_float_frame(features, columns))[:, 1]
+    churn = table[CHURN_TARGET].to_numpy()
+    decile = probability.argsort()[::-1][: features.height // 10]
+    rate = float(churn[decile].mean())
+    return {
+        "rows": features.height,
+        "columns_after_scoring": features.width + 3,
+        "appended": ["prediction", "confidence", "score_1"],
+        "flagged": int((probability >= 0.5).sum()),
+        "riskiest_decile_rows": int(len(decile)),
+        "riskiest_decile_churn_rate": round(rate, 4),
+        "lift_over_base_rate": round(rate / float(churn.mean()), 2),
+    }
+
+
+def fits(cleaned: Any, features: Any) -> dict[str, Any]:
+    """The metric table of the three versions the demo's registry holds.
 
     Assembled with ``skrub.tabular_pipeline`` — the same call the training
     harness makes — so the preprocessing is the estimator's own requirement
-    rather than a choice made here. The numbers will not match the demo's to six
-    decimals on a different scikit-learn; the *ordering* is the claim.
-    """
+    rather than a choice made here. Measured on the reference environment this
+    reproduces the harness's own recorded metrics exactly, which is what lets
+    the note quote one table for both platforms. On a different scikit-learn the
+    decimals move; the *ordering* is the claim.
 
-    from sklearn.metrics import roc_auc_score
-    from sklearn.model_selection import train_test_split
-    from skrub import tabular_pipeline
+    ``encoded_columns`` and ``fitted_columns`` differ on the linear path only,
+    and the gap is the imputer's missingness indicator. Both are reported
+    because a rebuild checking its width against one of them needs to know
+    which one it is looking at.
+    """
 
     from sklearn.ensemble import HistGradientBoostingClassifier
     from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import (
+        accuracy_score,
+        brier_score_loss,
+        log_loss,
+        precision_score,
+        recall_score,
+        roc_auc_score,
+    )
+    from sklearn.model_selection import train_test_split
+    from skrub import tabular_pipeline
 
-    def auc(frame: Any, columns: list[str], estimator: Any) -> float:
-        table = frame.to_pandas()
-        x = table[columns].copy()
-        for column in x.columns:
-            if str(x[column].dtype).startswith(("int", "Int")):
-                x[column] = x[column].astype("float64")
-        y = table[CHURN_TARGET]
+    def measure(
+        frame: Any, columns: list[str], estimator: Any
+    ) -> tuple[Any, dict[str, Any]]:
+        x = _as_float_frame(frame, columns)
+        y = frame.to_pandas()[CHURN_TARGET]
         x_train, x_test, y_train, y_test = train_test_split(
             x, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y
         )
@@ -125,30 +175,42 @@ def fits(cleaned: Any, features: Any) -> dict[str, float]:
         if imputer is not None:
             imputer.set_params(strategy="median")
         pipeline.fit(x_train, y_train)
-        return round(
-            float(roc_auc_score(y_test, pipeline.predict_proba(x_test)[:, 1])), 6
-        )
+        probability = pipeline.predict_proba(x_test)[:, 1]
+        predicted = pipeline.predict(x_test)
+        return pipeline, {
+            "roc_auc": round(float(roc_auc_score(y_test, probability)), 6),
+            "accuracy": round(float(accuracy_score(y_test, predicted)), 6),
+            "precision": round(float(precision_score(y_test, predicted)), 6),
+            "recall": round(float(recall_score(y_test, predicted)), 6),
+            "log_loss": round(float(log_loss(y_test, probability)), 6),
+            "brier_score": round(float(brier_score_loss(y_test, probability)), 6),
+            "input_columns": len(columns),
+            "encoded_columns": int(
+                pipeline.named_steps["tablevectorizer"].transform(x_train).shape[1]
+            ),
+            "fitted_columns": int(pipeline[:-1].transform(x_train).shape[1]),
+            "train_rows": int(len(x_train)),
+            "test_rows": int(len(x_test)),
+            "test_positives": int(y_test.sum()),
+        }
 
     base = list(CHURN_FEATURE_COLUMNS)
     engineered = [*CHURN_FEATURE_COLUMNS, *ENGINEERED_COLUMNS]
+    boosted = HistGradientBoostingClassifier(
+        max_iter=220, learning_rate=0.08, random_state=RANDOM_STATE
+    )
+    serving, v1 = measure(
+        cleaned, base, LogisticRegression(max_iter=1000, random_state=RANDOM_STATE)
+    )
+    _, v2 = measure(cleaned, base, boosted)
+    _, v3 = measure(features, engineered, boosted)
     return {
-        "v1_linear_20_columns": auc(
-            cleaned, base, LogisticRegression(max_iter=1000, random_state=RANDOM_STATE)
-        ),
-        "v2_gradient_boosting_20_columns": auc(
-            cleaned,
-            base,
-            HistGradientBoostingClassifier(
-                max_iter=220, learning_rate=0.08, random_state=RANDOM_STATE
-            ),
-        ),
-        "v3_gradient_boosting_29_columns": auc(
-            features,
-            engineered,
-            HistGradientBoostingClassifier(
-                max_iter=220, learning_rate=0.08, random_state=RANDOM_STATE
-            ),
-        ),
+        "v1_linear_20_columns": v1,
+        "v2_gradient_boosting_20_columns": v2,
+        "v3_gradient_boosting_29_columns": v3,
+        # The demo keeps the interpretable baseline serving, so the score sheet
+        # is v1's — not the version trained last.
+        "batch_score_with_v1_serving": _batch_score(serving, features, base),
     }
 
 
@@ -215,7 +277,7 @@ def facts(*, seed: int = 20260825, with_fits: bool = False) -> dict[str, Any]:
         "split": {"test_size": TEST_SIZE, "random_state": RANDOM_STATE},
     }
     if with_fits:
-        body["roc_auc"] = fits(cleaned, features)
+        body["fits"] = fits(cleaned, features)
     return body
 
 
@@ -225,7 +287,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--with-fits",
         action="store_true",
-        help="Also refit the three models and report their ROC AUC (slow).",
+        help="Also refit the three models and report their metrics (slow).",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON, not a report.")
     return parser.parse_args(argv)
@@ -243,6 +305,11 @@ def main(argv: list[str] | None = None) -> int:
             continue
         print(f"\n[{section}]")
         for key, value in values.items():
+            if isinstance(value, dict):
+                print(f"  {key}")
+                for inner, number in value.items():
+                    print(f"    {inner} = {number}")
+                continue
             print(f"  {key} = {value}")
     return 0
 
