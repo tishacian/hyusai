@@ -67,6 +67,7 @@ import {
   refusalKey,
   targetCandidates,
   taskIcon,
+  trainChecklist,
   warningKey,
   type AlgoDescriptor,
   type KnobDescriptor,
@@ -83,7 +84,6 @@ import {
   pinnedDataset,
   preflightTrain,
   readTrainParams,
-  trainSteps,
   type MlFailure,
   type TrainNodeParams,
 } from './flow-ml.vm';
@@ -124,10 +124,10 @@ const SCORE_LIMIT = 4;
             </div>
           </div>
           <div class="ck-train-workshop__head-actions">
-            @if (ml.busy()) {
+            @if (ml.busy() && current(); as step) {
               <span class="ck-train-workshop__phase" data-testid="train-phase">
                 <app-icon name="loader-2" [size]="12" />
-                {{ i18n.t('models.progress.step.' + currentStep()) }}
+                {{ i18n.t(step.key, step.params) }}
               </span>
             }
             @if (cancellable()) {
@@ -437,19 +437,19 @@ const SCORE_LIMIT = 4;
                 }
                 @if (ml.busy() || ml.run()) {
                   <ol class="ck-train-workshop__steps" data-testid="train-steps">
-                    @for (step of steps(); track step.key) {
+                    @for (step of steps(); track step.step) {
                       <li [attr.data-state]="step.state">
                         <app-icon
                           [name]="
                             step.state === 'done'
                               ? 'check'
-                              : step.state === 'current'
+                              : step.state === 'active'
                                 ? 'loader-2'
                                 : 'circle'
                           "
                           [size]="11"
                         />
-                        {{ i18n.t('models.progress.step.' + step.key) }}
+                        {{ i18n.t(step.key, step.params) }}
                       </li>
                     }
                   </ol>
@@ -734,12 +734,20 @@ export class FlowTrainWorkshopComponent {
   );
 
   protected readonly steps = computed(() =>
-    trainSteps(this.ml.run()?.status, this.ml.run()?.status_detail),
+    trainChecklist(
+      this.ml.run()?.status,
+      this.ml.run()?.status_detail,
+      // The requested fold count, not one the run reported: the validating line
+      // has to be in the list before the fit reaches it, or the check-list grows
+      // a step halfway through and the reader loses their place.
+      this.ml.run()?.cross_validation ?? this.params().cross_validation,
+      this.i18n.locale(),
+    ),
   );
 
-  /** The step the header chip names: the last one the run claimed. */
-  protected readonly currentStep = computed(
-    () => this.steps().find((step) => step.state === 'current')?.key ?? 'queued',
+  /** The line the header chip names: the one the run is on. */
+  protected readonly current = computed(
+    () => this.steps().find((step) => step.state === 'active') ?? null,
   );
 
   /** The run, once it produced a model worth reading. */

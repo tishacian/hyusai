@@ -225,9 +225,15 @@ test('the workshop is a modal dialog that edits the graph through the store', ()
 test('a queued run states its phase and can be stopped', () => {
   const workshop = source('flow-transform-workshop.component.ts');
   // A Polars preview waits for a worker, and the first one in a workspace
-  // builds an environment. That is stated, not hidden behind a spinner.
+  // builds an environment. That is stated as a check-list, not hidden behind a
+  // spinner and not reduced to one word: "Running…" for forty seconds reads as
+  // a hang, where a ticked "Preparing the environment" reads as a warm-up.
   assert.match(workshop, /data-testid="transform-phase"/);
-  assert.match(workshop, /i18n\.t\('flow\.transform\.phase\.' \+ phase\)/);
+  assert.match(workshop, /data-testid="transform-steps"/);
+  assert.match(workshop, /transformChecklist\(this\.engine\(\), this\.transform\.phase\(\)\)/);
+  assert.match(workshop, /@for \(step of phases\(\); track step\.phase\)/);
+  assert.match(workshop, /step\.state === 'done'/);
+  assert.match(workshop, /step\.state === 'active'/);
   assert.match(workshop, /data-testid="cancel-transform-preview"/);
   assert.match(workshop, /\(click\)="transform\.cancel\(\)"/);
   // Prints are part of the answer for a Python transform.

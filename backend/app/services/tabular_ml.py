@@ -39,6 +39,7 @@ to be operated for facts this table already holds.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -82,6 +83,10 @@ ML_TRAIN_TASK = "agentium.ml_train"
 # the same row. The last three are claimed by the harness itself — only the child
 # knows when a fit ends and its scoring begins — which is why it writes them to
 # ``progress.txt`` and the worker republishes what it reads there.
+#
+# A step may arrive with a count attached (``fitting:6903``, ``validating:3/5``),
+# which is how a wait says how much of it is left rather than only that it is
+# happening.
 TRAIN_STEPS: tuple[str, ...] = (
     "queued",
     "reading",
@@ -89,11 +94,14 @@ TRAIN_STEPS: tuple[str, ...] = (
     "scoring",
     # Cross-validation refits the pipeline once per fold, so it is the longest
     # step of a run that asked for it and the one a silent spinner would hurt
-    # most. Only emitted when folds were requested.
+    # most. Only emitted when folds were requested, and then once per fold.
     "validating",
     "saving",
 )
 _HARNESS_STEPS = frozenset(TRAIN_STEPS)
+# A count a step may carry after a colon: rows (``fitting:6903``) or a fold out
+# of a total (``validating:3/5``). Anything else is a half-written line.
+_PROGRESS_COUNT = re.compile(r"\d{1,9}(?:/\d{1,3})?")
 # The file the harness appends its current step to, inside the run's scratch.
 _PROGRESS_FILE = "progress.txt"
 # skore's own serialization of the evaluation, kept beside the model rather than
@@ -1225,6 +1233,11 @@ def read_progress(scratch: Path) -> str | None:
 
     Only a known code is returned: the file is written by a subprocess and a
     truncated or half-flushed line must not become a status the UI cannot name.
+
+    A step may carry a count — ``fitting:6903``, ``validating:3/5`` — which is
+    kept, because the count is the part of a wait that says how much of it is
+    left. The head still has to be a declared step and the tail still has to
+    look like a count, so a half-written line is dropped rather than published.
     """
 
     try:
@@ -1232,7 +1245,12 @@ def read_progress(scratch: Path) -> str | None:
     except OSError:
         return None
     for step in reversed(lines):
-        if step in _HARNESS_STEPS:
+        head, _, tail = step.partition(":")
+        if head not in _HARNESS_STEPS:
+            continue
+        if not tail:
+            return head
+        if _PROGRESS_COUNT.fullmatch(tail):
             return step
     return None
 

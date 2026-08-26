@@ -132,6 +132,12 @@ def _progress(path, step: str) -> None:
     Appended and flushed line by line so a reader that catches the file mid-write
     sees the previous step rather than a partial one, and never fatal: a fit is
     not worth failing because a scratch file could not be touched.
+
+    A step may carry a count after a colon — ``fitting:6903``,
+    ``validating:3/5`` — which the worker parses back out. Same convention as the
+    ingest plane, and for the same reason: the number is the only part of a wait
+    that says how much of it is left, and it cannot be a translated sentence
+    because two locales poll the same row.
     """
 
     if not path:
@@ -142,6 +148,52 @@ def _progress(path, step: str) -> None:
             handle.flush()
     except OSError:
         pass
+
+
+class _NarratedSplitter:
+    """A cross-validator that says which fold it is handing out.
+
+    Cross-validation is the longest step of a run that asked for it — it refits
+    the whole pipeline once per fold — and it is the one a silent spinner hurts
+    most, because "validating" sits there unchanged for five times the length of
+    the fit that preceded it. The plan's example of a wait worth narrating is
+    literally "Fold 3/5".
+
+    There is no callback to hook: ``CrossValidationReport`` takes a splitter and
+    runs. But it *consumes* that splitter, one fold at a time, and a splitter is
+    free to have opinions while it is being consumed — so the announcement rides
+    on ``split()`` rather than on a progress API that does not exist. Delegation
+    rather than subclassing because the wrapped object is whatever skore was
+    given, and ``n_splits`` is the only other thing anyone asks a splitter for.
+    """
+
+    def __init__(self, inner, folds: int, progress_path) -> None:
+        self._inner = inner
+        self._folds = folds
+        self._progress_path = progress_path
+
+    def get_n_splits(self, X=None, y=None, groups=None) -> int:  # noqa: N803
+        return self._inner.get_n_splits(X, y, groups)
+
+    def split(self, X=None, y=None, groups=None):  # noqa: N803
+        for index, fold in enumerate(self._inner.split(X, y, groups), start=1):
+            _progress(self._progress_path, f"validating:{index}/{self._folds}")
+            yield fold
+
+
+def _fold_splitter(folds: int, task: str, y):
+    """The splitter an integer fold count means, made explicit.
+
+    ``check_cv`` is what sklearn itself calls when handed a number, so asking it
+    is how the narrated wrapper stays behaviour-neutral: stratified for a
+    classification target, plain for a regression one, unshuffled either way.
+    Building one by hand would be a second opinion about what "5 folds" means,
+    and the folds a model is judged on must not depend on who asked for them.
+    """
+
+    from sklearn.model_selection import check_cv
+
+    return check_cv(folds, y, classifier=task == "classification")
 
 
 def _number(value) -> float | None:
@@ -667,7 +719,7 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         # nobody could have had is worse than filling it with a typical one.
         imputer.set_params(strategy="median")
     print(f"fitting {type(estimator).__name__} on {len(x_train)} rows", flush=True)
-    _progress(progress_path, "fitting")
+    _progress(progress_path, f"fitting:{len(x_train)}")
     try:
         pipeline.fit(x_train, y_train)
     except Exception as exc:  # noqa: BLE001 - the algorithm's refusal is the answer
@@ -743,13 +795,15 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
         # improvement from a lucky split when two versions are compared.
         from skore import CrossValidationReport
 
-        _progress(progress_path, "validating")
+        _progress(progress_path, f"validating:0/{folds}")
         try:
             folded = CrossValidationReport(
                 clone(pipeline),
                 X=x_train,
                 y=y_train,
-                splitter=folds,
+                splitter=_NarratedSplitter(
+                    _fold_splitter(folds, task, y_train), folds, progress_path
+                ),
                 n_jobs=1,
                 **({"pos_label": classes[-1]} if binary else {}),
             )

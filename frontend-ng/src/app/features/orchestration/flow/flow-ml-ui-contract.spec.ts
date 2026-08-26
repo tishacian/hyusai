@@ -358,11 +358,20 @@ test('a fit in flight reads as work: a live check-list, and a stop', () => {
   // worker publishes are rendered as an ordered check-list, in the reader's own
   // language.
   assert.match(workshop, /data-testid="train-steps"/);
-  assert.match(workshop, /@for \(step of steps\(\); track step\.key\)/);
+  assert.match(workshop, /@for \(step of steps\(\); track step\.step\)/);
   assert.match(workshop, /\[attr\.data-state\]="step\.state"/);
-  assert.match(workshop, /i18n\.t\('models\.progress\.step\.' \+ step\.key\)/);
+  assert.match(workshop, /i18n\.t\(step\.key, step\.params\)/);
   assert.match(workshop, /data-testid="train-phase"/);
-  assert.match(workshop, /trainSteps\(this\.ml\.run\(\)\?\.status, this\.ml\.run\(\)\?\.status_detail\)/);
+  // The same list the model card and the models page draw, from the same
+  // function: a reader who starts a fit here and opens the card while it runs
+  // must not find two different accounts of where it got to.
+  assert.match(workshop, /trainChecklist\(/);
+  // The fold count comes from what was *asked for*, not from what the run has
+  // reported, or the list would grow a line halfway through a fit.
+  assert.match(
+    workshop,
+    /this\.ml\.run\(\)\?\.cross_validation \?\? this\.params\(\)\.cross_validation/,
+  );
   // Cancellable while it is genuinely in flight, and not once it is not.
   assert.match(workshop, /data-testid="cancel-train-run"/);
   assert.match(workshop, /\(click\)="ml\.cancel\(\)"/);

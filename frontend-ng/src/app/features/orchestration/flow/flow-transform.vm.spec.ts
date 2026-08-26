@@ -41,6 +41,7 @@ import {
   transformDefaultParams,
   transformEngineOf,
   transformErrorPosition,
+  transformChecklist,
   transformFailure,
   transformFailureFromExecution,
   transformFiles,
@@ -691,6 +692,41 @@ test('every engine label the workshop renders has FR and EN copy', () => {
     'flow.transform.dbt.build.refused',
     'flow.transform.dbt.build.failures',
   ]) {
+    assert.ok(FLOW_FR[key as keyof typeof FLOW_FR], `missing FR copy for ${key}`);
+    assert.ok(FLOW_EN[key as keyof typeof FLOW_EN], `missing EN copy for ${key}`);
+  }
+});
+
+test('a preview says which phase it is in, and skips one it will never enter', () => {
+  const states = (engine: 'sql' | 'polars' | 'dbt', phase: string | null) =>
+    transformChecklist(engine, phase).map((step) => `${step.phase}:${step.state}`);
+
+  // duckdb runs in the worker, so SQL has no environment to build. A line that
+  // will never tick reads as a step that is stuck.
+  assert.deepEqual(states('sql', 'queued'), ['queued:active', 'running:todo']);
+  assert.deepEqual(states('sql', 'running'), ['queued:done', 'running:active']);
+  // Polars and dbt do, and the first run in a workspace spends most of its wait
+  // there — which is the whole reason the phase is shown rather than a spinner.
+  assert.deepEqual(states('polars', 'env_building'), [
+    'queued:done',
+    'env_building:active',
+    'running:todo',
+  ]);
+  assert.deepEqual(states('dbt', 'running'), [
+    'queued:done',
+    'env_building:done',
+    'running:active',
+  ]);
+  // A terminal status, or none at all, is past every phase: the result or the
+  // refusal below says how it went.
+  for (const phase of ['succeeded', 'failed', 'cancelled', null, '']) {
+    assert.deepEqual(states('polars', phase), [
+      'queued:done',
+      'env_building:done',
+      'running:done',
+    ]);
+  }
+  for (const { key } of transformChecklist('dbt', 'queued')) {
     assert.ok(FLOW_FR[key as keyof typeof FLOW_FR], `missing FR copy for ${key}`);
     assert.ok(FLOW_EN[key as keyof typeof FLOW_EN], `missing EN copy for ${key}`);
   }

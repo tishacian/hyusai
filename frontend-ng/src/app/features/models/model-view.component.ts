@@ -69,7 +69,7 @@ import {
   previousVersion,
   primaryScore,
   splitError,
-  trainStepKey,
+  trainChecklist,
   trainingErrorKey,
   type ComparisonDto,
   type ComparisonMetricRow,
@@ -195,9 +195,20 @@ const CHART_ASPECT = 300 / 190;
             <app-icon name="loader-2" [size]="14" class="animate-spin" />
             {{ i18n.t('models.detail.progress.title') }}
           </div>
-          <div class="text-[11px] ck-mono mt-1" style="color: var(--ck-signal-cool)">
-            {{ i18n.t(stepKey(row.status_detail)) }}
-          </div>
+          <ol class="ck-steps" data-testid="train-checklist">
+            @for (step of checklist(); track step.step) {
+              <li class="ck-steps__item" [attr.data-state]="step.state">
+                @if (step.state === 'done') {
+                  <app-icon name="check" [size]="11" class="shrink-0" />
+                } @else if (step.state === 'active') {
+                  <span class="ck-pulse shrink-0"></span>
+                } @else {
+                  <span class="ck-steps__dot shrink-0"></span>
+                }
+                <span class="truncate">{{ i18n.t(step.key, step.params) }}</span>
+              </li>
+            }
+          </ol>
         </div>
       } @else if (row.status === 'failed') {
         <div class="ck-error rounded-md px-4 py-3 mb-3">
@@ -730,6 +741,63 @@ const CHART_ASPECT = 300 / 190;
       .ck-progress {
         border: 1px solid rgba(125, 211, 252, 0.25);
         background: rgba(125, 211, 252, 0.05);
+      }
+      /* Same check-list as the ingest plane's, and the same reason: one line at
+         a time is a spinner with a caption. A fit runs long enough — folds run
+         longer — that a reader needs to see where the frontier is. */
+      .ck-steps {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 12px;
+        margin-top: 5px;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      .ck-steps__item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+        color: var(--ck-fg-4, #8891a0);
+        transition: color var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
+      }
+      .ck-steps__item[data-state='done'] {
+        color: var(--ck-signal-pos, #4ade80);
+      }
+      .ck-steps__item[data-state='active'] {
+        color: var(--ck-signal-cool, #7dd3fc);
+      }
+      .ck-steps__item[data-state='todo'] {
+        opacity: 0.5;
+      }
+      .ck-steps__dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px currentColor;
+      }
+      .ck-pulse {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--ck-signal-cool, #7dd3fc);
+        animation: ck-train-pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes ck-train-pulse {
+        0%,
+        100% {
+          opacity: 0.35;
+          transform: scale(0.85);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.15);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .ck-pulse {
+          animation: none;
+        }
       }
       .ck-error {
         border: 1px solid rgba(239, 90, 111, 0.25);
@@ -1326,10 +1394,21 @@ export class ModelViewComponent implements OnInit {
     return isModelActive(model);
   }
 
-  /** The worker names its step as a code; the locale supplies the sentence. */
-  protected stepKey(detail: string | null | undefined): string {
-    return trainStepKey(detail);
-  }
+  /**
+   * The fit as a check-list, so a wait reads as distance covered.
+   *
+   * Same list the train studio draws, from the same function: a reader who
+   * started the fit in the studio and opened the card while it ran must not find
+   * two different accounts of where it got to.
+   */
+  protected readonly checklist = computed(() =>
+    trainChecklist(
+      this.model()?.status,
+      this.model()?.status_detail,
+      this.model()?.cross_validation,
+      this.i18n.locale(),
+    ),
+  );
 
   protected formatMetric(key: string, value: number | null | undefined): string {
     return formatMetric(key, value, this.i18n.locale());

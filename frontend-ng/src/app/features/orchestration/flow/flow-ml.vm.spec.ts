@@ -52,7 +52,6 @@ import {
   servingDescriptor,
   servingSummary,
   trainDefaultParams,
-  trainSteps,
   trainSummary,
 } from './flow-ml.vm';
 
@@ -439,36 +438,10 @@ test('choosing a lineage follows it; pinning a version freezes it', () => {
 // The live check-list
 // ---------------------------------------------------------------------------
 
-test('the check-list follows the step the row claims, and invents none', () => {
-  const states = (status: string | null, step: string | null) =>
-    trainSteps(status, step).map((view) => view.state);
-
-  assert.deepEqual(states('pending', 'queued'), [
-    'current',
-    'todo',
-    'todo',
-    'todo',
-    'todo',
-  ]);
-  assert.deepEqual(states('training', 'fitting'), [
-    'done',
-    'done',
-    'current',
-    'todo',
-    'todo',
-  ]);
-  // Training but silent: the run is past the queue, and no progress it did not
-  // claim is invented.
-  assert.deepEqual(states('training', null), ['done', 'current', 'todo', 'todo', 'todo']);
-  // A sentence from an older worker is not a step, and must not read as one.
-  assert.deepEqual(
-    states('training', 'Fitting HistGradientBoostingClassifier'),
-    ['done', 'current', 'todo', 'todo', 'todo'],
-  );
-  // Terminal ticks everything, failure included: the list says how far the run
-  // got, and the refusal says what stopped it.
-  for (const status of ['ready', 'failed', 'cancelled']) {
-    assert.deepEqual(states(status, 'fitting'), Array(TRAIN_STEPS.length).fill('done'));
-  }
+test('every step of a fit has copy in both languages', () => {
+  // The list itself is `trainChecklist`, exercised in `models.vm.spec.ts`; what
+  // is asserted here is that the studio can name what it draws.
   for (const step of TRAIN_STEPS) key(`models.progress.step.${step}`);
+  key('models.progress.step.fitting.counted');
+  key('models.progress.step.validating.counted');
 });
