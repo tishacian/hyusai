@@ -20,9 +20,9 @@ Three of its assertions are the ones worth having:
 * **The fit is reproducible.** Training the same rows with the same knobs twice
   must land on the same metric, or "v2 beats v1" means nothing on stage.
 
-Everything it creates is namespaced with a run stamp and removed at the end
-unless ``--keep`` is passed, so it can run against a demo VM without leaving
-rows on the pages the demo shows.
+Everything it creates is namespaced with a run stamp and removed on the way out
+— pass or fail, unless ``--keep`` is passed — so it can run against a demo VM
+without leaving rows on the pages the demo shows.
 
 Usage:
     python scripts/e2e_data_ml_live.py \
@@ -286,9 +286,40 @@ def primary_score(model: dict, key: str = "roc_auc") -> float:
     raise Failure(f"model has no {key} in its metrics: {json.dumps(model)[:400]}")
 
 
-def run(args: argparse.Namespace) -> int:
-    api = Api(args.base_url, insecure=args.insecure)
-    created: dict[str, list[str]] = {"datasets": [], "models": []}
+def remove_created(api: Api, created: dict[str, list[str]], *, keep: bool) -> None:
+    """Soft delete what this run made, whether or not the run got to the end.
+
+    Cleaning up only on success is the wrong way round: a green run leaves
+    nothing behind either way, and a red one is exactly when a stranger's rows
+    must not be sitting on the Data and Models pages the demo opens. Failures
+    here are swallowed, because a driver that reports "cleanup failed" instead
+    of the assertion that actually broke has hidden its own answer.
+    """
+
+    if keep:
+        log(f"kept: models={created['models']} datasets={created['datasets']}")
+        return
+
+    for model_id in created["models"]:
+        try:
+            api.request("DELETE", f"/api/v1/ml-models/{model_id}", expect=(200, 204, 404, 409))
+        except Exception:  # noqa: BLE001 - see the docstring
+            log(f"cleanup: could not remove model {model_id}")
+    for dataset_id in created["datasets"]:
+        try:
+            api.request("DELETE", f"/api/v1/datasets/{dataset_id}", expect=(200, 204, 404, 409))
+        except Exception:  # noqa: BLE001
+            log(f"cleanup: could not remove dataset {dataset_id}")
+    log(
+        f"cleanup: {len(created['models'])} model(s) and "
+        f"{len(created['datasets'])} dataset(s) soft-deleted"
+    )
+
+
+def run(args: argparse.Namespace, api: Api, created: dict[str, list[str]]) -> int:
+    """Walk the plane. The client and the ledger of what was made are the
+    caller's, so it can clean up whichever way this ends."""
+
     report: dict[str, Any] = {"base_url": args.base_url, "stamp": STAMP, "steps": {}}
 
     # ── 0. what is live ───────────────────────────────────────────────────
@@ -608,23 +639,6 @@ def run(args: argparse.Namespace) -> int:
         log("revoke: the revoked key stops answering immediately")
         report["steps"]["predict"]["revoked"] = True
 
-    # ── 7. leave the pages as they were ───────────────────────────────────
-    if not args.keep:
-        for model_id_ in created["models"]:
-            api.request(
-                "DELETE", f"/api/v1/ml-models/{model_id_}", expect=(200, 204, 404, 409)
-            )
-        for dataset_id_ in created["datasets"]:
-            api.request(
-                "DELETE", f"/api/v1/datasets/{dataset_id_}", expect=(200, 204, 404, 409)
-            )
-        log(
-            f"cleanup: {len(created['models'])} model(s) and "
-            f"{len(created['datasets'])} dataset(s) soft-deleted"
-        )
-    else:
-        log(f"kept: models={created['models']} datasets={created['datasets']}")
-
     report["created"] = created
     report["result"] = "passed"
     if args.report:
@@ -666,11 +680,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    api = Api(args.base_url, insecure=args.insecure)
+    created: dict[str, list[str]] = {"datasets": [], "models": []}
     try:
-        return run(args)
+        return run(args, api, created)
     except Failure as exc:
         print(f"E2E FAILED: {exc}", file=sys.stderr)
         return 1
+    finally:
+        remove_created(api, created, keep=args.keep)
 
 
 if __name__ == "__main__":
