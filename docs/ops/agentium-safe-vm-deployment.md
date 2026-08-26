@@ -4390,3 +4390,78 @@ autre question sous le même titre.
 - **`bob@globex.test` a de nouveau été ajouté membre** (`workspace_viewer`
   cette fois, ce qui est aussi le contrôle d'accès de la page) le temps des
   captures, et doit être retiré à la fin de la fenêtre.
+
+## Itération du 26/08 (soir) — le graphique du board, déployée sur `64f53239`
+
+GO deploy depuis un Cloud Agent, deux tranches successives : `dbfdf5f6` puis
+`64f53239`. Aucune migration dans l'une ni dans l'autre. Une fenêtre a été
+prise avant chaque `--reset` (`postgres-pre-switch.dump` et
+`postgres-pre-reseed.dump`, sha256 relevés dans
+`/srv/agentium-data/flow-publication-deployments/2026-08-26-dbfdf5f6fdec`).
+
+La demande était de rendre les graphiques de l'app présentables. Le bloc
+`chart` certifié dessinait ses barres avec `ck-bar-list`, le composant du plan
+data : des règles de 5 px et du mono en 10,5 px, conçus pour classer vingt
+importances de variables dans un panneau latéral. Le board de rétention est lu
+à une autre distance — par quelqu'un qui décide de financer une campagne, et
+souvent par-dessus une épaule — et à cette taille la même image se lit comme
+une note de bas de page.
+
+**Ce que la tranche change.** Les barres sont désormais le balisage du bloc :
+14 px, un remplissage qui va du translucide au plein pour que la barre ait un
+sens de lecture, une lueur qui la pose sur son rail, et un balayage décalé à
+l'arrivée des données. La largeur est portée par l'élément et le balayage est
+un `scaleX`, donc une barre est à sa place dès la première image même si
+l'animation ne joue jamais — ce qui compte, parce que la règle globale
+`prefers-reduced-motion` annule la durée mais pas le délai. Chaque barre porte
+sa part du total, retirée dès qu'une valeur est négative et rendue `<1%`
+sous le point, pour qu'une bande de trois abonnés ne se lise pas comme un zéro
+mesuré. Le donut écrit son total dans le moyeu.
+
+**La palette est optionnelle, et c'est le point.** `severity` parcourt
+vert → ambre → rouge dans l'ordre où les lignes arrivent. C'est juste pour des
+bandes de risque, faux pour des régions : un dégradé sur des catégories
+rapporte un classement que personne n'a mesuré. Le défaut ne classe rien, et
+le champ de l'atelier porte l'avertissement en libellé.
+
+**Ce que la VM a trouvé.**
+
+- **Le board ne reprend pas un document modifié par le seed sans `--reset`.**
+  `ensure_board_experience` ne re-publie pas une page existante — c'est
+  volontaire, sinon un re-seed écraserait le travail d'un opérateur. La
+  première capture montrait donc les nouvelles barres avec l'ancienne palette.
+  `--reset` est le chemin documenté pour un changement de copie seedée ; il a
+  été rejoué et le seed est sorti vert (`SEED EXIT=0`, 7 datasets, 3 modèles).
+- **L'interpolation en sRGB donnait une bande médiane olive.** Moyenner canal
+  par canal entre le vert et l'ambre emprunte la corde la plus courte du cube,
+  qui passe près de son centre : la couleur arrive désaturée et se lit comme un
+  défaut de rendu entre deux barres nettes. Corrigé en interpolant en OkLCH, en
+  parcourant le cercle des teintes par le court chemin. Le gris est traité à
+  part : il a des coordonnées mais pas de teinte, et interpoler vers lui
+  ferait dévier l'arc au hasard.
+- **La page `/work` impose son thème clair.** Le chrome suit le thème de
+  l'application, les tuiles du board non. La rampe s'affiche donc toujours dans
+  ses valeurs claires, où l'ambre `#c27803` est volontairement sombre pour
+  rester lisible en texte : la deuxième bande est un or foncé plutôt qu'un jaune
+  vif. C'est le bon compromis sur un panneau presque blanc, où un jaune vif
+  serait l'élément le plus faible de la page.
+
+**Observables.** `#34d399 → #cac546 → #fc9841 → #ef5a6f` en thème sombre,
+`#0e9f6e → #9f8a00 → #cf6510 → #d93a52` en clair. Board vivant :
+4 549 (66 %) / 1 354 (20 %) / 732 (11 %) / 268 (4 %), soit les mêmes 6 903
+lignes que les tuiles voisines. Barrières : 1 276 tests unitaires front,
+`check:i18n` sur 6 862 clés, `build:prod`, 50 tests du seed.
+
+**Dette laissée.**
+
+- **Un bloc court à côté d'un bloc haut laisse un vide.** La grille étire les
+  tuiles d'une même rangée ; sur la page catalogue, le graphique en barres est
+  suivi d'un vide de la hauteur du donut. Le board n'en souffre pas — le
+  graphique y voisine un encart de hauteur comparable — et corriger la
+  répartition verticale toucherait tous les types de blocs, pas seulement le
+  graphique.
+- **Le donut n'a aucune surface seedée.** Il ne se photographie que sur la page
+  catalogue de l'atelier. Le board n'en affiche pas, et lui en ajouter un serait
+  une décision de produit, pas une amélioration de rendu.
+- **`bob@globex.test` a été retiré de `nawa`** à la fin des captures ; la table
+  est revenue à ses deux membres réels.
