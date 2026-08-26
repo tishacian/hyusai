@@ -38,6 +38,7 @@ Usage:
     python -m scripts.seed_nawa_data_demo --skip-runs           # no Flow runs
     python -m scripts.seed_nawa_data_demo --skip-radio          # no dbt run
     python -m scripts.seed_nawa_data_demo --refresh             # add versions
+    python -m scripts.seed_nawa_data_demo --reset               # replace, in place
 """
 
 from __future__ import annotations
@@ -87,12 +88,12 @@ DEFAULT_WORKSPACE_SLUG = "nawa"
 DEFAULT_WORKSPACE_NAME = "Nawa"
 SEED_ACTOR = "nawa-data-seed"
 
-RAW_DATASET_NAME = "Base clients — export brut"
-CLEAN_DATASET_NAME = "Base clients — nettoyée"
-FEATURE_DATASET_NAME = "Base clients — features"
-SCORED_DATASET_NAME = "Base clients — scorée"
-NETWORK_DATASET_NAME = "KPI cellules radio"
-RADIO_DATASET_NAME = "Cellules à risque — 7 jours"
+RAW_DATASET_NAME = "Subscriber base — raw export"
+CLEAN_DATASET_NAME = "Subscriber base — cleaned"
+FEATURE_DATASET_NAME = "Subscriber base — features"
+SCORED_DATASET_NAME = "Subscriber base — scored"
+NETWORK_DATASET_NAME = "Radio cell KPIs"
+RADIO_DATASET_NAME = "Cells at risk — 7 days"
 
 MODEL_NAME = "Churn Radar"
 
@@ -100,6 +101,7 @@ CHURN_SYSTEM_NAME = "Churn Radar"
 RADIO_SYSTEM_NAME = "Radio Watch"
 CHURN_CAPABILITY_SLUG = "nawa_churn_radar"
 RADIO_CAPABILITY_SLUG = "nawa_radio_watch"
+API_KEY_NAME = "Nawa demo"
 
 CHURN_SKILL_SLUGS = [
     "sql_transform_v1",
@@ -138,10 +140,10 @@ def transform(inputs: dict[str, pl.DataFrame]) -> pl.DataFrame:
         (pl.col("voice_minutes") + 0.5 * pl.col("sms_count")).alias("usage_index"),
         (pl.col("intl_minutes") + 12.0 * pl.col("roaming_days")).round(1).alias("mobility_index"),
         pl.when(pl.col("tenure_months") <= 6)
-        .then(pl.lit("nouveau"))
+        .then(pl.lit("new"))
         .when(pl.col("tenure_months") <= 24)
-        .then(pl.lit("installé"))
-        .otherwise(pl.lit("fidèle"))
+        .then(pl.lit("established"))
+        .otherwise(pl.lit("loyal"))
         .alias("tenure_band"),
         (pl.col("promo_discount_pct") > 0).cast(pl.Int8).alias("on_promo"),
         # Whether the survey was answered at all. Not a hole to be filled: the
@@ -246,9 +248,9 @@ RADIO_MODELS = [
             "    round(recent.prb_pct - previous.prb_pct, 2)   as prb_pct_delta,\n"
             "    round(recent.drop_pct - previous.drop_pct, 3) as drop_pct_delta,\n"
             "    case\n"
-            "        when recent.prb_pct >= 85 then 'critique'\n"
-            "        when recent.prb_pct >= 70 then 'surveillé'\n"
-            "        else 'sain'\n"
+            "        when recent.prb_pct >= 85 then 'critical'\n"
+            "        when recent.prb_pct >= 70 then 'watch'\n"
+            "        else 'healthy'\n"
             "    end as risk_band\n"
             "from per_window recent\n"
             "left join per_window previous\n"
@@ -280,19 +282,21 @@ models:
         description: Congestion band derived from busy-hour PRB utilisation.
         tests:
           - accepted_values:
-              values: ['critique', 'surveillé', 'sain']
+              values: ['critical', 'watch', 'healthy']
 """
 
-#: The FR synthesis prompt of the last node before the sink. Written as a
-#: literal on the node so the demo can edit it live in the inspector.
+#: The synthesis prompt of the last node before the sink. Written as a literal
+#: on the node so the demo can edit it live in the inspector. English, like
+#: every other string the audience reads: the agentic half of the canvas has to
+#: speak the same language as the data half.
 BRIEF_PROMPT = (
-    "Tu es analyste rétention chez un opérateur télécom marocain. "
-    "À partir de la table de scoring churn qui vient d'être produite "
-    "(colonnes : msisdn, region, plan, contract, tenure_months, arpu_mad, "
-    "prediction, confidence, score_churn), rédige en français une synthèse de "
-    "8 lignes maximum pour le comité de rétention : les trois segments les plus "
-    "à risque, le manque à gagner mensuel estimé, et une action de rétention "
-    "par segment. Cite des chiffres, pas des généralités."
+    "You are a retention analyst at a Moroccan telecom operator. "
+    "From the churn scoring table that has just been produced "
+    "(columns: msisdn, region, plan, contract, tenure_months, arpu_mad, "
+    "prediction, confidence, score_churn), write an English brief of at most "
+    "8 lines for the retention committee: the three segments most at risk, the "
+    "estimated monthly revenue at stake, and one retention action per segment. "
+    "Quote figures, not generalities."
 )
 
 
@@ -425,8 +429,8 @@ def _reusable_dataset(
     silently reusing the old shape.
 
     The *earliest* match, which is the part that took a run to learn: the Churn
-    Radar Flow cleans the base as well, so after one run two ready "Base clients
-    — nettoyée" versions exist with identical row counts. Reaching for the newest
+    Radar Flow cleans the base as well, so after one run two ready "Subscriber
+    base — cleaned" versions exist with identical row counts. Reaching for the newest
     moved this anchor onto the Flow's output, whose id no longer matched the
     dataset the seeded models were fitted against — so those models looked absent
     and were retrained, which is exactly the duplication this function exists to
@@ -515,9 +519,9 @@ def ensure_datasets(
             filename="nawa_churn_raw.csv",
             frame=churn_raw_frame(seed=seed),
             description=(
-                "Export mensuel du référentiel abonnés : doublons de snapshot, "
-                "lignes suspendues, régions orthographiées de quatre façons, ARPU "
-                "manquant ou à -1. Tel qu'il arrive."
+                "Monthly export of the subscriber master: duplicate snapshots, "
+                "suspended lines, regions spelled four different ways, ARPU "
+                "missing or set to -1. Exactly as it arrives."
             ),
         )
     else:
@@ -536,8 +540,8 @@ def ensure_datasets(
             filename="nawa_network_cells.csv",
             frame=network_cell_frame(seed=seed),
             description=(
-                "KPI radio horaires par cellule sur 14 jours : PRB, débit, "
-                "latence, taux de coupure, énergie."
+                "Hourly radio KPIs per cell over 14 days: PRB utilisation, "
+                "throughput, latency, drop-call rate, energy."
             ),
         )
     else:
@@ -598,12 +602,12 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
             {
                 "id": "src",
                 "kind": "source",
-                "label": "Déclencheur",
+                "label": "Trigger",
                 "position": {"x": 40, "y": 220},
                 "data": {
                     "description": (
-                        "Déclenchement manuel ou planifié. Aucune entrée requise : "
-                        "le pipeline part du dataset épinglé sur le nœud suivant."
+                        "Manual or scheduled. No input required: the pipeline "
+                        "starts from the dataset pinned on the next node."
                     )
                 },
             },
@@ -611,7 +615,7 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 "id": "task.clean",
                 "kind": "task",
                 "type": "task",
-                "label": "Nettoyage SQL",
+                "label": "SQL cleanup",
                 "position": {"x": 260, "y": 220},
                 "config": {
                     "skill_slug": "sql_transform_v1",
@@ -623,9 +627,9 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 },
                 "data": {
                     "description": (
-                        "duckdb sur le Parquet : dédoublonnage par msisdn (snapshot "
-                        "le plus récent), lignes actives seulement, ARPU renseigné "
-                        "et positif, régions normalisées."
+                        "duckdb over the Parquet: deduplicated by msisdn (latest "
+                        "snapshot), active lines only, ARPU present and positive, "
+                        "regions normalised."
                     )
                 },
             },
@@ -633,7 +637,7 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 "id": "task.features",
                 "kind": "task",
                 "type": "task",
-                "label": "Features Polars",
+                "label": "Polars features",
                 "position": {"x": 500, "y": 220},
                 "config": {
                     "skill_slug": "polars_transform_v1",
@@ -644,8 +648,8 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 },
                 "data": {
                     "description": (
-                        "Ratios et bandes d'ancienneté calculés par un script "
-                        "Polars exécuté en environnement isolé."
+                        "Ratios and tenure bands computed by a Polars script "
+                        "running in an isolated environment."
                     )
                 },
             },
@@ -653,7 +657,7 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 "id": "task.train",
                 "kind": "task",
                 "type": "task",
-                "label": "Entraînement churn",
+                "label": "Churn training",
                 "position": {"x": 740, "y": 220},
                 "config": {
                     "skill_slug": "ml_train_sklearn_v1",
@@ -670,10 +674,10 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 },
                 "data": {
                     "description": (
-                        "Prétraitement décidé par skrub, gradient boosting "
-                        "scikit-learn, artefact au format MLflow. Une nouvelle "
-                        "version de la lignée à chaque exécution ; le champion en "
-                        "place n'est pas remplacé automatiquement."
+                        "Preprocessing decided by skrub, scikit-learn gradient "
+                        "boosting, artifact in MLflow format. A new version of "
+                        "the lineage on every execution; the serving champion is "
+                        "never replaced automatically."
                     )
                 },
             },
@@ -681,7 +685,7 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 "id": "task.score",
                 "kind": "task",
                 "type": "task",
-                "label": "Scoring du parc",
+                "label": "Score the base",
                 "position": {"x": 980, "y": 220},
                 "config": {
                     "skill_slug": "ml_batch_score_v1",
@@ -693,9 +697,9 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 },
                 "data": {
                     "description": (
-                        "Le champion de la lignée répond — pas la dernière version "
-                        "entraînée. Le dataset produit garde toutes les colonnes "
-                        "d'entrée et ajoute prédiction, confiance et score."
+                        "The lineage's champion answers — not the version just "
+                        "trained. The dataset produced keeps every input column "
+                        "and adds prediction, confidence and score."
                     )
                 },
             },
@@ -703,7 +707,7 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 "id": "task.brief",
                 "kind": "task",
                 "type": "llm",
-                "label": "Synthèse rétention (FR)",
+                "label": "Retention brief",
                 "position": {"x": 1220, "y": 220},
                 "config": {
                     "skill_slug": "azure_llm_v1",
@@ -720,15 +724,15 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 },
                 "data": {
                     "description": (
-                        "Le plan agentique consomme le plan data : une synthèse "
-                        "française des segments à risque, dans le même canvas."
+                        "The agentic plane consumes the data plane: a written "
+                        "brief on the segments at risk, in the same canvas."
                     )
                 },
             },
             {
                 "id": "sink",
                 "kind": "sink",
-                "label": "Résultat",
+                "label": "Result",
                 "position": {"x": 1460, "y": 220},
             },
         ],
@@ -754,14 +758,14 @@ def radio_flow(*, network_slug: str) -> dict[str, Any]:
             {
                 "id": "src",
                 "kind": "source",
-                "label": "Déclencheur",
+                "label": "Trigger",
                 "position": {"x": 40, "y": 200},
             },
             {
                 "id": "task.dbt",
                 "kind": "task",
                 "type": "task",
-                "label": "dbt — cellules à risque",
+                "label": "dbt — cells at risk",
                 "position": {"x": 300, "y": 200},
                 "config": {
                     "skill_slug": "dbt_transform_v1",
@@ -775,9 +779,9 @@ def radio_flow(*, network_slug: str) -> dict[str, Any]:
                 },
                 "data": {
                     "description": (
-                        "dbt-duckdb en environnement isolé : staging + mart, et "
-                        "deux tests de données qui décident si le résultat est "
-                        "publiable."
+                        "dbt-duckdb in an isolated environment: staging + mart, "
+                        "and two data tests that decide whether the result is "
+                        "publishable."
                     )
                 },
             },
@@ -853,7 +857,7 @@ def ensure_system(
             actor=SEED_ACTOR,
             publish_if_owned=True,
             ownership_prefix=SEED_ACTOR,
-            message=f"{name} — réconciliation seed",
+            message=f"{name} — seed reconciliation",
         )
         system.updated_at = datetime.utcnow()
     else:
@@ -1013,15 +1017,15 @@ def seed_model_history(
         (
             "linear",
             {"max_iter": 1000},
-            "Régression logistique sur la base nettoyée. Le premier modèle mis "
-            "en service : interprétable, et resté en place faute de challenger.",
+            "Logistic regression on the cleaned base. The first model put in "
+            "service: interpretable, and still there for want of a challenger.",
         ),
         (
             "gradient_boosting",
             {"max_iter": 220, "learning_rate": 0.08},
-            "Mêmes données, mêmes 20 colonnes, gradient boosting : ce que change "
-            "l'estimateur seul. Les interactions et la non-réponse au sondage "
-            "expliquent l'écart.",
+            "Same data, same 20 columns, gradient boosting: what the estimator "
+            "alone changes. Interactions and survey non-response account for "
+            "the gap.",
         ),
     )
     history: list[MLModel] = []
@@ -1094,13 +1098,13 @@ def publish_and_mint(db: DBSession, model: MLModel) -> dict[str, Any]:
     existing = [
         row
         for row in list_api_keys(db, model=model)
-        if row.name == "Démo Nawa" and row.revoked_at is None
+        if row.name == API_KEY_NAME and row.revoked_at is None
     ]
     if existing:
         print(f"api key kept: prefix={existing[0].key_prefix} (secret shown once only)")
         return {"skill": published, "api_key_prefix": existing[0].key_prefix, "secret": None}
 
-    row, secret = mint_api_key(db, model=model, name="Démo Nawa", created_by=SEED_ACTOR)
+    row, secret = mint_api_key(db, model=model, name=API_KEY_NAME, created_by=SEED_ACTOR)
     assert isinstance(row, MLModelApiKey)
     print(f"api key minted: prefix={row.key_prefix}")
     return {"skill": published, "api_key_prefix": row.key_prefix, "secret": secret}
@@ -1154,9 +1158,9 @@ def run_system(db: DBSession, workspace: Workspace, system: System) -> dict[str,
         badge = node["data"]
         figure = ""
         if badge.get("rows_in") and badge.get("rows_out"):
-            figure = f"{badge['rows_in']} → {badge['rows_out']} lignes"
+            figure = f"{badge['rows_in']} → {badge['rows_out']} rows"
         elif badge.get("rows_out") or badge.get("rows_in"):
-            figure = f"{badge.get('rows_out') or badge.get('rows_in')} lignes"
+            figure = f"{badge.get('rows_out') or badge.get('rows_in')} rows"
         if badge.get("metric"):
             figure = f"{figure} · {badge['metric'].get('key')} {badge['metric'].get('value')}".strip(" ·")
         print(
@@ -1166,6 +1170,91 @@ def run_system(db: DBSession, workspace: Workspace, system: System) -> dict[str,
         if node["error"]:
             print(f"    error: {str(node['error'])[:200]}")
     return {"run_id": run_id, "status": fresh.status, "nodes": nodes}
+
+
+# ---------------------------------------------------------------------------
+# Reset
+# ---------------------------------------------------------------------------
+
+
+def owned_datasets(db: DBSession, workspace: Workspace) -> list[TabularDataset]:
+    """Every live dataset this demo is responsible for, oldest first.
+
+    Found by walking lineage rather than by matching names, which is what makes
+    it survive a rename: the two uploads are the seed's because it stamped
+    ``created_by``, and everything else the demo owns descends from them through
+    ``parent_ids``. A dataset somebody else uploaded into the same workspace has
+    no such ancestor and is therefore never touched.
+    """
+
+    rows = (
+        db.query(TabularDataset)
+        .filter(
+            TabularDataset.workspace_id == workspace.id,
+            TabularDataset.status != "deleted",
+        )
+        .order_by(TabularDataset.created_at.asc())
+        .all()
+    )
+    owned = {row.id for row in rows if row.created_by == SEED_ACTOR}
+    # One pass per generation. The chain is five deep, so bounding the loop by
+    # the row count is generous rather than clever.
+    for _ in range(len(rows)):
+        grew = False
+        for row in rows:
+            if row.id in owned:
+                continue
+            if owned.intersection(row.parent_ids or []):
+                owned.add(row.id)
+                grew = True
+        if not grew:
+            break
+    return [row for row in rows if row.id in owned]
+
+
+def reset(db: DBSession, workspace: Workspace) -> dict[str, int]:
+    """Retire the tables and models a previous seed left, so a re-seed replaces
+    them rather than sitting beside them.
+
+    Needed the day the seeded copy changes language: names drive slugs, and a
+    seed that only ever adds would leave the old incarnation on the Data page
+    next to the new one. Deliberately narrow — the demo's own dataset lineage
+    and its ``Churn Radar`` versions — because ``nawa`` is a real workspace with
+    other content in it.
+
+    The two Systems are **not** removed, and that is the point: ``ensure_system``
+    already reconciles their graph, so a re-seed rewrites the node labels in
+    place and the run history behind them survives. What has to go is what the
+    seed can only ever add to.
+
+    Models go first: a version holds a foreign key to the table it was fitted
+    on, and ``delete_model`` is what also clears the API key, the registry
+    version and the published Skill that must not outlive it.
+    """
+
+    from app.services.tabular_datasets import soft_delete
+    from app.services.tabular_ml import delete_model
+
+    tally = {"models": 0, "datasets": 0}
+
+    for model in (
+        db.query(MLModel)
+        .filter(MLModel.workspace_id == workspace.id, MLModel.name == MODEL_NAME)
+        .order_by(MLModel.version.desc())
+        .all()
+    ):
+        print(f"reset: model {model.name} v{model.version} ({model.algo})")
+        delete_model(db, model)
+        tally["models"] += 1
+
+    for dataset in reversed(owned_datasets(db, workspace)):
+        print(f"reset: dataset {dataset.name} v{dataset.version}")
+        soft_delete(db, dataset)
+        tally["datasets"] += 1
+    db.commit()
+
+    print("reset: {models} model versions, {datasets} datasets".format(**tally))
+    return tally
 
 
 # ---------------------------------------------------------------------------
@@ -1184,6 +1273,7 @@ def seed(
     skip_runs: bool = False,
     skip_radio: bool = False,
     refresh: bool = False,
+    reset_first: bool = False,
 ) -> dict[str, Any]:
     """The whole demo, in the order the story needs it to exist.
 
@@ -1196,6 +1286,8 @@ def seed(
 
     seed_skills_and_capabilities(db)
     workspace = ensure_workspace(db, workspace_slug, workspace_name)
+    if reset_first:
+        reset(db, workspace)
 
     datasets = ensure_datasets(db, workspace, seed=seed_value, refresh=refresh)
     history = seed_model_history(db, workspace, datasets["cleaned"])
@@ -1210,9 +1302,9 @@ def seed(
         slug=CHURN_CAPABILITY_SLUG,
         name="Churn Radar",
         description=(
-            "Nettoie le référentiel abonnés, dérive les features de rétention, "
-            "entraîne et évalue un modèle de churn, score le parc et synthétise "
-            "les segments à risque en français."
+            "Cleans the subscriber master, derives the retention features, fits "
+            "and evaluates a churn model, scores the base and briefs the "
+            "segments at risk."
         ),
         skill_slugs=CHURN_SKILL_SLUGS,
         input_unit="subscriber_base",
@@ -1225,8 +1317,8 @@ def seed(
         slug=RADIO_CAPABILITY_SLUG,
         name="Radio Watch",
         description=(
-            "Agrège les KPI radio horaires en une liste de cellules à risque de "
-            "congestion, avec delta 7 jours et tests de données bloquants."
+            "Aggregates the hourly radio KPIs into a list of cells at risk of "
+            "congestion, with a 7-day delta and blocking data tests."
         ),
         skill_slugs=RADIO_SKILL_SLUGS,
         input_unit="cell_kpi_series",
@@ -1240,8 +1332,8 @@ def seed(
         churn_capability,
         name=CHURN_SYSTEM_NAME,
         objective=(
-            "Produire chaque mois la liste des abonnés à risque de résiliation et "
-            "la synthèse de rétention qui va avec."
+            "Produce, every month, the list of subscribers at risk of leaving "
+            "and the retention brief that goes with it."
         ),
         flow=churn_flow(
             raw_slug=datasets["raw"].slug,
@@ -1256,8 +1348,8 @@ def seed(
         radio_capability,
         name=RADIO_SYSTEM_NAME,
         objective=(
-            "Publier la watchlist des cellules radio en congestion à l'heure de "
-            "pointe, tests de données à l'appui."
+            "Publish the watchlist of radio cells congested at busy hour, with "
+            "the data tests to back it."
         ),
         flow=radio_flow(network_slug=datasets["network"].slug),
         system_type="radio_watch",
@@ -1328,6 +1420,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "first one left."
         ),
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help=(
+            "Remove the demo's own datasets, model versions, Systems and runs "
+            "before seeding, so a re-seed replaces the previous incarnation "
+            "instead of sitting beside it. Use it when the seeded copy has "
+            "changed; it discards the champion promoted on stage."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1344,6 +1446,7 @@ def main(argv: list[str] | None = None) -> int:
             skip_runs=args.skip_runs,
             skip_radio=args.skip_radio,
             refresh=args.refresh,
+            reset_first=args.reset,
         )
     finally:
         db.close()

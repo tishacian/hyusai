@@ -511,7 +511,7 @@ async def test_an_llm_node_downstream_of_a_scoring_node_still_calls_a_model(monk
     # does not read.
     envelope = {
         "dataset_id": "ds-scored",
-        "slug": "base-clients-scoree",
+        "slug": "subscriber-base-scored",
         "model": {
             "model_id": "mdl-1",
             "slug": "churn-radar",
@@ -522,7 +522,7 @@ async def test_an_llm_node_downstream_of_a_scoring_node_still_calls_a_model(monk
     }
 
     result = await wrappers._azure_llm_v1(
-        {**envelope, "prompt": "Résume les segments à risque."}
+        {**envelope, "prompt": "Summarise the segments at risk."}
     )
 
     assert calls, "the provider was never called"

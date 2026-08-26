@@ -205,7 +205,7 @@ def test_the_radio_table_has_a_busy_hour_and_cells_that_degrade():
     # The evening streaming peak is the busy hour the mart filters on (19h–23h).
     assert by_hour["hour"][0] in range(19, 24)
 
-    # A congested tail: the mart's 'critique' band has to have members.
+    # A congested tail: the mart's 'critical' band has to have members.
     busy = frame.filter(pl.col("ts").dt.hour().is_between(19, 23))
     per_cell = busy.group_by("cell_id").agg(
         pl.col("prb_utilization_pct").mean().alias("prb")
@@ -278,7 +278,7 @@ def test_the_watchlist_separates_standing_problems_from_new_ones():
     """The table the demo reads out loud, asserted as the demo reads it.
 
     Two claims, and they are the argument for the node existing. First, the
-    ``critique`` band is a shortlist an engineer could actually work — a
+    ``critical`` band is a shortlist an engineer could actually work — a
     watchlist naming a third of the fleet is a report nobody opens. Second, the
     delta column separates the cells that just broke from the ones that have
     been broken for months, by a margin wide enough to point at on stage.
@@ -287,11 +287,11 @@ def test_the_watchlist_separates_standing_problems_from_new_ones():
     watchlist = _watchlist()
     assert watchlist.height == CELLS
     assert watchlist["cell_id"].n_unique() == CELLS  # the mart's `unique` test
-    assert set(watchlist["risk_band"].unique()) <= {"critique", "surveillé", "sain"}
+    assert set(watchlist["risk_band"].unique()) <= {"critical", "watch", "healthy"}
 
-    critique = watchlist.filter(pl.col("risk_band") == "critique")
-    assert DEGRADING_CELLS < critique.height <= CELLS // 6, critique.height
-    assert watchlist.filter(pl.col("risk_band") == "sain").height > CELLS // 2
+    critical = watchlist.filter(pl.col("risk_band") == "critical")
+    assert DEGRADING_CELLS < critical.height <= CELLS // 6, critical.height
+    assert watchlist.filter(pl.col("risk_band") == "healthy").height > CELLS // 2
 
     # The movers, and the gap between them and the noise floor of the column.
     climbing = watchlist.sort("prb_pct_delta", descending=True)
@@ -464,7 +464,7 @@ def _dataset(db_session, workspace, *, name, version, rows, status="ready"):
         id=str(uuid4()),
         workspace_id=workspace.id,
         name=name,
-        slug="base-clients-nettoyee",
+        slug="subscriber-base-cleaned",
         version=version,
         status=status,
         row_count=rows,
@@ -500,7 +500,7 @@ def _model(db_session, workspace, *, version, algo, features, dataset, status="r
 def test_a_rerun_anchors_on_the_version_the_seed_itself_created(db_session, workspace):
     """The Flow cleans the base too, so "latest" is the wrong anchor.
 
-    After one run there are two ready ``Base clients — nettoyée`` versions with
+    After one run there are two ready ``Subscriber base — cleaned`` versions with
     identical row counts: the seed's, and the Churn Radar Flow's. Reaching for
     the newest moved the anchor onto the Flow's output, whose id no longer
     matched the dataset the seeded models were fitted against — so the models
