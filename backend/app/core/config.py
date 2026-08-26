@@ -632,7 +632,10 @@ class Settings(BaseSettings):
     # recomputed later is worth a few megabytes, not a few hundred. 0 to disable.
     ml_train_report_state_limit_mb: int = Field(default=64, ge=0)
     ml_train_importance_rows: int = Field(default=2_000, ge=100)
-    ml_train_curve_points: int = Field(default=120, ge=10, le=1_000)
+    # Points kept per curve. A ROC is drawn ~300px wide, so 500 samples is more
+    # than one per pixel — the cap exists to bound the JSON a model card carries,
+    # not to smooth the curve, and at 120 a steep early climb visibly stepped.
+    ml_train_curve_points: int = Field(default=500, ge=10, le=2_000)
     ml_train_threads: int = Field(default=2, ge=1, le=64)
     # Fixed by default so retraining the same dataset with the same knobs is a
     # comparison and not a coin toss — the demo claim "v2 beats v1" has to mean

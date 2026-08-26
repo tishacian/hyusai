@@ -119,6 +119,13 @@ const CHART: CurveBox = { width: 300, height: 190 };
         [kpis]="kpis()"
       >
         <div status class="flex items-center gap-1.5">
+          <!-- Which version this page is. Every other version of the lineage
+               shares this page's title, so without it the reader has to open the
+               Versions tab to learn whether they are looking at the one that
+               serves. -->
+          <span class="ck-badge ck-mono" data-testid="hero-version">
+            {{ i18n.t('models.versions.label', { version: row.version }) }}
+          </span>
           @if (row.is_champion) {
             <span class="ck-badge ck-badge--champion ck-mono">
               <app-icon name="crown" [size]="10" /> {{ i18n.t('models.detail.serving') }}
@@ -591,6 +598,33 @@ const CHART: CurveBox = { width: 300, height: 190 };
         <ck-tab id="versions" [label]="i18n.t('models.detail.tab.versions')">
           <div class="space-y-2">
             <div class="ck-hint">{{ i18n.t('models.versions.hint') }}</div>
+            <!-- The lineage as one line, oldest to newest. The list below says
+                 the same thing in more words; this says it in a shape, which is
+                 what makes "v3 is the third attempt and it is the one serving"
+                 legible without reading three rows. -->
+            @if (lineage().length > 1) {
+              <ol class="ck-lineage" data-testid="lineage-chain">
+                @for (link of lineage(); track link.id) {
+                  <li class="ck-lineage__item">
+                    <a
+                      [routerLink]="['/models', link.id]"
+                      class="ck-lineage__link"
+                      [attr.data-current]="link.current"
+                      [attr.data-champion]="link.champion"
+                      [title]="link.hint"
+                    >
+                      @if (link.champion) {
+                        <app-icon name="crown" [size]="9" />
+                      }
+                      {{ i18n.t('models.versions.label', { version: link.version }) }}
+                      @if (link.score) {
+                        <em>{{ link.score }}</em>
+                      }
+                    </a>
+                  </li>
+                }
+              </ol>
+            }
             <ul class="space-y-2">
               @for (version of versions(); track version.id) {
                 <li>
@@ -703,6 +737,66 @@ const CHART: CurveBox = { width: 300, height: 190 };
         line-height: 1.45;
         color: var(--ck-fg-4, #8891a0);
         margin-top: 6px;
+      }
+      /* The lineage as a chain. The arrows are drawn with ::after rather than
+         put in the markup so they are not read out as content — a screen reader
+         announcing "v1 arrow v2 arrow v3" is worse than reading three links. */
+      .ck-lineage {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0;
+        margin: 0 0 4px;
+        padding: 0;
+        list-style: none;
+      }
+      .ck-lineage__item:not(:last-child)::after {
+        content: '→';
+        margin: 0 6px;
+        color: var(--ck-fg-4, #8891a0);
+        font-size: 11px;
+      }
+      .ck-lineage__item {
+        display: flex;
+        align-items: center;
+      }
+      .ck-lineage__link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font: 10.5px / 1 var(--ck-font-mono, monospace);
+        color: var(--ck-fg-3, #a6aebc);
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+        transition:
+          color var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease),
+          box-shadow var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
+      }
+      .ck-lineage__link em {
+        font-style: normal;
+        font-variant-numeric: tabular-nums;
+        color: var(--ck-fg-4, #8891a0);
+      }
+      .ck-lineage__link:hover {
+        color: var(--ck-fg-1, #e6e9ee);
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-3, rgba(255, 255, 255, 0.16));
+      }
+      /* The version being read is filled; the one that serves is outlined. Two
+         different facts, so two different cues rather than two shades of one. */
+      .ck-lineage__link[data-current='true'] {
+        color: var(--ck-fg-1, #e6e9ee);
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.06));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-3, rgba(255, 255, 255, 0.18));
+      }
+      .ck-lineage__link[data-champion='true'] {
+        color: var(--ck-signal-pos, #4ade80);
+        box-shadow: inset 0 0 0 1px
+          color-mix(in srgb, var(--ck-signal-pos, #4ade80) 45%, transparent);
+      }
+      .ck-lineage__link:focus-visible {
+        outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+        outline-offset: 1px;
       }
       .ck-scores {
         display: flex;
@@ -1270,6 +1364,30 @@ export class ModelViewComponent implements OnInit {
     if (!rows.length) return '';
     return JSON.stringify(rows[0], null, 2);
   }
+
+  /**
+   * The lineage oldest-first, as links carrying their own verdict.
+   *
+   * Oldest-first even though the list below is newest-first, because a chain is
+   * read as a progression and a progression runs forwards: `v1 → v2 → v3` says
+   * the work improved, and the same three reversed says nothing at all.
+   */
+  protected readonly lineage = computed(() => {
+    const current = this.model()?.id;
+    return [...this.versions()]
+      .sort((left, right) => left.version - right.version)
+      .map((version) => {
+        const score = this.scoreOf(version);
+        return {
+          id: version.id,
+          version: version.version,
+          champion: version.is_champion,
+          current: version.id === current,
+          score: score?.display ?? '',
+          hint: this.versionLine(version),
+        };
+      });
+  });
 
   protected versionLine(version: ModelDto): string {
     const trained = version.trained_at

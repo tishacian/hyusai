@@ -169,3 +169,44 @@ test('promotion hands back both halves of the lineage', () => {
   assert.match(CLIENT, /\$\{this\.base\}\/\$\{modelId\}\/champion/);
   assert.match(CLIENT, /challenger_id: string \| null;\s*\}>\(/);
 });
+
+test('the card says which version it is without opening a tab', () => {
+  // Every version of a lineage shares this page's title, so a card with no
+  // version on it leaves the reader unsure whether they are looking at the one
+  // that serves — the single most load-bearing fact on the page.
+  assert.match(CARD, /data-testid="hero-version"/);
+  assert.match(CARD, /models\.versions\.label', \{ version: row\.version \}/);
+});
+
+test('the lineage reads forwards, and marks the current and the serving one apart', () => {
+  assert.match(CARD, /data-testid="lineage-chain"/);
+  // Oldest first: a chain is read as a progression, and `v3 → v2 → v1` says
+  // nothing. The list below it stays newest-first, which is a different job.
+  assert.match(CARD, /sort\(\(left, right\) => left\.version - right\.version\)/);
+  // Two facts, two cues. Sharing one would make "I am reading v2" and "v2
+  // serves" indistinguishable.
+  assert.match(CARD, /\[attr\.data-current\]="link\.current"/);
+  assert.match(CARD, /\[attr\.data-champion\]="link\.champion"/);
+  assert.match(CARD, /\.ck-lineage__link\[data-current='true'\]/);
+  assert.match(CARD, /\.ck-lineage__link\[data-champion='true'\]/);
+  // The arrows are decoration, so they are drawn rather than announced.
+  assert.match(CARD, /\.ck-lineage__item:not\(:last-child\)::after/);
+  // A single version is not a progression; drawing a one-link chain would be
+  // ceremony around nothing.
+  assert.match(CARD, /@if \(lineage\(\)\.length > 1\)/);
+});
+
+test('the model card draws its charts from the shared viz kit', () => {
+  // The plan's kit exists so a curve here and a curve anywhere else are one
+  // drawing. Inline `<svg>` creeping back into this file is the regression.
+  assert.match(CARD, /<ck-curve-chart/);
+  assert.match(CARD, /<ck-confusion-matrix/);
+  assert.match(CARD, /<ck-bar-list/);
+  assert.doesNotMatch(CARD, /<svg/, 'a chart was hand-rolled here again');
+  assert.doesNotMatch(CARD, /class="ck-matrix"/);
+  // A ROC without its diagonal cannot be read, so the reference travels with
+  // every curve rather than being an option some caller forgets.
+  assert.match(CARD, /\[reference\]="DIAGONAL"/);
+  assert.match(CARD, /\[reference\]="prevalence\(\)"/);
+  assert.match(CARD, /\[reference\]="identity\(\)"/);
+});

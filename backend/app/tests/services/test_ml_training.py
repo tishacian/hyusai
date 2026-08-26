@@ -982,10 +982,16 @@ def test_the_artifact_loads_back_and_scores_a_row_with_a_hole(churn_parquet, tmp
     # skops, not pickle: loading is bounded by the allowlist the fit computed.
     assert "skops" in (model_dir / "MLmodel").read_text()
     assert summary["trusted_types"]
-    assert all(
-        entry.startswith(("sklearn.", "skrub.", "numpy.", "scipy.", "pandas.", "builtins.", "collections."))
+    # Against the harness's own list rather than a copy of it: a copy here would
+    # have to be edited every time the real one changes, which makes it a
+    # restatement instead of a check.
+    from app.resources.ml_train_harness import TRUSTED_MODULE_PREFIXES
+
+    assert [
+        entry
         for entry in summary["trusted_types"]
-    )
+        if not entry.startswith(TRUSTED_MODULE_PREFIXES)
+    ] == []
 
     import mlflow.pyfunc
 
@@ -1187,10 +1193,14 @@ def test_a_baseline_fits_and_serves_a_hole_the_boosted_trees_would_have_kept(
 
     # Imputed before scaled, so the scaler's statistics are computed on a
     # complete column rather than on whichever rows happened to be answered.
+    # The scaler is skrub's squashing one rather than a plain standardization:
+    # it bounds outliers instead of letting one enterprise ARPU set the scale
+    # for every residential line, which is the better default for this data and
+    # not a choice this harness has to make.
     assert [name for name, _step in mlflow.sklearn.load_model(str(tmp_path / "model")).steps] == [
         "tablevectorizer",
         "simpleimputer",
-        "standardscaler",
+        "squashingscaler",
         "logisticregression",
     ]
 
@@ -1201,27 +1211,90 @@ def test_a_baseline_fits_and_serves_a_hole_the_boosted_trees_would_have_kept(
     assert len(loaded.predict(holed)) == len(holed)
 
 
+def test_a_trusted_partial_cannot_smuggle_an_untrusted_callable():
+    """The safety argument for `functools.` being on the allowlist.
+
+    skrub builds its column selectors from `functools.partial`, so the artifact
+    does not save without it. A callable that wraps another callable is exactly
+    the shape an allowlist exists to stop — so what makes it safe is that skops
+    reports the wrapped function *separately*, at any nesting depth, where it
+    meets the same module-prefix rule on its own.
+
+    This is asserted with a genuinely dangerous payload rather than a benign one,
+    because the failure mode being ruled out is a partial that hides its target.
+    If a future skops stopped reporting the inner callable, this test fails and
+    `functools.` has to come back off the list.
+    """
+
+    import functools
+    import os
+    import subprocess
+
+    import skops.io as sio
+
+    from app.resources.ml_train_harness import TRUSTED_MODULE_PREFIXES
+
+    def rogue(payload):
+        found = sio.get_untrusted_types(data=sio.dumps(payload))
+        return sorted(
+            name for name in found if not str(name).startswith(TRUSTED_MODULE_PREFIXES)
+        )
+
+    # The wrapper alone is trusted, so a partial over something harmless passes.
+    assert rogue(functools.partial(sorted)) == []
+    # And a partial over something that runs a shell does not.
+    assert rogue(functools.partial(os.system, "echo pwned")) == ["posix.system"]
+    assert rogue(functools.partial(subprocess.run)) == ["subprocess.run"]
+    # Nesting buys nothing: the innermost callable is still reported.
+    assert rogue(functools.partial(functools.partial(os.system), "x")) == ["posix.system"]
+
+
+def test_the_preprocessing_is_the_estimator_s_own_requirements():
+    """Imputation and scaling are per-estimator, and that is the whole point.
+
+    ``HistGradientBoosting`` routes a missing value down a branch of its own, so
+    filling it with a median would destroy a signal the algorithm was built to
+    read; a logistic regression refuses the row outright and also reads
+    magnitudes as importance, so it needs both an imputer and a scaler.
+
+    `skrub.tabular_pipeline` asks the estimator instead of consulting a list
+    kept here, which matters because such a list goes stale silently: sklearn
+    began accepting missing numerics in RandomForest at 1.4, and a list written
+    before that would still be paying for an imputer the forest no longer needs.
+    This test states the shape rather than the rule, so it tracks whatever the
+    installed sklearn actually supports.
+    """
+
+    from skrub import tabular_pipeline
+    from sklearn.ensemble import HistGradientBoostingClassifier
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.neighbors import KNeighborsClassifier
+
+    def shape(estimator):
+        return [name for name, _step in tabular_pipeline(estimator).steps]
+
+    # Trees: vectorize and fit. Nothing between, so the hole survives.
+    assert shape(HistGradientBoostingClassifier()) == [
+        "tablevectorizer",
+        "histgradientboostingclassifier",
+    ]
+    # The two families that read magnitudes get filled and scaled.
+    for estimator, tail in (
+        (LogisticRegression(), "logisticregression"),
+        (KNeighborsClassifier(), "kneighborsclassifier"),
+    ):
+        steps = shape(estimator)
+        assert steps[0] == "tablevectorizer"
+        assert steps[-1] == tail
+        assert "simpleimputer" in steps, f"{tail} would refuse a numeric hole"
+        assert any("scaler" in step for step in steps), f"{tail} reads magnitudes"
+
+
 @pytest.mark.slow
 def test_the_boosted_trees_keep_the_hole_the_baselines_have_to_lose(
     churn_parquet, tmp_path
 ):
-    """Imputation is per-estimator, and that distinction is the whole point.
-
-    ``HistGradientBoosting`` routes a missing value down a branch of its own, so
-    filling it with a median would destroy a signal the algorithm was built to
-    read. Asking the estimator's own sklearn tag is what keeps the imputer on
-    the two families that need it and off the two that do not.
-    """
-
-    from app.resources.ml_train_harness import _tolerates_missing
-    from sklearn.ensemble import HistGradientBoostingClassifier
-    from sklearn.linear_model import LogisticRegression
-
-    assert _tolerates_missing(HistGradientBoostingClassifier(), fallback=False) is True
-    assert _tolerates_missing(LogisticRegression(), fallback=True) is False
-    # A stand-in for a future sklearn that moves the tag: the catalog's own
-    # ``scale`` flag marks the same two families, so the fallback is not a guess.
-    assert _tolerates_missing(object(), fallback=True) is True
+    """The shape above, as the harness actually writes it to the artifact."""
 
     pytest.importorskip("mlflow.sklearn")
     code, _summary, stderr = _run_harness(
@@ -1233,6 +1306,32 @@ def test_the_boosted_trees_keep_the_hole_the_baselines_have_to_lose(
 
     steps = [name for name, _step in mlflow.sklearn.load_model(str(tmp_path / "model")).steps]
     assert steps == ["tablevectorizer", "histgradientboostingclassifier"]
+
+
+@pytest.mark.slow
+def test_a_hole_is_filled_with_a_typical_value_not_an_impossible_one(
+    churn_parquet, tmp_path
+):
+    """The one judgement skrub does not make: median over its default mean.
+
+    An ARPU distribution has a tail — a handful of enterprise lines pull the
+    mean above anything a residential subscriber ever paid. Filling a missing
+    ARPU with that mean invents a customer who cannot exist, and the model then
+    learns from the invention. The median is at least someone's actual bill.
+    """
+
+    manifest = _manifest_for(churn_parquet, tmp_path)
+    manifest["estimator"] = "sklearn.linear_model.LogisticRegression"
+    manifest["params"] = {"max_iter": 200}
+    manifest["scale"] = True
+    code, _summary, stderr = _run_harness(tmp_path / "run", manifest)
+    assert code == 0, stderr
+
+    pytest.importorskip("mlflow.sklearn")
+    import mlflow.sklearn
+
+    pipeline = mlflow.sklearn.load_model(str(tmp_path / "model"))
+    assert pipeline.named_steps["simpleimputer"].strategy == "median"
 
 
 # ---------------------------------------------------------------------------
