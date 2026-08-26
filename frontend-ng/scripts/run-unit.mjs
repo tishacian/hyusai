@@ -54,6 +54,7 @@ const pureSpecs = [
   'src/app/core/i18n.lexicon.spec.ts',
   'src/app/core/theme-preference.spec.ts',
   'src/app/core/platform-brand.spec.ts',
+  'src/app/core/workspace-locale.spec.ts',
   'src/app/shared/cockpit/thinking-orb/thinking-orb.spec.ts',
   'src/app/shared/cockpit/cockpit-contrast.spec.ts',
   'src/app/shared/cockpit/yield-format.spec.ts',
