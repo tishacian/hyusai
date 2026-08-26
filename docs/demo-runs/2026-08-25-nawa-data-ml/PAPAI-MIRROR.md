@@ -11,7 +11,7 @@ needs no database, no object store and no running Agentium:
 ```bash
 cd backend
 python -m scripts.papai_mirror_facts              # counts and band tallies, ~2 s
-python -m scripts.papai_mirror_facts --with-fits  # + the three ROC AUCs, ~5 s
+python -m scripts.papai_mirror_facts --with-fits  # + the three metric tables, ~5 s
 ```
 
 So when the rebuild and this note disagree, the script says which one is wrong.
