@@ -174,6 +174,43 @@ test('the surfaces that show a preview tell the table how many rows there are', 
   assert.match(workshop, /\[rowCount\]="result\.row_count"/);
 });
 
+test('the preview can be walked past the rows the ingest cached', () => {
+  // The fifty rows folded into the row at ingest open the page for free, and
+  // they are the wrong answer to "show me more": every dataset here is
+  // immutable, so row 8 400 is a fact that exists and simply is not cached.
+  // The route reads it; these are the two steppers that ask.
+  const view = readFileSync(
+    join(process.cwd(), 'src/app/features/data/data-view.component.ts'),
+    'utf8',
+  );
+  const service = readFileSync(
+    join(process.cwd(), 'src/app/features/data/data.service.ts'),
+    'utf8',
+  );
+  assert.match(service, /\/preview`/, 'the client calls the preview route');
+  assert.match(service, /params\['offset'\]/, 'and it carries the offset');
+  assert.match(view, /data-testid="preview-prev"/);
+  assert.match(view, /data-testid="preview-next"/);
+  // The first window is the cache, so going back to it must not cost a request.
+  assert.match(view, /this\.pageRows\.set\(null\)/);
+  // The steppers stop at the ends rather than paging into nothing.
+  assert.match(view, /\[disabled\]="!canPrev\(\) \|\| paging\(\)"/);
+  assert.match(view, /\[disabled\]="!canNext\(\) \|\| paging\(\)"/);
+  for (const key of [
+    'data.detail.preview.prev',
+    'data.detail.preview.next',
+    'data.detail.preview.failed',
+  ]) {
+    assert.ok((DATA_FR as Record<string, string>)[key]?.trim(), `${key} has FR copy`);
+    assert.ok((DATA_EN as Record<string, string>)[key]?.trim(), `${key} has EN copy`);
+  }
+  // And the caption says which rows, not how many — the count is the table's.
+  for (const dict of [DATA_FR, DATA_EN]) {
+    assert.match(dict['data.detail.preview.caption'], /\{from\}/);
+    assert.match(dict['data.detail.preview.caption'], /\{to\}/);
+  }
+});
+
 test('the ingest reads as a check-list, not as one line at a time', () => {
   // The point of the list is that the steps already passed stay on screen. A row
   // that says `profiling` also says `queued` and `reading` are behind it, which

@@ -395,6 +395,42 @@ def read_frame(dataset: TabularDataset, *, columns: list[str] | None = None) -> 
         return pl.read_parquet(local, columns=columns)
 
 
+def read_page(
+    dataset: TabularDataset, *, offset: int = 0, limit: int | None = None
+) -> dict[str, Any]:
+    """A window of a dataset's rows, read from the Parquet on demand.
+
+    The fifty rows stored on the row at ingest are enough for a page to open
+    without a second request, and they are the wrong answer to "show me more":
+    every dataset here is immutable, so row 8 400 of an 8 412-row dataset is a
+    fact that exists and simply is not in that cache. This reads it.
+
+    Scanned and sliced rather than read and trimmed, so the cost is the page and
+    not the file — polars pushes the slice into the Parquet reader, which skips
+    whole row groups. The row count still comes off the database row rather than
+    from counting here: it was computed at ingest and has not changed since.
+    """
+
+    import polars as pl
+
+    total = int(dataset.row_count or 0)
+    start = max(0, int(offset))
+    size = int(limit if limit is not None else settings.tabular_preview_rows)
+    size = max(1, min(size, int(settings.tabular_preview_page_max)))
+    if total and start >= total:
+        # Past the end is an empty page, not a refusal: a reader who paged one
+        # step too far should see "no more rows", not an error dialog.
+        return {"rows": [], "offset": start, "limit": size, "total": total}
+    with tempfile.TemporaryDirectory(prefix="agentium-tabular-") as tmp:
+        local = materialize(dataset, Path(tmp) / "data.parquet")
+        frame = pl.scan_parquet(local).slice(start, size).collect()
+    rows = [
+        {key: _json_scalar(value) for key, value in row.items()}
+        for row in frame.iter_rows(named=True)
+    ]
+    return {"rows": rows, "offset": start, "limit": size, "total": total}
+
+
 def _write_frame(frame: Any, *, workspace_id: str, dataset_id: str) -> tuple[str, int]:
     store = get_object_store()
     key = _parquet_key(workspace_id, dataset_id)

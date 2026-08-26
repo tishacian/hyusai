@@ -66,6 +66,16 @@ export interface DatasetDetailDto {
   feature: DatasetFeature;
 }
 
+/** A window of rows read from the Parquet, past the ones cached at ingest. */
+export interface DatasetPageDto {
+  dataset_id: string;
+  schema: TabularColumn[];
+  rows: TabularRow[];
+  offset: number;
+  limit: number;
+  total: number;
+}
+
 export function isDatasetActive(dataset: DatasetDto | null | undefined): boolean {
   return isActiveStatus(dataset?.status);
 }
@@ -117,6 +127,26 @@ export class DataService {
   detail(datasetId: string): Promise<DatasetDetailDto> {
     return firstValueFrom(
       this.http.get<DatasetDetailDto>(`${this.base}/${datasetId}`),
+    );
+  }
+
+  /**
+   * A window of rows, read from the Parquet rather than from the ingest cache.
+   *
+   * The detail response already carries the first fifty rows, which is what
+   * opens the page without a second request. This is the answer to "show me
+   * more": every dataset here is immutable, so row 8 400 is a fact that exists
+   * and simply is not in that cache.
+   */
+  preview(
+    datasetId: string,
+    options: { offset?: number; limit?: number } = {},
+  ): Promise<DatasetPageDto> {
+    const params: Record<string, string> = {};
+    if (options.offset) params['offset'] = String(options.offset);
+    if (options.limit) params['limit'] = String(options.limit);
+    return firstValueFrom(
+      this.http.get<DatasetPageDto>(`${this.base}/${datasetId}/preview`, { params }),
     );
   }
 

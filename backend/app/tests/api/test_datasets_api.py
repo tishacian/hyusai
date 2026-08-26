@@ -112,6 +112,81 @@ def test_detail_returns_preview_stats_versions_and_lineage(client, db_session, w
     assert first["slug"] == second["slug"]
 
 
+def test_a_reader_can_page_past_the_rows_the_ingest_cached(client, db_session, workspace):
+    """The cache answers the page load; the Parquet answers "show me more"."""
+
+    from app.services.tabular_datasets import register_frame
+
+    wide = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Cell KPIs",
+        frame=pl.DataFrame({"i": list(range(120)), "kpi": [n / 4 for n in range(120)]}),
+    )
+    db_session.commit()
+
+    first = client.get(f"/datasets/{wide.id}/preview", params={"limit": 10})
+    later = client.get(f"/datasets/{wide.id}/preview", params={"offset": 100, "limit": 10})
+
+    assert first.status_code == 200 and later.status_code == 200
+    head, tail = first.json(), later.json()
+    assert [row["i"] for row in head["rows"]] == list(range(10))
+    # Row 100 is a fact the fifty cached rows cannot answer, and this reads it.
+    assert [row["i"] for row in tail["rows"]] == list(range(100, 110))
+    assert tail["total"] == 120 and tail["offset"] == 100
+    # The window carries the schema, so a caller can render it without the detail.
+    assert [col["name"] for col in tail["schema"]] == ["i", "kpi"]
+
+
+def test_paging_one_step_too_far_is_an_empty_page_not_an_error(
+    client, db_session, workspace
+):
+    from app.services.tabular_datasets import register_frame
+
+    small = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Two rows",
+        frame=pl.DataFrame({"i": [1, 2]}),
+    )
+    db_session.commit()
+
+    response = client.get(f"/datasets/{small.id}/preview", params={"offset": 50})
+
+    assert response.status_code == 200
+    assert response.json()["rows"] == []
+    assert response.json()["total"] == 2
+
+
+def test_a_page_cannot_be_asked_to_hold_the_whole_table(client, db_session, workspace):
+    """The read happens in the web process, so the window has a ceiling."""
+
+    from app.services.tabular_datasets import register_frame
+
+    rows = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Ceiling",
+        frame=pl.DataFrame({"i": list(range(20))}),
+    )
+    db_session.commit()
+
+    response = client.get(f"/datasets/{rows.id}/preview", params={"limit": 100_000})
+
+    assert response.status_code == 200
+    assert response.json()["limit"] == settings.tabular_preview_page_max
+
+
+def test_paging_an_unsettled_dataset_says_so_instead_of_reading_nothing(client):
+    broken = _upload(client, filename="broken.csv", payload=b"a,b\n1,2\n3,4,5\n")
+    dataset_id = broken.json()["dataset"]["id"]
+
+    response = client.get(f"/datasets/{dataset_id}/preview")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "DATASET_NOT_READY"
+
+
 def test_detail_walks_the_lineage_both_ways(client, db_session, workspace):
     from app.services.tabular_datasets import register_frame
 

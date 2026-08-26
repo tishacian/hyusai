@@ -76,7 +76,10 @@ export const DATA_FR = {
   'data.detail.tab.versions': 'Versions',
 
   // ---- détail : aperçu ---------------------------------------------------
-  'data.detail.preview.caption': '{shown} premières lignes affichées',
+  'data.detail.preview.caption': 'Lignes {from} à {to}',
+  'data.detail.preview.prev': 'Lignes précédentes',
+  'data.detail.preview.next': 'Lignes suivantes',
+  'data.detail.preview.failed': 'Impossible de lire ces lignes',
   'data.detail.back': 'Retour aux données',
   'data.detail.retry': 'Relancer la préparation',
   'data.detail.delete': 'Retirer',
@@ -199,7 +202,10 @@ export const DATA_EN: Record<keyof typeof DATA_FR, string> = {
   'data.detail.tab.lineage': 'Lineage',
   'data.detail.tab.versions': 'Versions',
 
-  'data.detail.preview.caption': 'Showing the first {shown} rows',
+  'data.detail.preview.caption': 'Rows {from} to {to}',
+  'data.detail.preview.prev': 'Previous rows',
+  'data.detail.preview.next': 'Next rows',
+  'data.detail.preview.failed': 'Those rows could not be read',
   'data.detail.back': 'Back to data',
   'data.detail.retry': 'Retry preparation',
   'data.detail.delete': 'Retire',
