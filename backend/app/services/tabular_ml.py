@@ -62,7 +62,7 @@ from app.models.tabular import (
 )
 from app.services import ml_registry
 from app.services.object_store import get_object_store
-from app.services.recipe_executions import supervise_harness
+from app.services.recipe_executions import harness_error_line, supervise_harness
 from app.services.tabular_datasets import (
     NUMERIC_KINDS,
     TabularError,
@@ -1221,8 +1221,7 @@ def _harness_failure(run: Any, timeout_s: float) -> str:
     if run.status == "timed_out":
         return f"ML_TIMEOUT: training exceeded {int(timeout_s)}s"
     code = _EXIT_CODES.get(int(run.exit_code or 0), "ML_HARNESS_ERROR")
-    tail = (run.stderr_tail or "").strip().splitlines()
-    detail = tail[-1][:300] if tail else "the training run failed"
+    detail = harness_error_line(run.stderr_tail, "the training run failed")[:300]
     return f"{code}: {detail}"
 
 

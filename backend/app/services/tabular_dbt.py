@@ -63,6 +63,7 @@ from app.services.recipe_executions import (
     cancel_requested,
     ensure_env_ready,
     finalize_execution,
+    harness_error_line,
     supervise_harness,
 )
 from app.services.tabular_datasets import (
@@ -550,8 +551,7 @@ def _harness_failure(
                 message = str(broken[0].get("message") or "").strip()
                 detail = " ".join(message.split())[:300]
     if not detail:
-        tail = (run.stderr_tail or "").strip().splitlines()
-        detail = tail[-1][:300] if tail else "the dbt project failed"
+        detail = harness_error_line(run.stderr_tail, "the dbt project failed")[:300]
     return f"{code}: {detail}"
 
 

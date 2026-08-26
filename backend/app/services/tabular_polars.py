@@ -65,6 +65,7 @@ from app.services.recipe_executions import (
     cancel_requested,
     ensure_env_ready,
     finalize_execution,
+    harness_error_line,
     supervise_harness,
 )
 from app.services.tabular_datasets import (
@@ -367,8 +368,7 @@ def _harness_failure(run: Any, timeout_s: float) -> str:
     if run.status == "timed_out":
         return f"POLARS_TIMEOUT: the transform exceeded {int(timeout_s)}s"
     code = _EXIT_CODES.get(int(run.exit_code or 0), "POLARS_HARNESS_ERROR")
-    tail = (run.stderr_tail or "").strip().splitlines()
-    detail = tail[-1][:300] if tail else "the transform script failed"
+    detail = harness_error_line(run.stderr_tail, "the transform script failed")[:300]
     return f"{code}: {detail}"
 
 

@@ -93,6 +93,60 @@ def test_validate_code_rejects_empty_and_oversized(monkeypatch):
     assert exc.value.code == "RECIPE_CODE_TOO_LARGE"
 
 
+def test_the_child_gets_a_pinned_arena_count_so_the_budget_travels(tmp_path):
+    """RLIMIT_AS means one thing per host unless the arena count is pinned.
+
+    Found on the 16-core demo VM: the dbt node died in glibc — "cannot allocate
+    memory for thread-local data: ABORT" — under the same 3 GiB budget that is
+    ample on a 4-core laptop, because glibc reserves a 64 MiB arena per thread
+    up to eight per core and RLIMIT_AS counts reservations, not use.
+    """
+
+    env = recipe_executions._subprocess_env(
+        tmp_path / "venv" / "bin" / "python", tmp_path
+    )
+    assert env["MALLOC_ARENA_MAX"] == "2"
+    assert "PATH" in env and "AGENTIUM" not in " ".join(env)
+    # An engine's own variables still win: the pin is a default, not a lock.
+    override = recipe_executions._subprocess_env(
+        tmp_path / "venv" / "bin" / "python",
+        tmp_path,
+        {"MALLOC_ARENA_MAX": "1", "DO_NOT_TRACK": "1"},
+    )
+    assert override["MALLOC_ARENA_MAX"] == "1"
+    assert override["DO_NOT_TRACK"] == "1"
+
+
+@pytest.mark.parametrize(
+    "tail,expected",
+    [
+        (
+            "cannot allocate memory for thread-local data: ABORT\n"
+            "/usr/local/lib/python3.12/multiprocessing/resource_tracker.py:279: "
+            "UserWarning: resource_tracker: There appear to be 2 leaked semaphore "
+            "objects to clean up at shutdown\n"
+            "  warnings.warn('resource_tracker: There appear to be %d '\n",
+            "cannot allocate memory for thread-local data: ABORT",
+        ),
+        (
+            "Traceback (most recent call last):\nValueError: qa boom\n",
+            "ValueError: qa boom",
+        ),
+        # Nothing but warnings: a real warning still beats a generic sentence.
+        (
+            "  warnings.warn('resource_tracker: There appear to be %d '\n",
+            "warnings.warn('resource_tracker: There appear to be %d '",
+        ),
+        ("", "nothing on stderr"),
+        ("   \n\n", "nothing on stderr"),
+    ],
+)
+def test_the_quoted_line_is_the_one_that_explains_the_exit(tail, expected):
+    """The last line of stderr is routinely the least informative one."""
+
+    assert recipe_executions.harness_error_line(tail, "nothing on stderr") == expected
+
+
 # ---------------------------------------------------------------------------
 # harness contract (direct subprocess, no venv needed)
 # ---------------------------------------------------------------------------
