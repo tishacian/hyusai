@@ -15,7 +15,7 @@ Ce runbook est le script présentateur. Les chiffres qu'il cite ne sont pas illu
 ils viennent du seed rejoué le 25/08 et sont reproductibles par graine
 (`--seed 20260825`, la valeur par défaut).
 
-## Identifiants (VM `omnirag-demo`, état du 26/08 03 h UTC)
+## Identifiants (VM `omnirag-demo`, état du 26/08 05 h 40 UTC)
 
 Les UUID changent à chaque seed — c'est le seul contenu de ce runbook qui ne soit
 pas reproductible par graine. Ceux-ci sont **ceux de la VM** ; rejouer le seed
@@ -23,7 +23,7 @@ ailleurs produit d'autres identifiants et les **mêmes** chiffres.
 
 | Objet | Valeur |
 |---|---|
-| URL | `https://agentium.papai.ai` — révision servie `8fd380555e5b` |
+| URL | `https://agentium.papai.ai` — révision servie `fb62edba8886` |
 | Workspace | `nawa` — id `b337fdbf-2689-436e-a287-2fe903ca47cf` |
 | System 1 | `Churn Radar` — id `5e0937e3-652c-4eaf-addc-b25ec68e7ba6`, actif |
 | System 2 | `Radio Watch` — id `00548e30-e8ea-4bab-a138-31b308af487e`, actif |
@@ -379,6 +379,11 @@ notebook sur le poste de quelqu'un.
 
 ## Preuves de répétition (25/08, local, base vierge)
 
+Ce tableau est la répétition **locale**. Les mêmes vérifications rejouées contre la VM
+vive, driver API sans accès à la base ni au store, sont dans le journal : § « Scénario
+e2e data/ML » et § « État de la démo Nawa sur la VM » de
+[`agentium-safe-vm-deployment.md`](../../ops/agentium-safe-vm-deployment.md).
+
 | Vérification | Résultat |
 |---|---|
 | Seed rejoué sur base vide + object store vide | 7 datasets `ready`, 3 modèles, 2 systems actifs |
@@ -410,7 +415,8 @@ observables, canaris) est dans le journal :
 [`agentium-safe-vm-deployment.md`](../../ops/agentium-safe-vm-deployment.md), itération
 du 26/08. Ce qui compte pour un présentateur :
 
-- révision servie **`8fd380555e5b`**, `revision_verified: true` ;
+- révision servie **`fb62edba8886`**, `revision_verified: true` en localhost et sur
+  l'URL publique ;
 - `096_tabular_data_plane` puis `097_ml_training_plane` appliquées, `alembic current`
   = `097_ml_training_plane` ;
 - database `mlflow` en place sur `agentium-pg`, propriétaire `agentium`. Aucun serveur
@@ -428,18 +434,40 @@ du 26/08. Ce qui compte pour un présentateur :
   sont dans
   [`agentium-data-plane-provisioning.md`](../../ops/agentium-data-plane-provisioning.md).
 
-### Deux défauts que seule la VM a montrés
+### Six défauts que seule la VM a montrés
 
 Ils sont ici parce qu'ils disent où regarder si la démo se comporte autrement qu'écrit.
+Tous sont corrigés dans la révision servie ; le détail est dans le journal.
 
-1. **Le nœud dbt s'arrêtait sur la VM et nulle part ailleurs.** `RLIMIT_AS` compte
+1. **La chaîne de migrations refusait de s'appliquer.** Cinq colonnes de `097` étaient
+   écrites *aussi* dans `096` : invisible en local où la base part de zéro, fatal sur la
+   seule base qui applique la chaîne pour de vrai (`DuplicateColumn`).
+2. **Le nœud LLM du brief répondait « could not parse the JSON body ».** Le nœud amont met
+   un objet sous la clé `model` de son enveloppe, que le wrapper prenait pour un nom de
+   modèle et transmettait tel quel à l'API.
+3. **Le nœud dbt s'arrêtait sur la VM et nulle part ailleurs.** `RLIMIT_AS` compte
    l'espace d'adressage *réservé*, et glibc réserve une arène malloc de 64 Mio par thread
    jusqu'à huit par cœur : sur les 16 cœurs de la VM les arènes seules consomment le
    budget de 3 Gio, et le premier thread que dbt démarre meurt dans l'allocateur
    (`cannot allocate memory for thread-local data: ABORT`) avant que le SQL du projet ne
    tourne. `MALLOC_ARENA_MAX` est désormais épinglé pour tout enfant supervisé.
-2. **Le client MLflow « étranger » ne chargeait pas depuis MinIO.** La `source` d'une
+4. **Le client MLflow « étranger » ne chargeait pas depuis MinIO.** La `source` d'une
    version y est une URI `s3://`, et le dépôt d'artefacts S3 de mlflow importe `boto3`
    par son nom — `botocore`, que `s3fs` apporte déjà pour nos propres lectures, ne suffit
    pas. En local l'object store donne des `file://` : l'étape censée prouver la
    portabilité était la seule jamais exercée là où elle compte.
+5. **`/predict` refusait l'artefact en citant `torchvision`.** `skops.io` construit ses
+   tables de types à l'import en interrogeant tout `sys.modules` ; dans le backend
+   `transformers` y est déjà et son import paresseux traverse des processeurs d'images qui
+   supposent un `torchvision` absent de l'image. Le pair est maintenant installé avec
+   `torch`, et le balayage est payé au démarrage plutôt qu'à la première prédiction.
+6. **L'onglet Comparaison de la carte du modèle qui sert était vide.** La route de détail
+   sérialisait les versions sans leurs scores, et le front comparait à la version
+   *précédente* — ce qu'une v1 n'a pas. C'est le temps 5 de cette démo : à vérifier
+   d'abord si l'onglet dit « rien à comparer » alors que la lignée en a trois.
+
+Un septième défaut ne se voit pas depuis la démo mais se voit depuis le registre :
+la suppression d'un modèle nettoyait les alias, jamais la version enregistrée. Quatre
+modèles enregistrés répondaient encore `@champion` après que toutes leurs versions
+aient été supprimées. Si un client MLflow étranger est branché pendant la démo, il ne
+voit désormais que `b337fdbf.churn-radar`.

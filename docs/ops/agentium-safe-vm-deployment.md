@@ -4049,3 +4049,134 @@ puis rejouer le runbook des sept temps sur la VM et remplacer sa section
 « preuves de répétition » par les identifiants VM. `RECIPE_EXECUTION_ENABLED`
 doit être actif côté backend **et** worker pour que les temps Polars et dbt
 s'exécutent ; `WORKER_EAGER_MODE` reste éteint sur la VM, où un worker tourne.
+
+## Itération du 25-26/08 — plan data/ML sur `fb62edba`, **déployée**
+
+GO deploy depuis un Cloud Agent, dans la fenêtre ouverte par l'entrée de
+préparation ci-dessus. `origin/demo/agentic` avançait de `f31eecad` (live) à
+`fb62edba`, 57 commits : les sept phases du plan data/ML (datasets tabulaires,
+nœuds SQL / Polars / dbt, entraînement scikit-learn avec registre MLflow,
+service `/predict` à clé, démo Nawa) et les correctifs que la VM a trouvés.
+
+**La conclusion « il n'y a pas de base `mlflow` à créer » de l'entrée de
+préparation est renversée.** Elle était exacte quand elle a été écrite — MLflow
+n'était alors qu'un format d'artefact — et la phase 5 a ajouté le registre
+lui-même, dont le backend store *est* une base Postgres. Il y a donc bien une
+base `mlflow` sur `agentium-pg`, sans serveur ni port : le client écrit dedans
+et crée son schéma à la première connexion. Toujours pas de `MLFLOW_*` dans
+l'environnement compose, le client étant configuré en code — et c'est cette
+absence, pas une variable, qui est la précondition à vérifier.
+[`agentium-data-plane-provisioning.md`](agentium-data-plane-provisioning.md)
+porte l'état à jour.
+
+Neuf générations d'images ont été construites et basculées dans la même fenêtre.
+Sept l'ont été parce que la VM refusait ce qui passait en local, et c'est le
+résultat le plus utile de la journée : la boucle e2e + runbook sur la machine
+réelle a trouvé six défauts qu'aucune suite locale ne pouvait montrer.
+
+1. `2bd4786d` (23 h 08, dump puis `migrate`) : `097` a échoué sur un
+   `DuplicateColumn` — cinq colonnes de `097` avaient été écrites *aussi* dans
+   `096`. Invisible en local, où la base part de zéro et où `create_all` couvre
+   la dérive ; visible sur la seule base qui applique la chaîne pour de vrai.
+   Corrigé dans `096`, plus un test qui parcourt la chaîne complète et attrape
+   une colonne ajoutée deux fois (`test_tabular_migration.py`).
+2. `52c2d5f1` → `5d54e2ec` : le nœud LLM du brief Nawa répondait « could not
+   parse the JSON body ». Le nœud amont met un objet sous la clé `model` de son
+   enveloppe, que le wrapper prenait pour un nom de modèle. `_model_name()`
+   traverse les candidats non-textuels au lieu de les transmettre.
+3. `d2e39cb8` — **le nœud dbt s'arrêtait sur la VM et nulle part ailleurs**
+   (`cannot allocate memory for thread-local data: ABORT`, exit 127).
+   `RLIMIT_AS` compte l'espace d'adressage *réservé* et glibc réserve une arène
+   de 64 Mio par thread, jusqu'à huit par cœur : sur 16 cœurs les arènes seules
+   mangent le budget de 3 Gio et le premier thread meurt dans l'allocateur avant
+   le SQL du projet. `MALLOC_ARENA_MAX=2` est désormais épinglé pour tout enfant
+   supervisé, donc un budget veut dire la même chose sur 4 et sur 16 cœurs. Le
+   message rapporté était par-dessus le marché faux : le superviseur citait la
+   dernière ligne de stderr, soit un avertissement de sémaphore fuité imprimé
+   *après* l'ABORT. `harness_error_line` saute les lignes d'avertissement.
+4. `8fd38055` — le client MLflow *étranger* ne chargeait pas depuis MinIO. La
+   `source` d'une version est une URI `s3://` et le dépôt d'artefacts S3 de
+   mlflow importe `boto3` par son nom ; `botocore`, que `s3fs` apporte pour nos
+   propres lectures, ne suffit pas. En local l'object store rend des `file://` :
+   l'étape censée prouver la portabilité était la seule jamais exercée là où
+   elle compte.
+5. `a61c1e6b` — `/predict` répondait `ML_ARTIFACT_UNLOADABLE` en citant
+   `No module named 'torchvision'`. `skops.io` construit ses tables de types à
+   l'import en interrogeant tout `sys.modules` ; dans le backend `transformers`
+   y est déjà, son `__getattr__` paresseux importe le module d'un nom, et le
+   balayage traverse des processeurs d'images qui supposent un `torchvision`
+   absent. Le pair est installé depuis l'index CPU de PyTorch avec `torch`, et
+   `preload_deserializer` déplace les dix secondes de balayage du premier
+   `/predict` vers le démarrage.
+6. `9ae74b9a` → `a52cb29a` — l'onglet Comparaison de la carte du modèle qui
+   *sert* était vide, « rien à comparer », avec trois versions dans la lignée.
+   Deux causes : la route de détail sérialisait les versions sans leurs scores,
+   et le front comparait à la version *précédente*, ce qu'une v1 n'a pas. La
+   route porte `include_scores`, et `comparisonPair` prend la version d'en
+   dessous ou, à défaut, celle d'au-dessus, toujours rendue dans l'ordre.
+7. `fb62edba` — le registre gardait ce que la plateforme avait supprimé :
+   **quatre modèles enregistrés répondaient encore `@champion`** après que
+   toutes leurs versions aient été supprimées. Le chemin de suppression
+   nettoyait les alias qu'un survivant pouvait nommer, jamais la version
+   elle-même, ni le conteneur avec sa dernière version. Un registre public qui
+   liste des versions que le déploiement ne sait plus expliquer est exactement le
+   mode de défaillance qu'un registre existe pour empêcher. `retire_version` et
+   `forget_model` closent ça, et restent muets sur une panne : la ligne est
+   l'enregistrement opérationnel, le miroir qui se taît ne retient pas une
+   suppression.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `f31eecad` → `fb62edba` (57 commits) |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
+| Worktree | `/srv/agentium-data/worktrees/demo-agentic` = `fb62edba8886a9d78b8ea6e7e9c4721f9368eef3`, porcelain vide |
+| Build | neuf générations (`2bd4786d8396`, `52c2d5f179b3`, `5d54e2ec4be8`, `d2e39cb8d19d`, `8fd380555e5b`, `a61c1e6b754c`, `9ae74b9a3879`, `a52cb29a0512`, `fb62edba8886`), label 40-hex identique backend / worker / frontend à chaque bascule |
+| Dump | `/srv/agentium-data/data-ml-deployments/2026-08-25-2bd4786d8396/pre-2bd4786d8396.dump`, 453 440 634 o, sha256 `9eac734596fd220416843eb3718ae7b04456e412df6dd7c431b43b11acc92da2`, `.ready` écrit. `MANIFEST.json` porte `data_plane_deployed: false` et `object_files: 0` — correct : la fenêtre est prise **avant** `096`, il n'y a pas encore d'objet à mirorer, et le script le dit plutôt que d'écrire un miroir vide qui aurait l'air d'une sauvegarde |
+| `migrate` | `095_python_recipes` → `096_tabular_data_plane` → `097_ml_training_plane` (une fois, après le correctif du `DuplicateColumn`) ; `alembic current` = `097_ml_training_plane (head)` aux huit bascules suivantes |
+| Registre | database `mlflow` créée par `ensure_database()` à la première publication, propriétaire `agentium`, schéma migré par MLflow lui-même ; aucun `MLFLOW_*` dans l'environnement compose |
+| `storage-check` | sortie 0 au tag final, autonome puis rejoué dans `up` |
+| `up` | cinq services applicatifs recréés (05:29Z), backend et frontend `healthy` |
+| `build-info` | `revision: fb62edba8886a9d78b8ea6e7e9c4721f9368eef3`, `revision_verified: true` en localhost Host **et** sur `https://agentium.papai.ai` ; `/` = 200 |
+| Logs | 0 `traceback`/`exception` backend et worker depuis la bascule |
+| Infra | PostgreSQL, RabbitMQ, Qdrant, MinIO, Keycloak, LiveKit, SFTP **intouchés** (Up 2 weeks) |
+| Alias | tag mobile `demo-agentic` **non déplacé** |
+| Canaris carakai | checkout avancé `8fd38055` → `fb62edba` par bundle incrémental (sha256 `7f5fc9d5f697ccca6587e7443065884e560c1327980a35fadb2c565ce6ac13f1` identique des deux côtés, `cat-file -e` positif), marqueur `.agentium-source-sha` réaligné — il était resté à `f31eecad`. **5 passed / 3 failed** en 1,2 min, `/tmp/iteration-canaries-20260826T053724Z.atoDsI` (`playwright-runtime.json` : `candidate_sha fb62edba…`, `package_lock_sha256 cfded9c9…`, producer `result: passed`), 5 artefacts `evidence/`. Échecs inchangés depuis `6d15e521` : **11** rail `Build` absent sous `experience_v1`, **16** `GET /work` sans Experience Pilot/In-service, **17** overflow title-bar à 320 px — aucun ne touche le plan data/ML |
+| Attestation lock frontend | `PACKAGE_LOCK_SHA256 = cfded9c9…` = sha256 réel de `frontend-ng/package-lock.json` ; l'arbre `frontend-deps-cfded9c9…` était déjà installé, `npm ci` non rejoué |
+| Rollback | `096` et `097` sont additives : `AGENTIUM_IMAGE_TAG=f31eecad6e2a` puis `up` rend un backend qui ignore les nouvelles tables (les pages Data et Models disparaissent, le reste sert). Le dump `2bd4786d8396` est le recours, à restaurer **avec** la moitié objets — un `pg_restore` seul rendrait un registre d'URI pendantes |
+
+### Scénario e2e data/ML (driver API contre la VM vive, workspace `nawa`)
+
+`scripts/e2e_data_ml_live.py --reproduce` exerce la tranche de bout en bout
+contre l'URL publique, sans accès à la base ni au store : upload d'un CSV de
+4 000 lignes, ingestion narrée, transform SQL, refus du garde SQL,
+entraînement, re-entraînement à l'identique, comparaison sur un même split,
+`/predict` à clé seule, portée de la clé, révocation, puis suppression de tout
+ce qu'il a créé — dans un `finally`, pour qu'une passe rouge ne laisse pas ses
+lignes sur la démo.
+
+| Phase | Observé (à `fb62edba`) |
+|---|---|
+| `build-info` | `fb62edba…` `verified=True` avant tout le reste — un e2e contre l'ancienne image ne prouve rien |
+| Ingestion | 4 000 lignes, 8 colonnes ; narration `reading` (les pas sont un vocabulaire et un ordre, pas un compte : un ingest de 4 000 lignes peut n'en montrer qu'un) |
+| SQL | 15 groupes en 763,8 ms, catalogue 8 colonnes |
+| Garde SQL | `DROP` refusé, `SQL_FORBIDDEN_KEYWORD` |
+| Plan | classification sur `churn`, 7 features, `gradient_boosting` pris dans les 4 offerts par l'API (et non codé en dur) |
+| Fit v1 | roc_auc 0,807505 ; narration `reading → scoring → saving` ; contrat de prédiction 6 champs |
+| Reproductibilité | v2 roc_auc 0,807505, **identique** |
+| Comparaison | 6 métriques sur un split unique de 1 000 lignes |
+| `/predict` (clé seule) | 3 lignes en 192,9 ms, `served` v1, `cached: false` |
+| Portée de la clé | la même clé est refusée par `/datasets` et par la route de détail du modèle |
+| Révocation | la clé révoquée cesse de répondre immédiatement |
+| Nettoyage | 2 modèles et 1 dataset supprimés ; **et le registre revient à un seul modèle enregistré** (`b337fdbf.churn-radar`, `champion` → 1, `challenger` → 2), ce qui est la vérification du correctif `fb62edba` en conditions réelles |
+
+### État de la démo Nawa sur la VM
+
+| Objet | Observé |
+|---|---|
+| Datasets | 7 `ready` : `base-clients-export-brut` 8 412 (upload) · `kpi-cellules-radio` 24 192 (upload) · `base-clients-nettoyee` v1 et v2 6 903 (transform, la v2 est le rejeu du Flow par-dessus l'état seedé — attendu) · `base-clients-features` 6 903 · `base-clients-scoree` 6 903 · `cellules-a-risque-7-jours` 72 (dbt) |
+| Modèles | `Churn Radar` v1 `linear` **champion** · v2 et v3 `gradient_boosting`, toutes `ready` |
+| Scores v1 | roc_auc 0,835206 · accuracy 0,836037 · balanced_accuracy 0,697737 · f1 0,548644 · precision 0,704918 · recall 0,449086 · log_loss 0,391460 · brier 0,122305 |
+| Registre | `b337fdbf.churn-radar`, 3 versions, `source` en `s3://agentium-artifacts/workspaces/…/ml/models/<id>/model`, `champion` → v1 et `challenger` → v2 — la meilleure perdante, pas la plus récente |
+| Nœud dbt | rejoué après le correctif d'arènes : le 7ᵉ dataset existe, 72 lignes |
