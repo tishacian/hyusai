@@ -96,7 +96,7 @@ def _lineage(db: DBSession, *, workspace: Workspace, model: MLModel) -> dict[str
     champion = next((row for row in versions if row.is_champion), model)
     contender = runner_up(db, champion)
     return {
-        "versions": [serialize_model(row) for row in versions],
+        "versions": [serialize_model(row, include_scores=True) for row in versions],
         "challenger_id": contender.id if contender is not None else None,
     }
 

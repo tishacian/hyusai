@@ -1050,7 +1050,7 @@ def champion_for(db: DBSession, *, workspace_id: str, slug: str) -> MLModel | No
 
 
 def serialize_model(
-    model: MLModel, *, include_detail: bool = False
+    model: MLModel, *, include_detail: bool = False, include_scores: bool = False
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": model.id,
@@ -1095,6 +1095,16 @@ def serialize_model(
         payload["classes"] = list(model.classes_json or [])
         payload["params"] = dict(model.params_json or {})
         payload["model_uri"] = model.model_uri
+    elif include_scores:
+        # Every recorded score and nothing else from the metric block. The
+        # sibling versions on a card are compared against each other and their
+        # deltas are drawn beside the open version's own numbers, neither of
+        # which is possible from `primary_metric` alone; carrying their curves
+        # and confusion matrices too would be a megabyte per card that nobody
+        # draws, since only the open version's charts are on screen.
+        payload["metrics"] = {
+            "scores": list((model.metrics_json or {}).get("scores") or [])
+        }
     return payload
 
 
