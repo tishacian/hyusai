@@ -88,6 +88,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:  # noqa: BLE001
             logger.warning("Cross-encoder preload failed (non-blocking)", error=str(e))
 
+    # Warm the artifact deserializer so the first prediction does not pay its
+    # import. Not awaited, unlike the cross-encoder above: nothing calls
+    # /predict in the first seconds, and boot has a health budget to keep.
+    if settings.ml_predict_enabled:
+        from app.services.tabular_predict import preload_deserializer
+
+        asyncio.get_running_loop().run_in_executor(None, preload_deserializer)
+
     # Seed canonical Skills + Capabilities registry (idempotent).
     if startup_reconciliation_enabled:
         try:

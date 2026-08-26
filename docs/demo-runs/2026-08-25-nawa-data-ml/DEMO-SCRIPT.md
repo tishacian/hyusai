@@ -1,8 +1,9 @@
 # Démo NAWA — Data / ML : de l'export sale au modèle servi (7 temps)
 
 Répétée en local le 25/08/2026 (UTC) sur base Postgres vierge + object store local,
-seed rejoué de zéro : `backend/scripts/seed_nawa_data_demo.py`. Non encore déployée sur
-la VM `omnirag-demo` (voir [§ Déploiement](#déploiement--ce-quil-reste-à-faire)).
+seed rejoué de zéro : `backend/scripts/seed_nawa_data_demo.py`. **Déployée et rejouée sur
+la VM `omnirag-demo` le 26/08/2026** — les identifiants ci-dessous sont ceux de la VM
+(voir [§ Déploiement](#déploiement--ce-qui-a-été-fait)).
 
 Le fil : une base d'abonnés télécom arrive comme les exports arrivent vraiment — doublons,
 lignes suspendues, régions écrites de quatre façons, une colonne revenu trouée et un `-1`
@@ -14,23 +15,25 @@ Ce runbook est le script présentateur. Les chiffres qu'il cite ne sont pas illu
 ils viennent du seed rejoué le 25/08 et sont reproductibles par graine
 (`--seed 20260825`, la valeur par défaut).
 
-## Identifiants (état du seed rejoué le 25/08, 20 h 18 UTC)
+## Identifiants (VM `omnirag-demo`, état du 26/08 03 h UTC)
 
 Les UUID changent à chaque seed — c'est le seul contenu de ce runbook qui ne soit
-pas reproductible par graine. Ceux-ci sont ceux de la dernière répétition ; les
-rejouer produit d'autres identifiants et les **mêmes** chiffres.
+pas reproductible par graine. Ceux-ci sont **ceux de la VM** ; rejouer le seed
+ailleurs produit d'autres identifiants et les **mêmes** chiffres.
 
 | Objet | Valeur |
 |---|---|
-| Workspace | `nawa` — id `1f949967-6376-442e-ad3f-16a318e3588d` |
-| System 1 | `Churn Radar` — id `5154e29b-126c-44eb-9e2d-54fe9677bf35`, actif |
-| System 2 | `Radio Watch` — id `a76996ed-411b-41ce-a438-984e255d3ddf`, actif |
-| Modèle servi | `Churn Radar` **v1** (`linear`) — id `d55698ce-0c29-4813-8b7f-0f60a207686b` |
-| Skill publiée | `ws.1f949967-….predict_churn_radar` |
-| Clé API | préfixe `agpk_xdT-Y8q` (le secret complet ne s'affiche qu'à la création) |
-| Run churn | `436987e3-0162-4bb1-913e-1e04d8e51955` — completed, 7 nœuds |
-| Run radio | `57b61f49-8fc0-4376-9816-f077731055be` — completed, 3 nœuds |
-| Registre MLflow | database `mlflow`, modèle enregistré `1f949967.churn-radar`, alias `champion` → v1, `challenger` → v2 |
+| URL | `https://agentium.papai.ai` — révision servie `8fd380555e5b` |
+| Workspace | `nawa` — id `b337fdbf-2689-436e-a287-2fe903ca47cf` |
+| System 1 | `Churn Radar` — id `5e0937e3-652c-4eaf-addc-b25ec68e7ba6`, actif |
+| System 2 | `Radio Watch` — id `00548e30-e8ea-4bab-a138-31b308af487e`, actif |
+| Modèle servi | `Churn Radar` **v1** (`linear`) — id `1b570e6a-0214-4d19-8120-29caa88ebd0e` |
+| Challenger | **v2** (`gradient_boosting`) — id `2565e774-1a31-4b2f-85ea-5df3facad2be` ; v3 `8bc2c26c-870c-4d73-913f-52c94ba6b42c` |
+| Skill publiée | `ws.b337fdbf-2689-436e-a287-2fe903ca47cf.predict_churn_radar` |
+| Clé API | préfixe `agpk_ZsTP-0r` (le secret complet ne s'affiche qu'à la création) |
+| Run churn | `4a80aad6-4095-4587-b11b-6c1c8ed99142` — completed, 7 nœuds |
+| Run radio | `82503a1e-0c5d-46cc-9017-9e7d54220a89` — completed, 3 nœuds. Le run antérieur `207a77b7…` garde l'échec dbt d'avant le correctif d'arènes glibc (voir le journal) : c'est de l'historique, pas l'état courant |
+| Registre MLflow | database `mlflow`, modèle enregistré `b337fdbf.churn-radar`, alias `champion` → v1, `challenger` → v2 |
 
 Sept datasets, et la lignée se lit dans l'ordre :
 
@@ -67,8 +70,9 @@ Sept datasets, et la lignée se lit dans l'ordre :
    déjà, la promotion du temps 5 n'a plus rien à montrer — remettre v1.
 3. Page **Skills** : `predict_churn_radar` visible avec sa puce de provenance
    (« répond depuis Churn Radar v1 »).
-4. `/systems/14b9c0dc-…/flow` et `/systems/3e176090-…/flow` s'ouvrent avec les badges
-   déjà posés sur les nœuds (un run derrière chacun).
+4. `/systems/5e0937e3-652c-4eaf-addc-b25ec68e7ba6/flow` (Churn Radar) et
+   `/systems/00548e30-e8ea-4bab-a138-31b308af487e/flow` (Radio Watch) s'ouvrent avec les
+   badges déjà posés sur les nœuds (un run derrière chacun).
 5. Clé API dans le presse-papier du terminal de démo, `curl` répété **une fois** avant
    de monter sur scène : le premier appel paie le chargement du modèle (~5 s), les
    suivants non, et c'est un point du discours, pas un incident.
@@ -399,32 +403,43 @@ notebook sur le poste de quelqu'un.
 | Watchlist radio | 9 critique / 8 surveillé / 55 sain |
 | Aucune cellule-heure au plafond | 0 / 24 192 à 100,0 % de PRB |
 
-## Déploiement — ce qu'il reste à faire
+## Déploiement — ce qui a été fait
 
-Rien de tout ceci n'est encore sur `omnirag-demo`. Le chemin est celui de
-[`agentium-release-process.md`](../../agentium-release-process.md), et il **part de
-`origin/demo/agentic`** : il n'y a pas de déploiement latéral d'une branche `cursor/…`.
-Dans l'ordre, après la fusion de la PR :
+La tranche est sur `omnirag-demo` depuis le 26/08. Le détail (SHA, dump, migrations,
+observables, canaris) est dans le journal :
+[`agentium-safe-vm-deployment.md`](../../ops/agentium-safe-vm-deployment.md), itération
+du 26/08. Ce qui compte pour un présentateur :
 
-1. **dump des trois parties** — `scripts/agentium-data-plane-dump.sh <sha12>` : à partir
-   de la révision 096, un `pg_dump` seul n'est plus restaurable (les lignes de datasets
-   et de modèles désignent des objets MinIO qui ne sont pas dans le dump). Le script
-   prend la database `agentium`, la database `mlflow` et les préfixes d'objets, puis
-   vérifie que chaque artefact que le registre nomme est bien dans la fenêtre ;
-2. **créer la database `mlflow`** sur `agentium-pg`, propriétaire `agentium` —
-   `createdb -U agentium mlflow`. Le Model Registry MLflow exige un backend SQL (un
-   store fichier `mlruns/` ne sait pas enregistrer de modèle, c'est le piège documenté),
-   et le client écrit dedans directement : **aucun serveur MLflow à opérer**, aucun port,
-   aucun conteneur. MLflow crée son propre schéma à la première connexion — ce n'est pas
-   une révision Alembic. Ne **pas** poser `MLFLOW_TRACKING_URI` dans l'environnement
-   compose : le client est configuré en code. Les autres prérequis (les deux réglages
-   `RECIPE_EXECUTION_ENABLED` / `WORKER_EAGER_MODE`, la place disque des venvs, la
-   restauration) sont dans
-   [`agentium-data-plane-provisioning.md`](../../ops/agentium-data-plane-provisioning.md) ;
-3. `migrate` — la tranche apporte `096_tabular_data_plane` puis `097_ml_training_plane`,
-   qui s'enchaînent sur le `095_python_recipes` de la VM ;
-4. `storage-check` puis `up` au tag `<sha12>` ;
-5. canaris carakai (avec le retarget de `PACKAGE_LOCK_SHA256`, le lock npm ayant bougé)
-   + e2e, puis rejouer ce runbook sur la VM et remplacer la section « preuves de
-   répétition » par les identifiants de la VM ;
-6. journal de déploiement dans `docs/ops/agentium-safe-vm-deployment.md`.
+- révision servie **`8fd380555e5b`**, `revision_verified: true` ;
+- `096_tabular_data_plane` puis `097_ml_training_plane` appliquées, `alembic current`
+  = `097_ml_training_plane` ;
+- database `mlflow` en place sur `agentium-pg`, propriétaire `agentium`. Aucun serveur
+  MLflow n'est opéré : le client écrit dedans directement, aucun port, aucun conteneur.
+  MLflow crée son propre schéma à la première connexion — ce n'est pas une révision
+  Alembic, et `MLFLOW_TRACKING_URI` ne doit **pas** être posé dans l'environnement
+  compose, le client étant configuré en code ;
+- les venvs managés (`polars`, `dbt-duckdb`) sont construits et en cache sous
+  `/srv/agentium-data/recipe_envs` : le premier run de la démo ne paie pas de build ;
+- pour restaurer ou rejouer ailleurs : `scripts/agentium-data-plane-dump.sh <sha12>`
+  prend les trois parties (database `agentium`, database `mlflow`, préfixes d'objets)
+  et vérifie que chaque artefact que le registre nomme est dans la fenêtre. Depuis la
+  révision 096 un `pg_dump` seul n'est plus restaurable : les lignes de datasets et de
+  modèles désignent des objets MinIO qui ne sont pas dans le dump. Les autres prérequis
+  sont dans
+  [`agentium-data-plane-provisioning.md`](../../ops/agentium-data-plane-provisioning.md).
+
+### Deux défauts que seule la VM a montrés
+
+Ils sont ici parce qu'ils disent où regarder si la démo se comporte autrement qu'écrit.
+
+1. **Le nœud dbt s'arrêtait sur la VM et nulle part ailleurs.** `RLIMIT_AS` compte
+   l'espace d'adressage *réservé*, et glibc réserve une arène malloc de 64 Mio par thread
+   jusqu'à huit par cœur : sur les 16 cœurs de la VM les arènes seules consomment le
+   budget de 3 Gio, et le premier thread que dbt démarre meurt dans l'allocateur
+   (`cannot allocate memory for thread-local data: ABORT`) avant que le SQL du projet ne
+   tourne. `MALLOC_ARENA_MAX` est désormais épinglé pour tout enfant supervisé.
+2. **Le client MLflow « étranger » ne chargeait pas depuis MinIO.** La `source` d'une
+   version y est une URI `s3://`, et le dépôt d'artefacts S3 de mlflow importe `boto3`
+   par son nom — `botocore`, que `s3fs` apporte déjà pour nos propres lectures, ne suffit
+   pas. En local l'object store donne des `file://` : l'étape censée prouver la
+   portabilité était la seule jamais exercée là où elle compte.

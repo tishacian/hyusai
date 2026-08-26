@@ -25,7 +25,11 @@ RUN pip install --no-cache-dir \
 # Deep-retrieval jobs (run_deep_retrieval) execute the cross-encoder rerank
 # stage in this worker, so it needs torch + transformers like the backend.
 # CPU-only torch index avoids the multi-GB CUDA build from PyPI.
-RUN pip install --no-cache-dir torch \
+#
+# torchvision is the +cpu peer transformers assumes alongside torch; see the
+# backend image for why its absence broke deserialising a model. Batch scoring
+# loads artifacts in this process too, so it needs the same environment.
+RUN pip install --no-cache-dir torch torchvision \
         --index-url=https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir \
         --index-url=${PIP_INDEX_URL} \
