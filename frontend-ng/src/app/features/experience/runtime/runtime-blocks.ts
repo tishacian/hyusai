@@ -10,17 +10,25 @@ import {
   signal,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import type { ChartConfiguration, ChartData } from 'chart.js';
+import { BaseChartDirective } from 'ng2-charts';
 import { take } from 'rxjs/operators';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { TagComponent, type CkTagTone } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
+import { ThemeService } from '@app/core/theme.service';
+import { BarListComponent } from '@app/features/data/viz/bar-list.component';
+import type { VizBar } from '@app/features/data/viz/viz.vm';
 import { ExperienceRuntimeService } from './experience-runtime.service';
 import {
   type CertifiedType,
   type ExperienceNode,
+  type LocalizedText,
   type RuntimeField,
   type RuntimeNodeContext,
   type RuntimeResultRow,
+  chartKind,
+  chartSeries,
   extractCitations,
   extractResult,
   fieldsFromSchema,
@@ -34,6 +42,7 @@ import {
   runtimeSummary,
   seedFromSchema,
   selectRuntimeData,
+  textFallback,
   unavailablePolicy,
   validateValues,
   valuesToPayload,
@@ -43,6 +52,20 @@ import { a11yOf, appearanceOf } from './style';
 function str(node: ExperienceNode, key: string, fallback = ''): string {
   const value = node.props?.[key];
   return typeof value === 'string' ? value : fallback;
+}
+
+/**
+ * A copy prop as written, whether or not the document reached the renderer
+ * localized: `localizeDocument` resolves `{$i18n, fallback}` into a plain
+ * string, but a preview or a raw `parseDocument` hands the pair straight over.
+ */
+function copyText(node: ExperienceNode, key: string): string {
+  const value = node.props?.[key];
+  if (typeof value === 'string') return value;
+  if (isRecord(value) && typeof value['$i18n'] === 'string' && typeof value['fallback'] === 'string') {
+    return textFallback(value as unknown as LocalizedText);
+  }
+  return '';
 }
 
 function list(value: unknown): unknown[] {
@@ -485,6 +508,167 @@ export class TableBlock {
   cell(row: Record<string, unknown>, key: string): string {
     const value = row[key];
     return value === undefined || value === null ? '' : String(value);
+  }
+}
+
+/**
+ * `xp-rt-chart` — a labelled series as bars or as slices.
+ *
+ * A dashboard is legible at a glance or it is a table of numbers with a title,
+ * and the certified catalog could express only the second. The two shapes cover
+ * what a business page asks of a picture: bars rank categories against each
+ * other, a donut shows how one total splits.
+ *
+ * Drawn with the data plane's chart kit rather than a second charting idiom:
+ * ranked bars are DOM, because a handful of labelled rectangles is laid out
+ * better by CSS than by a canvas and has nothing to hover for, while the donut
+ * goes through chart.js, where arcs and their legend already exist.
+ */
+@Component({
+  selector: 'xp-rt-chart',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent, BarListComponent, BaseChartDirective],
+  styleUrl: './runtime.scss',
+  template: `
+    <div class="xp-rt-block" [attr.aria-label]="ariaName() || null">
+      @if (title()) {
+        <h3>{{ title() }}</h3>
+      }
+      @if (caption()) {
+        <p class="xp-rt-sub">{{ caption() }}</p>
+      }
+      <xp-rt-query-control [node]="node()" [context]="context()" />
+      <xp-rt-slot [state]="slot()" [empty]="emptyText()" [detail]="errorText()">
+        @if (kind() === 'donut') {
+          <div class="xp-rt-chart-arc">
+            <canvas
+              baseChart
+              type="doughnut"
+              role="img"
+              [attr.aria-label]="readout()"
+              [data]="arcs()"
+              [options]="arcOptions()"
+            ></canvas>
+          </div>
+        } @else {
+          <ck-bar-list [bars]="bars()" />
+        }
+        @if (hidden()) {
+          <p class="xp-rt-hint">{{ i18n.t('experience.runtime.chart.capped', { n: hidden() }) }}</p>
+        }
+      </xp-rt-slot>
+    </div>
+  `,
+})
+export class ChartBlock {
+  private readonly runtime = inject(ExperienceRuntimeService);
+  private readonly element: ElementRef<HTMLElement> = inject(ElementRef);
+  private readonly theme = inject(ThemeService);
+  readonly i18n = inject(I18nService);
+  readonly node = input.required<ExperienceNode>();
+  readonly context = input.required<RuntimeNodeContext>();
+  readonly title = computed(() => copyText(this.node(), 'title'));
+  readonly caption = computed(() => copyText(this.node(), 'caption'));
+  readonly ariaName = computed(() => a11yOf(this.node()).ariaLabel);
+  readonly emptyText = computed(() => a11yOf(this.node()).emptyText);
+  readonly kind = computed(() => chartKind(this.node().props?.['kind']));
+  readonly series = computed(() => {
+    const node = this.node();
+    // A binding owns the block from the moment it exists, exactly as it does on
+    // a table: the authored series is the source for an unbound chart, never a
+    // placeholder drawn beside numbers a run is still producing.
+    const value = runtimeDataBinding(node)
+      ? dynamicValue(this.runtime, node, this.context())
+      : node.props?.['series'];
+    return chartSeries(
+      value,
+      str(node, 'labelKey') || 'label',
+      str(node, 'valueKey') || 'value',
+    );
+  });
+  readonly hidden = computed(() => this.series().hidden);
+  readonly bars = computed<VizBar[]>(() =>
+    this.series().points.map((point) => ({
+      label: point.label,
+      // The kit scales the rectangles; the number needs a locale, which is the
+      // one part of a bar a component drawing rectangles cannot decide.
+      display: point.value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 2 }),
+      width: point.width,
+      negative: point.value < 0,
+      emphasis: false,
+    })),
+  );
+  readonly slot = computed(() =>
+    dynamicSlot(this.runtime, this.node(), this.context(), this.series().points.length === 0),
+  );
+  readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
+
+  /**
+   * What a screen reader is told the donut says.
+   *
+   * A bare `role="img"` announces nothing, and unlike the bar list — whose
+   * labels and numbers are text on the page — a canvas hides every figure it
+   * draws. So the reading is the label: the series spelled out, in the order it
+   * is drawn.
+   */
+  protected readonly readout = computed(() => {
+    const name = this.title() || this.caption() || this.i18n.t('experience.runtime.chart.region');
+    const spoken = this.series()
+      .points.map((point) => `${point.label} ${point.value}`)
+      .join(', ');
+    return spoken ? `${name}: ${spoken}` : name;
+  });
+
+  /**
+   * The token values the arcs are drawn with, re-read when the theme changes.
+   *
+   * A canvas takes a colour and nothing else: `var()` does not resolve there,
+   * so the `--ck-*` tokens are looked up off the host rather than handed to the
+   * renderer as text it cannot parse. Reading `theme.resolved()` is what makes
+   * the flip work — without it a donut drawn dark keeps its dark greys.
+   */
+  private readonly palette = computed(() => {
+    this.theme.resolved();
+    return {
+      arcs: SLICE_TOKENS.map(([name, fallback]) => this.token(name, fallback)),
+      seam: this.token('--ck-bg-panel', '#0e1216'),
+      text: this.token('--ck-fg-3', 'rgba(255, 255, 255, 0.66)'),
+    };
+  });
+
+  protected readonly arcs = computed<ChartData<'doughnut'>>(() => {
+    const palette = this.palette();
+    const points = this.series().points;
+    return {
+      labels: points.map((point) => point.label),
+      datasets: [
+        {
+          data: points.map((point) => point.value),
+          backgroundColor: points.map((_, index) => palette.arcs[index % palette.arcs.length]!),
+          borderColor: palette.seam,
+          borderWidth: 2,
+        },
+      ],
+    };
+  });
+
+  protected readonly arcOptions = computed<ChartConfiguration<'doughnut'>['options']>(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '62%',
+    animation: { duration: 320 },
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: { color: this.palette().text, boxWidth: 10, font: { size: 11 } },
+      },
+    },
+  }));
+
+  private token(name: string, fallback: string): string {
+    const value = getComputedStyle(this.element.nativeElement).getPropertyValue(name).trim();
+    return value || fallback;
   }
 }
 
@@ -1495,6 +1679,16 @@ export class FeedBlock {
   readonly errorText = computed(() => this.runtime.lastError(this.context().sourceStateKey) ?? '');
 }
 
+/** Cycled: a donut with more slices than colours reuses them in order. */
+const SLICE_TOKENS: readonly (readonly [string, string])[] = [
+  ['--ck-accent', '#7dd3fc'],
+  ['--ck-signal-violet', '#a78bfa'],
+  ['--ck-signal-pos', '#34d399'],
+  ['--ck-signal-warn', '#f5b84a'],
+  ['--ck-signal-neg', '#ef5a6f'],
+  ['--ck-signal-ice', '#e0f2fe'],
+];
+
 export const CATALOG: Record<CertifiedType, Type<unknown>> = {
   section: SectionBlock,
   header: HeaderBlock,
@@ -1508,6 +1702,7 @@ export const CATALOG: Record<CertifiedType, Type<unknown>> = {
   evidence: EvidenceBlock,
   history: HistoryBlock,
   kpi: KpiBlock,
+  chart: ChartBlock,
   callout: CalloutBlock,
   map_panel: FeedBlock,
   agenda_panel: FeedBlock,

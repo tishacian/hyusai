@@ -248,6 +248,14 @@
   background: var(--ck-status-warn-bg);
 }
 
+/* A canvas needs a box: chart.js sizes itself to its parent, and a donut
+   squashed flat misreports every share it draws. */
+.xp-rt-chart-arc {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+}
+
 .xp-rt-kpi {
   font-size: 22px;
   font-weight: 600;

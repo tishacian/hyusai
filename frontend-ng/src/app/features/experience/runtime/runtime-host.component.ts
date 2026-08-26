@@ -168,6 +168,7 @@ const CONTEXT_TYPES = new Set([
   'table',
   'queue',
   'kpi',
+  'chart',
   'map_panel',
   'agenda_panel',
   'intelligence_feed',

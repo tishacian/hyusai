@@ -23,6 +23,7 @@ export const CERTIFIED_TYPES = [
   'evidence',
   'history',
   'kpi',
+  'chart',
   'callout',
   'map_panel',
   'agenda_panel',
@@ -492,6 +493,110 @@ export function runtimeSummary(value: unknown): unknown {
   const list = Object.values(value).find(Array.isArray);
   if (list) return list.length;
   return Object.values(value).find((item) => item !== undefined && item !== null && !isRecord(item));
+}
+
+// ---------------------------------------------------------------------------
+// Categorical series
+// ---------------------------------------------------------------------------
+
+/** The shapes a certified chart draws. Anything else is read as bars. */
+export const CHART_KINDS = ['bar', 'donut'] as const;
+
+export type ChartKind = (typeof CHART_KINDS)[number];
+
+export function chartKind(value: unknown): ChartKind {
+  return (CHART_KINDS as readonly unknown[]).includes(value) ? (value as ChartKind) : 'bar';
+}
+
+export interface ChartPoint {
+  label: string;
+  value: number;
+  /** 0–100, relative to the largest magnitude actually plotted. */
+  width: number;
+}
+
+export interface ChartSeries {
+  points: ChartPoint[];
+  /** Rows the cap left out, so the block can say so rather than quietly lie. */
+  hidden: number;
+}
+
+/**
+ * Twelve bars is what a reader compares at a glance; past that a chart is a
+ * table with worse alignment. The feature-importance list of a model card
+ * stops at the same twelve for the same reason.
+ */
+export const CHART_MAX_POINTS = 12;
+
+/** A canvas legend does not ellipsize, so a pathological label is cut here. */
+const CHART_MAX_LABEL = 32;
+
+/**
+ * A labelled series drawable as bars or slices, from whatever the author wrote
+ * or the System returned.
+ *
+ * Both sides are untrusted: a released document passed a structural check that
+ * says nothing about the numbers inside it, and a run output is whatever the
+ * System produced this morning. A row without a usable label, or whose value is
+ * not a number, is dropped rather than plotted at zero — a bar of length zero
+ * reads as a measured nothing, which is a different claim from missing data.
+ *
+ * Over the cap the largest magnitudes win, drawn in the order they arrived:
+ * ranking decides what is worth the space, but an authored order (critical,
+ * high, medium, low) carries meaning that sorting would destroy.
+ */
+export function chartSeries(
+  value: unknown,
+  labelKey = 'label',
+  valueKey = 'value',
+  limit = CHART_MAX_POINTS,
+): ChartSeries {
+  const usable: { label: string; value: number }[] = [];
+  for (const item of runtimeItems(value)) {
+    if (!isRecord(item)) continue;
+    const label = chartLabel(item[labelKey]);
+    const number = chartValue(item[valueKey]);
+    if (!label || number === null) continue;
+    usable.push({ label, value: number });
+  }
+  const kept = usable.length <= limit ? usable : strongest(usable, limit);
+  const peak = Math.max(...kept.map((point) => Math.abs(point.value)), 0);
+  return {
+    points: kept.map((point) => ({
+      ...point,
+      width: peak ? Math.round((Math.abs(point.value) / peak) * 100) : 0,
+    })),
+    hidden: usable.length - kept.length,
+  };
+}
+
+function chartLabel(value: unknown): string {
+  const text =
+    typeof value === 'string'
+      ? value.trim()
+      : typeof value === 'number' && Number.isFinite(value)
+        ? String(value)
+        : '';
+  return text.length > CHART_MAX_LABEL ? `${text.slice(0, CHART_MAX_LABEL - 1)}…` : text;
+}
+
+/** Numeric strings are accepted; `true`, `null` and `[]` are not numbers. */
+function chartValue(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function strongest<T extends { value: number }>(points: readonly T[], limit: number): T[] {
+  return points
+    .map((point, index) => ({ point, index }))
+    .sort((a, b) => Math.abs(b.point.value) - Math.abs(a.point.value) || a.index - b.index)
+    .slice(0, limit)
+    .sort((a, b) => a.index - b.index)
+    .map((entry) => entry.point);
 }
 
 function fieldKind(spec: Record<string, unknown>, hasEnum: boolean): RuntimeFieldKind {
