@@ -340,14 +340,16 @@ export interface GaugeView {
   /** Arc length for the SVG dash, so the fill can be animated by CSS. */
   dash: number;
   /**
-   * Degrees round the track, for the marker that rides the tip of the fill.
+   * Dash offset that parks the handle's single round dash on the fill's tip.
    *
-   * The same number as `dash` in a different unit, kept beside it so the two
-   * cannot disagree: a marker that leads or trails the stroke it terminates is
-   * worse than no marker, because it puts a precise-looking dot next to the
-   * wrong value.
+   * The handle used to be a circle in a rotated group, which is the obvious way
+   * to put a dot on an arc and the wrong one here: the fill animates
+   * `stroke-dashoffset` and the group animated `transform`, and a browser does
+   * not interpolate the two alike. Both ran 620ms on the same easing and the dot
+   * still trailed the stroke it terminates by a third of the dial. Riding the
+   * same property as the fill is what makes them one movement.
    */
-  turn: number;
+  handle: number;
 }
 
 /**
@@ -363,6 +365,14 @@ export const GAUGE_RADIUS = 58;
 
 /** Length of the gauge's semicircular track, in user units. */
 export const GAUGE_ARC = Math.PI * GAUGE_RADIUS;
+
+/**
+ * Length of the handle's dash: a dot rather than a segment.
+ *
+ * Short enough that a round cap renders it as a circle of the stroke's width,
+ * and not zero, because a zero-length dash is a length no renderer has to draw.
+ */
+export const GAUGE_HANDLE = 0.01;
 
 /**
  * A classification answer as one number with its class named.
@@ -387,14 +397,18 @@ export function gaugeView(
   const raw = named?.value ?? row.score ?? row.confidence;
   if (raw === null || raw === undefined || !Number.isFinite(raw)) return null;
   const value = Math.min(1, Math.max(0, Number(raw)));
+  const dash = Math.round(value * GAUGE_ARC * 100) / 100;
   return {
     value,
     percent: `${(value * 100).toLocaleString(locale, { maximumFractionDigits: 1 })}%`,
     label: named ? String(named.label) : predicted,
     predicted,
     flagged: !!positive && predicted === positive,
-    dash: Math.round(value * GAUGE_ARC * 100) / 100,
-    turn: Math.round(value * 1800) / 10,
+    dash,
+    // One period of `GAUGE_HANDLE` then a gap of `GAUGE_ARC`: offsetting by a
+    // whole period less the arc length lands the dash on the tip, and stays
+    // positive, which negative offsets only became legal in SVG 2.
+    handle: Math.round((GAUGE_ARC + GAUGE_HANDLE - dash) * 100) / 100,
   };
 }
 
