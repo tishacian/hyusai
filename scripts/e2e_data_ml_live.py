@@ -203,10 +203,12 @@ TRAIN_STEPS = ("queued", "reading", "fitting", "scoring", "validating", "saving"
 
 
 def step_of(detail: str) -> str:
-    """The step code in a ``status_detail``, which may carry a row count.
+    """The step code in a ``status_detail``, which may carry a count.
 
-    Ingest writes ``profiling:8412`` so the page can say "Profiling — 8 412
-    rows" without a second request; the step is the part before the colon.
+    Ingest writes ``profiling:8412`` and training writes ``fitting:6903`` or
+    ``validating:3/5``, so a page can say "Profiling — 8 412 rows" or "Fold 3/5"
+    without a second request. The step is the part before the colon; the count
+    is what makes a wait measurable, and is checked where it is rendered.
     """
 
     return detail.split(":", 1)[0].strip()

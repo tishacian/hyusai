@@ -26,6 +26,7 @@ import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
 } from '@app/shared/cockpit/object-header.component';
+import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
 import { DataService } from '@app/features/data/data.service';
 import { ModelTrainComponent } from './model-train.component';
@@ -36,9 +37,10 @@ import {
   formatMetric,
   metricTone,
   primaryScore,
-  trainStepKey,
+  trainChecklist,
   type ModelDto,
   type ModelTask,
+  type TrainStep,
 } from './models.vm';
 
 const POLL_INTERVAL_MS = 1500;
@@ -183,13 +185,20 @@ type ModelFilter = 'all' | ModelTask | 'serving';
                     }
                   </div>
                   @if (isActive(row)) {
-                    <div
-                      class="text-[11px] ck-mono mt-1 flex items-center gap-1.5"
-                      style="color: var(--ck-signal-cool)"
-                    >
-                      <span class="ck-pulse"></span>
-                      {{ i18n.t(stepKey(row.status_detail)) }}
-                    </div>
+                    <ol class="ck-steps" data-testid="train-checklist">
+                      @for (step of checklist(row); track step.step) {
+                        <li class="ck-steps__item" [attr.data-state]="step.state">
+                          @if (step.state === 'done') {
+                            <app-icon name="check" [size]="11" class="shrink-0" />
+                          } @else if (step.state === 'active') {
+                            <span class="ck-pulse shrink-0"></span>
+                          } @else {
+                            <span class="ck-steps__dot shrink-0"></span>
+                          }
+                          <span class="truncate">{{ i18n.t(step.key, step.params) }}</span>
+                        </li>
+                      }
+                    </ol>
                   } @else if (row.status === 'failed') {
                     <div class="text-[11px] ck-mono mt-1" style="color: var(--ck-signal-neg)">
                       {{ row.error }}
@@ -308,6 +317,45 @@ type ModelFilter = 'all' | ModelTask | 'serving';
           transform: scale(1.15);
         }
       }
+      @media (prefers-reduced-motion: reduce) {
+        .ck-pulse {
+          animation: none;
+        }
+      }
+      /* Same check-list as the ingest plane's and the model card's: the steps
+         already passed stay visible and ticked, so the seconds a fit takes read
+         as distance covered rather than as a stall. */
+      .ck-steps {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 12px;
+        margin-top: 4px;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      .ck-steps__item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+        color: var(--ck-fg-4, #8891a0);
+        transition: color var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
+      }
+      .ck-steps__item[data-state='done'] {
+        color: var(--ck-signal-pos, #4ade80);
+      }
+      .ck-steps__item[data-state='active'] {
+        color: var(--ck-signal-cool, #7dd3fc);
+      }
+      .ck-steps__item[data-state='todo'] {
+        opacity: 0.5;
+      }
+      .ck-steps__dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px currentColor;
+      }
       .ck-score {
         font-size: 15px;
         font-weight: 600;
@@ -348,9 +396,14 @@ export class ModelsListComponent implements OnInit {
   protected readonly models = inject(ModelsService);
   protected readonly data = inject(DataService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly toast = inject(ToastrService);
 
   protected readonly filter = signal<ModelFilter>('all');
   protected readonly studioOpen = signal(false);
+
+  /** Rows seen mid-fit, so the one that settles can be announced rather than
+   *  merely stop pulsing. */
+  private readonly watched = new Set<string>();
 
   protected readonly filters: { key: ModelFilter; label: string }[] = [
     { key: 'all', label: 'models.list.filter.all' },
@@ -413,9 +466,14 @@ export class ModelsListComponent implements OnInit {
     return isModelActive(model);
   }
 
-  /** The worker names its step as a code; the locale supplies the sentence. */
-  protected stepKey(detail: string | null | undefined): string {
-    return trainStepKey(detail);
+  /** The fit as a check-list, drawn from the same function as the card's. */
+  protected checklist(model: ModelDto): TrainStep[] {
+    return trainChecklist(
+      model.status,
+      model.status_detail,
+      model.cross_validation,
+      this.i18n.locale(),
+    );
   }
 
   protected algoIcon(algo: string): string {
@@ -471,15 +529,57 @@ export class ModelsListComponent implements OnInit {
 
   /** Poll only while a fit is unsettled, and stop as soon as it settles. */
   private syncPolling(): void {
+    this.watch();
     if (this.models.hasActive()) {
       if (this.pollTimer) return;
       this.pollTimer = setInterval(() => {
         void this.models.refresh().then(() => {
+          this.announceSettled();
+          this.watch();
           if (!this.models.hasActive()) this.stopPolling();
         });
       }, POLL_INTERVAL_MS);
     } else {
       this.stopPolling();
+    }
+  }
+
+  /** Remember which fits are still running, so their landing can be announced. */
+  private watch(): void {
+    for (const row of this.models.models()) {
+      if (isModelActive(row)) this.watched.add(row.id);
+    }
+  }
+
+  /**
+   * Toast the fits that settled since the last poll.
+   *
+   * A fit runs in a worker and settles while the reader is looking somewhere
+   * else — the studio said "queued" and closed. Without this the row simply
+   * stops pulsing, which is the same silence the check-list above exists to
+   * remove, and the number is the point: "Churn Radar v4 ready — AUC 0.87" is
+   * the sentence a demo wants, not "training finished".
+   */
+  private announceSettled(): void {
+    if (!this.watched.size) return;
+    for (const row of this.models.models()) {
+      if (!this.watched.has(row.id) || isModelActive(row)) continue;
+      this.watched.delete(row.id);
+      const named = { name: row.name, version: row.version };
+      if (row.status === 'ready') {
+        const score = primaryScore(row);
+        this.toast.success(
+          score
+            ? this.i18n.t('models.progress.settled', {
+                ...named,
+                metric: this.i18n.t('models.metric.' + score.key),
+                value: formatMetric(score.key, score.value, this.i18n.locale()),
+              })
+            : this.i18n.t('models.progress.settled.plain', named),
+        );
+      } else if (row.status === 'failed') {
+        this.toast.error(this.i18n.t('models.progress.failed', named));
+      }
     }
   }
 

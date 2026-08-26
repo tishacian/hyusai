@@ -1184,32 +1184,139 @@ export function splitError(error: string | undefined | null): {
  * The steps a training run reports, in order — a mirror of the backend's
  * `TRAIN_STEPS`.
  *
- * The first two are the worker's own; the last three belong to the harness,
- * because only the subprocess doing the fit knows when the fit ends and the
- * scoring begins. A row carries the current one as a bare code in
- * `status_detail`, which is what lets a minute-long fit read as a check-list in
- * whichever language the page is in.
+ * The first two are the worker's own; the rest belong to the harness, because
+ * only the subprocess doing the fit knows when the fit ends and the scoring
+ * begins. A row carries the current one as a bare code in `status_detail`, which
+ * is what lets a minute-long fit read as a check-list in whichever language the
+ * page is in.
+ *
+ * `validating` is in the middle and is conditional: only a run that asked for
+ * folds ever reports it, which is why the check-list is built against a
+ * requested fold count rather than against this list alone.
  */
 export const TRAIN_STEPS: readonly string[] = [
   'queued',
   'reading',
   'fitting',
   'scoring',
+  'validating',
   'saving',
 ];
 
 /**
- * Dictionary key for the step a run is on, falling back to the queued one.
+ * The step, and the count it brought, out of a `status_detail`.
  *
- * Anything unrecognised falls back rather than being shown: a worker from an
- * older deployment still writes an English sentence, and rendering it would put
- * that sentence on the French page.
+ * The backend writes `fitting:6903` and `validating:3/5` for the same reason the
+ * ingest plane writes `profiling:8412`: a count is the only part of a wait that
+ * says how much of it is left, and it cannot be a translated sentence because
+ * two locales poll the same row.
+ *
+ * Anything unrecognised falls back to the queued step rather than being shown:
+ * a worker from an older deployment still writes an English sentence, and
+ * rendering it would put that sentence on the French page.
  */
+export function parseTrainDetail(detail: string | null | undefined): {
+  step: string;
+  rows: number | null;
+  fold: number | null;
+  folds: number | null;
+} {
+  const [head, tail] = (detail ?? '').trim().split(':', 2);
+  const step = TRAIN_STEPS.includes(head) ? head : TRAIN_STEPS[0];
+  const empty = { step, rows: null, fold: null, folds: null };
+  if (!tail) return empty;
+  const [left, right] = tail.split('/', 2);
+  const first = Number(left);
+  if (!Number.isFinite(first) || first < 0) return empty;
+  if (right === undefined) {
+    return { ...empty, rows: first > 0 ? first : null };
+  }
+  const total = Number(right);
+  if (!Number.isFinite(total) || total < 1) return empty;
+  return { ...empty, fold: first, folds: total };
+}
+
+/** Dictionary key for the step a run is on, falling back to the queued one. */
 export function trainStepKey(detail: string | null | undefined): string {
-  const step = (detail ?? '').trim();
-  return TRAIN_STEPS.includes(step)
-    ? `models.progress.step.${step}`
-    : 'models.progress.step.queued';
+  return `models.progress.step.${parseTrainDetail(detail).step}`;
+}
+
+/** One line of the training check-list: what it is, and whether it is behind us. */
+export interface TrainStep {
+  /** The step's code, which is also the tail of its dictionary key. */
+  step: string;
+  /**
+   * Dictionary key for this line's sentence — a `.counted` variant once the
+   * number is known, so the template renders a key rather than choosing one.
+   */
+  key: string;
+  /** Everything a `.counted` sentence interpolates, ready to pass through. */
+  params: Record<string, string | number>;
+  state: 'done' | 'active' | 'todo';
+}
+
+/**
+ * The whole fit as a check-list, with the steps already passed ticked off.
+ *
+ * One line at a time is what a spinner is: it says something is happening and
+ * nothing about how much is left. Because the step order is known on both sides,
+ * a row that says `scoring` also says that reading and fitting are behind it —
+ * so the list can be drawn complete from a single poll, without the worker
+ * sending it.
+ *
+ * Three judgements the list makes:
+ *
+ *  - `validating` is dropped unless folds were asked for. A line that will never
+ *    tick is worse than no line: it reads as a step that is stuck.
+ *  - A run that is `training` without having claimed a step is shown at
+ *    `reading`. It is past the queue, and no progress it did not claim is
+ *    invented beyond that.
+ *  - Every terminal status ticks the whole list, a failed one included. The
+ *    check-list says how far the run got; the refusal beside it says what
+ *    stopped it. That is also what makes the list settle rather than vanish —
+ *    the reader sees the model was fitted, scored and saved, not merely that a
+ *    spinner stopped.
+ */
+export function trainChecklist(
+  status: string | undefined | null,
+  detail: string | null | undefined,
+  requestedFolds: number | null | undefined,
+  locale = 'en',
+): TrainStep[] {
+  const folds = Number(requestedFolds) >= 2 ? Math.round(Number(requestedFolds)) : 0;
+  const steps = TRAIN_STEPS.filter((step) => step !== 'validating' || folds >= 2);
+  const terminal = status === 'ready' || status === 'failed' || status === 'cancelled';
+  const parsed = parseTrainDetail(detail);
+  const claimed = (detail ?? '').trim() ? parsed.step : null;
+  const at = terminal
+    ? steps.length
+    : Math.max(0, steps.indexOf(claimed ?? (status === 'training' ? 'reading' : 'queued')));
+  return steps.map((step, index): TrainStep => {
+    // Each count belongs to the one line it is about. The fit's row count is
+    // the learning rows, which is not what the scoring line counts, and the
+    // fold counter is only a live number while the folds are running — on a
+    // settled row it would freeze on the last one and still read as one.
+    const withRows = step === 'fitting' && parsed.rows !== null;
+    const onFold =
+      step === 'validating' &&
+      !terminal &&
+      parsed.step === 'validating' &&
+      parsed.fold !== null;
+    const params: Record<string, string | number> = {};
+    if (withRows) params['rows'] = (parsed.rows as number).toLocaleString(locale);
+    if (onFold) {
+      params['fold'] = parsed.fold as number;
+      params['folds'] = parsed.folds as number;
+    } else if (step === 'validating') {
+      params['folds'] = folds;
+    }
+    return {
+      step,
+      key: `models.progress.step.${step}${withRows || onFold ? '.counted' : ''}`,
+      params,
+      state: index < at ? 'done' : index === at ? 'active' : 'todo',
+    };
+  });
 }
 
 export const TRAINING_ERROR_CODES = [

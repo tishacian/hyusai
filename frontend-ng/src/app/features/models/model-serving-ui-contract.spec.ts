@@ -20,6 +20,7 @@ function source(name: string): string {
 
 const PLAYGROUND = source('model-playground.component.ts');
 const CARD = source('model-view.component.ts');
+const LIST = source('models-list.component.ts');
 const CLIENT = source('models.service.ts');
 
 /**
@@ -259,4 +260,43 @@ test('the comparison tab weighs a pair, and never one version against itself', (
   // The delta beside a score is a claim about a retrain, so it keeps reading
   // strictly backwards even where the table looks forwards.
   assert.match(CARD, /previousVersion\(this\.model\(\), this\.versions\(\)\)/);
+});
+
+test('a fit reads as a check-list wherever it is watched, and says when it lands', () => {
+  // "Zéro spinner muet" is a plan-level bet, and a fit is the longest wait in
+  // the story — longer still with folds, which refit the pipeline once each. So
+  // every surface that can be open while a fit runs draws the same list from the
+  // same function, rather than one of them showing a single word.
+  for (const [name, text] of [
+    ['card', CARD],
+    ['list', LIST],
+  ] as const) {
+    assert.match(text, /data-testid="train-checklist"/, name);
+    assert.match(text, /trainChecklist\(/, name);
+    assert.match(text, /i18n\.t\(step\.key, step\.params\)/, name);
+    assert.match(text, /\[attr\.data-state\]="step\.state"/, name);
+    // Done, running, not yet: three states, or the list is a paragraph.
+    assert.match(text, /step\.state === 'done'/, name);
+    assert.match(text, /step\.state === 'active'/, name);
+  }
+
+  // A fit settles while the reader is looking somewhere else — the studio said
+  // "queued" and closed. Without a toast the row merely stops pulsing, which is
+  // the silence the check-list exists to remove.
+  assert.match(LIST, /private announceSettled\(\)/);
+  assert.match(LIST, /this\.toast\.success\(/);
+  assert.match(LIST, /this\.toast\.error\(this\.i18n\.t\('models\.progress\.failed'/);
+  // And the number is the point: "v4 ready — AUC 0.87", not "training finished".
+  assert.match(LIST, /'models\.progress\.settled'/);
+  assert.match(LIST, /'models\.progress\.settled\.plain'/);
+  for (const key of [
+    'models.progress.settled',
+    'models.progress.settled.plain',
+    'models.progress.failed',
+    'models.progress.step.fitting.counted',
+    'models.progress.step.validating.counted',
+  ]) {
+    assert.ok(MODELS_FR[key], `${key} has FR copy`);
+    assert.ok(MODELS_EN[key], `${key} has EN copy`);
+  }
 });

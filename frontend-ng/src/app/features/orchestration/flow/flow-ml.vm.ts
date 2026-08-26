@@ -454,40 +454,4 @@ export function pinVersionPatch(version: number | null): Record<string, unknown>
   return { pinned_version: version && version > 0 ? Math.round(version) : null };
 }
 
-export interface TrainStepView {
-  /** The step's code, which is also the tail of its dictionary key. */
-  key: string;
-  state: 'done' | 'current' | 'todo';
-}
-
-/**
- * What a Test run reports while it runs, as an ordered check-list.
- *
- * The steps are `TRAIN_STEPS` — the codes the worker and the harness publish on
- * the row — so a fit that takes forty seconds reads as work in progress rather
- * than as a spinner, and reads it in the page's own language.
- *
- * A status the row reached without naming a step leaves the list at "reading":
- * the run is past the queue (it is `training`) but no progress it did not claim
- * is invented. A terminal status ticks everything, including a failed one — the
- * check-list says how far the run got, and the refusal says what stopped it.
- */
-export function trainSteps(
-  status: string | null | undefined,
-  step: string | null | undefined,
-): TrainStepView[] {
-  const terminal = status === 'ready' || status === 'failed' || status === 'cancelled';
-  const named = TRAIN_STEPS.includes(String(step ?? '')) ? String(step) : null;
-  const index = terminal
-    ? TRAIN_STEPS.length
-    : Math.max(
-        0,
-        TRAIN_STEPS.indexOf(named ?? (status === 'training' ? 'reading' : 'queued')),
-      );
-  return TRAIN_STEPS.map((key, at) => ({
-    key,
-    state: at < index ? 'done' : at === index ? 'current' : 'todo',
-  }));
-}
-
 export { TRAIN_STEPS };

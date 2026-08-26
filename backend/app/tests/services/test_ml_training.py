@@ -759,6 +759,26 @@ def test_a_step_the_worker_cannot_name_is_not_published(tmp_path):
     assert read_progress(tmp_path) is None
 
 
+def test_a_step_carries_the_count_that_says_how_much_is_left(tmp_path):
+    """"Validating" sitting unchanged for five times the length of the fit that
+    preceded it is a spinner with a name. "Fold 3/5" is a wait a reader can
+    measure, so a step is allowed to bring a count — and only a count."""
+
+    from app.services.tabular_ml import read_progress
+
+    progress = tmp_path / "progress.txt"
+    progress.write_text("reading\nfitting:6903\n", encoding="utf-8")
+    assert read_progress(tmp_path) == "fitting:6903"
+    progress.write_text("validating:0/5\nvalidating:3/5\n", encoding="utf-8")
+    assert read_progress(tmp_path) == "validating:3/5"
+    # A step whose tail is not a count is a half-written line, and the step
+    # before it is the truth about where the run got to.
+    progress.write_text("fitting:6903\nvalidating:3/\n", encoding="utf-8")
+    assert read_progress(tmp_path) == "fitting:6903"
+    progress.write_text("validating:injected sentence\n", encoding="utf-8")
+    assert read_progress(tmp_path) is None
+
+
 def test_republishing_the_same_step_does_not_write(
     db_session, workspace, dataset, enabled, monkeypatch, store
 ):
@@ -961,10 +981,14 @@ def test_the_harness_writes_the_evidence_the_model_card_reads(churn_parquet, tmp
     json.dumps(summary, allow_nan=False)
 
     # Only this process knows when the reading ends and the fitting begins, so
-    # it claims each step for the worker to republish onto the polled row.
+    # it claims each step for the worker to republish onto the polled row. The
+    # fit brings the row count it is learning from, because a step that says how
+    # much work it has is the difference between a wait and a spinner.
     claimed = (tmp_path / "run" / "progress.txt").read_text(encoding="utf-8").split()
-    assert claimed == ["reading", "fitting", "scoring", "saving"]
-    assert set(claimed) <= set(TRAIN_STEPS)
+    assert claimed == ["reading", "fitting:300", "scoring", "saving"]
+    # Whatever a step brings with it, the step itself is one the worker and both
+    # locales can name. That is the invariant; the count is decoration on top.
+    assert {step.partition(":")[0] for step in claimed} <= set(TRAIN_STEPS)
 
 
 @pytest.mark.slow
@@ -1121,6 +1145,46 @@ def test_cross_validation_reports_a_spread_per_metric_and_not_one_number(
     # Timings are not evidence about a model, and a per-class row has no label
     # on the card.
     assert not {key for key in rows if key.endswith("_time")}
+
+
+@pytest.mark.slow
+def test_cross_validation_counts_its_folds_out_loud(churn_parquet, tmp_path):
+    """Folds are the longest part of a run that asked for them — five refits of
+    the whole pipeline — and the part a silent spinner hurts most.
+
+    There is no callback in ``CrossValidationReport`` to hang a counter on, so
+    the narration rides on the splitter being consumed. That is a real bet about
+    how skore drives a cross-validator, which is why it is tested against skore
+    rather than against a stub: if a future version materialises every split
+    before fitting any of them, the counter jumps to 3/3 at once and this
+    assertion is how we find out.
+    """
+
+    progress = tmp_path / "progress.txt"
+    code, summary, stderr = _run_harness(
+        tmp_path / "run",
+        _manifest_for(
+            churn_parquet, tmp_path, cv=3, progress_path=str(progress)
+        ),
+    )
+    assert code == 0, stderr
+    assert "error" not in summary["metrics"]["cv"], summary["metrics"]["cv"]
+
+    steps = progress.read_text(encoding="utf-8").split()
+    # The fit says how many rows it is learning from, and every fold says which
+    # one it is out of how many.
+    assert any(step.startswith("fitting:") for step in steps), steps
+    assert [step for step in steps if step.startswith("validating:")] == [
+        "validating:0/3",
+        "validating:1/3",
+        "validating:2/3",
+        "validating:3/3",
+    ], steps
+    # And the worker can still name what it reads, which is the other half of
+    # the contract: a count only helps if it survives the trip to the row.
+    from app.services.tabular_ml import read_progress
+
+    assert read_progress(tmp_path) == "saving"
 
 
 @pytest.mark.slow

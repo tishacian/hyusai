@@ -505,7 +505,7 @@
     color: var(--ck-signal-pos, #4ec9a0);
     border-color: color-mix(in srgb, var(--ck-signal-pos, #4ec9a0) 32%, transparent);
   }
-  li[data-state='current'] {
+  li[data-state='active'] {
     color: var(--ck-signal-cool, #7dd3fc);
     border-color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 45%, transparent);
     background: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 10%, transparent);

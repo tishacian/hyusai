@@ -17,6 +17,7 @@ import {
   REFUSAL_CODES,
   SERVING_ERROR_CODES,
   TRAINING_ERROR_CODES,
+  TRAIN_STEPS,
   algoIcon,
   balanceBars,
   bestScore,
@@ -47,6 +48,9 @@ import {
   splitError,
   targetCandidates,
   taskIcon,
+  parseTrainDetail,
+  trainChecklist,
+  trainStepKey,
   trainingErrorKey,
   warningKey,
   type KnobDescriptor,
@@ -780,5 +784,161 @@ test('every metric the card can score has a label and a hint in both locales', (
       ['ratio', 'percent', 'value'].includes(metricScale(metric)),
       `${metric} has no scale`,
     );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The live check-list of a fit
+// ---------------------------------------------------------------------------
+
+test('a step brings the count that says how much of the wait is left', () => {
+  assert.deepEqual(parseTrainDetail('fitting:6903'), {
+    step: 'fitting',
+    rows: 6903,
+    fold: null,
+    folds: null,
+  });
+  assert.deepEqual(parseTrainDetail('validating:3/5'), {
+    step: 'validating',
+    rows: null,
+    fold: 3,
+    folds: 5,
+  });
+  // A bare step is still a step.
+  assert.deepEqual(parseTrainDetail('scoring').step, 'scoring');
+  // A sentence from an older worker is not a step: rendering it would put
+  // English on the French page, which is what the codes exist to prevent.
+  assert.equal(parseTrainDetail('Fitting HistGradientBoostingClassifier').step, 'queued');
+  assert.equal(trainStepKey('fitting:6903'), 'models.progress.step.fitting');
+  assert.equal(trainStepKey(null), 'models.progress.step.queued');
+  // A tail that is not a count is dropped rather than shown.
+  for (const bad of ['fitting:', 'fitting:x', 'validating:3/0', 'validating:3/x']) {
+    const parsed = parseTrainDetail(bad);
+    assert.equal(parsed.rows, null, bad);
+    assert.equal(parsed.fold, null, bad);
+  }
+});
+
+test('the check-list follows the step the row claims, and invents none', () => {
+  const states = (status: string | null, step: string | null) =>
+    trainChecklist(status, step, 0).map((line) => line.state);
+
+  // Five lines without folds: queued, reading, fitting, scoring, saving.
+  assert.deepEqual(states('pending', 'queued'), [
+    'active',
+    'todo',
+    'todo',
+    'todo',
+    'todo',
+  ]);
+  assert.deepEqual(states('training', 'fitting'), [
+    'done',
+    'done',
+    'active',
+    'todo',
+    'todo',
+  ]);
+  // Training but silent: the run is past the queue, and no progress it did not
+  // claim is invented.
+  assert.deepEqual(states('training', null), ['done', 'active', 'todo', 'todo', 'todo']);
+  assert.deepEqual(states('training', 'Fitting HistGradientBoosting'), [
+    'active',
+    'todo',
+    'todo',
+    'todo',
+    'todo',
+  ]);
+  // Terminal ticks everything, failure included: the list says how far the run
+  // got, and the refusal beside it says what stopped it.
+  for (const status of ['ready', 'failed', 'cancelled']) {
+    assert.deepEqual(states(status, 'fitting'), Array(5).fill('done'));
+  }
+});
+
+test('a line that will never tick is not drawn', () => {
+  // `validating` only happens when folds were asked for. Showing it on a run
+  // that asked for none would read as a step that is stuck for good.
+  assert.deepEqual(
+    trainChecklist('training', 'scoring', 0).map((line) => line.step),
+    ['queued', 'reading', 'fitting', 'scoring', 'saving'],
+  );
+  assert.deepEqual(
+    trainChecklist('training', 'scoring', 5).map((line) => line.step),
+    TRAIN_STEPS,
+  );
+  // One fold is not cross-validation, and neither is nonsense.
+  for (const folds of [1, 0, null, undefined, Number.NaN]) {
+    assert.ok(
+      !trainChecklist('training', 'scoring', folds as number).some(
+        (line) => line.step === 'validating',
+      ),
+      String(folds),
+    );
+  }
+});
+
+test('the fold counter is live while the folds run, and never after', () => {
+  const validating = (status: string, detail: string) =>
+    trainChecklist(status, detail, 5).find((line) => line.step === 'validating')!;
+
+  const running = validating('training', 'validating:3/5');
+  assert.equal(running.key, 'models.progress.step.validating.counted');
+  assert.deepEqual(running.params, { fold: 3, folds: 5 });
+  assert.equal(running.state, 'active');
+
+  // Before the folds start, the line says how many are coming but claims no
+  // progress through them.
+  const waiting = validating('training', 'fitting:6903');
+  assert.equal(waiting.key, 'models.progress.step.validating');
+  assert.deepEqual(waiting.params, { folds: 5 });
+
+  // And once the run has settled, a frozen "3/5" would still read as a live
+  // number, so it is dropped.
+  const settled = validating('ready', 'validating:3/5');
+  assert.equal(settled.key, 'models.progress.step.validating');
+  assert.equal(settled.state, 'done');
+});
+
+test('the row count belongs to the fit, and to no other line', () => {
+  const lines = trainChecklist('training', 'fitting:6903', 5, 'en');
+  const fitting = lines.find((line) => line.step === 'fitting')!;
+  assert.equal(fitting.key, 'models.progress.step.fitting.counted');
+  // Localised where it is read, not where it is produced: the worker writes
+  // 6903 and the page decides whether that is "6,903" or "6 903".
+  assert.equal(fitting.params['rows'], '6,903');
+  assert.equal(
+    trainChecklist('training', 'fitting:6903', 5, 'fr').find(
+      (line) => line.step === 'fitting',
+    )!.params['rows'],
+    (6903).toLocaleString('fr'),
+  );
+  // The learning rows are not what the scoring line counts, so they stay put.
+  for (const line of lines) {
+    if (line.step !== 'fitting') assert.equal(line.params['rows'], undefined, line.step);
+  }
+});
+
+test('every sentence the check-list can render exists in both languages', () => {
+  const keys = new Set<string>();
+  for (const folds of [0, 5]) {
+    for (const status of ['pending', 'training', 'ready', 'failed']) {
+      for (const detail of [null, 'fitting:6903', 'validating:2/5', 'saving']) {
+        for (const line of trainChecklist(status, detail, folds)) keys.add(line.key);
+      }
+    }
+  }
+  assert.ok(keys.size >= 7, 'the scan covered the list, not one line of it');
+  for (const key of keys) {
+    assert.ok(MODELS_FR[key as keyof typeof MODELS_FR], `${key} has FR copy`);
+    assert.ok(MODELS_EN[key as keyof typeof MODELS_EN], `${key} has EN copy`);
+  }
+  // The settling toast, which is the other half of "no silent wait".
+  for (const key of [
+    'models.progress.settled',
+    'models.progress.settled.plain',
+    'models.progress.failed',
+  ]) {
+    assert.ok(MODELS_FR[key as keyof typeof MODELS_FR], `${key} has FR copy`);
+    assert.ok(MODELS_EN[key as keyof typeof MODELS_EN], `${key} has EN copy`);
   }
 });

@@ -74,6 +74,7 @@ import {
   renameDbtModel,
   requirementLines,
   starterProgramFor,
+  transformChecklist,
   transformEngineOf,
   transformFiles,
   transformViewName,
@@ -125,10 +126,10 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
             </div>
           </div>
           <div class="ck-transform-workshop__head-actions">
-            @if (transform.busy() && transform.phase(); as phase) {
+            @if (transform.busy() && currentPhase(); as step) {
               <span class="ck-transform-workshop__phase" data-testid="transform-phase">
                 <app-icon name="loader-2" [size]="12" />
-                {{ i18n.t('flow.transform.phase.' + phase) }}
+                {{ i18n.t(step.key) }}
               </span>
             }
             @if (cancellable()) {
@@ -316,6 +317,25 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
               }
 
               <div class="ck-transform-workshop__result">
+                @if (transform.busy()) {
+                  <ol class="ck-transform-workshop__steps" data-testid="transform-steps">
+                    @for (step of phases(); track step.phase) {
+                      <li [attr.data-state]="step.state">
+                        <app-icon
+                          [name]="
+                            step.state === 'done'
+                              ? 'check'
+                              : step.state === 'active'
+                                ? 'loader-2'
+                                : 'circle'
+                          "
+                          [size]="11"
+                        />
+                        {{ i18n.t(step.key) }}
+                      </li>
+                    }
+                  </ol>
+                }
                 @if (failure(); as reason) {
                   <p
                     class="ck-transform-workshop__error"
@@ -600,6 +620,23 @@ export class FlowTransformWorkshopComponent {
   protected readonly engine = computed(() => transformEngineOf(this.node()) ?? 'sql');
   protected readonly descriptor = computed(() => TRANSFORM_ENGINES[this.engine()]);
   protected readonly copy = computed(() => this.descriptor().copy);
+
+  /**
+   * The preview as a check-list rather than a word.
+   *
+   * The wait is short for SQL and long for a first Polars or dbt run, which
+   * builds a venv before it runs anything — and that asymmetry is exactly why a
+   * single word is not enough: "Running…" for forty seconds reads as a hang,
+   * where a ticked "Preparing the environment" reads as a warm-up.
+   */
+  protected readonly phases = computed(() =>
+    transformChecklist(this.engine(), this.transform.phase()),
+  );
+
+  protected readonly currentPhase = computed(
+    () => this.phases().find((step) => step.state === 'active') ?? null,
+  );
+
   protected readonly params = computed<TransformParams>(() =>
     readTransformParams(this.node(), this.engine()),
   );

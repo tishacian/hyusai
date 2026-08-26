@@ -826,6 +826,51 @@ export const TRANSFORM_ERROR_CODES: readonly string[] = [
   'TABULAR_DISABLED',
 ];
 
+/**
+ * The phases a preview passes through, in order.
+ *
+ * These are `RecipeExecution` statuses, which is why they are named the way the
+ * backend names them. `env_building` is the one that matters to a reader: a
+ * first Polars or dbt run in a workspace builds a venv, which takes far longer
+ * than the query itself, and a reader who is not told that concludes the engine
+ * is slow rather than that it is warming up.
+ */
+export const TRANSFORM_PHASES: readonly string[] = ['queued', 'env_building', 'running'];
+
+/** One line of the preview check-list. */
+export interface TransformPhase {
+  phase: string;
+  key: string;
+  state: 'done' | 'active' | 'todo';
+}
+
+/**
+ * A preview's phases as a check-list, with what is behind it ticked off.
+ *
+ * SQL never builds an environment — duckdb runs in the worker — so that line is
+ * dropped for it rather than sitting there permanently un-ticked, which would
+ * read as a step that is stuck.
+ *
+ * A phase the row reports that is not one of these (a terminal status, on the
+ * poll that settles it) ticks the whole list: the run is past all of them, and
+ * the result or the refusal below says how it went.
+ */
+export function transformChecklist(
+  engine: TransformEngine,
+  phase: string | null | undefined,
+): TransformPhase[] {
+  const phases = TRANSFORM_PHASES.filter(
+    (name) => name !== 'env_building' || engine !== 'sql',
+  );
+  const current = (phase ?? '').trim();
+  const at = phases.includes(current) ? phases.indexOf(current) : phases.length;
+  return phases.map((name, index) => ({
+    phase: name,
+    key: `flow.transform.phase.${name}`,
+    state: index < at ? 'done' : index === at ? 'active' : 'todo',
+  }));
+}
+
 /** Refusals whose own words ARE the information the author needs. */
 const VERBATIM_DETAIL_CODES: readonly string[] = [
   'SQL_EXECUTION_FAILED',
