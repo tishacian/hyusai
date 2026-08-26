@@ -85,6 +85,9 @@ export const DATA_FR = {
   'data.preview.loading': 'Lecture des lignes…',
   'data.preview.failed': 'Impossible de lire les lignes de ce jeu de données',
   'data.detail.back': 'Retour aux données',
+  'data.detail.gone.title': 'Ce jeu de données est introuvable',
+  'data.detail.gone.description':
+    'Il a été retiré, ou le lien pointe vers un identifiant qui n’existe pas dans cet espace de travail.',
   'data.detail.retry': 'Relancer la préparation',
   'data.detail.delete': 'Retirer',
   'data.detail.delete_confirm':
@@ -214,6 +217,9 @@ export const DATA_EN: Record<keyof typeof DATA_FR, string> = {
   'data.preview.loading': 'Reading the rows…',
   'data.preview.failed': 'The rows of that dataset could not be read',
   'data.detail.back': 'Back to data',
+  'data.detail.gone.title': 'That dataset cannot be found',
+  'data.detail.gone.description':
+    'It was retired, or the link points at an id that does not exist in this workspace.',
   'data.detail.retry': 'Retry preparation',
   'data.detail.delete': 'Retire',
   'data.detail.delete_confirm':

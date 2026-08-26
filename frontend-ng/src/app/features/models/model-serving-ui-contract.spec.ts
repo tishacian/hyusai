@@ -192,6 +192,37 @@ test('the card says which version it is without opening a tab', () => {
   assert.match(CARD, /models\.versions\.label', \{ version: row\.version \}/);
 });
 
+test('the hero says what kind of model this is, not only how it was fitted', () => {
+  // The algorithm does not settle the question — a gradient boosting does both
+  // tasks — and every metric below the hero is read differently depending on
+  // the answer. The list page labels the task; the card used not to.
+  assert.match(CARD, /\[eyebrow\]="eyebrow\(row\)"/);
+  assert.match(CARD, /'models\.task\.' \+ model\.task/);
+  assert.match(CARD, /'models\.algo\.' \+ model\.algo/);
+  for (const key of ['models.task.classification', 'models.task.regression']) {
+    assert.ok(MODELS_FR[key], `${key} has FR copy`);
+    assert.ok(MODELS_EN[key], `${key} has EN copy`);
+  }
+});
+
+test('a dead link to a model says so, and offers the way back', () => {
+  // The fallback used to render the *list* empty state, which reads "no model
+  // yet — train one". A reader who followed a stale link is not trying to
+  // train anything, and there are models; this one is just not among them.
+  assert.match(CARD, /models\.detail\.gone\.title/);
+  assert.match(CARD, /models\.detail\.gone\.description/);
+  assert.ok(
+    !/models\.list\.empty\.title/.test(CARD),
+    'the card does not borrow the list page empty copy',
+  );
+  // An empty state with nothing to click is a dead end.
+  assert.match(CARD, /routerLink="\/models"[\s\S]{0,220}models\.detail\.back/);
+  for (const key of ['models.detail.gone.title', 'models.detail.gone.description']) {
+    assert.ok(MODELS_FR[key], `${key} has FR copy`);
+    assert.ok(MODELS_EN[key], `${key} has EN copy`);
+  }
+});
+
 test('the lineage reads forwards, and marks the current and the serving one apart', () => {
   assert.match(CARD, /data-testid="lineage-chain"/);
   // Oldest first: a chain is read as a progression, and `v3 → v2 → v1` says

@@ -90,6 +90,7 @@ export const MODELS_FR = {
   'models.studio.dataset.label': 'Jeu de données',
   'models.studio.dataset.placeholder': 'Choisir un jeu de données',
   'models.studio.dataset.meta': '{rows} lignes · {columns} colonnes',
+  'models.studio.dataset.sample': 'Ce que le modèle va lire',
   'models.studio.target.label': 'Colonne à prédire',
   'models.studio.target.placeholder': 'Choisir la colonne',
   'models.studio.target.hint':
@@ -136,6 +137,9 @@ export const MODELS_FR = {
 
   // ---- carte modèle -------------------------------------------------------
   'models.detail.back': 'Retour aux modèles',
+  'models.detail.gone.title': 'Ce modèle est introuvable',
+  'models.detail.gone.description':
+    'Il a été supprimé, ou le lien pointe vers un identifiant qui n’existe pas dans cet espace de travail.',
   'models.detail.tab.evidence': 'Résultats',
   'models.detail.tab.play': 'Prédire',
   'models.detail.tab.compare': 'Comparaison',
@@ -583,6 +587,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.studio.dataset.label': 'Dataset',
   'models.studio.dataset.placeholder': 'Choose a dataset',
   'models.studio.dataset.meta': '{rows} rows · {columns} columns',
+  'models.studio.dataset.sample': 'What the model will read',
   'models.studio.target.label': 'Column to predict',
   'models.studio.target.placeholder': 'Choose the column',
   'models.studio.target.hint':
@@ -628,6 +633,9 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.studio.failed': 'Starting the training run failed',
 
   'models.detail.back': 'Back to models',
+  'models.detail.gone.title': 'That model cannot be found',
+  'models.detail.gone.description':
+    'It was deleted, or the link points at an id that does not exist in this workspace.',
   'models.detail.tab.evidence': 'Results',
   'models.detail.tab.play': 'Predict',
   'models.detail.tab.compare': 'Comparison',

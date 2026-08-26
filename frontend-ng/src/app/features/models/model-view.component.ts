@@ -114,7 +114,7 @@ const CHART_ASPECT = 300 / 190;
 
     @if (model(); as row) {
       <ck-object-header
-        [eyebrow]="i18n.t('models.algo.' + row.algo)"
+        [eyebrow]="eyebrow(row)"
         [title]="row.name"
         [subtitle]="subtitle(row)"
         [kpis]="kpis()"
@@ -720,11 +720,18 @@ const CHART_ASPECT = 300 / 190;
         <div class="h-3 w-48 rounded" style="background: rgba(255,255,255,0.05)"></div>
       </div>
     } @else {
+      <!-- Not "no models yet": there are models, this id is not one of them.
+           The list's empty copy here offers to train one, which is not what a
+           reader who followed a stale link is trying to do. -->
       <app-empty-state
         icon="brain"
-        [title]="i18n.t('models.list.empty.title')"
-        [description]="i18n.t('models.list.empty.description')"
-      />
+        [title]="i18n.t('models.detail.gone.title')"
+        [description]="i18n.t('models.detail.gone.description')"
+      >
+        <a routerLink="/models" class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm">
+          <app-icon name="chevron-left" [size]="13" /> {{ i18n.t('models.detail.back') }}
+        </a>
+      </app-empty-state>
     }
 
     @if (studioOpen()) {
@@ -1412,6 +1419,23 @@ export class ModelViewComponent implements OnInit {
 
   protected formatMetric(key: string, value: number | null | undefined): string {
     return formatMetric(key, value, this.i18n.locale());
+  }
+
+  /** The eyebrow: what kind of model this is, then how it is fitted.
+   *
+   * The task leads because it is the coarser fact — a reader who knows this
+   * answers a yes/no question reads every metric below differently from one
+   * looking at a regression, and the algorithm alone does not say which it is
+   * (a gradient boosting does both). The list page already labels the task, so
+   * without this the card was the one place the reader could not see it.
+   */
+  protected eyebrow(model: ModelDto): string {
+    return [
+      this.i18n.t('models.task.' + model.task),
+      this.i18n.t('models.algo.' + model.algo),
+    ]
+      .filter(Boolean)
+      .join(' · ');
   }
 
   protected subtitle(model: ModelDto): string {
