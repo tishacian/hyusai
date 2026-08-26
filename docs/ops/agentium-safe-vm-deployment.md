@@ -4287,3 +4287,106 @@ papAI prenne un écart de 7e-6 pour une erreur de pipeline.
   d'un Cloud Agent ; `bob@globex.test` a été ajouté membre le temps du tournage
   puis retiré (la table est revenue à ses deux lignes). Le nom dans le coin de
   l'écran n'est donc pas celui d'un présentateur.
+
+## Itération du 26/08 (après-midi) — l'app métier, déployée sur `d220cf2a`
+
+GO deploy depuis un Cloud Agent. `origin/demo/agentic` avance de `4483dd1a` à
+`d220cf2a`. Aucune migration : `alembic current` rend `097_ml_training_plane`
+avant et après. La fenêtre a quand même été prise, parce que le re-seed passe
+par `--reset`, qui supprime des lignes.
+
+La tranche répond à une question posée sur la démo : les Systems produisent des
+datasets, des modèles et des runs, mais tout cela se lit dans des surfaces
+faites pour celui qui les a construits — un canevas de Flow, un catalogue de
+datasets, une fiche de modèle, un cURL. Le public à qui le travail s'adresse
+n'avait nulle part où atterrir. Il y a maintenant une page `/work/retention-board`
+lisible par un `workspace_viewer`, dont chaque chiffre est calculé au clic
+depuis la base scorée réelle.
+
+**Ce qu'il a fallu ajouter sous la page, et pourquoi ce ne sont pas des
+rustines de démo.** Un nœud `python_recipe_v1` rend du JSON arbitraire mais ne
+savait pas lire une table : le bac à sable n'a ni base ni object store, donc la
+*référence* de dataset que tout nœud de transformation passe est précisément la
+seule valeur qu'il ne peut pas ouvrir. Les nœuds SQL / Polars / dbt lisent des
+tables mais n'émettent qu'une nouvelle version de table — cinq rafraîchissements
+auraient laissé cinq copies des mêmes lignes sur la page Data. D'où deux
+primitives : un pin `sources` sur le nœud recipe, identique à celui que les
+trois autres portent déjà, et `system_run_read_v1`, qui lit le dernier run
+terminé d'un autre System. La seconde est ce qui fait que le brief affiché est
+*celui que le pipeline a écrit* et non une génération neuve qui répondrait à une
+autre question sous le même titre.
+
+**Ce que la VM et la première capture ont trouvé.**
+
+1. **Le `Churn Desk` n'était pas seedé du tout.** `publish_and_mint` rend le
+   Skill *à côté* de la clé d'API (`{"skill": {...}, "api_key_prefix": …}`), et
+   l'appelant lisait `slug` sur l'enveloppe : toujours `None`, donc la branche
+   qui construit le desk ne s'ouvrait jamais. Un seed complet imprimait
+   « ready » de bout en bout sans le sixième temps. La lecture est maintenant
+   une fonction nommée avec son test, et un champion qui ne publie aucun Skill
+   appelable arrête le seed au lieu de le laisser passer.
+2. **Le contrôle e2e échouait sur une VM saine, parce qu'elle est rapide.**
+   L'assertion « l'ingestion narre » lisait `[]` : 4 000 lignes s'ingèrent en
+   ~250 ms, les pas sont bien écrits et committés un par un, mais c'est plus
+   court qu'un aller-retour HTTPS depuis l'extérieur — le premier poll trouve la
+   ligne déjà `ready` et le champ vidé. Plus la machine est oisive, plus le test
+   déclare le plan muet. `--rows` passe à 60 000, et ne rien voir se rapporte
+   désormais autrement que ne voir que `queued` : l'un est un observateur trop
+   lent, l'autre est le spinner muet que le contrôle existe pour attraper.
+3. **La liste d'appels était tronquée en plein en-tête.** Sept colonnes sur une
+   demi-rangée : un chargé de rétention voyait l'ancienneté d'un abonné mais ni
+   son ARPU, ni sa probabilité, ni ce que son départ coûte — soit toutes les
+   colonnes qui justifient la liste. Et l'exposition s'affichait `72314.04` :
+   une tuile imprime ce qu'on lui donne, et les centimes sur un revenu mensuel
+   sont du bruit. Le test d'arithmétique des rangées, ajouté au passage, a
+   attrapé du premier coup une rangée de contrôle à moitié vide.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `4483dd1a` → `d220cf2a` |
+| Worktree | `/srv/agentium-data/worktrees/demo-agentic` = `d220cf2a045fdc4e6823622d7a660faf3261996a` |
+| Build | trois images `d220cf2a045f` (backend, worker, frontend), label 40-hex identique |
+| Dump | `/srv/agentium-data/flow-publication-deployments/2026-08-26-d220cf2a045f/postgres-pre-switch.dump`, sha256 relevé, pris **avant** le `--reset` |
+| `storage-check` | sortie 0 |
+| `migrate` | aucune révision à appliquer ; `alembic current` = `097_ml_training_plane` |
+| `up` | cinq services applicatifs recréés, backend et frontend `healthy` |
+| `build-info` | `revision: d220cf2a045fdc4e6823622d7a660faf3261996a`, `revision_verified: true` |
+| Infra | PostgreSQL, RabbitMQ, Qdrant, MinIO, Keycloak, LiveKit, SFTP **intouchés** (Up 2 weeks) |
+| Alias | tag mobile `demo-agentic` **non déplacé** |
+| Rollback | `AGENTIUM_IMAGE_TAG=4483dd1a34eb` puis `up`. Aucune migration dans le lot ; le board resterait en base, servi par un backend qui refuse le type `chart` au *release* — les releases déjà figées ne sont pas revalidées, donc la page continue de s'afficher |
+
+### Re-vérification de bout en bout
+
+| Contrôle | Observé (à `d220cf2a`) |
+|---|---|
+| Seed rejoué avec `--reset` | 7 datasets, 3 modèles, **`Churn Desk` actif pour la première fois**, `Retention Board` actif, `experience_v1` posé par le seed |
+| `Churn Radar` | run `completed`, 7 nœuds, aucun échec |
+| `Churn Desk` | run `completed` ; `decide_next_v1` délibère 3 246 ms puis choisit `ws.b337fdbf….predict_churn_radar`, qui répond en 237 ms — `goal.status: complete`, `observations[0].ok: true`. La flèche « un modèle publié est un skill qu'un agent peut appeler » est vérifiée sur la VM, pas affirmée |
+| `verify_nawa_data_ml_plane` | **toutes les lignes `ok`, aucun `DRIFT`**, étape 5 (client MLflow standard contre MinIO) comprise |
+| `e2e_data_ml_live --reproduce` | **E2E PASSED** à `--rows 60000` : ingestion narrée, aperçu paginé lu dans le Parquet, SQL 15 groupes en 231,6 ms, `DROP` refusé, fit roc_auc 0,857888 puis **0,857888 à l'identique**, comparaison 6 métriques sur 15 000 lignes, `/predict` à clé seule 3 lignes en 134,6 ms, portée refusée, révocation immédiate, nettoyage complet |
+| `/work/retention-board` | ouvert en `workspace_viewer` dans un navigateur : 16 blocs, chaque sélecteur lié résolu, **aucun vide**. 1 000 abonnés signalés, 72 314 MAD d'exposition, décile le plus risqué 77,4 % contre 22,2 % de base, `roc_auc` 0,836617, 20 lignes d'appel, `msisdn` en chaîne |
+
+### Dette relevée
+
+- **Le brief du pipeline invente ses chiffres, et le board les affiche à côté
+  des chiffres mesurés.** `_azure_llm_v1` ne reçoit qu'un `prompt` : le nœud
+  `task.brief` ne lui passe aucune ligne, et l'invite lui demande pourtant de
+  « citer des chiffres ». Il annonce 1 200 abonnés et 360 000 MAD quand les
+  tuiles voisines, calculées sur le même run, disent 1 000 et 72 314. Le défaut
+  est antérieur à cette tranche ; le board est ce qui l'a rendu visible, en
+  mettant l'invention à deux blocs de la mesure.
+- **Le board observe et fait consulter, il ne fait pas encore agir.** Le seul
+  contrôle est un rafraîchissement. Le `Churn Desk` répond exactement à la
+  question suivante — faut-il appeler cet abonné — mais son entrée est le
+  contrat fermé à vingt colonnes du modèle, alors qu'un formulaire de page ne
+  peut offrir qu'un identifiant pris dans le tableau : il lui faut une ingress
+  qui résolve l'abonné elle-même.
+- **La sortie du desk n'est pas encore un verdict lisible.** Le run rend
+  l'enveloppe de la boucle (`exit`, `observations`) et `summary` y est vide ; la
+  boucle s'arrête dès que `done_when` est satisfait, donc le rédacteur de son
+  catalogue n'est jamais appelé. Ce qu'un humain lirait n'existe pas encore.
+- **`bob@globex.test` a de nouveau été ajouté membre** (`workspace_viewer`
+  cette fois, ce qui est aussi le contrôle d'accès de la page) le temps des
+  captures, et doit être retiré à la fin de la fenêtre.
