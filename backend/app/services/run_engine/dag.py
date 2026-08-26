@@ -3079,6 +3079,7 @@ async def _run_agent_loop(
         compile_mandate_view,
         evaluate_done_when,
         gate_skill,
+        observation_result,
     )
     from app.services.skills_registry.workspace_skills import workspace_skill_purposes
 
@@ -3236,6 +3237,12 @@ async def _run_agent_loop(
                     "skill": pending_write,
                     "ok": ok,
                     "summary": "human_approved_write" if ok else "write_failed",
+                    "result": observation_result(
+                        invocation.output_ref
+                        if invocation is not None
+                        and isinstance(invocation.output_ref, dict)
+                        else {}
+                    ),
                 }
             )
             pending_write = None
@@ -3391,16 +3398,25 @@ async def _run_agent_loop(
             kind="agent_loop_act",
         )
         ok = bool(invocation is not None and invocation.status == "completed")
-        summary = ""
-        if invocation is not None and isinstance(invocation.output_ref, dict):
-            summary = str(
-                invocation.output_ref.get("summary")
-                or invocation.output_ref.get("completion")
-                or invocation.output_ref.get("status")
-                or ""
-            )
+        answer = (
+            invocation.output_ref
+            if invocation is not None and isinstance(invocation.output_ref, dict)
+            else {}
+        )
+        summary = str(
+            answer.get("summary") or answer.get("completion") or answer.get("status") or ""
+        )
         observations.append(
-            {"turn": turn, "skill": next_skill, "ok": ok, "summary": summary}
+            {
+                "turn": turn,
+                "skill": next_skill,
+                "ok": ok,
+                "summary": summary,
+                # What the act reported, so a node after the loop can act on
+                # the answer and not merely on the fact that something ran.
+                # Projected, not carried: see ``observation_result``.
+                "result": observation_result(answer),
+            }
         )
         if evaluate_done_when(
             goal.get("done_when") or [],
