@@ -101,7 +101,7 @@ master of a Moroccan mobile operator, dirt included.
 ### 2.2 The four defects, and the arithmetic they imply
 
 The export is dirty on purpose, and each defect maps to exactly one line of the cleaning
-statement in §4.2.
+statement in §A2.
 
 | Defect | Rows affected in the file | Removed by the cleaning | How |
 |---|---|---|---|
@@ -118,13 +118,21 @@ remaining filters then apply to the 8 000 canonical rows, where the defect block
 disjoint by construction:
 
 ```
-8 412 − 412 duplicates                    = 8 000
+8 412 − 412 duplicates                           = 8 000
 8 000 − 640 suspended − 297 empty − 160 sentinel = 6 903
 ```
 
-**The order is not interchangeable.** Filtering before deduplicating gives a different
-number, and the wrong one, because a canonical row whose stale twin is clean would survive
-as the twin. Deduplicate first.
+**Deduplicate first — but on this data you will not be punished for the other order.** Worth
+knowing precisely, because it is the kind of thing a rebuild trips over and then
+misdiagnoses. Filtering first also yields exactly 6 903 identical rows here (verified), and
+the reason is that a stale re-export copies its original's defects: 1 157 of the 8 412 rows
+are suspended or holed, twins included, and removing them first leaves 352 clean twins for
+the dedup to take. So the arithmetic reads either way.
+
+The rule still holds in general, and it is why the statement is written dedup-first: on real
+data a stale snapshot can be *clean* while the current one is not — a line suspended this
+month, say — and filtering first would then resurrect the old row for a subscriber who
+should have been dropped. This generator simply does not produce that case.
 
 ### 2.3 What must **not** be cleaned
 
@@ -386,9 +394,9 @@ what it needs. Reproduce it explicitly:
    column**. Median rather than mean because a survey score and a revenue figure are skewed
    often enough that the mean is not a plausible value; the indicator because "was
    missing" is information and dropping it would hand the trees an unearned advantage.
-3. **Scale** the numeric columns to comparable magnitudes (the demo uses a squashing scaler
-   capped at ±5; a standard scaler is close enough that the metric moves in the fourth
-   decimal).
+3. **Scale** the numeric columns to comparable magnitudes. The demo uses a squashing scaler
+   capped at ±5; a plain standard scaler is a fine substitute — measured, the two land at
+   0.836610 and 0.836701, a difference in the fourth decimal.
 4. Fit `LogisticRegression(C=1.0, max_iter=1000)`.
 
 Two implementation notes that cost debugging time if missed:
@@ -396,10 +404,11 @@ Two implementation notes that cost debugging time if missed:
 - **Cast integer feature columns to float before fitting.** An integer column cannot carry
   a missing value, and the input signature written at fit time is enforced at predict time —
   so a production row with one hole would be refused by the very contract training wrote.
-- **Column count check.** The 29 input columns become **43** after one-hot encoding
-  (24 numeric + 7 + 3 + 3 + 3 + 3 dummies); the 20-column set becomes 32 (16 numeric + 16
-  dummies). If a platform reports a different width, it is dropping a level or encoding a
-  numeric as a category.
+- **Column count check, on the one-hot path only.** The 29 input columns become **43** after
+  one-hot encoding (24 numeric + 7 + 3 + 3 + 3 + 3 dummies); the 20-column set becomes 32
+  (16 numeric + 16 dummies). The tree path keeps its 29 or 20 columns, categoricals
+  included. A different width on either path means a level is being dropped, or a numeric is
+  being read as a category.
 
 #### A4.2 Why the ranking comes out this way
 
@@ -473,8 +482,14 @@ sheet whose rows cannot be joined back to a subscriber is not actionable, which 
 `msisdn` was carried through §A2 and §A3 without ever being a feature.
 
 Verification worth doing, because it is the business figure: with v1 serving, the model
-flags **999 of 6 903** subscribers, and the **riskiest decile churns at 77.2 %** — ×3.5 the
-22.16 % base rate.
+flags **about 1 000 of 6 903** subscribers, and the **riskiest decile churns at roughly
+77 %** — ×3.5 the 22.16 % base rate.
+
+Unlike every other figure in this note, treat these two as approximate. They are read off a
+probability either side of a 0.5 threshold and a decile boundary 690 rows wide, so a
+scaler substituted in §A4.1 or a library version moves them by a row or two: the demo's own
+run recorded 999 and 77.2 %, the reference implementation of §7 gives 1 000 and 77.4 %. The
+**lift of ×3.5 over the base rate** is the claim; the unit digit is not.
 
 ---
 
@@ -620,9 +635,9 @@ hand a failing result downstream**.
 | `not_null` + `unique` | `cell_id` | One row per cell, always known |
 | `accepted_values` | `risk_band` | Exactly one of `critical`, `watch`, `healthy` |
 
-A cell appearing twice in a watchlist, or a utilisation of 140 %, means the pipeline is
-wrong. That refusal is the difference between a pipeline and a script, and it is the point
-of the beat.
+A cell appearing twice means the window join fanned out; a band outside the three means a
+cell's utilisation came back null or unclassifiable. Either way the pipeline is wrong, and
+refusing to publish is the difference between a pipeline and a script.
 
 ---
 
@@ -655,7 +670,7 @@ module, which varies by papAI version. Map each row to whatever your version cal
 Three properties to preserve, beyond the figures, because they are what make the demo a
 platform demo rather than a notebook demo:
 
-1. **Lineage.** Every derived table points at the exact version it came from. Five
+1. **Lineage.** Every derived table points at the exact version it came from. Four
    generations deep on the churn side: raw → cleaned → features → scored.
 2. **Versioning, not overwriting.** Re-running a transform mints a new version rather than
    replacing the old one. The demo's Data page deliberately shows two versions of the
@@ -728,14 +743,14 @@ Tick these off and the mirror is faithful. Every line is printed by §7's comman
 | Feature table rows × columns | **6 903 × 31** |
 | `tenure_band` split | 429 new / 1 291 established / 5 183 loyal |
 | `on_promo` / `nps_answered` sums | 2 380 / 5 759 |
-| Training columns (v3) / after one-hot | 29 / 43 |
+| Training columns (v3) / same set after one-hot | 29 / 43 |
 | Split rows | 5 177 train / 1 726 test |
 | ROC AUC v1 / v2 / v3 | **0.836610 / 0.864133 / 0.853761** |
 | Ranking | v2 > v3 > v1, and v2 − v1 = +0.027523 |
 | Serving version before the promotion | **v1** |
 | Scored table rows × columns | **6 903 × 34** |
 | Columns appended by scoring | `prediction`, `confidence`, `score_1` |
-| Subscribers flagged / riskiest-decile churn | 999 / 77.2 % (×3.5 the base rate) |
+| Subscribers flagged / riskiest-decile churn | ≈1 000 / ≈77 % — **×3.5 the base rate** is the claim |
 
 ### Pipeline B
 
@@ -783,26 +798,24 @@ Ordered by how often each one actually bites. Read this before starting.
 2. **Unordered SQL output.** No `ORDER BY msisdn` at the end of §A2 and the split lands on
    different rows each run; the metrics wobble in the third decimal with no visible cause.
    The row *set* stays correct, which is what makes it hard to spot.
-3. **Filtering before deduplicating.** Gives a row count that is not 6 903 and a base that
-   contains stale snapshots.
-4. **Dropping the `nps` holes.** Costs 1 144 rows and part of the model's edge. The holes
+3. **Dropping the `nps` holes.** Costs 1 144 rows and part of the model's edge. The holes
    are signal; keep them.
-5. **Imputing `arpu_mad = -1` instead of removing it.** The model learns that −1 MAD
+4. **Imputing `arpu_mad = -1` instead of removing it.** The model learns that −1 MAD
    predicts churn.
-6. **`msisdn` left in the feature list.** A near-unique identifier as a feature either leaks
+5. **`msisdn` left in the feature list.** A near-unique identifier as a feature either leaks
    or adds pure noise, depending on the encoder. Exclude it explicitly.
-7. **The same preprocessing for both estimators.** One-hot + impute + scale for the trees
+6. **The same preprocessing for both estimators.** One-hot + impute + scale for the trees
    costs them their native handling of categoricals and of missing values, which is most of
    the v2 − v1 gap. Per-estimator preprocessing is the point, not an accident (§A4.1).
-8. **A CSV reader that fills empties with 0.** Turns two "unknown" markers into two
+7. **A CSV reader that fills empties with 0.** Turns two "unknown" markers into two
    plausible values, and neither is removable afterwards.
-9. **Integer feature columns not cast to float.** The fit succeeds and prediction later
+8. **Integer feature columns not cast to float.** The fit succeeds and prediction later
    refuses any row with a hole, because the signature written at fit time is enforced.
-10. **Clipping `prb_utilization_pct` at 100.** Flattens the busy-hour peaks, zeroes the
-    week-over-week delta for the most saturated cells, and hides the three cells the
-    watchlist exists to surface.
-11. **A library upgrade.** scikit-learn or skrub moving can shift a metric in the third or
+9. **Clipping `prb_utilization_pct` at 100.** Flattens the busy-hour peaks, zeroes the
+   week-over-week delta for the most saturated cells, and hides the three cells the
+   watchlist exists to surface.
+10. **A library upgrade.** scikit-learn or skrub moving can shift a metric in the third or
     fourth decimal. The **ordering** (v2 > v3 > v1) is the claim that must hold; the six
     decimals are the reference environment's.
-12. **Scoring with the version just trained** instead of the serving one. Produces a
+11. **Scoring with the version just trained** instead of the serving one. Produces a
     plausible score sheet attributed to the wrong model, and no count reveals it.
