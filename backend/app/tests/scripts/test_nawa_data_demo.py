@@ -442,6 +442,103 @@ def test_the_training_node_asks_for_the_columns_the_feature_node_derives():
 
 
 # ---------------------------------------------------------------------------
+# The specification a manual rebuild is checked against
+# ---------------------------------------------------------------------------
+
+
+def test_the_rebuild_specification_quotes_the_figures_the_data_actually_has():
+    """``PAPAI-MIRROR.md`` is a contract, and this is what keeps it one.
+
+    That note tells an operator how to rebuild this use case by hand on another
+    platform and which numbers to land on. Prose cannot be trusted to follow the
+    generator, so the note quotes ``scripts.papai_mirror_facts`` and this test
+    pins what that script reports — every figure in the note's acceptance
+    checklist that does not require a fit.
+
+    The fits themselves are pinned by
+    ``test_the_boosted_trees_beat_the_baseline_because_the_world_is_not_additive``,
+    on the ordering rather than the decimals, for the reason given there.
+    """
+
+    from scripts.papai_mirror_facts import facts
+
+    body = facts()
+
+    assert body["raw_export"] == {
+        "rows": 8_412,
+        "columns": 24,
+        "distinct_subscribers": 8_000,
+        "duplicate_rows": 412,
+        # Seven regions, four spellings each; three plans, upper- and lower-cased.
+        "region_spellings": 28,
+        "plan_spellings": 6,
+        # Higher than the defect blocks carved out of the 8 000 canonical rows,
+        # because the 412 stale re-exports inherit their original's defects. The
+        # dedup takes them first, which is why the cleaned count is still exact.
+        "suspended_rows": 677,
+        "arpu_null_rows": 310,
+        "arpu_sentinel_rows": 170,
+        "nps_null_rows": 1_383,
+        "churn_rate": 0.2218,
+    }
+    assert body["cleaned_base"] == {
+        "rows": 6_903,
+        "columns": 22,
+        "regions": 7,
+        "plans": 3,
+        "churn_rate": 0.2216,
+        "churn_positives": 1_530,
+        # The hole the model has to tolerate: 16.6% of the base, and the note
+        # warns twice against cleaning it away.
+        "nps_null_rows": 1_144,
+    }
+    assert body["feature_table"]["rows"] == 6_903
+    assert body["feature_table"]["columns"] == 31
+    assert body["feature_table"]["training_columns"] == 29
+    assert body["feature_table"]["tenure_bands"] == {
+        "established": 1_291,
+        "loyal": 5_183,
+        "new": 429,
+    }
+    assert body["radio_kpis"]["rows"] == 24_192
+    assert body["radio_kpis"]["cells"] == 72
+    # A clipped counter would put a wall of busy hours on exactly 100.0 and zero
+    # the delta of the cells the watchlist exists to surface.
+    assert body["radio_kpis"]["hours_at_the_ceiling"] == 0
+    assert body["watchlist"]["rows"] == 72
+    assert body["watchlist"]["columns"] == 13
+    assert body["watchlist"]["bands"] == {"critical": 9, "healthy": 55, "watch": 8}
+    assert body["watchlist"]["climbers_above_20_points"] == DEGRADING_CELLS == 3
+    assert body["watchlist"]["fallers_below_minus_10_points"] == RECOVERING_CELLS == 2
+    # The split every quoted metric was measured on.
+    assert body["split"] == {"test_size": 0.25, "random_state": 42}
+
+
+def test_the_rebuild_specification_reads_the_pipeline_the_demo_runs():
+    """The note's helpers must be the pipeline's own code, not a copy of it.
+
+    The whole claim of ``papai_mirror_facts`` is that it cannot disagree with
+    what the Flow executes: it runs the node's Polars script and the node's dbt
+    SQL. So the frames it hands back have to carry the columns those two
+    produce — which is what a re-implementation would quietly stop doing.
+    """
+
+    from scripts.papai_mirror_facts import feature_frame, watchlist_frame
+
+    features = feature_frame(clean_churn_frame())
+    for column in ENGINEERED_COLUMNS:
+        assert column in features.columns, column
+
+    watchlist = watchlist_frame(network_cell_frame())
+    assert {"prb_pct", "prb_pct_delta", "drop_pct_delta", "risk_band"} <= set(
+        watchlist.columns
+    )
+    # One row per cell: the mart's own uniqueness test, asserted here too because
+    # the note tells the operator to reproduce it.
+    assert watchlist["cell_id"].n_unique() == watchlist.height == CELLS
+
+
+# ---------------------------------------------------------------------------
 # Re-running the seed
 # ---------------------------------------------------------------------------
 
