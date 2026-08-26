@@ -333,6 +333,13 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
     settings = dict(workspace.settings or {})
     features = dict(settings.get("features") or {})
     catalog = dict(settings.get("catalog") or {})
+    # The demo is delivered in English, and every string it seeds is English —
+    # so the chrome around them has to open that way too, on whatever browser
+    # the room happens to have. Declared rather than switched by hand: a reader
+    # who picks a language still keeps it.
+    presentation = dict(settings.get("presentation") or {})
+    presentation["locale"] = "en"
+    settings["presentation"] = presentation
     enabled = list(catalog.get("enabled_skills") or [])
     for slug_ in (*CHURN_SKILL_SLUGS, *RADIO_SKILL_SLUGS):
         if slug_ not in enabled:

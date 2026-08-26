@@ -1,14 +1,13 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
 
 import { FR_DICT, EN_DICT, type I18nKey } from './i18n.dict';
+import { LOCALES, isLocale, type Locale } from './locale';
+import { workspaceLocale } from './workspace-locale';
 import { WorkspaceService } from './workspace.service';
 
 const LOCALE_KEY = 'agentium_locale';
 
-/** Supported UI locales. French is the product's default. */
-export type Locale = 'fr' | 'en';
-
-const LOCALES: readonly Locale[] = ['fr', 'en'] as const;
+export type { Locale };
 
 /**
  * Runtime i18n service for the cockpit (Vague D / D3).
@@ -39,6 +38,13 @@ const LOCALES: readonly Locale[] = ['fr', 'en'] as const;
 export class I18nService {
   private readonly workspace = inject(WorkspaceService);
 
+  /**
+   * Whether the reader has expressed a locale of their own — a stored choice or
+   * `?lang=`. It gates the workspace's declared default: a tenant may decide
+   * what its pages open in, never what a reader who has already chosen sees.
+   */
+  private readonly asked = signal<boolean>(false);
+
   readonly locale = signal<Locale>(this.readInitialLocale());
 
   private readonly dicts: Record<Locale, Record<string, string>> = {
@@ -48,11 +54,22 @@ export class I18nService {
 
   constructor() {
     effect(() => {
+      const declared = workspaceLocale(this.workspace.current()?.settings);
+      if (declared && !this.asked()) {
+        this.locale.set(declared);
+      }
+    });
+    effect(() => {
       const locale = this.locale();
-      try {
-        localStorage.setItem(LOCALE_KEY, locale);
-      } catch {
-        // Ignore quota/privacy errors.
+      // Persisted only once somebody has chosen: writing an inferred locale
+      // here would make the first render indistinguishable from a decision, and
+      // the workspace's default could then never apply again.
+      if (this.asked()) {
+        try {
+          localStorage.setItem(LOCALE_KEY, locale);
+        } catch {
+          // Ignore quota/privacy errors.
+        }
       }
       if (typeof document !== 'undefined') {
         document.documentElement.lang = locale;
@@ -86,11 +103,13 @@ export class I18nService {
   /** Pin a specific locale. */
   setLocale(locale: Locale): void {
     if (!LOCALES.includes(locale)) return;
+    this.asked.set(true);
     this.locale.set(locale);
   }
 
   /** Toggle FR ↔ EN. */
   toggle(): void {
+    this.asked.set(true);
     this.locale.update((l) => (l === 'fr' ? 'en' : 'fr'));
   }
 
@@ -100,15 +119,23 @@ export class I18nService {
   private readInitialLocale(): Locale {
     try {
       const stored = localStorage.getItem(LOCALE_KEY);
-      if (stored === 'fr' || stored === 'en') return stored;
+      if (isLocale(stored)) {
+        this.asked.set(true);
+        return stored;
+      }
     } catch {
       // Ignore storage errors.
     }
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const queryLang = params.get('lang');
-      if (queryLang === 'fr' || queryLang === 'en') return queryLang;
+      if (isLocale(queryLang)) {
+        this.asked.set(true);
+        return queryLang;
+      }
     }
+    // The browser's language and the workspace's default are both guesses, so
+    // neither sets `asked`: whichever resolves last is free to win.
     if (typeof navigator !== 'undefined') {
       const nav = (navigator.language || 'fr').toLowerCase();
       if (nav.startsWith('en')) return 'en';
