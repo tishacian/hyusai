@@ -41,6 +41,7 @@ const EMPTY_TYPES = new Set([
   'table',
   'queue',
   'approval_card',
+  'chart',
   'map_panel',
   'agenda_panel',
   'intelligence_feed',

@@ -23,7 +23,14 @@ import {
   validateValues,
   valuesToPayload,
 } from './model';
-import { a11yOf, a11yPayload, appearanceOf, onAccentColor, pageAppearance } from './style';
+import {
+  a11yOf,
+  a11yPayload,
+  appearanceOf,
+  needsEmptyText,
+  onAccentColor,
+  pageAppearance,
+} from './style';
 
 const SCHEMA = {
   type: 'object',
@@ -480,6 +487,16 @@ test('a11y aria on a button and a form', () => {
     a11yPayload({ type: 'form', props: { a11y: { emptyText: localized } } }, 'keyboardHint', 'Use Tab'),
     { emptyText: localized, keyboardHint: 'Use Tab' },
   );
+});
+
+test('a block that draws nothing on a bad morning is offered the words to say so', () => {
+  // The inspector decides which fields an author ever sees, so a block whose
+  // runtime reads `emptyText` while this set omits it can only be given one by
+  // hand-editing the document. A chart is emptier more often than most: it has
+  // a series the author wrote and a binding that may replace it with a shape no
+  // bar can stand for.
+  assert.equal(needsEmptyText('chart'), true);
+  assert.equal(needsEmptyText('header'), false);
 });
 
 test('mapRunStatus uses business vocabulary; citations read output_ref', () => {
