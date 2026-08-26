@@ -465,6 +465,76 @@ def test_deleting_the_contender_takes_its_alias_with_it(
     assert ml_registry.alias_version(model_name=name) == "1"
 
 
+def test_deleting_a_version_takes_it_out_of_the_registry_too(
+    db_session, workspace, dataset, enabled, registry, monkeypatch, store
+):
+    """A version a stranger can still list is a version we can no longer explain."""
+
+    from app.models.tabular import MLModel
+    from app.services.tabular_ml import delete_model
+
+    first = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.83)
+    second = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.88)
+    db_session.expire_all()
+    row = db_session.query(MLModel).filter_by(id=second.id).one()
+    name, run_id = row.mlflow_model_name, row.mlflow_run_id
+    assert ml_registry.version_of_run(model_name=name, run_id=run_id) == "2"
+
+    delete_model(db_session, row)
+
+    assert ml_registry.version_of_run(model_name=name, run_id=run_id) is None
+    # The lineage still has a version, so the registered model stays.
+    assert ml_registry.alias_version(model_name=name) == "1"
+
+
+def test_the_last_version_takes_the_registered_model_with_it(
+    db_session, workspace, dataset, enabled, registry, monkeypatch, store
+):
+    """Four of these outlived their runs on the demo host, each still a champion.
+
+    The alias is the part that hurts: ``models:/ws.churn-radar@champion``
+    resolving after every version was deleted hands a caller bytes that no row,
+    no card and no audit trail accounts for.
+    """
+
+    from app.models.tabular import MLModel
+    from app.services.tabular_ml import delete_model
+
+    only = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.83)
+    db_session.expire_all()
+    row = db_session.query(MLModel).filter_by(id=only.id).one()
+    name = row.mlflow_model_name
+    assert ml_registry.alias_version(model_name=name) == "1"
+
+    delete_model(db_session, row)
+
+    assert ml_registry.alias_version(model_name=name) is None
+    client = ml_registry._client()
+    assert [
+        found.name
+        for found in client.search_registered_models(filter_string=f"name='{name}'")
+    ] == []
+
+
+def test_a_registry_outage_does_not_block_a_delete(
+    db_session, workspace, dataset, enabled, registry, monkeypatch, store
+):
+    """The row is the operational record; the mirror going quiet cannot keep it."""
+
+    from app.models.tabular import MLModel
+    from app.services.tabular_ml import delete_model
+
+    only = _train(db_session, workspace, dataset, monkeypatch, roc_auc=0.83)
+    db_session.expire_all()
+    row = db_session.query(MLModel).filter_by(id=only.id).one()
+    monkeypatch.setattr(
+        settings, "ml_registry_uri", "postgresql://nobody:nothing@127.0.0.1:1/absent"
+    )
+
+    assert delete_model(db_session, row) == only.id
+    assert db_session.query(MLModel).filter_by(id=only.id).first() is None
+
+
 def test_a_metric_whose_direction_is_unknown_is_not_ranked_on(
     db_session, workspace, dataset, enabled, registry, monkeypatch, store
 ):
