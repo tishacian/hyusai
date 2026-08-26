@@ -178,13 +178,22 @@ export const MODELS_FR = {
   'models.evidence.rows': '{total} lignes · {train} en apprentissage · {test} en test',
   'models.evidence.roc': 'Courbe ROC',
   'models.evidence.roc.hint':
-    'Plus la courbe monte vite vers le coin haut-gauche, mieux le modèle sépare. La diagonale est le hasard.',
+    'Plus la courbe monte vite vers le coin haut-gauche, mieux le modèle sépare. La diagonale est le hasard. Survolez la courbe pour lire un point de fonctionnement.',
+  'models.evidence.roc.x': 'Faux positifs',
+  'models.evidence.roc.y': 'Vrais positifs',
+  'models.evidence.roc.point': '{tpr} de vrais positifs pour {fpr} de faux positifs',
   'models.evidence.pr': 'Précision / rappel',
   'models.evidence.pr.hint':
-    'Ce que coûte chaque point de rappel en précision. La ligne basse est la proportion de positifs.',
+    'Ce que coûte chaque point de rappel en précision. La ligne basse est la proportion de positifs. Survolez la courbe pour lire un point de fonctionnement.',
+  'models.evidence.pr.x': 'Rappel',
+  'models.evidence.pr.y': 'Précision',
+  'models.evidence.pr.point': 'Précision {precision} à {recall} de rappel',
   'models.evidence.fit': 'Prédit contre réel',
   'models.evidence.fit.hint':
     'Chaque point est une ligne de test. Plus le nuage colle à la diagonale, plus le modèle tombe juste.',
+  'models.evidence.fit.x': 'Réel',
+  'models.evidence.fit.y': 'Prédit',
+  'models.evidence.fit.point': 'Prédit {predicted} pour un réel de {actual}',
   'models.evidence.confusion': 'Matrice de confusion',
   'models.evidence.confusion.hint':
     'Chaque ligne est une valeur réelle, chaque colonne ce que le modèle a répondu. La diagonale est ce qu’il a eu bon.',
@@ -652,13 +661,22 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.evidence.rows': '{total} rows · {train} for learning · {test} for testing',
   'models.evidence.roc': 'ROC curve',
   'models.evidence.roc.hint':
-    'The faster the curve climbs to the top-left corner, the better the model separates. The diagonal is chance.',
+    'The faster the curve climbs to the top-left corner, the better the model separates. The diagonal is chance. Hover the curve to read an operating point.',
+  'models.evidence.roc.x': 'False positives',
+  'models.evidence.roc.y': 'True positives',
+  'models.evidence.roc.point': '{tpr} of true positives for {fpr} of false positives',
   'models.evidence.pr': 'Precision / recall',
   'models.evidence.pr.hint':
-    'What each point of recall costs in precision. The low line is the share of positives.',
+    'What each point of recall costs in precision. The low line is the share of positives. Hover the curve to read an operating point.',
+  'models.evidence.pr.x': 'Recall',
+  'models.evidence.pr.y': 'Precision',
+  'models.evidence.pr.point': 'Precision {precision} at {recall} recall',
   'models.evidence.fit': 'Predicted against actual',
   'models.evidence.fit.hint':
     'Every point is a test row. The closer the cloud hugs the diagonal, the closer the model is.',
+  'models.evidence.fit.x': 'Actual',
+  'models.evidence.fit.y': 'Predicted',
+  'models.evidence.fit.point': 'Predicted {predicted} for an actual of {actual}',
   'models.evidence.confusion': 'Confusion matrix',
   'models.evidence.confusion.hint':
     'Each row is an actual value, each column what the model answered. The diagonal is what it got right.',
