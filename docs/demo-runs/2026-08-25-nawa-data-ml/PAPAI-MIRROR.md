@@ -492,8 +492,8 @@ Verification worth doing, because it is the business figure: with v1 serving, th
 flags **about 1 000 of 6 903** subscribers, and the **riskiest decile churns at roughly
 77 %** — ×3.5 the 22.16 % base rate.
 
-Unlike every other figure in this note, treat these two as approximate. They are read off a
-probability either side of a 0.5 threshold and a decile boundary 690 rows wide, so a
+Unlike every other figure in this note, treat these two as approximate. Both are read off a
+probability — one either side of a 0.5 threshold, one at the edge of a 690-row decile — so a
 scaler substituted in §A4.1 or a library version moves them by a row or two: the demo's own
 run recorded 999 and 77.2 %, the reference implementation of §7 gives 1 000 and 77.4 %. The
 **lift of ×3.5 over the base rate** is the claim; the unit digit is not.
