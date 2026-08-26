@@ -176,6 +176,36 @@ function sampleDocument(i18n: I18nService): ExperienceDocument {
             id: 'appr-kpi',
             props: { label: t('experience.runtime.sample.kpi.pending'), value: 3 },
           },
+          // Both shapes, because the sample is the only place the catalog is
+          // shown whole and a chart that only ever appears as bars reads as a
+          // block that cannot do anything else.
+          {
+            type: 'chart',
+            id: 'appr-chart',
+            props: {
+              title: t('experience.runtime.sample.chart.title'),
+              caption: t('experience.runtime.sample.chart.caption'),
+              kind: 'bar',
+              series: [
+                { label: t('experience.runtime.sample.chart.travel'), value: 18 },
+                { label: t('experience.runtime.sample.chart.meals'), value: 11 },
+                { label: t('experience.runtime.sample.chart.lodging'), value: 6 },
+              ],
+            },
+          },
+          {
+            type: 'chart',
+            id: 'appr-chart-share',
+            props: {
+              title: t('experience.runtime.sample.chart.share'),
+              kind: 'donut',
+              series: [
+                { label: t('experience.runtime.sample.chart.travel'), value: 2140 },
+                { label: t('experience.runtime.sample.chart.meals'), value: 820 },
+                { label: t('experience.runtime.sample.chart.lodging'), value: 1490 },
+              ],
+            },
+          },
           {
             type: 'table',
             id: 'appr-table',

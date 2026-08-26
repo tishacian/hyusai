@@ -101,6 +101,7 @@ const pureSpecs = [
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
   'src/app/features/experience/runtime/renderer-registry.spec.ts',
+  'src/app/features/experience/runtime/chart-block.spec.ts',
   'src/app/core/canonical-api-skills.spec.ts',
   'src/app/core/canonical-api-versions.spec.ts',
   'src/app/core/api.service.spec.ts',

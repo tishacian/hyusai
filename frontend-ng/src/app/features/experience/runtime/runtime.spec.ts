@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   CERTIFIED_RENDERER_VERSION,
+  CHART_MAX_POINTS,
+  chartKind,
+  chartSeries,
   extractCitations,
   fieldsFromSchema,
   formSchemaSupported,
@@ -164,6 +167,82 @@ test('selector-free template bindings project common output shapes', () => {
   assert.equal(runtimeSummary({ total: 7 }), 7);
 });
 
+test('a chart series scales its bars against the largest value it plots', () => {
+  assert.deepEqual(
+    chartSeries([
+      { label: 'critical', value: 9 },
+      { label: 'high', value: 24 },
+      { label: 'medium', value: 61 },
+    ]),
+    {
+      points: [
+        { label: 'critical', value: 9, width: 15 },
+        { label: 'high', value: 24, width: 39 },
+        { label: 'medium', value: 61, width: 100 },
+      ],
+      hidden: 0,
+    },
+  );
+
+  // A run output names its own columns; the defaults only apply when it doesn't.
+  assert.deepEqual(
+    chartSeries([{ band: 'churn risk', subscribers: '1240' }], 'band', 'subscribers').points,
+    [{ label: 'churn risk', value: 1240, width: 100 }],
+  );
+});
+
+test('a chart drops rows no bar can honestly stand for', () => {
+  // A document and a run output are both untrusted here. A row with no label,
+  // or whose value is not a number, is absent data — plotting it at zero would
+  // claim a measurement that was never taken.
+  assert.deepEqual(
+    chartSeries([
+      { label: 'kept', value: 3 },
+      { label: '', value: 8 },
+      { label: 'no number', value: 'many' },
+      { label: 'boolean', value: true },
+      { label: 'missing' },
+      'not a row',
+      null,
+    ]).points,
+    [{ label: 'kept', value: 3, width: 100 }],
+  );
+
+  for (const value of [undefined, null, 'rows', 42, {}, [], [{}]]) {
+    assert.deepEqual(chartSeries(value).points, [], `${JSON.stringify(value ?? null)} plots nothing`);
+  }
+
+  // A label long enough to break a canvas legend is cut, not refused.
+  const long = chartSeries([{ label: 'x'.repeat(400), value: 1 }]).points[0];
+  assert.equal(long?.label.length, 32);
+  assert.ok(long?.label.endsWith('…'));
+});
+
+test('over the cap a chart keeps the largest values in the order they arrived', () => {
+  const many = Array.from({ length: CHART_MAX_POINTS + 4 }, (_, index) => ({
+    label: `band-${index}`,
+    value: index,
+  }));
+  const series = chartSeries(many);
+
+  assert.equal(series.points.length, CHART_MAX_POINTS);
+  assert.equal(series.hidden, 4);
+  // Ranking decides what is worth the space; the authored order decides where
+  // it goes, because "critical, high, medium, low" is not sorted by count.
+  assert.deepEqual(
+    series.points.map((point) => point.label),
+    many.slice(4).map((point) => point.label),
+  );
+});
+
+test('an unrecognised chart kind draws bars rather than nothing', () => {
+  assert.equal(chartKind('bar'), 'bar');
+  assert.equal(chartKind('donut'), 'donut');
+  assert.equal(chartKind('sunburst'), 'bar');
+  assert.equal(chartKind(undefined), 'bar');
+  assert.equal(chartKind({ kind: 'donut' }), 'bar');
+});
+
 test('business results are bounded, nested and humanised without JSON fallback', () => {
   assert.deepEqual(runtimeResultRows({
     case_id: 'INC-42',
@@ -286,6 +365,7 @@ test('after-success behavior is a closed catalog with safe page ids', () => {
 
 test('unknown types fall back; nested page is ignored', () => {
   assert.deepEqual(resolveCatalogType('section'), { kind: 'ok', type: 'section' });
+  assert.deepEqual(resolveCatalogType('chart'), { kind: 'ok', type: 'chart' });
   assert.deepEqual(resolveCatalogType('map_panel'), { kind: 'ok', type: 'map_panel' });
   assert.deepEqual(resolveCatalogType('agenda_panel'), { kind: 'ok', type: 'agenda_panel' });
   assert.deepEqual(resolveCatalogType('intelligence_feed'), { kind: 'ok', type: 'intelligence_feed' });
