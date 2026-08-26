@@ -80,12 +80,12 @@ master of a Moroccan mobile operator, dirt included.
 | 5 | `contract` | string | `monthly`, `annual`, `two_year` | Commitment. Always `monthly` when the plan is prepaid |
 | 6 | `line_status` | string | `active`, `suspended` | 677 rows `suspended`. **Consumed by the cleaning, absent downstream** |
 | 7 | `tenure_months` | integer | 1–96 months | Months since activation |
-| 8 | `arpu_mad` | float | MAD/month, 9.00–279.85 | Average revenue per user. **310 empty, 170 at `-1`** |
+| 8 | `arpu_mad` | float | MAD/month, 9.00–280.19 | Average revenue per user. **310 empty, 170 at `-1`** |
 | 9 | `data_gb` | float | GB/month | Mobile data consumed |
 | 10 | `voice_minutes` | integer | min/month | Outgoing voice |
 | 11 | `sms_count` | integer | count/month | SMS sent |
 | 12 | `intl_minutes` | float | min/month | International calls |
-| 13 | `roaming_days` | integer | days/month, 0–30 | Days spent roaming |
+| 13 | `roaming_days` | integer | days/month, 0–6 observed | Days spent roaming. Drawn `binomial(30, 0.035)`, so the domain runs to 30 and the file stops at 6 |
 | 14 | `support_tickets` | integer | count/month | Support contacts |
 | 15 | `dropped_calls` | integer | count/month | Calls dropped by the network |
 | 16 | `avg_download_mbps` | float | Mbps | Average throughput experienced |
@@ -411,11 +411,15 @@ Two implementation notes that cost debugging time if missed:
 - **Cast integer feature columns to float before fitting.** An integer column cannot carry
   a missing value, and the input signature written at fit time is enforced at predict time —
   so a production row with one hole would be refused by the very contract training wrote.
-- **Column count check, on the one-hot path only.** The 29 input columns become **43** after
-  one-hot encoding (24 numeric + 7 + 3 + 3 + 3 + 3 dummies); the 20-column set becomes 32
-  (16 numeric + 16 dummies). The tree path keeps its 29 or 20 columns, categoricals
-  included. A different width on either path means a level is being dropped, or a numeric is
-  being read as a category.
+- **Column count check, on the one-hot path only** — and count it at the right step, because
+  the encoder and the estimator do not see the same width. The 29 input columns become **43**
+  after one-hot encoding (24 numeric + 7 + 3 + 3 + 3 + 3 dummies), then **44** once the
+  imputer appends its missingness indicator, and 44 is what the fitted model carries a
+  coefficient for. The 20-column set reads **32 then 33** the same way (16 numeric + 16
+  dummies, + 1 indicator). The tree path keeps its 29 or 20 columns at both steps,
+  categoricals included and no indicator, because nothing is imputed. A different width
+  means a level is being dropped, a numeric is being read as a category, or the indicator of
+  step 2 was skipped.
 
 #### A4.2 Why the ranking comes out this way
 
@@ -447,18 +451,28 @@ side by side: **ROC AUC, accuracy, precision, recall, log loss, Brier score**, t
 they look: the score is about to be shown as a gauge and believed, and log loss and Brier
 are the only two numbers that say whether a probability means what it says.
 
-For reference, v1 against v2 on the same 1 726 test rows:
+For reference, the three versions on the same 1 726 test rows — of which **383 are
+positives**, a figure worth writing down because it is what makes recall checkable: every
+recall below is a multiple of 1/383, and a rebuild reporting one that is not has measured
+a different split.
 
-| Metric | v1 `linear` | v2 `gradient_boosting` |
-|---|---|---|
-| ROC AUC | 0.836610 | **0.864133** |
-| Accuracy | 0.836616 | **0.852838** |
-| Precision | 0.707224 | **0.762238** |
-| Recall | 0.448485 | **0.487879** |
-| Log loss | 0.390613 | **0.369748** |
-| Brier | 0.121909 | **0.109838** |
+| Metric | v1 `linear` | v2 `gradient_boosting` | v3 `gradient_boosting` (29 cols) |
+|---|---|---|---|
+| ROC AUC | 0.836610 | **0.864133** | 0.853761 |
+| Accuracy | 0.833720 | 0.852260 | **0.853998** |
+| Precision | 0.698347 | **0.766667** | 0.763052 |
+| Recall | 0.441253 | 0.480418 | **0.496084** |
+| Log loss | 0.389011 | **0.367198** | 0.375591 |
+| Brier | 0.121770 | **0.109443** | 0.111910 |
 
-v2 wins on all six, including both calibration metrics.
+v2 beats v1 on all six, including both calibration metrics: the score is not merely better
+ranked, it is more *believable*.
+
+**Read the promotion off ROC AUC, not off the column of bold.** v3 takes accuracy and
+recall, and it still is not the version to promote — it is worse at ranking (0.853761) and
+worse calibrated (0.375591 against 0.367198) than v2, and accuracy on a base that is 78 %
+negative is the metric least able to tell them apart. This is exactly the argument a
+registry exists to make legible, so it is better met here than on stage.
 
 ### A5 — Registry and champion
 
@@ -495,8 +509,15 @@ flags **about 1 000 of 6 903** subscribers, and the **riskiest decile churns at 
 Unlike every other figure in this note, treat these two as approximate. Both are read off a
 probability — one either side of a 0.5 threshold, one at the edge of a 690-row decile — so a
 scaler substituted in §A4.1 or a library version moves them by a row or two: the demo's own
-run recorded 999 and 77.2 %, the reference implementation of §7 gives 1 000 and 77.4 %. The
+run recorded 999 and 77.2 %, the reference implementation of §7 gives 1 000 and 77.39 %. The
 **lift of ×3.5 over the base rate** is the claim; the unit digit is not.
+
+**And say what these two numbers are not.** The whole feature table is scored, so about
+three quarters of those rows were in v1's training split: the decile rate is a *business*
+figure describing the sheet the retention team receives, not a held-out measurement. The
+held-out numbers are the ones in §A4.3. Scoring every row is nonetheless the right
+behaviour — a score sheet exists to be joined back to subscribers, and omitting the
+training rows would omit three quarters of the customer base.
 
 ---
 
@@ -699,9 +720,12 @@ cd backend
 python -m scripts.papai_mirror_facts --with-fits
 ```
 
-It prints every figure in §8. On the reference environment (Python 3.12, polars 1.44.0,
-scikit-learn 1.9.0, skrub 0.10.0, duckdb) it reproduces the platform's recorded metrics
-**to six decimals**: 0.836610 / 0.864133 / 0.853761.
+It prints every figure in §8. On the reference environment (Python 3.12.3, polars 1.44.0,
+pandas 2.3.3, scikit-learn 1.9.0, skrub 0.10.0, duckdb 1.5.5) it reproduces **every metric
+the platform's own training harness records, to six decimals** — not only the three ROC
+AUCs but the accuracy, precision, recall, log loss and Brier of §A4.3 as well. That is not
+a coincidence to be admired: it is the check that says the specification in this note and
+the code the demo runs are the same pipeline.
 
 To inspect intermediate frames rather than the summary, the pieces are importable
 individually:
@@ -750,14 +774,20 @@ Tick these off and the mirror is faithful. Every line is printed by §7's comman
 | Feature table rows × columns | **6 903 × 31** |
 | `tenure_band` split | 429 new / 1 291 established / 5 183 loyal |
 | `on_promo` / `nps_answered` sums | 2 380 / 5 759 |
-| Training columns (v3) / same set after one-hot | 29 / 43 |
-| Split rows | 5 177 train / 1 726 test |
+| Training columns (v3) / after one-hot / as fitted | 29 / 43 / **44** |
+| Training columns (v1, v2) / after one-hot / as fitted | 20 / 32 / **33** (v1); 20 / 20 / 20 (v2, trees) |
+| Split rows / test positives | 5 177 train / 1 726 test / **383 positive** |
 | ROC AUC v1 / v2 / v3 | **0.836610 / 0.864133 / 0.853761** |
 | Ranking | v2 > v3 > v1, and v2 − v1 = +0.027523 |
+| Accuracy v1 / v2 / v3 | 0.833720 / 0.852260 / 0.853998 |
+| Precision v1 / v2 / v3 | 0.698347 / 0.766667 / 0.763052 |
+| Recall v1 / v2 / v3 | 0.441253 / 0.480418 / 0.496084 |
+| Log loss v1 / v2 / v3 | 0.389011 / 0.367198 / 0.375591 |
+| Brier v1 / v2 / v3 | 0.121770 / 0.109443 / 0.111910 |
 | Serving version before the promotion | **v1** |
 | Scored table rows × columns | **6 903 × 34** |
 | Columns appended by scoring | `prediction`, `confidence`, `score_1` |
-| Subscribers flagged / riskiest-decile churn | ≈1 000 / ≈77 % — **×3.5 the base rate** is the claim |
+| Subscribers flagged / riskiest-decile churn | 1 000 of 6 903 / 77.39 % over 690 rows — approximate, see §A6; **×3.49 the base rate** is the claim |
 
 ### Pipeline B
 
