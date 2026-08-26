@@ -1495,6 +1495,15 @@ def test_the_board_tiles_into_whole_rows_with_the_rates_side_by_side():
         "kpi-base-churn",
     ]
 
+    # The list of who to call carries seven columns; at half a row it truncates
+    # mid-header, which is how it first shipped.
+    table = next(
+        component
+        for component in _components(board_document())
+        if component["id"] == "at-risk-table"
+    )
+    assert (table["props"] or {}).get("span") == "full"
+
 
 def test_every_tile_reads_the_one_run_the_board_button_produced():
     """Display blocks do not fetch, and this is what that means in a document.
@@ -1588,11 +1597,12 @@ def test_every_selector_the_document_reads_is_one_the_board_produces():
     # of them is produced, whether or not a tile happens to read it today.
     summary = payload["summary"]
     assert set(summary) == {
-        "subscribers_at_risk",
-        "base_size",
-        "revenue_at_stake_mad",
-        "revenue_at_stake_label",
-        "riskiest_decile_churn_pct",
+            "subscribers_at_risk",
+            "base_size",
+            "revenue_at_stake_mad",
+            "revenue_at_stake_display",
+            "revenue_at_stake_label",
+            "riskiest_decile_churn_pct",
         "base_churn_pct",
         "model_name",
         "model_version",
