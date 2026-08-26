@@ -75,6 +75,7 @@ NON_ENTRYPOINT_EXPORTS = frozenset(
     {
         "dispatch_trigger_ingresses",  # maps event kinds to trigger node ids
         "run_correlation_key",  # builds an idempotency key for an inbox event
+        "run_has_agent_loop",  # reads a run's snapshot for a loop node, runs nothing
     }
 )
 
