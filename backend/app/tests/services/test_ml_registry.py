@@ -130,6 +130,34 @@ def test_a_version_points_at_the_bytes_the_object_store_already_holds(registry):
     assert run.data.tags["agentium.model_id"] == "m"
 
 
+def test_the_s3_source_a_version_carries_is_one_stock_mlflow_can_fetch(registry):
+    """A portability claim that only holds on a local object store is not one.
+
+    Versions published from a MinIO deployment carry an ``s3://`` source, and
+    mlflow reaches those through its S3 artifact repository, which imports
+    ``boto3`` by name. botocore — which ``s3fs`` already brings for our own
+    reads — does not satisfy that import, so the demo VM raised
+    ``ModuleNotFoundError`` on the one step meant to prove a stranger's client
+    can load our models, while the same code passed on a laptop writing to a
+    directory. This asserts the repository resolves and gets its client class,
+    without reaching the network.
+    """
+
+    from mlflow.store.artifact.artifact_repository_registry import (
+        get_artifact_repository,
+    )
+
+    published = ml_registry.publish(
+        model_name="ws.churn-radar",
+        source_uri="s3://agentium-artifacts/workspaces/w/ml/models/m/model",
+    )
+    assert published is not None
+    version = ml_registry._client().get_model_version("ws.churn-radar", "1")
+
+    repository = get_artifact_repository(version.source)
+    assert repository._get_s3_client() is not None
+
+
 def test_the_second_version_of_a_lineage_registers_under_the_same_name(registry):
     first = ml_registry.publish(
         model_name="ws.churn-radar", source_uri="file:///tmp/one"

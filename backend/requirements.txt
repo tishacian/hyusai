@@ -107,8 +107,16 @@ pyarrow>=16.0.0
 #   straight to a `mlflow` database on the Postgres instance already running
 # - skops: how the pipeline is serialized. Unlike pickle it refuses to
 #   reconstruct a type that was not declared trusted when the model was saved
+# - boto3: the whole promise of storing models in MLflow format is that a client
+#   we did not write can load them. On MinIO the registry's `source` is an
+#   `s3://` URI, and mlflow's S3 artifact repository imports boto3 by name —
+#   botocore, which s3fs already brings for our own reads, is not enough. Absent
+#   it, `mlflow.pyfunc.load_model(version.source)` raises ModuleNotFoundError on
+#   the deployed object store while passing on a local one, which is the worst
+#   shape a portability claim can have.
 pandas>=2.2
 skrub>=0.5
 skore>=0.25,<0.26
 mlflow>=3.15,<4
 skops>=0.10
+boto3>=1.34
