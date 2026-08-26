@@ -190,6 +190,19 @@
   text-transform: uppercase;
 }
 
+/* The way out of the panel and onto the dataset the node wrote — the provenance
+   thread, followed forwards. */
+.ck-flow-link {
+  align-self: flex-start;
+  font-size: 10.5px;
+  color: var(--ck-signal-cool, #7dd3fc);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
 .ck-flow-decision__branches {
   display: flex;
   flex-direction: column;

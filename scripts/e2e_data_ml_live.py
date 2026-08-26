@@ -42,6 +42,7 @@ import random
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -91,10 +92,13 @@ class Api:
         *,
         json_body: Any = None,
         multipart: tuple[str, str, bytes] | None = None,
+        params: dict[str, Any] | None = None,
         api_key: str | None = None,
         authenticated: bool = True,
         expect: int | tuple[int, ...] = 200,
     ) -> Any:
+        if params:
+            path = f"{path}?{urllib.parse.urlencode(params)}"
         url = f"{self.base}{path}"
         data: bytes | None = None
         headers: dict[str, str] = {"Accept": "application/json"}
@@ -395,6 +399,41 @@ def run(args: argparse.Namespace, api: Api, created: dict[str, list[str]]) -> in
         "rows": dataset["row_count"],
         "status_detail_seen": settled["details"],
         "histogram_bins": len(arpu.get("histogram") or []),
+    }
+
+    # ── 2b. page past the rows the ingest cached ──────────────────────────
+    # The detail response carries fifty rows. Everything after them lives only
+    # in the Parquet, so this is the one step that proves the bytes are readable
+    # on demand and not just summarized at write time.
+    deep_offset = max(0, args.rows - 5)
+    window = api.request(
+        "GET",
+        f"/api/v1/datasets/{dataset_id}/preview",
+        params={"offset": deep_offset, "limit": 5},
+    )
+    check(
+        len(window["rows"]) == 5,
+        f"the window past row {deep_offset} came back with {len(window['rows'])} rows",
+    )
+    check(
+        int(window["total"]) == args.rows,
+        f"the window reports {window['total']} rows, want {args.rows}",
+    )
+    check(
+        [col["name"] for col in window["schema"]] == [c["name"] for c in dataset["schema"]],
+        "the window's schema does not match the dataset's",
+    )
+    past_end = api.request(
+        "GET",
+        f"/api/v1/datasets/{dataset_id}/preview",
+        params={"offset": args.rows + 100},
+    )
+    check(past_end["rows"] == [], "paging past the end returned rows instead of nothing")
+    log(f"preview: rows {deep_offset}–{deep_offset + 5} read from the Parquet")
+    report["steps"]["preview_page"] = {
+        "offset": deep_offset,
+        "rows": len(window["rows"]),
+        "total": window["total"],
     }
 
     # ── 3. SQL over it, in duckdb, with a timing to show ──────────────────

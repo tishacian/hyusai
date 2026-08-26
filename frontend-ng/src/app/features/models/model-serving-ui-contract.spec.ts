@@ -104,6 +104,19 @@ test('publishing links into the catalog and carries the model’s provenance', (
   assert.match(PLAYGROUND, /routerLink="\/skills"/);
   assert.match(PLAYGROUND, /models\.publish\.provenance/);
   assert.match(PLAYGROUND, /\(changed\)|changed\.emit\(\)/);
+
+  // The toast is itself the deep link. The whole point of publishing is that
+  // the model is now a Skill in the catalogue, and the shortest path to seeing
+  // that is a tap on the thing that just said so — so the toast survives the
+  // tap and navigates, rather than dismissing and leaving the reader to hunt.
+  assert.match(PLAYGROUND, /\.onTap\.subscribe\(\(\) => \{/);
+  assert.match(PLAYGROUND, /this\.router\.navigate\(\['\/skills'\], \{ queryParams: \{ q: slug \} \}\)/);
+  assert.match(PLAYGROUND, /tapToDismiss: false/);
+  for (const dict of [MODELS_FR, MODELS_EN]) {
+    const copy = (dict as Record<string, string>)['models.publish.done'];
+    assert.ok(copy?.trim(), 'the publish toast has copy');
+    assert.match(copy, /clique|click/i, 'and it says the toast can be clicked');
+  }
 });
 
 test('the catalog card says which model a published skill answers from', () => {

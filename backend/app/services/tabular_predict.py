@@ -126,6 +126,7 @@ def preload_deserializer() -> None:
     """
 
     try:
+        import mlflow.pyfunc  # noqa: F401
         import skops.io  # noqa: F401
     except Exception as exc:  # noqa: BLE001 - a warm failure is not a boot failure
         logger.warning("tabular_predict: deserializer preload failed", error=str(exc)[:300])
@@ -185,14 +186,50 @@ def load_pipeline(model: MLModel) -> LoadedModel:
     return entry
 
 
+def _load_mlflow_model(directory: Path) -> Any:
+    """Read an MLmodel directory and return the estimator inside it.
+
+    Through ``mlflow.pyfunc.load_model``, which is the portable door: it reads
+    the ``MLmodel`` file, honours the flavor recorded there and fails loudly on
+    an artifact this stack cannot serve — none of which is true of reaching past
+    it into the flavor module. That is the whole "no lock-in" claim of the
+    format, and it is worth exercising rather than asserting.
+
+    Then unwrapped, because the pyfunc facade answers ``predict`` and a churn
+    model whose answer is "1" without "0.87" is a demo that does not land. The
+    facade knows this and offers ``get_raw_model()`` for exactly that; the
+    fallbacks below are for older wheels that only expose the attribute the
+    method reads. Nothing is given up by unwrapping: the object is the estimator
+    the flavor loaded either way.
+    """
+
+    import mlflow.pyfunc
+
+    served = mlflow.pyfunc.load_model(str(directory))
+    for reach in (
+        lambda: served.get_raw_model(),
+        lambda: served._model_impl.get_raw_model(),
+        lambda: served._model_impl.sklearn_model,
+    ):
+        try:
+            estimator = reach()
+        except Exception:  # noqa: BLE001 - try the next shape of the same facade
+            continue
+        if estimator is not None and hasattr(estimator, "predict"):
+            return estimator
+    raise TabularError(
+        code="ML_ARTIFACT_UNLOADABLE",
+        message=(
+            "The model artifact loaded, but no estimator could be read out of "
+            "it — probabilities and per-row contributions need the estimator, "
+            "not the serving facade."
+        ),
+        status_code=409,
+    )
+
+
 def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
     """As ``load_pipeline``, plus whether the pipeline was already resident.
-
-    Loaded through MLflow's sklearn flavor rather than its pyfunc wrapper: the
-    wrapper exposes ``predict`` only, and a churn model whose answer is "1"
-    without "0.87" is a demo that does not land. The directory is the same
-    MLflow model either way, so nothing about the artifact's portability is
-    given up by reading it as what it is.
 
     The residency flag exists because callers report timings. ``load_ms`` on the
     entry is what building *that entry* cost, so quoting it on a hit tells an
@@ -228,9 +265,7 @@ def load_pipeline_traced(model: MLModel) -> tuple[LoadedModel, bool]:
         directory = Path(tempfile.mkdtemp(prefix="ml-serve-"))
         try:
             download_model_dir(model, directory)
-            import mlflow.sklearn
-
-            pipeline = mlflow.sklearn.load_model(str(directory))
+            pipeline = _load_mlflow_model(directory)
         except TabularError:
             shutil.rmtree(directory, ignore_errors=True)
             raise

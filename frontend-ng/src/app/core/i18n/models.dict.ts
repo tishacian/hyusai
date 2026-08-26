@@ -372,7 +372,8 @@ export const MODELS_FR = {
   'models.publish.live': 'Publiée',
   'models.publish.open': 'Ouvrir dans le catalogue',
   'models.publish.withdraw': 'Retirer du catalogue',
-  'models.publish.done': '« {name} » est dans le catalogue de skills',
+  'models.publish.done':
+    '« {name} » est dans le catalogue de skills — cliquez pour l’ouvrir',
   'models.publish.withdrawn': 'La skill a été retirée du catalogue',
   'models.publish.provenance': 'Modèle {name} v{version} — {evidence}',
 
@@ -853,7 +854,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.publish.live': 'Published',
   'models.publish.open': 'Open in the catalog',
   'models.publish.withdraw': 'Withdraw from the catalog',
-  'models.publish.done': '“{name}” is in the skill catalog',
+  'models.publish.done': '“{name}” is in the skill catalog — click to open it',
   'models.publish.withdrawn': 'The skill was withdrawn from the catalog',
   'models.publish.provenance': 'Model {name} v{version} — {evidence}',
 

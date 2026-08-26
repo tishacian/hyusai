@@ -598,6 +598,17 @@
   }
 }
 
+/* Before a fit, the evidence panel holds the rows the fit will read. Same
+   table as the Data page, so the author is looking at the data and not at a
+   different rendering of it. */
+.ck-train-workshop__sample {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
 .ck-train-workshop__side {
   display: flex;
   flex-direction: column;

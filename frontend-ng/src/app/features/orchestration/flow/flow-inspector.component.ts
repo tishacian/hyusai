@@ -107,6 +107,8 @@ import {
   type ServingRoleDescriptor,
   type TrainNodeParams,
 } from './flow-ml.vm';
+import { FlowRunService } from './flow-run.service';
+import { DatasetPreviewComponent } from '@app/features/data/dataset-preview.component';
 
 /** Engine kind of the node the lexicon calls an Output. */
 const OUTPUT_NODE_KIND = 'sink';
@@ -183,6 +185,7 @@ export function buildRetrievalDocumentOptions(
     FlowIngressEditorComponent,
     FlowDecisionBindingsComponent,
     FlowSchemaEditorComponent,
+    DatasetPreviewComponent,
   ],
   styleUrl: './flow-inspector.component.scss',
   template: `
@@ -548,6 +551,21 @@ export function buildRetrievalDocumentOptions(
                     (change)="onServingOutput($event)"
                   />
                 </label>
+
+                <!-- Once it has run, the node's whole product is a table. Naming
+                     it is not looking at it, and the scored columns are the
+                     reason the node is on the canvas. -->
+                @if (writtenDataset(n); as scored) {
+                  <div class="ck-flow-field" data-testid="serving-output-preview">
+                    <span class="ck-flow-field__label">
+                      {{ i18n.t('flow.ml.serving.output.produced') }}
+                    </span>
+                    <ck-dataset-preview [datasetId]="scored" maxHeight="180px" />
+                    <a class="ck-flow-link" [routerLink]="['/data', scored]">
+                      {{ i18n.t('flow.ml.serving.output.open') }}
+                    </a>
+                  </div>
+                }
               }
 
               @if (copy.supportsExplain) {
@@ -1044,6 +1062,9 @@ export class FlowInspectorComponent {
   /** Optional, same reason: the registry is what turns the model picker into a
    *  list of real lineages rather than a slug someone has to remember. */
   private readonly mlSvc = inject(FlowMlService, { optional: true });
+  /** Optional: only the builder shell has run state, and only a node that ran
+   *  has an output dataset to show. */
+  private readonly runSvc = inject(FlowRunService, { optional: true });
 
   /** Active trigger source node types (mirror of the backend
    *  `triggers.TRIGGER_TYPE_TO_EVENT`) — the nodes that offer piloting. */
@@ -1299,6 +1320,17 @@ export class FlowInspectorComponent {
 
   servingVersions(n: CanonicalFlowNode) {
     return lineageVersions(this.mlSvc?.registry() ?? [], this.servingParams(n).model_slug);
+  }
+
+  /**
+   * The dataset this node wrote on its last run, or `null` before it has run.
+   *
+   * Read off the `node_end` badge rather than fetched: the walker already put
+   * the reference on the frame the canvas badges from, so the panel opens the
+   * rows the node produced without a second question about the graph.
+   */
+  writtenDataset(n: CanonicalFlowNode): string | null {
+    return this.runSvc?.nodeRunFor(n.id)?.data?.dataset_id ?? null;
   }
 
   /** The client-side gap, so an unfinished node says so before it is run. */

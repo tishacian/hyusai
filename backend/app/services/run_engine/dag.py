@@ -4285,6 +4285,13 @@ def _node_data_badge(
     if rows_out is not None:
         badge["rows_out"] = rows_out
     if isinstance(output, dict):
+        # The dataset a node WROTE, so the surface reading the badge can open it
+        # without another walk of the graph. Datasets travel by reference here,
+        # which is exactly why the reference is worth lifting: the canvas can
+        # then show a transform's or a score's actual rows.
+        written = output.get("dataset_id")
+        if isinstance(written, str) and written:
+            badge["dataset_id"] = written
         # A training node's own metric; a serving node reports the model that
         # answered under ``model``/``served``, and its metric is that version's.
         metric = _metric_block(output)

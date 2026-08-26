@@ -29,7 +29,7 @@ def test_a_transform_badge_names_both_sides_of_the_row_count():
         {"output": {"dataset_id": "clean", "rows": 6903, "schema": []}},
     )
 
-    assert badge == {"rows_in": 8412, "rows_out": 6903}
+    assert badge == {"rows_in": 8412, "rows_out": 6903, "dataset_id": "clean"}
 
 
 def test_an_upstream_envelope_is_found_one_level_down():
@@ -40,7 +40,7 @@ def test_an_upstream_envelope_is_found_one_level_down():
         {"output": {"dataset_id": "out", "rows": 100}},
     )
 
-    assert badge == {"rows_in": 120, "rows_out": 100}
+    assert badge == {"rows_in": 120, "rows_out": 100, "dataset_id": "out"}
 
 
 def test_graph_owned_configuration_is_never_mistaken_for_data():
@@ -51,7 +51,7 @@ def test_graph_owned_configuration_is_never_mistaken_for_data():
         {"output": {"dataset_id": "out", "rows": 10}},
     )
 
-    assert badge == {"rows_out": 10}
+    assert badge == {"rows_out": 10, "dataset_id": "out"}
 
 
 def test_a_node_with_nothing_to_show_gets_no_badge():
@@ -60,13 +60,36 @@ def test_a_node_with_nothing_to_show_gets_no_badge():
 
 
 def test_a_row_count_that_is_not_a_number_is_ignored():
-    assert (
-        _node_data_badge(
-            {"dataset_id": "raw", "rows": "many"},
-            {"output": {"dataset_id": "out", "rows": True}},
-        )
-        is None
+    badge = _node_data_badge(
+        {"dataset_id": "raw", "rows": "many"},
+        {"output": {"dataset_id": "out", "rows": True}},
     )
+
+    # The reference survives — it is a string either way — but neither count
+    # does: "many" is not a figure and `True` is not a row count.
+    assert badge == {"dataset_id": "out"}
+    assert _node_data_badge({"rows": "many"}, {"output": {"rows": True}}) is None
+
+
+def test_the_badge_carries_the_dataset_a_node_wrote_so_it_can_be_opened():
+    """A score node's output is a dataset, and the point is to look at it."""
+
+    badge = _node_data_badge(
+        {"dataset_id": "features", "rows": 6903},
+        {
+            "output": {
+                "dataset_id": "scored",
+                "rows": 6903,
+                "served": {"slug": "churn-radar", "version": 3},
+            }
+        },
+    )
+
+    assert badge["dataset_id"] == "scored"
+    assert badge["model"] == {"slug": "churn-radar", "version": 3}
+    # The upstream reference is NOT the badge's: a node is credited with what it
+    # wrote, and pointing at its input would open the wrong table.
+    assert badge["dataset_id"] != "features"
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +206,11 @@ def test_the_node_end_summary_carries_the_badge_under_data():
         node_input={"dataset_id": "raw", "rows": 8412},
     )
 
-    assert summary["data"] == {"rows_in": 8412, "rows_out": 6903}
+    assert summary["data"] == {
+        "rows_in": 8412,
+        "rows_out": 6903,
+        "dataset_id": "clean",
+    }
 
 
 def test_a_node_that_returned_nothing_usable_adds_no_data_key():
