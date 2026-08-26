@@ -12,6 +12,10 @@
  * paths, a confusion matrix into cells that carry their own intensity, feature
  * importances into bars normalized against the strongest one.
  */
+import type {
+  ConfusionBlock,
+  CurvePoint,
+} from '@app/features/data/viz/viz.vm';
 import type { TabularColumnStats } from '@app/shared/ui/data-table.vm';
 
 // ---------------------------------------------------------------------------
@@ -26,15 +30,9 @@ export interface MetricScore {
   value: number | null;
 }
 
-export interface CurvePoint {
-  x: number;
-  y: number;
-}
-
-export interface ConfusionBlock {
-  labels: string[];
-  matrix: number[][];
-}
+// The geometry these read into lives in the shared viz kit, so a curve on a
+// model card and a curve anywhere else are one drawing with different numbers.
+export type { ConfusionBlock, CurvePoint };
 
 export interface ClassCount {
   label: string;
@@ -856,135 +854,6 @@ export function bestScore(
     ? (a: number, b: number) => a > b
     : (a: number, b: number) => a < b;
   return comparable.reduce((top, score) => (better(score.value, top.value) ? score : top));
-}
-
-// ---------------------------------------------------------------------------
-// Curves
-// ---------------------------------------------------------------------------
-
-export interface CurveBox {
-  width: number;
-  height: number;
-}
-
-export interface CurveDomain {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
-}
-
-/** ROC and precision/recall both live in the unit square. */
-export const UNIT_DOMAIN: CurveDomain = { minX: 0, maxX: 1, minY: 0, maxY: 1 };
-
-/**
- * The box a set of series fits in, padded to never be degenerate.
- *
- * Needed for the regression fit chart, whose axes are in the target's units:
- * a chart of ARPU predictions cannot assume the unit square the way a ROC can.
- */
-export function curveDomain(series: readonly (readonly CurvePoint[])[]): CurveDomain {
-  const points = series.flat().filter((point) => point && Number.isFinite(point.x) && Number.isFinite(point.y));
-  if (!points.length) return UNIT_DOMAIN;
-  const xs = points.map((point) => point.x);
-  const ys = points.map((point) => point.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  return {
-    minX,
-    maxX: maxX > minX ? maxX : minX + 1,
-    minY,
-    maxY: maxY > minY ? maxY : minY + 1,
-  };
-}
-
-/**
- * An SVG path for one curve, y flipped so a better model climbs.
- *
- * Returns `''` for fewer than two points rather than a degenerate path: an
- * empty `d` renders nothing, whereas a one-point path renders a dot that reads
- * as data.
- */
-export function curvePath(
-  points: readonly CurvePoint[] | undefined,
-  box: CurveBox,
-  domain: CurveDomain = UNIT_DOMAIN,
-): string {
-  const usable = (points ?? []).filter(
-    (point) => point && Number.isFinite(point.x) && Number.isFinite(point.y),
-  );
-  if (usable.length < 2) return '';
-  const spanX = domain.maxX - domain.minX || 1;
-  const spanY = domain.maxY - domain.minY || 1;
-  return usable
-    .map((point, index) => {
-      const x = ((point.x - domain.minX) / spanX) * box.width;
-      const y = box.height - ((point.y - domain.minY) / spanY) * box.height;
-      return `${index === 0 ? 'M' : 'L'}${round(x)},${round(y)}`;
-    })
-    .join(' ');
-}
-
-function round(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-// ---------------------------------------------------------------------------
-// Confusion matrix
-// ---------------------------------------------------------------------------
-
-export interface ConfusionCell {
-  actual: string;
-  predicted: string;
-  count: number;
-  /** Share of the actual row, which is what makes an imbalanced matrix readable. */
-  share: number;
-  correct: boolean;
-}
-
-export interface ConfusionView {
-  labels: string[];
-  rows: { actual: string; total: number; cells: ConfusionCell[] }[];
-  total: number;
-}
-
-/**
- * Cells carrying their own intensity, as a share of the ACTUAL row.
- *
- * Row-normalized rather than matrix-normalized on purpose: a churn matrix is
- * imbalanced by nature, and shading by the global total would paint the whole
- * grid the colour of the majority class and hide exactly the mistake that
- * matters — the churner the model called loyal.
- */
-export function confusionView(
-  confusion: ConfusionBlock | undefined | null,
-): ConfusionView | null {
-  const labels = confusion?.labels ?? [];
-  const matrix = confusion?.matrix ?? [];
-  if (!labels.length || matrix.length !== labels.length) return null;
-  let total = 0;
-  const rows = labels.map((actual, rowIndex) => {
-    const raw = matrix[rowIndex] ?? [];
-    const rowTotal = raw.reduce((sum, cell) => sum + (Number(cell) || 0), 0);
-    total += rowTotal;
-    return {
-      actual,
-      total: rowTotal,
-      cells: labels.map((predicted, colIndex) => {
-        const count = Number(raw[colIndex]) || 0;
-        return {
-          actual,
-          predicted,
-          count,
-          share: rowTotal ? count / rowTotal : 0,
-          correct: rowIndex === colIndex,
-        };
-      }),
-    };
-  });
-  return { labels, rows, total };
 }
 
 // ---------------------------------------------------------------------------

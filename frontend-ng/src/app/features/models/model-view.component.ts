@@ -43,13 +43,22 @@ import { DataService } from '@app/features/data/data.service';
 import { ModelPlaygroundComponent } from './model-playground.component';
 import { ModelTrainComponent, type TrainSeed } from './model-train.component';
 import { ModelsService, isModelActive, type ModelDetailDto } from './models.service';
+import { BarListComponent } from '@app/features/data/viz/bar-list.component';
+import { ConfusionMatrixComponent } from '@app/features/data/viz/confusion-matrix.component';
 import {
-  UNIT_DOMAIN,
-  balanceBars,
-  comparisonRows,
+  CurveChartComponent,
+  type CurveReference,
+} from '@app/features/data/viz/curve-chart.component';
+import {
   confusionView,
   curveDomain,
-  curvePath,
+  type ConfusionCell,
+  type CurveBox,
+  type VizBar,
+} from '@app/features/data/viz/viz.vm';
+import {
+  balanceBars,
+  comparisonRows,
   compareErrorKey,
   formatMetric,
   higherIsBetter,
@@ -64,7 +73,6 @@ import {
   type ComparisonDto,
   type ComparisonMetricRow,
   type ComparisonRow,
-  type CurveBox,
   type CvBlock,
   type MetricTone,
   type ModelDto,
@@ -90,6 +98,9 @@ const CHART: CurveBox = { width: 300, height: 190 };
     CkTabComponent,
     ModelPlaygroundComponent,
     ModelTrainComponent,
+    BarListComponent,
+    ConfusionMatrixComponent,
+    CurveChartComponent,
   ],
   template: `
     <a
@@ -239,124 +250,63 @@ const CHART: CurveBox = { width: 300, height: 190 };
               </section>
 
               <div class="ck-charts">
-                @if (rocPath()) {
+                @if (roc().length) {
                   <section class="ck-chart">
                     <div class="ck-section-label">{{ i18n.t('models.evidence.roc') }}</div>
-                    <svg
-                      [attr.viewBox]="'0 0 ' + chart.width + ' ' + chart.height"
-                      class="ck-plot"
-                      role="img"
-                      [attr.aria-label]="i18n.t('models.evidence.roc')"
-                    >
-                      <line
-                        [attr.x1]="0"
-                        [attr.y1]="chart.height"
-                        [attr.x2]="chart.width"
-                        [attr.y2]="0"
-                        class="ck-plot__ref"
-                      />
-                      <path [attr.d]="rocArea()" class="ck-plot__area" />
-                      <path [attr.d]="rocPath()" class="ck-plot__line" />
-                    </svg>
+                    <ck-curve-chart
+                      [points]="roc()"
+                      [box]="chart"
+                      [reference]="DIAGONAL"
+                      [fill]="true"
+                      [label]="i18n.t('models.evidence.roc')"
+                    />
                     <div class="ck-hint">{{ i18n.t('models.evidence.roc.hint') }}</div>
                   </section>
                 }
-                @if (prPath()) {
+                @if (pr().length) {
                   <section class="ck-chart">
                     <div class="ck-section-label">{{ i18n.t('models.evidence.pr') }}</div>
-                    <svg
-                      [attr.viewBox]="'0 0 ' + chart.width + ' ' + chart.height"
-                      class="ck-plot"
-                      role="img"
-                      [attr.aria-label]="i18n.t('models.evidence.pr')"
-                    >
-                      @if (baselineY() !== null) {
-                        <line
-                          [attr.x1]="0"
-                          [attr.y1]="baselineY()"
-                          [attr.x2]="chart.width"
-                          [attr.y2]="baselineY()"
-                          class="ck-plot__ref"
-                        />
-                      }
-                      <path [attr.d]="prPath()" class="ck-plot__line ck-plot__line--violet" />
-                    </svg>
+                    <ck-curve-chart
+                      [points]="pr()"
+                      [box]="chart"
+                      [reference]="prevalence()"
+                      tone="violet"
+                      [label]="i18n.t('models.evidence.pr')"
+                    />
                     <div class="ck-hint">{{ i18n.t('models.evidence.pr.hint') }}</div>
                   </section>
                 }
-                @if (fitPath()) {
+                @if (fit().length) {
                   <section class="ck-chart">
                     <div class="ck-section-label">{{ i18n.t('models.evidence.fit') }}</div>
-                    <svg
-                      [attr.viewBox]="'0 0 ' + chart.width + ' ' + chart.height"
-                      class="ck-plot"
-                      role="img"
-                      [attr.aria-label]="i18n.t('models.evidence.fit')"
-                    >
-                      <path [attr.d]="idealPath()" class="ck-plot__ref" />
-                      <path [attr.d]="fitPath()" class="ck-plot__line" />
-                    </svg>
+                    <ck-curve-chart
+                      [points]="fit()"
+                      [box]="chart"
+                      [domain]="fitDomain()"
+                      [reference]="identity()"
+                      [label]="i18n.t('models.evidence.fit')"
+                    />
                     <div class="ck-hint">{{ i18n.t('models.evidence.fit.hint') }}</div>
                   </section>
                 }
-                @if (confusion(); as grid) {
+                @if (confusion()) {
                   <section class="ck-chart">
                     <div class="ck-section-label">{{ i18n.t('models.evidence.confusion') }}</div>
-                    <table class="ck-matrix">
-                      <thead>
-                        <tr>
-                          <th class="ck-matrix__corner ck-mono">
-                            {{ i18n.t('models.evidence.confusion.actual') }} \\
-                            {{ i18n.t('models.evidence.confusion.predicted') }}
-                          </th>
-                          @for (label of grid.labels; track label) {
-                            <th class="ck-matrix__th ck-mono">{{ label }}</th>
-                          }
-                        </tr>
-                      </thead>
-                      <tbody>
-                        @for (line of grid.rows; track line.actual) {
-                          <tr>
-                            <th class="ck-matrix__rh ck-mono">{{ line.actual }}</th>
-                            @for (cell of line.cells; track cell.predicted) {
-                              <td
-                                class="ck-matrix__td ck-mono"
-                                [class.ck-matrix__td--ok]="cell.correct"
-                                [style.background]="cellShade(cell.share, cell.correct)"
-                                [title]="cellTitle(cell.actual, cell.predicted, cell.share)"
-                              >
-                                {{ cell.count.toLocaleString(i18n.locale()) }}
-                              </td>
-                            }
-                          </tr>
-                        }
-                      </tbody>
-                    </table>
+                    <ck-confusion-matrix
+                      [view]="confusion()"
+                      [label]="i18n.t('models.evidence.confusion')"
+                      [actualLabel]="i18n.t('models.evidence.confusion.actual')"
+                      [predictedLabel]="i18n.t('models.evidence.confusion.predicted')"
+                      [format]="countFormat"
+                      [describe]="cellDescription"
+                    />
                     <div class="ck-hint">{{ i18n.t('models.evidence.confusion.hint') }}</div>
                   </section>
                 }
                 @if (balance().length) {
                   <section class="ck-chart">
                     <div class="ck-section-label">{{ i18n.t('models.evidence.balance') }}</div>
-                    <div class="space-y-1.5">
-                      @for (bar of balance(); track bar.label) {
-                        <div>
-                          <div class="ck-bar__head ck-mono">
-                            <span>{{ bar.label }}</span>
-                            <span style="color: var(--ck-fg-4)">
-                              {{ bar.count.toLocaleString(i18n.locale()) }} ·
-                              {{ percent(bar.share) }}
-                            </span>
-                          </div>
-                          <div class="ck-bar">
-                            <div
-                              class="ck-bar__fill ck-bar__fill--violet"
-                              [style.width.%]="bar.width"
-                            ></div>
-                          </div>
-                        </div>
-                      }
-                    </div>
+                    <ck-bar-list [bars]="balanceBars()" />
                     <div class="ck-hint">{{ i18n.t('models.evidence.balance.hint') }}</div>
                   </section>
                 }
@@ -365,32 +315,7 @@ const CHART: CurveBox = { width: 300, height: 190 };
               @if (importances().length) {
                 <section>
                   <div class="ck-section-label">{{ i18n.t('models.evidence.importances') }}</div>
-                  <div class="space-y-1.5">
-                    @for (bar of importances(); track bar.feature) {
-                      <div>
-                        <div class="ck-bar__head ck-mono">
-                          <span [style.color]="bar.negative ? 'var(--ck-signal-neg)' : 'inherit'">
-                            {{ bar.feature }}
-                          </span>
-                          <span
-                            style="color: var(--ck-fg-4)"
-                            [title]="
-                              bar.negative ? i18n.t('models.evidence.importances.negative') : ''
-                            "
-                          >
-                            {{ bar.value.toLocaleString(i18n.locale(), { maximumFractionDigits: 4 }) }}
-                          </span>
-                        </div>
-                        <div class="ck-bar">
-                          <div
-                            class="ck-bar__fill"
-                            [class.ck-bar__fill--neg]="bar.negative"
-                            [style.width.%]="bar.width"
-                          ></div>
-                        </div>
-                      </div>
-                    }
-                  </div>
+                  <ck-bar-list [bars]="importanceBars()" />
                   <div class="ck-hint">{{ i18n.t('models.evidence.importances.hint') }}</div>
                 </section>
               }
@@ -868,101 +793,6 @@ const CHART: CurveBox = { width: 300, height: 190 };
         background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.02));
         box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.06));
       }
-      .ck-plot {
-        width: 100%;
-        height: auto;
-        overflow: visible;
-      }
-      .ck-plot__ref {
-        fill: none;
-        stroke: var(--ck-stroke-2, rgba(255, 255, 255, 0.16));
-        stroke-width: 1;
-        stroke-dasharray: 3 3;
-      }
-      .ck-plot__line {
-        fill: none;
-        stroke: var(--ck-signal-cool, #7dd3fc);
-        stroke-width: 2;
-        stroke-linejoin: round;
-        stroke-linecap: round;
-      }
-      .ck-plot__line--violet {
-        stroke: var(--ck-signal-violet, #a78bfa);
-      }
-      .ck-plot__area {
-        fill: rgba(125, 211, 252, 0.12);
-        stroke: none;
-      }
-      .ck-matrix {
-        border-collapse: separate;
-        border-spacing: 2px;
-        width: 100%;
-      }
-      .ck-matrix__corner,
-      .ck-matrix__th,
-      .ck-matrix__rh {
-        font-size: 9.5px;
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--ck-fg-4, #8891a0);
-        padding: 3px 5px;
-        text-align: center;
-      }
-      .ck-matrix__corner,
-      .ck-matrix__rh {
-        text-align: left;
-      }
-      .ck-matrix__td {
-        text-align: center;
-        font-size: 12px;
-        font-variant-numeric: tabular-nums;
-        padding: 8px 6px;
-        border-radius: 3px;
-        color: var(--ck-fg-2, #c3c9d4);
-      }
-      .ck-matrix__td--ok {
-        color: var(--ck-fg-1, #e6e9ef);
-        font-weight: 600;
-      }
-      .ck-bar__head {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 8px;
-        font-size: 10.5px;
-        color: var(--ck-fg-2, #c3c9d4);
-        margin-bottom: 2px;
-      }
-      .ck-bar {
-        height: 6px;
-        border-radius: 3px;
-        background: var(--ck-stroke-1, rgba(255, 255, 255, 0.05));
-        overflow: hidden;
-      }
-      .ck-bar__fill {
-        height: 100%;
-        border-radius: 3px;
-        background: linear-gradient(
-          90deg,
-          rgba(125, 211, 252, 0.45) 0%,
-          var(--ck-signal-cool, #7dd3fc) 100%
-        );
-      }
-      .ck-bar__fill--violet {
-        background: linear-gradient(
-          90deg,
-          rgba(167, 139, 250, 0.45) 0%,
-          var(--ck-signal-violet, #a78bfa) 100%
-        );
-      }
-      .ck-bar__fill--neg {
-        background: linear-gradient(
-          90deg,
-          rgba(239, 90, 111, 0.45) 0%,
-          var(--ck-signal-neg, #ef5a6f) 100%
-        );
-      }
       .ck-fold {
         font-size: 10.5px;
         padding: 2px 7px;
@@ -1151,31 +981,72 @@ export class ModelViewComponent implements OnInit {
   protected readonly confusion = computed(() => confusionView(this.metrics()?.confusion));
   protected readonly importances = computed(() => importanceBars(this.metrics()?.importances));
   protected readonly balance = computed(() => balanceBars(this.metrics()?.target?.balance));
+
+  /**
+   * The two bar blocks, adapted to the kit's shape.
+   *
+   * The number's *formatting* is the only thing the kit cannot decide: it needs
+   * a locale, and a component that draws rectangles has no business holding one.
+   * The widths were already computed against the set by `importanceBars` and
+   * `balanceBars`, which is where scaling belongs.
+   */
+  protected readonly importanceBars = computed<VizBar[]>(() =>
+    this.importances().map((bar) => ({
+      label: bar.feature,
+      display: bar.value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 4 }),
+      width: bar.width,
+      negative: bar.negative,
+      emphasis: false,
+    })),
+  );
+
+  protected readonly balanceBars = computed<VizBar[]>(() => {
+    const bars = this.balance();
+    // The majority class is the one an accuracy figure hides behind, so it is
+    // the one drawn loud: 82% on a 4% churn rate should look like what it is.
+    const largest = Math.max(...bars.map((bar) => bar.share), 0);
+    return bars.map((bar) => ({
+      label: bar.label,
+      display: `${bar.count.toLocaleString(this.i18n.locale())} · ${this.percent(bar.share)}`,
+      width: bar.width,
+      negative: false,
+      emphasis: bars.length > 1 && bar.share === largest,
+    }));
+  });
+
+  /** A ROC is judged against a coin flip; the diagonal never changes. */
+  protected readonly DIAGONAL: CurveReference = { kind: 'diagonal' };
+
+  protected readonly roc = computed(() => this.metrics()?.curves?.roc ?? []);
+  protected readonly pr = computed(() => this.metrics()?.curves?.pr ?? []);
+  protected readonly fit = computed(() => this.metrics()?.curves?.fit ?? []);
+
+  /**
+   * A precision/recall curve is judged against prevalence, not against 0.5.
+   *
+   * Without this line an imbalanced problem looks solved: a 4% churn rate makes
+   * any precision above 0.04 an improvement, and the curve alone does not say
+   * where that floor is.
+   */
+  protected readonly prevalence = computed<CurveReference>(() => ({
+    kind: 'level',
+    value: this.metrics()?.curves?.baseline ?? null,
+  }));
+
+  /** A regression fit is judged against the line where prediction equals truth. */
+  protected readonly identity = computed<CurveReference>(() => ({
+    kind: 'series',
+    points: this.metrics()?.curves?.ideal ?? [],
+  }));
   protected readonly cv = computed(() => this.metrics()?.cv ?? null);
   protected readonly dropped = computed(() => this.metrics()?.columns?.dropped ?? []);
   protected readonly fields = computed<SignatureField[]>(
     () => this.model()?.signature?.inputs ?? [],
   );
 
-  protected readonly rocPath = computed(() =>
-    curvePath(this.metrics()?.curves?.roc, CHART, UNIT_DOMAIN),
-  );
-
-  protected readonly prPath = computed(() =>
-    curvePath(this.metrics()?.curves?.pr, CHART, UNIT_DOMAIN),
-  );
-
-  /** The regression fit and its ideal share one domain, or they cannot be read together. */
-  private readonly fitDomain = computed(() =>
+  /** The fit and its ideal share one domain, or they cannot be read together. */
+  protected readonly fitDomain = computed(() =>
     curveDomain([this.metrics()?.curves?.fit ?? [], this.metrics()?.curves?.ideal ?? []]),
-  );
-
-  protected readonly fitPath = computed(() =>
-    curvePath(this.metrics()?.curves?.fit, CHART, this.fitDomain()),
-  );
-
-  protected readonly idealPath = computed(() =>
-    curvePath(this.metrics()?.curves?.ideal, CHART, this.fitDomain()),
   );
 
   protected readonly kpis = computed<CkObjectKpi[]>(() => {
@@ -1335,34 +1206,20 @@ export class ModelViewComponent implements OnInit {
     });
   }
 
-  /** ROC is the one curve worth filling: the area under it *is* the metric. */
-  protected rocArea(): string {
-    const path = this.rocPath();
-    if (!path) return '';
-    return `${path} L${CHART.width},${CHART.height} L0,${CHART.height} Z`;
-  }
+  /**
+   * Cell text and tooltip, passed to the matrix as functions.
+   *
+   * Bound fields rather than methods: `[format]` is an input, and a method
+   * reference would be a new closure on every change detection pass, which
+   * re-renders the whole grid for nothing.
+   */
+  protected readonly countFormat = (count: number): string =>
+    count.toLocaleString(this.i18n.locale());
 
-  protected baselineY(): number | null {
-    const baseline = this.metrics()?.curves?.baseline;
-    if (baseline === null || baseline === undefined || !Number.isFinite(baseline)) {
-      return null;
-    }
-    return CHART.height - baseline * CHART.height;
-  }
-
-  protected cellShade(share: number, correct: boolean): string {
-    const alpha = Math.min(0.42, Math.max(0, share) * 0.42);
-    if (!alpha) return 'rgba(255,255,255,0.02)';
-    return correct
-      ? `rgba(52, 211, 153, ${alpha.toFixed(3)})`
-      : `rgba(239, 90, 111, ${alpha.toFixed(3)})`;
-  }
-
-  protected cellTitle(actual: string, predicted: string, share: number): string {
-    return `${this.i18n.t('models.evidence.confusion.actual')} ${actual} → ${this.i18n.t(
+  protected readonly cellDescription = (cell: ConfusionCell): string =>
+    `${this.i18n.t('models.evidence.confusion.actual')} ${cell.actual} → ${this.i18n.t(
       'models.evidence.confusion.predicted',
-    )} ${predicted} · ${this.percent(share)}`;
-  }
+    )} ${cell.predicted} · ${this.percent(cell.share)}`;
 
   protected percent(share: number): string {
     return `${(share * 100).toLocaleString(this.i18n.locale(), {

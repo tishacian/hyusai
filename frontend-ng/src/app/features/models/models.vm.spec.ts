@@ -17,17 +17,13 @@ import {
   REFUSAL_CODES,
   SERVING_ERROR_CODES,
   TRAINING_ERROR_CODES,
-  UNIT_DOMAIN,
   algoIcon,
   balanceBars,
   bestScore,
   clampKnob,
   comparisonRows,
-  confusionView,
   contributionBars,
   curlSnippet,
-  curveDomain,
-  curvePath,
   defaultFeatures,
   defaultKnobs,
   formatMetric,
@@ -182,91 +178,6 @@ test('an unfinished or unscored run cannot become the best score', () => {
     bestScore([scored('roc_auc', 0.9, 'failed'), scored('roc_auc', 0.6)]),
     { key: 'roc_auc', value: 0.6 },
   );
-});
-
-// ---------------------------------------------------------------------------
-// Curves
-// ---------------------------------------------------------------------------
-
-const BOX = { width: 100, height: 50 };
-
-test('a curve is drawn with y flipped, so a better model climbs', () => {
-  const path = curvePath(
-    [
-      { x: 0, y: 0 },
-      { x: 0.5, y: 1 },
-      { x: 1, y: 1 },
-    ],
-    BOX,
-    UNIT_DOMAIN,
-  );
-  assert.equal(path, 'M0,50 L50,0 L100,0');
-});
-
-test('a curve with nothing to draw yields no path rather than a stray dot', () => {
-  assert.equal(curvePath([], BOX), '');
-  assert.equal(curvePath(undefined, BOX), '');
-  assert.equal(curvePath([{ x: 0.5, y: 0.5 }], BOX), '');
-  // Non-finite samples are dropped before the count is judged.
-  assert.equal(curvePath([{ x: 0, y: 0 }, { x: Number.NaN, y: 1 }], BOX), '');
-});
-
-test('a regression fit is scaled to the target’s own units, not the unit square', () => {
-  const fit = [
-    { x: 10, y: 12 },
-    { x: 30, y: 28 },
-  ];
-  const ideal = [
-    { x: 10, y: 10 },
-    { x: 30, y: 30 },
-  ];
-  const domain = curveDomain([fit, ideal]);
-  assert.deepEqual(domain, { minX: 10, maxX: 30, minY: 10, maxY: 30 });
-  // Both series share the domain, so the diagonal really is the diagonal.
-  assert.equal(curvePath(ideal, BOX, domain), 'M0,50 L100,0');
-});
-
-test('a degenerate domain is padded instead of dividing by zero', () => {
-  const domain = curveDomain([[{ x: 5, y: 5 }]]);
-  assert.deepEqual(domain, { minX: 5, maxX: 6, minY: 5, maxY: 6 });
-  assert.deepEqual(curveDomain([]), UNIT_DOMAIN);
-  assert.deepEqual(curveDomain([[]]), UNIT_DOMAIN);
-});
-
-// ---------------------------------------------------------------------------
-// Confusion matrix
-// ---------------------------------------------------------------------------
-
-test('the confusion matrix is shaded per actual row, not per grand total', () => {
-  // 96 loyal / 4 churners: the interesting cell is the one that is 50% of a
-  // tiny row and 1% of the table. Row-normalizing is what keeps it visible.
-  const view = confusionView({
-    labels: ['loyal', 'churn'],
-    matrix: [
-      [94, 2],
-      [2, 2],
-    ],
-  });
-  assert.ok(view);
-  assert.equal(view!.total, 100);
-  assert.equal(view!.rows[1].total, 4);
-  const missed = view!.rows[1].cells[0];
-  assert.equal(missed.count, 2);
-  assert.equal(missed.share, 0.5);
-  assert.equal(missed.correct, false);
-  assert.equal(view!.rows[1].cells[1].correct, true);
-});
-
-test('a malformed or absent matrix renders nothing at all', () => {
-  assert.equal(confusionView(null), null);
-  assert.equal(confusionView(undefined), null);
-  assert.equal(confusionView({ labels: [], matrix: [] }), null);
-  assert.equal(confusionView({ labels: ['a', 'b'], matrix: [[1, 2]] }), null);
-});
-
-test('an empty row divides by nothing and stays at zero', () => {
-  const view = confusionView({ labels: ['a', 'b'], matrix: [[0, 0], [1, 1]] });
-  assert.equal(view!.rows[0].cells[0].share, 0);
 });
 
 // ---------------------------------------------------------------------------
