@@ -21,8 +21,12 @@ from uuid import uuid4
 
 import pytest
 
+from app.models.capability import Capability
+from app.models.system import System
+from app.models.system_flow_draft import SystemFlowDraft
 from app.models.tabular import MLModel, TabularDataset
 from app.models.workspace import Workspace
+from app.services.systems import flow_publication
 from app.services.run_engine.execution_contract import resolve_flow_execution
 
 from scripts.gen_nawa_telecom_data import (
@@ -45,14 +49,19 @@ from scripts.gen_nawa_telecom_data import (
     network_cell_frame,
 )
 from scripts.seed_nawa_data_demo import (
+    CHURN_SYSTEM_NAME,
     CLEAN_DATASET_NAME,
     ENGINEERED_COLUMNS,
     MODEL_NAME,
+    SEED_ACTOR,
     _reusable_dataset,
     _reusable_model,
+    assert_runs_are_green,
     churn_flow,
+    ensure_system,
     promote_if_nobody_has,
     radio_flow,
+    reset,
 )
 
 pl = pytest.importorskip("polars")
@@ -831,3 +840,151 @@ def test_a_rerun_leaves_the_promotion_the_rehearsal_performed(db_session, worksp
     assert promote_if_nobody_has(db_session, workspace, baseline).id == challenger.id
     db_session.refresh(baseline)
     assert baseline.is_champion is False
+
+
+# ---------------------------------------------------------------------------
+# A re-seed that changes the graph
+# ---------------------------------------------------------------------------
+
+
+def _system(db_session, workspace, *, name, flow, created_by=SEED_ACTOR):
+    row = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name=name,
+        objective="seeded",
+        flow_definition=flow,
+        status="active",
+        created_by=created_by,
+    )
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
+def _draft(db_session, system, *, updated_by):
+    row = SystemFlowDraft(
+        system_id=system.id,
+        workspace_id=system.workspace_id,
+        flow_definition=system.flow_definition,
+        revision=2,
+        flow_sha256="0" * 64,
+        updated_by=updated_by,
+    )
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
+def test_a_reset_discards_the_draft_that_would_pin_the_retired_slugs(
+    db_session, workspace
+):
+    """The draft is why a re-seed can run the graph the reset just invalidated.
+
+    Reconciliation preserves a draft left open in the Builder, and the graph
+    names its input by slug. Reset the datasets without resetting the draft and
+    the next run resolves a slug that no longer exists. ``--reset`` owns the
+    seed's own Systems; it owns nobody else's.
+    """
+
+    mine = _system(db_session, workspace, name=CHURN_SYSTEM_NAME, flow={"nodes": []})
+    theirs = _system(
+        db_session,
+        workspace,
+        name="Somebody else's pipeline",
+        flow={"nodes": []},
+        created_by="alice@acme.test",
+    )
+    _draft(db_session, mine, updated_by="thibaud@datategy.net")
+    _draft(db_session, theirs, updated_by="alice@acme.test")
+
+    tally = reset(db_session, workspace)
+
+    assert tally["drafts"] == 1
+    assert (
+        db_session.query(SystemFlowDraft).filter_by(system_id=mine.id).one_or_none()
+        is None
+    )
+    assert (
+        db_session.query(SystemFlowDraft).filter_by(system_id=theirs.id).one_or_none()
+        is not None
+    )
+
+
+def test_the_seed_refuses_to_narrate_a_graph_the_engine_will_not_run(
+    db_session, workspace, monkeypatch
+):
+    """The failure this replaces was silent, which is what made it expensive.
+
+    ``reconcile_system_flow`` declining is a legitimate outcome — somebody's
+    unsaved work outranks a re-seed. What is not legitimate is printing
+    "system ready" afterwards, because the engine runs ``flow_definition`` and
+    that is still the previous graph.
+    """
+
+    capability = Capability(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        slug="churn-radar",
+        name="Churn Radar",
+        skill_ids=[],
+    )
+    db_session.add(capability)
+    db_session.commit()
+
+    stale = churn_flow(raw_slug="base-clients-export-brut", model_slug="c", features=[])
+    system = _system(db_session, workspace, name=CHURN_SYSTEM_NAME, flow=stale)
+    _draft(db_session, system, updated_by="thibaud@datategy.net")
+
+    # Exactly what the VM did: the reconciler preserves the operator draft and
+    # leaves the published mirror where it was.
+    monkeypatch.setattr(
+        flow_publication,
+        "reconcile_system_flow",
+        lambda *a, **k: flow_publication.FlowReconcileResult(
+            status="operator_draft_preserved"
+        ),
+    )
+
+    with pytest.raises(SystemExit) as raised:
+        ensure_system(
+            db_session,
+            workspace,
+            capability,
+            name=CHURN_SYSTEM_NAME,
+            objective="anything",
+            flow=churn_flow(
+                raw_slug="subscriber-base-raw-export", model_slug="c", features=[]
+            ),
+            system_type="churn_pipeline",
+        )
+
+    message = str(raised.value)
+    assert "operator_draft_preserved" in message
+    assert "thibaud@datategy.net" in message
+
+
+def test_a_completed_run_with_a_failed_node_is_not_a_seeded_demo():
+    """``completed`` is the walker's verdict on the graph, not on the demo."""
+
+    green = {"churn": {"nodes": [{"node_id": "task.clean", "status": "completed"}]}}
+    assert assert_runs_are_green(green) is None
+
+    with pytest.raises(SystemExit) as raised:
+        assert_runs_are_green(
+            {
+                "churn": {
+                    "nodes": [
+                        {"node_id": "task.clean", "status": "completed"},
+                        {
+                            "node_id": "task.features",
+                            "status": "failed",
+                            "error": "TRANSFORM_NO_INPUT",
+                        },
+                    ]
+                }
+            }
+        )
+
+    assert "task.features" in str(raised.value)
+    assert "TRANSFORM_NO_INPUT" in str(raised.value)
