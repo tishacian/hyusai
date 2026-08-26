@@ -123,12 +123,18 @@ beat 2's SQL, and the total number of rows removed is verifiable to the unit.
    not. duckdb is parallel: without it the row order changes from one run to the next, the
    train/test split is positional, and the metrics quoted on stage stop being the
    rehearsal's.
-4. **The node's badge: `8 412 → 6 903 rows`.** Do the arithmetic live, and this is where
-   the order of operations becomes an argument: the raw table holds 677 suspended lines,
-   310 empty ARPU and 170 sentinels, but the dedup runs **first** and takes 412 stale rows
-   with it — some of which were themselves suspended or holed. On the 8 000 that remain:
-   640 + 297 + 160 = 1 097, and 8 000 − 1 097 = **6 903**. Exact, not rounded. Filtering
-   before deduplicating would give a different number, and the wrong one.
+4. **The node's badge: `8 412 → 6 903 rows`.** Do the arithmetic live: the raw table holds
+   677 suspended lines, 310 empty ARPU and 170 sentinels, but the dedup runs **first** and
+   takes 412 stale rows with it — some of which were themselves suspended or holed. On the
+   8 000 that remain: 640 + 297 + 160 = 1 097, and 8 000 − 1 097 = **6 903**. Exact, not
+   rounded.
+
+   If somebody asks whether the order matters: **here, no** — a stale re-export carries the
+   same defects as the row it copies, so filtering first lands on the same 6 903 rows.
+   Say so rather than bluffing. The rule is still real, and it is why the statement is
+   written this way round: on data where a stale snapshot can be clean while the current one
+   is not, filtering first resurrects the old row for a subscriber who should have been
+   dropped.
 
 **The argument**: the cleanup is a governed, versioned transformation with its lineage —
 `subscriber-base-cleaned` v2 points at `subscriber-base-raw-export` v1. Not a notebook on
