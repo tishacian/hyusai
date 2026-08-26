@@ -952,6 +952,7 @@ export const FLOW_FR = {
   // Neutre par moteur : le bouton écrit un select, un script ou un modèle dbt.
   'flow.transform.sources.starter': 'Exemple de départ',
   'flow.transform.sources.starter.aria': 'Écrire un exemple de départ sur {view}',
+  'flow.transform.sources.insert.aria': 'Insérer la colonne {column} de {view} dans l’éditeur',
   'flow.transform.sources.catalog': 'Tables interrogeables',
 
   // sortie
@@ -995,6 +996,7 @@ export const FLOW_FR = {
     'Le jeu de données est encore en préparation — réessayez dans un instant.',
   'flow.transform.error.TABULAR_DISABLED': 'Le plan data est désactivé sur cette instance.',
   'flow.transform.error.unknown': 'La transformation a échoué.',
+  'flow.transform.error.at_line': 'Ligne {line}, colonne {column}',
 
   // ---- atelier Polars (node polars_transform_v1) -------------------------
   // Même atelier, autre langage : seules les phrases propres au moteur
@@ -2439,6 +2441,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   // Engine-neutral: the button writes a select, a script or a dbt model.
   'flow.transform.sources.starter': 'Starter example',
   'flow.transform.sources.starter.aria': 'Write a starter example over {view}',
+  'flow.transform.sources.insert.aria': 'Insert column {column} from {view} into the editor',
   'flow.transform.sources.catalog': 'Queryable tables',
 
   'flow.transform.output.name': 'Name of the produced dataset',
@@ -2479,6 +2482,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'The dataset is still being prepared — try again in a moment.',
   'flow.transform.error.TABULAR_DISABLED': 'The data plane is disabled on this instance.',
   'flow.transform.error.unknown': 'The transform failed.',
+  'flow.transform.error.at_line': 'Line {line}, column {column}',
 
   // ---- Polars workshop (polars_transform_v1 node) ------------------------
   // Same workshop, other language: only the engine-specific sentences change,

@@ -574,21 +574,38 @@
   max-height: 128px;
   overflow-y: auto;
 
-  li {
+  /* Each name is a button: reading one off the list and typing it back is
+     transcription, and a mistyped column costs a round-trip to the engine to
+     discover. The chrome stays on the button rather than the `li` so the hit
+     area and the visible chip are the same rectangle. */
+  button {
+    display: block;
     padding: 3px 6px;
     border-radius: 3px;
     font: 10px / 1 var(--ck-font-mono, monospace);
     color: var(--ck-fg-2, #c8cdd4);
     background: var(--ck-bg-inset, #0a0d11);
     border: 1px solid var(--ck-stroke-1, rgba(255, 255, 255, 0.04));
+    cursor: pointer;
+    transition:
+      background var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease),
+      border-color var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
+  }
+  button:hover {
+    background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.05));
+    border-color: var(--ck-stroke-2, rgba(255, 255, 255, 0.12));
+  }
+  button:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 1px;
   }
   /* Numeric columns are the ones a transform aggregates, so they read first. */
-  li[data-kind='integer'],
-  li[data-kind='float'] {
+  li[data-kind='integer'] button,
+  li[data-kind='float'] button {
     color: var(--ck-signal-cool, #7dd3fc);
     border-color: color-mix(in srgb, var(--ck-signal-cool, #7dd3fc) 30%, transparent);
   }
-  li[data-kind='datetime'] {
+  li[data-kind='datetime'] button {
     color: var(--ck-signal-warn, #f5b84a);
     border-color: color-mix(in srgb, var(--ck-signal-warn, #f5b84a) 30%, transparent);
   }
@@ -611,6 +628,30 @@
   line-height: 1.5;
   color: var(--ck-signal-neg, #ef5a6f);
   overflow-wrap: anywhere;
+}
+
+/* The coordinate duckdb reported, as a way back to it. The cursor is sent there
+   automatically when the refusal arrives; this is for after the author has
+   scrolled away and wants to return. */
+.ck-transform-workshop__jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 45%, transparent);
+  background: transparent;
+  font: 10px / 1.4 var(--ck-font-mono, monospace);
+  color: var(--ck-signal-neg, #ef5a6f);
+  cursor: pointer;
+}
+.ck-transform-workshop__jump:hover {
+  background: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 14%, transparent);
+}
+.ck-transform-workshop__jump:focus-visible {
+  outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+  outline-offset: 1px;
 }
 
 /* The engine's own words, kept next to the localized sentence. */

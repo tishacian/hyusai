@@ -29,7 +29,12 @@ import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
 import { formatBytes } from '@app/shared/ui/data-table.vm';
 import { DataService, isDatasetActive, type DatasetDto } from './data.service';
-import { ingestStepKey, sourceIcon, type DatasetSource } from './data.vm';
+import {
+  ingestChecklist,
+  sourceIcon,
+  type DatasetSource,
+  type IngestStep,
+} from './data.vm';
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -165,10 +170,22 @@ type OriginFilter = 'all' | DatasetSource;
                   }
                 </div>
                 @if (isActive(row)) {
-                  <div class="text-[11px] ck-mono mt-1 flex items-center gap-1.5" style="color: var(--ck-signal-cool)">
-                    <span class="ck-pulse"></span>
-                    {{ i18n.t(stepKey(row.status_detail)) }}
-                  </div>
+                  <ol class="ck-steps" data-testid="ingest-checklist">
+                    @for (step of checklist(row); track step.step) {
+                      <li class="ck-steps__item" [attr.data-state]="step.state">
+                        @if (step.state === 'done') {
+                          <app-icon name="check" [size]="11" class="shrink-0" />
+                        } @else if (step.state === 'active') {
+                          <span class="ck-pulse shrink-0"></span>
+                        } @else {
+                          <span class="ck-steps__dot shrink-0"></span>
+                        }
+                        <span class="truncate">
+                          {{ i18n.t(step.key, { rows: rows(step) }) }}
+                        </span>
+                      </li>
+                    }
+                  </ol>
                 } @else if (row.status === 'failed') {
                   <div class="text-[11px] ck-mono mt-1" style="color: var(--ck-signal-neg)">
                     {{ row.error }}
@@ -271,6 +288,49 @@ type OriginFilter = 'all' | DatasetSource;
           transform: scale(1.15);
         }
       }
+      /* The ingest, as a list rather than a line: the steps already passed stay
+         visible and ticked, so the seconds read as distance covered. It lays out
+         in a row on a wide viewport and wraps to a column when there is no space,
+         because four short steps beside each other are quicker to take in than
+         four stacked ones. */
+      .ck-steps {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px 12px;
+        margin-top: 4px;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      .ck-steps__item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+        color: var(--ck-fg-4, #8891a0);
+        transition: color var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
+      }
+      .ck-steps__item[data-state='done'] {
+        color: var(--ck-signal-pos, #4ade80);
+      }
+      .ck-steps__item[data-state='active'] {
+        color: var(--ck-signal-cool, #7dd3fc);
+      }
+      /* A step not yet reached is dimmer than one that is done, so the eye finds
+         the frontier without reading any of the words. */
+      .ck-steps__item[data-state='todo'] {
+        opacity: 0.5;
+      }
+      .ck-steps__dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px currentColor;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .ck-pulse {
+          animation: none;
+        }
+      }
       .ck-chip {
         font-size: 11px;
         padding: 4px 9px;
@@ -309,6 +369,9 @@ export class DataListComponent implements OnInit {
   ];
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** Ids of rows seen mid-ingest, so their landing is announced exactly once. */
+  private readonly watched = new Set<string>();
 
   protected readonly visible = computed(() => {
     const origin = this.origin();
@@ -349,9 +412,13 @@ export class DataListComponent implements OnInit {
     return isDatasetActive(dataset);
   }
 
-  /** The worker names its step as a code; the locale supplies the sentence. */
-  protected stepKey(detail: string | null | undefined): string {
-    return ingestStepKey(detail);
+  /** The whole ingest as a check-list, so the wait reads as progress. */
+  protected checklist(dataset: DatasetDto): IngestStep[] {
+    return ingestChecklist(dataset.status, dataset.status_detail);
+  }
+
+  protected rows(step: IngestStep): string {
+    return (step.rows ?? 0).toLocaleString(this.i18n.locale());
   }
 
   protected bytes(value: number | null | undefined): string {
@@ -416,13 +483,48 @@ export class DataListComponent implements OnInit {
   private syncPolling(): void {
     if (this.data.hasActive()) {
       if (this.pollTimer) return;
+      this.watch();
       this.pollTimer = setInterval(() => {
         void this.data.refresh().then(() => {
+          this.announceSettled();
           if (!this.data.hasActive()) this.stopPolling();
         });
       }, POLL_INTERVAL_MS);
     } else {
       this.stopPolling();
+    }
+  }
+
+  /** Remember which rows are still working, so their landing can be announced. */
+  private watch(): void {
+    for (const row of this.data.datasets()) {
+      if (isDatasetActive(row)) this.watched.add(row.id);
+    }
+  }
+
+  /**
+   * Toast the rows that finished since the last poll.
+   *
+   * An ingest that is queued to the worker settles while the reader is looking
+   * somewhere else — the upload call returned "queued" and said nothing more.
+   * Without this the row simply stops pulsing, which is the same silence the
+   * check-list above exists to remove.
+   */
+  private announceSettled(): void {
+    if (!this.watched.size) return;
+    for (const row of this.data.datasets()) {
+      if (!this.watched.has(row.id) || isDatasetActive(row)) continue;
+      this.watched.delete(row.id);
+      if (row.status === 'ready') {
+        this.toast.success(
+          this.i18n.t('data.upload.done', {
+            name: row.name,
+            rows: (row.row_count ?? 0).toLocaleString(this.i18n.locale()),
+          }),
+        );
+      } else if (row.status === 'failed') {
+        this.toast.error(this.i18n.t('data.upload.failed', { name: row.name }));
+      }
     }
   }
 

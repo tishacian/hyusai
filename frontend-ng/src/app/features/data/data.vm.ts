@@ -25,17 +25,75 @@ export function isActiveStatus(status: DatasetStatus | undefined | null): boolea
 export const INGEST_STEPS: readonly string[] = ['queued', 'reading', 'profiling', 'writing'];
 
 /**
- * Dictionary key for the step a row is on, or the queued one when it names none.
+ * The step code and the row count a `status_detail` carries, e.g. `profiling:8412`.
  *
  * Unknown text is refused rather than shown: a worker from an older deployment
  * may still be writing a sentence, and a raw English sentence on a French page
  * is exactly what the codes exist to prevent.
  */
+export function parseIngestDetail(detail: string | null | undefined): {
+  step: string;
+  rows: number | null;
+} {
+  const [head, tail] = (detail ?? '').trim().split(':', 2);
+  const step = INGEST_STEPS.includes(head) ? head : INGEST_STEPS[0];
+  const rows = Number(tail);
+  return { step, rows: Number.isFinite(rows) && rows > 0 ? rows : null };
+}
+
+/**
+ * Dictionary key for the step a row is on, or the queued one when it names none.
+ */
 export function ingestStepKey(detail: string | null | undefined): string {
-  const step = (detail ?? '').trim();
-  return INGEST_STEPS.includes(step)
-    ? `data.progress.step.${step}`
-    : 'data.progress.step.queued';
+  return `data.progress.step.${parseIngestDetail(detail).step}`;
+}
+
+/** One line of the ingest check-list: where the worker got to, and where it is. */
+export interface IngestStep {
+  step: string;
+  /**
+   * Dictionary key for this line's sentence — the `.counted` variant once the
+   * row count is known, so the template renders a key rather than choosing one.
+   */
+  key: string;
+  /** Rows counted so far, on the line that knows the number. */
+  rows: number | null;
+  state: 'done' | 'active' | 'todo';
+}
+
+/**
+ * The whole ingest as a check-list, with the steps already passed ticked off.
+ *
+ * One line at a time is what a spinner is: it says something is happening and
+ * nothing about how much is left. Because the step order is known on both sides
+ * (:data:`INGEST_STEPS` mirrors the worker's tuple), a row that says
+ * `profiling` also says that `queued` and `reading` are behind it — so the list
+ * can be drawn complete from a single poll, without the worker sending it.
+ *
+ * A finished row returns every line done, which is what makes the check-list
+ * settle rather than vanish: the reader sees the file was parsed, profiled and
+ * written, not merely that a spinner stopped.
+ */
+export function ingestChecklist(
+  status: DatasetStatus | undefined | null,
+  detail: string | null | undefined,
+): IngestStep[] {
+  const settled = status === 'ready';
+  const { step, rows } = parseIngestDetail(detail);
+  const at = settled ? INGEST_STEPS.length : INGEST_STEPS.indexOf(step);
+  const counted = INGEST_STEPS.indexOf('profiling');
+  return INGEST_STEPS.map((name, index) => {
+    // The count belongs to the step that produced it and to the ones after it:
+    // once the rows are known they stay known, and repeating them reads as the
+    // same fact rather than as new news.
+    const withCount = rows !== null && index >= counted;
+    return {
+      step: name,
+      key: `data.progress.step.${name}${withCount ? '.counted' : ''}`,
+      rows: withCount ? rows : null,
+      state: index < at ? 'done' : index === at ? 'active' : 'todo',
+    };
+  });
 }
 
 /** Lucide icon for a dataset origin — the list's at-a-glance provenance cue. */

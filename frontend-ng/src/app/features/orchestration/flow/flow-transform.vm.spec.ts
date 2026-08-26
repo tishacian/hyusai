@@ -40,6 +40,7 @@ import {
   starterSqlFor,
   transformDefaultParams,
   transformEngineOf,
+  transformErrorPosition,
   transformFailure,
   transformFailureFromExecution,
   transformFiles,
@@ -201,6 +202,40 @@ test('a coded refusal becomes a translated sentence, engine words kept where the
     key: 'flow.transform.error.unknown',
     detail: undefined,
   });
+});
+
+test('a refusal that names a place carries it, so the cursor can go there', () => {
+  // The coordinate is what turns "Referenced column not found" from a sentence
+  // to read into a place to look. Without it the author counts lines by hand.
+  assert.deepEqual(
+    transformFailure('SQL_EXECUTION_FAILED', 'Referenced column "nosuchcol" not found', {
+      line: 3,
+      column: 3,
+      excerpt: '  nosuchcol',
+    }),
+    {
+      key: 'flow.transform.error.SQL_EXECUTION_FAILED',
+      detail: 'Referenced column "nosuchcol" not found',
+      position: { line: 3, column: 3 },
+    },
+  );
+  // A refusal with no place stays as it was: no `position` key at all, rather
+  // than one pointing at line 1, which would move the caret for no reason.
+  assert.ok(!('position' in transformFailure('SQL_RESULT_TOO_LARGE', 'too many rows')));
+});
+
+test('a coordinate is validated before it is used to move a caret', () => {
+  assert.deepEqual(transformErrorPosition({ line: 4, column: 9 }), { line: 4, column: 9 });
+  // A line without a column is still usable: the start of the line is a place.
+  assert.deepEqual(transformErrorPosition({ line: 2 }), { line: 2, column: 1 });
+  // Everything else would either throw on use or silently jump to the top of
+  // the document, which reads as the editor losing the author's place.
+  assert.equal(transformErrorPosition({ line: 0, column: 1 }), null);
+  assert.equal(transformErrorPosition({ line: '3', column: 1 }), null);
+  assert.equal(transformErrorPosition({ column: 4 }), null);
+  assert.equal(transformErrorPosition(null), null);
+  assert.equal(transformErrorPosition('3:4'), null);
+  assert.deepEqual(transformErrorPosition({ line: 2.7, column: 5.9 }), { line: 2, column: 5 });
 });
 
 test('every refusal code the workshop claims has FR and EN copy', () => {

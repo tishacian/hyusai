@@ -43,10 +43,24 @@ export type SqlCompletionSchema = Record<string, string[]>;
 interface CodeMirrorHandle {
   view: {
     destroy(): void;
-    state: { doc: { toString(): string } };
+    state: {
+      doc: {
+        toString(): string;
+        readonly lines: number;
+        line(n: number): { from: number; to: number };
+      };
+      readonly selection: { readonly main: { from: number; to: number } };
+    };
     dispatch(spec: unknown): void;
+    focus(): void;
     contentDOM: HTMLElement;
   };
+}
+
+/** A one-based coordinate in the document, as an engine reports a syntax error. */
+export interface CodeEditorPosition {
+  line: number;
+  column: number;
 }
 
 /** A CodeMirror `Compartment`, narrowed to what this component calls. */
@@ -188,6 +202,56 @@ export class CodeEditorComponent {
       this.handle?.view.destroy();
       this.handle = null;
     });
+  }
+
+  /**
+   * Insert a fragment at the cursor and leave the caret after it.
+   *
+   * What a column name in a sidebar is for: reading a name and typing it back
+   * is transcription, and a mistyped column is a failed run rather than a typo.
+   * Replaces the selection when there is one, which is what makes a
+   * double-clicked name swap for another.
+   *
+   * Falls back to appending when the editor chunk has not landed yet, because
+   * the sidebar is clickable from the first frame and a click that did nothing
+   * would read as a broken button.
+   */
+  insertAtCursor(fragment: string): void {
+    if (!this.handle) {
+      const next = this.lastKnownValue
+        ? `${this.lastKnownValue}${this.lastKnownValue.endsWith(' ') ? '' : ' '}${fragment}`
+        : fragment;
+      this.lastKnownValue = next;
+      this.valueChange.emit(next);
+      return;
+    }
+    const { from, to } = this.handle.view.state.selection.main;
+    this.handle.view.dispatch({
+      changes: { from, to, insert: fragment },
+      selection: { anchor: from + fragment.length },
+    });
+    this.handle.view.focus();
+  }
+
+  /**
+   * Put the caret on a coordinate an engine complained about, and show it.
+   *
+   * The message alone makes the author count lines by hand. Selecting the line
+   * rather than only scrolling to it is deliberate: a selection is visible
+   * without an extra decoration layer, and it is already the thing the next
+   * keystroke replaces.
+   */
+  pointAt(position: CodeEditorPosition): void {
+    if (!this.handle) return;
+    const doc = this.handle.view.state.doc;
+    const lineNumber = Math.min(Math.max(1, position.line), doc.lines);
+    const line = doc.line(lineNumber);
+    const anchor = Math.min(line.from + Math.max(0, position.column - 1), line.to);
+    this.handle.view.dispatch({
+      selection: { anchor, head: line.to },
+      scrollIntoView: true,
+    });
+    this.handle.view.focus();
   }
 
   onFallbackInput(event: Event): void {

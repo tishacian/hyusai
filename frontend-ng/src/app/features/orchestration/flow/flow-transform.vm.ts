@@ -680,6 +680,15 @@ export interface TransformFailure {
   key: string;
   /** The engine's own words, when they are the actionable part. */
   detail?: string;
+  /**
+   * Where in the statement the engine stopped, when it says.
+   *
+   * duckdb reports a line and a caret column for every parser, binder, catalog
+   * and conversion error. Carrying it here is what lets the workshop put the
+   * cursor on the offending token instead of leaving the author to count lines
+   * under a sentence that names a column but not its place.
+   */
+  position?: { line: number; column: number };
 }
 
 /**
@@ -845,16 +854,36 @@ const VERBATIM_DETAIL_CODES: readonly string[] = [
 export function transformFailure(
   code: string | null | undefined,
   message?: string | null,
+  position?: unknown,
 ): TransformFailure {
   const normalized = (code ?? '').trim().toUpperCase();
   const detail = (message ?? '').trim() || undefined;
+  const at = transformErrorPosition(position);
   if (normalized && TRANSFORM_ERROR_CODES.includes(normalized)) {
     return {
       key: `flow.transform.error.${normalized}`,
       detail: VERBATIM_DETAIL_CODES.includes(normalized) ? detail : undefined,
+      ...(at ? { position: at } : {}),
     };
   }
-  return { key: 'flow.transform.error.unknown', detail };
+  return { key: 'flow.transform.error.unknown', detail, ...(at ? { position: at } : {}) };
+}
+
+/**
+ * The `{line, column}` an engine reported, or nothing if it reported no place.
+ *
+ * Validated rather than trusted: a coordinate is used to move a cursor, and a
+ * zero or a string would either throw or silently jump to the top of the
+ * document, which reads as the editor losing the author's place.
+ */
+export function transformErrorPosition(
+  raw: unknown,
+): { line: number; column: number } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { line, column } = raw as { line?: unknown; column?: unknown };
+  if (typeof line !== 'number' || !Number.isFinite(line) || line < 1) return null;
+  const at = typeof column === 'number' && Number.isFinite(column) && column >= 1 ? column : 1;
+  return { line: Math.floor(line), column: Math.floor(at) };
 }
 
 /**

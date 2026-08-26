@@ -52,7 +52,8 @@ DATASET_INGEST_TASK = "agentium.dataset_ingest"
 # The ingest steps a row reports through ``status_detail``, in order. They are
 # codes rather than sentences because two locales poll the same row; see
 # :func:`mark_step`. The frontend mirrors this tuple to render the whole
-# check-list, so appending a step here is a contract change for both.
+# check-list, so appending a step here is a contract change for both. A step may
+# carry the row count it is working on as ``profiling:8412``.
 INGEST_STEPS: tuple[str, ...] = ("queued", "reading", "profiling", "writing")
 
 # Canonical column kinds. The UI maps these to icons and the training plane uses
@@ -465,7 +466,13 @@ def create_upload(
     return dataset
 
 
-def mark_step(db: DBSession, dataset: TabularDataset, step: str) -> None:
+def mark_step(
+    db: DBSession,
+    dataset: TabularDataset,
+    step: str,
+    *,
+    rows: int | None = None,
+) -> None:
     """Publish which ingest step the worker is on, as a code the UI translates.
 
     A code and not a sentence: this row is polled by a French and an English
@@ -473,9 +480,18 @@ def mark_step(db: DBSession, dataset: TabularDataset, step: str) -> None:
     English string on both. The codes are :data:`INGEST_STEPS`, in the order the
     worker passes through them, so a client can render the whole list and mark
     how far it got instead of showing one line at a time.
+
+    ``rows`` rides along as ``profiling:8412`` once the parse has produced a
+    height. It is the difference between a progress line and a fact: "profiling"
+    is what a spinner says, "8 412 rows" is what tells the person watching that
+    their file arrived whole. It stays a number rather than a formatted string
+    because the thousands separator belongs to the reader's locale.
     """
 
-    dataset.status_detail = step[:300]
+    detail = str(step)
+    if rows is not None:
+        detail = f"{detail}:{int(rows)}"
+    dataset.status_detail = detail[:300]
     dataset.updated_at = datetime.utcnow()
     db.commit()
 
@@ -517,9 +533,9 @@ def ingest_dataset(dataset_id: str) -> dict[str, Any]:
                         code="DATASET_TOO_WIDE",
                         message=f"The file has more than {max_columns} columns.",
                     )
-                mark_step(db, dataset, "profiling")
+                mark_step(db, dataset, "profiling", rows=frame.height)
                 profile = profile_frame(frame)
-                mark_step(db, dataset, "writing")
+                mark_step(db, dataset, "writing", rows=frame.height)
                 key, size = _write_frame(
                     frame,
                     workspace_id=dataset.workspace_id,

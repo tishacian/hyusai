@@ -13,7 +13,10 @@ import { DATA_EN, DATA_FR } from '@app/core/i18n/data.dict';
 
 import {
   DATASET_ACTIVE_STATUSES,
+  INGEST_STEPS,
+  ingestChecklist,
   isActiveStatus,
+  parseIngestDetail,
   scoredByLabel,
   scoredColumns,
   sourceIcon,
@@ -169,4 +172,65 @@ test('the surfaces that show a preview tell the table how many rows there are', 
   );
   assert.match(view, /\[rowCount\]="ds\.row_count \?\? null"/);
   assert.match(workshop, /\[rowCount\]="result\.row_count"/);
+});
+
+test('the ingest reads as a check-list, not as one line at a time', () => {
+  // The point of the list is that the steps already passed stay on screen. A row
+  // that says `profiling` also says `queued` and `reading` are behind it, which
+  // is knowable here because the order is mirrored from the worker's tuple — so
+  // the whole list is drawable from a single poll.
+  const mid = ingestChecklist('ingesting', 'profiling:8412');
+  assert.deepEqual(
+    mid.map((step) => [step.step, step.state]),
+    [
+      ['queued', 'done'],
+      ['reading', 'done'],
+      ['profiling', 'active'],
+      ['writing', 'todo'],
+    ],
+  );
+
+  // The count travels with the step that produced it and the ones after it.
+  assert.equal(mid[2].rows, 8412);
+  assert.equal(mid[2].key, 'data.progress.step.profiling.counted');
+  assert.equal(mid[1].rows, null, 'reading cannot know a row count yet');
+  assert.equal(mid[1].key, 'data.progress.step.reading');
+
+  // A settled row shows the work done rather than nothing: the reader is told
+  // the file was parsed, profiled and written, not merely that a spinner stopped.
+  assert.ok(ingestChecklist('ready', null).every((step) => step.state === 'done'));
+
+  // And a queued row is at the start, not nowhere.
+  const queued = ingestChecklist('pending', 'queued');
+  assert.equal(queued[0].state, 'active');
+  assert.ok(queued.slice(1).every((step) => step.state === 'todo'));
+});
+
+test('a step from an older worker is refused rather than rendered raw', () => {
+  // A worker mid-rollout may still write a sentence. Showing it would put an
+  // English string on the French page, which is the whole reason for the codes.
+  assert.deepEqual(parseIngestDetail('Reading the uploaded file'), {
+    step: 'queued',
+    rows: null,
+  });
+  assert.deepEqual(parseIngestDetail(null), { step: 'queued', rows: null });
+  assert.deepEqual(parseIngestDetail('profiling'), { step: 'profiling', rows: null });
+  assert.deepEqual(parseIngestDetail('writing:0'), { step: 'writing', rows: null });
+});
+
+test('every ingest step has a sentence in both locales, counted and not', () => {
+  // The check-list renders all four steps at once, so a missing key is four
+  // times more visible than it was when only the current step showed.
+  for (const step of INGEST_STEPS) {
+    for (const suffix of ['', '.counted']) {
+      const key = `data.progress.step.${step}${suffix}`;
+      assert.ok(key in DATA_FR, `${key} missing from FR`);
+      assert.ok(key in DATA_EN, `${key} missing from EN`);
+    }
+  }
+  // The two counted steps are the ones that must actually interpolate.
+  for (const dict of [DATA_FR, DATA_EN]) {
+    assert.match(dict['data.progress.step.profiling.counted'], /\{rows\}/);
+    assert.match(dict['data.progress.step.writing.counted'], /\{rows\}/);
+  }
 });
