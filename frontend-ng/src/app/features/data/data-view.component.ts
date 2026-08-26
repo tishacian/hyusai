@@ -547,9 +547,10 @@ export class DataViewComponent implements OnInit {
   protected previewCaption(): string {
     const ds = this.dataset();
     if (!ds) return '';
+    // The shape — how many rows, how many columns — is the table's own badge.
+    // What only this page knows is that these are the first fifty of them.
     return this.i18n.t('data.detail.preview.caption', {
       shown: (ds.preview ?? []).length,
-      total: (ds.row_count ?? 0).toLocaleString(this.i18n.locale()),
     });
   }
 

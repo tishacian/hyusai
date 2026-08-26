@@ -372,8 +372,6 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                     maxHeight="100%"
                     [caption]="
                       i18n.t('flow.transform.result.caption', {
-                        rows: result.row_count,
-                        columns: result.column_count,
                         duration: result.duration_ms,
                       })
                     "

@@ -968,7 +968,7 @@ export const FLOW_FR = {
   'flow.transform.result.title': 'Résultat',
   'flow.transform.result.empty':
     'Lancez la requête pour voir les lignes, le schéma et le profil des colonnes.',
-  'flow.transform.result.caption': '{rows} lignes · {columns} colonnes · {duration} ms',
+  'flow.transform.result.caption': 'calculé en {duration} ms',
   'flow.transform.result.truncated': 'Aperçu limité à {limit} lignes',
   'flow.transform.result.no_rows': 'La requête n’a retourné aucune ligne.',
 
@@ -2455,7 +2455,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.transform.result.title': 'Result',
   'flow.transform.result.empty':
     'Run the statement to see the rows, the schema and the column profile.',
-  'flow.transform.result.caption': '{rows} rows · {columns} columns · {duration} ms',
+  'flow.transform.result.caption': 'computed in {duration} ms',
   'flow.transform.result.truncated': 'Preview capped at {limit} rows',
   'flow.transform.result.no_rows': 'The statement returned no rows.',
 
