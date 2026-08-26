@@ -4129,7 +4129,7 @@ réelle a trouvé six défauts qu'aucune suite locale ne pouvait montrer.
 
 | Pas | Observé |
 |---|---|
-| Push | `demo/agentic` en fast-forward `f31eecad` → `fb62edba` (57 commits) |
+| Push | `demo/agentic` en fast-forward `f31eecad` → `fb62edba` (57 commits). Cette entrée est poussée **après** la bascule, comme les précédentes : `build-info` restera donc un commit derrière la tête de branche jusqu'à la prochaine itération, qui l'emportera dans son delta |
 | Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
 | Worktree | `/srv/agentium-data/worktrees/demo-agentic` = `fb62edba8886a9d78b8ea6e7e9c4721f9368eef3`, porcelain vide |
 | Build | neuf générations (`2bd4786d8396`, `52c2d5f179b3`, `5d54e2ec4be8`, `d2e39cb8d19d`, `8fd380555e5b`, `a61c1e6b754c`, `9ae74b9a3879`, `a52cb29a0512`, `fb62edba8886`), label 40-hex identique backend / worker / frontend à chaque bascule |
