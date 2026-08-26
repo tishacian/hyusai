@@ -43,6 +43,7 @@ import { a11yOf, appearanceOf, onAccentColor, pageAppearance } from './style';
                 [class.xp-rt-accent]="!!nodeAccent(node)"
                 [style.--xp-accent]="nodeAccent(node) || null"
                 [style.--xp-on-accent]="nodeAccent(node) ? nodeAccentText(node) : null"
+                [attr.data-span]="nodeSpan(node)"
                 [attr.data-component-id]="item.context.componentId"
                 [attr.data-component-type]="node.type"
                 [attr.tabindex]="node.type === 'result' ? -1 : null"
@@ -150,6 +151,12 @@ export class ExperienceRuntimeHostComponent {
 
   nodeAccentText(node: ExperienceNode): string {
     return onAccentColor(this.nodeAccent(node));
+  }
+
+  /** Only a narrowed block carries the attribute; the full row needs no rule. */
+  nodeSpan(node: ExperienceNode): string | null {
+    const span = appearanceOf(node).span;
+    return span === 'full' ? null : span;
   }
 
   keyboardHint(node: ExperienceNode): string {

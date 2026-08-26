@@ -8,11 +8,32 @@ import type { ExperienceNode, ExperiencePage } from './model';
 export type Density = 'comfortable' | 'compact';
 export type PageTheme = 'inherit' | 'light' | 'dark';
 
+/**
+ * How much of a page row a block asks for. Named fractions rather than a raw
+ * column count: the set is closed, so every width an author can ask for tiles
+ * a row exactly, and `quarter` still reads as a quarter to whoever opens the
+ * document without knowing how many tracks a page has.
+ */
+export const NODE_SPANS = ['full', 'half', 'third', 'quarter'] as const;
+
+export type NodeSpan = (typeof NODE_SPANS)[number];
+
+/** Twelve, because a half, a third and a quarter all divide it. */
+export const PAGE_COLUMNS = 12;
+
+const SPAN_COLUMNS: Record<NodeSpan, number> = {
+  full: PAGE_COLUMNS,
+  half: PAGE_COLUMNS / 2,
+  third: PAGE_COLUMNS / 3,
+  quarter: PAGE_COLUMNS / 4,
+};
+
 export interface NodeAppearance {
   title: string;
   description: string;
   density: Density | null;
   accent: string;
+  span: NodeSpan;
 }
 
 export interface NodeA11y {
@@ -48,6 +69,12 @@ const EMPTY_TYPES = new Set([
   'decision_queue',
 ]);
 const HEADING_TYPES = new Set(['header', 'section']);
+/**
+ * A header and a section announce the page rather than sit on it, so they keep
+ * the row to themselves; anything else is a panel a board may put beside
+ * another panel.
+ */
+const FULL_WIDTH_TYPES = new Set(['header', 'section']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -70,12 +97,29 @@ export function themeOf(props: Record<string, unknown> | undefined): PageTheme {
   return 'inherit';
 }
 
+/**
+ * A release is immutable and was only ever checked for shape, so the width in a
+ * document is whatever the author typed. An unknown one reads as the full row —
+ * the same thing no width at all means — because a page that loses its layout
+ * is still a page somebody can work from.
+ */
+export function spanOf(props: Record<string, unknown> | undefined): NodeSpan {
+  const value = props?.['span'];
+  return (NODE_SPANS as readonly unknown[]).includes(value) ? (value as NodeSpan) : 'full';
+}
+
+/** Tracks a width occupies, out of `PAGE_COLUMNS`. */
+export function spanColumns(span: NodeSpan): number {
+  return SPAN_COLUMNS[span];
+}
+
 export function appearanceOf(node: ExperienceNode): NodeAppearance {
   return {
     title: strProp(node.props, 'title'),
     description: strProp(node.props, 'description'),
     density: densityOf(node.props),
     accent: strProp(node.props, 'accent'),
+    span: spanOf(node.props),
   };
 }
 
@@ -150,6 +194,10 @@ export function needsEmptyText(type: string): boolean {
 
 export function supportsHeading(type: string): boolean {
   return HEADING_TYPES.has(type);
+}
+
+export function supportsSpan(type: string): boolean {
+  return !FULL_WIDTH_TYPES.has(type);
 }
 
 /** WCAG-ish 3:1 UI contrast against cockpit panel surfaces. */

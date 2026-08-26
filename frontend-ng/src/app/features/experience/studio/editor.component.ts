@@ -79,6 +79,7 @@ import {
   valuesToPayload,
 } from '../runtime/model';
 import {
+  NODE_SPANS,
   a11yOf,
   a11yPayload,
   a11yValue,
@@ -88,6 +89,7 @@ import {
   pageAppearance,
   supportsAccent,
   supportsHeading,
+  supportsSpan,
   themeOf,
   type NodeA11y,
 } from '../runtime/style';
@@ -874,6 +876,16 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                   <option value="compact">{{ i18n.t('experience.editor.density.compact') }}</option>
                 </select>
               </label>
+              @if (supportsSpan(node.type)) {
+                <label class="xp-field">
+                  <span>{{ i18n.t('experience.editor.field.span') }}</span>
+                  <select [value]="spanValue(node)" (change)="setProp(node, 'span', selectValue($event))">
+                    @for (span of spans; track span) {
+                      <option [value]="span">{{ i18n.t('experience.editor.span.' + span) }}</option>
+                    }
+                  </select>
+                </label>
+              }
               @if (supportsAccent(node.type)) {
                 <label class="xp-field">
                   <span>{{ i18n.t('experience.editor.field.accent') }}</span>
@@ -1274,8 +1286,10 @@ export class ExperienceEditorComponent implements OnDestroy {
     { value: '◆', label: 'experience.identity.emblem.shield' },
     { value: '⚑', label: 'experience.identity.emblem.flag' },
   ] as const;
+  readonly spans = NODE_SPANS;
   readonly supportsAccent = supportsAccent;
   readonly supportsHeading = supportsHeading;
+  readonly supportsSpan = supportsSpan;
   readonly needsEmptyText = needsEmptyText;
 
   readonly id = signal<string | null>(null);
@@ -2178,6 +2192,10 @@ export class ExperienceEditorComponent implements OnDestroy {
 
   accentValue(node: ExperienceNode): string {
     return appearanceOf(node).accent || '#7dd3fc';
+  }
+
+  spanValue(node: ExperienceNode): string {
+    return appearanceOf(node).span;
   }
 
   localizedA11y(node: ExperienceNode, key: 'ariaLabel' | 'emptyText' | 'keyboardHint'): string {
