@@ -106,6 +106,31 @@ _SCORE_CHUNK_ROWS = 50_000
 _EXPLAIN_FIELDS = 6
 
 
+def preload_deserializer() -> None:
+    """Import the reader MLflow reaches for, before a prediction waits on it.
+
+    ``skops.io`` builds its trusted-type tables at import time, and it builds
+    them by asking every module already in ``sys.modules`` whether it owns a
+    name — the same walk ``pickle.whichmodule`` does. In this process that walk
+    reaches ``transformers``, whose lazy ``__getattr__`` answers by importing
+    the module a name lives in, so the walk imports a pile of image processors
+    on the way past: ten seconds on the demo host, against six in a process
+    that has never heard of transformers. Either way it is ten seconds that
+    would land inside the *first* prediction of every backend worker, which is
+    the one a demo makes.
+
+    Warmed for the same reason the cross-encoder is, and silent about failure
+    for a different one: a deployment that cannot read artifacts should refuse
+    the predict route with the reason, which it already does, rather than
+    refuse to boot.
+    """
+
+    try:
+        import skops.io  # noqa: F401
+    except Exception as exc:  # noqa: BLE001 - a warm failure is not a boot failure
+        logger.warning("tabular_predict: deserializer preload failed", error=str(exc)[:300])
+
+
 # ---------------------------------------------------------------------------
 # The loaded-model cache
 # ---------------------------------------------------------------------------

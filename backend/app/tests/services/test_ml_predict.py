@@ -1224,3 +1224,43 @@ def test_a_batch_is_never_explained_because_the_cost_is_per_row(db_session, mode
     assert all(
         "contributions" not in prediction for prediction in answer["predictions"]
     )
+
+
+# ---------------------------------------------------------------------------
+# The import a prediction should never wait for
+# ---------------------------------------------------------------------------
+
+
+def test_the_deserializer_is_resident_after_the_warm(monkeypatch):
+    """The warm is only worth having if it actually leaves the reader loaded."""
+
+    import sys
+
+    monkeypatch.delitem(sys.modules, "skops.io", raising=False)
+    tabular_predict.preload_deserializer()
+
+    assert "skops.io" in sys.modules
+
+
+def test_a_deployment_that_cannot_read_artifacts_still_boots(monkeypatch):
+    """A warm that raises would turn an unreadable artifact into an outage.
+
+    The predict route already refuses with the reason, which is an answer an
+    operator can act on. A boot that dies in a lifespan hook is not. The error
+    raised here is the one the demo host actually raised.
+    """
+
+    import builtins
+    import sys
+
+    real_import = builtins.__import__
+
+    def refuse(name, *args, **kwargs):
+        if name == "skops.io":
+            raise ModuleNotFoundError("No module named 'torchvision'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.delitem(sys.modules, "skops.io", raising=False)
+    monkeypatch.setattr(builtins, "__import__", refuse)
+
+    tabular_predict.preload_deserializer()  # must not raise

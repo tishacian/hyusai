@@ -348,10 +348,7 @@ def run(args: argparse.Namespace) -> int:
         f"ingest kept {dataset['row_count']} of {args.rows} rows",
     )
     check(len(dataset["schema"]) == 8, f"schema has {len(dataset['schema'])} columns, want 8")
-    check(
-        len(settled["details"]) >= 2,
-        f"the ingest never narrated more than one step: {settled['details']}",
-    )
+    check_narration(settled["details"], INGEST_STEPS, "the ingest")
     stats = dataset.get("stats") or {}
     arpu = stats.get("arpu") or {}
     check(arpu.get("histogram"), "no histogram on a numeric column — the header spark is empty")
@@ -424,9 +421,16 @@ def run(args: argparse.Namespace) -> int:
         (columns["arpu"].get("profile") or {}).get("histogram"),
         "the picker would draw no sparkline: the plan carries no profile",
     )
+    # The algorithm is the planner's, not a literal: a driver that hardcodes a
+    # key fails on a catalogue rename instead of on a defect, and a demo does
+    # not type an algorithm name either — it accepts the one the page proposed.
+    offered = {algo["key"] for algo in (plan.get("catalog") or {}).get("algos") or []}
+    algo = plan["plan"]["algo"]
+    check(offered, "the plan carried no catalog — the studio would offer no algorithm")
+    check(algo in offered, f"the planner proposed {algo}, which is not offered: {sorted(offered)}")
     log(
         f"plan: {plan['plan']['task']} on {plan['plan']['target']}, "
-        f"{len(plan['plan']['features'])} features, algo {plan['plan']['algo']}"
+        f"{len(plan['plan']['features'])} features, algo {algo} of {len(offered)} offered"
     )
 
     first = api.request(
@@ -444,7 +448,7 @@ def run(args: argparse.Namespace) -> int:
                 "complaints",
                 "data_gb",
             ],
-            "algo": "hist_gradient_boosting",
+            "algo": algo,
             "name": f"E2E churn {STAMP}",
         },
     )
@@ -454,10 +458,7 @@ def run(args: argparse.Namespace) -> int:
     model = fitted["model"]
     auc = primary_score(model)
     check(0.6 <= auc <= 0.999, f"roc_auc {auc} is outside the believable band")
-    check(
-        len(fitted["details"]) >= 2,
-        f"training never narrated more than one step: {fitted['details']}",
-    )
+    check_narration(fitted["details"], TRAIN_STEPS, "training")
     curves = (model.get("metrics") or {}).get("curves") or {}
     check(curves.get("roc"), "no ROC curve in the metrics — the card would be empty")
     check(
@@ -501,7 +502,7 @@ def run(args: argparse.Namespace) -> int:
                     "complaints",
                     "data_gb",
                 ],
-                "algo": "hist_gradient_boosting",
+                "algo": algo,
                 "name": f"E2E churn {STAMP}",
             },
         )
