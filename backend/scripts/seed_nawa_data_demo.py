@@ -1737,6 +1737,10 @@ def board_document() -> dict[str, Any]:
                             "kind": "bar",
                             "labelKey": "label",
                             "valueKey": "value",
+                            # These bands are ordered by how bad they are, which
+                            # is the one case where a green-to-red ramp reports
+                            # the data rather than decorating it.
+                            "palette": "severity",
                             "span": "half",
                             "a11y": {
                                 "emptyText": _copy(
