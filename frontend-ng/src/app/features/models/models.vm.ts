@@ -534,6 +534,34 @@ export function previousVersion(
   return earlier[0] ?? null;
 }
 
+/**
+ * The two versions the comparison table puts side by side, earlier one first.
+ *
+ * `previousVersion` answers "what did this retrain change?", which is the right
+ * question for the delta beside a score and the wrong one for the table: the v1
+ * of a lineage has nothing below it, so on the only card a demo opens — the one
+ * that serves — the tab came up empty under a sentence telling the reader to
+ * retrain, while the tab beside it listed three versions. Any other trained
+ * version is worth the table. The one below is preferred, because a comparison
+ * reads forwards, and the pair is returned in version order so "before" is
+ * always the earlier column whichever side the reader arrived from.
+ */
+export function comparisonPair(
+  current: ModelDto | null | undefined,
+  versions: readonly ModelDto[],
+): { before: ModelDto; after: ModelDto } | null {
+  if (!current) return null;
+  const others = versions.filter((row) => row.id !== current.id && row.status === 'ready');
+  const earlier = others
+    .filter((row) => row.version < current.version)
+    .sort((a, b) => b.version - a.version)[0];
+  if (earlier) return { before: earlier, after: current };
+  const later = others
+    .filter((row) => row.version > current.version)
+    .sort((a, b) => a.version - b.version)[0];
+  return later ? { before: current, after: later } : null;
+}
+
 export interface ComparisonRow {
   key: string;
   left: string;

@@ -37,6 +37,7 @@ import {
   metricTone,
   playgroundSeed,
   predictPayload,
+  comparisonPair,
   previousVersion,
   primaryScore,
   refusalField,
@@ -653,6 +654,39 @@ test('a failed retrain never becomes the version a delta is read against', () =>
     version('v1', 1, [{ key: 'roc_auc', value: 0.79 }]),
   ]);
   assert.equal(earlier?.id, 'v1');
+});
+
+test('the version that serves compares against its contender, not against nothing', () => {
+  const champion = version('v1', 1, [{ key: 'roc_auc', value: 0.835 }]);
+  const pair = comparisonPair(champion, [
+    champion,
+    version('v2', 2, [{ key: 'roc_auc', value: 0.86 }]),
+    version('v3', 3, [{ key: 'roc_auc', value: 0.856 }]),
+  ]);
+
+  // The nearest one above, and still in version order: the table's left column
+  // is "before" whichever card the reader arrived from.
+  assert.equal(pair?.before.id, 'v1');
+  assert.equal(pair?.after.id, 'v2');
+});
+
+test('a version with one below it still compares backwards', () => {
+  const current = version('v3', 3, [{ key: 'roc_auc', value: 0.856 }]);
+  const pair = comparisonPair(current, [
+    version('v1', 1, [{ key: 'roc_auc', value: 0.835 }]),
+    version('v2', 2, [{ key: 'roc_auc', value: 0.86 }]),
+    current,
+  ]);
+
+  assert.equal(pair?.before.id, 'v2');
+  assert.equal(pair?.after.id, 'v3');
+});
+
+test('a lineage of one, and a failed sibling, have nothing worth a table', () => {
+  const only = version('v1', 1, [{ key: 'roc_auc', value: 0.8 }]);
+  assert.equal(comparisonPair(only, [only]), null);
+  assert.equal(comparisonPair(only, [only, version('v2', 2, [], 'failed')]), null);
+  assert.equal(comparisonPair(null, []), null);
 });
 
 test('comparison aligns two versions and marks the side each metric favours', () => {
