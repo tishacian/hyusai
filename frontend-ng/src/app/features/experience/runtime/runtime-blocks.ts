@@ -17,8 +17,6 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { TagComponent, type CkTagTone } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
 import { ThemeService } from '@app/core/theme.service';
-import { BarListComponent } from '@app/features/data/viz/bar-list.component';
-import type { VizBar } from '@app/features/data/viz/viz.vm';
 import { ExperienceRuntimeService } from './experience-runtime.service';
 import {
   type CertifiedType,
@@ -28,6 +26,8 @@ import {
   type RuntimeNodeContext,
   type RuntimeResultRow,
   chartKind,
+  chartPalette,
+  chartRamp,
   chartSeries,
   extractCitations,
   extractResult,
@@ -519,16 +519,24 @@ export class TableBlock {
  * what a business page asks of a picture: bars rank categories against each
  * other, a donut shows how one total splits.
  *
- * Drawn with the data plane's chart kit rather than a second charting idiom:
- * ranked bars are DOM, because a handful of labelled rectangles is laid out
- * better by CSS than by a canvas and has nothing to hover for, while the donut
- * goes through chart.js, where arcs and their legend already exist.
+ * Bars are DOM and the donut is a canvas: a handful of labelled rectangles is
+ * laid out better by CSS than by a chart engine, and keeping them as elements
+ * is what lets every label and number stay selectable text rather than pixels
+ * a screen reader has to be told about separately. Arcs get chart.js, where
+ * the geometry and its legend already exist.
+ *
+ * The bars are the block's own markup rather than the data plane's `ck-bar-list`
+ * because the two are read at different distances. That list is an instrument:
+ * 5px rules and 10.5px mono, dense enough to rank twenty feature importances in
+ * a sidebar. This is a business page opened by someone deciding whether to fund
+ * a retention campaign, read at a glance and often over a shoulder, and the
+ * same picture at that size reads as a footnote.
  */
 @Component({
   selector: 'xp-rt-chart',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent, BarListComponent, BaseChartDirective],
+  imports: [RuntimeSlotComponent, RuntimeQueryControlComponent, BaseChartDirective],
   styleUrl: './runtime.scss',
   template: `
     <div class="xp-rt-block" [attr.aria-label]="ariaName() || null">
@@ -550,9 +558,42 @@ export class TableBlock {
               [data]="arcs()"
               [options]="arcOptions()"
             ></canvas>
+            @if (totalDisplay(); as total) {
+              <div class="xp-rt-chart-arc__hub" aria-hidden="true">
+                <span class="xp-rt-chart-arc__total">{{ total }}</span>
+                <span class="xp-rt-chart-arc__caption">
+                  {{ i18n.t('experience.runtime.chart.total') }}
+                </span>
+              </div>
+            }
           </div>
         } @else {
-          <ck-bar-list [bars]="bars()" />
+          <ul class="xp-rt-bars">
+            @for (bar of bars(); track bar.label; let index = $index) {
+              <li
+                class="xp-rt-bars__row"
+                [style.--xp-bar]="bar.color"
+                [style.--xp-bar-order]="index"
+              >
+                <div class="xp-rt-bars__head">
+                  <span class="xp-rt-bars__label" [title]="bar.label">{{ bar.label }}</span>
+                  <span class="xp-rt-bars__figure">
+                    <span class="xp-rt-bars__value">{{ bar.display }}</span>
+                    @if (bar.share) {
+                      <span class="xp-rt-bars__share">{{ bar.share }}</span>
+                    }
+                  </span>
+                </div>
+                <div class="xp-rt-bars__track">
+                  <span
+                    class="xp-rt-bars__fill"
+                    [style.width.%]="bar.width"
+                    [attr.data-negative]="bar.negative"
+                  ></span>
+                </div>
+              </li>
+            }
+          </ul>
         }
         @if (hidden()) {
           <p class="xp-rt-hint">{{ i18n.t('experience.runtime.chart.capped', { n: hidden() }) }}</p>
@@ -588,17 +629,65 @@ export class ChartBlock {
     );
   });
   readonly hidden = computed(() => this.series().hidden);
-  readonly bars = computed<VizBar[]>(() =>
-    this.series().points.map((point) => ({
+  readonly palette = computed(() => chartPalette(this.node().props?.['palette']));
+
+  /**
+   * The colour each bar and slice is drawn in.
+   *
+   * Computed once for the series rather than per bar because a ramp is a
+   * property of the set: the ends of green → red have to mean the same thing
+   * whether the run came back with three bands or eleven.
+   */
+  private readonly colors = computed(() => {
+    const points = this.series().points;
+    if (this.palette() === 'severity') {
+      return chartRamp(
+        SEVERITY_TOKENS.map(([name, fallback]) => this.token(name, fallback)),
+        points.length,
+      );
+    }
+    const accent = this.token('--ck-accent', '#7dd3fc');
+    return points.map(() => accent);
+  });
+
+  readonly bars = computed<ChartBar[]>(() => {
+    const locale = this.i18n.locale();
+    const colors = this.colors();
+    return this.series().points.map((point, index) => ({
       label: point.label,
-      // The kit scales the rectangles; the number needs a locale, which is the
-      // one part of a bar a component drawing rectangles cannot decide.
-      display: point.value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 2 }),
+      // The scaling is arithmetic the series did; the number needs a locale,
+      // which is the one part of a bar a component drawing rectangles cannot
+      // decide for itself.
+      display: point.value.toLocaleString(locale, { maximumFractionDigits: 2 }),
+      // Under a point of the total the rounded figure would read "0%", which
+      // says measured-nothing about a band that does have subscribers in it.
+      share:
+        point.share === null
+          ? ''
+          : point.share < 1
+            ? '<1%'
+            : `${Math.round(point.share)}%`,
       width: point.width,
       negative: point.value < 0,
-      emphasis: false,
-    })),
-  );
+      color: colors[index] ?? '',
+    }));
+  });
+
+  /**
+   * The figure written through the middle of the donut.
+   *
+   * A ring shows how a total splits and then declines to say what the total
+   * was, which is the first thing anyone asks it. Withheld on a series that is
+   * not a whole, for the same reason the shares are.
+   */
+  protected readonly totalDisplay = computed(() => {
+    const points = this.series().points;
+    if (points.length === 0 || points.some((point) => point.share === null)) return '';
+    return points
+      .reduce((sum, point) => sum + point.value, 0)
+      .toLocaleString(this.i18n.locale(), { maximumFractionDigits: 2 });
+  });
+
   readonly slot = computed(() =>
     dynamicSlot(this.runtime, this.node(), this.context(), this.series().points.length === 0),
   );
@@ -628,26 +717,40 @@ export class ChartBlock {
    * renderer as text it cannot parse. Reading `theme.resolved()` is what makes
    * the flip work — without it a donut drawn dark keeps its dark greys.
    */
-  private readonly palette = computed(() => {
+  private readonly arcPalette = computed(() => {
     this.theme.resolved();
     return {
-      arcs: SLICE_TOKENS.map(([name, fallback]) => this.token(name, fallback)),
       seam: this.token('--ck-bg-panel', '#0e1216'),
-      text: this.token('--ck-fg-3', 'rgba(255, 255, 255, 0.66)'),
+      text: this.token('--ck-fg-2', 'rgba(255, 255, 255, 0.82)'),
     };
   });
 
   protected readonly arcs = computed<ChartData<'doughnut'>>(() => {
-    const palette = this.palette();
     const points = this.series().points;
+    // An unordered series keeps the categorical set — six distinguishable hues
+    // that claim no ranking — while `severity` walks the same ramp the bars do,
+    // so the two shapes of the same block never disagree about what red means.
+    const slices =
+      this.palette() === 'severity'
+        ? this.colors()
+        : points.map(
+            (_, index) =>
+              this.token(...SLICE_TOKENS[index % SLICE_TOKENS.length]!),
+          );
     return {
       labels: points.map((point) => point.label),
       datasets: [
         {
           data: points.map((point) => point.value),
-          backgroundColor: points.map((_, index) => palette.arcs[index % palette.arcs.length]!),
-          borderColor: palette.seam,
-          borderWidth: 2,
+          backgroundColor: slices,
+          // The ring lifts off the page on hover rather than only recolouring,
+          // which is the one affordance telling a reader the arcs are live.
+          hoverOffset: 10,
+          hoverBorderColor: this.arcPalette().seam,
+          borderColor: this.arcPalette().seam,
+          borderWidth: 3,
+          borderRadius: 6,
+          spacing: 2,
         },
       ],
     };
@@ -656,19 +759,43 @@ export class ChartBlock {
   protected readonly arcOptions = computed<ChartConfiguration<'doughnut'>['options']>(() => ({
     responsive: true,
     maintainAspectRatio: false,
-    cutout: '62%',
-    animation: { duration: 320 },
+    // Thinner than the default ring so the hub has room for the total, and so
+    // the arcs read as a gauge rather than as a pie with a hole punched in it.
+    cutout: '70%',
+    animation: { animateRotate: true, animateScale: false, duration: 900, easing: 'easeOutQuart' },
     plugins: {
       legend: {
         position: 'bottom',
-        labels: { color: this.palette().text, boxWidth: 10, font: { size: 11 } },
+        labels: {
+          color: this.arcPalette().text,
+          boxWidth: 8,
+          boxHeight: 8,
+          usePointStyle: true,
+          pointStyle: 'circle',
+          padding: 14,
+          font: { size: 12 },
+        },
       },
     },
   }));
 
+  /**
+   * A `--ck-*` token's value, or the fallback.
+   *
+   * A canvas takes a colour and nothing else: `var()` does not resolve there,
+   * so the tokens are looked up off the host rather than handed to the renderer
+   * as text it cannot parse. Reading `theme.resolved()` in {@link arcPalette}
+   * is what makes the flip work — without it a donut drawn dark keeps its dark
+   * greys.
+   *
+   * Falls back whole when there is no live document to compute against, which
+   * is the unit runner: the colours are then the ones written here, which is
+   * what those tests assert on and what an SSR pass would emit.
+   */
   private token(name: string, fallback: string): string {
-    const value = getComputedStyle(this.element.nativeElement).getPropertyValue(name).trim();
-    return value || fallback;
+    const host = this.element.nativeElement;
+    if (typeof getComputedStyle !== 'function' || host?.nodeType !== 1) return fallback;
+    return getComputedStyle(host).getPropertyValue(name).trim() || fallback;
   }
 }
 
@@ -1688,6 +1815,31 @@ const SLICE_TOKENS: readonly (readonly [string, string])[] = [
   ['--ck-signal-neg', '#ef5a6f'],
   ['--ck-signal-ice', '#e0f2fe'],
 ];
+
+/**
+ * Interpolated, not cycled: the anchors of the `severity` ramp.
+ *
+ * Three stops rather than a colour per band, because the number of bands is
+ * the run's to decide. Green, amber and red are the only sequence a reader
+ * does not have to be given a legend for.
+ */
+const SEVERITY_TOKENS: readonly (readonly [string, string])[] = [
+  ['--ck-signal-pos', '#34d399'],
+  ['--ck-signal-warn', '#f5b84a'],
+  ['--ck-signal-neg', '#ef5a6f'],
+];
+
+/** One bar, with everything the template needs already decided. */
+interface ChartBar {
+  label: string;
+  display: string;
+  /** Rendered as-is; empty when the series is not a whole to take a share of. */
+  share: string;
+  /** 0–100, relative to the largest magnitude plotted. */
+  width: number;
+  negative: boolean;
+  color: string;
+}
 
 export const CATALOG: Record<CertifiedType, Type<unknown>> = {
   section: SectionBlock,

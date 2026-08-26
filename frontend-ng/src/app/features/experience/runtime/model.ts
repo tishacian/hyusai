@@ -508,11 +508,101 @@ export function chartKind(value: unknown): ChartKind {
   return (CHART_KINDS as readonly unknown[]).includes(value) ? (value as ChartKind) : 'bar';
 }
 
+/**
+ * How a series is coloured, which is a claim about what the categories *are*.
+ *
+ * `accent` says nothing: one hue for the whole series, so the only thing the
+ * eye compares is length. `severity` walks green → amber → red across the
+ * series in the order it was authored, which is right for bands that really
+ * are ordered by how bad they are and actively misleading for anything else —
+ * regions are not more severe than one another, and a ramp over them would
+ * invent a ranking the data does not have. So it is opt-in, and the safe one
+ * is the default.
+ */
+export const CHART_PALETTES = ['accent', 'severity'] as const;
+
+export type ChartPalette = (typeof CHART_PALETTES)[number];
+
+export function chartPalette(value: unknown): ChartPalette {
+  return (CHART_PALETTES as readonly unknown[]).includes(value)
+    ? (value as ChartPalette)
+    : 'accent';
+}
+
+/**
+ * `count` colours spread evenly across `stops`, interpolated in sRGB.
+ *
+ * A ramp has to work for however many bars the series turned out to have: three
+ * bands and eleven both need the ends of the scale to mean the same thing, so
+ * the stops are anchors rather than a lookup table. Anything that is not a hex
+ * colour is passed straight back — a token can resolve to `rgb()` or to a name
+ * on a browser this does not know, and a chart drawn in the wrong colour is
+ * better than a chart drawn in `NaN`.
+ */
+export function chartRamp(stops: readonly string[], count: number): string[] {
+  if (count <= 0) return [];
+  const parsed = stops.map(parseChartHex);
+  if (stops.length === 0 || parsed.some((stop) => stop === null)) {
+    return Array.from({ length: count }, (_, index) => stops[index % stops.length] ?? '');
+  }
+  const anchors = parsed as { r: number; g: number; b: number }[];
+  if (count === 1) return [channelHex(anchors[0]!)];
+  return Array.from({ length: count }, (_, index) => {
+    const position = (index / (count - 1)) * (anchors.length - 1);
+    const lower = Math.floor(position);
+    const upper = Math.min(lower + 1, anchors.length - 1);
+    return channelHex(mixChannels(anchors[lower]!, anchors[upper]!, position - lower));
+  });
+}
+
+interface Channels {
+  r: number;
+  g: number;
+  b: number;
+}
+
+function parseChartHex(value: string): Channels | null {
+  const match = value.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!match) return null;
+  const hex =
+    match[1]!.length === 3
+      ? match[1]!.split('').map((channel) => channel + channel).join('')
+      : match[1]!;
+  return {
+    r: Number.parseInt(hex.slice(0, 2), 16),
+    g: Number.parseInt(hex.slice(2, 4), 16),
+    b: Number.parseInt(hex.slice(4, 6), 16),
+  };
+}
+
+function mixChannels(from: Channels, to: Channels, ratio: number): Channels {
+  return {
+    r: Math.round(from.r + (to.r - from.r) * ratio),
+    g: Math.round(from.g + (to.g - from.g) * ratio),
+    b: Math.round(from.b + (to.b - from.b) * ratio),
+  };
+}
+
+function channelHex({ r, g, b }: Channels): string {
+  return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
 export interface ChartPoint {
   label: string;
   value: number;
   /** 0–100, relative to the largest magnitude actually plotted. */
   width: number;
+  /**
+   * 0–100, this point's share of the series total, or `null` when the series
+   * is not a whole to take a share of.
+   *
+   * Length already ranks the bars against each other; the share is the other
+   * question a reader asks of a band — "how much of the base is that" — and it
+   * is the one they would otherwise do in their head, wrongly. It is withheld
+   * when any value is negative, because a part of a total that some parts
+   * subtract from is not a percentage of anything.
+   */
+  share: number | null;
 }
 
 export interface ChartSeries {
@@ -561,10 +651,16 @@ export function chartSeries(
   }
   const kept = usable.length <= limit ? usable : strongest(usable, limit);
   const peak = Math.max(...kept.map((point) => Math.abs(point.value)), 0);
+  // The share is of what is drawn, not of what arrived: once the cap has hidden
+  // rows the block says so, and percentages of a total the reader cannot see
+  // would not add up on the page they are looking at.
+  const total = kept.reduce((sum, point) => sum + point.value, 0);
+  const whole = kept.every((point) => point.value >= 0) && total > 0;
   return {
     points: kept.map((point) => ({
       ...point,
       width: peak ? Math.round((Math.abs(point.value) / peak) * 100) : 0,
+      share: whole ? (point.value / total) * 100 : null,
     })),
     hidden: usable.length - kept.length,
   };

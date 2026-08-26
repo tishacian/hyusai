@@ -181,6 +181,71 @@ test('an unrecognised kind draws bars rather than refusing the document', () => 
   assert.equal(setup({ type: 'chart', id: 'c', props }).kind(), 'bar');
 });
 
+test('a bar carries its share of the base, and only when there is a base', () => {
+  const bars = setup({
+    type: 'chart',
+    id: 'risk-bands',
+    props: { series: [{ label: 'high', value: 25 }, { label: 'low', value: 75 }] },
+  }).bars();
+
+  assert.deepEqual(bars.map((bar) => bar.share), ['25%', '75%']);
+
+  // A band holding a handful of subscribers out of thousands rounds to zero,
+  // and "0%" beside a non-zero count reads as a contradiction.
+  const tiny = setup({
+    type: 'chart',
+    id: 'risk-bands',
+    props: { series: [{ label: 'critical', value: 3 }, { label: 'safe', value: 9997 }] },
+  }).bars();
+  assert.deepEqual(tiny.map((bar) => [bar.display, bar.share]), [
+    ['3', '<1%'],
+    ['9,997', '100%'],
+  ]);
+
+  // Nothing to be a share of, so nothing is claimed.
+  const signed = setup({
+    type: 'chart',
+    id: 'importances',
+    props: { series: [{ label: 'tenure', value: 8 }, { label: 'region', value: -3 }] },
+  }).bars();
+  assert.deepEqual(signed.map((bar) => bar.share), ['', '']);
+  assert.deepEqual(signed.map((bar) => bar.negative), [false, true]);
+});
+
+test('a ramp is drawn only when the author said the bands are ordered', () => {
+  const series = BANDS;
+
+  // The default says nothing about rank: one hue, and length is the only
+  // comparison the chart invites.
+  const flat = setup({ type: 'chart', id: 'c', props: { series } }).bars();
+  assert.equal(new Set(flat.map((bar) => bar.color)).size, 1);
+
+  // `severity` walks the ramp in the order the author wrote the bands, which
+  // is why the series is not sorted first.
+  const ramped = setup({ type: 'chart', id: 'c', props: { series, palette: 'severity' } }).bars();
+  assert.deepEqual(ramped.map((bar) => bar.color), ['#34d399', '#f5b84a', '#ef5a6f']);
+  assert.deepEqual(ramped.map((bar) => bar.label), ['critical', 'high', 'medium']);
+});
+
+test('a donut says what the ring adds up to', () => {
+  const block = setup({
+    type: 'chart',
+    id: 'risk-bands',
+    props: { kind: 'donut', series: BANDS },
+  }) as ChartBlock & ChartControls & { totalDisplay(): string };
+
+  assert.equal(block.totalDisplay(), '94');
+
+  // The hub is a share of the whole restated, so it is withheld exactly where
+  // the shares are: a ring over signed values is not a total of anything.
+  const signed = setup({
+    type: 'chart',
+    id: 'c',
+    props: { kind: 'donut', series: [{ label: 'up', value: 5 }, { label: 'down', value: -2 }] },
+  }) as ChartBlock & { totalDisplay(): string };
+  assert.equal(signed.totalDisplay(), '');
+});
+
 test('a donut announces the numbers its canvas hides', () => {
   const block = setup({
     type: 'chart',

@@ -70,6 +70,8 @@ import type {
   RuntimeField,
 } from '../runtime/model';
 import {
+  CHART_PALETTES,
+  chartPalette,
   fieldsFromSchema,
   formSchemaSupported,
   humanizeIdentifier,
@@ -886,6 +888,22 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                   </select>
                 </label>
               }
+              @if (node.type === 'chart') {
+                <label class="xp-field">
+                  <span>{{ i18n.t('experience.editor.field.palette') }}</span>
+                  <select
+                    [value]="paletteValue(node)"
+                    (change)="setProp(node, 'palette', selectValue($event))"
+                  >
+                    @for (palette of palettes; track palette) {
+                      <option [value]="palette">
+                        {{ i18n.t('experience.editor.palette.' + palette) }}
+                      </option>
+                    }
+                  </select>
+                  <small>{{ i18n.t('experience.editor.palette.hint') }}</small>
+                </label>
+              }
               @if (supportsAccent(node.type)) {
                 <label class="xp-field">
                   <span>{{ i18n.t('experience.editor.field.accent') }}</span>
@@ -1287,6 +1305,7 @@ export class ExperienceEditorComponent implements OnDestroy {
     { value: '⚑', label: 'experience.identity.emblem.flag' },
   ] as const;
   readonly spans = NODE_SPANS;
+  readonly palettes = CHART_PALETTES;
   readonly supportsAccent = supportsAccent;
   readonly supportsHeading = supportsHeading;
   readonly supportsSpan = supportsSpan;
@@ -2196,6 +2215,10 @@ export class ExperienceEditorComponent implements OnDestroy {
 
   spanValue(node: ExperienceNode): string {
     return appearanceOf(node).span;
+  }
+
+  paletteValue(node: ExperienceNode): string {
+    return chartPalette(node.props?.['palette']);
   }
 
   localizedA11y(node: ExperienceNode, key: 'ariaLabel' | 'emptyText' | 'keyboardHint'): string {

@@ -186,6 +186,10 @@ function sampleDocument(i18n: I18nService): ExperienceDocument {
               title: t('experience.runtime.sample.chart.title'),
               caption: t('experience.runtime.sample.chart.caption'),
               kind: 'bar',
+              // Side by side, because the two shapes answer different questions
+              // about the same spend and the catalog should show that they are
+              // meant to sit together rather than stack.
+              span: 'half',
               series: [
                 { label: t('experience.runtime.sample.chart.travel'), value: 18 },
                 { label: t('experience.runtime.sample.chart.meals'), value: 11 },
@@ -199,6 +203,7 @@ function sampleDocument(i18n: I18nService): ExperienceDocument {
             props: {
               title: t('experience.runtime.sample.chart.share'),
               kind: 'donut',
+              span: 'half',
               series: [
                 { label: t('experience.runtime.sample.chart.travel'), value: 2140 },
                 { label: t('experience.runtime.sample.chart.meals'), value: 820 },

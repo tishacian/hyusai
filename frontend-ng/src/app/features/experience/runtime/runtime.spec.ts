@@ -5,6 +5,8 @@ import {
   CERTIFIED_RENDERER_VERSION,
   CHART_MAX_POINTS,
   chartKind,
+  chartPalette,
+  chartRamp,
   chartSeries,
   extractCitations,
   fieldsFromSchema,
@@ -191,10 +193,12 @@ test('a chart series scales its bars against the largest value it plots', () => 
       { label: 'medium', value: 61 },
     ]),
     {
+      // Width ranks a bar against the biggest one; share answers the other
+      // question a band chart is asked, which is how much of the base it is.
       points: [
-        { label: 'critical', value: 9, width: 15 },
-        { label: 'high', value: 24, width: 39 },
-        { label: 'medium', value: 61, width: 100 },
+        { label: 'critical', value: 9, width: 15, share: 9.574468085106384 },
+        { label: 'high', value: 24, width: 39, share: 25.53191489361702 },
+        { label: 'medium', value: 61, width: 100, share: 64.8936170212766 },
       ],
       hidden: 0,
     },
@@ -203,8 +207,66 @@ test('a chart series scales its bars against the largest value it plots', () => 
   // A run output names its own columns; the defaults only apply when it doesn't.
   assert.deepEqual(
     chartSeries([{ band: 'churn risk', subscribers: '1240' }], 'band', 'subscribers').points,
-    [{ label: 'churn risk', value: 1240, width: 100 }],
+    [{ label: 'churn risk', value: 1240, width: 100, share: 100 }],
   );
+});
+
+test('a share is only offered for a series that is a whole to take a share of', () => {
+  // A permutation score that hurt the fit is a negative contribution, not a
+  // negative slice of a pie: "-12% of the total" is not a sentence.
+  assert.deepEqual(
+    chartSeries([
+      { label: 'tenure', value: 8 },
+      { label: 'region', value: -3 },
+    ]).points.map((point) => point.share),
+    [null, null],
+  );
+
+  // Nor is anything a share of zero.
+  assert.deepEqual(
+    chartSeries([{ label: 'none', value: 0 }]).points.map((point) => point.share),
+    [null],
+  );
+
+  // Once the cap has hidden rows the shares are of what is drawn, so they add
+  // up to what the reader can actually see and count.
+  const capped = chartSeries(
+    Array.from({ length: CHART_MAX_POINTS + 1 }, (_, index) => ({
+      label: `band-${index}`,
+      value: index + 1,
+    })),
+  );
+  assert.equal(capped.hidden, 1);
+  const total = capped.points.reduce((sum, point) => sum + (point.share ?? 0), 0);
+  assert.ok(Math.abs(total - 100) < 1e-9, `shares sum to ${total}`);
+});
+
+test('a ramp spans its anchors however many bars the run came back with', () => {
+  const stops = ['#000000', '#808080', '#ffffff'];
+
+  // The ends mean the same thing at every length: three bands and five both
+  // start at the first anchor and finish at the last.
+  assert.deepEqual(chartRamp(stops, 3), ['#000000', '#808080', '#ffffff']);
+  assert.deepEqual(chartRamp(stops, 5), ['#000000', '#404040', '#808080', '#c0c0c0', '#ffffff']);
+  assert.deepEqual(chartRamp(stops, 1), ['#000000']);
+  assert.deepEqual(chartRamp(stops, 0), []);
+
+  // Short hex is a colour too, and a token can resolve to one.
+  assert.deepEqual(chartRamp(['#000', '#fff'], 2), ['#000000', '#ffffff']);
+
+  // A token that resolved to something this cannot parse is handed back rather
+  // than turned into `#NaNNaNNaN`: the wrong colour still draws a chart.
+  assert.deepEqual(chartRamp(['rgb(1 2 3)', '#ffffff'], 2), ['rgb(1 2 3)', '#ffffff']);
+  assert.deepEqual(chartRamp([], 2), ['', '']);
+});
+
+test('a palette is opt-in, because a ramp claims an order the data may not have', () => {
+  assert.equal(chartPalette('severity'), 'severity');
+  assert.equal(chartPalette('accent'), 'accent');
+  // Anything unrecognised falls to the palette that ranks nothing.
+  assert.equal(chartPalette(undefined), 'accent');
+  assert.equal(chartPalette('rainbow'), 'accent');
+  assert.equal(chartPalette({ palette: 'severity' }), 'accent');
 });
 
 test('a chart drops rows no bar can honestly stand for', () => {
@@ -221,7 +283,7 @@ test('a chart drops rows no bar can honestly stand for', () => {
       'not a row',
       null,
     ]).points,
-    [{ label: 'kept', value: 3, width: 100 }],
+    [{ label: 'kept', value: 3, width: 100, share: 100 }],
   );
 
   for (const value of [undefined, null, 'rows', 42, {}, [], [{}]]) {

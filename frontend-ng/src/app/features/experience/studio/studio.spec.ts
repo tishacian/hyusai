@@ -859,6 +859,24 @@ test('Appearance offers a width to the blocks that may share a row', () => {
   assert.match(EDITOR_SOURCE, /readonly spans = NODE_SPANS;/);
 });
 
+test('the palette is offered on charts, with the warning that earns the ramp', () => {
+  const appearance = EDITOR_SOURCE.slice(
+    EDITOR_SOURCE.indexOf("inspectorTab() === 'appearance'"),
+    EDITOR_SOURCE.indexOf("inspectorTab() === 'a11y'"),
+  );
+
+  // Only a chart has a series to ramp, so only a chart is asked.
+  assert.match(appearance, /@if \(node\.type === 'chart'\)/);
+  assert.match(appearance, /setProp\(node, 'palette', selectValue\(\$event\)\)/);
+  assert.match(appearance, /for \(palette of palettes; track palette\)/);
+  assert.match(EDITOR_SOURCE, /readonly palettes = CHART_PALETTES;/);
+
+  // The hint is the whole safeguard: green-to-red over unordered categories is
+  // a chart that reports a ranking nobody measured, and the field is the last
+  // place to say so before it ships.
+  assert.match(appearance, /experience\.editor\.palette\.hint/);
+});
+
 test('application identity flows through create, metadata edit, and localised a11y authoring', () => {
   assert.match(WIZARD_SOURCE, /description: this\.description\(\)\.trim\(\) \|\| null/);
   assert.match(WIZARD_SOURCE, /emblem: this\.emblem\(\)\.trim\(\) \|\| null/);
