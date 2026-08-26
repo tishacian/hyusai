@@ -1595,6 +1595,7 @@ def board_document() -> dict[str, Any]:
                             # request a stakeholder sends.
                             "input": {},
                             "afterSuccess": "stay",
+                            "span": "half",
                         },
                     },
                     # Between the click and the figures there are a couple of
@@ -1605,6 +1606,7 @@ def board_document() -> dict[str, Any]:
                     {
                         "type": "runtime_status",
                         "id": "board-status",
+                        "props": {"span": "half"},
                     },
                     {
                         "type": "section",
@@ -1631,6 +1633,7 @@ def board_document() -> dict[str, Any]:
                                 "board.kpi.at_risk.description",
                                 BOARD_I18N["en"]["board.kpi.at_risk.description"],
                             ),
+                            "span": "third",
                             "dataBinding": _bind("summary.subscribers_at_risk"),
                         },
                     },
@@ -1646,12 +1649,27 @@ def board_document() -> dict[str, Any]:
                                 "board.kpi.revenue.description",
                                 BOARD_I18N["en"]["board.kpi.revenue.description"],
                             ),
+                            "span": "third",
                             "dataBinding": _bind("summary.revenue_at_stake_mad"),
                         },
                     },
-                    # The two rates are adjacent because neither means anything
-                    # alone: the decile rate is a model result only relative to
-                    # the base rate beside it.
+                    {
+                        "type": "kpi",
+                        "id": "kpi-model-metric",
+                        "props": {
+                            "label": _copy("board.kpi.model.label", "Model score"),
+                            "description": _copy(
+                                "board.kpi.model.description",
+                                BOARD_I18N["en"]["board.kpi.model.description"],
+                            ),
+                            "span": "third",
+                            "dataBinding": _bind("summary.model_metric_value"),
+                        },
+                    },
+                    # The two rates take half a row each, side by side, because
+                    # neither means anything alone: the decile rate is a model
+                    # result only relative to the base rate beside it, and a
+                    # reader should not have to scroll from one to the other.
                     {
                         "type": "kpi",
                         "id": "kpi-decile-churn",
@@ -1664,6 +1682,7 @@ def board_document() -> dict[str, Any]:
                                 "board.kpi.decile.description",
                                 BOARD_I18N["en"]["board.kpi.decile.description"],
                             ),
+                            "span": "half",
                             "dataBinding": _bind("summary.riskiest_decile_churn_pct"),
                         },
                     },
@@ -1679,19 +1698,8 @@ def board_document() -> dict[str, Any]:
                                 "board.kpi.base_rate.description",
                                 BOARD_I18N["en"]["board.kpi.base_rate.description"],
                             ),
+                            "span": "half",
                             "dataBinding": _bind("summary.base_churn_pct"),
-                        },
-                    },
-                    {
-                        "type": "kpi",
-                        "id": "kpi-model-metric",
-                        "props": {
-                            "label": _copy("board.kpi.model.label", "Model score"),
-                            "description": _copy(
-                                "board.kpi.model.description",
-                                BOARD_I18N["en"]["board.kpi.model.description"],
-                            ),
-                            "dataBinding": _bind("summary.model_metric_value"),
                         },
                     },
                     {
@@ -1716,6 +1724,7 @@ def board_document() -> dict[str, Any]:
                             "kind": "bar",
                             "labelKey": "label",
                             "valueKey": "value",
+                            "span": "half",
                             "a11y": {
                                 "emptyText": _copy(
                                     "board.empty", "Press Refresh to load the board."
@@ -1733,6 +1742,7 @@ def board_document() -> dict[str, Any]:
                                 "board.at_risk.caption",
                                 BOARD_I18N["en"]["board.at_risk.caption"],
                             ),
+                            "span": "half",
                             "columns": [
                                 {
                                     "key": "msisdn",

@@ -1453,6 +1453,49 @@ def test_the_board_document_is_built_only_from_certified_blocks():
     assert len(ids) == len(set(ids))
 
 
+def test_the_board_tiles_into_whole_rows_with_the_rates_side_by_side():
+    """A dashboard is a layout, and a layout is a claim about what to compare.
+
+    Two things worth holding. The widths must tile: a row that adds up to less
+    than a whole leaves a gap the reader takes for a missing tile, and the
+    renderer wraps rather than shrinking, so an over-full row silently becomes
+    a ragged one. And the two churn rates must land on the *same* row — the
+    decile rate is a model result only against the base rate, and a reader who
+    has to scroll from one to the other is being asked to hold a comparison in
+    their head that the page could simply have made.
+    """
+
+    # Named fractions of a twelve-track row, and the whole row when unstated.
+    columns = {"full": 12, "half": 6, "third": 4, "quarter": 3}
+    # A heading owns its row whatever width it asks for.
+    full_width = {"header", "section"}
+
+    def width(component: dict) -> int:
+        span = (component.get("props") or {}).get("span", "full")
+        assert span in columns, (component["id"], span)
+        return 12 if component["type"] in full_width else columns[span]
+
+    rows: list[list[dict]] = []
+    used = 0
+    for component in _components(board_document()):
+        if not rows or used + width(component) > 12:
+            rows.append([])
+            used = 0
+        rows[-1].append(component)
+        used += width(component)
+
+    for row in rows:
+        assert sum(width(component) for component in row) == 12, [
+            component["id"] for component in row
+        ]
+
+    shared = next(row for row in rows if any(c["id"] == "kpi-decile-churn" for c in row))
+    assert [component["id"] for component in shared] == [
+        "kpi-decile-churn",
+        "kpi-base-churn",
+    ]
+
+
 def test_every_tile_reads_the_one_run_the_board_button_produced():
     """Display blocks do not fetch, and this is what that means in a document.
 
