@@ -402,6 +402,33 @@ def test_the_detail_read_carries_the_dataset_and_every_version_of_the_lineage(
     ]
 
 
+def test_every_version_on_a_card_carries_the_scores_the_card_compares(
+    client, dataset, monkeypatch
+):
+    """The comparison table and the deltas are drawn from the sibling rows.
+
+    They were serialized without a metric block, so both read an empty list of
+    scores: on the deployed demo every version's Comparison tab said there was
+    nothing to compare, beside a Versions tab listing three. `primary_metric` is
+    one number and the table needs all of them.
+    """
+
+    _stub_harness(monkeypatch)
+    _train(client, dataset)
+    second = _train(client, dataset).json()["model"]
+
+    body = client.get(f"/ml-models/{second['id']}").json()
+
+    for row in body["versions"]:
+        scores = (row.get("metrics") or {}).get("scores") or []
+        assert scores, f"v{row['version']} carries no scores to compare"
+        assert {entry["key"] for entry in scores} >= {"roc_auc"}
+        # Only the scores: the open version's charts are the ones on screen, and
+        # fifty versions' curves would be a payload nobody draws.
+        assert set(row["metrics"]) == {"scores"}
+    assert "curves" in body["model"]["metrics"]
+
+
 def test_an_unknown_or_foreign_model_is_a_coded_404(client, db_session):
     other = Workspace(
         id=str(uuid4()), name="Other", slug=f"other-{uuid4().hex[:8]}", settings={}
