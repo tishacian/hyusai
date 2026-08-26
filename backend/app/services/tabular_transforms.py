@@ -425,16 +425,34 @@ def execute_sql(
 
 
 def _seal_filesystem(connection: Any) -> None:
-    """Switch off local file and external access once the inputs are loaded."""
+    """Switch off external and local access once the inputs are loaded.
+
+    Order matters, and the wrong way round is quiet: the inputs have already
+    been read from disk by the time this runs, and once ``LocalFileSystem`` is
+    disabled the *next* ``SET`` raises — duckdb touches the filesystem while
+    applying it — so only one of the two guards ends up on and the log says
+    "unsupported" as if the engine were old. The half left standing is the
+    weaker one: ``disabled_filesystems = 'LocalFileSystem'`` says nothing about
+    an httpfs or S3 filesystem, so an already-loaded extension could still
+    reach the network. ``enable_external_access = false`` is the one that closes
+    remote reads, attaches and extension installs, so it goes first.
+    """
 
     for statement in (
-        "SET disabled_filesystems = 'LocalFileSystem'",
         "SET enable_external_access = false",
+        "SET disabled_filesystems = 'LocalFileSystem'",
     ):
         try:
             connection.execute(statement)
-        except Exception:  # noqa: BLE001 - older engines lack one or the other
-            logger.debug("tabular_transforms: seal unsupported", statement=statement)
+        except Exception as exc:  # noqa: BLE001 - older engines lack one or the other
+            # The reason travels with the warning. Without it the line reads as
+            # "your duckdb is too old" whichever the cause, which is how the
+            # ordering above stayed wrong without anyone noticing.
+            logger.warning(
+                "tabular_transforms: seal unsupported",
+                statement=statement,
+                error=str(exc).splitlines()[0][:200],
+            )
 
 
 def _readable_engine_error(exc: Exception) -> str:

@@ -258,6 +258,37 @@ def _resolve_workspace_slug(payload: dict[str, Any], ctx: dict[str, Any]) -> Opt
     return resolved
 
 
+def _model_name(*candidates: Any) -> Optional[str]:
+    """The first candidate that is actually the *name* of a model.
+
+    ``model`` is one of the most collided-on keys on the wire. The DAG walker
+    merges an upstream node's output flat into the next node's payload, and
+    several nodes answer with a block under that key describing which model
+    answered: ``ml_batch_score_v1`` emits ``{"model": {"model_id": ..., "slug":
+    ..., "version": ...}}``. So an LLM node placed downstream of a scoring node
+    reads a *dict* out of the key it takes its model name from, and in overlay
+    mode that beats the node's own configured value. What follows is not a
+    readable failure — the provider is handed an object where it expects a
+    string and answers "could not parse the JSON body of your request", and the
+    node blames the prompt.
+
+    An object is never a model name, so it is not a candidate: fall through to
+    the next one, which is the run's default. Selecting *which* version of a
+    trained model answers is what ``ml_predict_v1``'s own pin is for.
+    """
+
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+        if candidate is not None and not isinstance(candidate, str):
+            logger.warning(
+                "skills_registry: ignoring a non-string model on the wire",
+                type=type(candidate).__name__,
+                keys=sorted(candidate)[:8] if isinstance(candidate, dict) else None,
+            )
+    return None
+
+
 def _rag_runtime_kwargs(payload: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     kwargs: dict[str, Any] = {}
     for key in ("top_k", "candidate_pool_k", "synthesis_k", "source_display_k"):
@@ -452,7 +483,7 @@ async def _llm_rag_answer_v1(
             payload.get("answer_profile"),
             passages,
         )
-        model = payload.get("model") or ctx.get("default_model")
+        model = _model_name(payload.get("model"), ctx.get("default_model"))
         prompt = _build_grounded_answer_prompt(
             query, passages, lang_target, payload.get("answer_profile")
         )
@@ -501,7 +532,7 @@ async def _llm_rag_answer_v1(
             or ctx.get("retrieval_mode_default")
         ),
         prompt_type=payload.get("prompt_type") or ctx.get("default_prompt_type"),
-        model=payload.get("model") or ctx.get("default_model"),
+        model=_model_name(payload.get("model"), ctx.get("default_model")),
         provider=payload.get("provider"),
         workspace_slug=_resolve_workspace_slug(payload, ctx),
         **_rag_runtime_kwargs(payload, ctx),
@@ -519,7 +550,7 @@ async def _llm_rag_answer_v1(
         usage_accumulator,
         _usage_candidate(result),
         provider=str(payload.get("provider") or "orchestrator"),
-        model=str(payload.get("model") or ctx.get("default_model") or "unknown"),
+        model=_model_name(payload.get("model"), ctx.get("default_model")) or "unknown",
     )
     output = {
         "answer": result.get("answer", ""),
@@ -3180,8 +3211,9 @@ async def _voice_realtime_session_v1(
 
     ctx = ctx or {}
     provider = resolve_voice_runtime_slug(payload.get("provider") or ctx.get("voice_provider"))
+    model = _model_name(payload.get("model"))
     session = build_openai_realtime_session(
-        model=payload.get("model"),
+        model=model,
         voice=payload.get("voice") or "marin",
         instructions=payload.get("instructions"),
         input_language=payload.get("language") or payload.get("input_language"),
@@ -3195,7 +3227,7 @@ async def _voice_realtime_session_v1(
     )
     return {
         "provider": provider,
-        "model": payload.get("model"),
+        "model": model,
         "transport": payload.get("transport") or "backend_ws",
         "session": session if provider == "openai_realtime" else None,
         "capabilities": (provider_meta or {}).get("capabilities", {}),
@@ -3275,7 +3307,7 @@ async def _voice_realtime_translate_v1(
     return {
         "status": "deferred",
         "provider": provider.slug,
-        "model": payload.get("model"),
+        "model": _model_name(payload.get("model")),
         "source_language": payload.get("source_language") or payload.get("language"),
         "target_language": payload.get("target_language") or payload.get("output_language"),
         "events": ["translation.partial", "translation.final"],
@@ -3532,7 +3564,7 @@ async def _ollama_llm_v1(
     from app.services.model_clients.ollama_client import OllamaClient
 
     client = OllamaClient()
-    model = payload.get("model") or "deepseek-r1:14b"
+    model = _model_name(payload.get("model")) or "deepseek-r1:14b"
     result = await client.generate(model=model, prompt=payload["prompt"])
     return {
         "completion": result.get("response") or result.get("content", ""),
@@ -3556,7 +3588,7 @@ async def _azure_llm_v1(
 
     ctx = ctx or {}
     token_sink = ctx.get("token_sink")
-    model = payload.get("model") or "gpt-4o-mini"
+    model = _model_name(payload.get("model")) or "gpt-4o-mini"
     prompt = payload["prompt"]
 
     # Stream token-by-token when the run engine provided a sink (Vague D
@@ -5364,7 +5396,7 @@ async def _decide_next_v1(
         visible_skills=list(visible),
         budget=payload.get("budget") or ctx.get("budget") or {},
     )
-    model = payload.get("model") or ctx.get("default_model")
+    model = _model_name(payload.get("model"), ctx.get("default_model"))
     completion = ""
     try:
         completion = await _route_llm_complete(prompt, model, ctx)
@@ -5424,7 +5456,7 @@ async def _chat_agentic_plan_v1(
     )
     if deterministic_plan is not None:
         return deterministic_plan
-    model = payload.get("model") or ctx.get("default_model")
+    model = _model_name(payload.get("model"), ctx.get("default_model"))
     prompt = _build_plan_prompt(query, history)
     completion = ""
     try:
@@ -5515,7 +5547,7 @@ async def _chat_self_correct_v1(
     lang_target = payload.get("lang_target")
     answer_profile = payload.get("answer_profile")
     scope_hint = payload.get("scope_hint")
-    model = payload.get("model") or ctx.get("default_model")
+    model = _model_name(payload.get("model"), ctx.get("default_model"))
     # Original (pre-correction) retrieval context, wired from join.retrieval.
     # Kept so a deep re-retrieval can MERGE (never lose) carrier chunks the
     # first pass already surfaced.

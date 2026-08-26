@@ -474,3 +474,95 @@ async def test_map_wrappers_default_to_each_workspaces_own_map(db_session, monke
         octocity_context,
     )
     assert default_signal["map_slug"] == OCTOCITY_MAP_SLUG
+
+
+# ---------------------------------------------------------------------------
+# `model` is a collided key on the wire
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_llm_node_downstream_of_a_scoring_node_still_calls_a_model(monkeypatch):
+    """The defect this pins took the Nawa demo's closing node down.
+
+    ``ml_batch_score_v1`` answers with a block under ``model`` saying which
+    version scored the parc. The DAG walker merges an upstream output flat into
+    the next node's payload, and in overlay mode that beats the node's own
+    config — so the LLM node that writes the French retention brief read a
+    *dict* out of the key it takes its model name from and handed it to the
+    provider, which replied "could not parse the JSON body of your request".
+    The run failed at the last node with an error that pointed at the prompt.
+    """
+
+    calls: list[dict] = []
+
+    class _Client:
+        api_key = "sk-test"
+
+        async def generate(self, **kwargs):
+            calls.append(kwargs)
+            return {"content": "Trois segments concentrent le risque.", "model": kwargs["model"]}
+
+    monkeypatch.setattr(
+        "app.services.model_clients.openai_client.OpenAIClient", lambda *a, **k: _Client()
+    )
+
+    # Verbatim shape of a `score_dataset` envelope, minus the fields this node
+    # does not read.
+    envelope = {
+        "dataset_id": "ds-scored",
+        "slug": "base-clients-scoree",
+        "model": {
+            "model_id": "mdl-1",
+            "slug": "churn-radar",
+            "version": 3,
+            "task": "classification",
+        },
+        "scored_rows": 4000,
+    }
+
+    result = await wrappers._azure_llm_v1(
+        {**envelope, "prompt": "Résume les segments à risque."}
+    )
+
+    assert calls, "the provider was never called"
+    assert calls[0]["model"] == "gpt-4o-mini", (
+        "the scoring node's model block was passed off as a model name"
+    )
+    assert isinstance(calls[0]["model"], str)
+    assert result["completion"].startswith("Trois segments")
+
+
+@pytest.mark.asyncio
+async def test_a_configured_model_name_is_still_honoured(monkeypatch):
+    """The guard drops objects, not choices: a named model still reaches the client."""
+
+    calls: list[dict] = []
+
+    class _Client:
+        api_key = "sk-test"
+
+        async def generate(self, **kwargs):
+            calls.append(kwargs)
+            return {"content": "ok", "model": kwargs["model"]}
+
+    monkeypatch.setattr(
+        "app.services.model_clients.openai_client.OpenAIClient", lambda *a, **k: _Client()
+    )
+
+    await wrappers._azure_llm_v1({"prompt": "x", "model": "  gpt-4.1-mini  "})
+
+    assert calls[0]["model"] == "gpt-4.1-mini", "a named model was dropped or left padded"
+
+
+def test_the_model_name_guard_falls_through_objects_to_the_next_candidate():
+    """Stated once, because eight call sites depend on this single rule."""
+
+    assert wrappers._model_name({"model_id": "mdl-1", "version": 3}, "gpt-4o-mini") == (
+        "gpt-4o-mini"
+    )
+    assert wrappers._model_name(["gpt-4o-mini"], "llama3") == "llama3"
+    assert wrappers._model_name(None, None) is None
+    assert wrappers._model_name("", "  ", "qwen2.5") == "qwen2.5"
+    # A provider-prefixed name is a name: the router splits it, not this guard.
+    assert wrappers._model_name("openai:gpt-4o") == "openai:gpt-4o"

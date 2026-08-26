@@ -144,6 +144,64 @@ def test_a_keyword_inside_a_literal_or_comment_does_not_trip_validation():
         validate_sql("SELECT create FROM input")
 
 
+def test_the_engine_itself_refuses_to_reach_the_filesystem_or_the_network(tmp_path):
+    """The parser is the readable refusal; this is the one that has to hold.
+
+    An allow-list of function names is a guess about syntax — duckdb grows
+    readers, and ``FROM 'path'`` needs no function name at all. So the guard
+    that matters is the connection the author's SQL actually runs on, and both
+    of its settings have to be *on*: ``disabled_filesystems`` alone says nothing
+    about an httpfs or S3 filesystem, which is exactly what an exfiltration
+    attempt would use.
+
+    The parquet read before the seal is not decoration. It is the state the real
+    connection is in — ``execute_sql`` loads every source eagerly and only then
+    seals — and it is the state in which the two ``SET``s stop being
+    interchangeable: once ``LocalFileSystem`` is disabled, the *next* ``SET``
+    raises, because duckdb touches the filesystem while applying it. A
+    connection that had read nothing accepts either order and would prove
+    nothing.
+    """
+
+    import duckdb
+    import polars as pl
+
+    from app.services.tabular_transforms import _seal_filesystem
+
+    source = tmp_path / "input.parquet"
+    pl.DataFrame({"a": [1]}).write_parquet(source)
+
+    connection = duckdb.connect(database=":memory:")
+    connection.execute(f"CREATE TABLE input AS SELECT * FROM read_parquet('{source}')")
+    _seal_filesystem(connection)
+
+    # ``enable_external_access`` reads back; ``disabled_filesystems`` does not
+    # (duckdb reports it empty however it was set), so it is the refusals below
+    # that stand for it rather than a settings row.
+    external_access = connection.execute(
+        "SELECT value FROM duckdb_settings() WHERE name = 'enable_external_access'"
+    ).fetchone()
+    assert external_access == ("false",), (
+        "the seal applied in the wrong order: disabling the local filesystem "
+        "first makes this SET fail, and only the weaker guard survives"
+    )
+
+    for statement in (
+        "SELECT * FROM read_csv('/etc/hostname')",
+        "SELECT * FROM '/etc/hostname'",
+        "SELECT * FROM 'https://example.com/x.parquet'",
+        "SELECT * FROM read_parquet('s3://bucket/key.parquet')",
+        f"SELECT * FROM read_parquet('{source}')",
+    ):
+        with pytest.raises(Exception):
+            connection.execute(statement).fetchall()
+
+    # And the input the transform is about still reads, or the seal would have
+    # closed the door on the query it exists to run.
+    assert connection.execute("SELECT a FROM input").fetchall() == [(1,)]
+    connection.close()
+
+
 def test_statement_length_is_capped(monkeypatch):
     monkeypatch.setattr(settings, "tabular_sql_max_chars", 20)
     with pytest.raises(TabularError) as error:
