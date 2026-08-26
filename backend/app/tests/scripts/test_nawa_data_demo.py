@@ -1647,6 +1647,27 @@ def test_the_table_and_chart_read_keys_their_rows_actually_carry():
             assert column["key"] in sample, (table_id, column["key"])
 
 
+def test_the_band_chart_only_claims_an_order_the_bands_are_actually_in():
+    """The severity ramp is a green-to-red reading of the series order.
+
+    The renderer walks the ramp in the order the rows arrive, not in the order
+    of their values, so the colour is only honest while the bands themselves
+    ascend. Reverse ``BANDS`` and the board would paint its safest cohort red
+    while every number on the page stayed correct — the kind of defect that
+    survives a numeric test suite and gets caught in the room.
+    """
+
+    chart = {component["id"]: component for component in _components(board_document())}[
+        "risk-bands"
+    ]["props"]
+    assert chart["palette"] == "severity"
+
+    labels = [band["label"] for band in _board(_scored_rows(size=40))["bands"]]
+    lowers = [float(label.split("-", 1)[0]) for label in labels]
+    assert lowers == sorted(lowers), labels
+    assert labels[0].startswith("0-")
+
+
 def test_the_page_reads_in_french_and_in_english_with_no_key_missing():
     """Two dictionaries, one key set, and every visible string a reference.
 
