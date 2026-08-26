@@ -263,6 +263,51 @@ def clear_alias(*, model_name: str, alias: str = _ALIAS_CHALLENGER) -> bool:
         return False
 
 
+def retire_version(*, model_name: str, run_id: str) -> bool:
+    """Remove the version a run produced. False when there was nothing to remove.
+
+    Clearing the aliases that named it is not enough. An alias is a *name* for a
+    version; the version is the row that carries the ``source``, so a stranger
+    who lists ``models:/name`` after we deleted our row still sees it, still
+    resolves it by number, and still pulls bytes out of a bucket that keeps them
+    — a version we would be unable to say anything about. The registry is here
+    to be more trustworthy than a private table, not to be a longer-lived one.
+    """
+
+    if not settings.ml_registry_enabled:
+        return False
+    version = version_of_run(model_name=model_name, run_id=run_id)
+    if not version:
+        return False
+    try:
+        _client().delete_model_version(model_name, version)
+        return True
+    except Exception:  # noqa: BLE001 - already gone is not a failure
+        logger.warning(
+            "ml_registry: retiring %s v%s failed", model_name, version, exc_info=True
+        )
+        return False
+
+
+def forget_model(*, model_name: str) -> bool:
+    """Drop a registered model with its versions and aliases. False if unavailable.
+
+    For the last version of a lineage. Retiring that version alone would leave a
+    named container behind whose ``champion`` still resolves — to a version that
+    no longer exists on either side — and the demo host proved it: four
+    registered models survived the runs that made them, each still answering
+    ``@champion``.
+    """
+
+    if not settings.ml_registry_enabled:
+        return False
+    try:
+        _client().delete_registered_model(model_name)
+        return True
+    except Exception:  # noqa: BLE001 - never registered is the common case
+        return False
+
+
 def version_of_run(*, model_name: str, run_id: str) -> str | None:
     """The registered version a run produced, looked up rather than stored.
 
@@ -304,8 +349,10 @@ __all__ = [
     "alias_version",
     "clear_alias",
     "ensure_database",
+    "forget_model",
     "publish",
     "registry_uri",
+    "retire_version",
     "set_alias",
     "version_of_run",
     "_ALIAS_CHAMPION",

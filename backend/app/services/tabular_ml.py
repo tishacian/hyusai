@@ -950,17 +950,20 @@ def delete_model(db: DBSession, model: MLModel) -> str:
     is being removed — and leaving a serving alias pointing at a retired version
     would be worse than losing it.
 
-    Three things must not outlive the row, and all three are deleted here rather
+    Four things must not outlive the row, and all four are deleted here rather
     than left to a foreign key: a credential that still authenticates, a resident
-    pipeline that still answers, and — once the last version of a lineage is
-    gone — a published Skill whose every call would now fail. A cascade would
-    cover the first only, and only on a backend that enforces it.
+    pipeline that still answers, a registered version a stranger can still
+    resolve, and — once the last version of a lineage is gone — a published Skill
+    whose every call would now fail. A cascade would cover the first only, and
+    only on a backend that enforces it.
     """
 
     model_id = model.id
     workspace_id = model.workspace_id
     slug = model.slug
     published = model.published_skill_slug
+    registered = model.mlflow_model_name
+    registered_run = model.mlflow_run_id
     store = get_object_store()
     if store.backend == "local":
         try:
@@ -981,6 +984,15 @@ def delete_model(db: DBSession, model: MLModel) -> str:
         .all()
     )
     survivors = len(remaining)
+    if registered:
+        if survivors == 0:
+            # The container goes with its last version: keeping it would keep an
+            # ``@champion`` that resolves to nothing this deployment can explain.
+            ml_registry.forget_model(model_name=registered)
+        elif registered_run:
+            ml_registry.retire_version(
+                model_name=registered, run_id=registered_run
+            )
     if remaining:
         # The deleted row may have been the one ``challenger`` named. Re-deriving
         # it from what is left is the only way the alias cannot outlive its
