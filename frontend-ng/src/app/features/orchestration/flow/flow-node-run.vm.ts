@@ -34,6 +34,8 @@ export interface NodeRunData {
   model?: { slug: string; version?: number };
   model_id?: string;
   predictions?: number;
+  /** The dataset the node WROTE, so a surface can open the rows it produced. */
+  dataset_id?: string;
 }
 
 /** Everything the canvas knows about one node's last execution. */
@@ -84,6 +86,8 @@ export function readNodeRunData(value: unknown): NodeRunData | undefined {
   if (rowsOut !== null) data.rows_out = rowsOut;
   const predictions = finiteNumber(value['predictions']);
   if (predictions !== null) data.predictions = predictions;
+  const written = value['dataset_id'];
+  if (typeof written === 'string' && written.trim()) data.dataset_id = written.trim();
   const metric = value['metric'];
   if (isRecord(metric)) {
     const key = typeof metric['key'] === 'string' ? metric['key'].trim() : '';

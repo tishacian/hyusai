@@ -50,6 +50,11 @@ import { A11yModule } from '@angular/cdk/a11y';
 import { RouterLink } from '@angular/router';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { ColumnSparkComponent } from '@app/shared/ui/column-spark.component';
+import type {
+  TabularColumn,
+  TabularColumnStats,
+} from '@app/shared/ui/data-table.vm';
+import { DatasetPreviewComponent } from '@app/features/data/dataset-preview.component';
 import { I18nService } from '@app/core/i18n.service';
 import {
   algoFor,
@@ -99,7 +104,13 @@ const SCORE_LIMIT = 4;
   selector: 'app-flow-train-workshop',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [A11yModule, ColumnSparkComponent, RouterLink, IconComponent],
+  imports: [
+    A11yModule,
+    ColumnSparkComponent,
+    DatasetPreviewComponent,
+    RouterLink,
+    IconComponent,
+  ],
   styleUrl: './flow-train-workshop.component.scss',
   template: `
     <div
@@ -488,10 +499,28 @@ const SCORE_LIMIT = 4;
                     </a>
                   </p>
                 } @else if (!ml.busy() && !failure()) {
-                  <div class="ck-train-workshop__placeholder">
-                    <app-icon name="brain" [size]="18" />
-                    <p>{{ i18n.t('flow.ml.train.evidence.empty') }}</p>
-                  </div>
+                  <!-- Before a fit there is no evidence, and the honest thing to
+                       show is what the fit will read. The columns are already
+                       above as chips; these are the values behind them, in the
+                       same table the Data page uses. -->
+                  @if (dataset(); as pinnedDataset) {
+                    <div class="ck-train-workshop__sample" data-testid="train-sample">
+                      <span class="ck-train-workshop__label">
+                        {{ i18n.t('flow.ml.train.sample') }}
+                      </span>
+                      <ck-dataset-preview
+                        [datasetId]="pinnedDataset.id"
+                        [columnsHint]="sampleColumns()"
+                        [statsHint]="sampleStats()"
+                        maxHeight="196px"
+                      />
+                    </div>
+                  } @else {
+                    <div class="ck-train-workshop__placeholder">
+                      <app-icon name="brain" [size]="18" />
+                      <p>{{ i18n.t('flow.ml.train.evidence.empty') }}</p>
+                    </div>
+                  }
                 }
               </div>
             </div>
@@ -678,6 +707,29 @@ export class FlowTrainWorkshopComponent {
           (row) => row.slug === pin.dataset_slug || row.id === pin.dataset_id,
         ) ?? null
     );
+  });
+
+  /**
+   * The plan's columns, in the shape the shared table reads.
+   *
+   * Handing them over rather than letting the preview fetch its own schema keeps
+   * one profile on screen: the sparkline on a table header and the one on the
+   * feature chip beside it are then literally the same numbers.
+   */
+  protected readonly sampleColumns = computed<TabularColumn[]>(() =>
+    this.columns().map((column) => ({
+      name: column.name,
+      kind: column.kind as TabularColumn['kind'],
+      dtype: column.kind,
+    })),
+  );
+
+  protected readonly sampleStats = computed<Record<string, TabularColumnStats>>(() => {
+    const stats: Record<string, TabularColumnStats> = {};
+    for (const column of this.columns()) {
+      if (column.profile) stats[column.name] = column.profile;
+    }
+    return stats;
   });
 
   protected readonly candidates = computed(() =>

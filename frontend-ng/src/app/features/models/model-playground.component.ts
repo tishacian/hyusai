@@ -34,7 +34,7 @@ import {
   signal,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -736,6 +736,7 @@ export class ModelPlaygroundComponent {
   readonly i18n = inject(I18nService);
   private readonly models = inject(ModelsService);
   private readonly toast = inject(ToastrService);
+  private readonly router = inject(Router);
 
   protected readonly arc = GAUGE_ARC;
 
@@ -930,9 +931,19 @@ export class ModelPlaygroundComponent {
     try {
       const response = await this.models.publish(this.model().id);
       this.servingChange.emit(response.serving);
-      this.toast.success(
-        this.i18n.t('models.publish.done', { name: response.skill.name }),
-      );
+      // The toast is the deep link, not just an announcement: the point of
+      // publishing is that the model is now a Skill in the catalogue, and the
+      // shortest path to seeing that is a tap on the thing that said so.
+      const slug = response.skill.slug;
+      this.toast
+        .success(
+          this.i18n.t('models.publish.done', { name: response.skill.name }),
+          undefined,
+          { tapToDismiss: false, closeButton: true },
+        )
+        .onTap.subscribe(() => {
+          void this.router.navigate(['/skills'], { queryParams: { q: slug } });
+        });
       this.changed.emit();
     } catch (error) {
       this.toast.error(this.sentence(error));

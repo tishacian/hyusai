@@ -1188,6 +1188,7 @@ export const FLOW_FR = {
     'La validation croisée donne un écart-type par métrique — plus long, mais un score isolé peut être un coup de chance.',
   'flow.ml.train.evidence.empty':
     'Lancez un entraînement : les étapes s’affichent ici, puis les scores obtenus sur les lignes de test.',
+  'flow.ml.train.sample': 'Les lignes sur lesquelles l’ajustement va lire',
   'flow.ml.train.registered': 'Enregistré : {name} v{version}',
   'flow.ml.train.open_card': 'Voir la fiche',
   'flow.ml.train.tabs.aria': 'Panneaux de l’atelier d’entraînement',
@@ -1228,6 +1229,8 @@ export const FLOW_FR = {
     'Aucun modèle entraîné dans cet espace de travail : entraînez-en un avant de brancher ce node.',
   'flow.ml.serving.output': 'Jeu de données produit',
   'flow.ml.serving.output.auto': 'Déduit du modèle',
+  'flow.ml.serving.output.produced': 'Les lignes écrites au dernier run',
+  'flow.ml.serving.output.open': 'Ouvrir le jeu de données',
   'flow.ml.serving.explain': 'Contributions par ligne',
   'flow.ml.serving.explain.hint':
     'Ajoute à la réponse les variables qui ont le plus pesé — utile pour une synthèse en aval, un peu plus coûteux à calculer.',
@@ -2667,6 +2670,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'Cross-validation gives a standard deviation per metric — slower, but a single score can be luck.',
   'flow.ml.train.evidence.empty':
     'Train once: the steps show up here, then the scores earned on the test rows.',
+  'flow.ml.train.sample': 'The rows the fit will read',
   'flow.ml.train.registered': 'Registered: {name} v{version}',
   'flow.ml.train.open_card': 'Open the card',
   'flow.ml.train.tabs.aria': 'Training studio panels',
@@ -2707,6 +2711,8 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'No trained model in this workspace: train one before wiring this node.',
   'flow.ml.serving.output': 'Dataset produced',
   'flow.ml.serving.output.auto': 'Derived from the model',
+  'flow.ml.serving.output.produced': 'The rows written on the last run',
+  'flow.ml.serving.output.open': 'Open the dataset',
   'flow.ml.serving.explain': 'Per-row contributions',
   'flow.ml.serving.explain.hint':
     'Adds the features that weighed most to the answer — useful for a summary downstream, slightly more expensive to compute.',

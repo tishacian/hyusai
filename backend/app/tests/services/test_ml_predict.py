@@ -401,6 +401,41 @@ def test_the_second_prediction_reuses_the_resident_pipeline(db_session, model):
     assert tabular_predict.cache_state()["size"] == 1
 
 
+def test_the_artifact_is_read_through_the_door_any_mlflow_stack_has(
+    db_session, model, monkeypatch
+):
+    """The MLmodel is loaded as an MLmodel, not by reaching past the format.
+
+    ``mlflow.pyfunc.load_model`` is the portable door: it reads the ``MLmodel``
+    file, honours the flavor recorded in it, and is what makes "this artifact
+    runs anywhere MLflow runs" a demonstrated claim rather than a slide. The
+    estimator is unwrapped afterwards because a churn answer of "1" without
+    "0.87" does not land — but the reading is the format's own.
+    """
+
+    import mlflow.pyfunc
+
+    opened: list[str] = []
+    real = mlflow.pyfunc.load_model
+
+    def watched(uri, *args, **kwargs):
+        opened.append(str(uri))
+        return real(uri, *args, **kwargs)
+
+    monkeypatch.setattr(mlflow.pyfunc, "load_model", watched)
+    tabular_predict.drop_from_cache(model.id)
+
+    entry = tabular_predict.load_pipeline(model)
+
+    assert opened, "the artifact was not read through pyfunc"
+    assert opened[0] == str(entry.directory)
+    # And what came back out of it can still answer with a probability, which is
+    # the reason the facade is unwrapped rather than called.
+    assert hasattr(entry.pipeline, "predict_proba")
+    answered = tabular_predict.predict_rows(db_session, model, [_row()])
+    assert answered["predictions"][0]["probabilities"]
+
+
 def test_an_answer_says_whether_it_paid_to_load_the_model(db_session, model):
     """The cache's whole claim, in the field a caller reads.
 

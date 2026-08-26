@@ -502,3 +502,46 @@ test('the builder mounts one training studio for the selected node', () => {
     'studio edits are ordinary node-config edits — autosave keeps running',
   );
 });
+
+test('the rows a fit will read, and the rows a score wrote, use the one table', () => {
+  // The plan's first UI bet names four surfaces the shared table serves, and
+  // two of them are here: the training picker, where an author is about to fit
+  // on a table they have never looked at, and the batch-score node, whose whole
+  // product is a table nobody has opened. Both go through
+  // `ck-dataset-preview`, which is `ck-data-table` over the paged read.
+  const workshop = source('flow-train-workshop.component.ts');
+  const inspector = source('flow-inspector.component.ts');
+  const preview = readFileSync(
+    join(process.cwd(), 'src/app/features/data/dataset-preview.component.ts'),
+    'utf8',
+  );
+
+  assert.match(preview, /<ck-data-table/, 'the panel is the shared table');
+  assert.match(preview, /this\.data\.preview\(id, \{ offset, limit: PAGE_SIZE \}\)/);
+  // Re-selecting the same node must not re-read the Parquet.
+  assert.match(preview, /if \(id === this\.loaded\) return;/);
+
+  assert.match(workshop, /data-testid="train-sample"/);
+  assert.match(workshop, /<ck-dataset-preview\s+\[datasetId\]="pinnedDataset\.id"/);
+  // The header sparklines are the plan's columns, so the chip and the column
+  // above it are drawn from one profile rather than two reads of it.
+  assert.match(workshop, /\[columnsHint\]="sampleColumns\(\)"/);
+  assert.match(workshop, /\[statsHint\]="sampleStats\(\)"/);
+
+  assert.match(inspector, /data-testid="serving-output-preview"/);
+  assert.match(inspector, /writtenDataset\(n\); as scored/);
+  assert.match(
+    inspector,
+    /this\.runSvc\?\.nodeRunFor\(n\.id\)\?\.data\?\.dataset_id/,
+    'the reference comes off the badge the run already emitted',
+  );
+  assert.match(inspector, /\[routerLink\\?\]="\['\/data', scored\]"/);
+
+  for (const key of [
+    'flow.ml.train.sample',
+    'flow.ml.serving.output.produced',
+    'flow.ml.serving.output.open',
+  ]) {
+    assertKey(key);
+  }
+});
