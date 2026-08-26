@@ -58,6 +58,7 @@ import {
 } from '@app/features/data/viz/viz.vm';
 import {
   balanceBars,
+  comparisonPair,
   comparisonRows,
   compareErrorKey,
   formatMetric,
@@ -1068,9 +1069,17 @@ export class ModelViewComponent implements OnInit {
     }));
   });
 
-  protected readonly comparison = computed<ComparisonRow[]>(() =>
-    comparisonRows(this.against(), this.model(), this.i18n.locale()),
-  );
+  /**
+   * The pair the comparison tab weighs, which is not always this one and the
+   * one below it: see `comparisonPair`. Kept apart from `against` because the
+   * delta beside a score is a claim about a retrain, and v1 did not have one.
+   */
+  protected readonly pair = computed(() => comparisonPair(this.model(), this.versions()));
+
+  protected readonly comparison = computed<ComparisonRow[]>(() => {
+    const pair = this.pair();
+    return pair ? comparisonRows(pair.before, pair.after, this.i18n.locale()) : [];
+  });
 
   protected readonly confusion = computed(() => confusionView(this.metrics()?.confusion));
   protected readonly importances = computed(() => importanceBars(this.metrics()?.importances));
@@ -1424,23 +1433,22 @@ export class ModelViewComponent implements OnInit {
     name: string;
     line: string;
   }[] {
-    const earlier = this.against();
-    const current = this.model();
-    if (!earlier || !current) return [];
+    const pair = this.pair();
+    if (!pair) return [];
     return [
       {
-        id: earlier.id,
+        id: pair.before.id,
         role: 'before' as const,
-        version: earlier.version,
-        name: earlier.name,
-        line: this.versionLine(earlier),
+        version: pair.before.version,
+        name: pair.before.name,
+        line: this.versionLine(pair.before),
       },
       {
-        id: current.id,
+        id: pair.after.id,
         role: 'after' as const,
-        version: current.version,
-        name: current.name,
-        line: this.versionLine(current),
+        version: pair.after.version,
+        name: pair.after.name,
+        line: this.versionLine(pair.after),
       },
     ];
   }
@@ -1452,12 +1460,11 @@ export class ModelViewComponent implements OnInit {
    * retrain was worth keeping, which is a claim about one number.
    */
   protected verdict(): string {
-    const current = this.model();
-    const earlier = this.against();
-    if (!current || !earlier) return '';
-    const score = primaryScore(current);
+    const pair = this.pair();
+    if (!pair) return '';
+    const score = primaryScore(pair.after);
     if (!score) return '';
-    const before = (earlier.metrics?.scores ?? []).find((row) => row.key === score.key);
+    const before = (pair.before.metrics?.scores ?? []).find((row) => row.key === score.key);
     const delta = metricDelta(
       score.key,
       score.value,
@@ -1473,8 +1480,8 @@ export class ModelViewComponent implements OnInit {
     return this.i18n.t(key, {
       metric: this.i18n.t('models.metric.' + score.key),
       delta: delta.display,
-      version: current.version,
-      previous: earlier.version,
+      version: pair.after.version,
+      previous: pair.before.version,
     });
   }
 
@@ -1523,12 +1530,13 @@ export class ModelViewComponent implements OnInit {
 
   /** Re-score both versions over one split, and render skore's joint table. */
   protected async scoreOnTheSameRows(): Promise<void> {
-    const row = this.model();
-    const earlier = this.against();
-    if (!row || !earlier) return;
+    const pair = this.pair();
+    if (!pair) return;
     this.scoring.set(true);
     try {
-      this.sameRows.set(await this.models.comparison(row.id, earlier.id));
+      // The route reads `against` as the left column, so the pair's order is
+      // the table's order on both the recorded and the re-scored tables.
+      this.sameRows.set(await this.models.comparison(pair.after.id, pair.before.id));
     } catch (error) {
       // The refusals are coded and each one names what does not line up, so the
       // code is worth translating rather than replacing with "failed".

@@ -210,3 +210,15 @@ test('the model card draws its charts from the shared viz kit', () => {
   assert.match(CARD, /\[reference\]="prevalence\(\)"/);
   assert.match(CARD, /\[reference\]="identity\(\)"/);
 });
+
+test('the comparison tab weighs a pair, and never one version against itself', () => {
+  // The tab, the verdict sentence, and the re-score button must all speak about
+  // the same two versions, or the table says one thing and the sentence above
+  // it another.
+  assert.match(CARD, /comparisonPair\(this\.model\(\), this\.versions\(\)\)/);
+  assert.match(CARD, /comparisonRows\(pair\.before, pair\.after/);
+  assert.match(CARD, /this\.models\.comparison\(pair\.after\.id, pair\.before\.id\)/);
+  // The delta beside a score is a claim about a retrain, so it keeps reading
+  // strictly backwards even where the table looks forwards.
+  assert.match(CARD, /previousVersion\(this\.model\(\), this\.versions\(\)\)/);
+});
