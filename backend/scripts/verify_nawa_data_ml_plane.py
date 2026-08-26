@@ -53,9 +53,9 @@ EXPECTED = {
     "network rows": 24192,
     "network cell-hours at 100% prb": 0,
     "watchlist rows": 72,
-    "watchlist critique": 9,
-    "watchlist surveillé": 8,
-    "watchlist sain": 55,
+    "watchlist critical": 9,
+    "watchlist watch": 8,
+    "watchlist healthy": 55,
     "flagged subscribers": 999,
     "v1 roc_auc": 0.835206,
     "v2 roc_auc": 0.859632,
@@ -97,7 +97,7 @@ def main() -> int:  # noqa: C901 - a linear checklist, read top down
     print(f"workspace: nawa {workspace.id}")
 
     print("\n[1] the export arrives dirty")
-    raw = frame(db, "base-clients-export-brut")
+    raw = frame(db, "subscriber-base-raw-export")
     check("raw rows", len(raw))
     check("raw region spellings", int(raw["region"].nunique()))
     check("raw plan spellings", int(raw["plan"].nunique()))
@@ -108,15 +108,15 @@ def main() -> int:  # noqa: C901 - a linear checklist, read top down
     check("raw nps null", int(raw["nps"].isna().sum()))
 
     print("\n[2] the SQL that cleans it")
-    clean = frame(db, "base-clients-nettoyee", 1)
+    clean = frame(db, "subscriber-base-cleaned", 1)
     check("clean rows", len(clean))
     check("clean columns", len(clean.columns))
     check("clean nps null", int(clean["nps"].isna().sum()))
     check("clean churn rate %", round(100 * float(clean["churn"].mean()), 4), expected=22.1643)
 
     print("\n[3] the Polars features, and the score")
-    check("feature columns", len(frame(db, "base-clients-features").columns))
-    scored = frame(db, "base-clients-scoree")
+    check("feature columns", len(frame(db, "subscriber-base-features").columns))
+    scored = frame(db, "subscriber-base-scored")
     check("scored columns", len(scored.columns))
     check("flagged subscribers", int((scored["prediction"].astype(str) == "1").sum()))
     decile = scored.nlargest(len(scored) // 10, "score_1")
@@ -223,12 +223,12 @@ def main() -> int:  # noqa: C901 - a linear checklist, read top down
     )
 
     print("\n[8] the radio watchlist")
-    watch = frame(db, "cellules-a-risque-7-jours")
+    watch = frame(db, "cells-at-risk-7-days")
     check("watchlist rows", len(watch))
     bands = watch["risk_band"].value_counts().to_dict()
-    for band in ("critique", "surveillé", "sain"):
+    for band in ("critical", "watch", "healthy"):
         check(f"watchlist {band}", int(bands.get(band, 0)))
-    network = frame(db, "kpi-cellules-radio")
+    network = frame(db, "radio-cell-kpis")
     check("network rows", len(network))
     check(
         "network cell-hours at 100% prb",
