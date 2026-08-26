@@ -6,12 +6,12 @@ Two tables, one operator's month:
   duplicated snapshots, suspended lines, regions spelled four ways, a revenue
   column with holes and a ``-1`` sentinel. The demo's first SQL node earns its
   keep by cleaning it, and the badge on that node reads
-  **8 412 → 6 903 lignes** because those two numbers are exact, not sampled.
+  **8 412 → 6 903 rows** because those two numbers are exact, not sampled.
 * ``network_cell_frame()`` — hourly radio KPIs per cell, with a busy hour, a
   weekend, six chronically congested cells, three that degrade sharply inside
   the recent week and two a capacity upgrade relieved. That is what gives the
   dbt node something true to assert: its watchlist comes back with nine cells in
-  the ``critique`` band, of which the three the delta column singles out were
+  the ``critical`` band, of which the three the delta column singles out were
   healthy a fortnight ago.
 
 Everything is a pure function of a seed. The same seed gives the same bytes on

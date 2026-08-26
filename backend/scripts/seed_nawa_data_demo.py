@@ -293,7 +293,7 @@ BRIEF_PROMPT = (
     "You are a retention analyst at a Moroccan telecom operator. "
     "From the churn scoring table that has just been produced "
     "(columns: msisdn, region, plan, contract, tenure_months, arpu_mad, "
-    "prediction, confidence, score_churn), write an English brief of at most "
+    "prediction, confidence, score_1), write an English brief of at most "
     "8 lines for the retention committee: the three segments most at risk, the "
     "estimated monthly revenue at stake, and one retention action per segment. "
     "Quote figures, not generalities."
