@@ -73,7 +73,7 @@ master of a Moroccan mobile operator, dirt included.
 
 | # | Column | Type | Unit / domain | Meaning |
 |---|---|---|---|---|
-| 1 | `msisdn` | string | 12 digits, `2126…` | Subscriber line. **Identifier, never a feature.** 8 000 distinct values over 8 412 rows |
+| 1 | `msisdn` | string | 11 digits, `2126…` | Subscriber line. **Identifier, never a feature.** 8 000 distinct values over 8 412 rows |
 | 2 | `snapshot_date` | date | `YYYY-MM-DD` | Date the row was extracted. 63 distinct values, from `2026-05-27` to `2026-08-24` |
 | 3 | `region` | string | 7 regions, **28 spellings** | Administrative region. Dirty: case and padding vary by source system |
 | 4 | `plan` | string | 3 offers, **6 spellings** | `prepaid` / `postpaid` / `hybrid`, sometimes upper-cased |
@@ -194,14 +194,21 @@ problem.
 
 ## 4. Pipeline A — Churn Radar, step by step
 
-Five data steps and a scoring step. Nothing in this pipeline is an LLM: SQL, then Polars,
-then scikit-learn.
+Six steps: an import, a cleaning, a feature step, three fits, a registry decision and a
+batch scoring. Nothing in this pipeline is an LLM: SQL, then a dataframe engine, then
+scikit-learn.
 
 ```
-raw export ──► A2 SQL cleanup ──► A3 features ──► A4 fit ──┐
-   8 412            6 903            6 903                 ├─► A6 score ──► 6 903 rows,
-                                       └──────────────────-┘               34 columns
+A1 import        A2 SQL cleanup     A3 features        A4 fit ─► A5 registry
+raw export  ──►  cleaned base  ──►  feature table  ──►  three versions, v1 serving
+   8 412 × 24       6 903 × 22        6 903 × 31                    │
+                                          │                        │
+                                          └────────► A6 score ◄────┘
+                                                     6 903 × 34
 ```
+
+The scoring step has two inputs on purpose: the fit tells it *which model*, the feature
+table is *what it scores*. A model reference carries no rows.
 
 ### A1 — Import the raw export
 
