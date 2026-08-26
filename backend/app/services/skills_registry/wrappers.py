@@ -1408,25 +1408,94 @@ async def _await_managed_execution(
         raise
 
 
+def _recipe_source_envelopes(
+    workspace_id: str, declared: Any
+) -> dict[str, dict[str, Any]]:
+    """Read the tables a recipe node pinned, keyed by the author's view name.
+
+    The recipe plane is a sandbox with no database and no object store, so a
+    dataset reference is worthless inside it. Reading the rows here — in the
+    wrapper, which does have both — is what makes a recipe able to compute on a
+    table at all, and it mirrors the pin the SQL, Polars and dbt nodes already
+    carry so that "read a dataset" means the same thing on every node kind.
+
+    Only the pinned tables are read, never the dataset envelopes an upstream
+    transform happens to emit: the other engines can afford to be generous
+    because they hand a frame to a query planner, whereas here every row
+    becomes JSON on the wire and in the execution record. Declaring the table
+    is therefore also declaring the cost.
+
+    Each view carries the model that produced it when the table was scored, so
+    a script that reports a figure can also name the version behind it without
+    a second lookup it has no way to make.
+    """
+
+    from app.db.base import SessionLocal
+    from app.services.tabular_datasets import (
+        dataset_reference,
+        model_provenance,
+        read_rows,
+    )
+    from app.services.tabular_transforms import resolve_sources
+
+    # Pair by position rather than by the author's spelling: the resolver
+    # slugifies view names and de-duplicates collisions, so the key a script
+    # reads is not always the string its author typed, while the order of the
+    # pinned list survives intact.
+    pinned = [
+        entry
+        for entry in declared
+        if isinstance(entry, dict)
+        and (entry.get("dataset_id") or entry.get("dataset_slug") or entry.get("slug"))
+    ]
+
+    envelopes: dict[str, dict[str, Any]] = {}
+    with SessionLocal() as db:
+        resolved = resolve_sources(db, workspace_id=workspace_id, declared=pinned)
+        for entry, source in zip(pinned, resolved):
+            columns = entry.get("columns")
+            row_limit = entry.get("limit")
+            envelopes[source.view] = {
+                "rows": read_rows(
+                    source.dataset,
+                    columns=(
+                        [str(item) for item in columns]
+                        if isinstance(columns, list) and columns
+                        else None
+                    ),
+                    limit=(
+                        row_limit
+                        if isinstance(row_limit, int) and not isinstance(row_limit, bool)
+                        else None
+                    ),
+                ),
+                "dataset": dataset_reference(source.dataset),
+                "model": model_provenance(db, source.dataset),
+            }
+    return envelopes
+
+
 async def _python_recipe_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
     """Dispatch an author-written Python script to the Celery recipe plane.
 
-    The wrapper computes nothing itself: it resolves the content-addressed
-    venv row, creates a ``RecipeExecution``, enqueues
-    ``agentium.recipe_execute`` and polls the row (~1s) until terminal. The
-    graph-owned ``_recipe`` block is injected by the DAG walker
-    (:func:`app.services.run_engine.dag._apply_recipe_node_config`); caller
-    input can never smuggle code in. Fail-closed on every invalid shape and
-    while ``recipe_execution_enabled`` is off.
+    The wrapper computes nothing itself: it reads whatever tables the node
+    pinned, resolves the content-addressed venv row, creates a
+    ``RecipeExecution``, enqueues ``agentium.recipe_execute`` and polls the row
+    (~1s) until terminal. The graph-owned ``_recipe`` block is injected by the
+    DAG walker (:func:`app.services.run_engine.dag._apply_recipe_node_config`);
+    caller input can never smuggle code or a table in. Fail-closed on every
+    invalid shape and while ``recipe_execution_enabled`` is off.
     """
+    import asyncio
     import time as time_mod
 
     from app.core.config import settings as app_settings
     from app.db.base import SessionLocal
     from app.services import recipe_executions as recipe_exec
     from app.services.recipe_envs import RecipeError, resolve_env, spec_from_params
+    from app.services.tabular_datasets import TabularError
 
     ctx = ctx or {}
     recipe = payload.get("_recipe")
@@ -1448,6 +1517,17 @@ async def _python_recipe_v1(
         raise ValueError(f"{exc.code}: {exc.message}") from exc
     timeout_s = recipe_exec.clamp_timeout(recipe.get("timeout_s"))
     inputs = {key: value for key, value in payload.items() if key != "_recipe"}
+
+    sources = recipe.get("sources")
+    if isinstance(sources, list) and sources:
+        try:
+            inputs.update(
+                await asyncio.to_thread(
+                    _recipe_source_envelopes, str(workspace_id), sources
+                )
+            )
+        except TabularError as exc:
+            raise ValueError(f"{exc.code}: {exc.message}") from exc
 
     with SessionLocal() as db:
         env = resolve_env(db, workspace_id=str(workspace_id), spec=spec)
@@ -1485,6 +1565,48 @@ async def _python_recipe_v1(
     tail_lines = (stderr_tail or "").strip().splitlines()
     suffix = f" — {tail_lines[-1][:200]}" if tail_lines else ""
     raise RuntimeError(f"recipe_execution_{status}: {detail}{suffix}"[:480])
+
+
+async def _system_run_read_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Hand a graph the result another System already produced.
+
+    A read, never an execution: the caller wants the conclusion that was
+    reached, and re-running the producer would substitute a different one for
+    it. Scoped to the calling workspace and to a System named by the graph, so
+    the surface a payload can reach is the surface an author declared.
+
+    A System that has never finished a Run answers ``found: false`` rather than
+    raising: the consumer is usually a page, and a page renders an absence.
+    """
+
+    import asyncio
+
+    from app.db.base import SessionLocal
+    from app.services.system_runs import SystemRunReadError, latest_completed_output
+
+    ctx = ctx or {}
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        raise ValueError("system_run_workspace_required")
+
+    system_id = payload.get("system_id")
+    system_name = payload.get("system_name")
+
+    def _read() -> dict[str, Any]:
+        with SessionLocal() as db:
+            return latest_completed_output(
+                db,
+                workspace_id=str(workspace_id),
+                system_id=str(system_id) if system_id else None,
+                system_name=str(system_name) if system_name else None,
+            )
+
+    try:
+        return {"system_run": await asyncio.to_thread(_read)}
+    except SystemRunReadError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
 
 
 async def _sql_transform_v1(
@@ -5870,6 +5992,11 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "python_recipe_v1": (
         _python_recipe_v1,
         "app.services.recipe_executions",
+        "bound",
+    ),
+    "system_run_read_v1": (
+        _system_run_read_v1,
+        "app.services.system_runs",
         "bound",
     ),
     "sql_transform_v1": (
