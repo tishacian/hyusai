@@ -4465,3 +4465,91 @@ lignes que les tuiles voisines. Barrières : 1 276 tests unitaires front,
   une décision de produit, pas une amélioration de rendu.
 - **`bob@globex.test` a été retiré de `nawa`** à la fin des captures ; la table
   est revenue à ses deux membres réels.
+
+## Itération du 26/08 (nuit) — le panneau de preuves, déployée sur `2b995cdf`
+
+GO deploy depuis un Cloud Agent, trois tranches successives : `46fc7ea3`
+(les courbes, déployée dans la journée et non journalée jusqu'ici), puis
+`efd0f5a1` et `2b995cdf`. Aucune migration dans aucune des trois. Une fenêtre a
+été prise avant chaque bascule
+(`/srv/agentium-data/flow-publication-deployments/2026-08-26-efd0f5a1c0c9` et
+`…-2b995cdf0e08`).
+
+La demande était l'effet « wow » sur les graphiques. Les courbes de la fiche
+modèle l'avaient reçu — dégradé sous la ligne, ligne éclairée, balayage à
+l'arrivée, réticule au pointeur. Le reste du panneau non, et une seule courbe
+polie au milieu de quatre instruments plats est pire que cinq instruments
+plats : le soin mis sur le ROC se lit comme un accident de rendu et non comme
+la langue du panneau.
+
+**Ce que la tranche change.** Les barres de la fiche reprennent exactement le
+dessin du board : deux fois la couleur pour que la barre ait un sens, un anneau
+et une lueur pour la poser sur son rail, un lustre, un balayage qui arrive dans
+l'ordre du classement. Le décalage est arithmétique et non constant — un pas
+fixe est juste pour un graphique d'équilibre à deux classes et vaut une seconde
+et demie d'attente pour vingt importances — donc `staggerDelay` comprime le pas
+pour que tout ensemble tienne dans un même budget. `VizBar` gagne une part
+optionnelle : un effectif et son pourcentage cessent d'être une seule chaîne
+mono que le lecteur doit séparer lui-même. La matrice imprime la part de ligne
+que sa teinte encode déjà et se découvre en vagues le long de la diagonale ; une
+cellule survolée est soulevée et jamais recolorée, puisque la teinte porte la
+part. Le cadran du Playground reçoit une rampe, une lueur et une poignée.
+
+**Le cadran mesure enfin le cercle que le navigateur dessine.** `A56,56` entre
+deux extrémités distantes de 116 ne décrit aucun cercle ; SVG remonte les rayons
+jusqu'à 58, et un cadran mesuré avec 56 s'arrête avant sa propre fin à 100 %.
+
+**Ce que la VM a trouvé.**
+
+- **La poignée du cadran n'était pas là où le DOM la disait.** Le remplissage et
+  la poignée avaient la même durée et la même courbe, et arrivaient séparément :
+  en milieu de course l'arc est passé au-dessus du cadran et le point est encore
+  au départ. Les deux chiffres sont exacts, un test les tenait égaux, et le
+  moteur de style confirme la poignée sur le rail à un rayon de 58 sur les 157
+  images d'une course réelle mesurée sur la VM. Les pixels disent le contraire :
+  `transform` est compositable, donc la rotation part au compositeur qui
+  interpole une matrice, hors du fil principal et hors de pas avec un
+  `stroke-dashoffset` qui est une propriété de peinture et n'en sort jamais. La
+  poignée est devenue le motif de tirets du remplissage lui-même — même chemin,
+  un tiret de 0,01 et un vide de tout le rail, décalé d'une période. Elle est sur
+  l'arc par construction et non par accord.
+- **`AGENTIUM_IMAGE_TAG` veut 12 hexadécimaux, pas 8.** Les trois images avaient
+  été bâties sous un préfixe court et `storage-check` a refusé la bascule. Elles
+  ont été re-taguées plutôt que rebâties ; le garde-fou a fait exactement son
+  travail, avant la bascule et non après.
+- **Le Dockerfile backend exige `PIP_INDEX_URL`** en argument de build, et un
+  script de reprise écrit à la main l'avait perdu. Échec en quelques secondes,
+  sur la première couche.
+- **Une entrée d'animation ne se photographie pas deux fois.** Remonter le bloc
+  en quittant l'onglet et en revenant rejoue l'arrivée, mais remet aussi la page
+  en haut, et le panneau est sous la ligne de flottaison. Le scroll doit être
+  redonné dans les premières images de la course.
+- **Le Playground d'une version non servie propose une réponse qu'il n'obtiendra
+  pas.** Le formulaire est construit sur le contrat de *sa* version — 29 champs
+  pour la v3 — et la requête part vers le plan, qui sert la v1 et ses 20 champs :
+  422. La première capture du cadran s'est perdue là.
+
+**Observables.** Barrières : 1 311 tests unitaires front, `check:i18n` sur
+6 862 clés, `build:prod`. `build-info` sur la VM :
+`2b995cdf0e082016e01b7a4767f719e92b41fb12`, `revision_verified: true`. Matrice
+de la v2 : 1 287 / 56 / 199 / 184, parts 95,8 % / 4,2 % / 52 % / 48 %. Équilibre
+de la v1 : 5 373 (77,8 %) et 1 530 (22,2 %). Cadran : 0,9 % sur la ligne typique
+seedée, 99,7 % après passage au profil à risque (tenure 2, 5 tickets, NPS 0),
+répondu en 296 à 360 ms.
+
+**Dette laissée.**
+
+- **Le 422 du Playground sur une version non servie** est un vrai défaut d'usage,
+  pas un défaut de rendu : la fiche offre un formulaire dont la réponse est
+  refusée. Le corriger demande de décider ce que la page promet — servir la
+  version affichée, ou dire qu'elle ne l'est pas — et ce n'est pas une décision
+  de mise en forme.
+- **L'arrivée des barres et de la matrice n'est pas filmée.** Elle est prouvée
+  par le cadran, dont la course est photographiée image par image ; les deux
+  autres arrivent une fois, hors champ, et les remettre en champ demanderait de
+  déplacer le panneau plutôt que la caméra.
+- **`bob@globex.test` a été retiré de `nawa`** à la fin des captures. Il y était
+  encore au début de cette itération : le retrait noté à la tranche précédente
+  avait bien été fait, puis le compte a été re-invité pour les captures des
+  courbes sans que la ligne soit rejouée. La table est revenue à ses deux membres
+  réels.
