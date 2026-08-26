@@ -67,8 +67,12 @@ from scripts.seed_nawa_data_demo import (
     BOARD_OUTPUT_SCHEMA,
     BOARD_SKILL_SLUGS,
     BOARD_SYSTEM_NAME,
+    BRIEF_INSTRUCTION,
+    CHURN_SKILL_SLUGS,
     CHURN_SYSTEM_NAME,
     CLEAN_DATASET_NAME,
+    DIGEST_CODE,
+    DIGEST_COLUMNS,
     ENGINEERED_COLUMNS,
     MODEL_NAME,
     SEED_ACTOR,
@@ -80,7 +84,9 @@ from scripts.seed_nawa_data_demo import (
     board_flow,
     board_main,
     churn_flow,
+    cleaned_slug,
     desk_flow,
+    digest_main,
     ensure_board_binding,
     ensure_board_experience,
     ensure_capability,
@@ -524,15 +530,20 @@ def test_the_scoring_node_is_fed_by_both_the_fit_and_the_feature_table():
     into_score = {edge["from"] for edge in flow["edges"] if edge["to"] == "task.score"}
     assert into_score == {"task.train", "task.features"}
 
-    # And the chain before it is the one the demo narrates, in order.
+    # And the chain before it is the one the demo narrates, in order. The
+    # digest sits between the scoring node and the writer for the same reason
+    # the diamond exists: the writer cannot see rows either, so something
+    # between them has to read the table and hand on figures.
     edges = {(edge["from"], edge["to"]) for edge in flow["edges"]}
     assert {
         ("src", "task.clean"),
         ("task.clean", "task.features"),
         ("task.features", "task.train"),
-        ("task.score", "task.brief"),
+        ("task.score", "task.digest"),
+        ("task.digest", "task.brief"),
         ("task.brief", "sink"),
     } <= edges
+    assert ("task.score", "task.brief") not in edges
 
 
 def test_the_training_node_asks_for_the_columns_the_feature_node_derives():
@@ -1387,6 +1398,280 @@ def test_no_figure_the_documentation_quotes_is_written_into_the_board():
     large = _board(_scored_rows(size=80))["summary"]
     for key in ("subscribers_at_risk", "base_size", "revenue_at_stake_mad"):
         assert small[key] != large[key], key
+
+
+# ---------------------------------------------------------------------------
+# The brief's digest
+# ---------------------------------------------------------------------------
+
+
+def _digest(rows, *, instruction: str = BRIEF_INSTRUCTION) -> dict:
+    return digest_main()(
+        {
+            "instruction": instruction,
+            "scored": {
+                "rows": rows,
+                "model": {"name": MODEL_NAME, "version": 1},
+            },
+        }
+    )
+
+
+def test_every_figure_the_brief_is_given_was_measured_on_the_rows_it_describes():
+    """The grounding, stated as the property that was previously false.
+
+    Each figure is recomputed here from the same rows rather than compared with
+    a constant, because the claim being tested is that the digest's numbers
+    *are* the arithmetic. A digest that quoted a literal would pass a test that
+    checked it against another literal, which is exactly how the brief came to
+    say 1 200.
+
+    Doubling the base has to move every one of them. A figure that survives a
+    changed base unchanged is a figure that was never read off it.
+    """
+
+    rows = _scored_rows(size=40)
+    figures = _digest(rows)["figures"]
+
+    flagged = [row for row in rows if row["prediction"] == "1"]
+    assert figures["base_size"] == 40
+    assert figures["subscribers_at_risk"] == len(flagged) == 20
+    assert figures["revenue_at_stake_mad"] == pytest.approx(
+        sum(round(row["arpu_mad"] * row["score_1"], 2) for row in flagged), abs=0.01
+    )
+    assert figures["base_churn_pct"] == 20.0
+    assert figures["riskiest_decile_churn_pct"] == 100.0
+    assert figures["riskiest_decile_size"] == 4
+    assert figures["model_name"] == MODEL_NAME and figures["model_version"] == 1
+
+    larger = _digest(_scored_rows(size=80))["figures"]
+    for key in ("base_size", "subscribers_at_risk", "revenue_at_stake_mad"):
+        assert figures[key] != larger[key], key
+
+
+def test_the_brief_and_the_board_cannot_quote_different_numbers():
+    """Two blocks inches apart on one page, so one arithmetic and not two.
+
+    This is the whole reason the shared fragment exists. A second
+    implementation of "revenue at stake" that rounded once over the total
+    rather than per subscriber would differ by centimes, and the page itself
+    would carry the contradiction — which is worse than a page with no
+    narrative on it. The recipe plane is a sandbox with no import path back
+    into this repository, so the sharing has to be textual: both scripts are
+    the concatenation of one fragment and their own.
+
+    The money figure goes further and travels as the *same string* the tile
+    renders, which is the strongest form the agreement can take: the brief and
+    the tile quote the same characters.
+    """
+
+    rows = _scored_rows(size=40)
+    figures = _digest(rows)["figures"]
+    summary = _board(rows)["summary"]
+
+    for key in (
+        "base_size",
+        "subscribers_at_risk",
+        "revenue_at_stake_mad",
+        "revenue_at_stake_display",
+        "base_churn_pct",
+        "riskiest_decile_churn_pct",
+    ):
+        assert figures[key] == summary[key], key
+
+    prompt = _digest(rows)["prompt"]
+    assert summary["revenue_at_stake_display"] in prompt
+    # And the definition of the money figure travels with the figure, in both
+    # places, because a monetary claim without it is the one a committee
+    # challenges.
+    assert summary["revenue_at_stake_label"] in prompt
+
+
+def test_the_segments_the_brief_names_are_the_ones_worth_funding_first():
+    """Three, ranked by money, and the same three on a second read.
+
+    A campaign is aimed at a region and a plan together: region alone sends one
+    message to seven markets, plan alone hides that prepaid and postpaid leave
+    for different reasons. Ranked by revenue at stake rather than by headcount,
+    for the same reason the call list is — a large segment of cheap lines is not
+    the first campaign to fund — and the label breaks ties so two runs over one
+    table name the same three.
+    """
+
+    rows = []
+    for index, row in enumerate(_scored_rows(size=40)):
+        rows.append(
+            {
+                **row,
+                "region": ["casablanca", "rabat", "marrakech", "tanger"][index % 4],
+                "plan": ["prepaid", "postpaid"][index % 2],
+            }
+        )
+
+    segments = _digest(rows)["figures"]["segments"]
+
+    assert len(segments) == 3
+    stakes = [item["revenue_at_stake_mad"] for item in segments]
+    assert stakes == sorted(stakes, reverse=True)
+    for item in segments:
+        cohort = [
+            row
+            for row in rows
+            if row["prediction"] == "1"
+            and row["region"] == item["region"]
+            and row["plan"] == item["plan"]
+        ]
+        assert cohort, item
+        assert item["subscribers"] == len(cohort)
+        assert item["mean_arpu_mad"] == pytest.approx(
+            round(sum(row["arpu_mad"] for row in cohort) / len(cohort), 2), abs=0.01
+        )
+        assert item["mean_score"] == pytest.approx(
+            round(sum(row["score_1"] for row in cohort) / len(cohort), 4), abs=0.0001
+        )
+    assert _digest(rows)["figures"]["segments"] == segments
+
+
+def test_the_prompt_tells_the_writer_the_list_of_figures_is_exhaustive():
+    """An instruction to quote figures, without figures, is one to invent them.
+
+    So the instruction says the supplied list is the whole of what may be
+    written, and the figures follow it in the same string. The brief is still a
+    brief — eight lines, segments, a revenue figure, an action each — because
+    the point was never to stop the model writing; it was to stop it choosing
+    the numbers.
+    """
+
+    prompt = _digest(_scored_rows(size=40))["prompt"]
+
+    assert prompt.startswith(BRIEF_INSTRUCTION)
+    lowered = BRIEF_INSTRUCTION.lower()
+    # The three things the instruction has to say, in whatever words: copy
+    # these, invent none, and stay a brief.
+    assert "copied from the measured figures" in lowered
+    assert "not in that list" in lowered
+    assert "8 lines" in lowered
+
+    # The figures are handed over as text the model reads, not as a structure
+    # it has to be trusted to traverse.
+    assert "Measured figures" in prompt
+    assert "Subscribers scored: 40" in prompt
+    # A refusal, not a fabrication, when there is nothing to be factual about.
+    with pytest.raises(ValueError, match="empty"):
+        _digest([])
+    with pytest.raises(ValueError, match="instruction"):
+        _digest(_scored_rows(size=4), instruction="   ")
+
+
+def test_no_figure_the_documentation_quotes_is_written_into_the_prompt():
+    """The digest may not carry a number of its own, in code or in copy.
+
+    Same argument as for the board, and sharper here: a literal in the
+    instruction would be a figure the model is told to copy, and it would
+    survive a changed generator, a re-fit and a re-score while reading exactly
+    as authoritative as the measured ones beside it.
+    """
+
+    quoted = ("6903", "6 903", "1 000", "1,000", "1 200", "1,200", "360", "0.835", "3.5")
+    for figure in quoted:
+        assert figure not in BRIEF_INSTRUCTION, figure
+        assert figure not in DIGEST_CODE, figure
+
+
+def test_the_writer_has_no_prompt_of_its_own_left_to_fall_back_on():
+    """The defect was a literal on a node, so the fix is its absence.
+
+    ``azure_llm_v1`` receives a prompt and nothing else. While the node carried
+    one in ``config.params``, the walker had something to hand it whether or
+    not the digest ran — so a prompt asking for figures and containing none
+    was reachable, which is the state the brief was invented in. Asserting the
+    parameter is gone is what stops it being restored as a "default".
+
+    The rest is the pin: the rows arrive projected, and they arrive from the
+    lineage rather than from one version of it, so a re-score is read by the
+    next run instead of ignored by it.
+    """
+
+    flow = churn_flow(raw_slug="raw", model_slug="m", features=["arpu_mad"])
+    nodes = {node["id"]: node for node in flow["nodes"]}
+
+    brief = nodes["task.brief"]["config"]
+    assert "prompt" not in (brief.get("params") or {})
+    assert brief["inputs_map"]["prompt"] == {
+        "node_id": "task.digest",
+        "path": ["prompt"],
+    }
+
+    digest = nodes["task.digest"]["config"]
+    assert digest["skill_slug"] == "python_recipe_v1"
+    assert digest["params"]["code"] == DIGEST_CODE
+    assert digest["params"]["sources"] == [
+        {
+            "dataset_slug": scored_slug(),
+            "view": "scored",
+            "columns": list(DIGEST_COLUMNS),
+        }
+    ]
+    # A measuring node, not a writing one: an ``output_name`` here would mint a
+    # dataset version of the digest on every run of the pipeline.
+    assert "output_name" not in digest["params"]
+
+    # Six columns rather than the board's eight, and a subset of them: a brief
+    # names segments, so it is handed neither a line number nor a tenure.
+    assert set(DIGEST_COLUMNS) < set(BOARD_COLUMNS)
+    assert "msisdn" not in DIGEST_COLUMNS
+
+    # And the skill the node runs on is claimed by the capability, or the
+    # walker refuses the graph before any of this matters.
+    assert "python_recipe_v1" in CHURN_SKILL_SLUGS
+
+
+def test_the_brief_cannot_be_written_about_a_base_one_run_old():
+    """A pin follows a lineage, and inside this run that is the wrong rule.
+
+    The digest reads the scored table by slug, which resolves to the newest
+    ready version — right for a board somebody refreshes at lunchtime, wrong
+    here, because this node runs *inside* the run that produced the table it
+    describes. If those two are ever different tables then something between
+    them did not do what it was asked, and the figures on hand describe
+    yesterday's base while reading exactly as authoritative as today's. That is
+    the failure this node exists to prevent, arriving by a different door, so
+    it refuses rather than reporting.
+    """
+
+    flow = churn_flow(raw_slug="raw", model_slug="m", features=["arpu_mad"])
+    digest = next(
+        node for node in flow["nodes"] if node["id"] == "task.digest"
+    )["config"]
+    # The scoring node reports the version it wrote; the check is against that.
+    assert digest["inputs_map"]["scored_dataset_id"] == {
+        "node_id": "task.score",
+        "path": ["dataset_id"],
+    }
+
+    rows = _scored_rows(size=40)
+    main = digest_main()
+
+    def run(*, written, read):
+        return main(
+            {
+                "instruction": BRIEF_INSTRUCTION,
+                "scored_dataset_id": written,
+                "scored": {
+                    "rows": rows,
+                    "model": {"name": MODEL_NAME, "version": 1},
+                    "dataset": {"dataset_id": read},
+                },
+            }
+        )
+
+    assert run(written="ds-7", read="ds-7")["figures"]["base_size"] == 40
+    with pytest.raises(ValueError, match="not the one this run"):
+        run(written="ds-8", read="ds-7")
+    # Silent on what it cannot compare: a run whose scoring node reported no
+    # id, or a table read without one, is not evidence of staleness.
+    assert run(written=None, read="ds-7")["figures"]["base_size"] == 40
+    assert run(written="ds-8", read=None)["figures"]["base_size"] == 40
 
 
 # ---------------------------------------------------------------------------
