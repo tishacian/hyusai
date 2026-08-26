@@ -38,7 +38,10 @@ logging, never by raising into the training path.
 from __future__ import annotations
 
 import logging
+import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -332,6 +335,57 @@ def version_of_run(*, model_name: str, run_id: str) -> str | None:
         return None
 
 
+def artifact_s3_environment() -> dict[str, str]:
+    """The environment a *foreign* MLflow client needs to read our artifacts.
+
+    A registered version's ``source`` is an ``s3://`` URI. MLflow resolves those
+    with boto3, and boto3 takes its endpoint and credentials from the process
+    environment and nowhere else — so a stranger handed only the registry URI
+    gets ``NoCredentialsError``, which reads like the artifacts are unreachable
+    when they are merely unaddressed.
+
+    Nothing in Agentium's own paths needs this: the serving loader pulls the
+    directory through the ``ObjectStore`` facade and hands ``load_model`` a local
+    path. Publishing these three names is therefore not a hole in the no-lock-in
+    claim, it *is* the claim — the S3 configuration any MLflow speaks to any
+    object store with, and no Agentium code. Local postures hand back ``file://``
+    sources and this correctly returns nothing.
+    """
+
+    if str(settings.object_store_backend or "").lower() != "s3":
+        return {}
+    named = (
+        ("AWS_ACCESS_KEY_ID", settings.object_store_s3_access_key),
+        ("AWS_SECRET_ACCESS_KEY", settings.object_store_s3_secret_key),
+        ("MLFLOW_S3_ENDPOINT_URL", settings.object_store_s3_endpoint_url),
+    )
+    return {name: str(value) for name, value in named if value}
+
+
+@contextmanager
+def artifact_s3_credentials() -> Iterator[dict[str, str]]:
+    """Apply ``artifact_s3_environment`` for the duration of a block.
+
+    Scoped rather than exported at boot because ``AWS_ACCESS_KEY_ID`` is not
+    ours alone: the Bedrock provider reads the same name when it was given no
+    explicit key, and a process-wide export would quietly point it at MinIO.
+    A variable already set by the deployment is left exactly as it was.
+    """
+
+    applied = artifact_s3_environment()
+    previous = {name: os.environ.get(name) for name in applied}
+    for name, value in applied.items():
+        os.environ.setdefault(name, value)
+    try:
+        yield applied
+    finally:
+        for name, was in previous.items():
+            if was is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = was
+
+
 def alias_version(*, model_name: str, alias: str = _ALIAS_CHAMPION) -> str | None:
     """The version an alias resolves to, or ``None``. Used by tests and support."""
 
@@ -347,6 +401,8 @@ def alias_version(*, model_name: str, alias: str = _ALIAS_CHAMPION) -> str | Non
 
 __all__ = [
     "alias_version",
+    "artifact_s3_credentials",
+    "artifact_s3_environment",
     "clear_alias",
     "ensure_database",
     "forget_model",

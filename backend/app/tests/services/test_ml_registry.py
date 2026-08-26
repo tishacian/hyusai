@@ -14,6 +14,7 @@ all — with a file instead of an instance.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -94,6 +95,121 @@ def test_an_explicit_setting_wins_over_the_derivation(monkeypatch):
     monkeypatch.setattr(settings, "ml_registry_uri", "postgresql://x:y@elsewhere/reg")
     monkeypatch.setattr(settings, "database_url", "postgresql://a:b@db:5432/agentium")
     assert ml_registry.registry_uri() == "postgresql://x:y@elsewhere/reg"
+
+
+# ---------------------------------------------------------------------------
+# What a stranger needs to reach the bytes the registry names
+# ---------------------------------------------------------------------------
+
+
+def _minio_posture(monkeypatch, **overrides) -> None:
+    """The deployment on which a version's ``source`` is an ``s3://`` URI."""
+
+    values = {
+        "object_store_backend": "s3",
+        "object_store_s3_access_key": "agentium",
+        "object_store_s3_secret_key": "agentium-secret",
+        "object_store_s3_endpoint_url": "http://minio:9000",
+        **overrides,
+    }
+    for name, value in values.items():
+        monkeypatch.setattr(settings, name, value)
+
+
+def test_a_local_object_store_has_nothing_to_hand_a_foreign_client(monkeypatch):
+    """There is no bucket on that posture: the sources are ``file://`` paths.
+
+    Handing back S3 names anyway — from settings some earlier deployment left
+    behind — would aim a stranger's boto3 at an endpoint nobody runs, and the
+    refusal would arrive as a connection error rather than as "this instance
+    keeps its artifacts on disk".
+    """
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_s3_access_key", "left-over")
+
+    assert ml_registry.artifact_s3_environment() == {}
+
+
+def test_an_s3_object_store_hands_back_the_three_names_boto3_reads(monkeypatch):
+    """The standard S3 configuration and nothing else: no name a reader must learn.
+
+    The endpoint is the one that is easy to leave out, and leaving it out is
+    the failure that reads worst: boto3 goes to AWS instead of to the MinIO the
+    bucket lives on and reports that the bucket does not exist.
+    """
+
+    _minio_posture(monkeypatch)
+    assert ml_registry.artifact_s3_environment() == {
+        "AWS_ACCESS_KEY_ID": "agentium",
+        "AWS_SECRET_ACCESS_KEY": "agentium-secret",
+        "MLFLOW_S3_ENDPOINT_URL": "http://minio:9000",
+    }
+
+    # The backend arrives from the process environment, where the spelling is
+    # the operator's to choose.
+    _minio_posture(monkeypatch, object_store_backend="S3")
+    assert len(ml_registry.artifact_s3_environment()) == 3
+
+
+def test_a_setting_nobody_configured_is_absent_rather_than_exported_empty(monkeypatch):
+    """An empty ``AWS_SECRET_ACCESS_KEY`` is worse than a missing one.
+
+    boto3 reads the name as configured and stops looking, so an object store
+    reached anonymously or through some other credential chain would be handed
+    a blank secret instead of being left to find its own.
+    """
+
+    _minio_posture(
+        monkeypatch,
+        object_store_s3_secret_key=None,
+        object_store_s3_endpoint_url="",
+    )
+    assert ml_registry.artifact_s3_environment() == {"AWS_ACCESS_KEY_ID": "agentium"}
+
+
+def test_the_credentials_last_for_the_block_and_are_taken_back_after_it(monkeypatch):
+    """``AWS_ACCESS_KEY_ID`` is not ours alone, so it cannot be a boot-time export.
+
+    The Bedrock provider falls back to that exact variable when it is given no
+    explicit key, so a process-wide export would quietly point a model provider
+    at MinIO and send it a credential that was never going to work there.
+    """
+
+    _minio_posture(monkeypatch)
+    for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "MLFLOW_S3_ENDPOINT_URL"):
+        monkeypatch.delenv(name, raising=False)
+
+    with ml_registry.artifact_s3_credentials() as applied:
+        assert applied == ml_registry.artifact_s3_environment()
+        assert os.environ["AWS_ACCESS_KEY_ID"] == "agentium"
+        assert os.environ["AWS_SECRET_ACCESS_KEY"] == "agentium-secret"
+        assert os.environ["MLFLOW_S3_ENDPOINT_URL"] == "http://minio:9000"
+
+    assert "AWS_ACCESS_KEY_ID" not in os.environ
+    assert "AWS_SECRET_ACCESS_KEY" not in os.environ
+    assert "MLFLOW_S3_ENDPOINT_URL" not in os.environ
+
+
+def test_a_key_the_deployment_already_set_survives_the_block_untouched(monkeypatch):
+    """A real AWS key configured for Bedrock is the one value this must never win.
+
+    Overwriting it for the length of the block would break every call made
+    while the block runs, and putting it back afterwards would not undo that —
+    so the deployment's value stands, and only the names it left unset are
+    filled in.
+    """
+
+    _minio_posture(monkeypatch)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "the-deployments-own")
+    monkeypatch.delenv("MLFLOW_S3_ENDPOINT_URL", raising=False)
+
+    with ml_registry.artifact_s3_credentials():
+        assert os.environ["AWS_ACCESS_KEY_ID"] == "the-deployments-own"
+        assert os.environ["MLFLOW_S3_ENDPOINT_URL"] == "http://minio:9000"
+
+    assert os.environ["AWS_ACCESS_KEY_ID"] == "the-deployments-own"
+    assert "MLFLOW_S3_ENDPOINT_URL" not in os.environ
 
 
 # ---------------------------------------------------------------------------

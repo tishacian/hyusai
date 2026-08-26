@@ -19,7 +19,6 @@ Usage (with the demo already seeded by ``seed_nawa_data_demo``):
 
 from __future__ import annotations
 
-import os
 import sys
 import warnings
 from pathlib import Path
@@ -27,7 +26,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 warnings.filterwarnings("ignore")
 
-from app.core.config import settings  # noqa: E402
 from app.db.base import SessionLocal  # noqa: E402
 from app.models.tabular import MLModel, TabularDataset  # noqa: E402
 from app.models.workspace import Workspace  # noqa: E402
@@ -102,18 +100,6 @@ def check(label: str, actual, *, expected=None, tolerance: float = 0.0) -> None:
         FAILURES.append(f"{label}: {actual} != {want}")
 
 
-def _export_s3_credentials() -> None:
-    """Put the object store's own S3 settings where boto3 looks for them."""
-
-    for name, value in (
-        ("AWS_ACCESS_KEY_ID", settings.object_store_s3_access_key),
-        ("AWS_SECRET_ACCESS_KEY", settings.object_store_s3_secret_key),
-        ("MLFLOW_S3_ENDPOINT_URL", settings.object_store_s3_endpoint_url),
-    ):
-        if value and not os.environ.get(name):
-            os.environ[name] = value
-
-
 def frame(db, slug: str, version: int | None = None):
     query = db.query(TabularDataset).filter(TabularDataset.slug == slug)
     if version is not None:
@@ -183,41 +169,39 @@ def main() -> int:  # noqa: C901 - a linear checklist, read top down
     import mlflow.pyfunc
     from mlflow.tracking import MlflowClient
 
-    # A version's ``source`` is an ``s3://`` URI, and MLflow's S3 artifact repo
-    # reaches it with boto3, which reads credentials from the environment and
-    # nowhere else. Our own serving path never needs them — it pulls the
-    # directory through the object store facade and hands ``load_model`` a local
-    # path — so nothing in the deployment sets them, and this step used to die
-    # in ``NoCredentialsError`` on the only posture where it means anything.
-    # Exporting them is not a crack in the no-lock-in claim, it is the claim:
-    # what a foreign reader needs is the S3 configuration any MLflow talks to
-    # an object store with, and no Agentium code. Local postures hand back
-    # ``file://`` and ignore all three.
-    _export_s3_credentials()
-
-    uri = ml_registry.registry_uri()
-    client = MlflowClient(tracking_uri=uri, registry_uri=uri)
-    champion = client.get_model_version_by_alias(name, "champion")
-    check("resolved version", str(champion.version), expected="1")
-    check("source is the object store", champion.source.endswith(models[1].model_uri), expected=True)
-    loaded = mlflow.pyfunc.load_model(champion.source)
-    check("signature columns", len(loaded.metadata.get_input_schema().inputs), expected=20)
-    run = client.get_run(champion.run_id)
-    check("run metric roc_auc", round(run.data.metrics["roc_auc"], 6), expected=V1_ROC_AUC)
-    # Both halves of the story, from outside: an A/B between the incumbent and
-    # its contender needs no knowledge of our tables, only the two aliases.
-    contender = client.get_model_version_by_alias(name, "challenger")
-    check("challenger resolves to", str(contender.version), expected="2")
-    check(
-        "the two aliases are different bytes",
-        contender.source != champion.source,
-        expected=True,
-    )
-    check(
-        "challenger run metric roc_auc",
-        round(client.get_run(contender.run_id).data.metrics["roc_auc"], 6),
-        expected=V2_ROC_AUC,
-    )
+    # The reader's configuration, not ours: a version's ``source`` is an
+    # ``s3://`` URI, and reaching it takes the S3 environment any MLflow talks
+    # to any object store with and no Agentium code — so applying it here is
+    # not a crack in the no-lock-in claim, it is the claim. Our own serving path
+    # pulls the directory through the object store facade and hands
+    # ``load_model`` a local path, so nothing in the deployment sets those
+    # names, and without them this step dies in ``NoCredentialsError`` on the
+    # only posture where it proves anything.
+    with ml_registry.artifact_s3_credentials():
+        uri = ml_registry.registry_uri()
+        client = MlflowClient(tracking_uri=uri, registry_uri=uri)
+        champion = client.get_model_version_by_alias(name, "champion")
+        check("resolved version", str(champion.version), expected="1")
+        check("source is the object store", champion.source.endswith(models[1].model_uri), expected=True)
+        loaded = mlflow.pyfunc.load_model(champion.source)
+        check("signature columns", len(loaded.metadata.get_input_schema().inputs), expected=20)
+        run = client.get_run(champion.run_id)
+        check("run metric roc_auc", round(run.data.metrics["roc_auc"], 6), expected=V1_ROC_AUC)
+        # Both halves of the story, from outside: an A/B between the incumbent
+        # and its contender needs no knowledge of our tables, only the two
+        # aliases.
+        contender = client.get_model_version_by_alias(name, "challenger")
+        check("challenger resolves to", str(contender.version), expected="2")
+        check(
+            "the two aliases are different bytes",
+            contender.source != champion.source,
+            expected=True,
+        )
+        check(
+            "challenger run metric roc_auc",
+            round(client.get_run(contender.run_id).data.metrics["roc_auc"], 6),
+            expected=V2_ROC_AUC,
+        )
 
     print("\n[6] a stock skore, told only the tag that run carries")
     import io
