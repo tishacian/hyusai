@@ -159,7 +159,7 @@ async function main() {
       await page.keyboard.press('Escape');
     }
     // Then the profile panel proper, which is what the beat is really about.
-    const schemaTab = page.locator('button', { hasText: /^Schema$/ }).first();
+    const schemaTab = page.getByRole('tab', { name: 'Schema', exact: true }).first();
     if (await schemaTab.count()) {
       await schemaTab.click();
       await beat(page, 2400);
@@ -202,7 +202,10 @@ async function main() {
     const ranked = modelRows
       .filter((m) => /Churn Radar/i.test(m.name || ''))
       .sort((a, b) => (a.version || 0) - (b.version || 0));
-    note(4, ranked.map((m) => `v${m.version} ${m.algo} ${m.metrics_json?.primary?.value ?? '?'}${m.is_champion ? ' ←serving' : ''}`).join(' · '));
+    // ``primary_metric`` is what a list row carries: the detail block the card
+    // reads is not serialised into a list, so asking for it here reports "?"
+    // about a model that has the score all along.
+    note(4, ranked.map((m) => `v${m.version} ${m.algo} ${m.primary_metric?.value ?? '?'}${m.is_champion ? ' ←serving' : ''}`).join(' · '));
 
     const best = ranked.find((m) => !m.is_champion && m.status === 'ready') || ranked[0];
     await page.goto(`${HOST}/models/${best.id}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
@@ -216,7 +219,11 @@ async function main() {
     }
 
     for (const [tab, hold] of [['Comparison', 4200], ['Input contract', 2600], ['Versions', 2600]]) {
-      const button = page.locator('button', { hasText: new RegExp(`^${tab}$`) }).first();
+      // By role and accessible name. The tab strip renders uppercase through
+      // CSS and indents its label in the template, so an anchored regex over
+      // raw text content matches none of them and the recording silently walks
+      // past the three beats it exists to film.
+      const button = page.getByRole('tab', { name: tab, exact: true }).first();
       if (!(await button.count())) {
         note(5, `tab "${tab}" not present`);
         continue;
@@ -238,7 +245,7 @@ async function main() {
     const serving = ranked.find((m) => m.is_champion) || ranked[0];
     await page.goto(`${HOST}/models/${serving.id}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
     await page.waitForSelector('text=/Churn Radar/i', { timeout: 60_000 });
-    const predictTab = page.locator('button', { hasText: /^Predict$/ }).first();
+    const predictTab = page.getByRole('tab', { name: 'Predict', exact: true }).first();
     if (await predictTab.count()) {
       await predictTab.click();
       await beat(page, 2600);

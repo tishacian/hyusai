@@ -28,7 +28,7 @@ identifiers and the **same** figures.
 
 | Object | Value |
 |---|---|
-| URL | `https://agentium.papai.ai` — served revision `750e4e9f4de6` |
+| URL | `https://agentium.papai.ai` — served revision `4483dd1a34eb` |
 | Workspace | `nawa` — id `b337fdbf-2689-436e-a287-2fe903ca47cf`, `presentation.locale = en` |
 | System 1 | `Churn Radar` — id `5e0937e3-652c-4eaf-addc-b25ec68e7ba6`, active |
 | System 2 | `Radio Watch` — id `00548e30-e8ea-4bab-a138-31b308af487e`, active |
@@ -42,26 +42,33 @@ Seven datasets, and the lineage reads in order:
 
 | Dataset | Version | Rows | Columns | Produced by |
 |---|---|---|---|---|
-| `subscriber-base-raw-export` | v1 | 8 412 | 24 | the upload |
-| `radio-cell-kpis` | v1 | 24 192 | 12 | the upload |
-| `subscriber-base-cleaned` | v1 | 6 903 | 22 | the seed (duckdb SQL) |
-| `subscriber-base-cleaned` | v2 | 6 903 | 22 | the Flow's `SQL cleanup` node |
+| `subscriber-base-raw-export` | v2 | 8 412 | 24 | the upload |
+| `radio-cell-kpis` | v2 | 24 192 | 12 | the upload |
+| `subscriber-base-cleaned` | v2 | 6 903 | 22 | the seed (duckdb SQL) |
+| `subscriber-base-cleaned` | v3 | 6 903 | 22 | the Flow's `SQL cleanup` node |
 | `subscriber-base-features` | v1 | 6 903 | 31 | the `Polars features` node |
 | `subscriber-base-scored` | v1 | 6 903 | 34 | the `Score the base` node |
-| `cells-at-risk-7-days` | v1 | 72 | 13 | Radio Watch's dbt node |
+| `cells-at-risk-7-days` | v2 | 72 | 13 | Radio Watch's dbt node |
+
+Read the version column as a count of how often a slug has been written, not as
+part of the story: `--reset` retires the previous incarnation rather than
+erasing it, so every re-seed increments the ones it rewrites. What the demo
+actually rests on is the shape, and that is fixed — one version of each table
+except `subscriber-base-cleaned`, which has two because the seed builds it once
+and the Flow builds it again in front of the room.
 
 ## The figures to know by heart
 
 - **8 412 → 6 903.** Exact, not sampled, and in this order: 412 duplicates first
   (8 000 remain), then out of what remains 640 suspended lines + 297 empty ARPU
   + 160 ARPU at `-1`, three disjoint blocks. 8 000 − 1 097 = 6 903.
-- **Three versions, a measured ranking**: v1 `linear` **0.836610** · v2
+- **Three versions, a measured ranking**: v1 `linear` **0.836617** · v2
   `gradient_boosting` **0.864133** · v3 `gradient_boosting` on the 29 engineered
-  columns **0.853761**. Promoting v1 → v2 is worth **+0.027523** ROC AUC.
+  columns **0.853761**. Promoting v1 → v2 is worth **+0.027516** ROC AUC.
 - **v3 does not win**, and it is left that way. A registry exists precisely so it
   can say a challenger lost.
-- **Churn rate of the cleaned base: 22.16%.** The model flags 999 out of 6 903;
-  the riskiest decile churns at **77.2%**, or **×3.5** the base rate.
+- **Churn rate of the cleaned base: 22.16%.** The model flags 1 000 out of 6 903;
+  the riskiest decile churns at **77.4%**, or **×3.5** the base rate.
 - **Radio watchlist: 9 `critical`, 8 `watch`, 55 `healthy`** across 72 cells. Three of
   the nine critical ones were healthy a fortnight ago (deltas of +21 to +28 PRB points).
 
@@ -163,7 +170,9 @@ somebody's laptop.
 
 1. **The training node**: `ml_train_sklearn_v1`. Target `churn`, 29 columns, estimator and
    split declared in the graph's configuration. The badge on the 26/08 run reads
-   `6 903 rows · roc_auc 0.853761` in 15.1 s.
+   `6 903 rows · roc_auc 0.853761`. The metric is the same every time; the wall
+   clock is not — 15 s on an idle VM, three times that when the box is busy
+   building images, which is worth knowing before promising a number out loud.
 2. **The Models page, three versions of the same lineage.** Open **v2** — the model card
    is built to be projected: metrics, confusion matrix, ROC and precision/recall curves,
    importances, input signature, lineage back to the exact dataset.
@@ -181,8 +190,9 @@ somebody's laptop.
    import mlflow.pyfunc; mlflow.pyfunc.load_model(v.source).predict(rows)  # bytes on MinIO
    ```
 
-   Measured on 26/08: `champion` → v1, a 20-column signature, the run's `roc_auc`
-   **0.836610** — the card's figure, read out of the registry.
+   Measured on 26/08 against the live VM: `champion` → v1, seven artifacts pulled
+   off MinIO, a 20-column signature, the run's `roc_auc` **0.836617** — the card's
+   figure, read out of the registry.
 5. **The evaluation itself is kept**, not only its summary: the card shows "Evaluation
    kept — 173 kB, skore report 0.25.0, reloadable". The run carries its location (tag
    `agentium.skore_report_state`), and `EstimatorReport.from_dict` reopens it with its
@@ -205,11 +215,11 @@ somebody's laptop.
 
    | Version | Estimator | Columns | ROC AUC |
    |---|---|---|---|
-   | v1 | `linear` | 20 | **0.836610** ← serves before the demo |
+   | v1 | `linear` | 20 | **0.836617** ← serves before the demo |
    | v2 | `gradient_boosting` | 20 | **0.864133** |
    | v3 | `gradient_boosting` | 29 (+ derived) | 0.853761 |
 
-2. **v2 beats v1 by +0.027523.** Say *why*: churn in this base is not additive. A ticket in
+2. **v2 beats v1 by +0.027516.** Say *why*: churn in this base is not additive. A ticket in
    the first year is a resignation letter; the same ticket on an eight-year line is a call
    to support. A logistic regression cannot represent a product of two variables. The
    baseline was not handicapped — the world is not additive.
@@ -223,7 +233,7 @@ somebody's laptop.
 
    | Metric | v1 `linear` | v2 `gradient_boosting` |
    |---|---|---|
-   | ROC AUC | 0.836610 | **0.864133** |
+   | ROC AUC | 0.836617 | **0.864133** |
    | Accuracy | 0.833720 | **0.852260** |
    | Precision | 0.698347 | **0.766667** |
    | Recall | 0.441253 | **0.480418** |
@@ -387,10 +397,11 @@ the journal: [`agentium-safe-vm-deployment.md`](../../ops/agentium-safe-vm-deplo
 |---|---|
 | Seed replayed with `--reset` on the VM | 7 datasets `ready`, 3 models, 2 systems active, no French artifact left |
 | `subscriber-base-cleaned` | 6 903 rows from 8 412, exact |
-| Fit v1 / v2 / v3 | roc_auc 0.836610 / 0.864133 / 0.853761 |
+| Fit v1 / v2 / v3 | roc_auc 0.836617 / 0.864133 / 0.853761 |
 | Champion after seed | v1, not reassigned |
-| Run Churn Radar | completed, 7 nodes (clean 58 ms · features 1.6 s · train 15.1 s · score 4.1 s · brief) |
+| Run Churn Radar | completed, 7 nodes, none failed (clean 270 ms · features 3.2 s · train 46.2 s · score 12.8 s · brief 5.8 s, on a VM that was building images at the time) |
 | Run Radio Watch | completed, 3 nodes, dbt 72 rows |
+| `verify_nawa_data_ml_plane` | every line `ok`, no `DRIFT` |
 | MLflow registry | 3 versions of `b337fdbf.churn-radar`, `source` → the object store, alias `champion` → v1, `challenger` → v2 |
 | Foreign MLflow client | `get_model_version_by_alias(…, "champion")` → v1, `pyfunc.load_model(v.source)` loads, 20-column signature |
 | Comparison on the same rows | v2 > v1 on all 6 metrics; both columns land on the cards' figures |
@@ -407,7 +418,7 @@ observables, canaries) is in the journal:
 [`agentium-safe-vm-deployment.md`](../../ops/agentium-safe-vm-deployment.md), the 26/08
 iteration. What matters to a presenter:
 
-- served revision **`750e4e9f4de6`**, `revision_verified: true` on localhost and on the
+- served revision **`4483dd1a34eb`**, `revision_verified: true` on localhost and on the
   public URL;
 - `096_tabular_data_plane` then `097_ml_training_plane` applied, `alembic current`
   = `097_ml_training_plane`;

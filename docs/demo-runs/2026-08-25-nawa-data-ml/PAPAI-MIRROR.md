@@ -508,8 +508,9 @@ flags **about 1 000 of 6 903** subscribers, and the **riskiest decile churns at 
 
 Unlike every other figure in this note, treat these two as approximate. Both are read off a
 probability — one either side of a 0.5 threshold, one at the edge of a 690-row decile — so a
-scaler substituted in §A4.1 or a library version moves them by a row or two: the demo's own
-run recorded 999 and 77.2 %, the reference implementation of §7 gives 1 000 and 77.39 %. The
+scaler substituted in §A4.1 or a library version moves them by a row or two. On the demo VM
+and in the reference implementation of §7 they currently agree at 1 000 and 77.4 %, and an
+earlier generator gave 999 and 77.2 % — which is the size of movement to expect. The
 **lift of ×3.5 over the base rate** is the claim; the unit digit is not.
 
 **And say what these two numbers are not.** The whole feature table is scored, so about
@@ -722,10 +723,21 @@ python -m scripts.papai_mirror_facts --with-fits
 
 It prints every figure in §8. On the reference environment (Python 3.12.3, polars 1.44.0,
 pandas 2.3.3, scikit-learn 1.9.0, skrub 0.10.0, duckdb 1.5.5) it reproduces **every metric
-the platform's own training harness records, to six decimals** — not only the three ROC
-AUCs but the accuracy, precision, recall, log loss and Brier of §A4.3 as well. That is not
-a coincidence to be admired: it is the check that says the specification in this note and
-the code the demo runs are the same pipeline.
+the platform's own training harness records, to six decimals, on the same machine** — not
+only the three ROC AUCs but the accuracy, precision, recall, log loss and Brier of §A4.3
+as well. That is not a coincidence to be admired: it is the check that says the
+specification in this note and the code the demo runs are the same pipeline.
+
+*On the same machine* is load-bearing for exactly one number. The two boosted versions bin
+their features and sum in a fixed order, so v2 and v3 come back identical anywhere. The
+logistic regression does not: `lbfgs` iterates on sums whose order OpenBLAS chooses per
+CPU, and its coefficients land about 1e-6 apart between the demo VM (Broadwell) and the
+build agents (Haswell kernels). The visible consequence is v1's ROC AUC — **0.836610**
+here, **0.836617** on the VM — because a ranking metric reads every row's score. Accuracy,
+precision and recall are identical on both, no row having crossed the threshold. So treat
+v1's sixth decimal as the machine's; a rebuild in papAI that lands within 1e-4 of these
+numbers has reproduced the model, and one that differs in the third is a different
+pipeline.
 
 To inspect intermediate frames rather than the summary, the pieces are importable
 individually:
@@ -777,7 +789,7 @@ Tick these off and the mirror is faithful. Every line is printed by §7's comman
 | Training columns (v3) / after one-hot / as fitted | 29 / 43 / **44** |
 | Training columns (v1, v2) / after one-hot / as fitted | 20 / 32 / **33** (v1); 20 / 20 / 20 (v2, trees) |
 | Split rows / test positives | 5 177 train / 1 726 test / **383 positive** |
-| ROC AUC v1 / v2 / v3 | **0.836610 / 0.864133 / 0.853761** |
+| ROC AUC v1 / v2 / v3 | **0.836610 / 0.864133 / 0.853761** (v1 is 0.836617 on the demo VM — see §7) |
 | Ranking | v2 > v3 > v1, and v2 − v1 = +0.027523 |
 | Accuracy v1 / v2 / v3 | 0.833720 / 0.852260 / 0.853998 |
 | Precision v1 / v2 / v3 | 0.698347 / 0.766667 / 0.763052 |
