@@ -326,6 +326,7 @@ const CHART_ASPECT = 300 / 190;
                       [actualLabel]="i18n.t('models.evidence.confusion.actual')"
                       [predictedLabel]="i18n.t('models.evidence.confusion.predicted')"
                       [format]="countFormat"
+                      [shareFormat]="cellShare"
                       [describe]="cellDescription"
                     />
                     <div class="ck-hint">{{ i18n.t('models.evidence.confusion.hint') }}</div>
@@ -1194,7 +1195,8 @@ export class ModelViewComponent implements OnInit {
     const largest = Math.max(...bars.map((bar) => bar.share), 0);
     return bars.map((bar) => ({
       label: bar.label,
-      display: `${bar.count.toLocaleString(this.i18n.locale())} · ${this.percent(bar.share)}`,
+      display: bar.count.toLocaleString(this.i18n.locale()),
+      share: this.percent(bar.share),
       width: bar.width,
       negative: false,
       emphasis: bars.length > 1 && bar.share === largest,
@@ -1470,6 +1472,12 @@ export class ModelViewComponent implements OnInit {
    */
   protected readonly countFormat = (count: number): string =>
     count.toLocaleString(this.i18n.locale());
+
+  /**
+   * The share printed under a cell's count. A field, not a method reference, so
+   * the input's identity is stable across change detection.
+   */
+  protected readonly cellShare = (share: number): string => this.percent(share);
 
   protected readonly cellDescription = (cell: ConfusionCell): string =>
     `${this.i18n.t('models.evidence.confusion.actual')} ${cell.actual} → ${this.i18n.t(

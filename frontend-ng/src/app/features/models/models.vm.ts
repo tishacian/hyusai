@@ -339,10 +339,30 @@ export interface GaugeView {
   flagged: boolean;
   /** Arc length for the SVG dash, so the fill can be animated by CSS. */
   dash: number;
+  /**
+   * Degrees round the track, for the marker that rides the tip of the fill.
+   *
+   * The same number as `dash` in a different unit, kept beside it so the two
+   * cannot disagree: a marker that leads or trails the stroke it terminates is
+   * worse than no marker, because it puts a precise-looking dot next to the
+   * wrong value.
+   */
+  turn: number;
 }
 
-/** Length of the gauge's semicircular track, in user units (r = 56). */
-export const GAUGE_ARC = Math.PI * 56;
+/**
+ * The gauge's radius, in the SVG's own user units.
+ *
+ * The track is written `A56,56`, and 56 is a figure SVG quietly corrects: the
+ * arc's endpoints are 116 apart, no circle of radius 56 reaches both, and the
+ * renderer scales the radii up until one does — to 58. Anything that has to
+ * agree with the drawn path (its length, a marker riding its tip) needs the
+ * radius the browser used and not the one the `d` attribute asked for.
+ */
+export const GAUGE_RADIUS = 58;
+
+/** Length of the gauge's semicircular track, in user units. */
+export const GAUGE_ARC = Math.PI * GAUGE_RADIUS;
 
 /**
  * A classification answer as one number with its class named.
@@ -374,6 +394,7 @@ export function gaugeView(
     predicted,
     flagged: !!positive && predicted === positive,
     dash: Math.round(value * GAUGE_ARC * 100) / 100,
+    turn: Math.round(value * 1800) / 10,
   };
 }
 

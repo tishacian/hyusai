@@ -13,7 +13,9 @@
  * question an audience actually asks — and hit-testing a hundred points is what
  * a charting library is for. The confusion matrix and the bar lists are DOM,
  * because a heatmap of four cells and a ranked list of bars are laid out better
- * by CSS grid than by a canvas, and neither has anything to hover for.
+ * by CSS grid than by a canvas, and because what a reader wants from either of
+ * them is one cell's own figures — which a `title` gives for free, where a
+ * canvas would first have to hit-test which rectangle the cursor is over.
  *
  * What lives here either has no home in chart.js (`curveDomain`, for axes in a
  * target's own units) or has to survive a canvas, where `var()` and
@@ -260,6 +262,42 @@ export function revealFraction(elapsed: number, duration: number): number {
 }
 
 // ---------------------------------------------------------------------------
+// Staggered entrances
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a whole staggered set may take to arrive, in ms.
+ *
+ * The budget is the point of this pair of numbers. A fixed per-item delay is
+ * right for a two-class balance chart and wrong for a twenty-row importance
+ * list, where it becomes a second and a half of a reader waiting on a chart
+ * they are already looking at — and an entrance that outlasts the glance it was
+ * meant to reward is just latency with a curve on it.
+ */
+export const STAGGER_BUDGET_MS = 420;
+
+/** The gap between neighbours in a set small enough to afford the full one. */
+export const STAGGER_STEP_MS = 55;
+
+/**
+ * When the `index`th of `count` items starts its entrance.
+ *
+ * The step compresses as the set grows so the last item always lands inside
+ * {@link STAGGER_BUDGET_MS}: small sets get a stagger you can follow, large
+ * ones get a sweep. Both are monotonic, which is the property that makes the
+ * order legible — a reader should be able to see that the first bar is the
+ * biggest because it arrived first.
+ */
+export function staggerDelay(index: number, count: number): number {
+  const at = Math.max(0, Math.floor(Number(index) || 0));
+  const gaps = Math.max(0, Math.floor(Number(count) || 0)) - 1;
+  // One item, or none: there is nothing to be staggered against.
+  if (gaps < 1) return 0;
+  const step = Math.min(STAGGER_STEP_MS, STAGGER_BUDGET_MS / gaps);
+  return Math.round(Math.min(at, gaps) * step);
+}
+
+// ---------------------------------------------------------------------------
 // Confusion matrix
 // ---------------------------------------------------------------------------
 
@@ -346,6 +384,16 @@ export interface VizBar {
   label: string;
   /** The number the bar stands for, formatted by the caller. */
   display: string;
+  /**
+   * The same quantity as a share of its set, when the set is a whole that has
+   * one — class balance does, a list of permutation importances does not.
+   *
+   * Separate from `display` rather than concatenated into it so the two can be
+   * typeset as what they are: the count is the figure being reported and the
+   * share is the gloss on it, and "1 234 · 96.2%" in one weight makes the
+   * reader do that separation themselves.
+   */
+  share?: string;
   /** 0–100, relative to the widest bar of the set. */
   width: number;
   /** Bars that point the other way: a feature that actively hurt the fit. */

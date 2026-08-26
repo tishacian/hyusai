@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { MODELS_EN, MODELS_FR } from '@app/core/i18n/models.dict';
 import {
   GAUGE_ARC,
+  GAUGE_RADIUS,
   MODEL_ACTIVE_STATUSES,
   PLAN_WARNING_CODES,
   REFUSAL_CODES,
@@ -451,6 +452,32 @@ test('the gauge is about the positive class, named, not a bare number', () => {
   assert.equal(dial?.predicted, 'yes');
   assert.ok(dial?.flagged);
   assert.equal(dial?.dash, Math.round(0.87 * GAUGE_ARC * 100) / 100);
+});
+
+test('the dial is measured against the circle a browser actually draws', () => {
+  // `A56,56` between endpoints 116 apart describes no circle at all, so SVG
+  // scales the radii until it does — to 58. A dial measured with 56 stops two
+  // degrees short of its own end at 100%, and any marker placed from the same
+  // figure lands somewhere the stroke is not.
+  assert.equal(GAUGE_RADIUS, 58);
+  assert.equal(GAUGE_ARC, Math.PI * 58);
+});
+
+test('the handle and the stroke are one number in two units', () => {
+  for (const value of [0, 0.13, 0.5, 0.87, 1]) {
+    const dial = gaugeView(
+      { prediction: 'yes', probabilities: [{ label: 'yes', value }] },
+      'yes',
+      'en',
+    );
+    assert.equal(dial?.turn, Math.round(value * 1800) / 10);
+    // The share of the arc drawn and the share of the half-turn taken agree, or
+    // the marker sits off the end of the thing it is marking.
+    assert.ok(
+      Math.abs(dial!.dash / GAUGE_ARC - dial!.turn / 180) < 0.001,
+      `${value}: stroke and handle disagree`,
+    );
+  }
 });
 
 test('landing outside the positive class reads as a probability of it, not of the answer', () => {

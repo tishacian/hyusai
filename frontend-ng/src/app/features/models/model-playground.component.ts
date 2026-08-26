@@ -57,6 +57,9 @@ import {
   type SignatureField,
 } from './models.vm';
 
+/** Instances so far, for the one id each dial's gradient needs to itself. */
+let gauges = 0;
+
 @Component({
   selector: 'app-model-playground',
   standalone: true,
@@ -172,17 +175,28 @@ import {
                 <span>{{ i18n.t('models.play.idle') }}</span>
               </div>
             } @else if (gauge(); as dial) {
-              <div class="ck-gauge">
+              <div class="ck-gauge" [class.ck-gauge--flag]="dial.flagged">
                 <svg viewBox="0 0 140 82" class="ck-gauge__svg" role="img"
                      [attr.aria-label]="i18n.t('models.play.answer')">
+                  <defs>
+                    <linearGradient [attr.id]="rampId" x1="0" y1="0" x2="1" y2="0">
+                      <stop class="ck-gauge__stop ck-gauge__stop--from" offset="0" />
+                      <stop class="ck-gauge__stop ck-gauge__stop--to" offset="1" />
+                    </linearGradient>
+                  </defs>
                   <path class="ck-gauge__track" d="M12,74 A56,56 0 0 1 128,74" />
                   <path
                     class="ck-gauge__fill"
-                    [class.ck-gauge__fill--flag]="dial.flagged"
                     d="M12,74 A56,56 0 0 1 128,74"
+                    [attr.stroke]="'url(#' + rampId + ')'"
                     [attr.stroke-dasharray]="arc"
                     [attr.stroke-dashoffset]="arc - dial.dash"
                   />
+                  <!-- The handle rides the tip of the fill, so the dial has a
+                       read-off point rather than only a length. -->
+                  <g class="ck-gauge__hand" [attr.transform]="'rotate(' + dial.turn + ' 70 74)'">
+                    <circle class="ck-gauge__tip" cx="12" cy="74" r="4.5" />
+                  </g>
                 </svg>
                 <div class="ck-gauge__read">
                   <div class="ck-gauge__value" [class.ck-gauge__value--flag]="dial.flagged">
@@ -498,10 +512,19 @@ import {
         font-size: 11px;
         color: var(--ck-fg-5, #6b7280);
       }
+      /* One custom property carries the dial's state to everything drawn from
+         it — the ramp's two stops, the glow, the handle's ring — so a flagged
+         answer recolours the whole instrument from one declaration. Named
+         outside the --ck-* namespace on purpose: that prefix belongs to the
+         design system, and this is one component's wiring. */
       .ck-gauge {
+        --gauge-ink: var(--ck-signal-cool, #7dd3fc);
         display: flex;
         flex-direction: column;
         align-items: center;
+      }
+      .ck-gauge--flag {
+        --gauge-ink: var(--ck-signal-neg, #ef5a6f);
       }
       .ck-gauge__svg {
         width: 200px;
@@ -515,18 +538,54 @@ import {
         stroke-width: 11;
         stroke-linecap: round;
       }
+      /* The ramp runs the width of the track, not the width of the drawn part,
+         so a given probability is always the same colour: the arc darkens as it
+         climbs instead of restaining itself on every answer. */
+      .ck-gauge__stop {
+        stop-color: var(--gauge-ink);
+      }
+      .ck-gauge__stop--from {
+        stop-opacity: 0.35;
+      }
+      .ck-gauge__stop--to {
+        stop-opacity: 1;
+      }
+      /* No stroke declared here: the paint is a gradient this instance owns,
+         bound as an attribute, and a declaration in this block would outrank
+         it. */
       .ck-gauge__fill {
         fill: none;
-        stroke: var(--ck-signal-cool, #7dd3fc);
         stroke-width: 11;
         stroke-linecap: round;
+        filter: drop-shadow(
+          0 0 7px color-mix(in srgb, var(--gauge-ink) 45%, transparent)
+        );
         /* The movement IS the demo: a jump from 0.2 to 0.8 has to be seen. */
         transition:
           stroke-dashoffset 620ms cubic-bezier(0.22, 1, 0.36, 1),
-          stroke 300ms ease-out;
+          filter 300ms ease-out;
       }
-      .ck-gauge__fill--flag {
-        stroke: var(--ck-signal-neg, #ef5a6f);
+      /* The rotate() carries its own centre — rotate(deg 70 74) — which is why
+         this needs no transform-origin and behaves the same in every engine. */
+      .ck-gauge__hand {
+        transition: transform 620ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .ck-gauge__tip {
+        fill: var(--ck-bg-panel, #0f141a);
+        stroke: var(--gauge-ink);
+        stroke-width: 3;
+        filter: drop-shadow(
+          0 0 6px color-mix(in srgb, var(--gauge-ink) 65%, transparent)
+        );
+      }
+      /* A dial that arrives already at its answer says nothing about which way
+         it travelled, but a reader who asked for less motion has asked for
+         exactly that. */
+      @media (prefers-reduced-motion: reduce) {
+        .ck-gauge__fill,
+        .ck-gauge__hand {
+          transition: none;
+        }
       }
       .ck-gauge__read {
         text-align: center;
@@ -739,6 +798,13 @@ export class ModelPlaygroundComponent {
   private readonly router = inject(Router);
 
   protected readonly arc = GAUGE_ARC;
+
+  /**
+   * The dial's gradient is referenced by `url(#id)`, and an id is document-wide.
+   * Two Playgrounds on one page would otherwise both paint themselves with
+   * whichever definition came first — including its flagged/unflagged colour.
+   */
+  protected readonly rampId = `ck-gauge-ramp-${++gauges}`;
 
   protected readonly answer = signal<PredictAnswer | null>(null);
   protected readonly refusal = signal<string>('');
