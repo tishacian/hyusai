@@ -514,6 +514,110 @@ def test_the_rebuild_specification_quotes_the_figures_the_data_actually_has():
     assert body["split"] == {"test_size": 0.25, "random_state": 42}
 
 
+@pytest.mark.slow
+def test_the_rebuild_specification_quotes_a_metric_table_this_split_can_produce():
+    """The note's §A4.3 table, checked against the split it claims to come from.
+
+    A metric table is the easiest thing in a specification to get wrong, because
+    a stale figure is still a plausible figure: nothing about ``0.448485`` looks
+    false. But the test split holds 383 positives, so every recall it can
+    produce is a multiple of 1/383 — and that one arithmetic fact is enough to
+    reject a number copied from a run over other bytes, which is exactly the
+    defect this test was written after finding.
+
+    Decimals are pinned loosely, for the reason given in
+    ``test_the_boosted_trees_beat_the_baseline_because_the_world_is_not_additive``:
+    an sklearn upgrade may move a fit, and the ordering is the claim. The
+    *widths* and the *counts* are pinned exactly, because those are properties
+    of the pipeline's shape rather than of its arithmetic.
+    """
+
+    from scripts.papai_mirror_facts import facts
+
+    body = facts(with_fits=True)["fits"]
+    v1 = body["v1_linear_20_columns"]
+    v2 = body["v2_gradient_boosting_20_columns"]
+    v3 = body["v3_gradient_boosting_29_columns"]
+
+    for version in (v1, v2, v3):
+        assert version["train_rows"] == 5_177
+        assert version["test_rows"] == 1_726
+        assert version["test_positives"] == 383
+        # The check that catches a figure measured somewhere else.
+        assert (version["recall"] * 383) == pytest.approx(
+            round(version["recall"] * 383), abs=1e-3
+        ), version["recall"]
+
+    # The linear path one-hots and then appends the imputer's missingness
+    # indicator; the trees do neither, and keep the columns they were given.
+    assert (v1["input_columns"], v1["encoded_columns"], v1["fitted_columns"]) == (
+        20,
+        32,
+        33,
+    )
+    assert (v2["input_columns"], v2["encoded_columns"], v2["fitted_columns"]) == (
+        20,
+        20,
+        20,
+    )
+    assert (v3["input_columns"], v3["encoded_columns"], v3["fitted_columns"]) == (
+        29,
+        29,
+        29,
+    )
+
+    # The promotion beat: the boosted trees rank better and are better
+    # calibrated, which is the pair of facts the demo reads out loud.
+    assert v2["roc_auc"] > v3["roc_auc"] > v1["roc_auc"]
+    for metric in ("roc_auc", "accuracy", "precision", "recall"):
+        assert v2[metric] > v1[metric], metric
+    for metric in ("log_loss", "brier_score"):
+        assert v2[metric] < v1[metric], metric
+
+    documented = {
+        "v1_linear_20_columns": {
+            "roc_auc": 0.836610,
+            "accuracy": 0.833720,
+            "precision": 0.698347,
+            "recall": 0.441253,
+            "log_loss": 0.389011,
+            "brier_score": 0.121770,
+        },
+        "v2_gradient_boosting_20_columns": {
+            "roc_auc": 0.864133,
+            "accuracy": 0.852260,
+            "precision": 0.766667,
+            "recall": 0.480418,
+            "log_loss": 0.367198,
+            "brier_score": 0.109443,
+        },
+        "v3_gradient_boosting_29_columns": {
+            "roc_auc": 0.853761,
+            "accuracy": 0.853998,
+            "precision": 0.763052,
+            "recall": 0.496084,
+            "log_loss": 0.375591,
+            "brier_score": 0.111910,
+        },
+    }
+    for version, table in documented.items():
+        for metric, value in table.items():
+            assert body[version][metric] == pytest.approx(value, abs=0.002), (
+                version,
+                metric,
+            )
+
+    score = body["batch_score_with_v1_serving"]
+    assert score["rows"] == 6_903
+    assert score["columns_after_scoring"] == 34
+    assert score["appended"] == ["prediction", "confidence", "score_1"]
+    assert score["riskiest_decile_rows"] == 690
+    # Read off a threshold and a decile edge, so the note calls them
+    # approximate and so does this.
+    assert 950 <= score["flagged"] <= 1_050, score["flagged"]
+    assert score["lift_over_base_rate"] == pytest.approx(3.5, abs=0.2)
+
+
 def test_the_rebuild_specification_reads_the_pipeline_the_demo_runs():
     """The note's helpers must be the pipeline's own code, not a copy of it.
 

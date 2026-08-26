@@ -224,11 +224,11 @@ somebody's laptop.
    | Metric | v1 `linear` | v2 `gradient_boosting` |
    |---|---|---|
    | ROC AUC | 0.836610 | **0.864133** |
-   | Accuracy | 0.836616 | **0.852838** |
-   | Precision | 0.707224 | **0.762238** |
-   | Recall | 0.448485 | **0.487879** |
-   | Log loss | 0.390613 | **0.369748** |
-   | Brier | 0.121909 | **0.109838** |
+   | Accuracy | 0.833720 | **0.852260** |
+   | Precision | 0.698347 | **0.766667** |
+   | Recall | 0.441253 | **0.480418** |
+   | Log loss | 0.389011 | **0.367198** |
+   | Brier | 0.121770 | **0.109443** |
 
    Both columns land **exactly** on what each card announces, which is the proof that the
    split really was reconstructed. And v2 wins on all six, including the two calibration
