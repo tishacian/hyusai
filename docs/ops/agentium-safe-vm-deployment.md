@@ -4180,3 +4180,110 @@ lignes sur la démo.
 | Scores v1 | roc_auc 0,835206 · accuracy 0,836037 · balanced_accuracy 0,697737 · f1 0,548644 · precision 0,704918 · recall 0,449086 · log_loss 0,391460 · brier 0,122305 |
 | Registre | `b337fdbf.churn-radar`, 3 versions, `source` en `s3://agentium-artifacts/workspaces/…/ml/models/<id>/model`, `champion` → v1 et `challenger` → v2 — la meilleure perdante, pas la plus récente |
 | Nœud dbt | rejoué après le correctif d'arènes : le 7ᵉ dataset existe, 72 lignes |
+
+## Itération du 26/08 — renommage anglais et re-vérification sur `4483dd1a`, **déployée**
+
+GO deploy depuis un Cloud Agent. `origin/demo/agentic` avançait de `fb62edba`
+(live) à `4483dd1a`, en trois bascules : la tranche anglaise et les correctifs
+d'interface, puis deux défauts que seul le re-seed sur la VM a montrés. Aucune
+migration dans le lot — `alembic current` était déjà `097_ml_training_plane` et
+l'est resté aux trois bascules —, mais la fenêtre a quand même été prise, parce
+que `--reset` supprime des lignes.
+
+**Ce que la VM a trouvé, et que rien en local ne pouvait montrer.**
+
+1. `2bf1006d` — **le re-seed a rendu `exit 0` sur une démo qui ouvrait au
+   rouge.** Quatre des sept nœuds du Flow `Churn Radar` avaient échoué
+   (`DATASET_NOT_FOUND`, puis les trois nœuds en aval faute d'entrée), il n'y
+   avait ni table de features, ni base scorée, ni v3 — et le script imprimait
+   « system ready: Churn Radar » puis « Nawa data demo ready ».
+
+   Le graphe nomme son dataset d'entrée **par slug**. `--reset` retire les
+   anciens slugs, `ensure_system` doit réécrire le graphe avec les nouveaux, et
+   il ne pouvait pas : la réconciliation préserve un brouillon laissé ouvert
+   dans le Builder, et un opérateur réel en avait un sur `Churn Radar`
+   (`system_flow_drafts` r3, `thibaud.ishacian@datategy.net`). Préserver ce
+   brouillon est la bonne règle ; exécuter le graphe précédent ensuite et
+   appeler ça prêt ne l'est pas. `Radio Watch`, dont le brouillon était celui du
+   seed et propre, s'est réconcilié et a tourné vert du premier coup — c'est le
+   cas contre lequel le code avait été écrit.
+
+   Trois correctifs : `--reset` jette les brouillons de ses **deux** Systems et
+   d'aucun autre ; `ensure_system` compare le miroir que le moteur exécute au
+   graphe qu'on lui a passé et nomme le porteur du brouillon quand ils
+   diffèrent ; un run dont le walker dit `completed` avec un nœud `failed`
+   n'est plus une démo seedée.
+2. `4483dd1a` — **le contrôle de portabilité échouait avant de charger quoi que
+   ce soit.** L'étape 5 du vérificateur (« un client MLflow standard, à qui on
+   ne donne que l'URI du registre ») mourait en `NoCredentialsError`. La
+   `source` d'une version est une URI `s3://`, le dépôt d'artefacts S3 de mlflow
+   la lit avec boto3, et boto3 ne lit ses identifiants que dans
+   l'environnement. Rien dans le déploiement ne les pose, parce que rien n'en a
+   besoin : notre propre service télécharge le répertoire par la façade object
+   store et passe un chemin local à `load_model`. La seule étape dont le but est
+   d'être exercée contre MinIO était donc la seule qui ne pouvait pas l'être, et
+   en local elle passait parce qu'un object store local rend des `file://` et
+   n'appelle jamais boto3. Même piège que le `boto3` manquant de l'itération
+   précédente, une couche plus loin.
+
+   Exporter les trois variables S3 n'est pas une fissure dans la promesse, c'est
+   la promesse : ce qu'il faut à un lecteur étranger, c'est la configuration S3
+   avec laquelle n'importe quel MLflow parle à un object store, et zéro code
+   Agentium. Sept artefacts descendent maintenant, signature à 20 colonnes lue
+   dessus.
+
+   Les attendus du vérificateur étaient par ailleurs restés ceux du générateur
+   d'avant le renommage : cinq lignes criaient `DRIFT` contre un plan correct.
+
+**Le sixième décimal du modèle linéaire appartient à la machine.** `lbfgs`
+somme dans l'ordre qu'OpenBLAS choisit par CPU : v1 vaut 0,836617 sur le
+Broadwell de la VM et 0,836610 sur les agents de build, tandis que la paire
+boostée est identique au dernier chiffre des deux côtés. Accuracy, precision et
+recall ne bougent pas — aucune ligne ne traverse le seuil —, donc seule la
+métrique de rang reçoit une tolérance, et seulement pour le fit linéaire. La
+note `PAPAI-MIRROR.md` §7 le dit maintenant, ce qui évite qu'un rebuild dans
+papAI prenne un écart de 7e-6 pour une erreur de pipeline.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `fb62edba` → `d00e9150` → `2bf1006d` → `4483dd1a` |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
+| Worktree | `/srv/agentium-data/worktrees/demo-agentic` = `4483dd1a34eb92e4edfbae7103f36120fba79697`, porcelain vide |
+| Build | trois générations (`d00e9150cda3`, `2bf1006d5e0a`, `4483dd1a34eb`), label 40-hex identique backend / worker / frontend à chaque bascule |
+| Dump | `/srv/agentium-data/data-plane-deployments/2026-08-26-d00e9150cda3` : Postgres 433 Mo, registre `mlflow` 132 ko (3 versions), 103 objets / 103 Mo sur `agentium-artifacts`, 3 états de rapport, `.ready` écrit. Pris **avant** le premier `--reset`, qui est la seule opération destructive du lot |
+| `migrate` | aucune révision à appliquer ; `alembic current` = `097_ml_training_plane (head)` aux trois bascules |
+| `storage-check` | sortie 0 aux trois bascules |
+| `up` | cinq services applicatifs recréés à chaque fois, backend et frontend `healthy` |
+| `build-info` | `revision: 4483dd1a34eb92e4edfbae7103f36120fba79697`, `revision_verified: true` en localhost Host **et** sur `https://agentium.papai.ai` ; `/` = 200 |
+| Infra | PostgreSQL, RabbitMQ, Qdrant, MinIO, Keycloak, LiveKit, SFTP **intouchés** (Up 2 weeks) |
+| Alias | tag mobile `demo-agentic` **non déplacé** |
+| Canaris carakai | **non rejoués.** Le runner exige un candidat en phase `validation_pending` de `deploy-agentium-safe.sh`, dont le préflight demande le manifeste Release A privé et sa politique de revue ; ces artefacts ne sont pas dans la portée d'un Cloud Agent. Les trois échecs connus (rail `Build`, `GET /work`, overflow 320 px) portent sur Experience et ne touchent pas le plan data/ML |
+| Rollback | `AGENTIUM_IMAGE_TAG=fb62edba8886` puis `up`. Aucune migration dans le lot, donc la bascule arrière est propre côté schéma ; le seed anglais reste en base et un backend `fb62edba` le sert sans s'en émouvoir (les slugs vivent en données, pas en code) |
+
+### Re-vérification de bout en bout
+
+| Contrôle | Observé (à `4483dd1a`) |
+|---|---|
+| `verify_nawa_data_ml_plane` | **72 lignes, toutes `ok`, aucun `DRIFT`** — y compris l'étape 5, verte pour la première fois contre MinIO |
+| `e2e_data_ml_live --reproduce` | **E2E PASSED** contre l'URL publique, `--expect-sha` vérifié en premier. Ingestion 4 000 lignes, aperçu paginé lignes 3 995–4 000 lus dans le Parquet, SQL 15 groupes en 594,1 ms, `DROP` refusé, fit roc_auc 0,807505 puis **0,807505 à l'identique**, comparaison 6 métriques sur 1 000 lignes, `/predict` à clé seule 3 lignes en 185,9 ms, portée refusée sur `/datasets`, révocation immédiate, nettoyage complet |
+| Démo Nawa | 7 datasets `ready`, 3 modèles, champion v1 non réassigné, Flow `Churn Radar` **7 nœuds sans échec** (clean 270 ms · features 3,2 s · train 46,2 s · score 12,8 s · brief 5,8 s), `Radio Watch` 3 nœuds, dbt 72 lignes |
+| Scores | v1 `linear` 0,836617 **champion** · v2 `gradient_boosting` 0,864133 · v3 `gradient_boosting` 0,853761 |
+| Registre | `b337fdbf.churn-radar`, 3 versions, `source` en `s3://agentium-artifacts/…`, `champion` → v1, `challenger` → v2 |
+| Vidéo | 88 s, les sept temps du runbook, navigateur en `fr-FR` et `<html lang="en">` : onglet Comparaison rempli (v2 contre v3, sept métriques avec avant / après / delta), Playground répondant, aucun texte français à l'écran |
+
+### Dette relevée, non traitée
+
+- **Le numéro de version des datasets seedés monte à chaque `--reset`.** Les
+  uploads sont en v2 et `subscriber-base-cleaned` en v2/v3, parce que la
+  suppression est douce et que le compteur porte sur le slug. Rien de faux —
+  c'est bien la deuxième fois que la table est écrite — mais le tableau du
+  runbook a dû être réécrit et le sera encore au prochain re-seed. Une purge
+  dure de la lignée du seed rendrait le compteur à 1 ; elle demande de retirer
+  aussi les objets Parquet, ce qui n'a pas été fait ici.
+- **La vidéo a été tournée avec un compte de test.** `nawa` n'a que ses deux
+  membres réels, et les identifiants d'un opérateur ne sont pas dans la portée
+  d'un Cloud Agent ; `bob@globex.test` a été ajouté membre le temps du tournage
+  puis retiré (la table est revenue à ses deux lignes). Le nom dans le coin de
+  l'écran n'est donc pas celui d'un présentateur.
