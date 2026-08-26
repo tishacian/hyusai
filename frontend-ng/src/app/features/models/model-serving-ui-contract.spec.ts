@@ -211,6 +211,44 @@ test('the model card draws its charts from the shared viz kit', () => {
   assert.match(CARD, /\[reference\]="identity\(\)"/);
 });
 
+test('the curves are chart.js, and they are hoverable, because the elbow is the argument', () => {
+  // The plan names chart.js for ROC/PR, and the reason is the pointer: these are
+  // the two plots an audience interrogates rather than glances at. A hand-rolled
+  // path cannot answer "what does that elbow cost me in false positives", so the
+  // canvas and its tooltip are the contract, not an implementation detail.
+  const curve = readFileSync(
+    join(process.cwd(), 'src/app/features/data/viz/curve-chart.component.ts'),
+    'utf8',
+  );
+  assert.match(curve, /from 'ng2-charts'/);
+  assert.match(curve, /baseChart/);
+  assert.doesNotMatch(curve, /<svg/, 'the curve was hand-rolled again');
+  assert.match(curve, /tooltip: \{/);
+  // The area under a ROC *is* the metric, so the fill has to survive the move.
+  assert.match(curve, /fill: this\.fill\(\) \? 'origin' : false/);
+  // A canvas cannot resolve `var()`, so the tokens are read off the host and
+  // re-read when the theme flips — otherwise a dark chart survives into light.
+  assert.match(curve, /getComputedStyle/);
+  assert.match(curve, /this\.theme\.resolved\(\)/);
+  // Every curve says what its axes are, which is the other thing the SVG never
+  // had room for.
+  for (const key of [
+    'models.evidence.roc.x',
+    'models.evidence.roc.y',
+    'models.evidence.roc.point',
+    'models.evidence.pr.x',
+    'models.evidence.pr.y',
+    'models.evidence.pr.point',
+    'models.evidence.fit.x',
+    'models.evidence.fit.y',
+    'models.evidence.fit.point',
+  ]) {
+    assert.ok(MODELS_FR[key], `${key} has FR copy`);
+    assert.ok(MODELS_EN[key], `${key} has EN copy`);
+    assert.match(CARD, new RegExp(key.replace(/\./g, '\\.')));
+  }
+});
+
 test('the comparison tab weighs a pair, and never one version against itself', () => {
   // The tab, the verdict sentence, and the re-score button must all speak about
   // the same two versions, or the table says one thing and the sentence above

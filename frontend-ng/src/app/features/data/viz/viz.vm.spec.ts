@@ -1,9 +1,9 @@
 /**
- * The viz kit's geometry.
+ * The viz kit's numbers.
  *
- * These are the arithmetic every chart on the data and model surfaces is drawn
- * from, which is why they are tested as arithmetic: an SVG path is a string, and
- * a wrong one is a chart that lies rather than a chart that crashes.
+ * These are what every chart on the data and model surfaces is drawn from, which
+ * is why they are tested as arithmetic: a wrong domain or a wrong baseline is a
+ * chart that lies rather than a chart that crashes.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,37 +12,33 @@ import {
   UNIT_DOMAIN,
   confusionShade,
   confusionView,
-  curveArea,
   curveDomain,
-  curvePath,
-  referenceY,
+  curveSeries,
+  referenceSeries,
+  tokenAlpha,
 } from './viz.vm';
 
 // ---------------------------------------------------------------------------
 // Curves
 // ---------------------------------------------------------------------------
 
-const BOX = { width: 100, height: 50 };
-
-test('a curve is drawn with y flipped, so a better model climbs', () => {
-  const path = curvePath(
+test('a curve with nothing to draw yields nothing rather than a stray dot', () => {
+  assert.deepEqual(curveSeries([]), []);
+  assert.deepEqual(curveSeries(undefined), []);
+  assert.deepEqual(curveSeries([{ x: 0.5, y: 0.5 }]), []);
+  // Non-finite samples are dropped before the count is judged, so a two-point
+  // series with one bad sample is still nothing.
+  assert.deepEqual(curveSeries([{ x: 0, y: 0 }, { x: Number.NaN, y: 1 }]), []);
+  assert.deepEqual(
+    curveSeries([
+      { x: 0, y: 0 },
+      { x: 1, y: 1 },
+    ]),
     [
       { x: 0, y: 0 },
-      { x: 0.5, y: 1 },
       { x: 1, y: 1 },
     ],
-    BOX,
-    UNIT_DOMAIN,
   );
-  assert.equal(path, 'M0,50 L50,0 L100,0');
-});
-
-test('a curve with nothing to draw yields no path rather than a stray dot', () => {
-  assert.equal(curvePath([], BOX), '');
-  assert.equal(curvePath(undefined, BOX), '');
-  assert.equal(curvePath([{ x: 0.5, y: 0.5 }], BOX), '');
-  // Non-finite samples are dropped before the count is judged.
-  assert.equal(curvePath([{ x: 0, y: 0 }, { x: Number.NaN, y: 1 }], BOX), '');
 });
 
 test('a regression fit is scaled to the target’s own units, not the unit square', () => {
@@ -56,8 +52,6 @@ test('a regression fit is scaled to the target’s own units, not the unit squar
   ];
   const domain = curveDomain([fit, ideal]);
   assert.deepEqual(domain, { minX: 10, maxX: 30, minY: 10, maxY: 30 });
-  // Both series share the domain, so the diagonal really is the diagonal.
-  assert.equal(curvePath(ideal, BOX, domain), 'M0,50 L100,0');
 });
 
 test('a degenerate domain is padded instead of dividing by zero', () => {
@@ -67,36 +61,70 @@ test('a degenerate domain is padded instead of dividing by zero', () => {
   assert.deepEqual(curveDomain([[]]), UNIT_DOMAIN);
 });
 
-test('the filled area closes on the baseline, under the curve and nowhere else', () => {
-  // The fill is what makes two ROCs comparable at a glance, so the closing
-  // segments have to follow the curve's own x range: closing at 0 and at the
-  // box width would fill under a curve that starts halfway across.
-  const area = curveArea(
+test('a ROC’s reference is the diagonal of the box it is drawn in', () => {
+  assert.deepEqual(referenceSeries({ kind: 'diagonal' }), [
+    { x: 0, y: 0 },
+    { x: 1, y: 1 },
+  ]);
+  // In the target's own units the corners move with the domain, or the
+  // "diagonal" would be a line through nowhere.
+  assert.deepEqual(
+    referenceSeries({ kind: 'diagonal' }, { minX: 10, maxX: 30, minY: 10, maxY: 30 }),
     [
-      { x: 0.2, y: 0 },
-      { x: 0.6, y: 1 },
+      { x: 10, y: 10 },
+      { x: 30, y: 30 },
     ],
-    BOX,
   );
-  assert.equal(area, 'M20,50 L60,0 L60,50 L20,50 Z');
-  // No line, no area — not an area over an empty path.
-  assert.equal(curveArea([{ x: 0, y: 0 }], BOX), '');
-  assert.equal(curveArea(undefined, BOX), '');
 });
 
-test('a reference level lands in the box, or is refused', () => {
-  assert.equal(referenceY(0, BOX), 50);
-  assert.equal(referenceY(1, BOX), 0);
-  assert.equal(referenceY(0.04, BOX), 48);
+test('a prevalence level spans the plot, or is refused rather than clamped', () => {
+  assert.deepEqual(referenceSeries({ kind: 'level', value: 0.04 }), [
+    { x: 0, y: 0.04 },
+    { x: 1, y: 0.04 },
+  ]);
   // Outside the domain there is nowhere honest to draw it: a prevalence line
   // pinned to the floor would read as a real baseline of zero.
-  assert.equal(referenceY(1.5, BOX), null);
-  assert.equal(referenceY(-0.2, BOX), null);
-  assert.equal(referenceY(null, BOX), null);
-  assert.equal(referenceY(undefined, BOX), null);
-  assert.equal(referenceY(Number.NaN, BOX), null);
-  // In the target's own units, for the regression fit.
-  assert.equal(referenceY(20, BOX, { minX: 0, maxX: 1, minY: 10, maxY: 30 }), 25);
+  for (const value of [1.5, -0.2, null, undefined, Number.NaN]) {
+    assert.deepEqual(referenceSeries({ kind: 'level', value: value as number }), []);
+  }
+});
+
+test('an identity reference is a series like any other, and is filtered like one', () => {
+  assert.deepEqual(
+    referenceSeries({
+      kind: 'series',
+      points: [
+        { x: 10, y: 10 },
+        { x: 30, y: 30 },
+      ],
+    }),
+    [
+      { x: 10, y: 10 },
+      { x: 30, y: 30 },
+    ],
+  );
+  assert.deepEqual(referenceSeries({ kind: 'series', points: [{ x: 1, y: 1 }] }), []);
+  assert.deepEqual(referenceSeries({ kind: 'none' }), []);
+});
+
+test('a token becomes a colour a canvas can fill with', () => {
+  // Hex, long and short, with and without an alpha digit pair.
+  assert.equal(tokenAlpha('#7dd3fc', 0.18), 'rgba(125, 211, 252, 0.18)');
+  assert.equal(tokenAlpha('#FFF', 0.5), 'rgba(255, 255, 255, 0.5)');
+  assert.equal(tokenAlpha('#7dd3fc80', 1), 'rgba(125, 211, 252, 0.502)');
+  // The token's own alpha multiplies rather than being replaced: a stroke that
+  // is already 8% white must not come back opaque.
+  assert.equal(tokenAlpha('rgba(255, 255, 255, 0.08)', 1), 'rgba(255, 255, 255, 0.08)');
+  assert.equal(tokenAlpha('rgba(255, 255, 255, 0.5)', 0.5), 'rgba(255, 255, 255, 0.25)');
+  assert.equal(tokenAlpha('rgb(0 0 0 / 50%)', 1), 'rgba(0, 0, 0, 0.5)');
+});
+
+test('a colour nothing can parse fills with nothing, not with everything', () => {
+  // An area fill that silently went opaque would hide the curve above it, which
+  // is a worse failure than an area fill that is missing.
+  for (const unparseable of ['', 'oklch(70% 0.1 220)', 'var(--ck-accent)', '#12345']) {
+    assert.equal(tokenAlpha(unparseable, 0.2), 'transparent');
+  }
 });
 
 // ---------------------------------------------------------------------------

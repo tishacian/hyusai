@@ -53,7 +53,7 @@ import {
   confusionView,
   curveDomain,
   type ConfusionCell,
-  type CurveBox,
+  type CurvePoint,
   type VizBar,
 } from '@app/features/data/viz/viz.vm';
 import {
@@ -83,8 +83,8 @@ import {
 
 const POLL_INTERVAL_MS = 1500;
 
-/** The drawing box every chart on this page shares, in user units. */
-const CHART: CurveBox = { width: 300, height: 190 };
+/** The shape every chart on this page shares. A ROC squashed flat lies. */
+const CHART_ASPECT = 300 / 190;
 
 @Component({
   selector: 'app-model-view',
@@ -263,10 +263,13 @@ const CHART: CurveBox = { width: 300, height: 190 };
                     <div class="ck-section-label">{{ i18n.t('models.evidence.roc') }}</div>
                     <ck-curve-chart
                       [points]="roc()"
-                      [box]="chart"
+                      [aspect]="chart"
                       [reference]="DIAGONAL"
                       [fill]="true"
                       [label]="i18n.t('models.evidence.roc')"
+                      [xLabel]="i18n.t('models.evidence.roc.x')"
+                      [yLabel]="i18n.t('models.evidence.roc.y')"
+                      [pointLabel]="describeRoc"
                     />
                     <div class="ck-hint">{{ i18n.t('models.evidence.roc.hint') }}</div>
                   </section>
@@ -276,10 +279,13 @@ const CHART: CurveBox = { width: 300, height: 190 };
                     <div class="ck-section-label">{{ i18n.t('models.evidence.pr') }}</div>
                     <ck-curve-chart
                       [points]="pr()"
-                      [box]="chart"
+                      [aspect]="chart"
                       [reference]="prevalence()"
                       tone="violet"
                       [label]="i18n.t('models.evidence.pr')"
+                      [xLabel]="i18n.t('models.evidence.pr.x')"
+                      [yLabel]="i18n.t('models.evidence.pr.y')"
+                      [pointLabel]="describePr"
                     />
                     <div class="ck-hint">{{ i18n.t('models.evidence.pr.hint') }}</div>
                   </section>
@@ -289,10 +295,13 @@ const CHART: CurveBox = { width: 300, height: 190 };
                     <div class="ck-section-label">{{ i18n.t('models.evidence.fit') }}</div>
                     <ck-curve-chart
                       [points]="fit()"
-                      [box]="chart"
+                      [aspect]="chart"
                       [domain]="fitDomain()"
                       [reference]="identity()"
                       [label]="i18n.t('models.evidence.fit')"
+                      [xLabel]="i18n.t('models.evidence.fit.x')"
+                      [yLabel]="i18n.t('models.evidence.fit.y')"
+                      [pointLabel]="describeFit"
                     />
                     <div class="ck-hint">{{ i18n.t('models.evidence.fit.hint') }}</div>
                   </section>
@@ -1005,7 +1014,7 @@ export class ModelViewComponent implements OnInit {
   private readonly toast = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);
 
-  protected readonly chart = CHART;
+  protected readonly chart = CHART_ASPECT;
 
   protected readonly detail = signal<ModelDetailDto | null>(null);
   protected readonly loading = signal(false);
@@ -1151,6 +1160,46 @@ export class ModelViewComponent implements OnInit {
   protected readonly fitDomain = computed(() =>
     curveDomain([this.metrics()?.curves?.fit ?? [], this.metrics()?.curves?.ideal ?? []]),
   );
+
+  /**
+   * What a hovered point on each curve is called.
+   *
+   * Bound as fields rather than methods so the identity is stable: an arrow
+   * created in the template would be a new function on every change detection
+   * pass, and chart.js rebuilds its tooltip when its options change.
+   *
+   * The sentences are the reason the curves moved to a canvas. "TPR 0,82 at FPR
+   * 0,11" is an operating point a room can argue about — catch 82% of churners
+   * and bother 11% of the loyal ones — where a bare pair of coordinates is
+   * something a reader has to translate first.
+   */
+  protected readonly describeRoc = (point: CurvePoint): string =>
+    this.i18n.t('models.evidence.roc.point', {
+      tpr: this.rate(point.y),
+      fpr: this.rate(point.x),
+    });
+
+  protected readonly describePr = (point: CurvePoint): string =>
+    this.i18n.t('models.evidence.pr.point', {
+      precision: this.rate(point.y),
+      recall: this.rate(point.x),
+    });
+
+  protected readonly describeFit = (point: CurvePoint): string =>
+    this.i18n.t('models.evidence.fit.point', {
+      predicted: this.amount(point.y),
+      actual: this.amount(point.x),
+    });
+
+  /** A rate in the reader's locale, to three decimals but without the padding. */
+  private rate(value: number): string {
+    return value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 3 });
+  }
+
+  /** A value on the target's own scale: an ARPU of 1 284 is not "1284". */
+  private amount(value: number): string {
+    return value.toLocaleString(this.i18n.locale(), { maximumFractionDigits: 2 });
+  }
 
   protected readonly kpis = computed<CkObjectKpi[]>(() => {
     const row = this.model();

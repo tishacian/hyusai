@@ -1,17 +1,23 @@
 /**
- * The geometry behind the data plane's charts — Angular-free, so it is testable
- * as arithmetic rather than through a rendered component.
+ * The numbers behind the data plane's charts — Angular-free, so they are
+ * testable as arithmetic rather than through a rendered component.
  *
  * This module and the components beside it are the *kit*: every chart the data
  * and model surfaces draw comes from here, so a curve on a model card and a
  * curve on a comparison view are the same drawing with different numbers rather
  * than two implementations that drift.
  *
- * Everything is plain SVG. Not for want of a charting library — one is in the
- * dependency tree already — but because these are small, fixed-shape plots with
- * no zooming, panning or legend interaction, and an SVG path is server-
- * renderable, styleable from the `--ck-*` tokens, and assertable in a unit test
- * as a string. A canvas chart is none of those three.
+ * Two rendering technologies, chosen per shape rather than uniformly. Curves go
+ * through chart.js, which is already in the bundle: they are the plots a viewer
+ * interrogates — hovering a ROC to read the operating point it stands for is the
+ * question an audience actually asks — and hit-testing a hundred points is what
+ * a charting library is for. The confusion matrix and the bar lists are DOM,
+ * because a heatmap of four cells and a ranked list of bars are laid out better
+ * by CSS grid than by a canvas, and neither has anything to hover for.
+ *
+ * What lives here either has no home in chart.js (`curveDomain`, for axes in a
+ * target's own units) or has to survive a canvas, where `var()` and
+ * `color-mix()` do not resolve — hence `tokenAlpha`.
  */
 
 // ---------------------------------------------------------------------------
@@ -22,11 +28,6 @@
 export interface CurvePoint {
   x: number;
   y: number;
-}
-
-export interface CurveBox {
-  width: number;
-  height: number;
 }
 
 export interface CurveDomain {
@@ -65,71 +66,127 @@ export function curveDomain(series: readonly (readonly CurvePoint[])[]): CurveDo
 }
 
 /**
- * An SVG path for one curve, y flipped so a better model climbs.
+ * The points a curve can actually be drawn from.
  *
- * Returns `''` for fewer than two points rather than a degenerate path: an
- * empty `d` renders nothing, whereas a one-point path renders a dot that reads
- * as data.
+ * Fewer than two survivors returns empty rather than a single point: chart.js
+ * would render that one point as a dot, and a dot on an otherwise empty ROC
+ * reads as a measurement instead of as missing data.
  */
-export function curvePath(
+export function curveSeries(
   points: readonly CurvePoint[] | undefined,
-  box: CurveBox,
-  domain: CurveDomain = UNIT_DOMAIN,
-): string {
+): CurvePoint[] {
   const usable = (points ?? []).filter(
     (point) => point && Number.isFinite(point.x) && Number.isFinite(point.y),
   );
-  if (usable.length < 2) return '';
-  const spanX = domain.maxX - domain.minX || 1;
-  const spanY = domain.maxY - domain.minY || 1;
-  return usable
-    .map((point, index) => {
-      const x = ((point.x - domain.minX) / spanX) * box.width;
-      const y = box.height - ((point.y - domain.minY) / spanY) * box.height;
-      return `${index === 0 ? 'M' : 'L'}${round(x)},${round(y)}`;
-    })
-    .join(' ');
+  return usable.length < 2 ? [] : usable.map((point) => ({ x: point.x, y: point.y }));
+}
+
+/** What a curve is judged against, in the curve's own units. */
+export type CurveReference =
+  /** The diagonal of a coin flip, corner to corner. A ROC's baseline. */
+  | { kind: 'diagonal' }
+  /** A horizontal line — precision at the prevalence of the positive class. */
+  | { kind: 'level'; value: number | null }
+  /** Another series entirely, as a regression fit is judged against identity. */
+  | { kind: 'series'; points: readonly CurvePoint[] }
+  | { kind: 'none' };
+
+/**
+ * The reference as two or more points, ready to be a second dataset.
+ *
+ * The reference is not decoration. A ROC without its diagonal cannot be read at
+ * all — the shape alone says nothing about whether the model beats chance — and
+ * a precision/recall curve without the prevalence line flatters every
+ * imbalanced problem. A level outside the visible range is dropped rather than
+ * clamped to an edge, where it would claim a value it does not have.
+ */
+export function referenceSeries(
+  reference: CurveReference,
+  domain: CurveDomain = UNIT_DOMAIN,
+): CurvePoint[] {
+  switch (reference.kind) {
+    case 'diagonal':
+      return [
+        { x: domain.minX, y: domain.minY },
+        { x: domain.maxX, y: domain.maxY },
+      ];
+    case 'level': {
+      const value = reference.value;
+      if (value === null || value === undefined || !Number.isFinite(value)) return [];
+      if (value < domain.minY || value > domain.maxY) return [];
+      return [
+        { x: domain.minX, y: value },
+        { x: domain.maxX, y: value },
+      ];
+    }
+    case 'series':
+      return curveSeries(reference.points);
+    default:
+      return [];
+  }
 }
 
 /**
- * The same curve closed along the baseline, so the area under it can be filled.
+ * A resolved colour token at a given alpha, as a canvas can use it.
  *
- * The fill is what makes two ROCs comparable at a glance — the eye compares
- * areas far better than it compares two thin lines — which is the whole reason
- * a model card shows a curve rather than only the AUC beside it.
+ * The DOM parts of this kit fill with `color-mix(in srgb, var(--ck-accent) 16%,
+ * transparent)` and let the browser do the work. A canvas gets a string and
+ * nothing else: `var()` is not a colour there, and `color-mix()` is not either.
+ * So a component resolves the token through `getComputedStyle` and passes the
+ * result here, which is why this takes a colour and not a token name.
+ *
+ * Unparseable input returns `transparent`, not the colour at full strength: an
+ * area fill that silently became opaque would hide the curve it sits under,
+ * which is worse than an area fill that is missing.
  */
-export function curveArea(
-  points: readonly CurvePoint[] | undefined,
-  box: CurveBox,
-  domain: CurveDomain = UNIT_DOMAIN,
-): string {
-  const line = curvePath(points, box, domain);
-  if (!line) return '';
-  const usable = (points ?? []).filter(
-    (point) => point && Number.isFinite(point.x) && Number.isFinite(point.y),
-  );
-  const spanX = domain.maxX - domain.minX || 1;
-  const first = usable[0];
-  const last = usable[usable.length - 1];
-  const startX = round(((first.x - domain.minX) / spanX) * box.width);
-  const endX = round(((last.x - domain.minX) / spanX) * box.width);
-  return `${line} L${endX},${box.height} L${startX},${box.height} Z`;
+export function tokenAlpha(color: string, alpha: number): string {
+  const bounded = Math.max(0, Math.min(1, Number(alpha) || 0));
+  const channels = colorChannels(color);
+  if (!channels) return 'transparent';
+  const [red, green, blue, existing] = channels;
+  return `rgba(${red}, ${green}, ${blue}, ${round(existing * bounded)})`;
 }
 
-/** Where a horizontal reference sits in the box, or `null` if outside it. */
-export function referenceY(
-  value: number | null | undefined,
-  box: CurveBox,
-  domain: CurveDomain = UNIT_DOMAIN,
-): number | null {
-  if (value === null || value === undefined || !Number.isFinite(value)) return null;
-  if (value < domain.minY || value > domain.maxY) return null;
-  const spanY = domain.maxY - domain.minY || 1;
-  return round(box.height - ((value - domain.minY) / spanY) * box.height);
+/** `[r, g, b, a]` from a hex or `rgb()`/`rgba()` string, or `null`. */
+function colorChannels(color: string): [number, number, number, number] | null {
+  const text = (color ?? '').trim().toLowerCase();
+  if (!text) return null;
+  const hex = /^#([0-9a-f]{3,8})$/.exec(text);
+  if (hex) {
+    const digits = hex[1];
+    // #rgb and #rgba are shorthand for doubled digits, so expand before slicing.
+    const wide =
+      digits.length <= 4
+        ? digits
+            .split('')
+            .map((digit) => digit + digit)
+            .join('')
+        : digits;
+    if (wide.length !== 6 && wide.length !== 8) return null;
+    const channel = (at: number) => parseInt(wide.slice(at, at + 2), 16);
+    const alpha = wide.length === 8 ? channel(6) / 255 : 1;
+    return [channel(0), channel(2), channel(4), alpha];
+  }
+  // Both the legacy comma form and the modern `rgb(r g b / a)` slash form.
+  const parts = /^rgba?\(([^)]+)\)$/.exec(text);
+  if (!parts) return null;
+  const numbers = parts[1]
+    .replace(/\//g, ' ')
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map((piece) => (piece.endsWith('%') ? Number(piece.slice(0, -1)) / 100 : Number(piece)));
+  if (numbers.length < 3 || numbers.some((value) => !Number.isFinite(value))) return null;
+  const alpha = numbers.length > 3 ? Math.max(0, Math.min(1, numbers[3])) : 1;
+  return [
+    Math.round(numbers[0]),
+    Math.round(numbers[1]),
+    Math.round(numbers[2]),
+    alpha,
+  ];
 }
 
 function round(value: number): number {
-  return Math.round(value * 100) / 100;
+  return Math.round(value * 1000) / 1000;
 }
 
 // ---------------------------------------------------------------------------
