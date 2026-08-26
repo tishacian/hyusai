@@ -228,6 +228,12 @@ def check_narration(observed: list[str], vocabulary: tuple[str, ...], what: str)
     walks backwards through it, and that at least one value is real work rather
     than ``queued`` — a row that only ever said "queued" then "ready" is exactly
     the mute spinner this is here to catch.
+
+    That last assertion still needs the work to outlast one round trip, which is
+    what ``--rows`` is sized for. Seeing *nothing* is reported separately from
+    seeing only ``queued``: the first means the observer was too slow to witness
+    a plane that may be perfectly healthy, and the two should not be diagnosed
+    with the same sentence.
     """
 
     steps = [step_of(detail) for detail in observed]
@@ -239,8 +245,13 @@ def check_narration(observed: list[str], vocabulary: tuple[str, ...], what: str)
         f"{what} narrated its steps out of order: {observed}",
     )
     check(
+        bool(steps),
+        f"{what} finished before the first poll returned, so nothing could be "
+        f"observed — raise --rows until the work outlasts one round trip",
+    )
+    check(
         any(step != vocabulary[0] for step in steps),
-        f"{what} never narrated any work, only {observed or '[]'}",
+        f"{what} never narrated any work, only {observed}",
     )
 
 
@@ -698,7 +709,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--password", default=os.environ.get("E2E_PASSWORD", ""))
     parser.add_argument("--password-file", default=None)
     parser.add_argument("--expect-sha", default=None)
-    parser.add_argument("--rows", type=int, default=4000)
+    # Sized so the ingest is observable, not so the fit is interesting. Four
+    # thousand rows ingest in about a quarter of a second, which is shorter
+    # than one HTTPS round trip from off the box: the narration is written and
+    # committed step by step, but a remote poller sees the row already ready
+    # and reads that as a mute spinner. This many rows keeps the wait longer
+    # than the observer, and it is still a small upload.
+    parser.add_argument("--rows", type=int, default=60_000)
     parser.add_argument("--seed", type=int, default=20260825)
     parser.add_argument("--report", default=None)
     parser.add_argument(
