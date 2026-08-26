@@ -175,11 +175,13 @@ def test_ingest_walks_the_declared_steps_in_order(
     from app.services import tabular_datasets
 
     walked: list[str] = []
+    written: list[str] = []
     real = tabular_datasets.mark_step
 
-    def spy(db, dataset, step):
+    def spy(db, dataset, step, *, rows=None):
         walked.append(step)
-        real(db, dataset, step)
+        real(db, dataset, step, rows=rows)
+        written.append(dataset.status_detail)
 
     monkeypatch.setattr(tabular_datasets, "mark_step", spy)
 
@@ -198,6 +200,14 @@ def test_ingest_walks_the_declared_steps_in_order(
     # Plus the queued one the API stamps before the worker exists, which is the
     # whole list.
     assert ["queued", *walked] == list(INGEST_STEPS)
+
+    # Once the parse has a height, the step carries it. That is the difference
+    # between a progress line and a fact: "profiling" is what a spinner says,
+    # "3 rows" is what tells the reader their file arrived whole. A number and
+    # not a sentence, because the thousands separator belongs to the locale and
+    # two of them poll this same row.
+    rows = CSV.strip().count("\n")
+    assert written == ["reading", f"profiling:{rows}", f"writing:{rows}"]
 
 
 def test_ingest_failure_records_a_reason_instead_of_hanging_in_progress(

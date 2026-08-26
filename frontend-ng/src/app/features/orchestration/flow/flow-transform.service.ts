@@ -411,6 +411,7 @@ export class FlowTransformService {
         return transformFailure(
           typeof detail['code'] === 'string' ? detail['code'] : null,
           typeof detail['message'] === 'string' ? detail['message'] : null,
+          detail['position'],
         );
       }
       return transformFailure(null, typeof detail === 'string' ? detail : error.message);

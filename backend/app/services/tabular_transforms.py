@@ -405,6 +405,7 @@ def execute_sql(
                 raise TabularError(
                     code="SQL_EXECUTION_FAILED",
                     message=_readable_engine_error(exc),
+                    details=_positioned_failure(connection, validated, exc),
                 ) from exc
         finally:
             connection.close()
@@ -453,6 +454,82 @@ def _seal_filesystem(connection: Any) -> None:
                 statement=statement,
                 error=str(exc).splitlines()[0][:200],
             )
+
+
+_ERROR_LINE = re.compile(r"^LINE (\d+):[ ]?(.*)$")
+
+
+def _error_position(exc: Exception, statement: str) -> dict[str, Any] | None:
+    """Where in the author's statement duckdb stopped, if it says.
+
+    duckdb already knows: every parser, binder, catalog and conversion error
+    carries a ``LINE n:`` echo and a ``^`` under the offending token. Throwing
+    that away and keeping only the sentence is what makes an editor error a
+    scavenger hunt — the author reads "Referenced column not found" and then
+    counts the lines by hand.
+
+    The echo is checked against ``statement`` before the coordinate is trusted,
+    and that check is the point rather than a formality: duckdb's relational API
+    reports positions against its own *rewritten* SQL, so an error in
+    ``WHERE a > 'x'`` can come back measured against
+    ``SELECT a FROM "input" WHERE (a > 'x') LIMIT 5`` — a coordinate that would
+    move the author's cursor to a place in a text they never wrote. A position
+    that does not line up with what they typed is worse than none, so it is
+    dropped.
+    """
+
+    lines = statement.splitlines()
+    line_no: int | None = None
+    source = ""
+    prefix = 0
+    for raw in str(exc).splitlines():
+        matched = _ERROR_LINE.match(raw.strip())
+        if matched is not None:
+            line_no = int(matched.group(1))
+            source = matched.group(2)
+            prefix = len(raw) - len(source)
+            continue
+        if line_no is None:
+            continue
+        if not (1 <= line_no <= len(lines)) or lines[line_no - 1].rstrip() != source.rstrip():
+            # The echo is of some other text than the author's. See above.
+            return None
+        if set(raw.strip()) == {"^"}:
+            # The caret sits under the token, indented to match the echo above.
+            return {
+                "position": {
+                    "line": line_no,
+                    "column": max(1, raw.index("^") - prefix + 1),
+                    "excerpt": source[:200],
+                }
+            }
+    return None
+
+
+def _positioned_failure(
+    connection: Any, statement: str, exc: Exception
+) -> dict[str, Any] | None:
+    """The coordinate for a refused statement, asking twice if the first is mute.
+
+    The relational API (``connection.sql``) is what runs the author's statement,
+    because it composes the row cap without string surgery. But it drops the
+    ``LINE n:`` echo for exactly the two mistakes authors make most — a column
+    that does not exist and a table that does not exist — so on failure the
+    statement is offered once more to ``execute``, whose message keeps it.
+
+    Re-running is safe here and nowhere else: the statement is already validated
+    read-only, the filesystem is sealed by this point, and it has just failed,
+    so there is no result to lose and nothing to write twice.
+    """
+
+    found = _error_position(exc, statement)
+    if found is not None:
+        return found
+    try:
+        connection.execute(statement)
+    except Exception as retried:  # noqa: BLE001 - the message is the whole point
+        return _error_position(retried, statement)
+    return None
 
 
 def _readable_engine_error(exc: Exception) -> str:

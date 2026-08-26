@@ -484,3 +484,103 @@ def test_the_result_of_a_transform_can_feed_the_next_one(
     row = db_session.query(TabularDataset).filter_by(id=second["dataset_id"]).one()
     assert row.parent_ids == [first["dataset_id"]]
     assert row.preview_json[0]["n"] == 4
+
+
+@pytest.mark.parametrize(
+    "sql,line,column,token",
+    [
+        # A typo in the first keyword: the caret is at the very start.
+        ("SELEC a FROM input", 1, 1, "SELEC"),
+        # A bad column on the third line of a formatted query — the case the
+        # message alone handles worst, because it names the column and leaves
+        # the author to find which of the lines it is on.
+        ("SELECT\n  a,\n  nosuchcol\nFROM input", 3, 3, "nosuchcol"),
+        ("SELECT a FROM nosuchtable", 1, 15, "nosuchtable"),
+        ("SELECT a FROM input WHERE a > 'x'", 1, 31, "'x'"),
+    ],
+)
+def test_a_refused_statement_carries_the_place_the_engine_stopped(sql, line, column, token):
+    """duckdb already knows where; throwing it away is what makes it a hunt.
+
+    Every parser, binder, catalog and conversion error echoes the offending line
+    and puts a ``^`` under the token. Keeping only the sentence leaves the
+    author counting lines under "Referenced column not found". The coordinate is
+    asserted by slicing the author's own SQL at it: an off-by-one in the caret
+    arithmetic would land the cursor next to the problem rather than on it,
+    which is worse than not moving it at all.
+    """
+
+    import duckdb
+
+    from app.services.tabular_transforms import _positioned_failure
+
+    connection = duckdb.connect()
+    connection.execute("CREATE TABLE input AS SELECT 1 AS a")
+    try:
+        # Through the relational API, which is the one `execute_sql` runs the
+        # author's statement on — and the one that drops the position for a
+        # binder or catalog error, so this exercises the second ask too.
+        connection.sql(sql).limit(51).arrow()
+    except Exception as exc:  # noqa: BLE001 - the error is the subject
+        found = _positioned_failure(connection, sql, exc)
+    else:  # pragma: no cover - every case above is a refusal
+        raise AssertionError(f"{sql!r} did not fail")
+    finally:
+        connection.close()
+
+    assert found is not None, "duckdb reported a place and it was dropped"
+    at = found["position"]
+    assert (at["line"], at["column"]) == (line, column)
+    # The caret lands ON the token, not beside it.
+    assert sql.splitlines()[at["line"] - 1][at["column"] - 1 :].startswith(token)
+
+
+def test_an_error_with_no_place_says_so_rather_than_guessing_one():
+    """A cursor sent to line 1 on every failure is worse than a cursor unmoved.
+
+    Not every refusal belongs to a token — a result-too-large or an engine-level
+    fault has no coordinate — and inventing one would move the author's caret
+    away from wherever they were working, for no reason.
+    """
+
+    from app.services.tabular_transforms import _error_position
+
+    statement = "SELECT a FROM input"
+    assert _error_position(RuntimeError("Out of Memory Error"), statement) is None
+    assert _error_position(RuntimeError(""), statement) is None
+
+    # And the guard that matters: duckdb's relational API reports positions
+    # against its own rewritten SQL. A coordinate whose echoed line is not the
+    # author's line would send their cursor into text they never typed, so it is
+    # refused rather than trusted.
+    rewritten = RuntimeError(
+        'Conversion Error: Could not convert string\n\n'
+        'LINE 1: SELECT a FROM "input" WHERE (a > \'x\') LIMIT 5\n'
+        '                                          ^'
+    )
+    assert _error_position(rewritten, "SELECT a FROM input WHERE a > 'x'") is None
+
+
+def test_the_refusal_the_workshop_receives_includes_the_coordinate(
+    db_session, workspace, customers
+):
+    """End to end, because the position has to survive the error payload.
+
+    ``TabularError.payload()`` flattens ``details`` into the response body, so
+    this is the shape the editor actually reads back — and the reason the
+    coordinate goes in ``details`` rather than into the message text.
+    """
+
+    with pytest.raises(TabularError) as error:
+        preview_sql(
+            db_session,
+            workspace_id=workspace.id,
+            sql="SELECT\n  contract,\n  nosuchcol\nFROM input",
+            payload={"dataset_id": customers.id},
+        )
+
+    body = error.value.payload()
+    assert body["code"] == "SQL_EXECUTION_FAILED"
+    assert body["position"] == {"line": 3, "column": 3, "excerpt": "  nosuchcol"}
+    # The sentence still stands on its own; the coordinate is an addition.
+    assert "nosuchcol" in body["message"]

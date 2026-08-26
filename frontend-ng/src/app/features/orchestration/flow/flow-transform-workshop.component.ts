@@ -43,10 +43,14 @@ import {
   inject,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 import { A11yModule } from '@angular/cdk/a11y';
 import { RouterLink } from '@angular/router';
-import { CodeEditorComponent } from '@app/shared/ui/code-editor.component';
+import {
+  CodeEditorComponent,
+  type CodeEditorPosition,
+} from '@app/shared/ui/code-editor.component';
 import { DataTableComponent } from '@app/shared/ui/data-table.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { I18nService } from '@app/core/i18n.service';
@@ -249,6 +253,7 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                   </span>
                 </div>
                 <ck-code-editor
+                  #editor
                   class="ck-transform-workshop__cm"
                   [language]="activeFile().language"
                   [value]="activeFile().content"
@@ -320,6 +325,22 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                     {{ i18n.t(reason.key) }}
                     @if (reason.detail) {
                       <code class="ck-transform-workshop__detail">{{ reason.detail }}</code>
+                    }
+                    @if (reason.position; as at) {
+                      <button
+                        type="button"
+                        class="ck-transform-workshop__jump"
+                        data-testid="jump-to-error"
+                        (click)="pointAtError(at)"
+                      >
+                        <app-icon name="crosshair" [size]="11" />
+                        {{
+                          i18n.t('flow.transform.error.at_line', {
+                            line: at.line,
+                            column: at.column
+                          })
+                        }}
+                      </button>
                     }
                   </p>
                 } @else if (transform.preview(); as result) {
@@ -475,8 +496,21 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                         }
                         <ul class="ck-transform-workshop__columns">
                           @for (column of source.columns; track column.name) {
-                            <li [attr.data-kind]="column.kind" [title]="column.dtype || column.kind">
-                              {{ column.name }}
+                            <li [attr.data-kind]="column.kind">
+                              <button
+                                type="button"
+                                data-testid="insert-column"
+                                [title]="column.dtype || column.kind"
+                                [attr.aria-label]="
+                                  i18n.t('flow.transform.sources.insert.aria', {
+                                    column: column.name,
+                                    view: source.view
+                                  })
+                                "
+                                (click)="insertColumn(source, column.name)"
+                              >
+                                {{ column.name }}
+                              </button>
                             </li>
                           }
                         </ul>
@@ -559,6 +593,9 @@ export class FlowTransformWorkshopComponent {
 
   readonly close = output<void>();
 
+  /** The editor, so a sidebar click and an engine error can both reach it. */
+  private readonly editor = viewChild<CodeEditorComponent>('editor');
+
   protected readonly node = this.store.selectedNode;
   protected readonly engine = computed(() => transformEngineOf(this.node()) ?? 'sql');
   protected readonly descriptor = computed(() => TRANSFORM_ENGINES[this.engine()]);
@@ -629,6 +666,8 @@ export class FlowTransformWorkshopComponent {
   private pendingProgramFileId: string | null = null;
   private lastResolvedPins = '';
   private lastNodeId: string | null = null;
+  /** The coordinate already jumped to, so an unrelated redraw does not re-jump. */
+  private lastPointedError: string | null = null;
 
   constructor() {
     // The workshop exists FOR the selected transform node; if it stops being
@@ -653,6 +692,16 @@ export class FlowTransformWorkshopComponent {
       if (signature === this.lastResolvedPins) return;
       this.lastResolvedPins = signature;
       void this.transform.resolveSources(engine, pins);
+    });
+    // A refusal that names a place goes to that place. The author pressed Test a
+    // moment ago, so this is the gesture they were expecting next; leaving them
+    // to count lines under "Referenced column not found" is the alternative.
+    effect(() => {
+      const at = this.transform.failure()?.position;
+      const signature = at ? `${at.line}:${at.column}` : null;
+      if (signature === this.lastPointedError) return;
+      this.lastPointedError = signature;
+      if (at) this.editor()?.pointAt(at);
     });
     void this.transform.ensureDatasets();
     this.destroyRef.onDestroy(() => this.flushProgram());
@@ -756,6 +805,25 @@ export class FlowTransformWorkshopComponent {
     if (!write) return;
     this.store.updateNodeConfig(id, write.path, write.value);
     this.transform.clearResult();
+  }
+
+  /**
+   * Put a column name where the caret is, qualified when the query joins.
+   *
+   * Reading a name off a sidebar and typing it back is transcription, and a
+   * mistyped column costs a whole round-trip to the engine to discover. The
+   * qualifier is only added when there is more than one source: `region` is
+   * what an author writes over one table, and `subscribers.region` is what
+   * they have to write over two.
+   */
+  protected insertColumn(source: TransformSourceCatalogEntry, column: string): void {
+    const many = this.transform.sources().length > 1;
+    this.editor()?.insertAtCursor(many ? `${source.view}.${column}` : column);
+  }
+
+  /** Send the caret to the coordinate the engine complained about. */
+  protected pointAtError(position: CodeEditorPosition): void {
+    this.editor()?.pointAt(position);
   }
 
   /** Add a model that already selects from the published one, and open it. */
