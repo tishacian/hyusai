@@ -602,7 +602,13 @@ class Settings(BaseSettings):
     # and is therefore part of the env fingerprint — with one addition: dbt is a
     # project, not a statement, so the node carries a small model tree and the
     # caps below bound how large that tree may get.
-    tabular_dbt_requirement: str = "dbt-duckdb==1.9.4"
+    # Both halves of the engine are pinned because the adapter only declares a
+    # floor on the one underneath it (``dbt-core>=1.8.0``). Left transitive, the
+    # core would resolve differently on two machines that built this env months
+    # apart while the fingerprint — the hash of these very lines — stayed
+    # identical, and a content-addressed cache that cannot tell two different
+    # engines apart is worse than none.
+    tabular_dbt_requirement: str = "dbt-duckdb==1.9.4\ndbt-core==1.12.3"
     tabular_dbt_default_timeout_s: float = Field(default=300.0, ge=1.0)
     tabular_dbt_memory_limit_mb: int = Field(default=3072, ge=512)
     tabular_dbt_max_threads: int = Field(default=2, ge=1, le=32)

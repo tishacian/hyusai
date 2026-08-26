@@ -137,6 +137,28 @@ def test_the_adapter_pin_leads_the_requirements_and_drives_the_fingerprint(monke
     assert env_spec_for().fingerprint != polars_spec().fingerprint
 
 
+def test_the_pin_names_the_core_as_well_as_the_adapter(monkeypatch):
+    """``dbt-duckdb`` declares a floor on ``dbt-core``, not a version.
+
+    Left transitive, the core resolves to whatever is newest on the day the
+    venv is built while the fingerprint — computed from the requirement lines
+    alone — stays identical, so two machines end up holding "the same" cached
+    env running two different engines. That is the one confusion a
+    content-addressed cache exists to rule out.
+    """
+
+    pins = effective_requirements(None).splitlines()
+    assert [pin.split("==")[0] for pin in pins] == ["dbt-duckdb", "dbt-core"]
+    assert all(len(pin.split("==")) == 2 for pin in pins), pins
+
+    # Either half moving is a different engine, so either half moving has to be
+    # a different env.
+    baseline = env_spec_for().fingerprint
+    for shifted in (f"{pins[0]}.post1\n{pins[1]}", f"{pins[0]}\n{pins[1]}.post1"):
+        monkeypatch.setattr(settings, "tabular_dbt_requirement", shifted)
+        assert env_spec_for().fingerprint != baseline
+
+
 def test_a_model_tree_is_validated_before_anything_is_queued(monkeypatch):
     from app.services.tabular_datasets import TabularError
 
@@ -217,13 +239,14 @@ def test_timeout_clamps_to_the_platform_window(monkeypatch):
 
 @pytest.fixture(scope="session")
 def dbt_interpreter() -> Path:
-    """A cached venv carrying the pinned adapter, or a skip when offline.
+    """A cached venv carrying the pinned engine, or a skip when offline.
 
     Cached by requirement digest under the system temp dir so the install is
     paid once per machine rather than once per session.
     """
 
     requirement = settings.tabular_dbt_requirement
+    pins = [line.strip() for line in requirement.splitlines() if line.strip()]
     digest = hashlib.sha256(requirement.encode("utf-8")).hexdigest()[:12]
     root = Path(tempfile.gettempdir()) / f"agentium-dbt-test-venv-{digest}"
     interpreter = root / "bin" / "python"
@@ -237,7 +260,7 @@ def dbt_interpreter() -> Path:
                 timeout=300,
             )
             subprocess.run(
-                [str(interpreter), "-m", "pip", "install", "-q", requirement],
+                [str(interpreter), "-m", "pip", "install", "-q", *pins],
                 check=True,
                 capture_output=True,
                 timeout=900,
