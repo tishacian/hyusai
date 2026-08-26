@@ -19,6 +19,12 @@
  * colours there. So the `--ck-*` tokens are resolved off the host element and
  * re-resolved whenever the theme flips, rather than handed to the renderer as
  * text it cannot parse.
+ *
+ * Three local plugins do the parts chart.js has no option for: the curve wipes
+ * in from the origin, the measured line is lit rather than merely coloured, and
+ * a dashed guide follows the pointer down to the axis. They are separate
+ * plugins rather than one because each hangs off a different draw phase, and
+ * the order they are listed in is the order they have to run.
  */
 import {
   ChangeDetectionStrategy,
@@ -28,15 +34,23 @@ import {
   inject,
   input,
 } from '@angular/core';
-import type { ChartConfiguration, ChartData } from 'chart.js';
+import type {
+  Chart,
+  ChartConfiguration,
+  ChartData,
+  Plugin,
+  ScriptableContext,
+} from 'chart.js';
 import { BaseChartDirective } from 'ng2-charts';
 
 import { ThemeService } from '@app/core/theme.service';
 
 import {
   UNIT_DOMAIN,
+  curveFill,
   curveSeries,
   referenceSeries,
+  revealFraction,
   tokenAlpha,
   type CurveDomain,
   type CurvePoint,
@@ -44,6 +58,162 @@ import {
 } from './viz.vm';
 
 export type { CurveReference } from './viz.vm';
+
+/** How long a curve takes to draw itself in. */
+const REVEAL_MS = 760;
+
+/**
+ * Zero when the reader has asked for less motion, which
+ * {@link revealFraction} reads as a reveal that is already over.
+ *
+ * Read per frame rather than once, because the preference can change under a
+ * chart that is already on screen — and because there is no window to ask in
+ * the unit runner, where the absent `matchMedia` means no animation at all.
+ */
+function revealDuration(): number {
+  if (typeof matchMedia !== 'function') return 0;
+  return matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : REVEAL_MS;
+}
+
+const revealStarts = new WeakMap<Chart, number>();
+const destroyed = new WeakSet<Chart>();
+
+/**
+ * How far this chart's reveal has got, on the clock that starts the first time
+ * it is laid out into a box with a width.
+ *
+ * The panels these curves sit in are tabs that render hidden rather than
+ * deferred, so a chart is constructed — and drawn, into nothing — long before
+ * anyone can see it. Starting the clock on the first draw would spend the whole
+ * reveal against `display: none`, and the curve would simply be there when the
+ * tab was finally opened. A chart with no width has not begun to arrive.
+ */
+function revealOf(chart: Chart): number {
+  const area = chart.chartArea;
+  if (!area || area.right - area.left <= 0) return 1;
+  const started = revealStarts.get(chart);
+  if (started === undefined) {
+    revealStarts.set(chart, performance.now());
+    return revealFraction(0, revealDuration());
+  }
+  return revealFraction(performance.now() - started, revealDuration());
+}
+
+/**
+ * The entrance: the plot is clipped to a growing rectangle, so the curve and
+ * the area under it arrive together, left to right.
+ *
+ * A clip rather than chart.js's own animation because the two things that have
+ * to arrive in step are a line and the wash beneath it, and animating the
+ * points would grow the line while the fill — which the Filler plugin derives
+ * from the finished path — flickers behind it. Clipping is indifferent to what
+ * is being drawn.
+ *
+ * Kept once per chart instance: the reveal is an arrival, and re-running it
+ * whenever the data object changes would replay the entrance on every theme
+ * flip.
+ */
+const revealPlugin: Plugin<'line'> = {
+  id: 'ck-reveal',
+  beforeDatasetsDraw(chart) {
+    const { ctx, chartArea } = chart;
+    // Unconditional, so the restore below always has something to undo.
+    ctx.save();
+    const fraction = revealOf(chart);
+    if (fraction >= 1) return;
+    ctx.beginPath();
+    ctx.rect(
+      chartArea.left,
+      chartArea.top,
+      (chartArea.right - chartArea.left) * fraction,
+      chartArea.bottom - chartArea.top,
+    );
+    ctx.clip();
+  },
+  afterDatasetsDraw(chart) {
+    chart.ctx.restore();
+    if (revealOf(chart) >= 1) return;
+    requestAnimationFrame(() => {
+      if (destroyed.has(chart)) return;
+      chart.draw();
+    });
+  },
+  afterDestroy(chart) {
+    destroyed.add(chart);
+  },
+};
+
+/**
+ * A curve is lit rather than merely coloured.
+ *
+ * The shadow is set between the fill and the stroke, which is a real ordering
+ * and not a coincidence: chart.js notifies its own registered plugins before a
+ * chart's local ones, so the Filler has already painted the area by the time
+ * this runs, and only the line and its hover points pick up the glow. A halo
+ * around the area polygon would smudge its edge along the axis.
+ *
+ * References are exempt. A dashed line is a claim about the plot — this is
+ * where chance would be — and lighting it would present the baseline as a
+ * second result.
+ */
+const glowPlugin: Plugin<'line'> = {
+  id: 'ck-glow',
+  beforeDatasetDraw(chart, args) {
+    const dataset = chart.data.datasets[args.index] as
+      | { borderColor?: unknown; borderDash?: number[] }
+      | undefined;
+    if (!dataset || dataset.borderDash?.length) return;
+    if (typeof dataset.borderColor !== 'string') return;
+    chart.ctx.shadowColor = tokenAlpha(dataset.borderColor, 0.5);
+    chart.ctx.shadowBlur = 10;
+  },
+  afterDatasetDraw(chart) {
+    chart.ctx.shadowColor = 'transparent';
+    chart.ctx.shadowBlur = 0;
+  },
+};
+
+/**
+ * The vertical guide under the pointer.
+ *
+ * The tooltip already says which point is being read; the crosshair says
+ * *where*, which is the half of "0.82 true positives at 0.11 false positives"
+ * that a reader was about to trace with a finger. Drawn under nothing — it is
+ * the last thing on the canvas — but at one pixel and dashed, so it guides
+ * without competing with the curve it is measuring.
+ */
+const crosshairPlugin: Plugin<'line'> = {
+  id: 'ck-crosshair',
+  afterDatasetsDraw(chart) {
+    const active = chart.tooltip?.getActiveElements() ?? [];
+    const { ctx, chartArea } = chart;
+    if (!active.length || !chartArea) return;
+    const x = active[0]!.element.x;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.strokeStyle = axisInk(chart);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+
+/**
+ * The colour the axis labels are written in, read back off the chart.
+ *
+ * A plugin draws with what the canvas gives it, and a canvas cannot resolve
+ * `var()`. Rather than resolve `--ck-fg-3` a second time — and risk a
+ * crosshair that stays dark after a flip to the light theme — this reads the
+ * value the component already resolved and handed to the ticks. The crosshair
+ * is then, by construction, the same ink as the numbers it is pointing at.
+ */
+function axisInk(chart: Chart): string {
+  const ticks = (chart.options.scales?.['x'] as { ticks?: { color?: unknown } } | undefined)?.ticks;
+  return typeof ticks?.color === 'string' ? ticks.color : 'rgba(148, 163, 184, 0.5)';
+}
 
 @Component({
   selector: 'ck-curve-chart',
@@ -59,6 +229,7 @@ export type { CurveReference } from './viz.vm';
         [attr.aria-label]="label()"
         [data]="data()"
         [options]="options()"
+        [plugins]="plugins"
       ></canvas>
     </div>
   `,
@@ -112,12 +283,43 @@ export class CurveChartComponent {
     );
     return {
       line,
-      area: tokenAlpha(line, 0.18),
       grid: tokenAlpha(this.token('--ck-stroke-2', 'rgba(255, 255, 255, 0.08)'), 1),
       reference: tokenAlpha(this.token('--ck-fg-4', 'rgba(255, 255, 255, 0.45)'), 0.8),
       text: this.token('--ck-fg-3', 'rgba(255, 255, 255, 0.66)'),
+      // Opaque on purpose: a tooltip is read over the densest part of the
+      // plot, and a translucent card there is a card with a curve through it.
+      surface: this.token('--ck-bg-panel-hi', '#11161c'),
+      ink: this.token('--ck-fg-1', '#f2f5f8'),
+      edge: this.token('--ck-stroke-2', 'rgba(255, 255, 255, 0.08)'),
     };
   });
+
+  /**
+   * The wash under the curve, as a gradient down the plot.
+   *
+   * Scriptable rather than a colour because a `CanvasGradient` needs both the
+   * context and a laid-out plot area, and neither exists when the dataset is
+   * assembled. chart.js calls this again on every draw, including the first
+   * one after layout — which is why returning nothing before `chartArea`
+   * exists costs a frame rather than the fill.
+   */
+  private readonly area = (context: ScriptableContext<'line'>): CanvasGradient | string => {
+    const { ctx, chartArea } = context.chart;
+    if (!chartArea) return 'transparent';
+    const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+    for (const stop of curveFill(this.palette().line)) {
+      gradient.addColorStop(stop.offset, stop.color);
+    }
+    return gradient;
+  };
+
+  /**
+   * Local to this chart, and in this order: the reveal's clip has to be in
+   * place before the Filler paints, and the crosshair is drawn after the clip
+   * is released so a pointer resting on a half-drawn curve still gets a whole
+   * guide.
+   */
+  protected readonly plugins = [revealPlugin, glowPlugin, crosshairPlugin];
 
   protected readonly data = computed<ChartData<'line', CurvePoint[]>>(() => {
     const palette = this.palette();
@@ -143,13 +345,17 @@ export class CurveChartComponent {
         {
           data: curveSeries(this.points()),
           borderColor: palette.line,
-          backgroundColor: palette.area,
-          borderWidth: 1.75,
+          backgroundColor: this.area,
+          borderWidth: 2.25,
+          borderJoinStyle: 'round',
+          borderCapStyle: 'round',
           pointRadius: 0,
           // Hoverable without being dotted: the points are invisible until the
           // pointer is near one, which is the whole reason this is a canvas.
-          pointHoverRadius: 3.5,
+          pointHoverRadius: 4,
           pointHoverBackgroundColor: palette.line,
+          pointHoverBorderColor: palette.surface,
+          pointHoverBorderWidth: 2,
           pointHitRadius: 8,
           fill: this.fill() ? 'origin' : false,
           tension: 0,
@@ -166,7 +372,10 @@ export class CurveChartComponent {
     return {
       responsive: true,
       maintainAspectRatio: false,
-      animation: { duration: 320 },
+      // The entrance is the reveal plugin's wipe, and two entrances at once
+      // read as a stutter: chart.js would grow the points from the baseline
+      // underneath a clip that is already uncovering them.
+      animation: false,
       // A ROC is read by pointing at it, and the nearest point in x is the one
       // a reader means — not the nearest in both axes, which on a steep curve
       // is somewhere else entirely.
@@ -175,6 +384,18 @@ export class CurveChartComponent {
         legend: { display: false },
         tooltip: {
           displayColors: false,
+          // chart.js's default tooltip is a black capsule with the browser's
+          // fonts, which on a cockpit panel looks like something the page
+          // borrowed. These are the same surface, ink and hairline every other
+          // popover on the page is built from.
+          backgroundColor: palette.surface,
+          bodyColor: palette.ink,
+          borderColor: palette.edge,
+          borderWidth: 1,
+          cornerRadius: 8,
+          padding: { x: 10, y: 7 },
+          bodyFont: { size: 11, weight: 600 },
+          caretSize: 5,
           callbacks: {
             title: () => '',
             label: (item) => describe(item.raw as CurvePoint),
