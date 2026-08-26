@@ -93,10 +93,15 @@ test('a revoked key stays visible, because a demo has to show it stop answering'
 test('the gauge animates, because the jump is the argument', () => {
   assert.match(PLAYGROUND, /stroke-dashoffset \d+ms/);
   assert.match(PLAYGROUND, /\[attr\.stroke-dashoffset\]="arc - dial\.dash"/);
-  // The handle travels with the stroke, on the same curve over the same time,
-  // or the two halves of one instrument arrive separately.
-  assert.match(PLAYGROUND, /\[attr\.transform\]="'rotate\(' \+ dial\.turn \+ ' 70 74\)'"/);
-  assert.match(PLAYGROUND, /\.ck-gauge__hand \{\s*transition: transform 620ms/);
+  // The handle is moved by the property the fill is moved by. It was a rotated
+  // group once, on the same duration and the same curve, and it still trailed
+  // the stroke's tip by a third of the dial: a browser interpolates a transform
+  // and a dash offset by different rules, and only one of them was the easing
+  // this dial asked for.
+  assert.match(PLAYGROUND, /class="ck-gauge__hand"/);
+  assert.match(PLAYGROUND, /\[attr\.stroke-dashoffset\]="dial\.handle"/);
+  assert.match(PLAYGROUND, /\.ck-gauge__hand \{[\s\S]*?transition: stroke-dashoffset 620ms/);
+  assert.doesNotMatch(PLAYGROUND, /transition: transform \d+ms/);
   assert.match(PLAYGROUND, /prefers-reduced-motion: reduce/);
 });
 
@@ -107,7 +112,10 @@ test('the dial is an instrument: a ramp, a glow, and a point to read it off', ()
   assert.match(PLAYGROUND, /<linearGradient \[attr\.id\]="rampId"/);
   assert.match(PLAYGROUND, /class="ck-gauge__stop ck-gauge__stop--from"/);
   assert.match(PLAYGROUND, /stop-color: var\(--gauge-ink\)/);
-  assert.match(PLAYGROUND, /class="ck-gauge__tip"/);
+  // Two passes of one dot, wide then narrow, so the handle reads as a ring on
+  // the track rather than as a blob of the same colour as the stroke.
+  assert.match(PLAYGROUND, /class="ck-gauge__hand ck-gauge__hand--core"/);
+  assert.match(PLAYGROUND, /\.ck-gauge__hand--core \{[\s\S]*?stroke: var\(--ck-bg-panel/);
   assert.match(PLAYGROUND, /filter: drop-shadow\(/);
 });
 

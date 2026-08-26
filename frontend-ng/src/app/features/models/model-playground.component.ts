@@ -42,6 +42,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { ModelsService } from './models.service';
 import {
   GAUGE_ARC,
+  GAUGE_HANDLE,
   contributionBars,
   curlSnippet,
   formatMetric,
@@ -193,10 +194,23 @@ let gauges = 0;
                     [attr.stroke-dashoffset]="arc - dial.dash"
                   />
                   <!-- The handle rides the tip of the fill, so the dial has a
-                       read-off point rather than only a length. -->
-                  <g class="ck-gauge__hand" [attr.transform]="'rotate(' + dial.turn + ' 70 74)'">
-                    <circle class="ck-gauge__tip" cx="12" cy="74" r="4.5" />
-                  </g>
+                       read-off point rather than only a length. It is the same
+                       path under a one-dot dash pattern, moved by the same
+                       property as the fill: that is what keeps the two in step
+                       through the sweep, which a rotation did not. Two passes,
+                       wide then narrow, make the dot a ring. -->
+                  <path
+                    class="ck-gauge__hand"
+                    d="M12,74 A56,56 0 0 1 128,74"
+                    [attr.stroke-dasharray]="handleDash"
+                    [attr.stroke-dashoffset]="dial.handle"
+                  />
+                  <path
+                    class="ck-gauge__hand ck-gauge__hand--core"
+                    d="M12,74 A56,56 0 0 1 128,74"
+                    [attr.stroke-dasharray]="handleDash"
+                    [attr.stroke-dashoffset]="dial.handle"
+                  />
                 </svg>
                 <div class="ck-gauge__read">
                   <div class="ck-gauge__value" [class.ck-gauge__value--flag]="dial.flagged">
@@ -565,18 +579,23 @@ let gauges = 0;
           stroke-dashoffset 620ms cubic-bezier(0.22, 1, 0.36, 1),
           filter 300ms ease-out;
       }
-      /* The rotate() carries its own centre — rotate(deg 70 74) — which is why
-         this needs no transform-origin and behaves the same in every engine. */
+      /* Same property, same duration, same curve as the fill: the handle is not
+         chasing the stroke, it is the stroke's own dash pattern. */
       .ck-gauge__hand {
-        transition: transform 620ms cubic-bezier(0.22, 1, 0.36, 1);
-      }
-      .ck-gauge__tip {
-        fill: var(--ck-bg-panel, #0f141a);
+        fill: none;
         stroke: var(--gauge-ink);
-        stroke-width: 3;
+        stroke-width: 13;
+        stroke-linecap: round;
         filter: drop-shadow(
           0 0 6px color-mix(in srgb, var(--gauge-ink) 65%, transparent)
         );
+        transition: stroke-dashoffset 620ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      /* The narrower pass punches the ring's middle out. */
+      .ck-gauge__hand--core {
+        stroke: var(--ck-bg-panel, #0f141a);
+        stroke-width: 7;
+        filter: none;
       }
       /* A dial that arrives already at its answer says nothing about which way
          it travelled, but a reader who asked for less motion has asked for
@@ -798,6 +817,9 @@ export class ModelPlaygroundComponent {
   private readonly router = inject(Router);
 
   protected readonly arc = GAUGE_ARC;
+
+  /** One dot, then a gap the length of the whole track. */
+  protected readonly handleDash = `${GAUGE_HANDLE} ${GAUGE_ARC}`;
 
   /**
    * The dial's gradient is referenced by `url(#id)`, and an id is document-wide.

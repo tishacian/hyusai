@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { MODELS_EN, MODELS_FR } from '@app/core/i18n/models.dict';
 import {
   GAUGE_ARC,
+  GAUGE_HANDLE,
   GAUGE_RADIUS,
   MODEL_ACTIVE_STATUSES,
   PLAN_WARNING_CODES,
@@ -463,21 +464,35 @@ test('the dial is measured against the circle a browser actually draws', () => {
   assert.equal(GAUGE_ARC, Math.PI * 58);
 });
 
-test('the handle and the stroke are one number in two units', () => {
+test('the handle rides the tip of the stroke it terminates', () => {
   for (const value of [0, 0.13, 0.5, 0.87, 1]) {
     const dial = gaugeView(
       { prediction: 'yes', probabilities: [{ label: 'yes', value }] },
       'yes',
       'en',
     );
-    assert.equal(dial?.turn, Math.round(value * 1800) / 10);
-    // The share of the arc drawn and the share of the half-turn taken agree, or
-    // the marker sits off the end of the thing it is marking.
+    // The handle's dash sits one whole period back from the tip, which is the
+    // same arithmetic read from the other end: subtracting recovers the stroke
+    // length, so the dot cannot land where the stroke does not end.
+    const at = GAUGE_ARC + GAUGE_HANDLE - dial!.handle;
     assert.ok(
-      Math.abs(dial!.dash / GAUGE_ARC - dial!.turn / 180) < 0.001,
-      `${value}: stroke and handle disagree`,
+      Math.abs(at - dial!.dash) < 0.02,
+      `${value}: handle at ${at}, stroke ends at ${dial!.dash}`,
     );
+    // Offsets stay positive: negative dash offsets are an SVG 2 addition, and
+    // an SVG 1.1 renderer treats them as an error rather than as a shift.
+    assert.ok(dial!.handle > 0, `${value}: offset ${dial!.handle} is not positive`);
   }
+});
+
+test('a full dial parks its handle a dot short of the pattern, not off the end', () => {
+  const full = gaugeView(
+    { prediction: 'yes', probabilities: [{ label: 'yes', value: 1 }] },
+    'yes',
+    'en',
+  );
+  assert.equal(full?.dash, Math.round(GAUGE_ARC * 100) / 100);
+  assert.equal(full?.handle, Math.round(GAUGE_HANDLE * 100) / 100);
 });
 
 test('landing outside the positive class reads as a probability of it, not of the answer', () => {
