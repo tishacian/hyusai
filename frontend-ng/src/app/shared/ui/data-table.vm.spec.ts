@@ -7,6 +7,11 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { DATA_EN, DATA_FR } from '@app/core/i18n/data.dict';
+import { FLOW_FR } from '@app/core/i18n/flow.dict';
 
 import {
   COLUMN_KIND_GLYPH,
@@ -220,4 +225,35 @@ test('byte sizes read as volumes, keeping a decimal only where it informs', () =
   assert.equal(formatBytes(3 * 1024 ** 4, 'en'), '3.0 TB');
   assert.equal(formatBytes(null, 'en'), '—');
   assert.equal(formatBytes(undefined, 'en'), '—');
+});
+
+test('the table states its own shape, so no caller can forget to', () => {
+  // The plan's first UI bet is one table, and part of what it carries is a
+  // "n rows · k columns" badge. It belongs to the component because it is a
+  // property of the data rather than of the surface: fifty rows of preview look
+  // identical whether they came from eight thousand or from fifty-one, and a
+  // caller that forgets to say which leaves the reader guessing at the scale.
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/shared/ui/data-table.component.ts'),
+    'utf8',
+  );
+  assert.match(source, /data-testid="table-shape"/);
+  assert.match(source, /'data\.table\.rows_columns'/);
+  assert.match(source, /readonly shape = computed/);
+  // The whole dataset when the caller knows it, the rows on screen otherwise:
+  // a preview of a preview has no other number to give.
+  assert.match(source, /total !== null && total >= 0 \? total : this\.rows\(\)\.length/);
+  assert.ok(DATA_FR['data.table.rows_columns'], 'the badge has FR copy');
+  assert.ok(DATA_EN['data.table.rows_columns'], 'the badge has EN copy');
+
+  // And no caller states it a second time: two row counts in one caption bar is
+  // exactly the drift the shared component exists to prevent.
+  for (const [name, key] of [
+    ['data-view', 'data.detail.preview.caption'],
+    ['transform workshop', 'flow.transform.result.caption'],
+  ] as const) {
+    const copy = (DATA_FR as Record<string, string>)[key] ?? FLOW_FR[key];
+    assert.ok(copy, `${key} exists`);
+    assert.doesNotMatch(copy, /\{rows\}|\{columns\}|\{total\}/, `${name} repeats the shape`);
+  }
 });

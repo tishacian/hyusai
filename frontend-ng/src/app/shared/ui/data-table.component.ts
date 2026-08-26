@@ -114,10 +114,17 @@ interface RenderedColumn {
     </ng-template>
 
     <div class="ck-dt">
-      @if (caption()) {
+      @if (shape() || caption()) {
         <div class="ck-dt__caption">
-          <span class="ck-dt__count ck-mono">{{ caption() }}</span>
-          <ng-content select="[caption-actions]" />
+          @if (shape(); as badge) {
+            <span class="ck-dt__shape ck-mono" data-testid="table-shape">{{ badge }}</span>
+          }
+          @if (caption()) {
+            <span class="ck-dt__count ck-mono">{{ caption() }}</span>
+          }
+          <span class="ck-dt__actions">
+            <ng-content select="[caption-actions]" />
+          </span>
         </div>
       }
       <div
@@ -252,16 +259,38 @@ interface RenderedColumn {
       .ck-dt__caption {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 12px;
+        gap: 10px;
         padding: 8px 12px;
         border-bottom: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.06));
       }
+      /* The shape reads as a chip and the caption as a whisper beside it: the
+         scale of the data is the fact worth finding first, and what slice of it
+         is on screen is the qualification. */
+      .ck-dt__shape {
+        flex: 0 0 auto;
+        padding: 2px 7px;
+        border-radius: 999px;
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+        color: var(--ck-fg-2, #c4ccd8);
+        background: var(--ck-bg-inset, rgba(255, 255, 255, 0.05));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.06));
+      }
       .ck-dt__count {
+        flex: 1 1 auto;
+        min-width: 0;
         font-size: 10.5px;
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: var(--ck-fg-4, #8891a0);
+      }
+      /* The actions belong at the far end whether or not there is a caption to
+         push them there. */
+      .ck-dt__actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
       }
       .ck-dt__scroll {
         overflow: auto;
@@ -553,6 +582,31 @@ export class DataTableComponent {
 
   /** Name of the column whose profile is open, or `null` when none is. */
   protected readonly open = signal<string | null>(null);
+
+  /**
+   * The table's own shape: how many rows, how many columns.
+   *
+   * Here rather than in each caller's caption because it is a property of the
+   * data, not of the surface, and because a caller that forgets it leaves the
+   * reader guessing at the scale of what they are looking at — fifty rows of
+   * preview look identical whether they came from eight thousand or from
+   * fifty-one. The caption beside it says what only the caller knows: which
+   * slice these rows are, how long the query took.
+   *
+   * `rowCount` is the whole dataset when the caller knows it, and the rows on
+   * screen otherwise, because a preview of a preview has no other number to
+   * give.
+   */
+  protected readonly shape = computed(() => {
+    const columns = this.columns().length;
+    if (!columns) return '';
+    const total = this.rowCount();
+    const rows = total !== null && total >= 0 ? total : this.rows().length;
+    return this.i18n.t('data.table.rows_columns', {
+      rows: rows.toLocaleString(this.i18n.locale()),
+      columns,
+    });
+  });
 
   /**
    * Columns resolved with their profile. Bar heights are normalized against the
