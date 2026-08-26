@@ -93,6 +93,47 @@ test('a revoked key stays visible, because a demo has to show it stop answering'
 test('the gauge animates, because the jump is the argument', () => {
   assert.match(PLAYGROUND, /stroke-dashoffset \d+ms/);
   assert.match(PLAYGROUND, /\[attr\.stroke-dashoffset\]="arc - dial\.dash"/);
+  // The handle travels with the stroke, on the same curve over the same time,
+  // or the two halves of one instrument arrive separately.
+  assert.match(PLAYGROUND, /\[attr\.transform\]="'rotate\(' \+ dial\.turn \+ ' 70 74\)'"/);
+  assert.match(PLAYGROUND, /\.ck-gauge__hand \{\s*transition: transform 620ms/);
+  assert.match(PLAYGROUND, /prefers-reduced-motion: reduce/);
+});
+
+test('the dial is an instrument: a ramp, a glow, and a point to read it off', () => {
+  // A flat 11px stroke is a progress bar bent into a semicircle. The ramp gives
+  // the arc a direction, the glow lifts it off the track, and the handle gives
+  // the number somewhere to be.
+  assert.match(PLAYGROUND, /<linearGradient \[attr\.id\]="rampId"/);
+  assert.match(PLAYGROUND, /class="ck-gauge__stop ck-gauge__stop--from"/);
+  assert.match(PLAYGROUND, /stop-color: var\(--gauge-ink\)/);
+  assert.match(PLAYGROUND, /class="ck-gauge__tip"/);
+  assert.match(PLAYGROUND, /filter: drop-shadow\(/);
+});
+
+test('one property carries the dial’s verdict to everything drawn from it', () => {
+  // Flagged is a fact about the answer, and the arc, its glow and the handle's
+  // ring all have to agree about it. One custom property on the root, rather
+  // than a `--flag` variant of each of them.
+  assert.match(PLAYGROUND, /\[class\.ck-gauge--flag\]="dial\.flagged"/);
+  assert.match(PLAYGROUND, /\.ck-gauge--flag \{\s*--gauge-ink: var\(--ck-signal-neg/);
+  assert.ok(
+    !/\.ck-gauge__fill--flag/.test(PLAYGROUND),
+    'the per-element flag variants are gone, not merely unused',
+  );
+});
+
+test('each dial owns the gradient it paints itself with', () => {
+  // `url(#id)` resolves document-wide: a shared id would let one Playground
+  // paint another one's arc, flagged colour included.
+  assert.match(PLAYGROUND, /let gauges = 0/);
+  assert.match(PLAYGROUND, /rampId = `ck-gauge-ramp-\$\{\+\+gauges\}`/);
+  assert.match(PLAYGROUND, /\[attr\.stroke\]="'url\(#' \+ rampId \+ '\)'"/);
+  // And the paint stays an attribute: a `stroke` in the stylesheet would
+  // outrank it and silently restore the flat fill.
+  const fill = /\.ck-gauge__fill \{([^}]*)\}/.exec(PLAYGROUND);
+  assert.ok(fill, 'the fill has a rule');
+  assert.ok(!/\bstroke:/.test(fill![1]), 'and that rule sets no stroke');
 });
 
 test('the explanation is asked for explicitly, and only for the one row on screen', () => {

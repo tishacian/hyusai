@@ -396,6 +396,10 @@ export class CurveChartComponent {
           padding: { x: 10, y: 7 },
           bodyFont: { size: 11, weight: 600 },
           caretSize: 5,
+          // The gap between the point being read and the card reading it. At
+          // chart.js's default of 2px the card sits on the curve, so the line
+          // whose value it is quoting disappears under the quote.
+          caretPadding: 8,
           callbacks: {
             title: () => '',
             label: (item) => describe(item.raw as CurvePoint),

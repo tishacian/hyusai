@@ -9,6 +9,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  STAGGER_BUDGET_MS,
+  STAGGER_STEP_MS,
   UNIT_DOMAIN,
   confusionShade,
   confusionView,
@@ -17,6 +19,7 @@ import {
   curveSeries,
   referenceSeries,
   revealFraction,
+  staggerDelay,
   tokenAlpha,
 } from './viz.vm';
 
@@ -242,4 +245,43 @@ test('a cell that holds anything is tinted, and the diagonal is the green one', 
   const shares = [0.1, 0.3, 0.6, 1];
   const alphas = shares.map((share) => Number(/ (\d+)%/.exec(confusionShade(share, true))![1]));
   assert.deepEqual(alphas, [...alphas].sort((a, b) => a - b));
+});
+
+// ---------------------------------------------------------------------------
+// Staggered entrances
+// ---------------------------------------------------------------------------
+
+test('a stagger a reader can follow, on a set of any size', () => {
+  // The first item never waits: an entrance that begins with a pause reads as
+  // a slow page rather than as an animation.
+  assert.equal(staggerDelay(0, 4), 0);
+  // A small set gets the full step, which is what makes the order visible.
+  assert.equal(staggerDelay(1, 4), STAGGER_STEP_MS);
+  assert.equal(staggerDelay(3, 4), 3 * STAGGER_STEP_MS);
+});
+
+test('a long list compresses its step instead of outstaying its welcome', () => {
+  // 24 permutation importances at the full step would be 1.2s of waiting. The
+  // whole set has one budget, however many rows the model reported.
+  const last = staggerDelay(23, 24);
+  assert.ok(last <= STAGGER_BUDGET_MS, `${last} is inside the budget`);
+  assert.equal(last, STAGGER_BUDGET_MS);
+  assert.ok(staggerDelay(1, 24) < STAGGER_STEP_MS);
+});
+
+test('a stagger only ever runs forwards', () => {
+  for (const count of [1, 2, 5, 24, 200]) {
+    const delays = Array.from({ length: count }, (_, index) => staggerDelay(index, count));
+    assert.deepEqual(delays, [...delays].sort((a, b) => a - b));
+    assert.ok(delays[delays.length - 1]! <= STAGGER_BUDGET_MS);
+  }
+});
+
+test('an index past the end of its set waits no longer than the end does', () => {
+  // The matrix asks for `row + column` against the number of diagonals, and a
+  // caller that miscounts should get a late cell, never an unreachable one.
+  assert.equal(staggerDelay(9, 3), staggerDelay(2, 3));
+  assert.equal(staggerDelay(-4, 3), 0);
+  assert.equal(staggerDelay(Number.NaN, 3), 0);
+  assert.equal(staggerDelay(1, 0), 0);
 });
