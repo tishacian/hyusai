@@ -27,6 +27,19 @@ MAX_RATIONALE = 400
 # A purpose rides in every Decide prompt, once per visible skill. An authored
 # description is free text, so it is capped here rather than trusted to be short.
 MAX_PURPOSE = 240
+# How much of an act's answer is kept on the observation it produced. Wide
+# enough that a node after the loop can quote a figure the agent obtained,
+# narrow enough that the loop's bookkeeping does not become a second copy of
+# every skill's output — which it would ride into the run's checkpoints, the
+# resume state and the node output all three.
+MAX_OBSERVATION_RESULT_KEYS = 12
+MAX_OBSERVATION_RESULT_CHARS = 240
+# What the planner is shown about each turn it has already taken. Named rather
+# than taken whole because the observation also carries the act's own figures
+# now, and the planner is not the reader those are for: a prompt that grew by
+# one skill's output per turn would spend its context re-reading numbers
+# nothing asked it to weigh.
+OBSERVATION_PROMPT_KEYS = ("turn", "skill", "ok", "summary")
 
 # Skills that mutate an external or ledger-visible system of record.
 # Unlisted slugs default to read / recommend.
@@ -116,6 +129,51 @@ def catalog_entry(slug: str, *, purpose: str | None = None) -> VisibleSkill:
         if side_effect_class_for(slug) == "write"
         else "recommend",
     )
+
+
+def observation_result(output: Any) -> dict[str, Any]:
+    """The figures one act reported, kept for the graph that follows the loop.
+
+    An AgentLoop's output has always said which skills the agent chose and
+    whether each of them succeeded, and nothing whatever about what any of them
+    *found*. So a node downstream could see that a model had been called and
+    never read the number it answered with, and the only thing a page could
+    render from a finished loop was the trace of its own deliberation. This is
+    the part of an answer that survives being read by something which does not
+    know the skill that produced it.
+
+    Scalars, and top level only. A deeper projection would be a guess about a
+    shape this module has no way to know, and the nested half of an answer —
+    a per-class probability vector, an explanation, a model card — is exactly
+    the half that turns a bounded record into a copy of the payload. Reserved
+    keys are dropped for the same reason they are dropped from a failure
+    envelope: they are plumbing, not findings.
+    """
+
+    if not isinstance(output, Mapping):
+        return {}
+    kept: dict[str, Any] = {}
+    for name in sorted(str(key) for key in output):
+        if name.startswith("_") or len(kept) >= MAX_OBSERVATION_RESULT_KEYS:
+            continue
+        value = output[name]
+        if isinstance(value, str):
+            kept[name] = value[:MAX_OBSERVATION_RESULT_CHARS]
+        elif value is None or isinstance(value, bool | int | float):
+            kept[name] = value
+    return kept
+
+
+def observation_view(observations: Iterable[Any]) -> list[dict[str, Any]]:
+    """Past turns as the planner is shown them: what happened, not what it read."""
+
+    view: list[dict[str, Any]] = []
+    for row in observations:
+        if isinstance(row, Mapping):
+            view.append({key: row[key] for key in OBSERVATION_PROMPT_KEYS if key in row})
+        else:
+            view.append({"summary": str(row)})
+    return view
 
 
 def coerce_allowlist(value: Any) -> list[str]:
@@ -235,7 +293,7 @@ def build_decide_prompt(
         '{"next_skill":"<slug or null>","rationale":"...","confidence":0.0,'
         '"needs_human":false,"human_prompt":null,"exit":null,"done":false}\n'
         f"Goal: {dict(goal)}\n"
-        f"Observations: {list(observations)}\n"
+        f"Observations: {observation_view(observations)}\n"
         f"Budget: {dict(budget)}\n"
         f"Visible skills (you may only name one of these slugs): {catalog}\n"
         f"Allowed slugs: {slugs}\n"
