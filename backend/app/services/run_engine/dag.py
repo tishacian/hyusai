@@ -1985,12 +1985,17 @@ def _apply_retrieval_node_scope(node: DagNode, node_input: Dict[str, Any]) -> No
 
 
 _RECIPE_SKILL_SLUG = "python_recipe_v1"
+# ``sources`` for the same reason the transform nodes carry it: which tables a
+# script may read is a property of the graph, not of the payload that triggered
+# it. A recipe reads only what its author pinned, and an ingress cannot add a
+# table to that list.
 _RECIPE_PARAM_KEYS = (
     "code",
     "requirements_text",
     "index_url",
     "extra_index_urls",
     "timeout_s",
+    "sources",
 )
 
 

@@ -825,7 +825,9 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "description": (
             "Runs an author-written Python script (main(inputs) -> dict) in a "
             "managed, content-addressed virtual environment on the async worker "
-            "plane, with per-execution status tracking and cancellation."
+            "plane, with per-execution status tracking and cancellation. The "
+            "workspace datasets pinned on the node arrive in inputs as rows, "
+            "with the model that scored them when there was one."
         ),
         "type": "workflow",
         "provider": "internal",
@@ -837,6 +839,54 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         # stays generic object→object.
         "input_schema": {"type": "object", "properties": {}},
         "output_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "slug": "system_run_read_v1",
+        "version": "1",
+        "name": "System Result Read",
+        # Plain text only: catalog descriptions render verbatim in the UI.
+        "description": (
+            "Reads the output of the newest completed run of another System in "
+            "the same workspace, without executing it. Read-only, and a System "
+            "that has never finished a run answers with found false rather "
+            "than an error."
+        ),
+        "type": "workflow",
+        "provider": "internal",
+        "certification_level": "beta",
+        "execution": {
+            "mode": "sync",
+            "timeout_ms": 15_000,
+            "retryable": True,
+            "idempotent": True,
+        },
+        "pricing": {"unit": "per_read", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "system_id": {"type": "string"},
+                "system_name": {"type": "string"},
+            },
+        },
+        # Namespaced under one key so the envelope can be merged into a
+        # downstream node's input without colliding with the producer's own
+        # fields — ``output`` in particular is a name every second Skill uses.
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "system_run": {
+                    "type": "object",
+                    "properties": {
+                        "system_id": {"type": "string"},
+                        "system_name": {"type": "string"},
+                        "run_id": {},
+                        "completed_at": {},
+                        "found": {"type": "boolean"},
+                        "output": {"type": "object"},
+                    },
+                }
+            },
+        },
     },
     {
         "slug": "sql_transform_v1",
@@ -2317,10 +2367,13 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "slug": "python_recipes",
         "name": "Python Recipes",
         "tier": "universal",
-        "description": "Author-written Python recipes executed as Flow nodes in managed, content-addressed environments on the async worker plane, with per-execution status tracking and cancellation.",
+        "description": "Author-written Python recipes executed as Flow nodes in managed, content-addressed environments on the async worker plane, with per-execution status tracking and cancellation. A recipe reads the workspace datasets pinned on its node and the results other Systems have already produced, and returns the structure its author declares.",
         "input_unit": "recipe_execution",
         "output_unit": "structured_result",
-        "skill_slugs": ["python_recipe_v1"],
+        # The cross-System read belongs with the recipe node rather than with
+        # the transforms: both exist so that an authored script can assemble a
+        # result out of what the workspace already produced.
+        "skill_slugs": ["python_recipe_v1", "system_run_read_v1"],
         "pricing": {"unit": "per_execution", "unit_price": 0.02, "currency": "USD"},
         "value_per_outcome": 1.00,
         "confidence_threshold": 0.60,
@@ -2839,6 +2892,7 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "spreadsheet_table_extract_v1": "Analysis",
     "sql_transform_v1": "Data",
     "summarize_long_document_v1": "LLM",
+    "system_run_read_v1": "Automation",
     "territorial_action_window_v1": "Decision Support",
     "territorial_signal_map_v1": "Analysis",
     "time_context_set_v1": "Governance",

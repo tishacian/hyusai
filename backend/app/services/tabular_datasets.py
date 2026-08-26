@@ -395,6 +395,87 @@ def read_frame(dataset: TabularDataset, *, columns: list[str] | None = None) -> 
         return pl.read_parquet(local, columns=columns)
 
 
+def read_rows(
+    dataset: TabularDataset,
+    *,
+    columns: list[str] | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """A whole table as JSON scalars, for a caller that has to compute on it.
+
+    The inverse of :func:`register_frame`, and the only function here that hands
+    a dataset over by value. Everything else moves tables by reference on
+    purpose — a reference is cheap and a base is not — but an author's script
+    running on the recipe plane has no database and no object store, so a
+    reference is the one thing it cannot use.
+
+    Projection is part of the contract rather than an optimisation: naming the
+    columns is what keeps a subscriber base from arriving as a megabyte of
+    payload, and an unknown name is refused rather than silently dropped,
+    because a column that quietly vanishes becomes a wrong number downstream.
+    """
+
+    import polars as pl
+
+    with tempfile.TemporaryDirectory(prefix="agentium-tabular-") as tmp:
+        local = materialize(dataset, Path(tmp) / "data.parquet")
+        scan = pl.scan_parquet(local)
+        if columns:
+            available = set(scan.collect_schema().names())
+            missing = [name for name in columns if name not in available]
+            if missing:
+                raise TabularError(
+                    code="DATASET_COLUMN_UNKNOWN",
+                    message=f"The dataset has no column named '{missing[0]}'.",
+                    details={"columns": missing},
+                )
+            scan = scan.select(columns)
+        if limit is not None:
+            scan = scan.limit(max(0, int(limit)))
+        frame = scan.collect()
+    return [
+        {key: _json_scalar(value) for key, value in row.items()}
+        for row in frame.iter_rows(named=True)
+    ]
+
+
+def model_provenance(db: DBSession, dataset: TabularDataset) -> dict[str, Any] | None:
+    """The model version a scored table came out of, with its headline metric.
+
+    ``None`` for every table that is not a scoring output. A scored one carries
+    the model in its lineage, but only by id and slug — enough to trace, not
+    enough to say on a page. Resolving it here means a consumer of the rows and
+    a consumer of the model card cannot end up quoting different versions.
+    """
+
+    from app.models.tabular import MLModel
+
+    lineage = dataset.lineage_json if isinstance(dataset.lineage_json, dict) else {}
+    reference = lineage.get("model")
+    model_id = reference.get("model_id") if isinstance(reference, dict) else None
+    if not model_id:
+        return None
+    model = (
+        db.query(MLModel)
+        .filter(MLModel.id == str(model_id), MLModel.workspace_id == dataset.workspace_id)
+        .first()
+    )
+    if model is None:
+        return None
+    primary = (model.metrics_json or {}).get("primary") or {}
+    return {
+        "model_id": model.id,
+        "name": model.name,
+        "slug": model.slug,
+        "version": int(model.version or 1),
+        "task": model.task,
+        "algo": model.algo,
+        "target": model.target,
+        "metric_key": str(primary.get("key") or "") or None,
+        "metric_value": _json_scalar(primary.get("value")),
+    }
+
+
 def read_page(
     dataset: TabularDataset, *, offset: int = 0, limit: int | None = None
 ) -> dict[str, Any]:
