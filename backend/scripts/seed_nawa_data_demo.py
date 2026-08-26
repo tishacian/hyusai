@@ -536,6 +536,12 @@ def main(inputs):
             "subscribers_at_risk": len(flagged),
             "base_size": base_size,
             "revenue_at_stake_mad": round(revenue_at_stake, 2),
+            # A tile renders whatever it is handed, verbatim. "72314.04" is a
+            # float that leaked onto a slide; the centimes are noise at this
+            # scale and the separator is the difference between a figure a room
+            # reads and one it has to parse. The unrounded number stays beside
+            # it for the provenance table and for anything that computes.
+            "revenue_at_stake_display": f"{round(revenue_at_stake):,}",
             "revenue_at_stake_label": REVENUE_LABEL,
             "riskiest_decile_churn_pct": _rate_pct(decile_churned, decile_size),
             "base_churn_pct": _rate_pct(churned, base_size),
@@ -578,6 +584,7 @@ BOARD_OUTPUT_SCHEMA: dict[str, Any] = {
                 "subscribers_at_risk": {"type": "integer"},
                 "base_size": {"type": "integer"},
                 "revenue_at_stake_mad": {"type": "number"},
+                "revenue_at_stake_display": {"type": "string"},
                 "revenue_at_stake_label": {"type": "string"},
                 "riskiest_decile_churn_pct": {"type": ["number", "null"]},
                 "base_churn_pct": {"type": ["number", "null"]},
@@ -590,6 +597,7 @@ BOARD_OUTPUT_SCHEMA: dict[str, Any] = {
                 "subscribers_at_risk",
                 "base_size",
                 "revenue_at_stake_mad",
+                "revenue_at_stake_display",
                 "revenue_at_stake_label",
                 "riskiest_decile_churn_pct",
                 "base_churn_pct",
@@ -1650,7 +1658,7 @@ def board_document() -> dict[str, Any]:
                                 BOARD_I18N["en"]["board.kpi.revenue.description"],
                             ),
                             "span": "third",
-                            "dataBinding": _bind("summary.revenue_at_stake_mad"),
+                            "dataBinding": _bind("summary.revenue_at_stake_display"),
                         },
                     },
                     {
@@ -1702,6 +1710,10 @@ def board_document() -> dict[str, Any]:
                             "dataBinding": _bind("summary.base_churn_pct"),
                         },
                     },
+                    # The money figure's basis sits beside the distribution
+                    # rather than above the table: both are context for the
+                    # tiles, and the list below needs the whole width to be
+                    # legible at seven columns.
                     {
                         "type": "callout",
                         "id": "revenue-basis",
@@ -1709,7 +1721,8 @@ def board_document() -> dict[str, Any]:
                             "body": _copy(
                                 "board.revenue_basis.body",
                                 BOARD_I18N["en"]["board.revenue_basis.body"],
-                            )
+                            ),
+                            "span": "half",
                         },
                     },
                     {
@@ -1742,7 +1755,7 @@ def board_document() -> dict[str, Any]:
                                 "board.at_risk.caption",
                                 BOARD_I18N["en"]["board.at_risk.caption"],
                             ),
-                            "span": "half",
+                            "span": "full",
                             "columns": [
                                 {
                                     "key": "msisdn",
