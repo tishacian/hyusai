@@ -62,6 +62,7 @@ from app.models.capability import Capability
 from app.models.run import Run
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.models.tabular import MLModel, TabularDataset
 from app.models.workspace import Workspace
@@ -846,6 +847,7 @@ def ensure_system(
         "default_model": "gpt-4o-mini",
         "retrieval_mode_default": "hybrid",
     }
+    outcome: flow_publication.FlowReconcileResult | None = None
     system = (
         db.query(System)
         .filter(System.workspace_id == workspace.id, System.name == name)
@@ -856,7 +858,7 @@ def ensure_system(
             if key == "flow_definition":
                 continue
             setattr(system, key, value)
-        flow_publication.reconcile_system_flow(
+        outcome = flow_publication.reconcile_system_flow(
             db,
             system=system,
             workspace=workspace,
@@ -901,6 +903,21 @@ def ensure_system(
             )
     db.commit()
     db.refresh(system)
+    # ``reconcile_system_flow`` may decline: a draft an operator left open in
+    # the Builder is preserved, publication and all. That rule is right, and it
+    # is also how a re-seed ends up running the *previous* graph — the one whose
+    # dataset slugs the reset just retired. The engine executes
+    # ``flow_definition``, so compare against that and say so, rather than
+    # narrate success and let four nodes fail a minute later.
+    live = flow_publication.canonical_flow_sha256(system.flow_definition)
+    if live != flow_publication.canonical_flow_sha256(flow):
+        draft = db.query(SystemFlowDraft).filter_by(system_id=system.id).one_or_none()
+        raise SystemExit(
+            f"{name}: the executable graph is not the one this seed describes "
+            f"(reconciliation returned {getattr(outcome, 'status', 'created')!r}, draft held by "
+            f"{getattr(draft, 'updated_by', None)!r}). Re-run with --reset, "
+            "which discards the seed's own drafts, or publish the draft."
+        )
     print(f"system ready: {system.name} id={system.id} status={system.status}")
     return system
 
@@ -1234,6 +1251,16 @@ def reset(db: DBSession, workspace: Workspace) -> dict[str, int]:
     place and the run history behind them survives. What has to go is what the
     seed can only ever add to.
 
+    Their *drafts* do go. Reconciliation refuses to republish over a draft left
+    open in the Builder, which is the correct rule for somebody's unsaved work
+    and the wrong one here: the graph names its input by slug, the reset has
+    just retired that slug, and a preserved draft means the re-seed executes a
+    pipeline whose first node can no longer resolve its dataset. ``--reset``
+    already says it replaces the previous incarnation and discards a champion
+    promoted on stage; a draft over the seed's own System is the same kind of
+    thing. Deleting the row is enough — ``initialize_publication_state``
+    rebuilds a clean one from the published mirror on the next reconciliation.
+
     Models go first: a version holds a foreign key to the table it was fitted
     on, and ``delete_model`` is what also clears the API key, the registry
     version and the published Skill that must not outlive it.
@@ -1242,7 +1269,23 @@ def reset(db: DBSession, workspace: Workspace) -> dict[str, int]:
     from app.services.tabular_datasets import soft_delete
     from app.services.tabular_ml import delete_model
 
-    tally = {"models": 0, "datasets": 0}
+    tally = {"models": 0, "datasets": 0, "drafts": 0}
+
+    for system in (
+        db.query(System)
+        .filter(
+            System.workspace_id == workspace.id,
+            System.created_by == SEED_ACTOR,
+            System.name.in_((CHURN_SYSTEM_NAME, RADIO_SYSTEM_NAME)),
+        )
+        .all()
+    ):
+        draft = db.query(SystemFlowDraft).filter_by(system_id=system.id).one_or_none()
+        if draft is None:
+            continue
+        print(f"reset: draft on {system.name} (r{draft.revision} by {draft.updated_by})")
+        db.delete(draft)
+        tally["drafts"] += 1
 
     for model in (
         db.query(MLModel)
@@ -1260,7 +1303,10 @@ def reset(db: DBSession, workspace: Workspace) -> dict[str, int]:
         tally["datasets"] += 1
     db.commit()
 
-    print("reset: {models} model versions, {datasets} datasets".format(**tally))
+    print(
+        "reset: {models} model versions, {datasets} datasets, "
+        "{drafts} Flow drafts".format(**tally)
+    )
     return tally
 
 
@@ -1269,6 +1315,32 @@ def reset(db: DBSession, workspace: Workspace) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 STAGES = ("workspace", "datasets", "models", "systems", "runs", "publish")
+
+
+def assert_runs_are_green(runs: dict[str, Any]) -> None:
+    """Refuse to call a rehearsal successful when it left nodes red.
+
+    A DAG whose nodes failed still reports ``completed``: the walker's job is to
+    finish the graph, not to judge it. The seed's job is the opposite — it exists
+    so that somebody can open the demo cold — and the failure it has to catch is
+    precisely the quiet one, where every dataset and model looks right on the
+    Data and Models pages and the Flow behind them opens on four red nodes.
+
+    Every run is executed and printed before this fires: when one pipeline
+    breaks, the state of the other is the first thing worth knowing.
+    """
+
+    broken = [
+        f"{key}.{node['node_id']}: {str(node['error'])[:160]}"
+        for key, value in runs.items()
+        for node in value.get("nodes", [])
+        if node.get("status") == "failed"
+    ]
+    if broken:
+        raise SystemExit(
+            "seeded runs left failed nodes; the demo would open on red:\n  "
+            + "\n  ".join(broken)
+        )
 
 
 def seed(
@@ -1367,6 +1439,7 @@ def seed(
         runs["churn"] = run_system(db, workspace, churn_system)
         if not skip_radio:
             runs["radio"] = run_system(db, workspace, radio_system)
+    assert_runs_are_green(runs)
 
     db.expire_all()
     versions = (
@@ -1431,10 +1504,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--reset",
         action="store_true",
         help=(
-            "Remove the demo's own datasets, model versions, Systems and runs "
-            "before seeding, so a re-seed replaces the previous incarnation "
-            "instead of sitting beside it. Use it when the seeded copy has "
-            "changed; it discards the champion promoted on stage."
+            "Remove the demo's own datasets and model versions, and discard the "
+            "Flow drafts on its own two Systems, before seeding — so a re-seed "
+            "replaces the previous incarnation instead of sitting beside it. "
+            "Use it when the seeded copy has changed; it discards the champion "
+            "promoted on stage and any graph edit left open in the Builder."
         ),
     )
     return parser.parse_args(argv)
