@@ -77,6 +77,16 @@ from pathlib import Path
 # Types the saved pipeline is allowed to reference. The estimator comes from our
 # own catalog and the preprocessing from skrub, so anything outside this set is
 # a signal that the artifact is not what this harness thinks it is.
+#
+# ``functools.`` is on the list, and it is the one entry that needs its reasoning
+# written down: skrub's column selectors are built from ``functools.partial``, so
+# without it no pipeline saves at all. A partial is a callable wrapping another
+# callable, which sounds like exactly the hole an allowlist is for — except skops
+# lists the wrapped callable *separately*, at any nesting depth, so it faces this
+# same prefix rule on its own. A partial over ``os.system`` reports
+# ``posix.system`` beside it and is refused there. Trusting the wrapper therefore
+# grants no authority the wrapped function does not already have to earn. See
+# ``test_a_trusted_partial_cannot_smuggle_an_untrusted_callable``.
 TRUSTED_MODULE_PREFIXES = (
     "sklearn.",
     "skrub.",
@@ -85,6 +95,7 @@ TRUSTED_MODULE_PREFIXES = (
     "pandas.",
     "builtins.",
     "collections.",
+    "functools.",
 )
 
 _MAX_CHOICES = 12
@@ -455,25 +466,6 @@ def _trusted_types(model) -> list[str]:
     return sorted(str(name) for name in untrusted)
 
 
-def _tolerates_missing(estimator, *, fallback: bool) -> bool:
-    """Whether this estimator reads a hole as a value, per sklearn's own tags.
-
-    Asked of the estimator rather than tabulated here because the estimator is
-    the authority: the boosted trees send NaN down a branch of their own and
-    would lose that signal to an imputed median, while a logistic regression
-    refuses the row outright. If a future sklearn moves the tag, the catalog's
-    ``scale`` flag stands in — it marks the same two families, for the
-    neighbouring reason that they read magnitudes rather than splits.
-    """
-
-    try:
-        from sklearn.utils import get_tags
-
-        return bool(get_tags(estimator).input_tags.allow_nan)
-    except Exception:  # noqa: BLE001 - the catalog still knows, see above
-        return fallback
-
-
 def _resolve_estimator(dotted: str, params: dict):
     module_name, _, class_name = str(dotted).rpartition(".")
     if not module_name or not class_name:
@@ -638,10 +630,9 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
 
     from sklearn.base import clone
     from sklearn.model_selection import train_test_split
-    from sklearn.pipeline import make_pipeline
 
     try:
-        from skrub import TableVectorizer
+        from skrub import tabular_pipeline
     except ImportError as exc:  # pragma: no cover - the app venv has skrub
         return _fail(5, f"skrub_missing: {exc}")
 
@@ -659,26 +650,22 @@ def main(argv: list[str]) -> int:  # noqa: C901 - one linear pipeline, read top 
     except RuntimeError as exc:
         return _fail(5, str(exc))
 
-    steps = [TableVectorizer()]
-    if not _tolerates_missing(estimator, fallback=not manifest.get("scale")):
-        # skrub encodes the categories but leaves numeric holes exactly as it
-        # found them, so an estimator that refuses NaN refuses them here — and
-        # would go on refusing them at predict time, which is the worse half:
-        # the signature this fit writes says a numeric column is nullable, so a
-        # model without this step would reject production rows its own contract
-        # accepts. Median rather than mean because a survey score or an ARPU is
-        # skewed often enough that the mean is not a plausible value.
-        from sklearn.impute import SimpleImputer
-
-        steps.append(SimpleImputer(strategy="median"))
-    if manifest.get("scale"):
-        # Linear and distance-based estimators read magnitudes as importance, so
-        # an unscaled ARPU column would outvote an unscaled ticket count. Trees
-        # do not care, which is why this is per-algorithm and not always on.
-        from sklearn.preprocessing import StandardScaler
-
-        steps.append(StandardScaler())
-    pipeline = make_pipeline(*steps, estimator)
+    # `tabular_pipeline` asks the estimator what it needs and assembles it:
+    # vectorize the frame, impute where the estimator refuses holes, scale where
+    # it reads magnitudes as importance. Letting skrub decide rather than listing
+    # the rules here is not laziness — the rules are a property of the estimator,
+    # and a hand-kept list of which ones tolerate NaN goes stale silently the
+    # first time sklearn changes its mind (it did: RandomForest accepts missing
+    # numerics from 1.4 on, and a list written before that would still be paying
+    # for an imputer it no longer needs).
+    pipeline = tabular_pipeline(estimator)
+    imputer = pipeline.named_steps.get("simpleimputer")
+    if imputer is not None:
+        # The one judgement skrub cannot make for us. Median rather than its
+        # default mean because a survey score or an ARPU is skewed often enough
+        # that the mean is not a plausible value — filling a hole with a number
+        # nobody could have had is worse than filling it with a typical one.
+        imputer.set_params(strategy="median")
     print(f"fitting {type(estimator).__name__} on {len(x_train)} rows", flush=True)
     _progress(progress_path, "fitting")
     try:
