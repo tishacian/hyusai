@@ -33,7 +33,12 @@ surfaces de la démo ont de quoi s'afficher. Preuves :
    jamais le champion en place (il ne défait pas la promotion d'un opérateur) : il faut
    repromouvoir v1 à la main.
 4. **Ouvrir les deux Flows en onglets**, badges déjà posés (un run derrière chacun) :
-   Churn Radar et Radio Watch. Zoom navigateur à 100 %.
+   Churn Radar et Radio Watch.
+5. **Régler la largeur avant le beat 6.** L'onglet `Predict` ne met le formulaire et la
+   jauge côte à côte qu'au-delà de **900 px de largeur de contenu** — barre latérale
+   déduite. En dessous, la réponse passe sous les vingt champs et il faut descendre pour la
+   voir, ce qui tue l'effet. Dézoomer à 80–90 % (ou plein écran) jusqu'à ce que les deux
+   panneaux soient côte à côte, et vérifier en lançant une prédiction.
 
 Si un doute subsiste sur l'état du plan, la commande qui répond en 30 s, sur la VM :
 
@@ -315,6 +320,7 @@ C'est la bonne dernière image si la salle est composée de métier plutôt que 
 | Premier `curl` lent (~5 s) | Chargement du modèle MLflow. C'est `cached: false` — le lire à voix haute ou l'avoir rejoué avant. |
 | Le badge `SERVING` est déjà sur v2 | Une répétition antérieure a promu. Repromouvoir v1 à la main, le seed ne le fait pas. |
 | Le bouton de création de clé est introuvable | Il est en bas de l'onglet `Predict`, sous le bloc cURL, dans la section `Access keys` — et il s'appelle `Create a key`. |
+| `Predict` cliqué, aucune réponse visible | Le panneau `What the model answers` est passé **sous** le formulaire : la grille ne se met côte à côte qu'au-delà de 900 px de largeur de contenu. Dézoomer à 80–90 % ou élargir la fenêtre, et la jauge revient à droite du bouton. Une vraie erreur, elle, s'affiche en rouge juste sous le bouton. |
 | L'onglet Comparison dit « nothing to compare » | Défaut connu et corrigé dans la révision servie ; si ça revient, c'est la route de détail qui sérialise les versions sans leurs scores. |
 | Un nœud Polars ou dbt refuse de s'exécuter | `RECIPE_EXECUTION_ENABLED` et `WORKER_EAGER_MODE` ; le run se termine quand même mais ces deux nœuds signalent leur refus. |
 | Une page semble vide | Le bloc `runtime_status` de la page dit si le run a réussi ou s'il travaille encore. Sur les Flows, les badges de nœud portent la même information. |
