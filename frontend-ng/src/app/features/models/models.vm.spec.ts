@@ -29,6 +29,8 @@ import {
   curlSnippet,
   defaultFeatures,
   defaultKnobs,
+  planColumnStats,
+  planColumnsAsTable,
   formatMetric,
   gaugeView,
   higherIsBetter,
@@ -316,6 +318,20 @@ test('the target picker offers only what can actually be predicted', () => {
 test('a numeric column stays offered however many values it holds', () => {
   const offered = targetCandidates(COLUMNS, 3).map((column) => column.name);
   assert.deepEqual(offered, ['churned', 'arpu']);
+});
+
+test('plan columns project into the shared table without losing the profile', () => {
+  const withProfile = [
+    {
+      ...COLUMNS[0],
+      profile: { kind: 'integer' as const, distinct: 2, histogram: [{ upper: 1, count: 4 }] },
+    },
+  ];
+  assert.deepEqual(planColumnsAsTable(withProfile), [
+    { name: 'customer_id', kind: 'string', dtype: 'string' },
+  ]);
+  assert.equal(planColumnStats(withProfile)['customer_id']?.distinct, 2);
+  assert.equal(planColumnStats(COLUMNS)['churned']?.distinct, 2);
 });
 
 test('features default to every column but the target, as the backend does', () => {

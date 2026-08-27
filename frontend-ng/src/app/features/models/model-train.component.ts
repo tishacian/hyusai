@@ -29,7 +29,7 @@ import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { ColumnSparkComponent } from '@app/shared/ui/column-spark.component';
+import { DataTableComponent } from '@app/shared/ui/data-table.component';
 import type {
   TabularColumn,
   TabularColumnStats,
@@ -46,6 +46,8 @@ import {
   knobIsAuto,
   refusalField,
   refusalKey,
+  planColumnStats,
+  planColumnsAsTable,
   targetCandidates,
   taskIcon,
   warningKey,
@@ -79,7 +81,7 @@ export interface TrainSeed {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     A11yModule,
-    ColumnSparkComponent,
+    DataTableComponent,
     DatasetPreviewComponent,
     FormsModule,
     IconComponent,
@@ -181,31 +183,18 @@ export interface TrainSeed {
               <label class="ck-label">{{ i18n.t('models.studio.target.label') }}</label>
               <div class="ck-hint">{{ i18n.t('models.studio.target.hint') }}</div>
               @if (candidates().length) {
-                <div class="ck-picker" role="radiogroup" [attr.aria-label]="i18n.t('models.studio.target.label')">
-                  @for (column of candidates(); track column.name) {
-                    <button
-                      type="button"
-                      role="radio"
-                      [attr.aria-checked]="target() === column.name"
-                      class="ck-picker__row"
-                      [class.ck-picker__row--on]="target() === column.name"
-                      (click)="onTargetChange(column.name)"
-                    >
-                      <app-icon [name]="taskIcon(column.suggested_task)" [size]="13" />
-                      <span class="ck-picker__name ck-mono">{{ column.name }}</span>
-                      <span class="ck-kind">{{ i18n.t('data.kind.' + column.kind) }}</span>
-                      <span class="ck-picker__spark">
-                        <ck-column-spark
-                          [stats]="column.profile ?? null"
-                          [kind]="column.kind"
-                        />
-                      </span>
-                      <span class="ck-picker__meta ck-mono">
-                        {{ i18n.t('models.studio.target.distinct', { count: column.distinct }) }}
-                      </span>
-                    </button>
-                  }
-                </div>
+                <ck-data-table
+                  data-testid="train-target"
+                  [columns]="targetTableColumns()"
+                  [rows]="[]"
+                  [stats]="targetTableStats()"
+                  [showRowNumbers]="false"
+                  [showShape]="false"
+                  selectMode="single"
+                  [selected]="target() ? [target()] : []"
+                  maxHeight="220px"
+                  (selectedChange)="onTargetPicked($event)"
+                />
               } @else if (datasetId()) {
                 <div class="ck-hint ck-mono">{{ i18n.t('models.evidence.none') }}</div>
               }
@@ -261,30 +250,19 @@ export interface TrainSeed {
                   </div>
                 </div>
                 <div class="ck-hint">{{ i18n.t('models.studio.features.hint') }}</div>
-                <div class="ck-chips">
-                  @for (column of featureColumns(); track column.name) {
-                    <button
-                      type="button"
-                      class="ck-chip"
-                      [class.ck-chip--on]="isFeature(column.name)"
-                      [class.ck-chip--flagged]="flaggedFeatures().has(column.name)"
-                      [attr.aria-pressed]="isFeature(column.name)"
-                      [title]="featureTitle(column)"
-                      (click)="toggleFeature(column.name)"
-                    >
-                      @if (flaggedFeatures().has(column.name)) {
-                        <app-icon name="alert-triangle" [size]="10" />
-                      }
-                      <ck-column-spark
-                        [stats]="column.profile ?? null"
-                        [kind]="column.kind"
-                        [width]="20"
-                        [height]="9"
-                      />
-                      {{ column.name }}
-                    </button>
-                  }
-                </div>
+                <ck-data-table
+                  data-testid="train-features"
+                  [columns]="featureTableColumns()"
+                  [rows]="[]"
+                  [stats]="featureTableStats()"
+                  [showRowNumbers]="false"
+                  [showShape]="false"
+                  selectMode="multi"
+                  [selected]="selectedFeatures()"
+                  [flagged]="flaggedFeatureNames()"
+                  maxHeight="220px"
+                  (selectedChange)="onFeaturesPicked($event)"
+                />
                 @if (refusalFor('features'); as message) {
                   <div class="ck-refusal">
                     <app-icon name="alert-triangle" [size]="12" /> {{ message }}
@@ -540,67 +518,6 @@ export interface TrainSeed {
         outline: none;
         border-color: var(--ck-signal-cool, #7dd3fc);
       }
-      /* The target list is the one place a scroll is welcome: a wide table has
-         many columns and the picker must not push the algorithm off screen. */
-      .ck-picker {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        max-height: 208px;
-        overflow-y: auto;
-        padding: 3px;
-        border-radius: 5px;
-        border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
-      }
-      .ck-picker__row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        text-align: left;
-        padding: 6px 8px;
-        border-radius: 4px;
-        color: var(--ck-fg-2, #c3c9d4);
-        background: transparent;
-        transition: background var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
-      }
-      .ck-picker__row:hover {
-        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.04));
-      }
-      .ck-picker__row--on {
-        color: var(--ck-signal-cool, #7dd3fc);
-        background: rgba(125, 211, 252, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.3);
-      }
-      .ck-picker__name {
-        flex: 1 1 auto;
-        min-width: 0;
-        font-size: 12px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .ck-picker__meta {
-        font-size: 10px;
-        color: var(--ck-fg-4, #8891a0);
-        flex-shrink: 0;
-      }
-      /* Pushes the distribution glyph to the right edge of the row, so the
-         names stay left-aligned and the shapes read as one column of shapes. */
-      .ck-picker__spark {
-        margin-left: auto;
-        display: inline-flex;
-      }
-      .ck-kind {
-        font-size: 9.5px;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        padding: 1.5px 4px;
-        border-radius: 3px;
-        color: var(--ck-signal-violet, #a78bfa);
-        background: rgba(167, 139, 250, 0.12);
-        flex-shrink: 0;
-      }
       .ck-seg {
         display: flex;
         gap: 3px;
@@ -624,37 +541,6 @@ export interface TrainSeed {
         color: var(--ck-fg-1, #e6e9ef);
         background: rgba(125, 211, 252, 0.16);
         box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.3);
-      }
-      .ck-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-        max-height: 132px;
-        overflow-y: auto;
-      }
-      .ck-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 10.5px;
-        padding: 3px 8px;
-        border-radius: 999px;
-        color: var(--ck-fg-4, #8891a0);
-        background: transparent;
-        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
-        transition: all var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
-      }
-      .ck-chip--on {
-        color: var(--ck-signal-cool, #7dd3fc);
-        background: rgba(125, 211, 252, 0.1);
-        box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.32);
-      }
-      /* A column the plan flagged stays selectable — the author may know
-         better — but it cannot be selected without having been warned. */
-      .ck-chip--flagged.ck-chip--on {
-        color: var(--ck-signal-warn, #fbbf24);
-        background: rgba(251, 191, 36, 0.1);
-        box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.35);
       }
       .ck-mini-btn {
         font-size: 10px;
@@ -891,6 +777,26 @@ export class ModelTrainComponent implements OnInit {
     targetCandidates(this.columns(), this.catalog().limits.max_classes),
   );
 
+  protected readonly targetTableColumns = computed(() =>
+    planColumnsAsTable(this.candidates()),
+  );
+
+  protected readonly targetTableStats = computed(() =>
+    planColumnStats(this.candidates()),
+  );
+
+  protected readonly featureTableColumns = computed(() =>
+    planColumnsAsTable(this.featureColumns()),
+  );
+
+  protected readonly featureTableStats = computed(() =>
+    planColumnStats(this.featureColumns()),
+  );
+
+  protected readonly flaggedFeatureNames = computed(() =>
+    [...this.flaggedFeatures()],
+  );
+
   protected readonly suggestedTask = computed<ModelTask | null>(
     () =>
       this.columns().find((column) => column.name === this.target())?.suggested_task ??
@@ -1014,16 +920,20 @@ export class ModelTrainComponent implements OnInit {
     this.schedulePlan();
   }
 
-  protected isFeature(name: string): boolean {
-    return this.selectedFeatures().includes(name);
+  protected onTargetPicked(names: string[]): void {
+    this.onTargetChange(names[0] ?? '');
   }
 
-  protected toggleFeature(name: string): void {
-    const current = this.selectedFeatures();
-    const next = current.includes(name)
-      ? current.filter((feature) => feature !== name)
-      : [...current, name];
-    this.featureOverride.set(next);
+  protected onFeaturesPicked(names: string[]): void {
+    const available = this.featureColumns().map((column) => column.name);
+    if (
+      names.length === available.length &&
+      available.every((name) => names.includes(name))
+    ) {
+      this.selectAllFeatures();
+      return;
+    }
+    this.featureOverride.set(names);
     this.schedulePlan();
   }
 
@@ -1035,15 +945,6 @@ export class ModelTrainComponent implements OnInit {
   protected clearFeatures(): void {
     this.featureOverride.set([]);
     this.schedulePlan();
-  }
-
-  protected featureTitle(column: PlanColumn): string {
-    const flagged = this.flaggedFeatures().has(column.name);
-    const kind = this.i18n.t('data.kind.' + column.kind);
-    if (!flagged) return kind;
-    return `${kind} — ${this.i18n.t('models.warning.ml_feature_identifier', {
-      feature: column.name,
-    })}`;
   }
 
   protected knobValue(knob: KnobDescriptor): number {
