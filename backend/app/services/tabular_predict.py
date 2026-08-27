@@ -74,6 +74,7 @@ from app.services.tabular_datasets import (
 from app.services.tabular_ml import (
     CLASSIFICATION,
     REGRESSION,
+    _lineage_published_slug,
     champion_for,
     download_model_dir,
     model_reference,
@@ -1294,14 +1295,22 @@ def publish_as_skill(
             },
         }
     )
+    # The Skill binds to the lineage and the champion answers for it, so the
+    # published contract must describe the champion — not whichever version's
+    # card the publish button happened to be pressed on. Publishing from an old
+    # card would otherwise freeze that card's fields under a Skill that answers
+    # with different ones.
+    serving = (
+        champion_for(db, workspace_id=model.workspace_id, slug=model.slug) or model
+    )
     row = existing or Skill(workspace_id=model.workspace_id, slug=identity.slug)
-    row.name = f"Predict · {model.name}"[:200]
-    row.description = _skill_description(model)
+    row.name = f"Predict · {serving.name}"[:200]
+    row.description = _skill_description(serving)
     row.type = "workflow"
     row.category = "Models"
     row.executor = executor
-    row.input_schema = predict_input_schema(model)
-    row.output_schema = predict_output_schema(model)
+    row.input_schema = predict_input_schema(serving)
+    row.output_schema = predict_output_schema(serving)
     row.execution = {
         "mode": "sync",
         "timeout_ms": int(float(settings.ml_predict_timeout_s) * 1000),
@@ -1383,6 +1392,56 @@ def published_skill(db: DBSession, model: MLModel) -> dict[str, Any] | None:
         .first()
     )
     return serialize_published_skill(row) if row is not None else None
+
+
+def refresh_published_skill(db: DBSession, *, model: MLModel) -> bool:
+    """Re-derive a published Skill's contract from the version now serving.
+
+    Called on promotion, with the newly promoted model. The Skill binds to a
+    lineage and the champion answers for it, so the moment the alias moves the
+    published ``input_schema`` describes the wrong fields unless it moves too —
+    an agent reading the catalog would build a call the serving pipeline
+    refuses. The provenance chip already follows the promotion (it is derived
+    on read); this keeps the frozen halves of the row honest the same way.
+
+    Never raises into the promotion path: promoting is the governance act and
+    must land even when the contract cannot be re-read. Returns whether the
+    Skill was refreshed.
+    """
+
+    # Rows that predate publication (or predate the inheritance of the slug at
+    # training time) may not carry the lineage fact themselves; the lineage does.
+    slug = model.published_skill_slug or _lineage_published_slug(
+        db, workspace_id=model.workspace_id, slug=model.slug
+    )
+    if not slug:
+        return False
+    row = (
+        db.query(Skill)
+        .filter(Skill.slug == slug, Skill.workspace_id == model.workspace_id)
+        .first()
+    )
+    if row is None:
+        return False
+    try:
+        row.name = f"Predict · {model.name}"[:200]
+        row.description = _skill_description(model)
+        row.input_schema = predict_input_schema(model)
+        row.output_schema = predict_output_schema(model)
+    except TabularError:
+        logger.warning(
+            "tabular_predict: published skill not refreshed, contract unreadable",
+            model_id=model.id,
+            skill_slug=slug,
+        )
+        return False
+    db.commit()
+    logger.info(
+        "tabular_predict: published skill follows the promotion",
+        model_id=model.id,
+        skill_slug=slug,
+    )
+    return True
 
 
 def pinned_lineage(executor: Any) -> tuple[str, str] | None:
@@ -1536,6 +1595,7 @@ __all__ = [
     "publish_as_skill",
     "published_skill",
     "record_usage",
+    "refresh_published_skill",
     "reset_cache",
     "revoke_api_key",
     "score_dataset",
