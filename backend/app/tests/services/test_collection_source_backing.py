@@ -258,3 +258,70 @@ def test_zip_member_source_is_bounded_and_traversal_is_rejected(
                 locator={**locator, "member_path": unsafe_member},
                 destination=tmp_path / "unsafe.pdf",
             )
+
+
+def test_an_equal_sized_replacement_is_caught_however_fast_it_happens(
+    db_session, tmp_path, monkeypatch
+):
+    """The check must not depend on the filesystem's clock resolution.
+
+    The archive digest used to be memoised on the source's stat tuple — size,
+    inode, mtime, ctime — which reads as a physical revision and is not one. Two
+    writes of equal-length content inside a single timestamp tick share that
+    tuple, so the second was answered with the first one's digest: the one check
+    between a replaced archive and a reader returned a verdict about bytes that
+    were gone. Equal size with the timestamps unchanged is the shape a tamper
+    takes, so the memo failed on the case it existed to catch — and only where
+    timestamps are coarse, which is a mount rather than a laptop.
+
+    Written as a loop because a single pass can straddle a tick by luck and pass
+    for the wrong reason. Twenty rewrites in a row cannot all straddle one.
+    """
+
+    import os
+
+    archive = tmp_path / "source.zip"
+    with zipfile.ZipFile(archive, "w") as writer:
+        writer.writestr("manual/chapter.pdf", b"chapter 61038")
+    workspace, row, source = _deposit(
+        db_session,
+        tmp_path,
+        monkeypatch,
+        content=archive.read_bytes(),
+        filename="manuals.zip",
+    )
+    locator = {
+        "kind": "secure_deposit_zip_member",
+        "deposit_file_id": row.id,
+        "sha256": row.sha256,
+        "size_bytes": row.size_bytes,
+        "member_path": "manual/chapter.pdf",
+        "member_size_bytes": len(b"chapter 61038"),
+        "member_sha256": hashlib.sha256(b"chapter 61038").hexdigest(),
+    }
+    honest = source.read_bytes()
+    stat_before = source.stat()
+
+    for _ in range(20):
+        # The archive is read once so anything memoising has its chance.
+        assert read_backing_source_bytes(
+            db_session, workspace_id=workspace.id, locator=locator
+        ) == b"chapter 61038"
+
+        tampered = bytearray(honest)
+        tampered[-1] ^= 1
+        source.write_bytes(tampered)
+        # Every observable the stat tuple carries, put back: same length by
+        # construction, same inode because the file was written in place, and
+        # the timestamps restored by hand.
+        os.utime(source, ns=(stat_before.st_atime_ns, stat_before.st_mtime_ns))
+        assert source.stat().st_size == stat_before.st_size
+        assert source.stat().st_ino == stat_before.st_ino
+
+        with pytest.raises(SourceBackingError, match="source_content_changed"):
+            read_backing_source_bytes(
+                db_session, workspace_id=workspace.id, locator=locator
+            )
+
+        source.write_bytes(honest)
+        os.utime(source, ns=(stat_before.st_atime_ns, stat_before.st_mtime_ns))
