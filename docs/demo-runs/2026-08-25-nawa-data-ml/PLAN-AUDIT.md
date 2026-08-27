@@ -31,18 +31,21 @@ abonné ([PR #18](https://bitbucket.org/datategy-root/omnirag/pull-requests/18))
 | Date | Ligne | Verdict | Arbre | Preuve |
 |---|---|---|---|---|
 | 27/08/2026 | skore `get_state()` en artefact MLflow | **Tenu autrement** | `demo/agentic` | skore 0.25.0 n'a pas `get_state()`. Tag `agentium.skore_report_state` (URI ObjectStore). `test_ml_registry.py`, `test_ml_training.py`. Adjugé, ne plus rouvrir. |
-| 27/08/2026 | Cache SHA `lru_cache` sur `_physical_sha256` | **Tenu** | PR #21, non fusionné | [PR #21](https://bitbucket.org/datategy-root/omnirag/pull-requests/21) @ `90cf79cf`. Lecture à chaque vérification. |
-| 27/08/2026 | Panneau predict atteignable + progression batch-score + ce registre | **Tenu** | PR #20, non fusionné | [PR #20](https://bitbucket.org/datategy-root/omnirag/pull-requests/20) @ `2ef1aae5`. |
-| 27/08/2026 | Contrat publié = version qui sert (name / description / schémas) | **Tenu** | branche, non fusionné | `cursor/skill-publish-frozen-34ca` @ `7741a60a`. Le slug nomme la lignée ; promouvoir change la réponse sans republier. Ne pas figer la version dans `frozen_input`. |
-| 27/08/2026 | dbt : un dataset par modèle sélectionné | **Tenu** | branche, non fusionné | `cursor/dbt-multi-models-34ca` @ `7941c1bf` (`output_models`). |
-| 27/08/2026 | Polars : environnement imposé, extras ignorés | **Tenu** | PR #24, non fusionné | [PR #24](https://bitbucket.org/datategy-root/omnirag/pull-requests/24) @ `837a4221`. `effective_requirements` = pin seul. i18n `flow.transform.environment.imposed.hint`, `data-testid="pinned-environment"`. 21 tests Polars. |
-| 27/08/2026 | Picker train sur `DataTableComponent` | **Tenu** | PR #25, non fusionné | [PR #25](https://bitbucket.org/datategy-root/omnirag/pull-requests/25) @ `b33de3b1`. Mode `selectMode` single/multi. Plus de `ck-column-spark` sur train / atelier. |
-| 27/08/2026 | Badge SQL réunifié + onglet Test du train | **Tenu** | PR #26, non fusionné | [PR #26](https://bitbucket.org/datategy-root/omnirag/pull-requests/26) @ `16ffda5c`. `shape()` = `{duration} ms · {rows} lignes`. Run SQL reste dans le header. |
-| 27/08/2026 | Lignage carte : dataset → transform → modèle → scorés | **Tenu** | PR #27, non fusionné | [PR #27](https://bitbucket.org/datategy-root/omnirag/pull-requests/27) @ `c8273ff0`. `pipeline_provenance`, `data-testid="provenance-chain"`. `test_the_detail_read_walks_dataset_transform_model_and_scored_tables`. |
-| 27/08/2026 | Journal de prédictions + `prediction_id` | **Tenu** | PR #28, non fusionné | [PR #28](https://bitbucket.org/datategy-root/omnirag/pull-requests/28) @ `6a92d592`. Migration `098`. `/predict` et `score_dataset`. |
-| 27/08/2026 | `POST /ml-models/{id}/feedback` | **Tenu** | PR #28, non fusionné | Même PR. Rattache la vérité terrain au `prediction_id`. |
-| 27/08/2026 | `tabular_monitoring` — PSI, dérive des scores, AUC glissante | **Tenu** | PR #28, non fusionné | `test_tabular_monitoring.py`. Seuils ok / watch / alert. |
-| 27/08/2026 | Onglet Monitoring + badge liste + boucle dataset → retrain | **Tenu** | PR #28, non fusionné | `data-testid="monitor-panel"`, `monitor-badge`. `POST …/feedback/dataset`. |
+| 27/08/2026 | Cache SHA `lru_cache` sur `_physical_sha256` | **Tenu** | PR #30, non fusionné dans `demo/agentic` | [PR #21](https://bitbucket.org/datategy-root/omnirag/pull-requests/21) empilé sur [PR #30](https://bitbucket.org/datategy-root/omnirag/pull-requests/30). Lecture à chaque vérification. |
+| 27/08/2026 | Panneau predict atteignable + progression batch-score + ce registre | **Tenu** | PR #30, non fusionné dans `demo/agentic` | [PR #20](https://bitbucket.org/datategy-root/omnirag/pull-requests/20) empilé sur #30. |
+| 27/08/2026 | Contrat publié = version qui sert (name / description / schémas) | **Tenu** | PR #30, non fusionné dans `demo/agentic` | `cursor/skill-publish-frozen-34ca` @ `7741a60a`. Le slug nomme la lignée ; promouvoir change la réponse sans republier. Ne pas figer la version dans `frozen_input`. |
+| 27/08/2026 | dbt : un dataset par modèle sélectionné | **Tenu** | PR #30, non fusionné dans `demo/agentic` | `cursor/dbt-multi-models-34ca` @ `7941c1bf` (`output_models`). |
+| 27/08/2026 | Polars : environnement imposé, extras ignorés | **Tenu** | PR #30, non fusionné dans `demo/agentic` | [PR #24](https://bitbucket.org/datategy-root/omnirag/pull-requests/24) @ `837a4221`. `effective_requirements` = pin seul. |
+| 27/08/2026 | Picker train sur `DataTableComponent` | **Tenu** | PR #30, non fusionné dans `demo/agentic` | [PR #25](https://bitbucket.org/datategy-root/omnirag/pull-requests/25) @ `b33de3b1`. |
+| 27/08/2026 | Badge SQL réunifié + onglet Test du train | **Tenu** | PR #30, non fusionné dans `demo/agentic` | [PR #26](https://bitbucket.org/datategy-root/omnirag/pull-requests/26) @ `16ffda5c`. |
+| 27/08/2026 | Lignage carte : dataset → transform → modèle → scorés | **Tenu** | PR #30, non fusionné dans `demo/agentic` | [PR #27](https://bitbucket.org/datategy-root/omnirag/pull-requests/27) @ `c8273ff0`. |
+| 27/08/2026 | Journal de prédictions + `prediction_id` | **Tenu** | PR #30, non fusionné dans `demo/agentic` | [PR #28](https://bitbucket.org/datategy-root/omnirag/pull-requests/28). Migration `098`. |
+| 27/08/2026 | `POST /ml-models/{id}/feedback` | **Tenu** | PR #30, non fusionné dans `demo/agentic` | Même lot. Rattache la vérité terrain au `prediction_id`. |
+| 27/08/2026 | `tabular_monitoring` — PSI, dérive des scores, AUC glissante | **Tenu** | PR #30, non fusionné dans `demo/agentic` | `test_tabular_monitoring.py`. Seuils ok / watch / alert. |
+| 27/08/2026 | Onglet Monitoring + badge liste + boucle dataset → retrain | **Tenu** | PR #30, non fusionné dans `demo/agentic` | `data-testid="monitor-panel"`, `monitor-badge`. |
+| 27/08/2026 | QA : badge liste = pire des trois signaux | **Tenu** | PR #30 | `badges_for` inclut le PSI features. `test_the_list_badge_agrees_with_the_tab_when_features_drift`. |
+| 27/08/2026 | QA : score batch journalise un échantillon | **Tenu** | PR #30 | `score_dataset` écrit `frame.select(wanted).head(_JOURNAL_ROW_CAP)`. |
+| 27/08/2026 | QA : provenance suit `parent_ids` | **Tenu** | PR #30 | `test_the_dataset_chip_follows_parent_ids_not_sql_in_order`. |
 
 ## Assumé, ne plus rouvrir
 
@@ -57,16 +60,15 @@ abonné ([PR #18](https://bitbucket.org/datategy-root/omnirag/pull-requests/18))
 
 | Ligne | État | Note |
 |---|---|---|
-| Fusion des PRs #20–#28 et branches skill-publish / dbt-multi | **Écart** | Rien de tout ça n'est sur `demo/agentic` @ `dc896dad`. |
-| Déploiement lot par lot sur la VM | **Écart** | `docs/ops/agentium-safe-vm-deployment.md` reste **NO-GO** (23/07/2026) et n'autorise aucun déploiement sans GO opérateur (SHA + `deployment-id` + fenêtre). Aucun GO n'a été donné. |
-| Témoin télécom vivant | **Écart** | La VM répond. `/api/v1/build-info` sert `29aa898159b5` (`revision_verified=true`) le 27/08/2026 12:13 UTC — *avant* #20. `scripts/e2e_data_ml_live.py` n'a pas été lancé : pas de secret, et le driver mute le workspace `nawa`. |
-| Batch-score progression | **Tenu** sur PR #20 | Toujours absent de `demo/agentic` et de la VM. |
+| Fusion des PRs dans `demo/agentic` | **Écart** | Empilées sur `cursor/mlops-coverage-34ca` / [PR #30](https://bitbucket.org/datategy-root/omnirag/pull-requests/30). `demo/agentic` reste à `dc896dad`. |
+| Déploiement sur la VM | **Écart** | GO opérateur reçu pour cette passe (« puis on deploie »). Recette du 27/08 : dump → migrate `098` → up. |
+| Témoin télécom vivant | **Écart** | La VM sert encore `29aa898159b5`. Pas de `e2e_data_ml_live.py` : pas de secret, et le driver mute `nawa`. |
 | Consultation abonné | **Écart** | PR #18, hors périmètre de ce lot. |
 | Vidéo + runbook 7 temps | **Écart** | Hors périmètre. |
 
 ---
 
-## Témoin live (27/08/2026)
+## Témoin live (27/08/2026, avant cette passe)
 
 ```
 GET https://agentium.papai.ai/api/v1/build-info
@@ -74,17 +76,6 @@ GET https://agentium.papai.ai/api/v1/build-info
 ```
 
 nginx 1.24, `Last-Modified: Thu, 27 Aug 2026 04:07:55 GMT`. Health `healthy`.
-
-Ce que le code de `demo/agentic` ne prouve pas, et que la VM à ce SHA ne
-peut pas non plus montrer pour les lots A–D :
-
-- ingest CSV vivant, badges canvas, Playground épinglé, skill appelée par un
-  agent, MLmodel aux pins, Postgres `mlflow`
-- une fois D posé : predict → feedback → dérive → retrain
-
-Pour fermer ces lignes : GO opérateur, déployer #20 puis #21 puis
-skill-publish puis dbt-multi puis #24–#28, dans cet ordre, selon le runbook,
-puis `scripts/e2e_data_ml_live.py` et le témoin Churn Radar.
 
 ---
 

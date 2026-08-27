@@ -106,7 +106,7 @@ const PAGE_SIZE = 50;
             {{ i18n.t('data.progress.title') }}
           </div>
           <div class="text-[11px] ck-mono mt-1" style="color: var(--ck-signal-cool)">
-            {{ i18n.t(stepKey(ds.status_detail)) }}
+            {{ i18n.t(stepKey(ds.status_detail, ds.source)) }}
           </div>
         </div>
       } @else if (ds.status === 'failed') {
@@ -617,8 +617,11 @@ export class DataViewComponent implements OnInit {
   }
 
   /** The worker names its step as a code; the locale supplies the sentence. */
-  protected stepKey(detail: string | null | undefined): string {
-    return ingestStepKey(detail);
+  protected stepKey(
+    detail: string | null | undefined,
+    source: DatasetDto['source'] | undefined,
+  ): string {
+    return ingestStepKey(detail, source);
   }
 
   protected bytes(value: number | null | undefined): string {

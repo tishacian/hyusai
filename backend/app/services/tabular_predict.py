@@ -68,8 +68,11 @@ from app.services.skills_registry.binding import (
 from app.services.tabular_datasets import (
     TabularError,
     dataset_reference,
+    fail_frame,
+    mark_step,
     read_frame,
     register_frame,
+    reserve_frame,
 )
 from app.services.tabular_ml import (
     CLASSIFICATION,
@@ -105,6 +108,15 @@ _JOURNAL_SCORE_CAP = 512
 # Predicting a large dataset is one pass, but materializing every probability
 # vector for it at once is not. Chunked so peak memory follows the chunk.
 _SCORE_CHUNK_ROWS = 50_000
+
+#: The steps a batch score passes through, in order, as codes a surface renders.
+#:
+#: Codes and not sentences, for the reason the ingest steps are codes: this row
+#: is polled by a French and an English page, so a worker writing "Scoring the
+#: base" would put one language on both. ``scoring`` carries how far it has got
+#: as ``scoring:3000/6903``, which is the difference between a progress line and
+#: a fact — and the only step here whose duration a reader can feel.
+SCORE_STEPS: tuple[str, ...] = ("queued", "reading", "scoring", "writing")
 
 # How many fields a single-row explanation perturbs. Each one costs a row in one
 # extra batched predict, so the ceiling is about how much a human can read, not
@@ -985,6 +997,53 @@ def score_dataset(
     import polars as pl
 
     started = time.monotonic()
+    # Reserved before the reading starts, so the work has a row to report on.
+    # Everything above this point is a refusal — an unready input, a row ceiling,
+    # a missing column — and a refusal must not leave a dataset behind.
+    output = reserve_frame(
+        db,
+        workspace_id=served.workspace_id,
+        name=output_name or f"{dataset.name} · scored",
+        source="score",
+        produced_by=ML_SCORE_SKILL_SLUG,
+        parent_ids=[dataset.id],
+        run_id=run_id,
+        node_id=node_id,
+        step=SCORE_STEPS[0],
+    )
+    try:
+        return _score_into(
+            db,
+            output=output,
+            requested=model,
+            served=served,
+            dataset=dataset,
+            fields=fields,
+            started=started,
+            pl=pl,
+        )
+    except TabularError as exc:
+        fail_frame(db, output, f"{exc.code}: {exc.message}")
+        raise
+    except Exception as exc:  # noqa: BLE001 - the row must not outlive the work
+        fail_frame(db, output, str(exc)[:2000])
+        raise
+
+
+def _score_into(
+    db: DBSession,
+    *,
+    output: TabularDataset,
+    requested: MLModel,
+    served: MLModel,
+    dataset: TabularDataset,
+    fields: list[dict[str, Any]],
+    started: float,
+    pl: Any,
+) -> dict[str, Any]:
+    """The scoring itself, reporting into the row :func:`score_dataset` reserved."""
+
+    mark_step(db, output, SCORE_STEPS[1])
     frame = read_frame(dataset)
     present = set(frame.columns)
     wanted = [str(spec["name"]) for spec in fields]
@@ -1008,10 +1067,15 @@ def score_dataset(
     predictions: list[Any] = []
     confidences: list[float | None] = []
     scores: list[float | None] = []
-    for offset in range(0, max(len(features), 1), _SCORE_CHUNK_ROWS):
+    total = len(features)
+    for offset in range(0, max(total, 1), _SCORE_CHUNK_ROWS):
         chunk = features.iloc[offset : offset + _SCORE_CHUNK_ROWS]
         if chunk.empty:
             break
+        # Published before the chunk rather than after it: on a base that fits in
+        # one chunk — which the demo's does — reporting afterwards would say
+        # "0 of 6 903" for the whole scoring and then jump straight to written.
+        mark_step(db, output, f"{SCORE_STEPS[2]}:{offset}/{total}")
         typed = build_frame(fields, chunk.to_dict(orient="records"))
         predicted, proba = _predict_frame(entry, served, typed)
         answers = _rows_from(served, classes, positive, predicted, proba)
@@ -1040,17 +1104,17 @@ def score_dataset(
         [series.alias(name) for name, series in columns.items()]
     )
 
+    mark_step(db, output, SCORE_STEPS[3])
     elapsed_ms = round((time.monotonic() - started) * 1000, 1)
     output = register_frame(
         db,
         workspace_id=served.workspace_id,
-        name=output_name or f"{dataset.name} · scored",
+        name=output.name,
         frame=scored,
         source="score",
         produced_by=ML_SCORE_SKILL_SLUG,
         parent_ids=[dataset.id],
-        run_id=run_id,
-        node_id=node_id,
+        into=output,
         lineage={
             "engine": "sklearn",
             "model": {
@@ -1077,7 +1141,7 @@ def score_dataset(
     ]
     prediction_id = journal_call(
         db,
-        requested=model,
+        requested=requested,
         served=served,
         caller="score",
         rows=frame.select(wanted).head(_JOURNAL_ROW_CAP).to_dicts(),

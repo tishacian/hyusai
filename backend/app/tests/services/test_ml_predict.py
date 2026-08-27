@@ -662,7 +662,10 @@ def test_a_prediction_column_that_would_collide_is_renamed_not_overwritten(
 def test_a_dataset_above_the_scoring_ceiling_is_refused(
     db_session, model, scoring_dataset, monkeypatch
 ):
+    from app.models.tabular import TabularDataset
+
     monkeypatch.setattr(settings, "ml_score_max_rows", 5)
+    before = db_session.query(TabularDataset).count()
 
     with pytest.raises(TabularError) as raised:
         tabular_predict.score_dataset(
@@ -670,6 +673,94 @@ def test_a_dataset_above_the_scoring_ceiling_is_refused(
         )
 
     assert raised.value.code == "ML_SCORE_TOO_MANY_ROWS"
+    # A refusal leaves nothing behind. The output row is reserved *after* every
+    # check, so the Data page never shows a table for work that never started.
+    assert db_session.query(TabularDataset).count() == before
+
+
+def test_a_score_says_where_it_has_got_to_while_it_is_getting_there(
+    db_session, model, scoring_dataset
+):
+    """The third of the three long tasks that owed a reader a progress line.
+
+    Ingest and training each publish their step into ``status_detail`` and the
+    page draws a check-list from it. Scoring published nothing, because its
+    output row did not exist until the work was over — so thirteen seconds of a
+    seeded demo were a spinner. The row is reserved first now, and the steps it
+    passes through are recorded in the order a reader sees them.
+    """
+
+    from app.services.tabular_datasets import get_dataset
+
+    seen: list[tuple[str, str | None]] = []
+    original = tabular_predict.mark_step
+
+    def record(session, dataset, step, **kwargs):
+        seen.append((step, dataset.status))
+        return original(session, dataset, step, **kwargs)
+
+    tabular_predict.mark_step = record
+    try:
+        result = tabular_predict.score_dataset(
+            db_session, model=model, dataset=scoring_dataset
+        )
+    finally:
+        tabular_predict.mark_step = original
+
+    steps = [step.split(":", 1)[0] for step, _ in seen]
+    # In order, and only the codes the vocabulary names: a surface renders these
+    # as a list and translates each one.
+    assert steps == ["reading", "scoring", "writing"]
+    assert set(steps) <= set(tabular_predict.SCORE_STEPS)
+    # Every one of them was published while the row was still unsettled.
+    assert {status for _, status in seen} == {"ingesting"}
+    # The scoring line carries how far it got, not merely that it is scoring.
+    scoring = next(step for step, _ in seen if step.startswith("scoring"))
+    assert scoring == "scoring:0/30"
+
+    # And the row a reader watched is the row they end up with: same identity,
+    # settled rather than replaced.
+    output = get_dataset(
+        db_session, dataset_id=result["dataset_id"], workspace_id=model.workspace_id
+    )
+    assert output.status == "ready"
+    assert output.status_detail is None
+    assert output.source == "score"
+
+
+def test_a_score_that_breaks_does_not_leave_a_table_claiming_to_be_working(
+    db_session, model, scoring_dataset, monkeypatch
+):
+    """The cost of reserving the row early, paid rather than ignored.
+
+    A row that exists before the work is a row that outlives a crash, and left
+    in ``ingesting`` it would sit on the Data page pretending to make progress
+    for as long as the deployment lasts — worse than the silence reserving it
+    removed.
+    """
+
+    from app.models.tabular import TabularDataset
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("the pipeline died mid-batch")
+
+    monkeypatch.setattr(tabular_predict, "_predict_frame", explode)
+
+    with pytest.raises(RuntimeError):
+        tabular_predict.score_dataset(
+            db_session, model=model, dataset=scoring_dataset
+        )
+
+    row = (
+        db_session.query(TabularDataset)
+        .filter(TabularDataset.source == "score")
+        .order_by(TabularDataset.created_at.desc())
+        .first()
+    )
+    assert row is not None
+    assert row.status == "failed"
+    assert row.status_detail is None
+    assert "died mid-batch" in (row.error or "")
 
 
 # ---------------------------------------------------------------------------
