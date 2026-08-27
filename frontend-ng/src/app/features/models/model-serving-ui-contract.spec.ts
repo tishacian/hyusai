@@ -67,6 +67,25 @@ test('the request the Playground sends is MLflow serving shape', () => {
   assert.match(CLIENT, /\$\{this\.base\}\/\$\{modelId\}\/predict/);
 });
 
+test('a card off the serving alias predicts from itself, form and snippet alike', () => {
+  // The form is built from `block.fields`, which is *this* version's signature.
+  // Left unpinned the call is answered by the champion, and two versions of a
+  // lineage need not share a column list — so on any card but the serving one
+  // the money shot was a contract refusal. One read, used by both, so the
+  // command the audience copies reproduces the answer they just watched.
+  assert.match(PLAYGROUND, /pinnedVersion\(this\.serving\(\), this\.model\(\)\.version\)/);
+  assert.match(PLAYGROUND, /version: this\.pinned\(\)/, 'the snippet carries the pin');
+  assert.match(
+    PLAYGROUND,
+    /const pinned = this\.pinned\(\);[\s\S]{0,220}\.\.\.\(pinned \? \{ version: pinned \} : \{\}\)/,
+    'the call carries the pin',
+  );
+  // And the line beside the button promises whichever version will answer,
+  // rather than a champion the pin deliberately bypasses.
+  assert.match(PLAYGROUND, /served\?\.version \?\? this\.pinned\(\) \?\? block\.serving_version/);
+  assert.match(CLIENT, /options\.version \? \{ version: options\.version \} : \{\}/);
+});
+
 test('the route and the header are the server’s facts, never retyped in the UI', () => {
   // A hardcoded path is how a demo ends up POSTing to a route that moved.
   assert.ok(!/\/api\/v1\//.test(PLAYGROUND), 'the endpoint comes from the block');
@@ -145,7 +164,7 @@ test('each dial owns the gradient it paints itself with', () => {
 });
 
 test('the explanation is asked for explicitly, and only for the one row on screen', () => {
-  assert.match(PLAYGROUND, /\{ explain: true \}/);
+  assert.match(PLAYGROUND, /explain: true/);
   assert.match(CLIENT, /options\.explain \? \{ explain: true \} : \{\}/);
 });
 

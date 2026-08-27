@@ -57,12 +57,20 @@ def churn_frame(rows: int = CHURN_ROWS):
 
 
 def fit_churn_artifact(
-    directory: Path, *, task: str = "classification", target: str = "churn"
+    directory: Path,
+    *,
+    task: str = "classification",
+    target: str = "churn",
+    features: list[str] | None = None,
 ) -> tuple[Path, dict]:
     """Run the production training harness once; return its model dir and summary.
 
     Knobs are turned down to what a test needs (25 iterations, 20 curve points):
     the point is a real artifact, not a good one.
+
+    ``features`` narrows the fit, which is how a test builds a lineage whose
+    versions do not agree on a column list — the case that separates "answers
+    from the alias" from "answers from the version asked for".
     """
 
     from app.services.tabular_ml import harness_path
@@ -76,7 +84,11 @@ def fit_churn_artifact(
         "model_dir": str(model_dir),
         "task": task,
         "target": target,
-        "features": [name for name in CHURN_FEATURES if name != target],
+        "features": [
+            name
+            for name in (features if features is not None else CHURN_FEATURES)
+            if name != target
+        ],
         "estimator": (
             "sklearn.ensemble.HistGradientBoostingClassifier"
             if task == "classification"

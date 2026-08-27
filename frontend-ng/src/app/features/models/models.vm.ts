@@ -459,6 +459,27 @@ function cellText(value: unknown): string {
 }
 
 /**
+ * The version this card's own calls must name, or `null` to let the alias pick.
+ *
+ * A card is about one version and builds its form from that version's
+ * signature. The endpoint, asked for nothing in particular, answers from the
+ * champion — right for an integration, and wrong here the moment two versions
+ * do not share a column list: the form would offer v3's twenty-nine fields and
+ * the plane would judge them against v1's twenty. So a version that is not the
+ * one serving names itself, and the serving version's card stays unpinned,
+ * which is where "the alias may answer from another version" is the point being
+ * made rather than a contradiction.
+ */
+export function pinnedVersion(
+  block: Pick<ServingBlock, 'is_serving'>,
+  version: unknown,
+): number | null {
+  if (block.is_serving) return null;
+  const wanted = Math.trunc(Number(version));
+  return Number.isFinite(wanted) && wanted >= 1 ? wanted : null;
+}
+
+/**
  * The request, as a shell command that runs.
  *
  * Written against the real endpoint with the real payload, because a snippet
@@ -473,13 +494,17 @@ export function curlSnippet(options: {
   row: Record<string, unknown>;
   secret?: string | null;
   prefix?: string | null;
+  version?: number | null;
 }): string {
   const key = options.secret
     ? options.secret
     : options.prefix
       ? `${options.prefix}…`
       : 'YOUR_API_KEY';
-  const body = JSON.stringify({ inputs: [options.row] });
+  const body = JSON.stringify({
+    inputs: [options.row],
+    ...(options.version ? { version: options.version } : {}),
+  });
   return [
     `curl -X POST ${options.origin}${options.endpoint} \\`,
     `  -H '${options.header}: ${key}' \\`,

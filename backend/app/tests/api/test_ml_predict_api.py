@@ -222,6 +222,113 @@ def test_a_missing_field_is_refused_instead_of_being_scored_as_a_hole(
     assert response.json()["detail"]["code"] == "ML_PREDICT_FIELD_MISSING"
 
 
+@pytest.fixture(scope="module")
+def narrow_artifact(tmp_path_factory) -> tuple[Path, dict]:
+    """A second fit of the same lineage on two of the four columns.
+
+    Versions of a model are not obliged to agree on a feature list — a later fit
+    is often exactly a different one — and that disagreement is what makes the
+    difference between the alias and a named version observable.
+    """
+
+    return fit_churn_artifact(
+        tmp_path_factory.mktemp("serving-api-narrow"),
+        features=["plan", "tenure_months", "churn"],
+    )
+
+
+@pytest.fixture()
+def challenger(db_session, workspace, narrow_artifact, model) -> MLModel:
+    """A v2 of ``model``'s lineage, not champion, fitted on fewer columns."""
+
+    directory, summary = narrow_artifact
+    row = MLModel(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Churn risk",
+        slug=model.slug,
+        version=2,
+        task="classification",
+        algo="gradient_boosting",
+        target="churn",
+        features=["plan", "tenure_months"],
+        params_json={"knobs": {"max_iter": 25}},
+        status="ready",
+        dataset_slug="churn-features",
+        row_count=CHURN_ROWS,
+        test_size=0.25,
+        cross_validation=0,
+        metrics_json=summary["metrics"],
+        signature_json=summary["signature"],
+        input_example_json=summary["input_example"],
+        classes_json=summary["classes"],
+        is_champion=False,
+    )
+    db_session.add(row)
+    db_session.flush()
+    uri, size = upload_model_dir(directory, workspace_id=workspace.id, model_id=row.id)
+    row.model_uri = uri
+    row.artifact_bytes = size
+    db_session.commit()
+    return row
+
+
+def test_the_serving_block_offers_this_versions_contract_and_names_the_champion(
+    session_client, model, challenger
+):
+    """Why a card off the alias has to name itself: the block it renders is its own.
+
+    The Playground builds its form from ``fields``, and on v2's card those are
+    v2's two columns while the version that answers by default is still v1 with
+    four. A form the plane would refuse is the money shot of the demo failing.
+    """
+
+    block = session_client.get(f"/ml-models/{challenger.id}").json()["serving"]
+
+    assert [field["name"] for field in block["fields"]] == ["plan", "tenure_months"]
+    assert block["is_serving"] is False
+    assert block["serving_version"] == 1
+    assert block["serving_model_id"] == model.id
+
+
+def test_a_row_for_a_version_off_the_alias_is_refused_unless_that_version_is_named(
+    session_client, challenger
+):
+    row = {"plan": "prepaid", "tenure_months": 6}
+
+    # Unpinned the alias answers, and the alias is v1, which was fitted on four
+    # columns: v2's row is missing two of them and is rightly refused.
+    unpinned = session_client.post(
+        f"/ml-models/{challenger.id}/predict", json={"inputs": [row]}
+    )
+    assert unpinned.status_code == 422
+    assert unpinned.json()["detail"]["code"] == "ML_PREDICT_FIELD_MISSING"
+
+    # Named, the version the card is about answers, and its own contract is the
+    # one the row is judged against.
+    pinned = session_client.post(
+        f"/ml-models/{challenger.id}/predict", json={"inputs": [row], "version": 2}
+    )
+    assert pinned.status_code == 200
+    body = pinned.json()
+    assert body["served"]["version"] == 2
+    assert body["served"]["model_id"] == challenger.id
+    assert body["predictions"][0]["prediction"] in {"0", "1"}
+
+
+def test_naming_the_champions_own_version_is_accepted_too(
+    session_client, model, challenger
+):
+    """So the pin is not a special case the serving card has to avoid."""
+
+    response = session_client.post(
+        f"/ml-models/{model.id}/predict", json={"inputs": [_row()], "version": 1}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["served"]["version"] == 1
+
+
 def test_an_explanation_is_returned_only_when_the_caller_asks_for_one(
     session_client, model
 ):
