@@ -4734,3 +4734,48 @@ dans `auth.py`.
 **Dette laissée.** Inchangée depuis la vérification du 26-27/08 : les trois
 échecs backend non liés à l'environnement, et l'activation du board
 (commit `4dbc4efc`, douze tests rouges, sur aucune branche).
+
+## Itération du 27/08 — couverture MLOps A–D + QA, déployée sur `e5d3b8f2`
+
+GO deploy depuis un Cloud Agent (« polish/QA puis on deploie »). Une pile
+`cursor/mlops-coverage-34ca` / [PR #30](https://bitbucket.org/datategy-root/omnirag/pull-requests/30),
+pas un merge dans `demo/agentic`. SHA servi
+`e5d3b8f207088b9e6d05d071d07bdf4486d81a0a`. Migration `098_ml_predictions`
+(additive). Fenêtre
+`/srv/agentium-data/flow-publication-deployments/2026-08-27-e5d3b8f20708/`
+(`postgres-pre-switch.dump` 456 057 029 o, sha256 `5c9df285ae58…`,
+`sha256sum -c` OK).
+
+**Ce que la revue a dû corriger avant la bascule.**
+
+| Défaut | Effet | Correctif |
+|---|---|---|
+| `badges_for` ignorait le PSI features | Liste Stable, onglet Alerte | Pire des trois signaux, même calcul que `report()` |
+| `score_dataset` journalisait `rows=[]` | PSI features aveugle sur le chemin Flow | Échantillon `head(_JOURNAL_ROW_CAP)` des colonnes du contrat |
+| `pipeline_provenance` prenait l'ordre `SQL IN` | Mauvais upload en `parents[0]` | Marche `parent_ids` |
+| Merge #20 : `_score_into` nommait `model` | NameError au journal du batch | `requested=` distinct de `served` |
+| Trailing comma dans `i18n.t()` du tab Environnement | `ng build -c production` rouge sur la VM | Virgule retirée. Les unitaires ne compilent pas le template. |
+
+**Séquence.** Fetch `cursor/mlops-coverage-34ca` dans le worktree root-owned,
+images taguées `e5d3b8f20708` seulement (alias `demo-agentic` non déplacé),
+dump, `storage-check`, `migrate`, `up`. Script copié et exécuté comme fichier.
+Premier build frontend arrêté sur le trailing comma ; second SHA après
+correctif.
+
+**Observables après bascule.**
+
+| Contrôle | Résultat |
+|---|---|
+| `GET /api/v1/build-info` | `e5d3b8f207088b9e6d05d071d07bdf4486d81a0a`, `revision_verified=true` |
+| `alembic_version` | `098_ml_predictions` (une ligne) |
+| `ml_predictions` | table créée, 0 ligne |
+| Images | `agentium-{backend,worker,frontend}:e5d3b8f20708` |
+| Frontend servi | `monitor-panel`, `monitor-badge`, `provenance-chain`, `pinned-environment` |
+| Backend ciblé | 207 verts |
+| `check:i18n` / unitaires / `build:prod` | 6911 clés, 1329 verts, prod local OK |
+| Témoin `nawa` | non muté. Pas de `e2e_data_ml_live.py`. |
+
+Rollback images : `AGENTIUM_IMAGE_TAG=29aa898159b5` puis `up`. Ne pas
+downgrader `098`. Backend sain en ~2 min (MiniLM déjà en cache, contrairement
+aux ~10 min du 27/08 matin).
+

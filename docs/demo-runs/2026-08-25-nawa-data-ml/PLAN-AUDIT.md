@@ -46,6 +46,7 @@ abonné ([PR #18](https://bitbucket.org/datategy-root/omnirag/pull-requests/18))
 | 27/08/2026 | QA : badge liste = pire des trois signaux | **Tenu** | PR #30 | `badges_for` inclut le PSI features. `test_the_list_badge_agrees_with_the_tab_when_features_drift`. |
 | 27/08/2026 | QA : score batch journalise un échantillon | **Tenu** | PR #30 | `score_dataset` écrit `frame.select(wanted).head(_JOURNAL_ROW_CAP)`. |
 | 27/08/2026 | QA : provenance suit `parent_ids` | **Tenu** | PR #30 | `test_the_dataset_chip_follows_parent_ids_not_sql_in_order`. |
+| 27/08/2026 | QA : virgule interdite dans le tab Environnement imposé | **Tenu** | PR #30 @ `e5d3b8f2` | `ng build -c production` sur la VM a refusé le trailing comma du `i18n.t()`. Les unitaires ne compilent pas le template. |
 
 ## Assumé, ne plus rouvrir
 
@@ -60,22 +61,26 @@ abonné ([PR #18](https://bitbucket.org/datategy-root/omnirag/pull-requests/18))
 
 | Ligne | État | Note |
 |---|---|---|
-| Fusion des PRs dans `demo/agentic` | **Écart** | Empilées sur `cursor/mlops-coverage-34ca` / [PR #30](https://bitbucket.org/datategy-root/omnirag/pull-requests/30). `demo/agentic` reste à `dc896dad`. |
-| Déploiement sur la VM | **Écart** | GO opérateur reçu pour cette passe (« puis on deploie »). Recette du 27/08 : dump → migrate `098` → up. |
-| Témoin télécom vivant | **Écart** | La VM sert encore `29aa898159b5`. Pas de `e2e_data_ml_live.py` : pas de secret, et le driver mute `nawa`. |
+| Fusion des PRs dans `demo/agentic` | **Écart** | Empilées sur `cursor/mlops-coverage-34ca` / [PR #30](https://bitbucket.org/datategy-root/omnirag/pull-requests/30). `demo/agentic` reste à `dc896dad`. La VM sert le SHA de #30, pas `demo/agentic`. |
+| Déploiement sur la VM | **Tenu** | SHA `e5d3b8f20708` servi, `revision_verified=true`. Alembic `098_ml_predictions`. Dump `5c9df285…` sous `flow-publication-deployments/2026-08-27-e5d3b8f20708/`. Rollback images : `29aa898159b5`. |
+| Témoin télécom vivant | **Écart** | La VM sert le code. `ml_predictions` est vide (0). Pas de `e2e_data_ml_live.py` : pas de secret, et le driver mute `nawa`. |
 | Consultation abonné | **Écart** | PR #18, hors périmètre de ce lot. |
 | Vidéo + runbook 7 temps | **Écart** | Hors périmètre. |
 
 ---
 
-## Témoin live (27/08/2026, avant cette passe)
+## Témoin live (27/08/2026, 13:38 UTC)
 
 ```
 GET https://agentium.papai.ai/api/v1/build-info
-{"service":"backend","revision":"29aa898159b563ab90185b75e2444bdbeb5c924a","revision_verified":true,"version":"1.0.0-demo"}
+{"service":"backend","revision":"e5d3b8f207088b9e6d05d071d07bdf4486d81a0a","revision_verified":true,"version":"1.0.0-demo"}
 ```
 
-nginx 1.24, `Last-Modified: Thu, 27 Aug 2026 04:07:55 GMT`. Health `healthy`.
+Health `healthy`. Alembic `098_ml_predictions`. Table `ml_predictions` créée, 0 ligne.
+Le frontend servi porte `monitor-panel`, `monitor-badge`, `provenance-chain`,
+`pinned-environment`, `prediction_id`.
+
+Avant cette passe la VM servait `29aa898159b5`.
 
 ---
 
