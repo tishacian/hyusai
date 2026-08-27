@@ -14,12 +14,14 @@ import { DATA_EN, DATA_FR } from '@app/core/i18n/data.dict';
 import {
   DATASET_ACTIVE_STATUSES,
   INGEST_STEPS,
+  SCORE_STEPS,
   ingestChecklist,
   isActiveStatus,
   parseIngestDetail,
   scoredByLabel,
   scoredColumns,
   sourceIcon,
+  stepsFor,
   type DatasetStatus,
 } from './data.vm';
 
@@ -277,19 +279,56 @@ test('a step from an older worker is refused rather than rendered raw', () => {
   assert.deepEqual(parseIngestDetail('writing:0'), { step: 'writing', rows: null });
 });
 
-test('every ingest step has a sentence in both locales, counted and not', () => {
+test('every step has a sentence in both locales, counted and not', () => {
   // The check-list renders all four steps at once, so a missing key is four
   // times more visible than it was when only the current step showed.
-  for (const step of INGEST_STEPS) {
+  for (const step of [...INGEST_STEPS, ...SCORE_STEPS]) {
     for (const suffix of ['', '.counted']) {
       const key = `data.progress.step.${step}${suffix}`;
       assert.ok(key in DATA_FR, `${key} missing from FR`);
       assert.ok(key in DATA_EN, `${key} missing from EN`);
     }
   }
-  // The two counted steps are the ones that must actually interpolate.
+  // The counted steps are the ones that must actually interpolate.
   for (const dict of [DATA_FR, DATA_EN]) {
     assert.match(dict['data.progress.step.profiling.counted'], /\{rows\}/);
+    assert.match(dict['data.progress.step.scoring.counted'], /\{rows\}/);
     assert.match(dict['data.progress.step.writing.counted'], /\{rows\}/);
   }
+});
+
+test('a scored table reports its own steps, not the ingest’s', () => {
+  // The third long task of the "no mute spinner" bet. A score's row used not to
+  // exist until the work was over, so there was nothing to poll; now it does,
+  // and its steps are a different vocabulary — scoring where an upload profiles.
+  // Read against the wrong list every line falls back to `queued`, which is a
+  // check-list that says nothing while looking like it is working.
+  assert.deepEqual(stepsFor('score'), SCORE_STEPS);
+  assert.deepEqual(stepsFor('upload'), INGEST_STEPS);
+  assert.deepEqual(stepsFor(undefined), INGEST_STEPS);
+
+  const mid = ingestChecklist('ingesting', 'scoring:3000/6903', 'score');
+  assert.deepEqual(
+    mid.map((step) => [step.step, step.state]),
+    [
+      ['queued', 'done'],
+      ['reading', 'done'],
+      ['scoring', 'active'],
+      ['writing', 'todo'],
+    ],
+  );
+  // The total is what a reader wants: "scoring 6 903 rows". The position alone
+  // reads as a row count that keeps changing.
+  assert.equal(mid[2].rows, 6903);
+  assert.equal(mid[2].key, 'data.progress.step.scoring.counted');
+  assert.equal(mid[1].rows, null, 'reading cannot know a row count yet');
+
+  // The same detail read as an upload would say nothing at all.
+  const misread = ingestChecklist('ingesting', 'scoring:3000/6903', 'upload');
+  assert.equal(misread[0].state, 'active');
+
+  // A settled scored row shows its work done rather than nothing.
+  assert.ok(
+    ingestChecklist('ready', null, 'score').every((step) => step.state === 'done'),
+  );
 });

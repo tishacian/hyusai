@@ -26,12 +26,14 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
   inject,
   input,
   linkedSignal,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
@@ -80,6 +82,11 @@ let gauges = 0;
           "
         />
       } @else {
+        <!-- The query container the split below measures. A wrapper rather than
+             a media query on the viewport: what decides whether the form and the
+             dial fit side by side is the width this tab actually has, and on a
+             page with rails, a sidebar and a drawer that is not the window's. -->
+        <div class="ck-play-shell">
         <div class="ck-play">
           <!-- ── The form: generated from the model's own contract ─────────── -->
           <section class="ck-panel">
@@ -169,7 +176,7 @@ let gauges = 0;
           </section>
 
           <!-- ── The answer ────────────────────────────────────────────────── -->
-          <section class="ck-panel">
+          <section class="ck-panel" #answerPanel>
             <div class="ck-section-label">{{ i18n.t('models.play.answer') }}</div>
             @if (!answer()) {
               <div class="ck-idle">
@@ -292,6 +299,7 @@ let gauges = 0;
               </div>
             }
           </section>
+        </div>
         </div>
 
         <!-- ── The same call, for a machine ─────────────────────────────────── -->
@@ -443,12 +451,21 @@ let gauges = 0;
   `,
   styles: [
     `
+      .ck-play-shell {
+        container-type: inline-size;
+      }
       .ck-play {
         display: grid;
         grid-template-columns: 1fr;
         gap: 12px;
       }
-      @media (min-width: 900px) {
+      /* Asked of the container, not of the window. A viewport query put the dial
+         in a second column whenever the *screen* was wide enough, including when
+         the tab itself was not — and a column that does not fit is a column the
+         reader cannot get to, because the shell clips rather than scrolls. Where
+         container queries are unsupported the panels stack, which is the safe
+         direction: below the form is somewhere you can still scroll to. */
+      @container (min-width: 900px) {
         .ck-play {
           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         }
@@ -836,6 +853,8 @@ export class ModelPlaygroundComponent {
   protected readonly refusal = signal<string>('');
   protected readonly running = signal(false);
   protected readonly minting = signal(false);
+  /** The panel a finished prediction has to be able to show itself in. */
+  private readonly answerPanel = viewChild<ElementRef<HTMLElement>>('answerPanel');
   protected readonly publishing = signal(false);
   protected readonly copied = signal(false);
   protected readonly minted = signal<ApiKeyRow | null>(null);
@@ -908,12 +927,44 @@ export class ModelPlaygroundComponent {
           ...(pinned ? { version: pinned } : {}),
         }),
       );
+      this.revealAnswer();
     } catch (error) {
       this.answer.set(null);
       this.refusal.set(this.sentence(error));
     } finally {
       this.running.set(false);
     }
+  }
+
+  /**
+   * Bring the answer to where the person who pressed the button is looking.
+   *
+   * A button that appears to do nothing is worse than one that fails, and this
+   * tab could produce exactly that: twenty fields and their sliders are taller
+   * than a screen, so on a narrow layout the dial lands below the fold, and on a
+   * layout whose second column does not fit it lands outside the box entirely.
+   * The shell clips rather than scrolls, so in that second case there was no
+   * gesture available to reach it at all.
+   *
+   * ``scrollIntoView`` answers both, and it is the reason this is a scroll and
+   * not a layout fix: it moves a container's scroll position programmatically,
+   * which works even where ``overflow: hidden`` denies the reader a scrollbar.
+   * ``nearest`` on both axes makes it the minimum move — nothing happens when
+   * the panel is already on screen, which is the common case and must stay
+   * undisturbed.
+   */
+  private revealAnswer(): void {
+    const panel = this.answerPanel()?.nativeElement;
+    if (!panel || typeof panel.scrollIntoView !== 'function') return;
+    let smooth = true;
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+    panel.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+      behavior: smooth ? 'smooth' : 'auto',
+    });
   }
 
   protected readonly gauge = computed(() =>
