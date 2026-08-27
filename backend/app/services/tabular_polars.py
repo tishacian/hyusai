@@ -20,9 +20,10 @@ second job table is what gives the workshop its statuses (``env_building`` →
 Environment identity
 --------------------
 The engine has to live in the venv, so ``settings.tabular_polars_requirement``
-is prepended to the author's requirements. The env is content-addressed like
-any recipe env: every Polars node declaring no extra library in a workspace
-shares one venv, and adding a library produces a new fingerprint.
+*is* the environment. A Polars node cannot add libraries — leftover
+``requirements_text`` on an older node is ignored so a hand-edited flow cannot
+widen the venv. The env is content-addressed: every Polars node in a workspace
+shares one venv, and only a platform pin change produces a new fingerprint.
 
 Data path
 ---------
@@ -144,19 +145,18 @@ def validate_code(code: Any) -> str:
 
 
 def effective_requirements(requirements_text: Any) -> str:
-    """The author's libraries, with the pinned engine prepended.
+    """The pinned engine, and nothing the author declared.
 
-    Prepending rather than assuming: the fingerprint must change when the pin
-    changes, so a platform upgrade of polars rebuilds the env instead of running
-    the author's code against a frame format it was never tested on.
+    Extras in ``requirements_text`` are ignored: the environment is imposed. The
+    argument stays so every call site keeps one signature; a leftover
+    declaration on an older node must not widen the venv. The fingerprint still
+    changes when the pin changes, so a platform upgrade of polars rebuilds the
+    env instead of running the author's code against a frame format it was
+    never tested on.
     """
 
-    lines = [settings.tabular_polars_requirement.strip()]
-    for raw in str(requirements_text or "").splitlines():
-        line = raw.strip()
-        if line:
-            lines.append(line)
-    return "\n".join(line for line in lines if line)
+    _ = requirements_text
+    return settings.tabular_polars_requirement.strip()
 
 
 def env_spec_for(
@@ -165,7 +165,7 @@ def env_spec_for(
     index_url: Any = None,
     extra_index_urls: Any = None,
 ):
-    """Environment specification of a Polars node (engine pin + author extras)."""
+    """Environment specification of a Polars node: the pinned engine only."""
 
     return build_env_spec(
         requirements_text=effective_requirements(requirements_text),

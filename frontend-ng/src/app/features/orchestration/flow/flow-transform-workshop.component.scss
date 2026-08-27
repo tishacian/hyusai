@@ -716,6 +716,24 @@
   white-space: nowrap;
 }
 
+.ck-transform-workshop__pinned-env {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  background: var(--ck-bg-inset, #0a0d11);
+  color: var(--ck-fg-2, #c8cdd4);
+  font: 11.5px / 1.4 var(--ck-font-mono, monospace);
+
+  code {
+    font: inherit;
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+}
+
 .ck-transform-workshop__textarea {
   width: 100%;
   box-sizing: border-box;

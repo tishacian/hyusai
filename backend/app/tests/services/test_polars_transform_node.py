@@ -110,20 +110,18 @@ def upstream(db_session, workspace, store) -> TabularDataset:
 # ---------------------------------------------------------------------------
 
 
-def test_the_engine_pin_leads_the_requirements_and_drives_the_fingerprint(monkeypatch):
+def test_the_engine_pin_is_the_environment_and_drives_the_fingerprint(monkeypatch):
     monkeypatch.setattr(settings, "tabular_polars_requirement", "polars==1.44.0")
     assert effective_requirements(None) == "polars==1.44.0"
-    assert effective_requirements("scikit-learn==1.5.0\n\n") == (
-        "polars==1.44.0\nscikit-learn==1.5.0"
-    )
+    # A leftover extras line on an older node must not widen the venv.
+    assert effective_requirements("scikit-learn==1.5.0\n\n") == "polars==1.44.0"
+    assert env_spec_for(requirements_text="httpx").fingerprint() == env_spec_for().fingerprint()
 
-    baseline = env_spec_for().fingerprint
+    baseline = env_spec_for().fingerprint()
     # A platform upgrade of the engine must produce a NEW env, or the author's
     # code would run against a frame format it was never tested on.
     monkeypatch.setattr(settings, "tabular_polars_requirement", "polars==1.45.0")
-    assert env_spec_for().fingerprint != baseline
-    # An extra author library is a new env too; nodes that declare none share one.
-    assert env_spec_for(requirements_text="httpx").fingerprint != env_spec_for().fingerprint
+    assert env_spec_for().fingerprint() != baseline
 
 
 def test_validate_code_and_timeout_refusals(monkeypatch):
