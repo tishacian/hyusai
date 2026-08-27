@@ -16,6 +16,16 @@ from urllib.parse import unquote, urlsplit
 # ---------------------------------------------------------------------------
 _WORKER = os.environ.get("PYTEST_XDIST_WORKER", "main")
 _TEST_DB = pathlib.Path(tempfile.gettempdir()) / f"pytest_omnirag-{_WORKER}-{os.getpid()}.db"
+# The registry is normally *derived*: a fixed ``mlflow-registry.db`` beside the
+# application database.  Under test that directory is the shared temp dir, so
+# every pytest process — and every training harness subprocess a test spawns —
+# would open one file.  MLflow answers a busy sqlite file by retrying ten times
+# with an exponential backoff, so the contention does not fail, it sleeps for
+# about a hundred seconds per client.  Name the registry per process for the
+# same reason the database above is named per process.
+_TEST_REGISTRY_DB = (
+    pathlib.Path(tempfile.gettempdir()) / f"pytest_mlflow-{_WORKER}-{os.getpid()}.db"
+)
 _CONFIGURED_DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
@@ -93,6 +103,7 @@ def _assert_p4_broker_is_isolated() -> None:
 _assert_external_test_database_is_disposable(_CONFIGURED_DATABASE_URL)
 _assert_p4_broker_is_isolated()
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_DB}")
+os.environ.setdefault("ML_REGISTRY_URI", f"sqlite:///{_TEST_REGISTRY_DB}")
 # Neutralise side-effects that would otherwise trigger real external calls
 # at import time (Qdrant ping, Redis connect, Azure OpenAI cost meter).
 os.environ.setdefault("QDRANT_URL", "http://localhost:6333")
@@ -119,6 +130,7 @@ def _provision_schema() -> None:
     # Session teardown: drop the DB file so the next run starts clean.
     try:
         _TEST_DB.unlink(missing_ok=True)
+        _TEST_REGISTRY_DB.unlink(missing_ok=True)
     except OSError:
         pass
 
