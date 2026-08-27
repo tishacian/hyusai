@@ -1070,7 +1070,11 @@ def champion_for(db: DBSession, *, workspace_id: str, slug: str) -> MLModel | No
 
 
 def serialize_model(
-    model: MLModel, *, include_detail: bool = False, include_scores: bool = False
+    model: MLModel,
+    *,
+    include_detail: bool = False,
+    include_scores: bool = False,
+    monitor_status: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": model.id,
@@ -1107,6 +1111,7 @@ def serialize_model(
         "updated_at": model.updated_at.isoformat() if model.updated_at else None,
         "trained_at": model.trained_at.isoformat() if model.trained_at else None,
         "train_duration_ms": model.train_duration_ms,
+        "monitor_status": monitor_status,
     }
     if include_detail:
         payload["metrics"] = dict(model.metrics_json or {})

@@ -556,6 +556,7 @@ def test_scoring_a_dataset_writes_a_new_one_that_keeps_every_input_column(
 
     assert result["scored_rows"] == 30
     assert result["model"]["model_id"] == model.id
+    assert result["prediction_id"]
     output = get_dataset(
         db_session, dataset_id=result["dataset_id"], workspace_id=model.workspace_id
     )

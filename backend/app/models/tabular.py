@@ -243,3 +243,54 @@ class MLModelApiKey(Base):
     use_count = Column(Integer, default=0, nullable=False)
     created_by = Column(String(36), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class MLPrediction(Base):
+    """One serving call — the unit monitoring and feedback attach to.
+
+    A playground click, an API key request and a batch score are the same
+    fact: a version answered, on a payload, at a time. Drift is measured
+    from this table; ground truth is written back onto the same row. Without
+    it a model card can show a fit and not whether the fit still holds.
+    """
+
+    __tablename__ = "ml_predictions"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id = Column(
+        String(36),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The card that was addressed. May differ from ``served_id`` when the
+    # lineage's champion answers an unpinned call.
+    model_id = Column(
+        String(36),
+        ForeignKey("ml_models.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    served_id = Column(
+        String(36),
+        ForeignKey("ml_models.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    served_version = Column(Integer, nullable=False)
+    slug = Column(String(200), nullable=False, index=True)
+    # session | api_key | score
+    caller = Column(String(32), nullable=False)
+    row_count = Column(Integer, nullable=False)
+    payload_json = Column(JSON, default=list)
+    output_json = Column(JSON, default=list)
+    # Score histogram / mean even when the payload was capped or a batch.
+    scores_json = Column(JSON, default=dict)
+    duration_ms = Column(Float, nullable=True)
+    dataset_id = Column(String(36), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    # Ground truth, written later by POST .../feedback.
+    label = Column(String(200), nullable=True)
+    labeled_at = Column(DateTime, nullable=True)
+    labeled_by = Column(String(36), nullable=True)
