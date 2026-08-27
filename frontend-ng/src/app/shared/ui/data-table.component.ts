@@ -652,6 +652,8 @@ export class DataTableComponent {
   readonly maxHeight = input<string>('460px');
   /** Row count of the whole dataset, stated in the profile beside the nulls. */
   readonly rowCount = input<number | null>(null);
+  /** Query duration, when the caller timed the production of these rows. */
+  readonly durationMs = input<number | null>(null);
   /**
    * Column picking, used by the training studio. `none` is a plain preview.
    * The selection is owned by the caller; this table only reports clicks.
@@ -685,6 +687,13 @@ export class DataTableComponent {
     if (!columns) return '';
     const total = this.rowCount();
     const rows = total !== null && total >= 0 ? total : this.rows().length;
+    const duration = this.durationMs();
+    if (duration !== null && duration >= 0) {
+      return this.i18n.t('data.table.duration_rows', {
+        duration: duration.toLocaleString(this.i18n.locale()),
+        rows: rows.toLocaleString(this.i18n.locale()),
+      });
+    }
     return this.i18n.t('data.table.rows_columns', {
       rows: rows.toLocaleString(this.i18n.locale()),
       columns,

@@ -369,12 +369,8 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                     [rows]="result.preview"
                     [stats]="result.stats"
                     [rowCount]="result.row_count"
+                    [durationMs]="result.duration_ms"
                     maxHeight="100%"
-                    [caption]="
-                      i18n.t('flow.transform.result.caption', {
-                        duration: result.duration_ms,
-                      })
-                    "
                     [emptyLabel]="i18n.t('flow.transform.result.no_rows')"
                   />
                 } @else {

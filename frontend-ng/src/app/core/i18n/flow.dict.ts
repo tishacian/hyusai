@@ -1193,6 +1193,7 @@ export const FLOW_FR = {
   'flow.ml.train.open_card': 'Voir la fiche',
   'flow.ml.train.tabs.aria': 'Panneaux de l’atelier d’entraînement',
   'flow.ml.train.tab.dataset': 'Données',
+  'flow.ml.train.tab.test': 'Test',
   'flow.ml.train.tab.output': 'Modèle',
   'flow.ml.train.dataset': 'Jeu de données',
   'flow.ml.train.dataset.hint':
@@ -2675,6 +2676,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.ml.train.open_card': 'Open the card',
   'flow.ml.train.tabs.aria': 'Training studio panels',
   'flow.ml.train.tab.dataset': 'Data',
+  'flow.ml.train.tab.test': 'Test',
   'flow.ml.train.tab.output': 'Model',
   'flow.ml.train.dataset': 'Dataset',
   'flow.ml.train.dataset.hint':
