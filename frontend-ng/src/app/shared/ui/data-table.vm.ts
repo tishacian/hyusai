@@ -50,6 +50,29 @@ export interface TabularColumnStats {
 
 export type TabularRow = Record<string, unknown>;
 
+/** How a caller picks columns off the shared table — never rows. */
+export type ColumnSelectMode = 'none' | 'single' | 'multi';
+
+/**
+ * Apply one column click to a selection.
+ *
+ * Single replaces (or clears if the same name is clicked again). Multi
+ * toggles. Disabled names and `none` leave the selection untouched so a
+ * locked target cannot vanish from a feature click.
+ */
+export function toggleColumnSelection(
+  mode: ColumnSelectMode,
+  selected: readonly string[],
+  name: string,
+  disabled: readonly string[] = [],
+): string[] {
+  if (mode === 'none' || disabled.includes(name)) return [...selected];
+  if (mode === 'single') return selected[0] === name ? [] : [name];
+  return selected.includes(name)
+    ? selected.filter((item) => item !== name)
+    : [...selected, name];
+}
+
 export const NUMERIC_COLUMN_KINDS: readonly TabularColumnKind[] = ['integer', 'float'];
 
 /** Glyph shown next to a column name so a schema is readable at a glance. */
