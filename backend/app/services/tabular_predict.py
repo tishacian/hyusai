@@ -60,7 +60,7 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.skill import Skill
-from app.models.tabular import MLModel, MLModelApiKey, TabularDataset
+from app.models.tabular import MLModel, MLModelApiKey, MLPrediction, TabularDataset
 from app.services.skills_registry.binding import (
     SkillBindingError,
     workspace_skill_slug,
@@ -95,6 +95,11 @@ API_KEY_HEADER = "X-API-Key"
 _NUMERIC_TYPES = frozenset({"double", "float", "long", "integer"})
 _TRUE = frozenset({"true", "1", "yes", "y", "t"})
 _FALSE = frozenset({"false", "0", "no", "n", "f"})
+
+# A journal row stores the payload so drift can be measured later. A batch
+# score of tens of thousands of rows is not a payload worth keeping twice.
+_JOURNAL_ROW_CAP = 64
+_JOURNAL_SCORE_CAP = 512
 
 # Predicting a large dataset is one pass, but materializing every probability
 # vector for it at once is not. Chunked so peak memory follows the chunk.
@@ -808,12 +813,22 @@ def predict_rows(
         )
     elapsed_ms = round((time.monotonic() - started) * 1000, 1)
     record_usage(db, served, rows=len(answers))
+    prediction_id = journal_call(
+        db,
+        requested=model,
+        served=served,
+        caller=caller,
+        rows=coerced,
+        answers=answers,
+        duration_ms=elapsed_ms,
+    )
     logger.info(
         "tabular_predict: answered",
         model_id=served.id,
         rows=len(answers),
         duration_ms=elapsed_ms,
         caller=caller,
+        prediction_id=prediction_id,
     )
     return {
         "served": _served_block(served),
@@ -824,11 +839,83 @@ def predict_rows(
         "predictions": answers,
         "rows": len(answers),
         "duration_ms": elapsed_ms,
+        "prediction_id": prediction_id,
         # What *this* request paid to get a pipeline in memory. Zero on a hit,
         # which is the number the cache exists to produce.
         "load_ms": 0.0 if resident else entry.load_ms,
         "cached": resident,
     }
+
+
+def _score_summary(answers: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """What drift can read even when the payload itself was capped."""
+
+    scores: list[float] = []
+    counts: dict[str, int] = {}
+    for answer in answers:
+        raw = answer.get("score")
+        if raw is None:
+            raw = answer.get("prediction")
+        if isinstance(raw, bool):
+            pass
+        elif isinstance(raw, (int, float)):
+            number = float(raw)
+            if number == number and abs(number) != float("inf"):
+                scores.append(number)
+        label = answer.get("prediction")
+        if label is not None and not isinstance(label, (int, float, bool)):
+            key = str(label)
+            counts[key] = counts.get(key, 0) + 1
+        elif isinstance(label, (int, float)) and not isinstance(label, bool):
+            key = str(label)
+            counts[key] = counts.get(key, 0) + 1
+    summary: dict[str, Any] = {"n": len(answers)}
+    if scores:
+        summary["scores"] = scores[:_JOURNAL_SCORE_CAP]
+        summary["mean"] = round(sum(scores) / len(scores), 6)
+        summary["min"] = round(min(scores), 6)
+        summary["max"] = round(max(scores), 6)
+    if counts:
+        summary["predictions"] = counts
+    return summary
+
+
+def journal_call(
+    db: DBSession,
+    *,
+    requested: MLModel,
+    served: MLModel,
+    caller: str,
+    rows: Sequence[dict[str, Any]],
+    answers: Sequence[dict[str, Any]],
+    duration_ms: float,
+    dataset_id: str | None = None,
+) -> str:
+    """Persist one serving call and return the id the API quotes.
+
+    Capped on purpose: a batch score of fifty thousand rows is a histogram,
+    not a second copy of the scored table. The id is what feedback and the
+    monitoring window attach to, so a call that is not journalled cannot be
+    measured later.
+    """
+
+    row = MLPrediction(
+        workspace_id=served.workspace_id,
+        model_id=requested.id,
+        served_id=served.id,
+        served_version=int(served.version or 1),
+        slug=str(served.slug),
+        caller=str(caller or "session"),
+        row_count=len(answers),
+        payload_json=list(rows[:_JOURNAL_ROW_CAP]),
+        output_json=list(answers[:_JOURNAL_ROW_CAP]),
+        scores_json=_score_summary(answers),
+        duration_ms=duration_ms,
+        dataset_id=dataset_id,
+    )
+    db.add(row)
+    db.commit()
+    return row.id
 
 
 def record_usage(db: DBSession, model: MLModel, *, rows: int) -> None:
@@ -979,12 +1066,31 @@ def score_dataset(
         },
     )
     record_usage(db, served, rows=len(predictions))
+    answers = [
+        {
+            "prediction": predicted,
+            "confidence": confidence,
+            "score": score,
+        }
+        for predicted, confidence, score in zip(predictions, confidences, scores)
+    ]
+    prediction_id = journal_call(
+        db,
+        requested=model,
+        served=served,
+        caller="score",
+        rows=[],
+        answers=answers,
+        duration_ms=elapsed_ms,
+        dataset_id=output.id,
+    )
     logger.info(
         "tabular_predict: dataset scored",
         model_id=served.id,
         dataset_id=output.id,
         rows=len(predictions),
         duration_ms=elapsed_ms,
+        prediction_id=prediction_id,
     )
     return {
         **dataset_reference(output),
@@ -992,6 +1098,7 @@ def score_dataset(
         "scored_rows": len(predictions),
         "added_columns": list(columns),
         "duration_ms": elapsed_ms,
+        "prediction_id": prediction_id,
     }
 
 
@@ -1526,6 +1633,7 @@ __all__ = [
     "drop_from_cache",
     "explain_row",
     "list_api_keys",
+    "journal_call",
     "load_pipeline",
     "load_pipeline_traced",
     "mint_api_key",
