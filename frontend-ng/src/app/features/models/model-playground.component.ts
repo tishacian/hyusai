@@ -286,6 +286,9 @@ let gauges = 0;
             @if (answer(); as done) {
               <div class="text-[10.5px] ck-mono mt-3" style="color: var(--ck-fg-4)">
                 {{ i18n.t('models.play.timing', { ms: done.duration_ms }) }}
+                @if (done.prediction_id) {
+                  · {{ i18n.t('models.play.prediction_id', { id: done.prediction_id }) }}
+                }
               </div>
             }
           </section>

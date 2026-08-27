@@ -29,6 +29,7 @@ import {
   type ModelCatalog,
   type ModelDto,
   type ModelTask,
+  type MonitoringReport,
   type PipelineProvenance,
   type PlanColumn,
   type PredictAnswer,
@@ -112,6 +113,8 @@ export class ModelsService {
   readonly models = signal<ModelDto[]>([]);
   readonly catalog = signal<ModelCatalog>(EMPTY_CATALOG);
   readonly loading = signal(false);
+  /** The journal id the last Playground call received. The monitoring form opens on it. */
+  readonly lastPredictionId = signal<string | null>(null);
 
   /** True while any run is unsettled: drives the poll loop. */
   readonly hasActive = computed(() => this.models().some(isModelActive));
@@ -221,18 +224,45 @@ export class ModelsService {
    * cURL the card offers next to this form is the same request, and neither has
    * to be translated to match the other.
    */
-  predict(
+  async predict(
     modelId: string,
     row: Record<string, unknown>,
     options: { explain?: boolean; version?: number } = {},
   ): Promise<PredictAnswer> {
-    return firstValueFrom(
+    const answer = await firstValueFrom(
       this.http.post<PredictAnswer>(`${this.base}/${modelId}/predict`, {
         inputs: [row],
         ...(options.explain ? { explain: true } : {}),
         ...(options.version ? { version: options.version } : {}),
       }),
     );
+    if (answer.prediction_id) this.lastPredictionId.set(answer.prediction_id);
+    return answer;
+  }
+
+  monitoring(modelId: string): Promise<MonitoringReport> {
+    return firstValueFrom(
+      this.http.get<{ monitoring: MonitoringReport }>(`${this.base}/${modelId}/monitoring`),
+    ).then((body) => body.monitoring);
+  }
+
+  async feedback(
+    modelId: string,
+    body: { prediction_id: string; label: string },
+  ): Promise<{ prediction: { id: string; label: string | null }; monitoring: MonitoringReport }> {
+    return firstValueFrom(
+      this.http.post<{
+        prediction: { id: string; label: string | null };
+        monitoring: MonitoringReport;
+      }>(`${this.base}/${modelId}/feedback`, body),
+    );
+  }
+
+  async materializeFeedback(modelId: string): Promise<DatasetDto> {
+    const response = await firstValueFrom(
+      this.http.post<{ dataset: DatasetDto }>(`${this.base}/${modelId}/feedback/dataset`, {}),
+    );
+    return response.dataset;
   }
 
   /** Mint a key. Its secret is in this response and nowhere else, ever. */
