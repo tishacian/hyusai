@@ -20,7 +20,6 @@ from __future__ import annotations
 import hashlib
 import zipfile
 from collections.abc import Mapping
-from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -152,15 +151,24 @@ def _verify_digest(data: bytes, expected: Any, *, error: str) -> None:
         raise SourceBackingError(error)
 
 
-@lru_cache(maxsize=512)
-def _physical_sha256(
-    path: str,
-    size: int,
-    mtime_ns: int,
-    ctime_ns: int,
-    inode: int,
-) -> str:
-    """Hash an immutable mounted source once per physical file revision."""
+def _physical_sha256(path: str) -> str:
+    """Hash a mounted source, every time it is asked about.
+
+    This used to be memoised on ``(path, size, mtime_ns, ctime_ns, inode)``,
+    which reads as a physical file revision and is not one. Two writes of
+    equal-length content inside a single filesystem timestamp tick produce the
+    same tuple, and the second one is then answered with the first one's digest
+    — so the one check standing between a replaced archive and a reader returns
+    a verdict about bytes that are no longer there. A replacement of equal size
+    with mtime restored is exactly the shape a tamper takes, so the memo failed
+    on the case it most needed to catch, and only on filesystems whose
+    timestamps are coarse: green on a developer's laptop, silent on a mount.
+
+    There is no sound key to fix it with. Metadata is not content identity, and
+    the only thing that establishes what a file holds is reading it. So the
+    reading is what happens, on every verification, and the cost of the
+    guarantee is paid rather than assumed away.
+    """
 
     digest = hashlib.sha256()
     with open(path, "rb") as source:
@@ -178,14 +186,7 @@ def _verify_physical_source_digest(
     if not expected:
         return
     try:
-        stat_result = source.stat()
-        actual = _physical_sha256(
-            str(source),
-            int(stat_result.st_size),
-            int(stat_result.st_mtime_ns),
-            int(stat_result.st_ctime_ns),
-            int(stat_result.st_ino),
-        )
+        actual = _physical_sha256(str(source))
     except OSError as exc:
         raise SourceBackingError("secure_deposit_source_unreadable") from exc
     if actual != expected:

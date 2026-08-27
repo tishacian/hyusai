@@ -226,11 +226,29 @@ def _mount(path: Path, *, expected_source: str = "") -> dict[str, Any]:
 
 
 def _secure_deposit_aggregate(root: Path) -> dict[str, Any]:
+    """Attest what Secure Deposit holds, by content and not only by metadata.
+
+    The rows used to carry size, inode and the two timestamps, which cannot
+    witness a replacement: overwrite a file with different bytes of the same
+    length and every field is unchanged except the timestamps, and those are
+    restorable by anyone who can write the file — ``os.utime`` is one call. The
+    manifest then reported the same digest for a tree whose contents had moved,
+    which is the one thing an attestation exists not to do.
+
+    So each file's bytes go into its row, read through the same stat-stable
+    reader the ObjectStore snapshot beside this uses. That is where the
+    asymmetry was: one attested tree hashed content and the other described it.
+    The cost is reading the deposit once per attestation, which is what the
+    ObjectStore has always paid for the same guarantee.
+    """
+
     file_count = 0
     directory_count = 0
     byte_count = 0
     partial_count = 0
-    manifest_rows: list[tuple[str, str, int, int, int, int]] = []
+    # Directories carry an empty digest rather than a shorter row, so every row
+    # has one shape and the sort that orders them stays total.
+    manifest_rows: list[tuple[str, str, int, int, int, int, str]] = []
     errors: list[str] = []
     stack = [root]
     while stack:
@@ -255,6 +273,7 @@ def _secure_deposit_aggregate(root: Path) -> dict[str, Any]:
                                 entry_stat.st_ino,
                                 entry_stat.st_mtime_ns,
                                 entry_stat.st_ctime_ns,
+                                "",
                             )
                         )
                         stack.append(Path(entry.path))
@@ -275,6 +294,11 @@ def _secure_deposit_aggregate(root: Path) -> dict[str, Any]:
                                 entry_stat.st_ino,
                                 entry_stat.st_mtime_ns,
                                 entry_stat.st_ctime_ns,
+                                _stable_file_sha256(
+                                    Path(entry.path),
+                                    entry_stat,
+                                    subject="Secure Deposit",
+                                ),
                             )
                         )
                     else:
@@ -303,30 +327,40 @@ def _secure_deposit_aggregate(root: Path) -> dict[str, Any]:
             "inode",
             "mtime_ns",
             "ctime_ns",
+            "content_sha256",
         ],
         "manifest_sha256": digest.hexdigest(),
     }
 
 
-def _stable_file_sha256(path: Path, expected_stat: os.stat_result) -> str:
+def _stable_file_sha256(
+    path: Path, expected_stat: os.stat_result, *, subject: str = "ObjectStore"
+) -> str:
+    """Hash one file's bytes, refusing to report a digest of a moving target.
+
+    ``subject`` names the tree in the refusal, because both attested trees read
+    their files through here and "ObjectStore changed" pointed an operator at
+    the wrong one.
+    """
+
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, flags)
     except OSError as exc:
         raise StorageAttestationError(
-            "ObjectStore contains an unreadable file"
+            f"{subject} contains an unreadable file"
         ) from exc
     try:
         opened = os.fstat(descriptor)
         if not stat_module.S_ISREG(opened.st_mode):
-            raise StorageAttestationError("ObjectStore contains a non-regular entry")
+            raise StorageAttestationError(f"{subject} contains a non-regular entry")
         observed_fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
         if any(
             getattr(opened, field) != getattr(expected_stat, field)
             for field in observed_fields
         ):
             raise StorageAttestationError(
-                "ObjectStore changed while it was being attested"
+                f"{subject} changed while it was being attested"
             )
         digest = hashlib.sha256()
         while True:
@@ -339,7 +373,7 @@ def _stable_file_sha256(path: Path, expected_stat: os.stat_result) -> str:
             getattr(opened, field) != getattr(final, field) for field in observed_fields
         ):
             raise StorageAttestationError(
-                "ObjectStore changed while it was being attested"
+                f"{subject} changed while it was being attested"
             )
         return digest.hexdigest()
     finally:
