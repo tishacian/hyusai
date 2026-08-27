@@ -454,17 +454,29 @@ def badges_for(db: DBSession, models: list[MLModel]) -> dict[str, str | None]:
         bucket = by_slug.setdefault(row.slug, [])
         if len(bucket) < WINDOW_LIMIT:
             bucket.append(row)
+    dataset_ids = {model.dataset_id for model in models if model.dataset_id}
+    datasets = {
+        row.id: row
+        for row in (
+            db.query(TabularDataset)
+            .filter(TabularDataset.id.in_(list(dataset_ids)))
+            .all()
+            if dataset_ids
+            else []
+        )
+    }
     badges: dict[str, str | None] = {}
     for model in models:
         window = by_slug.get(model.slug) or []
         if not window:
             badges[model.id] = None
             continue
+        data = data_drift(model, window, datasets.get(model.dataset_id))
         scores = score_drift(window)
         concept = concept_drift(model, window)
         badge = worst_status(
             status
-            for status in (scores["status"], concept["status"])
+            for status in (data["status"], scores["status"], concept["status"])
             if status != "unknown"
         )
         badges[model.id] = "ok" if badge == "unknown" else badge
