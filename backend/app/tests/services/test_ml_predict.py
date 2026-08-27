@@ -916,6 +916,75 @@ def test_the_provenance_follows_a_promotion_instead_of_freezing_on_publication(
     assert provenance["model_id"] == second.id
 
 
+def _with_contract_mark(model_row, db_session) -> None:
+    """Give one version a contract detail the others do not have.
+
+    A recognizable ceiling on ``arpu``: whichever schema carries it was derived
+    from this version and no other, which is what the two tests below need to
+    tell apart "the card's version" and "the version that serves".
+    """
+
+    signature = json.loads(json.dumps(model_row.signature_json))
+    for entry in signature.get("inputs") or []:
+        if entry.get("name") == "arpu":
+            entry["max"] = 999.0
+    model_row.signature_json = signature
+    db_session.commit()
+
+
+def test_the_published_contract_describes_the_version_that_serves(
+    db_session, workspace, churn_artifact
+):
+    """Publishing from an old card must not freeze that card's fields.
+
+    The Skill answers with the champion, so an agent reading its input schema
+    is preparing a call to the champion's pipeline. A schema copied from
+    whichever version's card the publish button was on would describe fields
+    the serving pipeline may refuse.
+    """
+
+    first = _register(db_session, workspace, churn_artifact, version=1, champion=False)
+    second = _register(db_session, workspace, churn_artifact, version=2, champion=True)
+    _with_contract_mark(second, db_session)
+
+    published = tabular_predict.publish_as_skill(db_session, model=first)
+
+    assert published["input_schema"]["properties"]["arpu"]["maximum"] == 999.0
+    assert "version 2" in published["description"]
+
+
+def test_a_promotion_moves_the_published_contract_with_the_answer(
+    db_session, workspace, churn_artifact
+):
+    """The chip already follows a promotion; the schemas must follow the same way.
+
+    Promoting v2 changes what the Skill replies with, so the fields a caller is
+    told to send have to be v2's — otherwise the catalog documents a contract
+    the serving pipeline no longer honours.
+    """
+
+    first = _register(db_session, workspace, churn_artifact, version=1, champion=True)
+    tabular_predict.publish_as_skill(db_session, model=first)
+    row = db_session.query(Skill).one()
+    assert "maximum" not in row.input_schema["properties"]["arpu"] or (
+        row.input_schema["properties"]["arpu"].get("maximum") != 999.0
+    )
+
+    second = _register(db_session, workspace, churn_artifact, version=2, champion=False)
+    _with_contract_mark(second, db_session)
+    set_champion(db_session, second)
+
+    db_session.refresh(row)
+    assert row.input_schema["properties"]["arpu"]["maximum"] == 999.0
+    assert "version 2" in row.description
+    # And a lineage that published nothing promotes in silence, refreshing
+    # nothing — the guard the promotion path relies on.
+    other = _register(
+        db_session, workspace, churn_artifact, slug="other", version=1, champion=True
+    )
+    assert tabular_predict.refresh_published_skill(db_session, model=other) is False
+
+
 def test_a_skill_that_answers_from_no_model_claims_no_provenance(db_session, model):
     """Absent, not empty: a hand-written Skill has nothing to attribute."""
 
