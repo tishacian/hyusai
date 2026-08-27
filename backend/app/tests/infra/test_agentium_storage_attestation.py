@@ -127,6 +127,10 @@ def test_secure_deposit_detects_replacement_with_restored_size_and_mtime(
     assert before["bytes"] == after["bytes"] == 5
     assert before["manifest_sha256"] != after["manifest_sha256"]
     assert "customer-secret.pdf" not in json.dumps(before)
+    # The content digest is what makes the assertion above hold at all: every
+    # other field survives an equal-length rewrite whose timestamps were put
+    # back, and putting them back is one ``os.utime`` call away for anyone who
+    # can write the file.
     assert before["manifest_fields"] == [
         "kind",
         "path_sha256",
@@ -134,6 +138,7 @@ def test_secure_deposit_detects_replacement_with_restored_size_and_mtime(
         "inode",
         "mtime_ns",
         "ctime_ns",
+        "content_sha256",
     ]
 
 
