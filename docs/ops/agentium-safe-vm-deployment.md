@@ -4638,3 +4638,99 @@ d'environnement et qui méritent d'être nommés :
   non une contention à corriger — mais elles achètent une assertion booléenne au
   prix d'une minute et demie chacune, et une borne de réessai passée à ces
   appels rendrait ce temps sans rien retirer à ce qu'ils démontrent.
+## Itération du 27/08 — le Playground répond de sa propre version, déployée sur `29aa8981`
+
+GO deploy depuis un Cloud Agent. Une seule tranche, `29aa8981`, sur la base de
+`2b995cdf` plus les trois commits de l'isolation du registre pytest. Aucune
+migration : la base était déjà à `097_ml_training_plane` et le reste à sa place.
+Fenêtre prise avant la bascule
+(`/srv/agentium-data/flow-publication-deployments/2026-08-27-29aa898159b5/postgres-pre-switch.dump`,
+sha256 `47a88bf2…`).
+
+**Le défaut, et pourquoi il visait le money shot.** Le Playground construit son
+formulaire depuis `serving.fields`, et ce bloc est le contrat de la version
+*affichée* — ses colonnes, ses bornes, ses catégories. L'appel dessous ne nommait
+aucune version, donc `serving_version()` résolvait l'alias et c'est le champion
+qui répondait. Juste pour une intégration, faux pour une carte : deux versions
+d'une lignée ne sont pas tenues de partager une liste de colonnes, et la lignée
+churn seedée ne la partage pas. Relevé sur la VM avant la bascule :
+
+| version | champion | colonnes du contrat |
+| --- | --- | --- |
+| `churn-radar` v1 | oui | 20 |
+| `churn-radar` v2 | non | 20 |
+| `churn-radar` v3 | non | **29** |
+
+Ouvrir la v3 et presser Prédire envoyait donc vingt-neuf champs à un modèle qui
+en connaissait vingt : `422 ML_PREDICT_FIELD_UNKNOWN`,
+`'arpu_per_month' is not an input of this model`. Le même défaut était dans le
+cURL à côté, qui portait la ligne de la version affichée sans nommer de version.
+La v2 s'en sortait par chance — même contrat que l'alias — mais répondait quand
+même depuis la v1 en le laissant croire l'inverse.
+
+**La règle retenue.** Une version qui n'est pas celle qui sert se nomme
+elle-même ; la carte du champion reste sans épingle. C'est là que « l'alias
+répond pour la lignée » est la démonstration et non une contradiction, et là que
+le cURL doit garder la forme que prend `mlflow models serve`. Une seule lecture
+(`pinnedVersion`) alimente le bouton et le snippet, donc la commande copiée
+reproduit la réponse que la salle vient de voir apparaître ; la ligne à côté du
+bouton annonce désormais la version qui *va* répondre plutôt qu'un champion que
+l'épingle contourne. L'endpoint acceptait déjà `version` (`ge=1`, absent = « ce
+qui sert ») et le client le transmettait déjà : seul l'appelant ne demandait
+rien. Aucun changement d'API.
+
+**Observables.**
+
+| Contrôle | Résultat |
+| --- | --- |
+| Sonde au niveau route, avant bascule | v3, sa propre ligne d'exemple : sans version **422 `ML_PREDICT_FIELD_UNKNOWN`** ; avec `"version": 3` **200**, `served v3`, confiance 0,98977 |
+| Suite backend complète | **21 échecs, 5 677 succès, 37 ignorés en 20 min 59 s** — soit exactement +3 succès (les trois tests ajoutés) et le **même** ensemble de 21 échecs qu'avant la tranche |
+| `check:i18n` | OK, 6 862 clés sur 21 domaines |
+| `test:unit` | **1 314 succès, 0 échec** |
+| `build:prod` | propre |
+| Plan seedé + épingle, après bascule | **19/19** : 7 datasets prêts, 5 avec parent de lignage, profils de colonnes, dataset scoré, trois versions aux AUC distincts (0,836617 / 0,864133 / 0,853761), un champion, une clé vivante, la skill publiée — et **les trois versions répondent quand leur carte les nomme**, la v3 restant refusée sans épingle |
+| Capture UI | v3, même page, même ligne : épingle retirée en vol → refus rouge « A field that was sent is not part of the model's contract », épingle laissée passer → cadran à **1 %** puis **99,1 %** sur un profil à risque, `answered by v3`, cURL portant `"version": 3` |
+
+La capture « avant » n'est pas un autre build : c'est celui-ci avec l'épingle
+retirée de la requête en vol, ce qui est exactement l'appel que faisait l'ancien
+client. Même page, même version, même ligne — seul le champ que cette révision
+ajoute est enlevé.
+
+**Trois frictions d'ops, notées pour la prochaine boucle.**
+
+- **Le worktree est à root.** `git fetch` dans
+  `/srv/agentium-data/worktrees/demo-agentic` écrit `FETCH_HEAD` sous
+  `release-a/.git/worktrees/release-b/`, qui appartient à root : les verbes git
+  du script de déploiement doivent passer par `sudo`.
+- **Le gate de stockage aussi.** `runtime-env/` est `drwx------ root root`, donc
+  `storage-check`, `migrate` et `up` s'exécutent en root (`sudo env AGENTIUM_IMAGE_TAG=…`).
+- **`docker compose run` mange l'entrée standard.** Le script lancé par
+  `ssh omnirag-demo "bash -s" < script` s'arrêtait *proprement* après `migrate` :
+  le conteneur de migration avait consommé le reste du script depuis stdin. Il
+  faut copier le script sur la VM et l'exécuter en tant que fichier.
+
+**Deux observations sur la bascule elle-même.**
+
+- **Le backend met une dizaine de minutes à devenir sain.** Aucune des deux
+  images ne porte de cache HuggingFace, donc les huit workers téléchargent
+  chacun `cross-encoder/ms-marco-MiniLM-L-6-v2` au démarrage. Pendant ce temps
+  nginx rend 502 et le health check échoue (`FailingStreak` 47), puis tout passe
+  au vert d'un coup. Ce n'est pas propre à cette tranche — mais un déploiement
+  qui abandonne au bout de cinq minutes conclurait à tort.
+- **Le compte de capture est refermé.** `bob@globex.test` a été membre
+  `workspace_viewer` le temps des captures avec un mot de passe Keycloak jetable ;
+  le credential a été **supprimé** (pas rotaté), les sessions révoquées, la
+  membership retirée — `nawa` est revenu à ses deux membres réels. Les huit clés
+  `pin-probe`/`pin-verify` mintées par les sondes ont été supprimées de la table :
+  une clé révoquée reste visible par conception, ce qui est précisément pourquoi
+  celles d'une vérification ne doivent pas rester. Seule `Nawa demo` subsiste.
+
+**Note pour qui cherche l'admin Keycloak.** Le client public `core-service` ne
+peut pas retirer de service account (`unauthorized_client`) ; c'est
+`core-resource-server` — `settings.keycloak_resource_server_id`, avec le même
+secret — qui ouvre l'API admin, exactement comme le fait `_get_admin_token()`
+dans `auth.py`.
+
+**Dette laissée.** Inchangée depuis la vérification du 26-27/08 : les trois
+échecs backend non liés à l'environnement, et l'activation du board
+(commit `4dbc4efc`, douze tests rouges, sur aucune branche).

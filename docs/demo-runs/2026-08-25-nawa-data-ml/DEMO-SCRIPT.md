@@ -289,6 +289,14 @@ somebody's laptop.
    `tenure_months` 4 against a typical 49, `support_tickets` 3 against 1, the promo in
    progress.
 
+   **A version off the alias answers too, and says so.** Open v3 from the Versions tab and
+   press Predict there: the form is v3's own contract — twenty-nine columns against v1's
+   twenty — and the line by the button reads `answered by v3`. The card names its own
+   version, so the answer is that version's; the champion's card stays unpinned, which is
+   why the cURL on it keeps the shape `mlflow models serve` takes. Worth thirty seconds if
+   the room asks "so can I try the challenger before promoting it?" — the answer is yes,
+   and the same row scored by two versions is the comparison tab made concrete.
+
 4. **Publish as Skill**: the model becomes callable by an agent. Go to the Skills page and
    show the **provenance chip** — it says "answers from Churn Radar v1", and it is
    *derived*, not frozen at publication: after beat 5's promotion it reads v2 without
