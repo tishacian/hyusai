@@ -206,6 +206,27 @@ def test_the_published_model_defaults_to_the_last_one_and_must_exist():
     assert exc.value.code == "DBT_OUTPUT_MODEL_MISSING"
 
 
+def test_the_extra_selection_is_validated_deduplicated_and_project_ordered():
+    from app.services.tabular_datasets import TabularError
+    from app.services.tabular_dbt import resolve_extra_models
+
+    project = [
+        {"name": "stg", "sql": "select 1"},
+        {"name": "kpi", "sql": "select 2"},
+        {"name": "mart", "sql": "select 3"},
+    ]
+    # Deduplicated, primary dropped, and returned in project order — the
+    # datasets list must read like the project tree, not like click order.
+    assert resolve_extra_models(
+        project, ["kpi", "stg", "kpi", "mart"], primary="mart"
+    ) == ["stg", "kpi"]
+    assert resolve_extra_models(project, None, primary="mart") == []
+    assert resolve_extra_models(project, [], primary="mart") == []
+    with pytest.raises(TabularError) as exc:
+        resolve_extra_models(project, ["nope"], primary="mart")
+    assert exc.value.code == "DBT_OUTPUT_MODEL_MISSING"
+
+
 def test_a_model_may_not_shadow_one_of_the_inputs(
     db_session, workspace, ready_env, upstream
 ):
@@ -279,6 +300,7 @@ def _run_harness(
     tests_yml: str = "",
     output_model: str | None = None,
     row_limit: int | None = None,
+    extra_outputs: list[str] | None = None,
 ):
     tmp_path.mkdir(parents=True, exist_ok=True)
     frame = pl.DataFrame({"msisdn": ["A", "B"], "arpu": [10.0, 20.0]})
@@ -294,6 +316,11 @@ def _run_harness(
     }
     if row_limit:
         manifest["row_limit"] = row_limit
+    if extra_outputs:
+        manifest["extra_outputs"] = {
+            name: str(tmp_path / f"out_extra_{name}.parquet")
+            for name in extra_outputs
+        }
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     completed = subprocess.run(
         [
@@ -350,6 +377,35 @@ def test_the_harness_builds_a_ref_linked_project_and_publishes_one_model(
     frame = pl.read_parquet(tmp_path / "out.parquet")
     assert frame.columns == ["msisdn", "arpu", "annual"]
     assert frame["annual"].to_list() == [120.0, 240.0]
+
+
+def test_the_harness_copies_every_selected_model_beside_the_primary(
+    dbt_interpreter, tmp_path
+):
+    completed, _summary = _run_harness(
+        dbt_interpreter,
+        tmp_path,
+        [
+            {
+                "name": "stg_subscribers",
+                "sql": "select msisdn, arpu from {{ source('inputs', 'input') }}",
+            },
+            {
+                "name": "mart_value",
+                "sql": (
+                    "select msisdn, arpu * 12 as annual "
+                    "from {{ ref('stg_subscribers') }}"
+                ),
+            },
+        ],
+        extra_outputs=["stg_subscribers"],
+    )
+    assert completed.returncode == 0, completed.stderr
+    primary = pl.read_parquet(tmp_path / "out.parquet")
+    assert primary.columns == ["msisdn", "annual"]
+    sibling = pl.read_parquet(tmp_path / "out_extra_stg_subscribers.parquet")
+    assert sibling.columns == ["msisdn", "arpu"]
+    assert sibling.height == primary.height
 
 
 def test_the_harness_reaches_the_inputs_by_source_and_by_bare_relation(
@@ -484,6 +540,8 @@ def _stub_harness(monkeypatch, *, frame=None, summary=None, exit_code=0):
             (frame if frame is not None else pl.DataFrame({"a": [1]})).write_parquet(
                 manifest["output_path"]
             )
+            for name, path in (manifest.get("extra_outputs") or {}).items():
+                pl.DataFrame({"model": [name], "rows": [1]}).write_parquet(path)
         return SupervisedRun(
             status=None,
             error=None,
@@ -601,6 +659,96 @@ def test_a_persisted_run_registers_a_version_carrying_the_project_lineage(
     assert lineage["models"] == ["stg_subs", "mart_churn"]
     assert lineage["output_model"] == "mart_churn"
     assert lineage["tests_total"] == 1 and lineage["tests_failed"] == 0
+
+
+def test_selected_extra_models_become_sibling_datasets_of_the_run(
+    db_session, workspace, ready_env, upstream, monkeypatch
+):
+    """The plural the node promises: one run, one port dataset, plus one
+    dataset per additionally selected model, each carrying its own lineage."""
+
+    _stub_harness(
+        monkeypatch,
+        frame=pl.DataFrame({"msisdn": ["A"], "score": [0.9]}),
+        summary={"selected": "mart_churn"},
+    )
+    execution, _ = submit_dbt_run(
+        db_session,
+        workspace_id=workspace.id,
+        models=[
+            {"name": "stg_subs", "sql": "select * from {{ source('inputs','input') }}"},
+            {"name": "kpi_daily", "sql": "select * from {{ ref('stg_subs') }}"},
+            {"name": "mart_churn", "sql": "select * from {{ ref('kpi_daily') }}"},
+        ],
+        output_model="mart_churn",
+        output_models=["kpi_daily", "stg_subs"],
+        declared=[{"view": "input", "dataset_id": upstream.id}],
+        output_name="Churn mart",
+        persist=True,
+        run_id="run-88",
+        node_id="dbt.2",
+    )
+
+    db_session.expire_all()
+    row = db_session.query(RecipeExecution).filter_by(id=execution.id).one()
+    assert row.status == "succeeded", row.error
+    # The staged row remembers the selection in project order.
+    assert row.input_json["extra_models"] == ["stg_subs", "kpi_daily"]
+    extras = row.output_json["extra_datasets"]
+    assert [entry["model"] for entry in extras] == ["stg_subs", "kpi_daily"]
+
+    for entry in extras:
+        sibling = (
+            db_session.query(TabularDataset).filter_by(id=entry["dataset_id"]).one()
+        )
+        # Named after the model so two extras of one run stay two lineages.
+        assert sibling.name == f"Churn mart · {entry['model']}"
+        assert sibling.parent_ids == [upstream.id]
+        assert sibling.run_id == "run-88" and sibling.node_id == "dbt.2"
+        assert sibling.lineage_json["output_model"] == entry["model"]
+        assert sibling.lineage_json["models"] == [
+            "stg_subs",
+            "kpi_daily",
+            "mart_churn",
+        ]
+    # Upstream + the port's dataset + the two siblings, nothing else.
+    assert (
+        db_session.query(TabularDataset)
+        .filter(TabularDataset.workspace_id == workspace.id)
+        .count()
+        == 4
+    )
+
+
+def test_a_preview_ignores_the_extra_selection(
+    db_session, workspace, ready_env, upstream, monkeypatch
+):
+    """A preview profiles the published model; copying extras would be paid
+    for nothing and versioning them would turn a Test click into a write."""
+
+    _stub_harness(monkeypatch, frame=pl.DataFrame({"a": [1]}))
+    execution, _ = submit_dbt_run(
+        db_session,
+        workspace_id=workspace.id,
+        models=[
+            {"name": "stg", "sql": "select * from {{ source('inputs','input') }}"},
+            {"name": "mart", "sql": "select * from {{ ref('stg') }}"},
+        ],
+        output_models=["stg"],
+        declared=[{"view": "input", "dataset_id": upstream.id}],
+        persist=False,
+        row_limit=50,
+    )
+    db_session.expire_all()
+    row = db_session.query(RecipeExecution).filter_by(id=execution.id).one()
+    assert row.status == "succeeded", row.error
+    assert row.input_json["extra_models"] == []
+    assert (
+        db_session.query(TabularDataset)
+        .filter(TabularDataset.workspace_id == workspace.id)
+        .count()
+        == 1
+    )
 
 
 def test_a_failing_data_test_refuses_to_publish_and_keeps_the_verdict(

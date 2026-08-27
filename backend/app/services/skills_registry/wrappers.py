@@ -1797,6 +1797,7 @@ async def _dbt_transform_v1(
                 models=transform.get("models"),
                 tests_yml=transform.get("tests_yml"),
                 output_model=transform.get("output_model"),
+                output_models=transform.get("output_models"),
                 requirements_text=transform.get("requirements_text"),
                 declared=sources if isinstance(sources, list) else None,
                 payload=inputs,

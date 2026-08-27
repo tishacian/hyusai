@@ -235,6 +235,35 @@ def resolve_output_model(models: list[dict[str, str]], requested: Any) -> str:
     return wanted
 
 
+def resolve_extra_models(
+    models: list[dict[str, str]], requested: Any, *, primary: str
+) -> list[str]:
+    """The additional models the author selected to materialize as datasets.
+
+    The primary model feeds the node's port; these become sibling datasets of
+    the same run — a staging table worth inspecting, a KPI mart consumed by a
+    dashboard rather than by the next node. Names are validated against the
+    project, deduplicated, and returned in project order so the datasets list
+    reads like the project does. The primary is never repeated here.
+    """
+
+    entries = requested if isinstance(requested, list) else []
+    names = [entry["name"] for entry in models]
+    wanted: list[str] = []
+    for entry in entries:
+        name = str(entry or "").strip()
+        if not name or name == primary or name in wanted:
+            continue
+        if name not in names:
+            raise TabularError(
+                code="DBT_OUTPUT_MODEL_MISSING",
+                message=f"'{name}' is not a model of this project.",
+                details={"output_model": name, "models": names},
+            )
+        wanted.append(name)
+    return [name for name in names if name in wanted]
+
+
 def effective_requirements(requirements_text: Any) -> str:
     """The author's libraries, with the pinned adapter prepended.
 
@@ -314,6 +343,7 @@ def create_dbt_execution(
     models: list[dict[str, str]],
     tests_yml: str,
     output_model: str,
+    extra_models: list[str] | None = None,
     sources: list[TransformSource],
     requirements_text: Any = None,
     output_name: str = "",
@@ -361,6 +391,7 @@ def create_dbt_execution(
             "models": models,
             "tests_yml": tests_yml,
             "output_model": output_model,
+            "extra_models": list(extra_models or []),
             "sources": [
                 {"view": source.view, "dataset_id": source.dataset.id}
                 for source in sources
@@ -399,6 +430,7 @@ def submit_dbt_run(
     models: Any,
     tests_yml: Any = None,
     output_model: Any = None,
+    output_models: Any = None,
     requirements_text: Any = None,
     declared: Iterable[dict[str, Any]] | None = None,
     payload: dict[str, Any] | None = None,
@@ -419,6 +451,13 @@ def submit_dbt_run(
     project = validate_models(models)
     tests = validate_tests_yml(tests_yml)
     selected = resolve_output_model(project, output_model)
+    # Extra selections only matter when the run versions datasets; a preview
+    # profiles the primary and would pay the copies for nothing.
+    extras = (
+        resolve_extra_models(project, output_models, primary=selected)
+        if persist
+        else []
+    )
     sources = resolve_sources(
         db, workspace_id=workspace_id, payload=payload, declared=declared
     )
@@ -429,6 +468,7 @@ def submit_dbt_run(
         models=project,
         tests_yml=tests,
         output_model=selected,
+        extra_models=extras,
         sources=sources,
         requirements_text=requirements_text,
         output_name=output_name,
@@ -489,12 +529,23 @@ def _write_manifest(
         inputs[f"input_{index + 1}"] = str(local)
         if index == 0:
             inputs.setdefault("input", str(local))
+    extra_models = [
+        str(name)
+        for name in (spec.get("extra_models") or [])
+        if isinstance(name, str) and name.strip()
+    ]
     manifest: dict[str, Any] = {
         "models": spec.get("models") or [],
         "tests_yml": spec.get("tests_yml") or "",
         "output_model": spec.get("output_model") or "",
         "sources": inputs,
         "output_path": str(scratch / "out.parquet"),
+        # The other selected models, each copied out beside the primary so the
+        # worker can version them as sibling datasets of the same run.
+        "extra_outputs": {
+            name: str(scratch / f"out_extra_{index}.parquet")
+            for index, name in enumerate(extra_models)
+        },
         "threads": int(settings.tabular_dbt_max_threads),
     }
     if row_limit:
@@ -676,11 +727,17 @@ def run_dbt_execution(execution_id: str) -> dict[str, Any]:
                     )
                 else:
                     frame = pl.read_parquet(result_path)
+                    extras = [
+                        (str(name), pl.read_parquet(Path(path)))
+                        for name, path in (manifest.get("extra_outputs") or {}).items()
+                        if Path(str(path)).exists()
+                    ]
                     elapsed_ms = round((time.monotonic() - started) * 1000, 1)
                     status, error, output = _settle_result(
                         db,
                         workspace_id=workspace_id,
                         frame=frame,
+                        extras=extras,
                         sources=sources,
                         spec=spec,
                         summary=summary,
@@ -742,6 +799,7 @@ def _settle_result(
     *,
     workspace_id: str,
     frame: Any,
+    extras: list[tuple[str, Any]] | None = None,
     sources: list[TransformSource],
     spec: dict[str, Any],
     summary: dict[str, Any] | None,
@@ -750,7 +808,12 @@ def _settle_result(
     run_id: str | None,
     node_id: str | None,
 ) -> tuple[str, str | None, dict[str, Any] | None]:
-    """Profile a preview, or register a node run as a new dataset version."""
+    """Profile a preview, or register a node run as a new dataset version.
+
+    ``extras`` are the other selected models, ``(name, frame)`` pairs: each is
+    versioned as its own dataset beside the primary, carrying the same lineage
+    shape so the Data page can say which model of which project produced it.
+    """
 
     profile = profile_frame(frame)
     catalog = source_catalog(sources)
@@ -778,21 +841,20 @@ def _settle_result(
             f"DBT_RESULT_TOO_LARGE: the result exceeds {cap:,} rows",
             {"kind": "dbt_failed", "dbt": report},
         )
+    for name, extra_frame in extras or []:
+        if extra_frame.height > cap:
+            return (
+                "failed",
+                f"DBT_RESULT_TOO_LARGE: '{name}' exceeds {cap:,} rows",
+                {"kind": "dbt_failed", "dbt": report},
+            )
     models = spec.get("models") if isinstance(spec.get("models"), list) else []
-    dataset = register_frame(
-        db,
-        workspace_id=workspace_id,
-        name=str(spec.get("output_name") or "").strip() or "dbt result",
-        frame=frame,
-        source="transform",
-        produced_by=str(spec.get("produced_by") or DBT_TRANSFORM_SKILL_SLUG),
-        parent_ids=[source.dataset.id for source in sources],
-        run_id=run_id,
-        node_id=node_id,
-        lineage={
+
+    def _lineage(selected: str) -> dict[str, Any]:
+        return {
             "engine": "dbt-duckdb",
             "models": [str(entry.get("name") or "") for entry in models],
-            "output_model": report["selected"] or str(spec.get("output_model") or ""),
+            "output_model": selected,
             "tests_total": report["tests_total"],
             "tests_failed": report["tests_failed"],
             "sources": [
@@ -800,8 +862,41 @@ def _settle_result(
                 for source in sources
             ],
             "duration_ms": elapsed_ms,
-        },
+        }
+
+    output_name = str(spec.get("output_name") or "").strip() or "dbt result"
+    produced_by = str(spec.get("produced_by") or DBT_TRANSFORM_SKILL_SLUG)
+    parent_ids = [source.dataset.id for source in sources]
+    dataset = register_frame(
+        db,
+        workspace_id=workspace_id,
+        name=output_name,
+        frame=frame,
+        source="transform",
+        produced_by=produced_by,
+        parent_ids=parent_ids,
+        run_id=run_id,
+        node_id=node_id,
+        lineage=_lineage(report["selected"] or str(spec.get("output_model") or "")),
     )
+    extra_references: list[dict[str, Any]] = []
+    for name, extra_frame in extras or []:
+        # Named after the model rather than after the node output: two extras
+        # of one run must not collapse into one dataset lineage, and the model
+        # name is the one the author reads in the project tree.
+        sibling = register_frame(
+            db,
+            workspace_id=workspace_id,
+            name=f"{output_name} · {name}",
+            frame=extra_frame,
+            source="transform",
+            produced_by=produced_by,
+            parent_ids=parent_ids,
+            run_id=run_id,
+            node_id=node_id,
+            lineage=_lineage(name),
+        )
+        extra_references.append({**dataset_reference(sibling), "model": name})
     db.flush()
     return (
         "succeeded",
@@ -812,6 +907,7 @@ def _settle_result(
             "duration_ms": elapsed_ms,
             "sources": [source.view for source in sources],
             "dbt": report,
+            **({"extra_datasets": extra_references} if extra_references else {}),
         },
     )
 
@@ -829,6 +925,7 @@ __all__ = [
     "project_sha256",
     "read_summary",
     "resolve_dbt_env",
+    "resolve_extra_models",
     "resolve_output_model",
     "run_dbt_execution",
     "submit_dbt_run",
