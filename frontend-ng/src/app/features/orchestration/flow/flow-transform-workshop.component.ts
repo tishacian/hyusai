@@ -26,8 +26,9 @@
  *    included. For Polars, whatever the author printed is shown under it.
  *  - **Inputs** — the pin picker plus the catalog of addressable names, which
  *    is what makes a program writable without leaving the dialog.
- *  - **Libraries** — managed engines only: the extra requirements their venv
- *    carries. The first run in a workspace builds it, and the phase says so.
+ *  - **Environment** — managed engines only. A dbt project may declare extra
+ *    packages; a Polars node reads the pinned engine and cannot add libraries.
+ *    The first run in a workspace builds the venv, and the phase says so.
  *  - **Output** — the name of the dataset each run versions.
  *
  * Nothing here validates a program beyond the habitual mistakes: refusals come
@@ -58,6 +59,7 @@ import { FlowStore } from './flow.store';
 import { FlowTransformService } from './flow-transform.service';
 import {
   DBT_MAX_MODELS,
+  POLARS_PINNED_REQUIREMENT,
   TRANSFORM_ENGINES,
   addDbtModel,
   clampTransformTimeout,
@@ -417,7 +419,13 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                     (click)="tab.set('environment')"
                   >
                     <app-icon name="package" [size]="13" />
-                    {{ i18n.t('flow.transform.tab.environment') }}
+                    {{
+                      i18n.t(
+                        descriptor().editableEnvironment
+                          ? 'flow.transform.tab.environment'
+                          : 'flow.transform.tab.environment.imposed',
+                      )
+                    }}
                   </button>
                 }
                 <button
@@ -537,29 +545,42 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                   }
 
                   @case ('environment') {
-                    <p class="ck-transform-workshop__hint">
-                      {{ i18n.t('flow.transform.environment.hint') }}
-                    </p>
-                    <label class="ck-transform-workshop__field">
-                      <span>{{ i18n.t('flow.transform.environment.requirements') }}</span>
-                      <textarea
-                        class="ck-transform-workshop__textarea"
-                        spellcheck="false"
-                        data-testid="requirements-text"
-                        [value]="params().requirements_text"
-                        [attr.placeholder]="
-                          i18n.t('flow.transform.environment.requirements.placeholder')
-                        "
-                        (change)="onRequirements($event)"
-                      ></textarea>
-                    </label>
-                    <p class="ck-transform-workshop__hint">
-                      {{
-                        i18n.t('flow.transform.environment.count', {
-                          count: declaredLibraries().length,
-                        })
-                      }}
-                    </p>
+                    @if (descriptor().editableEnvironment) {
+                      <p class="ck-transform-workshop__hint">
+                        {{ i18n.t('flow.transform.environment.hint') }}
+                      </p>
+                      <label class="ck-transform-workshop__field">
+                        <span>{{ i18n.t('flow.transform.environment.requirements') }}</span>
+                        <textarea
+                          class="ck-transform-workshop__textarea"
+                          spellcheck="false"
+                          data-testid="requirements-text"
+                          [value]="params().requirements_text"
+                          [attr.placeholder]="
+                            i18n.t('flow.transform.environment.requirements.placeholder')
+                          "
+                          (change)="onRequirements($event)"
+                        ></textarea>
+                      </label>
+                      <p class="ck-transform-workshop__hint">
+                        {{
+                          i18n.t('flow.transform.environment.count', {
+                            count: declaredLibraries().length,
+                          })
+                        }}
+                      </p>
+                    } @else {
+                      <p class="ck-transform-workshop__hint">
+                        {{ i18n.t('flow.transform.environment.imposed.hint') }}
+                      </p>
+                      <p
+                        class="ck-transform-workshop__pinned-env"
+                        data-testid="pinned-environment"
+                      >
+                        <app-icon name="package" [size]="13" />
+                        <code>{{ pinnedRequirement }}</code>
+                      </p>
+                    }
                     <label class="ck-transform-workshop__field">
                       <span>{{ i18n.t('flow.transform.environment.timeout') }}</span>
                       <input
@@ -671,6 +692,8 @@ export class FlowTransformWorkshopComponent {
     requirementLines(this.params().requirements_text),
   );
   protected readonly tab = signal<WorkshopTab>('sources');
+  /** The imposed engine the read-only environment panel names. */
+  protected readonly pinnedRequirement = POLARS_PINNED_REQUIREMENT;
   /** A client-side preflight refusal shadows the server's last answer. */
   protected readonly preflight = signal<TransformFailure | null>(null);
   protected readonly failure = computed(() => this.preflight() ?? this.transform.failure());
