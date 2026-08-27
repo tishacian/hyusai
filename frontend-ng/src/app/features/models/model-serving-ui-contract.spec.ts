@@ -86,6 +86,37 @@ test('a card off the serving alias predicts from itself, form and snippet alike'
   assert.match(CLIENT, /options\.version \? \{ version: options\.version \} : \{\}/);
 });
 
+test('an answer shows itself to whoever pressed the button', () => {
+  // The failure this closes is a button that appears inert. Twenty fields and
+  // their sliders are taller than a screen, so the dial can land below the
+  // fold; and when the tab is too narrow for two columns the panel lands
+  // outside the box, which the shell clips rather than scrolls — so there was
+  // no gesture that reached it. A programmatic scroll moves a container's
+  // scrollLeft/scrollTop even where `overflow: hidden` denies a scrollbar,
+  // which is why the fix is a scroll and not a rewrite of the layout.
+  assert.match(PLAYGROUND, /#answerPanel/, 'the answer panel is addressable');
+  assert.match(PLAYGROUND, /viewChild<ElementRef<HTMLElement>>\('answerPanel'\)/);
+  assert.match(
+    PLAYGROUND,
+    /this\.revealAnswer\(\);[\s\S]{0,120}\} catch/,
+    'revealed on success, not on refusal — a refusal renders by the button',
+  );
+  // `nearest` on both axes, so nothing moves when the panel is already on
+  // screen: that is the common case and it must stay undisturbed.
+  assert.match(PLAYGROUND, /block: 'nearest',\s*\n\s*inline: 'nearest',/);
+  assert.match(PLAYGROUND, /prefers-reduced-motion: reduce/);
+
+  // And the split that put the panel out of reach is now asked of the width the
+  // tab actually has. A viewport query answered for the window, which on a page
+  // with rails and a sidebar is a different number.
+  assert.match(PLAYGROUND, /\.ck-play-shell \{\s*\n\s*container-type: inline-size;/);
+  assert.match(PLAYGROUND, /@container \(min-width: 900px\)/);
+  assert.ok(
+    !/@media \(min-width: 900px\)[\s\S]{0,120}\.ck-play \{/.test(PLAYGROUND),
+    'the viewport query is gone, not merely shadowed',
+  );
+});
+
 test('the route and the header are the server’s facts, never retyped in the UI', () => {
   // A hardcoded path is how a demo ends up POSTing to a route that moved.
   assert.ok(!/\/api\/v1\//.test(PLAYGROUND), 'the endpoint comes from the block');
