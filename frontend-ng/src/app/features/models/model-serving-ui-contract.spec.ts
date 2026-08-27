@@ -219,6 +219,29 @@ test('the catalog card says which model a published skill answers from', () => {
   );
 });
 
+test('the monitoring tab reads the journal and closes the feedback loop', () => {
+  assert.match(CARD, /<ck-tab id="monitor"/);
+  assert.match(CARD, /data-testid="monitor-panel"/);
+  assert.match(CARD, /<ck-bar-list \[bars\]="monitorBars\(\)"/);
+  assert.match(CARD, /<ck-curve-chart/);
+  assert.match(CARD, /models\.monitor\.feedback/);
+  assert.match(CARD, /exportFeedback\(\)/);
+  assert.match(CLIENT, /\$\{this\.base\}\/\$\{modelId\}\/monitoring/);
+  assert.match(CLIENT, /\$\{this\.base\}\/\$\{modelId\}\/feedback/);
+  assert.match(CLIENT, /feedback\/dataset/);
+  assert.match(LIST, /data-testid="monitor-badge"/);
+  assert.match(PLAYGROUND, /models\.play\.prediction_id/);
+  for (const key of [
+    'models.detail.tab.monitor',
+    'models.monitor.feedback',
+    'models.monitor.dataset',
+    'models.list.monitor.alert',
+  ]) {
+    assert.ok(MODELS_FR[key], `${key} has FR copy`);
+    assert.ok(MODELS_EN[key], `${key} has EN copy`);
+  }
+});
+
 test('the score tiles carry a delta and the comparison tab is mounted', () => {
   assert.match(CARD, /<ck-tab id="compare"/);
   assert.match(CARD, /class="ck-delta ck-mono"/);

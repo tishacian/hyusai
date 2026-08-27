@@ -60,6 +60,13 @@ from app.services.tabular_ml import (
     submit_training,
     validate_training,
 )
+from app.services.tabular_monitoring import (
+    attach_feedback,
+    badges_for,
+    materialize_labeled,
+    report as monitoring_report,
+    serialize_prediction,
+)
 from app.services.tabular_predict import (
     API_KEY_HEADER,
     authenticate_key,
@@ -141,8 +148,11 @@ async def list_models(
     if dataset_id:
         query = query.filter(MLModel.dataset_id == dataset_id)
     models = query.order_by(MLModel.created_at.desc()).limit(limit).all()
+    badges = badges_for(db, models)
     return {
-        "models": [serialize_model(row) for row in models],
+        "models": [
+            serialize_model(row, monitor_status=badges.get(row.id)) for row in models
+        ],
         "catalog": catalog_payload(),
     }
 
@@ -523,6 +533,75 @@ async def predict(
     except TabularError as exc:
         _raise_tabular(exc)
     return answer
+
+
+class FeedbackBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prediction_id: str = Field(min_length=8, max_length=36)
+    label: str = Field(min_length=1, max_length=200)
+
+
+@router.get("/{model_id}/monitoring")
+async def get_monitoring(
+    model_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """PSI, score drift and the rolling AUC, from the serving journal."""
+
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {"monitoring": monitoring_report(db, model=model)}
+
+
+@router.post("/{model_id}/feedback")
+async def post_feedback(
+    model_id: str,
+    body: FeedbackBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Attach the ground truth to the prediction_id /predict handed back."""
+
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        row = attach_feedback(
+            db,
+            model=model,
+            prediction_id=body.prediction_id,
+            label=body.label,
+            labeled_by=getattr(user, "id", None),
+        )
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {
+        "prediction": serialize_prediction(row),
+        "monitoring": monitoring_report(db, model=model),
+    }
+
+
+@router.post("/{model_id}/feedback/dataset")
+async def post_feedback_dataset(
+    model_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Materialize labeled journal rows as a dataset the studio can retrain on."""
+
+    try:
+        model = get_model(db, model_id=model_id, workspace_id=workspace.id)
+        dataset = materialize_labeled(
+            db, model=model, created_by=getattr(user, "id", None)
+        )
+    except TabularError as exc:
+        _raise_tabular(exc)
+    return {"dataset": serialize_dataset(dataset)}
 
 
 class KeyBody(BaseModel):

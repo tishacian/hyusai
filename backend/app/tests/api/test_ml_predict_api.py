@@ -176,6 +176,7 @@ def test_the_mlflow_serving_shape_is_what_the_endpoint_takes(session_client, mod
     assert 0.0 <= body["predictions"][0]["confidence"] <= 1.0
     assert body["served"]["model_id"] == model.id
     assert body["served"]["version"] == 1
+    assert body["prediction_id"]
 
 
 @pytest.mark.parametrize("field", ["inputs", "dataframe_records", "rows"])
@@ -599,3 +600,52 @@ def test_serving_is_reported_as_off_when_the_plane_is_disabled(
     )
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "ML_PREDICT_DISABLED"
+
+
+def test_each_predict_call_returns_a_fresh_prediction_id(session_client, model):
+    first = session_client.post(
+        f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}
+    ).json()
+    second = session_client.post(
+        f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}
+    ).json()
+    assert first["prediction_id"] != second["prediction_id"]
+
+
+def test_feedback_attaches_the_ground_truth_to_the_prediction_id(session_client, model):
+    predicted = session_client.post(
+        f"/ml-models/{model.id}/predict", json={"inputs": [_row()]}
+    ).json()
+    response = session_client.post(
+        f"/ml-models/{model.id}/feedback",
+        json={"prediction_id": predicted["prediction_id"], "label": "1"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["prediction"]["id"] == predicted["prediction_id"]
+    assert body["prediction"]["label"] == "1"
+    assert body["monitoring"]["window"]["labeled"] == 1
+
+
+def test_feedback_on_an_unknown_id_is_a_404(session_client, model):
+    response = session_client.post(
+        f"/ml-models/{model.id}/feedback",
+        json={"prediction_id": "00000000-0000-0000-0000-000000000000", "label": "1"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "ML_PREDICTION_NOT_FOUND"
+
+
+def test_the_monitoring_read_is_empty_before_anyone_calls(session_client, model):
+    response = session_client.get(f"/ml-models/{model.id}/monitoring")
+    assert response.status_code == 200
+    body = response.json()["monitoring"]
+    assert body["badge"] is None
+    assert body["window"]["predictions"] == 0
+
+
+def test_a_predict_call_shows_up_on_the_monitoring_window(session_client, model):
+    session_client.post(f"/ml-models/{model.id}/predict", json={"inputs": [_row()]})
+    body = session_client.get(f"/ml-models/{model.id}/monitoring").json()["monitoring"]
+    assert body["window"]["predictions"] == 1
+    assert body["badge"] == "ok"

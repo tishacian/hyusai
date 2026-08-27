@@ -39,7 +39,7 @@ import {
 import { CkTabComponent, CkTabsComponent } from '@app/shared/cockpit/tabs.component';
 import { formatBytes } from '@app/shared/ui/data-table.vm';
 import { I18nService } from '@app/core/i18n.service';
-import { DataService } from '@app/features/data/data.service';
+import { DataService, type DatasetDto } from '@app/features/data/data.service';
 import { ModelPlaygroundComponent } from './model-playground.component';
 import { ModelTrainComponent, type TrainSeed } from './model-train.component';
 import { ModelsService, isModelActive, type ModelDetailDto } from './models.service';
@@ -57,15 +57,18 @@ import {
   type VizBar,
 } from '@app/features/data/viz/viz.vm';
 import {
+  aucTrace,
   balanceBars,
   comparisonPair,
   comparisonRows,
   compareErrorKey,
+  driftBars,
   formatMetric,
   higherIsBetter,
   importanceBars,
   metricDelta,
   metricTone,
+  monitorTone,
   pipelineHops,
   previousVersion,
   primaryScore,
@@ -78,6 +81,7 @@ import {
   type CvBlock,
   type MetricTone,
   type ModelDto,
+  type MonitoringReport,
   type PipelineChip,
   type ServingBlock,
   type SignatureField,
@@ -584,6 +588,121 @@ const CHART_ASPECT = 300 / 190;
                     </div>
                   </div>
                 }
+              </section>
+            </div>
+          }
+        </ck-tab>
+
+        <!-- ── Monitoring ──────────────────────────────────────────────────── -->
+        <ck-tab id="monitor" [label]="i18n.t('models.detail.tab.monitor')">
+          @if (!monitoring() || !monitoring()!.window.predictions) {
+            <app-empty-state
+              icon="pulse"
+              [title]="i18n.t('models.monitor.empty.title')"
+              [description]="i18n.t('models.monitor.empty.description')"
+            />
+          } @else if (monitoring(); as report) {
+            <div class="space-y-3" data-testid="monitor-panel">
+              <div class="ck-hint">
+                {{
+                  i18n.t('models.monitor.window', {
+                    predictions: report.window.predictions,
+                    labeled: report.window.labeled,
+                  })
+                }}
+              </div>
+              <div class="ck-scores">
+                @for (card of monitorCards(); track card.key) {
+                  <div class="ck-score-card">
+                    <div class="ck-section-label">{{ card.label }}</div>
+                    <div class="ck-score-card__value" [attr.data-tone]="card.tone">
+                      {{ card.status }}
+                    </div>
+                  </div>
+                }
+              </div>
+              @if (monitorBars().length) {
+                <section>
+                  <div class="ck-section-label">{{ i18n.t('models.monitor.features') }}</div>
+                  <ck-bar-list [bars]="monitorBars()" />
+                </section>
+              }
+              @if (monitorAuc().length) {
+                <section class="ck-chart">
+                  <div class="ck-section-label">{{ i18n.t('models.monitor.auc') }}</div>
+                  <ck-curve-chart
+                    [points]="monitorAuc()"
+                    [aspect]="chart"
+                    [label]="i18n.t('models.monitor.auc')"
+                    [xLabel]="i18n.t('models.monitor.auc.x')"
+                    [yLabel]="i18n.t('models.monitor.auc.y')"
+                  />
+                </section>
+              }
+              <section class="ck-surface rounded-md px-4 py-3">
+                <div class="ck-section-label">{{ i18n.t('models.monitor.feedback') }}</div>
+                <div class="ck-hint" style="margin-top: 0">
+                  {{ i18n.t('models.monitor.feedback.hint') }}
+                </div>
+                <div class="flex items-end gap-2 flex-wrap mt-3">
+                  <label class="ck-field">
+                    <span class="ck-field__name ck-mono">{{
+                      i18n.t('models.monitor.feedback.id')
+                    }}</span>
+                    <input
+                      type="text"
+                      class="ck-field__input"
+                      [value]="feedbackId() || models.lastPredictionId() || ''"
+                      (input)="feedbackId.set($any($event.target).value)"
+                    />
+                  </label>
+                  <label class="ck-field">
+                    <span class="ck-field__name ck-mono">{{
+                      i18n.t('models.monitor.feedback.label')
+                    }}</span>
+                    <input
+                      type="text"
+                      class="ck-field__input"
+                      [value]="feedbackLabel()"
+                      (input)="feedbackLabel.set($any($event.target).value)"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+                    [disabled]="!canSendFeedback() || feedbackBusy()"
+                    (click)="sendFeedback()"
+                  >
+                    {{ i18n.t('models.monitor.feedback.submit') }}
+                  </button>
+                </div>
+                <div class="ck-hint">{{ i18n.t('models.monitor.dataset.hint') }}</div>
+                <div class="flex items-center gap-2 flex-wrap mt-2">
+                  <button
+                    type="button"
+                    class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+                    [disabled]="feedbackBusy()"
+                    (click)="exportFeedback()"
+                  >
+                    {{ i18n.t('models.monitor.dataset') }}
+                  </button>
+                  @if (feedbackDataset(); as ds) {
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-emerald-500 hover:bg-emerald-600 text-white transition"
+                      (click)="retrainFromFeedback()"
+                    >
+                      {{ i18n.t('models.monitor.retrain') }}
+                    </button>
+                    <a
+                      [routerLink]="['/data', ds.id]"
+                      class="text-[11px] ck-mono"
+                      style="color: var(--ck-signal-cool)"
+                    >
+                      {{ ds.name }}
+                    </a>
+                  }
+                </div>
               </section>
             </div>
           }
@@ -1116,13 +1235,33 @@ const CHART_ASPECT = 300 / 190;
       .ck-score-inline[data-tone='neg'] {
         color: var(--ck-signal-neg, #ef5a6f);
       }
+      .ck-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 160px;
+      }
+      .ck-field__name {
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--ck-fg-4, #8891a0);
+      }
+      .ck-field__input {
+        padding: 6px 8px;
+        border-radius: 6px;
+        font: 12px / 1.3 var(--ck-font-mono, monospace);
+        color: var(--ck-fg-1, #e6e9ee);
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.04));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+      }
     `,
   ],
 })
 export class ModelViewComponent implements OnInit {
   readonly i18n = inject(I18nService);
   protected readonly data = inject(DataService);
-  private readonly models = inject(ModelsService);
+  protected readonly models = inject(ModelsService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly toast = inject(ToastrService);
@@ -1134,6 +1273,12 @@ export class ModelViewComponent implements OnInit {
   protected readonly loading = signal(false);
   protected readonly tab = signal('evidence');
   protected readonly studioOpen = signal(false);
+  protected readonly monitoring = signal<MonitoringReport | null>(null);
+  protected readonly feedbackId = signal('');
+  protected readonly feedbackLabel = signal('');
+  protected readonly feedbackBusy = signal(false);
+  protected readonly feedbackDataset = signal<DatasetDto | null>(null);
+  protected readonly feedbackDatasetId = signal<string | null>(null);
   /**
    * The serving plane, held apart from the detail it arrived with.
    *
@@ -1354,11 +1499,38 @@ export class ModelViewComponent implements OnInit {
   });
 
   /** What a retrain opens the studio on: this version's own choices. */
+  protected readonly monitorCards = computed(() => {
+    const report = this.monitoring();
+    if (!report) return [];
+    return [
+      { key: 'data', label: this.i18n.t('models.monitor.data'), status: report.data_drift.status },
+      { key: 'score', label: this.i18n.t('models.monitor.score'), status: report.score_drift.status },
+      {
+        key: 'concept',
+        label: this.i18n.t('models.monitor.concept'),
+        status: report.concept_drift.status,
+      },
+    ].map((card) => ({
+      ...card,
+      status: this.i18n.t('models.monitor.status.' + card.status),
+      tone: monitorTone(card.status),
+    }));
+  });
+
+  protected readonly monitorBars = computed(() =>
+    driftBars(this.monitoring()?.data_drift.features),
+  );
+
+  protected readonly monitorAuc = computed(() => {
+    const concept = this.monitoring()?.concept_drift;
+    return aucTrace(concept?.train_auc, concept?.rolling_auc);
+  });
+
   protected readonly seed = computed<TrainSeed | null>(() => {
     const row = this.model();
     if (!row) return null;
     return {
-      datasetId: row.dataset_id,
+      datasetId: this.feedbackDatasetId() ?? row.dataset_id,
       target: row.target,
       task: row.task,
       features: row.features,
@@ -1807,7 +1979,60 @@ export class ModelViewComponent implements OnInit {
     await this.load();
   }
 
+  protected readonly canSendFeedback = computed(
+    () =>
+      Boolean(
+        (this.feedbackId().trim() || this.models.lastPredictionId()) &&
+          this.feedbackLabel().trim(),
+      ),
+  );
+
+  protected async sendFeedback(): Promise<void> {
+    const row = this.model();
+    const predictionId = this.feedbackId().trim() || this.models.lastPredictionId();
+    const label = this.feedbackLabel().trim();
+    if (!row || !predictionId || !label) return;
+    this.feedbackBusy.set(true);
+    try {
+      const result = await this.models.feedback(row.id, {
+        prediction_id: predictionId,
+        label,
+      });
+      this.monitoring.set(result.monitoring);
+      this.toast.success(this.i18n.t('models.monitor.feedback.done'));
+    } catch {
+      this.toast.error(this.i18n.t('models.monitor.feedback.failed'));
+    } finally {
+      this.feedbackBusy.set(false);
+    }
+  }
+
+  protected async exportFeedback(): Promise<void> {
+    const row = this.model();
+    if (!row) return;
+    this.feedbackBusy.set(true);
+    try {
+      const dataset = await this.models.materializeFeedback(row.id);
+      this.feedbackDataset.set(dataset);
+      this.feedbackDatasetId.set(dataset.id);
+      this.toast.success(
+        this.i18n.t('models.monitor.dataset.done', { name: dataset.name }),
+      );
+    } catch {
+      this.toast.error(this.i18n.t('models.monitor.dataset.failed'));
+    } finally {
+      this.feedbackBusy.set(false);
+    }
+  }
+
+  protected retrainFromFeedback(): void {
+    const dataset = this.feedbackDataset();
+    if (dataset) this.feedbackDatasetId.set(dataset.id);
+    this.studioOpen.set(true);
+  }
+
   protected retrain(): void {
+    this.feedbackDatasetId.set(null);
     this.studioOpen.set(true);
   }
 
@@ -1844,10 +2069,19 @@ export class ModelViewComponent implements OnInit {
       const detail = await this.models.detail(this.modelId);
       this.detail.set(detail);
       this.serving.set(detail.serving ?? null);
+      if (!this.feedbackId() && this.models.lastPredictionId()) {
+        this.feedbackId.set(this.models.lastPredictionId() ?? '');
+      }
+      try {
+        this.monitoring.set(await this.models.monitoring(this.modelId));
+      } catch {
+        this.monitoring.set(null);
+      }
       this.syncPolling();
     } catch {
       this.detail.set(null);
       this.serving.set(null);
+      this.monitoring.set(null);
     } finally {
       this.loading.set(false);
     }
