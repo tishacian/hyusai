@@ -15,6 +15,7 @@
 import type {
   ConfusionBlock,
   CurvePoint,
+  VizBar,
 } from '@app/features/data/viz/viz.vm';
 import type { TabularColumnStats } from '@app/shared/ui/data-table.vm';
 
@@ -24,6 +25,34 @@ import type { TabularColumnStats } from '@app/shared/ui/data-table.vm';
 
 export type ModelTask = 'classification' | 'regression';
 export type ModelStatus = 'pending' | 'training' | 'ready' | 'failed' | 'cancelled';
+export type MonitorStatus = 'ok' | 'watch' | 'alert';
+
+export interface DriftFeature {
+  name: string;
+  kind: string;
+  value: number | null;
+  status: string;
+}
+
+export interface MonitoringReport {
+  badge: MonitorStatus | null;
+  window: { predictions: number; labeled: number; limit: number };
+  data_drift: { status: string; features: DriftFeature[] };
+  score_drift: {
+    status: string;
+    value: number | null;
+    served_mean: number | null;
+    reference_mean: number | null;
+    n: number;
+  };
+  concept_drift: {
+    status: string;
+    rolling_auc: number | null;
+    train_auc: number | null;
+    delta: number | null;
+    labeled: number;
+  };
+}
 
 export interface MetricScore {
   key: string;
@@ -175,6 +204,8 @@ export interface ModelDto {
   updated_at?: string | null;
   trained_at?: string | null;
   train_duration_ms?: number | null;
+  /** Worst of data / score / concept drift. Absent until something has been served. */
+  monitor_status?: MonitorStatus | null;
   /** Detail-only blocks. */
   metrics?: MetricsBlock;
   signature?: ModelSignature;
@@ -273,6 +304,8 @@ export interface PredictAnswer {
   predictions: PredictionRow[];
   rows: number;
   duration_ms: number;
+  /** The journal row this call wrote. Feedback attaches here. */
+  prediction_id?: string;
   /** What this call paid to get the pipeline in memory. Zero when `cached`. */
   load_ms?: number;
   cached?: boolean;
@@ -955,6 +988,52 @@ export interface ImportanceBar {
   width: number;
   /** A negative permutation score means the column was actively unhelpful. */
   negative: boolean;
+}
+
+/** Colour the monitoring badge the same way a score is coloured. */
+export function monitorTone(status: string | null | undefined): MetricTone {
+  if (status === 'alert') return 'neg';
+  if (status === 'watch') return 'warn';
+  if (status === 'ok') return 'pos';
+  return 'neutral';
+}
+
+/**
+ * Feature-level PSI as the shared bar kit, so a drift panel and a feature
+ * importance panel are the same drawing with different numbers.
+ */
+export function driftBars(
+  features: readonly DriftFeature[] | undefined,
+): VizBar[] {
+  const rows = (features ?? []).filter(
+    (row) => row?.name && row.value !== null && Number.isFinite(row.value),
+  );
+  if (!rows.length) return [];
+  const widest = Math.max(...rows.map((row) => Number(row.value) || 0), 0.25);
+  return rows.map((row) => {
+    const value = Number(row.value) || 0;
+    return {
+      label: row.name,
+      display: value.toFixed(2),
+      width: widest ? Math.round((value / widest) * 100) : 0,
+      negative: row.status === 'alert',
+      emphasis: row.status === 'alert' || row.status === 'watch',
+    };
+  });
+}
+
+/** Train AUC → rolling AUC as two points the curve kit can draw. */
+export function aucTrace(
+  train: number | null | undefined,
+  rolling: number | null | undefined,
+): CurvePoint[] {
+  if (train == null && rolling == null) return [];
+  const left = Number(train ?? rolling ?? 0);
+  const right = Number(rolling ?? train ?? 0);
+  return [
+    { x: 0, y: left },
+    { x: 1, y: right },
+  ];
 }
 
 export function importanceBars(

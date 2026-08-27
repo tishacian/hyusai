@@ -174,6 +174,19 @@ type ModelFilter = 'all' | ModelTask | 'serving';
                         {{ i18n.t('models.detail.serving') }}
                       </span>
                     }
+                    @if (row.monitor_status) {
+                      <span
+                        class="ck-badge ck-mono"
+                        data-testid="monitor-badge"
+                        [attr.data-tone]="row.monitor_status"
+                        [class.ck-badge--warn]="
+                          row.monitor_status === 'watch' || row.monitor_status === 'alert'
+                        "
+                        [class.ck-badge--live]="row.monitor_status === 'ok'"
+                      >
+                        {{ i18n.t('models.list.monitor.' + row.monitor_status) }}
+                      </span>
+                    }
                     @if (row.status !== 'ready') {
                       <span
                         class="ck-badge ck-mono"
