@@ -4596,7 +4596,10 @@ pour la raison qui lui faisait déjà nommer la base par processus, et le suppri
 au démontage de session.
 
 **Observables.** Après le correctif la suite atteint sa propre ligne de résumé :
-**21 échecs, 5 674 succès, 37 ignorés en 20 min 53 s**. Les deux tests qui
+**21 échecs, 5 674 succès, 37 ignorés en 20 min 53 s**. Sans les tests
+`integration`, que leur marqueur déclare dépendants de Qdrant sur localhost :
+**3 échecs, 5 669 succès, 25 ignorés, 35 désélectionnés en 20 min 52 s** — soit
+exactement les trois échecs qui ne sont pas d'environnement. Les deux tests qui
 bloquaient passent ensemble en 28,74 s, deux ajustements réels compris, pendant
 qu'un autre processus tenait l'ancien fichier partagé.
 
@@ -4626,6 +4629,12 @@ d'environnement et qui méritent d'être nommés :
 - **L'activation du board n'a jamais atterri.** Le commit `4dbc4efc` la porte
   avec douze tests rouges ; il n'est sur aucune branche et n'est pas dans
   `demo/agentic`. Le board reste consultable et non actionnable.
-- **La suite complète coûte 21 minutes** même corrigée. Les tests qui entraînent
-  pour de vrai construisent chacun un client MLflow ; le correctif leur rend le
-  temps du réessai, pas celui de l'ajustement.
+- **La suite complète coûte 21 minutes** même corrigée, et une part de ce prix
+  est le même réessai vu d'un autre côté. Trois tests pointent *volontairement*
+  le registre sur `postgresql://nobody:nothing@127.0.0.1:1/absent` pour prouver
+  qu'une panne du registre ne fait pas échouer un entraînement ; py-spy les a
+  retrouvés endormis dans `forget_model` et `publish`. Là le DSN est injoignable
+  par intention, donc les 101 secondes sont le comportement attendu de MLflow et
+  non une contention à corriger — mais elles achètent une assertion booléenne au
+  prix d'une minute et demie chacune, et une borne de réessai passée à ces
+  appels rendrait ce temps sans rien retirer à ce qu'ils démontrent.
