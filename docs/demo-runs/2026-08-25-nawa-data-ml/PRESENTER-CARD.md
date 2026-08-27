@@ -19,13 +19,16 @@ surfaces de la démo ont de quoi s'afficher. Preuves :
 
 1. **Minter une clé API.** Celle du seed (`agpk_Se_tOeb`) a `use_count = 0` et son secret
    n'est montré **qu'une fois**, à la création : il n'est plus récupérable. Sans clé
-   fraîche, le beat 6 n'a pas de `curl`. Models → `Churn Radar` → onglet Playground →
-   *Mint an API key*, copier le secret immédiatement.
+   fraîche, le beat 6 n'a pas de `curl`. Models → `Churn Radar` → onglet **`Predict`** →
+   **descendre tout en bas**, après le formulaire et après le bloc `The same call, from a
+   system` → section **`Access keys`** → saisir un nom dans `Key name` → **`Create a key`**.
+   Le secret apparaît au-dessus dans un bloc `Key created` avec un bouton de copie, et ne
+   réapparaîtra plus : le copier tout de suite.
 2. **Rejouer le `curl` une fois**, hors scène. Le premier appel paie le chargement du
    modèle MLflow (~5 s) : `cached: false`. Le second répond en dizaines de ms. On peut
    aussi l'assumer et lire le `load_ms` à voix haute — c'est le point 6 du beat 6 — mais
    c'est un choix, pas une surprise.
-3. **Vérifier que v1 sert.** Models → `Churn Radar` : le chip *serves* doit être sur **v1**.
+3. **Vérifier que v1 sert.** Models → `Churn Radar` : le badge **`SERVING`** doit être sur **v1**.
    S'il est sur v2, la promotion du beat 5 n'a plus rien à montrer, et le seed ne remet
    jamais le champion en place (il ne défait pas la promotion d'un opérateur) : il faut
    repromouvoir v1 à la main.
@@ -182,7 +185,8 @@ Build → Models → comparer v1 / v2 / v3 → **Promote v2**.
 > produit de deux variables. La baseline n'a pas été handicapée — le monde n'est pas
 > additif. »
 
-Puis **« comparer sur les mêmes lignes »** : onglet Comparison → *Re-evaluate*. C'est le
+Puis **« comparer sur les mêmes lignes »** : onglet `Comparison` → **`Re-score both
+versions`**. C'est le
 point qui sépare une plateforme d'un tableau de bord — les deux pipelines sont re-scorés sur
 **un** split et la table jointe vient de `skore.ComparisonReport`. v2 gagne sur les six
 métriques, calibration incluse, et les deux colonnes retombent **exactement** sur ce
@@ -199,13 +203,14 @@ v2 — donc v2, et pas v3 qui est le dernier fit.
 > « Un registre qui nommerait "le dernier" nommerait souvent le pire. C'est précisément
 > pour ça que la promotion reste un acte humain. »
 
-**Promouvoir v2** et rester sur la page : le chip *serves* se déplace, l'alias `champion`
+**Promouvoir v2** et rester sur la page : le badge `SERVING` se déplace, l'alias `champion`
 suit dans MLflow, et les deux alias s'échangent — `challenger` retombe sur v1, la version
 qu'on vient de rétrograder.
 
-### Beat 6 — Le service : Playground, skill, clé API (7 min)
+### Beat 6 — Le service : prédiction, skill, clé API (7 min)
 
-Models → `Churn Radar` → onglet Playground.
+Models → `Churn Radar` → onglet **`Predict`**. Les cinq onglets de la fiche sont `Results`,
+`Predict`, `Comparison`, `Input contract`, `Versions` — il n'y a pas d'onglet « Playground ».
 
 Le formulaire s'ouvre **pré-rempli** avec la ligne typique du jeu d'entraînement (médiane
 des numériques, modalité la plus fréquente des catégorielles). Personne ne démontre un
@@ -223,7 +228,7 @@ depuis l'onglet Versions et cliquer Predict. Le formulaire est le contrat de v3 
 **vingt-neuf colonnes contre vingt** — et la ligne sous le bouton indique `answered by v3`.
 La fiche nomme sa propre version. Vérifié ce matin sur les trois versions.
 
-Puis **Publish as Skill** → page Skills → le **chip de provenance** dit « answers from Churn
+Puis **`Publish as a skill`** → page Skills → le **chip de provenance** dit « answers from Churn
 Radar v2 » : il est *dérivé*, pas figé à la publication, donc il a suivi la promotion du
 beat 5 sans que personne y touche.
 
@@ -308,7 +313,8 @@ C'est la bonne dernière image si la salle est composée de métier plutôt que 
 |---|---|
 | Le `curl` renvoie 401 | La clé du seed n'a pas de secret récupérable. Minter une clé depuis la fiche modèle, le secret s'affiche une seule fois. |
 | Premier `curl` lent (~5 s) | Chargement du modèle MLflow. C'est `cached: false` — le lire à voix haute ou l'avoir rejoué avant. |
-| Le chip *serves* est déjà sur v2 | Une répétition antérieure a promu. Repromouvoir v1 à la main, le seed ne le fait pas. |
+| Le badge `SERVING` est déjà sur v2 | Une répétition antérieure a promu. Repromouvoir v1 à la main, le seed ne le fait pas. |
+| Le bouton de création de clé est introuvable | Il est en bas de l'onglet `Predict`, sous le bloc cURL, dans la section `Access keys` — et il s'appelle `Create a key`. |
 | L'onglet Comparison dit « nothing to compare » | Défaut connu et corrigé dans la révision servie ; si ça revient, c'est la route de détail qui sérialise les versions sans leurs scores. |
 | Un nœud Polars ou dbt refuse de s'exécuter | `RECIPE_EXECUTION_ENABLED` et `WORKER_EAGER_MODE` ; le run se termine quand même mais ces deux nœuds signalent leur refus. |
 | Une page semble vide | Le bloc `runtime_status` de la page dit si le run a réussi ou s'il travaille encore. Sur les Flows, les badges de nœud portent la même information. |
