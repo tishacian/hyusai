@@ -32,6 +32,7 @@ from app.models.system import System
 from app.models.system_flow_draft import SystemFlowDraft
 from app.models.tabular import MLModel, TabularDataset
 from app.models.workspace import Workspace
+from app.services.experience.lifecycle import _form_schema_supported
 from app.services.systems import flow_publication
 from app.services.run_engine.execution_contract import resolve_flow_execution
 
@@ -71,11 +72,18 @@ from scripts.seed_nawa_data_demo import (
     CHURN_SKILL_SLUGS,
     CHURN_SYSTEM_NAME,
     CLEAN_DATASET_NAME,
+    DESK_ACTION_ID,
+    DESK_BINDING_KEY,
+    DESK_CAPABILITY_SLUG,
+    DESK_INPUT_SCHEMA,
+    DESK_OUTPUT_SCHEMA,
+    DESK_SKILL_SLUGS,
     DIGEST_CODE,
     DIGEST_COLUMNS,
     ENGINEERED_COLUMNS,
     MODEL_NAME,
     SEED_ACTOR,
+    SUBSCRIBER_COLUMNS,
     DESK_SYSTEM_NAME,
     _reusable_dataset,
     _reusable_model,
@@ -87,7 +95,7 @@ from scripts.seed_nawa_data_demo import (
     cleaned_slug,
     desk_flow,
     digest_main,
-    ensure_board_binding,
+    ensure_binding,
     ensure_board_experience,
     ensure_capability,
     ensure_system,
@@ -98,6 +106,8 @@ from scripts.seed_nawa_data_demo import (
     radio_flow,
     reset,
     scored_slug,
+    subscriber_main,
+    verdict_main,
 )
 
 pl = pytest.importorskip("polars")
@@ -460,7 +470,199 @@ def test_the_desk_can_reach_the_published_model_and_nothing_else():
     assert loop["config"]["budget"]["max_turns"] <= 4
 
     edges = {(edge["from"], edge["to"]) for edge in flow["edges"]}
-    assert edges == {("src", "loop.desk"), ("loop.desk", "sink")}
+    assert edges == {
+        ("src", "task.subscriber"),
+        ("task.subscriber", "loop.desk"),
+        ("loop.desk", "task.verdict"),
+        ("task.verdict", "sink"),
+    }
+
+
+def test_the_desk_is_asked_for_a_number_and_nothing_a_form_cannot_offer():
+    """The contract that lets a business page carry this System at all.
+
+    A form on ``/work`` can only offer what its reader holds, and a retention
+    manager reading a call list holds one thing: the line. So the ingress asks
+    for one string, closed — and the twenty columns the model's own contract
+    requires are resolved behind it rather than typed by a stakeholder.
+    """
+
+    flow = desk_flow(predict_slug="ws.a.predict_x")
+    nodes = {node["id"]: node for node in flow["nodes"]}
+
+    assert nodes["src"]["config"]["input_schema"] == DESK_INPUT_SCHEMA
+    assert DESK_INPUT_SCHEMA["required"] == ["msisdn"]
+    assert DESK_INPUT_SCHEMA["properties"]["msisdn"]["type"] == "string"
+    assert DESK_INPUT_SCHEMA["additionalProperties"] is False
+    # The renderer has to be able to draw it, or the release refuses the page.
+    assert _form_schema_supported(DESK_INPUT_SCHEMA)
+    # And the sink pins what the page's block is allowed to bind to.
+    assert nodes["sink"]["config"]["output_schema"] == DESK_OUTPUT_SCHEMA
+
+
+def test_the_desk_resolves_the_line_itself_and_cannot_see_the_answer_key():
+    """Which table the resolver reads, and the one column it must not read.
+
+    ``churn`` is the label the model was fitted on. A desk that projected it
+    would be holding the answer beside the question, and the demo's claim —
+    that the number on the page came out of the model — would be unfalsifiable.
+    """
+
+    flow = desk_flow(predict_slug="ws.a.predict_x")
+    nodes = {node["id"]: node for node in flow["nodes"]}
+    resolver = nodes["task.subscriber"]["config"]
+
+    assert resolver["skill_slug"] == "python_recipe_v1"
+    assert resolver["params"]["sources"] == [
+        {
+            "dataset_slug": cleaned_slug(),
+            "view": "base",
+            "columns": list(SUBSCRIBER_COLUMNS),
+        }
+    ]
+    assert "churn" not in SUBSCRIBER_COLUMNS
+    assert SUBSCRIBER_COLUMNS[0] == "msisdn"
+    # The number arrives from the ingress, and the map says so rather than
+    # leaving an operator to infer it from the wire.
+    assert resolver["inputs_map"]["msisdn"] == {"node_id": "src", "path": ["msisdn"]}
+    # Neither recipe writes a table: no ``output_name`` on this graph at all.
+    for node in flow["nodes"]:
+        assert "output_name" not in (node.get("config") or {}).get("params", {})
+
+
+def test_the_verdict_quotes_the_model_and_names_the_slug_it_waits_on():
+    """Why the last node reads a pinned slug instead of the last observation.
+
+    The planner chooses its own route, so "whatever the loop did last" is a
+    different skill on a different turn. The graph pins which act counts as the
+    model having answered, and the verdict node reads that pin — which is also
+    what makes the page able to say *no* answer rather than quoting a writer's
+    prose as though it were a probability.
+    """
+
+    slug = "ws.7f3a.predict_churn_radar"
+    nodes = {node["id"]: node for node in desk_flow(predict_slug=slug)["nodes"]}
+    verdict = nodes["task.verdict"]["config"]
+
+    assert verdict["skill_slug"] == "python_recipe_v1"
+    assert verdict["params"]["predict_skill"] == slug
+    # The resolver is two nodes back, so its output arrives by selector.
+    assert verdict["inputs_map"]["profile"] == {
+        "node_id": "task.subscriber",
+        "path": ["profile"],
+    }
+    assert verdict["inputs_map"]["found"] == {
+        "node_id": "task.subscriber",
+        "path": ["found"],
+    }
+    assert verdict["inputs_map"]["predict_skill"]["node_id"] == "node"
+
+
+def test_the_resolver_finds_a_line_however_its_number_was_typed():
+    """Digits, because that is the only thing three spellings have in common.
+
+    The base stores a phone number as an integer; a call list renders it as
+    text; a person reads it aloud with spaces. All three have to resolve to the
+    same subscriber or the desk answers "not in the base" to a number that
+    plainly is.
+    """
+
+    main = subscriber_main()
+    base = {
+        "rows": [
+            {"msisdn": 212600062701, "region": "Casablanca", "plan": "prepaid",
+             "contract": "monthly", "tenure_months": 4, "arpu_mad": 90.0},
+            {"msisdn": 212600062702, "region": "Rabat", "plan": "postpaid",
+             "contract": "annual", "tenure_months": 40, "arpu_mad": 210.0},
+        ]
+    }
+
+    for typed in ("212600062701", "212 600 062 701", "+212-600-062-701", 212600062701):
+        answer = main({"msisdn": typed, "base": base})
+        assert answer["found"] is True, typed
+        assert answer["profile"]["msisdn"] == "212600062701"
+        assert answer["profile"]["region"] == "Casablanca"
+        # One row, and the identifier is not in it: the model's contract is
+        # closed on its twenty feature columns and refuses a twenty-first.
+        assert len(answer["rows"]) == 1
+        assert "msisdn" not in answer["rows"][0]
+
+    # A number nobody recognises is a normal event, not a red node.
+    missing = main({"msisdn": "212999999999", "base": base})
+    assert missing["found"] is False
+    assert missing["rows"] == []
+    assert missing["profile"] == {"msisdn": "212999999999"}
+
+    with pytest.raises(ValueError, match="no subscriber"):
+        main({"msisdn": "  ", "base": base})
+    with pytest.raises(ValueError, match="empty"):
+        main({"msisdn": "212600062701", "base": {"rows": []}})
+
+
+def test_the_verdict_says_what_the_model_said_and_withholds_what_it_did_not():
+    """Three answers, and the page must be able to tell them apart.
+
+    A line that was scored, a line that was found but not scored, and a number
+    that is not in the base are different outcomes. Rendering them alike is how
+    a business page ends up implying a recommendation nobody made.
+    """
+
+    main = verdict_main()
+    profile = {
+        "msisdn": "212600062701",
+        "region": "Casablanca",
+        "plan": "prepaid",
+        "contract": "monthly",
+        "tenure_months": 4,
+        "arpu_mad": 90.0,
+    }
+    slug = "ws.7f3a.predict_churn_radar"
+    scored = {
+        "turn": 2,
+        "skill": slug,
+        "ok": True,
+        "summary": "Churn Radar version 1 predicts churn = 1, probability of 1 0.9163.",
+    }
+
+    answered = main(
+        {
+            "profile": profile,
+            "found": True,
+            "predict_skill": slug,
+            "observations": [{"turn": 1, "skill": "azure_llm_v1", "ok": True, "summary": "…"}, scored],
+            "exit": "done",
+        }
+    )
+    assert answered["answered"] is True
+    assert answered["msisdn"] == "212600062701"
+    # The figure is the model's own words, character for character.
+    assert scored["summary"] in answered["verdict"]
+    assert "prepaid" in answered["verdict"] and "ARPU 90.0 MAD" in answered["verdict"]
+    # The route is shown, without splicing a writer's paragraph into it.
+    assert "turn 1: azure_llm_v1 — answered" in answered["verdict"]
+    assert "…" not in answered["verdict"].split("How the desk got there")[1]
+
+    # Found, but the model never answered: the profile is real, the advice is
+    # withheld rather than guessed.
+    unscored = main(
+        {
+            "profile": profile,
+            "found": True,
+            "predict_skill": slug,
+            "observations": [{"turn": 1, "skill": slug, "ok": False, "summary": ""}],
+            "exit": "budget",
+        }
+    )
+    assert unscored["answered"] is False
+    assert "did not get an answer" in unscored["verdict"]
+    assert "probability" not in unscored["verdict"]
+
+    absent = main({"profile": {"msisdn": "212999999999"}, "found": False})
+    assert absent["answered"] is False
+    assert "is in the cleaned base" in absent["verdict"]
+
+    with pytest.raises(ValueError, match="no subscriber resolved"):
+        main({"found": True, "predict_skill": slug})
 
 
 def test_the_desk_is_walked_by_the_engine_that_knows_agent_loops():
@@ -497,25 +699,48 @@ def test_the_desk_finds_the_slug_where_the_publish_actually_puts_it():
     assert published_skill_slug(None) == ""
 
 
-def test_the_desk_is_asked_about_a_subscriber_the_model_will_accept(cleaned):
-    """The row rides in on the run input, and the contract is closed.
+def test_the_desk_is_asked_by_number_the_way_the_page_asks_it(cleaned):
+    """The rehearsal goes in through the door a stakeholder uses.
 
-    An AgentLoop hands the skill it picked the envelope it already has, so the
-    model's twenty columns have to be *there* — the planner is choosing a tool,
-    not inventing feature values. Reading the row out of the cleaned table is
-    what makes that true by construction rather than by careful typing.
+    The seed used to hand the desk twenty ready-made feature values, which made
+    the seeded run prove less than it looked like it did: resolving a number to
+    a row is the step a request from the page has to pass through, and it was
+    the one step the rehearsal skipped. So the seeded run asks by number too,
+    and the resolver finds the row.
     """
 
     asked = pick_at_risk(cleaned)
 
-    assert set(asked) == set(CHURN_FEATURE_COLUMNS)
-    # JSON is what ``Run.input_ref`` is, so nothing exotic may ride in it.
-    for name, value in asked.items():
-        assert value is None or isinstance(value, (str, int, float, bool)), (name, value)
-    # And it is a subscriber the demo can tell a story about, every re-seed.
-    assert asked["plan"] == "prepaid"
-    assert asked["support_tickets"] >= 3
+    # Text, and digits only: the ingress declares a string, and ``Run.input_ref``
+    # is JSON, so nothing exotic may ride in it.
+    assert isinstance(asked, str)
+    assert asked.isdigit()
     assert pick_at_risk(cleaned) == asked
+
+    # And it is a subscriber the demo can tell a story about, every re-seed.
+    row = next(
+        entry
+        for entry in cleaned.to_dicts()
+        if str(entry["msisdn"]) == asked
+    )
+    assert row["plan"] == "prepaid"
+    assert row["support_tickets"] >= 3
+
+    # The resolver, given that number and this table, hands the model exactly
+    # the twenty columns its contract is closed on.
+    resolved = subscriber_main()(
+        {
+            "msisdn": asked,
+            "base": {
+                "rows": [
+                    {name: entry[name] for name in SUBSCRIBER_COLUMNS}
+                    for entry in cleaned.to_dicts()
+                ]
+            },
+        }
+    )
+    assert resolved["found"] is True
+    assert set(resolved["rows"][0]) == set(CHURN_FEATURE_COLUMNS)
 
 
 def test_the_scoring_node_is_fed_by_both_the_fit_and_the_feature_table():
@@ -1686,9 +1911,14 @@ CERTIFIED_BLOCKS = {
     "table",
     "callout",
     "result",
+    "form",
     "action_button",
     "runtime_status",
 }
+
+#: The two block types that invoke something. Both are certified controls, and
+#: the page's display blocks each name one of them as the run they read.
+CONTROL_BLOCKS = {"form", "action_button"}
 
 
 def _components(document) -> list[dict]:
@@ -1697,11 +1927,17 @@ def _components(document) -> list[dict]:
     ]
 
 
-def _bound_selectors(document) -> list[tuple[str, str]]:
+def _bound_selectors(document, *, component: str | None = None) -> list[tuple[str, str]]:
+    """Every ``(block id, selector)`` the document reads, optionally per control."""
+
     return [
-        (component["id"], component["props"]["dataBinding"]["selector"])
-        for component in _components(document)
-        if isinstance(component.get("props", {}).get("dataBinding"), dict)
+        (block["id"], block["props"]["dataBinding"]["selector"])
+        for block in _components(document)
+        if isinstance(block.get("props", {}).get("dataBinding"), dict)
+        and (
+            component is None
+            or block["props"]["dataBinding"].get("componentId") == component
+        )
     ]
 
 
@@ -1732,7 +1968,15 @@ def test_the_board_document_is_built_only_from_certified_blocks():
 
     assert used <= CERTIFIED_BLOCKS, used - CERTIFIED_BLOCKS
     # The spine the page was designed around, all of it present.
-    assert {"header", "kpi", "chart", "table", "result", "action_button"} <= used
+    assert {
+        "header",
+        "kpi",
+        "chart",
+        "table",
+        "result",
+        "action_button",
+        "form",
+    } <= used
 
     ids = [component["id"] for component in _components(document)]
     assert len(ids) == len(set(ids))
@@ -1790,36 +2034,56 @@ def test_the_board_tiles_into_whole_rows_with_the_rates_side_by_side():
     assert (table["props"] or {}).get("span") == "full"
 
 
-def test_every_tile_reads_the_one_run_the_board_button_produced():
+def test_every_block_reads_the_run_of_the_control_it_names():
     """Display blocks do not fetch, and this is what that means in a document.
 
-    Each tile names the action component it reads from; that component carries
-    the binding key and is the only thing on the page that invokes anything. A
-    tile pointing at a component that does not exist renders blank, and a page
-    where each tile fetched for itself could show a revenue figure and a
-    subscriber count from two different refreshes.
+    Each block names the control it reads from; a control carries the binding
+    key and is the only kind of thing on the page that invokes anything. A block
+    pointing at a component that does not exist renders blank, and a page where
+    each tile fetched for itself could show a revenue figure and a subscriber
+    count from two different refreshes.
+
+    Two controls now, so the property is per control rather than global: the
+    tiles read the refresh, the verdict reads the consultation, and neither
+    borrows the other's run.
     """
 
     document = board_document()
     by_id = {component["id"]: component for component in _components(document)}
 
-    actions = [
+    controls = [
         component
         for component in _components(document)
-        if component["type"] in {"form", "action_button"}
+        if component["type"] in CONTROL_BLOCKS
     ]
-    assert [component["id"] for component in actions] == [BOARD_ACTION_ID]
-    assert actions[0]["props"]["bindingKey"] == BOARD_BINDING_KEY
-    # No arguments: the ingress is closed, so the button posts an empty object.
-    assert actions[0]["props"]["input"] == {}
+    assert [component["id"] for component in controls] == [
+        BOARD_ACTION_ID,
+        DESK_ACTION_ID,
+    ]
+    keys = {component["id"]: component["props"]["bindingKey"] for component in controls}
+    assert keys == {
+        BOARD_ACTION_ID: BOARD_BINDING_KEY,
+        DESK_ACTION_ID: DESK_BINDING_KEY,
+    }
+    # No arguments: the board's ingress is closed, so the button posts an empty
+    # object. The desk's is one field, and the form offers exactly that field.
+    assert by_id[BOARD_ACTION_ID]["props"]["input"] == {}
+    assert by_id[DESK_ACTION_ID]["props"]["schema"] == DESK_INPUT_SCHEMA
+    assert "input" not in by_id[DESK_ACTION_ID]["props"]
 
     bound = _bound_selectors(document)
     assert bound, "a dashboard with no bound tile has nothing to show"
     for component_id, _selector in bound:
         source_id = by_id[component_id]["props"]["dataBinding"]["componentId"]
         assert source_id in by_id, (component_id, source_id)
-        assert by_id[source_id]["props"].get("bindingKey") == BOARD_BINDING_KEY
+        assert by_id[source_id]["type"] in CONTROL_BLOCKS, (component_id, source_id)
         assert by_id[component_id]["props"]["dataBinding"]["source"] == "run-output"
+
+    # And the split is the one the page is laid out around: everything above the
+    # form reads the board, and the verdict is the only block reading the desk.
+    assert [block for block, _ in _bound_selectors(document, component=DESK_ACTION_ID)] == [
+        "desk-verdict"
+    ]
 
     # Nothing on the page queries a System for itself.
     assert not [
@@ -1846,13 +2110,22 @@ def test_the_page_says_whether_the_refresh_worked_and_not_only_what_it_found():
     components = _components(board_document())
     types = [component["type"] for component in components]
 
-    assert "runtime_status" in types
-    status = components[types.index("runtime_status")]
-    assert "dataBinding" not in status.get("props", {})
+    statuses = [
+        index for index, kind in enumerate(types) if kind == "runtime_status"
+    ]
+    # One per control: a consultation takes longer than a refresh, so the
+    # argument for the board's status block applies twice over to the desk's.
+    assert len(statuses) == len(CONTROL_BLOCKS)
+    for index in statuses:
+        assert "dataBinding" not in components[index].get("props", {})
 
-    # The runtime resolves an unbound status block against the nearest action
-    # above it, so a status placed before the button would report nothing.
-    assert types.index("runtime_status") > types.index("action_button")
+    # The runtime resolves an unbound status block against the nearest control
+    # above it, so a status placed before its control would report nothing — and
+    # two controls means each status has to follow its *own*.
+    controls = [index for index, kind in enumerate(types) if kind in CONTROL_BLOCKS]
+    for index, control in zip(statuses, controls, strict=True):
+        assert index > control
+        assert not [other for other in controls if control < other < index]
 
 
 def test_every_selector_the_document_reads_is_one_the_board_produces():
@@ -1868,7 +2141,7 @@ def test_every_selector_the_document_reads_is_one_the_board_produces():
     document = board_document()
     payload = _board(_scored_rows(size=40))
 
-    for component_id, selector in _bound_selectors(document):
+    for component_id, selector in _bound_selectors(document, component=BOARD_ACTION_ID):
         assert _schema_at(BOARD_OUTPUT_SCHEMA, selector) is not None, component_id
         current = payload
         for segment in selector.split("."):
@@ -1877,6 +2150,13 @@ def test_every_selector_the_document_reads_is_one_the_board_produces():
                 selector,
             )
             current = current[segment]
+
+    # The desk's blocks are validated against the desk's contract, which is the
+    # whole point of naming the control: a selector checked against the wrong
+    # System's schema is a check that passes for the wrong reason.
+    for component_id, selector in _bound_selectors(document, component=DESK_ACTION_ID):
+        assert _schema_at(DESK_OUTPUT_SCHEMA, selector) is not None, component_id
+        assert selector in DESK_OUTPUT_SCHEMA["required"], component_id
 
     # The reverse direction for the fields the task's contract names: every one
     # of them is produced, whether or not a tile happens to read it today.
@@ -2057,14 +2337,65 @@ def test_the_board_flow_is_walked_by_the_engine_that_configures_recipes():
 # ---------------------------------------------------------------------------
 
 
+def _stub_predict_skill(db_session, workspace):
+    """The published model's Skill, without the model behind it.
+
+    The desk's graph names this slug on its planner's allowlist, and a slug no
+    Skill answers to cannot be bound — which leaves the System with no execution
+    contract and its binding unresolvable. So the page cannot be certified
+    without one. Fitting a model to obtain it would add a minute to a fixture
+    that never scores anything: what these tests need is the *identity* the
+    model card publishes, which is a row with the same executor the card writes.
+    """
+
+    from app.models.skill import Skill
+    from app.services.skills_registry import workspace_skill_slug
+    from app.services.skills_registry.executors import validate_executor_binding
+
+    identity = workspace_skill_slug(
+        workspace_id=workspace.id, local_name="predict_churn_radar"
+    )
+    row = Skill(
+        workspace_id=workspace.id,
+        slug=identity.slug,
+        name="Predict · Churn Radar",
+        description="seeded",
+        type="workflow",
+        category="Models",
+        executor=validate_executor_binding(
+            {
+                "kind": "registry_call",
+                "params": {
+                    "skill_slug": "ml_predict_v1",
+                    "frozen_input": {"_predict": {"model_id": str(uuid4())}},
+                },
+            }
+        ),
+        input_schema={"type": "object", "properties": {}},
+        output_schema={"type": "object", "properties": {}},
+        execution={"mode": "sync", "timeout_ms": 30000},
+        certification_level="basic",
+        is_seeded="N",
+        provider="internal",
+    )
+    db_session.add(row)
+    db_session.commit()
+    db_session.refresh(row)
+    return row
+
+
 @pytest.fixture()
 def board(db_session):
     """The board seeded exactly as ``seed()`` seeds it, minus the pipeline.
 
-    The datasets and the run are not needed to certify the page: the recipe
-    resolves its table by slug at run time, and the ready-check reads the
+    The datasets and the run are not needed to certify the page: the recipes
+    resolve their tables by slug at run time, and the ready-check reads the
     published contract rather than any data behind it. Leaving them out keeps
     the fixture to the lifecycle these tests are about.
+
+    Both Systems, though. The page carries a form that invokes the desk, and a
+    release is refused when a key the document names does not resolve — so a
+    fixture with only the board would certify a page nobody can deploy.
     """
 
     from app.services.skills_registry import seed_skills_and_capabilities
@@ -2092,12 +2423,42 @@ def board(db_session):
         system_type="retention_board",
         execution_mode="real_time_decision",
     )
-    binding = ensure_board_binding(db_session, workspace, system)
+    desk_capability = ensure_capability(
+        db_session,
+        workspace,
+        slug=DESK_CAPABILITY_SLUG,
+        name=DESK_SYSTEM_NAME,
+        description="seeded",
+        skill_slugs=DESK_SKILL_SLUGS,
+        input_unit="subscriber",
+        output_unit="verdict",
+        value_per_outcome=0.0,
+    )
+    desk_skill = _stub_predict_skill(db_session, workspace)
+    desk_system = ensure_system(
+        db_session,
+        workspace,
+        desk_capability,
+        name=DESK_SYSTEM_NAME,
+        objective="seeded",
+        flow=desk_flow(predict_slug=desk_skill.slug),
+        system_type="churn_desk",
+        execution_mode="real_time_decision",
+        extra_skill_ids=(desk_skill.id,),
+    )
+    binding = ensure_binding(
+        db_session, workspace, system, binding_key=BOARD_BINDING_KEY
+    )
+    desk_binding = ensure_binding(
+        db_session, workspace, desk_system, binding_key=DESK_BINDING_KEY
+    )
     experience = ensure_board_experience(db_session, workspace)
     return {
         "workspace": workspace,
         "system": system,
         "binding": binding,
+        "desk_system": desk_system,
+        "desk_binding": desk_binding,
         "experience": experience,
     }
 
@@ -2241,7 +2602,15 @@ def test_reseeding_the_board_neither_re_releases_nor_re_deploys_it(db_session, b
     )
     release_id = before.release_id
 
-    ensure_board_binding(db_session, board["workspace"], board["system"])
+    ensure_binding(
+        db_session, board["workspace"], board["system"], binding_key=BOARD_BINDING_KEY
+    )
+    ensure_binding(
+        db_session,
+        board["workspace"],
+        board["desk_system"],
+        binding_key=DESK_BINDING_KEY,
+    )
     again = ensure_board_experience(db_session, board["workspace"])
 
     assert again.id == experience.id
@@ -2300,7 +2669,9 @@ def test_a_reset_takes_the_board_down_whole_so_a_re_seed_can_rebuild_it(
     tally = reset(db_session, workspace)
 
     assert tally["experiences"] == 1
-    assert tally["bindings"] == 1
+    # Both of the keys the page's blocks invoke through: a board rebuilt with
+    # one of them left behind would be released against a stale publication.
+    assert tally["bindings"] == 2
     for model_class in (
         ExperienceDeployment,
         ExperienceRelease,
@@ -2321,9 +2692,11 @@ def test_a_reset_takes_the_board_down_whole_so_a_re_seed_can_rebuild_it(
     )
     assert (
         db_session.query(SystemBinding)
-        .filter(SystemBinding.binding_key == BOARD_BINDING_KEY)
-        .one_or_none()
-        is None
+        .filter(
+            SystemBinding.binding_key.in_((BOARD_BINDING_KEY, DESK_BINDING_KEY))
+        )
+        .count()
+        == 0
     )
     # Somebody else's application is not the seed's to remove.
     assert (
@@ -2340,7 +2713,12 @@ def test_a_reset_takes_the_board_down_whole_so_a_re_seed_can_rebuild_it(
         is not None
     )
 
-    ensure_board_binding(db_session, workspace, board["system"])
+    ensure_binding(
+        db_session, workspace, board["system"], binding_key=BOARD_BINDING_KEY
+    )
+    ensure_binding(
+        db_session, workspace, board["desk_system"], binding_key=DESK_BINDING_KEY
+    )
     rebuilt = ensure_board_experience(db_session, workspace)
     assert rebuilt.slug == BOARD_EXPERIENCE_SLUG
     assert rebuilt.id != board["experience"].id

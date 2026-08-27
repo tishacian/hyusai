@@ -2007,6 +2007,44 @@ def _resolve_model(db, spec: dict[str, Any], workspace_id: str):
     raise ValueError("ML_MODEL_NOT_FOUND: pick the model this node predicts with")
 
 
+def _predict_summary(answer: dict[str, Any]) -> str:
+    """What the model answered, in one line.
+
+    An AgentLoop turn records a single string per skill it called, and that
+    string is the whole channel the planner reads before choosing its next move.
+    ``azure_llm_v1`` fills it through ``completion``, the ledger skills through
+    ``summary`` — a published model filled neither, so a loop told to score a
+    record and then advise learned only that scoring had happened. Here the
+    number *is* the answer, and an agent that cannot see it can only assert that
+    one exists.
+    """
+
+    served = answer.get("served")
+    served = served if isinstance(served, dict) else {}
+    name = str(served.get("name") or "").strip() or "the model"
+    version = served.get("version")
+    who = f"{name} version {version}" if version is not None else name
+    target = str(answer.get("target") or "").strip() or "the target"
+
+    predictions = answer.get("predictions")
+    predictions = predictions if isinstance(predictions, list) else []
+    if len(predictions) != 1 or not isinstance(predictions[0], dict):
+        return f"{who} answered {len(predictions)} records for {target}."
+
+    answered = predictions[0]
+    parts = [f"{who} predicts {target} = {answered.get('prediction')}"]
+    # Named rather than bare: a probability whose class is unstated is the
+    # figure that gets read as the opposite of what it says.
+    positive = answer.get("positive_label")
+    score = answered.get("score")
+    if positive is not None and isinstance(score, int | float) and not isinstance(score, bool):
+        parts.append(f"probability of {positive} {round(float(score), 4)}")
+    confidence = answered.get("confidence")
+    if isinstance(confidence, int | float) and not isinstance(confidence, bool):
+        parts.append(f"confidence {round(float(confidence), 4)}")
+    return ", ".join(parts) + "."
+
+
 async def _ml_predict_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
@@ -2044,12 +2082,13 @@ async def _ml_predict_v1(
                 caller="flow",
                 explain=bool(spec.get("explain")),
             )
+            summary = _predict_summary(answer)
             # A one-row call is flattened so a downstream node (or an agent
             # reading a tool result) does not have to index into a list to find
             # the only answer there was.
             if len(answer.get("predictions") or []) == 1:
-                return {**answer, **answer["predictions"][0]}
-            return answer
+                return {**answer, **answer["predictions"][0], "summary": summary}
+            return {**answer, "summary": summary}
 
     try:
         return await asyncio.to_thread(_run)
