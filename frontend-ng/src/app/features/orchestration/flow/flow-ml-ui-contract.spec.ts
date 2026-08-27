@@ -240,8 +240,8 @@ test('the studio is no-code because the server answers every edit', () => {
   // its type suggests.
   assert.match(workshop, /data-testid="train-target"/);
   assert.match(workshop, /targetCandidates\(this\.columns\(\)/);
-  assert.match(workshop, /role="radiogroup"/);
-  assert.match(workshop, /taskIcon\(column\.suggested_task\)/);
+  assert.match(workshop, /selectMode="single"/);
+  assert.match(workshop, /planColumnsAsTable/);
   // The plan follows the spec rather than sitting behind a button, and it is
   // debounced so a slider drag is one request.
   assert.match(workshop, /this\.schedulePlan\(\)/);
@@ -249,8 +249,8 @@ test('the studio is no-code because the server answers every edit', () => {
   assert.match(workshop, /data-testid="train-plan"/);
   // A column unique per row is flagged BEFORE anything is fitted — that is the
   // difference between a studio and a form.
-  assert.match(workshop, /ck-train-workshop__chip--flagged/);
-  assert.match(workshop, /flagged\(\)\.has\(column\.name\)/);
+  assert.match(workshop, /\[flagged\]="flaggedFeatureNames\(\)"/);
+  assert.match(workshop, /selectMode="multi"/);
   assert.match(workshop, /warningMessage\(warning\)/);
   // A refusal lands on the field that caused it, and one no field owns is still
   // rendered rather than swallowed.
@@ -268,7 +268,6 @@ test('the studio is no-code because the server answers every edit', () => {
     'flow.ml.train.target',
     'flow.ml.train.target.hint',
     'flow.ml.train.target.none',
-    'flow.ml.train.distinct',
     'flow.ml.train.dataset.required',
     'flow.ml.train.task',
     'flow.ml.train.task.suggested',
@@ -290,15 +289,15 @@ test('the columns a fit is built from carry their shape, not just their name', (
   // The judgement the studio asks for — "is this a target, is this a feature" —
   // is a judgement about a distribution. Sending the author to the dataset page
   // to see it is how a no-code studio stops being one.
-  const spark = readFileSync(
-    join(process.cwd(), 'src/app/shared/ui/column-spark.component.ts'),
+  const table = readFileSync(
+    join(process.cwd(), 'src/app/shared/ui/data-table.component.ts'),
     'utf8',
   );
-  assert.match(spark, /profileBars\(this\.stats\(\), this\.numeric\(\)/);
-  assert.match(spark, /profileFacts\(this\.stats\(\), this\.numeric\(\)\)/);
+  assert.match(table, /data-testid="column-select"/);
+  assert.match(table, /selectMode = input<ColumnSelectMode>\('none'\)/);
 
-  // Both training surfaces draw it, from the profile the plan already carries,
-  // rather than each fetching the dataset a second time.
+  // Both training surfaces pick on the shared table, from the profile the plan
+  // already carries, rather than each inventing a second list of names.
   for (const [name, text] of [
     ['flow studio', source('flow-train-workshop.component.ts')],
     [
@@ -309,19 +308,11 @@ test('the columns a fit is built from carry their shape, not just their name', (
       ),
     ],
   ] as const) {
-    assert.match(text, /<ck-column-spark/, `${name} draws the glyph`);
-    assert.match(
-      text,
-      /\[stats\]="column\.profile \?\? null"/,
-      `${name} reads it from the plan`,
-    );
-    assert.match(text, /ColumnSparkComponent/, `${name} imports the component`);
-    // Twice: once beside a candidate target, once inside a feature chip.
-    assert.equal(
-      [...text.matchAll(/<ck-column-spark/g)].length,
-      2,
-      `${name} draws it for targets and for features`,
-    );
+    assert.match(text, /<ck-data-table/, `${name} uses the shared table`);
+    assert.match(text, /selectMode="single"/, `${name} picks one target`);
+    assert.match(text, /selectMode="multi"/, `${name} toggles features`);
+    assert.match(text, /planColumnStats/, `${name} reads profiles from the plan`);
+    assert.doesNotMatch(text, /<ck-column-spark/, `${name} no longer draws a second glyph`);
   }
 });
 
