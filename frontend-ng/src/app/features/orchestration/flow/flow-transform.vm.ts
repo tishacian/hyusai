@@ -136,6 +136,14 @@ export interface TransformParams {
   tests_yml: string;
   /** dbt only: which model is published as the dataset. */
   output_model: string;
+  /**
+   * dbt only: other models materialized as sibling datasets of the run.
+   *
+   * The published model feeds the node's port; these are the staging table
+   * worth inspecting or the KPI mart a dashboard reads. Never contains the
+   * published model itself.
+   */
+  output_models: string[];
 }
 
 /** Editor language of one file. */
@@ -159,6 +167,8 @@ export interface TransformFile {
   kind: 'program' | 'model' | 'tests';
   /** True for the dbt model this node publishes. */
   published?: boolean;
+  /** True for a dbt model also materialized as its own dataset. */
+  materialized?: boolean;
 }
 
 /** One addressable table, as the preview endpoints describe it. */
@@ -361,6 +371,7 @@ export function transformDefaultParams(
           models: DBT_TRANSFORM_DEFAULT_MODELS.map((model) => ({ ...model })),
           tests_yml: DBT_TRANSFORM_DEFAULT_TESTS_YML,
           output_model: DBT_TRANSFORM_DEFAULT_MODELS.at(-1)?.name ?? '',
+          output_models: [],
           output_name: '',
           sources: [],
         }
@@ -432,6 +443,14 @@ export function readTransformParams(
       : models;
   const requestedOutput =
     typeof params['output_model'] === 'string' ? params['output_model'].trim() : '';
+  const primary =
+    requestedOutput || (resolved === 'dbt' ? (effectiveModels.at(-1)?.name ?? '') : '');
+  const requestedExtras = Array.isArray(params['output_models'])
+    ? params['output_models']
+        .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+        .filter((entry, at, all) => Boolean(entry) && all.indexOf(entry) === at)
+        .filter((entry) => entry !== primary)
+    : [];
   return {
     program:
       typeof program === 'string'
@@ -454,9 +473,8 @@ export function readTransformParams(
           : '',
     // Mirrors `resolve_output_model`: the last model reads as the mart, so a
     // node that never chose one still publishes something.
-    output_model:
-      requestedOutput ||
-      (resolved === 'dbt' ? (effectiveModels.at(-1)?.name ?? '') : ''),
+    output_model: primary,
+    output_models: requestedExtras,
   };
 }
 
@@ -490,6 +508,7 @@ export function transformFiles(
     content: model.sql,
     kind: 'model',
     published: model.name === params.output_model,
+    materialized: params.output_models.includes(model.name),
   }));
   files.push({
     id: 'tests_yml',
@@ -598,6 +617,9 @@ export function renameDbtModel(
   return {
     models,
     output_model: params.output_model === previous ? name : params.output_model,
+    output_models: params.output_models.map((entry) =>
+      entry === previous ? name : entry,
+    ),
   };
 }
 
@@ -630,12 +652,16 @@ export function removeDbtModel(
   const models = params.models
     .filter((_model, at) => at !== index)
     .map((model) => ({ ...model }));
+  const publication =
+    params.output_model === removed
+      ? (models.at(-1)?.name ?? '')
+      : params.output_model;
   return {
     models,
-    output_model:
-      params.output_model === removed
-        ? (models.at(-1)?.name ?? '')
-        : params.output_model,
+    output_model: publication,
+    output_models: params.output_models.filter(
+      (entry) => entry !== removed && entry !== publication,
+    ),
   };
 }
 
@@ -645,7 +671,26 @@ export function publishDbtModel(
   name: string,
 ): TransformParamsPatch {
   if (!params.models.some((model) => model.name === name)) return {};
-  return { output_model: name };
+  return {
+    output_model: name,
+    // The port's model is not an extra: promoting one that was ticked as a
+    // sibling dataset absorbs the tick rather than versioning it twice.
+    output_models: params.output_models.filter((entry) => entry !== name),
+  };
+}
+
+/** Tick or untick one model as a sibling dataset of the run. */
+export function toggleDbtMaterialize(
+  params: TransformParams,
+  name: string,
+): TransformParamsPatch {
+  if (!params.models.some((model) => model.name === name)) return {};
+  if (name === params.output_model) return {};
+  return {
+    output_models: params.output_models.includes(name)
+      ? params.output_models.filter((entry) => entry !== name)
+      : [...params.output_models, name],
+  };
 }
 
 /**
@@ -788,6 +833,14 @@ export function preflightTransform(
       key: 'flow.transform.error.DBT_OUTPUT_MODEL_MISSING',
       detail: params.output_model,
     };
+  }
+  for (const extra of params.output_models) {
+    if (!seen.has(extra)) {
+      return {
+        key: 'flow.transform.error.DBT_OUTPUT_MODEL_MISSING',
+        detail: extra,
+      };
+    }
   }
   return null;
 }

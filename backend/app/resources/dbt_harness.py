@@ -16,7 +16,10 @@ Contract with the manifest the worker writes:
     the duckdb database, reachable both as ``{{ source('inputs', name) }}`` and
     as a bare relation, so the SQL habits of the single-statement node carry
     over unchanged;
-  * ``output_model`` — the model whose table is published as the dataset.
+  * ``output_model`` — the model whose table is published as the dataset;
+  * ``extra_outputs`` — optional ``{model_name: parquet_path}``: other selected
+    models, each copied out beside the primary so the worker can version them
+    as sibling datasets.
 
 Only ``dbt-duckdb`` is assumed present — it is pinned into the managed venv by
 the node's environment spec. The result Parquet is written by duckdb itself
@@ -306,6 +309,27 @@ def main(argv: list[str]) -> int:
         except Exception as exc:  # noqa: BLE001
             _write_summary()
             return _fail(5, f"dbt_result_unwritable: {exc}")
+        extra_outputs = manifest.get("extra_outputs")
+        for name, path in (
+            extra_outputs.items() if isinstance(extra_outputs, dict) else []
+        ):
+            relation = str(name)
+            if relation not in known:
+                _write_summary()
+                return _fail(
+                    3,
+                    f"dbt_output_model_missing: '{relation}' is not a model of "
+                    "this project",
+                )
+            quoted_path = str(path).replace("'", "''")
+            try:
+                connection.execute(
+                    f'copy (select * from main."{relation}") '
+                    f"to '{quoted_path}' (format parquet)"
+                )
+            except Exception as exc:  # noqa: BLE001
+                _write_summary()
+                return _fail(5, f"dbt_result_unwritable: {exc}")
     finally:
         connection.close()
 

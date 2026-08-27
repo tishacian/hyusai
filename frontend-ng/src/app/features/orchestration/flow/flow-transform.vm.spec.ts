@@ -39,6 +39,7 @@ import {
   requirementLines,
   starterProgramFor,
   starterSqlFor,
+  toggleDbtMaterialize,
   transformDefaultParams,
   transformEngineOf,
   transformErrorPosition,
@@ -549,17 +550,95 @@ test('deleting a model hands the publication over, and the last one is kept', ()
   );
 });
 
-test('publishing another model is the only field it touches', () => {
+test('publishing another model moves the port and absorbs its dataset tick', () => {
   const params = project([
     { name: 'stg', sql: 'select 1' },
     { name: 'mart', sql: 'select 2' },
   ]);
-  assert.deepEqual(publishDbtModel(params, 'stg'), { output_model: 'stg' });
+  assert.deepEqual(publishDbtModel(params, 'stg'), {
+    output_model: 'stg',
+    output_models: [],
+  });
   assert.deepEqual(
     publishDbtModel(params, 'ghost'),
     {},
     'a model that is not in the project cannot be published',
   );
+  // A ticked model that gets promoted stops being an extra: the port already
+  // versions it, and versioning it twice would be two datasets for one table.
+  const ticked = { ...params, output_models: ['stg'] };
+  assert.deepEqual(publishDbtModel(ticked, 'stg'), {
+    output_model: 'stg',
+    output_models: [],
+  });
+});
+
+test('ticking a model as a sibling dataset is reversible and refuses the port', () => {
+  const params = project([
+    { name: 'stg', sql: 'select 1' },
+    { name: 'kpi', sql: 'select 2' },
+    { name: 'mart', sql: 'select 3' },
+  ]);
+  assert.deepEqual(toggleDbtMaterialize(params, 'stg'), { output_models: ['stg'] });
+  const ticked = { ...params, output_models: ['stg', 'kpi'] };
+  assert.deepEqual(toggleDbtMaterialize(ticked, 'kpi'), { output_models: ['stg'] });
+  // The published model is not an extra, and a ghost is not a model.
+  assert.deepEqual(toggleDbtMaterialize(params, 'mart'), {});
+  assert.deepEqual(toggleDbtMaterialize(params, 'ghost'), {});
+});
+
+test('the extra selection survives a rename and a deletion, but not its model', () => {
+  const params = {
+    ...project([
+      { name: 'stg', sql: 'select 1' },
+      { name: 'kpi', sql: "select * from {{ ref('stg') }}" },
+      { name: 'mart', sql: "select * from {{ ref('kpi') }}" },
+    ]),
+    output_models: ['stg', 'kpi'],
+  };
+  const renamed = renameDbtModel(params, 0, 'staging');
+  assert.deepEqual(renamed['output_models'], ['staging', 'kpi']);
+  const removed = removeDbtModel(params, 1);
+  assert.deepEqual(removed['output_models'], ['stg']);
+  // Deleting the published model hands the port to the last survivor, which
+  // then stops being an extra for the same reason a promotion absorbs a tick.
+  const handover = removeDbtModel(params, 2);
+  assert.equal(handover['output_model'], 'kpi');
+  assert.deepEqual(handover['output_models'], ['stg']);
+});
+
+test('the stored extra selection is read deduplicated and without the port', () => {
+  const params = readTransformParams(
+    dbtNode({
+      params: {
+        models: [
+          { name: 'stg', sql: 'select 1' },
+          { name: 'kpi', sql: 'select 2' },
+          { name: 'mart', sql: 'select 3' },
+        ],
+        output_model: 'mart',
+        output_models: ['kpi', 'kpi', 'mart', '  ', 'stg'],
+      },
+    }),
+  );
+  assert.deepEqual(params.output_models, ['kpi', 'stg']);
+  const files = transformFiles(params, 'dbt');
+  assert.deepEqual(
+    files.map((file) => Boolean(file.materialized)),
+    [true, true, false, false],
+    'the rail badges the ticked models, never the published one or the tests',
+  );
+});
+
+test('a ghost in the extra selection is refused before the round-trip', () => {
+  const params = {
+    ...project([{ name: 'mart', sql: 'select 1' }]),
+    output_models: ['ghost'],
+  };
+  assert.deepEqual(preflightTransform(params, 'dbt'), {
+    key: 'flow.transform.error.DBT_OUTPUT_MODEL_MISSING',
+    detail: 'ghost',
+  });
 });
 
 test('the dbt preflight refuses the project shapes dbt could not compile', () => {

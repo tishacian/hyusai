@@ -284,6 +284,7 @@ test('a dbt project is authored as files, with the published model badged', () =
   assert.match(workshop, /data-testid="add-dbt-model"/);
   assert.match(workshop, /data-testid="dbt-model-name"/);
   assert.match(workshop, /data-testid="publish-dbt-model"/);
+  assert.match(workshop, /data-testid="materialize-dbt-model"/);
   assert.match(workshop, /data-testid="remove-dbt-model"/);
   assert.match(
     workshop,

@@ -76,6 +76,7 @@ import {
   renameDbtModel,
   requirementLines,
   starterProgramFor,
+  toggleDbtMaterialize,
   transformChecklist,
   transformEngineOf,
   transformFiles,
@@ -202,6 +203,14 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                           >
                             {{ i18n.t('flow.transform.files.published') }}
                           </span>
+                        } @else if (file.materialized) {
+                          <span
+                            class="ck-transform-workshop__pill"
+                            data-testid="materialized-pill"
+                            [title]="i18n.t('flow.transform.files.materialized.hint')"
+                          >
+                            {{ i18n.t('flow.transform.files.materialized') }}
+                          </span>
                         }
                       </button>
                     }
@@ -237,6 +246,22 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                       (click)="publishActiveModel()"
                     >
                       {{ i18n.t('flow.transform.files.publish') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="ck-transform-workshop__mini"
+                      data-testid="materialize-dbt-model"
+                      [disabled]="activeFile().published"
+                      [title]="i18n.t('flow.transform.files.materialize.hint')"
+                      (click)="toggleMaterializeActiveModel()"
+                    >
+                      {{
+                        i18n.t(
+                          activeFile().materialized
+                            ? 'flow.transform.files.materialize.off'
+                            : 'flow.transform.files.materialize'
+                        )
+                      }}
                     </button>
                     <button
                       type="button"
@@ -894,6 +919,14 @@ export class FlowTransformWorkshopComponent {
     if (!name) return;
     this.flushProgram();
     this.writeProject(publishDbtModel(this.params(), name));
+  }
+
+  /** Tick or untick the active model as a sibling dataset of the run. */
+  protected toggleMaterializeActiveModel(): void {
+    const name = this.activeModelName();
+    if (!name) return;
+    this.flushProgram();
+    this.writeProject(toggleDbtMaterialize(this.params(), name));
   }
 
   protected removeActiveModel(): void {

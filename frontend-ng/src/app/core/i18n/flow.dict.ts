@@ -1096,6 +1096,13 @@ export const FLOW_FR = {
   'flow.transform.files.published': 'publié',
   'flow.transform.files.published.hint':
     'C’est ce modèle qui devient le jeu de données versionné à chaque exécution.',
+  'flow.transform.files.materialize': 'Matérialiser',
+  'flow.transform.files.materialize.hint':
+    'Versionner aussi ce modèle comme jeu de données à chaque exécution, à côté du modèle publié.',
+  'flow.transform.files.materialize.off': 'Ne plus matérialiser',
+  'flow.transform.files.materialized': 'dataset',
+  'flow.transform.files.materialized.hint':
+    'Ce modèle est aussi versionné comme jeu de données à chaque exécution.',
   'flow.transform.files.rename.aria': 'Nom de relation du modèle',
   'flow.transform.files.tests.label': 'Tests',
 
@@ -2589,6 +2596,13 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.transform.files.published': 'published',
   'flow.transform.files.published.hint':
     'This is the model that becomes the versioned dataset on every run.',
+  'flow.transform.files.materialize': 'Materialize',
+  'flow.transform.files.materialize.hint':
+    'Also version this model as a dataset on every run, beside the published model.',
+  'flow.transform.files.materialize.off': 'Stop materializing',
+  'flow.transform.files.materialized': 'dataset',
+  'flow.transform.files.materialized.hint':
+    'This model is also versioned as a dataset on every run.',
   'flow.transform.files.rename.aria': 'Relation name of the model',
   'flow.transform.files.tests.label': 'Tests',
 
