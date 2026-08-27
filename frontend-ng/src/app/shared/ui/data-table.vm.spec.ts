@@ -21,6 +21,7 @@ import {
   nullPercent,
   profileBars,
   profileFacts,
+  toggleColumnSelection,
   topValueBars,
   type TabularColumnStats,
 } from './data-table.vm';
@@ -227,6 +228,16 @@ test('byte sizes read as volumes, keeping a decimal only where it informs', () =
   assert.equal(formatBytes(undefined, 'en'), '—');
 });
 
+test('a column click replaces, toggles or leaves the selection alone', () => {
+  assert.deepEqual(toggleColumnSelection('single', [], 'churn'), ['churn']);
+  assert.deepEqual(toggleColumnSelection('single', ['churn'], 'churn'), []);
+  assert.deepEqual(toggleColumnSelection('single', ['churn'], 'region'), ['region']);
+  assert.deepEqual(toggleColumnSelection('multi', ['a'], 'b'), ['a', 'b']);
+  assert.deepEqual(toggleColumnSelection('multi', ['a', 'b'], 'a'), ['b']);
+  assert.deepEqual(toggleColumnSelection('none', ['a'], 'b'), ['a']);
+  assert.deepEqual(toggleColumnSelection('multi', ['a'], 'a', ['a']), ['a']);
+});
+
 test('the table states its own shape, so no caller can forget to', () => {
   // The plan's first UI bet is one table, and part of what it carries is a
   // "n rows · k columns" badge. It belongs to the component because it is a
@@ -238,6 +249,7 @@ test('the table states its own shape, so no caller can forget to', () => {
     'utf8',
   );
   assert.match(source, /data-testid="table-shape"/);
+  assert.match(source, /data-testid="column-select"/);
   assert.match(source, /'data\.table\.rows_columns'/);
   assert.match(source, /readonly shape = computed/);
   // The whole dataset when the caller knows it, the rows on screen otherwise:

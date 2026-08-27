@@ -49,7 +49,7 @@ import {
 import { A11yModule } from '@angular/cdk/a11y';
 import { RouterLink } from '@angular/router';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { ColumnSparkComponent } from '@app/shared/ui/column-spark.component';
+import { DataTableComponent } from '@app/shared/ui/data-table.component';
 import type {
   TabularColumn,
   TabularColumnStats,
@@ -70,6 +70,8 @@ import {
   primaryScore,
   refusalField,
   refusalKey,
+  planColumnStats,
+  planColumnsAsTable,
   targetCandidates,
   taskIcon,
   trainChecklist,
@@ -77,7 +79,6 @@ import {
   type AlgoDescriptor,
   type KnobDescriptor,
   type ModelTask,
-  type PlanColumn,
 } from '@app/features/models/models.vm';
 import { FlowStore } from './flow.store';
 import { FlowMlService } from './flow-ml.service';
@@ -106,7 +107,7 @@ const SCORE_LIMIT = 4;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     A11yModule,
-    ColumnSparkComponent,
+    DataTableComponent,
     DatasetPreviewComponent,
     RouterLink,
     IconComponent,
@@ -187,42 +188,18 @@ const SCORE_LIMIT = 4;
                       {{ i18n.t('flow.ml.train.target.hint') }}
                     </p>
                     @if (candidates().length) {
-                      <div
-                        class="ck-train-workshop__picker"
-                        role="radiogroup"
+                      <ck-data-table
                         data-testid="train-target"
-                        [attr.aria-label]="i18n.t('flow.ml.train.target')"
-                      >
-                        @for (column of candidates(); track column.name) {
-                          <button
-                            type="button"
-                            role="radio"
-                            class="ck-train-workshop__row"
-                            [attr.aria-checked]="params().target === column.name"
-                            [class.ck-train-workshop__row--on]="
-                              params().target === column.name
-                            "
-                            (click)="onTarget(column.name)"
-                          >
-                            <app-icon [name]="taskIcon(column.suggested_task)" [size]="13" />
-                            <span class="ck-train-workshop__row-name">{{ column.name }}</span>
-                            <span class="ck-train-workshop__kind">
-                              {{ i18n.t('data.kind.' + column.kind) }}
-                            </span>
-                            <span class="ck-train-workshop__spark">
-                              <ck-column-spark
-                                [stats]="column.profile ?? null"
-                                [kind]="column.kind"
-                              />
-                            </span>
-                            <span class="ck-train-workshop__row-meta">
-                              {{
-                                i18n.t('flow.ml.train.distinct', { count: column.distinct })
-                              }}
-                            </span>
-                          </button>
-                        }
-                      </div>
+                        [columns]="targetTableColumns()"
+                        [rows]="[]"
+                        [stats]="targetTableStats()"
+                        [showRowNumbers]="false"
+                        [showShape]="false"
+                        selectMode="single"
+                        [selected]="params().target ? [params().target] : []"
+                        maxHeight="220px"
+                        (selectedChange)="onTargetPicked($event)"
+                      />
                     } @else {
                       <p class="ck-train-workshop__hint" data-testid="train-no-columns">
                         {{
@@ -288,30 +265,19 @@ const SCORE_LIMIT = 4;
                       <p class="ck-train-workshop__hint">
                         {{ i18n.t('flow.ml.train.features.hint') }}
                       </p>
-                      <div class="ck-train-workshop__chips" data-testid="train-features">
-                        @for (column of featureColumns(); track column.name) {
-                          <button
-                            type="button"
-                            class="ck-train-workshop__chip"
-                            [class.ck-train-workshop__chip--on]="isFeature(column.name)"
-                            [class.ck-train-workshop__chip--flagged]="flagged().has(column.name)"
-                            [attr.aria-pressed]="isFeature(column.name)"
-                            [title]="featureTitle(column)"
-                            (click)="toggleFeature(column.name)"
-                          >
-                            @if (flagged().has(column.name)) {
-                              <app-icon name="alert-triangle" [size]="10" />
-                            }
-                            <ck-column-spark
-                              [stats]="column.profile ?? null"
-                              [kind]="column.kind"
-                              [width]="20"
-                              [height]="9"
-                            />
-                            {{ column.name }}
-                          </button>
-                        }
-                      </div>
+                      <ck-data-table
+                        data-testid="train-features"
+                        [columns]="featureTableColumns()"
+                        [rows]="[]"
+                        [stats]="featureTableStats()"
+                        [showRowNumbers]="false"
+                        [showShape]="false"
+                        selectMode="multi"
+                        [selected]="selectedFeatures()"
+                        [flagged]="flaggedFeatureNames()"
+                        maxHeight="220px"
+                        (selectedChange)="onFeaturesPicked($event)"
+                      />
                       @if (refusalFor('features'); as message) {
                         <p class="ck-train-workshop__refusal" role="alert">
                           <app-icon name="alert-triangle" [size]="12" /> {{ message }}
@@ -736,6 +702,24 @@ export class FlowTrainWorkshopComponent {
     targetCandidates(this.columns(), this.ml.catalog().limits.max_classes),
   );
 
+  protected readonly targetTableColumns = computed(() =>
+    planColumnsAsTable(this.candidates()),
+  );
+
+  protected readonly targetTableStats = computed(() =>
+    planColumnStats(this.candidates()),
+  );
+
+  protected readonly featureTableColumns = computed(() =>
+    planColumnsAsTable(this.featureColumns()),
+  );
+
+  protected readonly featureTableStats = computed(() =>
+    planColumnStats(this.featureColumns()),
+  );
+
+  protected readonly flaggedFeatureNames = computed(() => [...this.flagged()]);
+
   protected readonly suggestedTask = computed<ModelTask | null>(
     () =>
       this.columns().find((column) => column.name === this.params().target)
@@ -897,18 +881,6 @@ export class FlowTrainWorkshopComponent {
     return preview ? Math.round(preview.rows * this.params().test_size) : 0;
   }
 
-  protected isFeature(name: string): boolean {
-    return this.selectedFeatures().includes(name);
-  }
-
-  protected featureTitle(column: PlanColumn): string {
-    const kind = this.i18n.t('data.kind.' + column.kind);
-    if (!this.flagged().has(column.name)) return kind;
-    return `${kind} — ${this.i18n.t('models.warning.ml_feature_identifier', {
-      feature: column.name,
-    })}`;
-  }
-
   protected knobValue(knob: KnobDescriptor): number {
     const authored = this.params().knobs[knob.key];
     const planned = this.plan()?.knobs?.[knob.key];
@@ -956,6 +928,22 @@ export class FlowTrainWorkshopComponent {
   // Edits — each one store write, so each one is one Ctrl+Z
   // -------------------------------------------------------------------------
 
+  protected onTargetPicked(names: string[]): void {
+    this.onTarget(names[0] ?? '');
+  }
+
+  protected onFeaturesPicked(names: string[]): void {
+    const available = this.featureColumns().map((column) => column.name);
+    if (
+      names.length === available.length &&
+      available.every((name) => names.includes(name))
+    ) {
+      this.allFeatures();
+      return;
+    }
+    this.writeParams({ features: names });
+  }
+
   protected onTarget(target: string): void {
     // A new target invalidates the choices made against the old one: the task it
     // suggests and the feature set that excluded it are both stale.
@@ -975,15 +963,6 @@ export class FlowTrainWorkshopComponent {
   protected onAlgo(algo: string): void {
     // The knobs belong to the estimator, so they do not survive it.
     this.writeParams({ algo, knobs: {} });
-  }
-
-  protected toggleFeature(name: string): void {
-    const current = this.selectedFeatures();
-    this.writeParams({
-      features: current.includes(name)
-        ? current.filter((feature) => feature !== name)
-        : [...current, name],
-    });
   }
 
   /** Back to the default: every column but the target, decided at run time. */

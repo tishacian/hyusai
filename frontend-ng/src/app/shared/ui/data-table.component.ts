@@ -18,7 +18,9 @@
  *   deviation as figures, plus the ranked top values — the numbers behind the
  *   sparkline, for the reader who wants to read rather than eyeball;
  * - **renders nulls as an explicit muted marker** rather than an empty cell you
- *   cannot distinguish from an empty string.
+ *   cannot distinguish from an empty string;
+ * - **selects columns** when a caller asks (`single` for a target, `multi` for
+ *   features) so the training picker is this table, not a second list of names.
  *
  * Everything is driven by the `TabularColumn` / `TabularColumnStats` contract
  * the backend emits, so a caller only ever passes `columns`, `rows` and
@@ -32,6 +34,7 @@ import {
   ElementRef,
   inject,
   input,
+  output,
   signal,
 } from '@angular/core';
 import { I18nService } from '@app/core/i18n.service';
@@ -40,7 +43,9 @@ import {
   isNumericKind,
   profileBars,
   profileFacts,
+  toggleColumnSelection,
   topValueBars,
+  type ColumnSelectMode,
   type ProfileBar,
   type ProfileFact,
   type TabularColumn,
@@ -51,6 +56,7 @@ import {
 } from './data-table.vm';
 
 export type {
+  ColumnSelectMode,
   ProfileBar,
   ProfileFact,
   TabularColumn,
@@ -139,7 +145,28 @@ interface RenderedColumn {
                 <th class="ck-dt__th ck-dt__th--gutter"></th>
               }
               @for (col of rendered(); track col.name) {
-                <th class="ck-dt__th" [class.ck-dt__th--num]="col.numeric">
+                <th
+                  class="ck-dt__th"
+                  [class.ck-dt__th--num]="col.numeric"
+                  [class.ck-dt__th--picked]="isSelected(col.name)"
+                  [class.ck-dt__th--flagged]="isFlagged(col.name)"
+                  [attr.data-selected]="isSelected(col.name)"
+                >
+                  <div class="ck-dt__th-row">
+                    @if (selectMode() !== 'none') {
+                      <button
+                        type="button"
+                        class="ck-dt__pick"
+                        data-testid="column-select"
+                        [attr.data-mode]="selectMode()"
+                        [attr.data-name]="col.name"
+                        [attr.aria-pressed]="isSelected(col.name)"
+                        [disabled]="isSelectDisabled(col.name)"
+                        [attr.aria-label]="selectLabel(col.name)"
+                        (click)="onSelect(col.name)"
+                      ></button>
+                    }
+                    <div class="ck-dt__th-body">
                   @if (openable(col)) {
                     <button
                       type="button"
@@ -156,6 +183,8 @@ interface RenderedColumn {
                   } @else {
                     <ng-container [ngTemplateOutlet]="head" [ngTemplateOutletContext]="{ col }" />
                   }
+                    </div>
+                  </div>
                   @if (open() === col.name) {
                     <div
                       class="ck-dt__pop"
@@ -233,7 +262,7 @@ interface RenderedColumn {
                 }
               </tr>
             }
-            @if (!rows().length) {
+            @if (!rows().length && selectMode() === 'none') {
               <tr>
                 <td
                   class="ck-dt__td ck-dt__empty"
@@ -320,6 +349,49 @@ interface RenderedColumn {
       }
       .ck-dt__th--num {
         text-align: right;
+      }
+      .ck-dt__th-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 6px;
+      }
+      .ck-dt__th-body {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+      .ck-dt__pick {
+        flex: 0 0 auto;
+        width: 14px;
+        height: 14px;
+        margin-bottom: 2px;
+        padding: 0;
+        border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.28));
+        background: transparent;
+        cursor: pointer;
+      }
+      .ck-dt__pick[data-mode='single'] {
+        border-radius: 999px;
+      }
+      .ck-dt__pick[data-mode='multi'] {
+        border-radius: 3px;
+      }
+      .ck-dt__pick[aria-pressed='true'] {
+        background: var(--ck-signal-cool, #7dd3fc);
+        border-color: var(--ck-signal-cool, #7dd3fc);
+      }
+      .ck-dt__pick:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+      .ck-dt__pick:focus-visible {
+        outline: 1px solid var(--ck-signal-cool, #7dd3fc);
+        outline-offset: 2px;
+      }
+      .ck-dt__th--picked {
+        box-shadow: inset 0 -2px 0 var(--ck-signal-cool, #7dd3fc);
+      }
+      .ck-dt__th--flagged .ck-dt__name {
+        color: var(--ck-signal-warn, #f5b84a);
       }
       .ck-dt__th--gutter,
       .ck-dt__td--gutter {
@@ -576,9 +648,19 @@ export class DataTableComponent {
   readonly emptyLabel = input<string>('');
   readonly showProfile = input<boolean>(true);
   readonly showRowNumbers = input<boolean>(true);
+  readonly showShape = input<boolean>(true);
   readonly maxHeight = input<string>('460px');
   /** Row count of the whole dataset, stated in the profile beside the nulls. */
   readonly rowCount = input<number | null>(null);
+  /**
+   * Column picking, used by the training studio. `none` is a plain preview.
+   * The selection is owned by the caller; this table only reports clicks.
+   */
+  readonly selectMode = input<ColumnSelectMode>('none');
+  readonly selected = input<readonly string[]>([]);
+  readonly selectDisabled = input<readonly string[]>([]);
+  readonly flagged = input<readonly string[]>([]);
+  readonly selectedChange = output<string[]>();
 
   /** Name of the column whose profile is open, or `null` when none is. */
   protected readonly open = signal<string | null>(null);
@@ -598,6 +680,7 @@ export class DataTableComponent {
    * give.
    */
   protected readonly shape = computed(() => {
+    if (!this.showShape()) return '';
     const columns = this.columns().length;
     if (!columns) return '';
     const total = this.rowCount();
@@ -640,6 +723,37 @@ export class DataTableComponent {
   protected readonly probing = computed(() =>
     this.rendered().some((column) => column.name === this.open()),
   );
+
+  protected isSelected(name: string): boolean {
+    return this.selected().includes(name);
+  }
+
+  protected isSelectDisabled(name: string): boolean {
+    return this.selectDisabled().includes(name);
+  }
+
+  protected isFlagged(name: string): boolean {
+    return this.flagged().includes(name);
+  }
+
+  protected selectLabel(name: string): string {
+    const key =
+      this.selectMode() === 'single'
+        ? 'data.table.select.one'
+        : 'data.table.select.toggle';
+    return this.i18n.t(key, { column: name });
+  }
+
+  protected onSelect(name: string): void {
+    this.selectedChange.emit(
+      toggleColumnSelection(
+        this.selectMode(),
+        this.selected(),
+        name,
+        this.selectDisabled(),
+      ),
+    );
+  }
 
   /** A header is a button only when there is a profile behind it to open. */
   protected openable(column: RenderedColumn): boolean {

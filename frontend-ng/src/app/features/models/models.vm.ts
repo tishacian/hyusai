@@ -16,7 +16,7 @@ import type {
   ConfusionBlock,
   CurvePoint,
 } from '@app/features/data/viz/viz.vm';
-import type { TabularColumnStats } from '@app/shared/ui/data-table.vm';
+import type { TabularColumn, TabularColumnStats } from '@app/shared/ui/data-table.vm';
 
 // ---------------------------------------------------------------------------
 // Transport shapes
@@ -1061,6 +1061,30 @@ export function targetCandidates(
     if (column.suggested_task === 'regression') return true;
     return column.distinct <= maxClasses;
   });
+}
+
+/** Plan columns in the shape the shared table already reads. */
+export function planColumnsAsTable(columns: readonly PlanColumn[]): TabularColumn[] {
+  return columns.map((column) => ({
+    name: column.name,
+    kind: column.kind as TabularColumn['kind'],
+    dtype: column.kind,
+  }));
+}
+
+/** Ingest profiles keyed by name, so a picker header draws the same sparkline. */
+export function planColumnStats(
+  columns: readonly PlanColumn[],
+): Record<string, TabularColumnStats> {
+  const stats: Record<string, TabularColumnStats> = {};
+  for (const column of columns) {
+    stats[column.name] = column.profile ?? {
+      kind: column.kind as TabularColumnStats['kind'],
+      distinct: column.distinct,
+      nulls: column.nulls,
+    };
+  }
+  return stats;
 }
 
 /** Every column but the target: the default feature set, as the backend's. */
