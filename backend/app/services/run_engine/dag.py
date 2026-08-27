@@ -2010,6 +2010,7 @@ _TRANSFORM_PARAM_KEYS = (
     "models",
     "tests_yml",
     "output_model",
+    "output_models",
     "requirements_text",
     "timeout_s",
     "output_name",
