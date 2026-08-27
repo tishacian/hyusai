@@ -443,6 +443,7 @@ test('the dataset a node fits on is picked from a list and pinned by slug', () =
     'flow.ml.train.dataset.meta',
     'flow.ml.train.tabs.aria',
     'flow.ml.train.tab.dataset',
+    'flow.ml.train.tab.test',
     'flow.ml.train.tab.output',
     'flow.ml.train.name',
     'flow.ml.train.name.hint',

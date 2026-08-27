@@ -94,7 +94,7 @@ import {
   type TrainNodeParams,
 } from './flow-ml.vm';
 
-type WorkshopTab = 'dataset' | 'output';
+type WorkshopTab = 'dataset' | 'test' | 'output';
 
 /** How long the form waits before asking the server what a choice implies. */
 const PLAN_DEBOUNCE_MS = 240;
@@ -398,97 +398,6 @@ const SCORE_LIMIT = 4;
                 </section>
               </div>
 
-              <!-- ── The evidence ──────────────────────────────────────── -->
-              <div class="ck-train-workshop__evidence">
-                @if (failure(); as reason) {
-                  <p
-                    class="ck-train-workshop__error"
-                    role="alert"
-                    data-testid="train-failure"
-                  >
-                    {{ i18n.t(reason.key) }}
-                    @if (reason.detail) {
-                      <code class="ck-train-workshop__detail">{{ reason.detail }}</code>
-                    }
-                  </p>
-                }
-                @if (ml.busy() || ml.run()) {
-                  <ol class="ck-train-workshop__steps" data-testid="train-steps">
-                    @for (step of steps(); track step.step) {
-                      <li [attr.data-state]="step.state">
-                        <app-icon
-                          [name]="
-                            step.state === 'done'
-                              ? 'check'
-                              : step.state === 'active'
-                                ? 'loader-2'
-                                : 'circle'
-                          "
-                          [size]="11"
-                        />
-                        {{ i18n.t(step.key, step.params) }}
-                      </li>
-                    }
-                  </ol>
-                }
-                @if (settled(); as trained) {
-                  <div class="ck-train-workshop__scores" data-testid="train-scores">
-                    @for (score of scores(); track score.key) {
-                      <div
-                        class="ck-train-workshop__score"
-                        [attr.data-tone]="metricTone(score.key, score.value)"
-                      >
-                        <span class="ck-train-workshop__score-name">
-                          {{ metricName(score.key) }}
-                        </span>
-                        <strong>{{ formatMetric(score.key, score.value) }}</strong>
-                        @if (deltaFor(score.key); as delta) {
-                          <em [attr.data-better]="delta.better ? 'true' : 'false'">
-                            {{ delta.display }}
-                          </em>
-                        }
-                      </div>
-                    }
-                  </div>
-                  <p class="ck-train-workshop__registered" data-testid="train-registered">
-                    {{
-                      i18n.t('flow.ml.train.registered', {
-                        name: trained.name,
-                        version: trained.version
-                      })
-                    }}
-                    <a
-                      class="ck-train-workshop__mini"
-                      [routerLink]="['/models', trained.id]"
-                    >
-                      {{ i18n.t('flow.ml.train.open_card') }}
-                    </a>
-                  </p>
-                } @else if (!ml.busy() && !failure()) {
-                  <!-- Before a fit there is no evidence, and the honest thing to
-                       show is what the fit will read. The columns are already
-                       above as chips; these are the values behind them, in the
-                       same table the Data page uses. -->
-                  @if (dataset(); as pinnedDataset) {
-                    <div class="ck-train-workshop__sample" data-testid="train-sample">
-                      <span class="ck-train-workshop__label">
-                        {{ i18n.t('flow.ml.train.sample') }}
-                      </span>
-                      <ck-dataset-preview
-                        [datasetId]="pinnedDataset.id"
-                        [columnsHint]="sampleColumns()"
-                        [statsHint]="sampleStats()"
-                        maxHeight="196px"
-                      />
-                    </div>
-                  } @else {
-                    <div class="ck-train-workshop__placeholder">
-                      <app-icon name="brain" [size]="18" />
-                      <p>{{ i18n.t('flow.ml.train.evidence.empty') }}</p>
-                    </div>
-                  }
-                }
-              </div>
             </div>
 
             <aside class="ck-train-workshop__side">
@@ -505,6 +414,16 @@ const SCORE_LIMIT = 4;
                 >
                   <app-icon name="table" [size]="13" />
                   {{ i18n.t('flow.ml.train.tab.dataset') }}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  data-testid="tab-train-test"
+                  [attr.aria-selected]="tab() === 'test'"
+                  (click)="tab.set('test')"
+                >
+                  <app-icon name="play" [size]="13" />
+                  {{ i18n.t('flow.ml.train.tab.test') }}
                 </button>
                 <button
                   type="button"
@@ -600,6 +519,95 @@ const SCORE_LIMIT = 4;
                         <app-icon name="alert-triangle" [size]="12" /> {{ message }}
                       </p>
                     }
+                  }
+
+                  @case ('test') {
+                    <div class="ck-train-workshop__evidence">
+                      @if (failure(); as reason) {
+                        <p
+                          class="ck-train-workshop__error"
+                          role="alert"
+                          data-testid="train-failure"
+                        >
+                          {{ i18n.t(reason.key) }}
+                          @if (reason.detail) {
+                            <code class="ck-train-workshop__detail">{{ reason.detail }}</code>
+                          }
+                        </p>
+                      }
+                      @if (ml.busy() || ml.run()) {
+                        <ol class="ck-train-workshop__steps" data-testid="train-steps">
+                          @for (step of steps(); track step.step) {
+                            <li [attr.data-state]="step.state">
+                              <app-icon
+                                [name]="
+                                  step.state === 'done'
+                                    ? 'check'
+                                    : step.state === 'active'
+                                      ? 'loader-2'
+                                      : 'circle'
+                                "
+                                [size]="11"
+                              />
+                              {{ i18n.t(step.key, step.params) }}
+                            </li>
+                          }
+                        </ol>
+                      }
+                      @if (settled(); as trained) {
+                        <div class="ck-train-workshop__scores" data-testid="train-scores">
+                          @for (score of scores(); track score.key) {
+                            <div
+                              class="ck-train-workshop__score"
+                              [attr.data-tone]="metricTone(score.key, score.value)"
+                            >
+                              <span class="ck-train-workshop__score-name">
+                                {{ metricName(score.key) }}
+                              </span>
+                              <strong>{{ formatMetric(score.key, score.value) }}</strong>
+                              @if (deltaFor(score.key); as delta) {
+                                <em [attr.data-better]="delta.better ? 'true' : 'false'">
+                                  {{ delta.display }}
+                                </em>
+                              }
+                            </div>
+                          }
+                        </div>
+                        <p class="ck-train-workshop__registered" data-testid="train-registered">
+                          {{
+                            i18n.t('flow.ml.train.registered', {
+                              name: trained.name,
+                              version: trained.version
+                            })
+                          }}
+                          <a
+                            class="ck-train-workshop__mini"
+                            [routerLink]="['/models', trained.id]"
+                          >
+                            {{ i18n.t('flow.ml.train.open_card') }}
+                          </a>
+                        </p>
+                      } @else if (!ml.busy() && !failure()) {
+                        @if (dataset(); as pinnedDataset) {
+                          <div class="ck-train-workshop__sample" data-testid="train-sample">
+                            <span class="ck-train-workshop__label">
+                              {{ i18n.t('flow.ml.train.sample') }}
+                            </span>
+                            <ck-dataset-preview
+                              [datasetId]="pinnedDataset.id"
+                              [columnsHint]="sampleColumns()"
+                              [statsHint]="sampleStats()"
+                              maxHeight="196px"
+                            />
+                          </div>
+                        } @else {
+                          <div class="ck-train-workshop__placeholder">
+                            <app-icon name="brain" [size]="18" />
+                            <p>{{ i18n.t('flow.ml.train.evidence.empty') }}</p>
+                          </div>
+                        }
+                      }
+                    </div>
                   }
 
                   @case ('output') {
@@ -1018,6 +1026,7 @@ export class FlowTrainWorkshopComponent {
   }
 
   protected async runTest(): Promise<void> {
+    this.tab.set('test');
     const params = this.params();
     const refusal = preflightTrain(params, { wired: false });
     this.preflight.set(refusal);

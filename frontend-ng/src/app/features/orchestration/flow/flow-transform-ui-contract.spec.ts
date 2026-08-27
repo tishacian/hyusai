@@ -215,11 +215,11 @@ test('the workshop is a modal dialog that edits the graph through the store', ()
     'flow.transform.sources.add',
     'flow.transform.sources.starter',
     'flow.transform.output.name',
-    'flow.transform.result.caption',
   ]) {
     assert.match(workshop, new RegExp(key.replace(/\./g, '\\.')));
     assertKey(key);
   }
+  assert.match(workshop, /\[durationMs\]="result\.duration_ms"/);
 });
 
 test('a queued run states its phase and can be stopped', () => {
