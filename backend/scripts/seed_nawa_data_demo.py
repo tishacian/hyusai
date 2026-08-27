@@ -113,16 +113,18 @@ DESK_CAPABILITY_SLUG = "nawa_churn_desk"
 BOARD_CAPABILITY_SLUG = "nawa_retention_board"
 API_KEY_NAME = "Nawa demo"
 
-#: The stable name the page invokes the board through. A page names a key, not
-#: a System and not a Flow version, so republishing the graph behind it is not
-#: an edit to the document.
+#: The stable names the page invokes through. A page names a key, not a System
+#: and not a Flow version, so republishing either graph behind it is not an edit
+#: to the document.
 BOARD_BINDING_KEY = "churn.board.load"
+DESK_BINDING_KEY = "churn.desk.consult"
 BOARD_EXPERIENCE_SLUG = "retention-board"
 BOARD_EXPERIENCE_NAME = "Retention Board"
-#: The one component every tile reads from. Named here because the document
-#: repeats it in every ``dataBinding`` and a typo would be a blank tile rather
-#: than an error.
+#: The two components the page's blocks read from. Named here because the
+#: document repeats them in every ``dataBinding`` and a typo would be a blank
+#: tile rather than an error.
 BOARD_ACTION_ID = "load-board"
+DESK_ACTION_ID = "consult-subscriber"
 
 CHURN_SKILL_SLUGS = [
     "sql_transform_v1",
@@ -140,12 +142,12 @@ RADIO_SKILL_SLUGS = ["dbt_transform_v1"]
 #: The board reads and computes; it neither trains, scores nor writes a table.
 #: Two skills is the whole of it, and that is the claim its capability makes.
 BOARD_SKILL_SLUGS = ["system_run_read_v1", "python_recipe_v1"]
-#: The desk's own three: the planner, the writer that phrases the verdict, and
-#: the recipe that resolves a subscriber from the number a stakeholder typed and
-#: composes the answer afterwards. The fourth skill it may call is the published
-#: model, which has no slug until the model card publishes it — so it is bound to
-#: the System by id, not claimed here.
-DESK_SKILL_SLUGS = ["decide_next_v1", "azure_llm_v1", "python_recipe_v1"]
+#: The desk's own three: the planner, the recipe that resolves a subscriber from
+#: the number a stakeholder typed and phrases the verdict afterwards, and the
+#: writer the planner may reach for. The fourth skill it may call is the
+#: published model, which has no slug until the model card publishes it — so it
+#: is bound to the System by id, not claimed here.
+DESK_SKILL_SLUGS = ["decide_next_v1", "python_recipe_v1", "azure_llm_v1"]
 
 # ---------------------------------------------------------------------------
 # The Polars feature node's script
@@ -957,6 +959,297 @@ BOARD_INPUT_SCHEMA: dict[str, Any] = {
 
 
 # ---------------------------------------------------------------------------
+# The Churn Desk's two recipe nodes
+# ---------------------------------------------------------------------------
+
+#: What one consultation asks for: a subscriber number, and nothing else, which
+#: is also what lets the form on the page be certified against it field for
+#: field. The release hashes this object against the Flow's own source node, so
+#: the two cannot drift apart.
+#:
+#: Deliberately ``string`` and not ``integer``, though the base stores digits. A
+#: phone number is a name: it is never added up, a leading zero is significant
+#: where one exists, and a number input would let a browser offer to increment
+#: it. The resolver reads the digits out of whatever was typed.
+DESK_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"msisdn": {"type": "string"}},
+    "required": ["msisdn"],
+    "additionalProperties": False,
+}
+
+#: What one consultation answers with. A sentence a stakeholder reads, and the
+#: two facts a page needs to know what it is looking at: which line was asked
+#: about, and whether the model actually answered — because "not in the base"
+#: and "the model said no" are different answers that must not render alike.
+DESK_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string"},
+        "msisdn": {"type": "string"},
+        "answered": {"type": "boolean"},
+    },
+    "required": ["verdict", "msisdn", "answered"],
+    "additionalProperties": False,
+}
+
+#: What the resolver reads out of the cleaned base: the model's twenty columns,
+#: plus the one column it is asked about by.
+#:
+#: The projection is the contract rather than an economy. ``churn`` is *not*
+#: here, and its absence is the point: it is the label the model was fitted on,
+#: and a desk that could see it would be reading the answer key rather than
+#: consulting a model. Everything else the verdict quotes — region, plan,
+#: tenure, ARPU — is already a feature, so naming these twenty-one columns costs
+#: nothing and closes that door.
+SUBSCRIBER_COLUMNS = ("msisdn", *CHURN_FEATURE_COLUMNS)
+
+#: The view the resolver reads its rows under.
+CLEANED_SOURCE_VIEW = "base"
+
+SUBSCRIBER_CODE = r'''"""Turn the number a stakeholder typed into the row a model can score.
+
+This node exists because two contracts disagree and only one of them can be
+relaxed. The model's is closed on twenty columns with declared types; the
+page's is one field, because one field is all a person reading a call list has.
+Resolving between them is work, and this is where the work lives — not in
+hidden form defaults, which go stale on the next re-score, and not in the
+model, whose contract is closed for good reasons.
+
+What it hands on is exactly what ``ml_predict_v1`` expects to find on the wire:
+``rows``, a list of one. The AgentLoop after this node passes the envelope it
+already has to whichever skill it picks, so the twenty values being *there* is
+what makes the model's contract satisfied by construction rather than by the
+planner inventing feature values.
+"""
+
+#: What the verdict says about the subscriber before it says what the model
+#: thinks. Five columns out of the twenty: enough for a reader to recognise the
+#: line they asked about, few enough that the sentence stays a sentence.
+PROFILE_COLUMNS = ("region", "plan", "contract", "tenure_months", "arpu_mad")
+
+
+def _digits(value):
+    """The digits of a phone number, and nothing else.
+
+    People type phone numbers with spaces, dashes and a leading plus, and the
+    base stores them as an integer because that is what a digits-only column
+    round-trips to through CSV. Comparing on digits is what makes the same
+    subscriber resolve whether the number arrived from the call list, from a
+    paste, or from somebody reading it aloud.
+    """
+
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return "".join(character for character in str(value) if character.isdigit())
+
+
+def main(inputs):
+    asked = _digits(inputs.get("msisdn"))
+    if not asked:
+        # A blank field is a question nobody asked, and the form requires the
+        # field — so arriving here means something else went wrong. Refusing is
+        # cheaper than scoring an arbitrary subscriber.
+        raise ValueError(
+            "the desk was asked about no subscriber; there is no number to "
+            "resolve"
+        )
+
+    base = inputs.get("base") or {}
+    rows = base.get("rows") or []
+    if not rows:
+        raise ValueError(
+            "the cleaned subscriber base is empty; the desk has nobody to "
+            "resolve this number against"
+        )
+
+    match = None
+    for row in rows:
+        if _digits(row.get("msisdn")) == asked:
+            match = row
+            break
+
+    if match is None:
+        # Not an error. A number that is not in the base is a perfectly normal
+        # thing for a stakeholder to type, and the node after the loop turns
+        # this into a sentence rather than a stack trace.
+        return {"found": False, "rows": [], "profile": {"msisdn": asked}}
+
+    # Everything except the identifier: the model was fitted on the twenty
+    # feature columns and its contract refuses a twenty-first.
+    features = {name: value for name, value in match.items() if name != "msisdn"}
+    profile = {"msisdn": asked}
+    for name in PROFILE_COLUMNS:
+        profile[name] = match.get(name)
+    return {"found": True, "rows": [features], "profile": profile}
+'''
+
+VERDICT_CODE = r'''"""Say what the desk concluded, in the words a stakeholder reads.
+
+Three things travel into this node and none of them is an opinion: the row the
+resolver found, what the model answered, and what the loop did. The paragraph
+below is those three, joined. Nothing here decides anything the desk did not
+already decide — a formatter that invented a recommendation would be the same
+defect as a brief that invented its figures, one subscriber at a time.
+
+The model's answer is quoted rather than recomputed. It arrives on the
+observation the loop recorded for that act: ``summary`` is the sentence the
+scoring Skill itself wrote, and ``result`` carries the act's own scalars. So the
+number on the page is the number the model produced, character for character.
+"""
+
+#: What a number that is not in the base gets told. Named and complete, because
+#: this is the branch a live demo will hit by mistake, and a blank block is
+#: indistinguishable from a page that is broken.
+NOT_FOUND = (
+    "No subscriber with the number {} is in the cleaned base. Nothing was "
+    "scored and no advice is offered: the desk answers about lines the pipeline "
+    "has actually seen. Check the number against the call list above, which "
+    "lists them exactly as the base holds them."
+)
+
+#: When the loop finished without the model having answered — no key on the
+#: planner, a budget spent on retries, a scoring call that failed. The
+#: subscriber was found, so the profile is real and is worth showing; the advice
+#: is not, so it is withheld rather than guessed.
+NO_ANSWER = (
+    "The desk found this subscriber but did not get an answer out of the churn "
+    "model, so there is no recommendation to give. The retention agent's own "
+    "trace is below; it says where it stopped."
+)
+
+
+def _line(profile):
+    """The subscriber, in one line, out of the row that was actually resolved.
+
+    Enough for a reader to recognise the line they typed and to notice when
+    they have typed the wrong one, which is the failure a bare "found" would
+    hide.
+    """
+
+    return "{} — {}, {} contract, {}. {} months on the base, ARPU {} MAD.".format(
+        profile.get("msisdn"),
+        profile.get("plan") or "plan unrecorded",
+        profile.get("contract") or "unrecorded",
+        profile.get("region") or "region unrecorded",
+        profile.get("tenure_months"),
+        profile.get("arpu_mad"),
+    )
+
+
+def _trace(observations, exit_value):
+    """Which tools the agent reached for, in the order it reached for them.
+
+    Shown to a stakeholder on purpose. This is the one surface in the demo where
+    a business reader sees that the answer came out of a loop that *chose* a
+    tool, and the route is the interesting part: one line per turn.
+
+    Names and outcomes only, no summaries. An observation's summary is whatever
+    the skill it called happened to return — for a writer skill that is the
+    entire completion — so quoting them here would splice a paragraph of
+    generated prose into the middle of the trace, and repeat the model's number
+    directly under the sentence that already gives it.
+    """
+
+    steps = []
+    for entry in observations:
+        if not isinstance(entry, dict):
+            continue
+        steps.append(
+            "  turn {}: {} — {}".format(
+                entry.get("turn"),
+                entry.get("skill"),
+                "answered" if entry.get("ok") else "failed",
+            )
+        )
+    if not steps:
+        return "The retention agent took no turns."
+    return "How the desk got there ({}):\n".format(
+        exit_value or "unfinished"
+    ) + "\n".join(steps)
+
+
+def _answer(observations, wanted):
+    """The turn on which the model answered, found by the slug the graph pinned.
+
+    By slug rather than by position: the planner is free to take a different
+    route on a different turn, and "the last observation" would quietly become
+    whatever it did last. An act with no words to show for it does not count as
+    an answer — a downstream sentence built on an empty summary reads as though
+    the model declined to speak.
+    """
+
+    for entry in observations:
+        if str(entry.get("skill") or "") != wanted or not entry.get("ok"):
+            continue
+        if str(entry.get("summary") or "").strip():
+            return entry
+    return None
+
+
+def main(inputs):
+    profile = inputs.get("profile")
+    if not isinstance(profile, dict) or not profile.get("msisdn"):
+        # The resolver runs before the loop, so its output is always in the pool
+        # by the time this node reads it. Arriving without one means the graph
+        # was rewired, and reporting a verdict about nobody would be worse than
+        # saying so.
+        raise ValueError(
+            "the desk reached its verdict with no subscriber resolved; there is "
+            "nothing to report on"
+        )
+
+    asked = str(profile.get("msisdn"))
+    observations = [
+        entry
+        for entry in (inputs.get("observations") or [])
+        if isinstance(entry, dict)
+    ]
+    exit_value = inputs.get("exit")
+
+    if not inputs.get("found"):
+        return {"verdict": NOT_FOUND.format(asked), "msisdn": asked, "answered": False}
+
+    answer = _answer(observations, str(inputs.get("predict_skill") or "").strip())
+    if answer is None:
+        return {
+            "verdict": "\n\n".join(
+                [_line(profile), NO_ANSWER, _trace(observations, exit_value)]
+            ),
+            "msisdn": asked,
+            "answered": False,
+        }
+
+    return {
+        "verdict": "\n\n".join(
+            [
+                _line(profile),
+                "The churn model was asked about this line and answered: "
+                + str(answer.get("summary")).strip(),
+                _trace(observations, exit_value),
+            ]
+        ),
+        "msisdn": asked,
+        "answered": True,
+    }
+'''
+
+
+def subscriber_main():
+    """The resolver recipe's ``main``, compiled from the seeded source."""
+
+    return _compiled_main(SUBSCRIBER_CODE, name="subscriber_recipe")
+
+
+def verdict_main():
+    """The verdict recipe's ``main``, compiled from the seeded source."""
+
+    return _compiled_main(VERDICT_CODE, name="verdict_recipe")
+
+
+# ---------------------------------------------------------------------------
 # Workspace, capabilities, catalog
 # ---------------------------------------------------------------------------
 
@@ -1531,7 +1824,7 @@ def radio_flow(*, network_slug: str) -> dict[str, Any]:
 
 
 def desk_flow(*, predict_slug: str) -> dict[str, Any]:
-    """source → bounded AgentLoop → sink. The other half of the story.
+    """source → resolve → bounded AgentLoop → phrase → sink. Ask about one line.
 
     Everything else in this demo is a pipeline: a schedule pushes a whole
     subscriber base through it. This is the surface where somebody *asks*, and
@@ -1541,28 +1834,77 @@ def desk_flow(*, predict_slug: str) -> dict[str, Any]:
     a skill an agent can call" means when it is true rather than asserted.
 
     The loop does not invent the twenty feature values. The walker hands the
-    chosen skill the envelope it already has, so the subscriber rides in on the
-    run input under ``rows`` and the model's closed contract is satisfied by
-    construction; what the model decides is *which* skill, and when it is done.
-    Read-only tier: neither skill mutates anything, so no gate interrupts.
+    chosen skill the envelope it already has, so the subscriber has to *be* in
+    that envelope — and the node before the loop is what puts it there. Its
+    contract is one field, a subscriber number, because that is the only thing
+    the stakeholder pressing the button on the Retention Board actually holds.
+    Read-only tier: nothing on this graph mutates anything, so no gate
+    interrupts.
+
+    The node after the loop is there because a loop's output is a trace and a
+    page needs a sentence. It is also the node that answers a number nobody
+    recognises, which is why the resolver does not raise on one: a stakeholder
+    mistyping a digit is a normal event and deserves an answer, not a red node.
     """
 
     return {
         "schema_version": 3,
-        "variant": "nawa_churn_desk_v1",
+        "variant": "nawa_churn_desk_v2",
         "nodes": [
             {
                 "id": "src",
                 "kind": "source",
-                "label": "Question",
+                "label": "Subscriber number",
                 "position": {"x": 40, "y": 200},
+                "config": {"input_schema": DESK_INPUT_SCHEMA},
+                "data": {
+                    "description": (
+                        "One field, closed: the number of the line to ask "
+                        "about. Not the model's twenty columns — a form on a "
+                        "business page can only offer what its reader has."
+                    )
+                },
+            },
+            {
+                "id": "task.subscriber",
+                "kind": "task",
+                "type": "task",
+                "label": "Resolve the line",
+                "position": {"x": 300, "y": 200},
+                "config": {
+                    "skill_slug": "python_recipe_v1",
+                    "params": {
+                        "code": SUBSCRIBER_CODE,
+                        "sources": [
+                            {
+                                "dataset_slug": cleaned_slug(),
+                                "view": CLEANED_SOURCE_VIEW,
+                                "columns": list(SUBSCRIBER_COLUMNS),
+                            }
+                        ],
+                    },
+                    # The ingress hands this node its one field on the wire
+                    # already, so in overlay mode the map changes nothing about
+                    # what arrives — it says where the number is allowed to come
+                    # from, which is the difference between a node an operator
+                    # can read in the inspector and one they have to infer.
+                    "inputs_map": {"msisdn": {"node_id": "src", "path": ["msisdn"]}},
+                },
+                "data": {
+                    "description": (
+                        "Reads the cleaned base and finds that line, then hands "
+                        "the model's twenty columns to the loop. The churn "
+                        "label is not among the columns it reads: a desk that "
+                        "could see the answer would not be consulting a model."
+                    )
+                },
             },
             {
                 "id": "loop.desk",
                 "kind": "agent_loop",
                 "type": "agent_loop",
                 "label": "Retention agent",
-                "position": {"x": 320, "y": 200},
+                "position": {"x": 560, "y": 200},
                 "config": {
                     "skill_slug": "decide_next_v1",
                     "decide_skill": "decide_next_v1",
@@ -1591,15 +1933,57 @@ def desk_flow(*, predict_slug: str) -> dict[str, Any]:
                 },
             },
             {
+                "id": "task.verdict",
+                "kind": "task",
+                "type": "task",
+                "label": "Verdict",
+                "position": {"x": 820, "y": 200},
+                "config": {
+                    "skill_slug": "python_recipe_v1",
+                    "params": {
+                        "code": VERDICT_CODE,
+                        # Which slug counts as "the model answered". Pinned on
+                        # the graph rather than guessed from the last
+                        # observation, because the planner is free to take a
+                        # different route on a different turn.
+                        "predict_skill": predict_slug,
+                    },
+                    # The resolver is two nodes back, so its output arrives by
+                    # selector rather than on the wire. That is the whole reason
+                    # this map is here: a verdict has to name the line it is
+                    # about, and the loop's output does not carry one.
+                    "inputs_map": {
+                        "profile": {"node_id": "task.subscriber", "path": ["profile"]},
+                        "found": {"node_id": "task.subscriber", "path": ["found"]},
+                        "predict_skill": {
+                            "node_id": "node",
+                            "path": ["config", "params", "predict_skill"],
+                        },
+                    },
+                },
+                "data": {
+                    "description": (
+                        "Joins the line that was resolved, what the model "
+                        "answered and what the agent did into the paragraph the "
+                        "business page shows. It decides nothing: a "
+                        "recommendation invented here would be the brief's old "
+                        "defect, one subscriber at a time."
+                    )
+                },
+            },
+            {
                 "id": "sink",
                 "kind": "sink",
                 "label": "Verdict",
-                "position": {"x": 620, "y": 200},
+                "position": {"x": 1080, "y": 200},
+                "config": {"output_schema": DESK_OUTPUT_SCHEMA},
             },
         ],
         "edges": [
-            {"from": "src", "to": "loop.desk", "kind": "data"},
-            {"from": "loop.desk", "to": "sink", "kind": "data"},
+            {"from": "src", "to": "task.subscriber", "kind": "data"},
+            {"from": "task.subscriber", "to": "loop.desk", "kind": "data"},
+            {"from": "loop.desk", "to": "task.verdict", "kind": "data"},
+            {"from": "task.verdict", "to": "sink", "kind": "data"},
         ],
     }
 
@@ -1741,18 +2125,23 @@ def _copy(key: str, english: str) -> dict[str, Any]:
     return {"$i18n": key, "fallback": english}
 
 
-def _bind(selector: str) -> dict[str, Any]:
-    """Read one path out of whatever the board button's run produced.
+def _bind(selector: str, *, component: str = BOARD_ACTION_ID) -> dict[str, Any]:
+    """Read one path out of whatever a named control's run produced.
 
-    Display blocks never fetch. The button invokes the System once and every
-    tile on the page reads that one run, which is why the board is internally
-    consistent: the revenue figure and the subscriber count cannot come from
-    two different refreshes.
+    Display blocks never fetch. A control invokes its System once and every
+    block reading that control shows *that* run, which is why the board is
+    internally consistent: the revenue figure and the subscriber count cannot
+    come from two different refreshes.
+
+    Two controls, therefore two groups. The tiles read the board's refresh; the
+    verdict reads the desk's consultation. Naming the control rather than
+    defaulting to "the nearest one above" is what keeps a block added between
+    them from silently changing which run it displays.
     """
 
     return {
         "source": "run-output",
-        "componentId": BOARD_ACTION_ID,
+        "componentId": component,
         "selector": selector,
     }
 
@@ -1817,6 +2206,19 @@ BOARD_I18N: dict[str, dict[str, str]] = {
         "board.at_risk.arpu": "ARPU (MAD)",
         "board.at_risk.score": "Probability",
         "board.at_risk.stake": "At stake (MAD)",
+        "board.desk.title": "Ask the desk about one line",
+        "board.desk.description": (
+            "Take a number from the list above and ask the Churn Desk about it. "
+            "The desk finds that subscriber in the base, has the churn model "
+            "score them, and answers here. It reads; it changes nothing and "
+            "calls nobody."
+        ),
+        "board.desk.msisdn.label": "Subscriber number",
+        "board.desk.msisdn.description": (
+            "As it appears in the Line column above. Spaces and dashes are fine."
+        ),
+        "board.desk.submit": "Ask the desk",
+        "board.desk.empty": "Enter a number above to consult the desk.",
         "board.brief.title": "What the pipeline concluded",
         "board.brief.description": (
             "The retention brief written by the Churn Radar pipeline the last "
@@ -1893,6 +2295,20 @@ BOARD_I18N: dict[str, dict[str, str]] = {
         "board.at_risk.arpu": "ARPU (MAD)",
         "board.at_risk.score": "Probabilité",
         "board.at_risk.stake": "En jeu (MAD)",
+        "board.desk.title": "Interroger le desk sur une ligne",
+        "board.desk.description": (
+            "Prenez un numéro dans la liste ci-dessus et interrogez le Churn "
+            "Desk. Le desk retrouve cet abonné dans la base, fait scorer sa "
+            "ligne par le modèle et répond ici. Il consulte : il ne modifie "
+            "rien et n'appelle personne."
+        ),
+        "board.desk.msisdn.label": "Numéro d'abonné",
+        "board.desk.msisdn.description": (
+            "Tel qu'il figure dans la colonne Ligne ci-dessus. Les espaces et "
+            "les tirets sont acceptés."
+        ),
+        "board.desk.submit": "Interroger le desk",
+        "board.desk.empty": "Saisissez un numéro ci-dessus pour consulter le desk.",
         "board.brief.title": "Ce que le pipeline a conclu",
         "board.brief.description": (
             "La note de rétention rédigée par le pipeline Churn Radar lors de "
@@ -1930,18 +2346,25 @@ BOARD_ACCESS_POLICY: dict[str, Any] = {
 
 
 def board_document() -> dict[str, Any]:
-    """One page, filled by one click.
+    """One page, two controls: read the base, then ask about one line of it.
 
     The spine is the order a stakeholder reads in: what is at risk, what it is
     worth, whether the model's ranking beats the base rate, then the list to
-    act on and the brief that explains it. The button sits at the top rather
-    than the bottom because a page whose tiles are all empty until you scroll
-    past them to find the control is a page that looks broken.
+    act on. The refresh button sits at the top rather than the bottom because a
+    page whose tiles are all empty until you scroll past them to find the
+    control is a page that looks broken.
 
-    Every tile reads ``run-output`` from that one button. No tile carries a
-    ``queryBinding``: the alternative — each tile invoking the System for
-    itself — would run the board five times per view and could show a revenue
-    figure and a subscriber count from two different refreshes.
+    The desk's form sits immediately under that list, and its position is the
+    argument for it existing. A reader who has just been handed twenty numbers
+    to call has exactly one question — *this* one, what about them? — and the
+    page can answer it without them leaving it. Below the form comes the
+    pipeline's own brief, which is context rather than an answer, and then the
+    provenance a challenged figure needs.
+
+    No block carries a ``queryBinding``: the alternative — each tile invoking a
+    System for itself — would run the board five times per view and could show a
+    revenue figure and a subscriber count from two different refreshes. Each
+    display block names the control whose run it reads instead.
     """
 
     return {
@@ -2174,6 +2597,87 @@ def board_document() -> dict[str, Any]:
                             "dataBinding": _bind("at_risk"),
                         },
                     },
+                    # Observation ends here and consultation begins. The board
+                    # above says who to call; below, the same page answers for
+                    # one of them — which is the difference between a report and
+                    # something a retention manager works in.
+                    {
+                        "type": "section",
+                        "id": "consult-heading",
+                        "props": {
+                            "title": _copy(
+                                "board.desk.title", "Ask the desk about one line"
+                            ),
+                            "description": _copy(
+                                "board.desk.description",
+                                BOARD_I18N["en"]["board.desk.description"],
+                            ),
+                        },
+                    },
+                    {
+                        "type": "form",
+                        "id": DESK_ACTION_ID,
+                        "props": {
+                            "bindingKey": DESK_BINDING_KEY,
+                            # The published ingress contract, character for
+                            # character: the release hashes this against the
+                            # Flow's own source node and refuses the document if
+                            # the two have drifted apart. Which is why it is the
+                            # same object the graph declares rather than a copy
+                            # of it typed here.
+                            "schema": DESK_INPUT_SCHEMA,
+                            # The schema is the contract and carries no copy — a
+                            # JSON Schema title is one language, and this page is
+                            # read in two. The field's label and hint live here,
+                            # where the dictionaries can reach them.
+                            "fieldPresentation": {
+                                "msisdn": {
+                                    "label": _copy(
+                                        "board.desk.msisdn.label",
+                                        "Subscriber number",
+                                    ),
+                                    "description": _copy(
+                                        "board.desk.msisdn.description",
+                                        BOARD_I18N["en"][
+                                            "board.desk.msisdn.description"
+                                        ],
+                                    ),
+                                }
+                            },
+                            "submitLabel": _copy(
+                                "board.desk.submit", "Ask the desk"
+                            ),
+                            # ``stay``: the answer renders beside the form, and
+                            # navigating away from a board to show one paragraph
+                            # would lose the list the number was read from.
+                            "afterSuccess": "stay",
+                            "span": "half",
+                        },
+                    },
+                    # A consultation takes longer than a refresh — a planner
+                    # turn and a model call, not one read — so the argument for
+                    # the board's own status block applies twice over here. It
+                    # carries no data binding: it reports the run's lifecycle,
+                    # and the runtime resolves that against the nearest control
+                    # above it, which is the form.
+                    {
+                        "type": "runtime_status",
+                        "id": "desk-status",
+                        "props": {"span": "half"},
+                    },
+                    {
+                        "type": "result",
+                        "id": "desk-verdict",
+                        "props": {
+                            "a11y": {
+                                "emptyText": _copy(
+                                    "board.desk.empty",
+                                    BOARD_I18N["en"]["board.desk.empty"],
+                                )
+                            },
+                            "dataBinding": _bind("verdict", component=DESK_ACTION_ID),
+                        },
+                    },
                     {
                         "type": "section",
                         "id": "brief-heading",
@@ -2276,8 +2780,10 @@ BOARD_RELEASE_NOTES = (
 )
 
 
-def ensure_board_binding(db: DBSession, workspace: Workspace, system: System) -> Any:
-    """The stable key the page invokes, pointed at the current publication.
+def ensure_binding(
+    db: DBSession, workspace: Workspace, system: System, *, binding_key: str
+) -> Any:
+    """A stable key the page invokes, pointed at the current publication.
 
     Created once and *retargeted* afterwards. The alternative — delete and
     recreate — would work here and be wrong everywhere else: a binding key is
@@ -2285,6 +2791,12 @@ def ensure_board_binding(db: DBSession, workspace: Workspace, system: System) ->
     how a republished graph reaches a page that was authored against the
     previous version. Retargeting is the operation the Studio offers a human
     for exactly this, so the seed performs the same one.
+
+    One function for both of the page's keys. They differ only in which System
+    answers, and the *posture* is deliberately identical: both graphs read and
+    neither writes, so neither earns a confirmation step. Which is worth stating
+    as one code path rather than two, because a second copy of this is where a
+    ``hitl`` policy quietly appears on the surface a viewer uses.
     """
 
     from app.services.experience import bindings as binding_service
@@ -2293,26 +2805,26 @@ def ensure_board_binding(db: DBSession, workspace: Workspace, system: System) ->
     if not version_id:
         raise SystemExit(
             f"{system.name}: the System has no published Flow version, so "
-            f"'{BOARD_BINDING_KEY}' cannot be bound. Flow publication has to be "
+            f"'{binding_key}' cannot be bound. Flow publication has to be "
             "enabled on this workspace before the board can answer /work."
         )
 
     try:
         row = binding_service.get_binding(
-            db, workspace_id=workspace.id, binding_key=BOARD_BINDING_KEY
+            db, workspace_id=workspace.id, binding_key=binding_key
         )
     except binding_service.BindingError:
         row = binding_service.create_binding(
             db,
             workspace=workspace,
             actor=SEED_ACTOR,
-            binding_key=BOARD_BINDING_KEY,
+            binding_key=binding_key,
             system_id=system.id,
             published_flow_version_id=version_id,
             ingress_id="src",
-            # The board reads. Nothing it does needs a stakeholder to confirm
-            # they meant it, and a confirmation dialog in front of a refresh
-            # button teaches people to click through dialogs.
+            # Both of these read. Nothing either does needs a stakeholder to
+            # confirm they meant it, and a confirmation dialog in front of a
+            # refresh button teaches people to click through dialogs.
             confirmation_policy="direct-safe",
             on_unavailable="unavailable",
         )
@@ -2321,7 +2833,7 @@ def ensure_board_binding(db: DBSession, workspace: Workspace, system: System) ->
             row = binding_service.retarget_binding(
                 db,
                 workspace=workspace,
-                binding_key=BOARD_BINDING_KEY,
+                binding_key=binding_key,
                 actor=SEED_ACTOR,
             )
     db.commit()
@@ -2868,14 +3380,15 @@ def publish_and_mint(db: DBSession, model: MLModel) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def pick_at_risk(frame: Any) -> dict[str, Any]:
-    """The twenty feature values of one subscriber worth phoning.
+def pick_at_risk(frame: Any) -> str:
+    """The number of one subscriber worth phoning, as the desk is asked for it.
 
-    Read out of the cleaned table rather than typed out: the model's contract is
-    closed on twenty columns with declared types, and a hand-written literal is
-    one integer-shaped float away from a refusal the demo would have to explain.
-    A row that came out of the Parquet the model was fitted on cannot be the
-    wrong shape.
+    An identifier and not a feature row, because that is now the desk's whole
+    contract: it resolves the twenty columns itself, out of the same cleaned
+    table this reads. The seed used to hand the row over ready-made, which made
+    the seeded run prove less than it appeared to — the resolution step a
+    stakeholder's request has to go through was the one part the rehearsal
+    skipped. Asking by number exercises it.
 
     Chosen by profile, not by score — the score is what the agent is for. The
     ordering makes it the same subscriber on every re-seed, so the runbook can
@@ -2895,11 +3408,13 @@ def pick_at_risk(frame: Any) -> dict[str, Any]:
             "the cleaned table holds no short-tenure prepaid subscriber with "
             "open tickets; the desk would be asked about nobody."
         )
-    row = at_risk.head(1).to_dicts()[0]
-    return {name: row[name] for name in CHURN_FEATURE_COLUMNS}
+    # Text, because the ingress asks for text: a phone number is a name. The
+    # base stores digits, which is what a digits-only column round-trips to
+    # through CSV, and the resolver compares on digits either way.
+    return str(at_risk.head(1).to_dicts()[0]["msisdn"])
 
 
-def at_risk_subscriber(dataset: TabularDataset) -> dict[str, Any]:
+def at_risk_msisdn(dataset: TabularDataset) -> str:
     """``pick_at_risk`` over the bytes a seeded dataset actually holds."""
 
     from app.services.tabular_datasets import read_frame
@@ -3040,11 +3555,11 @@ def reset(db: DBSession, workspace: Workspace) -> dict[str, int]:
 
     The business page is the one thing here that *is* torn down whole — the
     deployment, every release, the draft and its history, the Experience row
-    and the board's binding — because a released document is immutable
-    evidence and a re-seed cannot edit one. Left in place, a changed board
-    would deploy the *old* release, or refuse the new one because the release
-    the deployment holds was cut against a binding that no longer resolves.
-    Nothing outside the seed's own slug and key is touched.
+    and both of the keys its blocks invoke through — because a released
+    document is immutable evidence and a re-seed cannot edit one. Left in
+    place, a changed board would deploy the *old* release, or refuse the new
+    one because the release the deployment holds was cut against a binding that
+    no longer resolves. Nothing outside the seed's own slug and keys is touched.
 
     Models go first: a version holds a foreign key to the table it was fitted
     on, and ``delete_model`` is what also clears the API key, the registry
@@ -3119,15 +3634,15 @@ def reset(db: DBSession, workspace: Workspace) -> dict[str, int]:
         db.delete(experience)
         tally["experiences"] += 1
 
-    binding = (
+    for binding in (
         db.query(SystemBinding)
         .filter(
             SystemBinding.workspace_id == workspace.id,
-            SystemBinding.binding_key == BOARD_BINDING_KEY,
+            SystemBinding.binding_key.in_((BOARD_BINDING_KEY, DESK_BINDING_KEY)),
         )
-        .one_or_none()
-    )
-    if binding is not None:
+        .order_by(SystemBinding.binding_key)
+        .all()
+    ):
         print(f"reset: binding {binding.binding_key}")
         db.delete(binding)
         tally["bindings"] += 1
@@ -3352,7 +3867,10 @@ def seed(
                 db,
                 workspace,
                 desk_system,
-                input_ref={"rows": [at_risk_subscriber(datasets["cleaned"])]},
+                # A number, which is what the ingress asks for and what the
+                # page's form can offer. The seeded run therefore goes through
+                # the same resolution a stakeholder's request does.
+                input_ref={"msisdn": at_risk_msisdn(datasets["cleaned"])},
             )
             assert_runs_are_green(runs)
 
@@ -3388,7 +3906,18 @@ def seed(
         system_type="retention_board",
         execution_mode="real_time_decision",
     )
-    ensure_board_binding(db, workspace, board_system)
+    if desk_system is None:
+        # The page has a form on it that invokes the desk, so the desk is not
+        # optional any more. Releasing without it would fail the ready-check on
+        # an unresolved binding key — which is the correct refusal in the wrong
+        # words, three hundred lines from the cause.
+        raise SystemExit(
+            "the Churn Desk was not seeded, and the Retention Board's "
+            "consultation form invokes it; a page cannot be released against a "
+            "binding key that nothing answers"
+        )
+    ensure_binding(db, workspace, board_system, binding_key=BOARD_BINDING_KEY)
+    ensure_binding(db, workspace, desk_system, binding_key=DESK_BINDING_KEY)
     board_experience = ensure_board_experience(db, workspace)
 
     return {
@@ -3413,13 +3942,13 @@ def seed(
             "churn": churn_system.id,
             "radio": radio_system.id,
             "board": board_system.id,
-            **({"desk": desk_system.id} if desk_system is not None else {}),
+            "desk": desk_system.id,
         },
         "runs": {key: value["status"] for key, value in runs.items()},
         "published": published,
         "work": {
             "slug": board_experience.slug,
-            "binding_key": BOARD_BINDING_KEY,
+            "binding_keys": [BOARD_BINDING_KEY, DESK_BINDING_KEY],
         },
     }
 
