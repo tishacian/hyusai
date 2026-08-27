@@ -400,6 +400,52 @@ def test_the_detail_read_carries_the_dataset_and_every_version_of_the_lineage(
     assert next(row for row in body["versions"] if row["id"] == first["id"])[
         "is_champion"
     ]
+    # Upload → this version. No transform hop, no scored children yet.
+    assert body["provenance"]["dataset"]["id"] == dataset.id
+    assert body["provenance"]["transform"] is None
+    assert body["provenance"]["model"]["id"] == second["id"]
+    assert body["provenance"]["scored"] == []
+
+
+def test_the_detail_read_walks_dataset_transform_model_and_scored_tables(
+    client, db_session, workspace, dataset, monkeypatch
+):
+    from app.services.tabular_datasets import register_frame
+
+    features = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Churn features",
+        frame=_frame(),
+        source="transform",
+        parent_ids=[dataset.id],
+        lineage={"engine": "sql"},
+    )
+    db_session.commit()
+    _stub_harness(monkeypatch)
+    model = _train(client, features).json()["model"]
+    scored = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Churn scored",
+        frame=_frame(),
+        source="score",
+        parent_ids=[features.id],
+        lineage={
+            "engine": "sklearn",
+            "model": {"model_id": model["id"]},
+            "added_columns": ["prediction"],
+        },
+    )
+    db_session.commit()
+
+    body = client.get(f"/ml-models/{model['id']}").json()["provenance"]
+    assert body["dataset"]["id"] == dataset.id
+    assert body["transform"]["id"] == features.id
+    assert body["transform"]["engine"] == "sql"
+    assert body["model"]["id"] == model["id"]
+    assert [row["id"] for row in body["scored"]] == [scored.id]
+    assert body["scored"][0]["added_columns"] == ["prediction"]
 
 
 def test_every_version_on_a_card_carries_the_scores_the_card_compares(

@@ -867,6 +867,87 @@ export function higherIsBetter(key: string): boolean {
 }
 
 /**
+ * One hop on the model card's pipeline banner.
+ *
+ * Distinct from `ProvenanceSource` (the published Skill's "who answers"
+ * sentence). This is the data path: upload → transform → this version → the
+ * tables it later scored.
+ */
+export type PipelineHopKind = 'dataset' | 'transform' | 'model' | 'scored';
+
+export interface PipelineChip {
+  id: string;
+  name: string;
+  slug?: string;
+  version: number;
+  kind: PipelineHopKind;
+  engine?: string | null;
+  added_columns?: string[];
+}
+
+export interface PipelineProvenance {
+  dataset: PipelineChip | null;
+  transform: PipelineChip | null;
+  model: PipelineChip;
+  scored: PipelineChip[];
+}
+
+export interface PipelineHop {
+  id: string;
+  kind: PipelineHopKind;
+  label: string;
+  link: readonly string[];
+  current?: boolean;
+}
+
+/**
+ * Flatten the pipeline into the hops the banner draws, dropping empty slots.
+ *
+ * A card with only this version (no training dataset, no scored children) is
+ * not a pipeline — drawing a one-chip chain would be ceremony around nothing.
+ */
+export function pipelineHops(
+  provenance: PipelineProvenance | null | undefined,
+  label: (chip: PipelineChip) => string,
+): PipelineHop[] {
+  if (!provenance) return [];
+  const hops: PipelineHop[] = [];
+  if (provenance.dataset) {
+    hops.push({
+      id: provenance.dataset.id,
+      kind: 'dataset',
+      label: label(provenance.dataset),
+      link: ['/data', provenance.dataset.id],
+    });
+  }
+  if (provenance.transform) {
+    hops.push({
+      id: provenance.transform.id,
+      kind: 'transform',
+      label: label(provenance.transform),
+      link: ['/data', provenance.transform.id],
+    });
+  }
+  hops.push({
+    id: provenance.model.id,
+    kind: 'model',
+    label: label(provenance.model),
+    link: ['/models', provenance.model.id],
+    current: true,
+  });
+  for (const scored of provenance.scored ?? []) {
+    hops.push({
+      id: scored.id,
+      kind: 'scored',
+      label: label(scored),
+      link: ['/data', scored.id],
+    });
+  }
+  if (hops.length < 2) return [];
+  return hops;
+}
+
+/**
  * What a provenance line needs to know, and nothing more.
  *
  * Narrower than the transport's `SkillProvenance` on purpose: the sentence is

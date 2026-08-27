@@ -66,6 +66,7 @@ import {
   importanceBars,
   metricDelta,
   metricTone,
+  pipelineHops,
   previousVersion,
   primaryScore,
   splitError,
@@ -77,6 +78,7 @@ import {
   type CvBlock,
   type MetricTone,
   type ModelDto,
+  type PipelineChip,
   type ServingBlock,
   type SignatureField,
 } from './models.vm';
@@ -188,6 +190,29 @@ const CHART_ASPECT = 300 / 190;
           </button>
         </div>
       </ck-object-header>
+
+      @if (pipeline().length) {
+        <nav
+          class="ck-provenance"
+          [attr.aria-label]="i18n.t('models.detail.provenance')"
+        >
+          <span class="ck-provenance__label">{{ i18n.t('models.detail.provenance') }}</span>
+          <ol class="ck-lineage" data-testid="provenance-chain">
+            @for (hop of pipeline(); track hop.kind + hop.id) {
+              <li class="ck-lineage__item">
+                <a
+                  [routerLink]="hop.link"
+                  class="ck-lineage__link"
+                  [attr.data-kind]="hop.kind"
+                  [attr.data-current]="hop.current"
+                >
+                  {{ hop.label }}
+                </a>
+              </li>
+            }
+          </ol>
+        </nav>
+      }
 
       @if (isActive(row)) {
         <div class="ck-progress rounded-md px-4 py-3 mb-3">
@@ -827,6 +852,19 @@ const CHART_ASPECT = 300 / 190;
       /* The lineage as a chain. The arrows are drawn with ::after rather than
          put in the markup so they are not read out as content — a screen reader
          announcing "v1 arrow v2 arrow v3" is worse than reading three links. */
+      .ck-provenance {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 12px;
+        margin: 10px 0 16px;
+      }
+      .ck-provenance__label {
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--ck-fg-4, #8891a0);
+      }
       .ck-lineage {
         display: flex;
         flex-wrap: wrap;
@@ -1120,6 +1158,10 @@ export class ModelViewComponent implements OnInit {
   protected readonly model = computed(() => this.detail()?.model ?? null);
   protected readonly dataset = computed(() => this.detail()?.dataset ?? null);
   protected readonly versions = computed(() => this.detail()?.versions ?? []);
+  /** Dataset → transform → this version → scored children. Not v1→v2. */
+  protected readonly pipeline = computed(() =>
+    pipelineHops(this.detail()?.provenance, (chip) => this.hopLabel(chip)),
+  );
   /** Named by the API, because the registry alias is derived from the same rule. */
   protected readonly challengerId = computed(
     () => this.detail()?.challenger_id ?? null,
@@ -1438,6 +1480,17 @@ export class ModelViewComponent implements OnInit {
     ]
       .filter(Boolean)
       .join(' · ');
+  }
+
+  private hopLabel(chip: PipelineChip): string {
+    if (chip.kind === 'transform' && !chip.engine) {
+      return this.i18n.t('models.detail.provenance.dataset', { name: chip.name });
+    }
+    return this.i18n.t(`models.detail.provenance.${chip.kind}`, {
+      name: chip.name,
+      version: chip.version,
+      engine: chip.engine ?? '',
+    });
   }
 
   protected subtitle(model: ModelDto): string {
