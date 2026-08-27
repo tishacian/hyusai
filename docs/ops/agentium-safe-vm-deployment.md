@@ -4553,3 +4553,79 @@ répondu en 296 à 360 ms.
   avait bien été fait, puis le compte a été re-invité pour les captures des
   courbes sans que la ligne soit rejouée. La table est revenue à ses deux membres
   réels.
+
+## Vérification du 26-27/08 — « prêts pour la démo ? », **rien de déployé**
+
+Question posée : est-ce que tout est fini et déployé. Réponse courte : la démo
+l'est, la suite backend ne l'était pas — elle ne finissait pas, et personne ne
+s'en était aperçu parce qu'elle ne finissait pas *silencieusement*.
+
+**Ce qui était déjà en place.** `demo/agentic` est à `411a1e4e`, poussé, arbre
+propre. Les images de la VM tournent sur `2b995cdf` : deux commits d'écart, qui
+sont un journal (`485b4c80`) et **une** ligne dans un fichier de test
+(`411a1e4e`). Aucun code exécuté ne diffère, donc pas de bascule à refaire.
+`verify_nawa_data_ml_plane` repasse les 51 lignes du runbook sur la base seedée
+de la VM, zéro `DRIFT`, y compris les trois lignes de portabilité — un client
+MLflow de série qui résout `champion`, et un skore de série qui rouvre l'état du
+rapport. Les trois barrières front sont vertes : `check:i18n` sur 6 862 clés,
+1 311 tests unitaires, `build:prod`.
+
+**La suite backend ne terminait pas.** Lancée sur la VM puis en local, elle
+s'arrêtait à 67 % pendant plus de quarante minutes à 0,02 % de CPU. Ce n'était
+pas un blocage : py-spy montrait le thread principal endormi dans
+`create_sqlalchemy_engine_with_retry` de MLflow, appelé depuis `clear_alias` ←
+`sync_challenger` ← `run_training`. La ligne 344 de `mlflow/store/db/utils.py`
+est le `time.sleep` du réessai, dix tentatives en `0.1 * (2**n - 1)` : environ
+101 secondes de sommeil par client construit, pour chaque test qui entraîne.
+
+**La cause est un nom, pas une panne.** `registry_uri()` *dérive* le registre au
+lieu de le configurer : un `mlflow-registry.db` fixe à côté de la base
+applicative. Le conftest nomme la base par processus
+(`pytest_omnirag-{worker}-{pid}.db`) mais son frère dérivé retombe sur un seul
+`/tmp/mlflow-registry.db`, ouvert par le processus pytest *et* par chaque
+sous-processus du harnais d'entraînement. La contention ne fait échouer aucun
+test : elle le fait dormir. C'est pour cela que la panne était invisible — un
+test qui dort ne rougit pas, et `--timeout` ne l'attrapait pas non plus tant que
+chaque test restait sous la borne.
+
+La mesure qui l'isole tient en une variable : même test, même arbre, seul le
+répertoire temporaire change, exécuté pendant qu'une autre suite tenait le
+fichier partagé — `TMPDIR` privé, `1 passed in 3.39s` ; `/tmp` partagé, les 101
+secondes de réessai. Le conftest nomme donc désormais le registre par processus,
+pour la raison qui lui faisait déjà nommer la base par processus, et le supprime
+au démontage de session.
+
+**Observables.** Après le correctif la suite atteint sa propre ligne de résumé :
+**21 échecs, 5 674 succès, 37 ignorés en 20 min 53 s**. Les deux tests qui
+bloquaient passent ensemble en 28,74 s, deux ajustements réels compris, pendant
+qu'un autre processus tenait l'ancien fichier partagé.
+
+**Les 21 échecs sont antérieurs à la tranche graphique.** Ils ont été rejoués
+tels quels sur `37215e10` (`46fc7ea3~1`), dans un worktree séparé : `diff` des
+deux listes vide, ensembles identiques. Dix-huit sont sous `app/tests/integration/`
+et réclament Qdrant sur localhost, ce que le marqueur `integration` annonce ;
+localhost:6333 répond `000` ici. Restent trois échecs qui ne sont pas
+d'environnement et qui méritent d'être nommés :
+
+- `test_zip_member_source_is_bounded_and_traversal_is_rejected` attend
+  `member_sha_mismatch` et reçoit `secure_deposit_source_content_changed` :
+  c'est une garde extérieure qui parle avant celle que le test interroge.
+- `test_secure_deposit_detects_replacement_with_restored_size_and_mtime` et
+  `test_secure_deposit_manifest_digest_detects_equal_size_replacement` veulent
+  deux empreintes de manifeste différentes après un remplacement de même taille
+  et de même mtime, et obtiennent deux fois la même. L'un des deux est passé une
+  fois sur deux exécutions : la ligne est sensible à la granularité des dates du
+  système de fichiers.
+
+**Dette laissée.**
+
+- **Les trois échecs non liés à l'environnement ne sont pas corrigés.** Aucun ne
+  touche le plan data/ML de la démo, et chacun demande une décision sur ce que
+  le contrat promet — quelle garde doit parler la première, et sur quoi une
+  empreinte de manifeste doit porter — et non un ajustement de test.
+- **L'activation du board n'a jamais atterri.** Le commit `4dbc4efc` la porte
+  avec douze tests rouges ; il n'est sur aucune branche et n'est pas dans
+  `demo/agentic`. Le board reste consultable et non actionnable.
+- **La suite complète coûte 21 minutes** même corrigée. Les tests qui entraînent
+  pour de vrai construisent chacun un client MLflow ; le correctif leur rend le
+  temps du réessai, pas celui de l'ajustement.
