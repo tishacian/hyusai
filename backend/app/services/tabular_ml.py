@@ -669,6 +669,23 @@ def download_model_dir(model: MLModel, destination: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _lineage_published_slug(
+    db: DBSession, *, workspace_id: str, slug: str
+) -> str | None:
+    """The Skill slug this lineage is published as, read off any sibling."""
+
+    row = (
+        db.query(MLModel.published_skill_slug)
+        .filter(
+            MLModel.workspace_id == workspace_id,
+            MLModel.slug == slug,
+            MLModel.published_skill_slug.isnot(None),
+        )
+        .first()
+    )
+    return row[0] if row is not None else None
+
+
 def create_model(
     db: DBSession,
     *,
@@ -712,6 +729,12 @@ def create_model(
         input_example_json={},
         classes_json=[],
         mlflow_model_name=f"{workspace_id[:8]}.{slug}",
+        # Publication is a lineage fact stored per row, so a version born after
+        # it must inherit the slug or its card would deny what its siblings
+        # report — and a later promotion would find nothing to refresh.
+        published_skill_slug=_lineage_published_slug(
+            db, workspace_id=workspace_id, slug=slug
+        ),
         run_id=run_id,
         node_id=node_id,
         created_by=created_by,
@@ -947,6 +970,12 @@ def set_champion(db: DBSession, model: MLModel) -> MLModel:
     # of aliases moves together or the demoted champion would still be named
     # nothing at all.
     sync_challenger(db, model)
+    # A published Skill's schemas describe whatever serves the lineage, so they
+    # move with the alias or the catalog lies about what a call must send.
+    # Local import: tabular_predict imports from this module at its top.
+    from app.services.tabular_predict import refresh_published_skill
+
+    refresh_published_skill(db, model=model)
     return model
 
 
