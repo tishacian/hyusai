@@ -444,7 +444,7 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                       i18n.t(
                         descriptor().editableEnvironment
                           ? 'flow.transform.tab.environment'
-                          : 'flow.transform.tab.environment.imposed',
+                          : 'flow.transform.tab.environment.imposed'
                       )
                     }}
                   </button>
