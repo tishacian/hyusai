@@ -706,6 +706,75 @@ def _fail(db: DBSession, dataset: TabularDataset, error: str) -> None:
     db.commit()
 
 
+def fail_frame(db: DBSession, dataset: TabularDataset, error: str) -> None:
+    """Retire a reserved row whose producer did not finish.
+
+    A row reserved before the work starts is what lets a reader watch that work
+    (see :func:`reserve_frame`), and it is also a row that outlives the work if
+    nobody says otherwise. Left in ``ingesting`` it would sit on the Data page
+    claiming to be in progress for as long as the deployment lasts, which is a
+    worse failure than the silence reserving it was meant to remove.
+    """
+
+    _fail(db, dataset, error)
+
+
+def reserve_frame(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    name: str,
+    source: str = "score",
+    produced_by: str | None = None,
+    parent_ids: Iterable[str] | None = None,
+    run_id: str | None = None,
+    node_id: str | None = None,
+    description: str | None = None,
+    created_by: str | None = None,
+    lineage: dict[str, Any] | None = None,
+    step: str = "queued",
+) -> TabularDataset:
+    """Claim the row a long producer will fill, so its progress has somewhere to go.
+
+    :func:`register_frame` creates its row and settles it in one call, which is
+    right for work measured in milliseconds and wrong for work measured in
+    seconds: nothing exists to poll while it runs, so the surface has no way to
+    say what is happening. Scoring a base is the case that matters — thirteen
+    seconds on the demo's six thousand rows — and a reader watching a spinner
+    for thirteen seconds is the exact failure the progress convention exists to
+    remove.
+
+    The row lands in ``ingesting`` carrying its first step, and it is the
+    caller's job to reach either :func:`register_frame` with ``into`` or
+    :func:`fail_frame`. Name, slug and version are resolved here rather than at
+    settle time, because a version taken at the end would be the one that was
+    free after the work rather than the one the reader was shown during it.
+    """
+
+    label = (name or "result").strip()[:200] or "result"
+    slug = slugify(label)
+    dataset = TabularDataset(
+        id=str(uuid4()),
+        workspace_id=workspace_id,
+        name=label,
+        slug=slug,
+        version=next_version(db, workspace_id=workspace_id, slug=slug),
+        description=(description or None),
+        source=source,
+        status="ingesting",
+        status_detail=step,
+        produced_by=produced_by,
+        parent_ids=[str(parent) for parent in (parent_ids or []) if parent],
+        run_id=run_id,
+        node_id=node_id,
+        created_by=created_by,
+        lineage_json=dict(lineage or {}),
+    )
+    db.add(dataset)
+    db.commit()
+    return dataset
+
+
 def register_frame(
     db: DBSession,
     *,
@@ -720,8 +789,16 @@ def register_frame(
     description: str | None = None,
     created_by: str | None = None,
     lineage: dict[str, Any] | None = None,
+    into: TabularDataset | None = None,
 ) -> TabularDataset:
-    """Persist an in-memory frame as a ready dataset (transform/score output)."""
+    """Persist an in-memory frame as a ready dataset (transform/score output).
+
+    ``into`` settles a row a caller already reserved through
+    :func:`reserve_frame` rather than creating one. Its identity — name, slug,
+    version — is left as reserved: it is what a reader has been watching while
+    the frame was being computed, and renaming it at the finish line would move
+    the row out from under them.
+    """
 
     parents = [str(p) for p in (parent_ids or []) if p]
     max_rows = int(settings.tabular_transform_max_rows)
@@ -731,25 +808,30 @@ def register_frame(
             message=f"The result exceeds {max_rows:,} rows.",
             details={"row_count": int(frame.height)},
         )
-    label = (name or "result").strip()[:200] or "result"
-    slug = slugify(label)
-    dataset = TabularDataset(
-        id=str(uuid4()),
-        workspace_id=workspace_id,
-        name=label,
-        slug=slug,
-        version=next_version(db, workspace_id=workspace_id, slug=slug),
-        description=(description or None),
-        source=source,
-        status="ingesting",
-        produced_by=produced_by,
-        parent_ids=parents,
-        run_id=run_id,
-        node_id=node_id,
-        created_by=created_by,
-        lineage_json=dict(lineage or {}),
-    )
-    db.add(dataset)
+    dataset = into
+    if dataset is None:
+        label = (name or "result").strip()[:200] or "result"
+        slug = slugify(label)
+        dataset = TabularDataset(
+            id=str(uuid4()),
+            workspace_id=workspace_id,
+            name=label,
+            slug=slug,
+            version=next_version(db, workspace_id=workspace_id, slug=slug),
+            description=(description or None),
+            source=source,
+            status="ingesting",
+            produced_by=produced_by,
+            parent_ids=parents,
+            run_id=run_id,
+            node_id=node_id,
+            created_by=created_by,
+            lineage_json=dict(lineage or {}),
+        )
+        db.add(dataset)
+    else:
+        # A reserved row carried everything except what the frame decides.
+        dataset.lineage_json = dict(lineage or dataset.lineage_json or {})
     db.flush()
 
     profile = profile_frame(frame)
