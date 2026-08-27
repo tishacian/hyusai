@@ -18,6 +18,7 @@ from app.models.workspace import Workspace
 from app.services.tabular_datasets import TabularError
 from app.services.tabular_monitoring import (
     attach_feedback,
+    badges_for,
     concept_drift,
     drift_status,
     frequency_stability,
@@ -227,6 +228,49 @@ def test_score_drift_compares_the_recent_half_to_the_older_half(db_session, mode
     )
     assert body["n"] == 20
     assert body["status"] in {"watch", "alert"}
+
+
+def test_the_list_badge_agrees_with_the_tab_when_features_drift(
+    db_session, model, workspace
+):
+    """A list that says Stable while the tab says Alerte is a lie.
+
+    ``badges_for`` used to skip data PSI. Score and concept stay quiet on a
+    shifted feature with a flat score, so the list would print ok.
+    """
+
+    dataset = TabularDataset(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Train",
+        slug=f"train-{uuid4().hex[:8]}",
+        version=1,
+        source="upload",
+        status="ready",
+        stats_json={
+            "arpu": {
+                "kind": "number",
+                "min": 10.0,
+                "histogram": [
+                    {"upper": 20.0, "count": 20},
+                    {"upper": 30.0, "count": 20},
+                    {"upper": 40.0, "count": 20},
+                ],
+            }
+        },
+    )
+    db_session.add(dataset)
+    model.dataset_id = dataset.id
+    db_session.commit()
+    for _ in range(16):
+        _journal(
+            db_session, model, payload={"arpu": 90.0, "plan": "prepaid"}, score=0.5
+        )
+
+    body = report(db_session, model=model)
+    assert body["data_drift"]["status"] == "alert"
+    assert body["badge"] == "alert"
+    assert badges_for(db_session, [model])[model.id] == body["badge"]
 
 
 def test_concept_drift_flags_a_drop_from_the_train_auc(db_session, model):

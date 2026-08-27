@@ -1079,7 +1079,7 @@ def score_dataset(
         requested=model,
         served=served,
         caller="score",
-        rows=[],
+        rows=frame.select(wanted).head(_JOURNAL_ROW_CAP).to_dicts(),
         answers=answers,
         duration_ms=elapsed_ms,
         dataset_id=output.id,

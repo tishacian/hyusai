@@ -405,6 +405,7 @@ def test_the_detail_read_carries_the_dataset_and_every_version_of_the_lineage(
     assert body["provenance"]["transform"] is None
     assert body["provenance"]["model"]["id"] == second["id"]
     assert body["provenance"]["scored"] == []
+    assert body["model"]["monitor_status"] is None
 
 
 def test_the_detail_read_walks_dataset_transform_model_and_scored_tables(
@@ -446,6 +447,60 @@ def test_the_detail_read_walks_dataset_transform_model_and_scored_tables(
     assert body["model"]["id"] == model["id"]
     assert [row["id"] for row in body["scored"]] == [scored.id]
     assert body["scored"][0]["added_columns"] == ["prediction"]
+
+
+def test_the_dataset_chip_follows_parent_ids_not_sql_in_order(
+    client, db_session, workspace, monkeypatch
+):
+    """``IN`` does not keep the declared parent order.
+
+    The first parent is the source table the transform was written against.
+    Picking ``query.all()[0]`` can attach the wrong upload when a recipe has
+    more than one parent.
+    """
+
+    from app.models.tabular import TabularDataset
+    from app.services.tabular_datasets import register_frame
+
+    first = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Alpha source",
+        frame=_frame(),
+        source="upload",
+    )
+    second = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Beta source",
+        frame=_frame(),
+        source="upload",
+    )
+    db_session.commit()
+    sql_ids = [
+        row.id
+        for row in db_session.query(TabularDataset)
+        .filter(TabularDataset.id.in_([first.id, second.id]))
+        .all()
+    ]
+    intended = second if sql_ids[0] == first.id else first
+    other = first if intended is second else second
+    features = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Churn features",
+        frame=_frame(),
+        source="transform",
+        parent_ids=[intended.id, other.id],
+        lineage={"engine": "sql"},
+    )
+    db_session.commit()
+    _stub_harness(monkeypatch)
+    model = _train(client, features).json()["model"]
+
+    body = client.get(f"/ml-models/{model['id']}").json()["provenance"]
+    assert body["dataset"]["id"] == intended.id
+    assert body["transform"]["id"] == features.id
 
 
 def test_every_version_on_a_card_carries_the_scores_the_card_compares(

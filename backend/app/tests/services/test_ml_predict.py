@@ -16,7 +16,7 @@ import pytest
 
 from app.core.config import settings
 from app.models.skill import Skill
-from app.models.tabular import MLModel, MLModelApiKey
+from app.models.tabular import MLModel, MLModelApiKey, MLPrediction
 from app.models.workspace import Workspace
 from app.services import tabular_predict
 from app.services.tabular_datasets import TabularError, register_frame
@@ -573,6 +573,15 @@ def test_scoring_a_dataset_writes_a_new_one_that_keeps_every_input_column(
     assert all(0.0 <= value <= 1.0 for value in frame["score_1"].to_list())
     # The lineage says which model wrote those columns.
     assert output.lineage_json["model"]["model_id"] == model.id
+    journal = (
+        db_session.query(MLPrediction)
+        .filter(MLPrediction.id == result["prediction_id"])
+        .one()
+    )
+    assert journal.payload_json, "feature PSI is blind if a batch score journals no rows"
+    assert "plan" in journal.payload_json[0]
+    assert "arpu" in journal.payload_json[0]
+    assert len(journal.payload_json) == 30
 
 
 def test_a_regression_scores_a_dataset_with_one_added_column(

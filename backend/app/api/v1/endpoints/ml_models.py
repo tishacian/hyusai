@@ -327,8 +327,11 @@ async def get_model_detail(
         if model.dataset_id
         else None
     )
+    badges = badges_for(db, [model])
     return {
-        "model": serialize_model(model, include_detail=True),
+        "model": serialize_model(
+            model, include_detail=True, monitor_status=badges.get(model.id)
+        ),
         "dataset": serialize_dataset(dataset) if dataset is not None else None,
         "provenance": pipeline_provenance(db, model=model),
         **_lineage(db, workspace=workspace, model=model),

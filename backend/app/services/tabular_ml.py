@@ -1104,13 +1104,18 @@ def pipeline_provenance(db: DBSession, *, model: MLModel) -> dict[str, Any]:
     if trained is not None:
         lineage = trained.lineage_json if isinstance(trained.lineage_json, dict) else {}
         engine = lineage.get("engine")
-        parents = (
-            db.query(TabularDataset)
-            .filter(TabularDataset.id.in_(list(trained.parent_ids)))
-            .all()
-            if trained.parent_ids
-            else []
-        )
+        parent_ids = [str(pid) for pid in (trained.parent_ids or []) if pid]
+        by_id = {
+            row.id: row
+            for row in (
+                db.query(TabularDataset)
+                .filter(TabularDataset.id.in_(parent_ids))
+                .all()
+                if parent_ids
+                else []
+            )
+        }
+        parents = [by_id[pid] for pid in parent_ids if pid in by_id]
         if trained.source == "transform" or engine in ("sql", "polars", "dbt"):
             transform = _provenance_chip(
                 trained,
