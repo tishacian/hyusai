@@ -166,6 +166,11 @@ export const MODELS_FR = {
   'models.detail.trained_at': 'Entraîné le {date}',
   'models.detail.dataset': 'Jeu de données',
   'models.detail.dataset.open': 'Ouvrir le jeu de données',
+  'models.detail.provenance': 'Provenance',
+  'models.detail.provenance.dataset': '{name}',
+  'models.detail.provenance.transform': '{name} · {engine}',
+  'models.detail.provenance.model': '{name} v{version}',
+  'models.detail.provenance.scored': '{name}',
 
   // ---- progression d'entraînement ----------------------------------------
   // Les codes que l'ouvrier et le harnais publient dans `status_detail`.
@@ -662,6 +667,11 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.detail.trained_at': 'Trained on {date}',
   'models.detail.dataset': 'Dataset',
   'models.detail.dataset.open': 'Open the dataset',
+  'models.detail.provenance': 'Provenance',
+  'models.detail.provenance.dataset': '{name}',
+  'models.detail.provenance.transform': '{name} · {engine}',
+  'models.detail.provenance.model': '{name} v{version}',
+  'models.detail.provenance.scored': '{name}',
 
   'models.progress.step.queued': 'Queued',
   'models.progress.step.reading': 'Reading the dataset',
