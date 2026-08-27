@@ -1029,8 +1029,11 @@ export const FLOW_FR = {
 
   // environnement
   'flow.transform.tab.environment': 'Librairies',
+  'flow.transform.tab.environment.imposed': 'Environnement',
   'flow.transform.environment.hint':
-    'Polars est déjà fourni. Déclarez ici les librairies supplémentaires : l’environnement est identifié par son empreinte, préparé au premier essai puis réutilisé.',
+    'Déclarez les librairies supplémentaires du projet : l’environnement est identifié par son empreinte, préparé au premier essai puis réutilisé.',
+  'flow.transform.environment.imposed.hint':
+    'L’environnement est imposé : le script tourne sur le moteur épinglé, sans librairie supplémentaire.',
   'flow.transform.environment.requirements': 'Librairies (une par ligne)',
   'flow.transform.environment.requirements.placeholder':
     'scikit-learn==1.5.0\nstatsmodels==0.14.2',
@@ -2518,8 +2521,11 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
 
   // environment
   'flow.transform.tab.environment': 'Libraries',
+  'flow.transform.tab.environment.imposed': 'Environment',
   'flow.transform.environment.hint':
-    'Polars is already provided. Declare the extra libraries here: the environment is identified by its fingerprint, prepared on the first test run and reused afterwards.',
+    'Declare the project’s extra libraries here: the environment is identified by its fingerprint, prepared on the first test run and reused afterwards.',
+  'flow.transform.environment.imposed.hint':
+    'The environment is imposed: the script runs on the pinned engine, with no extra libraries.',
   'flow.transform.environment.requirements': 'Libraries (one per line)',
   'flow.transform.environment.requirements.placeholder':
     'scikit-learn==1.5.0\nstatsmodels==0.14.2',

@@ -255,11 +255,15 @@ test('the libraries panel exists only for the engine that needs a venv', () => {
     workshop,
     /@if \(descriptor\(\)\.managedEnvironment\) \{[\s\S]*?data-testid="tab-environment"/,
   );
+  assert.match(workshop, /descriptor\(\)\.editableEnvironment/);
   assert.match(workshop, /data-testid="requirements-text"/);
+  assert.match(workshop, /data-testid="pinned-environment"/);
   assert.match(workshop, /data-testid="transform-timeout"/);
   for (const key of [
     'flow.transform.tab.environment',
+    'flow.transform.tab.environment.imposed',
     'flow.transform.environment.hint',
+    'flow.transform.environment.imposed.hint',
     'flow.transform.environment.requirements',
     'flow.transform.environment.timeout',
   ]) {
