@@ -48,6 +48,9 @@ export const MODELS_FR = {
   'models.list.meta': '{rows} lignes · {features} variables · {duration}',
   'models.list.target': 'Prédit {target}',
   'models.list.dataset': 'depuis {dataset}',
+  'models.list.monitor.ok': 'Stable',
+  'models.list.monitor.watch': 'Attention',
+  'models.list.monitor.alert': 'Alerte',
 
   // ---- statuts ------------------------------------------------------------
   'models.status.pending': 'En attente',
@@ -143,6 +146,7 @@ export const MODELS_FR = {
   'models.detail.tab.evidence': 'Résultats',
   'models.detail.tab.play': 'Prédire',
   'models.detail.tab.compare': 'Comparaison',
+  'models.detail.tab.monitor': 'Suivi',
   'models.detail.tab.contract': 'Contrat d’entrée',
   'models.detail.tab.versions': 'Versions',
   'models.detail.tab.setup': 'Réglages',
@@ -240,6 +244,37 @@ export const MODELS_FR = {
     'v{version} : {metric} {delta} contre la v{previous}. Gardez la version précédente en service.',
   'models.compare.verdict.flat':
     'v{version} : {metric} inchangé contre la v{previous}. Rien n’oblige à changer ce qui répond.',
+
+  // ---- suivi (dérive + feedback) ------------------------------------------
+  'models.monitor.empty.title': 'Rien à mesurer',
+  'models.monitor.empty.description':
+    'Chaque prédiction est journalisée. Appelez le modèle, puis revenez ici.',
+  'models.monitor.window': '{predictions} appels · {labeled} annotés',
+  'models.monitor.data': 'Dérive des données',
+  'models.monitor.score': 'Dérive des scores',
+  'models.monitor.concept': 'Dérive du concept',
+  'models.monitor.status.ok': 'Stable',
+  'models.monitor.status.watch': 'Attention',
+  'models.monitor.status.alert': 'Alerte',
+  'models.monitor.status.unknown': 'Pas encore',
+  'models.monitor.features': 'Variables',
+  'models.monitor.auc': 'AUC d’entraînement et AUC glissante',
+  'models.monitor.auc.x': 'Fenêtre',
+  'models.monitor.auc.y': 'AUC',
+  'models.monitor.feedback': 'Issue réelle',
+  'models.monitor.feedback.hint':
+    'Collez l’identifiant renvoyé par la prédiction, puis l’issue réelle.',
+  'models.monitor.feedback.id': 'Prédiction',
+  'models.monitor.feedback.label': 'Issue',
+  'models.monitor.feedback.submit': 'Enregistrer',
+  'models.monitor.feedback.done': 'Issue enregistrée',
+  'models.monitor.feedback.failed': 'L’enregistrement a échoué',
+  'models.monitor.dataset': 'Créer un jeu de données',
+  'models.monitor.dataset.hint':
+    'Les lignes annotées deviennent un jeu que l’atelier peut réentraîner.',
+  'models.monitor.dataset.done': 'Jeu « {name} » créé',
+  'models.monitor.dataset.failed': 'Pas assez de lignes annotées',
+  'models.monitor.retrain': 'Réentraîner sur ce jeu',
 
   // ---- comparaison sur les mêmes lignes -----------------------------------
   'models.compare.same.title': 'Comparer sur les mêmes lignes',
@@ -340,6 +375,7 @@ export const MODELS_FR = {
   'models.play.why.hint':
     'Chaque barre est mesurée : le modèle est réinterrogé avec ce seul champ ramené à sa valeur typique, l’écart est ce qu’il a coûté.',
   'models.play.timing': 'Répondu en {ms} ms',
+  'models.play.prediction_id': 'Prédiction {id}',
   'models.play.served': 'répondu par la v{version}',
   'models.play.failed': 'La prédiction a échoué',
   'models.play.curl': 'Le même appel, depuis un système',
@@ -548,6 +584,9 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.list.meta': '{rows} rows · {features} features · {duration}',
   'models.list.target': 'Predicts {target}',
   'models.list.dataset': 'from {dataset}',
+  'models.list.monitor.ok': 'Steady',
+  'models.list.monitor.watch': 'Watch',
+  'models.list.monitor.alert': 'Alert',
 
   'models.status.pending': 'Queued',
   'models.status.training': 'Training',
@@ -639,6 +678,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.detail.tab.evidence': 'Results',
   'models.detail.tab.play': 'Predict',
   'models.detail.tab.compare': 'Comparison',
+  'models.detail.tab.monitor': 'Monitoring',
   'models.detail.tab.contract': 'Input contract',
   'models.detail.tab.versions': 'Versions',
   'models.detail.tab.setup': 'Settings',
@@ -732,6 +772,36 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
     'v{version}: {metric} {delta} against v{previous}. Keep the previous version in service.',
   'models.compare.verdict.flat':
     'v{version}: {metric} unchanged against v{previous}. Nothing forces a change to what answers.',
+
+  'models.monitor.empty.title': 'Nothing to measure',
+  'models.monitor.empty.description':
+    'Every prediction is journalled. Call the model, then come back here.',
+  'models.monitor.window': '{predictions} calls · {labeled} labeled',
+  'models.monitor.data': 'Data drift',
+  'models.monitor.score': 'Score drift',
+  'models.monitor.concept': 'Concept drift',
+  'models.monitor.status.ok': 'Steady',
+  'models.monitor.status.watch': 'Watch',
+  'models.monitor.status.alert': 'Alert',
+  'models.monitor.status.unknown': 'Not yet',
+  'models.monitor.features': 'Features',
+  'models.monitor.auc': 'Training AUC and rolling AUC',
+  'models.monitor.auc.x': 'Window',
+  'models.monitor.auc.y': 'AUC',
+  'models.monitor.feedback': 'Ground truth',
+  'models.monitor.feedback.hint':
+    'Paste the id the prediction returned, then the real outcome.',
+  'models.monitor.feedback.id': 'Prediction',
+  'models.monitor.feedback.label': 'Outcome',
+  'models.monitor.feedback.submit': 'Save',
+  'models.monitor.feedback.done': 'Outcome saved',
+  'models.monitor.feedback.failed': 'Saving the outcome failed',
+  'models.monitor.dataset': 'Create a dataset',
+  'models.monitor.dataset.hint':
+    'The labeled rows become a dataset the studio can retrain on.',
+  'models.monitor.dataset.done': 'Dataset “{name}” created',
+  'models.monitor.dataset.failed': 'Not enough labeled rows',
+  'models.monitor.retrain': 'Retrain on this dataset',
 
   'models.compare.same.title': 'Compare on the same rows',
   'models.compare.same.hint':
@@ -828,6 +898,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.play.why.hint':
     'Every bar is measured: the model is asked again with that one field back at its typical value, and the gap is what it cost.',
   'models.play.timing': 'Answered in {ms} ms',
+  'models.play.prediction_id': 'Prediction {id}',
   'models.play.served': 'answered by v{version}',
   'models.play.failed': 'The prediction failed',
   'models.play.curl': 'The same call, from a system',

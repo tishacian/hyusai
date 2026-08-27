@@ -42,6 +42,9 @@ import {
   playgroundSeed,
   predictPayload,
   comparisonPair,
+  driftBars,
+  aucTrace,
+  monitorTone,
   previousVersion,
   primaryScore,
   refusalField,
@@ -659,6 +662,27 @@ test('a skill that answers from no model claims no provenance', () => {
     provenanceLineParams({ name: 'Churn', version: 0 }, (key) => key)?.version,
     1,
   );
+});
+
+test('drift bars rank PSI the same way importances rank a feature', () => {
+  const bars = driftBars([
+    { name: 'arpu', kind: 'number', value: 0.3, status: 'alert' },
+    { name: 'plan', kind: 'category', value: 0.05, status: 'ok' },
+  ]);
+  assert.equal(bars[0].label, 'arpu');
+  assert.equal(bars[0].negative, true);
+  assert.ok(bars[0].width > bars[1].width);
+});
+
+test('the AUC trace is two points so the curve kit can draw the drop', () => {
+  assert.deepEqual(aucTrace(0.84, 0.61), [
+    { x: 0, y: 0.84 },
+    { x: 1, y: 0.61 },
+  ]);
+  assert.deepEqual(aucTrace(null, null), []);
+  assert.equal(monitorTone('alert'), 'neg');
+  assert.equal(monitorTone('watch'), 'warn');
+  assert.equal(monitorTone(null), 'neutral');
 });
 
 test('every coded serving refusal has a sentence of its own', () => {
