@@ -1069,6 +1069,113 @@ def champion_for(db: DBSession, *, workspace_id: str, slug: str) -> MLModel | No
 # ---------------------------------------------------------------------------
 
 
+def _provenance_chip(
+    dataset: TabularDataset, *, kind: str, extra: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    chip = {
+        "id": dataset.id,
+        "name": dataset.name,
+        "slug": dataset.slug,
+        "version": int(dataset.version or 1),
+        "kind": kind,
+    }
+    if extra:
+        chip.update(extra)
+    return chip
+
+
+def pipeline_provenance(db: DBSession, *, model: MLModel) -> dict[str, Any]:
+    """The data path that produced this version and what it later scored.
+
+    Version lineage (v1 → v2) already lives on the card. This is the *pipeline*:
+    an optional transform parent, the training dataset, this model, then the
+    scored tables that name this version in their lineage.
+    """
+
+    trained = (
+        db.query(TabularDataset)
+        .filter(TabularDataset.id == model.dataset_id)
+        .first()
+        if model.dataset_id
+        else None
+    )
+    transform = None
+    dataset_chip = None
+    if trained is not None:
+        lineage = trained.lineage_json if isinstance(trained.lineage_json, dict) else {}
+        engine = lineage.get("engine")
+        parents = (
+            db.query(TabularDataset)
+            .filter(TabularDataset.id.in_(list(trained.parent_ids)))
+            .all()
+            if trained.parent_ids
+            else []
+        )
+        if trained.source == "transform" or engine in ("sql", "polars", "dbt"):
+            transform = _provenance_chip(
+                trained,
+                kind="transform",
+                extra={"engine": engine or trained.source},
+            )
+            dataset_chip = (
+                _provenance_chip(parents[0], kind="dataset") if parents else None
+            )
+        else:
+            dataset_chip = _provenance_chip(trained, kind="dataset")
+            for parent in parents:
+                parent_lineage = (
+                    parent.lineage_json if isinstance(parent.lineage_json, dict) else {}
+                )
+                parent_engine = parent_lineage.get("engine")
+                if parent.source == "transform" or parent_engine in ("sql", "polars", "dbt"):
+                    transform = _provenance_chip(
+                        parent,
+                        kind="transform",
+                        extra={"engine": parent_engine or parent.source},
+                    )
+                    break
+
+    scored: list[dict[str, Any]] = []
+    if model.id:
+        candidates = (
+            db.query(TabularDataset)
+            .filter(
+                TabularDataset.workspace_id == model.workspace_id,
+                TabularDataset.status != "deleted",
+                TabularDataset.source == "score",
+            )
+            .order_by(TabularDataset.created_at.desc())
+            .limit(50)
+            .all()
+        )
+        for row in candidates:
+            lineage = row.lineage_json if isinstance(row.lineage_json, dict) else {}
+            reference = lineage.get("model") if isinstance(lineage.get("model"), dict) else {}
+            if str(reference.get("model_id") or "") != str(model.id):
+                continue
+            scored.append(
+                _provenance_chip(
+                    row,
+                    kind="scored",
+                    extra={"added_columns": list(lineage.get("added_columns") or [])},
+                )
+            )
+            if len(scored) >= 8:
+                break
+
+    return {
+        "dataset": dataset_chip,
+        "transform": transform,
+        "model": {
+            "id": model.id,
+            "name": model.name,
+            "version": int(model.version or 1),
+            "kind": "model",
+        },
+        "scored": scored,
+    }
+
+
 def serialize_model(
     model: MLModel, *, include_detail: bool = False, include_scores: bool = False
 ) -> dict[str, Any]:
@@ -1567,6 +1674,7 @@ __all__ = [
     "dispatch_training",
     "download_model_dir",
     "estimator_params",
+    "pipeline_provenance",
     "get_model",
     "harness_path",
     "infer_task",

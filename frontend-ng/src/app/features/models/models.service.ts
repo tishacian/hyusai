@@ -29,6 +29,7 @@ import {
   type ModelCatalog,
   type ModelDto,
   type ModelTask,
+  type PipelineProvenance,
   type PlanColumn,
   type PredictAnswer,
   type PublishedSkillDto,
@@ -44,6 +45,8 @@ export interface ModelListDto {
 export interface ModelDetailDto {
   model: ModelDto;
   dataset: DatasetDto | null;
+  /** Upload → transform → this version → scored children. Not the v1→v2 chain. */
+  provenance: PipelineProvenance | null;
   versions: ModelDto[];
   /**
    * The version the registry's `@challenger` alias names: the best of the

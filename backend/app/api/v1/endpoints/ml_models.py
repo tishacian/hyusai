@@ -52,6 +52,7 @@ from app.services.tabular_ml import (
     delete_model,
     get_model,
     infer_task,
+    pipeline_provenance,
     request_cancel,
     runner_up,
     serialize_model,
@@ -319,6 +320,7 @@ async def get_model_detail(
     return {
         "model": serialize_model(model, include_detail=True),
         "dataset": serialize_dataset(dataset) if dataset is not None else None,
+        "provenance": pipeline_provenance(db, model=model),
         **_lineage(db, workspace=workspace, model=model),
         "catalog": catalog_payload(),
         "serving": serving_block(db, model),

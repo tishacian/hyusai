@@ -291,6 +291,24 @@ test('a dead link to a model says so, and offers the way back', () => {
   }
 });
 
+test('the card banner is the pipeline, not the version chain', () => {
+  // Versions already draw v1 → v2. The banner is the data path the card is
+  // about: training table → transform → this version → scored children.
+  assert.match(CARD, /data-testid="provenance-chain"/);
+  assert.match(CARD, /pipelineHops\(this\.detail\(\)\?\.provenance/);
+  assert.match(CLIENT, /provenance: PipelineProvenance/);
+  for (const key of [
+    'models.detail.provenance',
+    'models.detail.provenance.dataset',
+    'models.detail.provenance.transform',
+    'models.detail.provenance.model',
+    'models.detail.provenance.scored',
+  ]) {
+    assert.ok(MODELS_FR[key], `${key} has FR copy`);
+    assert.ok(MODELS_EN[key], `${key} has EN copy`);
+  }
+});
+
 test('the lineage reads forwards, and marks the current and the serving one apart', () => {
   assert.match(CARD, /data-testid="lineage-chain"/);
   // Oldest first: a chain is read as a progression, and `v3 → v2 → v1` says

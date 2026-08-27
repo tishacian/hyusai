@@ -48,6 +48,7 @@ import {
   primaryScore,
   refusalField,
   refusalKey,
+  pipelineHops,
   provenanceLineParams,
   servingErrorKey,
   splitError,
@@ -664,6 +665,48 @@ test('a provenance with no readable score still says which version answers', () 
     'en',
   );
   assert.equal(broken?.evidence, '');
+});
+
+test('the pipeline banner walks dataset, transform, this version and scored tables', () => {
+  const hops = pipelineHops(
+    {
+      dataset: { id: 'ds', name: 'Churn raw', version: 1, kind: 'dataset' },
+      transform: {
+        id: 'tf',
+        name: 'Churn features',
+        version: 1,
+        kind: 'transform',
+        engine: 'sql',
+      },
+      model: { id: 'md', name: 'Churn Radar', version: 2, kind: 'model' },
+      scored: [{ id: 'sc', name: 'Churn scored', version: 1, kind: 'scored' }],
+    },
+    (chip) => `${chip.kind}:${chip.name}`,
+  );
+  assert.deepEqual(
+    hops.map((hop) => hop.kind),
+    ['dataset', 'transform', 'model', 'scored'],
+  );
+  assert.deepEqual(hops[0].link, ['/data', 'ds']);
+  assert.deepEqual(hops[2].link, ['/models', 'md']);
+  assert.equal(hops[2].current, true);
+  assert.deepEqual(hops[3].link, ['/data', 'sc']);
+});
+
+test('a card with only this version is not a pipeline', () => {
+  assert.deepEqual(
+    pipelineHops(
+      {
+        dataset: null,
+        transform: null,
+        model: { id: 'md', name: 'Lonely', version: 1, kind: 'model' },
+        scored: [],
+      },
+      (chip) => chip.name,
+    ),
+    [],
+  );
+  assert.deepEqual(pipelineHops(null, (chip) => chip.name), []);
 });
 
 test('a skill that answers from no model claims no provenance', () => {
