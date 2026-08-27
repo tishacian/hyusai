@@ -6,6 +6,7 @@ import {
   DBT_TRANSFORM_DEFAULT_MODELS,
   DBT_TRANSFORM_DEFAULT_TESTS_YML,
   DBT_TRANSFORM_SKILL_SLUG,
+  POLARS_PINNED_REQUIREMENT,
   POLARS_TRANSFORM_DEFAULT_CODE,
   POLARS_TRANSFORM_SKILL_SLUG,
   SQL_MAX_CHARS,
@@ -292,6 +293,16 @@ test('the engine is read off the bound skill, and only for authorable nodes', ()
   assert.equal(isPolarsTransformNode(polarsNode()), true);
   assert.equal(isPolarsTransformNode(sqlNode()), false);
   assert.equal(isSqlTransformNode(polarsNode()), false);
+});
+
+test('a Polars node cannot add libraries; a dbt project can', () => {
+  assert.equal(TRANSFORM_ENGINES.polars.managedEnvironment, true);
+  assert.equal(TRANSFORM_ENGINES.polars.editableEnvironment, false);
+  assert.equal(TRANSFORM_ENGINES.sql.managedEnvironment, false);
+  assert.equal(TRANSFORM_ENGINES.sql.editableEnvironment, false);
+  assert.equal(TRANSFORM_ENGINES.dbt.managedEnvironment, true);
+  assert.equal(TRANSFORM_ENGINES.dbt.editableEnvironment, true);
+  assert.equal(POLARS_PINNED_REQUIREMENT, 'polars==1.44.0');
 });
 
 test('a dropped Polars node carries a runnable script and its environment', () => {
@@ -672,7 +683,9 @@ test('every engine label the workshop renders has FR and EN copy', () => {
     'flow.transform.run.cancel',
     'flow.transform.stdout',
     'flow.transform.tab.environment',
+    'flow.transform.tab.environment.imposed',
     'flow.transform.environment.hint',
+    'flow.transform.environment.imposed.hint',
     'flow.transform.environment.requirements',
     'flow.transform.environment.requirements.placeholder',
     'flow.transform.environment.count',

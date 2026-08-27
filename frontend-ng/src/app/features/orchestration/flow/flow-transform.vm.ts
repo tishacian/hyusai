@@ -90,6 +90,9 @@ export const DBT_TESTS_FILE_NAME = 'schema.yml';
 
 /** Mirror of `settings.tabular_polars_default_timeout_s`. */
 export const POLARS_TIMEOUT_DEFAULT_S = 180;
+/** Mirror of `settings.tabular_polars_requirement`: the imposed engine the
+ *  environment panel reads out, since a Polars node cannot add libraries. */
+export const POLARS_PINNED_REQUIREMENT = 'polars==1.44.0';
 /** Mirror of `settings.tabular_dbt_default_timeout_s`: a project compiles
  *  before its first model runs, so it gets a longer default than a script. */
 export const DBT_TIMEOUT_DEFAULT_S = 300;
@@ -185,8 +188,16 @@ export interface TransformEngineDescriptor {
   defaultProgram: string;
   /** Registered icon name — the engine's identity, in the palette and the head. */
   icon: string;
-  /** True when the engine needs a venv, hence a libraries panel. */
+  /** True when the engine needs a venv, hence an environment panel. */
   managedEnvironment: boolean;
+  /**
+   * True when the author may add libraries on top of the platform pin.
+   *
+   * A dbt project legitimately carries packages (dbt-utils and friends); a
+   * Polars script gets exactly the pinned engine and nothing else — the
+   * environment is imposed, so its panel reads the pin instead of editing it.
+   */
+  editableEnvironment: boolean;
   /** True when the node carries a file tree rather than one program. */
   multiFile: boolean;
   /** Seconds a run gets when the node declares nothing. */
@@ -220,6 +231,7 @@ export const TRANSFORM_ENGINES: Readonly<
     defaultProgram: SQL_TRANSFORM_DEFAULT_SQL,
     icon: 'database',
     managedEnvironment: false,
+    editableEnvironment: false,
     multiFile: false,
     defaultTimeoutS: POLARS_TIMEOUT_DEFAULT_S,
     copy: {
@@ -247,6 +259,7 @@ export const TRANSFORM_ENGINES: Readonly<
     defaultProgram: POLARS_TRANSFORM_DEFAULT_CODE,
     icon: 'code',
     managedEnvironment: true,
+    editableEnvironment: false,
     multiFile: false,
     defaultTimeoutS: POLARS_TIMEOUT_DEFAULT_S,
     copy: {
@@ -274,6 +287,7 @@ export const TRANSFORM_ENGINES: Readonly<
     defaultProgram: DBT_TRANSFORM_DEFAULT_MODELS[0].sql,
     icon: 'layers',
     managedEnvironment: true,
+    editableEnvironment: true,
     multiFile: true,
     defaultTimeoutS: DBT_TIMEOUT_DEFAULT_S,
     copy: {
