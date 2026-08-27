@@ -25,27 +25,60 @@ export function isActiveStatus(status: DatasetStatus | undefined | null): boolea
 export const INGEST_STEPS: readonly string[] = ['queued', 'reading', 'profiling', 'writing'];
 
 /**
- * The step code and the row count a `status_detail` carries, e.g. `profiling:8412`.
+ * The steps a batch score reports — a mirror of the backend's `SCORE_STEPS`.
+ *
+ * A different list rather than a longer shared one: an upload never scores and
+ * a score never profiles under its own name, so one merged vocabulary would
+ * draw every reader a line for a step their row will never reach.
+ */
+export const SCORE_STEPS: readonly string[] = ['queued', 'reading', 'scoring', 'writing'];
+
+/**
+ * Which vocabulary a row's progress is written in, decided by what made it.
+ *
+ * The step codes are only meaningful against the list the producer used, so the
+ * source is not decoration here: read `scoring:0/30` against the ingest list and
+ * it falls back to `queued`, which is a check-list that says nothing while
+ * looking like it is working.
+ */
+export function stepsFor(source: DatasetSource | undefined | null): readonly string[] {
+  return source === 'score' ? SCORE_STEPS : INGEST_STEPS;
+}
+
+/**
+ * The step code and the count a `status_detail` carries — `profiling:8412` from
+ * an ingest, `scoring:3000/6903` from a score.
  *
  * Unknown text is refused rather than shown: a worker from an older deployment
  * may still be writing a sentence, and a raw English sentence on a French page
  * is exactly what the codes exist to prevent.
+ *
+ * A score's count is a position out of a total, and only the total is rendered:
+ * "scoring 6 903 rows" is the fact a reader wants, where "3 000" alone reads as
+ * a row count that keeps changing.
  */
-export function parseIngestDetail(detail: string | null | undefined): {
+export function parseIngestDetail(
+  detail: string | null | undefined,
+  source: DatasetSource | undefined | null = 'upload',
+): {
   step: string;
   rows: number | null;
 } {
+  const steps = stepsFor(source);
   const [head, tail] = (detail ?? '').trim().split(':', 2);
-  const step = INGEST_STEPS.includes(head) ? head : INGEST_STEPS[0];
-  const rows = Number(tail);
+  const step = steps.includes(head) ? head : steps[0];
+  const rows = Number((tail ?? '').split('/').pop());
   return { step, rows: Number.isFinite(rows) && rows > 0 ? rows : null };
 }
 
 /**
  * Dictionary key for the step a row is on, or the queued one when it names none.
  */
-export function ingestStepKey(detail: string | null | undefined): string {
-  return `data.progress.step.${parseIngestDetail(detail).step}`;
+export function ingestStepKey(
+  detail: string | null | undefined,
+  source: DatasetSource | undefined | null = 'upload',
+): string {
+  return `data.progress.step.${parseIngestDetail(detail, source).step}`;
 }
 
 /** One line of the ingest check-list: where the worker got to, and where it is. */
@@ -77,12 +110,16 @@ export interface IngestStep {
 export function ingestChecklist(
   status: DatasetStatus | undefined | null,
   detail: string | null | undefined,
+  source: DatasetSource | undefined | null = 'upload',
 ): IngestStep[] {
+  const steps = stepsFor(source);
   const settled = status === 'ready';
-  const { step, rows } = parseIngestDetail(detail);
-  const at = settled ? INGEST_STEPS.length : INGEST_STEPS.indexOf(step);
-  const counted = INGEST_STEPS.indexOf('profiling');
-  return INGEST_STEPS.map((name, index) => {
+  const { step, rows } = parseIngestDetail(detail, source);
+  const at = settled ? steps.length : steps.indexOf(step);
+  // The step that first knows the height: an ingest learns it by profiling, a
+  // score is told it by the table it was handed.
+  const counted = steps.indexOf(source === 'score' ? 'scoring' : 'profiling');
+  return steps.map((name, index) => {
     // The count belongs to the step that produced it and to the ones after it:
     // once the rows are known they stay known, and repeating them reads as the
     // same fact rather than as new news.

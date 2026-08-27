@@ -412,9 +412,16 @@ export class DataListComponent implements OnInit {
     return isDatasetActive(dataset);
   }
 
-  /** The whole ingest as a check-list, so the wait reads as progress. */
+  /**
+   * The whole run as a check-list, so the wait reads as progress.
+   *
+   * The source decides which vocabulary the steps are read against: an upload
+   * profiles, a scored table scores. Read a score's step against the ingest
+   * list and every line falls back to "queued" — a check-list that says nothing
+   * while looking like it is working.
+   */
   protected checklist(dataset: DatasetDto): IngestStep[] {
-    return ingestChecklist(dataset.status, dataset.status_detail);
+    return ingestChecklist(dataset.status, dataset.status_detail, dataset.source);
   }
 
   protected rows(step: IngestStep): string {

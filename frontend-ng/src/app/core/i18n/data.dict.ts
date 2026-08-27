@@ -60,6 +60,7 @@ export const DATA_FR = {
   'data.progress.step.queued': 'En file d’attente',
   'data.progress.step.reading': 'Lecture du fichier',
   'data.progress.step.profiling': 'Profilage des colonnes',
+  'data.progress.step.scoring': 'Scoring par le modèle',
   'data.progress.step.writing': 'Écriture de la copie Parquet',
   'data.progress.step.done': 'Terminé',
   // Once le parse a produit une hauteur, le nombre de lignes accompagne l’étape :
@@ -67,6 +68,7 @@ export const DATA_FR = {
   'data.progress.step.queued.counted': 'En file d’attente',
   'data.progress.step.reading.counted': 'Lecture du fichier',
   'data.progress.step.profiling.counted': 'Profilage — {rows} lignes',
+  'data.progress.step.scoring.counted': 'Scoring — {rows} lignes',
   'data.progress.step.writing.counted': 'Écriture Parquet — {rows} lignes',
 
   // ---- détail : onglets --------------------------------------------------
@@ -197,11 +199,13 @@ export const DATA_EN: Record<keyof typeof DATA_FR, string> = {
   'data.progress.step.queued': 'Queued',
   'data.progress.step.reading': 'Reading the file',
   'data.progress.step.profiling': 'Profiling columns',
+  'data.progress.step.scoring': 'Scoring with the model',
   'data.progress.step.writing': 'Writing the Parquet copy',
   'data.progress.step.done': 'Done',
   'data.progress.step.queued.counted': 'Queued',
   'data.progress.step.reading.counted': 'Reading the file',
   'data.progress.step.profiling.counted': 'Profiling — {rows} rows',
+  'data.progress.step.scoring.counted': 'Scoring — {rows} rows',
   'data.progress.step.writing.counted': 'Writing Parquet — {rows} rows',
 
   'data.detail.tab.preview': 'Preview',
