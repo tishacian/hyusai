@@ -38,6 +38,7 @@ import {
   metricDelta,
   metricScale,
   metricTone,
+  pinnedVersion,
   playgroundSeed,
   predictPayload,
   comparisonPair,
@@ -560,6 +561,41 @@ test('the snippet is the request that was just made, key masked to its prefix', 
   assert.match(snippet, /curl -X POST https:\/\/agentium\.papai\.ai\/api\/v1\/ml-models\/m1\/predict/);
   assert.match(snippet, /-H 'X-API-Key: agk_9f3c…'/);
   assert.match(snippet, /-d '\{"inputs":\[\{"tenure_months":2\}\]\}'/);
+});
+
+test('a card that is not the one serving names its own version, so its form is judged against its own signature', () => {
+  // The bug this rules out: two versions of a lineage need not share a column
+  // list, so a card's form sent to whatever serves gets refused on the contract.
+  assert.equal(pinnedVersion({ is_serving: false }, 3), 3);
+  // The serving version's card leaves the call open, which is where the alias
+  // answering for the lineage is the thing being demonstrated.
+  assert.equal(pinnedVersion({ is_serving: true }, 3), null);
+  // A version the API would reject anyway is not worth sending: `version` is
+  // `ge=1` there, and a card mid-load has no number yet.
+  assert.equal(pinnedVersion({ is_serving: false }, 0), null);
+  assert.equal(pinnedVersion({ is_serving: false }, undefined), null);
+  assert.equal(pinnedVersion({ is_serving: false }, '2'), 2);
+});
+
+test('the snippet carries the same pin the button used, so a copy reproduces the answer', () => {
+  const pinned = curlSnippet({
+    origin: '',
+    endpoint: '/predict',
+    header: 'X-API-Key',
+    row: { tenure_months: 2 },
+    version: 3,
+  });
+  assert.match(pinned, /-d '\{"inputs":\[\{"tenure_months":2\}\],"version":3\}'/);
+  // Unpinned it stays the shape `mlflow models serve` takes, which is the point
+  // of the snippet on the card the audience is shown.
+  const open = curlSnippet({
+    origin: '',
+    endpoint: '/predict',
+    header: 'X-API-Key',
+    row: { tenure_months: 2 },
+    version: null,
+  });
+  assert.match(open, /-d '\{"inputs":\[\{"tenure_months":2\}\]\}'/);
 });
 
 test('the one response that carried a secret puts it in the snippet verbatim', () => {

@@ -47,6 +47,7 @@ import {
   curlSnippet,
   formatMetric,
   gaugeView,
+  pinnedVersion,
   playgroundSeed,
   predictPayload,
   primaryScore,
@@ -882,13 +883,27 @@ export class ModelPlaygroundComponent {
     this.refusal.set('');
   }
 
+  /**
+   * The version this tab names when it calls, or `null` to let the alias pick.
+   *
+   * Read once and used by both the button and the snippet beside it, so the
+   * command the audience copies reproduces the answer they just watched appear.
+   */
+  protected readonly pinned = computed(() =>
+    pinnedVersion(this.serving(), this.model().version),
+  );
+
   protected async predict(): Promise<void> {
     this.running.set(true);
     this.refusal.set('');
     try {
       const row = predictPayload(this.serving().fields, this.values());
+      const pinned = this.pinned();
       this.answer.set(
-        await this.models.predict(this.model().id, row, { explain: true }),
+        await this.models.predict(this.model().id, row, {
+          explain: true,
+          ...(pinned ? { version: pinned } : {}),
+        }),
       );
     } catch (error) {
       this.answer.set(null);
@@ -960,10 +975,14 @@ export class ModelPlaygroundComponent {
     });
   }
 
-  /** Which version answered — the point of an alias is that it may not be this one. */
+  /**
+   * Which version answered — the point of an alias is that it may not be this
+   * one. Read before any answer exists it stands for which version *will*,
+   * so a pin shows itself rather than the champion it deliberately bypasses.
+   */
   protected servedLine(block: ServingBlock): string {
     const served = this.answer()?.served;
-    const version = served?.version ?? block.serving_version;
+    const version = served?.version ?? this.pinned() ?? block.serving_version;
     if (!version) return '';
     return this.i18n.t('models.play.served', { version });
   }
@@ -978,6 +997,7 @@ export class ModelPlaygroundComponent {
       row: predictPayload(block.fields, this.values()),
       secret: this.minted()?.secret ?? null,
       prefix: live?.prefix ?? null,
+      version: this.pinned(),
     });
   });
 
