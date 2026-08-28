@@ -11,13 +11,33 @@ logger = get_logger(__name__)
 class OpenAIClient(ModelClient):
     """Client for interacting with OpenAI API"""
     
-    def __init__(self, api_key: Optional[str] = None, base_url: str = "https://api.openai.com/v1"):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: str = "https://api.openai.com/v1",
+        *,
+        azure_endpoint: Optional[str] = None,
+        api_version: Optional[str] = None,
+    ):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.base_url = base_url.rstrip("/")
+        self.azure_endpoint = azure_endpoint.rstrip("/") if azure_endpoint else None
+        self.api_version = api_version or "2024-08-01-preview"
         self.logger = get_logger(__name__)
         
         if not self.api_key:
             self.logger.warning("OpenAI API key not provided")
+
+    def _sdk(self):
+        if self.azure_endpoint:
+            from openai import AsyncAzureOpenAI
+            return AsyncAzureOpenAI(
+                api_key=self.api_key,
+                azure_endpoint=self.azure_endpoint,
+                api_version=self.api_version,
+            )
+        from openai import AsyncOpenAI
+        return AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
     
     async def generate(
         self, 
@@ -30,8 +50,7 @@ class OpenAIClient(ModelClient):
             raise RuntimeError("OpenAI API key not configured")
         
         try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+            client = self._sdk()
             
             response = await client.chat.completions.create(
                 model=model,
@@ -65,8 +84,7 @@ class OpenAIClient(ModelClient):
             raise RuntimeError("OpenAI API key not configured")
         
         try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+            client = self._sdk()
             
             stream = await client.chat.completions.create(
                 model=model,
@@ -113,8 +131,7 @@ class OpenAIClient(ModelClient):
             raise RuntimeError("OpenAI API key not configured")
 
         try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+            client = self._sdk()
 
             request: dict[str, Any] = {"model": model, "messages": messages, **kwargs}
             if tools:
@@ -162,10 +179,13 @@ class OpenAIClient(ModelClient):
         """Check if OpenAI API is available"""
         if not self.api_key:
             return False
+        if self.azure_endpoint:
+            # Azure deployments often reject /models; a configured key+endpoint
+            # is enough to attempt a completion.
+            return True
         
         try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+            client = self._sdk()
             # Simple health check - list models
             await client.models.list()
             return True

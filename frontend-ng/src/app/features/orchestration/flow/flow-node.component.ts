@@ -27,6 +27,7 @@ import {
   inject,
   input,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { FFlowModule } from '@foblex/flow';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { I18nService } from '@app/core/i18n.service';
@@ -54,7 +55,7 @@ interface RuntimeBadge {
   selector: 'app-flow-node',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FFlowModule, IconComponent],
+  imports: [FFlowModule, IconComponent, RouterLink],
   styleUrl: './flow-node.component.scss',
   template: `
     <div
@@ -132,9 +133,19 @@ interface RuntimeBadge {
           [attr.data-kind]="run.kind"
           [attr.data-failed]="run.failed"
         >
-          <span class="ck-flow-node__run-figure">{{
-            i18n.t(run.key, badgeParams(run))
-          }}</span>
+          @if (invocationLink(); as href) {
+            <a
+              class="ck-flow-node__run-figure"
+              [routerLink]="href"
+              (click)="$event.stopPropagation()"
+              (mousedown)="$event.stopPropagation()"
+              [attr.title]="i18n.t('flow.node.run.invocation')"
+            >{{ i18n.t(run.key, badgeParams(run)) }}</a>
+          } @else {
+            <span class="ck-flow-node__run-figure">{{
+              i18n.t(run.key, badgeParams(run))
+            }}</span>
+          }
           @if (run.model; as model) {
             <span class="ck-flow-node__run-model" [title]="i18n.t('flow.node.run.model')">
               {{ model }}
@@ -199,6 +210,13 @@ export class FlowNodeComponent {
       ? nodeRunBadge(this.run.nodeRunFor(this.node().id), this.i18n.locale())
       : null,
   );
+
+  readonly invocationLink = computed<string[] | null>(() => {
+    const runId = this.run?.currentRun()?.id;
+    const invocationId = this.run?.nodeRunFor(this.node().id)?.invocationId;
+    if (!runId || !invocationId) return null;
+    return ['/runs', runId, 'invocations', invocationId];
+  });
 
   /**
    * The badge's own parameters, with a metric's raw name resolved to the label

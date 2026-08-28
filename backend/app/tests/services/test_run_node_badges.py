@@ -213,6 +213,128 @@ def test_the_node_end_summary_carries_the_badge_under_data():
     }
 
 
+def test_the_node_end_summary_lifts_the_invocation_and_provider():
+    """The canvas needs the invocation id to open /runs, not another fetch."""
+
+    from app.services.run_engine.dag import (
+        DagNode,
+        WalkerState,
+        _summarise_node_execution,
+    )
+
+    class _Inv:
+        id = "inv-brief"
+        skill_slug = "azure_llm_v1"
+        status = "completed"
+        latency_ms = 88.0
+        cost = None
+        error = None
+        trace = {
+            "effective_model": "gpt-4o-mini",
+            "provider": "openai",
+            "credential_source": "env",
+        }
+
+    class _Query:
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return _Inv()
+
+    class _DB:
+        def query(self, *_a, **_k):
+            return _Query()
+
+    node = DagNode(
+        id="task.brief",
+        type="llm",
+        kind="task",
+        label="Retention brief",
+        config={"skill_slug": "azure_llm_v1"},
+        skill_slug="azure_llm_v1",
+        data={},
+    )
+    state = WalkerState()
+    state.invocation_ids = ["inv-brief"]
+
+    summary = _summarise_node_execution(
+        _DB(),
+        None,
+        node,
+        {"output": {"completion": "ok"}},
+        state,
+        0,
+    )
+
+    assert summary["invocation_id"] == "inv-brief"
+    assert summary["skill_slug"] == "azure_llm_v1"
+    assert summary["effective_model"] == "gpt-4o-mini"
+    assert summary["provider"] == "openai"
+    assert summary["credential_source"] == "env"
+
+
+def test_an_agent_loop_summary_names_the_last_decide_and_chosen_skill():
+    from app.services.run_engine.dag import (
+        DagNode,
+        WalkerState,
+        _summarise_node_execution,
+    )
+
+    class _Inv:
+        id = "inv-decide"
+        skill_slug = "decide_next_v1"
+        status = "completed"
+        latency_ms = 40.0
+        cost = None
+        error = None
+        trace = {
+            "effective_model": "gpt-4o-mini",
+            "provider": "openai",
+            "credential_source": "env",
+        }
+
+    class _Query:
+        def filter(self, *_a, **_k):
+            return self
+
+        def first(self):
+            return _Inv()
+
+    class _DB:
+        def query(self, *_a, **_k):
+            return _Query()
+
+    node = DagNode(
+        id="loop.itsd",
+        type="agent_loop",
+        kind="agent_loop",
+        label="Reset password",
+        config={"decide_skill": "decide_next_v1"},
+        skill_slug="decide_next_v1",
+        data={},
+    )
+    state = WalkerState()
+    state.invocation_ids = ["inv-decide"]
+    summary = _summarise_node_execution(
+        _DB(),
+        None,
+        node,
+        {
+            "output": {
+                "observations": [{"turn": 1, "skill": "azure_llm_v1", "ok": True}],
+                "exit": "complete",
+            }
+        },
+        state,
+        0,
+    )
+    assert summary["invocation_id"] == "inv-decide"
+    assert summary["decide_skill"] == "decide_next_v1"
+    assert summary["chosen_skill"] == "azure_llm_v1"
+    assert summary["provider"] == "openai"
+
+
 def test_a_node_that_returned_nothing_usable_adds_no_data_key():
     from app.services.run_engine.dag import (
         DagNode,

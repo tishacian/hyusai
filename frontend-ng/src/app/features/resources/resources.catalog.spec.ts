@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { RESOURCES_EN, RESOURCES_FR } from '@app/core/i18n/resources.dict';
 import {
+  CONNECTORS,
   readAppToggles,
   readConnectorConfig,
   writeAppToggle,
@@ -79,4 +83,23 @@ test('connector configs and app toggles are isolated by active workspace', () =>
       Reflect.deleteProperty(globalThis, 'localStorage');
     }
   }
+});
+
+test('the integration catalogue does not invent a models connector card', () => {
+  assert.equal(
+    CONNECTORS.some((connector) => connector.id === 'models' || connector.id === 'llm'),
+    false,
+  );
+});
+
+test('the Providers tab lists flow nodes that consume a portal key', () => {
+  const page = readFileSync(
+    join(process.cwd(), 'src/app/features/resources/resources-page.component.ts'),
+    'utf8',
+  );
+  assert.match(page, /data-testid="provider-used-by"/);
+  assert.match(page, /consumersFor\(/);
+  assert.match(page, /\/systems.*flow/);
+  assert.ok((RESOURCES_FR as Record<string, string>)['resources.providers.used_by']?.trim());
+  assert.ok((RESOURCES_EN as Record<string, string>)['resources.providers.used_by']?.trim());
 });

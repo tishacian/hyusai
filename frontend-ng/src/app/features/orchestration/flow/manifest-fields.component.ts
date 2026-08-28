@@ -592,6 +592,8 @@ export class ManifestFieldsComponent {
 
   private controlFor(field: FlowManifestField, options: string[]): ControlKind {
     if (options.length > 0) return 'select';
+    const key = String(field.key ?? '');
+    if (key === 'prompt' || key === 'template') return 'textarea';
     switch (String(field.type ?? 'string')) {
       case 'boolean':
         return 'boolean';

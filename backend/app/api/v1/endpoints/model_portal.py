@@ -17,6 +17,7 @@ from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
+from app.models.skill import Skill
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
@@ -24,6 +25,7 @@ from app.services.model_plane import distribution as distribution_service
 from app.services.model_plane import providers as providers_service
 from app.services.model_plane import serving_nodes as serving_nodes_service
 from app.services.model_plane import workspace_config as ws_config
+from app.services.model_plane.flow_consumers import consumers_for_systems
 from app.services.model_plane.registration import list_routable_providers
 from app.services.model_router import ModelRouter
 from app.services.workspace_features import feature_enabled
@@ -132,6 +134,24 @@ async def get_model_routing(
         .order_by(System.name.asc())
         .all()
     )
+    slugs: set[str] = set()
+    for system in systems:
+        flow = system.flow_definition if isinstance(system.flow_definition, dict) else {}
+        for node in flow.get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
+            cfg = node.get("config") if isinstance(node.get("config"), dict) else {}
+            slug = str(cfg.get("skill_slug") or "").strip()
+            if slug:
+                slugs.add(slug)
+    schemas = {
+        row.slug: row.input_schema
+        for row in (
+            db.query(Skill.slug, Skill.input_schema).filter(Skill.slug.in_(slugs)).all()
+            if slugs
+            else []
+        )
+    }
     return {
         "default_provider": ws_routing["default_provider"],
         "default_model": ws_routing["default_model"],
@@ -144,15 +164,12 @@ async def get_model_routing(
         "source": ws_routing["source"],
         "registered_clients": sorted(router_runtime.clients.keys()),
         "local_serving": list_routable_providers(),
-        "systems": [
-            {
-                "id": system.id,
-                "name": system.name,
-                "default_model": system.default_model,
-                "status": system.status,
-            }
-            for system in systems
-        ],
+        "systems": consumers_for_systems(
+            systems,
+            schemas_by_slug=schemas,
+            default_provider=str(ws_routing["default_provider"]),
+            default_model=str(ws_routing["default_model"]),
+        ),
     }
 
 

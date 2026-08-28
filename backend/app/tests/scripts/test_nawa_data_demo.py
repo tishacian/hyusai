@@ -530,9 +530,51 @@ def test_the_scoring_node_is_fed_by_both_the_fit_and_the_feature_table():
         ("src", "task.clean"),
         ("task.clean", "task.features"),
         ("task.features", "task.train"),
-        ("task.score", "task.brief"),
+        ("task.score", "task.brief_context"),
+        ("task.brief_context", "task.brief"),
         ("task.brief", "sink"),
     } <= edges
+
+
+def test_the_brief_reads_a_capped_excerpt_not_the_dataset_object():
+    """The last LLM node cannot quote figures it never received."""
+
+    from scripts.seed_nawa_data_demo import (
+        BRIEF_CONTEXT_ROW_CAP,
+        BRIEF_PROMPT,
+        brief_context_main,
+        churn_flow,
+    )
+
+    flow = churn_flow(raw_slug="raw", model_slug="m", features=["arpu_mad"])
+    nodes = {node["id"]: node for node in flow["nodes"]}
+    composer = nodes["task.brief_context"]
+    brief = nodes["task.brief"]
+    assert composer["config"]["skill_slug"] == "python_recipe_v1"
+    assert brief["config"]["inputs_map"]["prompt"] == {
+        "node_id": "task.brief_context",
+        "path": ["text"],
+    }
+    assert brief["config"]["params"]["prompt"] == BRIEF_PROMPT
+
+    main = brief_context_main()
+    rows = [
+        {
+            "msisdn": f"212{i:08d}",
+            "region": "Casa",
+            "plan": "prepaid",
+            "arpu_mad": 80 + i,
+            "prediction": "1",
+            "score_1": 0.8,
+        }
+        for i in range(BRIEF_CONTEXT_ROW_CAP + 5)
+    ]
+    out = main({"scored": {"rows": rows}})
+    assert out["text"].startswith(BRIEF_PROMPT)
+    assert "Scoring excerpt" in out["text"]
+    assert f"{BRIEF_CONTEXT_ROW_CAP} of {BRIEF_CONTEXT_ROW_CAP + 5}" in out["text"]
+    assert "more rows omitted" in out["text"]
+    assert "subscriber-base" not in out["text"]
 
 
 def test_the_training_node_asks_for_the_columns_the_feature_node_derives():

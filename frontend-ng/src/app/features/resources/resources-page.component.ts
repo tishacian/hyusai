@@ -387,6 +387,28 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               <p class="text-[11px] text-gray-400 leading-relaxed">{{ p.notes }}</p>
             }
 
+            <div class="border-t border-white/5 pt-3" data-testid="provider-used-by">
+              <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                {{ i18n.t('resources.providers.used_by') }}
+              </p>
+              @if (consumersFor(p.key).length === 0) {
+                <p class="text-[11px] text-gray-500">{{ i18n.t('resources.providers.used_by.empty') }}</p>
+              } @else {
+                <ul class="space-y-1">
+                  @for (consumer of consumersFor(p.key); track consumer.systemId + consumer.nodeId) {
+                    <li>
+                      <a
+                        class="text-[11px] text-cyan-300 hover:text-cyan-200 font-mono"
+                        [routerLink]="['/systems', consumer.systemId, 'flow']"
+                      >
+                        {{ i18n.t('resources.providers.used_by.node', { system: consumer.systemName, node: consumer.label }) }}
+                      </a>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+
             @if (isConfigurableCloud(p.key)) {
               <form class="mt-1 space-y-2 border-t border-white/5 pt-3" (ngSubmit)="saveCredential(p.key)">
                 <label class="block">
@@ -1404,14 +1426,53 @@ export class ResourcesPageComponent implements OnInit {
           const systems = Array.isArray(res) ? res : res?.systems ?? [];
           const idx: Record<string, string[]> = {};
           for (const s of systems) {
-            if (!s.default_model) continue;
-            if (!idx[s.default_model]) idx[s.default_model] = [];
-            idx[s.default_model].push(s.name);
+            if (s.default_model) {
+              if (!idx[s.default_model]) idx[s.default_model] = [];
+              idx[s.default_model].push(s.name);
+            }
+          }
+          for (const sys of this.routing()?.systems ?? []) {
+            for (const node of sys.nodes ?? []) {
+              const model = node.model?.trim();
+              const name = sys.name || sys.id || '';
+              const nodeLabel = node.label || node.node_id || '';
+              const entry = nodeLabel ? `${name} · ${nodeLabel}` : name;
+              if (!model || !entry) continue;
+              if (!idx[model]) idx[model] = [];
+              if (!idx[model].includes(entry)) idx[model].push(entry);
+            }
           }
           this.systemUsage.set(idx);
         },
         error: () => this.systemUsage.set({}),
       });
+  }
+
+  consumersFor(provider: string): Array<{
+    systemId: string;
+    systemName: string;
+    nodeId: string;
+    label: string;
+  }> {
+    const out: Array<{
+      systemId: string;
+      systemName: string;
+      nodeId: string;
+      label: string;
+    }> = [];
+    for (const sys of this.routing()?.systems ?? []) {
+      if (!sys.id) continue;
+      for (const node of sys.nodes ?? []) {
+        if (node.provider !== provider || !node.node_id) continue;
+        out.push({
+          systemId: sys.id,
+          systemName: sys.name || sys.id,
+          nodeId: node.node_id,
+          label: node.label || node.node_id,
+        });
+      }
+    }
+    return out;
   }
 
   usageCount(m: ModelInfo): number {

@@ -60,6 +60,11 @@ import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-persp
             {{ i18n.t('runs.invocation.open_skill') }}
           </a>
         }
+        @if (flowNodeLink(); as link) {
+          <a [routerLink]="link" class="px-3 py-1.5 rounded text-xs bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200" data-testid="invocation-open-node">
+            {{ i18n.t('runs.invocation.open_node', { node: flowNodeId() }) }}
+          </a>
+        }
       </div>
     </ck-object-header>
 
@@ -120,6 +125,16 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
     return isObjectLens(lens) ? lens : 'build';
   });
   readonly activePerspective = computed(() => this.perspectives()[this.activeLens()] ?? null);
+  readonly flowNodeId = computed(() => {
+    const nodeId = this.invocation()?.trace?.['node_id'];
+    return typeof nodeId === 'string' ? nodeId.trim() : '';
+  });
+  readonly flowNodeLink = computed<string[] | null>(() => {
+    const systemId = this.invocation()?.system_id;
+    const nodeId = this.flowNodeId();
+    if (!systemId || !nodeId) return null;
+    return ['/systems', systemId, 'flow'];
+  });
   readonly title = computed(() => this.invocation()?.skill_slug
     || this.invocation()?.skill_id
     || this.i18n.t('runs.invocation.title', { id: this.invocationId().slice(0, 12) }));

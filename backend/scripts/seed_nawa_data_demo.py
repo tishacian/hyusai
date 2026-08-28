@@ -131,6 +131,7 @@ CHURN_SKILL_SLUGS = [
     "ml_batch_score_v1",
     "ml_predict_v1",
     "azure_llm_v1",
+    "python_recipe_v1",
 ]
 RADIO_SKILL_SLUGS = ["dbt_transform_v1"]
 #: The board reads and computes; it neither trains, scores nor writes a table.
@@ -326,6 +327,75 @@ BRIEF_PROMPT = (
     "estimated monthly revenue at stake, and one retention action per segment. "
     "Quote figures, not generalities."
 )
+
+#: Caps the excerpt the brief actually reads. A full scored base is a table,
+#: not a prompt; thirty-two rows is enough to name segments without dumping
+#: the lineage into the LLM payload.
+BRIEF_CONTEXT_ROW_CAP = 32
+BRIEF_CONTEXT_COLUMNS = (
+    "msisdn",
+    "region",
+    "plan",
+    "contract",
+    "tenure_months",
+    "arpu_mad",
+    "prediction",
+    "confidence",
+    "score_1",
+)
+
+BRIEF_CONTEXT_CODE = f'''"""Turn the scored table into a capped text excerpt the brief can read.
+
+The Retention brief skill only accepts a string prompt. This node is the
+composer: it reads the scored base, projects a handful of columns, and
+returns the analyst instructions plus the excerpt. ``str(dataset)`` is
+not a table.
+"""
+
+ROW_CAP = {BRIEF_CONTEXT_ROW_CAP}
+COLUMNS = {BRIEF_CONTEXT_COLUMNS!r}
+BRIEF = {BRIEF_PROMPT!r}
+
+
+def _cell(value):
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def main(inputs):
+    scored = inputs.get("scored") or {{}}
+    rows = list(scored.get("rows") or [])
+    if not rows:
+        return {{"text": BRIEF + "\\n\\nScoring excerpt: the scored table was empty."}}
+    available = set(rows[0])
+    cols = [name for name in COLUMNS if name in available] or [
+        key for key in rows[0] if not str(key).startswith("_")
+    ][:8]
+    taken = rows[:ROW_CAP]
+    header = " | ".join(cols)
+    sep = " | ".join("---" for _ in cols)
+    body = "\\n".join(
+        " | ".join(_cell(row.get(col)) for col in cols) for row in taken
+    )
+    omitted = len(rows) - len(taken)
+    extra = f"\\n… {{omitted}} more rows omitted." if omitted > 0 else ""
+    excerpt = (
+        f"Scoring excerpt ({{len(taken)}} of {{len(rows)}} rows):\\n"
+        f"{{header}}\\n{{sep}}\\n{{body}}{{extra}}"
+    )
+    return {{"text": BRIEF + "\\n\\n" + excerpt}}
+'''
+
+
+def brief_context_main():
+    """The excerpt recipe's ``main``, compiled from the seeded source."""
+
+    namespace: dict[str, Any] = {}
+    exec(compile(BRIEF_CONTEXT_CODE, "<brief_context_recipe>", "exec"), namespace)  # noqa: S102
+    return namespace["main"]
 
 
 # ---------------------------------------------------------------------------
@@ -1065,21 +1135,48 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 },
             },
             {
+                "id": "task.brief_context",
+                "kind": "task",
+                "type": "task",
+                "label": "Scoring excerpt",
+                "position": {"x": 1220, "y": 220},
+                "config": {
+                    "skill_slug": "python_recipe_v1",
+                    "params": {
+                        "code": BRIEF_CONTEXT_CODE,
+                        "sources": [
+                            {
+                                "dataset_slug": scored_slug(),
+                                "view": "scored",
+                                "columns": list(BRIEF_CONTEXT_COLUMNS),
+                                "limit": BRIEF_CONTEXT_ROW_CAP,
+                            }
+                        ],
+                    },
+                },
+                "data": {
+                    "description": (
+                        "A capped text preview of the scored table — the brief "
+                        "reads this excerpt, not the dataset object."
+                    )
+                },
+            },
+            {
                 "id": "task.brief",
                 "kind": "task",
                 "type": "llm",
                 "label": "Retention brief",
-                "position": {"x": 1220, "y": 220},
+                "position": {"x": 1460, "y": 220},
                 "config": {
                     "skill_slug": "azure_llm_v1",
                     "params": {"prompt": BRIEF_PROMPT},
-                    # Overlay mode does not merge `config.params` implicitly, so the
-                    # prompt is read back through the node's own namespace. That is
-                    # also what makes an inspector edit reach the run.
+                    # Runtime prompt is the composer output (instructions +
+                    # excerpt). params.prompt stays the readable brief on the
+                    # node; the inspector names the binding.
                     "inputs_map": {
                         "prompt": {
-                            "node_id": "node",
-                            "path": ["config", "params", "prompt"],
+                            "node_id": "task.brief_context",
+                            "path": ["text"],
                         }
                     },
                 },
@@ -1094,7 +1191,7 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
                 "id": "sink",
                 "kind": "sink",
                 "label": "Result",
-                "position": {"x": 1460, "y": 220},
+                "position": {"x": 1700, "y": 220},
             },
         ],
         "edges": [
@@ -1103,7 +1200,8 @@ def churn_flow(*, raw_slug: str, model_slug: str, features: list[str]) -> dict[s
             {"from": "task.features", "to": "task.train", "kind": "data"},
             {"from": "task.train", "to": "task.score", "kind": "data"},
             {"from": "task.features", "to": "task.score", "kind": "data"},
-            {"from": "task.score", "to": "task.brief", "kind": "data"},
+            {"from": "task.score", "to": "task.brief_context", "kind": "data"},
+            {"from": "task.brief_context", "to": "task.brief", "kind": "data"},
             {"from": "task.brief", "to": "sink", "kind": "data"},
         ],
     }

@@ -71,6 +71,9 @@ export const RESOURCES_FR = {
   'resources.providers.distribution.empty.title': 'Aucune donnée de distribution',
   'resources.providers.distribution.empty.description':
     "Les décomptes d'invocations apparaissent une fois le trafic routé enregistré.",
+  'resources.providers.used_by': 'Utilisé par',
+  'resources.providers.used_by.empty': 'Aucun nœud de flux ne cible ce provider',
+  'resources.providers.used_by.node': '{system} · {node}',
 
   // --- /resources — Serving tab ------------------------------------
   'resources.serving.attach.title': 'Attacher un nœud de serving',
@@ -359,6 +362,9 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'resources.providers.distribution.empty.title': 'No distribution data',
   'resources.providers.distribution.empty.description':
     'Invocation counts appear after routed traffic is recorded.',
+  'resources.providers.used_by': 'Used by',
+  'resources.providers.used_by.empty': 'No flow node targets this provider',
+  'resources.providers.used_by.node': '{system} · {node}',
 
   // --- /resources — Serving tab ------------------------------------
   'resources.serving.attach.title': 'Attach serving node',

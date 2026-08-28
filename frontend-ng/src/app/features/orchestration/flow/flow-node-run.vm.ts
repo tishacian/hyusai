@@ -47,6 +47,15 @@ export interface NodeRunSummary {
   skillSlug?: string;
   error?: string;
   data?: NodeRunData;
+  /** Last SkillInvocation this node produced, so the canvas can open /runs. */
+  invocationId?: string;
+  effectiveModel?: string;
+  provider?: string;
+  credentialSource?: string;
+  /** Last decide_next_v1 on an agent_loop node. */
+  decideSkill?: string;
+  /** Skill the last decide turn chose. */
+  chosenSkill?: string;
 }
 
 /** A translated-at-render badge: the key names the sentence, params fill it. */
@@ -118,6 +127,10 @@ export function readNodeRunSummary(frame: unknown): NodeRunSummary | null {
     typeof frame['status'] === 'string' && frame['status'].trim()
       ? frame['status'].trim()
       : 'completed';
+  const optionalString = (key: string): string | undefined => {
+    const value = frame[key];
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  };
   return {
     nodeId,
     status,
@@ -129,6 +142,16 @@ export function readNodeRunSummary(frame: unknown): NodeRunSummary | null {
       ? { error: frame['error'] }
       : {}),
     ...(readNodeRunData(frame['data']) ? { data: readNodeRunData(frame['data']) } : {}),
+    ...(optionalString('invocation_id') ? { invocationId: optionalString('invocation_id') } : {}),
+    ...(optionalString('effective_model')
+      ? { effectiveModel: optionalString('effective_model') }
+      : {}),
+    ...(optionalString('provider') ? { provider: optionalString('provider') } : {}),
+    ...(optionalString('credential_source')
+      ? { credentialSource: optionalString('credential_source') }
+      : {}),
+    ...(optionalString('decide_skill') ? { decideSkill: optionalString('decide_skill') } : {}),
+    ...(optionalString('chosen_skill') ? { chosenSkill: optionalString('chosen_skill') } : {}),
   };
 }
 
