@@ -4373,7 +4373,12 @@ def _summarise_node_execution(
             summary["error"] = str(result["terminal_error"])
     new_invocations = state.invocation_ids[invocations_before:]
     if new_invocations:
-        inv = db.query(SkillInvocation).filter(SkillInvocation.id == new_invocations[-1]).first()
+        summary["invocation_id"] = new_invocations[-1]
+        inv = (
+            db.query(SkillInvocation).filter(SkillInvocation.id == new_invocations[-1]).first()
+            if db is not None
+            else None
+        )
         if inv is not None:
             summary["skill_slug"] = inv.skill_slug
             summary["status"] = inv.status
@@ -4383,6 +4388,19 @@ def _summarise_node_execution(
                 summary["cost"] = float(inv.cost)
             if inv.error:
                 summary["error"] = inv.error[:240]
+            trace = inv.trace if isinstance(inv.trace, dict) else {}
+            for key in ("effective_model", "provider", "credential_source"):
+                value = trace.get(key)
+                if isinstance(value, str) and value.strip():
+                    summary[key] = value.strip()
+    if node.kind == "agent_loop":
+        summary["decide_skill"] = "decide_next_v1"
+        out = result.get("output") if isinstance(result.get("output"), dict) else {}
+        observations = out.get("observations") if isinstance(out.get("observations"), list) else []
+        last_obs = observations[-1] if observations and isinstance(observations[-1], dict) else {}
+        chosen = last_obs.get("skill")
+        if isinstance(chosen, str) and chosen.strip():
+            summary["chosen_skill"] = chosen.strip()
     return summary
 
 

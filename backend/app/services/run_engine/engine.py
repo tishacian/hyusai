@@ -1128,6 +1128,15 @@ async def _execute_task_node(
             1,
             int(trace.get("membrane_autocorrections") or 0),
         )
+    route = skill_ctx.get("_llm_route") if isinstance(skill_ctx.get("_llm_route"), Mapping) else {}
+    for key in ("effective_model", "provider", "credential_source"):
+        value = route.get(key)
+        if isinstance(value, str) and value.strip():
+            trace[key] = value.strip()
+    if route.get("model") and not trace.get("effective_model"):
+        model_name = route.get("model")
+        if isinstance(model_name, str) and model_name.strip():
+            trace["effective_model"] = model_name.strip()
     invocation.trace = trace
     db.commit()
     return invocation

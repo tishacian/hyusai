@@ -63,6 +63,33 @@ test('a node_end frame becomes a run summary, badge block included', () => {
   });
 });
 
+test('a node_end frame carries the invocation the canvas can open', () => {
+  const read = readNodeRunSummary({
+    kind: 'node_end',
+    node_id: 'task.brief',
+    invocation_id: 'inv-1',
+    effective_model: 'gpt-4o-mini',
+    provider: 'openai',
+    credential_source: 'env',
+  });
+  assert.equal(read?.invocationId, 'inv-1');
+  assert.equal(read?.effectiveModel, 'gpt-4o-mini');
+  assert.equal(read?.provider, 'openai');
+  assert.equal(read?.credentialSource, 'env');
+});
+
+test('an agent_loop node_end names the last decide and the chosen skill', () => {
+  const read = readNodeRunSummary({
+    kind: 'node_end',
+    node_id: 'loop.itsd',
+    invocation_id: 'inv-decide',
+    decide_skill: 'decide_next_v1',
+    chosen_skill: 'azure_llm_v1',
+  });
+  assert.equal(read?.decideSkill, 'decide_next_v1');
+  assert.equal(read?.chosenSkill, 'azure_llm_v1');
+});
+
 test('a frame without a node id names nothing and is dropped', () => {
   assert.equal(readNodeRunSummary({ kind: 'run_end', status: 'completed' }), null);
   assert.equal(readNodeRunSummary(null), null);
@@ -252,6 +279,8 @@ test('a new run and a workspace switch both invalidate every figure', () => {
 test('the node card renders the badge it is given, and only then', () => {
   const card = source('flow-node.component.ts');
   assert.match(card, /data-testid="node-run-badge"/);
+  assert.match(card, /invocationLink\(\)/);
+  assert.match(card, /\/runs/);
   assert.match(card, /@if \(runBadge\(\); as run\)/, 'no badge, no row');
   assert.match(card, /i18n\.t\(run\.key, badgeParams\(run\)\)/, 'the figure is a sentence');
   assert.match(card, /run\.model/, 'the model that answered is shown');

@@ -327,6 +327,8 @@ export class FlowPersistenceService {
   private baselineFlow: CanonicalFlow | null = null;
   private systemStatus: SystemStatus | null = null;
   readonly systemDisplayName = signal<string | null>(null);
+  /** System.default_model — the inspector chip names this when the node is silent. */
+  readonly systemDefaultModel = signal<string | null>(null);
   /** One-shot authority, scoped to the exact graph revision the user saw. */
   private replacementIntentRevision: number | null = null;
   private sharePayloadPending = false;
@@ -489,6 +491,11 @@ export class FlowPersistenceService {
     this.systemId.set(system.id);
     this.systemStatus = system.status ?? 'draft';
     this.systemDisplayName.set(system.name);
+    this.systemDefaultModel.set(
+      typeof system.default_model === 'string' && system.default_model.trim()
+        ? system.default_model.trim()
+        : null,
+    );
     this.savedFlowSha256.set(system.flow_sha256 ?? null);
     this.baselineFlow = cloneFlow(this.store.snapshot());
     this.hydrationError.set(null);
@@ -544,6 +551,11 @@ export class FlowPersistenceService {
     this.systemId.set(system.id);
     this.systemStatus = flowState.status ?? system.status ?? 'draft';
     this.systemDisplayName.set(system.name);
+    this.systemDefaultModel.set(
+      typeof system.default_model === 'string' && system.default_model.trim()
+        ? system.default_model.trim()
+        : null,
+    );
     this.publicationMode.set(true);
     this.draftRevision.set(flowState.draft.revision);
     this.savedFlowSha256.set(flowState.draft.flow_sha256);
@@ -1340,6 +1352,7 @@ export class FlowPersistenceService {
     this.breakingChangeAcknowledged.set(false);
     this.publishing.set(false);
     this.systemDisplayName.set(null);
+    this.systemDefaultModel.set(null);
   }
 
   private publicationErrorMessage(error: unknown, fallback: string): string {

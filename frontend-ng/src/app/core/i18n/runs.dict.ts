@@ -103,6 +103,7 @@ export const RUNS_FR = {
   'runs.invocation.object_label': 'Invocation de skill',
   'runs.invocation.back': "Retour à l'Exécution",
   'runs.invocation.open_skill': 'Ouvrir la Skill du catalogue',
+  'runs.invocation.open_node': 'Ouvrir le nœud {node} dans le flux',
   'runs.invocation.projection_disabled':
     'Les perspectives SkillInvocation ne sont pas activées pour ce workspace.',
   'runs.invocation.facets_aria': "Facettes de l'invocation de skill",
@@ -229,6 +230,7 @@ export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
   'runs.invocation.object_label': 'SkillInvocation',
   'runs.invocation.back': 'Back to Run',
   'runs.invocation.open_skill': 'Open catalog Skill',
+  'runs.invocation.open_node': 'Open node {node} in the flow',
   'runs.invocation.projection_disabled':
     'SkillInvocation perspectives are not enabled for this workspace.',
   'runs.invocation.facets_aria': 'Skill invocation facets',

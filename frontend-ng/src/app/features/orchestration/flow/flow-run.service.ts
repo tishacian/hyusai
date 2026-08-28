@@ -1079,8 +1079,8 @@ export class FlowRunService {
           tone,
           tag,
           text: `◼ ${data.label ?? data.node_id ?? 'node'}${data.status ? ` · ${data.status}` : ''}${latency}${branch}${
-            data.error ? ` · ${data.error.slice(0, 80)}` : ''
-          }`,
+            data.invocation_id ? ` · invocation=${data.invocation_id}` : ''
+          }${data.error ? ` · ${data.error.slice(0, 80)}` : ''}`,
         });
         break;
       }

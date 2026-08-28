@@ -109,6 +109,14 @@ import {
 } from './flow-ml.vm';
 import { FlowRunService } from './flow-run.service';
 import { DatasetPreviewComponent } from '@app/features/data/dataset-preview.component';
+import { ApiService } from '@app/core/api.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { FlowManifestService } from './flow-manifest.service';
+import {
+  isCompletionShaped,
+  resolveLlmBinding,
+  type LlmBinding,
+} from './llm-inspector.vm';
 
 /** Engine kind of the node the lexicon calls an Output. */
 const OUTPUT_NODE_KIND = 'sink';
@@ -948,6 +956,78 @@ export function buildRetrievalDocumentOptions(
             </section>
           }
 
+          @if (lastInvocation(n); as inv) {
+            <section class="ck-flow-section" data-testid="node-run-invocation">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.last_run') }}
+              </span>
+              <a
+                class="ck-flow-action"
+                [routerLink]="['/runs', inv.runId, 'invocations', inv.invocationId]"
+              >
+                <ck-glyph name="orbit" [size]="12" color="currentColor" />
+                {{ i18n.t('flow.inspector.last_run.open') }}
+              </a>
+              @if (inv.provider || inv.effectiveModel) {
+                <p class="ck-flow-hint ck-flow-hint--mono">
+                  {{ inv.provider || '—' }}
+                  @if (inv.effectiveModel) {
+                    · {{ inv.effectiveModel }}
+                  }
+                  @if (inv.credentialSource) {
+                    · {{ inv.credentialSource }}
+                  }
+                </p>
+              }
+              @if (inv.decideSkill || inv.chosenSkill) {
+                <p class="ck-flow-hint ck-flow-hint--mono" data-testid="agent-loop-last-decide">
+                  {{
+                    i18n.t('flow.inspector.last_run.loop', {
+                      decide: inv.decideSkill || 'decide_next_v1',
+                      skill: inv.chosenSkill || '—',
+                    })
+                  }}
+                </p>
+              }
+            </section>
+          }
+
+          @if (llmBinding(n); as llm) {
+            <section class="ck-flow-section" data-testid="llm-connector">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.llm') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.llm.hint') }}</p>
+              <p class="ck-flow-hint ck-flow-hint--mono" data-testid="llm-model-chip">
+                {{ i18n.t('flow.inspector.llm.model', { model: llm.model || '—', source: llm.modelSource }) }}
+              </p>
+              <p class="ck-flow-hint ck-flow-hint--mono" data-testid="llm-provider-chip">
+                {{
+                  i18n.t('flow.inspector.llm.provider', {
+                    provider: llm.provider || '—',
+                    source: llm.credentialSource || 'env',
+                  })
+                }}
+              </p>
+              @if (llm.promptBound && llm.boundFrom) {
+                <p class="ck-flow-hint" data-testid="llm-prompt-binding">
+                  {{ i18n.t('flow.inspector.llm.bound', { source: llm.boundFrom }) }}
+                </p>
+              }
+              @if (llm.envBypass) {
+                <p class="ck-flow-hint" data-testid="llm-env-bypass">
+                  {{ i18n.t('flow.inspector.llm.bypass') }}
+                </p>
+              }
+              @if (portalEnabled()) {
+                <a class="ck-flow-action" routerLink="/connectors/models" data-testid="llm-connector-link">
+                  <ck-glyph name="orbit" [size]="12" color="currentColor" />
+                  {{ i18n.t('flow.inspector.llm.connector') }}
+                </a>
+              }
+            </section>
+          }
+
           <!-- P2: manifest-driven editable fields (write back to the exact
                runtime_read_path via the store's dotted-path writers). -->
           <app-manifest-fields />
@@ -1065,6 +1145,13 @@ export class FlowInspectorComponent {
   /** Optional: only the builder shell has run state, and only a node that ran
    *  has an output dataset to show. */
   private readonly runSvc = inject(FlowRunService, { optional: true });
+  private readonly workspace = inject(WorkspaceService, { optional: true });
+  private readonly api = inject(ApiService, { optional: true });
+  private readonly manifestSvc = inject(FlowManifestService, { optional: true });
+  readonly portalEnabled = computed(() => this.workspace?.modelPortalEnabled() ?? false);
+  readonly portalRouting = signal<{ default_provider?: string; default_model?: string } | null>(
+    null,
+  );
 
   /** Active trigger source node types (mirror of the backend
    *  `triggers.TRIGGER_TYPE_TO_EVENT`) — the nodes that offer piloting. */
@@ -1182,6 +1269,17 @@ export class FlowInspectorComponent {
       if (!n || !this.mlSvc || !servingDescriptor(n)) return;
       void this.mlSvc.ensureRegistry();
     });
+    effect(() => {
+      const n = this.node();
+      if (!n || !this.portalEnabled() || !this.api || !this.isLlmNode(n)) return;
+      if (this.portalRouting()) return;
+      this.api
+        .get<{ default_provider?: string; default_model?: string }>('/models/routing')
+        .subscribe({
+          next: (res) => this.portalRouting.set(res ?? null),
+          error: () => this.portalRouting.set(null),
+        });
+    });
   }
 
   /** Retry the collections fetch after a load error (manual-entry fallback
@@ -1201,6 +1299,68 @@ export class FlowInspectorComponent {
   /** True for the SFTP arrival trigger specifically (offers the deposit link). */
   isSftpTrigger(n: CanonicalFlowNode): boolean {
     return (n.kind ?? 'task') === 'source' && String(n.type).startsWith('source.sftp');
+  }
+
+  skillSlug(n: CanonicalFlowNode): string {
+    const config = (n.config ?? {}) as Record<string, unknown>;
+    return typeof config['skill_slug'] === 'string' ? config['skill_slug'].trim() : '';
+  }
+
+  isLlmNode(n: CanonicalFlowNode): boolean {
+    const unit = this.manifestSvc?.unitFor(n.id);
+    return isCompletionShaped(unit?.editable_fields, this.skillSlug(n) || unit?.skill_slug);
+  }
+
+  lastInvocation(n: CanonicalFlowNode): {
+    runId: string;
+    invocationId: string;
+    provider?: string;
+    effectiveModel?: string;
+    credentialSource?: string;
+    decideSkill?: string;
+    chosenSkill?: string;
+  } | null {
+    const runId = this.runSvc?.currentRun()?.id;
+    const summary = this.runSvc?.nodeRunFor(n.id);
+    if (!runId || !summary?.invocationId) return null;
+    return {
+      runId,
+      invocationId: summary.invocationId,
+      provider: summary.provider,
+      effectiveModel: summary.effectiveModel,
+      credentialSource: summary.credentialSource,
+      decideSkill: summary.decideSkill,
+      chosenSkill: summary.chosenSkill,
+    };
+  }
+
+  llmBinding(n: CanonicalFlowNode): LlmBinding | null {
+    if (!this.isLlmNode(n)) return null;
+    const config = (n.config ?? {}) as Record<string, unknown>;
+    const params =
+      config['params'] !== null &&
+      typeof config['params'] === 'object' &&
+      !Array.isArray(config['params'])
+        ? (config['params'] as Record<string, unknown>)
+        : {};
+    const summary = this.runSvc?.nodeRunFor(n.id);
+    const routing = this.portalRouting();
+    return resolveLlmBinding({
+      skillSlug: this.skillSlug(n),
+      paramsModel: typeof params['model'] === 'string' ? params['model'] : null,
+      systemDefaultModel: this.persistence?.systemDefaultModel() ?? null,
+      routingProvider: routing?.default_provider ?? null,
+      routingModel: routing?.default_model ?? null,
+      portalEnabled: this.portalEnabled(),
+      inputsMap: config['inputs_map'],
+      lastRun: summary
+        ? {
+            effectiveModel: summary.effectiveModel ?? null,
+            provider: summary.provider ?? null,
+            credentialSource: summary.credentialSource ?? null,
+          }
+        : null,
+    });
   }
 
   /** True for a task node bound to the Python recipe Skill. */

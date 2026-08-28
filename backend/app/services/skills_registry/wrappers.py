@@ -3683,65 +3683,40 @@ async def _audit_log_v1(
 async def _ollama_llm_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    from app.services.model_clients.ollama_client import OllamaClient
-
-    client = OllamaClient()
+    ctx = ctx or {}
     model = _model_name(payload.get("model")) or "deepseek-r1:14b"
-    result = await client.generate(model=model, prompt=payload["prompt"])
+    if ":" not in model and "/" not in model:
+        model = f"ollama:{model}"
+    try:
+        completion = await _route_llm_complete(payload["prompt"], model, ctx)
+    except RuntimeError as exc:
+        raise RuntimeError(f"ollama_llm_unavailable: {exc}") from exc
+    route = ctx.get("_llm_route") if isinstance(ctx.get("_llm_route"), dict) else {}
     return {
-        "completion": result.get("response") or result.get("content", ""),
-        "model": model,
+        "completion": completion,
+        "model": route.get("effective_model") or route.get("model") or model,
     }
 
 
 async def _azure_llm_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    # Azure OpenAI is OpenAI-compatible — reuse the OpenAI client.
-    from app.services.model_clients.openai_client import OpenAIClient
-
-    client = OpenAIClient()
-    if not client.api_key:
+    ctx = ctx or {}
+    model = _model_name(payload.get("model")) or "gpt-4o-mini"
+    prompt = payload["prompt"]
+    try:
+        completion = await _route_llm_complete(prompt, model, ctx)
+    except RuntimeError as exc:
         return {
             "completion": "",
             "status": "degraded",
             "warning": "openai_key_unavailable",
+            "error": str(exc)[:240],
         }
-
-    ctx = ctx or {}
-    token_sink = ctx.get("token_sink")
-    model = _model_name(payload.get("model")) or "gpt-4o-mini"
-    prompt = payload["prompt"]
-
-    # Stream token-by-token when the run engine provided a sink (Vague D
-    # / D2). Every delta is pushed to the live SSE bus so the cockpit's
-    # Execution terminal can render a typewriter effect; we also
-    # accumulate the final text so the non-streaming contract
-    # (`completion` field) keeps working for replay.
-    if callable(token_sink):
-        try:
-            parts: list[str] = []
-            async for chunk in client.stream(model=model, prompt=prompt):
-                delta = chunk.get("delta") or ""
-                if delta:
-                    parts.append(delta)
-                    token_sink(delta)
-            return {
-                "completion": "".join(parts),
-                "model": model,
-                "streamed": True,
-            }
-        except Exception as exc:  # noqa: BLE001 — fall back to non-streaming
-            logger.warning(
-                "azure_llm_v1: streaming failed, falling back",
-                error=str(exc),
-            )
-
-    result = await client.generate(model=model, prompt=prompt)
+    route = ctx.get("_llm_route") if isinstance(ctx.get("_llm_route"), dict) else {}
     return {
-        "completion": result.get("content", ""),
-        "model": result.get("model"),
-        "usage": result.get("usage", {}),
+        "completion": completion,
+        "model": route.get("effective_model") or route.get("model") or model,
     }
 
 
@@ -3806,6 +3781,8 @@ _KNOWN_PROVIDERS = {
     "ollama",
     "openai",
     "azure",
+    "azure_openai",
+    "azure_foundry",
     "anthropic",
     "vllm",
     "openrouter",
@@ -4085,38 +4062,69 @@ def _assess_clarify_gate(
     return {"has_project_code": has_project, "ambiguous": ambiguous, "allow_clarify": ambiguous}
 
 
-def _resolve_model_preferences(model: Optional[str]) -> dict[str, Any]:
+def _workspace_from_ctx(ctx: Optional[dict[str, Any]]) -> Any:
+    """The Workspace row, when the run already loaded it or we can look it up."""
+    if not isinstance(ctx, dict):
+        return None
+    cached = ctx.get("_workspace")
+    if cached is not None:
+        return cached
+    workspace_id = ctx.get("workspace_id")
+    if not workspace_id:
+        return None
+    try:
+        from app.db.base import SessionLocal
+        from app.models.workspace import Workspace
+
+        with SessionLocal() as db:
+            workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+            if workspace is None:
+                return None
+            # Copy while the session is open: expire_on_commit would otherwise
+            # leave a detached row that cannot read ``settings``.
+            settings = workspace.settings
+            snapshot = SimpleNamespace(
+                id=workspace.id,
+                settings=dict(settings) if isinstance(settings, dict) else {},
+            )
+        ctx["_workspace"] = snapshot
+        return snapshot
+    except Exception:  # noqa: BLE001 — routing falls back to env
+        return None
+
+
+def _resolve_model_preferences(
+    model: Optional[str],
+    ctx: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     """Map a (possibly provider-prefixed) model string to ModelRouter prefs.
 
     Provider-neutral: produces ``{"provider","model"}`` for
     ``ModelRouter.get_client`` without ever touching a client. Honours an
     explicit ``provider:model`` / ``provider/model`` prefix, otherwise infers
-    OpenAI for the gpt/o-series and falls back to the configured default
-    provider (Ollama-friendly for on-prem).
+    OpenAI for the gpt/o-series and falls back to workspace routing, then the
+    configured default provider (Ollama-friendly for on-prem).
     """
     from app.core.config import settings
+    from app.services.model_plane.provider_keys import preferences_from_model
 
     default_provider = getattr(settings, "default_provider", None) or "ollama"
-    raw = (model or "").strip()
-    if not raw:
-        return {
-            "provider": default_provider,
-            "model": getattr(settings, "default_model", None) or "",
-        }
-    for sep in (":", "/"):
-        if sep in raw:
-            head, tail = raw.split(sep, 1)
-            head_l = head.lower()
-            # serving_<node>_<id> keys from model_plane local registration
-            if (
-                head_l in _KNOWN_PROVIDERS or head_l.startswith("serving_")
-            ) and tail.strip():
-                provider = "openai" if head_l == "azure" else head_l
-                return {"provider": provider, "model": tail.strip()}
-    low = raw.lower()
-    if low.startswith(("gpt", "o1", "o3", "o4", "chatgpt", "text-", "davinci")):
-        return {"provider": "openai", "model": raw}
-    return {"provider": default_provider, "model": raw}
+    default_model = getattr(settings, "default_model", None) or ""
+    workspace = _workspace_from_ctx(ctx)
+    if workspace is not None:
+        try:
+            from app.services.model_plane import workspace_config as ws_cfg
+
+            routing = ws_cfg.get_routing(workspace)
+            default_provider = str(routing.get("default_provider") or default_provider)
+            default_model = str(routing.get("default_model") or default_model)
+        except Exception:  # noqa: BLE001 — keep process defaults
+            pass
+    return preferences_from_model(
+        model,
+        default_provider=default_provider,
+        default_model=default_model,
+    )
 
 
 async def _route_llm_complete(
@@ -4133,21 +4141,44 @@ async def _route_llm_complete(
     """
     from app.services.model_router import ModelRouter
 
-    prefs = _resolve_model_preferences(model or (ctx or {}).get("default_model"))
     cache_owner = ctx if isinstance(ctx, dict) else {}
+    prefs = _resolve_model_preferences(
+        model or cache_owner.get("default_model"),
+        cache_owner,
+    )
     client_cache = cache_owner.get("_resolved_model_client_cache")
     if not isinstance(client_cache, dict):
         client_cache = {}
         cache_owner["_resolved_model_client_cache"] = client_cache
     cache_key = f"{prefs.get('provider')}\x00{prefs.get('model')}"
-    client = client_cache.get(cache_key)
-    if client is None:
+    cached = client_cache.get(cache_key)
+    router = None
+    if isinstance(cached, dict) and cached.get("client") is not None:
+        client = cached["client"]
+        route = cached.get("route") if isinstance(cached.get("route"), dict) else None
+    else:
         router = ModelRouter()
+        workspace = _workspace_from_ctx(cache_owner)
+        apply_workspace = getattr(router, "apply_workspace", None)
+        if callable(apply_workspace) and workspace is not None:
+            apply_workspace(workspace)
         client = await router.get_client(prefs)
+        route = getattr(router, "last_route", None)
         # Skill context is an ephemeral shallow copy and is never persisted;
         # reusing the just-validated client avoids a second remote health probe
         # when a bounded answer audit immediately follows generation.
-        client_cache[cache_key] = client
+        client_cache[cache_key] = {"client": client, "route": route}
+    if not isinstance(route, dict):
+        route = {
+            "provider": prefs.get("provider"),
+            "model": prefs.get("model"),
+            "effective_model": prefs.get("model"),
+        }
+    cache_owner["_llm_route"] = {
+        key: value
+        for key, value in route.items()
+        if isinstance(value, str) and value.strip()
+    }
     options = dict(generation_options or {})
     try:
         from app.services.model_clients.ollama_client import OllamaClient
@@ -4164,22 +4195,45 @@ async def _route_llm_complete(
         if ollama_options:
             options["options"] = ollama_options
     usage_accumulator = _provider_usage_scope(cache_owner)
+    token_sink = cache_owner.get("token_sink")
     try:
-        result = await client.generate(model=prefs["model"], prompt=prompt, **options)
+        if callable(token_sink) and hasattr(client, "stream"):
+            try:
+                parts: list[str] = []
+                async for chunk in client.stream(
+                    model=prefs["model"], prompt=prompt, **options
+                ):
+                    delta = ""
+                    if isinstance(chunk, dict):
+                        delta = str(chunk.get("delta") or chunk.get("content") or "")
+                    if delta:
+                        parts.append(delta)
+                        token_sink(delta)
+                result = {"content": "".join(parts), "streamed": True}
+            except Exception as exc:  # noqa: BLE001 — fall back to non-streaming
+                logger.warning(
+                    "route_llm_complete: streaming failed, falling back",
+                    error=str(exc),
+                )
+                result = await client.generate(
+                    model=prefs["model"], prompt=prompt, **options
+                )
+        else:
+            result = await client.generate(model=prefs["model"], prompt=prompt, **options)
     except Exception:
         # A transport failure can happen after provider-side work.  With no
         # counters, that call is deliberately unavailable rather than zero.
         record_provider_usage(
             usage_accumulator,
             None,
-            provider=str(prefs.get("provider") or "unknown"),
+            provider=str(route.get("provider") or prefs.get("provider") or "unknown"),
             model=str(prefs.get("model") or "unknown"),
         )
         raise
     record_provider_usage(
         usage_accumulator,
         result,
-        provider=str(prefs.get("provider") or "unknown"),
+        provider=str(route.get("provider") or prefs.get("provider") or "unknown"),
         model=str(prefs.get("model") or "unknown"),
     )
     if isinstance(result, dict):

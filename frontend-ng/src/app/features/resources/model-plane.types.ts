@@ -37,6 +37,13 @@ export interface RoutingResponse {
     id?: string;
     name?: string;
     default_model?: string | null;
+    nodes?: Array<{
+      node_id?: string;
+      label?: string;
+      skill_slug?: string;
+      model?: string | null;
+      provider?: string | null;
+    }>;
   }>;
 }
 

@@ -240,6 +240,7 @@ export const FLOW_FR = {
   'flow.node.run.metric': '{metric} {value}',
   'flow.node.run.duration': '{duration}',
   'flow.node.run.model': 'Modèle qui a répondu sur ce nœud',
+  'flow.node.run.invocation': 'Ouvrir l’invocation de cette exécution',
 
   // ---- palette -----------------------------------------------------------
   'flow.palette.aria': 'Palette de nœuds',
@@ -429,6 +430,18 @@ export const FLOW_FR = {
   'flow.inspector.field.description.placeholder': 'Ce que fait ce nœud',
   'flow.inspector.section.ports': 'Entrées et sorties',
   'flow.inspector.section.decision': 'Branches de décision',
+  'flow.inspector.section.last_run': 'Dernière exécution',
+  'flow.inspector.last_run.open': 'Ouvrir l’invocation',
+  'flow.inspector.last_run.loop': 'Dernier {decide} · skill {skill}',
+  'flow.inspector.section.llm': 'Connecteur modèles',
+  'flow.inspector.llm.hint':
+    'Ce nœud appelle une Skill de complétion. Le connecteur nomme le provider et la clé ; le texte ci-dessous reste le prompt.',
+  'flow.inspector.llm.model': 'Modèle {model} · source {source}',
+  'flow.inspector.llm.provider': 'Provider {provider} · {source}',
+  'flow.inspector.llm.bound': 'Le prompt d’exécution est lié à {source}',
+  'flow.inspector.llm.bypass':
+    'Exécution via les clés d’environnement du processus, pas encore le connecteur workspace.',
+  'flow.inspector.llm.connector': 'Ouvrir le connecteur modèles',
   'flow.inspector.section.agent_loop': 'Enveloppe de la boucle agent',
   'flow.inspector.agent_loop.hint':
     'Le mou = quelle skill appeler ensuite. Les writes restent derrière une approbation. Le modèle ne voit que la liste autorisée.',
@@ -1747,6 +1760,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.node.run.metric': '{metric} {value}',
   'flow.node.run.duration': '{duration}',
   'flow.node.run.model': 'Model that answered on this node',
+  'flow.node.run.invocation': 'Open the invocation for this run',
 
   // ---- palette -----------------------------------------------------------
   'flow.palette.aria': 'Node palette',
@@ -1930,6 +1944,18 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.inspector.field.description.placeholder': 'What this node does',
   'flow.inspector.section.ports': 'Inputs and outputs',
   'flow.inspector.section.decision': 'Decision branches',
+  'flow.inspector.section.last_run': 'Last run',
+  'flow.inspector.last_run.open': 'Open the invocation',
+  'flow.inspector.last_run.loop': 'Last {decide} · skill {skill}',
+  'flow.inspector.section.llm': 'Model connector',
+  'flow.inspector.llm.hint':
+    'This node calls a completion Skill. The connector names the provider and the key; the text below stays the prompt.',
+  'flow.inspector.llm.model': 'Model {model} · source {source}',
+  'flow.inspector.llm.provider': 'Provider {provider} · {source}',
+  'flow.inspector.llm.bound': 'The runtime prompt is bound from {source}',
+  'flow.inspector.llm.bypass':
+    'Execution still uses process environment keys, not the workspace connector.',
+  'flow.inspector.llm.connector': 'Open the models connector',
   'flow.inspector.section.agent_loop': 'Agent loop envelope',
   'flow.inspector.agent_loop.hint':
     'Softness = which skill to call next. Writes still go through approval. The model only sees the allowed list.',

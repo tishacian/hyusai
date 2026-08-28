@@ -69,8 +69,10 @@ def test_resolve_model_preferences_is_provider_neutral():
         "model": "deepseek-r1:14b",
     }
     assert wrappers._resolve_model_preferences("openai/gpt-4o") == {"provider": "openai", "model": "gpt-4o"}
-    # Azure is OpenAI-compatible -> collapses to the openai client.
-    assert wrappers._resolve_model_preferences("azure:gpt-4o-mini")["provider"] == "openai"
+    # Azure is the portal key, not a silent remap onto the OpenAI env client.
+    assert wrappers._resolve_model_preferences("azure:gpt-4o-mini")["provider"] == (
+        "azure_openai"
+    )
 
 
 @pytest.mark.asyncio
