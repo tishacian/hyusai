@@ -272,160 +272,162 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
             </div>
           </div>
 
-            <div class="space-y-3">
-            <details class="rounded-md bg-black/20 ring-1 ring-white/10" [attr.open]="row.configured ? null : ''">
-              <summary class="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+          <div class="space-y-3">
+            @if (row.configured) {
+              <button
+                type="button"
+                class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 hover:text-gray-200"
+                (click)="toggleEditor($index)"
+              >
                 {{ i18n.t('connectors.mcp.configuration') }}
-              </summary>
-              <div class="space-y-3 px-3 pb-3">
-            <div class="grid gap-3 sm:grid-cols-2">
-            <label class="block">
-              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                {{ i18n.t('connectors.mcp.id') }}
-              </span>
-              <input
-                [(ngModel)]="row.id"
-                [ngModelOptions]="{ standalone: true }"
-                [disabled]="!featureEnabled() || saving()"
-                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-              />
-            </label>
-            <label class="block">
-              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                {{ i18n.t('connectors.mcp.label') }}
-              </span>
-              <input
-                [(ngModel)]="row.label"
-                [ngModelOptions]="{ standalone: true }"
-                [disabled]="!featureEnabled() || saving()"
-                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-              />
-            </label>
-            </div>
-            <label class="block">
-              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                {{ i18n.t('connectors.mcp.url') }}
-              </span>
-              <input
-                [(ngModel)]="row.url"
-                [ngModelOptions]="{ standalone: true }"
-                [disabled]="!featureEnabled() || saving()"
-                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-              />
-            </label>
-            <div class="grid gap-3 sm:grid-cols-2">
-            <label class="block">
-              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                {{ i18n.t('connectors.mcp.transport') }}
-              </span>
-              <select
-                [(ngModel)]="row.transport"
-                [ngModelOptions]="{ standalone: true }"
-                [disabled]="!featureEnabled() || saving()"
-                class="w-full rounded bg-zinc-950 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-              >
-                <option value="http_sse">{{ i18n.t('connectors.mcp.transport.http_sse') }}</option>
-                <option value="streamable_http">{{ i18n.t('connectors.mcp.transport.streamable_http') }}</option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                {{ i18n.t('connectors.mcp.auth_mode') }}
-              </span>
-              <select
-                [(ngModel)]="row.authMode"
-                [ngModelOptions]="{ standalone: true }"
-                [disabled]="!featureEnabled() || saving()"
-                class="w-full rounded bg-zinc-950 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-              >
-                <option value="bearer">{{ i18n.t('connectors.mcp.auth.bearer') }}</option>
-                <option value="oauth_client_credentials">{{ i18n.t('connectors.mcp.auth.oauth') }}</option>
-                <option value="inherit">{{ i18n.t('connectors.mcp.auth.inherit') }}</option>
-              </select>
-            </label>
-            </div>
-            @if (row.authMode === 'inherit') {
-              <p class="text-[12px] leading-5 text-gray-500">{{ i18n.t('connectors.mcp.inherit_hint') }}</p>
+              </button>
             }
-            @if (row.authMode === 'bearer') {
+            @if (!row.configured || editorOpen().has($index)) {
+            <div class="space-y-3">
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="block">
+                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    {{ i18n.t('connectors.mcp.id') }}
+                  </span>
+                  <input
+                    [(ngModel)]="row.id"
+                    [ngModelOptions]="{ standalone: true }"
+                    [disabled]="!featureEnabled() || saving()"
+                    class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                  />
+                </label>
+                <label class="block">
+                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    {{ i18n.t('connectors.mcp.label') }}
+                  </span>
+                  <input
+                    [(ngModel)]="row.label"
+                    [ngModelOptions]="{ standalone: true }"
+                    [disabled]="!featureEnabled() || saving()"
+                    class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                  />
+                </label>
+              </div>
               <label class="block">
                 <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                  {{ i18n.t('connectors.mcp.token') }}
+                  {{ i18n.t('connectors.mcp.url') }}
                 </span>
                 <input
-                  type="password"
-                  [(ngModel)]="row.token"
-                  [ngModelOptions]="{ standalone: true }"
-                  [disabled]="!featureEnabled() || saving()"
-                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                  [placeholder]="i18n.t('connectors.mcp.token_keep')"
-                  autocomplete="off"
-                />
-              </label>
-            }
-            @if (row.authMode === 'oauth_client_credentials') {
-              <label class="block">
-                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                  {{ i18n.t('connectors.mcp.oauth_token_url') }}
-                </span>
-                <input
-                  [(ngModel)]="row.oauthTokenUrl"
-                  [ngModelOptions]="{ standalone: true }"
-                  [disabled]="!featureEnabled() || saving()"
-                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                />
-              </label>
-              <label class="block">
-                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                  {{ i18n.t('connectors.mcp.oauth_client_id') }}
-                </span>
-                <input
-                  [(ngModel)]="row.oauthClientId"
-                  [ngModelOptions]="{ standalone: true }"
-                  [disabled]="!featureEnabled() || saving()"
-                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                />
-              </label>
-              <label class="block">
-                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                  {{ i18n.t('connectors.mcp.oauth_client_secret') }}
-                </span>
-                <input
-                  type="password"
-                  [(ngModel)]="row.oauthClientSecret"
-                  [ngModelOptions]="{ standalone: true }"
-                  [disabled]="!featureEnabled() || saving()"
-                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                  [placeholder]="i18n.t('connectors.mcp.oauth_secret_keep')"
-                  autocomplete="off"
-                />
-              </label>
-              <label class="block">
-                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                  {{ i18n.t('connectors.mcp.oauth_scope') }}
-                </span>
-                <input
-                  [(ngModel)]="row.oauthScope"
+                  [(ngModel)]="row.url"
                   [ngModelOptions]="{ standalone: true }"
                   [disabled]="!featureEnabled() || saving()"
                   class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                 />
               </label>
-            }
-            <label class="inline-flex items-center gap-2 text-sm text-gray-300">
-              <input
-                type="checkbox"
-                [(ngModel)]="row.enabled"
-                [ngModelOptions]="{ standalone: true }"
-                [disabled]="!featureEnabled() || saving()"
-              />
-              {{ i18n.t('connectors.mcp.enabled') }}
-            </label>
-            <details class="rounded-md bg-black/20 ring-1 ring-white/10">
-              <summary class="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                {{ i18n.t('connectors.mcp.advanced') }}
-              </summary>
-              <label class="block px-3 pb-3">
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="block">
+                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    {{ i18n.t('connectors.mcp.transport') }}
+                  </span>
+                  <select
+                    [(ngModel)]="row.transport"
+                    [ngModelOptions]="{ standalone: true }"
+                    [disabled]="!featureEnabled() || saving()"
+                    class="w-full rounded bg-zinc-950 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                  >
+                    <option value="http_sse">{{ i18n.t('connectors.mcp.transport.http_sse') }}</option>
+                    <option value="streamable_http">{{ i18n.t('connectors.mcp.transport.streamable_http') }}</option>
+                  </select>
+                </label>
+                <label class="block">
+                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    {{ i18n.t('connectors.mcp.auth_mode') }}
+                  </span>
+                  <select
+                    [(ngModel)]="row.authMode"
+                    [ngModelOptions]="{ standalone: true }"
+                    [disabled]="!featureEnabled() || saving()"
+                    class="w-full rounded bg-zinc-950 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                  >
+                    <option value="bearer">{{ i18n.t('connectors.mcp.auth.bearer') }}</option>
+                    <option value="oauth_client_credentials">{{ i18n.t('connectors.mcp.auth.oauth') }}</option>
+                    <option value="inherit">{{ i18n.t('connectors.mcp.auth.inherit') }}</option>
+                  </select>
+                </label>
+              </div>
+              @if (row.authMode === 'inherit') {
+                <p class="text-[12px] leading-5 text-gray-500">{{ i18n.t('connectors.mcp.inherit_hint') }}</p>
+              }
+              @if (row.authMode === 'bearer') {
+                <label class="block">
+                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    {{ i18n.t('connectors.mcp.token') }}
+                  </span>
+                  <input
+                    type="password"
+                    [(ngModel)]="row.token"
+                    [ngModelOptions]="{ standalone: true }"
+                    [disabled]="!featureEnabled() || saving()"
+                    class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                    [placeholder]="i18n.t('connectors.mcp.token_keep')"
+                    autocomplete="off"
+                  />
+                </label>
+              }
+              @if (row.authMode === 'oauth_client_credentials') {
+                <label class="block">
+                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    {{ i18n.t('connectors.mcp.oauth_token_url') }}
+                  </span>
+                  <input
+                    [(ngModel)]="row.oauthTokenUrl"
+                    [ngModelOptions]="{ standalone: true }"
+                    [disabled]="!featureEnabled() || saving()"
+                    class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                  />
+                </label>
+                <label class="block">
+                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    {{ i18n.t('connectors.mcp.oauth_client_id') }}
+                  </span>
+                  <input
+                    [(ngModel)]="row.oauthClientId"
+                    [ngModelOptions]="{ standalone: true }"
+                    [disabled]="!featureEnabled() || saving()"
+                    class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                  />
+                </label>
+                <label class="block">
+                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    {{ i18n.t('connectors.mcp.oauth_client_secret') }}
+                  </span>
+                  <input
+                    type="password"
+                    [(ngModel)]="row.oauthClientSecret"
+                    [ngModelOptions]="{ standalone: true }"
+                    [disabled]="!featureEnabled() || saving()"
+                    class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                    [placeholder]="i18n.t('connectors.mcp.oauth_secret_keep')"
+                    autocomplete="off"
+                  />
+                </label>
+                <label class="block">
+                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    {{ i18n.t('connectors.mcp.oauth_scope') }}
+                  </span>
+                  <input
+                    [(ngModel)]="row.oauthScope"
+                    [ngModelOptions]="{ standalone: true }"
+                    [disabled]="!featureEnabled() || saving()"
+                    class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                  />
+                </label>
+              }
+              <label class="inline-flex items-center gap-2 text-sm text-gray-300">
+                <input
+                  type="checkbox"
+                  [(ngModel)]="row.enabled"
+                  [ngModelOptions]="{ standalone: true }"
+                  [disabled]="!featureEnabled() || saving()"
+                />
+                {{ i18n.t('connectors.mcp.enabled') }}
+              </label>
+              <label class="block">
                 <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                   {{ i18n.t('connectors.mcp.aliases') }}
                 </span>
@@ -437,9 +439,8 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                   class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm font-mono text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                 ></textarea>
               </label>
-            </details>
-              </div>
-            </details>
+            </div>
+            }
             <div class="flex flex-wrap gap-2 pt-1">
               <button
                 type="button"
@@ -619,6 +620,7 @@ export class McpConnectorComponent implements OnInit {
   readonly testById = signal<Record<string, McpTestResult>>({});
   readonly toolsById = signal<Record<string, McpToolsResponse>>({});
   readonly prToPoSystemId = signal<string | null>(null);
+  readonly editorOpen = signal<Set<number>>(new Set());
   sharedAuth: SharedAuthDraft = this.emptySharedAuth();
 
   ngOnInit(): void {
@@ -652,6 +654,15 @@ export class McpConnectorComponent implements OnInit {
 
   addServer(): void {
     this.drafts.update((rows) => [...rows, this.emptyDraft()]);
+  }
+
+  toggleEditor(index: number): void {
+    this.editorOpen.update((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
   }
 
   removeServer(index: number): void {
