@@ -16,6 +16,12 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
+import {
+  groupMcpTools,
+  humanizeMcpName,
+  type McpCatalogGroup,
+  type McpCatalogTool,
+} from './mcp-catalog';
 
 export interface McpServerPublic {
   id: string;
@@ -64,6 +70,18 @@ interface McpToolsResponse {
   capped?: boolean;
   contract?: McpContractGap;
   credential_source?: string | null;
+  detail?: string;
+}
+
+interface McpPreviewResponse {
+  ok?: boolean;
+  server_id?: string;
+  tool?: string;
+  columns?: string[];
+  rows?: string[][];
+  row_count?: number;
+  truncated?: boolean;
+  detail?: string;
 }
 
 interface McpTestResult {
@@ -104,7 +122,7 @@ interface SharedAuthDraft {
   secretSet: boolean;
 }
 
-const TOOL_CHIP_CAP = 10;
+const TOOL_GROUP_CAP = 4;
 const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
 
 @Component({
@@ -455,10 +473,23 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                 type="button"
                 class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 disabled:opacity-50"
                 (click)="loadTools(row)"
-                [disabled]="!featureEnabled() || !row.id"
+                [disabled]="!featureEnabled() || !row.id || toolsLoading().has(row.id)"
               >
                 <app-icon name="list" [size]="14" />
                 {{ i18n.t('connectors.mcp.tools') }}
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 disabled:opacity-50"
+                (click)="loadPreview(row)"
+                [disabled]="!featureEnabled() || !row.id || previewLoadingId() === row.id"
+              >
+                <app-icon name="database" [size]="14" />
+                {{
+                  previewLoadingId() === row.id
+                    ? i18n.t('connectors.mcp.previewing')
+                    : i18n.t('connectors.mcp.preview')
+                }}
               </button>
             </div>
             @if (testById()[row.id]; as result) {
@@ -480,17 +511,72 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                 }
               </div>
             }
+            @if (toolsLoading().has(row.id) && !toolsById()[row.id]) {
+              <p class="text-[12px] text-gray-500">{{ i18n.t('connectors.mcp.catalog_loading') }}</p>
+            }
             @if (toolsById()[row.id]; as tools) {
               <div class="rounded-md bg-black/20 p-3 text-[12px] text-gray-300 ring-1 ring-white/10">
-                <p class="font-semibold text-gray-200">
-                  {{ i18n.t('connectors.mcp.tools_count', { count: toolNames(tools).length }) }}
-                </p>
-                <div class="mt-2 flex flex-wrap gap-1.5">
-                  @for (name of visibleTools(tools); track name) {
-                    <span class="ck-mono rounded bg-white/5 px-2 py-0.5 text-[10px] text-gray-200 ring-1 ring-white/10">{{ name }}</span>
-                  }
-                  @if (hiddenToolCount(tools) > 0) {
-                    <span class="text-[10px] text-gray-500">{{ i18n.t('connectors.mcp.tools_more', { count: hiddenToolCount(tools) }) }}</span>
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <p class="font-semibold text-gray-200">{{ i18n.t('connectors.mcp.catalog') }}</p>
+                  <p class="text-[11px] text-gray-500">
+                    {{ i18n.t('connectors.mcp.catalog_objects', { count: catalogFor(tools).length }) }}
+                    · {{ i18n.t('connectors.mcp.tools_count', { count: toolNames(tools).length }) }}
+                  </p>
+                </div>
+                <p class="mt-1 text-[11px] leading-5 text-gray-500">{{ i18n.t('connectors.mcp.catalog_help') }}</p>
+                @if (tools.detail) {
+                  <p class="mt-2 text-amber-200">{{ tools.detail }}</p>
+                }
+                <div class="mt-3 space-y-3">
+                  @for (group of catalogFor(tools); track group.entity) {
+                    <div>
+                      <div class="flex flex-wrap items-center gap-2">
+                        <p class="text-[13px] font-medium text-white">{{ group.label }}</p>
+                        @if (group.read.length) {
+                          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+                            {{ i18n.t('connectors.mcp.catalog_read') }} · {{ group.read.length }}
+                          </span>
+                        }
+                        @if (group.write.length) {
+                          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-200 ring-1 ring-amber-400/25">
+                            {{ i18n.t('connectors.mcp.catalog_write') }} · {{ group.write.length }}
+                          </span>
+                        }
+                      </div>
+                      <ul class="mt-1.5 space-y-1">
+                        @for (tool of visibleGroupTools(group); track tool.name) {
+                          <li class="min-w-0">
+                            @if (tool.kind === 'read') {
+                              <button
+                                type="button"
+                                class="block w-full rounded px-1 py-0.5 text-left hover:bg-white/5"
+                                (click)="loadPreview(row, tool.name)"
+                                [disabled]="previewLoadingId() === row.id"
+                              >
+                                <span class="text-[12px] text-gray-100">{{ toolTitle(tool) }}</span>
+                                <span class="ml-2 ck-mono text-[10px] text-cyan-300/80">{{ tool.name }}</span>
+                                @if (tool.description) {
+                                  <span class="mt-0.5 block truncate text-[11px] text-gray-500">{{ tool.description }}</span>
+                                }
+                              </button>
+                            } @else {
+                              <div class="px-1 py-0.5">
+                                <span class="text-[12px] text-gray-100">{{ toolTitle(tool) }}</span>
+                                <span class="ml-2 ck-mono text-[10px] text-gray-500">{{ tool.name }}</span>
+                                @if (tool.description) {
+                                  <span class="mt-0.5 block truncate text-[11px] text-gray-500">{{ tool.description }}</span>
+                                }
+                              </div>
+                            }
+                          </li>
+                        }
+                      </ul>
+                      @if (hiddenGroupCount(group) > 0) {
+                        <p class="mt-1 text-[10px] text-gray-500">
+                          {{ i18n.t('connectors.mcp.catalog_more', { count: hiddenGroupCount(group) }) }}
+                        </p>
+                      }
+                    </div>
                   }
                 </div>
                 @if ((tools.contract?.expected || []).length && !toolNames(tools).length) {
@@ -500,6 +586,42 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                     <p class="mt-2 text-amber-200">
                       {{ i18n.t('connectors.mcp.missing') }}: {{ tools.contract?.missing?.join(', ') }}
                     </p>
+                  }
+                }
+              </div>
+            }
+            @if (previewById()[row.id]; as preview) {
+              <div class="rounded-md bg-black/20 p-3 text-[12px] text-gray-300 ring-1 ring-white/10">
+                @if (preview.ok === false) {
+                  <p class="text-amber-200">{{ preview.detail || i18n.t('connectors.mcp.preview_empty') }}</p>
+                } @else {
+                  <p class="font-semibold text-gray-200">
+                    {{ i18n.t('connectors.mcp.preview_via', { tool: preview.tool || '' }) }}
+                    · {{ i18n.t('connectors.mcp.preview_rows', { count: preview.row_count || 0 }) }}
+                  </p>
+                  @if ((preview.columns || []).length) {
+                    <div class="mt-2 overflow-x-auto">
+                      <table class="min-w-full text-left text-[11px]">
+                        <thead>
+                          <tr>
+                            @for (col of preview.columns; track col) {
+                              <th class="ck-mono whitespace-nowrap px-2 py-1 font-medium text-gray-400">{{ col }}</th>
+                            }
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (line of preview.rows || []; track $index) {
+                            <tr class="border-t border-white/5">
+                              @for (cell of line; track $index) {
+                                <td class="max-w-[14rem] truncate px-2 py-1 text-gray-200" [title]="cell">{{ cell }}</td>
+                              }
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  } @else {
+                    <p class="mt-2 text-gray-500">{{ i18n.t('connectors.mcp.preview_empty') }}</p>
                   }
                 }
               </div>
@@ -619,6 +741,9 @@ export class McpConnectorComponent implements OnInit {
   readonly drafts = signal<ServerDraft[]>([]);
   readonly testById = signal<Record<string, McpTestResult>>({});
   readonly toolsById = signal<Record<string, McpToolsResponse>>({});
+  readonly toolsLoading = signal<Set<string>>(new Set());
+  readonly previewById = signal<Record<string, McpPreviewResponse>>({});
+  readonly previewLoadingId = signal<string | null>(null);
   readonly prToPoSystemId = signal<string | null>(null);
   readonly editorOpen = signal<Set<number>>(new Set());
   sharedAuth: SharedAuthDraft = this.emptySharedAuth();
@@ -637,9 +762,13 @@ export class McpConnectorComponent implements OnInit {
     this.error.set(null);
     this.api.get<McpServersResponse>('/mcp/servers').subscribe({
       next: (body) => {
-        this.drafts.set((body.servers || []).map((row) => this.toDraft(row)));
+        const drafts = (body.servers || []).map((row) => this.toDraft(row));
+        this.drafts.set(drafts);
         this.sharedAuth = this.toSharedDraft(body.shared_auth);
         this.loading.set(false);
+        for (const row of drafts) {
+          if (row.configured && row.id) this.loadTools(row);
+        }
       },
       error: (err) => {
         this.loading.set(false);
@@ -737,6 +866,14 @@ export class McpConnectorComponent implements OnInit {
         this.testById.update((current) => ({ ...current, [row.id]: { ...result, ok: result?.ok !== false } }));
         if (result?.ok !== false) {
           this.toast.success(this.i18n.t('connectors.mcp.test_ok'), this.i18n.t('connectors.mcp.title'));
+          if (result?.tools?.length) {
+            this.toolsById.update((current) => ({
+              ...current,
+              [row.id]: { ok: true, server_id: row.id, tools: result.tools, contract: result.contract },
+            }));
+          } else {
+            this.loadTools(row);
+          }
         }
       },
       error: (err) => {
@@ -750,15 +887,42 @@ export class McpConnectorComponent implements OnInit {
 
   loadTools(row: ServerDraft): void {
     if (!this.featureEnabled() || !row.id.trim()) return;
+    this.toolsLoading.update((current) => {
+      const next = new Set(current);
+      next.add(row.id);
+      return next;
+    });
     this.api.get<McpToolsResponse>(`/mcp/servers/${encodeURIComponent(row.id)}/tools`).subscribe({
       next: (result) => {
         this.toolsById.update((current) => ({ ...current, [row.id]: result }));
+        this.markToolsLoaded(row.id);
       },
       error: (err) => {
         const detail = err?.error?.detail || this.i18n.t('connectors.mcp.load_failed');
+        this.toolsById.update((current) => ({ ...current, [row.id]: { ok: false, detail } }));
+        this.markToolsLoaded(row.id);
         this.toast.error(detail, this.i18n.t('connectors.mcp.title'));
       },
     });
+  }
+
+  loadPreview(row: ServerDraft, toolName?: string): void {
+    if (!this.featureEnabled() || !row.id.trim()) return;
+    this.previewLoadingId.set(row.id);
+    const params = toolName ? { tool: toolName } : undefined;
+    this.api
+      .get<McpPreviewResponse>(`/mcp/servers/${encodeURIComponent(row.id)}/preview`, params)
+      .subscribe({
+        next: (result) => {
+          this.previewLoadingId.set(null);
+          this.previewById.update((current) => ({ ...current, [row.id]: { ...result, ok: result?.ok !== false } }));
+        },
+        error: (err) => {
+          this.previewLoadingId.set(null);
+          const detail = err?.error?.detail || this.i18n.t('connectors.mcp.preview_failed');
+          this.previewById.update((current) => ({ ...current, [row.id]: { ok: false, detail } }));
+        },
+      });
   }
 
   hostOf(url: string): string {
@@ -791,12 +955,30 @@ export class McpConnectorComponent implements OnInit {
     return (tools.tools || []).map((tool) => tool.name || '').filter(Boolean);
   }
 
-  visibleTools(tools: McpToolsResponse): string[] {
-    return this.toolNames(tools).slice(0, TOOL_CHIP_CAP);
+  catalogFor(tools: McpToolsResponse): McpCatalogGroup[] {
+    const records = (tools.tools || []).filter((item) => !!item.name);
+    if (records.length) return groupMcpTools(records);
+    return groupMcpTools(this.toolNames(tools));
   }
 
-  hiddenToolCount(tools: McpToolsResponse): number {
-    return Math.max(0, this.toolNames(tools).length - TOOL_CHIP_CAP);
+  visibleGroupTools(group: McpCatalogGroup): McpCatalogTool[] {
+    return [...group.read, ...group.write, ...group.other].slice(0, TOOL_GROUP_CAP);
+  }
+
+  hiddenGroupCount(group: McpCatalogGroup): number {
+    return Math.max(0, group.read.length + group.write.length + group.other.length - TOOL_GROUP_CAP);
+  }
+
+  toolTitle(tool: McpCatalogTool): string {
+    return tool.description || `${humanizeMcpName(tool.verb)} · ${tool.label}`;
+  }
+
+  private markToolsLoaded(serverId: string): void {
+    this.toolsLoading.update((current) => {
+      const next = new Set(current);
+      next.delete(serverId);
+      return next;
+    });
   }
 
   usageLabel(serverId: string): string {

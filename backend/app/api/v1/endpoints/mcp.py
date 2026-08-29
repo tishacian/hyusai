@@ -13,6 +13,7 @@ from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.connectors.mcp import client as mcp_client
+from app.services.connectors.mcp import preview as mcp_preview
 from app.services.connectors.mcp import service as mcp_service
 from app.services.connectors.mcp.errors import McpError
 
@@ -63,6 +64,8 @@ def _raise_mcp(exc: Exception) -> None:
         status = 400 if exc.code == "mcp_unconfigured" else 502
         if exc.code == "mcp_tool_unknown":
             status = 404
+        if exc.code == "mcp_preview_unavailable":
+            status = 409
         raise HTTPException(status_code=status, detail=str(exc)) from exc
     raise HTTPException(status_code=502, detail=f"MCP call failed: {exc}") from exc
 
@@ -140,6 +143,23 @@ async def list_mcp_server_tools(
     try:
         server = mcp_service.resolve_server(workspace, server_id)
         return mcp_client.list_tools(server)
+    except Exception as exc:  # noqa: BLE001
+        _raise_mcp(exc)
+        raise  # pragma: no cover
+
+
+@router.get("/servers/{server_id}/preview")
+async def preview_mcp_server(
+    server_id: str,
+    tool: Optional[str] = None,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+):
+    """One read-only sample call. Never invokes write tools."""
+    _require_enabled(workspace)
+    try:
+        server = mcp_service.resolve_server(workspace, server_id)
+        return mcp_preview.preview_server(server, tool_name=tool)
     except Exception as exc:  # noqa: BLE001
         _raise_mcp(exc)
         raise  # pragma: no cover
