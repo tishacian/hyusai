@@ -282,7 +282,7 @@ interface ServerDraft {
                 <p class="mb-1 font-semibold text-gray-200">{{ i18n.t('connectors.mcp.contract') }}</p>
                 <p>{{ (tools.contract?.expected || []).join(', ') || '—' }}</p>
                 <p class="mt-2 font-semibold text-gray-200">{{ i18n.t('connectors.mcp.tools') }}</p>
-                <p>{{ (tools.contract?.listed || tools.tools?.map(t => t.name || '') || []).join(', ') || '—' }}</p>
+                <p>{{ listedToolNames(tools) }}</p>
                 @if ((tools.contract?.missing || []).length) {
                   <p class="mt-2 text-amber-200">
                     {{ i18n.t('connectors.mcp.missing') }}: {{ tools.contract?.missing?.join(', ') }}
@@ -456,6 +456,13 @@ export class McpConnectorComponent implements OnInit {
         this.toast.error(detail, this.i18n.t('connectors.mcp.title'));
       },
     });
+  }
+
+  listedToolNames(tools: McpToolsResponse): string {
+    const listed = tools.contract?.listed;
+    if (listed?.length) return listed.join(', ');
+    const names = (tools.tools || []).map((tool) => tool.name || '').filter(Boolean);
+    return names.join(', ') || '—';
   }
 
   private toDraft(row: McpServerPublic): ServerDraft {
