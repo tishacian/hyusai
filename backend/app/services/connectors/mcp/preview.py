@@ -11,8 +11,8 @@ from app.services.connectors.mcp.errors import McpPreviewUnavailable
 PREVIEW_ROW_CAP = 8
 PREVIEW_COL_CAP = 8
 
-_READ_PREFIXES = ("get_", "list_", "query_", "search_", "read_")
-_WRITE_PREFIXES = ("post_", "patch_", "put_", "delete_", "create_", "update_")
+_READ_PREFIXES = ("get_", "get", "list_", "list", "query_", "query", "search_", "search", "read_", "read")
+_WRITE_PREFIXES = ("post_", "post", "patch_", "patch", "put_", "put", "delete_", "delete", "create_", "create", "update_", "update")
 _WRITE_NAMES = frozenset({"reject_pr", "create_po", "handle_rejection"})
 _SAFE_OPTIONAL_ARGS = frozenset(
     {"$top", "$skip", "$filter", "$select", "$orderby", "top", "skip", "limit"}
@@ -20,12 +20,13 @@ _SAFE_OPTIONAL_ARGS = frozenset(
 _RECORD_KEYS = ("value", "prs", "pos", "items", "records", "results", "data", "rows")
 _PAGE_KEYS = ("$top", "top", "limit")
 _SKIP_NAME_SUFFIXES = ("_by_key",)
-_SKIP_NAME_TOKENS = ("itemtext", "unitofmeasure")
+_SKIP_NAME_TOKENS = ("itemtext", "unitofmeasure", "searchusers")
 _PREFERRED_ENTITIES = (
     "purchaserequisitionheader",
     "purchaserequisition",
     "purchaseorder",
     "materialdocument",
+    "taskcollection",
 )
 
 
@@ -65,6 +66,8 @@ def is_preview_safe(tool: Mapping[str, Any]) -> bool:
         return False
     if _is_by_key(name):
         return False
+    if any(token in name.lower() for token in _SKIP_NAME_TOKENS):
+        return False
     required = _required_args(_schema_map(tool))
     return all(item in _SAFE_OPTIONAL_ARGS for item in required)
 
@@ -93,11 +96,11 @@ def _rank(tool: Mapping[str, Any]) -> tuple[int, int, int, int, str]:
     has_page = 0 if any(key in props for key in _PAGE_KEYS) else 1
     preferred = 0 if any(token in lower for token in _PREFERRED_ENTITIES) else 1
     noisy = 1 if any(token in lower for token in _SKIP_NAME_TOKENS) else 0
-    if lower.startswith("list_"):
+    if lower.startswith("list"):
         verb = 0
-    elif lower.startswith("get_"):
+    elif lower.startswith("get"):
         verb = 1
-    elif lower.startswith(("query_", "search_", "read_")):
+    elif lower.startswith(("query", "search", "read")):
         verb = 2
     else:
         verb = 3
@@ -191,6 +194,21 @@ def _cell(value: Any) -> str:
     return text
 
 
+def gateway_refusal(payload: Any) -> str | None:
+    """SAP Gateway sometimes answers MCP with HTTP 200 and a 403 body."""
+    if not isinstance(payload, Mapping):
+        return None
+    status = payload.get("status")
+    flagged = payload.get("error") is True or str(status) in {"403", "401", "404"}
+    if not flagged:
+        return None
+    message = payload.get("message")
+    if isinstance(message, Mapping):
+        message = message.get("value") or message.get("message")
+    text = str(message or "").strip()
+    return text or f"SAP refused the read ({status})"
+
+
 def flatten_preview(payload: Any) -> dict[str, Any]:
     records = extract_records(payload)
     columns: list[str] = []
@@ -235,6 +253,10 @@ def preview_server(
             )
         except Exception as exc:  # noqa: BLE001 — try the next safe read tool
             last_error = exc
+            continue
+        refused = gateway_refusal(called.get("result"))
+        if refused:
+            last_error = McpPreviewUnavailable(refused)
             continue
         table = flatten_preview(called.get("result"))
         return {

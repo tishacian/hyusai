@@ -62,7 +62,7 @@ const PREFERRED_COLUMNS: Record<DeskLaneId, readonly string[]> = {
     'CreationDate',
     'SourceDetermination',
   ],
-  inbox: ['TaskTitle', 'Status', 'CreatedOn', 'CreatedBy', 'Priority', 'InstanceID'],
+  inbox: ['TaskTitle', 'TaskDefinitionName', 'Status', 'Priority', 'InstanceID', 'CreatedOn'],
   po: [
     'PurchaseOrder',
     'PurchaseOrderType',
@@ -80,7 +80,13 @@ const ROW_CAP = 6;
 export function pickDeskColumns(columns: readonly string[], lane: DeskLaneId): string[] {
   const available = columns
     .map((name) => String(name || ''))
-    .filter((name) => name && !name.startsWith('__') && !name.startsWith('to_'));
+    .filter(
+      (name) =>
+        name &&
+        !name.startsWith('__') &&
+        !name.startsWith('to_') &&
+        !name.toLowerCase().endsWith('supports'),
+    );
   if (!available.length) return [];
   const lower = new Map(available.map((name) => [name.toLowerCase(), name]));
   const picked: string[] = [];
@@ -112,11 +118,12 @@ export function laneFromPreview(
   detail = '',
 ): DeskLane {
   const message = (preview?.detail || detail || '').trim();
-  if (!preview || preview.ok === false) {
+  const gatewayRow = (preview?.columns || []).includes('status') && (preview.rows?.[0]?.[0] === '403');
+  if (!preview || preview.ok === false || gatewayRow) {
     return {
       id,
       serverId,
-      status: id === 'gr' || /403|limited|refused/i.test(message) ? 'caution' : 'down',
+      status: id === 'gr' || gatewayRow || /403|limited|refused/i.test(message) ? 'caution' : 'down',
       tool: preview?.tool || '',
       columns: [],
       rows: [],
