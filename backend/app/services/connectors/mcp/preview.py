@@ -28,6 +28,26 @@ _PREFERRED_ENTITIES = (
     "materialdocument",
     "taskcollection",
 )
+_PREFERRED_COLUMNS = (
+    "PurchaseRequisition",
+    "PurchaseRequisitionType",
+    "PurReqnDescription",
+    "CreationDate",
+    "TaskTitle",
+    "TaskDefinitionName",
+    "Status",
+    "Priority",
+    "InstanceID",
+    "PurchaseOrder",
+    "PurchaseOrderType",
+    "Supplier",
+    "PurchaseOrderDate",
+    "PurchasingOrganization",
+    "MaterialDocument",
+    "MaterialDocumentYear",
+    "GoodsMovementCode",
+    "PostingDate",
+)
 
 
 def classify_kind(name: str) -> str:
@@ -209,20 +229,35 @@ def gateway_refusal(payload: Any) -> str | None:
     return text or f"SAP refused the read ({status})"
 
 
-def flatten_preview(payload: Any) -> dict[str, Any]:
-    records = extract_records(payload)
-    columns: list[str] = []
+def _visible_columns(records: list[dict[str, Any]]) -> list[str]:
+    seen: list[str] = []
+    lower: dict[str, str] = {}
     for row in records:
         for key in row:
             name = str(key)
             if name.startswith("__") or name.startswith("to_") or name in {"__metadata", "metadata"}:
                 continue
-            if name not in columns:
-                columns.append(name)
-            if len(columns) >= PREVIEW_COL_CAP:
-                break
-        if len(columns) >= PREVIEW_COL_CAP:
+            if name not in lower:
+                lower[name.lower()] = name
+                seen.append(name)
+    preferred: list[str] = []
+    for wanted in _PREFERRED_COLUMNS:
+        hit = lower.get(wanted.lower())
+        if hit and hit not in preferred:
+            preferred.append(hit)
+        if len(preferred) >= PREVIEW_COL_CAP:
+            return preferred
+    for name in seen:
+        if name not in preferred:
+            preferred.append(name)
+        if len(preferred) >= PREVIEW_COL_CAP:
             break
+    return preferred
+
+
+def flatten_preview(payload: Any) -> dict[str, Any]:
+    records = extract_records(payload)
+    columns = _visible_columns(records)
     rows = [[_cell(row.get(col)) for col in columns] for row in records[:PREVIEW_ROW_CAP]]
     return {
         "columns": columns,

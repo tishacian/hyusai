@@ -101,6 +101,29 @@ test('a dark terrain asks for a retry, not a write', () => {
   assert.equal(briefing.stations.find((station) => station.id === 'connect')?.status, 'blocked');
 });
 
+test('the compiled dossier keeps the described PR, not the first empty header', () => {
+  const pr = laneFromPreview('pr', 'sap', {
+    ok: true,
+    tool: 'get_A_PurchaseRequisitionHeader',
+    columns: ['PurchaseRequisition', 'PurReqnDescription'],
+    rows: [
+      ['1000000000', ''],
+      ['1000000033', 'Ahmed - Approved By site Petty Cash'],
+    ],
+    row_count: 2,
+  });
+  const po = laneFromPreview('po', 'hikma', {
+    ok: true,
+    tool: 'get_A_PurchaseOrder',
+    columns: ['PurchaseOrder', 'Supplier'],
+    rows: [['4200000000', '100012']],
+    row_count: 1,
+  });
+  const briefing = composeDesk([pr, po], 0);
+  assert.equal(briefing.headlineParams['pr'], 'Ahmed - Approved By site Petty Cash');
+  assert.equal(briefing.facts.find((fact) => fact.id === 'pr')?.value, 'Ahmed - Approved By site Petty Cash');
+});
+
 test('the factory compiles a dossier from live SAP columns and keeps the write sealed', () => {
   const pr = laneFromPreview('pr', 'sap', {
     ok: true,

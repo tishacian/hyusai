@@ -258,6 +258,25 @@ function firstLiveTool(...lanes: Array<DeskLane | undefined>): string {
   return '';
 }
 
+function focusFromLane(
+  lane: DeskLane | undefined,
+  idNames: readonly string[],
+  labelNames: readonly string[],
+): { id: string; label: string } {
+  if (!lane?.columns.length || !lane.rows.length) return { id: '', label: '' };
+  const index = new Map(lane.columns.map((name, at) => [name.toLowerCase(), at]));
+  const idAt = idNames.map((name) => index.get(name.toLowerCase())).find((at) => at != null);
+  const labelAt = labelNames.map((name) => index.get(name.toLowerCase())).find((at) => at != null);
+  let fallbackId = '';
+  for (const row of lane.rows) {
+    const id = idAt != null ? String(row[idAt] ?? '').trim() : '';
+    const label = labelAt != null ? String(row[labelAt] ?? '').trim() : '';
+    if (!fallbackId && id) fallbackId = id;
+    if (label) return { id: id || fallbackId, label };
+  }
+  return { id: fallbackId, label: fallbackId };
+}
+
 export function composeDesk(
   lanes: readonly DeskLane[],
   hitlCount = 0,
@@ -277,8 +296,9 @@ export function composeDesk(
   ];
   if (hana) kpis.push({ id: 'hana', value: hana.rowCount || 0, tone: kpiTone(hana) });
 
-  const focusPr = firstCell(pr, ['PurchaseRequisition']);
-  const focusLabel = firstCell(pr, ['PurReqnDescription']) || focusPr;
+  const focus = focusFromLane(pr, ['PurchaseRequisition'], ['PurReqnDescription']);
+  const focusPr = focus.id;
+  const focusLabel = focus.label;
   const inboxTask = firstCell(inbox, ['TaskTitle']);
   const supplier = majorityCell(po, ['Supplier']);
   const poFormat = majorityCell(po, ['PurchaseOrderType']);
