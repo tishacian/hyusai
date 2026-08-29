@@ -25,12 +25,27 @@ export interface McpServerPublic {
   token_set?: boolean;
   enabled?: boolean;
   tool_aliases?: Record<string, string>;
+  auth_mode?: string;
+  oauth_token_url?: string;
+  oauth_client_id?: string;
+  oauth_scope?: string;
+  oauth_secret_set?: boolean;
   configured?: boolean;
+  credential_source?: string | null;
+}
+
+export interface McpSharedAuthPublic {
+  auth_mode?: string;
+  oauth_token_url?: string;
+  oauth_client_id?: string;
+  oauth_scope?: string;
+  secret_set?: boolean;
   credential_source?: string | null;
 }
 
 interface McpServersResponse {
   servers?: McpServerPublic[];
+  shared_auth?: McpSharedAuthPublic;
 }
 
 interface McpContractGap {
@@ -71,6 +86,21 @@ interface ServerDraft {
   tokenSet: boolean;
   credentialSource: string;
   configured: boolean;
+  transport: string;
+  authMode: string;
+  oauthTokenUrl: string;
+  oauthClientId: string;
+  oauthClientSecret: string;
+  oauthScope: string;
+  oauthSecretSet: boolean;
+}
+
+interface SharedAuthDraft {
+  oauthTokenUrl: string;
+  oauthClientId: string;
+  oauthClientSecret: string;
+  oauthScope: string;
+  secretSet: boolean;
 }
 
 @Component({
@@ -114,6 +144,66 @@ interface ServerDraft {
       </div>
     }
 
+    <section class="mb-4 ck-surface t-elevated rounded-md p-5">
+      <h2 class="text-base font-semibold text-white">{{ i18n.t('connectors.mcp.shared_oauth') }}</h2>
+      <p class="mt-1 mb-4 text-sm text-gray-400">{{ i18n.t('connectors.mcp.shared_oauth_help') }}</p>
+      <div class="grid gap-3 md:grid-cols-2">
+        <label class="block">
+          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {{ i18n.t('connectors.mcp.oauth_token_url') }}
+          </span>
+          <input
+            [(ngModel)]="sharedAuth.oauthTokenUrl"
+            [ngModelOptions]="{ standalone: true }"
+            [disabled]="!featureEnabled() || saving()"
+            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+          />
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {{ i18n.t('connectors.mcp.oauth_client_id') }}
+          </span>
+          <input
+            [(ngModel)]="sharedAuth.oauthClientId"
+            [ngModelOptions]="{ standalone: true }"
+            [disabled]="!featureEnabled() || saving()"
+            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+          />
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {{ i18n.t('connectors.mcp.oauth_client_secret') }}
+          </span>
+          <input
+            type="password"
+            [(ngModel)]="sharedAuth.oauthClientSecret"
+            [ngModelOptions]="{ standalone: true }"
+            [disabled]="!featureEnabled() || saving()"
+            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+            [placeholder]="i18n.t('connectors.mcp.oauth_secret_keep')"
+            autocomplete="off"
+          />
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {{ i18n.t('connectors.mcp.oauth_scope') }}
+          </span>
+          <input
+            [(ngModel)]="sharedAuth.oauthScope"
+            [ngModelOptions]="{ standalone: true }"
+            [disabled]="!featureEnabled() || saving()"
+            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+          />
+        </label>
+      </div>
+      @if (sharedAuth.secretSet) {
+        <p class="mt-3 inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+          <app-icon name="check-circle-2" [size]="10" />
+          {{ i18n.t('connectors.mcp.oauth_secret_set') }}
+        </p>
+      }
+    </section>
+
     <section class="mb-4 flex items-center justify-between">
       <h2 class="text-base font-semibold text-white">{{ i18n.t('connectors.mcp.servers') }}</h2>
       <button
@@ -152,6 +242,14 @@ interface ServerDraft {
                 >
                   <app-icon name="check-circle-2" [size]="10" />
                   {{ i18n.t('connectors.mcp.token_set') }}
+                </span>
+              }
+              @if (row.oauthSecretSet) {
+                <span
+                  class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20"
+                >
+                  <app-icon name="check-circle-2" [size]="10" />
+                  {{ i18n.t('connectors.mcp.oauth_secret_set') }}
                 </span>
               }
               <button
@@ -204,18 +302,98 @@ interface ServerDraft {
             </label>
             <label class="block">
               <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                {{ i18n.t('connectors.mcp.token') }}
+                {{ i18n.t('connectors.mcp.transport') }}
               </span>
-              <input
-                type="password"
-                [(ngModel)]="row.token"
+              <select
+                [(ngModel)]="row.transport"
                 [ngModelOptions]="{ standalone: true }"
                 [disabled]="!featureEnabled() || saving()"
-                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                [placeholder]="i18n.t('connectors.mcp.token_keep')"
-                autocomplete="off"
-              />
+                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+              >
+                <option value="http_sse">{{ i18n.t('connectors.mcp.transport.http_sse') }}</option>
+                <option value="streamable_http">{{ i18n.t('connectors.mcp.transport.streamable_http') }}</option>
+              </select>
             </label>
+            <label class="block">
+              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                {{ i18n.t('connectors.mcp.auth_mode') }}
+              </span>
+              <select
+                [(ngModel)]="row.authMode"
+                [ngModelOptions]="{ standalone: true }"
+                [disabled]="!featureEnabled() || saving()"
+                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+              >
+                <option value="bearer">{{ i18n.t('connectors.mcp.auth.bearer') }}</option>
+                <option value="oauth_client_credentials">{{ i18n.t('connectors.mcp.auth.oauth') }}</option>
+                <option value="inherit">{{ i18n.t('connectors.mcp.auth.inherit') }}</option>
+              </select>
+            </label>
+            @if (row.authMode === 'bearer') {
+              <label class="block">
+                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  {{ i18n.t('connectors.mcp.token') }}
+                </span>
+                <input
+                  type="password"
+                  [(ngModel)]="row.token"
+                  [ngModelOptions]="{ standalone: true }"
+                  [disabled]="!featureEnabled() || saving()"
+                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                  [placeholder]="i18n.t('connectors.mcp.token_keep')"
+                  autocomplete="off"
+                />
+              </label>
+            }
+            @if (row.authMode === 'oauth_client_credentials') {
+              <label class="block">
+                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  {{ i18n.t('connectors.mcp.oauth_token_url') }}
+                </span>
+                <input
+                  [(ngModel)]="row.oauthTokenUrl"
+                  [ngModelOptions]="{ standalone: true }"
+                  [disabled]="!featureEnabled() || saving()"
+                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                />
+              </label>
+              <label class="block">
+                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  {{ i18n.t('connectors.mcp.oauth_client_id') }}
+                </span>
+                <input
+                  [(ngModel)]="row.oauthClientId"
+                  [ngModelOptions]="{ standalone: true }"
+                  [disabled]="!featureEnabled() || saving()"
+                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                />
+              </label>
+              <label class="block">
+                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  {{ i18n.t('connectors.mcp.oauth_client_secret') }}
+                </span>
+                <input
+                  type="password"
+                  [(ngModel)]="row.oauthClientSecret"
+                  [ngModelOptions]="{ standalone: true }"
+                  [disabled]="!featureEnabled() || saving()"
+                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                  [placeholder]="i18n.t('connectors.mcp.oauth_secret_keep')"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="block">
+                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  {{ i18n.t('connectors.mcp.oauth_scope') }}
+                </span>
+                <input
+                  [(ngModel)]="row.oauthScope"
+                  [ngModelOptions]="{ standalone: true }"
+                  [disabled]="!featureEnabled() || saving()"
+                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                />
+              </label>
+            }
             <label class="inline-flex items-center gap-2 text-sm text-gray-300">
               <input
                 type="checkbox"
@@ -331,6 +509,7 @@ export class McpConnectorComponent implements OnInit {
   readonly drafts = signal<ServerDraft[]>([]);
   readonly testById = signal<Record<string, McpTestResult>>({});
   readonly toolsById = signal<Record<string, McpToolsResponse>>({});
+  sharedAuth: SharedAuthDraft = this.emptySharedAuth();
 
   ngOnInit(): void {
     this.loadServers();
@@ -346,6 +525,7 @@ export class McpConnectorComponent implements OnInit {
     this.api.get<McpServersResponse>('/mcp/servers').subscribe({
       next: (body) => {
         this.drafts.set((body.servers || []).map((row) => this.toDraft(row)));
+        this.sharedAuth = this.toSharedDraft(body.shared_auth);
         this.loading.set(false);
       },
       error: (err) => {
@@ -360,20 +540,7 @@ export class McpConnectorComponent implements OnInit {
   }
 
   addServer(): void {
-    this.drafts.update((rows) => [
-      ...rows,
-      {
-        id: '',
-        label: '',
-        url: '',
-        token: '',
-        enabled: true,
-        aliasesJson: '{}',
-        tokenSet: false,
-        credentialSource: '',
-        configured: false,
-      },
-    ]);
+    this.drafts.update((rows) => [...rows, this.emptyDraft()]);
   }
 
   removeServer(index: number): void {
@@ -400,19 +567,33 @@ export class McpConnectorComponent implements OnInit {
       const payload: Record<string, unknown> = {
         id: row.id.trim(),
         label: row.label.trim() || row.id.trim(),
-        transport: 'http_sse',
+        transport: row.transport || 'http_sse',
         url: row.url.trim(),
         enabled: row.enabled,
         tool_aliases: aliases,
+        auth_mode: row.authMode || 'bearer',
+        oauth_token_url: row.oauthTokenUrl.trim(),
+        oauth_client_id: row.oauthClientId.trim(),
+        oauth_scope: row.oauthScope.trim(),
       };
       if (row.token.trim()) payload['token'] = row.token.trim();
+      if (row.oauthClientSecret.trim()) payload['oauth_client_secret'] = row.oauthClientSecret.trim();
       servers.push(payload);
+    }
+    const sharedAuth: Record<string, unknown> = {
+      oauth_token_url: this.sharedAuth.oauthTokenUrl.trim(),
+      oauth_client_id: this.sharedAuth.oauthClientId.trim(),
+      oauth_scope: this.sharedAuth.oauthScope.trim(),
+    };
+    if (this.sharedAuth.oauthClientSecret.trim()) {
+      sharedAuth['oauth_client_secret'] = this.sharedAuth.oauthClientSecret.trim();
     }
     this.saving.set(true);
     this.error.set(null);
-    this.api.put<McpServersResponse>('/mcp/servers', { servers }).subscribe({
+    this.api.put<McpServersResponse>('/mcp/servers', { servers, shared_auth: sharedAuth }).subscribe({
       next: (body) => {
         this.drafts.set((body.servers || []).map((row) => this.toDraft(row)));
+        this.sharedAuth = this.toSharedDraft(body.shared_auth);
         this.saving.set(false);
         this.toast.success(this.i18n.t('connectors.mcp.saved'), this.i18n.t('connectors.mcp.title'));
       },
@@ -465,6 +646,47 @@ export class McpConnectorComponent implements OnInit {
     return names.join(', ') || '—';
   }
 
+  private emptyDraft(): ServerDraft {
+    return {
+      id: '',
+      label: '',
+      url: '',
+      token: '',
+      enabled: true,
+      aliasesJson: '{}',
+      tokenSet: false,
+      credentialSource: '',
+      configured: false,
+      transport: 'streamable_http',
+      authMode: 'inherit',
+      oauthTokenUrl: '',
+      oauthClientId: '',
+      oauthClientSecret: '',
+      oauthScope: '',
+      oauthSecretSet: false,
+    };
+  }
+
+  private emptySharedAuth(): SharedAuthDraft {
+    return {
+      oauthTokenUrl: '',
+      oauthClientId: '',
+      oauthClientSecret: '',
+      oauthScope: '',
+      secretSet: false,
+    };
+  }
+
+  private toSharedDraft(row?: McpSharedAuthPublic | null): SharedAuthDraft {
+    return {
+      oauthTokenUrl: row?.oauth_token_url || '',
+      oauthClientId: row?.oauth_client_id || '',
+      oauthClientSecret: '',
+      oauthScope: row?.oauth_scope || '',
+      secretSet: row?.secret_set === true,
+    };
+  }
+
   private toDraft(row: McpServerPublic): ServerDraft {
     return {
       id: row.id || '',
@@ -476,6 +698,13 @@ export class McpConnectorComponent implements OnInit {
       tokenSet: row.token_set === true,
       credentialSource: row.credential_source || '',
       configured: row.configured === true,
+      transport: row.transport || 'http_sse',
+      authMode: row.auth_mode || 'bearer',
+      oauthTokenUrl: row.oauth_token_url || '',
+      oauthClientId: row.oauth_client_id || '',
+      oauthClientSecret: '',
+      oauthScope: row.oauth_scope || '',
+      oauthSecretSet: row.oauth_secret_set === true,
     };
   }
 }

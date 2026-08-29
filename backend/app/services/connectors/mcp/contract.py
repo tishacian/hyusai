@@ -50,8 +50,49 @@ WRITE_SKILL_SLUGS: frozenset[str] = frozenset(
 )
 
 TOOLS_LIST_CAP = 80
-DEFAULT_TRANSPORT = "http_sse"
-ALLOWED_TRANSPORTS: frozenset[str] = frozenset({DEFAULT_TRANSPORT})
+TRANSPORT_HTTP_SSE = "http_sse"
+TRANSPORT_STREAMABLE_HTTP = "streamable_http"
+DEFAULT_TRANSPORT = TRANSPORT_HTTP_SSE
+ALLOWED_TRANSPORTS: frozenset[str] = frozenset(
+    {TRANSPORT_HTTP_SSE, TRANSPORT_STREAMABLE_HTTP}
+)
+
+AUTH_NONE = "none"
+AUTH_BEARER = "bearer"
+AUTH_OAUTH = "oauth_client_credentials"
+AUTH_INHERIT = "inherit"
+DEFAULT_AUTH_MODE = AUTH_BEARER
+ALLOWED_AUTH_MODES: frozenset[str] = frozenset(
+    {AUTH_NONE, AUTH_BEARER, AUTH_OAUTH, AUTH_INHERIT}
+)
+
+_TRANSPORT_ALIASES = {
+    "http_sse": TRANSPORT_HTTP_SSE,
+    "httpsse": TRANSPORT_HTTP_SSE,
+    "streamable_http": TRANSPORT_STREAMABLE_HTTP,
+    "streamablehttp": TRANSPORT_STREAMABLE_HTTP,
+}
+_AUTH_ALIASES = {
+    "": DEFAULT_AUTH_MODE,
+    "none": AUTH_NONE,
+    "bearer": AUTH_BEARER,
+    "token": AUTH_BEARER,
+    "oauth": AUTH_OAUTH,
+    "oauth_client_credentials": AUTH_OAUTH,
+    "client_credentials": AUTH_OAUTH,
+    "inherit": AUTH_INHERIT,
+    "shared": AUTH_INHERIT,
+}
+
+
+def normalize_transport(raw: Any) -> str:
+    folded = str(raw or DEFAULT_TRANSPORT).strip().replace("-", "_").lower()
+    return _TRANSPORT_ALIASES.get(folded.replace("_", ""), _TRANSPORT_ALIASES.get(folded, folded))
+
+
+def normalize_auth_mode(raw: Any) -> str:
+    folded = str(raw or DEFAULT_AUTH_MODE).strip().replace("-", "_").lower()
+    return _AUTH_ALIASES.get(folded, folded)
 
 
 def expected_tools(server_id: str) -> tuple[str, ...]:
