@@ -272,7 +272,12 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
             </div>
           </div>
 
-          <div class="space-y-3">
+            <div class="space-y-3">
+            <details class="rounded-md bg-black/20 ring-1 ring-white/10" [attr.open]="row.configured ? null : ''">
+              <summary class="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                {{ i18n.t('connectors.mcp.configuration') }}
+              </summary>
+              <div class="space-y-3 px-3 pb-3">
             <div class="grid gap-3 sm:grid-cols-2">
             <label class="block">
               <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
@@ -433,6 +438,8 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                 ></textarea>
               </label>
             </details>
+              </div>
+            </details>
             <div class="flex flex-wrap gap-2 pt-1">
               <button
                 type="button"
@@ -485,7 +492,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                     <span class="text-[10px] text-gray-500">{{ i18n.t('connectors.mcp.tools_more', { count: hiddenToolCount(tools) }) }}</span>
                   }
                 </div>
-                @if ((tools.contract?.expected || []).length) {
+                @if ((tools.contract?.expected || []).length && !toolNames(tools).length) {
                   <p class="mt-3 font-semibold text-gray-200">{{ i18n.t('connectors.mcp.contract') }}</p>
                   <p class="mt-1 text-gray-400">{{ (tools.contract?.expected || []).join(', ') }}</p>
                   @if ((tools.contract?.missing || []).length) {
