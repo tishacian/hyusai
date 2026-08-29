@@ -22,6 +22,7 @@ __all__ = [
     "sharepoint",
     "hana",
     "rpa",
+    "mcp",
     "apps",
     "systems",
     "capabilities",

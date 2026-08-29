@@ -7,6 +7,11 @@ export const workRoutes: Routes = [
       import('./work-launcher.component').then((m) => m.WorkLauncherComponent),
   },
   {
+    path: 'pr-to-po',
+    loadComponent: () =>
+      import('./pr-to-po-board.component').then((m) => m.PrToPoBoardComponent),
+  },
+  {
     path: ':slug/:pageId',
     loadComponent: () =>
       import('./work-shell.component').then((m) => m.WorkShellComponent),

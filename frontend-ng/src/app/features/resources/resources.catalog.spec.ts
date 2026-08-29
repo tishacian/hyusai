@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  CONNECTORS,
   readAppToggles,
   readConnectorConfig,
   writeAppToggle,
@@ -79,4 +80,15 @@ test('connector configs and app toggles are isolated by active workspace', () =>
       Reflect.deleteProperty(globalThis, 'localStorage');
     }
   }
+});
+
+test('CONNECTORS has one generic MCP card, not SAP posting or HIKMA', () => {
+  const ids = CONNECTORS.map((row) => row.id);
+  assert.ok(ids.includes('mcp'));
+  assert.ok(ids.includes('sap_hana'));
+  assert.equal(ids.includes('sap'), false);
+  assert.equal(ids.includes('hikma'), false);
+  const mcp = CONNECTORS.find((row) => row.id === 'mcp');
+  assert.equal(mcp?.backendPrefix, 'mcp');
+  assert.equal(mcp?.category, 'data-storage');
 });

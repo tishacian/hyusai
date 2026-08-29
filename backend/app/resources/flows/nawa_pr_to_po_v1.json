@@ -1,0 +1,12 @@
+{
+  "artifact": "nawa_pr_to_po_v1",
+  "description": "NAWA PR to PO witness. Execution is Skills on the generic MCP connector (sap + hikma). One approved PR per scheduled tick — the walker loop kind cannot nest budget/HITL. Budget reject writes without HITL; create_po and handle_rejection wait for the NAWA gate.",
+  "system": {
+    "name": "PR to PO",
+    "objective": "List approved purchase requisitions, reject those over budget without a human, and package an in-budget PR for NAWA approval before posting a PO via SAP MCP.",
+    "capability_slug": "nawa_pr_to_po",
+    "execution_mode": "human_augmented",
+    "coordination_pattern": "graph"
+  },
+  "note": "Flow body is built by app.services.connectors.mcp.flow.pr_to_po_flow so seed and tests share one graph."
+}
