@@ -19,6 +19,13 @@ from app.services.connectors.mcp.errors import McpError
 router = APIRouter()
 
 
+class McpSharedAuthUpsert(BaseModel):
+    oauth_token_url: Optional[str] = Field(default="", max_length=1024)
+    oauth_client_id: Optional[str] = Field(default="", max_length=512)
+    oauth_client_secret: Optional[str] = Field(default=None, max_length=4096)
+    oauth_scope: Optional[str] = Field(default="", max_length=1024)
+
+
 class McpServerUpsert(BaseModel):
     id: str = Field(..., min_length=1, max_length=64)
     label: Optional[str] = Field(default=None, max_length=256)
@@ -27,10 +34,16 @@ class McpServerUpsert(BaseModel):
     token: Optional[str] = Field(default=None, max_length=4096)
     enabled: bool = True
     tool_aliases: Optional[dict[str, str]] = None
+    auth_mode: Optional[str] = Field(default="bearer", max_length=64)
+    oauth_token_url: Optional[str] = Field(default="", max_length=1024)
+    oauth_client_id: Optional[str] = Field(default="", max_length=512)
+    oauth_client_secret: Optional[str] = Field(default=None, max_length=4096)
+    oauth_scope: Optional[str] = Field(default="", max_length=1024)
 
 
 class McpServersReplace(BaseModel):
     servers: list[McpServerUpsert]
+    shared_auth: Optional[McpSharedAuthUpsert] = None
 
 
 def _require_enabled(workspace: Workspace) -> None:
@@ -72,11 +85,12 @@ async def put_mcp_servers(
 ):
     _require_enabled(workspace)
     try:
-        return mcp_service.replace_servers(
-            db,
-            workspace,
-            {"servers": [item.model_dump(exclude_unset=True) for item in body.servers]},
-        )
+        payload: dict = {
+            "servers": [item.model_dump(exclude_unset=True) for item in body.servers],
+        }
+        if body.shared_auth is not None:
+            payload["shared_auth"] = body.shared_auth.model_dump(exclude_unset=True)
+        return mcp_service.replace_servers(db, workspace, payload)
     except Exception as exc:  # noqa: BLE001
         _raise_mcp(exc)
         raise  # pragma: no cover

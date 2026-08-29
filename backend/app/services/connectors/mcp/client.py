@@ -19,6 +19,7 @@ from app.services.connectors.mcp.errors import (
     McpToolUnknown,
     McpUnreachable,
 )
+from app.services.connectors.mcp.oauth import access_token_for_server
 
 DEFAULT_TIMEOUT_S = 20.0
 PROTOCOL_VERSION = "2024-11-05"
@@ -93,7 +94,7 @@ def jsonrpc(
     url = str(server.get("url") or "").strip()
     if not url:
         raise McpUnreachable("MCP server url is empty")
-    token = str(server.get("token") or "")
+    token = access_token_for_server(server)
     payload = {
         "jsonrpc": "2.0",
         "id": request_id or str(uuid4()),
@@ -101,7 +102,7 @@ def jsonrpc(
         "params": dict(params) if isinstance(params, Mapping) else {},
     }
     try:
-        with httpx.Client(timeout=timeout_s) as client:
+        with httpx.Client(timeout=timeout_s, follow_redirects=True) as client:
             response = client.post(url, headers=_headers(token, session_id), json=payload)
     except httpx.TimeoutException as exc:
         raise McpUnreachable(f"MCP server timed out calling {method}") from exc
