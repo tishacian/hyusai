@@ -752,11 +752,12 @@ export const EXPERIENCE_FR = {
   'experience.publish.error': 'La publication n’a pas abouti.',
   'experience.pr_to_po.title': 'PR vers PO',
   'experience.pr_to_po.subtitle':
-    'Le terrain SAP et HANA, lus à l’instant. Rien n’est écrit dans SAP avant votre avis.',
+    'System → Flow → Run → Décision. L’usine lit Hikma, compile un dossier, et n’écrit rien dans SAP avant vous.',
   'experience.pr_to_po.empty': 'Aucune demande d’approbation en attente.',
-  'experience.pr_to_po.desk.eyebrow': 'Terrain d’achat',
-  'experience.pr_to_po.desk.read': 'Lire le terrain',
-  'experience.pr_to_po.desk.reading': 'Lecture SAP…',
+  'experience.pr_to_po.desk.eyebrow': 'Usine IA',
+  'experience.pr_to_po.desk.chain': 'Connecteurs → Skills → Compilation → Décision → Écriture',
+  'experience.pr_to_po.desk.read': 'Lancer l’usine',
+  'experience.pr_to_po.desk.reading': 'L’usine lit SAP…',
   'experience.pr_to_po.desk.as_of': 'Lu à {time}',
   'experience.pr_to_po.desk.sources': 'Connexions',
   'experience.pr_to_po.desk.rows': '{count} lignes',
@@ -781,14 +782,33 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.headline.none': 'Le terrain SAP n’a pas encore répondu.',
   'experience.pr_to_po.desk.headline.live':
     '{prs} demandes, {tasks} approbations, {pos} commandes lues à l’instant.',
+  'experience.pr_to_po.desk.headline.compiled':
+    'Dossier compilé sur {pr} — fournisseur majoritaire {supplier}.',
   'experience.pr_to_po.desk.next.decide':
     'Un dossier attend votre avis. Rien n’est écrit dans SAP avant.',
   'experience.pr_to_po.desk.next.review':
-    'Relisez les demandes. Lancez un cycle seulement si un dossier est prêt.',
+    'Relisez le dossier compilé. L’écriture SAP reste scellée.',
   'experience.pr_to_po.desk.next.receive':
     'Les réceptions sont limitées côté SAP. Le reste du terrain est lisible.',
   'experience.pr_to_po.desk.next.retry':
     'Réessayez la lecture. Un refus 407 demande un redémarrage de l’application SAP, pas un nouvel identifiant.',
+  'experience.pr_to_po.desk.station.connect': 'Connecter',
+  'experience.pr_to_po.desk.station.sense': 'Lire',
+  'experience.pr_to_po.desk.station.compile': 'Compiler',
+  'experience.pr_to_po.desk.station.decide': 'Décider',
+  'experience.pr_to_po.desk.station.write': 'Écrire',
+  'experience.pr_to_po.desk.station_status.done': 'Fait',
+  'experience.pr_to_po.desk.station_status.ready': 'Prêt',
+  'experience.pr_to_po.desk.station_status.blocked': 'Bloqué',
+  'experience.pr_to_po.desk.station_status.sealed': 'Scellé',
+  'experience.pr_to_po.desk.dossier': 'Dossier compilé',
+  'experience.pr_to_po.desk.factory_note':
+    'Compilation déterministe sur les lectures live. Aucun alias inventé. Aucune écriture SAP.',
+  'experience.pr_to_po.desk.raw': 'Matière première',
+  'experience.pr_to_po.desk.fact.pr': 'Demande retenue',
+  'experience.pr_to_po.desk.fact.inbox': 'Tâche d’approbation',
+  'experience.pr_to_po.desk.fact.supplier': 'Fournisseur majoritaire',
+  'experience.pr_to_po.desk.fact.format': 'Type de commande',
   'experience.pr_to_po.refresh': 'Actualiser',
   'experience.pr_to_po.approve': 'Approuver et créer le PO',
   'experience.pr_to_po.reject': 'Refuser',
@@ -1541,11 +1561,12 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.publish.error': 'Publication did not complete.',
   'experience.pr_to_po.title': 'PR to PO',
   'experience.pr_to_po.subtitle':
-    'The SAP and HANA terrain, read just now. Nothing is written in SAP until you decide.',
+    'System → Flow → Run → Decision. The factory reads Hikma, compiles a dossier, and writes nothing to SAP until you decide.',
   'experience.pr_to_po.empty': 'No purchase-order approvals waiting.',
-  'experience.pr_to_po.desk.eyebrow': 'Purchasing floor',
-  'experience.pr_to_po.desk.read': 'Read the terrain',
-  'experience.pr_to_po.desk.reading': 'Reading SAP…',
+  'experience.pr_to_po.desk.eyebrow': 'AI factory',
+  'experience.pr_to_po.desk.chain': 'Connectors → Skills → Compile → Decision → Write',
+  'experience.pr_to_po.desk.read': 'Run the factory',
+  'experience.pr_to_po.desk.reading': 'The factory is reading SAP…',
   'experience.pr_to_po.desk.as_of': 'Read at {time}',
   'experience.pr_to_po.desk.sources': 'Connections',
   'experience.pr_to_po.desk.rows': '{count} rows',
@@ -1570,14 +1591,33 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.headline.none': 'The SAP terrain has not answered yet.',
   'experience.pr_to_po.desk.headline.live':
     '{prs} requisitions, {tasks} approvals, {pos} orders read just now.',
+  'experience.pr_to_po.desk.headline.compiled':
+    'Dossier compiled on {pr} — majority supplier {supplier}.',
   'experience.pr_to_po.desk.next.decide':
     'A dossier is waiting for you. Nothing is written in SAP until you decide.',
   'experience.pr_to_po.desk.next.review':
-    'Review the requisitions. Start a cycle only when a dossier is ready.',
+    'Review the compiled dossier. The SAP write stays sealed.',
   'experience.pr_to_po.desk.next.receive':
     'Goods receipts are limited on the SAP side. The rest of the terrain is readable.',
   'experience.pr_to_po.desk.next.retry':
     'Try the read again. A 407 refusal needs the SAP application restarted, not a new credential.',
+  'experience.pr_to_po.desk.station.connect': 'Connect',
+  'experience.pr_to_po.desk.station.sense': 'Read',
+  'experience.pr_to_po.desk.station.compile': 'Compile',
+  'experience.pr_to_po.desk.station.decide': 'Decide',
+  'experience.pr_to_po.desk.station.write': 'Write',
+  'experience.pr_to_po.desk.station_status.done': 'Done',
+  'experience.pr_to_po.desk.station_status.ready': 'Ready',
+  'experience.pr_to_po.desk.station_status.blocked': 'Blocked',
+  'experience.pr_to_po.desk.station_status.sealed': 'Sealed',
+  'experience.pr_to_po.desk.dossier': 'Compiled dossier',
+  'experience.pr_to_po.desk.factory_note':
+    'Deterministic compile on the live reads. No invented aliases. No SAP write.',
+  'experience.pr_to_po.desk.raw': 'Raw material',
+  'experience.pr_to_po.desk.fact.pr': 'Selected requisition',
+  'experience.pr_to_po.desk.fact.inbox': 'Approval task',
+  'experience.pr_to_po.desk.fact.supplier': 'Majority supplier',
+  'experience.pr_to_po.desk.fact.format': 'Order type',
   'experience.pr_to_po.refresh': 'Refresh',
   'experience.pr_to_po.approve': 'Approve and create the PO',
   'experience.pr_to_po.reject': 'Reject',
