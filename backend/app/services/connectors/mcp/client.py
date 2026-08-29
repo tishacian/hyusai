@@ -228,9 +228,17 @@ def call_tool(
         session_id=listed.get("session_id"),
     )
     if result.get("isError"):
-        raise McpCallFailed(
-            str(result.get("error") or f"MCP tool {mcp_name} failed")
-        )
+        detail = result.get("error")
+        if not detail:
+            content = result.get("content")
+            if isinstance(content, list):
+                texts = [
+                    str(item.get("text") or "")
+                    for item in content
+                    if isinstance(item, Mapping)
+                ]
+                detail = " ".join(part for part in texts if part).strip()
+        raise McpCallFailed(str(detail or f"MCP tool {mcp_name} failed"))
     unwrapped = _unwrap_call_result(result)
     payload = unwrapped if isinstance(unwrapped, dict) else {"value": unwrapped}
     return {

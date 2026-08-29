@@ -72,6 +72,21 @@ def test_preview_safe_rejects_required_keys_and_writes():
     assert not mcp_preview.is_preview_safe(
         {"name": "post_A_PurchaseOrder", "input_schema": {}}
     )
+    assert not mcp_preview.is_preview_safe(
+        {
+            "name": "get_A_PurchaseRequisitionHeader_by_key",
+            "input_schema": {"type": "object", "properties": {"PurchaseRequisition": {}}},
+        }
+    )
+    assert mcp_preview.preview_arguments(
+        {
+            "name": "get_A_PurchaseRequisitionHeader",
+            "input_schema": {
+                "type": "object",
+                "properties": {"top": {"type": "string"}},
+            },
+        }
+    ) == {"top": "8"}
 
 
 def test_flatten_unwraps_fixture_and_odata_shapes():
@@ -80,6 +95,22 @@ def test_flatten_unwraps_fixture_and_odata_shapes():
     assert table["rows"][0] == ["PR-1", "Scanners"]
     odata = mcp_preview.flatten_preview({"value": [{"PurchaseRequisition": "1001"}]})
     assert odata["rows"][0][0] == "1001"
+    sap = mcp_preview.flatten_preview(
+        {
+            "status": 200,
+            "data": {
+                "results": [
+                    {
+                        "__metadata": {"type": "A_PurchaseRequisitionHeaderType"},
+                        "PurchaseRequisition": "1000000000",
+                        "PurReqnDescription": "Scanners",
+                    }
+                ]
+            },
+        }
+    )
+    assert sap["columns"] == ["PurchaseRequisition", "PurReqnDescription"]
+    assert sap["rows"][0] == ["1000000000", "Scanners"]
 
 
 def test_fixture_preview_lists_prs_and_never_calls_write():
@@ -116,3 +147,22 @@ def test_preview_refuses_write_even_if_requested():
         mcp_preview.pick_preview_tool(tools, requested="create_po")
     picked = mcp_preview.pick_preview_tool(tools)
     assert picked["name"] == "list_approved_prs"
+
+
+def test_pick_prefers_paged_purchase_header_over_item_text():
+    tools = [
+        {
+            "name": "get_A_PurchaseReqnItemText",
+            "input_schema": {"properties": {"top": {"type": "string"}}},
+        },
+        {
+            "name": "get_A_PurchaseRequisitionHeader",
+            "input_schema": {"properties": {"top": {"type": "string"}}},
+        },
+        {
+            "name": "get_A_PurchaseRequisitionHeader_by_key",
+            "input_schema": {"properties": {"PurchaseRequisition": {}}},
+        },
+    ]
+    picked = mcp_preview.pick_preview_tool(tools)
+    assert picked["name"] == "get_A_PurchaseRequisitionHeader"
