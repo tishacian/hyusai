@@ -643,6 +643,16 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         notes="RPA Bridge connector: generic REST orchestrator contract (jobs dispatch/status).",
     ),
     SurfaceMetadata(
+        "/api/v1/mcp",
+        "Governance",
+        "Connector",
+        "canonical",
+        "admin",
+        "Connectors",
+        ("/connectors/mcp", "/resources"),
+        notes="MCP connector: multi-server registry, tools/list (capped), tools/call via Skills.",
+    ),
+    SurfaceMetadata(
         "/api/v1/workspaces",
         "Governance",
         "Governance",

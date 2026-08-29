@@ -31,6 +31,11 @@ export const connectorsRoutes: Routes = [
       import('./rpa/rpa-connector.component').then((m) => m.RpaConnectorComponent),
   },
   {
+    path: 'mcp',
+    loadComponent: () =>
+      import('./mcp/mcp-connector.component').then((m) => m.McpConnectorComponent),
+  },
+  {
     path: 'models',
     pathMatch: 'full',
     // RedirectFunction must return string | UrlTree (not RedirectCommand).

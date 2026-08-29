@@ -34,6 +34,8 @@ import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
 import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { ApiService } from '@app/core/api.service';
 import type {
   CanonicalFlowNode,
   DecisionNodeConfig,
@@ -71,6 +73,7 @@ import {
   type PrivilegeTier,
   type PromptKind,
 } from './agent-loop-inspector.vm';
+import { isMcpSkillSlug, mcpServerIdForSlug } from './mcp-inspector';
 import { FlowRecipeService } from './flow-recipe.service';
 import {
   isPythonRecipeNode,
@@ -948,6 +951,26 @@ export function buildRetrievalDocumentOptions(
             </section>
           }
 
+          @if (mcpServerId(n); as mcpServer) {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">
+                {{ i18n.t('flow.inspector.section.mcp') }}
+              </span>
+              <p class="ck-flow-hint">{{ i18n.t('flow.inspector.mcp.server', { id: mcpServer }) }}</p>
+              @if (mcpCredentialSource(n); as source) {
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.mcp.credential', { source }) }}</p>
+              }
+              @if (mcpConnectorEnabled()) {
+                <a class="ck-flow-action" routerLink="/connectors/mcp">
+                  <ck-glyph name="orbit" [size]="12" color="currentColor" />
+                  {{ i18n.t('flow.inspector.mcp.open') }}
+                </a>
+              } @else {
+                <p class="ck-flow-hint">{{ i18n.t('flow.inspector.mcp.disabled') }}</p>
+              }
+            </section>
+          }
+
           <!-- P2: manifest-driven editable fields (write back to the exact
                runtime_read_path via the store's dotted-path writers). -->
           <app-manifest-fields />
@@ -1055,6 +1078,8 @@ export class FlowInspectorComponent {
   private readonly store = inject(FlowStore);
   private readonly collectionsSvc = inject(FlowCollectionsService);
   readonly i18n = inject(I18nService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly api = inject(ApiService);
   /** Optional: present whenever the inspector renders inside the builder shell. */
   private readonly persistence = inject(FlowPersistenceService, { optional: true });
   /** Optional: the builder provides it; the summary then shows the live env. */
@@ -1182,6 +1207,16 @@ export class FlowInspectorComponent {
       if (!n || !this.mlSvc || !servingDescriptor(n)) return;
       void this.mlSvc.ensureRegistry();
     });
+    effect(() => {
+      const n = this.node();
+      if (!n || !this.mcpConnectorEnabled() || !isMcpSkillSlug(this.skillSlug(n))) return;
+      if (this.mcpServersLoaded) return;
+      this.mcpServersLoaded = true;
+      this.api.get<{ servers?: Array<{ id?: string; credential_source?: string | null }> }>('/mcp/servers').subscribe({
+        next: (body) => this.mcpServers.set(body.servers || []),
+        error: () => this.mcpServers.set([]),
+      });
+    });
   }
 
   /** Retry the collections fetch after a load error (manual-entry fallback
@@ -1201,6 +1236,32 @@ export class FlowInspectorComponent {
   /** True for the SFTP arrival trigger specifically (offers the deposit link). */
   isSftpTrigger(n: CanonicalFlowNode): boolean {
     return (n.kind ?? 'task') === 'source' && String(n.type).startsWith('source.sftp');
+  }
+
+  readonly mcpConnectorEnabled = this.workspace.mcpConnectorEnabled;
+  private readonly mcpServers = signal<Array<{ id?: string; credential_source?: string | null }>>([]);
+  private mcpServersLoaded = false;
+
+  skillSlug(n: CanonicalFlowNode): string {
+    const slug = ((n.config ?? {}) as Record<string, unknown>)['skill_slug'];
+    return typeof slug === 'string' ? slug : '';
+  }
+
+  mcpServerId(n: CanonicalFlowNode): string {
+    const params = ((n.config ?? {}) as Record<string, unknown>)['params'];
+    return mcpServerIdForSlug(
+      this.skillSlug(n),
+      params && typeof params === 'object' && !Array.isArray(params)
+        ? (params as Record<string, unknown>)
+        : null,
+    );
+  }
+
+  mcpCredentialSource(n: CanonicalFlowNode): string {
+    const serverId = this.mcpServerId(n);
+    if (!serverId) return '';
+    const row = this.mcpServers().find((item) => item.id === serverId);
+    return typeof row?.credential_source === 'string' ? row.credential_source : '';
   }
 
   /** True for a task node bound to the Python recipe Skill. */

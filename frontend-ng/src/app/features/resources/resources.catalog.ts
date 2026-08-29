@@ -250,6 +250,21 @@ export const CONNECTORS: ConnectorDef[] = [
     ],
   },
   {
+    id: 'mcp',
+    category: 'data-storage',
+    icon: 'plug',
+    name: 'MCP',
+    description:
+      'Workspace MCP HTTP servers (application tools). Not HANA SQL, not a dedicated SAP posting card.',
+    version: 'HTTP/SSE v1',
+    status: 'beta',
+    backendPrefix: 'mcp',
+    fields: [
+      { key: 'url', label: 'Server URL', type: 'url', placeholder: 'http://127.0.0.1:8765/sap', required: true },
+      { key: 'token', label: 'Token', type: 'password' },
+    ],
+  },
+  {
     id: 'rpa_bridge',
     category: 'data-storage',
     icon: 'bot',

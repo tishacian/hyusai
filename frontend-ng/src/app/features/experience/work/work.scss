@@ -370,3 +370,31 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+
+.xp-work-error {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--ck-status-danger-fg, #b42318);
+}
+
+.xp-work-hitl dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.xp-work-hitl dt {
+  color: var(--ck-fg-3);
+}
+
+.xp-work-hitl dd {
+  margin: 0;
+}
+
+.xp-work-hitl pre {
+  margin: 0;
+  overflow: auto;
+  font-size: 11px;
+}

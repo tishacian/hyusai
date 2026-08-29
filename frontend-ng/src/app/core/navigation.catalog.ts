@@ -505,6 +505,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'SAP HANA Cloud connector configuration.',
   },
   {
+    id: 'mcp',
+    label: 'MCP',
+    route: '/connectors/mcp',
+    lens: 'govern',
+    object: 'Connector',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/mcp',
+    status: 'canonical',
+    audience: 'admin',
+    description: 'Workspace MCP server registry (URL, token, tools/list).',
+  },
+  {
     id: 'model-portal',
     label: 'Models & Providers',
     route: '/resources?tab=providers',
