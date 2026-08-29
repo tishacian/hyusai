@@ -118,7 +118,8 @@ export function laneFromPreview(
   detail = '',
 ): DeskLane {
   const message = (preview?.detail || detail || '').trim();
-  const gatewayRow = (preview?.columns || []).includes('status') && (preview.rows?.[0]?.[0] === '403');
+  const gatewayRow =
+    (preview?.columns || []).includes('status') && (preview?.rows?.[0]?.[0] === '403');
   if (!preview || preview.ok === false || gatewayRow) {
     return {
       id,
