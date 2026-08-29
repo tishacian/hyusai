@@ -220,6 +220,38 @@ export const RESOURCES_FR = {
   'connectors.mcp.configuration': 'Configuration',
   'connectors.mcp.use.how_named': 'Skills nommées du canvas',
   'connectors.mcp.use.how_generic': 'Skill d’appel MCP + cet identifiant',
+  'connectors.mcp.showcase.body':
+    'Quatre serveurs, un OAuth partagé. Ordre métier : demande d’achat, approbation, commande, réception. L’hôte indique le service SAP — un ancien fichier d’identifiants inversait les libellés.',
+  'connectors.mcp.showcase.step': 'Étape {step}',
+  'connectors.mcp.showcase.lane.pr': 'Demande d’achat',
+  'connectors.mcp.showcase.lane.inbox': 'Approbation',
+  'connectors.mcp.showcase.lane.po': 'Commande d’achat',
+  'connectors.mcp.showcase.lane.gr': 'Réception',
+  'connectors.mcp.showcase.role.pr':
+    'Lire et tenir les demandes d’achat, postes, textes et imputations.',
+  'connectors.mcp.showcase.role.inbox':
+    'Boîte des tâches d’approbation : lister, prendre, décider, transférer, commenter.',
+  'connectors.mcp.showcase.role.po':
+    'Lire et tenir les commandes, postes, échéances, imputations et prix.',
+  'connectors.mcp.showcase.role.gr':
+    'Documents matière : en-têtes, postes, entrée et annulation de mouvement.',
+  'connectors.mcp.showcase.service': 'Service SAP · {name}',
+  'connectors.mcp.showcase.read.ready': 'Lecture OK',
+  'connectors.mcp.showcase.read.partial': 'Lecture partielle',
+  'connectors.mcp.showcase.read.caution': 'Backend limité',
+  'connectors.mcp.showcase.read.unknown': 'Lecture à confirmer',
+  'connectors.mcp.showcase.note.host':
+    'L’hôte fait foi pour le service SAP, pas le libellé de la carte.',
+  'connectors.mcp.showcase.note.writes':
+    'Les outils d’écriture restent listés pour anticiper le System. Ils n’ont pas été exercés sur cet environnement.',
+  'connectors.mcp.showcase.note.by_key':
+    'Un outil qui se termine par _by_key exige la clé, même si le schéma la marque optionnelle.',
+  'connectors.mcp.showcase.note.slow':
+    'Certaines lectures dépassent 20 s. Prévoir un délai large.',
+  'connectors.mcp.showcase.note.gr':
+    'Le serveur MCP répond ; le service documents matière peut être refusé par SAP (403).',
+  'connectors.mcp.showcase.note.inbox':
+    'La liste des tâches passe. Commentaires, journaux et historique d’approbation peuvent manquer côté SAP.',
   'connectors.mcp.configured': 'prêt',
   'connectors.mcp.incomplete': 'incomplet',
   'connectors.mcp.disabled': 'désactivé',
@@ -604,6 +636,38 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'connectors.mcp.configuration': 'Configuration',
   'connectors.mcp.use.how_named': 'Named skills on the canvas',
   'connectors.mcp.use.how_generic': 'Generic MCP skill + this id',
+  'connectors.mcp.showcase.body':
+    'Four servers, one shared OAuth. Business order: purchase requisition, approval, purchase order, goods receipt. The host names the SAP service — an older credentials file swapped the labels.',
+  'connectors.mcp.showcase.step': 'Step {step}',
+  'connectors.mcp.showcase.lane.pr': 'Purchase requisition',
+  'connectors.mcp.showcase.lane.inbox': 'Approval',
+  'connectors.mcp.showcase.lane.po': 'Purchase order',
+  'connectors.mcp.showcase.lane.gr': 'Goods receipt',
+  'connectors.mcp.showcase.role.pr':
+    'Read and maintain purchase requisitions, items, item texts and account assignments.',
+  'connectors.mcp.showcase.role.inbox':
+    'Approval task inbox: list, claim, decide, forward and comment.',
+  'connectors.mcp.showcase.role.po':
+    'Read and maintain purchase orders, items, schedule lines, account assignments and pricing.',
+  'connectors.mcp.showcase.role.gr':
+    'Material documents: headers, items, post and cancel goods movements.',
+  'connectors.mcp.showcase.service': 'SAP service · {name}',
+  'connectors.mcp.showcase.read.ready': 'Read OK',
+  'connectors.mcp.showcase.read.partial': 'Partial read',
+  'connectors.mcp.showcase.read.caution': 'Limited backend',
+  'connectors.mcp.showcase.read.unknown': 'Read not confirmed',
+  'connectors.mcp.showcase.note.host':
+    'The host decides the SAP service, not the card label.',
+  'connectors.mcp.showcase.note.writes':
+    'Write tools stay listed so you can anticipate the System. They have not been exercised in this environment.',
+  'connectors.mcp.showcase.note.by_key':
+    'A tool ending in _by_key still needs the key, even when the schema marks it optional.',
+  'connectors.mcp.showcase.note.slow':
+    'Some reads take more than 20 s. Allow plenty of time.',
+  'connectors.mcp.showcase.note.gr':
+    'The MCP server answers; the material-document service may be refused by SAP (403).',
+  'connectors.mcp.showcase.note.inbox':
+    'Task lists work. Comments, logs and approval history may be missing on the SAP side.',
   'connectors.mcp.configured': 'ready',
   'connectors.mcp.incomplete': 'incomplete',
   'connectors.mcp.disabled': 'off',
