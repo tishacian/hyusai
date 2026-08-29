@@ -511,6 +511,42 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                 }
               </div>
             }
+            @if (previewById()[row.id]; as preview) {
+              <div class="rounded-md bg-black/20 p-3 text-[12px] text-gray-300 ring-1 ring-white/10">
+                @if (preview.ok === false) {
+                  <p class="text-amber-200">{{ preview.detail || i18n.t('connectors.mcp.preview_empty') }}</p>
+                } @else {
+                  <p class="font-semibold text-gray-200">
+                    {{ i18n.t('connectors.mcp.preview_via', { tool: preview.tool || '' }) }}
+                    · {{ i18n.t('connectors.mcp.preview_rows', { count: preview.row_count || 0 }) }}
+                  </p>
+                  @if ((preview.columns || []).length) {
+                    <div class="mt-2 overflow-x-auto">
+                      <table class="min-w-full text-left text-[11px]">
+                        <thead>
+                          <tr>
+                            @for (col of preview.columns; track col) {
+                              <th class="ck-mono whitespace-nowrap px-2 py-1 font-medium text-gray-400">{{ col }}</th>
+                            }
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (line of preview.rows || []; track $index) {
+                            <tr class="border-t border-white/5">
+                              @for (cell of line; track $index) {
+                                <td class="max-w-[14rem] truncate px-2 py-1 text-gray-200" [title]="cell">{{ cell }}</td>
+                              }
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  } @else {
+                    <p class="mt-2 text-gray-500">{{ i18n.t('connectors.mcp.preview_empty') }}</p>
+                  }
+                }
+              </div>
+            }
             @if (toolsLoading().has(row.id) && !toolsById()[row.id]) {
               <p class="text-[12px] text-gray-500">{{ i18n.t('connectors.mcp.catalog_loading') }}</p>
             }
@@ -586,42 +622,6 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                     <p class="mt-2 text-amber-200">
                       {{ i18n.t('connectors.mcp.missing') }}: {{ tools.contract?.missing?.join(', ') }}
                     </p>
-                  }
-                }
-              </div>
-            }
-            @if (previewById()[row.id]; as preview) {
-              <div class="rounded-md bg-black/20 p-3 text-[12px] text-gray-300 ring-1 ring-white/10">
-                @if (preview.ok === false) {
-                  <p class="text-amber-200">{{ preview.detail || i18n.t('connectors.mcp.preview_empty') }}</p>
-                } @else {
-                  <p class="font-semibold text-gray-200">
-                    {{ i18n.t('connectors.mcp.preview_via', { tool: preview.tool || '' }) }}
-                    · {{ i18n.t('connectors.mcp.preview_rows', { count: preview.row_count || 0 }) }}
-                  </p>
-                  @if ((preview.columns || []).length) {
-                    <div class="mt-2 overflow-x-auto">
-                      <table class="min-w-full text-left text-[11px]">
-                        <thead>
-                          <tr>
-                            @for (col of preview.columns; track col) {
-                              <th class="ck-mono whitespace-nowrap px-2 py-1 font-medium text-gray-400">{{ col }}</th>
-                            }
-                          </tr>
-                        </thead>
-                        <tbody>
-                          @for (line of preview.rows || []; track $index) {
-                            <tr class="border-t border-white/5">
-                              @for (cell of line; track $index) {
-                                <td class="max-w-[14rem] truncate px-2 py-1 text-gray-200" [title]="cell">{{ cell }}</td>
-                              }
-                            </tr>
-                          }
-                        </tbody>
-                      </table>
-                    </div>
-                  } @else {
-                    <p class="mt-2 text-gray-500">{{ i18n.t('connectors.mcp.preview_empty') }}</p>
                   }
                 }
               </div>

@@ -96,5 +96,21 @@ export function groupMcpTools(
     }
     group[tool.kind].push(tool);
   }
-  return [...groups.values()];
+  return [...groups.values()].sort((left, right) => {
+    const delta = groupPriority(left.entity) - groupPriority(right.entity);
+    return delta !== 0 ? delta : left.label.localeCompare(right.label);
+  });
+}
+
+function groupPriority(entity: string): number {
+  const lower = (entity || '').toLowerCase();
+  if (lower.includes('purchaserequisition')) return 0;
+  if (lower.includes('purchaseorder')) return 1;
+  if (lower.includes('material') || lower.includes('goodreceipt') || lower.includes('inbox')) {
+    return 2;
+  }
+  if (lower.startsWith('yy1') || lower.includes('cfd') || lower.includes('unitofmeasure')) {
+    return 9;
+  }
+  return 5;
 }
