@@ -23,6 +23,9 @@ import { I18nService } from '@app/core/i18n.service';
       [style.display]="'flex'"
       [style.alignItems]="'center'"
       [style.padding]="'0 14px'"
+      [style.minWidth]="'0'"
+      [style.maxWidth]="'100%'"
+      [style.overflowX]="'auto'"
       [style.background]="'var(--ck-bg-base)'"
       [style.borderTop]="'1px solid var(--ck-stroke-2)'"
       [style.color]="'var(--ck-fg-3)'"
@@ -69,6 +72,13 @@ import { I18nService } from '@app/core/i18n.service';
       >v0.4.0 · build 1</span>
     </footer>
   `,
+  styles: [`
+    :host {
+      display: block;
+      min-width: 0;
+      max-width: 100%;
+    }
+  `],
 })
 export class CommandBarComponent {
   readonly i18n = inject(I18nService);

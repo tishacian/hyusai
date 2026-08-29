@@ -421,6 +421,12 @@ const THEME_ICONS: Record<ThemeMode, string> = {
     </header>
   `,
   styles: [`
+    :host {
+      display: block;
+      min-width: 0;
+      max-width: 100%;
+    }
+
     .tb {
       position: relative;
       z-index: 40;
@@ -429,6 +435,8 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       height: 48px;
       padding: 0 14px;
       gap: 14px;
+      min-width: 0;
+      max-width: 100%;
       border-bottom: 1px solid var(--ck-stroke-2);
       background: var(--ck-bg-base);
       color: var(--ck-fg-1);
