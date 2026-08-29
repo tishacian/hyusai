@@ -30,12 +30,14 @@ test('groups header and item tools on the same object', () => {
     { name: 'get_A_PurchaseRequisitionHeader', description: 'Read a PR header' },
     { name: 'post_A_PurchaseRequisitionItem', description: 'Create a PR item' },
     { name: 'get_YY1_POCustomFields', description: '' },
+    { name: 'get_CFDUnitOfMeasureSet', description: '' },
   ]);
-  assert.equal(groups.length, 2);
+  assert.equal(groups.length, 3);
   const pr = groups.find((group) => group.entity === 'PurchaseRequisition');
   assert.ok(pr);
   assert.equal(pr?.label, 'Purchase Requisition');
   assert.equal(pr?.read.length, 1);
   assert.equal(pr?.write.length, 1);
   assert.equal(pr?.read[0]?.description, 'Read a PR header');
+  assert.equal(groups[0]?.entity, 'PurchaseRequisition');
 });
