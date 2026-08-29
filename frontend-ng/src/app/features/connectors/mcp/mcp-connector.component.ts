@@ -10,6 +10,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
+import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -103,6 +104,9 @@ interface SharedAuthDraft {
   secretSet: boolean;
 }
 
+const TOOL_CHIP_CAP = 10;
+const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
+
 @Component({
   selector: 'app-mcp-connector',
   standalone: true,
@@ -110,7 +114,7 @@ interface SharedAuthDraft {
   imports: [CommonModule, FormsModule, RouterLink, IconComponent, SectionHeaderComponent],
   template: `
     <app-section-header
-      breadcrumb="Connectors"
+      [breadcrumb]="i18n.t('connectors.title')"
       [title]="i18n.t('connectors.mcp.title')"
       icon="plug"
       [subtitle]="i18n.t('connectors.mcp.subtitle', { name: workspaceName() })"
@@ -122,10 +126,11 @@ interface SharedAuthDraft {
         [disabled]="loading()"
       >
         <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="loading()" />
-        {{ i18n.t('experience.pr_to_po.refresh') }}
+        {{ i18n.t('common.refresh') }}
       </button>
       <a
         routerLink="/connectors"
+        [queryParams]="workspaceQuery()"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
       >
         <app-icon name="arrow-left" [size]="14" /> {{ i18n.t('connectors.back_to_resources') }}
@@ -145,67 +150,75 @@ interface SharedAuthDraft {
     }
 
     <section class="mb-4 ck-surface t-elevated rounded-md p-5">
-      <h2 class="text-base font-semibold text-white">{{ i18n.t('connectors.mcp.shared_oauth') }}</h2>
-      <p class="mt-1 mb-4 text-sm text-gray-400">{{ i18n.t('connectors.mcp.shared_oauth_help') }}</p>
-      <div class="grid gap-3 md:grid-cols-2">
-        <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            {{ i18n.t('connectors.mcp.oauth_token_url') }}
-          </span>
-          <input
-            [(ngModel)]="sharedAuth.oauthTokenUrl"
-            [ngModelOptions]="{ standalone: true }"
-            [disabled]="!featureEnabled() || saving()"
-            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-          />
-        </label>
-        <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            {{ i18n.t('connectors.mcp.oauth_client_id') }}
-          </span>
-          <input
-            [(ngModel)]="sharedAuth.oauthClientId"
-            [ngModelOptions]="{ standalone: true }"
-            [disabled]="!featureEnabled() || saving()"
-            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-          />
-        </label>
-        <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            {{ i18n.t('connectors.mcp.oauth_client_secret') }}
-          </span>
-          <input
-            type="password"
-            [(ngModel)]="sharedAuth.oauthClientSecret"
-            [ngModelOptions]="{ standalone: true }"
-            [disabled]="!featureEnabled() || saving()"
-            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-            [placeholder]="i18n.t('connectors.mcp.oauth_secret_keep')"
-            autocomplete="off"
-          />
-        </label>
-        <label class="block">
-          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            {{ i18n.t('connectors.mcp.oauth_scope') }}
-          </span>
-          <input
-            [(ngModel)]="sharedAuth.oauthScope"
-            [ngModelOptions]="{ standalone: true }"
-            [disabled]="!featureEnabled() || saving()"
-            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-          />
-        </label>
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h2 class="text-base font-semibold text-white">{{ i18n.t('connectors.mcp.use_title') }}</h2>
+          <p class="mt-1 text-sm leading-6 text-gray-400">{{ i18n.t('connectors.mcp.use_body') }}</p>
+        </div>
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10"
+          (click)="copyShareLink()"
+        >
+          <app-icon name="copy" [size]="14" />
+          {{ i18n.t('connectors.mcp.use.share') }}
+        </button>
       </div>
-      @if (sharedAuth.secretSet) {
-        <p class="mt-3 inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
-          <app-icon name="check-circle-2" [size]="10" />
-          {{ i18n.t('connectors.mcp.oauth_secret_set') }}
-        </p>
+      @if (mappedServers().length) {
+        <div class="mt-4 overflow-hidden rounded-md ring-1 ring-white/10">
+          <p class="bg-white/[0.03] px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {{ i18n.t('connectors.mcp.use.map_title') }}
+          </p>
+          <ul>
+            @for (row of mappedServers(); track row.id) {
+              <li class="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 px-3 py-2">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-medium text-white">{{ row.label || row.id }}</p>
+                  <p class="ck-mono text-[11px] text-cyan-300">{{ row.id }}</p>
+                </div>
+                <p class="text-[12px] text-gray-400">{{ usageLabel(row.id) }}</p>
+              </li>
+            }
+          </ul>
+        </div>
       }
+      <div class="mt-4 flex flex-wrap gap-2">
+        <a
+          routerLink="/systems"
+          [queryParams]="workspaceQuery()"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-cyan-500 text-white hover:bg-cyan-400"
+        >
+          <app-icon name="arrow-right" [size]="14" />
+          {{ i18n.t('connectors.mcp.use.systems') }}
+        </a>
+        <a
+          routerLink="/work/pr-to-po"
+          [queryParams]="workspaceQuery()"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10"
+        >
+          {{ i18n.t('connectors.mcp.use.work') }}
+        </a>
+        @if (prToPoSystemId(); as systemId) {
+          <a
+            [routerLink]="['/systems', systemId, 'flow']"
+            [queryParams]="workspaceQuery()"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10"
+          >
+            {{ i18n.t('connectors.mcp.use.flow') }}
+          </a>
+        }
+      </div>
     </section>
 
-    <section class="mb-4 flex items-center justify-between">
-      <h2 class="text-base font-semibold text-white">{{ i18n.t('connectors.mcp.servers') }}</h2>
+    <section class="mb-4 flex items-center justify-between gap-3">
+      <div>
+        <h2 class="text-base font-semibold text-white">{{ i18n.t('connectors.mcp.servers') }}</h2>
+        @if (drafts().length) {
+          <p class="mt-0.5 text-[11px] text-gray-500">
+            {{ i18n.t('connectors.mcp.ready_count', { ready: readyCount(), total: drafts().length }) }}
+          </p>
+        }
+      </div>
       <button
         type="button"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 disabled:opacity-50"
@@ -224,32 +237,28 @@ interface SharedAuthDraft {
     <div class="grid gap-4 xl:grid-cols-2">
       @for (row of drafts(); track $index) {
         <article class="ck-surface t-elevated rounded-md p-5">
-          <div class="mb-3 flex items-start justify-between gap-3">
-            <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">
-                {{ row.id || i18n.t('connectors.mcp.id') }}
-              </p>
-              @if (row.credentialSource) {
-                <p class="mt-1 text-[11px] text-gray-500">
-                  {{ i18n.t('connectors.mcp.credential') }}: {{ row.credentialSource }}
+          <div class="mb-4 flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h3 class="truncate text-base font-semibold text-white">
+                {{ row.label || row.id || i18n.t('connectors.mcp.label') }}
+              </h3>
+              <p class="mt-1 ck-mono text-[11px] text-cyan-300">{{ row.id || i18n.t('connectors.mcp.id') }}</p>
+              @if (hostOf(row.url); as host) {
+                <p class="mt-1 truncate text-[11px] text-gray-500" [title]="row.url">
+                  {{ i18n.t('connectors.mcp.host') }} · {{ host }}
                 </p>
               }
             </div>
-            <div class="flex items-center gap-2">
-              @if (row.tokenSet) {
+            <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded ring-1" [class]="statusChipClass(row)">
+                {{ statusLabel(row) }}
+              </span>
+              @if (row.tokenSet || row.oauthSecretSet) {
                 <span
                   class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20"
                 >
                   <app-icon name="check-circle-2" [size]="10" />
-                  {{ i18n.t('connectors.mcp.token_set') }}
-                </span>
-              }
-              @if (row.oauthSecretSet) {
-                <span
-                  class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20"
-                >
-                  <app-icon name="check-circle-2" [size]="10" />
-                  {{ i18n.t('connectors.mcp.oauth_secret_set') }}
+                  {{ row.oauthSecretSet ? i18n.t('connectors.mcp.oauth_secret_set') : i18n.t('connectors.mcp.token_set') }}
                 </span>
               }
               <button
@@ -264,6 +273,7 @@ interface SharedAuthDraft {
           </div>
 
           <div class="space-y-3">
+            <div class="grid gap-3 sm:grid-cols-2">
             <label class="block">
               <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                 {{ i18n.t('connectors.mcp.id') }}
@@ -273,7 +283,6 @@ interface SharedAuthDraft {
                 [ngModelOptions]="{ standalone: true }"
                 [disabled]="!featureEnabled() || saving()"
                 class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                placeholder="sap"
               />
             </label>
             <label class="block">
@@ -285,9 +294,9 @@ interface SharedAuthDraft {
                 [ngModelOptions]="{ standalone: true }"
                 [disabled]="!featureEnabled() || saving()"
                 class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                placeholder="SAP MCP"
               />
             </label>
+            </div>
             <label class="block">
               <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                 {{ i18n.t('connectors.mcp.url') }}
@@ -297,9 +306,9 @@ interface SharedAuthDraft {
                 [ngModelOptions]="{ standalone: true }"
                 [disabled]="!featureEnabled() || saving()"
                 class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                placeholder="http://127.0.0.1:8765/sap"
               />
             </label>
+            <div class="grid gap-3 sm:grid-cols-2">
             <label class="block">
               <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
                 {{ i18n.t('connectors.mcp.transport') }}
@@ -308,7 +317,7 @@ interface SharedAuthDraft {
                 [(ngModel)]="row.transport"
                 [ngModelOptions]="{ standalone: true }"
                 [disabled]="!featureEnabled() || saving()"
-                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                class="w-full rounded bg-zinc-950 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
               >
                 <option value="http_sse">{{ i18n.t('connectors.mcp.transport.http_sse') }}</option>
                 <option value="streamable_http">{{ i18n.t('connectors.mcp.transport.streamable_http') }}</option>
@@ -322,13 +331,17 @@ interface SharedAuthDraft {
                 [(ngModel)]="row.authMode"
                 [ngModelOptions]="{ standalone: true }"
                 [disabled]="!featureEnabled() || saving()"
-                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                class="w-full rounded bg-zinc-950 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
               >
                 <option value="bearer">{{ i18n.t('connectors.mcp.auth.bearer') }}</option>
                 <option value="oauth_client_credentials">{{ i18n.t('connectors.mcp.auth.oauth') }}</option>
                 <option value="inherit">{{ i18n.t('connectors.mcp.auth.inherit') }}</option>
               </select>
             </label>
+            </div>
+            @if (row.authMode === 'inherit') {
+              <p class="text-[12px] leading-5 text-gray-500">{{ i18n.t('connectors.mcp.inherit_hint') }}</p>
+            }
             @if (row.authMode === 'bearer') {
               <label class="block">
                 <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
@@ -403,19 +416,23 @@ interface SharedAuthDraft {
               />
               {{ i18n.t('connectors.mcp.enabled') }}
             </label>
-            <label class="block">
-              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                {{ i18n.t('connectors.mcp.aliases') }}
-              </span>
-              <textarea
-                rows="3"
-                [(ngModel)]="row.aliasesJson"
-                [ngModelOptions]="{ standalone: true }"
-                [disabled]="!featureEnabled() || saving()"
-                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm font-mono text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                placeholder='{"list_approved_prs":"list_approved_prs"}'
-              ></textarea>
-            </label>
+            <details class="rounded-md bg-black/20 ring-1 ring-white/10">
+              <summary class="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                {{ i18n.t('connectors.mcp.advanced') }}
+              </summary>
+              <label class="block px-3 pb-3">
+                <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  {{ i18n.t('connectors.mcp.aliases') }}
+                </span>
+                <textarea
+                  rows="3"
+                  [(ngModel)]="row.aliasesJson"
+                  [ngModelOptions]="{ standalone: true }"
+                  [disabled]="!featureEnabled() || saving()"
+                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm font-mono text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                ></textarea>
+              </label>
+            </details>
             <div class="flex flex-wrap gap-2 pt-1">
               <button
                 type="button"
@@ -457,19 +474,25 @@ interface SharedAuthDraft {
             }
             @if (toolsById()[row.id]; as tools) {
               <div class="rounded-md bg-black/20 p-3 text-[12px] text-gray-300 ring-1 ring-white/10">
-                <p class="mb-1 font-semibold text-gray-200">{{ i18n.t('connectors.mcp.contract') }}</p>
-                <p>{{ (tools.contract?.expected || []).join(', ') || '—' }}</p>
-                <p class="mt-2 font-semibold text-gray-200">{{ i18n.t('connectors.mcp.tools') }}</p>
-                <p>{{ listedToolNames(tools) }}</p>
-                @if ((tools.contract?.missing || []).length) {
-                  <p class="mt-2 text-amber-200">
-                    {{ i18n.t('connectors.mcp.missing') }}: {{ tools.contract?.missing?.join(', ') }}
-                  </p>
-                }
-                @if ((tools.contract?.unexpected || []).length) {
-                  <p class="mt-2 text-amber-200">
-                    {{ i18n.t('connectors.mcp.unexpected') }}: {{ tools.contract?.unexpected?.join(', ') }}
-                  </p>
+                <p class="font-semibold text-gray-200">
+                  {{ i18n.t('connectors.mcp.tools_count', { count: toolNames(tools).length }) }}
+                </p>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  @for (name of visibleTools(tools); track name) {
+                    <span class="ck-mono rounded bg-white/5 px-2 py-0.5 text-[10px] text-gray-200 ring-1 ring-white/10">{{ name }}</span>
+                  }
+                  @if (hiddenToolCount(tools) > 0) {
+                    <span class="text-[10px] text-gray-500">{{ i18n.t('connectors.mcp.tools_more', { count: hiddenToolCount(tools) }) }}</span>
+                  }
+                </div>
+                @if ((tools.contract?.expected || []).length) {
+                  <p class="mt-3 font-semibold text-gray-200">{{ i18n.t('connectors.mcp.contract') }}</p>
+                  <p class="mt-1 text-gray-400">{{ (tools.contract?.expected || []).join(', ') }}</p>
+                  @if ((tools.contract?.missing || []).length) {
+                    <p class="mt-2 text-amber-200">
+                      {{ i18n.t('connectors.mcp.missing') }}: {{ tools.contract?.missing?.join(', ') }}
+                    </p>
+                  }
                 }
               </div>
             }
@@ -478,7 +501,74 @@ interface SharedAuthDraft {
       }
     </div>
 
-    <div class="mt-5">
+    <details class="mb-4 ck-surface t-elevated rounded-md p-5" [attr.open]="sharedAuth.secretSet ? null : ''">
+      <summary class="flex cursor-pointer list-none items-center justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">{{ i18n.t('connectors.mcp.shared_oauth') }}</h2>
+          <p class="mt-1 text-sm text-gray-400">{{ i18n.t('connectors.mcp.shared_oauth_help') }}</p>
+        </div>
+        @if (sharedAuth.secretSet) {
+          <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+            <app-icon name="check-circle-2" [size]="10" />
+            {{ i18n.t('connectors.mcp.oauth_secret_set') }}
+          </span>
+        }
+      </summary>
+      <div class="mt-4 grid gap-3 md:grid-cols-2">
+        <label class="block">
+          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {{ i18n.t('connectors.mcp.oauth_token_url') }}
+          </span>
+          <input
+            [(ngModel)]="sharedAuth.oauthTokenUrl"
+            [ngModelOptions]="{ standalone: true }"
+            [disabled]="!featureEnabled() || saving()"
+            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+          />
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {{ i18n.t('connectors.mcp.oauth_client_id') }}
+          </span>
+          <input
+            [(ngModel)]="sharedAuth.oauthClientId"
+            [ngModelOptions]="{ standalone: true }"
+            [disabled]="!featureEnabled() || saving()"
+            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+          />
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {{ i18n.t('connectors.mcp.oauth_client_secret') }}
+          </span>
+          <input
+            type="password"
+            [(ngModel)]="sharedAuth.oauthClientSecret"
+            [ngModelOptions]="{ standalone: true }"
+            [disabled]="!featureEnabled() || saving()"
+            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+            [placeholder]="i18n.t('connectors.mcp.oauth_secret_keep')"
+            autocomplete="off"
+          />
+        </label>
+        <label class="block">
+          <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            {{ i18n.t('connectors.mcp.oauth_scope') }}
+          </span>
+          <input
+            [(ngModel)]="sharedAuth.oauthScope"
+            [ngModelOptions]="{ standalone: true }"
+            [disabled]="!featureEnabled() || saving()"
+            class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+          />
+        </label>
+      </div>
+    </details>
+
+    <div
+      class="sticky bottom-0 z-10 mt-5 -mx-1 border-t border-white/10 px-1 py-3 backdrop-blur"
+      style="background: color-mix(in srgb, var(--ck-bg-base) 92%, transparent)"
+    >
       <button
         type="button"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-semibold bg-cyan-500 text-white hover:bg-cyan-400 disabled:opacity-50"
@@ -493,14 +583,26 @@ interface SharedAuthDraft {
 })
 export class McpConnectorComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly canonical = inject(CanonicalApiService);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
   readonly i18n = inject(I18nService);
 
   readonly featureEnabled = this.workspace.mcpConnectorEnabled;
   readonly workspaceName = computed(
-    () => this.workspace.current()?.name || this.workspace.currentSlug() || 'current workspace',
+    () =>
+      this.workspace.current()?.name ||
+      this.workspace.currentSlug() ||
+      this.i18n.t('connectors.workspace.fallback'),
   );
+  readonly workspaceQuery = computed(() => {
+    const slug = this.workspace.currentSlug();
+    return slug ? { workspace: slug } : {};
+  });
+  readonly readyCount = computed(
+    () => this.drafts().filter((row) => row.configured && row.enabled).length,
+  );
+  readonly mappedServers = computed(() => this.drafts().filter((row) => !!row.id.trim()));
 
   readonly loading = signal(false);
   readonly saving = signal(false);
@@ -509,10 +611,12 @@ export class McpConnectorComponent implements OnInit {
   readonly drafts = signal<ServerDraft[]>([]);
   readonly testById = signal<Record<string, McpTestResult>>({});
   readonly toolsById = signal<Record<string, McpToolsResponse>>({});
+  readonly prToPoSystemId = signal<string | null>(null);
   sharedAuth: SharedAuthDraft = this.emptySharedAuth();
 
   ngOnInit(): void {
     this.loadServers();
+    this.loadPrToPoSystem();
   }
 
   loadServers(): void {
@@ -639,11 +743,75 @@ export class McpConnectorComponent implements OnInit {
     });
   }
 
-  listedToolNames(tools: McpToolsResponse): string {
+  hostOf(url: string): string {
+    const raw = (url || '').trim();
+    if (!raw) return '';
+    try {
+      return new URL(raw).host;
+    } catch {
+      return raw;
+    }
+  }
+
+  statusLabel(row: ServerDraft): string {
+    if (!row.enabled) return this.i18n.t('connectors.mcp.disabled');
+    return row.configured
+      ? this.i18n.t('connectors.mcp.configured')
+      : this.i18n.t('connectors.mcp.incomplete');
+  }
+
+  statusChipClass(row: ServerDraft): string {
+    if (!row.enabled) return 'bg-white/5 text-gray-400 ring-white/10';
+    return row.configured
+      ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20'
+      : 'bg-amber-500/10 text-amber-200 ring-amber-400/25';
+  }
+
+  toolNames(tools: McpToolsResponse): string[] {
     const listed = tools.contract?.listed;
-    if (listed?.length) return listed.join(', ');
-    const names = (tools.tools || []).map((tool) => tool.name || '').filter(Boolean);
-    return names.join(', ') || '—';
+    if (listed?.length) return listed.filter(Boolean);
+    return (tools.tools || []).map((tool) => tool.name || '').filter(Boolean);
+  }
+
+  visibleTools(tools: McpToolsResponse): string[] {
+    return this.toolNames(tools).slice(0, TOOL_CHIP_CAP);
+  }
+
+  hiddenToolCount(tools: McpToolsResponse): number {
+    return Math.max(0, this.toolNames(tools).length - TOOL_CHIP_CAP);
+  }
+
+  usageLabel(serverId: string): string {
+    return NAMED_CANVAS_SERVERS.has(serverId)
+      ? this.i18n.t('connectors.mcp.use.how_named')
+      : this.i18n.t('connectors.mcp.use.how_generic');
+  }
+
+  copyShareLink(): void {
+    const url = new URL('/connectors/mcp', window.location.origin);
+    const slug = this.workspace.currentSlug();
+    if (slug) url.searchParams.set('workspace', slug);
+    navigator.clipboard?.writeText(url.toString()).then(
+      () =>
+        this.toast.success(
+          this.i18n.t('connectors.mcp.use.share_ok'),
+          this.i18n.t('connectors.mcp.title'),
+        ),
+      () =>
+        this.toast.error(
+          this.i18n.t('connectors.mcp.use.share_fail'),
+          this.i18n.t('connectors.mcp.title'),
+        ),
+    );
+  }
+
+  private loadPrToPoSystem(): void {
+    this.canonical.listSystems().subscribe({
+      next: (systems) => {
+        const match = systems.find((item) => item.name === 'PR to PO');
+        this.prToPoSystemId.set(match?.id || null);
+      },
+    });
   }
 
   private emptyDraft(): ServerDraft {
