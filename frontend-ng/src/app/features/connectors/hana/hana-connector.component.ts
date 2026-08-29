@@ -11,6 +11,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -31,6 +32,19 @@ interface HanaTestResult {
   current_schema?: string;
   detail?: string;
   message?: string;
+}
+
+interface HanaPreview {
+  ok?: boolean;
+  source?: string;
+  current_user?: string;
+  current_schema?: string;
+  tables?: Array<{ name?: string; kind?: string }>;
+  sample_table?: string | null;
+  columns?: string[];
+  rows?: unknown[][];
+  row_count?: number;
+  detail?: string;
 }
 
 const MASKED_PASSWORD = /^[*•]+$/;
@@ -210,12 +224,115 @@ const MASKED_PASSWORD = /^[*•]+$/;
         </div>
       }
     </section>
+
+    @if (featureEnabled() && passwordSet()) {
+      <section class="mt-4 max-w-3xl ck-surface t-elevated rounded-md p-5">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 class="text-base font-semibold text-white">{{ i18n.t('connectors.hana.preview') }}</h2>
+            <p class="mt-1 text-[12px] leading-5 text-gray-400">{{ i18n.t('connectors.hana.preview_help') }}</p>
+          </div>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 disabled:opacity-50"
+            (click)="loadPreview()"
+            [disabled]="previewLoading()"
+          >
+            <app-icon name="database" [size]="14" />
+            {{ previewLoading() ? i18n.t('connectors.hana.previewing') : i18n.t('connectors.hana.preview') }}
+          </button>
+        </div>
+        @if (preview(); as preview) {
+          @if (preview.ok === false) {
+            <p class="mt-3 text-sm text-amber-200">{{ preview.detail || i18n.t('connectors.hana.preview_failed') }}</p>
+          } @else {
+            <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+              @if (preview.current_schema) {
+                <span class="ck-mono text-cyan-300">{{ preview.current_schema }}</span>
+              }
+              @if (preview.current_user) {
+                <span class="ck-mono">{{ preview.current_user }}</span>
+              }
+              <span
+                class="inline-flex items-center px-2 py-0.5 rounded font-mono ring-1"
+                [class]="
+                  preview.source === 'hana_live'
+                    ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20'
+                    : 'bg-amber-500/10 text-amber-200 ring-amber-400/25'
+                "
+              >
+                {{
+                  preview.source === 'hana_live'
+                    ? i18n.t('connectors.hana.preview_live')
+                    : i18n.t('connectors.hana.preview_demo')
+                }}
+              </span>
+            </div>
+            <p class="mt-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+              {{ i18n.t('connectors.hana.preview_tables') }}
+            </p>
+            @if ((preview.tables || []).length) {
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                @for (table of preview.tables || []; track table.name) {
+                  <button
+                    type="button"
+                    class="ck-mono rounded px-2 py-0.5 text-[10px] ring-1"
+                    [class]="
+                      table.name === preview.sample_table
+                        ? 'bg-cyan-500/15 text-cyan-200 ring-cyan-400/30'
+                        : 'bg-white/5 text-gray-200 ring-white/10 hover:bg-white/10'
+                    "
+                    (click)="loadPreview(table.name || '')"
+                    [disabled]="previewLoading() || !table.name"
+                  >
+                    {{ table.name }}
+                  </button>
+                }
+              </div>
+            } @else {
+              <p class="mt-2 text-sm text-gray-500">{{ i18n.t('connectors.hana.preview_empty') }}</p>
+            }
+            @if (preview.sample_table) {
+              <p class="mt-4 text-[12px] font-semibold text-gray-200">
+                {{ i18n.t('connectors.hana.preview_sample', { table: preview.sample_table }) }}
+                · {{ i18n.t('connectors.hana.preview_rows', { count: preview.row_count || 0 }) }}
+              </p>
+            }
+            @if ((preview.columns || []).length) {
+              <div class="mt-2 overflow-x-auto">
+                <table class="min-w-full text-left text-[11px]">
+                  <thead>
+                    <tr>
+                      @for (col of preview.columns; track col) {
+                        <th class="ck-mono whitespace-nowrap px-2 py-1 font-medium text-gray-400">{{ col }}</th>
+                      }
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (line of preview.rows || []; track $index) {
+                      <tr class="border-t border-white/5">
+                        @for (cell of line; track $index) {
+                          <td class="max-w-[14rem] truncate px-2 py-1 text-gray-200" [title]="cellText(cell)">
+                            {{ cellText(cell) }}
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          }
+        }
+      </section>
+    }
   `,
 })
 export class HanaConnectorComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
 
   readonly featureEnabled = this.workspace.sapHanaConnectorEnabled;
   readonly workspaceName = computed(
@@ -228,6 +345,8 @@ export class HanaConnectorComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly passwordSet = signal(false);
   readonly testResult = signal<HanaTestResult | null>(null);
+  readonly preview = signal<HanaPreview | null>(null);
+  readonly previewLoading = signal(false);
 
   host = '';
   port: number | string = 443;
@@ -249,6 +368,7 @@ export class HanaConnectorComponent implements OnInit {
       next: (cfg) => {
         this.applyConfig(cfg);
         this.loading.set(false);
+        if (this.passwordSet()) this.loadPreview();
       },
       error: (err) => {
         this.loading.set(false);
@@ -309,6 +429,7 @@ export class HanaConnectorComponent implements OnInit {
         this.testResult.set({ ...result, ok });
         if (ok) {
           this.toast.success('Connection OK', 'SAP HANA');
+          this.loadPreview();
         } else {
           this.toast.error(result?.detail || result?.message || 'Connection failed', 'SAP HANA');
         }
@@ -320,6 +441,28 @@ export class HanaConnectorComponent implements OnInit {
         this.toast.error(detail, 'SAP HANA');
       },
     });
+  }
+
+  loadPreview(table?: string): void {
+    if (!this.featureEnabled() || !this.passwordSet()) return;
+    this.previewLoading.set(true);
+    const params = table ? { table } : undefined;
+    this.api.get<HanaPreview>('/hana/preview', params).subscribe({
+      next: (result) => {
+        this.previewLoading.set(false);
+        this.preview.set({ ...result, ok: result?.ok !== false });
+      },
+      error: (err) => {
+        this.previewLoading.set(false);
+        const detail = err?.error?.detail || this.i18n.t('connectors.hana.preview_failed');
+        this.preview.set({ ok: false, detail });
+      },
+    });
+  }
+
+  cellText(value: unknown): string {
+    if (value == null) return '';
+    return String(value);
   }
 
   private applyConfig(cfg: HanaConfig | null | undefined): void {

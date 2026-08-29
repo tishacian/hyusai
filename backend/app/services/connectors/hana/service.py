@@ -336,3 +336,131 @@ def run_query(
         "duration_ms": int((time.perf_counter() - started) * 1000),
         "source": "hana_live",
     }
+
+
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+PREVIEW_TABLE_CAP = 20
+PREVIEW_ROW_CAP = 8
+_TABLES_SQL = (
+    "SELECT TABLE_NAME, TABLE_TYPE FROM TABLES "
+    "WHERE SCHEMA_NAME = CURRENT_SCHEMA ORDER BY TABLE_NAME"
+)
+
+
+def _quoted_ident(name: str) -> str:
+    if not _IDENT.match(name or ""):
+        raise ValueError("table name is not a safe SQL identifier")
+    return f'"{name}"'
+
+
+def _demo_tables() -> list[dict[str, str]]:
+    from app.services.connectors.hana.demo_rows import (
+        TABLE_EQUIPMENT,
+        TABLE_ORDERS,
+        TABLE_PARTS,
+    )
+
+    return [
+        {"name": TABLE_EQUIPMENT, "kind": "table"},
+        {"name": TABLE_ORDERS, "kind": "table"},
+        {"name": TABLE_PARTS, "kind": "table"},
+    ]
+
+
+def _rows_as_tables(result: Mapping[str, Any]) -> list[dict[str, str]]:
+    tables: list[dict[str, str]] = []
+    for row in result.get("rows") or []:
+        if not isinstance(row, (list, tuple)) or not row:
+            continue
+        name = str(row[0] or "").strip()
+        if not name:
+            continue
+        kind = str(row[1] or "table").strip().lower() if len(row) > 1 else "table"
+        tables.append({"name": name, "kind": kind or "table"})
+        if len(tables) >= PREVIEW_TABLE_CAP:
+            break
+    return tables
+
+
+def preview_catalog(
+    config: Mapping[str, Any],
+    *,
+    table: Optional[str] = None,
+    max_rows: int = PREVIEW_ROW_CAP,
+) -> dict[str, Any]:
+    """Read-only schema + sample rows. Live HANA when reachable, else demo tables."""
+    started = time.perf_counter()
+    try:
+        limit = max(1, min(int(max_rows or PREVIEW_ROW_CAP), PREVIEW_ROW_CAP))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("max_rows must be an integer") from exc
+
+    live_info: dict[str, Any] = {}
+    live = False
+    try:
+        live_info = test_connection(config)
+        live = True
+    except Exception:
+        live = False
+
+    tables: list[dict[str, str]] = []
+    source = "demo_dataset"
+    current_user = live_info.get("current_user")
+    current_schema = live_info.get("current_schema")
+    if live:
+        listed = run_query(
+            config,
+            _TABLES_SQL,
+            max_rows=PREVIEW_TABLE_CAP,
+            allow_writes=False,
+        )
+        if listed.get("source") == "hana_live":
+            tables = _rows_as_tables(listed)
+            source = "hana_live"
+        else:
+            tables = _demo_tables()
+            source = "demo_dataset"
+    else:
+        tables = _demo_tables()
+        current_user = current_user or "DEMO"
+        current_schema = current_schema or "DEMO"
+
+    names = {item["name"] for item in tables}
+    requested = str(table or "").strip()
+    if requested:
+        if requested not in names:
+            raise ValueError(f"table {requested!r} is not in the preview catalog")
+        picked = requested
+    else:
+        picked = tables[0]["name"] if tables else ""
+
+    sample: dict[str, Any] = {"columns": [], "rows": [], "row_count": 0, "source": source}
+    if picked:
+        if source == "hana_live" and current_schema and _IDENT.match(str(current_schema)):
+            sql = f"SELECT * FROM {_quoted_ident(str(current_schema))}.{_quoted_ident(picked)}"
+        else:
+            sql = f"SELECT * FROM {_quoted_ident(picked)}"
+        if source == "hana_live":
+            sample = run_query(config, sql, max_rows=limit, allow_writes=False)
+            if sample.get("source") != "hana_live":
+                from app.services.connectors.hana import demo_dataset
+
+                sample = demo_dataset.run_demo_query(f'SELECT * FROM "{picked}"', limit=limit)
+                source = "demo_dataset"
+        else:
+            from app.services.connectors.hana import demo_dataset
+
+            sample = demo_dataset.run_demo_query(sql, limit=limit)
+
+    return {
+        "ok": True,
+        "source": source,
+        "current_user": current_user,
+        "current_schema": current_schema,
+        "tables": tables,
+        "sample_table": picked or None,
+        "columns": sample.get("columns") or [],
+        "rows": sample.get("rows") or [],
+        "row_count": sample.get("row_count") or 0,
+        "duration_ms": int((time.perf_counter() - started) * 1000),
+    }
