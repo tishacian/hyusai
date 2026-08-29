@@ -41,7 +41,11 @@ test('readiness comes from live tool names, not invented PDF aliases', () => {
   assert.equal(inferShowcaseReadiness('po', ['get_A_PurchaseOrder']), 'ready');
   assert.equal(inferShowcaseReadiness('gr', ['get_A_MaterialDocumentHeader']), 'caution');
   assert.equal(
-    inferShowcaseReadiness('inbox', ['get_WorkflowTaskCollection', 'decideWorkflowTask']),
+    inferShowcaseReadiness('inbox', [
+      'getTaskCollection',
+      'listCommentCollection',
+      'listWorkflowLogCollection',
+    ]),
     'partial',
   );
   assert.equal(inferShowcaseReadiness('pr', []), 'unknown');
