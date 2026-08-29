@@ -458,6 +458,21 @@ test('workspace entrypoint resolves once with an encoded active slug', () => {
   });
 });
 
+test('workspace query on a product route activates that tenant', () => {
+  const { workspace, resolver } = makeHarness({ slug: 'andritz' });
+  workspace.workspaces.update((list) => [
+    ...list,
+    { id: 'workspace-nawa', name: 'Nawa', slug: 'nawa', role: 'admin' },
+  ]);
+
+  assert.equal(
+    resolver.activateWorkspaceFromRoute('/connectors/mcp?workspace=nawa'),
+    null,
+  );
+  assert.equal(workspace.currentSlug(), 'nawa');
+  assert.deepEqual(workspace.switches, ['nawa']);
+});
+
 test('workspace deep links activate their tenant before component construction', () => {
   const { workspace, resolver } = makeHarness({ slug: 'andritz' });
   workspace.workspaces.update((list) => [
