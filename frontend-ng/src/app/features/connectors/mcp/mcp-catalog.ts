@@ -49,7 +49,9 @@ function stripVerb(name: string): { verb: string; rest: string } {
 }
 
 function groupEntity(entity: string): string {
-  const stripped = entity.replace(/(Header|Item|Type|Text)$/, '');
+  const stripped = entity
+    .replace(/_by_key$/i, '')
+    .replace(/(Header|Item|Type|Text)$/, '');
   return stripped || entity;
 }
 

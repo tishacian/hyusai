@@ -21,6 +21,7 @@ test('humanizes OData and custom-field names for the catalog', () => {
   assert.equal(humanizeMcpName('YY1_POCustomFields'), 'YY1 PO Custom Fields');
   assert.equal(describeMcpTool('get_A_PurchaseRequisitionHeader').entity, 'PurchaseRequisition');
   assert.equal(describeMcpTool('get_A_PurchaseRequisitionItem').entity, 'PurchaseRequisition');
+  assert.equal(describeMcpTool('get_A_PurchaseRequisitionHeader_by_key').entity, 'PurchaseRequisition');
   assert.equal(describeMcpTool('get_YY1_POCustomFields').entity, 'YY1_POCustomFields');
 });
 
