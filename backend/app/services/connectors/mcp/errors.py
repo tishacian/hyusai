@@ -31,3 +31,7 @@ class McpToolUnknown(McpError):
 
 class McpCallFailed(McpError):
     code = "mcp_call_failed"
+
+
+class McpPreviewUnavailable(McpError):
+    code = "mcp_preview_unavailable"
