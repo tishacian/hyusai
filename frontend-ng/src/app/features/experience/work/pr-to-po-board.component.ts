@@ -113,7 +113,7 @@ const SYSTEM_NAME = 'PR to PO';
                   }}
                 </p>
               }
-              @if (lane.detail) {
+              @if (lane.detail && !lane.detail.startsWith('mcp_')) {
                 <p class="xp-desk-note">{{ lane.detail }}</p>
               }
               @if (lane.columns.length) {
