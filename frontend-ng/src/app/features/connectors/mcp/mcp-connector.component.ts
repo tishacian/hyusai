@@ -22,6 +22,11 @@ import {
   type McpCatalogGroup,
   type McpCatalogTool,
 } from './mcp-catalog';
+import {
+  showcaseInsight,
+  sortShowcaseServers,
+  type McpShowcaseInsight,
+} from './mcp-showcase';
 
 export interface McpServerPublic {
   id: string;
@@ -172,6 +177,9 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
         <div class="min-w-0">
           <h2 class="text-base font-semibold text-white">{{ i18n.t('connectors.mcp.use_title') }}</h2>
           <p class="mt-1 text-sm leading-6 text-gray-400">{{ i18n.t('connectors.mcp.use_body') }}</p>
+          @if (hasShowcase()) {
+            <p class="mt-2 text-[12px] leading-5 text-gray-500">{{ i18n.t('connectors.mcp.showcase.body') }}</p>
+          }
         </div>
         <button
           type="button"
@@ -183,7 +191,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
         </button>
       </div>
       @if (mappedServers().length) {
-        <div class="mt-4 overflow-hidden rounded-md ring-1 ring-white/10">
+        <div class="mt-4 overflow-x-auto rounded-md ring-1 ring-white/10">
           <p class="bg-white/[0.03] px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
             {{ i18n.t('connectors.mcp.use.map_title') }}
           </p>
@@ -193,12 +201,34 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                 <div class="min-w-0">
                   <p class="truncate text-sm font-medium text-white">{{ row.label || row.id }}</p>
                   <p class="ck-mono text-[11px] text-cyan-300">{{ row.id }}</p>
+                  @if (insightFor(row); as insight) {
+                    <p class="mt-1 text-[11px] leading-5 text-gray-500">
+                      {{ i18n.t('connectors.mcp.showcase.step', { step: insight.step }) }}
+                      · {{ i18n.t('connectors.mcp.showcase.lane.' + insight.lane) }}
+                      · {{ i18n.t('connectors.mcp.showcase.role.' + insight.lane) }}
+                    </p>
+                  }
                 </div>
-                <p class="text-[12px] text-gray-400">{{ usageLabel(row.id) }}</p>
+                <div class="text-right">
+                  <p class="text-[12px] text-gray-400">{{ usageLabel(row.id) }}</p>
+                  @if (insightFor(row); as insight) {
+                    <p class="mt-1 text-[10px] font-mono" [class]="readinessClass(insight)">
+                      {{ i18n.t('connectors.mcp.showcase.read.' + insight.readiness) }}
+                    </p>
+                  }
+                </div>
               </li>
             }
           </ul>
         </div>
+        @if (hasShowcase()) {
+          <ul class="mt-3 space-y-1 text-[11px] leading-5 text-gray-500">
+            <li>{{ i18n.t('connectors.mcp.showcase.note.host') }}</li>
+            <li>{{ i18n.t('connectors.mcp.showcase.note.writes') }}</li>
+            <li>{{ i18n.t('connectors.mcp.showcase.note.by_key') }}</li>
+            <li>{{ i18n.t('connectors.mcp.showcase.note.slow') }}</li>
+          </ul>
+        }
       }
       <div class="mt-4 flex flex-wrap gap-2">
         <a
@@ -266,11 +296,28 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                   {{ i18n.t('connectors.mcp.host') }} · {{ host }}
                 </p>
               }
+              @if (insightFor(row); as insight) {
+                <p class="mt-2 text-[11px] leading-5 text-gray-400">
+                  {{ i18n.t('connectors.mcp.showcase.step', { step: insight.step }) }}
+                  · {{ i18n.t('connectors.mcp.showcase.lane.' + insight.lane) }}
+                </p>
+                <p class="mt-0.5 text-[11px] leading-5 text-gray-500">
+                  {{ i18n.t('connectors.mcp.showcase.role.' + insight.lane) }}
+                </p>
+                <p class="mt-1 ck-mono text-[10px] text-gray-500">
+                  {{ i18n.t('connectors.mcp.showcase.service', { name: insight.service }) }}
+                </p>
+              }
             </div>
             <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
               <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded ring-1" [class]="statusChipClass(row)">
                 {{ statusLabel(row) }}
               </span>
+              @if (insightFor(row); as insight) {
+                <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded ring-1" [class]="readinessChipClass(insight)">
+                  {{ i18n.t('connectors.mcp.showcase.read.' + insight.readiness) }}
+                </span>
+              }
               @if (row.tokenSet || row.oauthSecretSet) {
                 <span
                   class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20"
@@ -560,6 +607,13 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                   </p>
                 </div>
                 <p class="mt-1 text-[11px] leading-5 text-gray-500">{{ i18n.t('connectors.mcp.catalog_help') }}</p>
+                @if (insightFor(row); as insight) {
+                  @for (note of laneNotes(insight); track note) {
+                    <p class="mt-1 text-[11px] leading-5 text-amber-200/90">
+                      {{ i18n.t('connectors.mcp.showcase.note.' + note) }}
+                    </p>
+                  }
+                }
                 @if (tools.detail) {
                   <p class="mt-2 text-amber-200">{{ tools.detail }}</p>
                 }
@@ -732,7 +786,10 @@ export class McpConnectorComponent implements OnInit {
   readonly readyCount = computed(
     () => this.drafts().filter((row) => row.configured && row.enabled).length,
   );
-  readonly mappedServers = computed(() => this.drafts().filter((row) => !!row.id.trim()));
+  readonly mappedServers = computed(() =>
+    sortShowcaseServers(this.drafts().filter((row) => !!row.id.trim())),
+  );
+  readonly hasShowcase = computed(() => this.mappedServers().some((row) => !!this.insightFor(row)));
 
   readonly loading = signal(false);
   readonly saving = signal(false);
@@ -985,6 +1042,28 @@ export class McpConnectorComponent implements OnInit {
     return NAMED_CANVAS_SERVERS.has(serverId)
       ? this.i18n.t('connectors.mcp.use.how_named')
       : this.i18n.t('connectors.mcp.use.how_generic');
+  }
+
+  insightFor(row: ServerDraft): McpShowcaseInsight | null {
+    return showcaseInsight(row.id, row.url, this.toolNames(this.toolsById()[row.id] || {}));
+  }
+
+  laneNotes(insight: McpShowcaseInsight): Array<'gr' | 'inbox'> {
+    return insight.notes.filter((note): note is 'gr' | 'inbox' => note === 'gr' || note === 'inbox');
+  }
+
+  readinessClass(insight: McpShowcaseInsight): string {
+    if (insight.readiness === 'ready') return 'text-emerald-300';
+    if (insight.readiness === 'partial' || insight.readiness === 'caution') return 'text-amber-200';
+    return 'text-gray-500';
+  }
+
+  readinessChipClass(insight: McpShowcaseInsight): string {
+    if (insight.readiness === 'ready') return 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20';
+    if (insight.readiness === 'partial' || insight.readiness === 'caution') {
+      return 'bg-amber-500/10 text-amber-200 ring-amber-400/25';
+    }
+    return 'bg-white/5 text-gray-400 ring-white/10';
   }
 
   copyShareLink(): void {
