@@ -398,3 +398,258 @@
   overflow: auto;
   font-size: 11px;
 }
+
+.xp-work[data-desk='nawa'] {
+  --nawa-bg: #070707;
+  --nawa-surface: #141414;
+  --nawa-surface-2: #1d1d1d;
+  --nawa-line: rgba(245, 242, 239, 0.1);
+  --nawa-fg: #f5f2ef;
+  --nawa-fg-dim: rgba(245, 242, 239, 0.64);
+  --nawa-accent: #e8543a;
+  --nawa-ok: #8fd0a8;
+  --nawa-warn: #d9a21b;
+  min-height: 100dvh;
+  background:
+    radial-gradient(1200px 480px at 12% -10%, rgba(232, 84, 58, 0.18), transparent 55%),
+    var(--nawa-bg);
+  color: var(--nawa-fg);
+}
+
+.xp-work[data-desk='nawa'] .xp-desk-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  align-items: flex-start;
+  justify-content: space-between;
+  background: color-mix(in srgb, var(--nawa-bg) 88%, transparent);
+  border-bottom-color: var(--nawa-line);
+  backdrop-filter: blur(16px);
+}
+
+.xp-work[data-desk='nawa'] .xp-work-brand p,
+.xp-work[data-desk='nawa'] .xp-work-brand h1 {
+  color: var(--nawa-fg);
+  white-space: normal;
+}
+
+.xp-work[data-desk='nawa'] .xp-work-eyebrow {
+  color: var(--nawa-accent);
+}
+
+.xp-work[data-desk='nawa'] .xp-work-btn {
+  border-color: var(--nawa-line);
+  color: var(--nawa-fg);
+}
+
+.xp-work[data-desk='nawa'] .xp-work-btn-primary {
+  background: var(--nawa-accent);
+  border-color: transparent;
+  color: #140806;
+}
+
+.xp-work[data-desk='nawa'] .xp-desk-main {
+  max-width: 1280px;
+  padding-top: 36px;
+}
+
+.xp-desk-hero {
+  max-width: 44rem;
+  margin-bottom: 28px;
+}
+
+.xp-desk-kicker {
+  margin: 0 0 8px;
+  color: var(--nawa-accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.xp-desk-hero h2 {
+  margin: 0 0 10px;
+  font-size: clamp(28px, 4vw, 44px);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.xp-desk-hero p,
+.xp-desk-asof,
+.xp-desk-note,
+.xp-desk-count,
+.xp-desk-tool {
+  margin: 0;
+  color: var(--nawa-fg-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.xp-desk-asof {
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.xp-desk-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+}
+
+.xp-desk-kpis li {
+  padding: 14px 16px;
+  border: 1px solid var(--nawa-line);
+  border-radius: 12px;
+  background: var(--nawa-surface);
+}
+
+.xp-desk-kpis span {
+  display: block;
+  color: var(--nawa-fg-dim);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.xp-desk-kpis strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+.xp-desk-kpis li[data-tone='ok'] strong {
+  color: var(--nawa-ok);
+}
+
+.xp-desk-kpis li[data-tone='warn'] strong {
+  color: var(--nawa-warn);
+}
+
+.xp-desk-kpis li[data-tone='off'] strong {
+  color: var(--nawa-fg-dim);
+}
+
+.xp-desk-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+.xp-desk-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--nawa-line);
+  border-radius: 14px;
+  background: var(--nawa-surface);
+}
+
+.xp-desk-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.xp-desk-step {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.xp-desk-tool {
+  margin-top: 2px;
+  font-family: var(--ck-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+}
+
+.xp-desk-status {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(143, 208, 168, 0.12);
+  color: var(--nawa-ok);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.xp-desk-card[data-status='caution'] .xp-desk-status,
+.xp-desk-card[data-status='empty'] .xp-desk-status {
+  background: rgba(217, 162, 27, 0.12);
+  color: var(--nawa-warn);
+}
+
+.xp-desk-card[data-status='down'] .xp-desk-status {
+  background: rgba(232, 84, 58, 0.12);
+  color: var(--nawa-accent);
+}
+
+.xp-desk-table-wrap {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+
+.xp-desk-card table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.xp-desk-card th,
+.xp-desk-card td {
+  padding: 6px 8px 6px 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.xp-desk-card th {
+  color: var(--nawa-fg-dim);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.xp-desk-card td {
+  max-width: 12rem;
+  overflow: hidden;
+  border-top: 1px solid var(--nawa-line);
+  text-overflow: ellipsis;
+}
+
+.xp-desk-count {
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.xp-desk-hitl {
+  padding-top: 8px;
+  border-top: 1px solid var(--nawa-line);
+}
+
+.xp-desk-hitl > h3 {
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+
+.xp-work[data-desk='nawa'] .xp-work-hitl article,
+.xp-work[data-desk='nawa'] .xp-work-hitl textarea {
+  background: var(--nawa-surface-2);
+  border-color: var(--nawa-line);
+  color: var(--nawa-fg);
+}
+
+@media (max-width: 860px) {
+  .xp-desk-grid {
+    grid-template-columns: 1fr;
+  }
+}

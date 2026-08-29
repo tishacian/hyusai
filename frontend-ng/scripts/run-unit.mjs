@@ -97,6 +97,7 @@ const pureSpecs = [
   'src/app/features/experience/experience.guard.spec.ts',
   'src/app/features/experience/work/work-catalog.spec.ts',
   'src/app/features/experience/work/work-language.spec.ts',
+  'src/app/features/experience/work/pr-to-po-desk.spec.ts',
   'src/app/features/experience/studio/studio.spec.ts',
   'src/app/features/runs/runs-origin.spec.ts',
 ];
