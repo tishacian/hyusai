@@ -358,6 +358,9 @@ export const GOVERNANCE_FR = {
   'governance.surface.sharepoint.description': 'Configuration du connecteur SharePoint.',
   'governance.surface.sap-hana.title': 'SAP HANA',
   'governance.surface.sap-hana.description': 'Configuration du connecteur SAP HANA Cloud.',
+  'governance.surface.mcp.title': 'MCP',
+  'governance.surface.mcp.description':
+    'Registre des serveurs MCP du workspace (URL, jeton, tools/list).',
   'governance.surface.model-portal.title': 'Modèles & fournisseurs',
   'governance.surface.model-portal.description':
     'Fournisseurs et serving LLM — regroupés sous Ressources.',
@@ -862,6 +865,9 @@ export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   'governance.surface.sharepoint.description': 'SharePoint connector configuration.',
   'governance.surface.sap-hana.title': 'SAP HANA',
   'governance.surface.sap-hana.description': 'SAP HANA Cloud connector configuration.',
+  'governance.surface.mcp.title': 'MCP',
+  'governance.surface.mcp.description':
+    'Workspace MCP server registry (URL, token, tools/list).',
   'governance.surface.model-portal.title': 'Models & Providers',
   'governance.surface.model-portal.description': 'LLM providers and serving — housed under Resources.',
   'governance.surface.presets.title': 'Presets',

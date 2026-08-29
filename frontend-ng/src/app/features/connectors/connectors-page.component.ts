@@ -123,6 +123,14 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                     <app-icon name="arrow-right" [size]="14" />
                     {{ i18n.t('connectors.open.rpa_bridge') }}
                   </a>
+                } @else if (connector.id === 'mcp') {
+                  <a
+                    routerLink="/connectors/mcp"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
+                  >
+                    <app-icon name="arrow-right" [size]="14" />
+                    {{ i18n.t('connectors.open.mcp') }}
+                  </a>
                 } @else if (connector.id === 'institutional_calendar') {
                   <a
                     routerLink="/hypervisor/mission-room/agenda"
@@ -344,6 +352,10 @@ export class ConnectorsPageComponent {
       this.router.navigate(['/connectors', 'rpa-bridge']);
       return;
     }
+    if (connector.id === 'mcp') {
+      this.router.navigate(['/connectors', 'mcp']);
+      return;
+    }
     this.activeConnector.set(connector);
     this.draftValues = { ...readConnectorConfig(this.workspace.currentSlug(), connector.id) };
     this.drawerOpen.set(true);
@@ -411,6 +423,9 @@ export class ConnectorsPageComponent {
     if (connector.id === 'rpa_bridge') {
       return this.workspace.rpaBridgeEnabled();
     }
+    if (connector.id === 'mcp') {
+      return this.workspace.mcpConnectorEnabled();
+    }
     return true;
   }
 
@@ -436,6 +451,10 @@ export class ConnectorsPageComponent {
         connectorSettings['rpa_bridge']?.enabled === true ||
         !!connectorSettings['rpa_bridge']?.base_url
       );
+    }
+    if (id === 'mcp') {
+      const servers = connectorSettings['mcp']?.servers;
+      return Array.isArray(servers) && servers.some((row: { url?: string }) => !!row?.url);
     }
     return connectorSettings[id]?.enabled === true;
   }

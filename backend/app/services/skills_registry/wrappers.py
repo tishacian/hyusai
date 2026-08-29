@@ -1351,6 +1351,177 @@ async def _rpa_dispatch_v1(
             db.close()
 
 
+_MCP_NAMED_FORBIDDEN = frozenset({"tool", "sql", "server_id", "_side_effect"})
+
+
+def _mcp_trace(result: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(result.get("result") or {}) if isinstance(result.get("result"), dict) else {}
+    payload["ok"] = bool(result.get("ok", True))
+    payload["server_id"] = result.get("server_id")
+    payload["tool"] = result.get("tool")
+    payload["contract_tool"] = result.get("contract_tool")
+    payload["credential_source"] = result.get("credential_source")
+    payload["duration_ms"] = result.get("duration_ms")
+    return payload
+
+
+async def _mcp_invoke(
+    payload: dict[str, Any],
+    ctx: Optional[dict[str, Any]],
+    *,
+    server_id: str,
+    contract_tool: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    from app.services.connectors.mcp import client as mcp_client
+    from app.services.connectors.mcp import service as mcp_service
+    from app.services.connectors.mcp.errors import McpError
+
+    if arguments.get("_side_effect") is not None:
+        raise ValueError("arguments._side_effect is not allowed; the write-set is code")
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if not mcp_service.is_workspace_enabled(workspace):
+            raise ValueError("mcp_unconfigured: MCP connector is not enabled for this workspace")
+        server = mcp_service.resolve_server(workspace, server_id)
+        try:
+            result = mcp_client.call_tool(
+                server,
+                contract_tool=contract_tool,
+                arguments=arguments,
+            )
+        except McpError:
+            raise
+        return _mcp_trace(result)
+    finally:
+        if owns_db:
+            db.close()
+
+
+async def _mcp_call_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    if payload.get("_side_effect") is not None:
+        raise ValueError("arguments._side_effect is not allowed; the write-set is code")
+    arguments = payload.get("arguments")
+    if arguments is not None and not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    args = dict(arguments or {})
+    return await _mcp_invoke(
+        payload,
+        ctx,
+        server_id=str(payload.get("server_id") or ""),
+        contract_tool=str(payload.get("tool") or ""),
+        arguments=args,
+    )
+
+
+async def _sap_list_approved_prs_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    if _MCP_NAMED_FORBIDDEN & set(payload):
+        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    return await _mcp_invoke(payload, ctx, server_id="sap", contract_tool="list_approved_prs", arguments={})
+
+
+async def _sap_check_budget_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    if _MCP_NAMED_FORBIDDEN & set(payload):
+        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    return await _mcp_invoke(
+        payload,
+        ctx,
+        server_id="sap",
+        contract_tool="check_budget",
+        arguments={"pr_id": str(payload.get("pr_id") or "")},
+    )
+
+
+async def _sap_get_justification_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    if _MCP_NAMED_FORBIDDEN & set(payload):
+        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    return await _mcp_invoke(
+        payload,
+        ctx,
+        server_id="sap",
+        contract_tool="get_justification",
+        arguments={"pr_id": str(payload.get("pr_id") or "")},
+    )
+
+
+async def _sap_reject_pr_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    if _MCP_NAMED_FORBIDDEN & set(payload):
+        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    return await _mcp_invoke(
+        payload,
+        ctx,
+        server_id="sap",
+        contract_tool="reject_pr",
+        arguments={
+            "pr_id": str(payload.get("pr_id") or ""),
+            "reason": str(payload.get("reason") or "budget"),
+        },
+    )
+
+
+async def _hikma_list_pos_by_type_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    if _MCP_NAMED_FORBIDDEN & set(payload):
+        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    return await _mcp_invoke(
+        payload,
+        ctx,
+        server_id="hikma",
+        contract_tool="list_pos_by_type",
+        arguments={"pr_type": str(payload.get("pr_type") or "")},
+    )
+
+
+async def _sap_create_po_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    if _MCP_NAMED_FORBIDDEN & set(payload):
+        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    arguments: dict[str, Any] = {
+        "pr_id": str(payload.get("pr_id") or ""),
+        "supplier": str(payload.get("supplier") or ""),
+        "format": str(payload.get("format") or ""),
+    }
+    if payload.get("amount") is not None:
+        arguments["amount"] = payload.get("amount")
+    return await _mcp_invoke(
+        payload,
+        ctx,
+        server_id="sap",
+        contract_tool="create_po",
+        arguments=arguments,
+    )
+
+
+async def _sap_handle_rejection_v1(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    if _MCP_NAMED_FORBIDDEN & set(payload):
+        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    return await _mcp_invoke(
+        payload,
+        ctx,
+        server_id="sap",
+        contract_tool="handle_rejection",
+        arguments={
+            "pr_id": str(payload.get("pr_id") or ""),
+            "note": str(payload.get("note") or ""),
+        },
+    )
+
+
 async def _await_managed_execution(
     execution_id: str, *, deadline: float
 ) -> tuple[str | None, dict[str, Any] | None, str | None, str | None]:
@@ -5987,6 +6158,46 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "rpa_dispatch_v1": (
         _rpa_dispatch_v1,
         "app.services.connectors.rpa.service",
+        "bound",
+    ),
+    "mcp_call_v1": (
+        _mcp_call_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_list_approved_prs_v1": (
+        _sap_list_approved_prs_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_check_budget_v1": (
+        _sap_check_budget_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_get_justification_v1": (
+        _sap_get_justification_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_reject_pr_v1": (
+        _sap_reject_pr_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "hikma_list_pos_by_type_v1": (
+        _hikma_list_pos_by_type_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_create_po_v1": (
+        _sap_create_po_v1,
+        "app.services.connectors.mcp.client",
+        "bound",
+    ),
+    "sap_handle_rejection_v1": (
+        _sap_handle_rejection_v1,
+        "app.services.connectors.mcp.client",
         "bound",
     ),
     "python_recipe_v1": (

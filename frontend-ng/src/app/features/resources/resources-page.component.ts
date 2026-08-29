@@ -1466,6 +1466,10 @@ export class ResourcesPageComponent implements OnInit {
       this.router.navigate(['/connectors', 'rpa-bridge']);
       return;
     }
+    if (c.id === 'mcp') {
+      this.router.navigate(['/connectors', 'mcp']);
+      return;
+    }
     this.active.set(c);
     this.draftValues = { ...readConnectorConfig(this.workspace.currentSlug(), c.id) };
     this.drawerOpen.set(true);
@@ -1477,6 +1481,9 @@ export class ResourcesPageComponent implements OnInit {
     }
     if (c.id === 'rpa_bridge') {
       return this.workspace.rpaBridgeEnabled();
+    }
+    if (c.id === 'mcp') {
+      return this.workspace.mcpConnectorEnabled();
     }
     return true;
   }

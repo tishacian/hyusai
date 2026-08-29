@@ -530,6 +530,11 @@ export const FLOW_FR = {
     'Aucun schéma déclaré : à la publication, cette étape reprend le contrat de sortie de la Skill liée et le conserve tel quel pour cette version.',
   'flow.inspector.section.trigger': 'Déclencheur',
   'flow.inspector.trigger.sftp': 'Ouvrir le dépôt SFTP',
+  'flow.inspector.section.mcp': 'Serveur MCP',
+  'flow.inspector.mcp.open': 'Ouvrir le connecteur MCP',
+  'flow.inspector.mcp.server': 'Serveur {id}',
+  'flow.inspector.mcp.credential': 'Identifiants : {source}',
+  'flow.inspector.mcp.disabled': 'Connecteur MCP désactivé sur ce workspace',
   'flow.inspector.trigger.unavailable':
     'Le pilotage des déclencheurs est disponible une fois le Flow enregistré dans un Système.',
   'flow.inspector.section.danger': 'Supprimer ce nœud',
@@ -2031,6 +2036,11 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
     'No schema declared: when published, this step adopts the bound Skill’s output contract and keeps it as-is for this version.',
   'flow.inspector.section.trigger': 'Trigger',
   'flow.inspector.trigger.sftp': 'Open the SFTP deposit',
+  'flow.inspector.section.mcp': 'MCP server',
+  'flow.inspector.mcp.open': 'Open the MCP connector',
+  'flow.inspector.mcp.server': 'Server {id}',
+  'flow.inspector.mcp.credential': 'Credentials: {source}',
+  'flow.inspector.mcp.disabled': 'MCP connector is off on this workspace',
   'flow.inspector.trigger.unavailable':
     'Trigger piloting becomes available once this Flow is saved into a System.',
   'flow.inspector.section.danger': 'Remove this node',

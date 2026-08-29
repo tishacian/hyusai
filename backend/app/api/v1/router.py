@@ -41,6 +41,7 @@ from app.api.v1.endpoints import (
     livekit,
     maps,
     maritime,
+    mcp,
     meetings,
     metrics,
     mission_room,
@@ -104,6 +105,7 @@ api_router.include_router(intelligence.router, prefix="/intelligence", tags=["in
 api_router.include_router(sharepoint.router, prefix="/sharepoint", tags=["sharepoint"])
 api_router.include_router(hana.router, prefix="/hana", tags=["hana"])
 api_router.include_router(rpa.router, prefix="/rpa", tags=["rpa"])
+api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
 api_router.include_router(apps.router, prefix="/workspaces", tags=["apps"])
 api_router.include_router(model_portal.router, prefix="/models", tags=["model-portal"])
 

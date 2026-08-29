@@ -411,6 +411,15 @@ export class WorkspaceService {
       && (features as Record<string, unknown>)['rpa_bridge'] === true,
     );
   });
+  readonly mcpConnectorEnabled = computed(() => {
+    const features = this.current()?.settings?.['features'];
+    return Boolean(
+      features
+      && typeof features === 'object'
+      && !Array.isArray(features)
+      && (features as Record<string, unknown>)['mcp_connector'] === true,
+    );
+  });
   readonly modelPortalEnabled = computed(() => {
     const features = this.current()?.settings?.['features'];
     return Boolean(

@@ -252,6 +252,8 @@ export interface RetrievalDecisionTrace {
 export interface RunHitlPayload {
   node_id?: string;
   prompt?: string;
+  prompt_kind?: string;
+  upstream?: Record<string, unknown>;
   decision_id?: string;
   decision_status?: string | null;
   decision_title?: string | null;
@@ -2084,11 +2086,17 @@ export class CanonicalApiService {
     return this.api.post<Run>(`/runs/${id}/rerun`, {}).pipe(catchError(() => of(null)));
   }
 
-  listRuns(params?: { system_id?: string; capability_id?: string; origin?: string }): Observable<Run[]> {
+  listRuns(params?: {
+    system_id?: string;
+    capability_id?: string;
+    origin?: string;
+    status?: string;
+  }): Observable<Run[]> {
     const p: Record<string, string> = {};
     if (params?.system_id) p['system_id'] = params.system_id;
     if (params?.capability_id) p['capability_id'] = params.capability_id;
     if (params?.origin) p['origin'] = params.origin;
+    if (params?.status) p['status'] = params.status;
     return this.api
       .get<Run[] | { runs: Run[] }>('/runs', p)
       .pipe(

@@ -532,9 +532,11 @@ async def get_run(
         except Exception:  # noqa: BLE001 — cockpit enrichment must not break get_run
             pass
 
+        rationale = decision.rationale if decision and isinstance(decision.rationale, dict) else {}
         payload["hitl"] = {
             "node_id": pending_cp.get("node_id"),
-            "prompt": pending_cp.get("prompt"),
+            "prompt": pending_cp.get("prompt") or rationale.get("prompt"),
+            "prompt_kind": rationale.get("prompt_kind"),
             "decision_id": decision_id,
             "decision_status": decision.status if decision else None,
             "decision_title": decision.title if decision else None,
@@ -543,8 +545,9 @@ async def get_run(
             "seconds_remaining": seconds_remaining,
             "inbox_count": inbox_count,
             "memory": memory_hint,
+            "upstream": rationale.get("upstream"),
             "correlation_key": pending_cp.get("correlation_key")
-            or ((decision.rationale or {}).get("correlation_key") if decision else None),
+            or rationale.get("correlation_key"),
         }
     debug_cp = _pending_debug_checkpoint(r)
     if debug_cp:
