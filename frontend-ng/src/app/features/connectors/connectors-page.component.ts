@@ -126,6 +126,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                 } @else if (connector.id === 'mcp') {
                   <a
                     routerLink="/connectors/mcp"
+                    [queryParams]="workspaceQuery()"
                     class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
@@ -276,6 +277,10 @@ export class ConnectorsPageComponent {
       this.workspace.currentSlug() ||
       this.i18n.t('connectors.workspace.fallback'),
   );
+  readonly workspaceQuery = computed(() => {
+    const slug = this.workspace.currentSlug();
+    return slug ? { workspace: slug } : {};
+  });
   readonly workspaceSettings = computed(
     () => (this.workspace.current()?.settings || {}) as Record<string, any>,
   );

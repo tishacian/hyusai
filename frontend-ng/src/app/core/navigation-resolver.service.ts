@@ -67,14 +67,19 @@ export class NavigationResolverService {
 
   /** Activate a workspace carried by a deep link before any routed component exists. */
   activateWorkspaceFromRoute(requestedRoute: string): NavigationRedirectDecision | null {
-    const match = this.pathOnly(requestedRoute).match(/^\/workspace\/([^/]+)(?:\/|$)/);
-    if (!match?.[1]) return null;
+    const pathMatch = this.pathOnly(requestedRoute).match(/^\/workspace\/([^/]+)(?:\/|$)/);
+    const rawQuery = requestedRoute.includes('?')
+      ? requestedRoute.slice(requestedRoute.indexOf('?') + 1).split('#')[0]
+      : '';
+    const encoded = pathMatch?.[1] || new URLSearchParams(rawQuery).get('workspace');
+    if (!encoded) return null;
     let slug: string;
     try {
-      slug = decodeURIComponent(match[1]);
+      slug = decodeURIComponent(encoded);
     } catch {
       return this.invalidWorkspaceFallback(requestedRoute);
     }
+    if (!slug.trim()) return null;
     if (slug === this.workspace.currentSlug()) return null;
     if (this.workspace.switchWorkspace(slug)) return null;
     return this.invalidWorkspaceFallback(requestedRoute);
