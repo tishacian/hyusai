@@ -41,10 +41,31 @@ def _server(url: str, server_id: str) -> dict:
 def test_classify_kind_uses_live_names_not_pdf_aliases():
     assert mcp_preview.classify_kind("get_A_PurchaseRequisitionHeader") == "read"
     assert mcp_preview.classify_kind("list_approved_prs") == "read"
+    assert mcp_preview.classify_kind("getTaskCollection") == "read"
+    assert mcp_preview.classify_kind("listCommentCollection") == "read"
     assert mcp_preview.classify_kind("post_A_PurchaseOrder") == "write"
     assert mcp_preview.classify_kind("create_po") == "write"
     assert mcp_preview.classify_kind("reject_pr") == "write"
     assert mcp_preview.classify_kind("handle_rejection") == "write"
+    assert not mcp_preview.is_preview_safe({"name": "searchUsersWorkflowTask", "input_schema": {}})
+    assert mcp_preview.pick_preview_tool(
+        [
+            {"name": "listCommentCollection", "input_schema": {}},
+            {"name": "getTaskCollection", "input_schema": {"properties": {"top": {"type": "string"}}}},
+            {"name": "searchUsersWorkflowTask", "input_schema": {}},
+        ]
+    )["name"] == "getTaskCollection"
+
+
+def test_gateway_refusal_is_not_a_live_table():
+    assert mcp_preview.gateway_refusal(
+        {
+            "status": 403,
+            "error": True,
+            "message": "No service found for namespace '', name 'API_MATERIAL_DOCUMENT_SRV'",
+            "data": {"error": {"code": "/IWFND/MED/170"}},
+        }
+    )
 
 
 def test_preview_safe_rejects_required_keys_and_writes():
