@@ -29,14 +29,6 @@ const LANE_SERVICE: Record<McpShowcaseLane, string> = {
   inbox: '/IWPGW/TASKPROCESSING v2',
 };
 
-const INBOX_GAPS = [
-  'comment',
-  'processinglog',
-  'workflowlog',
-  'approvalhistory',
-  'popdf',
-] as const;
-
 export function hostOfMcpUrl(url: string): string {
   const raw = (url || '').trim();
   if (!raw) return '';
@@ -71,10 +63,10 @@ export function inferShowcaseReadiness(
   const blob = names.join(' ');
   if (lane === 'gr') return 'caution';
   if (lane === 'inbox') {
+    // tools/list still advertises comment/log/PDF collections; PIH QA's
+    // gateway does not expose them. Treat advertised inbox reads as partial.
     const hasTask = blob.includes('workflowtask') || blob.includes('taskprocessing') || blob.includes('task');
-    const missing = INBOX_GAPS.filter((gap) => !blob.includes(gap));
-    if (hasTask && missing.length) return 'partial';
-    return hasTask ? 'ready' : 'unknown';
+    return hasTask ? 'partial' : 'unknown';
   }
   if (lane === 'pr') {
     return blob.includes('purchaserequisition') || blob.includes('purchasereq') ? 'ready' : 'unknown';
