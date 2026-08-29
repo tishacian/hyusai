@@ -227,6 +227,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
             <li>{{ i18n.t('connectors.mcp.showcase.note.writes') }}</li>
             <li>{{ i18n.t('connectors.mcp.showcase.note.by_key') }}</li>
             <li>{{ i18n.t('connectors.mcp.showcase.note.slow') }}</li>
+            <li>{{ i18n.t('connectors.mcp.showcase.note.proxy') }}</li>
           </ul>
         }
       }
@@ -383,6 +384,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
                   [disabled]="!featureEnabled() || saving()"
                   class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                 />
+                <p class="mt-1 text-[11px] leading-5 text-gray-500">{{ i18n.t('connectors.mcp.url_hint') }}</p>
               </label>
               <div class="grid gap-3 sm:grid-cols-2">
                 <label class="block">

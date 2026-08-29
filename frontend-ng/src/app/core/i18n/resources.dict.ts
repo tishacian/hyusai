@@ -248,10 +248,14 @@ export const RESOURCES_FR = {
     'Un outil qui se termine par _by_key exige la clé, même si le schéma la marque optionnelle.',
   'connectors.mcp.showcase.note.slow':
     'Certaines lectures dépassent 20 s. Prévoir un délai large.',
+  'connectors.mcp.showcase.note.proxy':
+    'Un HTTP 407 vient du proxy SAP, pas de l’OAuth. Redémarrer l’application MCP — ne pas remplacer le secret.',
   'connectors.mcp.showcase.note.gr':
     'Le serveur MCP répond ; le service documents matière peut être refusé par SAP (403).',
   'connectors.mcp.showcase.note.inbox':
-    'La liste des tâches passe. Commentaires, journaux et historique d’approbation peuvent manquer côté SAP.',
+    'La liste des tâches passe. Commentaires, journaux et historique d’approbation peuvent manquer côté SAP. Chercher un utilisateur pour une tâche peut ne jamais revenir.',
+  'connectors.mcp.url_hint':
+    'L’URL doit se terminer par /mcp/ (slash final). Sans lui, SAP redirige et l’authentification est perdue.',
   'connectors.mcp.configured': 'prêt',
   'connectors.mcp.incomplete': 'incomplet',
   'connectors.mcp.disabled': 'désactivé',
@@ -664,10 +668,14 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
     'A tool ending in _by_key still needs the key, even when the schema marks it optional.',
   'connectors.mcp.showcase.note.slow':
     'Some reads take more than 20 s. Allow plenty of time.',
+  'connectors.mcp.showcase.note.proxy':
+    'HTTP 407 comes from the SAP proxy, not from OAuth. Restart the MCP application — do not replace the secret.',
   'connectors.mcp.showcase.note.gr':
     'The MCP server answers; the material-document service may be refused by SAP (403).',
   'connectors.mcp.showcase.note.inbox':
-    'Task lists work. Comments, logs and approval history may be missing on the SAP side.',
+    'Task lists work. Comments, logs and approval history may be missing on the SAP side. Searching for a user on a task may never return.',
+  'connectors.mcp.url_hint':
+    'The URL must end with /mcp/ (trailing slash). Without it, SAP redirects and drops authentication.',
   'connectors.mcp.configured': 'ready',
   'connectors.mcp.incomplete': 'incomplete',
   'connectors.mcp.disabled': 'off',
