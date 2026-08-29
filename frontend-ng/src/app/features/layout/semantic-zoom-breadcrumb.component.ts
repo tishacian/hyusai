@@ -48,7 +48,7 @@ interface ZoomLevel {
       [style.textTransform]="'uppercase'"
       [style.color]="'var(--ck-fg-3)'"
       [style.minWidth]="'0'"
-      [style.overflow]="'hidden'"
+      [style.overflowX]="'auto'"
     >
       @for (lv of levels(); track lv.key; let last = $last) {
         <button
