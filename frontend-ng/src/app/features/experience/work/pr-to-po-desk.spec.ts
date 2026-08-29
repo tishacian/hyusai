@@ -16,6 +16,13 @@ test('prefers business columns over the raw OData left-edge', () => {
     ),
     ['PurchaseRequisition', 'CreationDate', 'Plant'],
   );
+  assert.deepEqual(
+    pickDeskColumns(
+      ['TaskSupports', 'InstanceID', 'TaskDefinitionName', 'TaskTitle', 'Priority'],
+      'inbox',
+    ),
+    ['TaskTitle', 'TaskDefinitionName', 'Priority', 'InstanceID'],
+  );
 });
 
 test('a live PR preview becomes a live lane with the advertised tool name', () => {
@@ -39,6 +46,13 @@ test('a 403 on goods receipt is caution, not a silent empty table', () => {
   const lane = laneFromPreview('gr', 'sap_gr', null, 'SAP refused the material document (403)');
   assert.equal(lane.status, 'caution');
   assert.match(lane.detail, /403/);
+  const wrapped = laneFromPreview('gr', 'sap_gr', {
+    ok: true,
+    columns: ['status', 'error', 'message'],
+    rows: [['403', 'True', 'No service found']],
+    row_count: 1,
+  });
+  assert.equal(wrapped.status, 'caution');
 });
 
 test('HANA demo tables count as live context, not a connector failure', () => {
