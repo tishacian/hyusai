@@ -76,6 +76,8 @@ body {
   background: var(--bg-app);
   color: var(--text-primary);
   min-height: 100vh;
+  /* Document X stays clipped (the shell is position:fixed). Wide views
+     scroll on #main-content, which is the only overflow-x:auto column. */
   overflow-x: hidden;
 }
 

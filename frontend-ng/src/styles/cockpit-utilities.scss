@@ -42,6 +42,19 @@
   background: var(--ck-bg-panel);
   border: 1px solid var(--ck-stroke-2);
   border-radius: var(--ck-radius-md);
+  min-width: 0;
+}
+
+/* Wide tables / toolbars: scroll instead of vanishing past a clipped parent. */
+.ck-h-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.shell-main :has(> table) {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .ck-surface-hi {
