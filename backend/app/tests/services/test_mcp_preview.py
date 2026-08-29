@@ -132,6 +132,29 @@ def test_flatten_unwraps_fixture_and_odata_shapes():
     )
     assert sap["columns"] == ["PurchaseRequisition", "PurReqnDescription"]
     assert sap["rows"][0] == ["1000000000", "Scanners"]
+    wide_po = mcp_preview.flatten_preview(
+        {
+            "status": 200,
+            "data": {
+                "results": [
+                    {
+                        "PurchaseOrder": "4200000000",
+                        "PurchaseOrderType": "ZAPO",
+                        "CompanyCode": "4510",
+                        "PurchasingDocumentDeletionCode": "",
+                        "PurchasingProcessingStatus": "02",
+                        "CreatedByUser": "DEMO",
+                        "CreationDate": "2026-01-01",
+                        "LastChangeDateTime": "2026-01-02",
+                        "Supplier": "100012",
+                        "PurchasingOrganization": "4510",
+                    }
+                ]
+            },
+        }
+    )
+    assert "Supplier" in wide_po["columns"]
+    assert wide_po["rows"][0][wide_po["columns"].index("Supplier")] == "100012"
 
 
 def test_fixture_preview_lists_prs_and_never_calls_write():
