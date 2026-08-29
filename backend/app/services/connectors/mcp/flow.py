@@ -280,19 +280,16 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "kind": "sink",
                 "label": "Done",
                 "position": {"x": 3400, "y": 200},
-            },
-            {
-                "id": "sink.idle",
-                "kind": "sink",
-                "label": "No PR",
-                "position": {"x": 1000, "y": 360},
+                "data": {
+                    "description": "Single strict sink. Empty ticks and completed ticks both land here."
+                },
             },
         ],
         "edges": [
             {"from": "src", "to": "task.list_prs", "kind": "data"},
             {"from": "task.list_prs", "to": "task.select_pr", "kind": "data"},
             {"from": "task.select_pr", "to": "decision.has_pr", "kind": "data"},
-            {"from": "decision.has_pr", "to": "sink.idle", "kind": "branch", "branch_label": "empty"},
+            {"from": "decision.has_pr", "to": "sink.done", "kind": "branch", "branch_label": "empty"},
             {"from": "decision.has_pr", "to": "task.budget", "kind": "branch", "branch_label": "ready"},
             {"from": "task.budget", "to": "task.justification", "kind": "data"},
             {"from": "task.justification", "to": "decision.budget", "kind": "data"},
