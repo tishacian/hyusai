@@ -961,7 +961,7 @@ export function buildRetrievalDocumentOptions(
                 <p class="ck-flow-hint">{{ i18n.t('flow.inspector.mcp.credential', { source }) }}</p>
               }
               @if (mcpConnectorEnabled()) {
-                <a class="ck-flow-action" routerLink="/connectors/mcp">
+                <a class="ck-flow-action" routerLink="/connectors/mcp" [queryParams]="workspaceQuery()">
                   <ck-glyph name="orbit" [size]="12" color="currentColor" />
                   {{ i18n.t('flow.inspector.mcp.open') }}
                 </a>
@@ -1239,6 +1239,10 @@ export class FlowInspectorComponent {
   }
 
   readonly mcpConnectorEnabled = this.workspace.mcpConnectorEnabled;
+  readonly workspaceQuery = computed(() => {
+    const slug = this.workspace.currentSlug();
+    return slug ? { workspace: slug } : {};
+  });
   private readonly mcpServers = signal<Array<{ id?: string; credential_source?: string | null }>>([]);
   private mcpServersLoaded = false;
 
