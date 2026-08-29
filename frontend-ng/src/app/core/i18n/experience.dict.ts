@@ -750,6 +750,22 @@ export const EXPERIENCE_FR = {
   'experience.publish.conflict':
     'Le brouillon, ses liaisons ou ses réglages ont changé depuis cette revue. Fermez-la, relisez puis recommencez.',
   'experience.publish.error': 'La publication n’a pas abouti.',
+  'experience.pr_to_po.title': 'PR vers PO',
+  'experience.pr_to_po.subtitle':
+    'File d’approbation NAWA. Rien n’est écrit dans SAP avant votre verdict.',
+  'experience.pr_to_po.empty': 'Aucune demande d’approbation en attente.',
+  'experience.pr_to_po.refresh': 'Actualiser',
+  'experience.pr_to_po.approve': 'Approuver et créer le PO',
+  'experience.pr_to_po.reject': 'Refuser',
+  'experience.pr_to_po.package': 'Dossier',
+  'experience.pr_to_po.supplier': 'Fournisseur',
+  'experience.pr_to_po.format': 'Format',
+  'experience.pr_to_po.summary': 'Justification résumée',
+  'experience.pr_to_po.run': 'Exécution {id}',
+  'experience.pr_to_po.start': 'Lancer un cycle',
+  'experience.pr_to_po.starting': 'Lancement…',
+  'experience.pr_to_po.note': 'Note',
+  'experience.pr_to_po.missing': 'Système PR to PO introuvable ou flux non publié.',
 } as const satisfies Record<string, string>;
 
 export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
@@ -1488,4 +1504,20 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.publish.conflict':
     'The draft, its bindings, or its settings changed since this review opened. Close it, review, then try again.',
   'experience.publish.error': 'Publication did not complete.',
+  'experience.pr_to_po.title': 'PR to PO',
+  'experience.pr_to_po.subtitle':
+    'NAWA approval queue. Nothing is written in SAP until you decide.',
+  'experience.pr_to_po.empty': 'No purchase-order approvals waiting.',
+  'experience.pr_to_po.refresh': 'Refresh',
+  'experience.pr_to_po.approve': 'Approve and create the PO',
+  'experience.pr_to_po.reject': 'Reject',
+  'experience.pr_to_po.package': 'Package',
+  'experience.pr_to_po.supplier': 'Supplier',
+  'experience.pr_to_po.format': 'Format',
+  'experience.pr_to_po.summary': 'Justification summary',
+  'experience.pr_to_po.run': 'Run {id}',
+  'experience.pr_to_po.start': 'Start a cycle',
+  'experience.pr_to_po.starting': 'Starting…',
+  'experience.pr_to_po.note': 'Note',
+  'experience.pr_to_po.missing': 'PR to PO system is missing or its flow is not published.',
 };

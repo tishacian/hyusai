@@ -42,6 +42,9 @@ WRITE_SKILLS = frozenset(
         "action_plan_cancel_v1",
         "action_plan_reschedule_v1",
         "sharepoint_ingestion_v1",
+        "sap_reject_pr_v1",
+        "sap_create_po_v1",
+        "sap_handle_rejection_v1",
     }
 )
 
@@ -50,6 +53,14 @@ SKILL_PURPOSES: dict[str, str] = {
     "audit_log_v1": "Write a structured audit ledger entry",
     "semantic_search_v1": "Retrieve grounded evidence",
     "rpa_dispatch_v1": "Dispatch a privileged directory / RPA job",
+    "mcp_call_v1": "Call one tool on a workspace MCP server",
+    "sap_list_approved_prs_v1": "List approved SAP purchase requisitions via MCP",
+    "sap_check_budget_v1": "Check SAP PR budget via MCP",
+    "sap_get_justification_v1": "Read SAP PR justification via MCP",
+    "sap_reject_pr_v1": "Reject a SAP PR via MCP (budget write)",
+    "hikma_list_pos_by_type_v1": "List HIKMA POs of the same PR type via MCP",
+    "sap_create_po_v1": "Create a SAP purchase order via MCP",
+    "sap_handle_rejection_v1": "Record a human SAP PR rejection via MCP",
     DECIDE_SKILL: "Choose the next allowlisted skill",
     SEARCH_SKILL: "Search the mandate-visible skill catalog",
 }
