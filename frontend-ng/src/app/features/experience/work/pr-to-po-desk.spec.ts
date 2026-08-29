@@ -97,4 +97,47 @@ test('a dark terrain asks for a retry, not a write', () => {
   const briefing = composeDesk([laneFromPreview('pr', 'sap', null, 'unreachable')], 0);
   assert.equal(briefing.headlineKey, 'experience.pr_to_po.desk.headline.none');
   assert.equal(briefing.nextKey, 'experience.pr_to_po.desk.next.retry');
+  assert.equal(briefing.stations.find((station) => station.id === 'write')?.status, 'sealed');
+  assert.equal(briefing.stations.find((station) => station.id === 'connect')?.status, 'blocked');
+});
+
+test('the factory compiles a dossier from live SAP columns and keeps the write sealed', () => {
+  const pr = laneFromPreview('pr', 'sap', {
+    ok: true,
+    tool: 'get_A_PurchaseRequisitionHeader',
+    columns: ['PurchaseRequisition', 'PurReqnDescription'],
+    rows: [['1000008', 'Ahmed - Approved By site Petty Cash']],
+    row_count: 1,
+  });
+  const inbox = laneFromPreview('inbox', 'sap_inbox', {
+    ok: true,
+    tool: 'listTaskCollection',
+    columns: ['TaskTitle'],
+    rows: [['Release TR transaction 1000008']],
+    row_count: 1,
+  });
+  const po = laneFromPreview('po', 'hikma', {
+    ok: true,
+    tool: 'get_A_PurchaseOrder',
+    columns: ['PurchaseOrder', 'PurchaseOrderType', 'Supplier'],
+    rows: [
+      ['4200000000', 'ZAPO', '100012'],
+      ['4200000001', 'ZAPO', '100012'],
+      ['4200000002', 'NB', '100099'],
+    ],
+    row_count: 3,
+  });
+  const briefing = composeDesk([pr, inbox, po], 0);
+  assert.equal(briefing.headlineKey, 'experience.pr_to_po.desk.headline.compiled');
+  assert.equal(briefing.headlineParams['pr'], 'Ahmed - Approved By site Petty Cash');
+  assert.equal(briefing.headlineParams['supplier'], '100012');
+  assert.deepEqual(
+    briefing.facts.map((fact) => fact.id),
+    ['pr', 'inbox', 'supplier', 'format'],
+  );
+  assert.equal(briefing.facts.find((fact) => fact.id === 'supplier')?.via, 'get_A_PurchaseOrder');
+  assert.equal(briefing.stations.find((station) => station.id === 'compile')?.status, 'done');
+  assert.equal(briefing.stations.find((station) => station.id === 'compile')?.via, 'python_recipe_v1');
+  assert.equal(briefing.stations.find((station) => station.id === 'decide')?.status, 'ready');
+  assert.equal(briefing.stations.find((station) => station.id === 'write')?.status, 'sealed');
 });

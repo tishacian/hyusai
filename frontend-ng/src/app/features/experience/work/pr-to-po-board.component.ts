@@ -71,13 +71,45 @@ const SYSTEM_NAME = 'PR to PO';
         }
 
         <section class="xp-desk-hero">
-          <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.eyebrow') }}</p>
+          <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.chain') }}</p>
           <h2>{{ i18n.t(briefing().headlineKey, briefing().headlineParams) }}</h2>
           <p>{{ i18n.t(briefing().nextKey) }}</p>
           @if (readAt(); as when) {
             <p class="xp-desk-asof">{{ i18n.t('experience.pr_to_po.desk.as_of', { time: when }) }}</p>
           }
         </section>
+
+        <ol class="xp-desk-line">
+          @for (station of briefing().stations; track station.id) {
+            <li [attr.data-status]="station.status">
+              <span>{{ i18n.t('experience.pr_to_po.desk.station.' + station.id) }}</span>
+              <strong>{{ i18n.t('experience.pr_to_po.desk.station_status.' + station.status) }}</strong>
+              @if (station.via) {
+                <em>{{ station.via }}</em>
+              }
+            </li>
+          }
+        </ol>
+
+        @if (briefing().facts.length) {
+          <section class="xp-desk-dossier">
+            <h3>{{ i18n.t('experience.pr_to_po.desk.dossier') }}</h3>
+            <p>{{ i18n.t('experience.pr_to_po.desk.factory_note') }}</p>
+            <dl>
+              @for (fact of briefing().facts; track fact.id) {
+                <div>
+                  <dt>{{ i18n.t('experience.pr_to_po.desk.fact.' + fact.id) }}</dt>
+                  <dd>
+                    <strong>{{ fact.value }}</strong>
+                    @if (fact.via) {
+                      <span>{{ i18n.t('experience.pr_to_po.desk.via', { tool: fact.via }) }}</span>
+                    }
+                  </dd>
+                </div>
+              }
+            </dl>
+          </section>
+        }
 
         <ul class="xp-desk-kpis">
           @for (kpi of briefing().kpis; track kpi.id) {
@@ -92,6 +124,9 @@ const SYSTEM_NAME = 'PR to PO';
           <app-empty-state icon="sparkles" size="lg" [title]="i18n.t('experience.pr_to_po.desk.reading')" />
         }
 
+        @if (visibleLanes().length) {
+          <h3 class="xp-desk-raw">{{ i18n.t('experience.pr_to_po.desk.raw') }}</h3>
+        }
         <div class="xp-desk-grid">
           @for (lane of visibleLanes(); track lane.id) {
             <article class="xp-desk-card" [attr.data-status]="lane.status">

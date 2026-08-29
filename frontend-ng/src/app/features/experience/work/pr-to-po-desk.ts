@@ -1,6 +1,6 @@
 /**
- * Live PR → PO desk. Turns MCP / HANA previews into a briefing a
- * colleague can read without opening the connector page.
+ * Live PR → PO desk. Turns MCP / HANA previews into a factory briefing:
+ * connect → sense → compile → decide → sealed write.
  * No invented PDF aliases — tool names stay as the servers advertised them.
  */
 
@@ -39,12 +39,30 @@ export interface DeskKpi {
   tone: DeskTone;
 }
 
+export type FactoryStationId = 'connect' | 'sense' | 'compile' | 'decide' | 'write';
+export type FactoryStationStatus = 'done' | 'ready' | 'blocked' | 'sealed';
+export type FactoryFactId = 'pr' | 'inbox' | 'supplier' | 'format';
+
+export interface FactoryStation {
+  id: FactoryStationId;
+  status: FactoryStationStatus;
+  via: string;
+}
+
+export interface FactoryFact {
+  id: FactoryFactId;
+  value: string;
+  via: string;
+}
+
 export interface DeskBriefing {
   headlineKey: string;
-  headlineParams: Record<string, number>;
+  headlineParams: Record<string, string | number>;
   nextKey: string;
   liveLanes: number;
   kpis: DeskKpi[];
+  stations: FactoryStation[];
+  facts: FactoryFact[];
 }
 
 export const DESK_MCP_LANES: ReadonlyArray<{ id: Exclude<DeskLaneId, 'hana'>; serverId: string }> = [
@@ -190,6 +208,56 @@ function kpiTone(lane: DeskLane | undefined): DeskTone {
   return 'ok';
 }
 
+function firstCell(lane: DeskLane | undefined, wanted: readonly string[]): string {
+  if (!lane?.columns.length || !lane.rows.length) return '';
+  const index = new Map(lane.columns.map((name, at) => [name.toLowerCase(), at]));
+  for (const name of wanted) {
+    const at = index.get(name.toLowerCase());
+    if (at == null) continue;
+    for (const row of lane.rows) {
+      const value = String(row[at] ?? '').trim();
+      if (value) return value;
+    }
+  }
+  return '';
+}
+
+function majorityCell(lane: DeskLane | undefined, wanted: readonly string[]): string {
+  if (!lane?.columns.length || !lane.rows.length) return '';
+  const index = new Map(lane.columns.map((name, at) => [name.toLowerCase(), at]));
+  let at = -1;
+  for (const name of wanted) {
+    const found = index.get(name.toLowerCase());
+    if (found != null) {
+      at = found;
+      break;
+    }
+  }
+  if (at < 0) return '';
+  const votes = new Map<string, number>();
+  for (const row of lane.rows) {
+    const value = String(row[at] ?? '').trim();
+    if (!value) continue;
+    votes.set(value, (votes.get(value) || 0) + 1);
+  }
+  let best = '';
+  let count = 0;
+  for (const [value, n] of votes) {
+    if (n > count) {
+      best = value;
+      count = n;
+    }
+  }
+  return best;
+}
+
+function firstLiveTool(...lanes: Array<DeskLane | undefined>): string {
+  for (const lane of lanes) {
+    if (lane?.status === 'live' && lane.tool) return lane.tool;
+  }
+  return '';
+}
+
 export function composeDesk(
   lanes: readonly DeskLane[],
   hitlCount = 0,
@@ -209,21 +277,51 @@ export function composeDesk(
   ];
   if (hana) kpis.push({ id: 'hana', value: hana.rowCount || 0, tone: kpiTone(hana) });
 
+  const focusPr = firstCell(pr, ['PurchaseRequisition']);
+  const focusLabel = firstCell(pr, ['PurReqnDescription']) || focusPr;
+  const inboxTask = firstCell(inbox, ['TaskTitle']);
+  const supplier = majorityCell(po, ['Supplier']);
+  const poFormat = majorityCell(po, ['PurchaseOrderType']);
+  const facts: FactoryFact[] = [];
+  if (focusLabel) facts.push({ id: 'pr', value: focusLabel, via: pr?.tool || '' });
+  if (inboxTask) facts.push({ id: 'inbox', value: inboxTask, via: inbox?.tool || '' });
+  if (supplier) facts.push({ id: 'supplier', value: supplier, via: po?.tool || '' });
+  if (poFormat) facts.push({ id: 'format', value: poFormat, via: po?.tool || '' });
+
+  const reached = lanes.some((lane) => lane.status !== 'down');
+  const sensed = [pr, inbox, po].some((lane) => lane?.status === 'live');
+  const compiled = facts.length > 0;
+  const stations: FactoryStation[] = [
+    { id: 'connect', status: reached ? 'done' : 'blocked', via: '' },
+    { id: 'sense', status: sensed ? 'done' : 'blocked', via: firstLiveTool(pr, inbox, po) },
+    { id: 'compile', status: compiled ? 'done' : 'blocked', via: compiled ? 'python_recipe_v1' : '' },
+    { id: 'decide', status: hitlCount > 0 || compiled ? 'ready' : 'blocked', via: '' },
+    { id: 'write', status: 'sealed', via: '' },
+  ];
+
   let nextKey = 'experience.pr_to_po.desk.next.review';
   if (hitlCount > 0) nextKey = 'experience.pr_to_po.desk.next.decide';
   else if (liveLanes === 0) nextKey = 'experience.pr_to_po.desk.next.retry';
   else if (gr?.status === 'caution' || gr?.status === 'down') nextKey = 'experience.pr_to_po.desk.next.receive';
 
+  const compiledHeadline = Boolean(focusPr && supplier);
   return {
-    headlineKey:
-      liveLanes > 0 ? 'experience.pr_to_po.desk.headline.live' : 'experience.pr_to_po.desk.headline.none',
+    headlineKey: compiledHeadline
+      ? 'experience.pr_to_po.desk.headline.compiled'
+      : liveLanes > 0
+        ? 'experience.pr_to_po.desk.headline.live'
+        : 'experience.pr_to_po.desk.headline.none',
     headlineParams: {
       prs: pr?.rowCount || 0,
       tasks: inbox?.rowCount || 0,
       pos: po?.rowCount || 0,
+      pr: focusLabel,
+      supplier,
     },
     nextKey,
     liveLanes,
     kpis,
+    stations,
+    facts,
   };
 }
