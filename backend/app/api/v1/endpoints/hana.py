@@ -104,3 +104,23 @@ async def run_hana_query(
             status_code=502,
             detail=f"HANA query failed: {exc}",
         ) from exc
+
+
+@router.get("/preview")
+async def preview_hana_catalog(
+    table: Optional[str] = None,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+):
+    """Read-only schema list + a capped sample of one table."""
+    _require_enabled(workspace)
+    config = hana_service.get_config(workspace, include_secrets=True)
+    try:
+        return hana_service.preview_catalog(config, table=table)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 — surface driver errors to the operator UI
+        raise HTTPException(
+            status_code=502,
+            detail=f"HANA preview failed: {exc}",
+        ) from exc
