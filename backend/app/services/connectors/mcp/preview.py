@@ -14,8 +14,19 @@ PREVIEW_COL_CAP = 8
 _READ_PREFIXES = ("get_", "list_", "query_", "search_", "read_")
 _WRITE_PREFIXES = ("post_", "patch_", "put_", "delete_", "create_", "update_")
 _WRITE_NAMES = frozenset({"reject_pr", "create_po", "handle_rejection"})
-_SAFE_OPTIONAL_ARGS = frozenset({"$top", "$skip", "$filter", "$select", "$orderby", "top", "skip", "limit"})
+_SAFE_OPTIONAL_ARGS = frozenset(
+    {"$top", "$skip", "$filter", "$select", "$orderby", "top", "skip", "limit"}
+)
 _RECORD_KEYS = ("value", "prs", "pos", "items", "records", "results", "data", "rows")
+_PAGE_KEYS = ("$top", "top", "limit")
+_SKIP_NAME_SUFFIXES = ("_by_key",)
+_SKIP_NAME_TOKENS = ("itemtext", "unitofmeasure")
+_PREFERRED_ENTITIES = (
+    "purchaserequisitionheader",
+    "purchaserequisition",
+    "purchaseorder",
+    "materialdocument",
+)
 
 
 def classify_kind(name: str) -> str:
@@ -43,36 +54,54 @@ def _required_args(schema: Mapping[str, Any]) -> list[str]:
     return [str(item) for item in required if item]
 
 
+def _is_by_key(name: str) -> bool:
+    lower = name.lower()
+    return any(lower.endswith(suffix) for suffix in _SKIP_NAME_SUFFIXES)
+
+
 def is_preview_safe(tool: Mapping[str, Any]) -> bool:
     name = str(tool.get("name") or "").strip()
     if not name or classify_kind(name) != "read":
         return False
+    if _is_by_key(name):
+        return False
     required = _required_args(_schema_map(tool))
     return all(item in _SAFE_OPTIONAL_ARGS for item in required)
+
+
+def _page_value(spec: Any, *, default: int = PREVIEW_ROW_CAP) -> Any:
+    if isinstance(spec, Mapping) and spec.get("type") == "string":
+        return str(default)
+    return default
 
 
 def preview_arguments(tool: Mapping[str, Any]) -> dict[str, Any]:
     schema = _schema_map(tool)
     props = schema.get("properties")
     props = props if isinstance(props, Mapping) else {}
-    if "$top" in props:
-        return {"$top": PREVIEW_ROW_CAP}
-    if "top" in props:
-        return {"top": PREVIEW_ROW_CAP}
-    if "limit" in props:
-        return {"limit": PREVIEW_ROW_CAP}
+    for key in _PAGE_KEYS:
+        if key in props:
+            return {key: _page_value(props.get(key))}
     return {}
 
 
-def _rank(name: str) -> tuple[int, str]:
+def _rank(tool: Mapping[str, Any]) -> tuple[int, int, int, int, str]:
+    name = str(tool.get("name") or "")
     lower = name.lower()
+    props = _schema_map(tool).get("properties")
+    props = props if isinstance(props, Mapping) else {}
+    has_page = 0 if any(key in props for key in _PAGE_KEYS) else 1
+    preferred = 0 if any(token in lower for token in _PREFERRED_ENTITIES) else 1
+    noisy = 1 if any(token in lower for token in _SKIP_NAME_TOKENS) else 0
     if lower.startswith("list_"):
-        return (0, lower)
-    if lower.startswith("get_"):
-        return (1, lower)
-    if lower.startswith(("query_", "search_", "read_")):
-        return (2, lower)
-    return (3, lower)
+        verb = 0
+    elif lower.startswith("get_"):
+        verb = 1
+    elif lower.startswith(("query_", "search_", "read_")):
+        verb = 2
+    else:
+        verb = 3
+    return (noisy, preferred, verb, has_page, lower)
 
 
 def pick_preview_tool(
@@ -94,8 +123,23 @@ def pick_preview_tool(
     safe = [dict(item) for item in tools if isinstance(item, Mapping) and is_preview_safe(item)]
     if not safe:
         raise McpPreviewUnavailable("No read-only list or get tool can be previewed without keys")
-    safe.sort(key=lambda item: _rank(str(item.get("name") or "")))
+    safe.sort(key=_rank)
     return safe[0]
+
+
+def pick_preview_tools(
+    tools: list[Mapping[str, Any]],
+    *,
+    requested: Optional[str] = None,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    if requested:
+        return [pick_preview_tool(tools, requested=requested)]
+    safe = [dict(item) for item in tools if isinstance(item, Mapping) and is_preview_safe(item)]
+    safe.sort(key=_rank)
+    if not safe:
+        raise McpPreviewUnavailable("No read-only list or get tool can be previewed without keys")
+    return safe[: max(1, int(limit))]
 
 
 def _as_record(value: Any) -> dict[str, Any]:
@@ -116,6 +160,14 @@ def extract_records(payload: Any) -> list[dict[str, Any]]:
         return [_as_record(item) for item in nested["results"]]
     if isinstance(nested, list):
         return [_as_record(item) for item in nested]
+    data = payload.get("data")
+    if isinstance(data, Mapping):
+        for key in ("results", "value", "items"):
+            found = data.get(key)
+            if isinstance(found, list):
+                return [_as_record(item) for item in found]
+    if isinstance(data, list):
+        return [_as_record(item) for item in data]
     for key in _RECORD_KEYS:
         found = payload.get(key)
         if isinstance(found, list):
@@ -145,6 +197,8 @@ def flatten_preview(payload: Any) -> dict[str, Any]:
     for row in records:
         for key in row:
             name = str(key)
+            if name.startswith("__") or name.startswith("to_") or name in {"__metadata", "metadata"}:
+                continue
             if name not in columns:
                 columns.append(name)
             if len(columns) >= PREVIEW_COL_CAP:
@@ -168,20 +222,30 @@ def preview_server(
     """``tools/list`` then one safe ``tools/call``. Write tools never run."""
     listed = mcp_client.list_tools(server)
     tools = [item for item in (listed.get("tools") or []) if isinstance(item, Mapping)]
-    chosen = pick_preview_tool(tools, requested=tool_name)
-    name = str(chosen.get("name") or "")
-    called = mcp_client.call_tool(
-        server,
-        contract_tool=name,
-        arguments=preview_arguments(chosen),
-    )
-    table = flatten_preview(called.get("result"))
-    return {
-        "ok": True,
-        "server_id": str(server.get("id") or ""),
-        "tool": name,
-        "kind": "read",
-        "credential_source": called.get("credential_source"),
-        "duration_ms": called.get("duration_ms"),
-        **table,
-    }
+    candidates = pick_preview_tools(tools, requested=tool_name)
+    last_error: Optional[Exception] = None
+    for chosen in candidates:
+        name = str(chosen.get("name") or "")
+        try:
+            called = mcp_client.call_tool(
+                server,
+                contract_tool=name,
+                arguments=preview_arguments(chosen),
+                timeout_s=40.0,
+            )
+        except Exception as exc:  # noqa: BLE001 — try the next safe read tool
+            last_error = exc
+            continue
+        table = flatten_preview(called.get("result"))
+        return {
+            "ok": True,
+            "server_id": str(server.get("id") or ""),
+            "tool": name,
+            "kind": "read",
+            "credential_source": called.get("credential_source"),
+            "duration_ms": called.get("duration_ms"),
+            **table,
+        }
+    if last_error is not None:
+        raise last_error
+    raise McpPreviewUnavailable("No read-only list or get tool can be previewed without keys")
