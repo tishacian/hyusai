@@ -491,6 +491,124 @@
   font-size: 11px;
 }
 
+.xp-desk-line {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+}
+
+.xp-desk-line li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--nawa-line);
+  border-radius: 12px;
+  background: var(--nawa-surface);
+}
+
+.xp-desk-line span {
+  color: var(--nawa-fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.xp-desk-line strong {
+  width: fit-content;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(143, 208, 168, 0.12);
+  color: var(--nawa-ok);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.xp-desk-line em {
+  overflow: hidden;
+  color: var(--nawa-fg-dim);
+  font-family: var(--ck-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xp-desk-line li[data-status='ready'] strong {
+  background: rgba(217, 162, 27, 0.12);
+  color: var(--nawa-warn);
+}
+
+.xp-desk-line li[data-status='blocked'] strong,
+.xp-desk-line li[data-status='sealed'] strong {
+  background: rgba(232, 84, 58, 0.12);
+  color: var(--nawa-accent);
+}
+
+.xp-desk-dossier {
+  margin: 0 0 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--nawa-line);
+  border-radius: 14px;
+  background: var(--nawa-surface);
+}
+
+.xp-desk-dossier h3,
+.xp-desk-raw {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.xp-desk-dossier p {
+  margin: 0 0 14px;
+  color: var(--nawa-fg-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.xp-desk-dossier dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+  margin: 0;
+}
+
+.xp-desk-dossier dt {
+  color: var(--nawa-fg-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.xp-desk-dossier dd {
+  margin: 4px 0 0;
+}
+
+.xp-desk-dossier dd strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.xp-desk-dossier dd span {
+  display: block;
+  margin-top: 2px;
+  color: var(--nawa-fg-dim);
+  font-family: var(--ck-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+}
+
+.xp-desk-raw {
+  margin: 0 0 10px;
+}
+
 .xp-desk-kpis {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -649,7 +767,9 @@
 }
 
 @media (max-width: 860px) {
-  .xp-desk-grid {
+  .xp-desk-grid,
+  .xp-desk-line,
+  .xp-desk-dossier dl {
     grid-template-columns: 1fr;
   }
 }
