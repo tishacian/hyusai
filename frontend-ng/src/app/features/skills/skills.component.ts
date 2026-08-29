@@ -157,7 +157,7 @@ interface SkillsScope {
             </div>
           </div>
         } @else {
-          <div class="ck-surface rounded-md" style="overflow:hidden;">
+          <div class="ck-surface rounded-md ck-h-scroll">
             <!-- header -->
             <div
               class="ck-mono"

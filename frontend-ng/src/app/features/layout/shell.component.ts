@@ -50,6 +50,9 @@ import { I18nService } from '@app/core/i18n.service';
       [style.height]="'100dvh'"
       [style.overflow]="'hidden'"
       [style.display]="'grid'"
+      [style.gridTemplateColumns]="'minmax(0, 1fr)'"
+      [style.minWidth]="'0'"
+      [style.maxWidth]="'100%'"
       [style.gridTemplateRows]="workspaceAppUnavailable() || immersiveWorkspaceApp() ? '1fr' : (businessShell() ? 'auto minmax(0, 1fr)' : '48px 1fr 28px')"
       [style.background]="'var(--ck-bg-base)'"
       [style.color]="'var(--ck-fg-1)'"
@@ -77,6 +80,7 @@ import { I18nService } from '@app/core/i18n.service';
           class="shell-body"
           [class.shell-body-with-rails]="!immersiveWorkspaceApp() && !businessShell()"
           [style.minHeight]="'0'"
+          [style.minWidth]="'0'"
           [style.position]="'relative'"
         >
           @if (!immersiveWorkspaceApp() && !businessShell()) {
@@ -135,8 +139,23 @@ import { I18nService } from '@app/core/i18n.service';
     </div>
   `,
   styles: [`
+    /* The shell is a fixed viewport. Without minmax(0, 1fr) the implicit
+       column sizes to min-content, wide pages grow past the window, and
+       overflow:hidden (plus body overflow-x:hidden) clips with no scrollbar. */
     .shell-body {
       display: flex;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .shell-title-bar,
+    app-command-bar {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .shell-main {
+      min-width: 0;
     }
 
     .shell-main:focus {

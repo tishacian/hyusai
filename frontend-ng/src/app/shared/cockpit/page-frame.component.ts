@@ -71,7 +71,10 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
   `,
   styles: [`
     .ck-page-frame {
-      max-width: 1480px;
+      box-sizing: border-box;
+      width: 100%;
+      min-width: 0;
+      max-width: min(1480px, 100%);
       margin: 0 auto;
       padding: 24px 32px 48px;
     }
