@@ -825,7 +825,7 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.ask.placeholder': 'Qui est le fournisseur majoritaire ?',
   'experience.pr_to_po.desk.ask.submit': 'Demander',
   'experience.pr_to_po.desk.ask.hint':
-    'Réponses tirées des lectures live. Aucune écriture SAP. Aucun alias inventé.',
+    'Les comptes restent sur le bureau. Le portail parle avec l’usine PR to PO. Aucune écriture SAP.',
   'experience.pr_to_po.desk.ask.chip.supplier': 'Fournisseur majoritaire',
   'experience.pr_to_po.desk.ask.chip.po': 'Commandes lues',
   'experience.pr_to_po.desk.ask.chip.next': 'Que faire ensuite',
@@ -846,6 +846,13 @@ export const EXPERIENCE_FR = {
     'Relisez le dossier compilé, puis décidez. Lancer un cycle ouvre une exécution observable. L’écriture reste scellée.',
   'experience.pr_to_po.desk.ask.answer.empty':
     'Posez une question sur les demandes, les commandes, le fournisseur, ou l’écriture.',
+  'experience.pr_to_po.desk.portal.open': 'Ouvrir le portail',
+  'experience.pr_to_po.desk.portal.continue': 'Continuer dans le portail',
+  'experience.pr_to_po.desk.portal.offline':
+    'L’usine PR to PO n’est pas encore reliée. Relancez la lecture, puis ouvrez le portail.',
+  'experience.pr_to_po.desk.portal.prompt_open': 'Ouvre le dossier et reste sur cette usine.',
+  'experience.pr_to_po.desk.portal.prompt':
+    'Usine PR to PO ({system}). Application pr-to-po. Lecture live : {prs} demandes, {tasks} approbations, {pos} commandes, {receipts} réceptions. Demande retenue : {pr}. Fournisseur : {supplier}. Type : {format}. L’écriture SAP reste scellée. Ne pas prétendre écrire dans SAP. Question : {question}',
   'experience.pr_to_po.refresh': 'Actualiser',
   'experience.pr_to_po.approve': 'Approuver et créer le PO',
   'experience.pr_to_po.reject': 'Refuser',
@@ -1682,7 +1689,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.ask.placeholder': 'Who is the majority supplier?',
   'experience.pr_to_po.desk.ask.submit': 'Ask',
   'experience.pr_to_po.desk.ask.hint':
-    'Answers come from the live reads. No SAP write. No invented aliases.',
+    'Counts stay on the desk. The portal talks with the PR to PO factory. No SAP write.',
   'experience.pr_to_po.desk.ask.chip.supplier': 'Majority supplier',
   'experience.pr_to_po.desk.ask.chip.po': 'Orders read',
   'experience.pr_to_po.desk.ask.chip.next': 'What next',
@@ -1703,6 +1710,13 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
     'Review the compiled dossier, then decide. Starting a cycle opens an observable Run. The write stays sealed.',
   'experience.pr_to_po.desk.ask.answer.empty':
     'Ask about requisitions, orders, the supplier, or the write.',
+  'experience.pr_to_po.desk.portal.open': 'Open the portal',
+  'experience.pr_to_po.desk.portal.continue': 'Continue in the portal',
+  'experience.pr_to_po.desk.portal.offline':
+    'The PR to PO factory is not linked yet. Run the read, then open the portal.',
+  'experience.pr_to_po.desk.portal.prompt_open': 'Open the dossier and stay on this factory.',
+  'experience.pr_to_po.desk.portal.prompt':
+    'PR to PO factory ({system}). Application pr-to-po. Live read: {prs} requisitions, {tasks} approvals, {pos} orders, {receipts} receipts. Selected requisition: {pr}. Supplier: {supplier}. Type: {format}. The SAP write stays sealed. Do not claim a live SAP write. Question: {question}',
   'experience.pr_to_po.refresh': 'Refresh',
   'experience.pr_to_po.approve': 'Approve and create the PO',
   'experience.pr_to_po.reject': 'Reject',

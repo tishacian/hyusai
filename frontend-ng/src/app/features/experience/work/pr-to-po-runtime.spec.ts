@@ -8,6 +8,7 @@ import {
   FACTORY_EXPERIENCE_SLUG,
   FACTORY_PAGE_ID,
   canStartFactoryCycle,
+  factoryChatHref,
   factoryFlowHref,
   factoryRunHref,
   factoryRunOrigin,
@@ -50,6 +51,19 @@ test('lineage hrefs stay on the System and the Run', () => {
   assert.equal(factoryRunHref('run/1'), '/runs/run%2F1');
 });
 
+test('the factory portal bridge opens workspace chat on the System', () => {
+  const href = factoryChatHref(
+    'nawa',
+    '28345b5a-0824-4f2b-a420-ebe0aa7cd34f',
+    'PR to PO factory. The SAP write stays sealed.',
+  );
+  const url = new URL(href, 'http://agentium.local');
+  assert.equal(url.pathname, '/workspace/nawa/chat');
+  assert.equal(url.searchParams.get('mode'), 'system');
+  assert.equal(url.searchParams.get('systemId'), '28345b5a-0824-4f2b-a420-ebe0aa7cd34f');
+  assert.match(url.searchParams.get('initialPrompt') || '', /write stays sealed/);
+});
+
 test('factory provenance is the Experience origin on the Run ingress', () => {
   assert.equal(
     runAdapterOrigin({
@@ -72,4 +86,6 @@ test('the factory desk starts a cycle through the Experience binding', () => {
   assert.match(board, /FACTORY_BINDING_KEY/);
   assert.match(board, /listPendingValidations/);
   assert.match(board, /factoryRunOrigin/);
+  assert.match(board, /factoryChatHref/);
+  assert.doesNotMatch(board, /llm-portal|omnirag-llm-portal/);
 });
