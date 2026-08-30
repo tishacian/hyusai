@@ -295,3 +295,11 @@ export function recipeCodeLineCount(code: string): number {
   if (!code.trim()) return 0;
   return code.replace(/\n$/, '').split('\n').length;
 }
+
+/** Seed the Test tab from `data.workshop_test_input`, else `{}`. */
+export function recipeWorkshopTestInput(
+  node: CanonicalFlowNode | null | undefined,
+): string {
+  const raw = node && isRecord(node.data) ? node.data['workshop_test_input'] : '';
+  return typeof raw === 'string' && raw.trim() ? raw : '{}';
+}
