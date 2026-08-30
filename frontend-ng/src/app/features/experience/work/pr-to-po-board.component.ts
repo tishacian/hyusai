@@ -162,7 +162,12 @@ import {
           <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.ask.hint') }}</p>
           <div class="xp-desk-chips">
             @for (chip of askChips; track chip) {
-              <button type="button" class="xp-desk-chip" (click)="askChip(chip)">
+              <button
+                type="button"
+                class="xp-desk-chip"
+                [attr.data-active]="askReply()?.intent === chip"
+                (click)="askChip(chip)"
+              >
                 {{ i18n.t('experience.pr_to_po.desk.ask.chip.' + chip) }}
               </button>
             }
@@ -270,6 +275,7 @@ import {
           </article>
           <article class="xp-desk-chart">
             <h3>{{ i18n.t('experience.pr_to_po.desk.charts.coverage') }}</h3>
+            <p class="xp-desk-coverage">{{ coverage().pct }}%</p>
             <p class="xp-desk-note">
               {{
                 i18n.t('experience.pr_to_po.desk.charts.coverage_value', {

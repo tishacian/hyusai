@@ -459,15 +459,27 @@ function foldAsk(query: string): string {
     .trim();
 }
 
+const ASK_INTENTS: ReadonlySet<string> = new Set([
+  'supplier',
+  'pr',
+  'inbox',
+  'po',
+  'gr',
+  'write',
+  'next',
+  'empty',
+]);
+
 export function interpretFactoryAsk(query: string): FactoryAskIntent {
   const q = foldAsk(query);
   if (!q) return 'empty';
-  if (/\b(write|ecrire|creer|create|poster|seal|scell)\b/.test(q)) return 'write';
-  if (/\b(supplier|fournisseur|vendor)\b/.test(q)) return 'supplier';
-  if (/\b(receipt|reception|goods|gr)\b/.test(q)) return 'gr';
-  if (/\b(approval|approbation|inbox|task|tache)\b/.test(q)) return 'inbox';
-  if (/\b(order|commande|po)\b/.test(q) && !/\bpr\b/.test(q)) return 'po';
-  if (/\b(requisition|demande|pr)\b/.test(q)) return 'pr';
+  if (ASK_INTENTS.has(q)) return q as FactoryAskIntent;
+  if (/(write|ecrire|creer|create|poster|seal|scell)/.test(q)) return 'write';
+  if (/\b(suppliers?|fournisseurs?|vendors?)\b/.test(q)) return 'supplier';
+  if (/\b(receipts?|receptions?|goods|gr)\b/.test(q)) return 'gr';
+  if (/\b(approvals?|approbations?|inbox|tasks?|taches?)\b/.test(q)) return 'inbox';
+  if (/\b(orders?|commandes?|pos?)\b/.test(q) && !/\bprs?\b/.test(q)) return 'po';
+  if (/\b(requisitions?|demandes?|prs?)\b/.test(q)) return 'pr';
   return 'next';
 }
 

@@ -911,9 +911,14 @@
 }
 
 .xp-desk-chip:hover,
-.xp-desk-chip:focus-visible {
+.xp-desk-chip:focus-visible,
+.xp-desk-chip[data-active='true'] {
   border-color: var(--nawa-accent);
   color: var(--nawa-accent);
+}
+
+.xp-desk-chip[data-active='true'] {
+  background: color-mix(in srgb, var(--nawa-accent) 12%, transparent);
 }
 
 .xp-desk-reply {
@@ -1045,6 +1050,15 @@
   transform-origin: left center;
   animation: desk-bar 700ms ease both;
   animation-delay: calc(var(--desk-beat, 0) * 80ms);
+}
+
+.xp-desk-coverage {
+  margin: 0 0 6px;
+  color: var(--nawa-fg);
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
 }
 
 .xp-desk-meter {
