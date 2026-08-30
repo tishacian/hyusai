@@ -12,11 +12,20 @@ import { ExperienceRuntimeService } from '../runtime/experience-runtime.service'
 import { WorkApiService } from './work-api.service';
 import {
   DESK_MCP_LANES,
+  FACTORY_ASK_CHIPS,
+  askFactory,
   composeDesk,
+  donutSlices,
   hanaLaneFromPreview,
   laneFromPreview,
+  orderCoverage,
+  supplierShares,
+  terrainShares,
   type DeskLane,
+  type DeskLaneId,
   type DeskPreview,
+  type FactoryAskIntent,
+  type FactoryAskReply,
 } from './pr-to-po-desk';
 import {
   FACTORY_BINDING_KEY,
@@ -36,7 +45,12 @@ import {
   imports: [CommonModule, RouterLink, EmptyStateComponent],
   styleUrl: './work.scss',
   template: `
-    <div class="xp-work xp-work-desk" data-theme="dark" data-desk="nawa">
+    <div
+      class="xp-work xp-work-desk"
+      data-theme="dark"
+      data-desk="nawa"
+      [attr.data-reading]="terrainLoading() ? 'true' : null"
+    >
       <header class="xp-work-bar xp-desk-bar">
         <div class="xp-work-brand">
           <p class="xp-work-eyebrow">{{ workspace.current()?.name }} · {{ i18n.t('experience.pr_to_po.desk.eyebrow') }}</p>
@@ -122,15 +136,45 @@ import {
         <section class="xp-desk-hero">
           <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.chain') }}</p>
           <h2>{{ i18n.t(briefing().headlineKey, briefing().headlineParams) }}</h2>
+          <p class="xp-desk-voice">{{ i18n.t(briefing().voiceKey, briefing().voiceParams) }}</p>
           <p>{{ i18n.t(briefing().nextKey) }}</p>
           @if (readAt(); as when) {
             <p class="xp-desk-asof">{{ i18n.t('experience.pr_to_po.desk.as_of', { time: when }) }}</p>
           }
         </section>
 
+        <section class="xp-desk-ask">
+          <form (submit)="submitAsk($event)">
+            <label for="factory-ask">{{ i18n.t('experience.pr_to_po.desk.ask.label') }}</label>
+            <div class="xp-desk-ask-row">
+              <input
+                id="factory-ask"
+                type="text"
+                [value]="askDraft()"
+                [placeholder]="i18n.t('experience.pr_to_po.desk.ask.placeholder')"
+                (input)="setAskDraft($event)"
+              />
+              <button type="submit" class="xp-work-btn xp-work-btn-primary">
+                {{ i18n.t('experience.pr_to_po.desk.ask.submit') }}
+              </button>
+            </div>
+          </form>
+          <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.ask.hint') }}</p>
+          <div class="xp-desk-chips">
+            @for (chip of askChips; track chip) {
+              <button type="button" class="xp-desk-chip" (click)="askChip(chip)">
+                {{ i18n.t('experience.pr_to_po.desk.ask.chip.' + chip) }}
+              </button>
+            }
+          </div>
+          @if (askReply(); as reply) {
+            <p class="xp-desk-reply">{{ i18n.t(reply.key, reply.params) }}</p>
+          }
+        </section>
+
         <ol class="xp-desk-line">
-          @for (station of briefing().stations; track station.id) {
-            <li [attr.data-status]="station.status">
+          @for (station of briefing().stations; track station.id; let i = $index) {
+            <li [attr.data-status]="station.status" [style.--desk-beat]="i">
               <span>{{ i18n.t('experience.pr_to_po.desk.station.' + station.id) }}</span>
               <strong>{{ i18n.t('experience.pr_to_po.desk.station_status.' + station.status) }}</strong>
               @if (station.via) {
@@ -162,12 +206,83 @@ import {
 
         <ul class="xp-desk-kpis">
           @for (kpi of briefing().kpis; track kpi.id) {
-            <li [attr.data-tone]="kpi.tone">
-              <span>{{ i18n.t('experience.pr_to_po.desk.kpi.' + kpi.id) }}</span>
-              <strong>{{ kpi.value }}</strong>
+            <li [attr.data-tone]="kpi.tone" [attr.data-focus]="focusLane() === kpi.id">
+              <button type="button" (click)="toggleFocus(kpi.id)">
+                <span>{{ i18n.t('experience.pr_to_po.desk.kpi.' + kpi.id) }}</span>
+                <strong>{{ kpi.value }}</strong>
+              </button>
             </li>
           }
         </ul>
+
+        <section class="xp-desk-charts">
+          <article class="xp-desk-chart">
+            <h3>{{ i18n.t('experience.pr_to_po.desk.charts.terrain') }}</h3>
+            @if (terrain().length) {
+              <div class="xp-desk-donut-wrap">
+                <svg viewBox="0 0 80 80" class="xp-desk-donut" aria-hidden="true">
+                  @for (slice of terrain(); track slice.id) {
+                    <circle
+                      cx="40"
+                      cy="40"
+                      r="28"
+                      pathLength="100"
+                      [attr.data-lane]="slice.id"
+                      [attr.stroke-dasharray]="slice.pct + ' ' + (100 - slice.pct)"
+                      [attr.stroke-dashoffset]="slice.offset"
+                      (click)="toggleFocus(slice.id)"
+                    />
+                  }
+                </svg>
+                <ul>
+                  @for (slice of terrain(); track slice.id) {
+                    <li>
+                      <button type="button" [attr.data-lane]="slice.id" (click)="toggleFocus(slice.id)">
+                        <i></i>
+                        <span>{{ i18n.t('experience.pr_to_po.desk.kpi.' + slice.id) }}</span>
+                        <strong>{{ slice.value }}</strong>
+                      </button>
+                    </li>
+                  }
+                </ul>
+              </div>
+            } @else {
+              <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.charts.empty') }}</p>
+            }
+          </article>
+          <article class="xp-desk-chart">
+            <h3>{{ i18n.t('experience.pr_to_po.desk.charts.suppliers') }}</h3>
+            @if (suppliers().length) {
+              <ul class="xp-desk-bars">
+                @for (bar of suppliers(); track bar.id; let i = $index) {
+                  <li [style.--desk-beat]="i">
+                    <div>
+                      <span>{{ shareLabel(bar.id) }}</span>
+                      <strong>{{ bar.pct }}%</strong>
+                    </div>
+                    <b [style.width.%]="bar.pct"></b>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.charts.empty') }}</p>
+            }
+          </article>
+          <article class="xp-desk-chart">
+            <h3>{{ i18n.t('experience.pr_to_po.desk.charts.coverage') }}</h3>
+            <p class="xp-desk-note">
+              {{
+                i18n.t('experience.pr_to_po.desk.charts.coverage_value', {
+                  pos: coverage().pos,
+                  prs: coverage().prs,
+                })
+              }}
+            </p>
+            <div class="xp-desk-meter" [attr.aria-valuenow]="coverage().pct">
+              <b [style.width.%]="coverage().pct"></b>
+            </div>
+          </article>
+        </section>
 
         @if (terrainLoading() && lanes().length === 0) {
           <app-empty-state icon="sparkles" size="lg" [title]="i18n.t('experience.pr_to_po.desk.reading')" />
@@ -178,7 +293,12 @@ import {
         }
         <div class="xp-desk-grid">
           @for (lane of visibleLanes(); track lane.id) {
-            <article class="xp-desk-card" [attr.data-status]="lane.status">
+            <article
+              class="xp-desk-card"
+              [attr.data-status]="lane.status"
+              [attr.data-focus]="focusLane() === lane.id"
+              [style.--desk-beat]="$index"
+            >
               <header>
                 <div>
                   <p class="xp-desk-step">{{ i18n.t('experience.pr_to_po.desk.lane.' + lane.id) }}</p>
@@ -304,6 +424,13 @@ export class PrToPoBoardComponent implements OnInit {
   });
   readonly visibleLanes = computed(() => this.lanes());
   readonly briefing = computed(() => composeDesk(this.lanes(), this.items().length));
+  readonly terrain = computed(() => donutSlices(terrainShares(this.briefing().kpis)));
+  readonly suppliers = computed(() => supplierShares(this.lanes()));
+  readonly coverage = computed(() => orderCoverage(this.lanes()));
+  readonly focusLane = signal<DeskLaneId | null>(null);
+  readonly askDraft = signal('');
+  readonly askReply = signal<FactoryAskReply | null>(null);
+  readonly askChips = FACTORY_ASK_CHIPS;
 
   ngOnInit(): void {
     this.load();
@@ -442,6 +569,33 @@ export class PrToPoBoardComponent implements OnInit {
           this.error.set(this.i18n.t('experience.pr_to_po.lineage.start_failed'));
         },
       });
+  }
+
+  toggleFocus(id: string): void {
+    const lane = id as DeskLaneId;
+    this.focusLane.update((current) => (current === lane ? null : lane));
+  }
+
+  setAskDraft(event: Event): void {
+    this.askDraft.set((event.target as HTMLInputElement).value);
+  }
+
+  submitAsk(event: Event): void {
+    event.preventDefault();
+    this.applyAsk(askFactory(this.askDraft(), this.briefing(), this.lanes()));
+  }
+
+  askChip(intent: FactoryAskIntent): void {
+    this.applyAsk(askFactory(intent, this.briefing(), this.lanes()));
+  }
+
+  shareLabel(id: string): string {
+    return id === 'other' ? this.i18n.t('experience.pr_to_po.desk.charts.other') : id;
+  }
+
+  private applyAsk(reply: FactoryAskReply): void {
+    this.askReply.set(reply);
+    if (reply.focus) this.focusLane.set(reply.focus);
   }
 
   setNote(runId: string, event: Event): void {
