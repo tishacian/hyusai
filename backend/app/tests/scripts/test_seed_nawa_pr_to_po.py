@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from scripts import seed_nawa_pr_to_po as seed
 from app.services.connectors.mcp import service as mcp_service
+from app.services.experience.lifecycle import referenced_binding_keys
 
 
 def test_server_url_prefers_live_then_fixture_then_empty(monkeypatch):
@@ -76,3 +77,26 @@ def test_ensure_mcp_servers_fixture_keeps_sap_hikma_on_http(monkeypatch):
     assert hikma["url"] == "http://127.0.0.1:8765/hikma"
     assert gr["url"] == ""
     assert gr["auth_mode"] == "inherit"
+
+
+def test_factory_document_is_an_inventory_pointer_to_the_desk():
+    assert seed.EXPERIENCE_SLUG == "pr-to-po"
+    assert seed.EXPERIENCE_THEME["live_href"] == "/work/pr-to-po"
+    assert seed.EXPERIENCE_THEME["origin"] == "existing"
+    document = seed.factory_document()
+    assert referenced_binding_keys(document) == [seed.BINDING_KEY]
+    assert document["i18n"]["fr"]["home.title"]
+    assert document["i18n"]["en"]["home.title"]
+    callout = document["pages"][0]["components"][1]
+    assert callout["type"] == "callout"
+    assert callout["props"]["href"] == "/work/pr-to-po"
+    action = document["pages"][0]["components"][2]
+    assert action["props"]["bindingKey"] == seed.BINDING_KEY
+    assert seed.factory_document(None)["pages"][0]["components"][-1]["type"] == "callout"
+
+
+def test_factory_document_localizes_visible_copy():
+    document = seed.factory_document()
+    header = document["pages"][0]["components"][0]["props"]
+    assert header["title"]["$i18n"] == "home.title"
+    assert header["subtitle"]["$i18n"] == "home.subtitle"
