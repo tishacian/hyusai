@@ -57,6 +57,7 @@ import {
   recipeExecutionStatusKey,
   recipeSpecKey,
   recipeTimeline,
+  recipeWorkshopTestInput,
   shortFingerprint,
   type RecipeNodeParams,
 } from './flow-recipe.vm';
@@ -451,12 +452,19 @@ export class FlowRecipeWorkshopComponent {
   private codeFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingCode: string | null = null;
   private pendingCodeNodeId: string | null = null;
+  private seededTestNodeId: string | null = null;
 
   constructor() {
     // The workshop exists FOR the selected recipe node; if it stops being one
     // (deletion, undo, external selection change) the dialog closes itself.
     effect(() => {
       if (!isPythonRecipeNode(this.node())) this.close.emit();
+    });
+    effect(() => {
+      const n = this.node();
+      if (!n || n.id === this.seededTestNodeId) return;
+      this.seededTestNodeId = n.id;
+      this.testInputText.set(recipeWorkshopTestInput(n));
     });
     void this.resolveEnv(false);
     this.destroyRef.onDestroy(() => {

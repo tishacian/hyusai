@@ -20,6 +20,7 @@ import {
   recipeExecutionStatusKey,
   recipeSpecKey,
   recipeTimeline,
+  recipeWorkshopTestInput,
   shortFingerprint,
 } from './flow-recipe.vm';
 import { FLOW_EN, FLOW_FR } from '@app/core/i18n/flow.dict';
@@ -84,6 +85,25 @@ test('readRecipeParams fills defaults and normalises whatever is unset or malfor
   assert.equal(custom.index_url, 'https://pypi.example/simple');
   assert.deepEqual(custom.extra_index_urls, ['https://mirror.example/simple', '42']);
   assert.equal(custom.timeout_s, 45);
+});
+
+test('recipeWorkshopTestInput seeds the Test tab from node data', () => {
+  assert.equal(recipeWorkshopTestInput(recipeNode()), '{}');
+  assert.equal(recipeWorkshopTestInput(null), '{}');
+  assert.equal(
+    recipeWorkshopTestInput({
+      ...recipeNode(),
+      data: { workshop_test_input: '  ' },
+    }),
+    '{}',
+  );
+  assert.equal(
+    recipeWorkshopTestInput({
+      ...recipeNode(),
+      data: { workshop_test_input: '{"supplier":"ACME"}' },
+    }),
+    '{"supplier":"ACME"}',
+  );
 });
 
 test('clampRecipeTimeout mirrors the server window', () => {
