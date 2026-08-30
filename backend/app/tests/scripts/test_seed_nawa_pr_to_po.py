@@ -79,6 +79,16 @@ def test_ensure_mcp_servers_fixture_keeps_sap_hikma_on_http(monkeypatch):
     assert gr["auth_mode"] == "inherit"
 
 
+def test_ensure_mcp_flag_enables_the_recipe_workshop_surface(monkeypatch):
+    monkeypatch.setattr(seed, "flag_modified", lambda *_a, **_k: None)
+    workspace = _workspace()
+    seed.ensure_mcp_flag(_db(), workspace)
+    features = workspace.settings["features"]
+    assert features["mcp_connector"] is True
+    assert features["experience_v1"] is True
+    assert features["flow_workbench_v1"] is True
+
+
 def test_factory_document_is_an_inventory_pointer_to_the_desk():
     assert seed.EXPERIENCE_SLUG == "pr-to-po"
     assert seed.EXPERIENCE_THEME["live_href"] == "/work/pr-to-po"
