@@ -490,8 +490,8 @@ const STEP_ICONS: Record<string, string> = {
     DocumentPreviewComponent,
   ],
   template: `
-    <div class="chat-history-shell">
-      <aside class="chat-history-panel">
+    <div class="chat-history-shell" [class.chat-history-embed]="compact()">
+      <aside class="chat-history-panel" [hidden]="compact()">
         <div class="chat-history-head">
           <div>
             <div class="chat-history-kicker">{{ i18n.t('chat.history.title') }}</div>
@@ -2090,6 +2090,9 @@ const STEP_ICONS: Record<string, string> = {
       width: 100%;
       background: rgba(3, 8, 16, 0.18);
     }
+    .chat-history-shell.chat-history-embed {
+      display: block;
+    }
     .chat-history-panel {
       display: flex;
       flex-direction: column;
@@ -3073,6 +3076,8 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly assistantProfileKey = input<string | null>(null);
   readonly initialPrompt = input<string | null>(null);
   readonly autoStartVoiceLoop = input(false);
+  /** Hide the conversation rail. Used when the panel sits inside a business desk. */
+  readonly compact = input(false);
 
   private readonly sse = inject(SseService);
   private readonly api = inject(ApiService);

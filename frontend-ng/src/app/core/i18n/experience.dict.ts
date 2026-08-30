@@ -848,6 +848,10 @@ export const EXPERIENCE_FR = {
     'Posez une question sur les demandes, les commandes, le fournisseur, ou l’écriture.',
   'experience.pr_to_po.desk.portal.open': 'Ouvrir le portail',
   'experience.pr_to_po.desk.portal.continue': 'Continuer dans le portail',
+  'experience.pr_to_po.desk.portal.title': 'Portail de l’usine',
+  'experience.pr_to_po.desk.portal.close': 'Fermer le portail',
+  'experience.pr_to_po.desk.portal.hint':
+    'Le chat reste dans cette application. Il parle avec l’usine PR to PO. Aucune écriture SAP.',
   'experience.pr_to_po.desk.portal.offline':
     'L’usine PR to PO n’est pas encore reliée. Relancez la lecture, puis ouvrez le portail.',
   'experience.pr_to_po.desk.portal.prompt_open': 'Ouvre le dossier et reste sur cette usine.',
@@ -1712,6 +1716,10 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
     'Ask about requisitions, orders, the supplier, or the write.',
   'experience.pr_to_po.desk.portal.open': 'Open the portal',
   'experience.pr_to_po.desk.portal.continue': 'Continue in the portal',
+  'experience.pr_to_po.desk.portal.title': 'Factory portal',
+  'experience.pr_to_po.desk.portal.close': 'Close the portal',
+  'experience.pr_to_po.desk.portal.hint':
+    'Chat stays in this application. It talks with the PR to PO factory. No SAP write.',
   'experience.pr_to_po.desk.portal.offline':
     'The PR to PO factory is not linked yet. Run the read, then open the portal.',
   'experience.pr_to_po.desk.portal.prompt_open': 'Open the dossier and stay on this factory.',
