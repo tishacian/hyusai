@@ -821,6 +821,17 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.starting': 'Lancement…',
   'experience.pr_to_po.note': 'Note',
   'experience.pr_to_po.missing': 'Système PR to PO introuvable ou flux non publié.',
+  'experience.pr_to_po.lineage.eyebrow': 'Application · Système · Exécution',
+  'experience.pr_to_po.lineage.application': 'Application',
+  'experience.pr_to_po.lineage.system': 'Système',
+  'experience.pr_to_po.lineage.run': 'Exécution',
+  'experience.pr_to_po.lineage.open_system': 'Ouvrir le Système',
+  'experience.pr_to_po.lineage.open_flow': 'Ouvrir le Flow',
+  'experience.pr_to_po.lineage.open_run': 'Ouvrir l’exécution',
+  'experience.pr_to_po.lineage.no_run': 'Aucune exécution',
+  'experience.pr_to_po.lineage.starting': 'Lancement du cycle…',
+  'experience.pr_to_po.lineage.start_failed': 'Le cycle n’a pas démarré.',
+  'experience.pr_to_po.lineage.app_offline': 'L’application métier n’est pas en service.',
 } as const satisfies Record<string, string>;
 
 export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
@@ -1630,4 +1641,15 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.starting': 'Starting…',
   'experience.pr_to_po.note': 'Note',
   'experience.pr_to_po.missing': 'PR to PO system is missing or its flow is not published.',
+  'experience.pr_to_po.lineage.eyebrow': 'Application · System · Run',
+  'experience.pr_to_po.lineage.application': 'Application',
+  'experience.pr_to_po.lineage.system': 'System',
+  'experience.pr_to_po.lineage.run': 'Run',
+  'experience.pr_to_po.lineage.open_system': 'Open the System',
+  'experience.pr_to_po.lineage.open_flow': 'Open the Flow',
+  'experience.pr_to_po.lineage.open_run': 'Open the Run',
+  'experience.pr_to_po.lineage.no_run': 'No Run yet',
+  'experience.pr_to_po.lineage.starting': 'Starting the cycle…',
+  'experience.pr_to_po.lineage.start_failed': 'The cycle did not start.',
+  'experience.pr_to_po.lineage.app_offline': 'The business application is not live.',
 };

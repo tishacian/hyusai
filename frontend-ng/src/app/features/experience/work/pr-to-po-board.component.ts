@@ -2,12 +2,13 @@ import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
-import { catchError, map, switchMap } from 'rxjs/operators';
+import { catchError, map, switchMap, take, tap } from 'rxjs/operators';
 import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
 import { WorkApiService } from './work-api.service';
 import {
   DESK_MCP_LANES,
@@ -17,8 +18,16 @@ import {
   type DeskLane,
   type DeskPreview,
 } from './pr-to-po-desk';
-
-const SYSTEM_NAME = 'PR to PO';
+import {
+  FACTORY_BINDING_KEY,
+  FACTORY_EXPERIENCE_SLUG,
+  canStartFactoryCycle,
+  factoryFlowHref,
+  factoryRunHref,
+  factoryRunOrigin,
+  factoryRuntimeContext,
+  factorySystemHref,
+} from './pr-to-po-runtime';
 
 @Component({
   selector: 'app-pr-to-po-board',
@@ -58,7 +67,7 @@ const SYSTEM_NAME = 'PR to PO';
             type="button"
             class="xp-work-btn"
             (click)="startRun()"
-            [disabled]="!system() || starting()"
+            [disabled]="!bindingReady() || starting()"
           >
             {{ starting() ? i18n.t('experience.pr_to_po.starting') : i18n.t('experience.pr_to_po.start') }}
           </button>
@@ -69,6 +78,46 @@ const SYSTEM_NAME = 'PR to PO';
         @if (error(); as err) {
           <p class="xp-work-error">{{ err }}</p>
         }
+
+        <section class="xp-desk-lineage">
+          <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.lineage.eyebrow') }}</p>
+          <ol>
+            <li>
+              <span>{{ i18n.t('experience.pr_to_po.lineage.application') }}</span>
+              <strong>{{ i18n.t('experience.pr_to_po.title') }}</strong>
+              <code>{{ experienceSlug }}</code>
+            </li>
+            <li>
+              <span>{{ i18n.t('experience.pr_to_po.lineage.system') }}</span>
+              @if (system(); as sys) {
+                <a [routerLink]="systemHref(sys.id)">{{ sys.name }}</a>
+              } @else {
+                <strong>—</strong>
+              }
+              <code>{{ bindingKey }}</code>
+            </li>
+            <li>
+              <span>{{ i18n.t('experience.pr_to_po.lineage.run') }}</span>
+              @if (startedRun(); as run) {
+                <a [routerLink]="runHref(run.id)">{{ runStatusLabel(run.status) }}</a>
+                <code>{{ shortId(run.id) }}</code>
+              } @else if (starting()) {
+                <strong>{{ i18n.t('experience.pr_to_po.lineage.starting') }}</strong>
+              } @else {
+                <strong>{{ i18n.t('experience.pr_to_po.lineage.no_run') }}</strong>
+              }
+            </li>
+          </ol>
+          <nav>
+            @if (system(); as sys) {
+              <a [routerLink]="systemHref(sys.id)">{{ i18n.t('experience.pr_to_po.lineage.open_system') }}</a>
+              <a [routerLink]="flowHref(sys.id)">{{ i18n.t('experience.pr_to_po.lineage.open_flow') }}</a>
+            }
+            @if (startedRun(); as run) {
+              <a [routerLink]="runHref(run.id)">{{ i18n.t('experience.pr_to_po.lineage.open_run') }}</a>
+            }
+          </nav>
+        </section>
 
         <section class="xp-desk-hero">
           <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.chain') }}</p>
@@ -168,8 +217,7 @@ const SYSTEM_NAME = 'PR to PO';
                             <td [title]="cell">{{ cell || '—' }}</td>
                           }
                         </tr>
-                      }
-                    </tbody>
+                      </tbody>
                   </table>
                 </div>
                 <p class="xp-desk-count">{{ i18n.t('experience.pr_to_po.desk.rows', { count: lane.rowCount }) }}</p>
@@ -211,6 +259,7 @@ const SYSTEM_NAME = 'PR to PO';
                   ></textarea>
                 </label>
                 <div class="xp-work-hitl-actions">
+                  <a [routerLink]="runHref(run.id)" class="xp-work-btn">{{ i18n.t('experience.pr_to_po.lineage.open_run') }}</a>
                   <button type="button" class="xp-work-btn xp-work-btn-primary" (click)="decide(run, 'accept')">
                     {{ i18n.t('experience.pr_to_po.approve') }}
                   </button>
@@ -229,15 +278,20 @@ const SYSTEM_NAME = 'PR to PO';
 export class PrToPoBoardComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly runtime = inject(ExperienceRuntimeService);
   private readonly workApi = inject(WorkApiService);
   readonly i18n = inject(I18nService);
   readonly workspace = inject(WorkspaceService);
+  readonly experienceSlug = FACTORY_EXPERIENCE_SLUG;
+  readonly bindingKey = FACTORY_BINDING_KEY;
 
   readonly loading = signal(false);
   readonly terrainLoading = signal(false);
   readonly starting = signal(false);
+  readonly bindingReady = signal(false);
   readonly error = signal<string | null>(null);
   readonly system = signal<System | null>(null);
+  readonly startedRun = signal<Run | null>(null);
   readonly items = signal<Run[]>([]);
   readonly notes = signal<Record<string, string>>({});
   readonly lanes = signal<DeskLane[]>([]);
@@ -263,29 +317,47 @@ export class PrToPoBoardComponent implements OnInit {
   load(): void {
     this.loading.set(true);
     this.error.set(null);
-    this.canonical
-      .listSystems()
+    const context = factoryRuntimeContext();
+    this.runtime
+      .resolve(context, FACTORY_BINDING_KEY)
       .pipe(
-        switchMap((systems) => {
-          const found =
-            systems.find((row) => row.settings?.['nawa_pr_to_po'] === true) ||
-            systems.find((row) => row.name === SYSTEM_NAME) ||
-            null;
-          this.system.set(found);
-          if (!found?.id) return of([] as Run[]);
-          return this.canonical.listRuns({ system_id: found.id, status: 'hitl_pending' });
+        switchMap((resolved) => {
+          const ready = canStartFactoryCycle(resolved);
+          this.bindingReady.set(ready);
+          if (!ready) {
+            this.system.set(null);
+            this.error.set(this.i18n.t('experience.pr_to_po.lineage.app_offline'));
+            return of({ hitl: [] as Run[], latest: null as Run | null });
+          }
+          return this.workApi.listPendingValidations(FACTORY_EXPERIENCE_SLUG).pipe(
+            switchMap((validations) => {
+              const hitl$ =
+                validations.kind === 'ok'
+                  ? this.hydrateRuns(validations.items)
+                  : this.canonical
+                      .listRuns({ origin: factoryRunOrigin(), status: 'hitl_pending' })
+                      .pipe(switchMap((runs) => this.hydrateRuns(runs)));
+              const latest$ = this.canonical
+                .listRuns({ origin: factoryRunOrigin() })
+                .pipe(map((runs) => runs[0] ?? null));
+              return forkJoin({ hitl: hitl$, latest: latest$ });
+            }),
+          );
         }),
-        switchMap((runs) => {
-          if (!runs.length) return of([] as Run[]);
-          return forkJoin(runs.map((run) => this.canonical.getRun(run.id).pipe(map((full) => full || run))));
+        switchMap(({ hitl, latest }) => {
+          const fromRun = latest?.system_id || hitl[0]?.system_id || null;
+          return this.linkedSystem$(fromRun).pipe(map((system) => ({ hitl, latest, system })));
         }),
         catchError(() => {
-          this.error.set(this.i18n.t('experience.pr_to_po.missing'));
-          return of([] as Run[]);
+          this.bindingReady.set(false);
+          this.error.set(this.i18n.t('experience.pr_to_po.lineage.app_offline'));
+          return of({ hitl: [] as Run[], latest: null as Run | null, system: null as System | null });
         }),
       )
-      .subscribe((runs) => {
-        this.items.set(runs.filter((run) => run.status === 'hitl_pending'));
+      .subscribe(({ hitl, latest, system }) => {
+        this.system.set(system);
+        this.items.set(hitl.filter((run) => run.status === 'hitl_pending'));
+        if (latest) this.startedRun.set(latest);
         this.loading.set(false);
       });
   }
@@ -323,27 +395,50 @@ export class PrToPoBoardComponent implements OnInit {
   }
 
   startRun(): void {
-    const system = this.system();
-    const sha = system?.flow_sha256;
-    if (!system?.id || !sha) {
-      this.error.set(this.i18n.t('experience.pr_to_po.missing'));
+    if (!this.bindingReady()) {
+      this.error.set(this.i18n.t('experience.pr_to_po.lineage.app_offline'));
       return;
     }
     this.starting.set(true);
-    this.canonical
-      .triggerRun(system.id, {
-        trigger: 'manual',
-        input_ref: {},
-        expected_flow_sha256: sha,
-      })
+    this.error.set(null);
+    const context = factoryRuntimeContext();
+    this.runtime
+      .invoke(context, FACTORY_BINDING_KEY, {})
+      .pipe(
+        switchMap((started) => {
+          if (!started?.id) return of(null);
+          return this.canonical.getRun(started.id);
+        }),
+        switchMap((run) => {
+          if (!run) return of(null);
+          this.startedRun.set(run);
+          if (!run.system_id) return of(run);
+          return this.canonical.getSystem(run.system_id).pipe(
+            tap((system) => {
+              if (system) this.system.set(system);
+            }),
+            map(() => run),
+          );
+        }),
+      )
       .subscribe({
-        next: () => {
+        next: (run) => {
           this.starting.set(false);
+          if (!run) {
+            this.error.set(this.i18n.t('experience.pr_to_po.lineage.start_failed'));
+            return;
+          }
+          this.runtime
+            .poll(context, run.id)
+            .pipe(take(8))
+            .subscribe((updated) => {
+              if (updated) this.startedRun.set(updated);
+            });
           this.load();
         },
         error: () => {
           this.starting.set(false);
-          this.error.set(this.i18n.t('experience.pr_to_po.missing'));
+          this.error.set(this.i18n.t('experience.pr_to_po.lineage.start_failed'));
         },
       });
   }
@@ -368,6 +463,24 @@ export class PrToPoBoardComponent implements OnInit {
     return id.slice(0, 8);
   }
 
+  runStatusLabel(status: string): string {
+    const key = `runs.status.${status}`;
+    const label = this.i18n.t(key);
+    return label === key ? this.i18n.t('runs.status.unknown') : label;
+  }
+
+  systemHref(systemId: string): string {
+    return factorySystemHref(systemId);
+  }
+
+  flowHref(systemId: string): string {
+    return factoryFlowHref(systemId);
+  }
+
+  runHref(runId: string): string {
+    return factoryRunHref(runId);
+  }
+
   packageField(run: Run, key: string): string {
     const upstream = run.hitl?.upstream;
     const value = upstream && typeof upstream === 'object' ? upstream[key] : undefined;
@@ -376,6 +489,22 @@ export class PrToPoBoardComponent implements OnInit {
 
   packageJson(run: Run): string {
     return JSON.stringify(run.hitl?.upstream ?? {}, null, 2);
+  }
+
+  private hydrateRuns(runs: Run[]) {
+    const ids = runs.map((run) => run.id).filter(Boolean).slice(0, 8);
+    if (!ids.length) return of([] as Run[]);
+    return forkJoin(ids.map((id) => this.canonical.getRun(id))).pipe(
+      map((rows) => rows.filter((row): row is Run => !!row)),
+    );
+  }
+
+  private linkedSystem$(systemId: string | null) {
+    if (systemId) return this.canonical.getSystem(systemId);
+    return this.api.get<{ system_id?: string }>(`/system-bindings/${encodeURIComponent(FACTORY_BINDING_KEY)}`).pipe(
+      switchMap((row) => (row.system_id ? this.canonical.getSystem(row.system_id) : of(null))),
+      catchError(() => of(null)),
+    );
   }
 
   private previewDetail(err: { error?: { detail?: unknown } }): string {
