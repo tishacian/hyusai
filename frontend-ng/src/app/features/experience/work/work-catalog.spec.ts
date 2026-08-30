@@ -49,6 +49,20 @@ test('live_href on theme is the launch target for dual-run apps', () => {
   const nawa = app({ slug: 'nawa', theme: { live_href: '/nawa' } });
   assert.equal(launchHref(nawa), '/nawa');
   assert.deepEqual(launcherDecision([nawa]), { kind: 'redirect', slug: 'nawa', href: '/nawa' });
+  const factory = app({ slug: 'pr-to-po', theme: { live_href: '/work/pr-to-po' } });
+  assert.equal(launchHref(factory), '/work/pr-to-po');
+  assert.equal(
+    catalogLaunchHref({
+      experience: factory,
+      channel: 'live',
+      release: {
+        id: 'r-factory',
+        theme: { live_href: '/work/pr-to-po' },
+        renderer_version: 'certified-components-0.2.0',
+      },
+    }),
+    '/work/pr-to-po',
+  );
 });
 
 test('validations surface from pattern or certified nodes', () => {

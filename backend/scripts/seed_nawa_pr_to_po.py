@@ -57,6 +57,44 @@ SEED_ACTOR = "nawa-pr-to-po-seed"
 SYSTEM_NAME = "PR to PO"
 CAPABILITY_SLUG = "nawa_pr_to_po"
 BINDING_KEY = "procurement.pr_to_po.run"
+EXPERIENCE_SLUG = "pr-to-po"
+EXPERIENCE_NAME = "PR to PO"
+EXPERIENCE_DESCRIPTION = (
+    "Purchasing factory on live Hikma. The desk stays /work/pr-to-po."
+)
+EXPERIENCE_THEME: dict[str, Any] = {
+    "live_href": "/work/pr-to-po",
+    "origin": "existing",
+}
+EXPERIENCE_ACCESS_POLICY: dict[str, Any] = {
+    "role_templates": [
+        "workspace_viewer",
+        "workspace_contributor",
+        "workspace_reviewer",
+        "workspace_admin",
+        "workspace_owner",
+    ]
+}
+FACTORY_I18N: dict[str, dict[str, str]] = {
+    "en": {
+        "home.title": "PR to PO",
+        "home.subtitle": "The live surface is the purchasing factory.",
+        "home.body": (
+            "Open the factory on /work/pr-to-po. This inventory entry does not "
+            "replace that desk."
+        ),
+        "home.action": "Start a cycle",
+    },
+    "fr": {
+        "home.title": "PR vers PO",
+        "home.subtitle": "La surface live est l’usine d’achat.",
+        "home.body": (
+            "Ouvrez l’usine sur /work/pr-to-po. Cette entrée d’inventaire ne "
+            "remplace pas ce bureau."
+        ),
+        "home.action": "Lancer un cycle",
+    },
+}
 CRON_EXPR = "0 */4 * * *"
 DEFAULT_FIXTURE_URL = "http://127.0.0.1:8765"
 NAWA_OAUTH_TOKEN_URL = "https://pihqa.authentication.eu10.hana.ondemand.com/oauth/token"
@@ -100,6 +138,7 @@ def ensure_mcp_flag(db: DBSession, workspace: Workspace) -> None:
     catalog = dict(settings.get("catalog") or {})
     enabled = list(catalog.get("enabled_skills") or [])
     features["mcp_connector"] = True
+    features["experience_v1"] = True
     for slug in PR_TO_PO_SKILL_SLUGS:
         if slug not in enabled:
             enabled.append(slug)
@@ -350,6 +389,187 @@ def ensure_binding(db: DBSession, workspace: Workspace, system: System) -> Any:
     return row
 
 
+def _copy(key: str, english: str) -> dict[str, Any]:
+    return {"$i18n": key, "fallback": english}
+
+
+def factory_document(binding_key: str | None = BINDING_KEY) -> dict[str, Any]:
+    """Inventory pointer. The live desk stays the hardcoded /work/pr-to-po route."""
+    components: list[dict[str, Any]] = [
+        {
+            "type": "header",
+            "id": "factory-head",
+            "props": {
+                "title": _copy("home.title", FACTORY_I18N["en"]["home.title"]),
+                "subtitle": _copy("home.subtitle", FACTORY_I18N["en"]["home.subtitle"]),
+            },
+        },
+        {
+            "type": "callout",
+            "id": "factory-live",
+            "props": {
+                "body": _copy("home.body", FACTORY_I18N["en"]["home.body"]),
+                "href": "/work/pr-to-po",
+            },
+        },
+    ]
+    keys: list[str] = []
+    if binding_key:
+        keys.append(binding_key)
+        components.append(
+            {
+                "type": "action_button",
+                "id": "factory-cycle",
+                "props": {
+                    "label": _copy("home.action", FACTORY_I18N["en"]["home.action"]),
+                    "bindingKey": binding_key,
+                    "input": {},
+                    "afterSuccess": "stay",
+                },
+            }
+        )
+    return {"i18n": FACTORY_I18N, "pages": [{"id": "home", "title": _copy("home.title", FACTORY_I18N["en"]["home.title"]), "components": components}]}
+
+
+def _factory_release(db: DBSession, workspace: Workspace, experience: Any) -> Any:
+    from app.models.experience import ExperienceRelease
+    from app.services.experience import lifecycle
+
+    check = lifecycle.ready_check(db, workspace=workspace, experience_id=experience.id)
+    if check["blockers"]:
+        raise SystemExit(
+            f"{EXPERIENCE_SLUG}: the draft is not releasable — {check['blockers']}"
+        )
+    _row, draft, _deployments = lifecycle.get_experience(
+        db, workspace_id=workspace.id, experience_id=experience.id
+    )
+    access = dict(experience.access_policy or {})
+    for candidate in (
+        db.query(ExperienceRelease)
+        .filter(
+            ExperienceRelease.experience_id == experience.id,
+            ExperienceRelease.workspace_id == workspace.id,
+        )
+        .order_by(ExperienceRelease.release_number.desc())
+        .all()
+    ):
+        if (
+            candidate.content_sha256 == draft.content_sha256
+            and (candidate.bindings_snapshot or []) == check["bindings"]
+            and dict(candidate.access_snapshot or {}) == access
+        ):
+            return candidate
+    return lifecycle.create_release(
+        db,
+        workspace=workspace,
+        experience_id=experience.id,
+        notes="PR to PO factory: inventory pointer to /work/pr-to-po.",
+        expected_draft_revision=int(draft.revision),
+        expected_content_sha256=draft.content_sha256,
+        expected_experience_updated_at=experience.updated_at,
+        expected_bindings_sha256=check["bindings_sha256"],
+        actor=SEED_ACTOR,
+    )
+
+
+def ensure_experience(db: DBSession, workspace: Workspace, binding_key: str | None) -> Any:
+    """Publish PR to PO as a business application that launches the factory desk."""
+    from app.models.experience import Experience, ExperienceDeployment
+    from app.services.experience import lifecycle
+
+    document = factory_document(binding_key)
+    keys = lifecycle.referenced_binding_keys(document)
+    experience = (
+        db.query(Experience)
+        .filter(
+            Experience.workspace_id == workspace.id,
+            Experience.slug == EXPERIENCE_SLUG,
+        )
+        .one_or_none()
+    )
+    if experience is None:
+        experience, _draft = lifecycle.create_experience(
+            db,
+            workspace=workspace,
+            actor=SEED_ACTOR,
+            name=EXPERIENCE_NAME,
+            slug=EXPERIENCE_SLUG,
+            pattern="assistant",
+            languages=["en", "fr"],
+            theme=EXPERIENCE_THEME,
+            access_policy=EXPERIENCE_ACCESS_POLICY,
+            description=EXPERIENCE_DESCRIPTION,
+        )
+        db.commit()
+        db.refresh(experience)
+    else:
+        experience = lifecycle.update_experience(
+            db,
+            workspace_id=workspace.id,
+            experience_id=experience.id,
+            name=EXPERIENCE_NAME,
+            pattern="assistant",
+            languages=["en", "fr"],
+            theme=EXPERIENCE_THEME,
+            access_policy=EXPERIENCE_ACCESS_POLICY,
+            description=EXPERIENCE_DESCRIPTION,
+            set_description=True,
+            actor=SEED_ACTOR,
+        )
+        db.commit()
+        db.refresh(experience)
+
+    _row, draft, _deployments = lifecycle.get_experience(
+        db, workspace_id=workspace.id, experience_id=experience.id
+    )
+    lifecycle.save_draft(
+        db,
+        workspace_id=workspace.id,
+        experience_id=experience.id,
+        pages=document,
+        binding_keys=keys,
+        expected_revision=int(draft.revision),
+        actor=SEED_ACTOR,
+    )
+    db.commit()
+    db.refresh(experience)
+
+    release = _factory_release(db, workspace, experience)
+    db.commit()
+
+    deployment = (
+        db.query(ExperienceDeployment)
+        .filter(
+            ExperienceDeployment.experience_id == experience.id,
+            ExperienceDeployment.channel == "live",
+        )
+        .one_or_none()
+    )
+    if deployment is None or deployment.release_id != release.id:
+        deployment = lifecycle.deploy(
+            db,
+            workspace=workspace,
+            experience_id=experience.id,
+            channel="live",
+            release_id=release.id,
+            expected_current_release_id=(
+                deployment.release_id if deployment is not None else None
+            ),
+            expected_deployment_updated_at=(
+                deployment.updated_at if deployment is not None else None
+            ),
+            audience=None,
+            actor=SEED_ACTOR,
+        )
+        db.commit()
+    db.refresh(deployment)
+    print(
+        f"experience live: /work/{experience.slug} → {EXPERIENCE_THEME['live_href']} "
+        f"r{release.release_number}"
+    )
+    return experience
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace-slug", default=DEFAULT_WORKSPACE_SLUG)
@@ -364,7 +584,8 @@ def main() -> int:
         capability = ensure_capability(db, workspace)
         system = ensure_system(db, workspace, capability)
         ensure_schedule(db, workspace, system)
-        ensure_binding(db, workspace, system)
+        binding = ensure_binding(db, workspace, system)
+        ensure_experience(db, workspace, BINDING_KEY if binding is not None else None)
         print("MCP servers:", servers)
         return 0
     finally:
