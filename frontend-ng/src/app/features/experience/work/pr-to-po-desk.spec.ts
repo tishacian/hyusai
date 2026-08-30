@@ -218,6 +218,10 @@ test('asking the factory stays deterministic and never unseals the write', () =>
   });
   const briefing = composeDesk([po], 0);
   assert.equal(interpretFactoryAsk('Who is the majority supplier?'), 'supplier');
+  assert.equal(interpretFactoryAsk('how many purchase orders'), 'po');
+  assert.equal(interpretFactoryAsk('combien de commandes'), 'po');
+  assert.equal(interpretFactoryAsk('fournisseurs'), 'supplier');
+  assert.equal(interpretFactoryAsk('po'), 'po');
   assert.equal(interpretFactoryAsk('ecrire'), 'write');
   assert.equal(interpretFactoryAsk(''), 'empty');
   const write = askFactory('can we write', briefing, [po]);
