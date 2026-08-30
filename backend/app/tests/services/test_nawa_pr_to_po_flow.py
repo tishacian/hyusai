@@ -8,13 +8,22 @@ from typing import Any, Callable, Dict, List, Optional
 
 import pytest
 
+from app.core.config import settings
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.workspace import Workspace
 from app.services.chains.dag_validator import validate_flow
 from app.services.connectors.mcp.flow import PR_TO_PO_SKILL_SLUGS, pr_to_po_flow
-from app.services.connectors.mcp.poc import majority_supplier_format, select_next_pr
+from app.services.connectors.mcp.poc import (
+    FORMAT_CODE,
+    FORMAT_REQUIREMENTS,
+    FORMAT_TEST_INPUT,
+    format_dossier,
+    majority_supplier_format,
+    select_next_pr,
+)
 from app.services.run_engine import engine as engine_module
 from app.services.run_engine.dag import execute_run_dag, resume_run_dag, should_use_dag
 
@@ -144,6 +153,9 @@ def _registry(*, budget_ok: bool, listed: list[dict[str, Any]]) -> Dict[str, Ski
         }
 
     async def recipe(inp: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+        code = str((inp.get("_recipe") or {}).get("code") or "")
+        if "tabulate" in code or "formatted" in code:
+            return format_dossier(inp)
         if "pos" in inp:
             return majority_supplier_format(inp)
         return select_next_pr(inp)
@@ -250,6 +262,62 @@ def test_flow_has_no_validator_errors_and_routes_to_dag() -> None:
     src = next(node for node in FLOW["nodes"] if node["id"] == "src")
     assert src["type"] == "source.schedule"
     assert src["config"]["cron"] == "0 */4 * * *"
+    assert {node["id"] for node in FLOW["nodes"]} >= {
+        "task.select_pr",
+        "task.majority",
+        "task.format_dossier",
+    }
+    assert len(FLOW["nodes"]) == 18
+    assert len(FLOW["edges"]) == 20
+
+
+def test_format_dossier_node_declares_a_managed_env() -> None:
+    node = next(item for item in FLOW["nodes"] if item["id"] == "task.format_dossier")
+    params = (node.get("config") or {}).get("params") or {}
+    assert params["requirements_text"] == FORMAT_REQUIREMENTS
+    assert "tabulate" in FORMAT_REQUIREMENTS
+    assert "import tabulate" in FORMAT_CODE
+    assert params["code"] == FORMAT_CODE
+    assert params["timeout_s"] == 30
+    assert (node.get("config") or {}).get("skill_slug") == "python_recipe_v1"
+    assert (node.get("data") or {}).get("workshop_test_input") == FORMAT_TEST_INPUT
+    assert '"supplier":"ACME"' in FORMAT_TEST_INPUT
+    majority = next(item for item in FLOW["nodes"] if item["id"] == "task.majority")
+    select = next(item for item in FLOW["nodes"] if item["id"] == "task.select_pr")
+    assert "requirements_text" not in ((majority.get("config") or {}).get("params") or {})
+    assert "requirements_text" not in ((select.get("config") or {}).get("params") or {})
+    assert any(
+        edge["from"] == "task.majority" and edge["to"] == "task.format_dossier"
+        for edge in FLOW["edges"]
+    )
+    assert any(
+        edge["from"] == "task.format_dossier" and edge["to"] == "task.summarise"
+        for edge in FLOW["edges"]
+    )
+
+
+def test_format_dossier_helper_exposes_the_training_keys() -> None:
+    compiled = majority_supplier_format(
+        {
+            "pos": [
+                {"supplier": "ACME", "format": "XML"},
+                {"supplier": "ACME", "format": "XML"},
+                {"supplier": "BETA", "format": "EDI"},
+            ],
+            "pr": PR_4402,
+            "pr_id": "PR-4402",
+            "pr_type": "IT_HARDWARE",
+            "justification": "Finance laptops are past refresh.",
+        }
+    )
+    dossier = format_dossier(compiled)
+    assert dossier["recipe_package"] == "tabulate"
+    assert dossier["supplier"] == "ACME"
+    assert dossier["format"] == "XML"
+    assert dossier["pr_id"] == "PR-4402"
+    assert "ACME" in dossier["formatted"]
+    assert "PR-4402" in dossier["formatted"]
+    assert dossier["summary_prompt"]
 
 
 @pytest.mark.asyncio
@@ -290,6 +358,8 @@ async def test_in_budget_pauses_then_create_po_on_approve(db_session, monkeypatc
     upstream = decision.rationale.get("upstream") if isinstance(decision.rationale, dict) else {}
     assert upstream.get("supplier") == "ACME"
     assert upstream.get("format") == "XML"
+    assert upstream.get("recipe_package") == "tabulate"
+    assert "ACME" in str(upstream.get("formatted") or "")
     assert "create_po" not in str(writes)
     decision.status = "accepted"
     db_session.commit()
@@ -333,3 +403,98 @@ async def test_human_reject_calls_handle_rejection(db_session, monkeypatch):
     statuses = _node_status(run)
     assert statuses["task.handle_rejection"] == "completed"
     assert statuses["task.create_po"] == "skipped"
+
+
+_FORMAT_INPUT = {
+    "pr": PR_4402,
+    "pr_id": "PR-4402",
+    "supplier": "ACME",
+    "format": "XML",
+    "vote_count": 2,
+    "proposed_po": {"pr_id": "PR-4402", "supplier": "ACME", "format": "XML"},
+    "summary_prompt": "Summarise this purchase-requisition justification.",
+    "justification": "Finance laptops are past refresh.",
+}
+
+
+def _workspace(db) -> Workspace:
+    row = Workspace(
+        id=str(uuid.uuid4()),
+        name="Recipe training",
+        slug=f"recipe-train-{uuid.uuid4().hex[:8]}",
+        settings={},
+    )
+    db.add(row)
+    db.commit()
+    return row
+
+
+def test_format_code_fails_closed_in_an_empty_managed_env(db_session, monkeypatch, tmp_path):
+    """stdlib-only venv cannot import tabulate — that is the custom-env proof."""
+
+    from app.models.recipe import RecipeExecution
+    from app.services.recipe_envs import build_env, build_env_spec, resolve_env
+    from app.services.recipe_executions import create_execution, run_recipe_execution
+
+    monkeypatch.setattr(settings, "recipe_execution_enabled", True)
+    monkeypatch.setattr(settings, "recipe_envs_path", str(tmp_path / "envs"))
+    workspace = _workspace(db_session)
+    env = resolve_env(db_session, workspace_id=workspace.id, spec=build_env_spec())
+    db_session.commit()
+    built = build_env(db_session, env.id)
+    assert built.status == "ready"
+    execution = create_execution(
+        db_session,
+        workspace_id=workspace.id,
+        env=built,
+        code=FORMAT_CODE,
+        inputs=_FORMAT_INPUT,
+        timeout_s=30,
+        node_id="task.format_dossier",
+    )
+    db_session.commit()
+    run_recipe_execution(execution.id, FORMAT_CODE)
+    db_session.expire_all()
+    settled = db_session.query(RecipeExecution).filter_by(id=execution.id).one()
+    assert settled.status == "failed"
+    evidence = f"{settled.error or ''}\n{settled.stderr_tail or ''}"
+    assert "tabulate" in evidence.lower()
+
+
+def test_format_code_runs_in_the_tabulate_managed_env(db_session, monkeypatch, tmp_path):
+    """The training path: declare tabulate, the platform builds the venv, the script runs."""
+
+    from app.models.recipe import RecipeExecution
+    from app.services.recipe_envs import build_env, build_env_spec, resolve_env
+    from app.services.recipe_executions import create_execution, run_recipe_execution
+
+    monkeypatch.setattr(settings, "recipe_execution_enabled", True)
+    monkeypatch.setattr(settings, "recipe_envs_path", str(tmp_path / "envs"))
+    workspace = _workspace(db_session)
+    spec = build_env_spec(requirements_text=FORMAT_REQUIREMENTS)
+    assert "tabulate" in spec.requirements_text
+    env = resolve_env(db_session, workspace_id=workspace.id, spec=spec)
+    db_session.commit()
+    built = build_env(db_session, env.id)
+    assert built.status == "ready", built.build_error or built.build_log_tail
+    assert built.requirements_text
+    execution = create_execution(
+        db_session,
+        workspace_id=workspace.id,
+        env=built,
+        code=FORMAT_CODE,
+        inputs=_FORMAT_INPUT,
+        timeout_s=30,
+        node_id="task.format_dossier",
+    )
+    db_session.commit()
+    run_recipe_execution(execution.id, FORMAT_CODE)
+    db_session.expire_all()
+    settled = db_session.query(RecipeExecution).filter_by(id=execution.id).one()
+    assert settled.status == "succeeded", settled.error or settled.stderr_tail
+    output = settled.output_json if isinstance(settled.output_json, dict) else {}
+    assert output.get("recipe_package") == "tabulate"
+    assert output.get("recipe_package_version")
+    assert output.get("supplier") == "ACME"
+    assert "ACME" in str(output.get("formatted") or "")
+    assert "PR-4402" in str(output.get("formatted") or "")

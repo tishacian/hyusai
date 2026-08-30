@@ -134,6 +134,7 @@ test('the workshop is a modal dialog that edits the graph through the store', ()
   assert.match(workshop, /updateNodeConfig\(id, `params\.\$\{field\}`, value\)/);
   // The test run rides the workbench dispatch with the recipe poll budget,
   // and the debounced script edit lands before the snapshot is taken.
+  assert.match(workshop, /recipeWorkshopTestInput\(n\)/);
   assert.match(workshop, /this\.flushCode\(\);\s*\n\s*const parsed = parseWorkbenchObject/);
   assert.match(workshop, /FLOW_WORKBENCH_RECIPE_POLL_POLICY/);
   // Cancellation goes through the dedicated cancel endpoint.

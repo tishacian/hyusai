@@ -1,5 +1,10 @@
 """Seed the NAWA PR→PO witness: MCP servers, System, 4h schedule, HITL binding.
 
+The published graph includes ``task.format_dossier`` — a ``python_recipe_v1``
+node with ``requirements_text=tabulate>=0.9.0``. That is the training surface
+for the managed-env workshop (Environment → Prepare → Test). Isolated Test
+does not call SAP. A live Start-a-cycle still dies on PDF tool names.
+
 Idempotent. Does not delete on re-seed. Does not talk to live SAP unless
 the workspace has OAuth (``MCP_OAUTH_CLIENT_SECRET`` or the CONNECTORS form)
 and the operator runs a test / skill.
@@ -139,6 +144,7 @@ def ensure_mcp_flag(db: DBSession, workspace: Workspace) -> None:
     enabled = list(catalog.get("enabled_skills") or [])
     features["mcp_connector"] = True
     features["experience_v1"] = True
+    features["flow_workbench_v1"] = True
     for slug in PR_TO_PO_SKILL_SLUGS:
         if slug not in enabled:
             enabled.append(slug)

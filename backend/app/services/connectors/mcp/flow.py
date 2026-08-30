@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.connectors.mcp.poc import MAJORITY_CODE, SELECT_PR_CODE
+from app.services.connectors.mcp.poc import (
+    FORMAT_CODE,
+    FORMAT_REQUIREMENTS,
+    FORMAT_TEST_INPUT,
+    MAJORITY_CODE,
+    SELECT_PR_CODE,
+)
 
 PR_TO_PO_SKILL_SLUGS: tuple[str, ...] = (
     "sap_list_approved_prs_v1",
@@ -28,6 +34,7 @@ def _task(
     description: str,
     params: dict[str, Any] | None = None,
     inputs_map: dict[str, Any] | None = None,
+    extra_data: dict[str, Any] | None = None,
     x: int = 0,
     y: int = 200,
 ) -> dict[str, Any]:
@@ -36,6 +43,9 @@ def _task(
         config["params"] = params
     if inputs_map is not None:
         config["inputs_map"] = inputs_map
+    data: dict[str, Any] = {"description": description}
+    if extra_data:
+        data.update(extra_data)
     return {
         "id": node_id,
         "kind": "task",
@@ -43,7 +53,7 @@ def _task(
         "label": label,
         "position": {"x": x, "y": y},
         "config": config,
-        "data": {"description": description},
+        "data": data,
     }
 
 
@@ -185,12 +195,43 @@ def pr_to_po_flow() -> dict[str, Any]:
                 y=80,
             ),
             _task(
+                "task.format_dossier",
+                "Format dossier (custom env)",
+                "python_recipe_v1",
+                description=(
+                    "Training node: python_recipe_v1 with a managed env "
+                    f"({FORMAT_REQUIREMENTS}). Open the recipe workshop → "
+                    "Environment → Prepare, then Test. Isolated Test does "
+                    "not call SAP."
+                ),
+                extra_data={"workshop_test_input": FORMAT_TEST_INPUT},
+                params={
+                    "code": FORMAT_CODE,
+                    "timeout_s": 30,
+                    "requirements_text": FORMAT_REQUIREMENTS,
+                },
+                inputs_map={
+                    "pr": {"node_id": "task.select_pr", "path": ["pr"]},
+                    "pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]},
+                    "supplier": {"node_id": "task.majority", "path": ["supplier"]},
+                    "format": {"node_id": "task.majority", "path": ["format"]},
+                    "vote_count": {"node_id": "task.majority", "path": ["vote_count"]},
+                    "proposed_po": {"node_id": "task.majority", "path": ["proposed_po"]},
+                    "summary_prompt": {"node_id": "task.majority", "path": ["summary_prompt"]},
+                    "justification": {"node_id": "task.majority", "path": ["justification"]},
+                },
+                x=2200,
+                y=80,
+            ),
+            _task(
                 "task.summarise",
                 "Summarise justification",
                 "azure_llm_v1",
                 description="azure_llm_v1 summarises. It does not reject.",
-                inputs_map={"prompt": {"node_id": "task.majority", "path": ["summary_prompt"]}},
-                x=2200,
+                inputs_map={
+                    "prompt": {"node_id": "task.format_dossier", "path": ["summary_prompt"]}
+                },
+                x=2440,
                 y=80,
             ),
             {
@@ -198,7 +239,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "kind": "hitl",
                 "type": "policy",
                 "label": "Approve PO in NAWA",
-                "position": {"x": 2440, "y": 80},
+                "position": {"x": 2680, "y": 80},
                 "data": {
                     "description": (
                         "Human gate in NAWA, not SAP. Upstream is the package. "
@@ -208,7 +249,8 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "config": {
                     "prompt": (
                         "Approve creating this purchase order in SAP? "
-                        "The package (PR, budget, justification summary, supplier, format) is in upstream."
+                        "The package (PR, budget, justification summary, supplier, "
+                        "format, formatted dossier) is in upstream."
                     ),
                     "prompt_kind": "approve_write",
                     "approvers": ["operator", "procurement"],
@@ -223,6 +265,11 @@ def pr_to_po_flow() -> dict[str, Any]:
                         "supplier": {"node_id": "task.majority", "path": ["supplier"]},
                         "format": {"node_id": "task.majority", "path": ["format"]},
                         "proposed_po": {"node_id": "task.majority", "path": ["proposed_po"]},
+                        "formatted": {"node_id": "task.format_dossier", "path": ["formatted"]},
+                        "recipe_package": {
+                            "node_id": "task.format_dossier",
+                            "path": ["recipe_package"],
+                        },
                     },
                 },
             },
@@ -231,7 +278,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "kind": "decision",
                 "type": "decision",
                 "label": "HITL verdict",
-                "position": {"x": 2680, "y": 80},
+                "position": {"x": 2920, "y": 80},
                 "data": {"description": "Approve writes a PO; reject calls handle_rejection."},
                 "config": {
                     "branches": [
@@ -254,7 +301,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                     "format": {"node_id": "task.majority", "path": ["format"]},
                     "amount": {"node_id": "task.select_pr", "path": ["pr", "amount"]},
                 },
-                x=2920,
+                x=3160,
                 y=0,
             ),
             _task(
@@ -263,7 +310,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "sap_handle_rejection_v1",
                 description="sap_handle_rejection_v1 → sap MCP handle_rejection after human reject.",
                 inputs_map={"pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]}},
-                x=2920,
+                x=3160,
                 y=160,
             ),
             _task(
@@ -272,14 +319,14 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "audit_log_v1",
                 description="audit_log_v1 — NAWA ledger, not SAP.",
                 params={"event_type": "procurement.pr_to_po", "details": {"source": "nawa_pr_to_po"}},
-                x=3160,
+                x=3400,
                 y=200,
             ),
             {
                 "id": "sink.done",
                 "kind": "sink",
                 "label": "Done",
-                "position": {"x": 3400, "y": 200},
+                "position": {"x": 3640, "y": 200},
                 "data": {
                     "description": "Single strict sink. Empty ticks and completed ticks both land here."
                 },
@@ -297,7 +344,8 @@ def pr_to_po_flow() -> dict[str, Any]:
             {"from": "decision.budget", "to": "task.hikma", "kind": "branch", "branch_label": "ok"},
             {"from": "task.reject", "to": "task.audit", "kind": "data"},
             {"from": "task.hikma", "to": "task.majority", "kind": "data"},
-            {"from": "task.majority", "to": "task.summarise", "kind": "data"},
+            {"from": "task.majority", "to": "task.format_dossier", "kind": "data"},
+            {"from": "task.format_dossier", "to": "task.summarise", "kind": "data"},
             {"from": "task.summarise", "to": "hitl.approve_po", "kind": "data"},
             {"from": "hitl.approve_po", "to": "decision.hitl", "kind": "control"},
             {"from": "decision.hitl", "to": "task.create_po", "kind": "branch", "branch_label": "approved"},

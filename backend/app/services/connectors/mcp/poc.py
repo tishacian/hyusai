@@ -80,6 +80,69 @@ def majority_supplier_format(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+FORMAT_REQUIREMENTS = "tabulate>=0.9.0"
+
+FORMAT_TEST_INPUT = (
+    '{"pr":{"pr_id":"PR-4402","title":"Laptop replacements","amount":12000,'
+    '"currency":"QAR"},"pr_id":"PR-4402","supplier":"ACME","format":"XML",'
+    '"vote_count":2,"proposed_po":{"pr_id":"PR-4402","supplier":"ACME",'
+    '"format":"XML"},"summary_prompt":"Summarise this purchase-requisition '
+    'justification in two short sentences.","justification":"Finance laptops '
+    'are past refresh."}'
+)
+
+
+def format_dossier(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Mirror of FORMAT_CODE for in-process walker tests.
+
+    The live node imports ``tabulate`` from the managed venv. This helper
+    keeps the same keys so the DAG can walk without that package in pytest.
+    """
+
+    pr = payload.get("pr") if isinstance(payload.get("pr"), Mapping) else {}
+    supplier = str(payload.get("supplier") or "")
+    order_format = str(payload.get("format") or "")
+    vote_count = payload.get("vote_count") or 0
+    pr_id = str(payload.get("pr_id") or pr.get("pr_id") or "")
+    rows = [
+        ("PR", pr_id),
+        ("Title", str(pr.get("title") or pr.get("PurReqnDescription") or "")),
+        ("Supplier", supplier),
+        ("Order type", order_format),
+        ("Votes", vote_count),
+        ("Amount", pr.get("amount") or pr.get("TotalNetAmount") or ""),
+        ("Currency", pr.get("currency") or "QAR"),
+    ]
+    version = ""
+    try:
+        from tabulate import tabulate as _tabulate
+        import tabulate as tabulate_mod
+
+        table = _tabulate(rows, headers=["Field", "Value"], tablefmt="github")
+        version = str(getattr(tabulate_mod, "__version__", "") or "")
+    except ImportError:
+        table = "| Field | Value |\n| --- | --- |\n" + "\n".join(
+            f"| {field} | {value} |" for field, value in rows
+        )
+    return {
+        "formatted": table,
+        "recipe_package": "tabulate",
+        "recipe_package_version": version,
+        "supplier": supplier,
+        "format": order_format,
+        "vote_count": vote_count,
+        "pr_id": pr_id,
+        "pr": dict(pr) if pr else {},
+        "proposed_po": (
+            dict(payload.get("proposed_po"))
+            if isinstance(payload.get("proposed_po"), Mapping)
+            else {}
+        ),
+        "summary_prompt": str(payload.get("summary_prompt") or ""),
+        "justification": str(payload.get("justification") or ""),
+    }
+
+
 SELECT_PR_CODE = '''"""Pick the next approved PR for this scheduled tick."""
 
 def main(inputs):
@@ -154,5 +217,41 @@ def main(inputs):
         "pr_id": pr_id,
         "pr": pr,
         "justification": justification,
+    }
+'''
+
+FORMAT_CODE = '''"""Format the compiled PR-to-PO dossier. Requires tabulate in the managed env."""
+
+import tabulate
+from tabulate import tabulate as render_table
+
+
+def main(inputs):
+    pr = inputs.get("pr") if isinstance(inputs.get("pr"), dict) else {}
+    supplier = str(inputs.get("supplier") or "")
+    order_format = str(inputs.get("format") or "")
+    vote_count = inputs.get("vote_count") or 0
+    pr_id = str(inputs.get("pr_id") or pr.get("pr_id") or "")
+    rows = [
+        ["PR", pr_id],
+        ["Title", str(pr.get("title") or pr.get("PurReqnDescription") or "")],
+        ["Supplier", supplier],
+        ["Order type", order_format],
+        ["Votes", vote_count],
+        ["Amount", pr.get("amount") or pr.get("TotalNetAmount") or ""],
+        ["Currency", pr.get("currency") or "QAR"],
+    ]
+    return {
+        "formatted": render_table(rows, headers=["Field", "Value"], tablefmt="github"),
+        "recipe_package": "tabulate",
+        "recipe_package_version": str(getattr(tabulate, "__version__", "") or ""),
+        "supplier": supplier,
+        "format": order_format,
+        "vote_count": vote_count,
+        "pr_id": pr_id,
+        "pr": pr,
+        "proposed_po": inputs.get("proposed_po") if isinstance(inputs.get("proposed_po"), dict) else {},
+        "summary_prompt": str(inputs.get("summary_prompt") or ""),
+        "justification": str(inputs.get("justification") or ""),
     }
 '''
