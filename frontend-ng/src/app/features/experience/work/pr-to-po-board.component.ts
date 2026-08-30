@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component, ElementRef, OnInit, ViewChild, computed, effect, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
 import { catchError, map, switchMap, take, tap } from 'rxjs/operators';
 import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
@@ -8,6 +8,7 @@ import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
 import { WorkApiService } from './work-api.service';
 import {
@@ -33,7 +34,6 @@ import {
   FACTORY_BINDING_KEY,
   FACTORY_EXPERIENCE_SLUG,
   canStartFactoryCycle,
-  factoryChatHref,
   factoryFlowHref,
   factoryRunHref,
   factoryRunOrigin,
@@ -45,7 +45,7 @@ import {
   selector: 'app-pr-to-po-board',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, EmptyStateComponent],
+  imports: [CommonModule, RouterLink, EmptyStateComponent, ChatPanelComponent],
   styleUrl: './work.scss',
   template: `
     <div
@@ -195,6 +195,27 @@ import {
             </button>
           }
         </section>
+
+        @if (portalOpen() && portalPrompt() && systemId(); as portalSystemId) {
+          <section #factoryPortal class="xp-desk-portal">
+            <header>
+              <div>
+                <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.portal.title') }}</p>
+                <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.portal.hint') }}</p>
+              </div>
+              <button type="button" class="xp-work-btn" (click)="closePortal()">
+                {{ i18n.t('experience.pr_to_po.desk.portal.close') }}
+              </button>
+            </header>
+            @for (tick of [portalTick()]; track tick) {
+              <app-chat-panel
+                [systemId]="portalSystemId"
+                [initialPrompt]="portalPrompt()"
+                [compact]="true"
+              />
+            }
+          </section>
+        }
 
         <ol class="xp-desk-line">
           @for (station of briefing().stations; track station.id; let i = $index) {
@@ -428,7 +449,6 @@ export class PrToPoBoardComponent implements OnInit {
   private readonly workApi = inject(WorkApiService);
   readonly i18n = inject(I18nService);
   readonly workspace = inject(WorkspaceService);
-  private readonly router = inject(Router);
   readonly experienceSlug = FACTORY_EXPERIENCE_SLUG;
   readonly bindingKey = FACTORY_BINDING_KEY;
 
@@ -457,7 +477,19 @@ export class PrToPoBoardComponent implements OnInit {
   readonly askDraft = signal('');
   readonly askReply = signal<FactoryAskReply | null>(null);
   readonly askChips = FACTORY_ASK_CHIPS;
-  readonly portalReady = computed(() => Boolean(this.systemId() && this.workspace.currentSlug()));
+  readonly portalReady = computed(() => Boolean(this.systemId()));
+  readonly portalOpen = signal(true);
+  readonly portalTick = signal(0);
+  readonly portalPrompt = signal('');
+  @ViewChild('factoryPortal') private factoryPortal?: ElementRef<HTMLElement>;
+
+  constructor() {
+    effect(() => {
+      if (!this.portalOpen() || !this.systemId() || this.terrainLoading()) return;
+      if (this.portalPrompt()) return;
+      this.portalPrompt.set(this.composePortalPrompt(''));
+    });
+  }
 
   ngOnInit(): void {
     this.load();
@@ -618,18 +650,28 @@ export class PrToPoBoardComponent implements OnInit {
   }
 
   openPortal(question = this.askDraft()): void {
-    const slug = this.workspace.currentSlug();
-    const systemId = this.systemId();
-    if (!slug || !systemId) {
+    if (!this.systemId()) {
       this.error.set(this.i18n.t('experience.pr_to_po.desk.portal.offline'));
       return;
     }
-    const prompt = this.i18n.t('experience.pr_to_po.desk.portal.prompt', {
+    this.portalPrompt.set(this.composePortalPrompt(question));
+    this.portalOpen.set(true);
+    this.portalTick.update((tick) => tick + 1);
+    queueMicrotask(() => {
+      this.factoryPortal?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  closePortal(): void {
+    this.portalOpen.set(false);
+  }
+
+  private composePortalPrompt(question: string): string {
+    return this.i18n.t('experience.pr_to_po.desk.portal.prompt', {
       ...factoryBriefingParams(this.briefing(), this.lanes()),
       system: this.system()?.name || this.i18n.t('experience.pr_to_po.title'),
       question: question.trim() || this.i18n.t('experience.pr_to_po.desk.portal.prompt_open'),
     });
-    void this.router.navigateByUrl(factoryChatHref(slug, systemId, prompt));
   }
 
   askChip(intent: FactoryAskIntent): void {

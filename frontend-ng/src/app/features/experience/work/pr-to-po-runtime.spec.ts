@@ -86,6 +86,8 @@ test('the factory desk starts a cycle through the Experience binding', () => {
   assert.match(board, /FACTORY_BINDING_KEY/);
   assert.match(board, /listPendingValidations/);
   assert.match(board, /factoryRunOrigin/);
-  assert.match(board, /factoryChatHref/);
+  assert.match(board, /app-chat-panel/);
+  assert.match(board, /\[compact\]="true"/);
+  assert.doesNotMatch(board, /navigateByUrl\(factoryChatHref/);
   assert.doesNotMatch(board, /llm-portal|omnirag-llm-portal/);
 });

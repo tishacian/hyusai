@@ -952,6 +952,32 @@
   text-decoration: none;
 }
 
+.xp-desk-portal {
+  display: flex;
+  flex-direction: column;
+  min-height: 28rem;
+  max-height: 36rem;
+  margin: 0 0 24px;
+  overflow: hidden;
+  border: 1px solid var(--nawa-line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--nawa-surface) 88%, transparent);
+}
+
+.xp-desk-portal > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px;
+}
+
+.xp-desk-portal app-chat-panel {
+  display: block;
+  flex: 1;
+  min-height: 0;
+}
+
 .xp-desk-charts {
   display: grid;
   grid-template-columns: 1.1fr 1fr 0.9fr;
