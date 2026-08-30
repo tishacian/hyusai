@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
 import { catchError, map, switchMap, take, tap } from 'rxjs/operators';
 import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
@@ -15,10 +15,12 @@ import {
   FACTORY_ASK_CHIPS,
   askFactory,
   composeDesk,
+  factoryBriefingParams,
   donutSlices,
   hanaLaneFromPreview,
   laneFromPreview,
   orderCoverage,
+  shouldOpenFactoryPortal,
   supplierShares,
   terrainShares,
   type DeskLane,
@@ -31,6 +33,7 @@ import {
   FACTORY_BINDING_KEY,
   FACTORY_EXPERIENCE_SLUG,
   canStartFactoryCycle,
+  factoryChatHref,
   factoryFlowHref,
   factoryRunHref,
   factoryRunOrigin,
@@ -157,6 +160,14 @@ import {
               <button type="submit" class="xp-work-btn xp-work-btn-primary">
                 {{ i18n.t('experience.pr_to_po.desk.ask.submit') }}
               </button>
+              <button
+                type="button"
+                class="xp-work-btn"
+                (click)="openPortal()"
+                [disabled]="!portalReady()"
+              >
+                {{ i18n.t('experience.pr_to_po.desk.portal.open') }}
+              </button>
             </div>
           </form>
           <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.ask.hint') }}</p>
@@ -174,6 +185,14 @@ import {
           </div>
           @if (askReply(); as reply) {
             <p class="xp-desk-reply">{{ i18n.t(reply.key, reply.params) }}</p>
+            <button
+              type="button"
+              class="xp-desk-portal-link"
+              (click)="openPortal()"
+              [disabled]="!portalReady()"
+            >
+              {{ i18n.t('experience.pr_to_po.desk.portal.continue') }}
+            </button>
           }
         </section>
 
@@ -409,6 +428,7 @@ export class PrToPoBoardComponent implements OnInit {
   private readonly workApi = inject(WorkApiService);
   readonly i18n = inject(I18nService);
   readonly workspace = inject(WorkspaceService);
+  private readonly router = inject(Router);
   readonly experienceSlug = FACTORY_EXPERIENCE_SLUG;
   readonly bindingKey = FACTORY_BINDING_KEY;
 
@@ -437,6 +457,7 @@ export class PrToPoBoardComponent implements OnInit {
   readonly askDraft = signal('');
   readonly askReply = signal<FactoryAskReply | null>(null);
   readonly askChips = FACTORY_ASK_CHIPS;
+  readonly portalReady = computed(() => Boolean(this.systemId() && this.workspace.currentSlug()));
 
   ngOnInit(): void {
     this.load();
@@ -588,7 +609,27 @@ export class PrToPoBoardComponent implements OnInit {
 
   submitAsk(event: Event): void {
     event.preventDefault();
-    this.applyAsk(askFactory(this.askDraft(), this.briefing(), this.lanes()));
+    const draft = this.askDraft();
+    if (shouldOpenFactoryPortal(draft)) {
+      this.openPortal(draft);
+      return;
+    }
+    this.applyAsk(askFactory(draft, this.briefing(), this.lanes()));
+  }
+
+  openPortal(question = this.askDraft()): void {
+    const slug = this.workspace.currentSlug();
+    const systemId = this.systemId();
+    if (!slug || !systemId) {
+      this.error.set(this.i18n.t('experience.pr_to_po.desk.portal.offline'));
+      return;
+    }
+    const prompt = this.i18n.t('experience.pr_to_po.desk.portal.prompt', {
+      ...factoryBriefingParams(this.briefing(), this.lanes()),
+      system: this.system()?.name || this.i18n.t('experience.pr_to_po.title'),
+      question: question.trim() || this.i18n.t('experience.pr_to_po.desk.portal.prompt_open'),
+    });
+    void this.router.navigateByUrl(factoryChatHref(slug, systemId, prompt));
   }
 
   askChip(intent: FactoryAskIntent): void {

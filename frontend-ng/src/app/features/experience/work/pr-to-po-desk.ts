@@ -483,15 +483,20 @@ export function interpretFactoryAsk(query: string): FactoryAskIntent {
   return 'next';
 }
 
-export function askFactory(
-  query: string,
+export function shouldOpenFactoryPortal(query: string): boolean {
+  const q = foldAsk(query);
+  if (!q || ASK_INTENTS.has(q)) return false;
+  const intent = interpretFactoryAsk(query);
+  return intent === 'next' || intent === 'empty';
+}
+
+export function factoryBriefingParams(
   briefing: DeskBriefing,
   lanes: readonly DeskLane[] = [],
-): FactoryAskReply {
-  const intent = interpretFactoryAsk(query);
+): Record<string, string | number> {
   const byId = new Map(lanes.map((lane) => [lane.id, lane]));
   const fact = (id: FactoryFactId) => briefing.facts.find((row) => row.id === id)?.value || '';
-  const params = {
+  return {
     ...briefing.voiceParams,
     pr: fact('pr') || String(briefing.voiceParams['pr'] || ''),
     supplier: fact('supplier') || String(briefing.voiceParams['supplier'] || ''),
@@ -501,6 +506,15 @@ export function askFactory(
     pos: byId.get('po')?.rowCount || briefing.voiceParams['pos'] || 0,
     receipts: byId.get('gr')?.rowCount || briefing.voiceParams['receipts'] || 0,
   };
+}
+
+export function askFactory(
+  query: string,
+  briefing: DeskBriefing,
+  lanes: readonly DeskLane[] = [],
+): FactoryAskReply {
+  const intent = interpretFactoryAsk(query);
+  const params = factoryBriefingParams(briefing, lanes);
   const focus: Record<FactoryAskIntent, DeskLaneId | null> = {
     supplier: 'po',
     pr: 'pr',

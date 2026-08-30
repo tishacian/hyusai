@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   askFactory,
   composeDesk,
+  shouldOpenFactoryPortal,
   donutSlices,
   hanaLaneFromPreview,
   interpretFactoryAsk,
@@ -232,4 +233,9 @@ test('asking the factory stays deterministic and never unseals the write', () =>
   assert.equal(supplier.focus, 'po');
   assert.equal(supplier.params['supplier'], '100012');
   assert.equal(briefing.stations.find((station) => station.id === 'write')?.status, 'sealed');
+  assert.equal(shouldOpenFactoryPortal('can we write'), false);
+  assert.equal(shouldOpenFactoryPortal('how many purchase orders'), false);
+  assert.equal(shouldOpenFactoryPortal('next'), false);
+  assert.equal(shouldOpenFactoryPortal(''), false);
+  assert.equal(shouldOpenFactoryPortal('explain the compiled dossier to the buyer'), true);
 });

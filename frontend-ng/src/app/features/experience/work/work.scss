@@ -874,6 +874,7 @@
 
 .xp-desk-ask-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -929,6 +930,26 @@
   font-size: 15px;
   line-height: 1.5;
   animation: desk-rise 360ms ease both;
+}
+
+.xp-desk-portal-link {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--nawa-accent);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.xp-desk-portal-link:disabled {
+  color: var(--nawa-fg-dim);
+  cursor: not-allowed;
+  text-decoration: none;
 }
 
 .xp-desk-charts {

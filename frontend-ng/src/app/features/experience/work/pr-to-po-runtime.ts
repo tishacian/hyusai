@@ -44,6 +44,15 @@ export function factoryRunHref(runId: string): string {
   return `/runs/${encodeURIComponent(runId)}`;
 }
 
+export function factoryChatHref(workspaceSlug: string, systemId: string, prompt: string): string {
+  const query = new URLSearchParams({
+    mode: 'system',
+    systemId,
+    initialPrompt: prompt,
+  });
+  return `/workspace/${encodeURIComponent(workspaceSlug)}/chat?${query.toString()}`;
+}
+
 export function runAdapterOrigin(inputRef: Record<string, unknown> | null | undefined): string | null {
   const ingress = inputRef?.['_ingress'];
   if (!ingress || typeof ingress !== 'object') return null;
