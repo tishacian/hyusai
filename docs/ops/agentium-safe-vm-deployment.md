@@ -4779,3 +4779,39 @@ Rollback images : `AGENTIUM_IMAGE_TAG=29aa898159b5` puis `up`. Ne pas
 downgrader `098`. Backend sain en ~2 min (MiniLM déjà en cache, contrairement
 aux ~10 min du 27/08 matin).
 
+## Itération du 30/08 — usine NAWA PR→PO, déployée sur `ea19a5b6`
+
+GO land + deploy depuis un Cloud Agent. `origin/demo/agentic` était resté
+sur `dc896dad` alors que la VM tournait `e5d3b8f2` (slice MLOps, jamais
+atterrie). Le POC vivait 23 commits plus loin sur
+`cursor/mcp-pr-to-po-5b89`. Rebase `--onto` le tip journalisé
+`71691719` (descendant de `e5d3b8f2`), fast-forward
+`dc896dad` → `ea19a5b6cbe26e6761bef8f5c07636b68a369630`. Aucune
+migration dans ce slice (098 déjà live).
+
+Le slice ajoute le connecteur MCP (Hikma S/4), le Système **PR to PO**,
+l'application métier `pr-to-po` (`/work/pr-to-po`), le nœud recette
+`tabulate`, et **Lancer un cycle** via
+`POST /work/pr-to-po/bindings/procurement.pr_to_po.run/runs`.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n`, `check:ui-chrome`, `test:unit`, `build:prod` verts ; pytest ciblé 75 verts |
+| Push | `demo/agentic` en fast-forward `dc896dad` → `ea19a5b6` (49 commits : 25 déjà live + journal MLOps + 23 POC) |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | `ea19a5b6cbe26e6761bef8f5c07636b68a369630`, porcelain vide, fichiers `pr-to-po` présents |
+| Build | trois images `agentium-{backend,worker,frontend}:ea19a5b6cbe2`, label 40-hex identique |
+| Dump / migrate | sautés — pas de nouvelle révision Alembic |
+| `storage-check` | sortie 0 |
+| `up` | cinq services applicatifs recréés ; infra (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP, LiveKit) intouchée |
+| `build-info` | `revision: ea19a5b6cbe26e6761bef8f5c07636b68a369630`, `revision_verified: true` (backend et frontend) |
+| Bundle | `pr-to-po` présent dans le JS servi ; `/` et `/work/pr-to-po` = 200 |
+| Logs | 0 `traceback`/`exception` backend depuis la bascule |
+| Alias | tag mobile `demo-agentic` **non déplacé** |
+| Seed `nawa` | Système `28345b5a-0824-4f2b-a420-ebe0aa7cd34f`, Experience `de2264aa-9570-40ee-bdd7-70c30da2c0a2` slug `pr-to-po` r1, liaison `procurement.pr_to_po.run` ; flags `mcp_connector`, `experience_v1`, `flow_workbench_v1` |
+| OAuth Hikma | URLs + client id posés, `secret_set=false` — la lecture live reste fermée jusqu'à saisie du secret dans Connexions |
+| Canaris carakai | non rejoués dans cette fenêtre (hôte runner non invoqué) |
+| Rollback | `AGENTIUM_IMAGE_TAG=e5d3b8f20708` puis `up` ; le seed `nawa` reste (fix-forward) |
+
