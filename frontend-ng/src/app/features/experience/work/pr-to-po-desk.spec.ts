@@ -2,10 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  askFactory,
   composeDesk,
+  donutSlices,
   hanaLaneFromPreview,
+  interpretFactoryAsk,
   laneFromPreview,
+  orderCoverage,
   pickDeskColumns,
+  supplierShares,
+  terrainShares,
 } from './pr-to-po-desk';
 
 test('prefers business columns over the raw OData left-edge', () => {
@@ -162,5 +168,64 @@ test('the factory compiles a dossier from live SAP columns and keeps the write s
   assert.equal(briefing.stations.find((station) => station.id === 'compile')?.status, 'done');
   assert.equal(briefing.stations.find((station) => station.id === 'compile')?.via, 'python_recipe_v1');
   assert.equal(briefing.stations.find((station) => station.id === 'decide')?.status, 'ready');
+  assert.equal(briefing.stations.find((station) => station.id === 'write')?.status, 'sealed');
+  assert.equal(briefing.voiceKey, 'experience.pr_to_po.desk.voice.compiled');
+  assert.equal(briefing.voiceParams['format'], 'ZAPO');
+});
+
+test('charts and coverage stay on the live columns, not invented aliases', () => {
+  const pr = laneFromPreview('pr', 'sap', {
+    ok: true,
+    columns: ['PurchaseRequisition'],
+    rows: [['1'], ['2']],
+    row_count: 2,
+  });
+  const po = laneFromPreview('po', 'hikma', {
+    ok: true,
+    columns: ['PurchaseOrder', 'Supplier'],
+    rows: [
+      ['4201', '100012'],
+      ['4202', '100012'],
+      ['4203', '100099'],
+    ],
+    row_count: 3,
+  });
+  const briefing = composeDesk([pr, po], 0);
+  const terrain = terrainShares(briefing.kpis);
+  assert.deepEqual(
+    terrain.map((row) => row.id),
+    ['pr', 'po'],
+  );
+  assert.equal(terrain.find((row) => row.id === 'po')?.value, 3);
+  const slices = donutSlices(terrain);
+  assert.equal(slices[0]?.offset, 0);
+  assert.ok((slices[1]?.offset ?? 0) < 0);
+  const suppliers = supplierShares([pr, po]);
+  assert.equal(suppliers[0]?.id, '100012');
+  assert.equal(suppliers[0]?.value, 2);
+  const coverage = orderCoverage([pr, po]);
+  assert.equal(coverage.prs, 2);
+  assert.equal(coverage.pos, 3);
+  assert.equal(coverage.pct, 100);
+});
+
+test('asking the factory stays deterministic and never unseals the write', () => {
+  const po = laneFromPreview('po', 'hikma', {
+    ok: true,
+    columns: ['PurchaseOrder', 'PurchaseOrderType', 'Supplier'],
+    rows: [['4201', 'ZAPO', '100012']],
+    row_count: 1,
+  });
+  const briefing = composeDesk([po], 0);
+  assert.equal(interpretFactoryAsk('Who is the majority supplier?'), 'supplier');
+  assert.equal(interpretFactoryAsk('ecrire'), 'write');
+  assert.equal(interpretFactoryAsk(''), 'empty');
+  const write = askFactory('can we write', briefing, [po]);
+  assert.equal(write.intent, 'write');
+  assert.equal(write.focus, null);
+  assert.match(write.key, /ask\.answer\.write$/);
+  const supplier = askFactory('supplier', briefing, [po]);
+  assert.equal(supplier.focus, 'po');
+  assert.equal(supplier.params['supplier'], '100012');
   assert.equal(briefing.stations.find((station) => station.id === 'write')?.status, 'sealed');
 });

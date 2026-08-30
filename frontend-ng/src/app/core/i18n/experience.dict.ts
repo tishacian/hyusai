@@ -809,6 +809,43 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.fact.inbox': 'Tâche d’approbation',
   'experience.pr_to_po.desk.fact.supplier': 'Fournisseur majoritaire',
   'experience.pr_to_po.desk.fact.format': 'Type de commande',
+  'experience.pr_to_po.desk.voice.compiled':
+    'L’usine a lu {prs} demandes, {tasks} approbations et {pos} commandes. Elle retient {pr}, propose le fournisseur {supplier} et le type {format}. L’écriture SAP reste scellée.',
+  'experience.pr_to_po.desk.voice.live':
+    'Lecture live : {prs} demandes, {tasks} approbations, {pos} commandes, {receipts} réceptions. Relisez le dossier avant toute décision.',
+  'experience.pr_to_po.desk.voice.none':
+    'SAP n’a pas encore répondu. Relancez la lecture. Rien n’est écrit de ce côté.',
+  'experience.pr_to_po.desk.charts.terrain': 'Lecture live',
+  'experience.pr_to_po.desk.charts.suppliers': 'Fournisseurs vus',
+  'experience.pr_to_po.desk.charts.coverage': 'Commandes déjà là',
+  'experience.pr_to_po.desk.charts.coverage_value': '{pos} commandes pour {prs} demandes',
+  'experience.pr_to_po.desk.charts.empty': 'Pas encore de lecture à tracer.',
+  'experience.pr_to_po.desk.charts.other': 'Autres',
+  'experience.pr_to_po.desk.ask.label': 'Demandez à l’usine',
+  'experience.pr_to_po.desk.ask.placeholder': 'Qui est le fournisseur majoritaire ?',
+  'experience.pr_to_po.desk.ask.submit': 'Demander',
+  'experience.pr_to_po.desk.ask.hint':
+    'Réponses tirées des lectures live. Aucune écriture SAP. Aucun alias inventé.',
+  'experience.pr_to_po.desk.ask.chip.supplier': 'Fournisseur majoritaire',
+  'experience.pr_to_po.desk.ask.chip.po': 'Commandes lues',
+  'experience.pr_to_po.desk.ask.chip.next': 'Que faire ensuite',
+  'experience.pr_to_po.desk.ask.chip.write': 'Peut-on écrire',
+  'experience.pr_to_po.desk.ask.answer.supplier':
+    'Le fournisseur majoritaire sur les commandes lues est {supplier}. Type le plus fréquent : {format}.',
+  'experience.pr_to_po.desk.ask.answer.pr':
+    'La lecture montre {prs} demandes. La demande retenue est {pr}.',
+  'experience.pr_to_po.desk.ask.answer.inbox':
+    'La lecture montre {tasks} tâches d’approbation. Rien n’est décidé sans vous.',
+  'experience.pr_to_po.desk.ask.answer.po':
+    'La lecture montre {pos} commandes déjà présentes. Elles servent à proposer le fournisseur et le type.',
+  'experience.pr_to_po.desk.ask.answer.gr':
+    'Les réceptions sont limitées côté SAP ({receipts} lignes lues). Le reste du terrain reste lisible.',
+  'experience.pr_to_po.desk.ask.answer.write':
+    'Non. La station d’écriture reste scellée. Un cycle peut compiler un dossier ; SAP n’est pas écrit avant votre avis.',
+  'experience.pr_to_po.desk.ask.answer.next':
+    'Relisez le dossier compilé, puis décidez. Lancer un cycle ouvre une exécution observable. L’écriture reste scellée.',
+  'experience.pr_to_po.desk.ask.answer.empty':
+    'Posez une question sur les demandes, les commandes, le fournisseur, ou l’écriture.',
   'experience.pr_to_po.refresh': 'Actualiser',
   'experience.pr_to_po.approve': 'Approuver et créer le PO',
   'experience.pr_to_po.reject': 'Refuser',
@@ -1629,6 +1666,43 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.fact.inbox': 'Approval task',
   'experience.pr_to_po.desk.fact.supplier': 'Majority supplier',
   'experience.pr_to_po.desk.fact.format': 'Order type',
+  'experience.pr_to_po.desk.voice.compiled':
+    'The factory read {prs} requisitions, {tasks} approvals and {pos} orders. It keeps {pr}, proposes supplier {supplier} and type {format}. The SAP write stays sealed.',
+  'experience.pr_to_po.desk.voice.live':
+    'Live read: {prs} requisitions, {tasks} approvals, {pos} orders, {receipts} receipts. Review the dossier before you decide.',
+  'experience.pr_to_po.desk.voice.none':
+    'SAP has not answered yet. Run the read again. Nothing is written from this side.',
+  'experience.pr_to_po.desk.charts.terrain': 'Live read',
+  'experience.pr_to_po.desk.charts.suppliers': 'Suppliers seen',
+  'experience.pr_to_po.desk.charts.coverage': 'Orders already there',
+  'experience.pr_to_po.desk.charts.coverage_value': '{pos} orders for {prs} requisitions',
+  'experience.pr_to_po.desk.charts.empty': 'No live read to chart yet.',
+  'experience.pr_to_po.desk.charts.other': 'Others',
+  'experience.pr_to_po.desk.ask.label': 'Ask the factory',
+  'experience.pr_to_po.desk.ask.placeholder': 'Who is the majority supplier?',
+  'experience.pr_to_po.desk.ask.submit': 'Ask',
+  'experience.pr_to_po.desk.ask.hint':
+    'Answers come from the live reads. No SAP write. No invented aliases.',
+  'experience.pr_to_po.desk.ask.chip.supplier': 'Majority supplier',
+  'experience.pr_to_po.desk.ask.chip.po': 'Orders read',
+  'experience.pr_to_po.desk.ask.chip.next': 'What next',
+  'experience.pr_to_po.desk.ask.chip.write': 'Can we write',
+  'experience.pr_to_po.desk.ask.answer.supplier':
+    'The majority supplier on the orders read is {supplier}. Most common type: {format}.',
+  'experience.pr_to_po.desk.ask.answer.pr':
+    'The read shows {prs} requisitions. The selected requisition is {pr}.',
+  'experience.pr_to_po.desk.ask.answer.inbox':
+    'The read shows {tasks} approval tasks. Nothing is decided without you.',
+  'experience.pr_to_po.desk.ask.answer.po':
+    'The read shows {pos} purchase orders already there. They are used to propose the supplier and the type.',
+  'experience.pr_to_po.desk.ask.answer.gr':
+    'Goods receipts are limited on the SAP side ({receipts} rows read). The rest of the terrain stays readable.',
+  'experience.pr_to_po.desk.ask.answer.write':
+    'No. The write station stays sealed. A cycle can compile a dossier; SAP is not written until you decide.',
+  'experience.pr_to_po.desk.ask.answer.next':
+    'Review the compiled dossier, then decide. Starting a cycle opens an observable Run. The write stays sealed.',
+  'experience.pr_to_po.desk.ask.answer.empty':
+    'Ask about requisitions, orders, the supplier, or the write.',
   'experience.pr_to_po.refresh': 'Refresh',
   'experience.pr_to_po.approve': 'Approve and create the PO',
   'experience.pr_to_po.reject': 'Reject',
