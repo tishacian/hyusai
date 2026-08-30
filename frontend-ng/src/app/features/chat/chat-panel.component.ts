@@ -2093,6 +2093,9 @@ const STEP_ICONS: Record<string, string> = {
     .chat-history-shell.chat-history-embed {
       display: block;
     }
+    .chat-history-shell.chat-history-embed .chat-history-panel {
+      display: none;
+    }
     .chat-history-panel {
       display: flex;
       flex-direction: column;
