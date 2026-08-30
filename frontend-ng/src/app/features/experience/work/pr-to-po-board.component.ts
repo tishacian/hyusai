@@ -217,7 +217,8 @@ import {
                             <td [title]="cell">{{ cell || '—' }}</td>
                           }
                         </tr>
-                      </tbody>
+                      }
+                    </tbody>
                   </table>
                 </div>
                 <p class="xp-desk-count">{{ i18n.t('experience.pr_to_po.desk.rows', { count: lane.rowCount }) }}</p>
