@@ -97,6 +97,13 @@ import {
             (click)="reload()"
             [disabled]="loading() || terrainLoading()"
           >
+            @if (terrainLoading()) {
+              <ck-thinking-orb
+                state="searching"
+                [size]="20"
+                [label]="i18n.t('experience.pr_to_po.desk.reading')"
+              />
+            }
             {{
               terrainLoading()
                 ? i18n.t('experience.pr_to_po.desk.reading')
@@ -109,6 +116,13 @@ import {
             (click)="startRun()"
             [disabled]="!bindingReady() || starting()"
           >
+            @if (starting()) {
+              <ck-thinking-orb
+                state="working"
+                [size]="20"
+                [label]="i18n.t('experience.pr_to_po.starting')"
+              />
+            }
             {{ starting() ? i18n.t('experience.pr_to_po.starting') : i18n.t('experience.pr_to_po.start') }}
           </button>
         </div>
@@ -436,7 +450,14 @@ import {
         </section>
 
         @if (terrainLoading() && lanes().length === 0) {
-          <app-empty-state icon="sparkles" size="lg" [title]="i18n.t('experience.pr_to_po.desk.reading')" />
+          <div class="xp-desk-reading" aria-live="polite">
+            <ck-thinking-orb
+              state="searching"
+              [size]="64"
+              [label]="i18n.t('experience.pr_to_po.desk.reading')"
+            />
+            <p>{{ i18n.t('experience.pr_to_po.desk.reading') }}</p>
+          </div>
         }
 
         @if (visibleLanes().length) {
