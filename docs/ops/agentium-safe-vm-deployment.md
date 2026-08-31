@@ -4891,3 +4891,41 @@ d'écriture reste **scellée**. Le bouton ne démarre pas de Run.
 | Canaris carakai | non rejoués dans cette fenêtre (hôte runner non invoqué) |
 | Rollback | `AGENTIUM_IMAGE_TAG=d203e6f87a47` puis `up` ; aucun schéma à reculer |
 
+## Itération du 31/08 — alignement PDF lecture / écriture scellée, déployée sur `38c94289`
+
+GO land + deploy depuis un Cloud Agent. `origin/demo/agentic` est passé
+`9ea69594` → `38c94289675250d3061d69dddc4f79b7a1c2b8fb` (4 commits, ff
+propre). La VM tournait `bc5810b3864313d4e44a75410ea175f1bc08af56`.
+Aucune migration dans ce slice.
+
+Le slice aligne le desk **Run the factory** et les skills nommées sur les
+outils PIH QA (`get_A_PurchaseRequisitionItem`, `fi_Validate`,
+`get_A_PurReqnAcctAssgmt`, `get_A_PurchaseOrderItem` + 5 headers). Les
+écritures `post_A_PurchaseOrder` (serveur hikma, type NB) et
+`fi_DiscardFromPurchasing` sont **composées** après `tools/list`, jamais
+appelées. Budget `Type E` = fact seulement. `fi_EnableForPurchasing`
+n’est pas utilisé. Preview `_by_key` inchangée. Station write **scellée**.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n`, `check:ui-chrome`, `test:unit` (1359 verts), `build:prod` verts ; pytest MCP+nawa 46 verts |
+| Push | `demo/agentic` en fast-forward `9ea69594` → `38c94289` (4 commits) |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | `bc5810b3` → `38c94289675250d3061d69dddc4f79b7a1c2b8fb` ff-only, porcelain vide |
+| Build | trois images `agentium-{backend,worker,frontend}:38c942896752`, label 40-hex identique |
+| Dump / migrate | sautés — pas de nouvelle révision Alembic |
+| `storage-check` | sortie 0 |
+| `up` | cinq services applicatifs recréés ; infra (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP, LiveKit) intouchée |
+| `build-info` | `revision: 38c94289675250d3061d69dddc4f79b7a1c2b8fb`, `revision_verified: true` (backend et frontend) |
+| Bundle | `get_A_PurchaseRequisitionItem`, `fi_Validate`, `get_A_PurReqnAcctAssgmt`, `IsClosed eq false`, `Funds center` / `Centre de fonds` ; aucun `post_A_PurchaseOrder` / `fi_Discard*` dans le JS servi |
+| Logs | 0 `traceback`/`exception` backend depuis la bascule ; 0 `tools/call` write |
+| Alias | tag mobile `demo-agentic` **non déplacé** (reste `400f1bdf…` / ids `d14cd3a9` / `f8a99caa` / `bc950852`) |
+| Smoke API | `POST /mcp/servers/sap/read` items 200, `tool=get_A_PurchaseRequisitionItem`, 50 lignes, `__count` 65833, retenue `2000276449` « STICKER WHITE » `MaterialGroup=Z100001` ; `fi_Validate` 200 (0 ligne = pass) ; imputation 200 (0 ligne sur cette PR) ; hikma items 200, 50/200 ; writes `post_A` / `fi_Discard` / `fi_Enable` → 400 `not a read` |
+| Seed `nawa` | relancé sans secret (encrypted conservé, `oauth_secret_set=true`) ; Système `28345b5a-0824-4f2b-a420-ebe0aa7cd34f`, Experience slug `pr-to-po` r1, liaison `procurement.pr_to_po.run` |
+| DAG publié | **non remplacé** — brouillon opérateur `faycal.benaissa@datategy.net` rev 6 préservé (`operator_draft_preserved`). Les skills du cycle tournent quand même le nouveau code (reads live / writes compose-only). `inputs_map` publié reste `pr_type` seul. |
+| Flags | `mcp_connector`, `experience_v1`, `flow_workbench_v1` déjà on ; `sap_hana_connector` reste off |
+| Canaris carakai | non rejoués dans cette fenêtre (hôte runner non invoqué) |
+| Rollback | `AGENTIUM_IMAGE_TAG=bc5810b38643` puis `up` ; aucun schéma à reculer |
+
