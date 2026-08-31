@@ -4929,3 +4929,38 @@ n’est pas utilisé. Preview `_by_key` inchangée. Station write **scellée**.
 | Canaris carakai | non rejoués dans cette fenêtre (hôte runner non invoqué) |
 | Rollback | `AGENTIUM_IMAGE_TAG=bc5810b38643` puis `up` ; aucun schéma à reculer |
 
+## Itération du 31/08 — desk quatre temps Fayçal, déployée sur `d46e6bf1`
+
+GO land + deploy depuis un Cloud Agent, branche `demo/agentic` (pas de
+branche `cursor/*`). `origin/demo/agentic` est passé `4c055e58` →
+`d46e6bf1a12d51a55582b0c0192ae62a95b63bb6` (1 commit desk, ff propre).
+Aucune migration. Le slice rend visibles les quatre preuves de démo :
+lecture SAP MCP live, résumé de justification, POST hikma
+`post_A_PurchaseOrder` type NB scellé, portail lecture seule get PR / get PO.
+
+Playbook opérateur EN illustré :
+`docs/ops/nawa-pr-to-po-live-demo-playbook.docx`.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n`, `check:ui-chrome`, `test:unit` (1361 verts), `build:prod` verts |
+| Push | `demo/agentic` en fast-forward `4c055e58` → `d46e6bf1` |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | `38c94289` → `d46e6bf1a12d51a55582b0c0192ae62a95b63bb6` ff-only, porcelain vide |
+| Build | trois images `agentium-{backend,worker,frontend}:d46e6bf1a12d`, label 40-hex identique |
+| Dump / migrate | sautés — pas de nouvelle révision Alembic |
+| `storage-check` | sortie 0 |
+| `up` | cinq services applicatifs recréés ; infra intouchée |
+| `build-info` | `revision: d46e6bf1a12d51a55582b0c0192ae62a95b63bb6`, `revision_verified: true` |
+| Bundle | `Success criteria`, `Compose the POST`, `Justification summary`, `post_A_PurchaseOrder` dans le JS servi |
+| Logs | 0 `traceback`/`exception` backend depuis la bascule |
+| Alias | tag mobile `demo-agentic` **non déplacé** (reste `d14cd3a9` / `f8a99caa` / `bc950852`) |
+| Smoke API | `get_A_PurchaseRequisitionItem` 200 ; writes `post_A` / `fi_Discard` / `fi_Enable` → 400 `not a read` |
+| Smoke desk | quatre beats Shown après Run the factory + Summarise ; POST sealed `called: false` type NB ; chips Ask + portail lecture seule |
+| Seed / DAG | inchangés — Système `28345b5a-…`, liaison `procurement.pr_to_po.run` sur v2 `b9217063-…` |
+| Flags | `mcp_connector`, `experience_v1`, `flow_workbench_v1` déjà on ; `sap_hana_connector` reste off |
+| Canaris carakai | non rejoués dans cette fenêtre |
+| Rollback | `AGENTIUM_IMAGE_TAG=38c942896752` puis `up` ; aucun schéma à reculer |
+
