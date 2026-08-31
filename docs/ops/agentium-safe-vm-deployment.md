@@ -5077,3 +5077,30 @@ reste scellée : pas de `tools/call` live.
 | Rollback | `AGENTIUM_IMAGE_TAG=cd40fe337285` puis `up` ; aucun schéma à reculer |
 | Playbook | SHA / images / exemple live réelignés sur `34731192` (PAPER BAG, 50/2/20, BAPI ZLPO) |
 
+## Itération du 31/08 — orbes de lecture, déployée sur `64178930`
+
+GO desk : `ck-thinking-orb` sur **Run the factory** (`searching`, 20) et
+**Start a cycle** (`working`, 20), plus le slot de première lecture (64).
+Pas de reroute de layout. `origin/demo/agentic` `91b9a348` →
+`6417893067f9e4b2f17bc1cd2d7dbf7da54acb9c`. Aucune migration.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n`, `check:ui-chrome`, `test:unit` (1364 verts), `build:prod` verts |
+| Push | `demo/agentic` en fast-forward `91b9a348` → `64178930` |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | `34731192` → `6417893067f9e4b2f17bc1cd2d7dbf7da54acb9c` ff-only |
+| Build | trois images `agentium-{backend,worker,frontend}:6417893067f9` |
+| Dump / migrate | sautés |
+| `storage-check` | sortie 0 |
+| `up` | cinq services applicatifs recréés ; infra intouchée |
+| `build-info` | `revision: 6417893067f9e4b2f17bc1cd2d7dbf7da54acb9c`, `revision_verified: true` |
+| Alias | tag mobile `demo-agentic` **non déplacé** |
+| Smoke desk | hard-reload ; bouton *The factory is reading SAP…* avec canvas orbe ; slot `.xp-desk-reading` orbe 64 ; après lecture : PAPER BAG / `1000000018` / Write **Sealed** / `BAPI_PO_CREATE1` |
+| Seed / DAG | inchangés — seed **non** relancé |
+| Flags | `sap_hana_connector` reste off |
+| Canaris carakai | non rejoués |
+| Rollback | `AGENTIUM_IMAGE_TAG=347311924fab` puis `up` ; aucun schéma à reculer |
+
