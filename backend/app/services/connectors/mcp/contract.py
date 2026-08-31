@@ -39,7 +39,7 @@ NAMED_SKILLS: dict[str, tuple[str, str]] = {
     "sap_get_justification_v1": ("sap", GET_JUSTIFICATION),
     "sap_reject_pr_v1": ("sap", REJECT_PR),
     "hikma_list_pos_by_type_v1": ("hikma", LIST_POS_BY_TYPE),
-    "sap_create_po_v1": ("sap", CREATE_PO),
+    "sap_create_po_v1": ("hikma", CREATE_PO),
     "sap_handle_rejection_v1": ("sap", HANDLE_REJECTION),
 }
 

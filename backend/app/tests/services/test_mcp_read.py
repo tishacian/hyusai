@@ -324,3 +324,191 @@ async def test_wrapper_unknown_tools_fail_closed(monkeypatch):
     )
     with pytest.raises(McpToolUnknown, match="mcp_tool_unknown"):
         await wrappers._sap_get_justification_v1({"pr_id": "PR-4402"}, ctx)
+
+
+def test_approved_pr_arguments_use_pdf_filter_and_string_top():
+    args = mcp_read.approved_pr_item_arguments()
+    assert args["top"] == "50"
+    assert isinstance(args["top"], str)
+    assert "IsClosed eq false" in args["filter"]
+    assert "IsClosed eq 'false'" not in args["filter"]
+    assert "PurchaseRequisitionStatus eq 'X'" in args["filter"]
+    assert args["inlinecount"] == "allpages"
+    assert mcp_read.inbox_list_arguments()["top"] == 50
+    assert isinstance(mcp_read.inbox_list_arguments()["top"], int)
+
+
+def test_pick_read_tools_prefer_live_then_fixture():
+    tool, arguments = mcp_read.pick_approved_pr_tool(
+        [mcp_read.LIVE_PR_ITEM, "list_approved_prs"]
+    )
+    assert tool == mcp_read.LIVE_PR_ITEM
+    assert arguments["top"] == "50"
+    tool, arguments = mcp_read.pick_approved_pr_tool(["list_approved_prs"])
+    assert tool == "list_approved_prs"
+    assert arguments == {}
+    tool, arguments = mcp_read.pick_budget_tool(
+        [mcp_read.LIVE_BUDGET, "check_budget"], pr_id="2000276450"
+    )
+    assert tool == mcp_read.LIVE_BUDGET
+    assert arguments == {"PurchaseRequisition": "2000276450"}
+    tool, arguments = mcp_read.pick_budget_tool(["check_budget"], pr_id="PR-4402")
+    assert tool == "check_budget"
+    assert arguments == {"pr_id": "PR-4402"}
+    tool, arguments = mcp_read.pick_po_item_tool(
+        [mcp_read.LIVE_PO_ITEM, "list_pos_by_type"],
+        material_group="L001",
+        pr_type="IT_HARDWARE",
+    )
+    assert tool == mcp_read.LIVE_PO_ITEM
+    assert arguments["top"] == "200"
+    assert arguments["filter"] == "MaterialGroup eq 'L001'"
+    tool, arguments = mcp_read.pick_po_item_tool(
+        ["list_pos_by_type"], material_group="L001", pr_type="IT_HARDWARE"
+    )
+    assert tool == "list_pos_by_type"
+    assert arguments == {"pr_type": "IT_HARDWARE"}
+
+
+def test_budget_ok_from_payload_empty_pass_type_e_fail():
+    assert mcp_read.budget_ok_from_payload([]) == (True, "ok")
+    assert mcp_read.budget_ok_from_payload({"d": {"results": []}}) == (True, "ok")
+    assert mcp_read.budget_ok_from_payload([{"Type": "W", "Message": "warn"}]) == (True, "ok")
+    ok, reason = mcp_read.budget_ok_from_payload([{"Type": "E", "Message": "over"}])
+    assert ok is False
+    assert reason == "over"
+
+
+def test_read_tool_rejects_pdf_writes_without_calling():
+    with pytest.raises(ValueError, match="not a read"):
+        mcp_read.read_tool({"id": "hikma"}, tool="post_A_PurchaseOrder", arguments={})
+    with pytest.raises(ValueError, match="not a read"):
+        mcp_read.read_tool({"id": "sap"}, tool="fi_DiscardFromPurchasing", arguments={})
+    with pytest.raises(ValueError, match="not a read"):
+        mcp_read.read_tool({"id": "sap"}, tool="fi_EnableForPurchasing", arguments={})
+
+
+def test_compose_write_sealed_never_calls_the_tool(monkeypatch):
+    from app.services.connectors.mcp import client as mcp_client
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("write tools must not be called")
+
+    monkeypatch.setattr(mcp_client, "call_tool", boom)
+    composed = mcp_read.compose_write_sealed(
+        server_id="hikma",
+        tool=mcp_read.LIVE_CREATE_PO,
+        arguments={"requestBody": mcp_read.create_po_request_body(pr_id="2000276450")},
+        sap_block=mcp_read.SAP_CREATE_BLOCK,
+    )
+    assert composed["sealed"] is True
+    assert composed["called"] is False
+    assert composed["result"]["called"] is False
+    assert composed["result"]["arguments"]["requestBody"]["PurchaseOrderType"] == "NB"
+    assert "PurchaseOrderItemCategory" in composed["result"]["arguments"]["requestBody"]["to_PurchaseOrderItem"][0]
+
+
+@pytest.mark.asyncio
+async def test_write_wrappers_compose_without_call_tool(monkeypatch):
+    ctx = _named_ctx(monkeypatch)
+    from app.services.connectors.mcp import client as mcp_client
+    from app.services.connectors.mcp import service as mcp_service
+
+    seen: list[str] = []
+
+    def resolve(_ws, server_id):
+        seen.append(server_id)
+        return {
+            "id": server_id,
+            "url": "http://mock",
+            "token": "",
+            "credential_source": "workspace",
+            "tool_aliases": {},
+            "configured": True,
+            "enabled": True,
+        }
+
+    monkeypatch.setattr(mcp_service, "resolve_server", resolve)
+    monkeypatch.setattr(
+        mcp_client,
+        "list_tools",
+        lambda server, **kwargs: {
+            "tools": [
+                {"name": mcp_read.LIVE_DISCARD},
+                {"name": mcp_read.LIVE_CREATE_PO},
+            ],
+            "session_id": "s1",
+        },
+    )
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("named write skills must not call_tool")
+
+    monkeypatch.setattr(mcp_client, "call_tool", boom)
+    rejected = await wrappers._sap_reject_pr_v1({"pr_id": "2000276450"}, ctx)
+    assert rejected["sealed"] is True
+    assert rejected["called"] is False
+    assert rejected["tool"] == mcp_read.LIVE_DISCARD
+    assert rejected["server_id"] == "sap"
+    created = await wrappers._sap_create_po_v1(
+        {"pr_id": "2000276450", "supplier": "100012"},
+        ctx,
+    )
+    assert created["sealed"] is True
+    assert created["called"] is False
+    assert created["tool"] == mcp_read.LIVE_CREATE_PO
+    assert created["server_id"] == "hikma"
+    assert created["arguments"]["requestBody"]["PurchaseOrderType"] == "NB"
+    assert "NB number range" in created["sap_block"]
+    handled = await wrappers._sap_handle_rejection_v1({"pr_id": "2000276450"}, ctx)
+    assert handled["sealed"] is True
+    assert handled["called"] is False
+    assert handled["tool"] == mcp_read.LIVE_DISCARD
+    assert seen == ["sap", "hikma", "sap"]
+
+
+@pytest.mark.asyncio
+async def test_list_and_budget_wrappers_use_live_then_fixture(monkeypatch):
+    ctx = _named_ctx(monkeypatch)
+    from app.services.connectors.mcp import client as mcp_client
+
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        mcp_client,
+        "list_tools",
+        lambda server, **kwargs: {
+            "tools": [{"name": "list_approved_prs"}, {"name": "check_budget"}],
+            "session_id": "s1",
+        },
+    )
+
+    def fake_call(server, **kwargs):
+        captured.append(kwargs)
+        if kwargs["contract_tool"] == "list_approved_prs":
+            return {
+                "ok": True,
+                "result": {"prs": [{"pr_id": "PR-4402", "pr_type": "IT_HARDWARE"}]},
+                "server_id": "sap",
+                "tool": "list_approved_prs",
+                "contract_tool": "list_approved_prs",
+                "credential_source": "workspace",
+                "duration_ms": 2,
+            }
+        return {
+            "ok": True,
+            "result": {"pr_id": "PR-4402", "budget_ok": True, "reason": "ok"},
+            "server_id": "sap",
+            "tool": "check_budget",
+            "contract_tool": "check_budget",
+            "credential_source": "workspace",
+            "duration_ms": 2,
+        }
+
+    monkeypatch.setattr(mcp_client, "call_tool", fake_call)
+    listed = await wrappers._sap_list_approved_prs_v1({}, ctx)
+    assert listed["prs"][0]["pr_id"] == "PR-4402"
+    budget = await wrappers._sap_check_budget_v1({"pr_id": "PR-4402"}, ctx)
+    assert budget["budget_ok"] is True
+    assert budget["reason"] == "ok"
+    assert captured[0]["contract_tool"] == "list_approved_prs"
+    assert captured[1]["contract_tool"] == "check_budget"
