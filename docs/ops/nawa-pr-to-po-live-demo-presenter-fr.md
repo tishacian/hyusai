@@ -16,9 +16,9 @@ Hard-reload (`Ctrl+Shift+R`). Compte présentateur `thibaud.ishacian@datategy.ne
 
 | # | Preuve | Où pointer | Phrase |
 |---|---|---|---|
-| 1 | SAP MCP live | Compteurs, stations, **Read selected requisition**, **Compiled brief** | Vraie PR via `get_A_PurchaseRequisitionItem` / `_by_key`. Tâche `listTaskCollection`. Budget `fi_Validate`. Commandes / fournisseur `get_A_PurchaseOrder*`. Compile `python_recipe_v1`. |
+| 1 | SAP MCP live | Compteurs, stations, **Read selected requisition**, **Compiled brief** | PR **ZNPR** via `get_A_PurchaseRequisitionItem` / `_by_key`. Tâche `listTaskCollection`. Budget `fi_Validate`. Fournisseur = commande la plus récente sur l’établissement via `get_A_PurchaseOrder`. Compile `python_recipe_v1`. |
 | 2 | Tâche agentique | **Summarise** | `azure_llm_v1` résume la justification live en deux phrases. Rien d’inventé. |
-| 3 | Package POST PO | carte **Draft / Purchase order composed for SAP** | POST · hikma · `post_A_PurchaseOrder` · Send **Sealed**. Type **NB**. `sealed: true`, `called: false`. Client 300 n’a pas de range NB ; ZAPO refusé. Succès = POST composé, pas un create live. |
+| 3 | Package POST PO | carte **Draft / Purchase order composed for SAP** | POST · `bapi_po` · `BAPI_PO_CREATE1` · Send **Sealed**. Type **ZLPO**. `sealed: true`, `called: false`, `testrun: false`. Org achat = établissement. TESTRUN interdit. Succès = BAPI composé, pas un create live. |
 | 4 | Nice-to-have | **Ask the factory** / **Open the portal** | Lecture seule. Chip **Write status** → *No. The write station stays sealed.* |
 
 ## Script (3 min)
@@ -27,16 +27,16 @@ Hard-reload (`Ctrl+Shift+R`). Compte présentateur `thibaud.ishacian@datategy.ne
 2. **Run the factory** → Compile **Done**. Hero du type *Brief compiled on STICKER WHITE*.
 3. **Read selected requisition** (preuve 1). Outils nommés sous chaque fait.
 4. **Summarise** (preuve 2).
-5. Carte Draft : « voici le POST ; il n’est pas envoyé » (preuve 3).
+5. Carte Draft : « voici le BAPI_PO_CREATE1 ZLPO ; il n’est pas envoyé » (preuve 3).
 6. Chip **Write status** (preuve 4). Portail seulement s’il reste du temps.
 
 ## Exemple live (31 août 2026)
 
-STICKER WHITE · fournisseur `1000001737` · 50 / 2 / 5 / 0 · PR `2000276449` · POST NB sealed · résumé *white stickers*.
+STICKER WHITE · fournisseur le plus récent sur l’établissement (ex. `1000000018`) · PR `2000276449` type ZNPR · POST ZLPO sealed · résumé *white stickers*.
 
 ## Interdit
 
-Poster un PO. Inventer des alias MCP. Allumer HANA. Remettre des tuiles 1–4 à l’écran. Mot de passe / secret OAuth sur une slide.
+Poster un PO. Appeler `BAPI_PO_CREATE1` / `BAPI_TRANSACTION_COMMIT`. Utiliser TESTRUN. Inventer des alias MCP. Allumer HANA. Remettre des tuiles 1–4 à l’écran. Mot de passe / secret OAuth sur une slide.
 
 ## Si ça coince
 

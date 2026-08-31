@@ -145,15 +145,16 @@ def build() -> Path:
                 "3",
                 "PO POST package",
                 "Draft / Purchase order composed for SAP",
-                "hikma post_A_PurchaseOrder, type NB, Send Sealed. "
-                "JSON sealed: true, called: false. Client 300 has no NB range; "
-                "ZAPO is refused. Success = composed POST, not a live create.",
+                "bapi_po BAPI_PO_CREATE1, type ZLPO, Send Sealed. "
+                "JSON sealed: true, called: false, testrun: false. "
+                "Purch org = plant. TESTRUN is banned. "
+                "Success = composed BAPI, not a live create.",
             ],
             [
                 "4",
                 "Nice-to-have",
                 "Ask the factory / Open the portal",
-                "Read-only. Chips: Majority supplier, Orders read, Next step, "
+                "Read-only. Chips: Plant supplier, Orders read, Next step, "
                 "Write status. The write stays sealed.",
             ],
         ],
@@ -165,7 +166,7 @@ def build() -> Path:
     bullet(
         doc,
         "Click Run the factory. Wait until Compile is Done and the hero reads "
-        "something like “Brief compiled on STICKER WHITE — majority supplier 1000001737.”",
+        "something like “Brief compiled on STICKER WHITE — plant supplier 1000000018.”",
     )
     bullet(
         doc,
@@ -176,8 +177,8 @@ def build() -> Path:
     bullet(
         doc,
         "Proof 3 — Scroll to Draft / Purchase order composed for SAP. "
-        "Row: POST · hikma · post_A_PurchaseOrder · Send Sealed. "
-        "Say: this is the POST we would send; it is not sent.",
+        "Row: POST · bapi_po · BAPI_PO_CREATE1 · Send Sealed. "
+        "Say: this is the BAPI we would send; it is not sent. Type ZLPO.",
     )
     bullet(doc, "Proof 4 — Chip Write status. Answer: the write stays sealed.")
     para(doc, "There is no button that posts a purchase order.")
@@ -208,9 +209,9 @@ def build() -> Path:
     heading(doc, "Draft purchase order (proof 3)", 3)
     bullet(doc, "Kicker Draft. Title Purchase order composed for SAP.")
     bullet(doc, "Hint: Draft purchase order. It is not sent; the write stays sealed.")
-    bullet(doc, "Row: Method POST · Server hikma · Tool post_A_PurchaseOrder · Send Sealed.")
-    bullet(doc, "Footnote: Client 300 has no NB number range. The API refuses ZAPO.")
-    shot(doc, "post.png", "Figure 3 — Draft hikma POST: type NB, sealed, not sent.")
+    bullet(doc, "Row: Method POST · Server bapi_po · Tool BAPI_PO_CREATE1 · Send Sealed.")
+    bullet(doc, "Footnote: Write stays sealed. BAPI_PO_CREATE1 type ZLPO then COMMIT. TESTRUN is banned.")
+    shot(doc, "post.png", "Figure 3 — Draft BAPI_PO_CREATE1: type ZLPO, sealed, not sent.")
 
     heading(doc, "Ask the factory (proof 4)", 3)
     para(doc, "Hint: Questions about the live reads. The write stays sealed.")
@@ -236,7 +237,7 @@ def build() -> Path:
             ["Field", "Value"],
             [
                 "Headline",
-                "Brief compiled on STICKER WHITE — majority supplier 1000001737.",
+                "Brief compiled on STICKER WHITE — plant supplier from the most recent plant PO.",
             ],
             ["Counts", "Requisitions 50 · Tasks 2 · Orders 5 · Receipts 0"],
             [
@@ -259,12 +260,12 @@ def build() -> Path:
                 "The purchase requisition is for white stickers. "
                 "No additional justification details are provided in the text. via azure_llm_v1",
             ],
-            ["Supplier / type (read)", "1000001737 / ZAPO via get_A_PurchaseOrder"],
+            ["Supplier / type", "Most recent plant PO / ZLPO (never NB, never ZSVO from history)"],
             ["Budget", "ok via fi_Validate"],
             [
                 "POST",
-                "hikma post_A_PurchaseOrder, PurchaseOrderType NB, "
-                "PurchasingOrganization CPO, sealed true, called false",
+                "bapi_po BAPI_PO_CREATE1, DOC_TYPE ZLPO, "
+                "PURCH_ORG = plant, sealed true, called false, testrun false",
             ],
         ],
     )
@@ -308,7 +309,7 @@ def build() -> Path:
     )
     bullet(
         doc,
-        "3:00 — Draft card. “Type NB, sealed, not sent. Client 300 has no NB range.”",
+        "3:00 — Draft card. “Type ZLPO, BAPI_PO_CREATE1, sealed, not sent. TESTRUN banned.”",
     )
     bullet(doc, "5:00 — Write status, then Open the portal if there is time.")
     bullet(doc, "6:30 — Stop. Write still Sealed. Offer Start a cycle only if they ask.")
@@ -324,7 +325,7 @@ def build() -> Path:
     bullet(doc, "Someone asks to create the PO live → refuse. The composed POST is the artefact.")
 
     heading(doc, "Do not", 2)
-    bullet(doc, "Do not post a purchase order. No tools/call on post_A_PurchaseOrder.")
+    bullet(doc, "Do not post a purchase order. No tools/call on BAPI_PO_CREATE1 or COMMIT. TESTRUN is banned.")
     bullet(doc, "Do not call fi_EnableForPurchasing or fi_Discard.")
     bullet(doc, "Do not invent MCP aliases (A_*, YY1_*). Do not turn HANA on.")
     bullet(doc, "Do not seed nawa on this VM. Do not move the demo-agentic tag.")

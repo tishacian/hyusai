@@ -32,7 +32,7 @@ Hard-reload (`Ctrl+Shift+R` / `Cmd+Shift+R`) so the browser does not keep an old
 | System | `PR to PO` (`28345b5a-0824-4f2b-a420-ebe0aa7cd34f`) |
 | Binding | `procurement.pr_to_po.run` → published v2 (`b9217063-b512-48e8-a444-835867a3de76`) |
 | SAP | Live Hikma MCP. **No HANA.** |
-| Write | **Sealed.** The POST is composed, never sent. |
+| Write | **Sealed.** The BAPI package is composed, never sent. TESTRUN is banned. |
 
 Subtitle on the desk: *System → Flow → Run → Decision. The factory reads Hikma, compiles a brief, and writes nothing to SAP until you decide.*
 
@@ -44,10 +44,10 @@ The screen does **not** number these. You point at the matching card.
 
 | # | Proof | Where you point | What must be true |
 |---|---|---|---|
-| 1 | Live SAP MCP | KPI row, stations, then **Read selected requisition** and the brief facts | `get_A_PurchaseRequisitionItem` and `get_A_PurchaseRequisitionItem_by_key` return a real PR. `listTaskCollection` feeds the approval task. `fi_Validate` and `get_A_PurReqnAcctAssgmt` feed budget. `get_A_PurchaseOrderItem` / `get_A_PurchaseOrder` feed orders, supplier, and type. Compile station shows `python_recipe_v1`. |
+| 1 | Live SAP MCP | KPI row, stations, then **Read selected requisition** and the brief facts | `get_A_PurchaseRequisitionItem` returns open **ZNPR** items. `get_A_PurchaseRequisitionItem_by_key` / `get_A_PurchaseReqnItemText` feed the text. `listTaskCollection` feeds the approval task. `fi_Validate` and `get_A_PurReqnAcctAssgmt` feed budget. `get_A_PurchaseOrder` filtered by plant purch org (`orderby=PurchaseOrderDate desc`) feeds the most recent supplier. Compile station shows `python_recipe_v1`. |
 | 2 | Small agentic task | **Summarise** in the compiled brief | `azure_llm_v1` `POST /chat/completion` `prompt_type: factual` turns the live justification into two clear sentences. Invent nothing. |
-| 3 | PO POST package | **Draft / Purchase order composed for SAP** | Server `hikma`, tool `post_A_PurchaseOrder`, method POST, type **NB**, Send **Sealed**. JSON: `sealed: true`, `called: false`. Client 300 has no NB range; ZAPO is refused. Success = honest composed POST, not a live create. |
-| 4 | Nice-to-have | **Ask the factory** and **Open the portal** | Read-only. Chips: Majority supplier, Orders read, Next step, Write status. The write stays sealed. |
+| 3 | PO POST package | **Draft / Purchase order composed for SAP** | Server `bapi_po`, tool `BAPI_PO_CREATE1`, method POST, type **ZLPO**, Send **Sealed**. JSON: `sealed: true`, `called: false`, `testrun: false`. Purch org and company code = plant. Currency from the PR. Delivery date overridden to a future workday. Success = honest composed BAPI package, not a live create. |
+| 4 | Nice-to-have | **Ask the factory** and **Open the portal** | Read-only. Chips: Plant supplier, Orders read, Next step, Write status. The write stays sealed. |
 
 If the Write station says **Sealed**, that is correct.
 
@@ -56,10 +56,10 @@ If the Write station says **Sealed**, that is correct.
 ## 3. Walkthrough (about three minutes)
 
 1. Hard-reload the URL. Header reads **PR to PO**. Four counts. Five stations. Write = **Sealed**.
-2. Click **Run the factory**. Wait until Compile is **Done** and the hero reads something like *Brief compiled on STICKER WHITE — majority supplier 1000001737.*
+2. Click **Run the factory**. Wait until Compile is **Done** and the hero reads something like *Brief compiled on STICKER WHITE — plant supplier 1000000018.*
 3. **Proof 1.** Point at the counts and the tools under the stations. Click **Read selected requisition** if justification is empty. The brief facts name the live tools.
 4. **Proof 2.** Click **Summarise**. Two sentences appear via `azure_llm_v1`.
-5. **Proof 3.** Scroll to **Draft / Purchase order composed for SAP**. Read the row: POST · hikma · `post_A_PurchaseOrder` · Send **Sealed**. Open the JSON. Say: *this is the POST we would send; it is not sent.*
+5. **Proof 3.** Scroll to **Draft / Purchase order composed for SAP**. Read the row: POST · bapi_po · `BAPI_PO_CREATE1` · Send **Sealed**. Open the JSON. Say: *this is the BAPI we would send; it is not sent. Type ZLPO. TESTRUN is banned.*
 6. **Proof 4.** Chip **Write status**. Answer: the write stays sealed.
 
 There is no button that posts a purchase order.
@@ -86,15 +86,15 @@ Facts name their tools. Justification via `get_A_PurchaseRequisitionItem_by_key`
 
 Kicker **Draft**. Title **Purchase order composed for SAP**.  
 Hint: *Draft purchase order. It is not sent; the write stays sealed.*  
-Row: Method POST · Server hikma · Tool `post_A_PurchaseOrder` · Send **Sealed**.  
-Footnote: *Client 300 has no NB number range. The API refuses ZAPO.*
+Row: Method POST · Server bapi_po · Tool `BAPI_PO_CREATE1` · Send **Sealed**.  
+Footnote: *Write stays sealed. The live path is BAPI_PO_CREATE1 type ZLPO then BAPI_TRANSACTION_COMMIT. TESTRUN is banned.*
 
 ![Draft POST](nawa-pr-to-po-playbook-figures/post.png)
 
 ### Ask the factory (proof 4)
 
 Hint: *Questions about the live reads. The write stays sealed.*  
-Placeholder: *Who is the majority supplier?*
+Placeholder: *Who is the plant supplier?*
 
 ![Ask the factory](nawa-pr-to-po-playbook-figures/ask.png)
 
@@ -111,8 +111,8 @@ Stay on get-PR / get-PO questions. Older summarise prompts in the portal thread 
 
 | Field | Value |
 |---|---|
-| Headline | Brief compiled on **STICKER WHITE** — majority supplier **1000001737**. |
-| Voice | The factory read 50 requisitions, 2 approvals and 5 orders. It keeps STICKER WHITE, proposes supplier 1000001737 and type ZAPO. The SAP write stays sealed. |
+| Headline | Brief compiled on **STICKER WHITE** — plant supplier from the most recent plant PO. |
+| Voice | The factory read open ZNPR requisitions, approvals and plant orders. It keeps STICKER WHITE, proposes the most recent plant supplier and type **ZLPO**. The SAP write stays sealed. |
 | Counts | Requisitions 50 · Tasks 2 · Orders 5 · Receipts 0 |
 | Stations | Connect **Done** · Read **Done** (`get_A_PurchaseRequisitionItem`) · Compile **Done** (`python_recipe_v1`) · Decide **Ready** · Write **Sealed** |
 | Selected requisition | STICKER WHITE via `get_A_PurchaseRequisitionItem` |
@@ -120,10 +120,10 @@ Stay on get-PR / get-PO questions. Older summarise prompts in the portal thread 
 | PR id (in the POST) | `2000276449` item 10 |
 | Justification | STICKER WHITE via `get_A_PurchaseRequisitionItem_by_key` |
 | Summary | *The purchase requisition is for white stickers. No additional justification details are provided in the text.* via `azure_llm_v1` |
-| Supplier | `1000001737` via `get_A_PurchaseOrder` |
-| Order type (read) | ZAPO via `get_A_PurchaseOrder` |
+| Supplier | Most recent `get_A_PurchaseOrder` on purch org = plant (not the material-group majority) |
+| Order type | **ZLPO** for ZNPR. Never NB. Do not take `ZSVO` from plant history. |
 | Budget | ok via `fi_Validate` |
-| POST | hikma `post_A_PurchaseOrder`, `PurchaseOrderType` **NB**, Supplier `1000001737`, PurchasingOrganization `CPO`, CompanyCode `1000`, `sealed: true`, `called: false` |
+| POST | `bapi_po` `BAPI_PO_CREATE1`, `DOC_TYPE` **ZLPO**, `PURCH_ORG` = `COMP_CODE` = plant, currency from the PR, `INCOTERMS2L` Doha, `sealed: true`, `called: false`, `testrun: false` |
 
 **Ask → Write status:** *No. The write station stays sealed. A cycle can compile a brief; SAP is not written until you decide.*
 
@@ -142,11 +142,11 @@ Taken from `frontend-ng/src/app/core/i18n/experience.dict.ts` (English).
 | Secondary | Start a cycle |
 | Sources | Connections |
 | Brief | Compiled brief / Compiled from the live SAP reads. |
-| Brief facts | Selected requisition · Approval task · Majority supplier · Order type · Justification · Justification summary · Budget |
+| Brief facts | Selected requisition · Approval task · Plant supplier · Order type · Justification · Justification summary · Budget |
 | Brief actions | Read selected requisition · Summarise |
 | Draft card | Draft · Purchase order composed for SAP |
 | Draft row | Method · Server · Tool · Send |
-| Ask | Ask the factory · Ask · Majority supplier · Orders read · Next step · Write status |
+| Ask | Ask the factory · Ask · Plant supplier · Orders read · Next step · Write status |
 | Portal | Open the portal · Factory portal · Close the portal |
 | Stations | Connect · Read · Compile · Decide · Write |
 | Station status | Done · Ready · Blocked · Sealed |
@@ -164,7 +164,7 @@ Removed from this desk: Success criteria, numbered beats 1–4, Shown / Play / W
 | 0:00 | URL, `nawa`, English, hard-reload | “Operator desk. Not a slide.” |
 | 0:30 | Counts + stations | “Live SAP, through MCP. No HANA.” |
 | 1:30 | Brief + **Read selected requisition** + **Summarise** | “One short model call. Two sentences. Nothing invented. Nothing written.” |
-| 3:00 | Draft card | “Type NB, sealed, not sent. Client 300 has no NB range. ZAPO is refused.” |
+| 3:00 | Draft card | “Type ZLPO, BAPI_PO_CREATE1, sealed, not sent. TESTRUN is banned.” |
 | 5:00 | Chip **Write status**, then **Open the portal** if there is time | “Questions on the reads we just did.” |
 | 6:30 | Stop | Write still **Sealed**. Offer **Start a cycle** only if they ask. |
 
@@ -179,17 +179,17 @@ Removed from this desk: Success criteria, numbered beats 1–4, Shown / Play / W
 | `token expired` or HTTP 407 on MCP | Restart the Hikma Cloud Foundry MCP apps. This is **not** an Agentium password problem. |
 | Counts at 0 | Click **Run the factory** once and wait. A timeout on `tools/call` often recovers on the next run. |
 | Empty justification | **Read selected requisition** once, then **Summarise** once. Do not spam. |
-| No draft card | Need a live PR and a majority supplier. Run the factory again. |
+| No draft card | Need a live ZNPR line and a plant supplier. Run the factory again. |
 | Write station still Sealed after Run | Correct. |
 | Goods receipts 0 / Limited read | Expected. `sap_gr` is often 403. Do not dwell. |
 | Portal shows older summarise prompts | Session history. Ask a get-PR / get-PO question. Do not treat it as a write. |
-| Someone asks to create the PO live | Refuse. Client 300 has no NB range. ZAPO is refused. The composed POST is the artefact. |
+| Someone asks to create the PO live | Refuse. The write stays sealed until a human approves in NAWA. Do not call `BAPI_PO_CREATE1` or `BAPI_TRANSACTION_COMMIT` from the desk. The composed package is the artefact. |
 
 ---
 
 ## 9. Do not
 
-- Do not post a purchase order. No `tools/call` on `post_A_PurchaseOrder`.
+- Do not post a purchase order. No `tools/call` on `BAPI_PO_CREATE1`, `BAPI_TRANSACTION_COMMIT`, or `post_A_PurchaseOrder`. TESTRUN is banned.
 - Do not call `fi_EnableForPurchasing` or `fi_Discard`.
 - Do not invent MCP aliases (`A_*`, `YY1_*`).
 - Do not turn HANA on (`sap_hana_connector` stays off).
