@@ -802,8 +802,7 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.station_status.blocked': 'Bloqué',
   'experience.pr_to_po.desk.station_status.sealed': 'Scellé',
   'experience.pr_to_po.desk.dossier': 'Dossier compilé',
-  'experience.pr_to_po.desk.factory_note':
-    'Compilation déterministe sur les lectures live. Aucun alias inventé. Aucune écriture SAP.',
+  'experience.pr_to_po.desk.factory_note': 'Compilation à partir des lectures SAP en cours.',
   'experience.pr_to_po.desk.raw': 'Matière première',
   'experience.pr_to_po.desk.fact.pr': 'Demande retenue',
   'experience.pr_to_po.desk.fact.inbox': 'Tâche d’approbation',
@@ -814,40 +813,22 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.fact.budget': 'Budget',
   'experience.pr_to_po.desk.fact.fund': 'Fonds',
   'experience.pr_to_po.desk.fact.fundscenter': 'Centre de fonds',
-  'experience.pr_to_po.desk.criteria': 'Critères de succès',
-  'experience.pr_to_po.desk.criteria.hint':
-    'Quatre temps à jouer. Chaque pastille est une preuve : lecture SAP live, résumé, POST composé, questions en lecture seule.',
-  'experience.pr_to_po.desk.beat.read': 'Lire SAP',
-  'experience.pr_to_po.desk.beat.summarise': 'Résumer',
-  'experience.pr_to_po.desk.beat.post': 'Composer le POST',
-  'experience.pr_to_po.desk.beat.ask': 'Demander',
-  'experience.pr_to_po.desk.beat.read.ok':
-    'Succès : les demandes et commandes arrivent des outils MCP SAP live.',
-  'experience.pr_to_po.desk.beat.summarise.ok':
-    'Succès : un modèle résume la justification lue dans SAP.',
-  'experience.pr_to_po.desk.beat.post.ok':
-    'Succès : le POST hikma post_A_PurchaseOrder est composé, type NB, et reste scellé.',
-  'experience.pr_to_po.desk.beat.ask.ok':
-    'Succès : le portail répond en lecture seule avec get PR et get PO.',
-  'experience.pr_to_po.desk.beat_state.done': 'Vu',
-  'experience.pr_to_po.desk.beat_state.ready': 'À jouer',
-  'experience.pr_to_po.desk.beat_state.wait': 'En attente',
   'experience.pr_to_po.desk.summarise': 'Résumer',
   'experience.pr_to_po.desk.summarise.working': 'Résumé en cours…',
   'experience.pr_to_po.desk.summarise.prompt':
     'Résume cette justification d’achat en deux phrases claires. N’invente rien. N’écris pas dans SAP. Texte : {text}',
   'experience.pr_to_po.desk.summarise.empty': 'Le modèle n’a pas renvoyé de résumé.',
   'experience.pr_to_po.desk.summarise.failed': 'Le résumé n’a pas pu être produit.',
-  'experience.pr_to_po.desk.post.kicker': 'Requête POST',
+  'experience.pr_to_po.desk.post.kicker': 'Brouillon',
   'experience.pr_to_po.desk.post.title': 'Commande composée pour SAP',
   'experience.pr_to_po.desk.post.hint':
-    'Voici le POST que Hikma recevrait. Il n’est pas envoyé. La station d’écriture reste scellée.',
+    'Brouillon de commande. Il n’est pas envoyé ; l’écriture reste scellée.',
   'experience.pr_to_po.desk.post.method': 'Méthode',
   'experience.pr_to_po.desk.post.server': 'Serveur',
   'experience.pr_to_po.desk.post.tool': 'Outil',
   'experience.pr_to_po.desk.post.status': 'Envoi',
   'experience.pr_to_po.desk.post.block':
-    'Le client 300 n’a pas de plage NB ; ZAPO est refusé par l’API. Composer le POST est le succès de cette démo.',
+    'Le client 300 n’a pas de plage NB. L’API refuse ZAPO.',
   'experience.pr_to_po.desk.justification.read': 'Lire la justification',
   'experience.pr_to_po.desk.justification.reading': 'Lecture de la justification…',
   'experience.pr_to_po.desk.justification.selected': 'Lire la demande retenue',
@@ -870,11 +851,11 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.ask.placeholder': 'Qui est le fournisseur majoritaire ?',
   'experience.pr_to_po.desk.ask.submit': 'Demander',
   'experience.pr_to_po.desk.ask.hint':
-    'Les comptes restent sur le bureau. Le portail parle avec l’usine PR to PO. Aucune écriture SAP.',
+    'Questions sur les lectures en cours. L’écriture reste scellée.',
   'experience.pr_to_po.desk.ask.chip.supplier': 'Fournisseur majoritaire',
   'experience.pr_to_po.desk.ask.chip.po': 'Commandes lues',
-  'experience.pr_to_po.desk.ask.chip.next': 'Que faire ensuite',
-  'experience.pr_to_po.desk.ask.chip.write': 'Peut-on écrire',
+  'experience.pr_to_po.desk.ask.chip.next': 'Suite',
+  'experience.pr_to_po.desk.ask.chip.write': 'État de l’écriture',
   'experience.pr_to_po.desk.ask.answer.supplier':
     'Le fournisseur majoritaire sur les commandes lues est {supplier}. Type le plus fréquent : {format}.',
   'experience.pr_to_po.desk.ask.answer.pr':
@@ -896,7 +877,7 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.portal.title': 'Portail de l’usine',
   'experience.pr_to_po.desk.portal.close': 'Fermer le portail',
   'experience.pr_to_po.desk.portal.hint':
-    'Lecture seule. Réponds avec les outils get PR et get PO. Aucune écriture SAP.',
+    'Réponses à partir des demandes et commandes lues. L’écriture reste scellée.',
   'experience.pr_to_po.desk.portal.offline':
     'L’usine PR to PO n’est pas encore reliée. Relancez la lecture, puis ouvrez le portail.',
   'experience.pr_to_po.desk.portal.prompt_open':
@@ -1716,8 +1697,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.station_status.blocked': 'Blocked',
   'experience.pr_to_po.desk.station_status.sealed': 'Sealed',
   'experience.pr_to_po.desk.dossier': 'Compiled dossier',
-  'experience.pr_to_po.desk.factory_note':
-    'Deterministic compile on the live reads. No invented aliases. No SAP write.',
+  'experience.pr_to_po.desk.factory_note': 'Compiled from the live SAP reads.',
   'experience.pr_to_po.desk.raw': 'Raw material',
   'experience.pr_to_po.desk.fact.pr': 'Selected requisition',
   'experience.pr_to_po.desk.fact.inbox': 'Approval task',
@@ -1728,40 +1708,22 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.fact.budget': 'Budget',
   'experience.pr_to_po.desk.fact.fund': 'Fund',
   'experience.pr_to_po.desk.fact.fundscenter': 'Funds center',
-  'experience.pr_to_po.desk.criteria': 'Success criteria',
-  'experience.pr_to_po.desk.criteria.hint':
-    'Four beats to play. Each tile is a proof: live SAP read, summary, composed POST, read-only questions.',
-  'experience.pr_to_po.desk.beat.read': 'Read SAP',
-  'experience.pr_to_po.desk.beat.summarise': 'Summarise',
-  'experience.pr_to_po.desk.beat.post': 'Compose the POST',
-  'experience.pr_to_po.desk.beat.ask': 'Ask',
-  'experience.pr_to_po.desk.beat.read.ok':
-    'Success: requisitions and orders arrive from live SAP MCP tools.',
-  'experience.pr_to_po.desk.beat.summarise.ok':
-    'Success: a model summarises the justification read from SAP.',
-  'experience.pr_to_po.desk.beat.post.ok':
-    'Success: the hikma post_A_PurchaseOrder POST is composed as type NB and stays sealed.',
-  'experience.pr_to_po.desk.beat.ask.ok':
-    'Success: the portal answers read-only questions using get PR and get PO.',
-  'experience.pr_to_po.desk.beat_state.done': 'Shown',
-  'experience.pr_to_po.desk.beat_state.ready': 'Play',
-  'experience.pr_to_po.desk.beat_state.wait': 'Waiting',
   'experience.pr_to_po.desk.summarise': 'Summarise',
   'experience.pr_to_po.desk.summarise.working': 'Summarising…',
   'experience.pr_to_po.desk.summarise.prompt':
     'Summarise this purchase-requisition justification in two clear sentences. Invent nothing. Do not write to SAP. Text: {text}',
   'experience.pr_to_po.desk.summarise.empty': 'The model did not return a summary.',
   'experience.pr_to_po.desk.summarise.failed': 'The summary could not be produced.',
-  'experience.pr_to_po.desk.post.kicker': 'POST request',
+  'experience.pr_to_po.desk.post.kicker': 'Draft',
   'experience.pr_to_po.desk.post.title': 'Purchase order composed for SAP',
   'experience.pr_to_po.desk.post.hint':
-    'This is the POST Hikma would receive. It is not sent. The write station stays sealed.',
+    'Draft purchase order. It is not sent; the write stays sealed.',
   'experience.pr_to_po.desk.post.method': 'Method',
   'experience.pr_to_po.desk.post.server': 'Server',
   'experience.pr_to_po.desk.post.tool': 'Tool',
   'experience.pr_to_po.desk.post.status': 'Send',
   'experience.pr_to_po.desk.post.block':
-    'Client 300 has no NB number range; ZAPO is refused by the API. Composing the POST is the success of this demo.',
+    'Client 300 has no NB number range. The API refuses ZAPO.',
   'experience.pr_to_po.desk.justification.read': 'Read justification',
   'experience.pr_to_po.desk.justification.reading': 'Reading justification…',
   'experience.pr_to_po.desk.justification.selected': 'Read selected requisition',
@@ -1784,11 +1746,11 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.ask.placeholder': 'Who is the majority supplier?',
   'experience.pr_to_po.desk.ask.submit': 'Ask',
   'experience.pr_to_po.desk.ask.hint':
-    'Counts stay on the desk. The portal talks with the PR to PO factory. No SAP write.',
+    'Questions about the live reads. The write stays sealed.',
   'experience.pr_to_po.desk.ask.chip.supplier': 'Majority supplier',
   'experience.pr_to_po.desk.ask.chip.po': 'Orders read',
-  'experience.pr_to_po.desk.ask.chip.next': 'What next',
-  'experience.pr_to_po.desk.ask.chip.write': 'Can we write',
+  'experience.pr_to_po.desk.ask.chip.next': 'Next step',
+  'experience.pr_to_po.desk.ask.chip.write': 'Write status',
   'experience.pr_to_po.desk.ask.answer.supplier':
     'The majority supplier on the orders read is {supplier}. Most common type: {format}.',
   'experience.pr_to_po.desk.ask.answer.pr':
@@ -1810,7 +1772,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.portal.title': 'Factory portal',
   'experience.pr_to_po.desk.portal.close': 'Close the portal',
   'experience.pr_to_po.desk.portal.hint':
-    'Read only. Answer with get PR and get PO tools. No SAP write.',
+    'Answers from the requisitions and orders just read. The write stays sealed.',
   'experience.pr_to_po.desk.portal.offline':
     'The PR to PO factory is not linked yet. Run the read, then open the portal.',
   'experience.pr_to_po.desk.portal.prompt_open':
