@@ -63,6 +63,9 @@ def pr_to_po_flow() -> dict[str, Any]:
     One PR per tick: the existing ``loop`` kind only repeats a single skill,
     so a nested budget/HITL subgraph would be a new kind. The schedule
     (``0 */4 * * *``) picks the next remaining approved PR.
+
+    Canvas ``position`` values are the nawa operator layout (kept when
+    publishing the PDF-aligned graph). A later seed must not reset them.
     """
 
     return {
@@ -74,7 +77,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "kind": "source",
                 "type": "source.schedule",
                 "label": "Every 4 hours",
-                "position": {"x": 40, "y": 220},
+                "position": {"x": 0, "y": 94},
                 "data": {
                     "description": (
                         "Cron 0 */4 * * * is table-driven via run_schedules. "
@@ -88,7 +91,8 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "List approved PRs (sap MCP)",
                 "sap_list_approved_prs_v1",
                 description="sap_list_approved_prs_v1 → sap get_A_PurchaseRequisitionItem when advertised, else list_approved_prs. Not HANA.",
-                x=280,
+                x=327,
+                y=106,
             ),
             _task(
                 "task.select_pr",
@@ -100,14 +104,15 @@ def pr_to_po_flow() -> dict[str, Any]:
                     "prs": {"node_id": "task.list_prs", "path": ["prs"]},
                     "pr_id": {"node_id": "run", "path": ["input", "pr_id"]},
                 },
-                x=520,
+                x=680,
+                y=94,
             ),
             {
                 "id": "decision.has_pr",
                 "kind": "decision",
                 "type": "decision",
                 "label": "A PR remains",
-                "position": {"x": 760, "y": 220},
+                "position": {"x": 984, "y": 138},
                 "data": {"description": "Empty list ends the tick without a write."},
                 "config": {
                     "branches": [
@@ -126,8 +131,8 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "sap_check_budget_v1",
                 description="sap_check_budget_v1 → sap fi_Validate when advertised, else check_budget. Reads imputation. Never discards.",
                 inputs_map={"pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]}},
-                x=1000,
-                y=80,
+                x=1360,
+                y=132,
             ),
             _task(
                 "task.justification",
@@ -139,15 +144,15 @@ def pr_to_po_flow() -> dict[str, Any]:
                     "else get_justification. Never auto-rejects."
                 ),
                 inputs_map={"pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]}},
-                x=1240,
-                y=80,
+                x=1700,
+                y=132,
             ),
             {
                 "id": "decision.budget",
                 "kind": "decision",
                 "type": "decision",
                 "label": "Budget",
-                "position": {"x": 1480, "y": 80},
+                "position": {"x": 2040, "y": 132},
                 "data": {
                     "description": "Only budget rejects without a human. Justification is summarised, never a reject."
                 },
@@ -174,8 +179,8 @@ def pr_to_po_flow() -> dict[str, Any]:
                     },
                     "reason": {"node_id": "task.budget", "path": ["reason"]},
                 },
-                x=1720,
-                y=320,
+                x=4420,
+                y=0,
             ),
             _task(
                 "task.hikma",
@@ -186,8 +191,8 @@ def pr_to_po_flow() -> dict[str, Any]:
                     "MaterialGroup": {"node_id": "task.select_pr", "path": ["MaterialGroup"]},
                     "pr_type": {"node_id": "task.select_pr", "path": ["pr_type"]},
                 },
-                x=1720,
-                y=80,
+                x=2380,
+                y=198,
             ),
             _task(
                 "task.majority",
@@ -202,8 +207,8 @@ def pr_to_po_flow() -> dict[str, Any]:
                     "pr_type": {"node_id": "task.select_pr", "path": ["pr_type"]},
                     "justification": {"node_id": "task.justification", "path": ["justification"]},
                 },
-                x=1960,
-                y=80,
+                x=2720,
+                y=198,
             ),
             _task(
                 "task.format_dossier",
@@ -231,8 +236,8 @@ def pr_to_po_flow() -> dict[str, Any]:
                     "summary_prompt": {"node_id": "task.majority", "path": ["summary_prompt"]},
                     "justification": {"node_id": "task.majority", "path": ["justification"]},
                 },
-                x=2200,
-                y=80,
+                x=3060,
+                y=198,
             ),
             _task(
                 "task.summarise",
@@ -242,15 +247,15 @@ def pr_to_po_flow() -> dict[str, Any]:
                 inputs_map={
                     "prompt": {"node_id": "task.format_dossier", "path": ["summary_prompt"]}
                 },
-                x=2440,
-                y=80,
+                x=3400,
+                y=198,
             ),
             {
                 "id": "hitl.approve_po",
                 "kind": "hitl",
                 "type": "policy",
                 "label": "Approve PO in NAWA",
-                "position": {"x": 2680, "y": 80},
+                "position": {"x": 3740, "y": 198},
                 "data": {
                     "description": (
                         "Human gate in NAWA, not SAP. Upstream is the package. "
@@ -289,7 +294,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "kind": "decision",
                 "type": "decision",
                 "label": "HITL verdict",
-                "position": {"x": 2920, "y": 80},
+                "position": {"x": 4080, "y": 198},
                 "data": {"description": "Approve composes a sealed PO payload; reject composes discard. No SAP write."},
                 "config": {
                     "branches": [
@@ -317,8 +322,8 @@ def pr_to_po_flow() -> dict[str, Any]:
                     "format": {"node_id": "task.majority", "path": ["format"]},
                     "amount": {"node_id": "task.select_pr", "path": ["pr", "amount"]},
                 },
-                x=3160,
-                y=0,
+                x=4420,
+                y=132,
             ),
             _task(
                 "task.handle_rejection",
@@ -332,8 +337,8 @@ def pr_to_po_flow() -> dict[str, Any]:
                         "path": ["PurchaseRequisitionItem"],
                     },
                 },
-                x=3160,
-                y=160,
+                x=4420,
+                y=264,
             ),
             _task(
                 "task.audit",
@@ -341,14 +346,14 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "audit_log_v1",
                 description="audit_log_v1 — NAWA ledger, not SAP.",
                 params={"event_type": "procurement.pr_to_po", "details": {"source": "nawa_pr_to_po"}},
-                x=3400,
-                y=200,
+                x=4760,
+                y=132,
             ),
             {
                 "id": "sink.done",
                 "kind": "sink",
                 "label": "Done",
-                "position": {"x": 3640, "y": 200},
+                "position": {"x": 5100, "y": 28},
                 "data": {
                     "description": "Single strict sink. Empty ticks and completed ticks both land here."
                 },

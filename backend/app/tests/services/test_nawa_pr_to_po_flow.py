@@ -273,6 +273,11 @@ def test_flow_has_no_validator_errors_and_routes_to_dag() -> None:
     hikma_inputs = (hikma.get("config") or {}).get("inputs_map") or {}
     assert "MaterialGroup" in hikma_inputs
     assert "pr_type" in hikma_inputs
+    positions = {node["id"]: node.get("position") for node in FLOW["nodes"]}
+    assert positions["src"] == {"x": 0, "y": 94}
+    assert positions["task.hikma"] == {"x": 2380, "y": 198}
+    assert positions["task.reject"] == {"x": 4420, "y": 0}
+    assert positions["sink.done"] == {"x": 5100, "y": 28}
     create = next(node for node in FLOW["nodes"] if node["id"] == "task.create_po")
     assert "sealed" in str((create.get("data") or {}).get("description") or "").lower()
     assert "tools/call" in str((create.get("data") or {}).get("description") or "")
