@@ -52,9 +52,6 @@ export type FactoryFactId =
   | 'fund'
   | 'fundscenter';
 
-export type DemoBeatId = 'read' | 'summarise' | 'post' | 'ask';
-export type DemoBeatState = 'done' | 'ready' | 'wait';
-
 export interface DeskPrItemFields {
   pr_id: string;
   item: string;
@@ -916,22 +913,6 @@ export function composeSealedPoPost(fields: DeskPrItemFields, supplier: string):
         },
       ],
     },
-  };
-}
-
-export function demoBeatStates(input: {
-  livePr: boolean;
-  livePo: boolean;
-  justification: string;
-  summary: string;
-  postReady: boolean;
-  asked: boolean;
-}): Record<DemoBeatId, DemoBeatState> {
-  return {
-    read: input.livePr && input.livePo ? 'done' : input.livePr ? 'ready' : 'wait',
-    summarise: input.summary.trim() ? 'done' : input.justification.trim() ? 'ready' : 'wait',
-    post: input.postReady ? 'done' : 'wait',
-    ask: input.asked ? 'done' : input.livePr ? 'ready' : 'wait',
   };
 }
 

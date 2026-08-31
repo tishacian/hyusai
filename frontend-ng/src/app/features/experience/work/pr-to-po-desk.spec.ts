@@ -20,7 +20,6 @@ import {
   budgetReadBody,
   composeDesk,
   composeSealedPoPost,
-  demoBeatStates,
   extractJustificationText,
   factoryTerrainReadBodies,
   fundFromRead,
@@ -487,7 +486,7 @@ test('sealed PO compose is a POST for hikma NB and is never called', () => {
   assert.equal(composeSealedPoPost(fields, ''), null);
 });
 
-test('demo beats turn live SAP, summary, sealed POST and ask into shown proofs', () => {
+test('a compiled dossier keeps the live summary and a sealed write', () => {
   const briefing = composeDesk(
     [
       laneFromPreview('pr', 'sap', {
@@ -503,26 +502,4 @@ test('demo beats turn live SAP, summary, sealed POST and ask into shown proofs',
   const withSummary = withSummaryFact(briefing, 'Need cleaner for the warehouse.');
   assert.equal(withSummary.facts.find((fact) => fact.id === 'summary')?.value, 'Need cleaner for the warehouse.');
   assert.equal(withSummary.stations.find((station) => station.id === 'write')?.status, 'sealed');
-  assert.deepEqual(
-    demoBeatStates({
-      livePr: true,
-      livePo: true,
-      justification: 'Need 40 scanners.',
-      summary: '',
-      postReady: false,
-      asked: false,
-    }),
-    { read: 'done', summarise: 'ready', post: 'wait', ask: 'ready' },
-  );
-  assert.deepEqual(
-    demoBeatStates({
-      livePr: true,
-      livePo: true,
-      justification: 'Need 40 scanners.',
-      summary: 'Warehouse scanners are overdue.',
-      postReady: true,
-      asked: true,
-    }),
-    { read: 'done', summarise: 'done', post: 'done', ask: 'done' },
-  );
 });
