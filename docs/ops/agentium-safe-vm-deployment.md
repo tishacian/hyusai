@@ -4851,3 +4851,43 @@ reste `/work/pr-to-po`. La station d'écriture reste **scellée**.
 | Canaris carakai | non rejoués dans cette fenêtre (hôte runner non invoqué) |
 | Rollback | `AGENTIUM_IMAGE_TAG=ea19a5b6cbe2` puis `up` ; aucun schéma à reculer |
 
+## Itération du 31/08 — justification PR live (`get_A_PurchaseRequisitionItem_by_key`), déployée sur `bc5810b3`
+
+GO land + deploy depuis un Cloud Agent. `origin/demo/agentic` était déjà
+sur `bc5810b3864313d4e44a75410ea175f1bc08af56` (land ff de
+`e52b2696` : journal `d203e6f8` + deux commits justification). La VM
+tournait encore `d203e6f87a478178c830d17d8f1588de4bbfb5e3`. Aucune
+migration dans ce slice.
+
+Le slice ajoute `POST /api/v1/mcp/servers/{id}/read` (lecture cléée,
+outils write refusés) et le bouton desk **Read justification** /
+**Lire la justification**. L'outil live
+`get_A_PurchaseRequisitionItem_by_key` est appelé avec les clés
+Fayçal (`PurchaseRequisition=2000276450`, item `10`, expand
+`to_PurchaseReqnItemText`). Le texte sort de `NoteDescription` (pas
+d'alias inventé). La preview keyless n'est pas assouplie. La station
+d'écriture reste **scellée**. Le bouton ne démarre pas de Run.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n`, `check:ui-chrome`, `test:unit` (1356 verts), `build:prod` verts ; pytest `test_mcp_read` + preview/call/fixture/nawa 39 verts (avant land) |
+| Push | `demo/agentic` déjà à `bc5810b3` avant le switch VM |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | `e52b2696` → `bc5810b3864313d4e44a75410ea175f1bc08af56` ff-only, porcelain vide |
+| Build | trois images `agentium-{backend,worker,frontend}:bc5810b38643`, label 40-hex identique |
+| Dump / migrate | sautés — pas de nouvelle révision Alembic |
+| `storage-check` | sortie 0 |
+| `up` | cinq services applicatifs recréés ; infra (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP, LiveKit) intouchée |
+| `build-info` | `revision: bc5810b3864313d4e44a75410ea175f1bc08af56`, `revision_verified: true` (backend et frontend) |
+| Bundle | `Read justification`, `Lire la justification`, `get_A_PurchaseRequisitionItem_by_key` dans le JS servi ; `/` et `/work/pr-to-po` = 200 |
+| Logs | 0 `traceback`/`exception` backend depuis la bascule |
+| Alias | tag mobile `demo-agentic` **non déplacé** (reste `400f1bdf…`) |
+| Smoke API | `POST /mcp/servers/sap/read` 200, `tool=get_A_PurchaseRequisitionItem_by_key`, `text=LORX  FURNITURE CLEANER  - 650 ML - GREEN` |
+| Smoke desk | bouton **Read justification** poste les clés Fayçal ; fact dossier `justification` via l'outil live ; **Read selected requisition** offert (PR live ≠ `2000276450`) ; Write **SEALED** ; pas de Run |
+| Seed `nawa` | inchangé — Système `28345b5a-0824-4f2b-a420-ebe0aa7cd34f`, Experience `de2264aa-9570-40ee-bdd7-70c30da2c0a2` slug `pr-to-po` r1, liaison `procurement.pr_to_po.run` |
+| Flags | `mcp_connector`, `experience_v1`, `flow_workbench_v1` déjà on ; `sap_hana_connector` reste off |
+| Canaris carakai | non rejoués dans cette fenêtre (hôte runner non invoqué) |
+| Rollback | `AGENTIUM_IMAGE_TAG=d203e6f87a47` puis `up` ; aucun schéma à reculer |
+
