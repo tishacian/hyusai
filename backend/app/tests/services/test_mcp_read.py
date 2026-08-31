@@ -119,6 +119,26 @@ def test_extract_justification_from_item_text_and_fixture():
         }
     }
     assert mcp_read.extract_justification_text(sap) == "Replace failing handhelds."
+    hikma = {
+        "status": 200,
+        "data": {
+            "PurchaseRequisition": "2000276450",
+            "PurchaseRequisitionItem": "10",
+            "PurchaseRequisitionItemText": " LORX  FURNITURE CLEANER  - 650 ML - GRE",
+            "to_PurchaseReqnItemText": {
+                "results": [
+                    {
+                        "DocumentText": "B01",
+                        "NoteDescription": " LORX  FURNITURE CLEANER  - 650 ML - GREEN",
+                    }
+                ]
+            },
+        },
+    }
+    assert (
+        mcp_read.extract_justification_text(hikma)
+        == "LORX  FURNITURE CLEANER  - 650 ML - GREEN"
+    )
 
 
 def test_read_tool_rejects_writes_without_calling():

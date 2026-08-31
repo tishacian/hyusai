@@ -214,6 +214,18 @@ test('justification stays a desk fact and never unseals the write', () => {
     extractJustificationText({ justification: 'Finance laptops are past refresh.' }),
     'Finance laptops are past refresh.',
   );
+  assert.equal(
+    extractJustificationText({
+      status: 200,
+      data: {
+        PurchaseRequisitionItemText: ' LORX  FURNITURE CLEANER  - 650 ML - GRE',
+        to_PurchaseReqnItemText: {
+          results: [{ NoteDescription: ' LORX  FURNITURE CLEANER  - 650 ML - GREEN' }],
+        },
+      },
+    }),
+    'LORX  FURNITURE CLEANER  - 650 ML - GREEN',
+  );
   const withText = withJustificationFact(
     briefing,
     'Need 40 warehouse scanners.',

@@ -12,7 +12,14 @@ from app.services.connectors.mcp.preview import classify_kind, flatten_preview, 
 LIVE_PR_ITEM_BY_KEY = "get_A_PurchaseRequisitionItem_by_key"
 ITEM_TEXT_EXPAND = "to_PurchaseReqnItemText"
 DEFAULT_PR_ITEM = "10"
-_TEXT_KEYS = ("justification", "Note", "Text", "PlainLongText")
+_TEXT_KEYS = (
+    "justification",
+    "Note",
+    "Text",
+    "PlainLongText",
+    "NoteDescription",
+    "PurchaseRequisitionItemText",
+)
 _ENVELOPES = ("d", "data", "result")
 
 
