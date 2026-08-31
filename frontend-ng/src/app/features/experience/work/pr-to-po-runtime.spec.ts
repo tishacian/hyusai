@@ -107,4 +107,7 @@ test('the factory desk starts a cycle through the Experience binding', () => {
   assert.doesNotMatch(board, /BAPI_PO_CREATE1|BAPI_TRANSACTION_COMMIT|BAPI_TRANSACTION_ROLLBACK/);
   assert.doesNotMatch(board, /\/mcp\/servers\/sap\/preview/);
   assert.doesNotMatch(board, /\/mcp\/servers\/hikma\/preview/);
+  assert.match(board, /ck-thinking-orb/);
+  assert.match(board, /terrainLoading\(\)[\s\S]{0,180}ck-thinking-orb/);
+  assert.match(board, /starting\(\)[\s\S]{0,180}ck-thinking-orb/);
 });
