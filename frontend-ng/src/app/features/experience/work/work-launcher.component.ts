@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { ThinkingOrbComponent } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkApiService } from './work-api.service';
@@ -18,7 +19,7 @@ import {
   selector: 'app-work-launcher',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, EmptyStateComponent],
+  imports: [RouterLink, EmptyStateComponent, ThinkingOrbComponent],
   styleUrl: './work.scss',
   template: `
     <div class="xp-work xp-work-launcher" data-theme="light">
@@ -63,7 +64,10 @@ import {
 
         @switch (state()) {
           @case ('loading') {
-            <app-empty-state icon="sparkles" size="lg" [title]="i18n.t('common.loading')" />
+            <div class="xp-work-loading">
+              <ck-thinking-orb state="working" [size]="64" [label]="i18n.t('common.loading')" />
+              <p>{{ i18n.t('common.loading') }}</p>
+            </div>
           }
           @case ('error') {
             <app-empty-state

@@ -532,3 +532,83 @@ export function askFactory(
     focus: focus[intent],
   };
 }
+
+/**
+ * The six `ck-thinking-orb` states, kept as a string union here so the
+ * briefing stays Angular-free. Same names as `CkOrbState`.
+ */
+export type FactoryOrbState =
+  | 'working'
+  | 'searching'
+  | 'solving'
+  | 'listening'
+  | 'composing'
+  | 'shaping';
+
+export interface FactoryReasoning {
+  state: FactoryOrbState;
+  labelKey: string;
+  activeStation: FactoryStationId | null;
+}
+
+export interface StationOrb {
+  state: FactoryOrbState;
+  paused: boolean;
+}
+
+/**
+ * Which kind of work the factory is doing, for the desk orb.
+ * Starting a cycle wins over a live read. Write stays sealed — never a live
+ * write state.
+ */
+export function factoryReasoning(
+  briefing: DeskBriefing,
+  reading: boolean,
+  starting: boolean,
+): FactoryReasoning {
+  if (starting) {
+    return {
+      state: 'solving',
+      labelKey: 'experience.pr_to_po.desk.reason.cycle',
+      activeStation: 'compile',
+    };
+  }
+  if (reading) {
+    return {
+      state: 'searching',
+      labelKey: 'experience.pr_to_po.desk.reason.read',
+      activeStation: 'sense',
+    };
+  }
+  if (briefing.liveLanes === 0) {
+    return {
+      state: 'working',
+      labelKey: 'experience.pr_to_po.desk.reason.idle',
+      activeStation: null,
+    };
+  }
+  if (briefing.facts.length === 0) {
+    return {
+      state: 'composing',
+      labelKey: 'experience.pr_to_po.desk.reason.compile',
+      activeStation: 'compile',
+    };
+  }
+  return {
+    state: 'listening',
+    labelKey: 'experience.pr_to_po.desk.reason.decide',
+    activeStation: 'decide',
+  };
+}
+
+export function stationOrb(station: FactoryStation, reasoning: FactoryReasoning): StationOrb {
+  if (station.status === 'sealed') return { state: 'shaping', paused: true };
+  if (reasoning.activeStation === station.id) return { state: reasoning.state, paused: false };
+  if (station.status === 'ready') return { state: 'listening', paused: true };
+  if (station.status === 'done') {
+    if (station.id === 'sense') return { state: 'searching', paused: true };
+    if (station.id === 'compile') return { state: 'composing', paused: true };
+    return { state: 'working', paused: true };
+  }
+  return { state: 'working', paused: true };
+}

@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   askFactory,
   composeDesk,
+  factoryReasoning,
   shouldOpenFactoryPortal,
   donutSlices,
   hanaLaneFromPreview,
@@ -11,6 +12,7 @@ import {
   laneFromPreview,
   orderCoverage,
   pickDeskColumns,
+  stationOrb,
   supplierShares,
   terrainShares,
 } from './pr-to-po-desk';
@@ -238,4 +240,42 @@ test('asking the factory stays deterministic and never unseals the write', () =>
   assert.equal(shouldOpenFactoryPortal('next'), false);
   assert.equal(shouldOpenFactoryPortal(''), false);
   assert.equal(shouldOpenFactoryPortal('explain the compiled dossier to the buyer'), true);
+});
+
+test('the desk orb follows the live factory step and never claims a write', () => {
+  const idle = composeDesk([], 0);
+  assert.equal(factoryReasoning(idle, false, false).state, 'working');
+  assert.equal(factoryReasoning(idle, true, false).state, 'searching');
+  assert.equal(factoryReasoning(idle, true, false).activeStation, 'sense');
+  assert.equal(factoryReasoning(idle, true, true).state, 'solving');
+  assert.equal(factoryReasoning(idle, true, true).activeStation, 'compile');
+
+  const pr = laneFromPreview('pr', 'sap', {
+    ok: true,
+    tool: 'get_A_PurchaseRequisitionHeader',
+    columns: ['PurchaseRequisition', 'PurReqnDescription'],
+    rows: [['1000008', 'Ahmed - Approved By site Petty Cash']],
+    row_count: 1,
+  });
+  const po = laneFromPreview('po', 'hikma', {
+    ok: true,
+    tool: 'get_A_PurchaseOrder',
+    columns: ['PurchaseOrder', 'PurchaseOrderType', 'Supplier'],
+    rows: [['4200000000', 'ZAPO', '100012']],
+    row_count: 1,
+  });
+  const compiled = composeDesk([pr, po], 0);
+  const waiting = factoryReasoning(compiled, false, false);
+  assert.equal(waiting.state, 'listening');
+  assert.equal(waiting.activeStation, 'decide');
+  assert.match(waiting.labelKey, /reason\.decide$/);
+
+  const write = compiled.stations.find((station) => station.id === 'write');
+  const decide = compiled.stations.find((station) => station.id === 'decide');
+  const sense = compiled.stations.find((station) => station.id === 'sense');
+  assert.ok(write && decide && sense);
+  assert.deepEqual(stationOrb(write, waiting), { state: 'shaping', paused: true });
+  assert.deepEqual(stationOrb(decide, waiting), { state: 'listening', paused: false });
+  assert.deepEqual(stationOrb(sense, waiting), { state: 'searching', paused: true });
+  assert.equal(write.status, 'sealed');
 });
