@@ -10,7 +10,7 @@ Remettre à Fayçal le Word `docs/ops/nawa-pr-to-po-live-demo-playbook.docx` (ou
 https://agentium.papai.ai/work/pr-to-po?workspace=nawa&lang=en
 ```
 
-Hard-reload (`Ctrl+Shift+R`). Compte présentateur `thibaud.ishacian@datategy.net`. Workspace `nawa`. Titre **PR to PO**. SHA live `cd40fe337285058120ec7236d587b1853ca72c42`. Write = **Sealed**. Pas de HANA.
+Hard-reload (`Ctrl+Shift+R`). Compte présentateur `thibaud.ishacian@datategy.net`. Workspace `nawa`. Titre **PR to PO**. SHA live `347311924faba4fc6686a05c3318cb5d2415fa2a`. Write = **Sealed**. Pas de HANA.
 
 ## Ce que Fayçal doit voir
 
@@ -32,7 +32,7 @@ Hard-reload (`Ctrl+Shift+R`). Compte présentateur `thibaud.ishacian@datategy.ne
 
 ## Exemple live (31 août 2026)
 
-STICKER WHITE · fournisseur le plus récent sur l’établissement (ex. `1000000018`) · PR `2000276449` type ZNPR · POST ZLPO sealed · résumé *white stickers*.
+PAPER BAG · fournisseur le plus récent sur l’établissement `1000000018` · PR `2000276449` / `00020` type ZNPR · POST ZLPO sealed · résumé *white stickers*.
 
 ## Interdit
 
