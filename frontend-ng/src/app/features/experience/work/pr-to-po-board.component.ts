@@ -22,6 +22,8 @@ import {
   budgetOkFromRead,
   budgetReadBody,
   composeDesk,
+  composeSealedPoPost,
+  demoBeatStates,
   extractJustificationText,
   factoryBriefingParams,
   donutSlices,
@@ -34,6 +36,7 @@ import {
   orderCoverage,
   poHeaderReadBody,
   poItemReadBody,
+  prItemFieldsFromPreview,
   selectedPrFromLane,
   shouldOpenFactoryPortal,
   supplierShares,
@@ -41,13 +44,17 @@ import {
   uniquePurchaseOrders,
   withCompileFacts,
   withJustificationFact,
+  withSummaryFact,
+  type DemoBeatId,
   type DeskCompileFacts,
   type DeskKeyedRead,
   type DeskLane,
   type DeskLaneId,
+  type DeskPrItemFields,
   type DeskPreview,
   type FactoryAskIntent,
   type FactoryAskReply,
+  type SealedPoPost,
 } from './pr-to-po-desk';
 import {
   FACTORY_BINDING_KEY,
@@ -88,46 +95,18 @@ import {
           >
             {{ i18n.t('experience.pr_to_po.desk.sources') }}
           </a>
-          <button type="button" class="xp-work-btn" (click)="reload()" [disabled]="loading() || terrainLoading()">
-            {{ i18n.t('experience.pr_to_po.refresh') }}
-          </button>
           <button
             type="button"
             class="xp-work-btn xp-work-btn-primary"
-            (click)="loadTerrain()"
-            [disabled]="terrainLoading()"
+            (click)="reload()"
+            [disabled]="loading() || terrainLoading()"
           >
-            {{ terrainLoading() ? i18n.t('experience.pr_to_po.desk.reading') : i18n.t('experience.pr_to_po.desk.read') }}
-          </button>
-          <button
-            type="button"
-            class="xp-work-btn"
-            (click)="readJustification()"
-            [disabled]="justificationLoading()"
-          >
-            @if (justificationLoading()) {
-              <ck-thinking-orb
-                state="searching"
-                [size]="20"
-                [label]="i18n.t('experience.pr_to_po.desk.justification.reading')"
-              />
-            }
             {{
-              justificationLoading()
-                ? i18n.t('experience.pr_to_po.desk.justification.reading')
-                : i18n.t('experience.pr_to_po.desk.justification.read')
+              terrainLoading()
+                ? i18n.t('experience.pr_to_po.desk.reading')
+                : i18n.t('experience.pr_to_po.desk.read')
             }}
           </button>
-          @if (canReadSelected()) {
-            <button
-              type="button"
-              class="xp-work-btn"
-              (click)="readJustification(briefing().selectedPrId)"
-              [disabled]="justificationLoading()"
-            >
-              {{ i18n.t('experience.pr_to_po.desk.justification.selected') }}
-            </button>
-          }
           <button
             type="button"
             class="xp-work-btn"
@@ -194,7 +173,78 @@ import {
           }
         </section>
 
-        <section class="xp-desk-ask">
+        <section class="xp-desk-criteria" id="desk-criteria">
+          <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.criteria') }}</p>
+          <p>{{ i18n.t('experience.pr_to_po.desk.criteria.hint') }}</p>
+        </section>
+
+        <ol class="xp-desk-beats">
+          @for (beat of demoBeats; track beat) {
+            <li [attr.data-state]="beats()[beat]" [attr.data-beat]="beat" [style.--desk-beat]="$index">
+              <button type="button" class="xp-desk-beat-jump" (click)="focusBeat(beat)">
+                <b>{{ $index + 1 }}</b>
+                <div>
+                  <span>{{ i18n.t('experience.pr_to_po.desk.beat.' + beat) }}</span>
+                  <p>{{ i18n.t('experience.pr_to_po.desk.beat.' + beat + '.ok') }}</p>
+                  <strong>{{ i18n.t('experience.pr_to_po.desk.beat_state.' + beats()[beat]) }}</strong>
+                </div>
+              </button>
+              @if (beat === 'summarise') {
+                <div class="xp-desk-beat-actions">
+                  <button
+                    type="button"
+                    class="xp-work-btn"
+                    (click)="readJustification(briefing().selectedPrId || '')"
+                    [disabled]="justificationLoading()"
+                  >
+                    @if (justificationLoading()) {
+                      <ck-thinking-orb
+                        state="searching"
+                        [size]="20"
+                        [label]="i18n.t('experience.pr_to_po.desk.justification.reading')"
+                      />
+                    }
+                    {{
+                      justificationLoading()
+                        ? i18n.t('experience.pr_to_po.desk.justification.reading')
+                        : canReadSelected()
+                          ? i18n.t('experience.pr_to_po.desk.justification.selected')
+                          : i18n.t('experience.pr_to_po.desk.justification.read')
+                    }}
+                  </button>
+                  <button
+                    type="button"
+                    class="xp-work-btn xp-work-btn-primary"
+                    (click)="summariseJustification()"
+                    [disabled]="summariseLoading() || !justificationText()"
+                  >
+                    @if (summariseLoading()) {
+                      <ck-thinking-orb
+                        state="searching"
+                        [size]="20"
+                        [label]="i18n.t('experience.pr_to_po.desk.summarise.working')"
+                      />
+                    }
+                    {{
+                      summariseLoading()
+                        ? i18n.t('experience.pr_to_po.desk.summarise.working')
+                        : i18n.t('experience.pr_to_po.desk.summarise')
+                    }}
+                  </button>
+                </div>
+              }
+              @if (beat === 'ask') {
+                <div class="xp-desk-beat-actions">
+                  <button type="button" class="xp-work-btn xp-work-btn-primary" (click)="openPortal()" [disabled]="!portalReady()">
+                    {{ i18n.t('experience.pr_to_po.desk.portal.open') }}
+                  </button>
+                </div>
+              }
+            </li>
+          }
+        </ol>
+
+        <section class="xp-desk-ask" id="desk-ask">
           <form (submit)="submitAsk($event)">
             <label for="factory-ask">{{ i18n.t('experience.pr_to_po.desk.ask.label') }}</label>
             <div class="xp-desk-ask-row">
@@ -245,7 +295,7 @@ import {
         </section>
 
         @if (portalOpen() && portalPrompt() && systemId(); as portalSystemId) {
-          <section #factoryPortal class="xp-desk-portal">
+          <section #factoryPortal id="desk-portal" class="xp-desk-portal">
             <header>
               <div>
                 <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.portal.title') }}</p>
@@ -278,10 +328,13 @@ import {
         </ol>
 
         @if (briefing().facts.length || justificationLoading() || justificationError()) {
-          <section class="xp-desk-dossier">
+          <section class="xp-desk-dossier" id="desk-summarise">
             <h3>{{ i18n.t('experience.pr_to_po.desk.dossier') }}</h3>
             <p>{{ i18n.t('experience.pr_to_po.desk.factory_note') }}</p>
             @if (justificationError(); as detail) {
+              <p class="xp-desk-note">{{ detail }}</p>
+            }
+            @if (summariseError(); as detail) {
               <p class="xp-desk-note">{{ detail }}</p>
             }
             <dl>
@@ -300,7 +353,37 @@ import {
           </section>
         }
 
-        <ul class="xp-desk-kpis">
+        @if (postPackage(); as post) {
+          <section class="xp-desk-post" id="desk-post" data-sealed="true">
+            <header>
+              <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.post.kicker') }}</p>
+              <h3>{{ i18n.t('experience.pr_to_po.desk.post.title') }}</h3>
+              <p>{{ i18n.t('experience.pr_to_po.desk.post.hint') }}</p>
+            </header>
+            <dl>
+              <div>
+                <dt>{{ i18n.t('experience.pr_to_po.desk.post.method') }}</dt>
+                <dd><strong>{{ post.method }}</strong></dd>
+              </div>
+              <div>
+                <dt>{{ i18n.t('experience.pr_to_po.desk.post.server') }}</dt>
+                <dd><strong>{{ post.server_id }}</strong></dd>
+              </div>
+              <div>
+                <dt>{{ i18n.t('experience.pr_to_po.desk.post.tool') }}</dt>
+                <dd><strong>{{ post.tool }}</strong></dd>
+              </div>
+              <div>
+                <dt>{{ i18n.t('experience.pr_to_po.desk.post.status') }}</dt>
+                <dd><strong>{{ i18n.t('experience.pr_to_po.desk.station_status.sealed') }}</strong></dd>
+              </div>
+            </dl>
+            <pre>{{ postJson(post) }}</pre>
+            <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.post.block') }}</p>
+          </section>
+        }
+
+        <ul class="xp-desk-kpis" id="desk-read">
           @for (kpi of briefing().kpis; track kpi.id) {
             <li [attr.data-tone]="kpi.tone" [attr.data-focus]="focusLane() === kpi.id">
               <button type="button" (click)="toggleFocus(kpi.id)">
@@ -525,12 +608,37 @@ export class PrToPoBoardComponent implements OnInit {
   readonly justificationVia = signal('');
   readonly justificationError = signal<string | null>(null);
   readonly compileFacts = signal<DeskCompileFacts>({});
+  readonly prFields = signal<DeskPrItemFields | null>(null);
+  readonly summaryText = signal('');
+  readonly summariseLoading = signal(false);
+  readonly summariseError = signal<string | null>(null);
+  readonly asked = signal(false);
+  readonly demoBeats: DemoBeatId[] = ['read', 'summarise', 'post', 'ask'];
   readonly briefing = computed(() =>
-    withJustificationFact(
-      withCompileFacts(composeDesk(this.lanes(), this.items().length), this.compileFacts()),
-      this.justificationText(),
-      this.justificationVia(),
+    withSummaryFact(
+      withJustificationFact(
+        withCompileFacts(composeDesk(this.lanes(), this.items().length), this.compileFacts()),
+        this.justificationText(),
+        this.justificationVia(),
+      ),
+      this.summaryText(),
     ),
+  );
+  readonly postPackage = computed<SealedPoPost | null>(() => {
+    const fields = this.prFields();
+    if (!fields) return null;
+    const supplier = this.briefing().facts.find((fact) => fact.id === 'supplier')?.value || '';
+    return composeSealedPoPost(fields, supplier);
+  });
+  readonly beats = computed(() =>
+    demoBeatStates({
+      livePr: this.lanes().some((lane) => lane.id === 'pr' && lane.status === 'live'),
+      livePo: this.lanes().some((lane) => lane.id === 'po' && lane.status === 'live'),
+      justification: this.justificationText(),
+      summary: this.summaryText(),
+      postReady: Boolean(this.postPackage()),
+      asked: this.asked() || this.portalOpen(),
+    }),
   );
   readonly terrain = computed(() => donutSlices(terrainShares(this.briefing().kpis)));
   readonly suppliers = computed(() => supplierShares(this.lanes()));
@@ -540,7 +648,7 @@ export class PrToPoBoardComponent implements OnInit {
   readonly askReply = signal<FactoryAskReply | null>(null);
   readonly askChips = FACTORY_ASK_CHIPS;
   readonly portalReady = computed(() => Boolean(this.systemId()));
-  readonly portalOpen = signal(true);
+  readonly portalOpen = signal(false);
   readonly portalTick = signal(0);
   readonly portalPrompt = signal('');
   @ViewChild('factoryPortal') private factoryPortal?: ElementRef<HTMLElement>;
@@ -628,15 +736,15 @@ export class PrToPoBoardComponent implements OnInit {
         )
       : of(null);
     const pr$ = this.api.post<DeskPreview>('/mcp/servers/sap/read', approvedPrItemReadBody()).pipe(
-      map((body) => laneFromPreview('pr', 'sap', body)),
+      map((body) => ({ lane: laneFromPreview('pr', 'sap', body), raw: body as DeskPreview | null })),
       catchError((err: { error?: { detail?: unknown } }) =>
-        of(laneFromPreview('pr', 'sap', null, this.previewDetail(err))),
+        of({ lane: laneFromPreview('pr', 'sap', null, this.previewDetail(err)), raw: null as DeskPreview | null }),
       ),
     );
     forkJoin({ pr: pr$, inbox: inbox$, gr: gr$, hana: hana$ })
       .pipe(
         switchMap(({ pr, inbox, gr, hana }) => {
-          const selected = selectedPrFromLane(pr);
+          const selected = selectedPrFromLane(pr.lane);
           const budget$ = selected.id
             ? this.api.post<DeskKeyedRead>('/mcp/servers/sap/read', budgetReadBody(selected.id)).pipe(
                 catchError(() => of(null as DeskKeyedRead | null)),
@@ -660,7 +768,8 @@ export class PrToPoBoardComponent implements OnInit {
                 )
             : of(null);
           return forkJoin({
-            pr: of(pr),
+            pr: of(pr.lane),
+            prRaw: of(pr.raw),
             inbox: of(inbox),
             gr: of(gr),
             hana: of(hana),
@@ -695,7 +804,7 @@ export class PrToPoBoardComponent implements OnInit {
         }),
       )
       .subscribe({
-        next: ({ pr, inbox, po, gr, hana, budget, acct }) => {
+        next: ({ pr, inbox, po, gr, hana, budget, acct, prRaw }) => {
           const verdict = budgetOkFromRead(budget);
           const funds = fundFromRead(acct);
           this.compileFacts.set({
@@ -705,10 +814,15 @@ export class PrToPoBoardComponent implements OnInit {
             fundscenter: funds.fundscenter,
             fundVia: acct?.tool || '',
           });
+          this.prFields.set(prItemFieldsFromPreview(prRaw));
           const mcp = [pr, inbox, po, gr];
           this.lanes.set(hana ? [...mcp, hana] : mcp);
           this.readAt.set(new Date().toLocaleTimeString());
           this.terrainLoading.set(false);
+          const selected = selectedPrFromLane(pr);
+          if (selected.id && !this.justificationText()) {
+            this.readJustification(selected.id);
+          }
         },
         error: () => {
           this.terrainLoading.set(false);
@@ -813,6 +927,19 @@ export class PrToPoBoardComponent implements OnInit {
     this.focusLane.update((current) => (current === lane ? null : lane));
   }
 
+  focusBeat(beat: DemoBeatId): void {
+    const targets: Record<DemoBeatId, string> = {
+      read: 'desk-read',
+      summarise: 'desk-summarise',
+      post: 'desk-post',
+      ask: this.portalOpen() ? 'desk-portal' : 'desk-ask',
+    };
+    const el =
+      document.getElementById(targets[beat]) ||
+      document.getElementById(beat === 'ask' ? 'desk-ask' : 'desk-criteria');
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   setAskDraft(event: Event): void {
     this.askDraft.set((event.target as HTMLInputElement).value);
   }
@@ -861,8 +988,45 @@ export class PrToPoBoardComponent implements OnInit {
   }
 
   private applyAsk(reply: FactoryAskReply): void {
+    this.asked.set(true);
     this.askReply.set(reply);
     if (reply.focus) this.focusLane.set(reply.focus);
+  }
+
+  summariseJustification(): void {
+    const text = this.justificationText().trim();
+    if (!text) return;
+    this.summariseLoading.set(true);
+    this.summariseError.set(null);
+    this.api
+      .post<{ content?: string }>('/chat/completion', {
+        query: this.i18n.t('experience.pr_to_po.desk.summarise.prompt', { text }),
+        agent_id: null,
+        stream: false,
+        include_reasoning: false,
+        include_sources: false,
+        max_tokens: 280,
+        temperature: 0.2,
+        prompt_type: 'factual',
+      })
+      .subscribe({
+        next: (result) => {
+          const summary = String(result?.content || '').trim();
+          this.summaryText.set(summary);
+          this.summariseLoading.set(false);
+          if (!summary) {
+            this.summariseError.set(this.i18n.t('experience.pr_to_po.desk.summarise.empty'));
+          }
+        },
+        error: () => {
+          this.summariseLoading.set(false);
+          this.summariseError.set(this.i18n.t('experience.pr_to_po.desk.summarise.failed'));
+        },
+      });
+  }
+
+  postJson(post: SealedPoPost): string {
+    return JSON.stringify(post, null, 2);
   }
 
   setNote(runId: string, event: Event): void {

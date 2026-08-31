@@ -691,12 +691,202 @@
   font-size: 10px;
 }
 
-.xp-desk-dossier dl > div[data-fact='justification'] {
+.xp-desk-dossier dl > div[data-fact='justification'],
+.xp-desk-dossier dl > div[data-fact='summary'] {
   grid-column: 1 / -1;
 }
 
-.xp-desk-dossier dl > div[data-fact='justification'] dd strong {
+.xp-desk-dossier dl > div[data-fact='justification'] dd strong,
+.xp-desk-dossier dl > div[data-fact='summary'] dd strong {
   white-space: pre-wrap;
+}
+
+.xp-desk-criteria {
+  max-width: 46rem;
+  margin: 0 0 18px;
+}
+
+.xp-desk-criteria p:last-child {
+  margin: 0;
+  color: var(--nawa-fg-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.xp-desk-beats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+}
+
+.xp-desk-beats li {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--nawa-line);
+  border-radius: 14px;
+  background: var(--nawa-surface);
+  animation: desk-rise 520ms ease both;
+  animation-delay: calc(var(--desk-beat, 0) * 80ms);
+}
+
+.xp-desk-beat-jump {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.xp-desk-beats b {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(232, 84, 58, 0.14);
+  color: var(--nawa-accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.xp-desk-beats span {
+  display: block;
+  color: var(--nawa-fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.xp-desk-beats p {
+  margin: 4px 0 8px;
+  color: var(--nawa-fg-dim);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.xp-desk-beats strong {
+  display: inline-block;
+  width: fit-content;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(217, 162, 27, 0.12);
+  color: var(--nawa-warn);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.xp-desk-beats li[data-state='done'] {
+  border-color: color-mix(in srgb, var(--nawa-ok) 55%, var(--nawa-line));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--nawa-ok) 22%, transparent);
+}
+
+.xp-desk-beats li[data-state='done'] b {
+  background: rgba(143, 208, 168, 0.16);
+  color: var(--nawa-ok);
+}
+
+.xp-desk-beats li[data-state='done'] strong {
+  background: rgba(143, 208, 168, 0.12);
+  color: var(--nawa-ok);
+}
+
+.xp-desk-beats li[data-state='ready'] {
+  animation: desk-pulse 1.6s ease-in-out infinite;
+}
+
+.xp-desk-beats li[data-state='wait'] strong {
+  background: rgba(245, 242, 239, 0.08);
+  color: var(--nawa-fg-dim);
+}
+
+.xp-desk-beat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.xp-desk-beat-actions .xp-work-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.xp-desk-post {
+  margin: 0 0 22px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--nawa-ok) 45%, var(--nawa-line));
+  border-radius: 16px;
+  background:
+    radial-gradient(520px 180px at 100% 0%, rgba(143, 208, 168, 0.12), transparent 60%),
+    var(--nawa-surface);
+}
+
+.xp-desk-post header {
+  margin-bottom: 14px;
+}
+
+.xp-desk-post h3 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.xp-desk-post header p:last-child {
+  margin: 0;
+  color: var(--nawa-fg-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.xp-desk-post dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 0 0 14px;
+}
+
+.xp-desk-post dt {
+  color: var(--nawa-fg-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.xp-desk-post dd {
+  margin: 4px 0 0;
+}
+
+.xp-desk-post dd strong {
+  font-family: var(--ck-font-mono, ui-monospace, monospace);
+  font-size: 13px;
+}
+
+.xp-desk-post pre {
+  max-height: 280px;
+  margin: 0 0 12px;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--nawa-line);
+  border-radius: 10px;
+  background: var(--nawa-surface-2);
+  color: var(--nawa-fg);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .xp-desk-raw {
@@ -1165,6 +1355,8 @@
 @media (max-width: 860px) {
   .xp-desk-grid,
   .xp-desk-line,
+  .xp-desk-beats,
+  .xp-desk-post dl,
   .xp-desk-dossier dl,
   .xp-desk-lineage ol,
   .xp-desk-charts {
@@ -1179,6 +1371,7 @@
 @media (prefers-reduced-motion: reduce) {
   .xp-desk-card,
   .xp-desk-chart,
+  .xp-desk-beats li,
   .xp-desk-reply,
   .xp-desk-bars b,
   .xp-desk-meter b,

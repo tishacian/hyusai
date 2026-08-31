@@ -19,6 +19,8 @@ import {
   budgetOkFromRead,
   budgetReadBody,
   composeDesk,
+  composeSealedPoPost,
+  demoBeatStates,
   extractJustificationText,
   factoryTerrainReadBodies,
   fundFromRead,
@@ -35,12 +37,16 @@ import {
   pickDeskColumns,
   poHeaderReadBody,
   poItemReadBody,
+  prItemFieldsFromPreview,
   selectedPrFromLane,
   supplierShares,
   terrainShares,
   uniquePurchaseOrders,
   withCompileFacts,
   withJustificationFact,
+  withSummaryFact,
+  LIVE_CREATE_PO,
+  SAP_CREATE_BLOCK,
 } from './pr-to-po-desk';
 
 test('prefers PDF item columns on the PR lane', () => {
@@ -443,4 +449,80 @@ test('asking the factory stays deterministic and never unseals the write', () =>
   assert.equal(shouldOpenFactoryPortal('next'), false);
   assert.equal(shouldOpenFactoryPortal(''), false);
   assert.equal(shouldOpenFactoryPortal('explain the compiled dossier to the buyer'), true);
+});
+
+test('sealed PO compose is a POST for hikma NB and is never called', () => {
+  const fields = prItemFieldsFromPreview({
+    ok: true,
+    columns: [
+      'PurchaseRequisition',
+      'PurchaseRequisitionItem',
+      'PurchaseRequisitionItemText',
+      'Material',
+      'MaterialGroup',
+      'Plant',
+      'RequestedQuantity',
+      'BaseUnit',
+      'PurchaseRequisitionPrice',
+      'PurReqnItemCurrency',
+    ],
+    rows: [
+      ['2000276450', '10', 'LORX FURNITURE CLEANER', 'MAT-1', 'L001', '1000', '12', 'EA', '4.50', 'QAR'],
+    ],
+  });
+  assert.equal(fields.pr_id, '2000276450');
+  assert.equal(fields.materialGroup, 'L001');
+  const post = composeSealedPoPost(fields, '100012');
+  assert.ok(post);
+  assert.equal(post?.method, 'POST');
+  assert.equal(post?.server_id, 'hikma');
+  assert.equal(post?.tool, LIVE_CREATE_PO);
+  assert.equal(post?.sealed, true);
+  assert.equal(post?.called, false);
+  assert.equal(post?.sap_block, SAP_CREATE_BLOCK);
+  assert.equal(post?.requestBody['PurchaseOrderType'], 'NB');
+  assert.equal(post?.requestBody['Supplier'], '100012');
+  const items = post?.requestBody['to_PurchaseOrderItem'] as Array<Record<string, unknown>>;
+  assert.equal(items[0]?.['PurchaseRequisition'], '2000276450');
+  assert.equal(composeSealedPoPost(fields, ''), null);
+});
+
+test('demo beats turn live SAP, summary, sealed POST and ask into shown proofs', () => {
+  const briefing = composeDesk(
+    [
+      laneFromPreview('pr', 'sap', {
+        ok: true,
+        tool: LIVE_PR_ITEM,
+        columns: ['PurchaseRequisition', 'PurchaseRequisitionItemText'],
+        rows: [['2000276450', 'LORX']],
+        row_count: 1,
+      }),
+    ],
+    0,
+  );
+  const withSummary = withSummaryFact(briefing, 'Need cleaner for the warehouse.');
+  assert.equal(withSummary.facts.find((fact) => fact.id === 'summary')?.value, 'Need cleaner for the warehouse.');
+  assert.equal(withSummary.stations.find((station) => station.id === 'write')?.status, 'sealed');
+  assert.deepEqual(
+    demoBeatStates({
+      livePr: true,
+      livePo: true,
+      justification: 'Need 40 scanners.',
+      summary: '',
+      postReady: false,
+      asked: false,
+    }),
+    { read: 'done', summarise: 'ready', post: 'wait', ask: 'ready' },
+  );
+  assert.deepEqual(
+    demoBeatStates({
+      livePr: true,
+      livePo: true,
+      justification: 'Need 40 scanners.',
+      summary: 'Warehouse scanners are overdue.',
+      postReady: true,
+      asked: true,
+    }),
+    { read: 'done', summarise: 'done', post: 'done', ask: 'done' },
+  );
 });
