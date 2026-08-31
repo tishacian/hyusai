@@ -13,23 +13,35 @@ import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
 import { WorkApiService } from './work-api.service';
 import {
-  DESK_MCP_LANES,
   FACTORY_ASK_CHIPS,
   JUSTIFICATION_SERVER_ID,
+  PO_HEADER_CAP,
+  acctAssgmtReadBody,
+  approvedPrItemReadBody,
   askFactory,
+  budgetOkFromRead,
+  budgetReadBody,
   composeDesk,
   extractJustificationText,
   factoryBriefingParams,
   donutSlices,
+  fundFromRead,
   hanaLaneFromPreview,
   justificationReadBody,
   laneFromPreview,
+  mergeHeaderPreviews,
   offersSelectedJustification,
   orderCoverage,
+  poHeaderReadBody,
+  poItemReadBody,
+  selectedPrFromLane,
   shouldOpenFactoryPortal,
   supplierShares,
   terrainShares,
+  uniquePurchaseOrders,
+  withCompileFacts,
   withJustificationFact,
+  type DeskCompileFacts,
   type DeskKeyedRead,
   type DeskLane,
   type DeskLaneId,
@@ -512,9 +524,10 @@ export class PrToPoBoardComponent implements OnInit {
   readonly justificationText = signal('');
   readonly justificationVia = signal('');
   readonly justificationError = signal<string | null>(null);
+  readonly compileFacts = signal<DeskCompileFacts>({});
   readonly briefing = computed(() =>
     withJustificationFact(
-      composeDesk(this.lanes(), this.items().length),
+      withCompileFacts(composeDesk(this.lanes(), this.items().length), this.compileFacts()),
       this.justificationText(),
       this.justificationVia(),
     ),
@@ -601,33 +614,115 @@ export class PrToPoBoardComponent implements OnInit {
   loadTerrain(): void {
     if (!this.workspace.mcpConnectorEnabled()) {
       this.lanes.set([]);
+      this.compileFacts.set({});
       return;
     }
     this.terrainLoading.set(true);
-    const mcp$ = DESK_MCP_LANES.map((lane) =>
-      this.api.get<DeskPreview>(`/mcp/servers/${encodeURIComponent(lane.serverId)}/preview`).pipe(
-        map((body) => laneFromPreview(lane.id, lane.serverId, body)),
-        catchError((err: { error?: { detail?: unknown } }) =>
-          of(laneFromPreview(lane.id, lane.serverId, null, this.previewDetail(err))),
-        ),
-      ),
-    );
+    this.compileFacts.set({});
+    const inbox$ = this.previewLane$('inbox', 'sap_inbox');
+    const gr$ = this.previewLane$('gr', 'sap_gr');
     const hana$ = this.workspace.sapHanaConnectorEnabled()
       ? this.api.get<DeskPreview>('/hana/preview').pipe(
           map((body) => hanaLaneFromPreview(body)),
           catchError((err: { error?: { detail?: unknown } }) => of(hanaLaneFromPreview(null, this.previewDetail(err)))),
         )
       : of(null);
-    forkJoin({ mcp: forkJoin(mcp$), hana: hana$ }).subscribe({
-      next: ({ mcp, hana }) => {
-        this.lanes.set(hana ? [...mcp, hana] : mcp);
-        this.readAt.set(new Date().toLocaleTimeString());
-        this.terrainLoading.set(false);
-      },
-      error: () => {
-        this.terrainLoading.set(false);
-      },
-    });
+    const pr$ = this.api.post<DeskPreview>('/mcp/servers/sap/read', approvedPrItemReadBody()).pipe(
+      map((body) => laneFromPreview('pr', 'sap', body)),
+      catchError((err: { error?: { detail?: unknown } }) =>
+        of(laneFromPreview('pr', 'sap', null, this.previewDetail(err))),
+      ),
+    );
+    forkJoin({ pr: pr$, inbox: inbox$, gr: gr$, hana: hana$ })
+      .pipe(
+        switchMap(({ pr, inbox, gr, hana }) => {
+          const selected = selectedPrFromLane(pr);
+          const budget$ = selected.id
+            ? this.api.post<DeskKeyedRead>('/mcp/servers/sap/read', budgetReadBody(selected.id)).pipe(
+                catchError(() => of(null as DeskKeyedRead | null)),
+              )
+            : of(null);
+          const acct$ = selected.id
+            ? this.api.post<DeskKeyedRead>('/mcp/servers/sap/read', acctAssgmtReadBody(selected.id)).pipe(
+                catchError(() => of(null as DeskKeyedRead | null)),
+              )
+            : of(null);
+          const poItems$ = selected.materialGroup
+            ? this.api
+                .post<DeskPreview>('/mcp/servers/hikma/read', poItemReadBody(selected.materialGroup))
+                .pipe(
+                  catchError((err: { error?: { detail?: unknown } }) =>
+                    of({
+                      ok: false,
+                      detail: this.previewDetail(err),
+                    } as DeskPreview),
+                  ),
+                )
+            : of(null);
+          return forkJoin({
+            pr: of(pr),
+            inbox: of(inbox),
+            gr: of(gr),
+            hana: of(hana),
+            budget: budget$,
+            acct: acct$,
+            poItems: poItems$,
+          });
+        }),
+        switchMap((pack) => {
+          const poIds = uniquePurchaseOrders(pack.poItems, PO_HEADER_CAP);
+          if (!poIds.length) {
+            return of({
+              ...pack,
+              po: laneFromPreview('po', 'hikma', pack.poItems),
+            });
+          }
+          return forkJoin(
+            poIds.map((poId) =>
+              this.api.post<DeskPreview>('/mcp/servers/hikma/read', poHeaderReadBody(poId)).pipe(
+                catchError(() => of(null as DeskPreview | null)),
+              ),
+            ),
+          ).pipe(
+            map((headers) => {
+              const merged = mergeHeaderPreviews(headers.filter((row): row is DeskPreview => !!row));
+              return {
+                ...pack,
+                po: laneFromPreview('po', 'hikma', merged || pack.poItems),
+              };
+            }),
+          );
+        }),
+      )
+      .subscribe({
+        next: ({ pr, inbox, po, gr, hana, budget, acct }) => {
+          const verdict = budgetOkFromRead(budget);
+          const funds = fundFromRead(acct);
+          this.compileFacts.set({
+            budget: budget ? verdict.reason : '',
+            budgetVia: budget?.tool || '',
+            fund: funds.fund,
+            fundscenter: funds.fundscenter,
+            fundVia: acct?.tool || '',
+          });
+          const mcp = [pr, inbox, po, gr];
+          this.lanes.set(hana ? [...mcp, hana] : mcp);
+          this.readAt.set(new Date().toLocaleTimeString());
+          this.terrainLoading.set(false);
+        },
+        error: () => {
+          this.terrainLoading.set(false);
+        },
+      });
+  }
+
+  private previewLane$(id: Exclude<DeskLaneId, 'hana'>, serverId: string) {
+    return this.api.get<DeskPreview>(`/mcp/servers/${encodeURIComponent(serverId)}/preview`).pipe(
+      map((body) => laneFromPreview(id, serverId, body)),
+      catchError((err: { error?: { detail?: unknown } }) =>
+        of(laneFromPreview(id, serverId, null, this.previewDetail(err))),
+      ),
+    );
   }
 
   canReadSelected(): boolean {

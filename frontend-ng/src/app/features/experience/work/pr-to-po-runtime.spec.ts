@@ -91,7 +91,18 @@ test('the factory desk starts a cycle through the Experience binding', () => {
   assert.doesNotMatch(board, /navigateByUrl\(factoryChatHref/);
   assert.doesNotMatch(board, /llm-portal|omnirag-llm-portal/);
   assert.match(board, /justificationReadBody/);
+  assert.match(board, /approvedPrItemReadBody/);
+  assert.match(board, /budgetReadBody/);
+  assert.match(board, /acctAssgmtReadBody/);
+  assert.match(board, /poItemReadBody/);
+  assert.match(board, /poHeaderReadBody/);
   assert.match(board, /\/mcp\/servers\/\$\{encodeURIComponent\(JUSTIFICATION_SERVER_ID\)\}\/read/);
+  assert.match(board, /\/mcp\/servers\/sap\/read/);
+  assert.match(board, /\/mcp\/servers\/hikma\/read/);
+  assert.match(board, /\/mcp\/servers\/\$\{encodeURIComponent\(serverId\)\}\/preview/);
   assert.match(board, /readJustification\(/);
   assert.doesNotMatch(board, /readJustification[\s\S]{0,400}this\.runtime\.invoke/);
+  assert.doesNotMatch(board, /post_A_PurchaseOrder|fi_DiscardFromPurchasing|fi_EnableForPurchasing/);
+  assert.doesNotMatch(board, /\/mcp\/servers\/sap\/preview/);
+  assert.doesNotMatch(board, /\/mcp\/servers\/hikma\/preview/);
 });
