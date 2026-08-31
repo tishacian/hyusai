@@ -13,7 +13,16 @@ PREVIEW_COL_CAP = 8
 
 _READ_PREFIXES = ("get_", "get", "list_", "list", "query_", "query", "search_", "search", "read_", "read")
 _WRITE_PREFIXES = ("post_", "post", "patch_", "patch", "put_", "put", "delete_", "delete", "create_", "create", "update_", "update")
-_WRITE_NAMES = frozenset({"reject_pr", "create_po", "handle_rejection"})
+_WRITE_NAMES = frozenset(
+    {
+        "reject_pr",
+        "create_po",
+        "handle_rejection",
+        "fi_discardfrompurchasing",
+        "fi_enableforpurchasing",
+    }
+)
+_READ_NAMES = frozenset({"fi_validate"})
 _SAFE_OPTIONAL_ARGS = frozenset(
     {"$top", "$skip", "$filter", "$select", "$orderby", "top", "skip", "limit"}
 )
@@ -56,7 +65,7 @@ def classify_kind(name: str) -> str:
     lower = raw.lower()
     if lower.startswith(_WRITE_PREFIXES) or lower in _WRITE_NAMES:
         return "write"
-    if lower.startswith(_READ_PREFIXES):
+    if lower in _READ_NAMES or lower.startswith(_READ_PREFIXES):
         return "read"
     if "reject" in lower or lower.startswith("handle_"):
         return "write"
