@@ -4929,3 +4929,39 @@ n’est pas utilisé. Preview `_by_key` inchangée. Station write **scellée**.
 | Canaris carakai | non rejoués dans cette fenêtre (hôte runner non invoqué) |
 | Rollback | `AGENTIUM_IMAGE_TAG=bc5810b38643` puis `up` ; aucun schéma à reculer |
 
+## Itération du 31/08 — graphe PDF publié (MaterialGroup + libellés sealed)
+
+Le seed du slice `38c94289` n’a pas remplacé le DAG : le brouillon
+`faycal.benaissa@datategy.net` rev 6 n’était que du **placement** (18 nœuds,
+20 arêtes, mêmes ids, mêmes `inputs_map` / recettes / prompt HITL que le
+publié). Le graphe désiré dans l’image (`pr_to_po_flow()`) ajoutait
+`MaterialGroup`, les recettes item-aware, et les libellés compose-only.
+
+**Tranche :** conserver les coordonnées Fayçal, superposer la sémantique PDF,
+`save_draft` rev 6 → 7, `publish_draft` v2, retarget
+`procurement.pr_to_po.run`. Pas de rebuild, pas de migrate, tag
+`demo-agentic` non déplacé. Images inchangées : `38c942896752`.
+
+Relancer `python -m scripts.seed_nawa_pr_to_po` **sur cette image**
+réécrirait le canvas seed (positions d’origine) puis republierait. Ne pas
+le faire. Après land de ce commit (positions ancrées dans `flow.py`), un
+seed futur est un no-op.
+
+### Observables
+
+| Pas | Observé |
+|---|---|
+| Brouillon avant | rev 6, `updated_at` 2026-08-31 06:46:38, SHA `4980c1f5…`, brief identique au publié, 18× `position` seul |
+| Publié avant | v1 `222ec0f1-255f-4920-afe4-714aa875c284`, SHA `c2f17712…`, HITL « creating this purchase order in SAP », hikma `pr_type` seul, label `Create PO (sap MCP write)` |
+| Désiré image | SHA `2446737e…`, hikma `MaterialGroup`+`pr_type`, label `Compose PO (hikma, sealed)` |
+| Diff sémantique | 0 breaking / 8 behavioral / 18 presentation |
+| Runs en vol | 0 (`hitl_pending` / `running` / `pending`) |
+| Publié après | v2 `b9217063-b512-48e8-a444-835867a3de76`, SHA `1bb304e3…`, draft rev 7, base = v2 |
+| Liaison | `procurement.pr_to_po.run` `222ec0f1…` → `b9217063…` (même SHA `1bb304e3…`) |
+| Canvas | `src` reste `{x: 0, y: 94}` (Fayçal), pas le seed `{x: 40, y: 220}` |
+| HITL | « Approve this compiled purchase-order package? SAP write stays sealed… » |
+| hikma | `inputs_map` = `MaterialGroup` + `pr_type` |
+| Secret OAuth | `oauth_secret_set=true` sur sap / hikma / sap_gr / sap_inbox |
+| Images | `agentium-{backend,worker,frontend}:38c942896752` inchangées |
+| Rollback graphe | `restore_draft` depuis v1 `222ec0f1…` puis `publish_draft` ; la liaison doit être retargetée à la main (`retarget_seed_stub_bindings` ignore un binding `cycle`) |
+
