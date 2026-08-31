@@ -4815,3 +4815,39 @@ l'application métier `pr-to-po` (`/work/pr-to-po`), le nœud recette
 | Canaris carakai | non rejoués dans cette fenêtre (hôte runner non invoqué) |
 | Rollback | `AGENTIUM_IMAGE_TAG=e5d3b8f20708` puis `up` ; le seed `nawa` reste (fix-forward) |
 
+## Itération du 31/08 — desk NAWA PR→PO (graphiques, ask, portail in-app), déployée sur `d203e6f8`
+
+GO land + deploy depuis un Cloud Agent. `origin/demo/agentic` était sur
+`935d2ccc` (journal docs de l'itération `ea19a5b6`) alors que les
+conteneurs tournaient encore `ea19a5b6cbe26e6761bef8f5c07636b68a369630`.
+Cinq commits frontend en fast-forward propre
+(`935d2ccc` → `d203e6f87a478178c830d17d8f1588de4bbfb5e3`). Aucune
+migration dans ce slice.
+
+Le slice ajoute sur `/work/pr-to-po` : voix + graphiques (donut, barres
+fournisseurs, couverture), ask déterministe, et le **portail usine**
+embarqué (`app-chat-panel` compact, même Système `PR to PO`). L'URL
+reste `/work/pr-to-po`. La station d'écriture reste **scellée**.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n`, `check:ui-chrome`, `test:unit` (1355 verts), `build:prod` verts ; pas de pytest backend (slice frontend) |
+| Push | `demo/agentic` en fast-forward `935d2ccc` → `d203e6f8` (5 commits) |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | `d203e6f87a478178c830d17d8f1588de4bbfb5e3`, porcelain vide |
+| Build | trois images `agentium-{backend,worker,frontend}:d203e6f87a47`, label 40-hex identique |
+| Dump / migrate | sautés — pas de nouvelle révision Alembic |
+| `storage-check` | sortie 0 |
+| `up` | cinq services applicatifs recréés ; infra (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP, LiveKit) intouchée |
+| `build-info` | `revision: d203e6f87a478178c830d17d8f1588de4bbfb5e3`, `revision_verified: true` (backend et frontend) |
+| Bundle | chaînes `Factory portal`, `Ask the factory`, `Live read` présentes dans le JS servi ; `/` et `/work/pr-to-po` = 200 |
+| Logs | 0 `traceback`/`exception` backend depuis la bascule |
+| Alias | tag mobile `demo-agentic` **non déplacé** |
+| Smoke desk | lecture live nawa : PR 8 / inbox 2 / PO 8 / GR limité ; couverture 100 % ; ask « Can we write » → scellé ; « how many purchase orders » → 8 PO ; texte libre « explain this dossier to me » ouvre le portail **sans** quitter `/work/pr-to-po` ; rail d'historique `display:none` ; prompt cite le briefing + write sealed |
+| Seed `nawa` | inchangé — Système `28345b5a-0824-4f2b-a420-ebe0aa7cd34f`, Experience `de2264aa-9570-40ee-bdd7-70c30da2c0a2` slug `pr-to-po` r1, liaison `procurement.pr_to_po.run` |
+| Flags | `mcp_connector`, `experience_v1`, `flow_workbench_v1` déjà on ; `sap_hana_connector` reste off |
+| Canaris carakai | non rejoués dans cette fenêtre (hôte runner non invoqué) |
+| Rollback | `AGENTIUM_IMAGE_TAG=ea19a5b6cbe2` puis `up` ; aucun schéma à reculer |
+
