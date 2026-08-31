@@ -87,7 +87,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "task.list_prs",
                 "List approved PRs (sap MCP)",
                 "sap_list_approved_prs_v1",
-                description="sap_list_approved_prs_v1 → sap MCP list_approved_prs. Not HANA.",
+                description="sap_list_approved_prs_v1 → sap get_A_PurchaseRequisitionItem when advertised, else list_approved_prs. Not HANA.",
                 x=280,
             ),
             _task(
@@ -124,7 +124,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "task.budget",
                 "Check budget (sap MCP)",
                 "sap_check_budget_v1",
-                description="sap_check_budget_v1 → sap MCP check_budget.",
+                description="sap_check_budget_v1 → sap fi_Validate when advertised, else check_budget. Reads imputation. Never discards.",
                 inputs_map={"pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]}},
                 x=1000,
                 y=80,
@@ -163,11 +163,15 @@ def pr_to_po_flow() -> dict[str, Any]:
             },
             _task(
                 "task.reject",
-                "Reject PR (sap MCP write)",
+                "Compose discard (sap, sealed)",
                 "sap_reject_pr_v1",
-                description="sap_reject_pr_v1 → sap MCP reject_pr. Budget write, no HITL.",
+                description="sap_reject_pr_v1 composes fi_DiscardFromPurchasing. Write stays sealed. No tools/call.",
                 inputs_map={
                     "pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]},
+                    "PurchaseRequisitionItem": {
+                        "node_id": "task.select_pr",
+                        "path": ["PurchaseRequisitionItem"],
+                    },
                     "reason": {"node_id": "task.budget", "path": ["reason"]},
                 },
                 x=1720,
@@ -177,8 +181,11 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "task.hikma",
                 "List POs by type (hikma MCP)",
                 "hikma_list_pos_by_type_v1",
-                description="hikma_list_pos_by_type_v1 → hikma MCP list_pos_by_type.",
-                inputs_map={"pr_type": {"node_id": "task.select_pr", "path": ["pr_type"]}},
+                description="hikma_list_pos_by_type_v1 → hikma get_A_PurchaseOrderItem + capped get_A_PurchaseOrder when advertised, else list_pos_by_type.",
+                inputs_map={
+                    "MaterialGroup": {"node_id": "task.select_pr", "path": ["MaterialGroup"]},
+                    "pr_type": {"node_id": "task.select_pr", "path": ["pr_type"]},
+                },
                 x=1720,
                 y=80,
             ),
@@ -247,14 +254,14 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "data": {
                     "description": (
                         "Human gate in NAWA, not SAP. Upstream is the package. "
-                        "Nothing is written to SAP until the next node."
+                        "Approving composes a PO payload. The write station stays sealed."
                     )
                 },
                 "config": {
                     "prompt": (
-                        "Approve creating this purchase order in SAP? "
-                        "The package (PR, budget, justification summary, supplier, "
-                        "format, formatted dossier) is in upstream."
+                        "Approve this compiled purchase-order package? "
+                        "SAP write stays sealed. The next node composes post_A_PurchaseOrder "
+                        "and does not call it."
                     ),
                     "prompt_kind": "approve_write",
                     "approvers": ["operator", "procurement"],
@@ -283,7 +290,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "type": "decision",
                 "label": "HITL verdict",
                 "position": {"x": 2920, "y": 80},
-                "data": {"description": "Approve writes a PO; reject calls handle_rejection."},
+                "data": {"description": "Approve composes a sealed PO payload; reject composes discard. No SAP write."},
                 "config": {
                     "branches": [
                         {"label": "approved", "condition": "hitl_approved == True"},
@@ -296,11 +303,16 @@ def pr_to_po_flow() -> dict[str, Any]:
             },
             _task(
                 "task.create_po",
-                "Create PO (sap MCP write)",
+                "Compose PO (hikma, sealed)",
                 "sap_create_po_v1",
-                description="sap_create_po_v1 → sap MCP create_po. Trace server_id=sap.",
+                description="sap_create_po_v1 composes hikma post_A_PurchaseOrder. Write stays sealed. No tools/call.",
                 inputs_map={
                     "pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]},
+                    "PurchaseRequisitionItem": {
+                        "node_id": "task.select_pr",
+                        "path": ["PurchaseRequisitionItem"],
+                    },
+                    "pr": {"node_id": "task.select_pr", "path": ["pr"]},
                     "supplier": {"node_id": "task.majority", "path": ["supplier"]},
                     "format": {"node_id": "task.majority", "path": ["format"]},
                     "amount": {"node_id": "task.select_pr", "path": ["pr", "amount"]},
@@ -310,10 +322,16 @@ def pr_to_po_flow() -> dict[str, Any]:
             ),
             _task(
                 "task.handle_rejection",
-                "Handle rejection (sap MCP write)",
+                "Compose discard (sap, sealed)",
                 "sap_handle_rejection_v1",
-                description="sap_handle_rejection_v1 → sap MCP handle_rejection after human reject.",
-                inputs_map={"pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]}},
+                description="sap_handle_rejection_v1 composes fi_DiscardFromPurchasing. Write stays sealed. No tools/call.",
+                inputs_map={
+                    "pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]},
+                    "PurchaseRequisitionItem": {
+                        "node_id": "task.select_pr",
+                        "path": ["PurchaseRequisitionItem"],
+                    },
+                },
                 x=3160,
                 y=160,
             ),

@@ -1417,12 +1417,51 @@ async def _mcp_call_v1(
     )
 
 
+def _named_mcp_server(
+    payload: dict[str, Any], ctx: Optional[dict[str, Any]], server_id: str
+):
+    from app.services.connectors.mcp import service as mcp_service
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    if not mcp_service.is_workspace_enabled(workspace):
+        if owns_db:
+            db.close()
+        raise ValueError("mcp_unconfigured: MCP connector is not enabled for this workspace")
+    server = mcp_service.resolve_server(workspace, server_id)
+    return db, workspace, server, owns_db
+
+
 async def _sap_list_approved_prs_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
     if _MCP_NAMED_FORBIDDEN & set(payload):
         raise ValueError("named MCP skills do not accept tool, sql, or server_id")
-    return await _mcp_invoke(payload, ctx, server_id="sap", contract_tool="list_approved_prs", arguments={})
+    from app.services.connectors.mcp.errors import McpError
+    from app.services.connectors.mcp.preview import extract_records
+    from app.services.connectors.mcp.read import listed_tool_names, pick_approved_pr_tool, read_tool
+
+    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "sap")
+    try:
+        tool, arguments = pick_approved_pr_tool(listed_tool_names(server))
+        try:
+            called = read_tool(server, tool=tool, arguments=arguments)
+        except McpError:
+            raise
+        raw = called.get("result")
+        records = extract_records(raw)
+        if isinstance(raw, dict) and isinstance(raw.get("prs"), list):
+            records = [dict(row) for row in raw["prs"] if isinstance(row, dict)]
+        return _mcp_trace(
+            {
+                **called,
+                "contract_tool": tool,
+                "result": {"prs": records, "count": len(records)},
+            }
+        )
+    finally:
+        if owns_db:
+            db.close()
 
 
 async def _sap_check_budget_v1(
@@ -1430,13 +1469,60 @@ async def _sap_check_budget_v1(
 ) -> dict[str, Any]:
     if _MCP_NAMED_FORBIDDEN & set(payload):
         raise ValueError("named MCP skills do not accept tool, sql, or server_id")
-    return await _mcp_invoke(
-        payload,
-        ctx,
-        server_id="sap",
-        contract_tool="check_budget",
-        arguments={"pr_id": str(payload.get("pr_id") or "")},
+    from app.services.connectors.mcp.errors import McpError, McpToolUnknown
+    from app.services.connectors.mcp.preview import extract_records
+    from app.services.connectors.mcp.read import (
+        budget_ok_from_payload,
+        listed_tool_names,
+        pick_acct_tool,
+        pick_budget_tool,
+        read_tool,
     )
+
+    pr_id = str(payload.get("pr_id") or "")
+    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "sap")
+    try:
+        names = listed_tool_names(server)
+        tool, arguments = pick_budget_tool(names, pr_id=pr_id)
+        try:
+            called = read_tool(server, tool=tool, arguments=arguments)
+        except McpError:
+            raise
+        raw = called.get("result")
+        if isinstance(raw, dict) and "budget_ok" in raw:
+            budget_ok = bool(raw.get("budget_ok"))
+            reason = str(raw.get("reason") or ("ok" if budget_ok else "budget"))
+        else:
+            budget_ok, reason = budget_ok_from_payload(raw)
+        fund = ""
+        funds_center = ""
+        acct: list[dict[str, Any]] = []
+        try:
+            acct_tool, acct_args = pick_acct_tool(names, pr_id=pr_id)
+            acct_called = read_tool(server, tool=acct_tool, arguments=acct_args)
+            acct = extract_records(acct_called.get("result"))
+            if acct:
+                fund = str(acct[0].get("Fund") or "")
+                funds_center = str(acct[0].get("FundsCenter") or "")
+        except (McpToolUnknown, McpError, ValueError):
+            acct = []
+        return _mcp_trace(
+            {
+                **called,
+                "contract_tool": tool,
+                "result": {
+                    "pr_id": pr_id,
+                    "budget_ok": budget_ok,
+                    "reason": reason,
+                    "Fund": fund,
+                    "FundsCenter": funds_center,
+                    "acct": acct,
+                },
+            }
+        )
+    finally:
+        if owns_db:
+            db.close()
 
 
 async def _sap_get_justification_v1(
@@ -1471,16 +1557,28 @@ async def _sap_reject_pr_v1(
 ) -> dict[str, Any]:
     if _MCP_NAMED_FORBIDDEN & set(payload):
         raise ValueError("named MCP skills do not accept tool, sql, or server_id")
-    return await _mcp_invoke(
-        payload,
-        ctx,
-        server_id="sap",
-        contract_tool="reject_pr",
-        arguments={
-            "pr_id": str(payload.get("pr_id") or ""),
-            "reason": str(payload.get("reason") or "budget"),
-        },
+    from app.services.connectors.mcp.read import (
+        DEFAULT_PR_ITEM,
+        compose_write_sealed,
+        discard_arguments,
+        listed_tool_names,
+        pick_discard_tool,
     )
+
+    pr_id = str(payload.get("pr_id") or "")
+    item = str(payload.get("PurchaseRequisitionItem") or "").strip() or DEFAULT_PR_ITEM
+    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "sap")
+    try:
+        tool = pick_discard_tool(listed_tool_names(server))
+        composed = compose_write_sealed(
+            server_id="sap",
+            tool=tool,
+            arguments=discard_arguments(pr_id, item),
+        )
+        return _mcp_trace(composed)
+    finally:
+        if owns_db:
+            db.close()
 
 
 async def _hikma_list_pos_by_type_v1(
@@ -1488,13 +1586,65 @@ async def _hikma_list_pos_by_type_v1(
 ) -> dict[str, Any]:
     if _MCP_NAMED_FORBIDDEN & set(payload):
         raise ValueError("named MCP skills do not accept tool, sql, or server_id")
-    return await _mcp_invoke(
-        payload,
-        ctx,
-        server_id="hikma",
-        contract_tool="list_pos_by_type",
-        arguments={"pr_type": str(payload.get("pr_type") or "")},
+    from app.services.connectors.mcp.errors import McpError, McpToolUnknown
+    from app.services.connectors.mcp.preview import extract_records
+    from app.services.connectors.mcp.read import (
+        PO_HEADER_CAP,
+        listed_tool_names,
+        pick_po_header_tool,
+        pick_po_item_tool,
+        read_tool,
     )
+
+    material_group = str(payload.get("MaterialGroup") or payload.get("pr_type") or "")
+    pr_type = str(payload.get("pr_type") or "")
+    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "hikma")
+    try:
+        names = listed_tool_names(server)
+        tool, arguments = pick_po_item_tool(names, material_group=material_group, pr_type=pr_type)
+        try:
+            called = read_tool(server, tool=tool, arguments=arguments)
+        except McpError:
+            raise
+        raw = called.get("result")
+        if isinstance(raw, dict) and isinstance(raw.get("pos"), list):
+            pos = [dict(row) for row in raw["pos"] if isinstance(row, dict)]
+            return _mcp_trace(
+                {
+                    **called,
+                    "contract_tool": tool,
+                    "result": {"pos": pos, "MaterialGroup": material_group, "pr_type": pr_type},
+                }
+            )
+        items = extract_records(raw)
+        po_ids: list[str] = []
+        for row in items:
+            number = str(row.get("PurchaseOrder") or "").strip()
+            if number and number not in po_ids:
+                po_ids.append(number)
+        headers: list[dict[str, Any]] = []
+        try:
+            for po_id in po_ids[:PO_HEADER_CAP]:
+                header_tool, header_args = pick_po_header_tool(names, po_id=po_id)
+                header_called = read_tool(server, tool=header_tool, arguments=header_args)
+                headers.extend(extract_records(header_called.get("result")))
+        except (McpToolUnknown, McpError, ValueError):
+            headers = []
+        return _mcp_trace(
+            {
+                **called,
+                "contract_tool": tool,
+                "result": {
+                    "pos": headers or items,
+                    "items": items,
+                    "MaterialGroup": material_group,
+                    "pr_type": pr_type,
+                },
+            }
+        )
+    finally:
+        if owns_db:
+            db.close()
 
 
 async def _sap_create_po_v1(
@@ -1502,20 +1652,45 @@ async def _sap_create_po_v1(
 ) -> dict[str, Any]:
     if _MCP_NAMED_FORBIDDEN & set(payload):
         raise ValueError("named MCP skills do not accept tool, sql, or server_id")
-    arguments: dict[str, Any] = {
-        "pr_id": str(payload.get("pr_id") or ""),
-        "supplier": str(payload.get("supplier") or ""),
-        "format": str(payload.get("format") or ""),
-    }
-    if payload.get("amount") is not None:
-        arguments["amount"] = payload.get("amount")
-    return await _mcp_invoke(
-        payload,
-        ctx,
-        server_id="sap",
-        contract_tool="create_po",
-        arguments=arguments,
+    from app.services.connectors.mcp.read import (
+        DEFAULT_PR_ITEM,
+        SAP_CREATE_BLOCK,
+        compose_write_sealed,
+        create_po_request_body,
+        listed_tool_names,
+        pick_create_po_tool,
     )
+
+    pr = payload.get("pr") if isinstance(payload.get("pr"), dict) else {}
+    pr_id = str(payload.get("pr_id") or pr.get("pr_id") or pr.get("PurchaseRequisition") or "")
+    item = str(
+        payload.get("PurchaseRequisitionItem") or pr.get("PurchaseRequisitionItem") or ""
+    ).strip() or DEFAULT_PR_ITEM
+    body = create_po_request_body(
+        pr_id=pr_id,
+        item=item,
+        supplier=str(payload.get("supplier") or ""),
+        material=str(pr.get("Material") or ""),
+        plant=str(pr.get("Plant") or "1000"),
+        quantity=str(pr.get("RequestedQuantity") or payload.get("amount") or "1"),
+        unit=str(pr.get("BaseUnit") or "EA"),
+        net_price=str(pr.get("PurchaseRequisitionPrice") or "0.00"),
+        currency=str(pr.get("PurReqnItemCurrency") or pr.get("currency") or "QAR"),
+        purchase_order_type="NB",
+    )
+    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "hikma")
+    try:
+        tool = pick_create_po_tool(listed_tool_names(server))
+        composed = compose_write_sealed(
+            server_id="hikma",
+            tool=tool,
+            arguments={"requestBody": body},
+            sap_block=SAP_CREATE_BLOCK,
+        )
+        return _mcp_trace(composed)
+    finally:
+        if owns_db:
+            db.close()
 
 
 async def _sap_handle_rejection_v1(
@@ -1523,16 +1698,28 @@ async def _sap_handle_rejection_v1(
 ) -> dict[str, Any]:
     if _MCP_NAMED_FORBIDDEN & set(payload):
         raise ValueError("named MCP skills do not accept tool, sql, or server_id")
-    return await _mcp_invoke(
-        payload,
-        ctx,
-        server_id="sap",
-        contract_tool="handle_rejection",
-        arguments={
-            "pr_id": str(payload.get("pr_id") or ""),
-            "note": str(payload.get("note") or ""),
-        },
+    from app.services.connectors.mcp.read import (
+        DEFAULT_PR_ITEM,
+        compose_write_sealed,
+        discard_arguments,
+        listed_tool_names,
+        pick_handle_rejection_tool,
     )
+
+    pr_id = str(payload.get("pr_id") or "")
+    item = str(payload.get("PurchaseRequisitionItem") or "").strip() or DEFAULT_PR_ITEM
+    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "sap")
+    try:
+        tool = pick_handle_rejection_tool(listed_tool_names(server))
+        composed = compose_write_sealed(
+            server_id="sap",
+            tool=tool,
+            arguments=discard_arguments(pr_id, item),
+        )
+        return _mcp_trace(composed)
+    finally:
+        if owns_db:
+            db.close()
 
 
 async def _await_managed_execution(

@@ -145,6 +145,12 @@ async def test_named_skill_flattens_trace(monkeypatch):
     )
     captured: dict = {}
 
+    monkeypatch.setattr(
+        mcp_client,
+        "list_tools",
+        lambda server, **kwargs: {"tools": [{"name": "list_approved_prs"}], "session_id": "s1"},
+    )
+
     def fake_call(server, **kwargs):
         captured["server"] = server
         captured["kwargs"] = kwargs

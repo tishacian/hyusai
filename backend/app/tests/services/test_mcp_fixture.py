@@ -122,3 +122,17 @@ def test_select_next_pr_pins_or_takes_first():
     assert select_next_pr({"prs": prs, "pr_id": "PR-4402"})["pr_id"] == "PR-4402"
     assert select_next_pr({"prs": prs})["pr_id"] == "PR-4401"
     assert select_next_pr({"prs": []})["empty"] is True
+    item = select_next_pr(
+        {
+            "prs": [
+                {
+                    "PurchaseRequisition": "2000276450",
+                    "PurchaseRequisitionItem": "20",
+                    "MaterialGroup": "L001",
+                }
+            ]
+        }
+    )
+    assert item["pr_id"] == "2000276450"
+    assert item["PurchaseRequisitionItem"] == "20"
+    assert item["MaterialGroup"] == "L001"
