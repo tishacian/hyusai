@@ -4,15 +4,21 @@ import test from 'node:test';
 import {
   APPROVED_PR_FILTER,
   APPROVED_PR_TOP,
+  BAPI_SERVER_ID,
   DEMO_JUSTIFICATION_PR,
   LIVE_ACCT,
+  LIVE_BAPI_COMMIT,
+  LIVE_BAPI_CREATE,
+  LIVE_BAPI_ROLLBACK,
   LIVE_BUDGET,
   LIVE_PO_HEADER,
   LIVE_PO_ITEM,
   LIVE_PR_ITEM,
   LIVE_PR_ITEM_BY_KEY,
+  LIVE_PR_ITEM_TEXT,
   PO_HEADER_CAP,
   PO_ITEM_TOP,
+  ZNPR_PO_TYPE,
   acctAssgmtReadBody,
   approvedPrItemReadBody,
   askFactory,
@@ -33,10 +39,13 @@ import {
   mergeHeaderPreviews,
   offersSelectedJustification,
   orderCoverage,
+  overrideDeliveryDate,
   pickDeskColumns,
   poHeaderReadBody,
   poItemReadBody,
   prItemFieldsFromPreview,
+  recentPoTermsFromPreview,
+  recentPosByPlantReadBody,
   selectedPrFromLane,
   supplierShares,
   terrainShares,
@@ -222,12 +231,14 @@ test('the factory compiles a dossier from live SAP columns and keeps the write s
     ['pr', 'inbox', 'supplier', 'format'],
   );
   assert.equal(briefing.facts.find((fact) => fact.id === 'supplier')?.via, 'get_A_PurchaseOrder');
+  assert.equal(briefing.facts.find((fact) => fact.id === 'format')?.value, ZNPR_PO_TYPE);
+  assert.equal(briefing.facts.find((fact) => fact.id === 'format')?.via, 'ZNPR → ZLPO');
   assert.equal(briefing.stations.find((station) => station.id === 'compile')?.status, 'done');
   assert.equal(briefing.stations.find((station) => station.id === 'compile')?.via, 'python_recipe_v1');
   assert.equal(briefing.stations.find((station) => station.id === 'decide')?.status, 'ready');
   assert.equal(briefing.stations.find((station) => station.id === 'write')?.status, 'sealed');
   assert.equal(briefing.voiceKey, 'experience.pr_to_po.desk.voice.compiled');
-  assert.equal(briefing.voiceParams['format'], 'ZAPO');
+  assert.equal(briefing.voiceParams['format'], ZNPR_PO_TYPE);
   assert.equal(briefing.selectedPrId, '1000008');
 });
 
@@ -328,6 +339,7 @@ test('PDF read bodies match the PIH QA filter and never post a write', () => {
   assert.equal(typeof approved.arguments.top, 'string');
   assert.match(approved.arguments.filter, /IsClosed eq false/);
   assert.equal(approved.arguments.filter.includes("IsClosed eq 'false'"), false);
+  assert.match(approved.arguments.filter, /PurchaseRequisitionType eq 'ZNPR'/);
   assert.equal(approved.arguments.filter, APPROVED_PR_FILTER);
   assert.equal(budgetReadBody('2000276450').tool, LIVE_BUDGET);
   assert.deepEqual(budgetReadBody('2000276450').arguments, { PurchaseRequisition: '2000276450' });
@@ -338,22 +350,57 @@ test('PDF read bodies match the PIH QA filter and never post a write', () => {
   assert.equal(items.arguments.top, PO_ITEM_TOP);
   assert.equal(typeof items.arguments.top, 'string');
   assert.equal(poHeaderReadBody('4500000123').tool, LIVE_PO_HEADER);
+  const plantPos = recentPosByPlantReadBody('1000');
+  assert.equal(plantPos.tool, LIVE_PO_HEADER);
+  assert.equal(plantPos.arguments.filter, "PurchasingOrganization eq '1000'");
+  assert.equal(plantPos.arguments.orderby, 'PurchaseOrderDate desc');
+  assert.equal(plantPos.arguments.top, String(PO_HEADER_CAP));
   const terrain = factoryTerrainReadBodies({
     id: '2000276450',
+    item: '20',
     materialGroup: 'L001',
+    plant: '1000',
     poIds: ['4501', '4502', '4503', '4504', '4505', '4506'],
   });
-  assert.equal(terrain.filter((body) => body.tool === LIVE_PO_HEADER).length, PO_HEADER_CAP);
+  assert.equal(terrain.filter((body) => body.tool === LIVE_PO_HEADER).length, 1);
   assert.deepEqual(
     terrain.map((body) => body.tool),
-    [LIVE_PR_ITEM, LIVE_BUDGET, LIVE_ACCT, LIVE_PO_ITEM, LIVE_PO_HEADER, LIVE_PO_HEADER, LIVE_PO_HEADER, LIVE_PO_HEADER, LIVE_PO_HEADER],
+    [LIVE_PR_ITEM, LIVE_BUDGET, LIVE_ACCT, LIVE_PR_ITEM_TEXT, LIVE_PO_HEADER],
   );
   for (const body of terrain) {
     assert.equal(isFactoryWriteTool(body.tool), false);
   }
   assert.equal(isFactoryWriteTool('post_A_PurchaseOrder'), true);
+  assert.equal(isFactoryWriteTool(LIVE_BAPI_CREATE), true);
+  assert.equal(isFactoryWriteTool(LIVE_BAPI_COMMIT), true);
+  assert.equal(isFactoryWriteTool(LIVE_BAPI_ROLLBACK), true);
   assert.equal(isFactoryWriteTool('fi_DiscardFromPurchasing'), true);
   assert.equal(isFactoryWriteTool('fi_EnableForPurchasing'), true);
+});
+
+test('a fully ordered PR item is skipped for the selected line', () => {
+  const pr = laneFromPreview('pr', 'sap', {
+    ok: true,
+    tool: LIVE_PR_ITEM,
+    columns: [
+      'PurchaseRequisition',
+      'PurchaseRequisitionItem',
+      'PurchaseRequisitionItemText',
+      'Plant',
+      'RequestedQuantity',
+      'OrderedQuantity',
+    ],
+    rows: [
+      ['2000276581', '10', 'CONSUMED CLEANER', '1000', '1', '1'],
+      ['2000276449', '20', 'STICKER WHITE', '1000', '50', '0'],
+    ],
+    row_count: 2,
+  });
+  const selected = selectedPrFromLane(pr);
+  assert.equal(selected.id, '2000276449');
+  assert.equal(selected.item, '20');
+  assert.equal(selected.plant, '1000');
+  assert.match(selected.label, /STICKER/);
 });
 
 test('item-shaped PRs compile budget and fund facts and keep the write sealed', () => {
@@ -373,6 +420,7 @@ test('item-shaped PRs compile budget and fund facts and keep the write sealed', 
   const selected = selectedPrFromLane(pr);
   assert.equal(selected.id, '2000276450');
   assert.equal(selected.materialGroup, 'L001');
+  assert.equal(selected.plant, '');
   assert.match(selected.label, /LORX/);
   const po = laneFromPreview('po', 'hikma', {
     ok: true,
@@ -451,7 +499,7 @@ test('asking the factory stays deterministic and never unseals the write', () =>
   assert.equal(shouldOpenFactoryPortal('explain the compiled brief to the buyer'), true);
 });
 
-test('sealed PO compose is a POST for hikma NB and is never called', () => {
+test('sealed PO compose is BAPI_PO_CREATE1 ZLPO and is never called', () => {
   const fields = prItemFieldsFromPreview({
     ok: true,
     columns: [
@@ -465,26 +513,78 @@ test('sealed PO compose is a POST for hikma NB and is never called', () => {
       'BaseUnit',
       'PurchaseRequisitionPrice',
       'PurReqnItemCurrency',
+      'DeliveryDate',
+      'PurchaseRequisitionType',
     ],
     rows: [
-      ['2000276450', '10', 'LORX FURNITURE CLEANER', 'MAT-1', 'L001', '1000', '12', 'EA', '4.50', 'QAR'],
+      [
+        '2000276449',
+        '20',
+        'STICKER WHITE',
+        'MAT-1',
+        'L001',
+        '1000',
+        '12',
+        'EA',
+        '4.50',
+        'QAR',
+        '/Date(1791504000000)/',
+        'ZNPR',
+      ],
     ],
   });
-  assert.equal(fields.pr_id, '2000276450');
+  assert.equal(fields.pr_id, '2000276449');
   assert.equal(fields.materialGroup, 'L001');
-  const post = composeSealedPoPost(fields, '100012');
+  assert.equal(fields.plant, '1000');
+  assert.equal(fields.item, '20');
+  const terms = recentPoTermsFromPreview({
+    ok: true,
+    columns: ['PurchaseOrder', 'Supplier', 'PurchasingGroup', 'PaymentTerms', 'IncotermsClassification'],
+    rows: [
+      ['4500382517', '1000000018', '013', 'ZAPS', 'DDP'],
+      ['4500382511', '1000000661', '013', 'ZAPS', 'DDP'],
+    ],
+  });
+  assert.equal(terms.supplier, '1000000018');
+  const post = composeSealedPoPost(fields, terms.supplier, terms);
   assert.ok(post);
   assert.equal(post?.method, 'POST');
-  assert.equal(post?.server_id, 'hikma');
-  assert.equal(post?.tool, LIVE_CREATE_PO);
+  assert.equal(post?.server_id, BAPI_SERVER_ID);
+  assert.equal(post?.tool, LIVE_BAPI_CREATE);
   assert.equal(post?.sealed, true);
   assert.equal(post?.called, false);
+  assert.equal(post?.testrun, false);
   assert.equal(post?.sap_block, SAP_CREATE_BLOCK);
-  assert.equal(post?.requestBody['PurchaseOrderType'], 'NB');
-  assert.equal(post?.requestBody['Supplier'], '100012');
-  const items = post?.requestBody['to_PurchaseOrderItem'] as Array<Record<string, unknown>>;
-  assert.equal(items[0]?.['PurchaseRequisition'], '2000276450');
+  assert.match(SAP_CREATE_BLOCK, /TESTRUN is banned/);
+  const tables = post?.requestBody['tables'] as Record<string, Record<string, unknown>>;
+  const header = tables['POHEADER'];
+  assert.equal(header['VENDOR'], '1000000018');
+  assert.equal(header['COMP_CODE'], '1000');
+  assert.equal(header['PURCH_ORG'], '1000');
+  assert.equal(header['DOC_TYPE'], ZNPR_PO_TYPE);
+  assert.equal(header['CURRENCY'], 'QAR');
+  assert.equal(header['INCOTERMS2L'], 'Doha');
+  assert.equal(header['DOC_DATE'], undefined);
+  assert.equal(post?.requestBody['TESTRUN'], undefined);
+  const items = tables['POITEM'] as unknown as Array<Record<string, unknown>>;
+  assert.equal(items[0]?.['PO_ITEM'], '00010');
+  assert.equal(items[0]?.['PREQ_NO'], '2000276449');
+  assert.equal(items[0]?.['PREQ_ITEM'], '00020');
+  assert.equal(items[0]?.['MATERIAL'], undefined);
+  assert.equal(tables['POACCOUNT'], undefined);
+  const schedule = tables['POSCHEDULE'] as unknown as Array<Record<string, unknown>>;
+  assert.match(String(schedule[0]?.['DELIVERY_DATE']), /^\d{8}$/);
   assert.equal(composeSealedPoPost(fields, ''), null);
+  assert.equal(isFactoryWriteTool(LIVE_CREATE_PO), true);
+});
+
+test('delivery date is overridden to a future workday, never filtered', () => {
+  const saturdayFloor = overrideDeliveryDate('2026-07-15', new Date(2026, 7, 22));
+  assert.equal(saturdayFloor, '20260907');
+  const futureKept = overrideDeliveryDate('20261201', new Date(2026, 7, 31));
+  assert.equal(futureKept, '20261201');
+  const odata = overrideDeliveryDate('/Date(1791504000000)/', new Date(2026, 7, 31));
+  assert.match(odata, /^\d{8}$/);
 });
 
 test('a compiled dossier keeps the live summary and a sealed write', () => {

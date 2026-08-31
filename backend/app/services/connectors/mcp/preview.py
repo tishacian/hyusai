@@ -65,6 +65,8 @@ def classify_kind(name: str) -> str:
     lower = raw.lower()
     if lower.startswith(_WRITE_PREFIXES) or lower in _WRITE_NAMES:
         return "write"
+    if lower.startswith("bapi_") and any(token in lower for token in ("create", "commit", "rollback")):
+        return "write"
     if lower in _READ_NAMES or lower.startswith(_READ_PREFIXES):
         return "read"
     if "reject" in lower or lower.startswith("handle_"):

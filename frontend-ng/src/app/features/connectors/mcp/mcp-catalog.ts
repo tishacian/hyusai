@@ -31,6 +31,7 @@ export function classifyMcpToolKind(name: string): McpToolKind {
   if (WRITE_PREFIXES.some((prefix) => lower.startsWith(prefix)) || WRITE_NAMES.has(lower)) {
     return 'write';
   }
+  if (lower.startsWith('bapi_') && /create|commit|rollback/.test(lower)) return 'write';
   if (READ_PREFIXES.some((prefix) => lower.startsWith(prefix))) return 'read';
   if (lower.includes('reject') || lower.startsWith('handle_')) return 'write';
   return 'other';

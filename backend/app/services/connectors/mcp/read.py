@@ -29,21 +29,28 @@ LIVE_PO_ITEM = "get_A_PurchaseOrderItem"
 LIVE_PO_HEADER = "get_A_PurchaseOrder"
 LIVE_DISCARD = "fi_DiscardFromPurchasing"
 LIVE_CREATE_PO = "post_A_PurchaseOrder"
+LIVE_BAPI_CREATE = "BAPI_PO_CREATE1"
+LIVE_BAPI_COMMIT = "BAPI_TRANSACTION_COMMIT"
+LIVE_BAPI_ROLLBACK = "BAPI_TRANSACTION_ROLLBACK"
+LIVE_PR_ITEM_TEXT = "get_A_PurchaseReqnItemText"
+BAPI_SERVER_ID = "bapi_po"
+ZNPR_PO_TYPE = "ZLPO"
 ITEM_TEXT_EXPAND = "to_PurchaseReqnItemText"
 DEFAULT_PR_ITEM = "10"
 APPROVED_PR_TOP = "50"
 PO_ITEM_TOP = "200"
-PO_HEADER_CAP = 5
+PO_HEADER_CAP = 20
 READ_ROW_CAP = 50
 APPROVED_PR_FILTER = (
     "PurchaseRequisitionStatus eq 'X' and PurchasingDocument eq '' "
-    "and IsDeleted eq '' and IsClosed eq false"
+    "and IsDeleted eq '' and IsClosed eq false "
+    "and PurchaseRequisitionType eq 'ZNPR'"
 )
 APPROVED_PR_SELECT = (
     "PurchaseRequisition,PurchaseRequisitionItem,PurchaseRequisitionItemText,"
-    "Material,MaterialGroup,RequestedQuantity,BaseUnit,PurchaseRequisitionPrice,"
-    "PurReqnItemCurrency,Plant,CompanyCode,PurchasingGroup,DeliveryDate,"
-    "PurchaseRequisitionType"
+    "Material,MaterialGroup,RequestedQuantity,OrderedQuantity,BaseUnit,"
+    "PurchaseRequisitionPrice,PurReqnItemCurrency,Plant,CompanyCode,"
+    "PurchasingGroup,DeliveryDate,PurchaseRequisitionType"
 )
 ACCT_SELECT = (
     "PurchaseRequisitionItem,CostCenter,WBSElement,Fund,FundsCenter,"
@@ -56,12 +63,16 @@ PO_ITEM_SELECT = (
 PO_HEADER_SELECT = (
     "PurchaseOrder,Supplier,PurchaseOrderType,PaymentTerms,DocumentCurrency,"
     "IncotermsClassification,PurchasingOrganization,PurchasingGroup,CompanyCode,"
-    "NetPaymentDays"
+    "PurchaseOrderDate"
 )
 WRITE_SEALED_REASON = "write_sealed"
-SAP_CREATE_BLOCK = (
+HIKMA_CREATE_BLOCK = (
     "The API accepts only document type NB; client 300 has no NB number range "
     "and ZAPO is not allowed through the API"
+)
+SAP_CREATE_BLOCK = (
+    "Write stays sealed. The live path is BAPI_PO_CREATE1 type ZLPO then "
+    "BAPI_TRANSACTION_COMMIT. TESTRUN is banned."
 )
 _TEXT_KEYS = (
     "justification",
@@ -150,6 +161,16 @@ def po_header_arguments(po_id: str) -> dict[str, str]:
     return {
         "filter": f"PurchaseOrder eq '{number}'",
         "select": PO_HEADER_SELECT,
+    }
+
+
+def recent_pos_by_plant_arguments(plant: str) -> dict[str, str]:
+    org = str(plant or "1000").replace("'", "") or "1000"
+    return {
+        "filter": f"PurchasingOrganization eq '{org}'",
+        "select": PO_HEADER_SELECT,
+        "orderby": "PurchaseOrderDate desc",
+        "top": str(PO_HEADER_CAP),
     }
 
 
@@ -249,6 +270,15 @@ def pick_po_header_tool(advertised: Iterable[str], *, po_id: str) -> tuple[str, 
     names = _advertised(advertised)
     if LIVE_PO_HEADER in names:
         return LIVE_PO_HEADER, po_header_arguments(po_id)
+    raise McpToolUnknown(f"MCP tool {LIVE_PO_HEADER!r} is not advertised by server 'hikma'")
+
+
+def pick_recent_pos_tool(
+    advertised: Iterable[str], *, plant: str
+) -> tuple[str, dict[str, str]]:
+    names = _advertised(advertised)
+    if LIVE_PO_HEADER in names:
+        return LIVE_PO_HEADER, recent_pos_by_plant_arguments(plant)
     raise McpToolUnknown(f"MCP tool {LIVE_PO_HEADER!r} is not advertised by server 'hikma'")
 
 

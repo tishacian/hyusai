@@ -62,15 +62,25 @@ export interface DeskPrItemFields {
   unit: string;
   net_price: string;
   currency: string;
+  deliveryDate: string;
+  prType: string;
   label: string;
+}
+
+export interface RecentPoTerms {
+  supplier: string;
+  purchGroup: string;
+  paymentTerms: string;
+  incoterms: string;
 }
 
 export interface SealedPoPost {
   method: 'POST';
-  server_id: 'hikma';
-  tool: 'post_A_PurchaseOrder';
+  server_id: 'bapi_po';
+  tool: 'BAPI_PO_CREATE1';
   sealed: true;
   called: false;
+  testrun: false;
   sap_block: string;
   requestBody: Record<string, unknown>;
 }
@@ -88,6 +98,7 @@ export interface SelectedPr {
   item: string;
   label: string;
   materialGroup: string;
+  plant: string;
 }
 
 export interface FactoryStation {
@@ -167,8 +178,14 @@ export const DESK_MCP_LANES: ReadonlyArray<{ id: Exclude<DeskLaneId, 'hana'>; se
 ];
 
 export const LIVE_CREATE_PO = 'post_A_PurchaseOrder';
+export const LIVE_BAPI_CREATE = 'BAPI_PO_CREATE1';
+export const LIVE_BAPI_COMMIT = 'BAPI_TRANSACTION_COMMIT';
+export const LIVE_BAPI_ROLLBACK = 'BAPI_TRANSACTION_ROLLBACK';
+export const LIVE_PR_ITEM_TEXT = 'get_A_PurchaseReqnItemText';
+export const BAPI_SERVER_ID = 'bapi_po';
+export const ZNPR_PO_TYPE = 'ZLPO';
 export const SAP_CREATE_BLOCK =
-  'The API accepts only document type NB; client 300 has no NB number range and ZAPO is not allowed through the API';
+  'Write stays sealed. The live path is BAPI_PO_CREATE1 type ZLPO then BAPI_TRANSACTION_COMMIT. TESTRUN is banned.';
 export const JUSTIFICATION_SERVER_ID = 'sap';
 export const LIVE_PR_ITEM = 'get_A_PurchaseRequisitionItem';
 export const LIVE_PR_ITEM_BY_KEY = 'get_A_PurchaseRequisitionItem_by_key';
@@ -181,19 +198,22 @@ export const DEMO_JUSTIFICATION_ITEM = '10';
 export const ITEM_TEXT_EXPAND = 'to_PurchaseReqnItemText';
 export const APPROVED_PR_TOP = '50';
 export const PO_ITEM_TOP = '200';
-export const PO_HEADER_CAP = 5;
+export const PO_HEADER_CAP = 20;
 export const APPROVED_PR_FILTER =
-  "PurchaseRequisitionStatus eq 'X' and PurchasingDocument eq '' and IsDeleted eq '' and IsClosed eq false";
+  "PurchaseRequisitionStatus eq 'X' and PurchasingDocument eq '' and IsDeleted eq '' and IsClosed eq false and PurchaseRequisitionType eq 'ZNPR'";
 export const APPROVED_PR_SELECT =
-  'PurchaseRequisition,PurchaseRequisitionItem,PurchaseRequisitionItemText,Material,MaterialGroup,RequestedQuantity,BaseUnit,PurchaseRequisitionPrice,PurReqnItemCurrency,Plant,CompanyCode,PurchasingGroup,DeliveryDate,PurchaseRequisitionType';
+  'PurchaseRequisition,PurchaseRequisitionItem,PurchaseRequisitionItemText,Material,MaterialGroup,RequestedQuantity,OrderedQuantity,BaseUnit,PurchaseRequisitionPrice,PurReqnItemCurrency,Plant,CompanyCode,PurchasingGroup,DeliveryDate,PurchaseRequisitionType';
 export const ACCT_SELECT =
   'PurchaseRequisitionItem,CostCenter,WBSElement,Fund,FundsCenter,CommitmentItem,GLAccount,PurReqnNetAmount';
 export const PO_ITEM_SELECT =
   'PurchaseOrder,PurchaseOrderItem,Material,MaterialGroup,Plant,NetPriceAmount,DocumentCurrency,PurchaseRequisition';
 export const PO_HEADER_SELECT =
-  'PurchaseOrder,Supplier,PurchaseOrderType,PaymentTerms,DocumentCurrency,IncotermsClassification,PurchasingOrganization,PurchasingGroup,CompanyCode,NetPaymentDays';
+  'PurchaseOrder,Supplier,PurchaseOrderType,PaymentTerms,DocumentCurrency,IncotermsClassification,PurchasingOrganization,PurchasingGroup,CompanyCode,PurchaseOrderDate';
 export const FACTORY_WRITE_TOOLS: ReadonlySet<string> = new Set([
   'post_A_PurchaseOrder',
+  'BAPI_PO_CREATE1',
+  'BAPI_TRANSACTION_COMMIT',
+  'BAPI_TRANSACTION_ROLLBACK',
   'fi_DiscardFromPurchasing',
   'fi_EnableForPurchasing',
   'create_po',
@@ -292,9 +312,12 @@ export function laneFromPreview(
     };
   }
   const rawColumns = preview.columns || [];
+  const rawRows = (preview.rows || []).filter((row) =>
+    id === 'pr' ? hasRemainingQuantity(rawColumns, row) : true,
+  );
   const columns = pickDeskColumns(rawColumns, id);
-  const rows = projectRows(rawColumns, preview.rows || [], columns);
-  const fetched = (preview.rows || []).length;
+  const rows = projectRows(rawColumns, rawRows, columns);
+  const fetched = rawRows.length;
   const rowCount = fetched || Number(preview.row_count || 0);
   let status: DeskLaneStatus = rowCount > 0 ? 'live' : 'empty';
   if (id === 'gr' && /403|limited|refused/i.test(message)) status = 'caution';
@@ -404,8 +427,21 @@ function cellAt(row: readonly string[], at: number | undefined): string {
   return String(row[at] ?? '').trim();
 }
 
+export function hasRemainingQuantity(
+  columns: readonly string[],
+  row: readonly string[],
+): boolean {
+  const ordered = previewCell(columns, row, ['OrderedQuantity']);
+  const requested = previewCell(columns, row, ['RequestedQuantity']);
+  if (!ordered || !requested) return true;
+  const taken = Number(ordered);
+  const want = Number(requested);
+  if (!Number.isFinite(taken) || !Number.isFinite(want) || want <= 0) return true;
+  return taken < want;
+}
+
 export function selectedPrFromLane(lane: DeskLane | undefined): SelectedPr {
-  const empty: SelectedPr = { id: '', item: '', label: '', materialGroup: '' };
+  const empty: SelectedPr = { id: '', item: '', label: '', materialGroup: '', plant: '' };
   if (!lane?.columns.length || !lane.rows.length) return empty;
   const index = new Map(lane.columns.map((name, at) => [name.toLowerCase(), at]));
   const idAt = ['PurchaseRequisition', 'pr_id']
@@ -416,8 +452,10 @@ export function selectedPrFromLane(lane: DeskLane | undefined): SelectedPr {
     .find((at) => at != null);
   const itemAt = index.get('purchaserequisitionitem');
   const groupAt = index.get('materialgroup') ?? index.get('pr_type');
+  const plantAt = index.get('plant');
   let fallbackId = '';
   for (const row of lane.rows) {
+    if (!hasRemainingQuantity(lane.columns, row)) continue;
     const id = cellAt(row, idAt);
     const label = cellAt(row, labelAt);
     if (!fallbackId && id) fallbackId = id;
@@ -427,6 +465,7 @@ export function selectedPrFromLane(lane: DeskLane | undefined): SelectedPr {
         item: cellAt(row, itemAt),
         label,
         materialGroup: cellAt(row, groupAt),
+        plant: cellAt(row, plantAt),
       };
     }
   }
@@ -435,6 +474,7 @@ export function selectedPrFromLane(lane: DeskLane | undefined): SelectedPr {
     item: '',
     label: fallbackId,
     materialGroup: lane.rows[0] ? cellAt(lane.rows[0], groupAt) : '',
+    plant: lane.rows[0] ? cellAt(lane.rows[0], plantAt) : '',
   };
 }
 
@@ -461,13 +501,13 @@ export function composeDesk(
   const focusPr = focus.id;
   const focusLabel = focus.label;
   const inboxTask = firstCell(inbox, ['TaskTitle']);
-  const supplier = majorityCell(po, ['Supplier']);
-  const poFormat = majorityCell(po, ['PurchaseOrderType']);
+  const supplier = firstCell(po, ['Supplier']) || majorityCell(po, ['Supplier']);
+  const poFormat = focusPr ? ZNPR_PO_TYPE : majorityCell(po, ['PurchaseOrderType']);
   const facts: FactoryFact[] = [];
   if (focusLabel) facts.push({ id: 'pr', value: focusLabel, via: pr?.tool || '' });
   if (inboxTask) facts.push({ id: 'inbox', value: inboxTask, via: inbox?.tool || '' });
   if (supplier) facts.push({ id: 'supplier', value: supplier, via: po?.tool || '' });
-  if (poFormat) facts.push({ id: 'format', value: poFormat, via: po?.tool || '' });
+  if (poFormat) facts.push({ id: 'format', value: poFormat, via: focusPr ? 'ZNPR → ZLPO' : po?.tool || '' });
 
   const reached = lanes.some((lane) => lane.status !== 'down');
   const sensed = [pr, inbox, po].some((lane) => lane?.status === 'live');
@@ -597,21 +637,54 @@ export function poHeaderReadBody(poId: string): {
   };
 }
 
+export function recentPosByPlantReadBody(plant: string): {
+  tool: string;
+  arguments: { filter: string; select: string; orderby: string; top: string };
+} {
+  const org = String(plant || '1000').replace(/'/g, '') || '1000';
+  return {
+    tool: LIVE_PO_HEADER,
+    arguments: {
+      filter: `PurchasingOrganization eq '${org}'`,
+      select: PO_HEADER_SELECT,
+      orderby: 'PurchaseOrderDate desc',
+      top: String(PO_HEADER_CAP),
+    },
+  };
+}
+
+export function prItemTextReadBody(
+  prId: string,
+  item = '10',
+): {
+  tool: string;
+  arguments: { filter: string };
+} {
+  const pr = String(prId || '').replace(/'/g, '');
+  const line = padSapItem(item);
+  return {
+    tool: LIVE_PR_ITEM_TEXT,
+    arguments: {
+      filter: `PurchaseRequisition eq '${pr}' and PurchaseRequisitionItem eq '${line}'`,
+    },
+  };
+}
+
 export function factoryTerrainReadBodies(selected: {
   id?: string;
+  item?: string;
   materialGroup?: string;
+  plant?: string;
   poIds?: readonly string[];
 }): Array<{ tool: string }> {
   const bodies: Array<{ tool: string }> = [approvedPrItemReadBody()];
   const prId = String(selected.id || '').trim();
+  const item = String(selected.item || '10').trim();
   if (prId) {
-    bodies.push(budgetReadBody(prId), acctAssgmtReadBody(prId));
+    bodies.push(budgetReadBody(prId), acctAssgmtReadBody(prId), prItemTextReadBody(prId, item));
   }
-  const group = String(selected.materialGroup || '').trim();
-  if (group) bodies.push(poItemReadBody(group));
-  for (const poId of (selected.poIds || []).slice(0, PO_HEADER_CAP)) {
-    bodies.push(poHeaderReadBody(poId));
-  }
+  const plant = String(selected.plant || '').trim();
+  if (plant) bodies.push(recentPosByPlantReadBody(plant));
   return bodies;
 }
 
@@ -846,13 +919,17 @@ export function prItemFieldsFromPreview(preview: DeskPreview | null): DeskPrItem
     unit: '',
     net_price: '',
     currency: '',
+    deliveryDate: '',
+    prType: '',
     label: '',
   };
   const columns = preview?.columns || [];
   const rows = preview?.rows || [];
   if (!columns.length || !rows.length) return empty;
-  let row = rows[0];
-  for (const candidate of rows) {
+  const open = rows.filter((candidate) => hasRemainingQuantity(columns, candidate));
+  const pool = open.length ? open : rows;
+  let row = pool[0];
+  for (const candidate of pool) {
     const label = previewCell(columns, candidate, ['PurchaseRequisitionItemText', 'PurReqnDescription', 'title']);
     if (label) {
       row = candidate;
@@ -869,49 +946,132 @@ export function prItemFieldsFromPreview(preview: DeskPreview | null): DeskPrItem
     unit: previewCell(columns, row, ['BaseUnit']) || 'EA',
     net_price: previewCell(columns, row, ['PurchaseRequisitionPrice']) || '0.00',
     currency: previewCell(columns, row, ['PurReqnItemCurrency', 'DocumentCurrency']) || 'QAR',
+    deliveryDate: previewCell(columns, row, ['DeliveryDate']),
+    prType: previewCell(columns, row, ['PurchaseRequisitionType']),
     label: previewCell(columns, row, ['PurchaseRequisitionItemText', 'PurReqnDescription', 'title']),
   };
 }
 
-export function composeSealedPoPost(fields: DeskPrItemFields, supplier: string): SealedPoPost | null {
+export function padSapItem(item: string): string {
+  const digits = String(item || '').replace(/\D/g, '') || '10';
+  return digits.padStart(5, '0');
+}
+
+export function parseSapDate(raw: string, now = new Date()): Date | null {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  const odata = text.match(/\/Date\((\d+)\)\//);
+  if (odata) {
+    const ms = Number(odata[1]);
+    if (Number.isFinite(ms)) return new Date(ms);
+  }
+  const compact = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact) return new Date(Number(compact[1]), Number(compact[2]) - 1, Number(compact[3]));
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const parsed = Date.parse(text);
+  if (!Number.isNaN(parsed)) return new Date(parsed);
+  return now;
+}
+
+export function overrideDeliveryDate(raw: string, now = new Date()): string {
+  const floor = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14);
+  const parsed = parseSapDate(raw, now);
+  let chosen = parsed && parsed > floor ? parsed : floor;
+  while (chosen.getDay() === 0 || chosen.getDay() === 6) {
+    chosen = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate() + 1);
+  }
+  const y = chosen.getFullYear();
+  const m = String(chosen.getMonth() + 1).padStart(2, '0');
+  const d = String(chosen.getDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
+}
+
+export function recentPoTermsFromPreview(preview: DeskPreview | null): RecentPoTerms {
+  const empty: RecentPoTerms = { supplier: '', purchGroup: '', paymentTerms: '', incoterms: '' };
+  const columns = preview?.columns || [];
+  const rows = preview?.rows || [];
+  if (!columns.length || !rows.length) return empty;
+  return {
+    supplier: previewCell(columns, rows[0], ['Supplier']),
+    purchGroup: previewCell(columns, rows[0], ['PurchasingGroup']),
+    paymentTerms: previewCell(columns, rows[0], ['PaymentTerms']),
+    incoterms: previewCell(columns, rows[0], ['IncotermsClassification']) || 'DDP',
+  };
+}
+
+export function composeSealedPoPost(
+  fields: DeskPrItemFields,
+  supplier: string,
+  terms: RecentPoTerms = { supplier: '', purchGroup: '', paymentTerms: '', incoterms: '' },
+): SealedPoPost | null {
   const prId = fields.pr_id.trim();
-  const vendor = String(supplier || '').trim();
+  const vendor = String(supplier || terms.supplier || '').trim();
   if (!prId || !vendor) return null;
-  const item = fields.item.trim() || '10';
+  const plant = fields.plant.trim() || '1000';
+  const poItem = '00010';
+  const preqItem = padSapItem(fields.item);
+  const incoterms = (terms.incoterms || 'DDP').trim() || 'DDP';
+  const delivery = overrideDeliveryDate(fields.deliveryDate);
   return {
     method: 'POST',
-    server_id: 'hikma',
-    tool: LIVE_CREATE_PO,
+    server_id: BAPI_SERVER_ID,
+    tool: LIVE_BAPI_CREATE,
     sealed: true,
     called: false,
+    testrun: false,
     sap_block: SAP_CREATE_BLOCK,
     requestBody: {
-      PurchaseOrder: '',
-      CompanyCode: '1000',
-      PurchaseOrderType: 'NB',
-      PurchasingOrganization: 'CPO',
-      PurchasingGroup: '351',
-      Supplier: vendor,
-      DocumentCurrency: fields.currency || 'QAR',
-      PaymentTerms: 'Z090',
-      IncotermsClassification: 'DAP',
-      to_PurchaseOrderItem: [
-        {
-          PurchaseOrder: '',
-          PurchaseOrderItem: item,
-          PurchaseOrderItemCategory: '0',
-          PurchaseRequisition: prId,
-          PurchaseRequisitionItem: item,
-          Material: fields.material,
-          Plant: fields.plant || '1000',
-          StorageLocation: '1000',
-          OrderQuantity: fields.quantity || '1',
-          PurchaseOrderQuantityUnit: fields.unit || 'EA',
-          NetPriceAmount: fields.net_price || '0.00',
-          DocumentCurrency: fields.currency || 'QAR',
-          RequisitionerName: 'AGENT',
+      import: {},
+      tables: {
+        POHEADER: {
+          VENDOR: vendor,
+          COMP_CODE: plant,
+          DOC_TYPE: ZNPR_PO_TYPE,
+          PURCH_ORG: plant,
+          PUR_GROUP: terms.purchGroup || '013',
+          CURRENCY: fields.currency || 'QAR',
+          PMNTTRMS: terms.paymentTerms || 'ZAPS',
+          INCOTERMS1: incoterms,
+          INCOTERMS2: 'Doha',
+          INCOTERMS2L: 'Doha',
         },
-      ],
+        POHEADERX: {
+          VENDOR: 'X',
+          COMP_CODE: 'X',
+          DOC_TYPE: 'X',
+          PURCH_ORG: 'X',
+          PUR_GROUP: 'X',
+          CURRENCY: 'X',
+          PMNTTRMS: 'X',
+          INCOTERMS1: 'X',
+          INCOTERMS2: 'X',
+          INCOTERMS2L: 'X',
+        },
+        POITEM: [
+          {
+            PO_ITEM: poItem,
+            PREQ_NO: prId,
+            PREQ_ITEM: preqItem,
+            NET_PRICE: fields.net_price || '0.00',
+            PRICE_UNIT: '1',
+          },
+        ],
+        POITEMX: [
+          {
+            PO_ITEM: poItem,
+            PO_ITEMX: 'X',
+            PREQ_NO: 'X',
+            PREQ_ITEM: 'X',
+            NET_PRICE: 'X',
+            PRICE_UNIT: 'X',
+          },
+        ],
+        POSCHEDULE: [{ PO_ITEM: poItem, SCHED_LINE: '0001', DELIVERY_DATE: delivery }],
+        POSCHEDULEX: [
+          { PO_ITEM: poItem, SCHED_LINE: '0001', PO_ITEMX: 'X', SCHED_LINEX: 'X', DELIVERY_DATE: 'X' },
+        ],
+      },
     },
   };
 }

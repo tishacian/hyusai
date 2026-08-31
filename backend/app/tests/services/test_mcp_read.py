@@ -150,6 +150,10 @@ def test_read_tool_rejects_writes_without_calling():
         mcp_read.read_tool({"id": "sap"}, tool="post_A_PurchaseOrder", arguments={})
     with pytest.raises(ValueError, match="not a read"):
         mcp_read.read_tool({"id": "sap"}, tool="handle_rejection", arguments={})
+    with pytest.raises(ValueError, match="not a read"):
+        mcp_read.read_tool({"id": "bapi_po"}, tool="BAPI_PO_CREATE1", arguments={})
+    with pytest.raises(ValueError, match="not a read"):
+        mcp_read.read_tool({"id": "bapi_po"}, tool="BAPI_TRANSACTION_COMMIT", arguments={})
 
 
 def test_read_tool_accepts_fixture_justification():
@@ -333,6 +337,7 @@ def test_approved_pr_arguments_use_pdf_filter_and_string_top():
     assert "IsClosed eq false" in args["filter"]
     assert "IsClosed eq 'false'" not in args["filter"]
     assert "PurchaseRequisitionStatus eq 'X'" in args["filter"]
+    assert "PurchaseRequisitionType eq 'ZNPR'" in args["filter"]
     assert args["inlinecount"] == "allpages"
     assert mcp_read.inbox_list_arguments()["top"] == 50
     assert isinstance(mcp_read.inbox_list_arguments()["top"], int)
@@ -368,6 +373,13 @@ def test_pick_read_tools_prefer_live_then_fixture():
     )
     assert tool == "list_pos_by_type"
     assert arguments == {"pr_type": "IT_HARDWARE"}
+    tool, arguments = mcp_read.pick_recent_pos_tool(
+        [mcp_read.LIVE_PO_HEADER], plant="1000"
+    )
+    assert tool == mcp_read.LIVE_PO_HEADER
+    assert arguments["filter"] == "PurchasingOrganization eq '1000'"
+    assert arguments["orderby"] == "PurchaseOrderDate desc"
+    assert arguments["top"] == "20"
 
 
 def test_budget_ok_from_payload_empty_pass_type_e_fail():
@@ -399,7 +411,7 @@ def test_compose_write_sealed_never_calls_the_tool(monkeypatch):
         server_id="hikma",
         tool=mcp_read.LIVE_CREATE_PO,
         arguments={"requestBody": mcp_read.create_po_request_body(pr_id="2000276450")},
-        sap_block=mcp_read.SAP_CREATE_BLOCK,
+        sap_block=mcp_read.HIKMA_CREATE_BLOCK,
     )
     assert composed["sealed"] is True
     assert composed["called"] is False
@@ -465,6 +477,61 @@ async def test_write_wrappers_compose_without_call_tool(monkeypatch):
     assert handled["called"] is False
     assert handled["tool"] == mcp_read.LIVE_DISCARD
     assert seen == ["sap", "hikma", "sap"]
+
+
+@pytest.mark.asyncio
+async def test_znpr_create_composes_bapi_without_call_tool(monkeypatch):
+    ctx = _named_ctx(monkeypatch)
+    from app.services.connectors.mcp import client as mcp_client
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("named write skills must not call_tool")
+
+    monkeypatch.setattr(mcp_client, "call_tool", boom)
+    monkeypatch.setattr(mcp_client, "list_tools", boom)
+    created = await wrappers._sap_create_po_v1(
+        {
+            "pr_id": "2000276449",
+            "supplier": "1000000018",
+            "pr_type": "ZNPR",
+            "PurchaseRequisitionItem": "20",
+            "pr": {
+                "PurchaseRequisition": "2000276449",
+                "PurchaseRequisitionItem": "20",
+                "Plant": "1000",
+                "PurReqnItemCurrency": "QAR",
+                "PurchaseRequisitionPrice": "4.50",
+                "DeliveryDate": "2026-07-15",
+                "PurchaseRequisitionType": "ZNPR",
+            },
+            "proposed_po": {
+                "purch_group": "013",
+                "payment_terms": "ZAPS",
+                "incoterms": "DDP",
+            },
+        },
+        ctx,
+    )
+    assert created["sealed"] is True
+    assert created["called"] is False
+    assert created["testrun"] is False
+    assert created["tool"] == mcp_read.LIVE_BAPI_CREATE
+    assert created["server_id"] == mcp_read.BAPI_SERVER_ID
+    assert "TESTRUN is banned" in created["sap_block"]
+    header = created["arguments"]["tables"]["POHEADER"]
+    assert header["DOC_TYPE"] == "ZLPO"
+    assert header["PURCH_ORG"] == "1000"
+    assert header["COMP_CODE"] == "1000"
+    assert header["VENDOR"] == "1000000018"
+    assert header["CURRENCY"] == "QAR"
+    assert header["INCOTERMS2L"] == "Doha"
+    assert "DOC_DATE" not in header
+    item = created["arguments"]["tables"]["POITEM"][0]
+    assert item["PO_ITEM"] == "00010"
+    assert item["PREQ_ITEM"] == "00020"
+    assert item["PREQ_NO"] == "2000276449"
+    assert "POACCOUNT" not in created["arguments"]["tables"]
+    assert "TESTRUN" not in created["arguments"]
 
 
 @pytest.mark.asyncio

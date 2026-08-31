@@ -1589,19 +1589,28 @@ async def _hikma_list_pos_by_type_v1(
     from app.services.connectors.mcp.errors import McpError, McpToolUnknown
     from app.services.connectors.mcp.preview import extract_records
     from app.services.connectors.mcp.read import (
+        LIVE_PO_HEADER,
         PO_HEADER_CAP,
         listed_tool_names,
         pick_po_header_tool,
         pick_po_item_tool,
+        pick_recent_pos_tool,
         read_tool,
     )
 
     material_group = str(payload.get("MaterialGroup") or payload.get("pr_type") or "")
     pr_type = str(payload.get("pr_type") or "")
+    pr = payload.get("pr") if isinstance(payload.get("pr"), dict) else {}
+    plant = str(payload.get("Plant") or pr.get("Plant") or "")
     db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "hikma")
     try:
         names = listed_tool_names(server)
-        tool, arguments = pick_po_item_tool(names, material_group=material_group, pr_type=pr_type)
+        if pr_type.strip().upper() == "ZNPR" and plant and LIVE_PO_HEADER in names:
+            tool, arguments = pick_recent_pos_tool(names, plant=plant)
+        else:
+            tool, arguments = pick_po_item_tool(
+                names, material_group=material_group, pr_type=pr_type
+            )
         try:
             called = read_tool(server, tool=tool, arguments=arguments)
         except McpError:
@@ -1617,6 +1626,19 @@ async def _hikma_list_pos_by_type_v1(
                 }
             )
         items = extract_records(raw)
+        if tool == LIVE_PO_HEADER:
+            return _mcp_trace(
+                {
+                    **called,
+                    "contract_tool": tool,
+                    "result": {
+                        "pos": items,
+                        "MaterialGroup": material_group,
+                        "pr_type": pr_type,
+                        "Plant": plant,
+                    },
+                }
+            )
         po_ids: list[str] = []
         for row in items:
             number = str(row.get("PurchaseOrder") or "").strip()
@@ -1652,8 +1674,12 @@ async def _sap_create_po_v1(
 ) -> dict[str, Any]:
     if _MCP_NAMED_FORBIDDEN & set(payload):
         raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    from app.services.connectors.mcp.poc import build_bapi_po_payload
     from app.services.connectors.mcp.read import (
+        BAPI_SERVER_ID,
         DEFAULT_PR_ITEM,
+        HIKMA_CREATE_BLOCK,
+        LIVE_BAPI_CREATE,
         SAP_CREATE_BLOCK,
         compose_write_sealed,
         create_po_request_body,
@@ -1662,10 +1688,49 @@ async def _sap_create_po_v1(
     )
 
     pr = payload.get("pr") if isinstance(payload.get("pr"), dict) else {}
+    proposed = payload.get("proposed_po") if isinstance(payload.get("proposed_po"), dict) else {}
     pr_id = str(payload.get("pr_id") or pr.get("pr_id") or pr.get("PurchaseRequisition") or "")
     item = str(
         payload.get("PurchaseRequisitionItem") or pr.get("PurchaseRequisitionItem") or ""
     ).strip() or DEFAULT_PR_ITEM
+    pr_type = str(
+        payload.get("pr_type")
+        or pr.get("PurchaseRequisitionType")
+        or pr.get("pr_type")
+        or proposed.get("pr_type")
+        or ""
+    ).strip().upper()
+    if pr_type == "ZNPR":
+        composed = compose_write_sealed(
+            server_id=BAPI_SERVER_ID,
+            tool=LIVE_BAPI_CREATE,
+            arguments=build_bapi_po_payload(
+                pr_id=pr_id,
+                pr_item=item,
+                supplier=str(payload.get("supplier") or proposed.get("supplier") or ""),
+                plant=str(pr.get("Plant") or proposed.get("plant") or payload.get("Plant") or "1000"),
+                currency=str(
+                    pr.get("PurReqnItemCurrency")
+                    or pr.get("currency")
+                    or proposed.get("currency")
+                    or "QAR"
+                ),
+                net_price=str(pr.get("PurchaseRequisitionPrice") or "0.00"),
+                delivery_date=str(pr.get("DeliveryDate") or ""),
+                purch_group=str(
+                    payload.get("purch_group") or proposed.get("purch_group") or ""
+                ),
+                payment_terms=str(
+                    payload.get("payment_terms") or proposed.get("payment_terms") or ""
+                ),
+                incoterms=str(payload.get("incoterms") or proposed.get("incoterms") or "DDP"),
+            ),
+            sap_block=SAP_CREATE_BLOCK,
+        )
+        composed["testrun"] = False
+        if isinstance(composed.get("result"), dict):
+            composed["result"]["testrun"] = False
+        return _mcp_trace(composed)
     body = create_po_request_body(
         pr_id=pr_id,
         item=item,
@@ -1685,7 +1750,7 @@ async def _sap_create_po_v1(
             server_id="hikma",
             tool=tool,
             arguments={"requestBody": body},
-            sap_block=SAP_CREATE_BLOCK,
+            sap_block=HIKMA_CREATE_BLOCK,
         )
         return _mcp_trace(composed)
     finally:

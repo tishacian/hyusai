@@ -15,7 +15,6 @@ import { WorkApiService } from './work-api.service';
 import {
   FACTORY_ASK_CHIPS,
   JUSTIFICATION_SERVER_ID,
-  PO_HEADER_CAP,
   acctAssgmtReadBody,
   approvedPrItemReadBody,
   askFactory,
@@ -30,17 +29,15 @@ import {
   hanaLaneFromPreview,
   justificationReadBody,
   laneFromPreview,
-  mergeHeaderPreviews,
   offersSelectedJustification,
   orderCoverage,
-  poHeaderReadBody,
-  poItemReadBody,
   prItemFieldsFromPreview,
+  recentPoTermsFromPreview,
+  recentPosByPlantReadBody,
   selectedPrFromLane,
   shouldOpenFactoryPortal,
   supplierShares,
   terrainShares,
-  uniquePurchaseOrders,
   withCompileFacts,
   withJustificationFact,
   withSummaryFact,
@@ -52,6 +49,7 @@ import {
   type DeskPreview,
   type FactoryAskIntent,
   type FactoryAskReply,
+  type RecentPoTerms,
   type SealedPoPost,
 } from './pr-to-po-desk';
 import {
@@ -582,6 +580,12 @@ export class PrToPoBoardComponent implements OnInit {
   readonly justificationError = signal<string | null>(null);
   readonly compileFacts = signal<DeskCompileFacts>({});
   readonly prFields = signal<DeskPrItemFields | null>(null);
+  readonly recentPo = signal<RecentPoTerms>({
+    supplier: '',
+    purchGroup: '',
+    paymentTerms: '',
+    incoterms: '',
+  });
   readonly summaryText = signal('');
   readonly summariseLoading = signal(false);
   readonly summariseError = signal<string | null>(null);
@@ -598,8 +602,10 @@ export class PrToPoBoardComponent implements OnInit {
   readonly postPackage = computed<SealedPoPost | null>(() => {
     const fields = this.prFields();
     if (!fields) return null;
-    const supplier = this.briefing().facts.find((fact) => fact.id === 'supplier')?.value || '';
-    return composeSealedPoPost(fields, supplier);
+    const terms = this.recentPo();
+    const supplier =
+      terms.supplier || this.briefing().facts.find((fact) => fact.id === 'supplier')?.value || '';
+    return composeSealedPoPost(fields, supplier, terms);
   });
   readonly terrain = computed(() => donutSlices(terrainShares(this.briefing().kpis)));
   readonly suppliers = computed(() => supplierShares(this.lanes()));
@@ -684,10 +690,12 @@ export class PrToPoBoardComponent implements OnInit {
     if (!this.workspace.mcpConnectorEnabled()) {
       this.lanes.set([]);
       this.compileFacts.set({});
+      this.recentPo.set({ supplier: '', purchGroup: '', paymentTerms: '', incoterms: '' });
       return;
     }
     this.terrainLoading.set(true);
     this.compileFacts.set({});
+    this.recentPo.set({ supplier: '', purchGroup: '', paymentTerms: '', incoterms: '' });
     const inbox$ = this.previewLane$('inbox', 'sap_inbox');
     const gr$ = this.previewLane$('gr', 'sap_gr');
     const hana$ = this.workspace.sapHanaConnectorEnabled()
@@ -716,18 +724,17 @@ export class PrToPoBoardComponent implements OnInit {
                 catchError(() => of(null as DeskKeyedRead | null)),
               )
             : of(null);
-          const poItems$ = selected.materialGroup
-            ? this.api
-                .post<DeskPreview>('/mcp/servers/hikma/read', poItemReadBody(selected.materialGroup))
-                .pipe(
-                  catchError((err: { error?: { detail?: unknown } }) =>
-                    of({
-                      ok: false,
-                      detail: this.previewDetail(err),
-                    } as DeskPreview),
-                  ),
-                )
-            : of(null);
+          const plant = selected.plant?.trim() || '1000';
+          const pos$ = this.api
+            .post<DeskPreview>('/mcp/servers/hikma/read', recentPosByPlantReadBody(plant))
+            .pipe(
+              catchError((err: { error?: { detail?: unknown } }) =>
+                of({
+                  ok: false,
+                  detail: this.previewDetail(err),
+                } as DeskPreview),
+              ),
+            );
           return forkJoin({
             pr: of(pr.lane),
             prRaw: of(pr.raw),
@@ -736,36 +743,12 @@ export class PrToPoBoardComponent implements OnInit {
             hana: of(hana),
             budget: budget$,
             acct: acct$,
-            poItems: poItems$,
+            posRaw: pos$,
           });
-        }),
-        switchMap((pack) => {
-          const poIds = uniquePurchaseOrders(pack.poItems, PO_HEADER_CAP);
-          if (!poIds.length) {
-            return of({
-              ...pack,
-              po: laneFromPreview('po', 'hikma', pack.poItems),
-            });
-          }
-          return forkJoin(
-            poIds.map((poId) =>
-              this.api.post<DeskPreview>('/mcp/servers/hikma/read', poHeaderReadBody(poId)).pipe(
-                catchError(() => of(null as DeskPreview | null)),
-              ),
-            ),
-          ).pipe(
-            map((headers) => {
-              const merged = mergeHeaderPreviews(headers.filter((row): row is DeskPreview => !!row));
-              return {
-                ...pack,
-                po: laneFromPreview('po', 'hikma', merged || pack.poItems),
-              };
-            }),
-          );
         }),
       )
       .subscribe({
-        next: ({ pr, inbox, po, gr, hana, budget, acct, prRaw }) => {
+        next: ({ pr, inbox, posRaw, gr, hana, budget, acct, prRaw }) => {
           const verdict = budgetOkFromRead(budget);
           const funds = fundFromRead(acct);
           this.compileFacts.set({
@@ -776,6 +759,8 @@ export class PrToPoBoardComponent implements OnInit {
             fundVia: acct?.tool || '',
           });
           this.prFields.set(prItemFieldsFromPreview(prRaw));
+          this.recentPo.set(recentPoTermsFromPreview(posRaw));
+          const po = laneFromPreview('po', 'hikma', posRaw);
           const mcp = [pr, inbox, po, gr];
           this.lanes.set(hana ? [...mcp, hana] : mcp);
           this.readAt.set(new Date().toLocaleTimeString());

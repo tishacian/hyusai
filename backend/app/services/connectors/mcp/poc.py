@@ -8,7 +8,10 @@ scheduled tick**: list, then select the pinned or first remaining approved PR.
 from __future__ import annotations
 
 from collections import Counter
+from datetime import date, datetime, timedelta
 from typing import Any, Mapping
+
+ZNPR_PO_TYPE = "ZLPO"
 
 
 def _row_pr_id(row: Mapping[str, Any]) -> str:
@@ -29,21 +32,166 @@ def _row_format(row: Mapping[str, Any]) -> str:
     ).strip()
 
 
+def _row_pr_type(payload: Mapping[str, Any], pr: Mapping[str, Any] | None = None) -> str:
+    row = pr if isinstance(pr, Mapping) else {}
+    return str(
+        payload.get("pr_type")
+        or row.get("pr_type")
+        or row.get("type")
+        or row.get("PurchaseRequisitionType")
+        or ""
+    ).strip().upper()
+
+
+def _qty_remaining(row: Mapping[str, Any]) -> bool:
+    if "OrderedQuantity" not in row and "RequestedQuantity" not in row:
+        return True
+    try:
+        ordered = float(row.get("OrderedQuantity") or 0)
+        requested = float(row.get("RequestedQuantity") or 0)
+    except (TypeError, ValueError):
+        return True
+    if requested <= 0:
+        return True
+    return ordered < requested
+
+
+def pad_sap_item(item: str) -> str:
+    digits = "".join(ch for ch in str(item or "") if ch.isdigit()) or "10"
+    return digits.zfill(5)
+
+
+def parse_sap_date(raw: str, today: date | None = None) -> date | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    if text.startswith("/Date(") and text.endswith(")/"):
+        inner = text[6:-2]
+        try:
+            ms = int(inner.split(")")[0])
+            return datetime.utcfromtimestamp(ms / 1000.0).date()
+        except (TypeError, ValueError, OSError):
+            return today
+    compact = text.replace("-", "")
+    if len(compact) >= 8 and compact[:8].isdigit():
+        try:
+            return date(int(compact[0:4]), int(compact[4:6]), int(compact[6:8]))
+        except ValueError:
+            return today
+    return today
+
+
+def override_delivery_date(raw: str, today: date | None = None) -> str:
+    today = today or date.today()
+    floor = today + timedelta(days=14)
+    parsed = parse_sap_date(raw, today)
+    chosen = parsed if parsed and parsed > floor else floor
+    while chosen.weekday() >= 5:
+        chosen += timedelta(days=1)
+    return chosen.strftime("%Y%m%d")
+
+
+def build_bapi_po_payload(
+    *,
+    pr_id: str,
+    pr_item: str = "10",
+    supplier: str,
+    plant: str = "1000",
+    currency: str = "QAR",
+    net_price: str = "0.00",
+    delivery_date: str = "",
+    purch_group: str = "013",
+    payment_terms: str = "ZAPS",
+    incoterms: str = "DDP",
+    today: date | None = None,
+) -> dict[str, Any]:
+    """Sealed BAPI_PO_CREATE1 body. No TESTRUN. No POACCOUNT. Dates YYYYMMDD."""
+    plant_code = str(plant or "1000").strip() or "1000"
+    po_item = "00010"
+    preq_item = pad_sap_item(pr_item)
+    inco = str(incoterms or "DDP").strip() or "DDP"
+    delivery = override_delivery_date(delivery_date, today)
+    return {
+        "import": {},
+        "tables": {
+            "POHEADER": {
+                "VENDOR": str(supplier or "").strip(),
+                "COMP_CODE": plant_code,
+                "DOC_TYPE": ZNPR_PO_TYPE,
+                "PURCH_ORG": plant_code,
+                "PUR_GROUP": str(purch_group or "013").strip() or "013",
+                "CURRENCY": str(currency or "QAR").strip() or "QAR",
+                "PMNTTRMS": str(payment_terms or "ZAPS").strip() or "ZAPS",
+                "INCOTERMS1": inco,
+                "INCOTERMS2": "Doha",
+                "INCOTERMS2L": "Doha",
+            },
+            "POHEADERX": {
+                "VENDOR": "X",
+                "COMP_CODE": "X",
+                "DOC_TYPE": "X",
+                "PURCH_ORG": "X",
+                "PUR_GROUP": "X",
+                "CURRENCY": "X",
+                "PMNTTRMS": "X",
+                "INCOTERMS1": "X",
+                "INCOTERMS2": "X",
+                "INCOTERMS2L": "X",
+            },
+            "POITEM": [
+                {
+                    "PO_ITEM": po_item,
+                    "PREQ_NO": str(pr_id or "").strip(),
+                    "PREQ_ITEM": preq_item,
+                    "NET_PRICE": str(net_price or "0.00"),
+                    "PRICE_UNIT": "1",
+                }
+            ],
+            "POITEMX": [
+                {
+                    "PO_ITEM": po_item,
+                    "PO_ITEMX": "X",
+                    "PREQ_NO": "X",
+                    "PREQ_ITEM": "X",
+                    "NET_PRICE": "X",
+                    "PRICE_UNIT": "X",
+                }
+            ],
+            "POSCHEDULE": [
+                {"PO_ITEM": po_item, "SCHED_LINE": "0001", "DELIVERY_DATE": delivery}
+            ],
+            "POSCHEDULEX": [
+                {
+                    "PO_ITEM": po_item,
+                    "SCHED_LINE": "0001",
+                    "PO_ITEMX": "X",
+                    "SCHED_LINEX": "X",
+                    "DELIVERY_DATE": "X",
+                }
+            ],
+        },
+    }
+
+
 def select_next_pr(payload: Mapping[str, Any]) -> dict[str, Any]:
     prs = payload.get("prs")
     rows = [dict(item) for item in prs] if isinstance(prs, list) else []
     pin = str(payload.get("pr_id") or "").strip()
     chosen = None
     if pin:
-        chosen = next((row for row in rows if _row_pr_id(row) == pin), None)
-    if chosen is None and rows:
-        chosen = rows[0]
+        chosen = next(
+            (row for row in rows if _row_pr_id(row) == pin and _qty_remaining(row)),
+            None,
+        )
+    if chosen is None:
+        chosen = next((row for row in rows if _qty_remaining(row)), None)
     if not isinstance(chosen, dict):
         return {
             "pr_id": "",
             "pr": None,
             "pr_type": "",
             "MaterialGroup": "",
+            "Plant": "",
             "PurchaseRequisitionItem": "",
             "empty": True,
             "prs": rows,
@@ -55,6 +203,7 @@ def select_next_pr(payload: Mapping[str, Any]) -> dict[str, Any]:
         "pr": chosen,
         "pr_type": str(chosen.get("pr_type") or chosen.get("type") or chosen.get("PurchaseRequisitionType") or ""),
         "MaterialGroup": material_group,
+        "Plant": str(chosen.get("Plant") or ""),
         "PurchaseRequisitionItem": str(chosen.get("PurchaseRequisitionItem") or "10"),
         "empty": False,
         "prs": rows,
@@ -64,6 +213,7 @@ def select_next_pr(payload: Mapping[str, Any]) -> dict[str, Any]:
 def majority_supplier_format(payload: Mapping[str, Any]) -> dict[str, Any]:
     pos = payload.get("pos")
     rows = [dict(item) for item in pos] if isinstance(pos, list) else []
+    pr = payload.get("pr") if isinstance(payload.get("pr"), Mapping) else {}
     if not rows:
         return {
             "supplier": "",
@@ -72,23 +222,45 @@ def majority_supplier_format(payload: Mapping[str, Any]) -> dict[str, Any]:
             "pos": rows,
             "proposed_po": {},
         }
-    suppliers = Counter(_row_supplier(row) for row in rows if _row_supplier(row))
-    supplier = suppliers.most_common(1)[0][0] if suppliers else ""
-    formats = Counter(
-        _row_format(row)
-        for row in rows
-        if _row_supplier(row) == supplier and _row_format(row)
-    )
-    shared_format = formats.most_common(1)[0][0] if formats else ""
-    pr = payload.get("pr") if isinstance(payload.get("pr"), Mapping) else {}
+    pr_type = _row_pr_type(payload, pr)
+    purch_group = ""
+    payment_terms = ""
+    incoterms = ""
+    if pr_type == "ZNPR":
+        first = rows[0]
+        supplier = _row_supplier(first)
+        shared_format = ZNPR_PO_TYPE
+        purch_group = str(first.get("PurchasingGroup") or first.get("purch_group") or "").strip()
+        payment_terms = str(first.get("PaymentTerms") or first.get("payment_terms") or "").strip()
+        incoterms = (
+            str(first.get("IncotermsClassification") or first.get("incoterms") or "DDP").strip()
+            or "DDP"
+        )
+        currency = str(pr.get("PurReqnItemCurrency") or pr.get("currency") or "QAR")
+        vote_count = sum(1 for row in rows if _row_supplier(row) == supplier)
+    else:
+        suppliers = Counter(_row_supplier(row) for row in rows if _row_supplier(row))
+        supplier = suppliers.most_common(1)[0][0] if suppliers else ""
+        formats = Counter(
+            _row_format(row)
+            for row in rows
+            if _row_supplier(row) == supplier and _row_format(row)
+        )
+        shared_format = formats.most_common(1)[0][0] if formats else ""
+        currency = str(pr.get("currency") or "QAR")
+        vote_count = suppliers.get(supplier, 0)
     pr_id = str(payload.get("pr_id") or pr.get("pr_id") or pr.get("PurchaseRequisition") or "")
     proposed = {
         "pr_id": pr_id,
         "supplier": supplier,
         "format": shared_format,
         "amount": pr.get("amount"),
-        "currency": pr.get("currency") or "QAR",
-        "pr_type": str(payload.get("pr_type") or pr.get("pr_type") or pr.get("type") or ""),
+        "currency": currency,
+        "pr_type": str(payload.get("pr_type") or pr.get("pr_type") or pr.get("type") or pr_type),
+        "purch_group": purch_group,
+        "payment_terms": payment_terms,
+        "incoterms": incoterms,
+        "plant": str(pr.get("Plant") or payload.get("Plant") or ""),
     }
     justification = str(payload.get("justification") or "")
     summary_prompt = (
@@ -99,13 +271,16 @@ def majority_supplier_format(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "supplier": supplier,
         "format": shared_format,
-        "vote_count": suppliers.get(supplier, 0),
+        "vote_count": vote_count,
         "pos": rows,
         "proposed_po": proposed,
         "summary_prompt": summary_prompt,
         "pr_id": pr_id,
         "pr": dict(pr) if pr else {},
         "justification": justification,
+        "purch_group": purch_group,
+        "payment_terms": payment_terms,
+        "incoterms": incoterms,
     }
 
 
@@ -177,36 +352,53 @@ SELECT_PR_CODE = '''"""Pick the next approved PR for this scheduled tick."""
 def _pr_id(row):
     return str((row or {}).get("pr_id") or (row or {}).get("PurchaseRequisition") or "").strip()
 
+def _qty_remaining(row):
+    if "OrderedQuantity" not in row and "RequestedQuantity" not in row:
+        return True
+    try:
+        ordered = float(row.get("OrderedQuantity") or 0)
+        requested = float(row.get("RequestedQuantity") or 0)
+    except (TypeError, ValueError):
+        return True
+    if requested <= 0:
+        return True
+    return ordered < requested
+
 def main(inputs):
     prs = list(inputs.get("prs") or [])
     pin = str(inputs.get("pr_id") or "").strip()
     chosen = None
     if pin:
         for row in prs:
-            if isinstance(row, dict) and _pr_id(row) == pin:
+            if isinstance(row, dict) and _pr_id(row) == pin and _qty_remaining(row):
                 chosen = row
                 break
-    if chosen is None and prs:
-        chosen = prs[0] if isinstance(prs[0], dict) else None
+    if chosen is None:
+        for row in prs:
+            if isinstance(row, dict) and _qty_remaining(row):
+                chosen = row
+                break
     if not isinstance(chosen, dict):
-        return {"pr_id": "", "pr": None, "pr_type": "", "MaterialGroup": "", "PurchaseRequisitionItem": "", "empty": True, "prs": prs}
+        return {"pr_id": "", "pr": None, "pr_type": "", "MaterialGroup": "", "Plant": "", "PurchaseRequisitionItem": "", "empty": True, "prs": prs}
     return {
         "pr_id": _pr_id(chosen),
         "pr": chosen,
         "pr_type": str(chosen.get("pr_type") or chosen.get("type") or chosen.get("PurchaseRequisitionType") or ""),
         "MaterialGroup": str(chosen.get("MaterialGroup") or chosen.get("pr_type") or chosen.get("type") or ""),
+        "Plant": str(chosen.get("Plant") or ""),
         "PurchaseRequisitionItem": str(chosen.get("PurchaseRequisitionItem") or "10"),
         "empty": False,
         "prs": prs,
     }
 '''
 
-MAJORITY_CODE = '''"""Majority supplier and shared format from HIKMA POs of the same type."""
+MAJORITY_CODE = '''"""Supplier and format from plant POs (ZNPR→ZLPO) or majority vote (fixtures)."""
 
 from collections import Counter
 
 def main(inputs):
     pos = [row for row in (inputs.get("pos") or []) if isinstance(row, dict)]
+    pr = inputs.get("pr") if isinstance(inputs.get("pr"), dict) else {}
     if not pos:
         return {
             "supplier": "",
@@ -216,36 +408,53 @@ def main(inputs):
             "proposed_po": {},
             "summary_prompt": "",
             "pr_id": str(inputs.get("pr_id") or ""),
-            "pr": inputs.get("pr") if isinstance(inputs.get("pr"), dict) else {},
+            "pr": pr,
             "justification": str(inputs.get("justification") or ""),
         }
     def _supplier(row):
         return str(row.get("supplier") or row.get("Supplier") or "").strip()
     def _fmt(row):
         return str(row.get("format") or row.get("PurchaseOrderType") or row.get("PaymentTerms") or "").strip()
-    suppliers = Counter(_supplier(row) for row in pos if _supplier(row))
-    supplier = suppliers.most_common(1)[0][0] if suppliers else ""
-    formats = Counter(
-        _fmt(row)
-        for row in pos
-        if _supplier(row) == supplier and _fmt(row)
-    )
-    shared = formats.most_common(1)[0][0] if formats else ""
-    pr = inputs.get("pr") if isinstance(inputs.get("pr"), dict) else {}
+    pr_type = str(
+        inputs.get("pr_type") or pr.get("pr_type") or pr.get("type") or pr.get("PurchaseRequisitionType") or ""
+    ).strip().upper()
+    purch_group = ""
+    payment_terms = ""
+    incoterms = ""
+    if pr_type == "ZNPR":
+        first = pos[0]
+        supplier = _supplier(first)
+        shared = "ZLPO"
+        purch_group = str(first.get("PurchasingGroup") or first.get("purch_group") or "").strip()
+        payment_terms = str(first.get("PaymentTerms") or first.get("payment_terms") or "").strip()
+        incoterms = str(first.get("IncotermsClassification") or first.get("incoterms") or "DDP").strip() or "DDP"
+        currency = str(pr.get("PurReqnItemCurrency") or pr.get("currency") or "QAR")
+        vote_count = sum(1 for row in pos if _supplier(row) == supplier)
+    else:
+        suppliers = Counter(_supplier(row) for row in pos if _supplier(row))
+        supplier = suppliers.most_common(1)[0][0] if suppliers else ""
+        formats = Counter(_fmt(row) for row in pos if _supplier(row) == supplier and _fmt(row))
+        shared = formats.most_common(1)[0][0] if formats else ""
+        currency = str(pr.get("currency") or "QAR")
+        vote_count = suppliers.get(supplier, 0)
     pr_id = str(inputs.get("pr_id") or pr.get("pr_id") or pr.get("PurchaseRequisition") or "")
     justification = str(inputs.get("justification") or "")
     return {
         "supplier": supplier,
         "format": shared,
-        "vote_count": suppliers.get(supplier, 0),
+        "vote_count": vote_count,
         "pos": pos,
         "proposed_po": {
             "pr_id": pr_id,
             "supplier": supplier,
             "format": shared,
             "amount": pr.get("amount"),
-            "currency": pr.get("currency") or "QAR",
-            "pr_type": str(inputs.get("pr_type") or pr.get("pr_type") or pr.get("type") or ""),
+            "currency": currency,
+            "pr_type": str(inputs.get("pr_type") or pr.get("pr_type") or pr.get("type") or pr_type),
+            "purch_group": purch_group,
+            "payment_terms": payment_terms,
+            "incoterms": incoterms,
+            "plant": str(pr.get("Plant") or inputs.get("Plant") or ""),
         },
         "summary_prompt": (
             "Summarise this purchase-requisition justification in two short sentences. "
@@ -255,6 +464,9 @@ def main(inputs):
         "pr_id": pr_id,
         "pr": pr,
         "justification": justification,
+        "purch_group": purch_group,
+        "payment_terms": payment_terms,
+        "incoterms": incoterms,
     }
 '''
 
