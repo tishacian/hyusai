@@ -8,6 +8,7 @@ import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { ThinkingOrbComponent } from '@app/shared/cockpit';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
 import { WorkApiService } from './work-api.service';
@@ -17,11 +18,13 @@ import {
   askFactory,
   composeDesk,
   factoryBriefingParams,
+  factoryReasoning,
   donutSlices,
   hanaLaneFromPreview,
   laneFromPreview,
   orderCoverage,
   shouldOpenFactoryPortal,
+  stationOrb,
   supplierShares,
   terrainShares,
   type DeskLane,
@@ -29,6 +32,7 @@ import {
   type DeskPreview,
   type FactoryAskIntent,
   type FactoryAskReply,
+  type FactoryStation,
 } from './pr-to-po-desk';
 import {
   FACTORY_BINDING_KEY,
@@ -45,7 +49,7 @@ import {
   selector: 'app-pr-to-po-board',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, EmptyStateComponent, ChatPanelComponent],
+  imports: [CommonModule, RouterLink, EmptyStateComponent, ChatPanelComponent, ThinkingOrbComponent],
   styleUrl: './work.scss',
   template: `
     <div
@@ -60,15 +64,14 @@ import {
           <h1>{{ i18n.t('experience.pr_to_po.title') }}</h1>
           <p>{{ i18n.t('experience.pr_to_po.subtitle') }}</p>
         </div>
-        <div class="xp-work-hitl-actions">
-          <a routerLink="/work" class="xp-work-btn">{{ i18n.t('experience.work.title') }}</a>
-          <a
-            routerLink="/connectors/mcp"
-            [queryParams]="workspaceQuery()"
-            class="xp-work-btn"
-          >
+        <nav class="xp-desk-nav" [attr.aria-label]="i18n.t('experience.pr_to_po.desk.nav.label')">
+          <a routerLink="/work">{{ i18n.t('experience.work.title') }}</a>
+          <a routerLink="/work/pr-to-po" aria-current="page">{{ i18n.t('experience.pr_to_po.desk.nav.factory') }}</a>
+          <a routerLink="/connectors/mcp" [queryParams]="workspaceQuery()">
             {{ i18n.t('experience.pr_to_po.desk.sources') }}
           </a>
+        </nav>
+        <div class="xp-desk-actions">
           <button type="button" class="xp-work-btn" (click)="reload()" [disabled]="loading() || terrainLoading()">
             {{ i18n.t('experience.pr_to_po.refresh') }}
           </button>
@@ -78,6 +81,9 @@ import {
             (click)="loadTerrain()"
             [disabled]="terrainLoading()"
           >
+            @if (terrainLoading()) {
+              <ck-thinking-orb state="searching" [size]="20" [label]="i18n.t('experience.pr_to_po.desk.reading')" />
+            }
             {{ terrainLoading() ? i18n.t('experience.pr_to_po.desk.reading') : i18n.t('experience.pr_to_po.desk.read') }}
           </button>
           <button
@@ -86,6 +92,9 @@ import {
             (click)="startRun()"
             [disabled]="!bindingReady() || starting()"
           >
+            @if (starting()) {
+              <ck-thinking-orb state="solving" [size]="20" [label]="i18n.t('experience.pr_to_po.starting')" />
+            }
             {{ starting() ? i18n.t('experience.pr_to_po.starting') : i18n.t('experience.pr_to_po.start') }}
           </button>
         </div>
@@ -96,8 +105,24 @@ import {
           <p class="xp-work-error">{{ err }}</p>
         }
 
-        <section class="xp-desk-lineage">
-          <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.lineage.eyebrow') }}</p>
+        <section class="xp-desk-reason" aria-live="polite">
+          <ck-thinking-orb
+            [state]="reasoning().state"
+            [size]="64"
+            [label]="i18n.t(reasoning().labelKey)"
+          />
+          <div>
+            <p class="xp-desk-kicker">{{ i18n.t(reasoning().labelKey) }}</p>
+            <h2>{{ i18n.t(briefing().headlineKey, briefing().headlineParams) }}</h2>
+            <p class="xp-desk-voice">{{ i18n.t(briefing().voiceKey, briefing().voiceParams) }}</p>
+            <p>{{ i18n.t(briefing().nextKey) }}</p>
+            @if (readAt(); as when) {
+              <p class="xp-desk-asof">{{ i18n.t('experience.pr_to_po.desk.as_of', { time: when }) }}</p>
+            }
+          </div>
+        </section>
+
+        <nav class="xp-desk-lineage" [attr.aria-label]="i18n.t('experience.pr_to_po.lineage.eyebrow')">
           <ol>
             <li>
               <span>{{ i18n.t('experience.pr_to_po.lineage.application') }}</span>
@@ -125,7 +150,7 @@ import {
               }
             </li>
           </ol>
-          <nav>
+          <div class="xp-desk-lineage-links">
             @if (system(); as sys) {
               <a [routerLink]="systemHref(sys.id)">{{ i18n.t('experience.pr_to_po.lineage.open_system') }}</a>
               <a [routerLink]="flowHref(sys.id)">{{ i18n.t('experience.pr_to_po.lineage.open_flow') }}</a>
@@ -133,19 +158,11 @@ import {
             @if (startedRun(); as run) {
               <a [routerLink]="runHref(run.id)">{{ i18n.t('experience.pr_to_po.lineage.open_run') }}</a>
             }
-          </nav>
-        </section>
+          </div>
+        </nav>
 
-        <section class="xp-desk-hero">
-          <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.chain') }}</p>
-          <h2>{{ i18n.t(briefing().headlineKey, briefing().headlineParams) }}</h2>
-          <p class="xp-desk-voice">{{ i18n.t(briefing().voiceKey, briefing().voiceParams) }}</p>
-          <p>{{ i18n.t(briefing().nextKey) }}</p>
-          @if (readAt(); as when) {
-            <p class="xp-desk-asof">{{ i18n.t('experience.pr_to_po.desk.as_of', { time: when }) }}</p>
-          }
-        </section>
-
+        <div class="xp-desk-stage" [attr.data-portal]="portalOpen() && portalPrompt() && systemId() ? 'open' : null">
+          <div class="xp-desk-stage-main">
         <section class="xp-desk-ask">
           <form (submit)="submitAsk($event)">
             <label for="factory-ask">{{ i18n.t('experience.pr_to_po.desk.ask.label') }}</label>
@@ -196,30 +213,19 @@ import {
           }
         </section>
 
-        @if (portalOpen() && portalPrompt() && systemId(); as portalSystemId) {
-          <section #factoryPortal class="xp-desk-portal">
-            <header>
-              <div>
-                <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.portal.title') }}</p>
-                <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.portal.hint') }}</p>
-              </div>
-              <button type="button" class="xp-work-btn" (click)="closePortal()">
-                {{ i18n.t('experience.pr_to_po.desk.portal.close') }}
-              </button>
-            </header>
-            @for (tick of [portalTick()]; track tick) {
-              <app-chat-panel
-                [systemId]="portalSystemId"
-                [initialPrompt]="portalPrompt()"
-                [compact]="true"
-              />
-            }
-          </section>
-        }
-
         <ol class="xp-desk-line">
           @for (station of briefing().stations; track station.id; let i = $index) {
-            <li [attr.data-status]="station.status" [style.--desk-beat]="i">
+            <li
+              [attr.data-status]="station.status"
+              [attr.data-active]="reasoning().activeStation === station.id"
+              [style.--desk-beat]="i"
+            >
+              <ck-thinking-orb
+                [state]="orbFor(station).state"
+                [size]="20"
+                [paused]="orbFor(station).paused"
+                [label]="i18n.t('experience.pr_to_po.desk.station.' + station.id)"
+              />
               <span>{{ i18n.t('experience.pr_to_po.desk.station.' + station.id) }}</span>
               <strong>{{ i18n.t('experience.pr_to_po.desk.station_status.' + station.status) }}</strong>
               @if (station.via) {
@@ -331,7 +337,7 @@ import {
         </section>
 
         @if (terrainLoading() && lanes().length === 0) {
-          <app-empty-state icon="sparkles" size="lg" [title]="i18n.t('experience.pr_to_po.desk.reading')" />
+          <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.reading') }}</p>
         }
 
         @if (visibleLanes().length) {
@@ -438,6 +444,32 @@ import {
             }
           }
         </section>
+          </div>
+
+          @if (portalOpen() && portalPrompt() && systemId(); as portalSystemId) {
+            <aside #factoryPortal class="xp-desk-portal">
+              <header>
+                <div class="xp-desk-portal-title">
+                  <ck-thinking-orb state="listening" [size]="20" [label]="i18n.t('experience.pr_to_po.desk.portal.title')" />
+                  <div>
+                    <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.portal.title') }}</p>
+                    <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.portal.hint') }}</p>
+                  </div>
+                </div>
+                <button type="button" class="xp-work-btn" (click)="closePortal()">
+                  {{ i18n.t('experience.pr_to_po.desk.portal.close') }}
+                </button>
+              </header>
+              @for (tick of [portalTick()]; track tick) {
+                <app-chat-panel
+                  [systemId]="portalSystemId"
+                  [initialPrompt]="portalPrompt()"
+                  [compact]="true"
+                />
+              }
+            </aside>
+          }
+        </div>
       </section>
     </div>
   `,
@@ -470,6 +502,9 @@ export class PrToPoBoardComponent implements OnInit {
   });
   readonly visibleLanes = computed(() => this.lanes());
   readonly briefing = computed(() => composeDesk(this.lanes(), this.items().length));
+  readonly reasoning = computed(() =>
+    factoryReasoning(this.briefing(), this.terrainLoading(), this.starting()),
+  );
   readonly terrain = computed(() => donutSlices(terrainShares(this.briefing().kpis)));
   readonly suppliers = computed(() => supplierShares(this.lanes()));
   readonly coverage = computed(() => orderCoverage(this.lanes()));
@@ -680,6 +715,10 @@ export class PrToPoBoardComponent implements OnInit {
 
   shareLabel(id: string): string {
     return id === 'other' ? this.i18n.t('experience.pr_to_po.desk.charts.other') : id;
+  }
+
+  orbFor(station: FactoryStation) {
+    return stationOrb(station, this.reasoning());
   }
 
   private applyAsk(reply: FactoryAskReply): void {
