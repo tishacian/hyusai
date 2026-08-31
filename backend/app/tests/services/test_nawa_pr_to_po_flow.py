@@ -269,6 +269,13 @@ def test_flow_has_no_validator_errors_and_routes_to_dag() -> None:
     }
     assert len(FLOW["nodes"]) == 18
     assert len(FLOW["edges"]) == 20
+    hikma = next(node for node in FLOW["nodes"] if node["id"] == "task.hikma")
+    hikma_inputs = (hikma.get("config") or {}).get("inputs_map") or {}
+    assert "MaterialGroup" in hikma_inputs
+    assert "pr_type" in hikma_inputs
+    create = next(node for node in FLOW["nodes"] if node["id"] == "task.create_po")
+    assert "sealed" in str((create.get("data") or {}).get("description") or "").lower()
+    assert "tools/call" in str((create.get("data") or {}).get("description") or "")
 
 
 def test_format_dossier_node_declares_a_managed_env() -> None:

@@ -3,7 +3,7 @@
 The published graph includes ``task.format_dossier`` — a ``python_recipe_v1``
 node with ``requirements_text=tabulate>=0.9.0``. That is the training surface
 for the managed-env workshop (Environment → Prepare → Test). Isolated Test
-does not call SAP. A live Start-a-cycle still dies on PDF tool names.
+does not call SAP. A live Start-a-cycle reads advertised tools; write nodes compose and stay sealed.
 
 Idempotent. Does not delete on re-seed. Does not talk to live SAP unless
 the workspace has OAuth (``MCP_OAUTH_CLIENT_SECRET`` or the CONNECTORS form)

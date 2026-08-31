@@ -11,22 +11,51 @@ from collections import Counter
 from typing import Any, Mapping
 
 
+def _row_pr_id(row: Mapping[str, Any]) -> str:
+    return str(row.get("pr_id") or row.get("PurchaseRequisition") or "").strip()
+
+
+def _row_material_group(row: Mapping[str, Any]) -> str:
+    return str(row.get("MaterialGroup") or row.get("pr_type") or row.get("type") or "").strip()
+
+
+def _row_supplier(row: Mapping[str, Any]) -> str:
+    return str(row.get("supplier") or row.get("Supplier") or "").strip()
+
+
+def _row_format(row: Mapping[str, Any]) -> str:
+    return str(
+        row.get("format") or row.get("PurchaseOrderType") or row.get("PaymentTerms") or ""
+    ).strip()
+
+
 def select_next_pr(payload: Mapping[str, Any]) -> dict[str, Any]:
     prs = payload.get("prs")
     rows = [dict(item) for item in prs] if isinstance(prs, list) else []
     pin = str(payload.get("pr_id") or "").strip()
     chosen = None
     if pin:
-        chosen = next((row for row in rows if str(row.get("pr_id") or "") == pin), None)
+        chosen = next((row for row in rows if _row_pr_id(row) == pin), None)
     if chosen is None and rows:
         chosen = rows[0]
     if not isinstance(chosen, dict):
-        return {"pr_id": "", "pr": None, "pr_type": "", "empty": True, "prs": rows}
-    pr_type = str(chosen.get("pr_type") or chosen.get("type") or "")
+        return {
+            "pr_id": "",
+            "pr": None,
+            "pr_type": "",
+            "MaterialGroup": "",
+            "PurchaseRequisitionItem": "",
+            "empty": True,
+            "prs": rows,
+        }
+    pr_id = _row_pr_id(chosen)
+    material_group = _row_material_group(chosen)
     return {
-        "pr_id": str(chosen.get("pr_id") or ""),
+        "pr_id": pr_id,
         "pr": chosen,
-        "pr_type": pr_type,
+        "pr_type": str(chosen.get("pr_type") or chosen.get("type") or chosen.get("PurchaseRequisitionType") or ""),
+        "MaterialGroup": material_group,
+        "PurchaseRequisitionItem": str(chosen.get("PurchaseRequisitionItem") or "10"),
         "empty": False,
         "prs": rows,
     }
@@ -43,16 +72,16 @@ def majority_supplier_format(payload: Mapping[str, Any]) -> dict[str, Any]:
             "pos": rows,
             "proposed_po": {},
         }
-    suppliers = Counter(str(row.get("supplier") or "") for row in rows if row.get("supplier"))
+    suppliers = Counter(_row_supplier(row) for row in rows if _row_supplier(row))
     supplier = suppliers.most_common(1)[0][0] if suppliers else ""
     formats = Counter(
-        str(row.get("format") or "")
+        _row_format(row)
         for row in rows
-        if str(row.get("supplier") or "") == supplier and row.get("format")
+        if _row_supplier(row) == supplier and _row_format(row)
     )
     shared_format = formats.most_common(1)[0][0] if formats else ""
     pr = payload.get("pr") if isinstance(payload.get("pr"), Mapping) else {}
-    pr_id = str(payload.get("pr_id") or pr.get("pr_id") or "")
+    pr_id = str(payload.get("pr_id") or pr.get("pr_id") or pr.get("PurchaseRequisition") or "")
     proposed = {
         "pr_id": pr_id,
         "supplier": supplier,
@@ -106,7 +135,7 @@ def format_dossier(payload: Mapping[str, Any]) -> dict[str, Any]:
     pr_id = str(payload.get("pr_id") or pr.get("pr_id") or "")
     rows = [
         ("PR", pr_id),
-        ("Title", str(pr.get("title") or pr.get("PurReqnDescription") or "")),
+        ("Title", str(pr.get("title") or pr.get("PurReqnDescription") or pr.get("PurchaseRequisitionItemText") or "")),
         ("Supplier", supplier),
         ("Order type", order_format),
         ("Votes", vote_count),
@@ -145,23 +174,28 @@ def format_dossier(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 SELECT_PR_CODE = '''"""Pick the next approved PR for this scheduled tick."""
 
+def _pr_id(row):
+    return str((row or {}).get("pr_id") or (row or {}).get("PurchaseRequisition") or "").strip()
+
 def main(inputs):
     prs = list(inputs.get("prs") or [])
     pin = str(inputs.get("pr_id") or "").strip()
     chosen = None
     if pin:
         for row in prs:
-            if isinstance(row, dict) and str(row.get("pr_id") or "") == pin:
+            if isinstance(row, dict) and _pr_id(row) == pin:
                 chosen = row
                 break
     if chosen is None and prs:
         chosen = prs[0] if isinstance(prs[0], dict) else None
     if not isinstance(chosen, dict):
-        return {"pr_id": "", "pr": None, "pr_type": "", "empty": True, "prs": prs}
+        return {"pr_id": "", "pr": None, "pr_type": "", "MaterialGroup": "", "PurchaseRequisitionItem": "", "empty": True, "prs": prs}
     return {
-        "pr_id": str(chosen.get("pr_id") or ""),
+        "pr_id": _pr_id(chosen),
         "pr": chosen,
-        "pr_type": str(chosen.get("pr_type") or chosen.get("type") or ""),
+        "pr_type": str(chosen.get("pr_type") or chosen.get("type") or chosen.get("PurchaseRequisitionType") or ""),
+        "MaterialGroup": str(chosen.get("MaterialGroup") or chosen.get("pr_type") or chosen.get("type") or ""),
+        "PurchaseRequisitionItem": str(chosen.get("PurchaseRequisitionItem") or "10"),
         "empty": False,
         "prs": prs,
     }
@@ -185,16 +219,20 @@ def main(inputs):
             "pr": inputs.get("pr") if isinstance(inputs.get("pr"), dict) else {},
             "justification": str(inputs.get("justification") or ""),
         }
-    suppliers = Counter(str(row.get("supplier") or "") for row in pos if row.get("supplier"))
+    def _supplier(row):
+        return str(row.get("supplier") or row.get("Supplier") or "").strip()
+    def _fmt(row):
+        return str(row.get("format") or row.get("PurchaseOrderType") or row.get("PaymentTerms") or "").strip()
+    suppliers = Counter(_supplier(row) for row in pos if _supplier(row))
     supplier = suppliers.most_common(1)[0][0] if suppliers else ""
     formats = Counter(
-        str(row.get("format") or "")
+        _fmt(row)
         for row in pos
-        if str(row.get("supplier") or "") == supplier and row.get("format")
+        if _supplier(row) == supplier and _fmt(row)
     )
     shared = formats.most_common(1)[0][0] if formats else ""
     pr = inputs.get("pr") if isinstance(inputs.get("pr"), dict) else {}
-    pr_id = str(inputs.get("pr_id") or pr.get("pr_id") or "")
+    pr_id = str(inputs.get("pr_id") or pr.get("pr_id") or pr.get("PurchaseRequisition") or "")
     justification = str(inputs.get("justification") or "")
     return {
         "supplier": supplier,
@@ -234,7 +272,7 @@ def main(inputs):
     pr_id = str(inputs.get("pr_id") or pr.get("pr_id") or "")
     rows = [
         ["PR", pr_id],
-        ["Title", str(pr.get("title") or pr.get("PurReqnDescription") or "")],
+        ["Title", str(pr.get("title") or pr.get("PurReqnDescription") or pr.get("PurchaseRequisitionItemText") or "")],
         ["Supplier", supplier],
         ["Order type", order_format],
         ["Votes", vote_count],
