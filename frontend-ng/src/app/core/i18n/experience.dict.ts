@@ -899,9 +899,10 @@ export const EXPERIENCE_FR = {
     'Lecture seule. Réponds avec les outils get PR et get PO. Aucune écriture SAP.',
   'experience.pr_to_po.desk.portal.offline':
     'L’usine PR to PO n’est pas encore reliée. Relancez la lecture, puis ouvrez le portail.',
-  'experience.pr_to_po.desk.portal.prompt_open': 'Ouvre le dossier et reste sur cette usine.',
+  'experience.pr_to_po.desk.portal.prompt_open':
+    'Combien de demandes et de commandes viennent d’être lues, et qui est le fournisseur majoritaire ?',
   'experience.pr_to_po.desk.portal.prompt':
-    'Usine PR to PO ({system}). Lecture seule. Outils autorisés : get_A_PurchaseRequisitionItem et get_A_PurchaseOrderItem / get_A_PurchaseOrder. Interdit : post_A_PurchaseOrder, fi_DiscardFromPurchasing, fi_EnableForPurchasing. Lecture live : {prs} demandes, {pos} commandes. Demande retenue : {pr}. Fournisseur : {supplier}. Ne pas prétendre écrire dans SAP. Question : {question}',
+    'Lecture seule. Réponds seulement avec get_A_PurchaseRequisitionItem et get_A_PurchaseOrder / get_A_PurchaseOrderItem. N’appelle pas post_A_PurchaseOrder. Ne prétends pas écrire dans SAP. {question}',
   'experience.pr_to_po.refresh': 'Actualiser',
   'experience.pr_to_po.approve': 'Approuver le dossier',
   'experience.pr_to_po.reject': 'Refuser',
@@ -1812,9 +1813,10 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
     'Read only. Answer with get PR and get PO tools. No SAP write.',
   'experience.pr_to_po.desk.portal.offline':
     'The PR to PO factory is not linked yet. Run the read, then open the portal.',
-  'experience.pr_to_po.desk.portal.prompt_open': 'Open the dossier and stay on this factory.',
+  'experience.pr_to_po.desk.portal.prompt_open':
+    'How many requisitions and orders were just read, and who is the majority supplier?',
   'experience.pr_to_po.desk.portal.prompt':
-    'PR to PO factory ({system}). Read only. Allowed tools: get_A_PurchaseRequisitionItem and get_A_PurchaseOrderItem / get_A_PurchaseOrder. Forbidden: post_A_PurchaseOrder, fi_DiscardFromPurchasing, fi_EnableForPurchasing. Live read: {prs} requisitions, {pos} orders. Selected requisition: {pr}. Supplier: {supplier}. Do not claim a live SAP write. Question: {question}',
+    'Read only. Answer only with get_A_PurchaseRequisitionItem and get_A_PurchaseOrder / get_A_PurchaseOrderItem. Do not call post_A_PurchaseOrder. Do not claim a SAP write. {question}',
   'experience.pr_to_po.refresh': 'Refresh',
   'experience.pr_to_po.approve': 'Approve the package',
   'experience.pr_to_po.reject': 'Reject',
