@@ -41,7 +41,7 @@ export interface DeskKpi {
 
 export type FactoryStationId = 'connect' | 'sense' | 'compile' | 'decide' | 'write';
 export type FactoryStationStatus = 'done' | 'ready' | 'blocked' | 'sealed';
-export type FactoryFactId = 'pr' | 'inbox' | 'supplier' | 'format';
+export type FactoryFactId = 'pr' | 'inbox' | 'supplier' | 'format' | 'justification';
 
 export interface FactoryStation {
   id: FactoryStationId;
@@ -62,9 +62,18 @@ export interface DeskBriefing {
   voiceKey: string;
   voiceParams: Record<string, string | number>;
   liveLanes: number;
+  selectedPrId: string;
   kpis: DeskKpi[];
   stations: FactoryStation[];
   facts: FactoryFact[];
+}
+
+export interface DeskKeyedRead {
+  ok?: boolean;
+  tool?: string;
+  text?: string;
+  result?: unknown;
+  detail?: string;
 }
 
 export interface DeskShare {
@@ -106,6 +115,13 @@ export const DESK_MCP_LANES: ReadonlyArray<{ id: Exclude<DeskLaneId, 'hana'>; se
   { id: 'po', serverId: 'hikma' },
   { id: 'gr', serverId: 'sap_gr' },
 ];
+
+export const JUSTIFICATION_SERVER_ID = 'sap';
+export const LIVE_PR_ITEM_BY_KEY = 'get_A_PurchaseRequisitionItem_by_key';
+export const DEMO_JUSTIFICATION_PR = '2000276450';
+export const DEMO_JUSTIFICATION_ITEM = '10';
+export const ITEM_TEXT_EXPAND = 'to_PurchaseReqnItemText';
+const JUSTIFICATION_TEXT_KEYS = ['justification', 'Note', 'Text', 'PlainLongText'] as const;
 
 const PREFERRED_COLUMNS: Record<DeskLaneId, readonly string[]> = {
   pr: [
@@ -390,10 +406,100 @@ export function composeDesk(
         : 'experience.pr_to_po.desk.voice.none',
     voiceParams,
     liveLanes,
+    selectedPrId: focusPr,
     kpis,
     stations,
     facts,
   };
+}
+
+export function justificationReadBody(prId = ''): {
+  tool: string;
+  arguments: {
+    PurchaseRequisition: string;
+    PurchaseRequisitionItem: string;
+    expand: string;
+  };
+} {
+  return {
+    tool: LIVE_PR_ITEM_BY_KEY,
+    arguments: {
+      PurchaseRequisition: prId.trim() || DEMO_JUSTIFICATION_PR,
+      PurchaseRequisitionItem: DEMO_JUSTIFICATION_ITEM,
+      expand: ITEM_TEXT_EXPAND,
+    },
+  };
+}
+
+export function offersSelectedJustification(selectedPrId: string): boolean {
+  const id = selectedPrId.trim();
+  return Boolean(id) && id !== DEMO_JUSTIFICATION_PR;
+}
+
+function justificationTextFromRow(row: Record<string, unknown>): string {
+  for (const key of JUSTIFICATION_TEXT_KEYS) {
+    if (!(key in row)) continue;
+    const value = row[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const inner = (value as { value?: unknown }).value;
+      if (typeof inner === 'string' && inner.trim()) return inner.trim();
+    }
+  }
+  return '';
+}
+
+function justificationExpandRows(node: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(node)) {
+    return node.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object');
+  }
+  if (!node || typeof node !== 'object') return [];
+  const row = node as Record<string, unknown>;
+  for (const key of ['results', 'value'] as const) {
+    const found = row[key];
+    if (Array.isArray(found)) {
+      return found.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object');
+    }
+  }
+  return [row];
+}
+
+export function extractJustificationText(payload: unknown): string {
+  if (payload == null) return '';
+  if (typeof payload === 'string') return payload.trim();
+  if (typeof payload !== 'object') return '';
+  const root = payload as Record<string, unknown>;
+  const candidates: Array<Record<string, unknown>> = [root];
+  for (const key of ['d', 'data', 'result'] as const) {
+    const inner = root[key];
+    if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+      candidates.push(inner as Record<string, unknown>);
+    }
+  }
+  for (const row of candidates) {
+    const direct = row['justification'];
+    if (typeof direct === 'string' && direct.trim()) return direct.trim();
+    if (ITEM_TEXT_EXPAND in row) {
+      const texts = justificationExpandRows(row[ITEM_TEXT_EXPAND])
+        .map(justificationTextFromRow)
+        .filter(Boolean);
+      if (texts.length) return texts.join('\n\n');
+    }
+    const hit = justificationTextFromRow(row);
+    if (hit) return hit;
+  }
+  return '';
+}
+
+export function withJustificationFact(
+  briefing: DeskBriefing,
+  text: string,
+  via: string,
+): DeskBriefing {
+  const value = text.trim();
+  const facts = briefing.facts.filter((fact) => fact.id !== 'justification');
+  if (value) facts.push({ id: 'justification', value, via });
+  return { ...briefing, facts };
 }
 
 export function donutSlices(shares: readonly DeskShare[]): Array<DeskShare & { offset: number }> {
