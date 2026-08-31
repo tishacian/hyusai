@@ -5028,3 +5028,19 @@ restent dans `docs/ops/nawa-pr-to-po-live-demo-playbook.docx`.
 | Canaris carakai | non rejoués dans cette fenêtre |
 | Rollback | `AGENTIUM_IMAGE_TAG=3eb72f95f6b6` puis `up` ; aucun schéma à reculer |
 
+## Docs du 31/08 — playbook Fayçal réeligné sur le bureau opérateur
+
+Pas de bascule VM. SHA live inchangé
+`cd40fe337285058120ec7236d587b1853ca72c42`. Les rappels Fayçal ne sont plus
+seulement le Word : trois fichiers à jour, calés sur les libellés EN du
+bureau (plus de tuiles 1–4 / Success criteria / *Can we write*).
+
+| Fichier | Usage |
+|---|---|
+| `docs/ops/nawa-pr-to-po-live-demo-playbook.md` | Handout EN (preuves, script, exemple live STICKER WHITE) |
+| `docs/ops/nawa-pr-to-po-live-demo-presenter-fr.md` | Carte présentateur FR, une page |
+| `docs/ops/nawa-pr-to-po-live-demo-playbook.docx` | Même contenu, illustré (figures `nawa-pr-to-po-playbook-figures/`) |
+| `docs/ops/build-nawa-pr-to-po-playbook.py` | Régénération du Word |
+
+Pointeur aussi dans `docs/agentium-release-process.md` §12.
+

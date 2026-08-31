@@ -264,3 +264,17 @@ Write the iteration down in `docs/ops/agentium-safe-vm-deployment.md` (that
 file doubles as the deployment journal): SHA released, images built, dump
 location if any, canary result, rollback address. If the release changed the
 operator surface, update the affected runbooks in the same commit.
+
+Nawa **PR to PO** desk (`/work/pr-to-po?workspace=nawa&lang=en`) — present to
+Fayçal from the operator-desk playbook, not from the UI:
+
+- English handout: [`docs/ops/nawa-pr-to-po-live-demo-playbook.md`](./ops/nawa-pr-to-po-live-demo-playbook.md)
+  and the illustrated Word
+  [`docs/ops/nawa-pr-to-po-live-demo-playbook.docx`](./ops/nawa-pr-to-po-live-demo-playbook.docx)
+- Presenter card (FR):
+  [`docs/ops/nawa-pr-to-po-live-demo-presenter-fr.md`](./ops/nawa-pr-to-po-live-demo-presenter-fr.md)
+
+The four proofs stay in those docs. The desk is an operator screen (no numbered
+beats). Rebuild the Word with
+`docs/ops/build-nawa-pr-to-po-playbook.py` after a label or figure change.
+Always hard-reload before the talk.
