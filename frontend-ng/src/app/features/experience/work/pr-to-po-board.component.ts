@@ -244,6 +244,85 @@ import {
           }
         </ol>
 
+        <ul class="xp-desk-kpis" id="desk-read">
+          @for (kpi of briefing().kpis; track kpi.id) {
+            <li [attr.data-tone]="kpi.tone" [attr.data-focus]="focusLane() === kpi.id">
+              <button type="button" (click)="toggleFocus(kpi.id)">
+                <span>{{ i18n.t('experience.pr_to_po.desk.kpi.' + kpi.id) }}</span>
+                <strong>{{ kpi.value }}</strong>
+              </button>
+            </li>
+          }
+        </ul>
+
+        <ol class="xp-desk-line">
+          @for (station of briefing().stations; track station.id; let i = $index) {
+            <li [attr.data-status]="station.status" [style.--desk-beat]="i">
+              <span>{{ i18n.t('experience.pr_to_po.desk.station.' + station.id) }}</span>
+              <strong>{{ i18n.t('experience.pr_to_po.desk.station_status.' + station.status) }}</strong>
+              @if (station.via) {
+                <em>{{ station.via }}</em>
+              }
+            </li>
+          }
+        </ol>
+
+        @if (briefing().facts.length || justificationLoading() || justificationError()) {
+          <section class="xp-desk-dossier" id="desk-summarise">
+            <h3>{{ i18n.t('experience.pr_to_po.desk.dossier') }}</h3>
+            <p>{{ i18n.t('experience.pr_to_po.desk.factory_note') }}</p>
+            @if (justificationError(); as detail) {
+              <p class="xp-desk-note">{{ detail }}</p>
+            }
+            @if (summariseError(); as detail) {
+              <p class="xp-desk-note">{{ detail }}</p>
+            }
+            <dl>
+              @for (fact of briefing().facts; track fact.id) {
+                <div [attr.data-fact]="fact.id">
+                  <dt>{{ i18n.t('experience.pr_to_po.desk.fact.' + fact.id) }}</dt>
+                  <dd>
+                    <strong>{{ fact.value }}</strong>
+                    @if (fact.via) {
+                      <span>{{ i18n.t('experience.pr_to_po.desk.via', { tool: fact.via }) }}</span>
+                    }
+                  </dd>
+                </div>
+              }
+            </dl>
+          </section>
+        }
+
+        @if (postPackage(); as post) {
+          <section class="xp-desk-post" id="desk-post" data-sealed="true">
+            <header>
+              <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.post.kicker') }}</p>
+              <h3>{{ i18n.t('experience.pr_to_po.desk.post.title') }}</h3>
+              <p>{{ i18n.t('experience.pr_to_po.desk.post.hint') }}</p>
+            </header>
+            <dl>
+              <div>
+                <dt>{{ i18n.t('experience.pr_to_po.desk.post.method') }}</dt>
+                <dd><strong>{{ post.method }}</strong></dd>
+              </div>
+              <div>
+                <dt>{{ i18n.t('experience.pr_to_po.desk.post.server') }}</dt>
+                <dd><strong>{{ post.server_id }}</strong></dd>
+              </div>
+              <div>
+                <dt>{{ i18n.t('experience.pr_to_po.desk.post.tool') }}</dt>
+                <dd><strong>{{ post.tool }}</strong></dd>
+              </div>
+              <div>
+                <dt>{{ i18n.t('experience.pr_to_po.desk.post.status') }}</dt>
+                <dd><strong>{{ i18n.t('experience.pr_to_po.desk.station_status.sealed') }}</strong></dd>
+              </div>
+            </dl>
+            <pre>{{ postJson(post) }}</pre>
+            <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.post.block') }}</p>
+          </section>
+        }
+
         <section class="xp-desk-ask" id="desk-ask">
           <form (submit)="submitAsk($event)">
             <label for="factory-ask">{{ i18n.t('experience.pr_to_po.desk.ask.label') }}</label>
@@ -314,85 +393,6 @@ import {
             }
           </section>
         }
-
-        <ol class="xp-desk-line">
-          @for (station of briefing().stations; track station.id; let i = $index) {
-            <li [attr.data-status]="station.status" [style.--desk-beat]="i">
-              <span>{{ i18n.t('experience.pr_to_po.desk.station.' + station.id) }}</span>
-              <strong>{{ i18n.t('experience.pr_to_po.desk.station_status.' + station.status) }}</strong>
-              @if (station.via) {
-                <em>{{ station.via }}</em>
-              }
-            </li>
-          }
-        </ol>
-
-        @if (briefing().facts.length || justificationLoading() || justificationError()) {
-          <section class="xp-desk-dossier" id="desk-summarise">
-            <h3>{{ i18n.t('experience.pr_to_po.desk.dossier') }}</h3>
-            <p>{{ i18n.t('experience.pr_to_po.desk.factory_note') }}</p>
-            @if (justificationError(); as detail) {
-              <p class="xp-desk-note">{{ detail }}</p>
-            }
-            @if (summariseError(); as detail) {
-              <p class="xp-desk-note">{{ detail }}</p>
-            }
-            <dl>
-              @for (fact of briefing().facts; track fact.id) {
-                <div [attr.data-fact]="fact.id">
-                  <dt>{{ i18n.t('experience.pr_to_po.desk.fact.' + fact.id) }}</dt>
-                  <dd>
-                    <strong>{{ fact.value }}</strong>
-                    @if (fact.via) {
-                      <span>{{ i18n.t('experience.pr_to_po.desk.via', { tool: fact.via }) }}</span>
-                    }
-                  </dd>
-                </div>
-              }
-            </dl>
-          </section>
-        }
-
-        @if (postPackage(); as post) {
-          <section class="xp-desk-post" id="desk-post" data-sealed="true">
-            <header>
-              <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.post.kicker') }}</p>
-              <h3>{{ i18n.t('experience.pr_to_po.desk.post.title') }}</h3>
-              <p>{{ i18n.t('experience.pr_to_po.desk.post.hint') }}</p>
-            </header>
-            <dl>
-              <div>
-                <dt>{{ i18n.t('experience.pr_to_po.desk.post.method') }}</dt>
-                <dd><strong>{{ post.method }}</strong></dd>
-              </div>
-              <div>
-                <dt>{{ i18n.t('experience.pr_to_po.desk.post.server') }}</dt>
-                <dd><strong>{{ post.server_id }}</strong></dd>
-              </div>
-              <div>
-                <dt>{{ i18n.t('experience.pr_to_po.desk.post.tool') }}</dt>
-                <dd><strong>{{ post.tool }}</strong></dd>
-              </div>
-              <div>
-                <dt>{{ i18n.t('experience.pr_to_po.desk.post.status') }}</dt>
-                <dd><strong>{{ i18n.t('experience.pr_to_po.desk.station_status.sealed') }}</strong></dd>
-              </div>
-            </dl>
-            <pre>{{ postJson(post) }}</pre>
-            <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.post.block') }}</p>
-          </section>
-        }
-
-        <ul class="xp-desk-kpis" id="desk-read">
-          @for (kpi of briefing().kpis; track kpi.id) {
-            <li [attr.data-tone]="kpi.tone" [attr.data-focus]="focusLane() === kpi.id">
-              <button type="button" (click)="toggleFocus(kpi.id)">
-                <span>{{ i18n.t('experience.pr_to_po.desk.kpi.' + kpi.id) }}</span>
-                <strong>{{ kpi.value }}</strong>
-              </button>
-            </li>
-          }
-        </ul>
 
         <section class="xp-desk-charts">
           <article class="xp-desk-chart">
@@ -861,6 +861,8 @@ export class PrToPoBoardComponent implements OnInit {
           this.justificationLoading.set(false);
           if (!text) {
             this.justificationError.set(this.i18n.t('experience.pr_to_po.desk.justification.empty'));
+          } else if (!this.summaryText()) {
+            this.summariseJustification();
           }
         },
         error: (err: { error?: { detail?: unknown } }) => {
