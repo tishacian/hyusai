@@ -4996,3 +4996,35 @@ Le playbook opérateur EN illustré
 | Canaris carakai | non rejoués dans cette fenêtre |
 | Rollback | `AGENTIUM_IMAGE_TAG=d46e6bf1a12d` puis `up` ; aucun schéma à reculer |
 
+## Itération du 31/08 — bureau opérateur, déployée sur `cd40fe33`
+
+GO land + deploy depuis un Cloud Agent, branche `demo/agentic`.
+`origin/demo/agentic` est passé `73fb7e55` →
+`cd40fe337285058120ec7236d587b1853ca72c42`. Aucune migration.
+Le strip présentateur (critères de succès, pastilles 1–4, « succès de
+cette démo ») quitte l’UI. Le bureau reste un poste de travail : KPI,
+dossier, brouillon de commande scellé, questions. Les rappels Fayçal
+restent dans `docs/ops/nawa-pr-to-po-live-demo-playbook.docx`.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n`, `check:ui-chrome`, `test:unit` (1361 verts), `build:prod` verts |
+| Push | `demo/agentic` en fast-forward `73fb7e55` → `cd40fe33` |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | `3eb72f95` → `cd40fe337285058120ec7236d587b1853ca72c42` ff-only, porcelain vide |
+| Build | trois images `agentium-{backend,worker,frontend}:cd40fe337285`, label 40-hex identique |
+| Dump / migrate | sautés — pas de nouvelle révision Alembic |
+| `storage-check` | sortie 0 |
+| `up` | cinq services applicatifs recréés ; infra intouchée |
+| `build-info` | `revision: cd40fe337285058120ec7236d587b1853ca72c42`, `revision_verified: true` |
+| Bundle | plus de `Success criteria` / `Compose the POST` / `success of this demo` dans le JS servi |
+| Alias | tag mobile `demo-agentic` **non déplacé** |
+| Smoke API | writes `post_A_PurchaseOrder` → 400 `not a read` |
+| Smoke desk | pas de `.xp-desk-beats` ; KPI 50/2/5 ; Write **Sealed** ; résumé `azure_llm_v1` ; brouillon `hikma` `post_A_PurchaseOrder` `sealed: true` `called: false` type `NB` ; chip *Write status* = No |
+| Seed / DAG | inchangés — seed **non** relancé |
+| Flags | `sap_hana_connector` reste off |
+| Canaris carakai | non rejoués dans cette fenêtre |
+| Rollback | `AGENTIUM_IMAGE_TAG=3eb72f95f6b6` puis `up` ; aucun schéma à reculer |
+
