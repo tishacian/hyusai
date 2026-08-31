@@ -41,7 +41,30 @@ export interface DeskKpi {
 
 export type FactoryStationId = 'connect' | 'sense' | 'compile' | 'decide' | 'write';
 export type FactoryStationStatus = 'done' | 'ready' | 'blocked' | 'sealed';
-export type FactoryFactId = 'pr' | 'inbox' | 'supplier' | 'format' | 'justification';
+export type FactoryFactId =
+  | 'pr'
+  | 'inbox'
+  | 'supplier'
+  | 'format'
+  | 'justification'
+  | 'budget'
+  | 'fund'
+  | 'fundscenter';
+
+export interface DeskCompileFacts {
+  budget?: string;
+  fund?: string;
+  fundscenter?: string;
+  budgetVia?: string;
+  fundVia?: string;
+}
+
+export interface SelectedPr {
+  id: string;
+  item: string;
+  label: string;
+  materialGroup: string;
+}
 
 export interface FactoryStation {
   id: FactoryStationId;
@@ -74,6 +97,9 @@ export interface DeskKeyedRead {
   text?: string;
   result?: unknown;
   detail?: string;
+  columns?: string[];
+  rows?: string[][];
+  row_count?: number;
 }
 
 export interface DeskShare {
@@ -117,10 +143,36 @@ export const DESK_MCP_LANES: ReadonlyArray<{ id: Exclude<DeskLaneId, 'hana'>; se
 ];
 
 export const JUSTIFICATION_SERVER_ID = 'sap';
+export const LIVE_PR_ITEM = 'get_A_PurchaseRequisitionItem';
 export const LIVE_PR_ITEM_BY_KEY = 'get_A_PurchaseRequisitionItem_by_key';
+export const LIVE_BUDGET = 'fi_Validate';
+export const LIVE_ACCT = 'get_A_PurReqnAcctAssgmt';
+export const LIVE_PO_ITEM = 'get_A_PurchaseOrderItem';
+export const LIVE_PO_HEADER = 'get_A_PurchaseOrder';
 export const DEMO_JUSTIFICATION_PR = '2000276450';
 export const DEMO_JUSTIFICATION_ITEM = '10';
 export const ITEM_TEXT_EXPAND = 'to_PurchaseReqnItemText';
+export const APPROVED_PR_TOP = '50';
+export const PO_ITEM_TOP = '200';
+export const PO_HEADER_CAP = 5;
+export const APPROVED_PR_FILTER =
+  "PurchaseRequisitionStatus eq 'X' and PurchasingDocument eq '' and IsDeleted eq '' and IsClosed eq false";
+export const APPROVED_PR_SELECT =
+  'PurchaseRequisition,PurchaseRequisitionItem,PurchaseRequisitionItemText,Material,MaterialGroup,RequestedQuantity,BaseUnit,PurchaseRequisitionPrice,PurReqnItemCurrency,Plant,CompanyCode,PurchasingGroup,DeliveryDate,PurchaseRequisitionType';
+export const ACCT_SELECT =
+  'PurchaseRequisitionItem,CostCenter,WBSElement,Fund,FundsCenter,CommitmentItem,GLAccount,PurReqnNetAmount';
+export const PO_ITEM_SELECT =
+  'PurchaseOrder,PurchaseOrderItem,Material,MaterialGroup,Plant,NetPriceAmount,DocumentCurrency,PurchaseRequisition';
+export const PO_HEADER_SELECT =
+  'PurchaseOrder,Supplier,PurchaseOrderType,PaymentTerms,DocumentCurrency,IncotermsClassification,PurchasingOrganization,PurchasingGroup,CompanyCode,NetPaymentDays';
+export const FACTORY_WRITE_TOOLS: ReadonlySet<string> = new Set([
+  'post_A_PurchaseOrder',
+  'fi_DiscardFromPurchasing',
+  'fi_EnableForPurchasing',
+  'create_po',
+  'reject_pr',
+  'handle_rejection',
+]);
 const JUSTIFICATION_TEXT_KEYS = [
   'justification',
   'Note',
@@ -133,10 +185,13 @@ const JUSTIFICATION_TEXT_KEYS = [
 const PREFERRED_COLUMNS: Record<DeskLaneId, readonly string[]> = {
   pr: [
     'PurchaseRequisition',
+    'PurchaseRequisitionItem',
+    'PurchaseRequisitionItemText',
+    'MaterialGroup',
+    'RequestedQuantity',
     'PurchaseRequisitionType',
     'PurReqnDescription',
     'CreationDate',
-    'SourceDetermination',
   ],
   inbox: ['TaskTitle', 'TaskDefinitionName', 'Status', 'Priority', 'InstanceID', 'CreatedOn'],
   po: [
@@ -212,7 +267,8 @@ export function laneFromPreview(
   const rawColumns = preview.columns || [];
   const columns = pickDeskColumns(rawColumns, id);
   const rows = projectRows(rawColumns, preview.rows || [], columns);
-  const rowCount = Number(preview.row_count || rows.length || 0);
+  const fetched = (preview.rows || []).length;
+  const rowCount = fetched || Number(preview.row_count || 0);
   let status: DeskLaneStatus = rowCount > 0 ? 'live' : 'empty';
   if (id === 'gr' && /403|limited|refused/i.test(message)) status = 'caution';
   return {
@@ -316,23 +372,43 @@ function firstLiveTool(...lanes: Array<DeskLane | undefined>): string {
   return '';
 }
 
-function focusFromLane(
-  lane: DeskLane | undefined,
-  idNames: readonly string[],
-  labelNames: readonly string[],
-): { id: string; label: string } {
-  if (!lane?.columns.length || !lane.rows.length) return { id: '', label: '' };
+function cellAt(row: readonly string[], at: number | undefined): string {
+  if (at == null) return '';
+  return String(row[at] ?? '').trim();
+}
+
+export function selectedPrFromLane(lane: DeskLane | undefined): SelectedPr {
+  const empty: SelectedPr = { id: '', item: '', label: '', materialGroup: '' };
+  if (!lane?.columns.length || !lane.rows.length) return empty;
   const index = new Map(lane.columns.map((name, at) => [name.toLowerCase(), at]));
-  const idAt = idNames.map((name) => index.get(name.toLowerCase())).find((at) => at != null);
-  const labelAt = labelNames.map((name) => index.get(name.toLowerCase())).find((at) => at != null);
+  const idAt = ['PurchaseRequisition', 'pr_id']
+    .map((name) => index.get(name.toLowerCase()))
+    .find((at) => at != null);
+  const labelAt = ['PurchaseRequisitionItemText', 'PurReqnDescription', 'title']
+    .map((name) => index.get(name.toLowerCase()))
+    .find((at) => at != null);
+  const itemAt = index.get('purchaserequisitionitem');
+  const groupAt = index.get('materialgroup') ?? index.get('pr_type');
   let fallbackId = '';
   for (const row of lane.rows) {
-    const id = idAt != null ? String(row[idAt] ?? '').trim() : '';
-    const label = labelAt != null ? String(row[labelAt] ?? '').trim() : '';
+    const id = cellAt(row, idAt);
+    const label = cellAt(row, labelAt);
     if (!fallbackId && id) fallbackId = id;
-    if (label) return { id: id || fallbackId, label };
+    if (label) {
+      return {
+        id: id || fallbackId,
+        item: cellAt(row, itemAt),
+        label,
+        materialGroup: cellAt(row, groupAt),
+      };
+    }
   }
-  return { id: fallbackId, label: fallbackId };
+  return {
+    id: fallbackId,
+    item: '',
+    label: fallbackId,
+    materialGroup: lane.rows[0] ? cellAt(lane.rows[0], groupAt) : '',
+  };
 }
 
 export function composeDesk(
@@ -354,7 +430,7 @@ export function composeDesk(
   ];
   if (hana) kpis.push({ id: 'hana', value: hana.rowCount || 0, tone: kpiTone(hana) });
 
-  const focus = focusFromLane(pr, ['PurchaseRequisition'], ['PurReqnDescription']);
+  const focus = selectedPrFromLane(pr);
   const focusPr = focus.id;
   const focusLabel = focus.label;
   const inboxTask = firstCell(inbox, ['TaskTitle']);
@@ -417,6 +493,207 @@ export function composeDesk(
     kpis,
     stations,
     facts,
+  };
+}
+
+export function approvedPrItemReadBody(): {
+  tool: string;
+  arguments: {
+    filter: string;
+    select: string;
+    orderby: string;
+    top: string;
+    inlinecount: string;
+  };
+} {
+  return {
+    tool: LIVE_PR_ITEM,
+    arguments: {
+      filter: APPROVED_PR_FILTER,
+      select: APPROVED_PR_SELECT,
+      orderby: 'PurchaseRequisitionReleaseDate desc',
+      top: APPROVED_PR_TOP,
+      inlinecount: 'allpages',
+    },
+  };
+}
+
+export function budgetReadBody(prId: string): {
+  tool: string;
+  arguments: { PurchaseRequisition: string };
+} {
+  return {
+    tool: LIVE_BUDGET,
+    arguments: { PurchaseRequisition: String(prId || '') },
+  };
+}
+
+export function acctAssgmtReadBody(prId: string): {
+  tool: string;
+  arguments: { filter: string; select: string };
+} {
+  return {
+    tool: LIVE_ACCT,
+    arguments: {
+      filter: `PurchaseRequisition eq '${String(prId || '').replace(/'/g, '')}'`,
+      select: ACCT_SELECT,
+    },
+  };
+}
+
+export function poItemReadBody(materialGroup: string): {
+  tool: string;
+  arguments: { filter: string; select: string; top: string };
+} {
+  const group = String(materialGroup || '').replace(/'/g, '');
+  return {
+    tool: LIVE_PO_ITEM,
+    arguments: {
+      filter: `MaterialGroup eq '${group}'`,
+      select: PO_ITEM_SELECT,
+      top: PO_ITEM_TOP,
+    },
+  };
+}
+
+export function poHeaderReadBody(poId: string): {
+  tool: string;
+  arguments: { filter: string; select: string };
+} {
+  const number = String(poId || '').replace(/'/g, '');
+  return {
+    tool: LIVE_PO_HEADER,
+    arguments: {
+      filter: `PurchaseOrder eq '${number}'`,
+      select: PO_HEADER_SELECT,
+    },
+  };
+}
+
+export function factoryTerrainReadBodies(selected: {
+  id?: string;
+  materialGroup?: string;
+  poIds?: readonly string[];
+}): Array<{ tool: string }> {
+  const bodies: Array<{ tool: string }> = [approvedPrItemReadBody()];
+  const prId = String(selected.id || '').trim();
+  if (prId) {
+    bodies.push(budgetReadBody(prId), acctAssgmtReadBody(prId));
+  }
+  const group = String(selected.materialGroup || '').trim();
+  if (group) bodies.push(poItemReadBody(group));
+  for (const poId of (selected.poIds || []).slice(0, PO_HEADER_CAP)) {
+    bodies.push(poHeaderReadBody(poId));
+  }
+  return bodies;
+}
+
+export function isFactoryWriteTool(name: string): boolean {
+  return FACTORY_WRITE_TOOLS.has(String(name || '').trim());
+}
+
+export function uniquePurchaseOrders(preview: DeskPreview | null, cap = PO_HEADER_CAP): string[] {
+  if (!preview?.columns?.length || !preview.rows?.length) return [];
+  const at = preview.columns.findIndex((name) => name.toLowerCase() === 'purchaseorder');
+  if (at < 0) return [];
+  const ids: string[] = [];
+  for (const row of preview.rows) {
+    const id = String(row[at] ?? '').trim();
+    if (id && !ids.includes(id)) ids.push(id);
+    if (ids.length >= cap) break;
+  }
+  return ids;
+}
+
+export function mergeHeaderPreviews(previews: readonly DeskPreview[]): DeskPreview | null {
+  const live = previews.filter((preview) => preview && preview.ok !== false && (preview.columns || []).length);
+  if (!live.length) return null;
+  const columns = live[0].columns || [];
+  const rows: string[][] = [];
+  for (const preview of live) {
+    const cols = preview.columns || [];
+    if (cols.join('\0') === columns.join('\0')) {
+      rows.push(...(preview.rows || []));
+      continue;
+    }
+    const index = columns.map((name) => cols.indexOf(name));
+    for (const row of preview.rows || []) {
+      rows.push(index.map((at) => (at >= 0 ? String(row[at] ?? '') : '')));
+    }
+  }
+  return {
+    ok: true,
+    tool: live[0].tool || LIVE_PO_HEADER,
+    columns,
+    rows,
+    row_count: rows.length,
+  };
+}
+
+function readRecords(payload: unknown): Array<Record<string, unknown>> {
+  if (payload == null) return [];
+  if (Array.isArray(payload)) {
+    return payload.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object');
+  }
+  if (typeof payload !== 'object') return [];
+  const root = payload as Record<string, unknown>;
+  for (const key of ['result', 'd', 'data'] as const) {
+    if (key in root && root[key] !== payload) return readRecords(root[key]);
+  }
+  for (const key of ['results', 'value'] as const) {
+    if (Array.isArray(root[key])) return readRecords(root[key]);
+  }
+  if ('Type' in root || 'type' in root || 'Fund' in root || 'FundsCenter' in root) return [root];
+  return [];
+}
+
+export function budgetOkFromRead(payload: DeskKeyedRead | null): { ok: boolean; reason: string } {
+  if (!payload) return { ok: true, reason: 'ok' };
+  const raw = payload.result;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && 'budget_ok' in raw) {
+    const ok = Boolean((raw as { budget_ok?: unknown }).budget_ok);
+    const reason = String((raw as { reason?: unknown }).reason || (ok ? 'ok' : 'budget'));
+    return { ok, reason };
+  }
+  if (payload.columns?.length && payload.rows?.length) {
+    const typeAt = payload.columns.findIndex((name) => name.toLowerCase() === 'type');
+    if (typeAt >= 0) {
+      for (const row of payload.rows) {
+        if (String(row[typeAt] || '').toUpperCase() !== 'E') continue;
+        const msgAt = payload.columns.findIndex((name) => /^(message|text|note)$/i.test(name));
+        return { ok: false, reason: (msgAt >= 0 ? String(row[msgAt] || '') : 'E').trim() || 'E' };
+      }
+      return { ok: true, reason: 'ok' };
+    }
+  }
+  for (const row of readRecords(raw)) {
+    const kind = String(row['Type'] ?? row['type'] ?? '')
+      .trim()
+      .toUpperCase();
+    if (kind !== 'E') continue;
+    const message = String(row['Message'] ?? row['message'] ?? row['Text'] ?? row['Note'] ?? '').trim();
+    return { ok: false, reason: message || 'E' };
+  }
+  return { ok: true, reason: 'ok' };
+}
+
+export function fundFromRead(payload: DeskKeyedRead | null): { fund: string; fundscenter: string } {
+  if (!payload) return { fund: '', fundscenter: '' };
+  const records = readRecords(payload.result);
+  if (records.length) {
+    return {
+      fund: String(records[0]['Fund'] ?? '').trim(),
+      fundscenter: String(records[0]['FundsCenter'] ?? '').trim(),
+    };
+  }
+  const columns = payload.columns || [];
+  const rows = payload.rows || [];
+  if (!columns.length || !rows.length) return { fund: '', fundscenter: '' };
+  const fundAt = columns.findIndex((name) => name.toLowerCase() === 'fund');
+  const centerAt = columns.findIndex((name) => name.toLowerCase() === 'fundscenter');
+  return {
+    fund: fundAt >= 0 ? String(rows[0][fundAt] ?? '').trim() : '',
+    fundscenter: centerAt >= 0 ? String(rows[0][centerAt] ?? '').trim() : '',
   };
 }
 
@@ -506,6 +783,22 @@ export function withJustificationFact(
   const value = text.trim();
   const facts = briefing.facts.filter((fact) => fact.id !== 'justification');
   if (value) facts.push({ id: 'justification', value, via });
+  return { ...briefing, facts };
+}
+
+export function withCompileFacts(briefing: DeskBriefing, extras: DeskCompileFacts): DeskBriefing {
+  const facts = briefing.facts.filter(
+    (fact) => fact.id !== 'budget' && fact.id !== 'fund' && fact.id !== 'fundscenter',
+  );
+  if (extras.budget?.trim()) {
+    facts.push({ id: 'budget', value: extras.budget.trim(), via: extras.budgetVia || '' });
+  }
+  if (extras.fund?.trim()) {
+    facts.push({ id: 'fund', value: extras.fund.trim(), via: extras.fundVia || '' });
+  }
+  if (extras.fundscenter?.trim()) {
+    facts.push({ id: 'fundscenter', value: extras.fundscenter.trim(), via: extras.fundVia || '' });
+  }
   return { ...briefing, facts };
 }
 

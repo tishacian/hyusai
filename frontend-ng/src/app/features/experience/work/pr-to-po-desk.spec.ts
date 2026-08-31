@@ -2,24 +2,69 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  APPROVED_PR_FILTER,
+  APPROVED_PR_TOP,
   DEMO_JUSTIFICATION_PR,
+  LIVE_ACCT,
+  LIVE_BUDGET,
+  LIVE_PO_HEADER,
+  LIVE_PO_ITEM,
+  LIVE_PR_ITEM,
   LIVE_PR_ITEM_BY_KEY,
+  PO_HEADER_CAP,
+  PO_ITEM_TOP,
+  acctAssgmtReadBody,
+  approvedPrItemReadBody,
   askFactory,
+  budgetOkFromRead,
+  budgetReadBody,
   composeDesk,
   extractJustificationText,
+  factoryTerrainReadBodies,
+  fundFromRead,
   shouldOpenFactoryPortal,
   donutSlices,
   hanaLaneFromPreview,
   interpretFactoryAsk,
+  isFactoryWriteTool,
   justificationReadBody,
   laneFromPreview,
+  mergeHeaderPreviews,
   offersSelectedJustification,
   orderCoverage,
   pickDeskColumns,
+  poHeaderReadBody,
+  poItemReadBody,
+  selectedPrFromLane,
   supplierShares,
   terrainShares,
+  uniquePurchaseOrders,
+  withCompileFacts,
   withJustificationFact,
 } from './pr-to-po-desk';
+
+test('prefers PDF item columns on the PR lane', () => {
+  assert.deepEqual(
+    pickDeskColumns(
+      [
+        'PurchaseRequisition',
+        'PurchaseRequisitionItem',
+        'PurchaseRequisitionItemText',
+        'MaterialGroup',
+        'RequestedQuantity',
+        'Plant',
+      ],
+      'pr',
+    ),
+    [
+      'PurchaseRequisition',
+      'PurchaseRequisitionItem',
+      'PurchaseRequisitionItemText',
+      'MaterialGroup',
+      'RequestedQuantity',
+    ],
+  );
+});
 
 test('prefers business columns over the raw OData left-edge', () => {
   assert.deepEqual(
@@ -269,6 +314,105 @@ test('charts and coverage stay on the live columns, not invented aliases', () =>
   assert.equal(coverage.prs, 2);
   assert.equal(coverage.pos, 3);
   assert.equal(coverage.pct, 100);
+});
+
+test('PDF read bodies match the PIH QA filter and never post a write', () => {
+  const approved = approvedPrItemReadBody();
+  assert.equal(approved.tool, LIVE_PR_ITEM);
+  assert.equal(approved.arguments.top, APPROVED_PR_TOP);
+  assert.equal(typeof approved.arguments.top, 'string');
+  assert.match(approved.arguments.filter, /IsClosed eq false/);
+  assert.equal(approved.arguments.filter.includes("IsClosed eq 'false'"), false);
+  assert.equal(approved.arguments.filter, APPROVED_PR_FILTER);
+  assert.equal(budgetReadBody('2000276450').tool, LIVE_BUDGET);
+  assert.deepEqual(budgetReadBody('2000276450').arguments, { PurchaseRequisition: '2000276450' });
+  assert.equal(acctAssgmtReadBody('2000276450').tool, LIVE_ACCT);
+  assert.match(acctAssgmtReadBody('2000276450').arguments.filter, /2000276450/);
+  const items = poItemReadBody('L001');
+  assert.equal(items.tool, LIVE_PO_ITEM);
+  assert.equal(items.arguments.top, PO_ITEM_TOP);
+  assert.equal(typeof items.arguments.top, 'string');
+  assert.equal(poHeaderReadBody('4500000123').tool, LIVE_PO_HEADER);
+  const terrain = factoryTerrainReadBodies({
+    id: '2000276450',
+    materialGroup: 'L001',
+    poIds: ['4501', '4502', '4503', '4504', '4505', '4506'],
+  });
+  assert.equal(terrain.filter((body) => body.tool === LIVE_PO_HEADER).length, PO_HEADER_CAP);
+  assert.deepEqual(
+    terrain.map((body) => body.tool),
+    [LIVE_PR_ITEM, LIVE_BUDGET, LIVE_ACCT, LIVE_PO_ITEM, LIVE_PO_HEADER, LIVE_PO_HEADER, LIVE_PO_HEADER, LIVE_PO_HEADER, LIVE_PO_HEADER],
+  );
+  for (const body of terrain) {
+    assert.equal(isFactoryWriteTool(body.tool), false);
+  }
+  assert.equal(isFactoryWriteTool('post_A_PurchaseOrder'), true);
+  assert.equal(isFactoryWriteTool('fi_DiscardFromPurchasing'), true);
+  assert.equal(isFactoryWriteTool('fi_EnableForPurchasing'), true);
+});
+
+test('item-shaped PRs compile budget and fund facts and keep the write sealed', () => {
+  const pr = laneFromPreview('pr', 'sap', {
+    ok: true,
+    tool: LIVE_PR_ITEM,
+    columns: [
+      'PurchaseRequisition',
+      'PurchaseRequisitionItem',
+      'PurchaseRequisitionItemText',
+      'MaterialGroup',
+    ],
+    rows: [['2000276450', '10', 'LORX FURNITURE CLEANER - 650 ML - GREEN', 'L001']],
+    row_count: 65833,
+  });
+  assert.equal(pr.rowCount, 1);
+  const selected = selectedPrFromLane(pr);
+  assert.equal(selected.id, '2000276450');
+  assert.equal(selected.materialGroup, 'L001');
+  assert.match(selected.label, /LORX/);
+  const po = laneFromPreview('po', 'hikma', {
+    ok: true,
+    tool: LIVE_PO_HEADER,
+    columns: ['PurchaseOrder', 'PurchaseOrderType', 'Supplier'],
+    rows: [['4500000123', 'ZAPO', '100012']],
+    row_count: 1,
+  });
+  const briefing = withCompileFacts(composeDesk([pr, po], 0), {
+    budget: 'ok',
+    budgetVia: LIVE_BUDGET,
+    fund: '2821',
+    fundscenter: 'FC01',
+    fundVia: LIVE_ACCT,
+  });
+  assert.equal(briefing.facts.find((fact) => fact.id === 'pr')?.value.includes('LORX'), true);
+  assert.equal(briefing.facts.find((fact) => fact.id === 'budget')?.value, 'ok');
+  assert.equal(briefing.facts.find((fact) => fact.id === 'fund')?.value, '2821');
+  assert.equal(briefing.facts.find((fact) => fact.id === 'fundscenter')?.value, 'FC01');
+  assert.equal(briefing.stations.find((station) => station.id === 'write')?.status, 'sealed');
+  assert.deepEqual(budgetOkFromRead({ result: [] }), { ok: true, reason: 'ok' });
+  assert.deepEqual(budgetOkFromRead({ result: [{ Type: 'E', Message: 'over' }] }), {
+    ok: false,
+    reason: 'over',
+  });
+  assert.deepEqual(fundFromRead({ result: [{ Fund: '2821', FundsCenter: 'FC01' }] }), {
+    fund: '2821',
+    fundscenter: 'FC01',
+  });
+  assert.deepEqual(
+    uniquePurchaseOrders({
+      columns: ['PurchaseOrder', 'MaterialGroup'],
+      rows: [
+        ['4501', 'L001'],
+        ['4501', 'L001'],
+        ['4502', 'L001'],
+      ],
+    }),
+    ['4501', '4502'],
+  );
+  const merged = mergeHeaderPreviews([
+    { ok: true, tool: LIVE_PO_HEADER, columns: ['PurchaseOrder', 'Supplier'], rows: [['4501', '100012']] },
+    { ok: true, tool: LIVE_PO_HEADER, columns: ['PurchaseOrder', 'Supplier'], rows: [['4502', '100099']] },
+  ]);
+  assert.equal(merged?.rows.length, 2);
 });
 
 test('asking the factory stays deterministic and never unseals the write', () => {
