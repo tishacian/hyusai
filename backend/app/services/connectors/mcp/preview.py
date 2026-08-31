@@ -22,7 +22,7 @@ _WRITE_NAMES = frozenset(
         "fi_enableforpurchasing",
     }
 )
-_READ_NAMES = frozenset({"fi_validate"})
+_READ_NAMES = frozenset({"fi_validate", "check_budget"})
 _SAFE_OPTIONAL_ARGS = frozenset(
     {"$top", "$skip", "$filter", "$select", "$orderby", "top", "skip", "limit"}
 )
