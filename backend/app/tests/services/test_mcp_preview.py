@@ -48,6 +48,7 @@ def test_classify_kind_uses_live_names_not_pdf_aliases():
     assert mcp_preview.classify_kind("reject_pr") == "write"
     assert mcp_preview.classify_kind("handle_rejection") == "write"
     assert mcp_preview.classify_kind("fi_Validate") == "read"
+    assert mcp_preview.classify_kind("check_budget") == "read"
     assert mcp_preview.classify_kind("fi_DiscardFromPurchasing") == "write"
     assert mcp_preview.classify_kind("fi_EnableForPurchasing") == "write"
     assert not mcp_preview.is_preview_safe({"name": "searchUsersWorkflowTask", "input_schema": {}})
