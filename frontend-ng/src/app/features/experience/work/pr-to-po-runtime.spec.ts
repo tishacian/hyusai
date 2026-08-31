@@ -90,4 +90,8 @@ test('the factory desk starts a cycle through the Experience binding', () => {
   assert.match(board, /\[compact\]="true"/);
   assert.doesNotMatch(board, /navigateByUrl\(factoryChatHref/);
   assert.doesNotMatch(board, /llm-portal|omnirag-llm-portal/);
+  assert.match(board, /justificationReadBody/);
+  assert.match(board, /\/mcp\/servers\/\$\{encodeURIComponent\(JUSTIFICATION_SERVER_ID\)\}\/read/);
+  assert.match(board, /readJustification\(/);
+  assert.doesNotMatch(board, /readJustification[\s\S]{0,400}this\.runtime\.invoke/);
 });

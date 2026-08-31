@@ -809,6 +809,13 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.fact.inbox': 'Tâche d’approbation',
   'experience.pr_to_po.desk.fact.supplier': 'Fournisseur majoritaire',
   'experience.pr_to_po.desk.fact.format': 'Type de commande',
+  'experience.pr_to_po.desk.fact.justification': 'Justification',
+  'experience.pr_to_po.desk.justification.read': 'Lire la justification',
+  'experience.pr_to_po.desk.justification.reading': 'Lecture de la justification…',
+  'experience.pr_to_po.desk.justification.selected': 'Lire la demande retenue',
+  'experience.pr_to_po.desk.justification.empty': 'Aucun texte de justification.',
+  'experience.pr_to_po.desk.justification.failed': 'La justification n’a pas pu être lue.',
+  'experience.pr_to_po.desk.justification.offline': 'Le connecteur MCP n’est pas actif.',
   'experience.pr_to_po.desk.voice.compiled':
     'L’usine a lu {prs} demandes, {tasks} approbations et {pos} commandes. Elle retient {pr}, propose le fournisseur {supplier} et le type {format}. L’écriture SAP reste scellée.',
   'experience.pr_to_po.desk.voice.live':
@@ -1677,6 +1684,13 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.fact.inbox': 'Approval task',
   'experience.pr_to_po.desk.fact.supplier': 'Majority supplier',
   'experience.pr_to_po.desk.fact.format': 'Order type',
+  'experience.pr_to_po.desk.fact.justification': 'Justification',
+  'experience.pr_to_po.desk.justification.read': 'Read justification',
+  'experience.pr_to_po.desk.justification.reading': 'Reading justification…',
+  'experience.pr_to_po.desk.justification.selected': 'Read selected requisition',
+  'experience.pr_to_po.desk.justification.empty': 'No justification text.',
+  'experience.pr_to_po.desk.justification.failed': 'The justification could not be read.',
+  'experience.pr_to_po.desk.justification.offline': 'The MCP connector is not on.',
   'experience.pr_to_po.desk.voice.compiled':
     'The factory read {prs} requisitions, {tasks} approvals and {pos} orders. It keeps {pr}, proposes supplier {supplier} and type {format}. The SAP write stays sealed.',
   'experience.pr_to_po.desk.voice.live':

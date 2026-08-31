@@ -133,7 +133,11 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "task.justification",
                 "Get justification (sap MCP)",
                 "sap_get_justification_v1",
-                description="sap_get_justification_v1 → sap MCP get_justification. Never auto-rejects.",
+                description=(
+                    "sap_get_justification_v1 → sap MCP "
+                    "get_A_PurchaseRequisitionItem_by_key when advertised, "
+                    "else get_justification. Never auto-rejects."
+                ),
                 inputs_map={"pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]}},
                 x=1240,
                 y=80,

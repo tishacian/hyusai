@@ -7,6 +7,7 @@ import { CanonicalApiService, type Run, type System } from '@app/core/canonical-
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { ThinkingOrbComponent } from '@app/shared/cockpit';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
@@ -14,16 +15,22 @@ import { WorkApiService } from './work-api.service';
 import {
   DESK_MCP_LANES,
   FACTORY_ASK_CHIPS,
+  JUSTIFICATION_SERVER_ID,
   askFactory,
   composeDesk,
+  extractJustificationText,
   factoryBriefingParams,
   donutSlices,
   hanaLaneFromPreview,
+  justificationReadBody,
   laneFromPreview,
+  offersSelectedJustification,
   orderCoverage,
   shouldOpenFactoryPortal,
   supplierShares,
   terrainShares,
+  withJustificationFact,
+  type DeskKeyedRead,
   type DeskLane,
   type DeskLaneId,
   type DeskPreview,
@@ -45,7 +52,7 @@ import {
   selector: 'app-pr-to-po-board',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, EmptyStateComponent, ChatPanelComponent],
+  imports: [CommonModule, RouterLink, EmptyStateComponent, ChatPanelComponent, ThinkingOrbComponent],
   styleUrl: './work.scss',
   template: `
     <div
@@ -80,6 +87,35 @@ import {
           >
             {{ terrainLoading() ? i18n.t('experience.pr_to_po.desk.reading') : i18n.t('experience.pr_to_po.desk.read') }}
           </button>
+          <button
+            type="button"
+            class="xp-work-btn"
+            (click)="readJustification()"
+            [disabled]="justificationLoading()"
+          >
+            @if (justificationLoading()) {
+              <ck-thinking-orb
+                state="searching"
+                [size]="20"
+                [label]="i18n.t('experience.pr_to_po.desk.justification.reading')"
+              />
+            }
+            {{
+              justificationLoading()
+                ? i18n.t('experience.pr_to_po.desk.justification.reading')
+                : i18n.t('experience.pr_to_po.desk.justification.read')
+            }}
+          </button>
+          @if (canReadSelected()) {
+            <button
+              type="button"
+              class="xp-work-btn"
+              (click)="readJustification(briefing().selectedPrId)"
+              [disabled]="justificationLoading()"
+            >
+              {{ i18n.t('experience.pr_to_po.desk.justification.selected') }}
+            </button>
+          }
           <button
             type="button"
             class="xp-work-btn"
@@ -229,13 +265,16 @@ import {
           }
         </ol>
 
-        @if (briefing().facts.length) {
+        @if (briefing().facts.length || justificationLoading() || justificationError()) {
           <section class="xp-desk-dossier">
             <h3>{{ i18n.t('experience.pr_to_po.desk.dossier') }}</h3>
             <p>{{ i18n.t('experience.pr_to_po.desk.factory_note') }}</p>
+            @if (justificationError(); as detail) {
+              <p class="xp-desk-note">{{ detail }}</p>
+            }
             <dl>
               @for (fact of briefing().facts; track fact.id) {
-                <div>
+                <div [attr.data-fact]="fact.id">
                   <dt>{{ i18n.t('experience.pr_to_po.desk.fact.' + fact.id) }}</dt>
                   <dd>
                     <strong>{{ fact.value }}</strong>
@@ -469,7 +508,17 @@ export class PrToPoBoardComponent implements OnInit {
     return slug ? { workspace: slug } : {};
   });
   readonly visibleLanes = computed(() => this.lanes());
-  readonly briefing = computed(() => composeDesk(this.lanes(), this.items().length));
+  readonly justificationLoading = signal(false);
+  readonly justificationText = signal('');
+  readonly justificationVia = signal('');
+  readonly justificationError = signal<string | null>(null);
+  readonly briefing = computed(() =>
+    withJustificationFact(
+      composeDesk(this.lanes(), this.items().length),
+      this.justificationText(),
+      this.justificationVia(),
+    ),
+  );
   readonly terrain = computed(() => donutSlices(terrainShares(this.briefing().kpis)));
   readonly suppliers = computed(() => supplierShares(this.lanes()));
   readonly coverage = computed(() => orderCoverage(this.lanes()));
@@ -579,6 +628,40 @@ export class PrToPoBoardComponent implements OnInit {
         this.terrainLoading.set(false);
       },
     });
+  }
+
+  canReadSelected(): boolean {
+    return offersSelectedJustification(this.briefing().selectedPrId);
+  }
+
+  readJustification(prId = ''): void {
+    if (!this.workspace.mcpConnectorEnabled()) {
+      this.justificationError.set(this.i18n.t('experience.pr_to_po.desk.justification.offline'));
+      return;
+    }
+    this.justificationLoading.set(true);
+    this.justificationError.set(null);
+    const body = justificationReadBody(prId);
+    this.api
+      .post<DeskKeyedRead>(`/mcp/servers/${encodeURIComponent(JUSTIFICATION_SERVER_ID)}/read`, body)
+      .subscribe({
+        next: (result) => {
+          const text = (result.text || extractJustificationText(result.result) || '').trim();
+          this.justificationText.set(text);
+          this.justificationVia.set(result.tool || body.tool);
+          this.justificationLoading.set(false);
+          if (!text) {
+            this.justificationError.set(this.i18n.t('experience.pr_to_po.desk.justification.empty'));
+          }
+        },
+        error: (err: { error?: { detail?: unknown } }) => {
+          this.justificationLoading.set(false);
+          this.justificationText.set('');
+          this.justificationError.set(
+            this.previewDetail(err) || this.i18n.t('experience.pr_to_po.desk.justification.failed'),
+          );
+        },
+      });
   }
 
   startRun(): void {

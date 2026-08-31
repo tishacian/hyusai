@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -14,6 +14,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.connectors.mcp import client as mcp_client
 from app.services.connectors.mcp import preview as mcp_preview
+from app.services.connectors.mcp import read as mcp_read
 from app.services.connectors.mcp import service as mcp_service
 from app.services.connectors.mcp.errors import McpError
 
@@ -45,6 +46,11 @@ class McpServerUpsert(BaseModel):
 class McpServersReplace(BaseModel):
     servers: list[McpServerUpsert]
     shared_auth: Optional[McpSharedAuthUpsert] = None
+
+
+class McpReadRequest(BaseModel):
+    tool: str = Field(..., min_length=1, max_length=256)
+    arguments: dict[str, Any] = Field(default_factory=dict)
 
 
 def _require_enabled(workspace: Workspace) -> None:
@@ -160,6 +166,23 @@ async def preview_mcp_server(
     try:
         server = mcp_service.resolve_server(workspace, server_id)
         return mcp_preview.preview_server(server, tool_name=tool)
+    except Exception as exc:  # noqa: BLE001
+        _raise_mcp(exc)
+        raise  # pragma: no cover
+
+
+@router.post("/servers/{server_id}/read")
+async def read_mcp_server(
+    server_id: str,
+    body: McpReadRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+):
+    """Keyed read-only ``tools/call``. Write tools never run. Preview stays keyless."""
+    _require_enabled(workspace)
+    try:
+        server = mcp_service.resolve_server(workspace, server_id)
+        return mcp_read.read_tool(server, tool=body.tool, arguments=body.arguments)
     except Exception as exc:  # noqa: BLE001
         _raise_mcp(exc)
         raise  # pragma: no cover

@@ -1444,13 +1444,26 @@ async def _sap_get_justification_v1(
 ) -> dict[str, Any]:
     if _MCP_NAMED_FORBIDDEN & set(payload):
         raise ValueError("named MCP skills do not accept tool, sql, or server_id")
-    return await _mcp_invoke(
-        payload,
-        ctx,
-        server_id="sap",
-        contract_tool="get_justification",
-        arguments={"pr_id": str(payload.get("pr_id") or "")},
-    )
+    from app.services.connectors.mcp import service as mcp_service
+    from app.services.connectors.mcp.errors import McpError
+    from app.services.connectors.mcp.read import DEFAULT_PR_ITEM, call_justification
+
+    pr_id = str(payload.get("pr_id") or "")
+    item = str(payload.get("PurchaseRequisitionItem") or "").strip() or DEFAULT_PR_ITEM
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if not mcp_service.is_workspace_enabled(workspace):
+            raise ValueError("mcp_unconfigured: MCP connector is not enabled for this workspace")
+        server = mcp_service.resolve_server(workspace, "sap")
+        try:
+            result = call_justification(server, pr_id=pr_id, item=item)
+        except McpError:
+            raise
+        return _mcp_trace(result)
+    finally:
+        if owns_db:
+            db.close()
 
 
 async def _sap_reject_pr_v1(

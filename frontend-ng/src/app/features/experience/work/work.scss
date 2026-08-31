@@ -371,6 +371,12 @@
   gap: 8px;
 }
 
+.xp-work-hitl-actions .xp-work-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .xp-work-error {
   margin: 0 0 12px;
   font-size: 13px;
@@ -683,6 +689,14 @@
   color: var(--nawa-fg-dim);
   font-family: var(--ck-font-mono, ui-monospace, monospace);
   font-size: 10px;
+}
+
+.xp-desk-dossier dl > div[data-fact='justification'] {
+  grid-column: 1 / -1;
+}
+
+.xp-desk-dossier dl > div[data-fact='justification'] dd strong {
+  white-space: pre-wrap;
 }
 
 .xp-desk-raw {

@@ -2,17 +2,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  DEMO_JUSTIFICATION_PR,
+  LIVE_PR_ITEM_BY_KEY,
   askFactory,
   composeDesk,
+  extractJustificationText,
   shouldOpenFactoryPortal,
   donutSlices,
   hanaLaneFromPreview,
   interpretFactoryAsk,
+  justificationReadBody,
   laneFromPreview,
+  offersSelectedJustification,
   orderCoverage,
   pickDeskColumns,
   supplierShares,
   terrainShares,
+  withJustificationFact,
 } from './pr-to-po-desk';
 
 test('prefers business columns over the raw OData left-edge', () => {
@@ -172,6 +178,49 @@ test('the factory compiles a dossier from live SAP columns and keeps the write s
   assert.equal(briefing.stations.find((station) => station.id === 'write')?.status, 'sealed');
   assert.equal(briefing.voiceKey, 'experience.pr_to_po.desk.voice.compiled');
   assert.equal(briefing.voiceParams['format'], 'ZAPO');
+  assert.equal(briefing.selectedPrId, '1000008');
+});
+
+test('justification stays a desk fact and never unseals the write', () => {
+  const pr = laneFromPreview('pr', 'sap', {
+    ok: true,
+    tool: 'get_A_PurchaseRequisitionHeader',
+    columns: ['PurchaseRequisition', 'PurReqnDescription'],
+    rows: [['1000000033', 'Ahmed - Approved By site Petty Cash']],
+    row_count: 1,
+  });
+  const briefing = composeDesk([pr], 0);
+  assert.equal(briefing.selectedPrId, '1000000033');
+  assert.equal(offersSelectedJustification(briefing.selectedPrId), true);
+  assert.equal(offersSelectedJustification(DEMO_JUSTIFICATION_PR), false);
+  assert.deepEqual(justificationReadBody(), {
+    tool: LIVE_PR_ITEM_BY_KEY,
+    arguments: {
+      PurchaseRequisition: DEMO_JUSTIFICATION_PR,
+      PurchaseRequisitionItem: '10',
+      expand: 'to_PurchaseReqnItemText',
+    },
+  });
+  assert.equal(justificationReadBody('1000000033').arguments.PurchaseRequisition, '1000000033');
+  assert.equal(
+    extractJustificationText({
+      data: {
+        to_PurchaseReqnItemText: { results: [{ Note: 'Need 40 warehouse scanners.' }] },
+      },
+    }),
+    'Need 40 warehouse scanners.',
+  );
+  assert.equal(
+    extractJustificationText({ justification: 'Finance laptops are past refresh.' }),
+    'Finance laptops are past refresh.',
+  );
+  const withText = withJustificationFact(
+    briefing,
+    'Need 40 warehouse scanners.',
+    LIVE_PR_ITEM_BY_KEY,
+  );
+  assert.equal(withText.facts.find((fact) => fact.id === 'justification')?.value, 'Need 40 warehouse scanners.');
+  assert.equal(withText.stations.find((station) => station.id === 'write')?.status, 'sealed');
 });
 
 test('charts and coverage stay on the live columns, not invented aliases', () => {
