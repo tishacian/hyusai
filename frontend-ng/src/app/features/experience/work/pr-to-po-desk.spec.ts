@@ -448,6 +448,7 @@ test('asking the factory stays deterministic and never unseals the write', () =>
   assert.equal(shouldOpenFactoryPortal('next'), false);
   assert.equal(shouldOpenFactoryPortal(''), false);
   assert.equal(shouldOpenFactoryPortal('explain the compiled dossier to the buyer'), true);
+  assert.equal(shouldOpenFactoryPortal('explain the compiled brief to the buyer'), true);
 });
 
 test('sealed PO compose is a POST for hikma NB and is never called', () => {

@@ -16,7 +16,7 @@ Hard-reload (`Ctrl+Shift+R`). Compte présentateur `thibaud.ishacian@datategy.ne
 
 | # | Preuve | Où pointer | Phrase |
 |---|---|---|---|
-| 1 | SAP MCP live | Compteurs, stations, **Read selected requisition**, dossier | Vraie PR via `get_A_PurchaseRequisitionItem` / `_by_key`. Tâche `listTaskCollection`. Budget `fi_Validate`. Commandes / fournisseur `get_A_PurchaseOrder*`. Compile `python_recipe_v1`. |
+| 1 | SAP MCP live | Compteurs, stations, **Read selected requisition**, **Compiled brief** | Vraie PR via `get_A_PurchaseRequisitionItem` / `_by_key`. Tâche `listTaskCollection`. Budget `fi_Validate`. Commandes / fournisseur `get_A_PurchaseOrder*`. Compile `python_recipe_v1`. |
 | 2 | Tâche agentique | **Summarise** | `azure_llm_v1` résume la justification live en deux phrases. Rien d’inventé. |
 | 3 | Package POST PO | carte **Draft / Purchase order composed for SAP** | POST · hikma · `post_A_PurchaseOrder` · Send **Sealed**. Type **NB**. `sealed: true`, `called: false`. Client 300 n’a pas de range NB ; ZAPO refusé. Succès = POST composé, pas un create live. |
 | 4 | Nice-to-have | **Ask the factory** / **Open the portal** | Lecture seule. Chip **Write status** → *No. The write station stays sealed.* |
@@ -24,7 +24,7 @@ Hard-reload (`Ctrl+Shift+R`). Compte présentateur `thibaud.ishacian@datategy.ne
 ## Script (3 min)
 
 1. Hard-reload. **PR to PO**. Compteurs + 5 stations. Write **Sealed**.
-2. **Run the factory** → Compile **Done**. Hero du type *Dossier compiled on STICKER WHITE*.
+2. **Run the factory** → Compile **Done**. Hero du type *Brief compiled on STICKER WHITE*.
 3. **Read selected requisition** (preuve 1). Outils nommés sous chaque fait.
 4. **Summarise** (preuve 2).
 5. Carte Draft : « voici le POST ; il n’est pas envoyé » (preuve 3).
