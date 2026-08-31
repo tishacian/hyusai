@@ -121,7 +121,14 @@ export const LIVE_PR_ITEM_BY_KEY = 'get_A_PurchaseRequisitionItem_by_key';
 export const DEMO_JUSTIFICATION_PR = '2000276450';
 export const DEMO_JUSTIFICATION_ITEM = '10';
 export const ITEM_TEXT_EXPAND = 'to_PurchaseReqnItemText';
-const JUSTIFICATION_TEXT_KEYS = ['justification', 'Note', 'Text', 'PlainLongText'] as const;
+const JUSTIFICATION_TEXT_KEYS = [
+  'justification',
+  'Note',
+  'Text',
+  'PlainLongText',
+  'NoteDescription',
+  'PurchaseRequisitionItemText',
+] as const;
 
 const PREFERRED_COLUMNS: Record<DeskLaneId, readonly string[]> = {
   pr: [
