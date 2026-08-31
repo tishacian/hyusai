@@ -5044,3 +5044,36 @@ bureau (plus de tuiles 1–4 / Success criteria / *Can we write*).
 
 Pointeur aussi dans `docs/agentium-release-process.md` §12.
 
+## Itération du 31/08 — compose BAPI ZLPO scellé, déployée sur `34731192`
+
+GO land + deploy depuis un Cloud Agent, branche `demo/agentic`.
+`origin/demo/agentic` est passé `cd40fe33` →
+`347311924faba4fc6686a05c3318cb5d2415fa2a`. Aucune migration.
+Le bureau compose un package `bapi_po` / `BAPI_PO_CREATE1` type **ZLPO**
+depuis les commandes les plus récentes de l’établissement (plus de
+majorité groupe-matériel, plus de type NB, plus de TESTRUN). L’écriture
+reste scellée : pas de `tools/call` live.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n`, `check:ui-chrome`, `test:unit` (1364 verts), `build:prod` verts ; pytest MCP/flow scoped verts |
+| Push | `demo/agentic` en fast-forward `cd40fe33` → `34731192` |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | `cd40fe33` → `347311924faba4fc6686a05c3318cb5d2415fa2a` ff-only, porcelain vide |
+| Build | trois images `agentium-{backend,worker,frontend}:347311924fab`, label 40-hex identique |
+| Dump / migrate | sautés — pas de nouvelle révision Alembic |
+| `storage-check` | sortie 0 |
+| `up` | cinq services applicatifs recréés ; infra intouchée |
+| `build-info` | `revision: 347311924faba4fc6686a05c3318cb5d2415fa2a`, `revision_verified: true` |
+| Bundle | `BAPI_PO_CREATE1`, `bapi_po`, `ZLPO`, *plant supplier*, *Compiled brief* dans les chunks JS servis |
+| Alias | tag mobile `demo-agentic` **non déplacé** (reste sur l’image `400f1bdf452c`) |
+| Smoke API | `hikma` `post_A_PurchaseOrder` → 400 `not a read` ; `bapi_po` `/read` → 400 `mcp_unconfigured` (connecteur non attaché — le package compose le `server_id`, il n’appelle pas) |
+| Smoke desk | hard-reload EN ; KPI 50/2/20/0 ; Write **Sealed** ; résumé `azure_llm_v1` ; brouillon `bapi_po` `BAPI_PO_CREATE1` `sealed: true` `called: false` `testrun: false` type **ZLPO** ; `PURCH_ORG` = `COMP_CODE` = `1000` ; fournisseur `1000000018` via commande la plus récente ; PR `2000276449` / `00020` PAPER BAG ; chip *Write status* = No |
+| Seed / DAG | inchangés — seed **non** relancé |
+| Flags | `sap_hana_connector` reste off |
+| Canaris carakai | non rejoués dans cette fenêtre |
+| Rollback | `AGENTIUM_IMAGE_TAG=cd40fe337285` puis `up` ; aucun schéma à reculer |
+| Playbook | SHA / images / exemple live réelignés sur `34731192` (PAPER BAG, 50/2/20, BAPI ZLPO) |
+

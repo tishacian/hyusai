@@ -2,7 +2,7 @@
 
 **Audience:** Fayçal (handout) and the presenter.  
 **Language of the desk:** English.  
-**Last verified:** 31 August 2026. English desk copy uses **brief** (not dossier). Live VM still serves `cd40fe33` until this slice is switched.
+**Last verified:** 31 August 2026 on live SHA `34731192`. English desk copy uses **brief** (not dossier). Hard-reload the tab (`Ctrl+Shift+R` / `Cmd+Shift+R`).
 
 | Give this | To whom |
 |---|---|
@@ -28,7 +28,7 @@ Hard-reload (`Ctrl+Shift+R` / `Cmd+Shift+R`) so the browser does not keep an old
 | Eyebrow | NAWA · AI factory |
 | Workspace | `nawa` |
 | Login (presenter) | `thibaud.ishacian@datategy.net` |
-| Live SHA | `cd40fe337285058120ec7236d587b1853ca72c42` |
+| Live SHA | `347311924faba4fc6686a05c3318cb5d2415fa2a` |
 | System | `PR to PO` (`28345b5a-0824-4f2b-a420-ebe0aa7cd34f`) |
 | Binding | `procurement.pr_to_po.run` → published v2 (`b9217063-b512-48e8-a444-835867a3de76`) |
 | SAP | Live Hikma MCP. **No HANA.** |
@@ -107,23 +107,23 @@ Stay on get-PR / get-PO questions. Older summarise prompts in the portal thread 
 
 ---
 
-## 5. Live example (31 August 2026, SHA `cd40fe33`)
+## 5. Live example (31 August 2026, SHA `34731192`)
 
 | Field | Value |
 |---|---|
-| Headline | Brief compiled on **STICKER WHITE** — plant supplier from the most recent plant PO. |
-| Voice | The factory read open ZNPR requisitions, approvals and plant orders. It keeps STICKER WHITE, proposes the most recent plant supplier and type **ZLPO**. The SAP write stays sealed. |
-| Counts | Requisitions 50 · Tasks 2 · Orders 5 · Receipts 0 |
+| Headline | Brief compiled on **PAPER BAG** — plant supplier `1000000018`. |
+| Voice | The factory read open ZNPR requisitions, approvals and plant orders. It keeps PAPER BAG, proposes the most recent plant supplier and type **ZLPO**. The SAP write stays sealed. |
+| Counts | Requisitions 50 · Tasks 2 · Orders 20 · Receipts 0 |
 | Stations | Connect **Done** · Read **Done** (`get_A_PurchaseRequisitionItem`) · Compile **Done** (`python_recipe_v1`) · Decide **Ready** · Write **Sealed** |
-| Selected requisition | STICKER WHITE via `get_A_PurchaseRequisitionItem` |
+| Selected requisition | PAPER BAG via `get_A_PurchaseRequisitionItem` |
 | Approval task | Release TR transaction 1000008 56B 200 via `listTaskCollection` |
-| PR id (in the POST) | `2000276449` item 10 |
-| Justification | STICKER WHITE via `get_A_PurchaseRequisitionItem_by_key` |
-| Summary | *The purchase requisition is for white stickers. No additional justification details are provided in the text.* via `azure_llm_v1` |
-| Supplier | Most recent `get_A_PurchaseOrder` on purch org = plant (not the material-group majority) |
+| PR id (in the POST) | `2000276449` item `00020` |
+| Justification | STICKER WHITE via `get_A_PurchaseRequisitionItem_by_key` (item text on this PR is not always the selected line) |
+| Summary | *The request is to purchase white stickers. No further justification details are provided in the text.* via `azure_llm_v1` |
+| Supplier | Most recent `get_A_PurchaseOrder` on purch org = plant (`1000000018`). Not the material-group majority. |
 | Order type | **ZLPO** for ZNPR. Never NB. Do not take `ZSVO` from plant history. |
 | Budget | ok via `fi_Validate` |
-| POST | `bapi_po` `BAPI_PO_CREATE1`, `DOC_TYPE` **ZLPO**, `PURCH_ORG` = `COMP_CODE` = plant, currency from the PR, `INCOTERMS2L` Doha, `sealed: true`, `called: false`, `testrun: false` |
+| POST | `bapi_po` `BAPI_PO_CREATE1`, `DOC_TYPE` **ZLPO**, `PURCH_ORG` = `COMP_CODE` = `1000`, `CURRENCY` QAR, `INCOTERMS2L` Doha, `DELIVERY_DATE` `20260914`, `sealed: true`, `called: false`, `testrun: false` |
 
 **Ask → Write status:** *No. The write station stays sealed. A cycle can compile a brief; SAP is not written until you decide.*
 
@@ -208,8 +208,8 @@ Removed from this desk: Success criteria, numbered beats 1–4, Shown / Play / W
 | Board | `frontend-ng/src/app/features/experience/work/pr-to-po-board.component.ts` |
 | Runtime | `frontend-ng/src/app/features/experience/work/pr-to-po-desk.ts` |
 | Copy | `frontend-ng/src/app/core/i18n/experience.dict.ts` |
-| Images | `agentium-{backend,worker,frontend}:cd40fe337285` |
-| Rollback of this desk slice | `AGENTIUM_IMAGE_TAG=3eb72f95f6b6` |
+| Images | `agentium-{backend,worker,frontend}:347311924fab` |
+| Rollback of this desk slice | `AGENTIUM_IMAGE_TAG=cd40fe337285` |
 | Writes via `/read` | HTTP 400 `not a read` |
 | Presenter card (FR) | `docs/ops/nawa-pr-to-po-live-demo-presenter-fr.md` |
 | Illustrated Word | `docs/ops/nawa-pr-to-po-live-demo-playbook.docx` |

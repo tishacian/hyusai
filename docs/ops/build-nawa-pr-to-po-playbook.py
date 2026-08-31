@@ -15,7 +15,7 @@ OUT = HERE / "nawa-pr-to-po-live-demo-playbook.docx"
 ART = Path("/opt/cursor/artifacts/nawa_pr_to_po_live_demo_playbook.docx")
 FIGS = HERE / "nawa-pr-to-po-playbook-figures"
 
-SHA = "cd40fe337285058120ec7236d587b1853ca72c42"
+SHA = "347311924faba4fc6686a05c3318cb5d2415fa2a"
 URL = "https://agentium.papai.ai/work/pr-to-po?workspace=nawa&lang=en"
 
 
@@ -230,42 +230,43 @@ def build() -> Path:
     )
     shot(doc, "portal.png", "Figure 5 — Factory portal on the live reads. Write stays sealed.")
 
-    heading(doc, "Live example (31 August 2026, SHA cd40fe33)", 2)
+    heading(doc, "Live example (31 August 2026, SHA 34731192)", 2)
     table(
         doc,
         [
             ["Field", "Value"],
             [
                 "Headline",
-                "Brief compiled on STICKER WHITE — plant supplier from the most recent plant PO.",
+                "Brief compiled on PAPER BAG — plant supplier 1000000018.",
             ],
-            ["Counts", "Requisitions 50 · Tasks 2 · Orders 5 · Receipts 0"],
+            ["Counts", "Requisitions 50 · Tasks 2 · Orders 20 · Receipts 0"],
             [
                 "Stations",
                 "Connect Done · Read Done (get_A_PurchaseRequisitionItem) · "
                 "Compile Done (python_recipe_v1) · Decide Ready · Write Sealed",
             ],
-            ["Selected requisition", "STICKER WHITE via get_A_PurchaseRequisitionItem"],
+            ["Selected requisition", "PAPER BAG via get_A_PurchaseRequisitionItem"],
             [
                 "Approval task",
                 "Release TR transaction 1000008 56B 200 via listTaskCollection",
             ],
-            ["PR in the POST", "2000276449 item 10"],
+            ["PR in the POST", "2000276449 item 00020"],
             [
                 "Justification",
-                "STICKER WHITE via get_A_PurchaseRequisitionItem_by_key",
+                "STICKER WHITE via get_A_PurchaseRequisitionItem_by_key "
+                "(item text on this PR is not always the selected line)",
             ],
             [
                 "Summary",
-                "The purchase requisition is for white stickers. "
-                "No additional justification details are provided in the text. via azure_llm_v1",
+                "The request is to purchase white stickers. "
+                "No further justification details are provided in the text. via azure_llm_v1",
             ],
-            ["Supplier / type", "Most recent plant PO / ZLPO (never NB, never ZSVO from history)"],
+            ["Supplier / type", "Most recent plant PO 1000000018 / ZLPO (never NB, never ZSVO from history)"],
             ["Budget", "ok via fi_Validate"],
             [
                 "POST",
                 "bapi_po BAPI_PO_CREATE1, DOC_TYPE ZLPO, "
-                "PURCH_ORG = plant, sealed true, called false, testrun false",
+                "PURCH_ORG = COMP_CODE = 1000, sealed true, called false, testrun false",
             ],
         ],
     )
@@ -287,7 +288,7 @@ def build() -> Path:
             ["Brief", "Compiled brief / Compiled from the live SAP reads."],
             ["Brief actions", "Read selected requisition · Summarise"],
             ["Draft card", "Draft · Purchase order composed for SAP"],
-            ["Ask chips", "Majority supplier · Orders read · Next step · Write status"],
+            ["Ask chips", "Plant supplier · Orders read · Next step · Write status"],
             ["Portal", "Open the portal · Factory portal"],
             ["Write station", "Sealed"],
         ],
@@ -334,8 +335,8 @@ def build() -> Path:
 
     heading(doc, "Technical anchors", 2)
     bullet(doc, "Desk /work/pr-to-po · Binding procurement.pr_to_po.run · System 28345b5a-…")
-    bullet(doc, "Images agentium-{backend,worker,frontend}:cd40fe337285")
-    bullet(doc, "Rollback of this desk slice: AGENTIUM_IMAGE_TAG=3eb72f95f6b6")
+    bullet(doc, "Images agentium-{backend,worker,frontend}:347311924fab")
+    bullet(doc, "Rollback of this desk slice: AGENTIUM_IMAGE_TAG=cd40fe337285")
     bullet(doc, "Writes via /read → HTTP 400 “not a read”.")
     bullet(doc, "Markdown source: docs/ops/nawa-pr-to-po-live-demo-playbook.md")
     bullet(doc, "Presenter card (FR): docs/ops/nawa-pr-to-po-live-demo-presenter-fr.md")
