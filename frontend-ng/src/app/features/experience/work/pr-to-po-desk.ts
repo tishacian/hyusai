@@ -47,9 +47,36 @@ export type FactoryFactId =
   | 'supplier'
   | 'format'
   | 'justification'
+  | 'summary'
   | 'budget'
   | 'fund'
   | 'fundscenter';
+
+export type DemoBeatId = 'read' | 'summarise' | 'post' | 'ask';
+export type DemoBeatState = 'done' | 'ready' | 'wait';
+
+export interface DeskPrItemFields {
+  pr_id: string;
+  item: string;
+  material: string;
+  materialGroup: string;
+  plant: string;
+  quantity: string;
+  unit: string;
+  net_price: string;
+  currency: string;
+  label: string;
+}
+
+export interface SealedPoPost {
+  method: 'POST';
+  server_id: 'hikma';
+  tool: 'post_A_PurchaseOrder';
+  sealed: true;
+  called: false;
+  sap_block: string;
+  requestBody: Record<string, unknown>;
+}
 
 export interface DeskCompileFacts {
   budget?: string;
@@ -142,6 +169,9 @@ export const DESK_MCP_LANES: ReadonlyArray<{ id: Exclude<DeskLaneId, 'hana'>; se
   { id: 'gr', serverId: 'sap_gr' },
 ];
 
+export const LIVE_CREATE_PO = 'post_A_PurchaseOrder';
+export const SAP_CREATE_BLOCK =
+  'The API accepts only document type NB; client 300 has no NB number range and ZAPO is not allowed through the API';
 export const JUSTIFICATION_SERVER_ID = 'sap';
 export const LIVE_PR_ITEM = 'get_A_PurchaseRequisitionItem';
 export const LIVE_PR_ITEM_BY_KEY = 'get_A_PurchaseRequisitionItem_by_key';
@@ -784,6 +814,125 @@ export function withJustificationFact(
   const facts = briefing.facts.filter((fact) => fact.id !== 'justification');
   if (value) facts.push({ id: 'justification', value, via });
   return { ...briefing, facts };
+}
+
+export function withSummaryFact(briefing: DeskBriefing, text: string, via = 'azure_llm_v1'): DeskBriefing {
+  const value = text.trim();
+  const facts = briefing.facts.filter((fact) => fact.id !== 'summary');
+  if (value) facts.push({ id: 'summary', value, via });
+  return { ...briefing, facts };
+}
+
+function previewCell(
+  columns: readonly string[],
+  row: readonly string[],
+  wanted: readonly string[],
+): string {
+  const index = new Map(columns.map((name, at) => [name.toLowerCase(), at]));
+  for (const name of wanted) {
+    const at = index.get(name.toLowerCase());
+    if (at == null) continue;
+    const value = String(row[at] ?? '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+export function prItemFieldsFromPreview(preview: DeskPreview | null): DeskPrItemFields {
+  const empty: DeskPrItemFields = {
+    pr_id: '',
+    item: '',
+    material: '',
+    materialGroup: '',
+    plant: '',
+    quantity: '',
+    unit: '',
+    net_price: '',
+    currency: '',
+    label: '',
+  };
+  const columns = preview?.columns || [];
+  const rows = preview?.rows || [];
+  if (!columns.length || !rows.length) return empty;
+  let row = rows[0];
+  for (const candidate of rows) {
+    const label = previewCell(columns, candidate, ['PurchaseRequisitionItemText', 'PurReqnDescription', 'title']);
+    if (label) {
+      row = candidate;
+      break;
+    }
+  }
+  return {
+    pr_id: previewCell(columns, row, ['PurchaseRequisition', 'pr_id']),
+    item: previewCell(columns, row, ['PurchaseRequisitionItem']) || '10',
+    material: previewCell(columns, row, ['Material']),
+    materialGroup: previewCell(columns, row, ['MaterialGroup', 'pr_type']),
+    plant: previewCell(columns, row, ['Plant']) || '1000',
+    quantity: previewCell(columns, row, ['RequestedQuantity']) || '1',
+    unit: previewCell(columns, row, ['BaseUnit']) || 'EA',
+    net_price: previewCell(columns, row, ['PurchaseRequisitionPrice']) || '0.00',
+    currency: previewCell(columns, row, ['PurReqnItemCurrency', 'DocumentCurrency']) || 'QAR',
+    label: previewCell(columns, row, ['PurchaseRequisitionItemText', 'PurReqnDescription', 'title']),
+  };
+}
+
+export function composeSealedPoPost(fields: DeskPrItemFields, supplier: string): SealedPoPost | null {
+  const prId = fields.pr_id.trim();
+  const vendor = String(supplier || '').trim();
+  if (!prId || !vendor) return null;
+  const item = fields.item.trim() || '10';
+  return {
+    method: 'POST',
+    server_id: 'hikma',
+    tool: LIVE_CREATE_PO,
+    sealed: true,
+    called: false,
+    sap_block: SAP_CREATE_BLOCK,
+    requestBody: {
+      PurchaseOrder: '',
+      CompanyCode: '1000',
+      PurchaseOrderType: 'NB',
+      PurchasingOrganization: 'CPO',
+      PurchasingGroup: '351',
+      Supplier: vendor,
+      DocumentCurrency: fields.currency || 'QAR',
+      PaymentTerms: 'Z090',
+      IncotermsClassification: 'DAP',
+      to_PurchaseOrderItem: [
+        {
+          PurchaseOrder: '',
+          PurchaseOrderItem: item,
+          PurchaseOrderItemCategory: '0',
+          PurchaseRequisition: prId,
+          PurchaseRequisitionItem: item,
+          Material: fields.material,
+          Plant: fields.plant || '1000',
+          StorageLocation: '1000',
+          OrderQuantity: fields.quantity || '1',
+          PurchaseOrderQuantityUnit: fields.unit || 'EA',
+          NetPriceAmount: fields.net_price || '0.00',
+          DocumentCurrency: fields.currency || 'QAR',
+          RequisitionerName: 'AGENT',
+        },
+      ],
+    },
+  };
+}
+
+export function demoBeatStates(input: {
+  livePr: boolean;
+  livePo: boolean;
+  justification: string;
+  summary: string;
+  postReady: boolean;
+  asked: boolean;
+}): Record<DemoBeatId, DemoBeatState> {
+  return {
+    read: input.livePr && input.livePo ? 'done' : input.livePr ? 'ready' : 'wait',
+    summarise: input.summary.trim() ? 'done' : input.justification.trim() ? 'ready' : 'wait',
+    post: input.postReady ? 'done' : 'wait',
+    ask: input.asked ? 'done' : input.livePr ? 'ready' : 'wait',
+  };
 }
 
 export function withCompileFacts(briefing: DeskBriefing, extras: DeskCompileFacts): DeskBriefing {
