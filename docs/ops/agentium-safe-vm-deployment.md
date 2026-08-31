@@ -4964,3 +4964,35 @@ Playbook opérateur EN illustré :
 | Canaris carakai | non rejoués dans cette fenêtre |
 | Rollback | `AGENTIUM_IMAGE_TAG=38c942896752` puis `up` ; aucun schéma à reculer |
 
+## Itération du 31/08 — polish quatre temps + playbook, déployée sur `3eb72f95`
+
+GO land + deploy depuis un Cloud Agent, branche `demo/agentic` (pas de
+branche `cursor/*`). `origin/demo/agentic` est passé `d46e6bf1` →
+`a05af224` (desk : un scroll, résumé auto, POST scellé) puis
+`3eb72f95f6b6b778e039ea5cab215f0d19c6d47f` (playbook d46e + journal).
+Aucune migration. Le desk joue les quatre preuves Fayçal sur une page.
+Le playbook opérateur EN illustré
+`docs/ops/nawa-pr-to-po-live-demo-playbook.docx` est réaligné sur ce SHA
+(figures live4, rollback `d46e6bf1a12d`).
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | déjà verts sur `a05af224` (`check:i18n`, `check:ui-chrome`, `test:unit` 1361, `build:prod`) ; ce SHA docs ne les rejoue pas |
+| Push | `demo/agentic` en fast-forward `d46e6bf1` → `3eb72f95` |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | `d46e6bf1` → `3eb72f95f6b6b778e039ea5cab215f0d19c6d47f` ff-only, porcelain vide |
+| Build | trois images `agentium-{backend,worker,frontend}:3eb72f95f6b6`, label 40-hex identique ; conteneurs créés `2026-08-31T09:28:12Z` |
+| Dump / migrate | sautés — pas de nouvelle révision Alembic |
+| `up` | cinq services applicatifs recréés ; infra intouchée |
+| `build-info` | `revision: 3eb72f95f6b6b778e039ea5cab215f0d19c6d47f`, `revision_verified: true` |
+| Bundle | `Success criteria`, `Compose the POST`, `Justification summary`, `post_A_PurchaseOrder` dans le JS servi |
+| Alias | tag mobile `demo-agentic` **non déplacé** (reste `d14cd3a9` / `f8a99caa` / `bc950852`) |
+| Smoke API | `get_A_PurchaseRequisitionItem` 200 (outil exact) ; `get_A_PurchaseRequisitionItem_by_key` 200 texte `STICKER WHITE` ; `fi_Validate` 200 ; `get_A_PurReqnAcctAssgmt` 200 (0 ligne sur cette PR) ; hikma `get_A_PurchaseOrder` / `get_A_PurchaseOrderItem` 200 ; writes `post_A` / `fi_Discard` / `fi_Enable` → 400 `not a read` |
+| Smoke desk | quatre beats `done` après lecture live + résumé `azure_llm_v1` ; POST `hikma` `post_A_PurchaseOrder` `sealed: true` `called: false` type `NB` fournisseur `1000001737` PR `2000276449` ; chip *Can we write* = No ; portail *Read only. Answer with get PR and get PO tools.* |
+| Seed / DAG | inchangés — Système `28345b5a-…`, liaison `procurement.pr_to_po.run` sur v2 `b9217063-…` ; seed **non** relancé |
+| Flags | `mcp_connector`, `experience_v1`, `flow_workbench_v1` déjà on ; `sap_hana_connector` reste off |
+| Canaris carakai | non rejoués dans cette fenêtre |
+| Rollback | `AGENTIUM_IMAGE_TAG=d46e6bf1a12d` puis `up` ; aucun schéma à reculer |
+
