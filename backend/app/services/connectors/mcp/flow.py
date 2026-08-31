@@ -181,10 +181,12 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "task.hikma",
                 "List POs by type (hikma MCP)",
                 "hikma_list_pos_by_type_v1",
-                description="hikma_list_pos_by_type_v1 → hikma get_A_PurchaseOrderItem + capped get_A_PurchaseOrder when advertised, else list_pos_by_type.",
+                description="hikma_list_pos_by_type_v1 → plant get_A_PurchaseOrder for ZNPR, else get_A_PurchaseOrderItem + capped headers, else list_pos_by_type.",
                 inputs_map={
                     "MaterialGroup": {"node_id": "task.select_pr", "path": ["MaterialGroup"]},
                     "pr_type": {"node_id": "task.select_pr", "path": ["pr_type"]},
+                    "Plant": {"node_id": "task.select_pr", "path": ["Plant"]},
+                    "pr": {"node_id": "task.select_pr", "path": ["pr"]},
                 },
                 x=1720,
                 y=80,
@@ -260,8 +262,8 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "config": {
                     "prompt": (
                         "Approve this compiled purchase-order package? "
-                        "SAP write stays sealed. The next node composes post_A_PurchaseOrder "
-                        "and does not call it."
+                        "SAP write stays sealed. The next node composes BAPI_PO_CREATE1 "
+                        "type ZLPO and does not call it."
                     ),
                     "prompt_kind": "approve_write",
                     "approvers": ["operator", "procurement"],
@@ -303,9 +305,9 @@ def pr_to_po_flow() -> dict[str, Any]:
             },
             _task(
                 "task.create_po",
-                "Compose PO (hikma, sealed)",
+                "Compose PO (BAPI, sealed)",
                 "sap_create_po_v1",
-                description="sap_create_po_v1 composes hikma post_A_PurchaseOrder. Write stays sealed. No tools/call.",
+                description="sap_create_po_v1 composes bapi_po BAPI_PO_CREATE1 type ZLPO. Write stays sealed. No tools/call.",
                 inputs_map={
                     "pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]},
                     "PurchaseRequisitionItem": {
@@ -313,8 +315,10 @@ def pr_to_po_flow() -> dict[str, Any]:
                         "path": ["PurchaseRequisitionItem"],
                     },
                     "pr": {"node_id": "task.select_pr", "path": ["pr"]},
+                    "pr_type": {"node_id": "task.select_pr", "path": ["pr_type"]},
                     "supplier": {"node_id": "task.majority", "path": ["supplier"]},
                     "format": {"node_id": "task.majority", "path": ["format"]},
+                    "proposed_po": {"node_id": "task.majority", "path": ["proposed_po"]},
                     "amount": {"node_id": "task.select_pr", "path": ["pr", "amount"]},
                 },
                 x=3160,

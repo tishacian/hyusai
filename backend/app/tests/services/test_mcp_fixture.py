@@ -11,7 +11,14 @@ from app.services.connectors.mcp import client as mcp_client
 from app.services.connectors.mcp.contract import contract_gap
 from app.services.connectors.mcp.errors import McpToolUnknown, McpUnreachable
 from app.services.connectors.mcp.fixture import STATE, handle_jsonrpc, serve
-from app.services.connectors.mcp.poc import majority_supplier_format, select_next_pr
+from datetime import date
+
+from app.services.connectors.mcp.poc import (
+    build_bapi_po_payload,
+    majority_supplier_format,
+    override_delivery_date,
+    select_next_pr,
+)
 
 
 @contextmanager
@@ -136,3 +143,47 @@ def test_select_next_pr_pins_or_takes_first():
     assert item["pr_id"] == "2000276450"
     assert item["PurchaseRequisitionItem"] == "20"
     assert item["MaterialGroup"] == "L001"
+    assert item["Plant"] == ""
+    consumed = select_next_pr(
+        {
+            "prs": [
+                {
+                    "PurchaseRequisition": "2000276581",
+                    "RequestedQuantity": "1",
+                    "OrderedQuantity": "1",
+                },
+                {
+                    "PurchaseRequisition": "2000276449",
+                    "RequestedQuantity": "12",
+                    "OrderedQuantity": "0",
+                    "Plant": "1000",
+                },
+            ]
+        }
+    )
+    assert consumed["pr_id"] == "2000276449"
+    assert consumed["Plant"] == "1000"
+
+
+def test_bapi_payload_uses_plant_zlpo_and_overrides_past_date():
+    assert override_delivery_date("2026-07-15", date(2026, 8, 22)) == "20260907"
+    body = build_bapi_po_payload(
+        pr_id="2000276449",
+        pr_item="20",
+        supplier="1000000018",
+        plant="1000",
+        currency="QAR",
+        net_price="4.50",
+        delivery_date="2026-07-15",
+        today=date(2026, 8, 22),
+    )
+    header = body["tables"]["POHEADER"]
+    assert header["DOC_TYPE"] == "ZLPO"
+    assert header["PURCH_ORG"] == header["COMP_CODE"] == "1000"
+    assert header["INCOTERMS2L"] == "Doha"
+    assert "DOC_DATE" not in header
+    assert "TESTRUN" not in body
+    assert "POACCOUNT" not in body["tables"]
+    assert body["tables"]["POITEM"][0]["PREQ_ITEM"] == "00020"
+    assert body["tables"]["POITEM"][0]["PO_ITEM"] == "00010"
+    assert body["tables"]["POSCHEDULE"][0]["DELIVERY_DATE"] == "20260907"

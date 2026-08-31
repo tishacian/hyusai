@@ -14,6 +14,9 @@ test('classifies live SAP names as read or write without inventing aliases', () 
   assert.equal(classifyMcpToolKind('post_A_PurchaseOrder'), 'write');
   assert.equal(classifyMcpToolKind('create_po'), 'write');
   assert.equal(classifyMcpToolKind('reject_pr'), 'write');
+  assert.equal(classifyMcpToolKind('BAPI_PO_CREATE1'), 'write');
+  assert.equal(classifyMcpToolKind('BAPI_TRANSACTION_COMMIT'), 'write');
+  assert.equal(classifyMcpToolKind('BAPI_TRANSACTION_ROLLBACK'), 'write');
 });
 
 test('humanizes OData and custom-field names for the catalog', () => {

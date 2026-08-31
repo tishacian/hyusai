@@ -94,8 +94,9 @@ test('the factory desk starts a cycle through the Experience binding', () => {
   assert.match(board, /approvedPrItemReadBody/);
   assert.match(board, /budgetReadBody/);
   assert.match(board, /acctAssgmtReadBody/);
-  assert.match(board, /poItemReadBody/);
-  assert.match(board, /poHeaderReadBody/);
+  assert.match(board, /recentPosByPlantReadBody/);
+  assert.doesNotMatch(board, /poItemReadBody/);
+  assert.doesNotMatch(board, /poHeaderReadBody/);
   assert.match(board, /\/mcp\/servers\/\$\{encodeURIComponent\(JUSTIFICATION_SERVER_ID\)\}\/read/);
   assert.match(board, /\/mcp\/servers\/sap\/read/);
   assert.match(board, /\/mcp\/servers\/hikma\/read/);
@@ -103,6 +104,7 @@ test('the factory desk starts a cycle through the Experience binding', () => {
   assert.match(board, /readJustification\(/);
   assert.doesNotMatch(board, /readJustification[\s\S]{0,400}this\.runtime\.invoke/);
   assert.doesNotMatch(board, /post_A_PurchaseOrder|fi_DiscardFromPurchasing|fi_EnableForPurchasing/);
+  assert.doesNotMatch(board, /BAPI_PO_CREATE1|BAPI_TRANSACTION_COMMIT|BAPI_TRANSACTION_ROLLBACK/);
   assert.doesNotMatch(board, /\/mcp\/servers\/sap\/preview/);
   assert.doesNotMatch(board, /\/mcp\/servers\/hikma\/preview/);
 });

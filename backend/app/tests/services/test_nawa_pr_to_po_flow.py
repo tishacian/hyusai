@@ -327,6 +327,49 @@ def test_format_dossier_helper_exposes_the_training_keys() -> None:
     assert dossier["summary_prompt"]
 
 
+def test_znpr_uses_most_recent_plant_po_and_zlpo() -> None:
+    compiled = majority_supplier_format(
+        {
+            "pos": [
+                {
+                    "Supplier": "1000000018",
+                    "PurchaseOrderType": "ZSVO",
+                    "PurchasingGroup": "013",
+                    "PaymentTerms": "ZAPS",
+                    "IncotermsClassification": "DDP",
+                },
+                {
+                    "Supplier": "1000000661",
+                    "PurchaseOrderType": "ZLPO",
+                    "PurchasingGroup": "013",
+                    "PaymentTerms": "ZAPS",
+                    "IncotermsClassification": "DDP",
+                },
+                {
+                    "Supplier": "1000000661",
+                    "PurchaseOrderType": "ZLPO",
+                    "PurchasingGroup": "013",
+                    "PaymentTerms": "ZAPS",
+                    "IncotermsClassification": "DDP",
+                },
+            ],
+            "pr": {
+                "PurchaseRequisition": "2000276449",
+                "Plant": "1000",
+                "PurReqnItemCurrency": "SYP",
+                "PurchaseRequisitionType": "ZNPR",
+            },
+            "pr_id": "2000276449",
+            "pr_type": "ZNPR",
+        }
+    )
+    assert compiled["supplier"] == "1000000018"
+    assert compiled["format"] == "ZLPO"
+    assert compiled["proposed_po"]["currency"] == "SYP"
+    assert compiled["proposed_po"]["plant"] == "1000"
+    assert compiled["purch_group"] == "013"
+
+
 @pytest.mark.asyncio
 async def test_over_budget_rejects_without_hitl(db_session, monkeypatch):
     skills = _registry(budget_ok=False, listed=[PR_4401, PR_4402])

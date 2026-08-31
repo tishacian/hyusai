@@ -783,7 +783,7 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.headline.live':
     '{prs} demandes, {tasks} approbations, {pos} commandes lues à l’instant.',
   'experience.pr_to_po.desk.headline.compiled':
-    'Dossier compilé sur {pr} — fournisseur majoritaire {supplier}.',
+    'Dossier compilé sur {pr} — fournisseur établissement {supplier}.',
   'experience.pr_to_po.desk.next.decide':
     'Un dossier attend votre avis. Rien n’est écrit dans SAP avant.',
   'experience.pr_to_po.desk.next.review':
@@ -806,7 +806,7 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.raw': 'Matière première',
   'experience.pr_to_po.desk.fact.pr': 'Demande retenue',
   'experience.pr_to_po.desk.fact.inbox': 'Tâche d’approbation',
-  'experience.pr_to_po.desk.fact.supplier': 'Fournisseur majoritaire',
+  'experience.pr_to_po.desk.fact.supplier': 'Fournisseur établissement',
   'experience.pr_to_po.desk.fact.format': 'Type de commande',
   'experience.pr_to_po.desk.fact.justification': 'Justification',
   'experience.pr_to_po.desk.fact.summary': 'Justification résumée',
@@ -828,7 +828,7 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.post.tool': 'Outil',
   'experience.pr_to_po.desk.post.status': 'Envoi',
   'experience.pr_to_po.desk.post.block':
-    'Le client 300 n’a pas de plage NB. L’API refuse ZAPO.',
+    'L’écriture reste scellée. Le chemin live est BAPI_PO_CREATE1 type ZLPO puis BAPI_TRANSACTION_COMMIT. TESTRUN est interdit.',
   'experience.pr_to_po.desk.justification.read': 'Lire la justification',
   'experience.pr_to_po.desk.justification.reading': 'Lecture de la justification…',
   'experience.pr_to_po.desk.justification.selected': 'Lire la demande retenue',
@@ -848,16 +848,16 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.charts.empty': 'Pas encore de lecture à tracer.',
   'experience.pr_to_po.desk.charts.other': 'Autres',
   'experience.pr_to_po.desk.ask.label': 'Demandez à l’usine',
-  'experience.pr_to_po.desk.ask.placeholder': 'Qui est le fournisseur majoritaire ?',
+  'experience.pr_to_po.desk.ask.placeholder': 'Qui est le fournisseur de l’établissement ?',
   'experience.pr_to_po.desk.ask.submit': 'Demander',
   'experience.pr_to_po.desk.ask.hint':
     'Questions sur les lectures en cours. L’écriture reste scellée.',
-  'experience.pr_to_po.desk.ask.chip.supplier': 'Fournisseur majoritaire',
+  'experience.pr_to_po.desk.ask.chip.supplier': 'Fournisseur établissement',
   'experience.pr_to_po.desk.ask.chip.po': 'Commandes lues',
   'experience.pr_to_po.desk.ask.chip.next': 'Suite',
   'experience.pr_to_po.desk.ask.chip.write': 'État de l’écriture',
   'experience.pr_to_po.desk.ask.answer.supplier':
-    'Le fournisseur majoritaire sur les commandes lues est {supplier}. Type le plus fréquent : {format}.',
+    'La commande la plus récente sur cet établissement utilise le fournisseur {supplier}. Type pour ZNPR : {format}.',
   'experience.pr_to_po.desk.ask.answer.pr':
     'La lecture montre {prs} demandes. La demande retenue est {pr}.',
   'experience.pr_to_po.desk.ask.answer.inbox':
@@ -881,9 +881,9 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.portal.offline':
     'L’usine PR to PO n’est pas encore reliée. Relancez la lecture, puis ouvrez le portail.',
   'experience.pr_to_po.desk.portal.prompt_open':
-    'Combien de demandes et de commandes viennent d’être lues, et qui est le fournisseur majoritaire ?',
+    'Combien de demandes et de commandes viennent d’être lues, et qui est le fournisseur de l’établissement ?',
   'experience.pr_to_po.desk.portal.prompt':
-    'Lecture seule. Réponds seulement avec get_A_PurchaseRequisitionItem et get_A_PurchaseOrder / get_A_PurchaseOrderItem. N’appelle pas post_A_PurchaseOrder. Ne prétends pas écrire dans SAP. {question}',
+    'Lecture seule. Réponds seulement avec get_A_PurchaseRequisitionItem et get_A_PurchaseOrder. N’appelle pas post_A_PurchaseOrder, BAPI_PO_CREATE1 ni BAPI_TRANSACTION_COMMIT. Ne prétends pas écrire dans SAP. {question}',
   'experience.pr_to_po.refresh': 'Actualiser',
   'experience.pr_to_po.approve': 'Approuver le dossier',
   'experience.pr_to_po.reject': 'Refuser',
@@ -1678,7 +1678,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.headline.live':
     '{prs} requisitions, {tasks} approvals, {pos} orders read just now.',
   'experience.pr_to_po.desk.headline.compiled':
-    'Brief compiled on {pr} — majority supplier {supplier}.',
+    'Brief compiled on {pr} — plant supplier {supplier}.',
   'experience.pr_to_po.desk.next.decide':
     'A brief is waiting for you. Nothing is written in SAP until you decide.',
   'experience.pr_to_po.desk.next.review':
@@ -1701,7 +1701,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.raw': 'Raw material',
   'experience.pr_to_po.desk.fact.pr': 'Selected requisition',
   'experience.pr_to_po.desk.fact.inbox': 'Approval task',
-  'experience.pr_to_po.desk.fact.supplier': 'Majority supplier',
+  'experience.pr_to_po.desk.fact.supplier': 'Plant supplier',
   'experience.pr_to_po.desk.fact.format': 'Order type',
   'experience.pr_to_po.desk.fact.justification': 'Justification',
   'experience.pr_to_po.desk.fact.summary': 'Justification summary',
@@ -1723,7 +1723,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.post.tool': 'Tool',
   'experience.pr_to_po.desk.post.status': 'Send',
   'experience.pr_to_po.desk.post.block':
-    'Client 300 has no NB number range. The API refuses ZAPO.',
+    'Write stays sealed. The live path is BAPI_PO_CREATE1 type ZLPO then BAPI_TRANSACTION_COMMIT. TESTRUN is banned.',
   'experience.pr_to_po.desk.justification.read': 'Read justification',
   'experience.pr_to_po.desk.justification.reading': 'Reading justification…',
   'experience.pr_to_po.desk.justification.selected': 'Read selected requisition',
@@ -1743,16 +1743,16 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.charts.empty': 'No live read to chart yet.',
   'experience.pr_to_po.desk.charts.other': 'Others',
   'experience.pr_to_po.desk.ask.label': 'Ask the factory',
-  'experience.pr_to_po.desk.ask.placeholder': 'Who is the majority supplier?',
+  'experience.pr_to_po.desk.ask.placeholder': 'Who is the plant supplier?',
   'experience.pr_to_po.desk.ask.submit': 'Ask',
   'experience.pr_to_po.desk.ask.hint':
     'Questions about the live reads. The write stays sealed.',
-  'experience.pr_to_po.desk.ask.chip.supplier': 'Majority supplier',
+  'experience.pr_to_po.desk.ask.chip.supplier': 'Plant supplier',
   'experience.pr_to_po.desk.ask.chip.po': 'Orders read',
   'experience.pr_to_po.desk.ask.chip.next': 'Next step',
   'experience.pr_to_po.desk.ask.chip.write': 'Write status',
   'experience.pr_to_po.desk.ask.answer.supplier':
-    'The majority supplier on the orders read is {supplier}. Most common type: {format}.',
+    'The most recent plant order uses supplier {supplier}. Type for ZNPR: {format}.',
   'experience.pr_to_po.desk.ask.answer.pr':
     'The read shows {prs} requisitions. The selected requisition is {pr}.',
   'experience.pr_to_po.desk.ask.answer.inbox':
@@ -1776,9 +1776,9 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.portal.offline':
     'The PR to PO factory is not linked yet. Run the read, then open the portal.',
   'experience.pr_to_po.desk.portal.prompt_open':
-    'How many requisitions and orders were just read, and who is the majority supplier?',
+    'How many requisitions and orders were just read, and who is the plant supplier?',
   'experience.pr_to_po.desk.portal.prompt':
-    'Read only. Answer only with get_A_PurchaseRequisitionItem and get_A_PurchaseOrder / get_A_PurchaseOrderItem. Do not call post_A_PurchaseOrder. Do not claim a SAP write. {question}',
+    'Read only. Answer only with get_A_PurchaseRequisitionItem and get_A_PurchaseOrder. Do not call post_A_PurchaseOrder, BAPI_PO_CREATE1 or BAPI_TRANSACTION_COMMIT. Do not claim a SAP write. {question}',
   'experience.pr_to_po.refresh': 'Refresh',
   'experience.pr_to_po.approve': 'Approve the package',
   'experience.pr_to_po.reject': 'Reject',

@@ -51,6 +51,9 @@ def test_classify_kind_uses_live_names_not_pdf_aliases():
     assert mcp_preview.classify_kind("check_budget") == "read"
     assert mcp_preview.classify_kind("fi_DiscardFromPurchasing") == "write"
     assert mcp_preview.classify_kind("fi_EnableForPurchasing") == "write"
+    assert mcp_preview.classify_kind("BAPI_PO_CREATE1") == "write"
+    assert mcp_preview.classify_kind("BAPI_TRANSACTION_COMMIT") == "write"
+    assert mcp_preview.classify_kind("BAPI_TRANSACTION_ROLLBACK") == "write"
     assert not mcp_preview.is_preview_safe({"name": "searchUsersWorkflowTask", "input_schema": {}})
     assert mcp_preview.pick_preview_tool(
         [
