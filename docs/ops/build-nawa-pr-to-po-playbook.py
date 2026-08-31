@@ -112,7 +112,7 @@ def build() -> Path:
     para(
         doc,
         "Subtitle: System → Flow → Run → Decision. The factory reads Hikma, "
-        "compiles a dossier, and writes nothing to SAP until you decide.",
+        "compiles a brief, and writes nothing to SAP until you decide.",
         italic=True,
     )
 
@@ -128,7 +128,7 @@ def build() -> Path:
             [
                 "1",
                 "Live SAP MCP",
-                "KPI row, stations, Read selected requisition, dossier facts",
+                "KPI row, stations, Read selected requisition, brief facts",
                 "get_A_PurchaseRequisitionItem and _by_key return a real PR. "
                 "listTaskCollection feeds the approval. fi_Validate / "
                 "get_A_PurReqnAcctAssgmt feed budget. get_A_PurchaseOrder* "
@@ -137,7 +137,7 @@ def build() -> Path:
             [
                 "2",
                 "Small agentic task",
-                "Summarise in the compiled dossier",
+                "Summarise in the compiled brief",
                 "azure_llm_v1 POST /chat/completion prompt_type: factual. "
                 "Two clear sentences. Invent nothing.",
             ],
@@ -165,7 +165,7 @@ def build() -> Path:
     bullet(
         doc,
         "Click Run the factory. Wait until Compile is Done and the hero reads "
-        "something like “Dossier compiled on STICKER WHITE — majority supplier 1000001737.”",
+        "something like “Brief compiled on STICKER WHITE — majority supplier 1000001737.”",
     )
     bullet(
         doc,
@@ -184,7 +184,7 @@ def build() -> Path:
     para(
         doc,
         "Talk track: “This is the PR to PO factory. It reads Hikma through MCP, "
-        "compiles a dossier, and writes nothing until a human decides.”",
+        "compiles a brief, and writes nothing until a human decides.”",
         italic=True,
     )
 
@@ -192,18 +192,18 @@ def build() -> Path:
     heading(doc, "Top of the desk", 3)
     para(
         doc,
-        "Lineage, briefing, counts, stations, compiled dossier. "
-        "Actions in the dossier header: Read selected requisition, Summarise.",
+        "Lineage, briefing, counts, stations, compiled brief. "
+        "Actions in the brief header: Read selected requisition, Summarise.",
     )
     shot(doc, "desk-top.png", "Figure 1 — Operator desk after a live read. Write stays Sealed.")
 
-    heading(doc, "Compiled dossier (proofs 1 and 2)", 3)
+    heading(doc, "Compiled brief (proofs 1 and 2)", 3)
     para(
         doc,
         "Facts name their tools. Justification via get_A_PurchaseRequisitionItem_by_key. "
         "Summary via azure_llm_v1.",
     )
-    shot(doc, "dossier.png", "Figure 2 — Live counts, stations, and the compiled dossier.")
+    shot(doc, "dossier.png", "Figure 2 — Live counts, stations, and the compiled brief.")
 
     heading(doc, "Draft purchase order (proof 3)", 3)
     bullet(doc, "Kicker Draft. Title Purchase order composed for SAP.")
@@ -236,7 +236,7 @@ def build() -> Path:
             ["Field", "Value"],
             [
                 "Headline",
-                "Dossier compiled on STICKER WHITE — majority supplier 1000001737.",
+                "Brief compiled on STICKER WHITE — majority supplier 1000001737.",
             ],
             ["Counts", "Requisitions 50 · Tasks 2 · Orders 5 · Receipts 0"],
             [
@@ -271,7 +271,7 @@ def build() -> Path:
     para(
         doc,
         "Ask → Write status: No. The write station stays sealed. "
-        "A cycle can compile a dossier; SAP is not written until you decide.",
+        "A cycle can compile a brief; SAP is not written until you decide.",
         italic=True,
     )
     para(doc, "The exact PR can move on a later read. The tools and the sealed POST must not.")
@@ -283,8 +283,8 @@ def build() -> Path:
             ["Place", "English"],
             ["Title", "PR to PO"],
             ["Primary / secondary", "Run the factory · Start a cycle"],
-            ["Dossier", "Compiled dossier / Compiled from the live SAP reads."],
-            ["Dossier actions", "Read selected requisition · Summarise"],
+            ["Brief", "Compiled brief / Compiled from the live SAP reads."],
+            ["Brief actions", "Read selected requisition · Summarise"],
             ["Draft card", "Draft · Purchase order composed for SAP"],
             ["Ask chips", "Majority supplier · Orders read · Next step · Write status"],
             ["Portal", "Open the portal · Factory portal"],
@@ -303,7 +303,7 @@ def build() -> Path:
     bullet(doc, "0:30 — Counts + stations. “Live SAP, through MCP. No HANA.”")
     bullet(
         doc,
-        "1:30 — Dossier + Read selected requisition + Summarise. "
+        "1:30 — Brief + Read selected requisition + Summarise. "
         "“One short model call. Two sentences. Nothing invented.”",
     )
     bullet(

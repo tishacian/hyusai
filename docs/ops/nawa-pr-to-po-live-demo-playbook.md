@@ -2,7 +2,7 @@
 
 **Audience:** Fayçal (handout) and the presenter.  
 **Language of the desk:** English.  
-**Last verified:** 31 August 2026 against live `https://agentium.papai.ai` (`revision_verified: true`).
+**Last verified:** 31 August 2026. English desk copy uses **brief** (not dossier). Live VM still serves `cd40fe33` until this slice is switched.
 
 | Give this | To whom |
 |---|---|
@@ -34,7 +34,7 @@ Hard-reload (`Ctrl+Shift+R` / `Cmd+Shift+R`) so the browser does not keep an old
 | SAP | Live Hikma MCP. **No HANA.** |
 | Write | **Sealed.** The POST is composed, never sent. |
 
-Subtitle on the desk: *System → Flow → Run → Decision. The factory reads Hikma, compiles a dossier, and writes nothing to SAP until you decide.*
+Subtitle on the desk: *System → Flow → Run → Decision. The factory reads Hikma, compiles a brief, and writes nothing to SAP until you decide.*
 
 ---
 
@@ -44,8 +44,8 @@ The screen does **not** number these. You point at the matching card.
 
 | # | Proof | Where you point | What must be true |
 |---|---|---|---|
-| 1 | Live SAP MCP | KPI row, stations, then **Read selected requisition** and the dossier facts | `get_A_PurchaseRequisitionItem` and `get_A_PurchaseRequisitionItem_by_key` return a real PR. `listTaskCollection` feeds the approval task. `fi_Validate` and `get_A_PurReqnAcctAssgmt` feed budget. `get_A_PurchaseOrderItem` / `get_A_PurchaseOrder` feed orders, supplier, and type. Compile station shows `python_recipe_v1`. |
-| 2 | Small agentic task | **Summarise** in the compiled dossier | `azure_llm_v1` `POST /chat/completion` `prompt_type: factual` turns the live justification into two clear sentences. Invent nothing. |
+| 1 | Live SAP MCP | KPI row, stations, then **Read selected requisition** and the brief facts | `get_A_PurchaseRequisitionItem` and `get_A_PurchaseRequisitionItem_by_key` return a real PR. `listTaskCollection` feeds the approval task. `fi_Validate` and `get_A_PurReqnAcctAssgmt` feed budget. `get_A_PurchaseOrderItem` / `get_A_PurchaseOrder` feed orders, supplier, and type. Compile station shows `python_recipe_v1`. |
+| 2 | Small agentic task | **Summarise** in the compiled brief | `azure_llm_v1` `POST /chat/completion` `prompt_type: factual` turns the live justification into two clear sentences. Invent nothing. |
 | 3 | PO POST package | **Draft / Purchase order composed for SAP** | Server `hikma`, tool `post_A_PurchaseOrder`, method POST, type **NB**, Send **Sealed**. JSON: `sealed: true`, `called: false`. Client 300 has no NB range; ZAPO is refused. Success = honest composed POST, not a live create. |
 | 4 | Nice-to-have | **Ask the factory** and **Open the portal** | Read-only. Chips: Majority supplier, Orders read, Next step, Write status. The write stays sealed. |
 
@@ -56,15 +56,15 @@ If the Write station says **Sealed**, that is correct.
 ## 3. Walkthrough (about three minutes)
 
 1. Hard-reload the URL. Header reads **PR to PO**. Four counts. Five stations. Write = **Sealed**.
-2. Click **Run the factory**. Wait until Compile is **Done** and the hero reads something like *Dossier compiled on STICKER WHITE — majority supplier 1000001737.*
-3. **Proof 1.** Point at the counts and the tools under the stations. Click **Read selected requisition** if justification is empty. The dossier facts name the live tools.
+2. Click **Run the factory**. Wait until Compile is **Done** and the hero reads something like *Brief compiled on STICKER WHITE — majority supplier 1000001737.*
+3. **Proof 1.** Point at the counts and the tools under the stations. Click **Read selected requisition** if justification is empty. The brief facts name the live tools.
 4. **Proof 2.** Click **Summarise**. Two sentences appear via `azure_llm_v1`.
 5. **Proof 3.** Scroll to **Draft / Purchase order composed for SAP**. Read the row: POST · hikma · `post_A_PurchaseOrder` · Send **Sealed**. Open the JSON. Say: *this is the POST we would send; it is not sent.*
 6. **Proof 4.** Chip **Write status**. Answer: the write stays sealed.
 
 There is no button that posts a purchase order.
 
-**Talk track:** *This is the PR to PO factory. It reads Hikma through MCP, compiles a dossier, and writes nothing until a human decides.*
+**Talk track:** *This is the PR to PO factory. It reads Hikma through MCP, compiles a brief, and writes nothing until a human decides.*
 
 ---
 
@@ -72,15 +72,15 @@ There is no button that posts a purchase order.
 
 ### Top of the desk
 
-Lineage (Application · System · Run), briefing, counts, stations, compiled dossier. Dossier actions sit in the dossier header: **Read selected requisition**, **Summarise**.
+Lineage (Application · System · Run), briefing, counts, stations, compiled brief. Actions sit in the brief header: **Read selected requisition**, **Summarise**.
 
 ![Top of the desk](nawa-pr-to-po-playbook-figures/desk-top.png)
 
-### Compiled dossier (proofs 1 and 2)
+### Compiled brief (proofs 1 and 2)
 
 Facts name their tools. Justification via `get_A_PurchaseRequisitionItem_by_key`. Summary via `azure_llm_v1`.
 
-![Compiled dossier](nawa-pr-to-po-playbook-figures/dossier.png)
+![Compiled brief](nawa-pr-to-po-playbook-figures/dossier.png)
 
 ### Draft purchase order (proof 3)
 
@@ -111,7 +111,7 @@ Stay on get-PR / get-PO questions. Older summarise prompts in the portal thread 
 
 | Field | Value |
 |---|---|
-| Headline | Dossier compiled on **STICKER WHITE** — majority supplier **1000001737**. |
+| Headline | Brief compiled on **STICKER WHITE** — majority supplier **1000001737**. |
 | Voice | The factory read 50 requisitions, 2 approvals and 5 orders. It keeps STICKER WHITE, proposes supplier 1000001737 and type ZAPO. The SAP write stays sealed. |
 | Counts | Requisitions 50 · Tasks 2 · Orders 5 · Receipts 0 |
 | Stations | Connect **Done** · Read **Done** (`get_A_PurchaseRequisitionItem`) · Compile **Done** (`python_recipe_v1`) · Decide **Ready** · Write **Sealed** |
@@ -125,7 +125,7 @@ Stay on get-PR / get-PO questions. Older summarise prompts in the portal thread 
 | Budget | ok via `fi_Validate` |
 | POST | hikma `post_A_PurchaseOrder`, `PurchaseOrderType` **NB**, Supplier `1000001737`, PurchasingOrganization `CPO`, CompanyCode `1000`, `sealed: true`, `called: false` |
 
-**Ask → Write status:** *No. The write station stays sealed. A cycle can compile a dossier; SAP is not written until you decide.*
+**Ask → Write status:** *No. The write station stays sealed. A cycle can compile a brief; SAP is not written until you decide.*
 
 The exact PR can move on a later read. The **tools** and the **sealed POST** must not.
 
@@ -141,9 +141,9 @@ Taken from `frontend-ng/src/app/core/i18n/experience.dict.ts` (English).
 | Primary | Run the factory |
 | Secondary | Start a cycle |
 | Sources | Connections |
-| Dossier | Compiled dossier / Compiled from the live SAP reads. |
-| Dossier facts | Selected requisition · Approval task · Majority supplier · Order type · Justification · Justification summary · Budget |
-| Dossier actions | Read selected requisition · Summarise |
+| Brief | Compiled brief / Compiled from the live SAP reads. |
+| Brief facts | Selected requisition · Approval task · Majority supplier · Order type · Justification · Justification summary · Budget |
+| Brief actions | Read selected requisition · Summarise |
 | Draft card | Draft · Purchase order composed for SAP |
 | Draft row | Method · Server · Tool · Send |
 | Ask | Ask the factory · Ask · Majority supplier · Orders read · Next step · Write status |
@@ -163,7 +163,7 @@ Removed from this desk: Success criteria, numbered beats 1–4, Shown / Play / W
 |---|---|---|
 | 0:00 | URL, `nawa`, English, hard-reload | “Operator desk. Not a slide.” |
 | 0:30 | Counts + stations | “Live SAP, through MCP. No HANA.” |
-| 1:30 | Dossier + **Read selected requisition** + **Summarise** | “One short model call. Two sentences. Nothing invented. Nothing written.” |
+| 1:30 | Brief + **Read selected requisition** + **Summarise** | “One short model call. Two sentences. Nothing invented. Nothing written.” |
 | 3:00 | Draft card | “Type NB, sealed, not sent. Client 300 has no NB range. ZAPO is refused.” |
 | 5:00 | Chip **Write status**, then **Open the portal** if there is time | “Questions on the reads we just did.” |
 | 6:30 | Stop | Write still **Sealed**. Offer **Start a cycle** only if they ask. |

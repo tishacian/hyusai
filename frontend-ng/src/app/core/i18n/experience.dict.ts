@@ -1647,7 +1647,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.publish.error': 'Publication did not complete.',
   'experience.pr_to_po.title': 'PR to PO',
   'experience.pr_to_po.subtitle':
-    'System → Flow → Run → Decision. The factory reads Hikma, compiles a dossier, and writes nothing to SAP until you decide.',
+    'System → Flow → Run → Decision. The factory reads Hikma, compiles a brief, and writes nothing to SAP until you decide.',
   'experience.pr_to_po.empty': 'No purchase-order approvals waiting.',
   'experience.pr_to_po.desk.eyebrow': 'AI factory',
   'experience.pr_to_po.desk.chain': 'Connectors → Skills → Compile → Decision → Write',
@@ -1674,17 +1674,17 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.status.empty': 'No rows',
   'experience.pr_to_po.desk.status.caution': 'Limited read',
   'experience.pr_to_po.desk.status.down': 'Unreachable',
-  'experience.pr_to_po.desk.headline.none': 'The SAP terrain has not answered yet.',
+  'experience.pr_to_po.desk.headline.none': 'SAP has not answered yet.',
   'experience.pr_to_po.desk.headline.live':
     '{prs} requisitions, {tasks} approvals, {pos} orders read just now.',
   'experience.pr_to_po.desk.headline.compiled':
-    'Dossier compiled on {pr} — majority supplier {supplier}.',
+    'Brief compiled on {pr} — majority supplier {supplier}.',
   'experience.pr_to_po.desk.next.decide':
-    'A dossier is waiting for you. Nothing is written in SAP until you decide.',
+    'A brief is waiting for you. Nothing is written in SAP until you decide.',
   'experience.pr_to_po.desk.next.review':
-    'Review the compiled dossier. The SAP write stays sealed.',
+    'Review the compiled brief. The SAP write stays sealed.',
   'experience.pr_to_po.desk.next.receive':
-    'Goods receipts are limited on the SAP side. The rest of the terrain is readable.',
+    'Goods receipts are limited on the SAP side. The rest of the read is available.',
   'experience.pr_to_po.desk.next.retry':
     'Try the read again. A 407 refusal needs the SAP application restarted, not a new credential.',
   'experience.pr_to_po.desk.station.connect': 'Connect',
@@ -1696,7 +1696,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.station_status.ready': 'Ready',
   'experience.pr_to_po.desk.station_status.blocked': 'Blocked',
   'experience.pr_to_po.desk.station_status.sealed': 'Sealed',
-  'experience.pr_to_po.desk.dossier': 'Compiled dossier',
+  'experience.pr_to_po.desk.dossier': 'Compiled brief',
   'experience.pr_to_po.desk.factory_note': 'Compiled from the live SAP reads.',
   'experience.pr_to_po.desk.raw': 'Raw material',
   'experience.pr_to_po.desk.fact.pr': 'Selected requisition',
@@ -1733,7 +1733,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.voice.compiled':
     'The factory read {prs} requisitions, {tasks} approvals and {pos} orders. It keeps {pr}, proposes supplier {supplier} and type {format}. The SAP write stays sealed.',
   'experience.pr_to_po.desk.voice.live':
-    'Live read: {prs} requisitions, {tasks} approvals, {pos} orders, {receipts} receipts. Review the dossier before you decide.',
+    'Live read: {prs} requisitions, {tasks} approvals, {pos} orders, {receipts} receipts. Review the brief before you decide.',
   'experience.pr_to_po.desk.voice.none':
     'SAP has not answered yet. Run the read again. Nothing is written from this side.',
   'experience.pr_to_po.desk.charts.terrain': 'Live read',
@@ -1760,11 +1760,11 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.ask.answer.po':
     'The read shows {pos} purchase orders already there. They are used to propose the supplier and the type.',
   'experience.pr_to_po.desk.ask.answer.gr':
-    'Goods receipts are limited on the SAP side ({receipts} rows read). The rest of the terrain stays readable.',
+    'Goods receipts are limited on the SAP side ({receipts} rows read). The rest of the read stays available.',
   'experience.pr_to_po.desk.ask.answer.write':
-    'No. The write station stays sealed. A cycle can compile a dossier; SAP is not written until you decide.',
+    'No. The write station stays sealed. A cycle can compile a brief; SAP is not written until you decide.',
   'experience.pr_to_po.desk.ask.answer.next':
-    'Review the compiled dossier, then decide. Starting a cycle opens an observable Run. The write stays sealed.',
+    'Review the compiled brief, then decide. Starting a cycle opens an observable Run. The write stays sealed.',
   'experience.pr_to_po.desk.ask.answer.empty':
     'Ask about requisitions, orders, the supplier, or the write.',
   'experience.pr_to_po.desk.portal.open': 'Open the portal',

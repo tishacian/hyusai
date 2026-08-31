@@ -130,3 +130,11 @@ test('the interpolation placeholders of a key match across locales', () => {
     );
   }
 });
+
+test('the English PR to PO desk does not keep French dossier or terrain', () => {
+  for (const [key, value] of Object.entries(EN_DICT)) {
+    if (!key.startsWith('experience.pr_to_po.')) continue;
+    assert.doesNotMatch(value, /\bdossier\b/i, `${key}: EN still says dossier`);
+    assert.doesNotMatch(value, /\bterrain\b/i, `${key}: EN still says terrain`);
+  }
+});
