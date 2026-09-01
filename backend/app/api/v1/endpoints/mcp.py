@@ -16,6 +16,7 @@ from app.services.connectors.mcp import client as mcp_client
 from app.services.connectors.mcp import preview as mcp_preview
 from app.services.connectors.mcp import read as mcp_read
 from app.services.connectors.mcp import service as mcp_service
+from app.services.connectors.mcp import write as mcp_write
 from app.services.connectors.mcp.errors import McpError
 
 router = APIRouter()
@@ -49,6 +50,11 @@ class McpServersReplace(BaseModel):
 
 
 class McpReadRequest(BaseModel):
+    tool: str = Field(..., min_length=1, max_length=256)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class McpInvokeRequest(BaseModel):
     tool: str = Field(..., min_length=1, max_length=256)
     arguments: dict[str, Any] = Field(default_factory=dict)
 
@@ -186,3 +192,50 @@ async def read_mcp_server(
     except Exception as exc:  # noqa: BLE001
         _raise_mcp(exc)
         raise  # pragma: no cover
+
+
+@router.post("/servers/{server_id}/invoke")
+async def invoke_mcp_server(
+    server_id: str,
+    body: McpInvokeRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+):
+    """One allow-listed write ``tools/call``, live only with ``sap_write_unsealed``.
+
+    With the flag off the response is the sealed envelope — same shape the
+    approval gate shows — and no connection is opened, so the server does not
+    even need to be attached. Every unsealed call lands in the audit ledger.
+    """
+    _require_enabled(workspace)
+    unsealed = mcp_write.workspace_write_unsealed(workspace)
+    try:
+        server = mcp_service.resolve_server(workspace, server_id) if unsealed else None
+        out = mcp_write.invoke_write_tool(
+            server,
+            server_id=server_id,
+            tool=body.tool,
+            arguments=body.arguments,
+            unsealed=unsealed,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _raise_mcp(exc)
+        raise  # pragma: no cover
+    if out.get("called"):
+        from app.services.audit_logger import emit_audit_event
+
+        emit_audit_event(
+            workspace_id=str(workspace.id),
+            event_type="mcp.write.invoked",
+            actor=str(getattr(user, "email", "") or getattr(user, "id", "") or "system"),
+            details={
+                "server_id": server_id,
+                "tool": out.get("tool"),
+                "sap_ok": out.get("sap_ok"),
+                "po_number": out.get("po_number"),
+                "rolled_back": out.get("rolled_back"),
+                "messages": out.get("messages"),
+                "duration_ms": out.get("duration_ms"),
+            },
+        )
+    return out
