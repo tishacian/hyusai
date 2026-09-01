@@ -1077,8 +1077,10 @@ export function composeSealedPoPost(
     testrun: false,
     sap_block: SAP_CREATE_BLOCK,
     requestBody: {
-      import: {},
-      tables: {
+      // Live tool schema (bapi_po tools/list, 2026-09-01): the header
+      // structures ride under `import` — import.POHEADER is required — while
+      // the row tables stay under `tables`.
+      import: {
         POHEADER: {
           VENDOR: vendor,
           COMP_CODE: plant,
@@ -1103,6 +1105,8 @@ export function composeSealedPoPost(
           INCOTERMS2: 'X',
           INCOTERMS2L: 'X',
         },
+      },
+      tables: {
         POITEM: [
           {
             PO_ITEM: poItem,

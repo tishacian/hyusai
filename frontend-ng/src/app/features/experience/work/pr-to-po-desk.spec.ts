@@ -583,8 +583,9 @@ test('sealed PO compose is BAPI_PO_CREATE1 ZLPO and is never called', () => {
   assert.equal(post?.testrun, false);
   assert.equal(post?.sap_block, SAP_CREATE_BLOCK);
   assert.match(SAP_CREATE_BLOCK, /TESTRUN is banned/);
+  const importBlock = post?.requestBody['import'] as Record<string, Record<string, unknown>>;
   const tables = post?.requestBody['tables'] as Record<string, Record<string, unknown>>;
-  const header = tables['POHEADER'];
+  const header = importBlock['POHEADER'];
   assert.equal(header['VENDOR'], '1000000018');
   assert.equal(header['COMP_CODE'], '1000');
   assert.equal(header['PURCH_ORG'], '1000');

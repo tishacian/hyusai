@@ -109,6 +109,7 @@ export interface StudioWriteOutcome {
   sapOk: boolean;
   poNumber: string;
   rolledBack: boolean;
+  blocked: boolean;
   messages: string[];
 }
 
@@ -335,19 +336,38 @@ interface InvokeResponse {
 }
 
 export function outcomeFromInvoke(response: unknown): StudioWriteOutcome {
-  const body = (response || {}) as InvokeResponse;
+  const body = (response || {}) as InvokeResponse & { detail?: unknown };
   const messages = Array.isArray(body.messages)
     ? body.messages
         .map((row) => `${String(row?.type || '')}: ${String(row?.message || '')}`.trim())
         .filter((text) => text !== ':')
     : [];
+  if (!messages.length && typeof body.detail === 'string' && body.detail.trim()) {
+    messages.push(body.detail.trim());
+  }
   return {
-    sealed: body.sealed !== false,
+    // Only the backend's explicit envelope is sealed. An HTTP error body
+    // (no `sealed` key) is a failed write, never a sealed success.
+    sealed: body.sealed === true,
     called: body.called === true,
     sapOk: body.sap_ok === true,
     poNumber: String(body.po_number || '').trim(),
     rolledBack: body.rolled_back === true,
+    blocked: false,
     messages,
+  };
+}
+
+/** Outcome shown on the card when the local guardrail refused the write. */
+export function blockedOutcome(): StudioWriteOutcome {
+  return {
+    sealed: false,
+    called: false,
+    sapOk: false,
+    poNumber: '',
+    rolledBack: false,
+    blocked: true,
+    messages: [],
   };
 }
 

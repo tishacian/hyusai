@@ -518,7 +518,7 @@ async def test_znpr_create_composes_bapi_without_call_tool(monkeypatch):
     assert created["tool"] == mcp_read.LIVE_BAPI_CREATE
     assert created["server_id"] == mcp_read.BAPI_SERVER_ID
     assert "TESTRUN is banned" in created["sap_block"]
-    header = created["arguments"]["tables"]["POHEADER"]
+    header = created["arguments"]["import"]["POHEADER"]
     assert header["DOC_TYPE"] == "ZLPO"
     assert header["PURCH_ORG"] == "1000"
     assert header["COMP_CODE"] == "1000"
