@@ -363,9 +363,12 @@ import {
         @if (portalOpen() && portalPrompt() && systemId(); as portalSystemId) {
           <section #factoryPortal id="desk-portal" class="xp-desk-portal">
             <header>
-              <div>
-                <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.portal.title') }}</p>
-                <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.portal.hint') }}</p>
+              <div class="xp-desk-portal-head">
+                <ck-thinking-orb state="listening" [size]="20" />
+                <div>
+                  <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.desk.portal.title') }}</p>
+                  <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.desk.portal.hint') }}</p>
+                </div>
               </div>
               <button type="button" class="xp-work-btn" (click)="closePortal()">
                 {{ i18n.t('experience.pr_to_po.desk.portal.close') }}
