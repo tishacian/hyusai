@@ -1001,6 +1001,12 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.studio.provenance.payment_terms': 'Paiement — repris de la commande {po}',
   'experience.pr_to_po.studio.provenance.delivery':
     'Date de livraison — plancher J+7 appliqué (règle d’intégration SAP)',
+  'experience.pr_to_po.studio.provenance.price':
+    'Prix net — repris de la demande {pr}',
+  'experience.pr_to_po.studio.provenance.price_missing':
+    'Prix net — la demande porte 0.00 ; SAP exige un prix réel (06/215)',
+  'experience.pr_to_po.studio.gate.price_missing':
+    'La demande ne porte aucun prix — SAP refusera la création sans prix net.',
   'experience.pr_to_po.refresh': 'Actualiser',
   'experience.pr_to_po.approve': 'Approuver le dossier',
   'experience.pr_to_po.reject': 'Refuser',
@@ -2010,6 +2016,11 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.studio.provenance.currency': 'Currency — taken from requisition {pr}',
   'experience.pr_to_po.studio.provenance.payment_terms': 'Payment — taken from order {po}',
   'experience.pr_to_po.studio.provenance.delivery': 'Delivery date — J+7 floor applied (SAP integration rule)',
+  'experience.pr_to_po.studio.provenance.price': 'Net price — taken from requisition {pr}',
+  'experience.pr_to_po.studio.provenance.price_missing':
+    'Net price — the requisition carries 0.00; SAP requires a real price (06/215)',
+  'experience.pr_to_po.studio.gate.price_missing':
+    'The requisition carries no price — SAP will refuse the create without a net price.',
   'experience.pr_to_po.refresh': 'Refresh',
   'experience.pr_to_po.approve': 'Approve the package',
   'experience.pr_to_po.reject': 'Reject',

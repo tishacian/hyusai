@@ -253,6 +253,11 @@ const RAIL_TOOLS: readonly RailTool[] = [
                               @if (proposal.budgetWarning) {
                                 <p class="xp-studio-warn">{{ proposal.budgetWarning }}</p>
                               }
+                              @if (proposal.priceMissing) {
+                                <p class="xp-studio-warn">
+                                  {{ i18n.t('experience.pr_to_po.studio.gate.price_missing') }}
+                                </p>
+                              }
                               <dl>
                                 <div>
                                   <dt>{{ i18n.t('experience.pr_to_po.studio.gate.supplier') }}</dt>

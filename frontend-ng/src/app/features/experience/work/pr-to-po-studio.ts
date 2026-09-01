@@ -121,6 +121,8 @@ export interface StudioProposal {
   currency: string;
   quantity: string;
   netPrice: string;
+  /** SAP rejects a create when the PR carries 0.00 (06/215 "Please enter net price"). */
+  priceMissing: boolean;
   amount: number;
   supplier: string;
   purchGroup: string;
@@ -171,9 +173,17 @@ function cell(columns: readonly string[], row: readonly string[], wanted: readon
   return '';
 }
 
+/** SAP throws 06/215 "Please enter net price" when the PR carries 0.00. */
+export function hasRealPrice(fields: DeskPrItemFields): boolean {
+  const price = Number(fields.net_price);
+  return Number.isFinite(price) && price > 0;
+}
+
 /**
  * Up to `cap` distinct open requisitions from the approved-PR read. One
- * proposal per PR id — the first open item row wins, like the desk.
+ * proposal per PR id — the first open item row wins, like the desk. Rows
+ * with a real PR price come first: SAP rejects a create at 0.00 (06/215),
+ * so a zero-price PR only fills a slot no priced PR could take.
  */
 export function openPrRowsFromPreview(
   preview: DeskPreview | null,
@@ -183,13 +193,15 @@ export function openPrRowsFromPreview(
   const rows = preview?.rows || [];
   if (!columns.length || !rows.length) return [];
   const seen = new Set<string>();
-  const out: DeskPrItemFields[] = [];
+  const priced: DeskPrItemFields[] = [];
+  const unpriced: DeskPrItemFields[] = [];
   for (const row of rows) {
+    if (priced.length >= cap) break;
     if (!hasRemainingQuantity(columns, row)) continue;
     const prId = cell(columns, row, ['PurchaseRequisition', 'pr_id']);
     if (!prId || seen.has(prId)) continue;
     seen.add(prId);
-    out.push({
+    const fields: DeskPrItemFields = {
       pr_id: prId,
       item: cell(columns, row, ['PurchaseRequisitionItem']) || '10',
       material: cell(columns, row, ['Material']),
@@ -202,10 +214,10 @@ export function openPrRowsFromPreview(
       deliveryDate: cell(columns, row, ['DeliveryDate']),
       prType: cell(columns, row, ['PurchaseRequisitionType']),
       label: cell(columns, row, ['PurchaseRequisitionItemText', 'PurReqnDescription', 'title']),
-    });
-    if (out.length >= cap) break;
+    };
+    (hasRealPrice(fields) ? priced : unpriced).push(fields);
   }
-  return out;
+  return [...priced, ...unpriced].slice(0, cap);
 }
 
 export function proposalAmount(fields: DeskPrItemFields): number {
@@ -256,6 +268,21 @@ export function proposalProvenance(
     sourceKey: 'experience.pr_to_po.studio.provenance.delivery',
     sourceParams: {},
   });
+  rows.push(
+    hasRealPrice(fields)
+      ? {
+          field: 'net_price',
+          value: fields.net_price,
+          sourceKey: 'experience.pr_to_po.studio.provenance.price',
+          sourceParams: { pr: fields.pr_id },
+        }
+      : {
+          field: 'net_price',
+          value: '0.00',
+          sourceKey: 'experience.pr_to_po.studio.provenance.price_missing',
+          sourceParams: {},
+        },
+  );
   return rows;
 }
 
@@ -273,6 +300,7 @@ export function buildStudioProposal(
     currency: fields.currency,
     quantity: fields.quantity,
     netPrice: fields.net_price,
+    priceMissing: !hasRealPrice(fields),
     amount: proposalAmount(fields),
     supplier: terms.supplier,
     purchGroup: terms.purchGroup,
