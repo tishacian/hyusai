@@ -5250,3 +5250,41 @@ dialogue de confirmation vers l'humain **dans le fil**. Livré en un commit
 | Seed / flags | inchangés — `sap_write_unsealed` reste on pour `nawa` |
 | Rollback | `AGENTIUM_IMAGE_TAG=c789d0703779` puis `up` |
 
+## Itération du 01/09 (bis) — polish du chat Studio, déployée sur `988ee5c7`
+
+Demande : « petits coups de polish sur le chat, orbs, zone de texte agréable,
+bonne clarté de la conversation ». Deux commits, `4857b977` puis `988ee5c7`
+(correction de libellé), déployés l'un après l'autre :
+
+- **Clarté du fil.** Le prompt technique (fact-sheet SAP + consignes) ne
+  transite plus par la bulle utilisateur : le chat-panel gagne une entrée
+  `systemPrompt` envoyée sur le rôle système de la requête (`system_prompt`,
+  déjà honoré côté backend), et le Studio n'affiche dans le fil que la
+  question humaine. La zone de texte se pré-remplit donc avec la question
+  nue, plus jamais avec le pavé d'instructions.
+- **Orbs.** En-tête du portail chat avec orbe + titre « Conversation avec
+  l'agent » et rappel « les écritures attendent toujours votre accord » ;
+  avatar orbe accolé à la bulle agent du dialogue d'écriture (état `working`
+  pendant le post).
+- **Zone de texte.** Composer plus généreux (52 px min, padding 14/16,
+  rayon 14 px, placeholder adouci), halo corail doux au focus à la place de
+  l'anneau Tailwind brut, bouton micro aligné sur la même hauteur ; bulles à
+  0.95 rem / interligne 1.55–1.65.
+- **Libellé.** « 1 tool calls » → « Tool calls: 1 — full transcript »
+  (idem FR), attrapé sur capture pendant la QA.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n` (7280 clés), `test:unit` (1381 verts, dont le nouveau contrat « la bulle ne porte que la question ») , `build:prod` verts |
+| Push | `demo/agentic` en fast-forward `41a60d7f` → `4857b977` → `988ee5c7` |
+| Worktree | ff-only jusqu'à `988ee5c7ec2c1ab2a16e6d42831518d51ed6b39a` |
+| Build | images `agentium-{backend,worker,frontend}:4857b977a059` puis `:988ee5c7ec2c` (le second lot d'abord mal taggé `988ee5c7fc4a`, retaggé avant `up`, tag fautif supprimé) |
+| `storage-check` / `up` | sortie 0 ; cinq services applicatifs recréés à chaque bascule |
+| `build-info` | `revision: 988ee5c7ec2c…`, `revision_verified: true` |
+| QA Playwright | pré-remplissage = question nue (68 caractères, zéro consigne) ; bulle utilisateur = question seule ; réponse ancrée (PR 2000276501/20, 2000276559/10, 2000276580/10) sans « lecture annoncée » ; orbe d'en-tête et avatar orbe du dialogue présents ; annulation → « Understood — nothing was written », aucune écriture émise |
+| Écritures | aucune sur cette itération (dialogue testé jusqu'à l'annulation) ; le chemin gardé create+commit est inchangé depuis `41a60d7f` |
+| Seed / flags | inchangés — `sap_write_unsealed` reste on pour `nawa` |
+| Rollback | `AGENTIUM_IMAGE_TAG=41a60d7f9e34` puis `up` |
+
