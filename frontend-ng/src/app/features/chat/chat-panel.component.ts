@@ -864,10 +864,10 @@ const STEP_ICONS: Record<string, string> = {
             <div class="ck-chat-empty-mark w-12 h-12 rounded-full flex items-center justify-center mb-3">
               <ck-thinking-orb state="listening" [size]="20" />
             </div>
-            <div class="text-sm font-semibold text-gray-900 dark:text-white">
+            <div class="ck-chat-empty-title text-sm font-semibold text-gray-900 dark:text-white">
               {{ emptyTitle() }}
             </div>
-            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-xs text-center">
+            <p class="ck-chat-empty-hint text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-xs text-center">
               {{ emptySubtitle() }}
             </p>
             @if (!isDemoMode() && activeSuggestions().length) {
@@ -3119,6 +3119,12 @@ const STEP_ICONS: Record<string, string> = {
       border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 30%, transparent);
       background: color-mix(in srgb, var(--nawa-accent, #e8543a) 10%, var(--nawa-surface, #141414));
       box-shadow: 0 0 32px color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-empty-title {
+      color: var(--nawa-fg, #f5f2ef);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-empty-hint {
+      color: var(--nawa-fg-dim, rgba(245, 242, 239, 0.64));
     }
     :host-context(.xp-desk-portal) .ck-chat-trace-summary {
       border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
