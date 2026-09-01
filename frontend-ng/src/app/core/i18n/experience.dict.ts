@@ -949,7 +949,7 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.studio.chip.suppliers': 'Fournisseurs par site',
   'experience.pr_to_po.studio.chip.why_rejected': 'Pourquoi un refus budget ?',
   'experience.pr_to_po.studio.chip.would_post': 'Que posterais-tu ?',
-  'experience.pr_to_po.studio.chip.sealed': 'Pourquoi scellé ?',
+  'experience.pr_to_po.studio.chip.create': 'Créer la commande',
   'experience.pr_to_po.studio.chip_prompt.open_prs':
     'Combien de demandes ZNPR approuvées restent ouvertes, et lesquelles ?',
   'experience.pr_to_po.studio.chip_prompt.suppliers':
@@ -958,10 +958,27 @@ export const EXPERIENCE_FR = {
     'Explique ce qui fait échouer un contrôle budgétaire et ce que l’agent fait dans ce cas.',
   'experience.pr_to_po.studio.chip_prompt.would_post':
     'Décris la commande que tu proposerais pour la première demande ouverte, champ par champ, avec la source de chaque valeur.',
-  'experience.pr_to_po.studio.chip_prompt.sealed':
-    'Explique le mode scellé : que contient l’enveloppe, et que faut-il pour écrire réellement dans SAP ?',
   'experience.pr_to_po.studio.chat.prompt':
-    'Tu es l’agent NAWA PR vers PO. Réponds en t’appuyant sur les outils de lecture SAP get_A_PurchaseRequisitionItem et get_A_PurchaseOrder. Tu ne peux pas écrire dans SAP depuis cette conversation — les écritures passent par le mode Exécution et son portillon humain. {question}',
+    'Tu es l’agent NAWA PR vers PO. Faits SAP en direct, lus à l’instant par les outils get_A_PurchaseRequisitionItem et get_A_PurchaseOrder : {facts}. Réponds uniquement à partir de ces faits, en français clair — n’annonce jamais une lecture à faire plus tard ; si un fait manque, nomme précisément l’outil et le filtre qui l’apporteraient. Les écritures passent par le dialogue « Créer la commande » et sa confirmation humaine — n’affirme jamais avoir écrit depuis cette conversation. {question}',
+  'experience.pr_to_po.studio.chat_write.ask': 'Crée la commande pour la demande {pr}.',
+  'experience.pr_to_po.studio.chat_write.proposal':
+    'Voici exactement ce que j’enverrais : « {label} » — {amount}, fournisseur {supplier}, site {plant}, type ZLPO.',
+  'experience.pr_to_po.studio.chat_write.payload': 'Requête exacte (création + validation)',
+  'experience.pr_to_po.studio.chat_write.confirm_q':
+    'Rien ne part sans votre accord. On poste ?',
+  'experience.pr_to_po.studio.chat_write.confirm': 'Confirmer et poster',
+  'experience.pr_to_po.studio.chat_write.cancel': 'Annuler',
+  'experience.pr_to_po.studio.chat_write.posting': 'Création puis validation en cours…',
+  'experience.pr_to_po.studio.chat_write.posted': 'PO {po} créé et validé dans SAP.',
+  'experience.pr_to_po.studio.chat_write.cancelled': 'Compris — rien n’a été écrit.',
+  'experience.pr_to_po.studio.chat_write.blocked':
+    'L’outil de création est désactivé dans les garde-fous — aucun appel émis. Rien n’a été écrit.',
+  'experience.pr_to_po.studio.chat_write.sealed':
+    'Écriture scellée : voici l’enveloppe exacte — rien n’a été envoyé.',
+  'experience.pr_to_po.studio.chat_write.failed': 'SAP a refusé — rien n’a été validé.',
+  'experience.pr_to_po.studio.chat_write.calls': '{count} appels d’outils — déroulé complet',
+  'experience.pr_to_po.studio.chat_write.unavailable':
+    'Aucune demande postable pour l’instant — lancez le mode Exécution ou réessayez.',
   'experience.pr_to_po.studio.chat.offline':
     'L’usine n’est pas reliée : publiez le flux depuis le bureau, puis revenez.',
   'experience.pr_to_po.studio.rail.title': 'Serveurs MCP',
@@ -1967,7 +1984,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.studio.chip.suppliers': 'Suppliers per plant',
   'experience.pr_to_po.studio.chip.why_rejected': 'Why a budget rejection?',
   'experience.pr_to_po.studio.chip.would_post': 'What would you post?',
-  'experience.pr_to_po.studio.chip.sealed': 'Why sealed?',
+  'experience.pr_to_po.studio.chip.create': 'Create the order',
   'experience.pr_to_po.studio.chip_prompt.open_prs':
     'How many approved ZNPR requisitions are still open, and which ones?',
   'experience.pr_to_po.studio.chip_prompt.suppliers':
@@ -1976,10 +1993,27 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
     'Explain what makes a budget check fail and what the agent does in that case.',
   'experience.pr_to_po.studio.chip_prompt.would_post':
     'Describe the purchase order you would propose for the first open requisition, field by field, with the source of each value.',
-  'experience.pr_to_po.studio.chip_prompt.sealed':
-    'Explain sealed mode: what does the envelope contain, and what does it take to actually write to SAP?',
   'experience.pr_to_po.studio.chat.prompt':
-    'You are the NAWA PR to PO agent. Answer with the SAP read tools get_A_PurchaseRequisitionItem and get_A_PurchaseOrder. You cannot write to SAP from this conversation — writes go through Run flow and its human gate. {question}',
+    'You are the NAWA PR to PO agent. Live SAP facts, read moments ago through get_A_PurchaseRequisitionItem and get_A_PurchaseOrder: {facts}. Answer from these facts only — never announce a read you would run later; if a fact is missing, name the exact tool and filter that would fetch it. Writes go through the "Create the order" dialogue and its human confirmation — never claim a write from this conversation. {question}',
+  'experience.pr_to_po.studio.chat_write.ask': 'Create the order for requisition {pr}.',
+  'experience.pr_to_po.studio.chat_write.proposal':
+    'Here is exactly what I would send: "{label}" — {amount}, supplier {supplier}, plant {plant}, type ZLPO.',
+  'experience.pr_to_po.studio.chat_write.payload': 'Exact request (create + commit)',
+  'experience.pr_to_po.studio.chat_write.confirm_q':
+    'Nothing goes out without your yes. Post it?',
+  'experience.pr_to_po.studio.chat_write.confirm': 'Confirm and post',
+  'experience.pr_to_po.studio.chat_write.cancel': 'Cancel',
+  'experience.pr_to_po.studio.chat_write.posting': 'Creating, then committing…',
+  'experience.pr_to_po.studio.chat_write.posted': 'PO {po} created and committed in SAP.',
+  'experience.pr_to_po.studio.chat_write.cancelled': 'Understood — nothing was written.',
+  'experience.pr_to_po.studio.chat_write.blocked':
+    'The create tool is switched off in the guardrails — no call was made. Nothing was written.',
+  'experience.pr_to_po.studio.chat_write.sealed':
+    'Write sealed: this is the exact envelope — nothing was sent.',
+  'experience.pr_to_po.studio.chat_write.failed': 'SAP rejected it — nothing was committed.',
+  'experience.pr_to_po.studio.chat_write.calls': '{count} tool calls — full transcript',
+  'experience.pr_to_po.studio.chat_write.unavailable':
+    'No postable requisition right now — run the flow first or try again.',
   'experience.pr_to_po.studio.chat.offline':
     'The factory is not linked: publish the flow from the desk, then come back.',
   'experience.pr_to_po.studio.rail.title': 'MCP servers',

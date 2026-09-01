@@ -1829,6 +1829,101 @@ li[data-status='waiting'] .xp-studio-node-status {
   min-height: 520px;
 }
 
+.xp-studio-chips .xp-desk-chip[data-write='true'] {
+  border-color: color-mix(in srgb, var(--nawa-accent) 55%, transparent);
+  color: var(--nawa-accent);
+  font-weight: 600;
+}
+
+// The in-conversation write dialogue: user ask on the right, agent bubble on
+// the left, same visual language as the chat thread below it.
+.xp-studio-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  .xp-studio-dialog-user {
+    align-self: flex-end;
+    max-width: 70%;
+    margin: 0;
+    padding: 10px 14px;
+    border-radius: 16px 16px 4px 16px;
+    background: linear-gradient(135deg, var(--nawa-accent), color-mix(in srgb, var(--nawa-accent) 72%, #7a2c1c));
+    color: #fff;
+    font-size: 0.92rem;
+  }
+
+  .xp-studio-dialog-agent {
+    align-self: flex-start;
+    max-width: 86%;
+    padding: 12px 16px;
+    border-radius: 16px 16px 16px 4px;
+    border: 1px solid var(--nawa-line);
+    background: color-mix(in srgb, var(--nawa-surface) 88%, #000);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    p {
+      margin: 0;
+      font-size: 0.92rem;
+    }
+
+    details {
+      border: 1px solid var(--nawa-line);
+      border-radius: 10px;
+      padding: 6px 10px;
+
+      pre {
+        max-height: 260px;
+        overflow: auto;
+        font-size: 0.72rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+    }
+  }
+
+  .xp-studio-dialog-confirm {
+    font-weight: 600;
+  }
+
+  .xp-studio-dialog-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .xp-studio-dialog-wait {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--nawa-fg-dim);
+    font-size: 0.85rem;
+  }
+
+  .xp-studio-dialog-ok {
+    color: var(--nawa-ok);
+    font-weight: 600;
+  }
+
+  .xp-studio-dialog-blocked,
+  .xp-studio-dialog-err {
+    color: var(--nawa-warn);
+    font-weight: 600;
+  }
+
+  .xp-studio-dialog-sealed,
+  .xp-studio-dialog-cancelled {
+    color: var(--nawa-fg-dim);
+  }
+
+  .xp-studio-dialog-msg {
+    color: var(--nawa-fg-dim);
+    font-size: 0.82rem;
+  }
+}
+
 .xp-studio-rail {
   position: sticky;
   top: 86px;

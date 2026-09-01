@@ -42,17 +42,21 @@ import {
   blockedCall,
   blockedOutcome,
   buildStudioProposal,
+  chatWriteStageFromOutcome,
   discardInvokeBody,
   formatStudioAmount,
   guardrailBlocked,
   initialStudioNodes,
+  openChatWriteDialogue,
   openPrRowsFromPreview,
   outcomeFromInvoke,
   proposalsTotal,
   readCall,
   studioCallFromInvoke,
+  studioFactSheet,
   studioJson,
   studioPlants,
+  type ChatWriteDialogue,
   type StudioCall,
   type StudioMode,
   type StudioNodeId,
@@ -348,11 +352,122 @@ const RAIL_TOOLS: readonly RailTool[] = [
             <section class="xp-studio-chat-wrap">
               <div class="xp-desk-chips xp-studio-chips">
                 @for (chip of chatChips; track chip) {
-                  <button type="button" class="xp-desk-chip" (click)="askChip(chip)">
+                  <button
+                    type="button"
+                    class="xp-desk-chip"
+                    [attr.data-write]="chip === 'create'"
+                    (click)="askChip(chip)"
+                  >
                     {{ i18n.t('experience.pr_to_po.studio.chip.' + chip) }}
                   </button>
                 }
               </div>
+              @if (chatDialogue(); as dialogue) {
+                <section class="xp-studio-dialog" [attr.data-stage]="dialogue.stage">
+                  <p class="xp-studio-dialog-user">
+                    {{ i18n.t('experience.pr_to_po.studio.chat_write.ask', { pr: dialogue.proposal.prId }) }}
+                  </p>
+                  <div class="xp-studio-dialog-agent">
+                    <p>
+                      {{
+                        i18n.t('experience.pr_to_po.studio.chat_write.proposal', {
+                          label: dialogue.proposal.label,
+                          amount: amount(dialogue.proposal),
+                          supplier: dialogue.proposal.supplier || '—',
+                          plant: dialogue.proposal.plant,
+                        })
+                      }}
+                    </p>
+                    <ul class="xp-studio-provenance">
+                      @for (row of dialogue.proposal.provenance; track row.field) {
+                        <li>{{ i18n.t(row.sourceKey, row.sourceParams) }}</li>
+                      }
+                    </ul>
+                    @if (dialogue.proposal.post) {
+                      <details>
+                        <summary>{{ i18n.t('experience.pr_to_po.studio.chat_write.payload') }}</summary>
+                        <pre>{{ json(dialogue.proposal.post.requestBody) }}</pre>
+                      </details>
+                    }
+                    @if (dialogue.stage === 'proposing' || dialogue.stage === 'posting') {
+                      <p class="xp-studio-dialog-confirm">
+                        {{ i18n.t('experience.pr_to_po.studio.chat_write.confirm_q') }}
+                      </p>
+                      <div class="xp-studio-dialog-actions">
+                        <button
+                          type="button"
+                          class="xp-work-btn xp-work-btn-primary xp-studio-dialog-yes"
+                          (click)="confirmChatWrite()"
+                          [disabled]="chatBusy() || dialogue.stage === 'posting'"
+                        >
+                          {{ i18n.t('experience.pr_to_po.studio.chat_write.confirm') }}
+                        </button>
+                        <button
+                          type="button"
+                          class="xp-work-btn xp-studio-dialog-no"
+                          (click)="cancelChatWrite()"
+                          [disabled]="chatBusy()"
+                        >
+                          {{ i18n.t('experience.pr_to_po.studio.chat_write.cancel') }}
+                        </button>
+                        @if (dialogue.stage === 'posting') {
+                          <span class="xp-studio-dialog-wait">
+                            <ck-thinking-orb state="working" [size]="20" />
+                            {{ i18n.t('experience.pr_to_po.studio.chat_write.posting') }}
+                          </span>
+                        }
+                      </div>
+                    } @else if (dialogue.stage === 'posted') {
+                      <p class="xp-studio-dialog-ok">
+                        {{
+                          i18n.t('experience.pr_to_po.studio.chat_write.posted', {
+                            po: dialogue.outcome?.poNumber || '—',
+                          })
+                        }}
+                      </p>
+                    } @else if (dialogue.stage === 'blocked') {
+                      <p class="xp-studio-dialog-blocked">
+                        {{ i18n.t('experience.pr_to_po.studio.chat_write.blocked') }}
+                      </p>
+                    } @else if (dialogue.stage === 'sealed') {
+                      <p class="xp-studio-dialog-sealed">
+                        {{ i18n.t('experience.pr_to_po.studio.chat_write.sealed') }}
+                      </p>
+                    } @else if (dialogue.stage === 'cancelled') {
+                      <p class="xp-studio-dialog-cancelled">
+                        {{ i18n.t('experience.pr_to_po.studio.chat_write.cancelled') }}
+                      </p>
+                    } @else {
+                      <p class="xp-studio-dialog-err">
+                        {{ i18n.t('experience.pr_to_po.studio.chat_write.failed') }}
+                      </p>
+                      @for (message of dialogue.outcome?.messages || []; track message) {
+                        <p class="xp-studio-dialog-msg">{{ message }}</p>
+                      }
+                    }
+                    @if (dialogue.calls.length) {
+                      <details class="xp-studio-dialog-calls">
+                        <summary>
+                          {{
+                            i18n.t('experience.pr_to_po.studio.chat_write.calls', {
+                              count: dialogue.calls.length,
+                            })
+                          }}
+                        </summary>
+                        @for (call of dialogue.calls; track $index) {
+                          <div class="xp-studio-call" [attr.data-blocked]="call.blocked">
+                            <code>{{ call.server }} · {{ call.tool }}</code>
+                            <pre>{{ json(call.response) }}</pre>
+                          </div>
+                        }
+                      </details>
+                    }
+                  </div>
+                </section>
+              }
+              @if (chatWriteError()) {
+                <p class="xp-work-error xp-studio-dialog-error">{{ chatWriteError() }}</p>
+              }
               @if (systemId(); as chatSystemId) {
                 <section class="xp-desk-portal xp-studio-chat">
                   @for (tick of [chatTick()]; track tick) {
@@ -435,6 +550,10 @@ export class PrToPoStudioComponent implements OnInit {
   readonly systemId = computed(() => this.system()?.id ?? null);
   readonly chatTick = signal(0);
   readonly chatPrompt = signal('');
+  readonly chatFacts = signal('');
+  readonly chatDialogue = signal<ChatWriteDialogue | null>(null);
+  readonly chatBusy = signal(false);
+  readonly chatWriteError = signal<string | null>(null);
   readonly railTools = RAIL_TOOLS;
   readonly chatChips = STUDIO_CHAT_CHIPS;
   readonly writeUnsealed = computed(() => this.workspace.sapWriteUnsealed());
@@ -459,6 +578,7 @@ export class PrToPoStudioComponent implements OnInit {
   private terms = new Map<string, { terms: RecentPoTerms; recentPo: string }>();
   private candidates: DeskPrItemFields[] = [];
   private budgetNotes = new Map<string, { ok: boolean; reason: string; warning: string }>();
+  private totalOpen = 0;
 
   ngOnInit(): void {
     this.loadRail();
@@ -468,8 +588,7 @@ export class PrToPoStudioComponent implements OnInit {
   setMode(mode: StudioMode): void {
     this.mode.set(mode);
     if (mode === 'chat' && !this.chatPrompt()) {
-      this.chatPrompt.set(this.composeChatPrompt(''));
-      this.chatTick.update((tick) => tick + 1);
+      void this.refreshChatPrompt('');
     }
   }
 
@@ -509,17 +628,207 @@ export class PrToPoStudioComponent implements OnInit {
   }
 
   askChip(chip: string): void {
-    this.chatPrompt.set(
-      this.composeChatPrompt(this.i18n.t(`experience.pr_to_po.studio.chip_prompt.${chip}`)),
+    if (chip === 'create') {
+      void this.openChatWrite();
+      return;
+    }
+    void this.refreshChatPrompt(this.i18n.t(`experience.pr_to_po.studio.chip_prompt.${chip}`));
+  }
+
+  /**
+   * The classic chat cannot call tools, so the studio executes the SAP reads
+   * itself and hands the model a live fact sheet. The prompt then forbids the
+   * "I would run a read" answer the QA kept catching.
+   */
+  private async refreshChatPrompt(question: string): Promise<void> {
+    await this.ensureChatFacts();
+    this.chatFacts.set(
+      studioFactSheet({
+        totalOpen: this.totalOpen,
+        candidates: this.candidates,
+        plantTerms: this.terms,
+        proposals: this.proposals(),
+      }),
     );
+    this.chatPrompt.set(this.composeChatPrompt(question));
     this.chatTick.update((tick) => tick + 1);
   }
 
   private composeChatPrompt(question: string): string {
     return this.i18n.t('experience.pr_to_po.studio.chat.prompt', {
+      facts: this.chatFacts() || '—',
       question:
         question.trim() || this.i18n.t('experience.pr_to_po.studio.chip_prompt.open_prs'),
     });
+  }
+
+  /** Reads the chat facts ride on — same live endpoints as the run flow. */
+  private async ensureChatFacts(): Promise<void> {
+    if (this.candidates.length && this.terms.size) return;
+    const sink: StudioCall[] = [];
+    const preview = await this.quietRead<DeskPreview>('sap', approvedPrItemReadBody(), sink);
+    if (!preview || preview.ok === false) return;
+    this.totalOpen = preview.row_count || this.totalOpen;
+    if (!this.candidates.length) this.candidates = openPrRowsFromPreview(preview);
+    for (const plant of studioPlants(this.candidates)) {
+      if (this.terms.get(plant)?.terms.supplier) continue;
+      const history = await this.quietRead<DeskPreview>('hikma', recentPosByPlantReadBody(plant), sink);
+      if (history && history.ok !== false) {
+        this.terms.set(plant, {
+          terms: recentPoTermsFromPreview(history),
+          recentPo: uniquePurchaseOrders(history, 1)[0] || '',
+        });
+      }
+    }
+  }
+
+  /** Fifth chip: the write dialogue opens inside the conversation. */
+  async openChatWrite(): Promise<void> {
+    if (this.chatBusy()) return;
+    this.chatBusy.set(true);
+    this.chatWriteError.set(null);
+    try {
+      const prepared = await this.prepareChatProposal();
+      if (!prepared) {
+        this.chatDialogue.set(null);
+        this.chatWriteError.set(this.i18n.t('experience.pr_to_po.studio.chat_write.unavailable'));
+        return;
+      }
+      this.chatDialogue.set(openChatWriteDialogue(prepared.proposal, prepared.calls));
+    } finally {
+      this.chatBusy.set(false);
+    }
+  }
+
+  private async prepareChatProposal(): Promise<{ proposal: StudioProposal; calls: StudioCall[] } | null> {
+    const pending = this.proposals().find((row) => row.decision === 'pending' && row.post);
+    if (pending) return { proposal: pending, calls: [] };
+    const calls: StudioCall[] = [];
+    const preview = await this.quietRead<DeskPreview>('sap', approvedPrItemReadBody(), calls);
+    if (!preview || preview.ok === false) return null;
+    this.totalOpen = preview.row_count || this.totalOpen;
+    const rows = openPrRowsFromPreview(preview);
+    const fields = rows[0];
+    if (!fields) return null;
+    if (!this.candidates.length) this.candidates = rows;
+    const plant = fields.plant.trim() || '1000';
+    let known = this.terms.get(plant);
+    if (!known?.terms.supplier) {
+      const history = await this.quietRead<DeskPreview>('hikma', recentPosByPlantReadBody(plant), calls);
+      if (history && history.ok !== false) {
+        known = {
+          terms: recentPoTermsFromPreview(history),
+          recentPo: uniquePurchaseOrders(history, 1)[0] || '',
+        };
+        this.terms.set(plant, known);
+      }
+    }
+    if (!known?.terms.supplier) return null;
+    const proposal = buildStudioProposal(
+      fields,
+      known.terms,
+      known.recentPo,
+      this.budgetNotes.get(fields.pr_id)?.warning || '',
+    );
+    return proposal.post ? { proposal, calls } : null;
+  }
+
+  /** The human said yes in the thread — same guarded path as the run-flow gate. */
+  async confirmChatWrite(): Promise<void> {
+    const dialogue = this.chatDialogue();
+    if (!dialogue || dialogue.stage !== 'proposing' || this.chatBusy()) return;
+    const post = dialogue.proposal.post;
+    if (!post) return;
+    this.chatBusy.set(true);
+    this.chatDialogue.set({ ...dialogue, stage: 'posting' });
+    try {
+      const create = await this.chatInvoke(bapiCreateInvokeBody(post));
+      let calls = [...dialogue.calls, create];
+      if (create.blocked) {
+        this.chatDialogue.set({ ...dialogue, stage: 'blocked', calls, outcome: blockedOutcome() });
+        return;
+      }
+      const created = outcomeFromInvoke(create.response);
+      if (created.sealed || !created.sapOk) {
+        this.chatDialogue.set({
+          ...dialogue,
+          stage: chatWriteStageFromOutcome(created),
+          calls,
+          outcome: created,
+        });
+        return;
+      }
+      const commit = await this.chatInvoke(bapiCommitInvokeBody());
+      calls = [...calls, commit];
+      const committed = outcomeFromInvoke(commit.response);
+      const done = !commit.blocked && (committed.sealed || committed.sapOk);
+      const outcome = { ...created, sapOk: done && created.sapOk };
+      this.chatDialogue.set({
+        ...dialogue,
+        stage: chatWriteStageFromOutcome(outcome),
+        calls,
+        outcome,
+      });
+      if (done) {
+        this.setDecision(dialogue.proposal.prId, { decision: 'approved', outcome });
+        // The next chip recomposes the prompt, so the model learns the new PO.
+        this.chatFacts.set(
+          studioFactSheet({
+            totalOpen: this.totalOpen,
+            candidates: this.candidates,
+            plantTerms: this.terms,
+            proposals: this.proposals(),
+          }),
+        );
+      }
+    } finally {
+      this.chatBusy.set(false);
+    }
+  }
+
+  cancelChatWrite(): void {
+    this.chatDialogue.update((dialogue) =>
+      dialogue && dialogue.stage === 'proposing' ? { ...dialogue, stage: 'cancelled' } : dialogue,
+    );
+  }
+
+  /** One allow-listed write for the chat dialogue; guardrail first, network second. */
+  private async chatInvoke(body: { tool: string; arguments: Record<string, unknown> }): Promise<StudioCall> {
+    const serverId = STUDIO_WRITE_SERVERS[body.tool] || BAPI_SERVER_ID;
+    if (guardrailBlocked(body.tool, this.disabledTools())) {
+      return blockedCall(serverId, body.tool, body);
+    }
+    try {
+      const result = await firstValueFrom(
+        this.api.post<unknown>(`/mcp/servers/${encodeURIComponent(serverId)}/invoke`, body),
+      );
+      return studioCallFromInvoke(serverId, body.tool, body, result);
+    } catch (err) {
+      return {
+        server: serverId,
+        tool: body.tool,
+        request: body,
+        response: this.errorBody(err),
+        ok: false,
+        write: true,
+        blocked: false,
+        sealed: false,
+        durationMs: 0,
+      };
+    }
+  }
+
+  private async quietRead<T>(serverId: string, body: { tool: string }, calls: StudioCall[]): Promise<T | null> {
+    try {
+      const result = await firstValueFrom(
+        this.api.post<T>(`/mcp/servers/${encodeURIComponent(serverId)}/read`, body),
+      );
+      calls.push(readCall(serverId, body.tool, body, result));
+      return result;
+    } catch (err) {
+      calls.push(readCall(serverId, body.tool, body, this.errorBody(err), false));
+      return null;
+    }
   }
 
   private loadRail(): void {
@@ -652,6 +961,7 @@ export class PrToPoStudioComponent implements OnInit {
       throw new Error('requisitions read failed');
     }
     this.candidates = openPrRowsFromPreview(preview);
+    this.totalOpen = preview.row_count || 0;
     this.patchNode('requisitions', {
       status: 'done',
       noteKey: 'experience.pr_to_po.studio.note.requisitions',

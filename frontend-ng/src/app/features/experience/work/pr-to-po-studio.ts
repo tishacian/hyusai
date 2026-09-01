@@ -144,12 +144,13 @@ export const STUDIO_GUARDRAIL_TOOLS: readonly string[] = [
 
 export const STUDIO_PROPOSAL_CAP = 3;
 
+/** Demo-scenario order — the fifth chip opens the in-conversation write dialogue. */
 export const STUDIO_CHAT_CHIPS: readonly string[] = [
   'open_prs',
   'suppliers',
   'why_rejected',
   'would_post',
-  'sealed',
+  'create',
 ];
 
 export function initialStudioNodes(): StudioNodeState[] {
@@ -474,4 +475,76 @@ export function studioPlants(rows: readonly DeskPrItemFields[]): string[] {
     if (!plants.includes(plant)) plants.push(plant);
   }
   return plants.slice(0, 3);
+}
+
+/**
+ * Live SAP facts injected verbatim into the chat prompt. The classic chat
+ * cannot call tools, so the studio runs the reads itself and the model
+ * answers from this sheet — never from an imagined "planned read".
+ */
+export interface StudioFactSheetInput {
+  totalOpen: number;
+  candidates: readonly DeskPrItemFields[];
+  plantTerms: ReadonlyMap<string, { terms: RecentPoTerms; recentPo: string }>;
+  proposals: readonly StudioProposal[];
+}
+
+export function studioFactSheet(input: StudioFactSheetInput): string {
+  const lines: string[] = [];
+  const shown = input.candidates.length;
+  lines.push(`open approved ZNPR requisition items: ${input.totalOpen} (showing ${shown})`);
+  for (const row of input.candidates) {
+    const label = row.label || row.pr_id;
+    lines.push(
+      `PR ${row.pr_id}/${row.item} "${label}" — ${row.quantity} ${row.unit} × ${row.net_price} ${row.currency}, plant ${row.plant}`,
+    );
+  }
+  for (const [plant, known] of input.plantTerms) {
+    const t = known.terms;
+    lines.push(
+      `plant ${plant} → latest order ${known.recentPo || '—'}: supplier ${t.supplier || '—'}, terms ${t.paymentTerms || '—'}, incoterms ${t.incoterms || '—'}, group ${t.purchGroup || '—'}`,
+    );
+  }
+  for (const proposal of input.proposals) {
+    const state =
+      proposal.outcome?.poNumber
+        ? `posted as PO ${proposal.outcome.poNumber}`
+        : proposal.decision;
+    lines.push(
+      `proposal PR ${proposal.prId} "${proposal.label}" — ${formatStudioAmount(proposal.amount, proposal.currency)} to supplier ${proposal.supplier || '—'} (${state})`,
+    );
+  }
+  return lines.join('; ');
+}
+
+/**
+ * The in-conversation write dialogue. The chat model never writes: the fifth
+ * chip opens this exchange, the human confirms inside the thread, and the
+ * confirmed create rides the same guarded `/invoke` path as the run-flow gate.
+ */
+export type ChatWriteStage =
+  | 'proposing'
+  | 'posting'
+  | 'posted'
+  | 'failed'
+  | 'blocked'
+  | 'sealed'
+  | 'cancelled';
+
+export interface ChatWriteDialogue {
+  proposal: StudioProposal;
+  stage: ChatWriteStage;
+  calls: StudioCall[];
+  outcome: StudioWriteOutcome | null;
+}
+
+export function openChatWriteDialogue(proposal: StudioProposal, calls: StudioCall[] = []): ChatWriteDialogue {
+  return { proposal, stage: 'proposing', calls, outcome: null };
+}
+
+export function chatWriteStageFromOutcome(outcome: StudioWriteOutcome): ChatWriteStage {
+  if (outcome.blocked) return 'blocked';
+  if (outcome.sealed) return 'sealed';
+  if (outcome.sapOk && outcome.poNumber) return 'posted';
+  return 'failed';
 }
