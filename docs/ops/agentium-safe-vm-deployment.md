@@ -5104,3 +5104,32 @@ Pas de reroute de layout. `origin/demo/agentic` `91b9a348` →
 | Canaris carakai | non rejoués |
 | Rollback | `AGENTIUM_IMAGE_TAG=347311924fab` puis `up` ; aucun schéma à reculer |
 
+## Itération du 01/09 — correctifs QA visuelle, déployée sur `97771958`
+
+GO desk après QA visuelle : dates OData formatées `YYYY-MM-DD` dans les
+tables, en-têtes courts (nom SAP brut en tooltip) pour supprimer le
+rognage 1080p, prompt du portail réécrit sans noms d'outils d'écriture,
+justification lue sur l'item **sélectionné** (repli étiqueté `item 10`
+si la ligne n'a pas de texte). `origin/demo/agentic` `64178930` →
+`97771958db08158197d562f851cdf34ef82de950`. Aucune migration.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n`, `check:ui-chrome`, `test:unit` (1365 verts), `build:prod` verts |
+| Push | `demo/agentic` en fast-forward `64178930` → `97771958` |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | `64178930` → `97771958db08158197d562f851cdf34ef82de950` ff-only |
+| Build | trois images `agentium-{backend,worker,frontend}:97771958db08` |
+| Dump / migrate | sautés |
+| `storage-check` | sortie 0 |
+| `up` | cinq services applicatifs recréés ; infra intouchée |
+| `build-info` | `revision: 97771958db08158197d562f851cdf34ef82de950`, `revision_verified: true` |
+| Alias | tag mobile `demo-agentic` **non déplacé** |
+| Smoke desk | zéro `/Date(` à l'écran, 6 dates ISO ; zéro table rognée (`scrollWidth ≤ clientWidth`) ; en-têtes `PR / ITEM / ITEM TEXT / MATL GROUP / QTY` et `PO / TYPE / SUPPLIER / ORDERED / PURCH ORG` ; justification **PAPER BAG** via `get_A_PurchaseRequisitionItem_by_key · item 20` (cohérente avec la sélection, sans repli) ; prompt du portail sans `BAPI_*` ni `post_A_*` |
+| Seed / DAG | inchangés — seed **non** relancé |
+| Flags | `sap_hana_connector` reste off |
+| Canaris carakai | non rejoués |
+| Rollback | `AGENTIUM_IMAGE_TAG=6417893067f9` puis `up` ; aucun schéma à reculer |
+
