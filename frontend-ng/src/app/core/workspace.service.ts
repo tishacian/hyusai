@@ -420,6 +420,16 @@ export class WorkspaceService {
       && (features as Record<string, unknown>)['mcp_connector'] === true,
     );
   });
+  /** Mirrors the backend gate: with the flag off, every MCP write stays sealed. */
+  readonly sapWriteUnsealed = computed(() => {
+    const features = this.current()?.settings?.['features'];
+    return Boolean(
+      features
+      && typeof features === 'object'
+      && !Array.isArray(features)
+      && (features as Record<string, unknown>)['sap_write_unsealed'] === true,
+    );
+  });
   readonly modelPortalEnabled = computed(() => {
     const features = this.current()?.settings?.['features'];
     return Boolean(
