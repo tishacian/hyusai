@@ -883,7 +883,7 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.portal.prompt_open':
     'Combien de demandes et de commandes viennent d’être lues, et qui est le fournisseur de l’établissement ?',
   'experience.pr_to_po.desk.portal.prompt':
-    'Question en lecture seule sur les lectures SAP en direct (get_A_PurchaseRequisitionItem, get_A_PurchaseOrder). N’écris jamais dans SAP et ne prétends pas écrire. {question}',
+    'Lecture seule. Réponds avec les outils de lecture SAP get_A_PurchaseRequisitionItem et get_A_PurchaseOrder. Le bureau vient de lire {prs} demandes et {pos} commandes ; fournisseur de l’établissement {supplier}. N’écris jamais dans SAP et ne prétends pas écrire. {question}',
   'experience.pr_to_po.refresh': 'Actualiser',
   'experience.pr_to_po.approve': 'Approuver le dossier',
   'experience.pr_to_po.reject': 'Refuser',
@@ -1778,7 +1778,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.portal.prompt_open':
     'How many requisitions and orders were just read, and who is the plant supplier?',
   'experience.pr_to_po.desk.portal.prompt':
-    'Read-only question on the live SAP reads (get_A_PurchaseRequisitionItem, get_A_PurchaseOrder). Never write to SAP or claim a write. {question}',
+    'Read-only. Answer with the SAP read tools get_A_PurchaseRequisitionItem and get_A_PurchaseOrder. The desk just read {prs} requisitions and {pos} orders; plant supplier {supplier}. Never write to SAP or claim a write. {question}',
   'experience.pr_to_po.refresh': 'Refresh',
   'experience.pr_to_po.approve': 'Approve the package',
   'experience.pr_to_po.reject': 'Reject',

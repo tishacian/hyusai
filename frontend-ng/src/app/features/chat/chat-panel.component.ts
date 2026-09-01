@@ -2083,88 +2083,6 @@ const STEP_ICONS: Record<string, string> = {
       border: 1px solid color-mix(in oklab, var(--ck-signal-cool, #22d3ee) 16%, transparent);
       background: color-mix(in oklab, var(--ck-signal-cool, #22d3ee) 5%, var(--ck-bg-inset, #0f172a));
     }
-
-    /* --- NAWA factory-portal skin. The PR to PO desk wraps this panel in
-           .xp-desk-portal; inside it the chat drops the cockpit cyan and takes
-           the desk charter (coral accent, sage ok-green, warm charcoal
-           surfaces) so the portal reads as one surface with the desk. The
-           .ck-chat-* hooks exist for skins like this one; they carry no
-           style of their own. --- */
-    :host-context(.xp-desk-portal) .chat-history-shell {
-      background: transparent;
-    }
-    :host-context(.xp-desk-portal) .ck-chat-user-bubble {
-      border: 1px solid color-mix(in srgb, #ffffff 16%, transparent);
-      background: linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--nawa-accent, #e8543a) 82%, #ffd9c9),
-        var(--nawa-accent, #e8543a)
-      );
-      color: #1a0b07;
-      font-weight: 500;
-      box-shadow: 0 14px 34px color-mix(in srgb, var(--nawa-accent, #e8543a) 28%, transparent);
-    }
-    :host-context(.xp-desk-portal) .ck-chat-assistant-bubble {
-      border: 1px solid var(--nawa-line, rgba(245, 242, 239, 0.1));
-      background: var(--nawa-surface-2, #1d1d1d);
-      color: var(--nawa-fg, #f5f2ef);
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
-    }
-    :host-context(.xp-desk-portal) .ck-chat-progress {
-      border: 1px solid color-mix(in srgb, var(--nawa-accent, #e8543a) 32%, transparent);
-      background:
-        radial-gradient(
-          140px 60px at 0% 50%,
-          color-mix(in srgb, var(--nawa-accent, #e8543a) 14%, transparent),
-          transparent 70%
-        ),
-        var(--nawa-surface-2, #1d1d1d);
-      color: var(--nawa-fg, #f5f2ef);
-      box-shadow: none;
-    }
-    :host-context(.xp-desk-portal) .ck-chat-input-bar {
-      border-top-color: var(--nawa-line, rgba(245, 242, 239, 0.1));
-      background: color-mix(in srgb, var(--nawa-bg, #070707) 72%, transparent);
-    }
-    :host-context(.xp-desk-portal) .ck-chat-input {
-      border-color: var(--nawa-line, rgba(245, 242, 239, 0.12));
-      background: var(--nawa-surface-2, #1d1d1d);
-      color: var(--nawa-fg, #f5f2ef);
-      caret-color: var(--nawa-accent, #e8543a);
-      --tw-ring-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 55%, transparent);
-    }
-    :host-context(.xp-desk-portal) .ck-chat-send {
-      border: 1px solid transparent;
-      background: var(--nawa-accent, #e8543a);
-      color: #140806;
-      font-weight: 600;
-      box-shadow: 0 10px 24px color-mix(in srgb, var(--nawa-accent, #e8543a) 35%, transparent);
-    }
-    :host-context(.xp-desk-portal) .ck-chat-send:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 86%, #ffffff);
-    }
-    :host-context(.xp-desk-portal) .ck-chat-empty-mark {
-      border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 30%, transparent);
-      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 10%, var(--nawa-surface, #141414));
-      box-shadow: 0 0 32px color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
-    }
-    :host-context(.xp-desk-portal) .ck-chat-trace-summary {
-      border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
-      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 6%, var(--nawa-surface, #141414));
-    }
-    :host-context(.xp-desk-portal) ck-thinking-orb {
-      border-radius: 999px;
-      filter: drop-shadow(0 0 9px color-mix(in srgb, var(--nawa-accent, #e8543a) 45%, transparent));
-    }
-    :host-context(.xp-desk-portal) .text-cyan-400,
-    :host-context(.xp-desk-portal) .text-cyan-300,
-    :host-context(.xp-desk-portal) .text-sky-300 {
-      color: var(--nawa-accent, #e8543a);
-    }
-    :host-context(.xp-desk-portal) .text-emerald-400,
-    :host-context(.xp-desk-portal) .text-emerald-300 {
-      color: var(--nawa-ok, #8fd0a8);
-    }
 	    .chat-history-shell {
       display: flex;
       height: 100%;
@@ -3135,6 +3053,89 @@ const STEP_ICONS: Record<string, string> = {
     :host-context([data-theme="light"]) .vigie-send-button:hover:not(:disabled) {
       border-color: var(--ck-signal-pos) !important;
       background: color-mix(in oklab, var(--ck-signal-pos) 88%, black) !important;
+    }
+
+    /* --- NAWA factory-portal skin. The PR to PO desk wraps this panel in
+           .xp-desk-portal; inside it the chat drops the cockpit cyan and takes
+           the desk charter (coral accent, sage ok-green, warm charcoal
+           surfaces) so the portal reads as one surface with the desk. The
+           .ck-chat-* hooks exist for skins like this one; they carry no style
+           of their own. Last in the sheet on purpose: the skin must outrank
+           the light-theme remaps at equal specificity. --- */
+    :host-context(.xp-desk-portal) .chat-history-shell {
+      background: transparent;
+    }
+    :host-context(.xp-desk-portal) .ck-chat-user-bubble {
+      border: 1px solid color-mix(in srgb, #ffffff 16%, transparent);
+      background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--nawa-accent, #e8543a) 82%, #ffd9c9),
+        var(--nawa-accent, #e8543a)
+      );
+      color: #1a0b07;
+      font-weight: 500;
+      box-shadow: 0 14px 34px color-mix(in srgb, var(--nawa-accent, #e8543a) 28%, transparent);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-assistant-bubble {
+      border: 1px solid var(--nawa-line, rgba(245, 242, 239, 0.1));
+      background: var(--nawa-surface-2, #1d1d1d);
+      color: var(--nawa-fg, #f5f2ef);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-progress {
+      border: 1px solid color-mix(in srgb, var(--nawa-accent, #e8543a) 32%, transparent);
+      background:
+        radial-gradient(
+          140px 60px at 0% 50%,
+          color-mix(in srgb, var(--nawa-accent, #e8543a) 14%, transparent),
+          transparent 70%
+        ),
+        var(--nawa-surface-2, #1d1d1d);
+      color: var(--nawa-fg, #f5f2ef);
+      box-shadow: none;
+    }
+    :host-context(.xp-desk-portal) .ck-chat-input-bar {
+      border-top-color: var(--nawa-line, rgba(245, 242, 239, 0.1));
+      background: color-mix(in srgb, var(--nawa-bg, #070707) 72%, transparent);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-input {
+      border-color: var(--nawa-line, rgba(245, 242, 239, 0.12));
+      background: var(--nawa-surface-2, #1d1d1d);
+      color: var(--nawa-fg, #f5f2ef);
+      caret-color: var(--nawa-accent, #e8543a);
+      --tw-ring-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 55%, transparent);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-send {
+      border: 1px solid transparent;
+      background: var(--nawa-accent, #e8543a);
+      color: #140806;
+      font-weight: 600;
+      box-shadow: 0 10px 24px color-mix(in srgb, var(--nawa-accent, #e8543a) 35%, transparent);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-send:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 86%, #ffffff);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-empty-mark {
+      border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 30%, transparent);
+      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 10%, var(--nawa-surface, #141414));
+      box-shadow: 0 0 32px color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-trace-summary {
+      border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
+      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 6%, var(--nawa-surface, #141414));
+    }
+    :host-context(.xp-desk-portal) ck-thinking-orb {
+      border-radius: 999px;
+      filter: drop-shadow(0 0 9px color-mix(in srgb, var(--nawa-accent, #e8543a) 45%, transparent));
+    }
+    :host-context(.xp-desk-portal) .text-cyan-400,
+    :host-context(.xp-desk-portal) .text-cyan-300,
+    :host-context(.xp-desk-portal) .text-sky-300 {
+      color: var(--nawa-accent, #e8543a);
+    }
+    :host-context(.xp-desk-portal) .text-emerald-400,
+    :host-context(.xp-desk-portal) .text-emerald-300 {
+      color: var(--nawa-ok, #8fd0a8);
     }
   `],
 })
