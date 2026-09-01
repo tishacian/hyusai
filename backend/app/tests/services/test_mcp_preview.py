@@ -164,6 +164,50 @@ def test_flatten_unwraps_fixture_and_odata_shapes():
     assert wide_po["rows"][0][wide_po["columns"].index("Supplier")] == "100012"
 
 
+def test_pr_item_preview_keeps_the_fields_the_agent_posts_from():
+    """The PR→PO agent reads price, quantities, currency and delivery date out
+    of this preview. The old 8-column cap silently dropped them and every
+    proposal went to SAP at 0.00 (06/215, live QA 2026-09-01)."""
+    table = mcp_preview.flatten_preview(
+        {
+            "status": 200,
+            "data": {
+                "results": [
+                    {
+                        "__metadata": {"type": "A_PurchaseRequisitionItemType"},
+                        "PurchaseRequisition": "2000276658",
+                        "PurchaseRequisitionItem": "10",
+                        "PurchaseRequisitionItemText": "4peline Rubber",
+                        "Material": "100000003614",
+                        "MaterialGroup": "Z100001",
+                        "RequestedQuantity": "100.000",
+                        "OrderedQuantity": "0",
+                        "BaseUnit": "NO",
+                        "PurchaseRequisitionPrice": "100.00",
+                        "PurReqnItemCurrency": "QAR",
+                        "Plant": "8675",
+                        "CompanyCode": "8675",
+                        "PurchasingGroup": "013",
+                        "DeliveryDate": "/Date(1791504000000)/",
+                        "PurchaseRequisitionType": "ZNPR",
+                    }
+                ]
+            },
+        }
+    )
+    for column in (
+        "PurchaseRequisitionPrice",
+        "OrderedQuantity",
+        "PurReqnItemCurrency",
+        "DeliveryDate",
+        "Plant",
+        "RequestedQuantity",
+    ):
+        assert column in table["columns"], column
+    price = table["rows"][0][table["columns"].index("PurchaseRequisitionPrice")]
+    assert price == "100.00"
+
+
 def test_fixture_preview_lists_prs_and_never_calls_write():
     with _fixture_http() as base:
         sap = _server(f"{base}/sap", "sap")

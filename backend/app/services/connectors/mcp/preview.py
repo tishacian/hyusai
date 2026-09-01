@@ -9,7 +9,12 @@ from app.services.connectors.mcp import client as mcp_client
 from app.services.connectors.mcp.errors import McpPreviewUnavailable
 
 PREVIEW_ROW_CAP = 8
-PREVIEW_COL_CAP = 8
+# 18, not 8: the PR→PO agent parses these previews programmatically and the
+# requisition read selects 15 fields. An 8-column cap silently dropped
+# PurchaseRequisitionPrice / OrderedQuantity / PurReqnItemCurrency /
+# DeliveryDate, so every proposal carried 0.00 and SAP rejected the create
+# with 06/215 "Please enter net price" (live QA, 2026-09-01).
+PREVIEW_COL_CAP = 18
 
 _READ_PREFIXES = ("get_", "get", "list_", "list", "query_", "query", "search_", "search", "read_", "read")
 _WRITE_PREFIXES = ("post_", "post", "patch_", "patch", "put_", "put", "delete_", "delete", "create_", "create", "update_", "update")
@@ -40,7 +45,20 @@ _PREFERRED_ENTITIES = (
 _PREFERRED_COLUMNS = (
     "PurchaseRequisition",
     "PurchaseRequisitionType",
+    "PurchaseRequisitionItem",
+    "PurchaseRequisitionItemText",
     "PurReqnDescription",
+    "Material",
+    "MaterialGroup",
+    "RequestedQuantity",
+    "OrderedQuantity",
+    "BaseUnit",
+    "PurchaseRequisitionPrice",
+    "PurReqnItemCurrency",
+    "Plant",
+    "CompanyCode",
+    "PurchasingGroup",
+    "DeliveryDate",
     "CreationDate",
     "TaskTitle",
     "TaskDefinitionName",
