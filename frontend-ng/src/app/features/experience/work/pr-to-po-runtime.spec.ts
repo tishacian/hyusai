@@ -118,6 +118,7 @@ test('the factory portal chat wears the NAWA skin with orbs', () => {
     'utf8',
   );
   assert.match(board, /xp-desk-portal-head[\s\S]{0,120}ck-thinking-orb/);
+  assert.match(board, /\[freshSession\]="true"/);
   const panel = readFileSync(
     join(process.cwd(), 'src/app/features/chat/chat-panel.component.ts'),
     'utf8',
