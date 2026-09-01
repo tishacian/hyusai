@@ -379,6 +379,7 @@ import {
                 [systemId]="portalSystemId"
                 [initialPrompt]="portalPrompt()"
                 [compact]="true"
+                [freshSession]="true"
               />
             }
           </section>

@@ -3163,6 +3163,9 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly autoStartVoiceLoop = input(false);
   /** Hide the conversation rail. Used when the panel sits inside a business desk. */
   readonly compact = input(false);
+  /** Open on a blank conversation instead of resuming the last session. A
+      desk portal opens clean every time; send() creates the session lazily. */
+  readonly freshSession = input(false);
 
   private readonly sse = inject(SseService);
   private readonly api = inject(ApiService);
@@ -3931,11 +3934,13 @@ export class ChatPanelComponent implements AfterViewInit {
         this.chatSessions.set(sessions);
         this.chatSessionsLoading.set(false);
         const stored = this.loadSelectedSessionId(scope.workspaceSlug);
-        const target = selectId || stored;
+        // A fresh-session panel never resumes an old conversation on its own;
+        // it only follows the session it just created (selectId after send()).
+        const target = selectId || (this.freshSession() ? null : stored);
         const exists = target && sessions.some((session) => session.id === target);
         if (exists && target) {
           this.openChatSession(target);
-        } else if (!this.activeChatSessionId() && sessions.length > 0) {
+        } else if (!this.freshSession() && !this.activeChatSessionId() && sessions.length > 0) {
           this.openChatSession(sessions[0].id);
         }
       },
