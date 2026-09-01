@@ -5213,3 +5213,40 @@ Trois défauts trouvés et corrigés en QA live, dans l'ordre :
 | Canaris carakai | non rejoués |
 | Rollback | `AGENTIUM_IMAGE_TAG=301bb73dbee8` puis `up` ; flag `sap_write_unsealed` à retirer du seed si retour arrière complet |
 
+## Itération du 01/09 — écriture conversationnelle + prompt ancré, déployée sur `41a60d7f`
+
+Demande SAP : l'écriture doit exister aussi dans le conversationnel, avec un
+dialogue de confirmation vers l'humain **dans le fil**. Livré en un commit
+`41a60d7f9e348e0f57f8934e37a8f632b9f1d74a` :
+
+- **Prompt resserré.** Le chat classique ne peut pas appeler d'outils ; le
+  Studio exécute donc lui-même les lectures SAP (réquisitions + historique
+  PO par site) et injecte un fact-sheet en direct dans le prompt
+  (`studioFactSheet`). Consigne explicite : répondre depuis ces faits,
+  ne jamais annoncer une lecture « à faire plus tard » — le travers que la
+  QA attrapait à chaque passe.
+- **Dialogue d'écriture dans le fil.** La 5e chip devient « Créer la
+  commande » (ordre du scénario de démo) : bulle utilisateur, bulle agent
+  avec proposition + provenance + payload exact dépliable, boutons
+  Confirmer / Annuler dans la conversation. La confirmation emprunte le
+  même chemin gardé que le gate du Run flow (`guardrailBlocked` puis
+  `POST /mcp/servers/bapi_po/invoke`, create puis commit) ; garde-fou
+  coupé → bulle de refus « aucun appel émis », appel bloqué visible dans
+  le déroulé du dialogue.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n` (7278 clés), `check:ui-chrome`, `test:unit` (1380 verts), `build:prod` verts |
+| Push | `demo/agentic` en fast-forward `64d9fb67` → `41a60d7f` |
+| Worktree | ff-only jusqu'à `41a60d7f9e348e0f57f8934e37a8f632b9f1d74a` |
+| Build | images `agentium-{backend,worker,frontend}:41a60d7f9e34` |
+| `storage-check` / `migrate` / `up` | sortie 0 ; cinq services applicatifs recréés (une bascule ratée sur un tag mal saisi `41a60d7f7f0b`, sans effet — reprise immédiate sur le bon tag) |
+| `build-info` | `revision: 41a60d7f9e348e0f57f8934e37a8f632b9f1d74a`, `revision_verified: true` |
+| Chat ancré | chip « Demandes ouvertes » → réponse listant les vraies PR (2000276630 « Testing Material » 8.00 ALL site 3540, …) avec fournisseurs/termes de l'historique ; aucune « lecture annoncée » |
+| Garde-fou dans le fil | `BAPI_PO_CREATE1` off → Confirmer → bulle « aucun appel émis — rien n'a été écrit », zéro appel réseau |
+| Écriture conversationnelle | ré-ouverture, Confirmer → **PO `4500382543` créé et validé** (PR 2000276630, 1000 KG × 8.00 ALL, ZLPO, org 3540) ; relu côté SAP (`CreatedByUser: SAP_MCP`) |
+| Seed / flags | inchangés — `sap_write_unsealed` reste on pour `nawa` |
+| Rollback | `AGENTIUM_IMAGE_TAG=c789d0703779` puis `up` |
+
