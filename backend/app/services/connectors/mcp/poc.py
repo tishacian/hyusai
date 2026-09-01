@@ -105,15 +105,19 @@ def build_bapi_po_payload(
     incoterms: str = "DDP",
     today: date | None = None,
 ) -> dict[str, Any]:
-    """Sealed BAPI_PO_CREATE1 body. No TESTRUN. No POACCOUNT. Dates YYYYMMDD."""
+    """Sealed BAPI_PO_CREATE1 body. No TESTRUN. No POACCOUNT. Dates YYYYMMDD.
+
+    The live tool schema (bapi_po ``tools/list``, verified 2026-09-01) puts the
+    header structures under ``import`` — ``import.POHEADER`` is the only
+    required property — while the row tables stay under ``tables``.
+    """
     plant_code = str(plant or "1000").strip() or "1000"
     po_item = "00010"
     preq_item = pad_sap_item(pr_item)
     inco = str(incoterms or "DDP").strip() or "DDP"
     delivery = override_delivery_date(delivery_date, today)
     return {
-        "import": {},
-        "tables": {
+        "import": {
             "POHEADER": {
                 "VENDOR": str(supplier or "").strip(),
                 "COMP_CODE": plant_code,
@@ -138,6 +142,8 @@ def build_bapi_po_payload(
                 "INCOTERMS2": "X",
                 "INCOTERMS2L": "X",
             },
+        },
+        "tables": {
             "POITEM": [
                 {
                     "PO_ITEM": po_item,

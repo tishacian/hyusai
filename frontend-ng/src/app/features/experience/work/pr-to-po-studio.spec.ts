@@ -104,8 +104,9 @@ test('a proposal carries the sealed BAPI body, provenance and the amount', () =>
   assert.equal(proposal.amount, 90);
   assert.equal(proposal.decision, 'pending');
   assert.ok(proposal.post);
+  const importBlock = proposal.post!.requestBody['import'] as Record<string, unknown>;
   const tables = proposal.post!.requestBody['tables'] as Record<string, unknown>;
-  const header = tables['POHEADER'] as Record<string, string>;
+  const header = importBlock['POHEADER'] as Record<string, string>;
   assert.equal(header['DOC_TYPE'], 'ZLPO');
   assert.equal(header['PURCH_ORG'], '1000');
   assert.equal(header['COMP_CODE'], '1000');

@@ -177,7 +177,7 @@ def test_bapi_payload_uses_plant_zlpo_and_overrides_past_date():
         delivery_date="2026-07-15",
         today=date(2026, 8, 22),
     )
-    header = body["tables"]["POHEADER"]
+    header = body["import"]["POHEADER"]
     assert header["DOC_TYPE"] == "ZLPO"
     assert header["PURCH_ORG"] == header["COMP_CODE"] == "1000"
     assert header["INCOTERMS2L"] == "Doha"

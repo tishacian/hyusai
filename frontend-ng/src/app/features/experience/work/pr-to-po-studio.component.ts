@@ -40,6 +40,7 @@ import {
   bapiCommitInvokeBody,
   bapiCreateInvokeBody,
   blockedCall,
+  blockedOutcome,
   buildStudioProposal,
   discardInvokeBody,
   formatStudioAmount,
@@ -279,7 +280,9 @@ const RAIL_TOOLS: readonly RailTool[] = [
                               }
                               @if (proposal.outcome; as outcome) {
                                 <p class="xp-studio-outcome" [attr.data-ok]="outcome.sealed || outcome.sapOk">
-                                  @if (outcome.sealed) {
+                                  @if (outcome.blocked) {
+                                    {{ i18n.t('experience.pr_to_po.studio.outcome.blocked') }}
+                                  } @else if (outcome.sealed) {
                                     {{ i18n.t('experience.pr_to_po.studio.outcome.sealed') }}
                                   } @else if (outcome.sapOk && outcome.poNumber) {
                                     {{ i18n.t('experience.pr_to_po.studio.outcome.po', { po: outcome.poNumber }) }}
@@ -800,9 +803,7 @@ export class PrToPoStudioComponent implements OnInit {
       const create = await this.invokeWrite(bapiCreateInvokeBody(proposal.post), 'post');
       const created = outcomeFromInvoke(create.response);
       if (create.blocked) {
-        this.setDecision(proposal.prId, {
-          outcome: { ...created, sealed: false, messages: [this.i18n.t('experience.pr_to_po.studio.outcome.blocked')] },
-        });
+        this.setDecision(proposal.prId, { outcome: blockedOutcome() });
         this.patchNode('post', {
           status: 'warn',
           noteKey: 'experience.pr_to_po.studio.note.post_blocked',
