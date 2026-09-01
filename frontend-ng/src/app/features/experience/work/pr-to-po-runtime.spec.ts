@@ -131,3 +131,31 @@ test('the factory portal chat wears the NAWA skin with orbs', () => {
   assert.match(panel, /ck-chat-empty-mark[\s\S]{0,200}ck-thinking-orb/);
   assert.match(panel, /ck-chat-progress[\s\S]{0,400}ck-thinking-orb/);
 });
+
+test('the studio owns the app root and the desk keeps its route', () => {
+  const routes = readFileSync(
+    join(process.cwd(), 'src/app/features/experience/work/work.routes.ts'),
+    'utf8',
+  );
+  assert.match(routes, /path: 'pr-to-po',[\s\S]{0,120}pr-to-po-studio\.component/);
+  assert.match(routes, /path: 'pr-to-po\/desk',[\s\S]{0,120}pr-to-po-board\.component/);
+});
+
+test('studio writes go through the flag-gated invoke endpoint, never a raw call', () => {
+  const studio = readFileSync(
+    join(process.cwd(), 'src/app/features/experience/work/pr-to-po-studio.component.ts'),
+    'utf8',
+  );
+  assert.match(studio, /\/mcp\/servers\/\$\{encodeURIComponent\(serverId\)\}\/invoke/);
+  assert.match(studio, /\/mcp\/servers\/\$\{encodeURIComponent\(serverId\)\}\/read/);
+  assert.doesNotMatch(studio, /tools\/call/);
+  assert.match(studio, /guardrailBlocked\(/);
+  assert.match(studio, /sapWriteUnsealed/);
+  assert.match(studio, /bapiCreateInvokeBody/);
+  assert.match(studio, /bapiCommitInvokeBody/);
+  assert.match(studio, /discardInvokeBody/);
+  assert.match(studio, /app-chat-panel/);
+  assert.match(studio, /\[freshSession\]="true"/);
+  assert.match(studio, /ck-thinking-orb/);
+  assert.match(studio, /routerLink="\/work\/pr-to-po\/desk"/);
+});
