@@ -979,7 +979,7 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.studio.chat_write.sealed':
     'Écriture scellée : voici l’enveloppe exacte — rien n’a été envoyé.',
   'experience.pr_to_po.studio.chat_write.failed': 'SAP a refusé — rien n’a été validé.',
-  'experience.pr_to_po.studio.chat_write.calls': '{count} appels d’outils — déroulé complet',
+  'experience.pr_to_po.studio.chat_write.calls': 'Appels d’outils : {count} — déroulé complet',
   'experience.pr_to_po.studio.chat_write.unavailable':
     'Aucune demande postable pour l’instant — lancez le mode Exécution ou réessayez.',
   'experience.pr_to_po.studio.chat.offline':
@@ -2017,7 +2017,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.studio.chat_write.sealed':
     'Write sealed: this is the exact envelope — nothing was sent.',
   'experience.pr_to_po.studio.chat_write.failed': 'SAP rejected it — nothing was committed.',
-  'experience.pr_to_po.studio.chat_write.calls': '{count} tool calls — full transcript',
+  'experience.pr_to_po.studio.chat_write.calls': 'Tool calls: {count} — full transcript',
   'experience.pr_to_po.studio.chat_write.unavailable':
     'No postable requisition right now — run the flow first or try again.',
   'experience.pr_to_po.studio.chat.offline':
