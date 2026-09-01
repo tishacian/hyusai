@@ -5133,3 +5133,34 @@ si la ligne n'a pas de texte). `origin/demo/agentic` `64178930` →
 | Canaris carakai | non rejoués |
 | Rollback | `AGENTIUM_IMAGE_TAG=6417893067f9` puis `up` ; aucun schéma à reculer |
 
+## Itération du 01/09 — skin NAWA du portail + session vierge, déployée sur `301bb73d`
+
+GO chatbot : le chat du portail prend la charte NAWA (bulles utilisateur
+corail en dégradé, bulles assistant charbon chaud, bouton Ask corail,
+liens Deep search corail / Correct sauge), orbes aux trois moments
+(en-tête du portail, état vide, pilule de streaming, halo corail),
+`freshSession` pour ouvrir le portail sur une conversation vierge, et
+prompt du portail ré-ancré (outils de lecture + faits du desk) après
+qu'une reformulation avait rendu les réponses évasives. Quatre commits
+`97771958` → `301bb73dbee8f9b99e11e77c764d5476f7a07d0f`. Aucune migration.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n`, `check:ui-chrome`, `test:unit` (1366 verts), `build:prod` verts |
+| Push | `demo/agentic` en fast-forward `97771958` → `301bb73d` |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | ff-only jusqu'à `301bb73dbee8f9b99e11e77c764d5476f7a07d0f` |
+| Build | images `agentium-{backend,worker,frontend}:301bb73dbee8` (itérations intermédiaires `dd2edd41`, `a3f89be9`, `e02c3773` également construites puis remplacées) |
+| Dump / migrate | sautés |
+| `storage-check` | sortie 0 à chaque bascule |
+| `up` | cinq services applicatifs recréés ; infra intouchée |
+| `build-info` | `revision: 301bb73dbee8f9b99e11e77c764d5476f7a07d0f`, `revision_verified: true` |
+| Alias | tag mobile `demo-agentic` **non déplacé** |
+| Smoke chat | portail ouvert sur session vierge (0 bulle), orbe d'en-tête + orbe d'état vide + pilule orbe pendant le streaming ; Ask `rgb(232,84,58)` ; bulle utilisateur dégradé corail ; bulle assistant `rgb(29,29,29)` ; Deep search corail ; réponse ancrée « 50 requisitions, 20 orders, supplier 1000000018 » ; suivi « nothing written to SAP » ; aucun nom d'outil d'écriture dans les réponses |
+| Seed / DAG | inchangés — seed **non** relancé |
+| Flags | `sap_hana_connector` reste off |
+| Canaris carakai | non rejoués |
+| Rollback | `AGENTIUM_IMAGE_TAG=97771958db08` puis `up` ; aucun schéma à reculer |
+
