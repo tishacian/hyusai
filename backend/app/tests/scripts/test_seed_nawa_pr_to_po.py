@@ -49,11 +49,20 @@ def _db():
 def test_ensure_mcp_servers_writes_nawa_oauth_inherit(monkeypatch):
     monkeypatch.delenv("MCP_FIXTURE", raising=False)
     monkeypatch.delenv("MCP_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("MCP_BAPI_OAUTH_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("MCP_SAP_URL", raising=False)
     monkeypatch.setattr(mcp_service, "flag_modified", lambda *_a, **_k: None)
     body = seed.ensure_mcp_servers(_db(), _workspace())
-    assert [row["id"] for row in body["servers"]] == ["sap", "hikma", "sap_gr", "sap_inbox"]
-    assert {row["auth_mode"] for row in body["servers"]} == {"inherit"}
+    assert [row["id"] for row in body["servers"]] == [
+        "sap",
+        "hikma",
+        "sap_gr",
+        "sap_inbox",
+        "bapi_po",
+        "bapi_pr",
+    ]
+    odata = [row for row in body["servers"] if not row["id"].startswith("bapi")]
+    assert {row["auth_mode"] for row in odata} == {"inherit"}
     assert {row["transport"] for row in body["servers"]} == {"streamable_http"}
     assert body["shared_auth"]["oauth_client_id"] == seed.NAWA_OAUTH_CLIENT_ID
     assert body["shared_auth"]["oauth_token_url"] == seed.NAWA_OAUTH_TOKEN_URL
@@ -61,6 +70,33 @@ def test_ensure_mcp_servers_writes_nawa_oauth_inherit(monkeypatch):
     sap = next(row for row in body["servers"] if row["id"] == "sap")
     assert sap["url"] == seed.NAWA_LIVE_SERVERS[0][2]
     assert sap["configured"] is False
+
+
+def test_ensure_mcp_servers_gives_bapi_pair_their_own_eu20_oauth(monkeypatch):
+    monkeypatch.delenv("MCP_FIXTURE", raising=False)
+    monkeypatch.delenv("MCP_BAPI_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("MCP_BAPI_PO_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr(mcp_service, "flag_modified", lambda *_a, **_k: None)
+    body = seed.ensure_mcp_servers(_db(), _workspace())
+    bapi_po = next(row for row in body["servers"] if row["id"] == "bapi_po")
+    bapi_pr = next(row for row in body["servers"] if row["id"] == "bapi_pr")
+    for row in (bapi_po, bapi_pr):
+        # Not "inherit": a token from the OData client (eu10, 12 h) does not
+        # authenticate against the Integration Suite client (eu20, 1 h).
+        assert row["auth_mode"] == "oauth_client_credentials"
+        assert row["oauth_token_url"] == seed.NAWA_BAPI_OAUTH_TOKEN_URL
+        assert row["oauth_client_id"] == seed.NAWA_BAPI_OAUTH_CLIENT_ID
+        assert row["oauth_secret_set"] is False
+        assert row["configured"] is False
+    assert bapi_po["url"].endswith("/bapi_po")
+    assert bapi_pr["url"].endswith("/bapi_pr")
+    assert "integration.cloud.sap" in bapi_po["url"]
+    assert "eu20" in seed.NAWA_BAPI_OAUTH_TOKEN_URL
+    monkeypatch.setenv("MCP_BAPI_OAUTH_CLIENT_SECRET", "s3cret")
+    body = seed.ensure_mcp_servers(_db(), _workspace())
+    bapi_po = next(row for row in body["servers"] if row["id"] == "bapi_po")
+    assert bapi_po["oauth_secret_set"] is True
+    assert bapi_po["configured"] is True
 
 
 def test_ensure_mcp_servers_fixture_keeps_sap_hikma_on_http(monkeypatch):
@@ -81,12 +117,26 @@ def test_ensure_mcp_servers_fixture_keeps_sap_hikma_on_http(monkeypatch):
 
 def test_ensure_mcp_flag_enables_the_recipe_workshop_surface(monkeypatch):
     monkeypatch.setattr(seed, "flag_modified", lambda *_a, **_k: None)
+    monkeypatch.delenv("SAP_WRITE_UNSEALED", raising=False)
     workspace = _workspace()
     seed.ensure_mcp_flag(_db(), workspace)
     features = workspace.settings["features"]
     assert features["mcp_connector"] is True
     assert features["experience_v1"] is True
     assert features["flow_workbench_v1"] is True
+    # Absent env leaves the write seal untouched — sealed stays the default.
+    assert "sap_write_unsealed" not in features
+
+
+def test_seed_unseals_writes_only_on_explicit_env(monkeypatch):
+    monkeypatch.setattr(seed, "flag_modified", lambda *_a, **_k: None)
+    monkeypatch.setenv("SAP_WRITE_UNSEALED", "1")
+    workspace = _workspace()
+    seed.ensure_mcp_flag(_db(), workspace)
+    assert workspace.settings["features"]["sap_write_unsealed"] is True
+    monkeypatch.setenv("SAP_WRITE_UNSEALED", "off")
+    seed.ensure_mcp_flag(_db(), workspace)
+    assert workspace.settings["features"]["sap_write_unsealed"] is False
 
 
 def test_factory_document_is_an_inventory_pointer_to_the_desk():

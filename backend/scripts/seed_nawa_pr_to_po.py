@@ -126,6 +126,29 @@ NAWA_LIVE_SERVERS: tuple[tuple[str, str, str], ...] = (
         "https://hikmah-s4-inbox-mcp.cfapps.eu10.hana.ondemand.com/mcp",
     ),
 )
+# The BAPI pair rides a *separate* OAuth client on eu20 (Integration Suite,
+# 1 h token) — a token from the OData client does not authenticate here, so
+# these rows carry their own oauth_* fields instead of auth_mode "inherit".
+# Secret from MCP_BAPI_OAUTH_CLIENT_SECRET (or MCP_BAPI_PO_OAUTH_CLIENT_SECRET
+# per server); never stored in this file.
+NAWA_BAPI_OAUTH_TOKEN_URL = (
+    "https://pihisdev-suite.authentication.eu20.hana.ondemand.com/oauth/token"
+)
+NAWA_BAPI_OAUTH_CLIENT_ID = (
+    "sb-926f0aa8-7e67-4165-baca-4382c14e51de!b171326|it-rt-pihisdev-suite!b150645"
+)
+NAWA_BAPI_SERVERS: tuple[tuple[str, str, str], ...] = (
+    (
+        "bapi_po",
+        "PO Posting (BAPI)",
+        "https://pihisdev-suite-c2a4a4f295de49fe8e1e1bd4c17b1cdc.a.integration.cloud.sap/bapi_po",
+    ),
+    (
+        "bapi_pr",
+        "PR BAPIs",
+        "https://pihisdev-suite-c2a4a4f295de49fe8e1e1bd4c17b1cdc.a.integration.cloud.sap/bapi_pr",
+    ),
+)
 
 
 def _workspace(db: DBSession, slug: str) -> Workspace:
@@ -145,6 +168,13 @@ def ensure_mcp_flag(db: DBSession, workspace: Workspace) -> None:
     features["mcp_connector"] = True
     features["experience_v1"] = True
     features["flow_workbench_v1"] = True
+    # Live SAP writes stay sealed unless the operator says so explicitly at
+    # seed time. Absent env leaves the stored value untouched (default off).
+    unseal = (os.environ.get("SAP_WRITE_UNSEALED") or "").strip().lower()
+    if unseal in {"1", "true", "yes", "on"}:
+        features["sap_write_unsealed"] = True
+    elif unseal in {"0", "false", "no", "off"}:
+        features["sap_write_unsealed"] = False
     for slug in PR_TO_PO_SKILL_SLUGS:
         if slug not in enabled:
             enabled.append(slug)
@@ -207,6 +237,34 @@ def ensure_mcp_servers(db: DBSession, workspace: Workspace) -> dict[str, Any]:
         }
         if token:
             payload["token"] = token
+        rows.append(payload)
+    bapi_secret = (
+        os.environ.get("MCP_BAPI_OAUTH_CLIENT_SECRET") or ""
+    ).strip()
+    for server_id, label, live_url in NAWA_BAPI_SERVERS:
+        url = _server_url(server_id, fixture=False, live_default=live_url)
+        if not url:
+            url = str((current.get(server_id) or {}).get("url") or "")
+        payload = {
+            "id": server_id,
+            "label": label,
+            "transport": "streamable_http",
+            "auth_mode": "oauth_client_credentials",
+            "url": url,
+            "enabled": True,
+            "oauth_token_url": (
+                os.environ.get("MCP_BAPI_OAUTH_TOKEN_URL") or NAWA_BAPI_OAUTH_TOKEN_URL
+            ).strip(),
+            "oauth_client_id": (
+                os.environ.get("MCP_BAPI_OAUTH_CLIENT_ID") or NAWA_BAPI_OAUTH_CLIENT_ID
+            ).strip(),
+        }
+        per_server_secret = (
+            os.environ.get(f"MCP_{server_id.upper()}_OAUTH_CLIENT_SECRET") or ""
+        ).strip()
+        secret = per_server_secret or bapi_secret
+        if secret:
+            payload["oauth_client_secret"] = secret
         rows.append(payload)
     return mcp_service.replace_servers(
         db,
