@@ -5164,3 +5164,52 @@ qu'une reformulation avait rendu les réponses évasives. Quatre commits
 | Canaris carakai | non rejoués |
 | Rollback | `AGENTIUM_IMAGE_TAG=97771958db08` puis `up` ; aucun schéma à reculer |
 
+## Itération du 01/09 — Agent Studio + écriture SAP réelle, déployée sur `c789d070`
+
+GO SAP : le NAWA Agent Studio prend la racine `/work/pr-to-po` (Run flow /
+Chat, rail d'outils MCP, nœuds dépliables avec appels verbatim, gate
+d'approbation avec provenance par champ, guardrails côté client), le desk
+reste sur `/work/pr-to-po/desk`. Nouveau chemin d'écriture backend
+flag-gaté : `POST /mcp/servers/{id}/invoke` (allow-list `BAPI_PO_CREATE1`,
+`BAPI_TRANSACTION_COMMIT`, `BAPI_TRANSACTION_ROLLBACK`, ban `TESTRUN`,
+rollback automatique sur create échoué, audit systématique), serveurs
+`bapi_po`/`bapi_pr` au seed, flag workspace `sap_write_unsealed` **on**
+pour `nawa`. Commits `ad3be20e` → `c789d0703779c8de9b63ddab2ea9e42894dc3947`.
+
+Trois défauts trouvés et corrigés en QA live, dans l'ordre :
+
+1. `4c20a215` — le schéma live de `BAPI_PO_CREATE1` exige `POHEADER`/
+   `POHEADERX` sous `import`, pas sous `tables` (502 `mcp_call_failed` en
+   preuve) ; et un corps d'erreur HTTP sans clé `sealed` se lisait comme
+   un succès scellé — corrigé dans `outcomeFromInvoke`.
+2. `f54c62ad` — les PR à prix réel prennent les créneaux du gate en
+   premier (SAP rejette un create à 0.00 : `06/215`), carte flaguée quand
+   la demande ne porte aucun prix.
+3. `c789d070` — cause racine du 0.00 : `PREVIEW_COL_CAP = 8` éjectait
+   `PurchaseRequisitionPrice`, `OrderedQuantity`, `PurReqnItemCurrency`
+   et `DeliveryDate` de la preview ; cap relevé à 18 et champs du contrat
+   PR→PO ajoutés aux colonnes préférées, test de régression
+   `test_pr_item_preview_keeps_the_fields_the_agent_posts_from`.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n` (7265 clés), `check:ui-chrome`, `test:unit` (1377 verts), `build:prod` verts |
+| Pytest image | 55 verts dans `agentium-backend:c789d0703779` (`test_mcp_preview`, `test_mcp_read`, `test_mcp_fixture`, `test_mcp_write`, `test_mcp_oauth`, `test_mcp_call_skill`) |
+| Push | `demo/agentic` en fast-forward `301bb73d` → `4c20a215` → `f54c62ad` → `c789d070` |
+| Ancre | `/home/ubuntu/omnirag` intouchée |
+| Worktree | ff-only jusqu'à `c789d0703779c8de9b63ddab2ea9e42894dc3947` |
+| Build | images `agentium-{backend,worker,frontend}:c789d0703779` (`4c20a215959c` et `f54c62ad27c1` construites puis remplacées) |
+| Dump / migrate | `migrate` sans schéma nouveau ; `storage-check` sortie 0 à chaque bascule |
+| `up` | cinq services applicatifs recréés ; infra intouchée |
+| `build-info` | `revision: c789d0703779c8de9b63ddab2ea9e42894dc3947`, `revision_verified: true` |
+| Sealed (flag off) | vérifié avant activation : `invoke` renvoie `sealed: true, called: false`, aucun appel réseau |
+| Écriture réelle | **PO `4500382538` créé et committé** (PR `2000276658`, 100 × 100.00 SYP, ZLPO, org 8675) via gate → `BAPI_PO_CREATE1` + `BAPI_TRANSACTION_COMMIT` ; relu et confirmé côté SAP par `get_A_PurchaseOrder` (CreatedByUser `SAP_MCP`) |
+| Guardrail | toggle `BAPI_PO_CREATE1` off → « Blocked by the guardrail — no call was made », aucun appel réseau, transcript conservé |
+| Smoke Studio | badge `SAP WRITE LIVE`, run flow jusqu'au gate (discard sauté volontairement), 3 propositions à prix réels avec provenance, chat répond, `/work/pr-to-po/desk` vivant |
+| Seed | relancé pour attacher `bapi_po`/`bapi_pr` et poser `sap_write_unsealed` |
+| Flags | `sap_write_unsealed` **on** pour `nawa` — désactivable instantanément en relançant le seed sans la variable |
+| Canaris carakai | non rejoués |
+| Rollback | `AGENTIUM_IMAGE_TAG=301bb73dbee8` puis `up` ; flag `sap_write_unsealed` à retirer du seed si retour arrière complet |
+
