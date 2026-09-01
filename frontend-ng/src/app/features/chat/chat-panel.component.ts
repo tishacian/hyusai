@@ -862,7 +862,7 @@ const STEP_ICONS: Record<string, string> = {
         @if (messages().length === 0 && !streaming()) {
           <div class="h-full flex flex-col items-center justify-center py-8" [class.vigie-empty-state]="executiveMode()">
             <div class="ck-chat-empty-mark w-12 h-12 rounded-full flex items-center justify-center mb-3">
-              <app-icon name="sparkles" [size]="20" class="text-cyan-300" />
+              <ck-thinking-orb state="listening" [size]="20" />
             </div>
             <div class="text-sm font-semibold text-gray-900 dark:text-white">
               {{ emptyTitle() }}
@@ -918,7 +918,7 @@ const STEP_ICONS: Record<string, string> = {
           @if (msg.role === 'user') {
             <div class="flex justify-end">
               <div
-                class="max-w-[80%] bg-cyan-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap shadow-sm"
+                class="ck-chat-user-bubble max-w-[80%] bg-cyan-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap shadow-sm"
                 [class.vigie-user-bubble]="executiveMode()"
               >
                 {{ msg.content }}
@@ -1183,7 +1183,7 @@ const STEP_ICONS: Record<string, string> = {
               <!-- Content -->
               <div class="flex justify-start">
                 <div
-                  class="max-w-[85%] bg-gray-100 dark:bg-white/[0.04] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-black/5 dark:ring-white/5"
+                  class="ck-chat-assistant-bubble max-w-[85%] bg-gray-100 dark:bg-white/[0.04] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-black/5 dark:ring-white/5"
                   [class.vigie-assistant-bubble]="executiveMode()"
                 >
                   @for (block of renderMarkdownAnswer(msg.content, msg.sources); track $index) {
@@ -1912,7 +1912,7 @@ const STEP_ICONS: Record<string, string> = {
             @if (streamProgress(); as progress) {
               <div class="flex justify-start">
                 <div
-                  class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-white/[0.04] ring-1 ring-white/5"
+                  class="ck-chat-progress inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-white/[0.04] ring-1 ring-white/5"
                   aria-live="polite"
                 >
                   <ck-thinking-orb [state]="progress.orb" [size]="20" [label]="progress.label" />
@@ -2012,7 +2012,7 @@ const STEP_ICONS: Record<string, string> = {
       <!-- Input -->
       <form
         (ngSubmit)="send()"
-        class="flex items-end gap-2 p-3 border-t border-white/5 bg-white/[0.02]"
+        class="ck-chat-input-bar flex items-end gap-2 p-3 border-t border-white/5 bg-white/[0.02]"
         [class.vigie-input-bar]="executiveMode()"
       >
         <button
@@ -2044,7 +2044,7 @@ const STEP_ICONS: Record<string, string> = {
           [(ngModel)]="userInput"
           name="userInput"
           rows="1"
-          class="flex-1 resize-none px-4 py-2.5 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-400 text-sm max-h-32"
+          class="ck-chat-input flex-1 resize-none px-4 py-2.5 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-400 text-sm max-h-32"
           [placeholder]="inputPlaceholder()"
           [disabled]="streaming()"
           (keydown)="onKey($event)"
@@ -2052,7 +2052,7 @@ const STEP_ICONS: Record<string, string> = {
         <button
           type="submit"
           [disabled]="streaming() || !userInput.trim()"
-          class="px-4 py-2.5 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white rounded-xl transition text-sm font-medium flex items-center gap-1.5"
+          class="ck-chat-send px-4 py-2.5 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white rounded-xl transition text-sm font-medium flex items-center gap-1.5"
           [class.vigie-send-button]="executiveMode()"
         >
           <app-icon [name]="streaming() ? 'loader-2' : 'send'" [size]="14" [class.animate-spin]="streaming()" />
@@ -2082,6 +2082,88 @@ const STEP_ICONS: Record<string, string> = {
     .ck-chat-trace-summary {
       border: 1px solid color-mix(in oklab, var(--ck-signal-cool, #22d3ee) 16%, transparent);
       background: color-mix(in oklab, var(--ck-signal-cool, #22d3ee) 5%, var(--ck-bg-inset, #0f172a));
+    }
+
+    /* --- NAWA factory-portal skin. The PR to PO desk wraps this panel in
+           .xp-desk-portal; inside it the chat drops the cockpit cyan and takes
+           the desk charter (coral accent, sage ok-green, warm charcoal
+           surfaces) so the portal reads as one surface with the desk. The
+           .ck-chat-* hooks exist for skins like this one; they carry no
+           style of their own. --- */
+    :host-context(.xp-desk-portal) .chat-history-shell {
+      background: transparent;
+    }
+    :host-context(.xp-desk-portal) .ck-chat-user-bubble {
+      border: 1px solid color-mix(in srgb, #ffffff 16%, transparent);
+      background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--nawa-accent, #e8543a) 82%, #ffd9c9),
+        var(--nawa-accent, #e8543a)
+      );
+      color: #1a0b07;
+      font-weight: 500;
+      box-shadow: 0 14px 34px color-mix(in srgb, var(--nawa-accent, #e8543a) 28%, transparent);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-assistant-bubble {
+      border: 1px solid var(--nawa-line, rgba(245, 242, 239, 0.1));
+      background: var(--nawa-surface-2, #1d1d1d);
+      color: var(--nawa-fg, #f5f2ef);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-progress {
+      border: 1px solid color-mix(in srgb, var(--nawa-accent, #e8543a) 32%, transparent);
+      background:
+        radial-gradient(
+          140px 60px at 0% 50%,
+          color-mix(in srgb, var(--nawa-accent, #e8543a) 14%, transparent),
+          transparent 70%
+        ),
+        var(--nawa-surface-2, #1d1d1d);
+      color: var(--nawa-fg, #f5f2ef);
+      box-shadow: none;
+    }
+    :host-context(.xp-desk-portal) .ck-chat-input-bar {
+      border-top-color: var(--nawa-line, rgba(245, 242, 239, 0.1));
+      background: color-mix(in srgb, var(--nawa-bg, #070707) 72%, transparent);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-input {
+      border-color: var(--nawa-line, rgba(245, 242, 239, 0.12));
+      background: var(--nawa-surface-2, #1d1d1d);
+      color: var(--nawa-fg, #f5f2ef);
+      caret-color: var(--nawa-accent, #e8543a);
+      --tw-ring-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 55%, transparent);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-send {
+      border: 1px solid transparent;
+      background: var(--nawa-accent, #e8543a);
+      color: #140806;
+      font-weight: 600;
+      box-shadow: 0 10px 24px color-mix(in srgb, var(--nawa-accent, #e8543a) 35%, transparent);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-send:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 86%, #ffffff);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-empty-mark {
+      border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 30%, transparent);
+      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 10%, var(--nawa-surface, #141414));
+      box-shadow: 0 0 32px color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
+    }
+    :host-context(.xp-desk-portal) .ck-chat-trace-summary {
+      border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
+      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 6%, var(--nawa-surface, #141414));
+    }
+    :host-context(.xp-desk-portal) ck-thinking-orb {
+      border-radius: 999px;
+      filter: drop-shadow(0 0 9px color-mix(in srgb, var(--nawa-accent, #e8543a) 45%, transparent));
+    }
+    :host-context(.xp-desk-portal) .text-cyan-400,
+    :host-context(.xp-desk-portal) .text-cyan-300,
+    :host-context(.xp-desk-portal) .text-sky-300 {
+      color: var(--nawa-accent, #e8543a);
+    }
+    :host-context(.xp-desk-portal) .text-emerald-400,
+    :host-context(.xp-desk-portal) .text-emerald-300 {
+      color: var(--nawa-ok, #8fd0a8);
     }
 	    .chat-history-shell {
       display: flex;

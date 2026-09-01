@@ -1085,9 +1085,14 @@
   max-height: 36rem;
   margin: 0 0 24px;
   overflow: hidden;
-  border: 1px solid var(--nawa-line);
+  border: 1px solid color-mix(in srgb, var(--nawa-accent) 26%, var(--nawa-line));
   border-radius: 16px;
-  background: color-mix(in srgb, var(--nawa-surface) 88%, transparent);
+  background:
+    radial-gradient(680px 220px at 6% 0%, rgba(232, 84, 58, 0.12), transparent 62%),
+    radial-gradient(520px 200px at 96% 100%, rgba(143, 208, 168, 0.06), transparent 55%),
+    color-mix(in srgb, var(--nawa-surface) 92%, transparent);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  animation: desk-rise 420ms ease both;
 }
 
 .xp-desk-portal > header {
@@ -1096,6 +1101,19 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--nawa-line);
+}
+
+.xp-desk-portal-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.xp-desk-portal-head ck-thinking-orb {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  filter: drop-shadow(0 0 9px color-mix(in srgb, var(--nawa-accent) 45%, transparent));
 }
 
 .xp-desk-portal app-chat-panel {

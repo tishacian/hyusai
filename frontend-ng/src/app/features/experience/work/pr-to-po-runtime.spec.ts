@@ -111,3 +111,22 @@ test('the factory desk starts a cycle through the Experience binding', () => {
   assert.match(board, /terrainLoading\(\)[\s\S]{0,180}ck-thinking-orb/);
   assert.match(board, /starting\(\)[\s\S]{0,180}ck-thinking-orb/);
 });
+
+test('the factory portal chat wears the NAWA skin with orbs', () => {
+  const board = readFileSync(
+    join(process.cwd(), 'src/app/features/experience/work/pr-to-po-board.component.ts'),
+    'utf8',
+  );
+  assert.match(board, /xp-desk-portal-head[\s\S]{0,120}ck-thinking-orb/);
+  const panel = readFileSync(
+    join(process.cwd(), 'src/app/features/chat/chat-panel.component.ts'),
+    'utf8',
+  );
+  assert.match(panel, /:host-context\(\.xp-desk-portal\) \.ck-chat-user-bubble/);
+  assert.match(panel, /:host-context\(\.xp-desk-portal\) \.ck-chat-assistant-bubble/);
+  assert.match(panel, /:host-context\(\.xp-desk-portal\) \.ck-chat-send/);
+  assert.match(panel, /:host-context\(\.xp-desk-portal\) \.ck-chat-input\b/);
+  assert.match(panel, /--nawa-accent/);
+  assert.match(panel, /ck-chat-empty-mark[\s\S]{0,200}ck-thinking-orb/);
+  assert.match(panel, /ck-chat-progress[\s\S]{0,400}ck-thinking-orb/);
+});
