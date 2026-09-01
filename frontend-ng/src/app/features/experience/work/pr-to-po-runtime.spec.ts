@@ -159,3 +159,20 @@ test('studio writes go through the flag-gated invoke endpoint, never a raw call'
   assert.match(studio, /ck-thinking-orb/);
   assert.match(studio, /routerLink="\/work\/pr-to-po\/desk"/);
 });
+
+test('the chat write dialogue confirms inside the thread and rides the same guarded path', () => {
+  const studio = readFileSync(
+    join(process.cwd(), 'src/app/features/experience/work/pr-to-po-studio.component.ts'),
+    'utf8',
+  );
+  // The fifth chip opens the dialogue instead of prompting the model.
+  assert.match(studio, /chip === 'create'[\s\S]{0,80}openChatWrite/);
+  // Confirm / cancel live in the conversation, not in a modal.
+  assert.match(studio, /xp-studio-dialog-yes[\s\S]{0,120}confirmChatWrite/);
+  assert.match(studio, /xp-studio-dialog-no[\s\S]{0,120}cancelChatWrite/);
+  // The confirmed write uses the same guardrail + invoke path as the gate.
+  assert.match(studio, /chatInvoke[\s\S]{0,400}guardrailBlocked/);
+  // The prompt carries live facts, not tool wishes.
+  assert.match(studio, /studioFactSheet/);
+  assert.match(studio, /facts: this\.chatFacts\(\)/);
+});

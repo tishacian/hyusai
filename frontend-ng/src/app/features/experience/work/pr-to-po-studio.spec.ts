@@ -12,15 +12,19 @@ import {
   bapiCommitInvokeBody,
   bapiCreateInvokeBody,
   blockedCall,
+  blockedOutcome,
   buildStudioProposal,
+  chatWriteStageFromOutcome,
   discardInvokeBody,
   formatStudioAmount,
   guardrailBlocked,
   initialStudioNodes,
+  openChatWriteDialogue,
   openPrRowsFromPreview,
   outcomeFromInvoke,
   proposalsTotal,
   studioCallFromInvoke,
+  studioFactSheet,
   studioJson,
   studioPlants,
 } from './pr-to-po-studio';
@@ -225,14 +229,68 @@ test('invoke outcomes: sealed envelope, live success, live SAP error', () => {
   assert.equal(errorCall.sealed, false);
 });
 
-test('chat chips follow the demo scenario order', () => {
+test('chat chips follow the demo scenario order, create last', () => {
   assert.deepEqual(STUDIO_CHAT_CHIPS, [
     'open_prs',
     'suppliers',
     'why_rejected',
     'would_post',
-    'sealed',
+    'create',
   ]);
+});
+
+test('the chat fact sheet carries live counts, prices, terms and outcomes', () => {
+  const rows = openPrRowsFromPreview(PR_PREVIEW);
+  const proposal = buildStudioProposal(rows[0], TERMS, '4500382504');
+  const posted = {
+    ...proposal,
+    decision: 'approved' as const,
+    outcome: {
+      sealed: false,
+      called: true,
+      sapOk: true,
+      poNumber: '4500382538',
+      rolledBack: false,
+      blocked: false,
+      messages: [],
+    },
+  };
+  const sheet = studioFactSheet({
+    totalOpen: 8482,
+    candidates: rows,
+    plantTerms: new Map([['1000', { terms: TERMS, recentPo: '4500382504' }]]),
+    proposals: [posted],
+  });
+  assert.match(sheet, /8482 \(showing 3\)/);
+  assert.match(sheet, /PR 2000276449\/00020 "PAPER BAG" — 20 EA × 4\.50 QAR, plant 1000/);
+  assert.match(sheet, /plant 1000 → latest order 4500382504: supplier 1000000018, terms ZAPS/);
+  assert.match(sheet, /posted as PO 4500382538/);
+});
+
+test('the chat write dialogue opens on proposing and maps every outcome', () => {
+  const rows = openPrRowsFromPreview(PR_PREVIEW);
+  const proposal = buildStudioProposal(rows[0], TERMS);
+  const dialogue = openChatWriteDialogue(proposal);
+  assert.equal(dialogue.stage, 'proposing');
+  assert.equal(dialogue.outcome, null);
+  assert.deepEqual(dialogue.calls, []);
+  assert.equal(chatWriteStageFromOutcome(blockedOutcome()), 'blocked');
+  assert.equal(
+    chatWriteStageFromOutcome(outcomeFromInvoke({ sealed: true, called: false })),
+    'sealed',
+  );
+  assert.equal(
+    chatWriteStageFromOutcome(
+      outcomeFromInvoke({ sealed: false, called: true, sap_ok: true, po_number: '4500382539' }),
+    ),
+    'posted',
+  );
+  assert.equal(
+    chatWriteStageFromOutcome(
+      outcomeFromInvoke({ sealed: false, called: true, sap_ok: false, rolled_back: true }),
+    ),
+    'failed',
+  );
 });
 
 test('studioJson stays verbatim below the cap and says how much was cut above it', () => {
