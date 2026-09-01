@@ -883,7 +883,7 @@ export const EXPERIENCE_FR = {
   'experience.pr_to_po.desk.portal.prompt_open':
     'Combien de demandes et de commandes viennent d’être lues, et qui est le fournisseur de l’établissement ?',
   'experience.pr_to_po.desk.portal.prompt':
-    'Lecture seule. Réponds seulement avec get_A_PurchaseRequisitionItem et get_A_PurchaseOrder. N’appelle pas post_A_PurchaseOrder, BAPI_PO_CREATE1 ni BAPI_TRANSACTION_COMMIT. Ne prétends pas écrire dans SAP. {question}',
+    'Question en lecture seule sur les lectures SAP en direct (get_A_PurchaseRequisitionItem, get_A_PurchaseOrder). N’écris jamais dans SAP et ne prétends pas écrire. {question}',
   'experience.pr_to_po.refresh': 'Actualiser',
   'experience.pr_to_po.approve': 'Approuver le dossier',
   'experience.pr_to_po.reject': 'Refuser',
@@ -1778,7 +1778,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.pr_to_po.desk.portal.prompt_open':
     'How many requisitions and orders were just read, and who is the plant supplier?',
   'experience.pr_to_po.desk.portal.prompt':
-    'Read only. Answer only with get_A_PurchaseRequisitionItem and get_A_PurchaseOrder. Do not call post_A_PurchaseOrder, BAPI_PO_CREATE1 or BAPI_TRANSACTION_COMMIT. Do not claim a SAP write. {question}',
+    'Read-only question on the live SAP reads (get_A_PurchaseRequisitionItem, get_A_PurchaseOrder). Never write to SAP or claim a write. {question}',
   'experience.pr_to_po.refresh': 'Refresh',
   'experience.pr_to_po.approve': 'Approve the package',
   'experience.pr_to_po.reject': 'Reject',

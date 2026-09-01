@@ -13,6 +13,7 @@ import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
 import { WorkApiService } from './work-api.service';
 import {
+  DEMO_JUSTIFICATION_ITEM,
   FACTORY_ASK_CHIPS,
   JUSTIFICATION_SERVER_ID,
   acctAssgmtReadBody,
@@ -22,6 +23,7 @@ import {
   budgetReadBody,
   composeDesk,
   composeSealedPoPost,
+  deskColumnLabel,
   extractJustificationText,
   factoryBriefingParams,
   donutSlices,
@@ -217,7 +219,7 @@ import {
                 <button
                   type="button"
                   class="xp-work-btn"
-                  (click)="readJustification(briefing().selectedPrId || '')"
+                  (click)="readJustification(briefing().selectedPrId || '', prFields()?.item || '')"
                   [disabled]="justificationLoading()"
                 >
                   @if (justificationLoading()) {
@@ -498,7 +500,7 @@ import {
                     <thead>
                       <tr>
                         @for (col of lane.columns; track col) {
-                          <th>{{ col }}</th>
+                          <th [title]="col">{{ deskColumnLabel(col) }}</th>
                         }
                       </tr>
                     </thead>
@@ -577,6 +579,7 @@ export class PrToPoBoardComponent implements OnInit {
   readonly workspace = inject(WorkspaceService);
   readonly experienceSlug = FACTORY_EXPERIENCE_SLUG;
   readonly bindingKey = FACTORY_BINDING_KEY;
+  readonly deskColumnLabel = deskColumnLabel;
 
   readonly loading = signal(false);
   readonly terrainLoading = signal(false);
@@ -788,7 +791,7 @@ export class PrToPoBoardComponent implements OnInit {
           this.terrainLoading.set(false);
           const selected = selectedPrFromLane(pr);
           if (selected.id && !this.justificationText()) {
-            this.readJustification(selected.id);
+            this.readJustification(selected.id, selected.item);
           }
         },
         error: () => {
@@ -810,21 +813,28 @@ export class PrToPoBoardComponent implements OnInit {
     return offersSelectedJustification(this.briefing().selectedPrId);
   }
 
-  readJustification(prId = ''): void {
+  readJustification(prId = '', prItem = ''): void {
     if (!this.workspace.mcpConnectorEnabled()) {
       this.justificationError.set(this.i18n.t('experience.pr_to_po.desk.justification.offline'));
       return;
     }
     this.justificationLoading.set(true);
     this.justificationError.set(null);
-    const body = justificationReadBody(prId);
+    const body = justificationReadBody(prId, prItem);
     this.api
       .post<DeskKeyedRead>(`/mcp/servers/${encodeURIComponent(JUSTIFICATION_SERVER_ID)}/read`, body)
       .subscribe({
         next: (result) => {
           const text = (result.text || extractJustificationText(result.result) || '').trim();
+          const item = body.arguments.PurchaseRequisitionItem;
+          if (!text && item !== DEMO_JUSTIFICATION_ITEM) {
+            // The selected line carries no text; fall back to the documented item
+            // so the brief still shows a real justification, labelled with its item.
+            this.readJustification(prId, DEMO_JUSTIFICATION_ITEM);
+            return;
+          }
           this.justificationText.set(text);
-          this.justificationVia.set(result.tool || body.tool);
+          this.justificationVia.set(`${result.tool || body.tool} · item ${item}`);
           this.justificationLoading.set(false);
           if (!text) {
             this.justificationError.set(this.i18n.t('experience.pr_to_po.desk.justification.empty'));

@@ -26,8 +26,10 @@ import {
   budgetReadBody,
   composeDesk,
   composeSealedPoPost,
+  deskColumnLabel,
   extractJustificationText,
   factoryTerrainReadBodies,
+  formatDeskCell,
   fundFromRead,
   shouldOpenFactoryPortal,
   donutSlices,
@@ -42,6 +44,7 @@ import {
   overrideDeliveryDate,
   pickDeskColumns,
   poHeaderReadBody,
+  projectRows,
   poItemReadBody,
   prItemFieldsFromPreview,
   recentPoTermsFromPreview,
@@ -77,6 +80,25 @@ test('prefers PDF item columns on the PR lane', () => {
       'MaterialGroup',
       'RequestedQuantity',
     ],
+  );
+});
+
+test('desk tables show projector-safe headers and dates', () => {
+  assert.equal(deskColumnLabel('PurchaseRequisitionItemText'), 'Item text');
+  assert.equal(deskColumnLabel('PurchaseOrderDate'), 'Ordered');
+  assert.equal(deskColumnLabel('PurchasingOrganization'), 'Purch org');
+  assert.equal(deskColumnLabel('SomethingUnknown'), 'SomethingUnknown');
+  assert.equal(formatDeskCell('PurchaseOrderDate', '/Date(0)/'), '1970-01-01');
+  assert.equal(formatDeskCell('DeliveryDate', '20260914'), '2026-09-14');
+  assert.equal(formatDeskCell('Supplier', '/Date(0)/'), '/Date(0)/');
+  assert.equal(formatDeskCell('PurchaseOrderDate', 'not a date'), 'not a date');
+  assert.deepEqual(
+    projectRows(
+      ['PurchaseOrder', 'PurchaseOrderDate'],
+      [['4500382517', '/Date(0)/']],
+      ['PurchaseOrder', 'PurchaseOrderDate'],
+    ),
+    [['4500382517', '1970-01-01']],
   );
 });
 
@@ -263,6 +285,11 @@ test('justification stays a desk fact and never unseals the write', () => {
     },
   });
   assert.equal(justificationReadBody('1000000033').arguments.PurchaseRequisition, '1000000033');
+  assert.equal(
+    justificationReadBody('2000276449', '00020').arguments.PurchaseRequisitionItem,
+    '20',
+  );
+  assert.equal(justificationReadBody('2000276449', '  ').arguments.PurchaseRequisitionItem, '10');
   assert.equal(
     extractJustificationText({
       data: {
