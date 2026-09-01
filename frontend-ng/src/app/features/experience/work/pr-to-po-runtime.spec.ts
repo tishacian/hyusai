@@ -176,3 +176,21 @@ test('the chat write dialogue confirms inside the thread and rides the same guar
   assert.match(studio, /studioFactSheet/);
   assert.match(studio, /facts: this\.chatFacts\(\)/);
 });
+
+test('the studio thread shows only the human question — facts ride the system role', () => {
+  const studio = readFileSync(
+    join(process.cwd(), 'src/app/features/experience/work/pr-to-po-studio.component.ts'),
+    'utf8',
+  );
+  // Facts + instructions go to the panel's system-prompt input, never a bubble.
+  assert.match(studio, /\[systemPrompt\]="chatSystemPrompt\(\)"/);
+  assert.match(studio, /studio\.chat\.system/);
+  // The visible prompt is the bare question (chip text or the default one).
+  assert.doesNotMatch(studio, /studio\.chat\.prompt/);
+  const panel = readFileSync(
+    join(process.cwd(), 'src/app/features/chat/chat-panel.component.ts'),
+    'utf8',
+  );
+  // The panel forwards the embed prompt on the system role of the request.
+  assert.match(panel, /system_prompt: this\.systemPrompt\(\) \?\?/);
+});

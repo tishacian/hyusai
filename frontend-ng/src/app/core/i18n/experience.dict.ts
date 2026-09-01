@@ -958,8 +958,11 @@ export const EXPERIENCE_FR = {
     'Explique ce qui fait échouer un contrôle budgétaire et ce que l’agent fait dans ce cas.',
   'experience.pr_to_po.studio.chip_prompt.would_post':
     'Décris la commande que tu proposerais pour la première demande ouverte, champ par champ, avec la source de chaque valeur.',
-  'experience.pr_to_po.studio.chat.prompt':
-    'Tu es l’agent NAWA PR vers PO. Faits SAP en direct, lus à l’instant par les outils get_A_PurchaseRequisitionItem et get_A_PurchaseOrder : {facts}. Réponds uniquement à partir de ces faits, en français clair — n’annonce jamais une lecture à faire plus tard ; si un fait manque, nomme précisément l’outil et le filtre qui l’apporteraient. Les écritures passent par le dialogue « Créer la commande » et sa confirmation humaine — n’affirme jamais avoir écrit depuis cette conversation. {question}',
+  'experience.pr_to_po.studio.chat.system':
+    'Tu es l’agent NAWA PR vers PO. Faits SAP en direct, lus à l’instant par les outils get_A_PurchaseRequisitionItem et get_A_PurchaseOrder : {facts}. Réponds uniquement à partir de ces faits, en français clair — n’annonce jamais une lecture à faire plus tard ; si un fait manque, nomme précisément l’outil et le filtre qui l’apporteraient. Les écritures passent par le dialogue « Créer la commande » et sa confirmation humaine — n’affirme jamais avoir écrit depuis cette conversation.',
+  'experience.pr_to_po.studio.chat.title': 'Conversation avec l’agent',
+  'experience.pr_to_po.studio.chat.hint':
+    'Réponses ancrées sur des lectures SAP à l’instant — les écritures attendent toujours votre accord.',
   'experience.pr_to_po.studio.chat_write.ask': 'Crée la commande pour la demande {pr}.',
   'experience.pr_to_po.studio.chat_write.proposal':
     'Voici exactement ce que j’enverrais : « {label} » — {amount}, fournisseur {supplier}, site {plant}, type ZLPO.',
@@ -1993,8 +1996,11 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
     'Explain what makes a budget check fail and what the agent does in that case.',
   'experience.pr_to_po.studio.chip_prompt.would_post':
     'Describe the purchase order you would propose for the first open requisition, field by field, with the source of each value.',
-  'experience.pr_to_po.studio.chat.prompt':
-    'You are the NAWA PR to PO agent. Live SAP facts, read moments ago through get_A_PurchaseRequisitionItem and get_A_PurchaseOrder: {facts}. Answer from these facts only — never announce a read you would run later; if a fact is missing, name the exact tool and filter that would fetch it. Writes go through the "Create the order" dialogue and its human confirmation — never claim a write from this conversation. {question}',
+  'experience.pr_to_po.studio.chat.system':
+    'You are the NAWA PR to PO agent. Live SAP facts, read moments ago through get_A_PurchaseRequisitionItem and get_A_PurchaseOrder: {facts}. Answer from these facts only — never announce a read you would run later; if a fact is missing, name the exact tool and filter that would fetch it. Writes go through the "Create the order" dialogue and its human confirmation — never claim a write from this conversation.',
+  'experience.pr_to_po.studio.chat.title': 'Talk to the agent',
+  'experience.pr_to_po.studio.chat.hint':
+    'Answers grounded on SAP reads made moments ago — writes always wait for your yes.',
   'experience.pr_to_po.studio.chat_write.ask': 'Create the order for requisition {pr}.',
   'experience.pr_to_po.studio.chat_write.proposal':
     'Here is exactly what I would send: "{label}" — {amount}, supplier {supplier}, plant {plant}, type ZLPO.',

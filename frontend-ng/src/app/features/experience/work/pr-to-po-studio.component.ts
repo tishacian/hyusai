@@ -367,6 +367,13 @@ const RAIL_TOOLS: readonly RailTool[] = [
                   <p class="xp-studio-dialog-user">
                     {{ i18n.t('experience.pr_to_po.studio.chat_write.ask', { pr: dialogue.proposal.prId }) }}
                   </p>
+                  <div class="xp-studio-dialog-row">
+                  <span class="xp-studio-dialog-avatar" aria-hidden="true">
+                    <ck-thinking-orb
+                      [state]="dialogue.stage === 'posting' ? 'working' : 'composing'"
+                      [size]="20"
+                    />
+                  </span>
                   <div class="xp-studio-dialog-agent">
                     <p>
                       {{
@@ -463,6 +470,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
                       </details>
                     }
                   </div>
+                  </div>
                 </section>
               }
               @if (chatWriteError()) {
@@ -470,10 +478,20 @@ const RAIL_TOOLS: readonly RailTool[] = [
               }
               @if (systemId(); as chatSystemId) {
                 <section class="xp-desk-portal xp-studio-chat">
+                  <header>
+                    <div class="xp-desk-portal-head">
+                      <ck-thinking-orb [state]="chatBusy() ? 'working' : 'composing'" [size]="20" />
+                      <div>
+                        <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.studio.chat.title') }}</p>
+                        <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.studio.chat.hint') }}</p>
+                      </div>
+                    </div>
+                  </header>
                   @for (tick of [chatTick()]; track tick) {
                     <app-chat-panel
                       [systemId]="chatSystemId"
                       [initialPrompt]="chatPrompt()"
+                      [systemPrompt]="chatSystemPrompt()"
                       [compact]="true"
                       [freshSession]="true"
                     />
@@ -550,6 +568,7 @@ export class PrToPoStudioComponent implements OnInit {
   readonly systemId = computed(() => this.system()?.id ?? null);
   readonly chatTick = signal(0);
   readonly chatPrompt = signal('');
+  readonly chatSystemPrompt = signal('');
   readonly chatFacts = signal('');
   readonly chatDialogue = signal<ChatWriteDialogue | null>(null);
   readonly chatBusy = signal(false);
@@ -637,8 +656,8 @@ export class PrToPoStudioComponent implements OnInit {
 
   /**
    * The classic chat cannot call tools, so the studio executes the SAP reads
-   * itself and hands the model a live fact sheet. The prompt then forbids the
-   * "I would run a read" answer the QA kept catching.
+   * itself and hands the model a live fact sheet. Facts and instructions ride
+   * the system role — the visible thread only ever shows the human question.
    */
   private async refreshChatPrompt(question: string): Promise<void> {
     await this.ensureChatFacts();
@@ -650,16 +669,15 @@ export class PrToPoStudioComponent implements OnInit {
         proposals: this.proposals(),
       }),
     );
-    this.chatPrompt.set(this.composeChatPrompt(question));
+    this.chatSystemPrompt.set(
+      this.i18n.t('experience.pr_to_po.studio.chat.system', {
+        facts: this.chatFacts() || '—',
+      }),
+    );
+    this.chatPrompt.set(
+      question.trim() || this.i18n.t('experience.pr_to_po.studio.chip_prompt.open_prs'),
+    );
     this.chatTick.update((tick) => tick + 1);
-  }
-
-  private composeChatPrompt(question: string): string {
-    return this.i18n.t('experience.pr_to_po.studio.chat.prompt', {
-      facts: this.chatFacts() || '—',
-      question:
-        question.trim() || this.i18n.t('experience.pr_to_po.studio.chip_prompt.open_prs'),
-    });
   }
 
   /** Reads the chat facts ride on — same live endpoints as the run flow. */
@@ -771,13 +789,19 @@ export class PrToPoStudioComponent implements OnInit {
       });
       if (done) {
         this.setDecision(dialogue.proposal.prId, { decision: 'approved', outcome });
-        // The next chip recomposes the prompt, so the model learns the new PO.
+        // The next question rides a recomposed system prompt, so the model
+        // learns the new PO without the thread showing any plumbing.
         this.chatFacts.set(
           studioFactSheet({
             totalOpen: this.totalOpen,
             candidates: this.candidates,
             plantTerms: this.terms,
             proposals: this.proposals(),
+          }),
+        );
+        this.chatSystemPrompt.set(
+          this.i18n.t('experience.pr_to_po.studio.chat.system', {
+            facts: this.chatFacts() || '—',
           }),
         );
       }
