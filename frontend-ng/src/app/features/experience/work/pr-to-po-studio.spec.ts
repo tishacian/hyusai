@@ -96,6 +96,32 @@ test('proposals pick distinct open PRs, skip consumed items, cap at three', () =
   assert.deepEqual(studioPlants(rows), ['1000', '2100']);
 });
 
+test('zero-price PRs yield to priced ones and carry the 06/215 warning', () => {
+  // SAP rejects a create when the PR carries 0.00 (06/215 "Please enter net
+  // price") — QA 2026-09-01 hit it live. A priced PR must take the slot first.
+  const preview: DeskPreview = {
+    ...PR_PREVIEW,
+    rows: [
+      ['2000276460', '00010', 'FREE SAMPLE', 'E032702', '10', '0', 'EA', '0.00', 'QAR', '1000', '20261123', 'ZNPR'],
+      ['2000276461', '00010', 'CREAM CHEESE', 'E032703', '29', '0', 'EA', '21.12', 'QAR', '1000', '20261123', 'ZNPR'],
+      ['2000276462', '00010', 'MILK 200 ML', 'E032704', '120', '0', 'EA', '0.90', 'QAR', '1000', '20261123', 'ZNPR'],
+    ],
+  };
+  const rows = openPrRowsFromPreview(preview);
+  assert.deepEqual(
+    rows.map((row) => row.pr_id),
+    ['2000276461', '2000276462', '2000276460'],
+  );
+  const priced = buildStudioProposal(rows[0], TERMS);
+  assert.equal(priced.priceMissing, false);
+  const pricedRow = priced.provenance.find((row) => row.field === 'net_price');
+  assert.equal(pricedRow?.sourceKey, 'experience.pr_to_po.studio.provenance.price');
+  const unpriced = buildStudioProposal(rows[2], TERMS);
+  assert.equal(unpriced.priceMissing, true);
+  const missingRow = unpriced.provenance.find((row) => row.field === 'net_price');
+  assert.equal(missingRow?.sourceKey, 'experience.pr_to_po.studio.provenance.price_missing');
+});
+
 test('a proposal carries the sealed BAPI body, provenance and the amount', () => {
   const fields = openPrRowsFromPreview(PR_PREVIEW)[0];
   const proposal = buildStudioProposal(fields, TERMS, '4500382504');
@@ -188,6 +214,15 @@ test('invoke outcomes: sealed envelope, live success, live SAP error', () => {
     sap_ok: false,
   });
   assert.equal(failedCall.ok, false);
+  // An HTTP error body has no `sealed` key: it must read as a failed write
+  // (QA 2026-09-01 caught a 502 rendered as a sealed success).
+  const httpError = outcomeFromInvoke({ ok: false, detail: 'mcp_call_failed: invalid arguments' });
+  assert.equal(httpError.sealed, false);
+  assert.equal(httpError.sapOk, false);
+  assert.match(httpError.messages[0], /mcp_call_failed/);
+  const errorCall = studioCallFromInvoke('bapi_po', 'BAPI_PO_CREATE1', {}, { ok: false, detail: 'boom' });
+  assert.equal(errorCall.ok, false);
+  assert.equal(errorCall.sealed, false);
 });
 
 test('chat chips follow the demo scenario order', () => {
