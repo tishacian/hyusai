@@ -255,6 +255,52 @@ const PREFERRED_COLUMNS: Record<DeskLaneId, readonly string[]> = {
 const COLUMN_CAP = 5;
 const ROW_CAP = 6;
 
+/**
+ * Raw SAP names stay in the tooltip; the header shows a short label so the
+ * five-column card never clips on a 1080p projector.
+ */
+const DESK_COLUMN_LABELS: Record<string, string> = {
+  PurchaseRequisition: 'PR',
+  PurchaseRequisitionItem: 'Item',
+  PurchaseRequisitionItemText: 'Item text',
+  MaterialGroup: 'Matl group',
+  RequestedQuantity: 'Qty',
+  PurchaseRequisitionType: 'Type',
+  PurReqnDescription: 'Description',
+  CreationDate: 'Created',
+  TaskTitle: 'Task',
+  TaskDefinitionName: 'Definition',
+  InstanceID: 'Instance',
+  CreatedOn: 'Created',
+  PurchaseOrder: 'PO',
+  PurchaseOrderType: 'Type',
+  Supplier: 'Supplier',
+  PurchaseOrderDate: 'Ordered',
+  PurchasingOrganization: 'Purch org',
+  MaterialDocument: 'Matl doc',
+  MaterialDocumentYear: 'Year',
+  GoodsMovementCode: 'Movement',
+  PostingDate: 'Posted',
+};
+
+export function deskColumnLabel(name: string): string {
+  return DESK_COLUMN_LABELS[name] ?? name;
+}
+
+/** OData `/Date(ms)/` and compact `YYYYMMDD` render as `YYYY-MM-DD`. */
+export function formatDeskCell(column: string, value: string): string {
+  const text = String(value ?? '');
+  if (!/date|createdon|posted/i.test(column)) return text;
+  const odata = text.match(/\/Date\((-?\d+)\)\//);
+  if (odata) {
+    const parsed = new Date(Number(odata[1]));
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  }
+  const compact = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  return text;
+}
+
 export function pickDeskColumns(columns: readonly string[], lane: DeskLaneId): string[] {
   const available = columns
     .map((name) => String(name || ''))
@@ -286,7 +332,11 @@ export function projectRows(
   picked: readonly string[],
 ): string[][] {
   const index = picked.map((name) => columns.indexOf(name));
-  return rows.slice(0, ROW_CAP).map((row) => index.map((at) => (at >= 0 ? String(row[at] ?? '') : '')));
+  return rows
+    .slice(0, ROW_CAP)
+    .map((row) =>
+      index.map((at, col) => (at >= 0 ? formatDeskCell(picked[col], String(row[at] ?? '')) : '')),
+    );
 }
 
 export function laneFromPreview(
@@ -797,7 +847,10 @@ export function fundFromRead(payload: DeskKeyedRead | null): { fund: string; fun
   };
 }
 
-export function justificationReadBody(prId = ''): {
+export function justificationReadBody(
+  prId = '',
+  prItem = '',
+): {
   tool: string;
   arguments: {
     PurchaseRequisition: string;
@@ -805,11 +858,13 @@ export function justificationReadBody(prId = ''): {
     expand: string;
   };
 } {
+  // by_key wants the unpadded item ('10', not '00010').
+  const item = prItem.trim().replace(/^0+(?=\d)/, '');
   return {
     tool: LIVE_PR_ITEM_BY_KEY,
     arguments: {
       PurchaseRequisition: prId.trim() || DEMO_JUSTIFICATION_PR,
-      PurchaseRequisitionItem: DEMO_JUSTIFICATION_ITEM,
+      PurchaseRequisitionItem: item || DEMO_JUSTIFICATION_ITEM,
       expand: ITEM_TEXT_EXPAND,
     },
   };
