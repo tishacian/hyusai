@@ -3074,12 +3074,18 @@ const STEP_ICONS: Record<string, string> = {
       );
       color: #1a0b07;
       font-weight: 500;
+      padding: 12px 18px;
+      font-size: 0.95rem;
+      line-height: 1.55;
       box-shadow: 0 14px 34px color-mix(in srgb, var(--nawa-accent, #e8543a) 28%, transparent);
     }
     :host-context(.xp-desk-portal) .ck-chat-assistant-bubble {
       border: 1px solid var(--nawa-line, rgba(245, 242, 239, 0.1));
       background: var(--nawa-surface-2, #1d1d1d);
       color: var(--nawa-fg, #f5f2ef);
+      padding: 14px 18px;
+      font-size: 0.95rem;
+      line-height: 1.65;
       box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
     }
     :host-context(.xp-desk-portal) .ck-chat-progress {
@@ -3097,19 +3103,47 @@ const STEP_ICONS: Record<string, string> = {
     :host-context(.xp-desk-portal) .ck-chat-input-bar {
       border-top-color: var(--nawa-line, rgba(245, 242, 239, 0.1));
       background: color-mix(in srgb, var(--nawa-bg, #070707) 72%, transparent);
+      padding: 14px 16px;
+      gap: 10px;
     }
     :host-context(.xp-desk-portal) .ck-chat-input {
       border-color: var(--nawa-line, rgba(245, 242, 239, 0.12));
       background: var(--nawa-surface-2, #1d1d1d);
       color: var(--nawa-fg, #f5f2ef);
       caret-color: var(--nawa-accent, #e8543a);
-      --tw-ring-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 55%, transparent);
+      min-height: 52px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+      /* The 2px Tailwind ring reads harsh on the warm charcoal — swap it for
+         a soft coral halo on focus below. */
+      --tw-ring-color: transparent;
+    }
+    :host-context(.xp-desk-portal) .ck-chat-input-bar button:not(.ck-chat-send) {
+      min-height: 52px;
+      min-width: 48px;
+      border-radius: 14px;
+    }
+    :host-context(.xp-desk-portal) .ck-chat-input::placeholder {
+      color: var(--nawa-fg-dim, rgba(245, 242, 239, 0.55));
+    }
+    :host-context(.xp-desk-portal) .ck-chat-input:focus {
+      border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 55%, transparent);
+      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 5%, var(--nawa-surface-2, #1d1d1d));
+      box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--nawa-accent, #e8543a) 18%, transparent),
+        0 12px 30px color-mix(in srgb, var(--nawa-accent, #e8543a) 12%, transparent);
     }
     :host-context(.xp-desk-portal) .ck-chat-send {
       border: 1px solid transparent;
       background: var(--nawa-accent, #e8543a);
       color: #140806;
       font-weight: 600;
+      min-height: 52px;
+      border-radius: 14px;
+      padding-inline: 18px;
       box-shadow: 0 10px 24px color-mix(in srgb, var(--nawa-accent, #e8543a) 35%, transparent);
     }
     :host-context(.xp-desk-portal) .ck-chat-send:hover:not(:disabled) {
@@ -3173,6 +3207,12 @@ export class ChatPanelComponent implements AfterViewInit {
   /** Open on a blank conversation instead of resuming the last session. A
       desk portal opens clean every time; send() creates the session lazily. */
   readonly freshSession = input(false);
+  /**
+   * Per-embed system prompt. A desk that grounds the model on live facts
+   * passes them here so the visible thread carries only the human question —
+   * the instructions ride the system role, never a bubble.
+   */
+  readonly systemPrompt = input<string | null>(null);
 
   private readonly sse = inject(SseService);
   private readonly api = inject(ApiService);
@@ -6399,7 +6439,7 @@ export class ChatPanelComponent implements AfterViewInit {
         knowledge_scope: this.activeKnowledgeScope(),
         assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
         grounding_mode: this.groundingMode(),
-        system_prompt: (s['systemPrompt'] as string | undefined) ?? null,
+        system_prompt: this.systemPrompt() ?? ((s['systemPrompt'] as string | undefined) ?? null),
         agent_preferences: {
           model_preferences: {
             model: s.defaultModel,
@@ -6740,7 +6780,7 @@ export class ChatPanelComponent implements AfterViewInit {
         knowledge_scope: this.activeKnowledgeScope(),
         assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
         grounding_mode: this.groundingMode(),
-        system_prompt: (s['systemPrompt'] as string | undefined) ?? null,
+        system_prompt: this.systemPrompt() ?? ((s['systemPrompt'] as string | undefined) ?? null),
         agent_preferences: {
           model_preferences: {
             model: s.defaultModel,
