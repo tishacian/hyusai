@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
@@ -76,49 +76,57 @@ test('factory provenance is the Experience origin on the Run ingress', () => {
   assert.equal(isFactoryOriginRun({}), false);
 });
 
-test('the factory desk starts a cycle through the Experience binding', () => {
-  const board = readFileSync(
-    join(process.cwd(), 'src/app/features/experience/work/pr-to-po-board.component.ts'),
+test('the studio is a client of the server run — it never reads or writes SAP itself', () => {
+  const studio = readFileSync(
+    join(process.cwd(), 'src/app/features/experience/work/pr-to-po-studio.component.ts'),
     'utf8',
   );
-  assert.equal(board.includes('triggerRun('), false);
-  assert.match(board, /ExperienceRuntimeService/);
-  assert.match(board, /FACTORY_BINDING_KEY/);
-  assert.match(board, /listPendingValidations/);
-  assert.match(board, /factoryRunOrigin/);
-  assert.match(board, /app-chat-panel/);
-  assert.match(board, /\[compact\]="true"/);
-  assert.doesNotMatch(board, /navigateByUrl\(factoryChatHref/);
-  assert.doesNotMatch(board, /llm-portal|omnirag-llm-portal/);
-  assert.match(board, /justificationReadBody/);
-  assert.match(board, /approvedPrItemReadBody/);
-  assert.match(board, /budgetReadBody/);
-  assert.match(board, /acctAssgmtReadBody/);
-  assert.match(board, /recentPosByPlantReadBody/);
-  assert.doesNotMatch(board, /poItemReadBody/);
-  assert.doesNotMatch(board, /poHeaderReadBody/);
-  assert.match(board, /\/mcp\/servers\/\$\{encodeURIComponent\(JUSTIFICATION_SERVER_ID\)\}\/read/);
-  assert.match(board, /\/mcp\/servers\/sap\/read/);
-  assert.match(board, /\/mcp\/servers\/hikma\/read/);
-  assert.match(board, /\/mcp\/servers\/\$\{encodeURIComponent\(serverId\)\}\/preview/);
-  assert.match(board, /readJustification\(/);
-  assert.doesNotMatch(board, /readJustification[\s\S]{0,400}this\.runtime\.invoke/);
-  assert.doesNotMatch(board, /post_A_PurchaseOrder|fi_DiscardFromPurchasing|fi_EnableForPurchasing/);
-  assert.doesNotMatch(board, /BAPI_PO_CREATE1|BAPI_TRANSACTION_COMMIT|BAPI_TRANSACTION_ROLLBACK/);
-  assert.doesNotMatch(board, /\/mcp\/servers\/sap\/preview/);
-  assert.doesNotMatch(board, /\/mcp\/servers\/hikma\/preview/);
-  assert.match(board, /ck-thinking-orb/);
-  assert.match(board, /terrainLoading\(\)[\s\S]{0,180}ck-thinking-orb/);
-  assert.match(board, /starting\(\)[\s\S]{0,180}ck-thinking-orb/);
+  // One run through the Experience binding, one canonical HITL decision.
+  assert.match(studio, /ExperienceRuntimeService/);
+  assert.match(studio, /FACTORY_BINDING_KEY/);
+  assert.match(studio, /studioRunPayload\(/);
+  assert.match(studio, /this\.workApi\s*\.decide\(/);
+  assert.match(studio, /listPendingValidations/);
+  assert.match(studio, /this\.canonical\.getRun\(/);
+  // No MCP read/invoke from the browser, no SAP tool name in a request body.
+  assert.doesNotMatch(studio, /\/mcp\/servers\/[^'`]*\/(read|invoke|preview)/);
+  assert.doesNotMatch(studio, /tools\/call/);
+  assert.doesNotMatch(studio, /composeSealedPoPost|bapiCreateInvokeBody|bapiCommitInvokeBody|discardInvokeBody/);
+  assert.doesNotMatch(studio, /approvedPrItemReadBody|budgetReadBody|recentPosByPlantReadBody|justificationReadBody/);
+  // Guardrails ride the run input; the server blocks before the network.
+  assert.match(studio, /disabledTools\(\)/);
+  assert.match(studio, /sapWriteUnsealed/);
+  // The gate and the chat dialogue share the one decision path.
+  assert.match(studio, /approve\(\): void \{[\s\S]{0,60}this\.decide\('accept'\)/);
+  assert.match(studio, /confirmChatWrite\(\): void \{[\s\S]{0,400}this\.decide\('accept'\)/);
+  assert.match(studio, /chip === 'create'[\s\S]{0,80}openChatWrite/);
+  assert.match(studio, /xp-studio-dialog-yes[\s\S]{0,120}confirmChatWrite/);
+  assert.match(studio, /xp-studio-dialog-no[\s\S]{0,120}cancelChatWrite/);
+  // Facts ride the system role; the thread shows only the human question.
+  assert.match(studio, /\[systemPrompt\]="chatSystemPrompt\(\)"/);
+  assert.match(studio, /studioFactSheet\(this\.run\(\)\)/);
+  assert.doesNotMatch(studio, /studio\.chat\.prompt/);
+  assert.match(studio, /app-chat-panel/);
+  assert.match(studio, /\[freshSession\]="true"/);
+  assert.match(studio, /ck-thinking-orb/);
+  assert.match(studio, /xp-desk-portal-head[\s\S]{0,120}ck-thinking-orb/);
+  // Lineage stays visible: the run is one click away.
+  assert.match(studio, /factoryRunHref/);
 });
 
-test('the factory portal chat wears the NAWA skin with orbs', () => {
-  const board = readFileSync(
-    join(process.cwd(), 'src/app/features/experience/work/pr-to-po-board.component.ts'),
+test('the studio owns the app root and the former desk route lands on it', () => {
+  const routes = readFileSync(
+    join(process.cwd(), 'src/app/features/experience/work/work.routes.ts'),
     'utf8',
   );
-  assert.match(board, /xp-desk-portal-head[\s\S]{0,120}ck-thinking-orb/);
-  assert.match(board, /\[freshSession\]="true"/);
+  assert.match(routes, /path: 'pr-to-po',[\s\S]{0,160}pr-to-po-studio\.component/);
+  assert.match(routes, /path: 'pr-to-po\/desk', redirectTo: 'pr-to-po'/);
+  assert.doesNotMatch(routes, /pr-to-po-board/);
+  assert.equal(existsSync(join(process.cwd(), 'src/app/features/experience/work/pr-to-po-desk.ts')), false);
+  assert.equal(existsSync(join(process.cwd(), 'src/app/features/experience/work/pr-to-po-board.component.ts')), false);
+});
+
+test('the chat panel wears the NAWA skin with orbs and forwards the system prompt', () => {
   const panel = readFileSync(
     join(process.cwd(), 'src/app/features/chat/chat-panel.component.ts'),
     'utf8',
@@ -130,67 +138,5 @@ test('the factory portal chat wears the NAWA skin with orbs', () => {
   assert.match(panel, /--nawa-accent/);
   assert.match(panel, /ck-chat-empty-mark[\s\S]{0,200}ck-thinking-orb/);
   assert.match(panel, /ck-chat-progress[\s\S]{0,400}ck-thinking-orb/);
-});
-
-test('the studio owns the app root and the desk keeps its route', () => {
-  const routes = readFileSync(
-    join(process.cwd(), 'src/app/features/experience/work/work.routes.ts'),
-    'utf8',
-  );
-  assert.match(routes, /path: 'pr-to-po',[\s\S]{0,120}pr-to-po-studio\.component/);
-  assert.match(routes, /path: 'pr-to-po\/desk',[\s\S]{0,120}pr-to-po-board\.component/);
-});
-
-test('studio writes go through the flag-gated invoke endpoint, never a raw call', () => {
-  const studio = readFileSync(
-    join(process.cwd(), 'src/app/features/experience/work/pr-to-po-studio.component.ts'),
-    'utf8',
-  );
-  assert.match(studio, /\/mcp\/servers\/\$\{encodeURIComponent\(serverId\)\}\/invoke/);
-  assert.match(studio, /\/mcp\/servers\/\$\{encodeURIComponent\(serverId\)\}\/read/);
-  assert.doesNotMatch(studio, /tools\/call/);
-  assert.match(studio, /guardrailBlocked\(/);
-  assert.match(studio, /sapWriteUnsealed/);
-  assert.match(studio, /bapiCreateInvokeBody/);
-  assert.match(studio, /bapiCommitInvokeBody/);
-  assert.match(studio, /discardInvokeBody/);
-  assert.match(studio, /app-chat-panel/);
-  assert.match(studio, /\[freshSession\]="true"/);
-  assert.match(studio, /ck-thinking-orb/);
-  assert.match(studio, /routerLink="\/work\/pr-to-po\/desk"/);
-});
-
-test('the chat write dialogue confirms inside the thread and rides the same guarded path', () => {
-  const studio = readFileSync(
-    join(process.cwd(), 'src/app/features/experience/work/pr-to-po-studio.component.ts'),
-    'utf8',
-  );
-  // The fifth chip opens the dialogue instead of prompting the model.
-  assert.match(studio, /chip === 'create'[\s\S]{0,80}openChatWrite/);
-  // Confirm / cancel live in the conversation, not in a modal.
-  assert.match(studio, /xp-studio-dialog-yes[\s\S]{0,120}confirmChatWrite/);
-  assert.match(studio, /xp-studio-dialog-no[\s\S]{0,120}cancelChatWrite/);
-  // The confirmed write uses the same guardrail + invoke path as the gate.
-  assert.match(studio, /chatInvoke[\s\S]{0,400}guardrailBlocked/);
-  // The prompt carries live facts, not tool wishes.
-  assert.match(studio, /studioFactSheet/);
-  assert.match(studio, /facts: this\.chatFacts\(\)/);
-});
-
-test('the studio thread shows only the human question — facts ride the system role', () => {
-  const studio = readFileSync(
-    join(process.cwd(), 'src/app/features/experience/work/pr-to-po-studio.component.ts'),
-    'utf8',
-  );
-  // Facts + instructions go to the panel's system-prompt input, never a bubble.
-  assert.match(studio, /\[systemPrompt\]="chatSystemPrompt\(\)"/);
-  assert.match(studio, /studio\.chat\.system/);
-  // The visible prompt is the bare question (chip text or the default one).
-  assert.doesNotMatch(studio, /studio\.chat\.prompt/);
-  const panel = readFileSync(
-    join(process.cwd(), 'src/app/features/chat/chat-panel.component.ts'),
-    'utf8',
-  );
-  // The panel forwards the embed prompt on the system role of the request.
   assert.match(panel, /system_prompt: this\.systemPrompt\(\) \?\?/);
 });
