@@ -241,6 +241,161 @@ def test_gateway_refusal_reads_as_sap_error(monkeypatch):
     assert out["messages"][0]["message"] == "Not authorized"
 
 
+def test_guardrail_blocks_before_flag_and_network(monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise AssertionError("a blocked tool must not open a socket")
+
+    monkeypatch.setattr(mcp_client, "call_tool", boom)
+    for unsealed in (True, False):
+        out = mcp_write.invoke_write_tool(
+            _server() if unsealed else None,
+            server_id="bapi_po",
+            tool="BAPI_PO_CREATE1",
+            arguments={"tables": {}},
+            unsealed=unsealed,
+            blocked_tools=["BAPI_PO_CREATE1"],
+        )
+        assert out["blocked"] is True
+        assert out["called"] is False
+        assert out["sealed"] is False
+        assert out["reason"] == "guardrail_disabled"
+    # An unrelated guardrail leaves the flag decision untouched.
+    sealed = mcp_write.invoke_write_tool(
+        None,
+        server_id="bapi_po",
+        tool="BAPI_PO_CREATE1",
+        arguments={"tables": {}},
+        unsealed=False,
+        blocked_tools=["fi_DiscardFromPurchasing"],
+    )
+    assert sealed["sealed"] is True
+
+
+def test_create_and_commit_is_two_calls_or_nothing(monkeypatch):
+    captured: list[dict] = []
+    ok_create = {
+        "tables": {"RETURN": []},
+        "export": {"EXPHEADER": {"PO_NUMBER": "4500382540"}},
+    }
+    monkeypatch.setattr(
+        mcp_client,
+        "call_tool",
+        _fake_call(
+            {"BAPI_PO_CREATE1": ok_create, "BAPI_TRANSACTION_COMMIT": {"tables": {"RETURN": []}}},
+            captured,
+        ),
+    )
+    out = mcp_write.create_and_commit_po(
+        _server(), server_id="bapi_po", arguments={"tables": {}}, unsealed=True
+    )
+    assert out["sap_ok"] is True
+    assert out["committed"] is True
+    assert out["po_number"] == "4500382540"
+    assert [call["contract_tool"] for call in captured] == [
+        "BAPI_PO_CREATE1",
+        "BAPI_TRANSACTION_COMMIT",
+    ]
+    assert [row["tool"] for row in out["calls"]] == [
+        "BAPI_PO_CREATE1",
+        "BAPI_TRANSACTION_COMMIT",
+    ]
+    assert captured[1]["arguments"] == {"import": {"WAIT": "X"}}
+
+
+def test_create_and_commit_stops_on_a_failed_create(monkeypatch):
+    captured: list[dict] = []
+    failed = {"tables": {"RETURN": [{"TYPE": "E", "ID": "06", "NUMBER": "215", "MESSAGE": "Please enter net price"}]}}
+    monkeypatch.setattr(
+        mcp_client,
+        "call_tool",
+        _fake_call(
+            {"BAPI_PO_CREATE1": failed, "BAPI_TRANSACTION_ROLLBACK": {"tables": {}}},
+            captured,
+        ),
+    )
+    out = mcp_write.create_and_commit_po(
+        _server(), server_id="bapi_po", arguments={"tables": {}}, unsealed=True
+    )
+    assert out["sap_ok"] is False
+    assert out["committed"] is False
+    assert out["rolled_back"] is True
+    assert [call["contract_tool"] for call in captured] == [
+        "BAPI_PO_CREATE1",
+        "BAPI_TRANSACTION_ROLLBACK",
+    ]
+
+
+def test_create_and_commit_rolls_back_a_blocked_commit(monkeypatch):
+    captured: list[dict] = []
+    ok_create = {"tables": {"RETURN": []}, "export": {"EXPHEADER": {"PO_NUMBER": "4500382541"}}}
+    monkeypatch.setattr(
+        mcp_client,
+        "call_tool",
+        _fake_call(
+            {"BAPI_PO_CREATE1": ok_create, "BAPI_TRANSACTION_ROLLBACK": {"tables": {}}},
+            captured,
+        ),
+    )
+    out = mcp_write.create_and_commit_po(
+        _server(),
+        server_id="bapi_po",
+        arguments={"tables": {}},
+        unsealed=True,
+        blocked_tools=["BAPI_TRANSACTION_COMMIT"],
+    )
+    assert out["sap_ok"] is False
+    assert out["committed"] is False
+    assert out["po_number"] == ""
+    assert out["rolled_back"] is True
+    assert out["calls"][1]["blocked"] is True
+    assert [call["contract_tool"] for call in captured] == [
+        "BAPI_PO_CREATE1",
+        "BAPI_TRANSACTION_ROLLBACK",
+    ]
+
+
+def test_create_and_commit_sealed_never_calls(monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise AssertionError("sealed writes must not call the tool")
+
+    monkeypatch.setattr(mcp_client, "call_tool", boom)
+    out = mcp_write.create_and_commit_po(
+        None, server_id="bapi_po", arguments={"tables": {}}, unsealed=False
+    )
+    assert out["sealed"] is True
+    assert out["committed"] is False
+    assert len(out["calls"]) == 1
+
+
+def test_audit_write_files_every_call_that_left(monkeypatch):
+    from app.services.connectors.mcp import write as module
+
+    events: list[dict] = []
+    import app.services.audit_logger as audit_logger
+
+    monkeypatch.setattr(
+        audit_logger, "emit_audit_event", lambda **kwargs: events.append(kwargs)
+    )
+    module.audit_write(
+        "ws-1",
+        actor="run:r-1",
+        server_id="bapi_po",
+        out={
+            "calls": [
+                {"called": True, "tool": "BAPI_PO_CREATE1", "sap_ok": True, "po_number": "45"},
+                {"called": False, "blocked": True, "tool": "BAPI_TRANSACTION_COMMIT"},
+            ]
+        },
+        run_id="r-1",
+    )
+    assert len(events) == 1
+    assert events[0]["event_type"] == "mcp.write.invoked"
+    assert events[0]["details"]["run_id"] == "r-1"
+    assert events[0]["details"]["tool"] == "BAPI_PO_CREATE1"
+    module.audit_write("ws-1", actor="x", server_id="sap", out={"called": False, "sealed": True})
+    assert len(events) == 1
+
+
 def test_verdict_never_uses_the_transport_flag():
     # isError stays false on SAP rejections; the verdict is the payload's own.
     ok, messages = mcp_write.sap_write_verdict(

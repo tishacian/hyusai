@@ -476,7 +476,8 @@ async def test_write_wrappers_compose_without_call_tool(monkeypatch):
     assert handled["sealed"] is True
     assert handled["called"] is False
     assert handled["tool"] == mcp_read.LIVE_DISCARD
-    assert seen == ["sap", "hikma", "sap"]
+    # Flag off: the gate seals before it ever needs a server, so no resolve.
+    assert seen == []
 
 
 @pytest.mark.asyncio

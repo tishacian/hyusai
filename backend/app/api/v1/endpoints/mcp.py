@@ -57,6 +57,11 @@ class McpReadRequest(BaseModel):
 class McpInvokeRequest(BaseModel):
     tool: str = Field(..., min_length=1, max_length=256)
     arguments: dict[str, Any] = Field(default_factory=dict)
+    #: ``BAPI_PO_CREATE1`` only — run the commit in the same gate call so the
+    #: caller never holds a created-but-uncommitted PO.
+    commit: bool = False
+    #: Guardrail names the human switched off; the gate answers ``blocked``.
+    disabled_tools: list[str] = Field(default_factory=list)
 
 
 def _require_enabled(workspace: Workspace) -> None:
@@ -211,31 +216,30 @@ async def invoke_mcp_server(
     unsealed = mcp_write.workspace_write_unsealed(workspace)
     try:
         server = mcp_service.resolve_server(workspace, server_id) if unsealed else None
-        out = mcp_write.invoke_write_tool(
-            server,
-            server_id=server_id,
-            tool=body.tool,
-            arguments=body.arguments,
-            unsealed=unsealed,
-        )
+        if body.commit and body.tool.strip() == mcp_write.BAPI_CREATE:
+            out = mcp_write.create_and_commit_po(
+                server,
+                server_id=server_id,
+                arguments=body.arguments,
+                unsealed=unsealed,
+                blocked_tools=body.disabled_tools,
+            )
+        else:
+            out = mcp_write.invoke_write_tool(
+                server,
+                server_id=server_id,
+                tool=body.tool,
+                arguments=body.arguments,
+                unsealed=unsealed,
+                blocked_tools=body.disabled_tools,
+            )
     except Exception as exc:  # noqa: BLE001
         _raise_mcp(exc)
         raise  # pragma: no cover
-    if out.get("called"):
-        from app.services.audit_logger import emit_audit_event
-
-        emit_audit_event(
-            workspace_id=str(workspace.id),
-            event_type="mcp.write.invoked",
-            actor=str(getattr(user, "email", "") or getattr(user, "id", "") or "system"),
-            details={
-                "server_id": server_id,
-                "tool": out.get("tool"),
-                "sap_ok": out.get("sap_ok"),
-                "po_number": out.get("po_number"),
-                "rolled_back": out.get("rolled_back"),
-                "messages": out.get("messages"),
-                "duration_ms": out.get("duration_ms"),
-            },
-        )
+    mcp_write.audit_write(
+        str(workspace.id),
+        actor=str(getattr(user, "email", "") or getattr(user, "id", "") or "system"),
+        server_id=server_id,
+        out=out,
+    )
     return out

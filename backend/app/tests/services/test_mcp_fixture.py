@@ -165,6 +165,37 @@ def test_select_next_pr_pins_or_takes_first():
     assert consumed["Plant"] == "1000"
 
 
+def test_select_next_pr_prefers_priced_requisitions_and_names_the_candidates():
+    """SAP rejects a create at 0.00 (06/215), so priced PRs take the slots first.
+
+    One row per PR (the first item wins); the studio launches one run per
+    candidate, so the list rides the selection output into the HITL package.
+    """
+    prs = [
+        {"PurchaseRequisition": "A", "PurchaseRequisitionItem": "10", "PurchaseRequisitionPrice": "0.00"},
+        {"PurchaseRequisition": "B", "PurchaseRequisitionItem": "10", "PurchaseRequisitionPrice": "12.50"},
+        {"PurchaseRequisition": "B", "PurchaseRequisitionItem": "20", "PurchaseRequisitionPrice": "3.00"},
+        {"PurchaseRequisition": "C", "PurchaseRequisitionItem": "10", "PurchaseRequisitionPrice": "7.00"},
+        {"PurchaseRequisition": "D", "PurchaseRequisitionItem": "10", "PurchaseRequisitionPrice": "1.00"},
+        {"PurchaseRequisition": "E", "PurchaseRequisitionItem": "10", "PurchaseRequisitionPrice": "9.00"},
+    ]
+    picked = select_next_pr({"prs": prs})
+    assert picked["pr_id"] == "B"
+    assert picked["PurchaseRequisitionItem"] == "10"
+    assert picked["price_missing"] is False
+    assert picked["candidates"] == ["B", "C", "D"]
+    assert picked["total_open"] == 6
+    # A pin outside the top three still wins, and the candidates stay stable.
+    pinned = select_next_pr({"prs": prs, "pr_id": "E"})
+    assert pinned["pr_id"] == "E"
+    assert pinned["candidates"] == ["B", "C", "D"]
+    # Only unpriced PRs left: the slot is filled, flagged for the gate.
+    unpriced = select_next_pr({"prs": prs[:1]})
+    assert unpriced["pr_id"] == "A"
+    assert unpriced["price_missing"] is True
+    assert select_next_pr({"prs": []})["candidates"] == []
+
+
 def test_bapi_payload_uses_plant_zlpo_and_overrides_past_date():
     assert override_delivery_date("2026-07-15", date(2026, 8, 22)) == "20260907"
     body = build_bapi_po_payload(
