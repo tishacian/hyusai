@@ -943,6 +943,10 @@ async def resume_run_dag(
                 "rejected": rejected,
                 "decision_id": target_decision_id,
                 "decision_status": dec.status if dec else None,
+                # Who settled the gate — a person, or ``system:*`` (TTL,
+                # watchdog). Downstream writes use it to tell a human
+                # decision from an automatic one.
+                "decided_by": dec.approved_by if dec else None,
             }
             state.ctx["hitl_approved"] = approved
             state.ctx["hitl_decision"] = dec.status if dec else None

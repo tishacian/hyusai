@@ -286,6 +286,14 @@ def test_flow_has_no_validator_errors_and_routes_to_dag() -> None:
     hitl = next(node for node in FLOW["nodes"] if node["id"] == "hitl.approve_po")
     hitl_inputs = hitl["config"]["inputs_map"]
     assert {"candidates", "total_open", "price_missing", "payment_terms", "incoterms"} <= set(hitl_inputs)
+    # The two writes a person authorises learn who decided; the budget branch
+    # has no human upstream and takes none.
+    for node_id in ("task.create_po", "task.handle_rejection"):
+        node = next(item for item in FLOW["nodes"] if item["id"] == node_id)
+        ref = node["config"]["inputs_map"]["decided_by"]
+        assert ref == {"node_id": "hitl.approve_po", "path": ["decided_by"], "required": False}
+    reject = next(item for item in FLOW["nodes"] if item["id"] == "task.reject")
+    assert "decided_by" not in reject["config"]["inputs_map"]
 
 
 def test_format_dossier_node_declares_a_managed_env() -> None:
@@ -422,6 +430,7 @@ async def test_in_budget_pauses_then_create_po_on_approve(db_session, monkeypatc
     assert "ACME" in str(upstream.get("formatted") or "")
     assert "create_po" not in str(writes)
     decision.status = "accepted"
+    decision.approved_by = "buyer@nawa.test"
     db_session.commit()
     resumed = await resume_run_dag(run.id, decision_id=decision.id)
     assert resumed["status"] == "completed", resumed
@@ -432,6 +441,8 @@ async def test_in_budget_pauses_then_create_po_on_approve(db_session, monkeypatc
     assert counts.get("sap_handle_rejection_v1", 0) == 0
     create = next(item for item in writes if item["slug"] == "sap_create_po_v1")
     assert create["pr_id"] == "PR-4402"
+    # The gate's verdict names the person: that is what unseals the write.
+    assert create["decided_by"] == "buyer@nawa.test"
     invocation = next(
         row for row in _invocations(db_session, run) if row.skill_slug == "sap_create_po_v1"
     )
@@ -452,6 +463,7 @@ async def test_human_reject_calls_handle_rejection(db_session, monkeypatch):
     paused = await execute_run_dag(run.id)
     decision = _pending_decision(db_session, paused)
     decision.status = "rejected"
+    decision.approved_by = "system:gate_ttl"
     db_session.commit()
     resumed = await resume_run_dag(run.id, decision_id=decision.id)
     assert resumed["status"] == "completed", resumed
@@ -460,6 +472,9 @@ async def test_human_reject_calls_handle_rejection(db_session, monkeypatch):
     assert counts["sap_handle_rejection_v1"] == 1
     assert counts.get("sap_create_po_v1", 0) == 0
     assert writes[-1]["slug"] == "sap_handle_rejection_v1"
+    # An expiry settles the gate as ``system:gate_ttl``; the discard skill
+    # reads it and keeps the envelope sealed.
+    assert writes[-1]["decided_by"] == "system:gate_ttl"
     statuses = _node_status(run)
     assert statuses["task.handle_rejection"] == "completed"
     assert statuses["task.create_po"] == "skipped"
