@@ -59,6 +59,18 @@ FLAG_OFF_BLOCK = (
     "Write stays sealed: workspace feature sap_write_unsealed is off. "
     "The envelope carries the exact payload that would be sent."
 )
+UNATTENDED_REASON = "unattended"
+UNATTENDED_BLOCK = (
+    "Write stays sealed: no human decided it (gate expiry, scheduler or an "
+    "automatic branch). The envelope carries the exact payload that would be sent."
+)
+SYSTEM_ACTOR_PREFIX = "system:"
+
+
+def human_decided(actor: Any) -> bool:
+    """A Decision carries who settled it: a person, or ``system:*`` (TTL, watchdog)."""
+    label = str(actor or "").strip()
+    return bool(label) and not label.lower().startswith(SYSTEM_ACTOR_PREFIX)
 
 
 def workspace_write_unsealed(workspace: Any) -> bool:
@@ -184,13 +196,16 @@ def invoke_write_tool(
     unsealed: bool,
     blocked_tools: Iterable[str] | None = None,
     sealed_block: str = FLAG_OFF_BLOCK,
+    attended: bool = True,
 ) -> dict[str, Any]:
     """One allow-listed write. Blocked, sealed or live — in that order.
 
     This is the single gate every SAP write goes through: the HTTP invoke
     route, the run-engine skills and the free ``mcp_call_v1`` skill all end
     here, so the allow-list, the TESTRUN ban, the rollback rule and the
-    flag are enforced once.
+    flag are enforced once. ``attended=False`` says no human decided this
+    write (gate TTL, scheduler, automatic branch): it stays sealed whatever
+    the flag says.
     """
     name = str(tool or "").strip()
     if not name:
@@ -213,6 +228,16 @@ def invoke_write_tool(
             arguments=args,
             sap_block=sealed_block,
         )
+    if not attended:
+        sealed = compose_write_sealed(
+            server_id=server_id,
+            tool=name,
+            arguments=args,
+            sap_block=UNATTENDED_BLOCK,
+        )
+        sealed["reason"] = UNATTENDED_REASON
+        sealed["result"]["reason"] = UNATTENDED_REASON
+        return sealed
     if not isinstance(server, Mapping):
         raise ValueError("a resolved server is required for an unsealed write")
     called = mcp_client.call_tool(
@@ -304,6 +329,7 @@ def create_and_commit_po(
     unsealed: bool,
     blocked_tools: Iterable[str] | None = None,
     sealed_block: str = FLAG_OFF_BLOCK,
+    attended: bool = True,
 ) -> dict[str, Any]:
     """``BAPI_PO_CREATE1`` then ``BAPI_TRANSACTION_COMMIT`` — two calls or nothing.
 
@@ -319,6 +345,7 @@ def create_and_commit_po(
         unsealed=unsealed,
         blocked_tools=blocked_tools,
         sealed_block=sealed_block,
+        attended=attended,
     )
     out = dict(create)
     out["calls"] = [create]

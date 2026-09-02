@@ -271,6 +271,60 @@ def test_guardrail_blocks_before_flag_and_network(monkeypatch):
     assert sealed["sealed"] is True
 
 
+def test_human_decided_tells_a_person_from_a_system_actor():
+    assert mcp_write.human_decided("buyer@nawa.test") is True
+    assert mcp_write.human_decided("  alice ") is True
+    for actor in ("system:gate_ttl", "SYSTEM:hitl-watchdog", "", None, "   "):
+        assert mcp_write.human_decided(actor) is False, actor
+
+
+def test_unattended_write_stays_sealed_with_the_flag_on(monkeypatch):
+    """A gate expiry or an automatic branch never reaches SAP, unsealed or not."""
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("an unattended write must not open a socket")
+
+    monkeypatch.setattr(mcp_client, "call_tool", boom)
+    for tool in ("fi_DiscardFromPurchasing", "BAPI_PO_CREATE1"):
+        out = mcp_write.invoke_write_tool(
+            _server(),
+            server_id="bapi_po",
+            tool=tool,
+            arguments={"import": {}},
+            unsealed=True,
+            attended=False,
+        )
+        assert out["sealed"] is True
+        assert out["called"] is False
+        assert out["reason"] == "unattended"
+        assert out["result"]["reason"] == "unattended"
+        assert "no human decided" in out["sap_block"]
+        assert out["result"]["arguments"] == {"import": {}}
+    composite = mcp_write.create_and_commit_po(
+        _server(), server_id="bapi_po", arguments={"tables": {}}, unsealed=True, attended=False
+    )
+    assert composite["sealed"] is True
+    assert composite["committed"] is False
+    assert len(composite["calls"]) == 1
+    # Flag off keeps its own wording: the caller's sealed block wins over the
+    # unattended one, and the guardrail still comes first.
+    flag_off = mcp_write.invoke_write_tool(
+        None, server_id="sap", tool="fi_DiscardFromPurchasing", arguments={}, unsealed=False, attended=False
+    )
+    assert flag_off["sealed"] is True
+    assert flag_off["reason"] != "unattended"
+    blocked = mcp_write.invoke_write_tool(
+        _server(),
+        server_id="sap",
+        tool="fi_DiscardFromPurchasing",
+        arguments={},
+        unsealed=True,
+        blocked_tools=["fi_DiscardFromPurchasing"],
+        attended=False,
+    )
+    assert blocked["blocked"] is True
+
+
 def test_create_and_commit_is_two_calls_or_nothing(monkeypatch):
     captured: list[dict] = []
     ok_create = {

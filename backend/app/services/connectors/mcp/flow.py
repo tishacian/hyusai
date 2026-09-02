@@ -4,6 +4,10 @@ Skills stay Skills; the walker does not learn MCP. Every SAP write on this
 graph rides the flag-gated write gate (``connectors.mcp.write``): sealed
 envelope with ``sap_write_unsealed`` off, live BAPI/OData call with it on,
 and a run-level ``disabled_tools`` guardrail the human sets when launching.
+
+Only a write a person decided leaves the platform. The gate's ``decided_by``
+travels to the create and the discard; a TTL expiry (``system:gate_ttl``) or
+the automatic budget branch composes the same envelope, sealed.
 """
 
 from __future__ import annotations
@@ -37,6 +41,14 @@ PR_TO_PO_SKILL_SLUGS: tuple[str, ...] = (
 DISABLED_TOOLS_REF: dict[str, Any] = {
     "node_id": "run",
     "path": ["input", "disabled_tools"],
+    "required": False,
+}
+
+#: Who settled the gate. A person's identity unseals the write it authorised;
+#: ``system:gate_ttl`` (expiry) or a missing value keeps it sealed.
+DECIDED_BY_REF: dict[str, Any] = {
+    "node_id": "hitl.approve_po",
+    "path": ["decided_by"],
     "required": False,
 }
 
@@ -178,11 +190,12 @@ def pr_to_po_flow() -> dict[str, Any]:
             },
             _task(
                 "task.reject",
-                "Discard on budget (sap, gated)",
+                "Discard on budget (sap, gated, sealed)",
                 "sap_reject_pr_v1",
                 description=(
-                    "sap_reject_pr_v1 → fi_DiscardFromPurchasing through the write gate: "
-                    "sealed envelope unless sap_write_unsealed, reversible, on the ledger."
+                    "sap_reject_pr_v1 → fi_DiscardFromPurchasing through the write gate. "
+                    "No human has seen this requisition yet, so the envelope stays sealed "
+                    "whatever the flag says — reversible, on the ledger."
                 ),
                 inputs_map={
                     "pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]},
@@ -360,6 +373,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                     "incoterms": {"node_id": "task.majority", "path": ["incoterms"]},
                     "amount": {"node_id": "task.select_pr", "path": ["pr", "amount"]},
                     "disabled_tools": DISABLED_TOOLS_REF,
+                    "decided_by": DECIDED_BY_REF,
                 },
                 x=3160,
                 y=0,
@@ -370,7 +384,8 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "sap_handle_rejection_v1",
                 description=(
                     "sap_handle_rejection_v1 → fi_DiscardFromPurchasing through the write "
-                    "gate after a human reject. Sealed unless sap_write_unsealed."
+                    "gate after a human reject. Sealed unless sap_write_unsealed and a "
+                    "person decided; a gate expiry (system:gate_ttl) never reaches SAP."
                 ),
                 inputs_map={
                     "pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]},
@@ -379,6 +394,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                         "path": ["PurchaseRequisitionItem"],
                     },
                     "disabled_tools": DISABLED_TOOLS_REF,
+                    "decided_by": DECIDED_BY_REF,
                 },
                 x=3160,
                 y=160,

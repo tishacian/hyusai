@@ -1391,8 +1391,15 @@ def _mcp_write(
     arguments: Mapping[str, Any],
     sealed_block: str = "",
     commit: bool = False,
+    attended: bool = True,
 ) -> dict[str, Any]:
-    """Every skill-side SAP write rides the same gate as the HTTP invoke route."""
+    """Every skill-side SAP write rides the same gate as the HTTP invoke route.
+
+    ``attended`` is the DAG's proof that a person decided this write. A gate
+    settled by ``system:gate_ttl``, a scheduler run, an automatic branch or a
+    flow snapshot that never learnt ``decided_by`` all come through with
+    ``attended=False`` and stay sealed whatever the workspace flag says.
+    """
     from app.services.connectors.mcp import service as mcp_service
     from app.services.connectors.mcp import write as mcp_write
 
@@ -1402,7 +1409,9 @@ def _mcp_write(
         if not mcp_service.is_workspace_enabled(workspace):
             raise ValueError("mcp_unconfigured: MCP connector is not enabled for this workspace")
         unsealed = mcp_write.workspace_write_unsealed(workspace)
-        server = mcp_service.resolve_server(workspace, server_id) if unsealed else None
+        server = (
+            mcp_service.resolve_server(workspace, server_id) if unsealed and attended else None
+        )
         blocked = payload.get("disabled_tools")
         if commit:
             out = mcp_write.create_and_commit_po(
@@ -1412,6 +1421,7 @@ def _mcp_write(
                 unsealed=unsealed,
                 blocked_tools=blocked,
                 sealed_block=sealed_block or mcp_write.FLAG_OFF_BLOCK,
+                attended=attended,
             )
         else:
             out = mcp_write.invoke_write_tool(
@@ -1422,6 +1432,7 @@ def _mcp_write(
                 unsealed=unsealed,
                 blocked_tools=blocked,
                 sealed_block=sealed_block or mcp_write.FLAG_OFF_BLOCK,
+                attended=attended,
             )
         actor, run_id = _mcp_write_ctx(ctx)
         mcp_write.audit_write(
@@ -1431,6 +1442,13 @@ def _mcp_write(
     finally:
         if owns_db:
             db.close()
+
+
+def _gate_attended(payload: Mapping[str, Any]) -> bool:
+    """The DAG hands the HITL node's ``decided_by`` to the write it authorises."""
+    from app.services.connectors.mcp.write import human_decided
+
+    return human_decided(payload.get("decided_by"))
 
 
 _MCP_WRITE_VERDICT_KEYS = (
@@ -1680,8 +1698,9 @@ async def _sap_reject_pr_v1(
 
     pr_id = str(payload.get("pr_id") or "")
     item = str(payload.get("PurchaseRequisitionItem") or "").strip() or DEFAULT_PR_ITEM
-    # Budget said no: the only write the agent makes without a human, and it
-    # is reversible (``fi_EnableForPurchasing`` takes the same two keys).
+    # Budget said no before any human saw the requisition: the discard goes
+    # through the gate for the envelope and the ledger, but it never leaves
+    # the platform — an unattended write stays sealed.
     return _mcp_write_trace(
         _mcp_write(
             payload,
@@ -1689,6 +1708,7 @@ async def _sap_reject_pr_v1(
             server_id="sap",
             tool=LIVE_DISCARD,
             arguments=discard_arguments(pr_id, item),
+            attended=False,
         )
     )
 
@@ -1843,6 +1863,7 @@ async def _sap_create_po_v1(
                 ),
                 sealed_block=SAP_CREATE_BLOCK,
                 commit=True,
+                attended=_gate_attended(payload),
             )
         )
     body = create_po_request_body(
@@ -1867,6 +1888,7 @@ async def _sap_create_po_v1(
             tool=LIVE_CREATE_PO,
             arguments={"requestBody": body},
             sealed_block=HIKMA_CREATE_BLOCK,
+            attended=_gate_attended(payload),
         )
     )
 
@@ -1883,7 +1905,8 @@ async def _sap_handle_rejection_v1(
 
     pr_id = str(payload.get("pr_id") or "")
     item = str(payload.get("PurchaseRequisitionItem") or "").strip() or DEFAULT_PR_ITEM
-    # The human rejected at the gate: same reversible discard, same gate.
+    # Rejected at the gate: same reversible discard, same gate. Only a person's
+    # rejection reaches SAP — a TTL expiry (``system:gate_ttl``) stays sealed.
     return _mcp_write_trace(
         _mcp_write(
             payload,
@@ -1891,6 +1914,7 @@ async def _sap_handle_rejection_v1(
             server_id="sap",
             tool=LIVE_DISCARD,
             arguments=discard_arguments(pr_id, item),
+            attended=_gate_attended(payload),
         )
     )
 

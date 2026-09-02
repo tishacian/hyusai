@@ -197,6 +197,100 @@ async def test_free_write_tool_unsealed_is_audited_with_the_run(monkeypatch):
     assert events[0]["details"]["run_id"] == "run-9"
 
 
+def _unsealed_transport(monkeypatch) -> list[str]:
+    """Flag on, server resolvable, transport recording every tool it is asked."""
+    from app.services.connectors.mcp import client as mcp_client
+    from app.services.connectors.mcp import service as mcp_service
+
+    called: list[str] = []
+    monkeypatch.setattr(mcp_service, "is_workspace_enabled", lambda _ws: True)
+    monkeypatch.setattr(
+        mcp_service, "resolve_server", lambda _ws, server_id: {"id": server_id, "url": "http://mock"}
+    )
+
+    def fake_call(server, **kwargs):
+        called.append(kwargs["contract_tool"])
+        return {
+            "ok": True,
+            "result": {"tables": {"RETURN": []}, "export": {"EXPHEADER": {"PO_NUMBER": "4500382599"}}},
+            "server_id": server["id"],
+            "tool": kwargs["contract_tool"],
+            "contract_tool": kwargs["contract_tool"],
+            "credential_source": "workspace",
+            "duration_ms": 3,
+        }
+
+    monkeypatch.setattr(mcp_client, "call_tool", fake_call)
+    return called
+
+
+_ZNPR_CREATE = {
+    "pr_id": "2000276449",
+    "supplier": "1000000018",
+    "pr_type": "ZNPR",
+    "pr": {
+        "PurchaseRequisition": "2000276449",
+        "PurchaseRequisitionItem": "10",
+        "Plant": "1000",
+        "PurReqnItemCurrency": "QAR",
+        "PurchaseRequisitionPrice": "4.50",
+        "PurchaseRequisitionType": "ZNPR",
+    },
+    "proposed_po": {"purch_group": "013", "payment_terms": "ZAPS", "incoterms": "DDP"},
+}
+
+
+@pytest.mark.asyncio
+async def test_dag_writes_leave_only_when_a_person_decided(monkeypatch):
+    """Flag on: the human's identity on the gate unseals create and discard;
+    a TTL expiry (``system:gate_ttl``) or a snapshot without ``decided_by``
+    composes the same envelope, sealed. The budget branch is never attended."""
+    workspace = _enabled_workspace(sap_write_unsealed=True)
+    db = MagicMock()
+    monkeypatch.setattr(
+        wrappers, "_calendar_db_and_workspace", lambda payload, ctx=None: (db, workspace)
+    )
+    called = _unsealed_transport(monkeypatch)
+    ctx = {"db": db, "workspace_id": "ws-1", "run_id": "run-1"}
+
+    human = await wrappers._sap_create_po_v1({**_ZNPR_CREATE, "decided_by": "buyer@nawa.test"}, ctx)
+    assert human["called"] is True
+    assert human["committed"] is True
+    assert human["po_number"] == "4500382599"
+    assert called == ["BAPI_PO_CREATE1", "BAPI_TRANSACTION_COMMIT"]
+
+    called.clear()
+    for decided_by in ("system:gate_ttl", None):
+        payload = dict(_ZNPR_CREATE)
+        if decided_by is not None:
+            payload["decided_by"] = decided_by
+        expired = await wrappers._sap_create_po_v1(payload, ctx)
+        assert expired["sealed"] is True, decided_by
+        assert expired["called"] is False
+        assert expired["reason"] == "unattended"
+        assert expired["arguments"]["import"]["POHEADER"]["DOC_TYPE"] == "ZLPO"
+    assert called == []
+
+    rejected = await wrappers._sap_handle_rejection_v1(
+        {"pr_id": "2000276449", "decided_by": "buyer@nawa.test"}, ctx
+    )
+    assert rejected["called"] is True
+    assert called == ["fi_DiscardFromPurchasing"]
+    called.clear()
+    expired_reject = await wrappers._sap_handle_rejection_v1(
+        {"pr_id": "2000276449", "decided_by": "system:gate_ttl"}, ctx
+    )
+    assert expired_reject["sealed"] is True
+    assert expired_reject["reason"] == "unattended"
+    budget = await wrappers._sap_reject_pr_v1(
+        {"pr_id": "2000276449", "reason": "over budget", "decided_by": "buyer@nawa.test"}, ctx
+    )
+    assert budget["sealed"] is True
+    assert budget["reason"] == "unattended"
+    assert budget["tool"] == "fi_DiscardFromPurchasing"
+    assert called == []
+
+
 @pytest.mark.asyncio
 async def test_named_skills_ignore_the_upstream_trace_in_overlay_mode(monkeypatch):
     """The walker merges the previous MCP node output into the payload: its
