@@ -1,4 +1,10 @@
-"""PR to PO DAG. Skills stay Skills; the walker does not learn MCP."""
+"""PR to PO DAG — the one runtime for the NAWA procurement agent.
+
+Skills stay Skills; the walker does not learn MCP. Every SAP write on this
+graph rides the flag-gated write gate (``connectors.mcp.write``): sealed
+envelope with ``sap_write_unsealed`` off, live BAPI/OData call with it on,
+and a run-level ``disabled_tools`` guardrail the human sets when launching.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +30,15 @@ PR_TO_PO_SKILL_SLUGS: tuple[str, ...] = (
     "python_recipe_v1",
     "audit_log_v1",
 )
+
+
+#: Guardrail names the human switched off when launching the run. Optional:
+#: a scheduled tick carries none and every write tool stays enabled.
+DISABLED_TOOLS_REF: dict[str, Any] = {
+    "node_id": "run",
+    "path": ["input", "disabled_tools"],
+    "required": False,
+}
 
 
 def _task(
@@ -163,9 +178,12 @@ def pr_to_po_flow() -> dict[str, Any]:
             },
             _task(
                 "task.reject",
-                "Compose discard (sap, sealed)",
+                "Discard on budget (sap, gated)",
                 "sap_reject_pr_v1",
-                description="sap_reject_pr_v1 composes fi_DiscardFromPurchasing. Write stays sealed. No tools/call.",
+                description=(
+                    "sap_reject_pr_v1 → fi_DiscardFromPurchasing through the write gate: "
+                    "sealed envelope unless sap_write_unsealed, reversible, on the ledger."
+                ),
                 inputs_map={
                     "pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]},
                     "PurchaseRequisitionItem": {
@@ -173,6 +191,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                         "path": ["PurchaseRequisitionItem"],
                     },
                     "reason": {"node_id": "task.budget", "path": ["reason"]},
+                    "disabled_tools": DISABLED_TOOLS_REF,
                 },
                 x=1720,
                 y=320,
@@ -256,14 +275,15 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "data": {
                     "description": (
                         "Human gate in NAWA, not SAP. Upstream is the package. "
-                        "Approving composes a PO payload. The write station stays sealed."
+                        "Approving runs BAPI_PO_CREATE1 + COMMIT through the write gate "
+                        "(sealed unless the workspace is unsealed); rejecting discards."
                     )
                 },
                 "config": {
                     "prompt": (
                         "Approve this compiled purchase-order package? "
-                        "SAP write stays sealed. The next node composes BAPI_PO_CREATE1 "
-                        "type ZLPO and does not call it."
+                        "Approving posts BAPI_PO_CREATE1 type ZLPO and commits it — live "
+                        "only when the workspace carries sap_write_unsealed."
                     ),
                     "prompt_kind": "approve_write",
                     "approvers": ["operator", "procurement"],
@@ -272,7 +292,19 @@ def pr_to_po_flow() -> dict[str, Any]:
                     "inputs_map": {
                         "pr": {"node_id": "task.select_pr", "path": ["pr"]},
                         "pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]},
+                        "PurchaseRequisitionItem": {
+                            "node_id": "task.select_pr",
+                            "path": ["PurchaseRequisitionItem"],
+                        },
+                        "price_missing": {"node_id": "task.select_pr", "path": ["price_missing"]},
+                        "candidates": {"node_id": "task.select_pr", "path": ["candidates"]},
+                        "total_open": {"node_id": "task.select_pr", "path": ["total_open"]},
                         "budget": {"node_id": "task.budget", "path": ["budget_ok"]},
+                        "budget_reason": {"node_id": "task.budget", "path": ["reason"]},
+                        "vote_count": {"node_id": "task.majority", "path": ["vote_count"]},
+                        "purch_group": {"node_id": "task.majority", "path": ["purch_group"]},
+                        "payment_terms": {"node_id": "task.majority", "path": ["payment_terms"]},
+                        "incoterms": {"node_id": "task.majority", "path": ["incoterms"]},
                         "justification": {"node_id": "task.justification", "path": ["justification"]},
                         "justification_summary": {"node_id": "task.summarise", "path": ["completion"]},
                         "supplier": {"node_id": "task.majority", "path": ["supplier"]},
@@ -292,7 +324,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "type": "decision",
                 "label": "HITL verdict",
                 "position": {"x": 2920, "y": 80},
-                "data": {"description": "Approve composes a sealed PO payload; reject composes discard. No SAP write."},
+                "data": {"description": "Approve posts the PO through the write gate; reject discards through it."},
                 "config": {
                     "branches": [
                         {"label": "approved", "condition": "hitl_approved == True"},
@@ -305,9 +337,13 @@ def pr_to_po_flow() -> dict[str, Any]:
             },
             _task(
                 "task.create_po",
-                "Compose PO (BAPI, sealed)",
+                "Post PO (BAPI create + commit, gated)",
                 "sap_create_po_v1",
-                description="sap_create_po_v1 composes bapi_po BAPI_PO_CREATE1 type ZLPO. Write stays sealed. No tools/call.",
+                description=(
+                    "sap_create_po_v1 → bapi_po BAPI_PO_CREATE1 type ZLPO then "
+                    "BAPI_TRANSACTION_COMMIT through the write gate. Sealed envelope "
+                    "unless sap_write_unsealed; rollback on a failed create; ledger entry."
+                ),
                 inputs_map={
                     "pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]},
                     "PurchaseRequisitionItem": {
@@ -319,22 +355,30 @@ def pr_to_po_flow() -> dict[str, Any]:
                     "supplier": {"node_id": "task.majority", "path": ["supplier"]},
                     "format": {"node_id": "task.majority", "path": ["format"]},
                     "proposed_po": {"node_id": "task.majority", "path": ["proposed_po"]},
+                    "purch_group": {"node_id": "task.majority", "path": ["purch_group"]},
+                    "payment_terms": {"node_id": "task.majority", "path": ["payment_terms"]},
+                    "incoterms": {"node_id": "task.majority", "path": ["incoterms"]},
                     "amount": {"node_id": "task.select_pr", "path": ["pr", "amount"]},
+                    "disabled_tools": DISABLED_TOOLS_REF,
                 },
                 x=3160,
                 y=0,
             ),
             _task(
                 "task.handle_rejection",
-                "Compose discard (sap, sealed)",
+                "Discard on rejection (sap, gated)",
                 "sap_handle_rejection_v1",
-                description="sap_handle_rejection_v1 composes fi_DiscardFromPurchasing. Write stays sealed. No tools/call.",
+                description=(
+                    "sap_handle_rejection_v1 → fi_DiscardFromPurchasing through the write "
+                    "gate after a human reject. Sealed unless sap_write_unsealed."
+                ),
                 inputs_map={
                     "pr_id": {"node_id": "task.select_pr", "path": ["pr_id"]},
                     "PurchaseRequisitionItem": {
                         "node_id": "task.select_pr",
                         "path": ["PurchaseRequisitionItem"],
                     },
+                    "disabled_tools": DISABLED_TOOLS_REF,
                 },
                 x=3160,
                 y=160,

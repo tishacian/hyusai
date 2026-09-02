@@ -179,10 +179,44 @@ def build_bapi_po_payload(
     }
 
 
+CANDIDATE_CAP = 3
+
+
+def _has_price(row: Mapping[str, Any]) -> bool:
+    """SAP refuses a create at 0.00 (06/215 "Please enter net price")."""
+    try:
+        return float(row.get("PurchaseRequisitionPrice") or row.get("net_price") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def candidate_rows(rows: list[dict[str, Any]], cap: int = CANDIDATE_CAP) -> list[dict[str, Any]]:
+    """Distinct open requisitions, one row per PR, priced ones first.
+
+    The first open item row of a PR wins. A zero-price PR only fills a slot
+    no priced PR could take, so the gate proposes what SAP will accept.
+    """
+    seen: set[str] = set()
+    priced: list[dict[str, Any]] = []
+    unpriced: list[dict[str, Any]] = []
+    for row in rows:
+        if len(priced) >= cap:
+            break
+        if not _qty_remaining(row):
+            continue
+        pr_id = _row_pr_id(row)
+        if not pr_id or pr_id in seen:
+            continue
+        seen.add(pr_id)
+        (priced if _has_price(row) else unpriced).append(row)
+    return (priced + unpriced)[:cap]
+
+
 def select_next_pr(payload: Mapping[str, Any]) -> dict[str, Any]:
     prs = payload.get("prs")
-    rows = [dict(item) for item in prs] if isinstance(prs, list) else []
+    rows = [dict(item) for item in prs if isinstance(item, Mapping)] if isinstance(prs, list) else []
     pin = str(payload.get("pr_id") or "").strip()
+    candidates = candidate_rows(rows)
     chosen = None
     if pin:
         chosen = next(
@@ -190,29 +224,36 @@ def select_next_pr(payload: Mapping[str, Any]) -> dict[str, Any]:
             None,
         )
     if chosen is None:
-        chosen = next((row for row in rows if _qty_remaining(row)), None)
+        chosen = candidates[0] if candidates else None
+    base = {
+        "candidates": [_row_pr_id(row) for row in candidates],
+        "total_open": len(rows),
+        "prs": rows,
+    }
     if not isinstance(chosen, dict):
         return {
+            **base,
             "pr_id": "",
             "pr": None,
             "pr_type": "",
             "MaterialGroup": "",
             "Plant": "",
             "PurchaseRequisitionItem": "",
+            "price_missing": False,
             "empty": True,
-            "prs": rows,
         }
     pr_id = _row_pr_id(chosen)
     material_group = _row_material_group(chosen)
     return {
+        **base,
         "pr_id": pr_id,
         "pr": chosen,
         "pr_type": str(chosen.get("pr_type") or chosen.get("type") or chosen.get("PurchaseRequisitionType") or ""),
         "MaterialGroup": material_group,
         "Plant": str(chosen.get("Plant") or ""),
         "PurchaseRequisitionItem": str(chosen.get("PurchaseRequisitionItem") or "10"),
+        "price_missing": not _has_price(chosen),
         "empty": False,
-        "prs": rows,
     }
 
 
@@ -370,32 +411,55 @@ def _qty_remaining(row):
         return True
     return ordered < requested
 
+def _has_price(row):
+    # SAP refuses a create at 0.00 (06/215 "Please enter net price").
+    try:
+        return float(row.get("PurchaseRequisitionPrice") or row.get("net_price") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+def _candidates(rows, cap=3):
+    # Distinct open PRs, first item row wins, priced before unpriced.
+    seen, priced, unpriced = set(), [], []
+    for row in rows:
+        if len(priced) >= cap:
+            break
+        if not _qty_remaining(row):
+            continue
+        pr_id = _pr_id(row)
+        if not pr_id or pr_id in seen:
+            continue
+        seen.add(pr_id)
+        (priced if _has_price(row) else unpriced).append(row)
+    return (priced + unpriced)[:cap]
+
 def main(inputs):
-    prs = list(inputs.get("prs") or [])
+    prs = [row for row in (inputs.get("prs") or []) if isinstance(row, dict)]
     pin = str(inputs.get("pr_id") or "").strip()
+    candidates = _candidates(prs)
     chosen = None
     if pin:
         for row in prs:
-            if isinstance(row, dict) and _pr_id(row) == pin and _qty_remaining(row):
+            if _pr_id(row) == pin and _qty_remaining(row):
                 chosen = row
                 break
-    if chosen is None:
-        for row in prs:
-            if isinstance(row, dict) and _qty_remaining(row):
-                chosen = row
-                break
+    if chosen is None and candidates:
+        chosen = candidates[0]
+    base = {"candidates": [_pr_id(row) for row in candidates], "total_open": len(prs), "prs": prs}
     if not isinstance(chosen, dict):
-        return {"pr_id": "", "pr": None, "pr_type": "", "MaterialGroup": "", "Plant": "", "PurchaseRequisitionItem": "", "empty": True, "prs": prs}
-    return {
+        base.update({"pr_id": "", "pr": None, "pr_type": "", "MaterialGroup": "", "Plant": "", "PurchaseRequisitionItem": "", "price_missing": False, "empty": True})
+        return base
+    base.update({
         "pr_id": _pr_id(chosen),
         "pr": chosen,
         "pr_type": str(chosen.get("pr_type") or chosen.get("type") or chosen.get("PurchaseRequisitionType") or ""),
         "MaterialGroup": str(chosen.get("MaterialGroup") or chosen.get("pr_type") or chosen.get("type") or ""),
         "Plant": str(chosen.get("Plant") or ""),
         "PurchaseRequisitionItem": str(chosen.get("PurchaseRequisitionItem") or "10"),
+        "price_missing": not _has_price(chosen),
         "empty": False,
-        "prs": prs,
-    }
+    })
+    return base
 '''
 
 MAJORITY_CODE = '''"""Supplier and format from plant POs (ZNPR→ZLPO) or majority vote (fixtures)."""

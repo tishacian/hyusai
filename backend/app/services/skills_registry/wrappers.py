@@ -24,7 +24,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from app.core.logging import get_logger
 from app.services.evaluation.judge import (
@@ -1352,6 +1352,111 @@ async def _rpa_dispatch_v1(
 
 
 _MCP_NAMED_FORBIDDEN = frozenset({"tool", "sql", "server_id", "_side_effect"})
+#: Keys ``_mcp_trace`` appends to every MCP node output. In overlay io-mode the
+#: walker merges the upstream output into the next payload, so a named skill
+#: downstream of another MCP node sees them — they are provenance, never an
+#: instruction, and must not trip the free-tool refusal.
+_MCP_TRACE_KEYS = frozenset(
+    {"ok", "server_id", "tool", "contract_tool", "credential_source", "duration_ms"}
+)
+
+
+def _named_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Refuse a free tool / SQL / server on a named skill; drop upstream trace."""
+    cleaned = dict(payload or {})
+    if "contract_tool" in cleaned and "credential_source" in cleaned:
+        for key in _MCP_TRACE_KEYS:
+            cleaned.pop(key, None)
+    if _MCP_NAMED_FORBIDDEN & set(cleaned):
+        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    return cleaned
+
+
+def _mcp_write_ctx(ctx: Optional[dict[str, Any]]) -> tuple[str, str | None]:
+    """Actor and run for the write ledger — a run-engine skill signs as its run."""
+    ctx = ctx or {}
+    run_id = str(ctx.get("run_id") or "") or None
+    actor = str(ctx.get("actor") or ctx.get("user_email") or "")
+    if not actor:
+        actor = f"run:{run_id}" if run_id else "system"
+    return actor, run_id
+
+
+def _mcp_write(
+    payload: dict[str, Any],
+    ctx: Optional[dict[str, Any]],
+    *,
+    server_id: str,
+    tool: str,
+    arguments: Mapping[str, Any],
+    sealed_block: str = "",
+    commit: bool = False,
+) -> dict[str, Any]:
+    """Every skill-side SAP write rides the same gate as the HTTP invoke route."""
+    from app.services.connectors.mcp import service as mcp_service
+    from app.services.connectors.mcp import write as mcp_write
+
+    db, workspace = _calendar_db_and_workspace(payload, ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        if not mcp_service.is_workspace_enabled(workspace):
+            raise ValueError("mcp_unconfigured: MCP connector is not enabled for this workspace")
+        unsealed = mcp_write.workspace_write_unsealed(workspace)
+        server = mcp_service.resolve_server(workspace, server_id) if unsealed else None
+        blocked = payload.get("disabled_tools")
+        if commit:
+            out = mcp_write.create_and_commit_po(
+                server,
+                server_id=server_id,
+                arguments=arguments,
+                unsealed=unsealed,
+                blocked_tools=blocked,
+                sealed_block=sealed_block or mcp_write.FLAG_OFF_BLOCK,
+            )
+        else:
+            out = mcp_write.invoke_write_tool(
+                server,
+                server_id=server_id,
+                tool=tool,
+                arguments=arguments,
+                unsealed=unsealed,
+                blocked_tools=blocked,
+                sealed_block=sealed_block or mcp_write.FLAG_OFF_BLOCK,
+            )
+        actor, run_id = _mcp_write_ctx(ctx)
+        mcp_write.audit_write(
+            str(workspace.id), actor=actor, server_id=server_id, out=out, run_id=run_id
+        )
+        return out
+    finally:
+        if owns_db:
+            db.close()
+
+
+_MCP_WRITE_VERDICT_KEYS = (
+    "sealed",
+    "called",
+    "blocked",
+    "reason",
+    "sap_block",
+    "sap_ok",
+    "po_number",
+    "rolled_back",
+    "committed",
+    "messages",
+    "calls",
+    "testrun",
+)
+
+
+def _mcp_write_trace(out: dict[str, Any]) -> dict[str, Any]:
+    """Node output for a write: the trace plus the gate's verdict, top-level."""
+    traced = _mcp_trace(out)
+    for key in _MCP_WRITE_VERDICT_KEYS:
+        if key in out:
+            traced[key] = out[key]
+    traced.setdefault("testrun", False)
+    return traced
 
 
 def _mcp_trace(result: dict[str, Any]) -> dict[str, Any]:
@@ -1376,9 +1481,23 @@ async def _mcp_invoke(
     from app.services.connectors.mcp import client as mcp_client
     from app.services.connectors.mcp import service as mcp_service
     from app.services.connectors.mcp.errors import McpError
+    from app.services.connectors.mcp.preview import classify_kind
 
     if arguments.get("_side_effect") is not None:
         raise ValueError("arguments._side_effect is not allowed; the write-set is code")
+    # A free tool name that is not a read is a write: it goes through the one
+    # gate (allow-list, TESTRUN ban, flag, rollback, ledger) — never straight
+    # to the transport.
+    if classify_kind(contract_tool) != "read":
+        return _mcp_write_trace(
+            _mcp_write(
+                payload,
+                ctx,
+                server_id=server_id,
+                tool=contract_tool,
+                arguments=arguments,
+            )
+        )
     db, workspace = _calendar_db_and_workspace(payload, ctx)
     owns_db = not (ctx or {}).get("db")
     try:
@@ -1435,8 +1554,7 @@ def _named_mcp_server(
 async def _sap_list_approved_prs_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    if _MCP_NAMED_FORBIDDEN & set(payload):
-        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    payload = _named_payload(payload)
     from app.services.connectors.mcp.errors import McpError
     from app.services.connectors.mcp.preview import extract_records
     from app.services.connectors.mcp.read import listed_tool_names, pick_approved_pr_tool, read_tool
@@ -1467,8 +1585,7 @@ async def _sap_list_approved_prs_v1(
 async def _sap_check_budget_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    if _MCP_NAMED_FORBIDDEN & set(payload):
-        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    payload = _named_payload(payload)
     from app.services.connectors.mcp.errors import McpError, McpToolUnknown
     from app.services.connectors.mcp.preview import extract_records
     from app.services.connectors.mcp.read import (
@@ -1528,8 +1645,7 @@ async def _sap_check_budget_v1(
 async def _sap_get_justification_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    if _MCP_NAMED_FORBIDDEN & set(payload):
-        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    payload = _named_payload(payload)
     from app.services.connectors.mcp import service as mcp_service
     from app.services.connectors.mcp.errors import McpError
     from app.services.connectors.mcp.read import DEFAULT_PR_ITEM, call_justification
@@ -1555,37 +1671,32 @@ async def _sap_get_justification_v1(
 async def _sap_reject_pr_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    if _MCP_NAMED_FORBIDDEN & set(payload):
-        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    payload = _named_payload(payload)
     from app.services.connectors.mcp.read import (
         DEFAULT_PR_ITEM,
-        compose_write_sealed,
+        LIVE_DISCARD,
         discard_arguments,
-        listed_tool_names,
-        pick_discard_tool,
     )
 
     pr_id = str(payload.get("pr_id") or "")
     item = str(payload.get("PurchaseRequisitionItem") or "").strip() or DEFAULT_PR_ITEM
-    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "sap")
-    try:
-        tool = pick_discard_tool(listed_tool_names(server))
-        composed = compose_write_sealed(
+    # Budget said no: the only write the agent makes without a human, and it
+    # is reversible (``fi_EnableForPurchasing`` takes the same two keys).
+    return _mcp_write_trace(
+        _mcp_write(
+            payload,
+            ctx,
             server_id="sap",
-            tool=tool,
+            tool=LIVE_DISCARD,
             arguments=discard_arguments(pr_id, item),
         )
-        return _mcp_trace(composed)
-    finally:
-        if owns_db:
-            db.close()
+    )
 
 
 async def _hikma_list_pos_by_type_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    if _MCP_NAMED_FORBIDDEN & set(payload):
-        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    payload = _named_payload(payload)
     from app.services.connectors.mcp.errors import McpError, McpToolUnknown
     from app.services.connectors.mcp.preview import extract_records
     from app.services.connectors.mcp.read import (
@@ -1672,19 +1783,15 @@ async def _hikma_list_pos_by_type_v1(
 async def _sap_create_po_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    if _MCP_NAMED_FORBIDDEN & set(payload):
-        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    payload = _named_payload(payload)
     from app.services.connectors.mcp.poc import build_bapi_po_payload
     from app.services.connectors.mcp.read import (
         BAPI_SERVER_ID,
         DEFAULT_PR_ITEM,
         HIKMA_CREATE_BLOCK,
-        LIVE_BAPI_CREATE,
+        LIVE_CREATE_PO,
         SAP_CREATE_BLOCK,
-        compose_write_sealed,
         create_po_request_body,
-        listed_tool_names,
-        pick_create_po_tool,
     )
 
     pr = payload.get("pr") if isinstance(payload.get("pr"), dict) else {}
@@ -1701,36 +1808,43 @@ async def _sap_create_po_v1(
         or ""
     ).strip().upper()
     if pr_type == "ZNPR":
-        composed = compose_write_sealed(
-            server_id=BAPI_SERVER_ID,
-            tool=LIVE_BAPI_CREATE,
-            arguments=build_bapi_po_payload(
-                pr_id=pr_id,
-                pr_item=item,
-                supplier=str(payload.get("supplier") or proposed.get("supplier") or ""),
-                plant=str(pr.get("Plant") or proposed.get("plant") or payload.get("Plant") or "1000"),
-                currency=str(
-                    pr.get("PurReqnItemCurrency")
-                    or pr.get("currency")
-                    or proposed.get("currency")
-                    or "QAR"
+        # ZNPR → ZLPO through the BAPI trio. Create then commit in one gate
+        # call; a blocked or failed step rolls back and the envelope says so.
+        return _mcp_write_trace(
+            _mcp_write(
+                payload,
+                ctx,
+                server_id=BAPI_SERVER_ID,
+                tool="BAPI_PO_CREATE1",
+                arguments=build_bapi_po_payload(
+                    pr_id=pr_id,
+                    pr_item=item,
+                    supplier=str(payload.get("supplier") or proposed.get("supplier") or ""),
+                    plant=str(
+                        pr.get("Plant") or proposed.get("plant") or payload.get("Plant") or "1000"
+                    ),
+                    currency=str(
+                        pr.get("PurReqnItemCurrency")
+                        or pr.get("currency")
+                        or proposed.get("currency")
+                        or "QAR"
+                    ),
+                    net_price=str(pr.get("PurchaseRequisitionPrice") or "0.00"),
+                    delivery_date=str(pr.get("DeliveryDate") or ""),
+                    purch_group=str(
+                        payload.get("purch_group") or proposed.get("purch_group") or ""
+                    ),
+                    payment_terms=str(
+                        payload.get("payment_terms") or proposed.get("payment_terms") or ""
+                    ),
+                    incoterms=str(
+                        payload.get("incoterms") or proposed.get("incoterms") or "DDP"
+                    ),
                 ),
-                net_price=str(pr.get("PurchaseRequisitionPrice") or "0.00"),
-                delivery_date=str(pr.get("DeliveryDate") or ""),
-                purch_group=str(
-                    payload.get("purch_group") or proposed.get("purch_group") or ""
-                ),
-                payment_terms=str(
-                    payload.get("payment_terms") or proposed.get("payment_terms") or ""
-                ),
-                incoterms=str(payload.get("incoterms") or proposed.get("incoterms") or "DDP"),
-            ),
-            sap_block=SAP_CREATE_BLOCK,
+                sealed_block=SAP_CREATE_BLOCK,
+                commit=True,
+            )
         )
-        composed["testrun"] = False
-        if isinstance(composed.get("result"), dict):
-            composed["result"]["testrun"] = False
-        return _mcp_trace(composed)
     body = create_po_request_body(
         pr_id=pr_id,
         item=item,
@@ -1743,48 +1857,42 @@ async def _sap_create_po_v1(
         currency=str(pr.get("PurReqnItemCurrency") or pr.get("currency") or "QAR"),
         purchase_order_type="NB",
     )
-    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "hikma")
-    try:
-        tool = pick_create_po_tool(listed_tool_names(server))
-        composed = compose_write_sealed(
+    # NB has no number range on client 300: SAP itself refuses the OData post.
+    # The gate still applies so the refusal is SAP's own, on the ledger.
+    return _mcp_write_trace(
+        _mcp_write(
+            payload,
+            ctx,
             server_id="hikma",
-            tool=tool,
+            tool=LIVE_CREATE_PO,
             arguments={"requestBody": body},
-            sap_block=HIKMA_CREATE_BLOCK,
+            sealed_block=HIKMA_CREATE_BLOCK,
         )
-        return _mcp_trace(composed)
-    finally:
-        if owns_db:
-            db.close()
+    )
 
 
 async def _sap_handle_rejection_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    if _MCP_NAMED_FORBIDDEN & set(payload):
-        raise ValueError("named MCP skills do not accept tool, sql, or server_id")
+    payload = _named_payload(payload)
     from app.services.connectors.mcp.read import (
         DEFAULT_PR_ITEM,
-        compose_write_sealed,
+        LIVE_DISCARD,
         discard_arguments,
-        listed_tool_names,
-        pick_handle_rejection_tool,
     )
 
     pr_id = str(payload.get("pr_id") or "")
     item = str(payload.get("PurchaseRequisitionItem") or "").strip() or DEFAULT_PR_ITEM
-    db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "sap")
-    try:
-        tool = pick_handle_rejection_tool(listed_tool_names(server))
-        composed = compose_write_sealed(
+    # The human rejected at the gate: same reversible discard, same gate.
+    return _mcp_write_trace(
+        _mcp_write(
+            payload,
+            ctx,
             server_id="sap",
-            tool=tool,
+            tool=LIVE_DISCARD,
             arguments=discard_arguments(pr_id, item),
         )
-        return _mcp_trace(composed)
-    finally:
-        if owns_db:
-            db.close()
+    )
 
 
 async def _await_managed_execution(

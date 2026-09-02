@@ -274,8 +274,18 @@ def test_flow_has_no_validator_errors_and_routes_to_dag() -> None:
     assert "MaterialGroup" in hikma_inputs
     assert "pr_type" in hikma_inputs
     create = next(node for node in FLOW["nodes"] if node["id"] == "task.create_po")
-    assert "sealed" in str((create.get("data") or {}).get("description") or "").lower()
-    assert "tools/call" in str((create.get("data") or {}).get("description") or "")
+    description = str((create.get("data") or {}).get("description") or "").lower()
+    assert "sealed" in description
+    assert "write gate" in description
+    # Every write node takes the run-level guardrail; a scheduled tick may omit it.
+    for node_id in ("task.create_po", "task.reject", "task.handle_rejection"):
+        node = next(item for item in FLOW["nodes"] if item["id"] == node_id)
+        ref = node["config"]["inputs_map"]["disabled_tools"]
+        assert ref["path"] == ["input", "disabled_tools"]
+        assert ref["required"] is False
+    hitl = next(node for node in FLOW["nodes"] if node["id"] == "hitl.approve_po")
+    hitl_inputs = hitl["config"]["inputs_map"]
+    assert {"candidates", "total_open", "price_missing", "payment_terms", "incoterms"} <= set(hitl_inputs)
 
 
 def test_format_dossier_node_declares_a_managed_env() -> None:

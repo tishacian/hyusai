@@ -113,6 +113,143 @@ async def test_unconfigured_workspace_fails_closed(monkeypatch):
         )
 
 
+def _enabled_workspace(**features) -> SimpleNamespace:
+    return SimpleNamespace(
+        id="ws-1",
+        slug="nawa",
+        settings={"features": {"mcp_connector": True, **features}},
+    )
+
+
+@pytest.mark.asyncio
+async def test_free_write_tool_rides_the_gate_not_the_transport(monkeypatch):
+    """H0: ``mcp_call_v1`` cannot bypass the write allow-list or the flag."""
+    workspace = _enabled_workspace()
+    db = MagicMock()
+    monkeypatch.setattr(
+        wrappers, "_calendar_db_and_workspace", lambda payload, ctx=None: (db, workspace)
+    )
+    from app.services.connectors.mcp import client as mcp_client
+    from app.services.connectors.mcp import service as mcp_service
+
+    monkeypatch.setattr(mcp_service, "is_workspace_enabled", lambda _ws: True)
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("a write must not reach the transport with the flag off")
+
+    monkeypatch.setattr(mcp_client, "call_tool", boom)
+    sealed = await wrappers._mcp_call_v1(
+        {"server_id": "bapi_po", "tool": "BAPI_TRANSACTION_COMMIT", "arguments": {"import": {"WAIT": "X"}}},
+        {"db": db, "workspace_id": "ws-1"},
+    )
+    assert sealed["sealed"] is True
+    assert sealed["called"] is False
+    # Off the allow-list: refused before any flag or socket question.
+    with pytest.raises(ValueError, match="allow-list"):
+        await wrappers._mcp_call_v1(
+            {"server_id": "bapi_po", "tool": "BAPI_PO_CHANGE", "arguments": {}},
+            {"db": db, "workspace_id": "ws-1"},
+        )
+    with pytest.raises(ValueError, match="TESTRUN"):
+        await wrappers._mcp_call_v1(
+            {"server_id": "bapi_po", "tool": "BAPI_PO_CREATE1", "arguments": {"import": {"TESTRUN": "X"}}},
+            {"db": db, "workspace_id": "ws-1"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_free_write_tool_unsealed_is_audited_with_the_run(monkeypatch):
+    workspace = _enabled_workspace(sap_write_unsealed=True)
+    db = MagicMock()
+    monkeypatch.setattr(
+        wrappers, "_calendar_db_and_workspace", lambda payload, ctx=None: (db, workspace)
+    )
+    from app.services.connectors.mcp import client as mcp_client
+    from app.services.connectors.mcp import service as mcp_service
+    import app.services.audit_logger as audit_logger
+
+    monkeypatch.setattr(mcp_service, "is_workspace_enabled", lambda _ws: True)
+    monkeypatch.setattr(
+        mcp_service, "resolve_server", lambda _ws, server_id: {"id": server_id, "url": "http://mock"}
+    )
+    monkeypatch.setattr(
+        mcp_client,
+        "call_tool",
+        lambda server, **kwargs: {
+            "ok": True,
+            "result": {"tables": {"RETURN": []}},
+            "server_id": server["id"],
+            "tool": kwargs["contract_tool"],
+            "contract_tool": kwargs["contract_tool"],
+            "credential_source": "workspace",
+            "duration_ms": 3,
+        },
+    )
+    events: list[dict] = []
+    monkeypatch.setattr(audit_logger, "emit_audit_event", lambda **kwargs: events.append(kwargs))
+    out = await wrappers._mcp_call_v1(
+        {"server_id": "bapi_po", "tool": "BAPI_TRANSACTION_COMMIT", "arguments": {"import": {"WAIT": "X"}}},
+        {"db": db, "workspace_id": "ws-1", "run_id": "run-9"},
+    )
+    assert out["called"] is True
+    assert out["sap_ok"] is True
+    assert events[0]["actor"] == "run:run-9"
+    assert events[0]["details"]["run_id"] == "run-9"
+
+
+@pytest.mark.asyncio
+async def test_named_skills_ignore_the_upstream_trace_in_overlay_mode(monkeypatch):
+    """The walker merges the previous MCP node output into the payload: its
+    ``tool``/``server_id`` are provenance, not a free-tool override."""
+    workspace = _enabled_workspace()
+    db = MagicMock()
+    monkeypatch.setattr(
+        wrappers, "_calendar_db_and_workspace", lambda payload, ctx=None: (db, workspace)
+    )
+    from app.services.connectors.mcp import client as mcp_client
+    from app.services.connectors.mcp import service as mcp_service
+
+    monkeypatch.setattr(mcp_service, "is_workspace_enabled", lambda _ws: True)
+    monkeypatch.setattr(
+        mcp_service, "resolve_server", lambda _ws, server_id: {"id": server_id, "url": "http://mock"}
+    )
+    monkeypatch.setattr(
+        mcp_client, "list_tools", lambda server, **kwargs: {"tools": [{"name": "get_justification"}]}
+    )
+    monkeypatch.setattr(
+        mcp_client,
+        "call_tool",
+        lambda server, **kwargs: {
+            "ok": True,
+            "result": {"justification": "Finance laptops are past refresh."},
+            "server_id": "sap",
+            "tool": "get_justification",
+            "contract_tool": "get_justification",
+            "credential_source": "workspace",
+            "duration_ms": 3,
+        },
+    )
+    upstream_budget_trace = {
+        "pr_id": "2000276559",
+        "budget_ok": True,
+        "ok": True,
+        "server_id": "sap",
+        "tool": "fi_Validate",
+        "contract_tool": "fi_Validate",
+        "credential_source": "workspace",
+        "duration_ms": 763,
+    }
+    out = await wrappers._sap_get_justification_v1(
+        upstream_budget_trace, {"db": db, "workspace_id": "ws-1"}
+    )
+    assert out["justification"] == "Finance laptops are past refresh."
+    # A bare free ``tool`` (no trace signature) is still refused.
+    with pytest.raises(ValueError, match="named MCP skills"):
+        await wrappers._sap_get_justification_v1(
+            {"pr_id": "1", "tool": "delete_everything"}, {"db": db, "workspace_id": "ws-1"}
+        )
+
+
 @pytest.mark.asyncio
 async def test_named_skill_flattens_trace(monkeypatch):
     workspace = SimpleNamespace(
