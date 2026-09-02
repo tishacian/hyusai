@@ -265,6 +265,8 @@ npx playwright test e2e/tests/18-nawa-agent-studio-canary.spec.ts
 `E2E_NAWA_STUDIO_WRITE=1` approves the run-flow gate with the guardrail on:
 one real PO per run when the workspace carries `sap_write_unsealed`, the
 sealed envelope otherwise. `E2E_NAWA_WORKSPACE_SLUG` overrides `nawa`.
+`E2E_NAWA_STUDIO_RECORD=1` keeps the 1440×900 video of the passing run under
+`e2e/results/` for the ops journal.
 
 ## Known limits
 

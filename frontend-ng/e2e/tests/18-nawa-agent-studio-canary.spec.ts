@@ -35,12 +35,14 @@ import {
  * the guardrails so nothing reaches SAP even when the workspace is unsealed.
  * `E2E_NAWA_STUDIO_WRITE=1` approves with the guardrail on — one real PO per
  * run when the flag is on; only the chat path stays blocked in that mode.
+ * `E2E_NAWA_STUDIO_RECORD=1` keeps the video of the passing run (ops journal).
  */
 
 const studioCanaryEnabled = process.env['E2E_NAWA_STUDIO'] === '1';
 const workspaceSlug = process.env['E2E_NAWA_WORKSPACE_SLUG'] ?? 'nawa';
 const allowWrite = process.env['E2E_NAWA_STUDIO_WRITE'] === '1';
 const evidencePath = process.env['E2E_NAWA_STUDIO_EVIDENCE'];
+const recordRun = process.env['E2E_NAWA_STUDIO_RECORD'] === '1';
 
 const STUDIO_PATH = '/work/pr-to-po';
 const BINDING_KEY = 'procurement.pr_to_po.run';
@@ -113,7 +115,12 @@ async function expandNode(page: Page, nodeId: string): Promise<void> {
   await expect(node.locator('.xp-studio-node-detail')).toBeVisible();
 }
 
-test.use({ trace: 'off', video: 'off', screenshot: 'off' });
+test.use({
+  trace: 'off',
+  video: recordRun ? { mode: 'on', size: { width: 1440, height: 900 } } : 'off',
+  screenshot: 'off',
+  viewport: { width: 1440, height: 900 },
+});
 
 test.describe('NAWA Agent Studio — PR to PO behavioural contract', () => {
   test.skip(!studioCanaryEnabled, 'Set E2E_NAWA_STUDIO=1 to exercise /work/pr-to-po');
