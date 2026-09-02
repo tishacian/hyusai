@@ -1,66 +1,60 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnDestroy,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { firstValueFrom, of } from 'rxjs';
-import { catchError, switchMap } from 'rxjs/operators';
+import { Subscription, of, timer } from 'rxjs';
+import { catchError, switchMap, takeWhile } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
-import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ThinkingOrbComponent } from '@app/shared/cockpit';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
+import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
+import {
+  FACTORY_BINDING_KEY,
+  FACTORY_EXPERIENCE_SLUG,
+  factoryRunHref,
+  factoryRuntimeContext,
+} from './pr-to-po-runtime';
+import { WorkApiService } from './work-api.service';
 import {
   BAPI_SERVER_ID,
   LIVE_BAPI_COMMIT,
   LIVE_BAPI_CREATE,
   LIVE_BAPI_ROLLBACK,
   LIVE_BUDGET,
+  LIVE_DISCARD,
   LIVE_PO_HEADER,
   LIVE_PR_ITEM,
   LIVE_PR_ITEM_BY_KEY,
-  approvedPrItemReadBody,
-  budgetOkFromRead,
-  budgetReadBody,
-  extractJustificationText,
-  justificationReadBody,
-  recentPoTermsFromPreview,
-  recentPosByPlantReadBody,
-  uniquePurchaseOrders,
-  type DeskKeyedRead,
-  type DeskPreview,
-  type DeskPrItemFields,
-  type RecentPoTerms,
-} from './pr-to-po-desk';
-import { FACTORY_BINDING_KEY } from './pr-to-po-runtime';
-import {
   STUDIO_CHAT_CHIPS,
   STUDIO_GUARDRAIL_TOOLS,
   STUDIO_NODE_KIND,
-  STUDIO_WRITE_SERVERS,
-  bapiCommitInvokeBody,
-  bapiCreateInvokeBody,
-  blockedCall,
-  blockedOutcome,
-  buildStudioProposal,
-  chatWriteStageFromOutcome,
-  discardInvokeBody,
+  chatWriteDialogueFromRun,
   formatStudioAmount,
-  guardrailBlocked,
-  initialStudioNodes,
+  gateDecided,
+  nextCandidates,
   openChatWriteDialogue,
-  openPrRowsFromPreview,
-  outcomeFromInvoke,
-  proposalsTotal,
-  readCall,
-  studioCallFromInvoke,
+  postOutcome,
+  proposalFromRun,
+  runDecision,
+  runIsBusy,
+  runIsSettled,
   studioFactSheet,
   studioJson,
-  studioPlants,
+  studioNodesFromRun,
+  studioRunPayload,
   type ChatWriteDialogue,
-  type StudioCall,
   type StudioMode,
   type StudioNodeId,
-  type StudioNodeState,
   type StudioProposal,
 } from './pr-to-po-studio';
 
@@ -78,11 +72,22 @@ interface RailTool {
   toggle: boolean;
 }
 
+interface PostedRow {
+  runId: string;
+  po: string;
+  pr: string;
+  amount: string;
+}
+
+const STUDIO_POLL_MS = 1500;
+/** ~4 minutes: SAP reads, an LLM summary and a BAPI commit fit comfortably. */
+const STUDIO_MAX_POLLS = 160;
+
 const RAIL_TOOLS: readonly RailTool[] = [
   { server: 'sap', name: LIVE_PR_ITEM, write: false, toggle: false },
   { server: 'sap', name: LIVE_BUDGET, write: false, toggle: false },
   { server: 'sap', name: LIVE_PR_ITEM_BY_KEY, write: false, toggle: false },
-  { server: 'sap', name: 'fi_DiscardFromPurchasing', write: true, toggle: true },
+  { server: 'sap', name: LIVE_DISCARD, write: true, toggle: true },
   { server: 'hikma', name: LIVE_PO_HEADER, write: false, toggle: false },
   { server: BAPI_SERVER_ID, name: LIVE_BAPI_CREATE, write: true, toggle: true },
   { server: BAPI_SERVER_ID, name: LIVE_BAPI_COMMIT, write: true, toggle: true },
@@ -99,7 +104,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
     <div class="xp-work xp-studio" data-theme="dark" data-desk="nawa">
       <header class="xp-studio-bar">
         <div class="xp-studio-brand">
-          <ck-thinking-orb [state]="running() ? 'working' : 'listening'" [size]="20" />
+          <ck-thinking-orb [state]="busy() ? 'working' : 'listening'" [size]="20" />
           <div>
             <h1>{{ i18n.t('experience.pr_to_po.studio.title') }}</h1>
             <p>{{ i18n.t('experience.pr_to_po.studio.subtitle') }}</p>
@@ -133,9 +138,12 @@ const RAIL_TOOLS: readonly RailTool[] = [
                 : i18n.t('experience.pr_to_po.studio.badge.sealed')
             }}
           </span>
-          <a routerLink="/work/pr-to-po/desk" class="xp-work-btn">
-            {{ i18n.t('experience.pr_to_po.studio.open_desk') }}
-          </a>
+          @if (run(); as current) {
+            <a [routerLink]="runHref()" class="xp-work-btn xp-studio-run-link">
+              {{ i18n.t('experience.pr_to_po.studio.open_run') }}
+              <code>{{ current.id.slice(0, 8) }}</code>
+            </a>
+          }
         </div>
       </header>
 
@@ -156,24 +164,24 @@ const RAIL_TOOLS: readonly RailTool[] = [
                 type="button"
                 class="xp-work-btn xp-work-btn-primary xp-studio-run"
                 (click)="runNow()"
-                [disabled]="running()"
+                [disabled]="busy() || gateOpen()"
               >
-                @if (running()) {
+                @if (busy()) {
                   <ck-thinking-orb state="working" [size]="20" />
                 }
                 {{
-                  running()
+                  busy()
                     ? i18n.t('experience.pr_to_po.studio.running')
                     : i18n.t('experience.pr_to_po.studio.run_now')
                 }}
               </button>
             </section>
 
-            @if (postedPoNumbers().length) {
+            @if (posted().length) {
               <section class="xp-studio-result" data-live="true">
                 <h3>{{ i18n.t('experience.pr_to_po.studio.result.title') }}</h3>
                 <ul>
-                  @for (result of postedResults(); track result.po) {
+                  @for (result of posted(); track result.runId) {
                     <li>
                       <strong>{{ result.po }}</strong>
                       <span>{{ i18n.t('experience.pr_to_po.studio.result.row', { pr: result.pr, amount: result.amount }) }}</span>
@@ -192,6 +200,8 @@ const RAIL_TOOLS: readonly RailTool[] = [
                       <code>{{ i18n.t('experience.pr_to_po.studio.node.' + node.id) }}</code>
                       @if (node.noteKey) {
                         <em>{{ i18n.t(node.noteKey, node.noteParams) }}</em>
+                      } @else if (node.error) {
+                        <em>{{ node.error }}</em>
                       }
                     </span>
                     <span class="xp-studio-node-kind" [attr.data-kind]="nodeKind(node.id)">
@@ -229,6 +239,9 @@ const RAIL_TOOLS: readonly RailTool[] = [
                                 }}
                               </b>
                             }
+                            @if (call.durationMs) {
+                              <small>{{ call.durationMs | number: '1.0-0' }} ms</small>
+                            }
                           </summary>
                           <p>{{ i18n.t('experience.pr_to_po.studio.call.request') }}</p>
                           <pre>{{ json(call.request) }}</pre>
@@ -237,109 +250,124 @@ const RAIL_TOOLS: readonly RailTool[] = [
                         </details>
                       }
 
-                      @if (node.id === 'gate' && proposals().length) {
+                      @if (node.id === 'gate' && proposal(); as proposal) {
                         <div class="xp-studio-gate">
-                          @for (proposal of proposals(); track proposal.prId) {
-                            <article class="xp-studio-card" [attr.data-decision]="proposal.decision">
-                              <header>
-                                <div>
-                                  <h4>{{ proposal.label }}</h4>
-                                  <p>
-                                    {{ i18n.t('experience.pr_to_po.studio.gate.line', {
-                                      pr: proposal.prId,
-                                      item: proposal.item,
-                                      plant: proposal.plant,
-                                    }) }}
-                                  </p>
-                                </div>
-                                <strong>{{ amount(proposal) }}</strong>
-                              </header>
-                              @if (proposal.budgetWarning) {
-                                <p class="xp-studio-warn">{{ proposal.budgetWarning }}</p>
-                              }
-                              @if (proposal.priceMissing) {
-                                <p class="xp-studio-warn">
-                                  {{ i18n.t('experience.pr_to_po.studio.gate.price_missing') }}
+                          <article class="xp-studio-card" [attr.data-decision]="decision()">
+                            <header>
+                              <div>
+                                <h4>{{ proposal.label }}</h4>
+                                <p>
+                                  {{ i18n.t('experience.pr_to_po.studio.gate.line', {
+                                    pr: proposal.prId,
+                                    item: proposal.item,
+                                    plant: proposal.plant,
+                                  }) }}
                                 </p>
+                              </div>
+                              <strong>{{ amount(proposal) }}</strong>
+                            </header>
+                            @if (!proposal.budgetOk) {
+                              <p class="xp-studio-warn">
+                                {{ i18n.t('experience.pr_to_po.studio.gate.budget_ko', { reason: proposal.budgetReason }) }}
+                              </p>
+                            }
+                            @if (proposal.priceMissing) {
+                              <p class="xp-studio-warn">
+                                {{ i18n.t('experience.pr_to_po.studio.gate.price_missing') }}
+                              </p>
+                            }
+                            @if (proposal.justification) {
+                              <p class="xp-studio-summary">{{ proposal.justification }}</p>
+                            }
+                            <dl>
+                              <div>
+                                <dt>{{ i18n.t('experience.pr_to_po.studio.gate.supplier') }}</dt>
+                                <dd>{{ proposal.supplier || '—' }}</dd>
+                              </div>
+                              <div>
+                                <dt>{{ i18n.t('experience.pr_to_po.studio.gate.payment') }}</dt>
+                                <dd>{{ proposal.paymentTerms || '—' }}</dd>
+                              </div>
+                              <div>
+                                <dt>{{ i18n.t('experience.pr_to_po.studio.gate.incoterms') }}</dt>
+                                <dd>{{ proposal.incoterms || '—' }}</dd>
+                              </div>
+                              <div>
+                                <dt>{{ i18n.t('experience.pr_to_po.studio.gate.type') }}</dt>
+                                <dd>{{ proposal.format || 'ZLPO' }}</dd>
+                              </div>
+                            </dl>
+                            <ul class="xp-studio-provenance">
+                              @for (row of proposal.provenance; track row.field) {
+                                <li>{{ i18n.t(row.sourceKey, row.sourceParams) }}</li>
                               }
-                              <dl>
-                                <div>
-                                  <dt>{{ i18n.t('experience.pr_to_po.studio.gate.supplier') }}</dt>
-                                  <dd>{{ proposal.supplier || '—' }}</dd>
-                                </div>
-                                <div>
-                                  <dt>{{ i18n.t('experience.pr_to_po.studio.gate.payment') }}</dt>
-                                  <dd>{{ proposal.paymentTerms || '—' }}</dd>
-                                </div>
-                                <div>
-                                  <dt>{{ i18n.t('experience.pr_to_po.studio.gate.incoterms') }}</dt>
-                                  <dd>{{ proposal.incoterms || '—' }}</dd>
-                                </div>
-                              </dl>
-                              <ul class="xp-studio-provenance">
-                                @for (row of proposal.provenance; track row.field) {
-                                  <li>{{ i18n.t(row.sourceKey, row.sourceParams) }}</li>
+                            </ul>
+                            @if (proposal.dossier) {
+                              <details>
+                                <summary>{{ i18n.t('experience.pr_to_po.studio.gate.dossier') }}</summary>
+                                <pre>{{ proposal.dossier }}</pre>
+                              </details>
+                            }
+                            @if (outcome(); as outcome) {
+                              <p class="xp-studio-outcome" [attr.data-ok]="outcome.sealed || outcome.sapOk">
+                                @if (outcome.blocked) {
+                                  {{ i18n.t('experience.pr_to_po.studio.outcome.blocked') }}
+                                } @else if (outcome.sealed) {
+                                  {{ i18n.t('experience.pr_to_po.studio.outcome.sealed') }}
+                                } @else if (outcome.sapOk && outcome.poNumber) {
+                                  {{ i18n.t('experience.pr_to_po.studio.outcome.po', { po: outcome.poNumber }) }}
+                                } @else {
+                                  {{ i18n.t('experience.pr_to_po.studio.outcome.failed') }}
+                                  {{ outcome.messages[0] || '' }}
                                 }
-                              </ul>
-                              @if (proposal.post) {
-                                <details>
-                                  <summary>{{ i18n.t('experience.pr_to_po.studio.gate.payload') }}</summary>
-                                  <pre>{{ json(proposal.post.requestBody) }}</pre>
-                                </details>
+                              </p>
+                            }
+                            @if (gateOpen()) {
+                              <div class="xp-work-hitl-actions">
+                                <button
+                                  type="button"
+                                  class="xp-work-btn xp-work-btn-primary xp-studio-approve"
+                                  (click)="approve()"
+                                  [disabled]="deciding()"
+                                >
+                                  {{ i18n.t('experience.pr_to_po.studio.gate.approve') }}
+                                </button>
+                                <button
+                                  type="button"
+                                  class="xp-work-btn xp-studio-reject"
+                                  (click)="reject()"
+                                  [disabled]="deciding()"
+                                >
+                                  {{ i18n.t('experience.pr_to_po.studio.gate.reject') }}
+                                </button>
+                                @if (deciding()) {
+                                  <ck-thinking-orb state="working" [size]="20" />
+                                }
+                              </div>
+                            } @else if (decision() !== 'pending') {
+                              <p class="xp-desk-note">
+                                {{
+                                  decision() === 'approved'
+                                    ? i18n.t('experience.pr_to_po.studio.gate.approved')
+                                    : i18n.t('experience.pr_to_po.studio.gate.rejected')
+                                }}
+                              </p>
+                            }
+                          </article>
+                          @if (candidates().length && !busy()) {
+                            <div class="xp-studio-next">
+                              <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.studio.gate.next') }}</p>
+                              @for (prId of candidates(); track prId) {
+                                <button
+                                  type="button"
+                                  class="xp-work-btn xp-studio-next-btn"
+                                  (click)="runNow(prId)"
+                                  [disabled]="gateOpen()"
+                                >
+                                  {{ i18n.t('experience.pr_to_po.studio.gate.next_run', { pr: prId }) }}
+                                </button>
                               }
-                              @if (proposal.outcome; as outcome) {
-                                <p class="xp-studio-outcome" [attr.data-ok]="outcome.sealed || outcome.sapOk">
-                                  @if (outcome.blocked) {
-                                    {{ i18n.t('experience.pr_to_po.studio.outcome.blocked') }}
-                                  } @else if (outcome.sealed) {
-                                    {{ i18n.t('experience.pr_to_po.studio.outcome.sealed') }}
-                                  } @else if (outcome.sapOk && outcome.poNumber) {
-                                    {{ i18n.t('experience.pr_to_po.studio.outcome.po', { po: outcome.poNumber }) }}
-                                  } @else {
-                                    {{ i18n.t('experience.pr_to_po.studio.outcome.failed') }}
-                                    {{ outcome.messages[0] || '' }}
-                                  }
-                                </p>
-                              }
-                              @if (proposal.decision === 'pending') {
-                                <div class="xp-work-hitl-actions">
-                                  <button
-                                    type="button"
-                                    class="xp-work-btn xp-work-btn-primary"
-                                    (click)="approve(proposal)"
-                                    [disabled]="deciding()"
-                                  >
-                                    {{ i18n.t('experience.pr_to_po.studio.gate.approve') }}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    class="xp-work-btn"
-                                    (click)="rejectProposal(proposal)"
-                                    [disabled]="deciding()"
-                                  >
-                                    {{ i18n.t('experience.pr_to_po.studio.gate.reject') }}
-                                  </button>
-                                </div>
-                              } @else {
-                                <p class="xp-desk-note">
-                                  {{
-                                    proposal.decision === 'approved'
-                                      ? i18n.t('experience.pr_to_po.studio.gate.approved')
-                                      : i18n.t('experience.pr_to_po.studio.gate.rejected')
-                                  }}
-                                </p>
-                              }
-                            </article>
-                          }
-                          @if (pendingCount() > 1) {
-                            <button
-                              type="button"
-                              class="xp-work-btn xp-work-btn-primary xp-studio-approve-all"
-                              (click)="approveAll()"
-                              [disabled]="deciding()"
-                            >
-                              {{ i18n.t('experience.pr_to_po.studio.gate.approve_all', { count: pendingCount() }) }}
-                            </button>
+                            </div>
                           }
                         </div>
                       }
@@ -365,36 +393,42 @@ const RAIL_TOOLS: readonly RailTool[] = [
               @if (chatDialogue(); as dialogue) {
                 <section class="xp-studio-dialog" [attr.data-stage]="dialogue.stage">
                   <p class="xp-studio-dialog-user">
-                    {{ i18n.t('experience.pr_to_po.studio.chat_write.ask', { pr: dialogue.proposal.prId }) }}
+                    {{ i18n.t('experience.pr_to_po.studio.chat_write.ask', { pr: dialogue.proposal?.prId || '…' }) }}
                   </p>
                   <div class="xp-studio-dialog-row">
                   <span class="xp-studio-dialog-avatar" aria-hidden="true">
                     <ck-thinking-orb
-                      [state]="dialogue.stage === 'posting' ? 'working' : 'composing'"
+                      [state]="dialogue.stage === 'posting' || dialogue.stage === 'preparing' ? 'working' : 'composing'"
                       [size]="20"
                     />
                   </span>
                   <div class="xp-studio-dialog-agent">
-                    <p>
-                      {{
-                        i18n.t('experience.pr_to_po.studio.chat_write.proposal', {
-                          label: dialogue.proposal.label,
-                          amount: amount(dialogue.proposal),
-                          supplier: dialogue.proposal.supplier || '—',
-                          plant: dialogue.proposal.plant,
-                        })
-                      }}
-                    </p>
-                    <ul class="xp-studio-provenance">
-                      @for (row of dialogue.proposal.provenance; track row.field) {
-                        <li>{{ i18n.t(row.sourceKey, row.sourceParams) }}</li>
+                    @if (dialogue.stage === 'preparing' || !dialogue.proposal) {
+                      <p class="xp-studio-dialog-wait">
+                        {{ i18n.t('experience.pr_to_po.studio.chat_write.preparing') }}
+                      </p>
+                    } @else {
+                      <p>
+                        {{
+                          i18n.t('experience.pr_to_po.studio.chat_write.proposal', {
+                            label: dialogue.proposal.label,
+                            amount: amount(dialogue.proposal),
+                            supplier: dialogue.proposal.supplier || '—',
+                            plant: dialogue.proposal.plant,
+                          })
+                        }}
+                      </p>
+                      <ul class="xp-studio-provenance">
+                        @for (row of dialogue.proposal.provenance; track row.field) {
+                          <li>{{ i18n.t(row.sourceKey, row.sourceParams) }}</li>
+                        }
+                      </ul>
+                      @if (dialogue.proposal.dossier) {
+                        <details>
+                          <summary>{{ i18n.t('experience.pr_to_po.studio.gate.dossier') }}</summary>
+                          <pre>{{ dialogue.proposal.dossier }}</pre>
+                        </details>
                       }
-                    </ul>
-                    @if (dialogue.proposal.post) {
-                      <details>
-                        <summary>{{ i18n.t('experience.pr_to_po.studio.chat_write.payload') }}</summary>
-                        <pre>{{ json(dialogue.proposal.post.requestBody) }}</pre>
-                      </details>
                     }
                     @if (dialogue.stage === 'proposing' || dialogue.stage === 'posting') {
                       <p class="xp-studio-dialog-confirm">
@@ -413,7 +447,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
                           type="button"
                           class="xp-work-btn xp-studio-dialog-no"
                           (click)="cancelChatWrite()"
-                          [disabled]="chatBusy()"
+                          [disabled]="chatBusy() || dialogue.stage === 'posting'"
                         >
                           {{ i18n.t('experience.pr_to_po.studio.chat_write.cancel') }}
                         </button>
@@ -444,7 +478,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
                       <p class="xp-studio-dialog-cancelled">
                         {{ i18n.t('experience.pr_to_po.studio.chat_write.cancelled') }}
                       </p>
-                    } @else {
+                    } @else if (dialogue.stage === 'failed') {
                       <p class="xp-studio-dialog-err">
                         {{ i18n.t('experience.pr_to_po.studio.chat_write.failed') }}
                       </p>
@@ -480,10 +514,16 @@ const RAIL_TOOLS: readonly RailTool[] = [
                 <section class="xp-desk-portal xp-studio-chat">
                   <header>
                     <div class="xp-desk-portal-head">
-                      <ck-thinking-orb [state]="chatBusy() ? 'working' : 'composing'" [size]="20" />
+                      <ck-thinking-orb [state]="chatBusy() || busy() ? 'working' : 'composing'" [size]="20" />
                       <div>
                         <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.studio.chat.title') }}</p>
-                        <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.studio.chat.hint') }}</p>
+                        <p class="xp-desk-note">
+                          {{
+                            run()
+                              ? i18n.t('experience.pr_to_po.studio.chat.hint')
+                              : i18n.t('experience.pr_to_po.studio.chat.warming')
+                          }}
+                        </p>
                       </div>
                     </div>
                   </header>
@@ -549,18 +589,23 @@ const RAIL_TOOLS: readonly RailTool[] = [
     </div>
   `,
 })
-export class PrToPoStudioComponent implements OnInit {
+export class PrToPoStudioComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly runtime = inject(ExperienceRuntimeService);
+  private readonly workApi = inject(WorkApiService);
   readonly i18n = inject(I18nService);
   readonly workspace = inject(WorkspaceService);
 
+  private readonly context = factoryRuntimeContext();
+  private pollSub: Subscription | null = null;
+
   readonly mode = signal<StudioMode>('run');
-  readonly running = signal(false);
+  readonly launching = signal(false);
   readonly deciding = signal(false);
   readonly error = signal<string | null>(null);
-  readonly nodes = signal<StudioNodeState[]>(initialStudioNodes());
-  readonly proposals = signal<StudioProposal[]>([]);
+  readonly run = signal<Run | null>(null);
+  readonly posted = signal<PostedRow[]>([]);
   readonly expanded = signal<Set<StudioNodeId>>(new Set(['gate']));
   readonly disabledTools = signal<Set<string>>(new Set());
   readonly railServers = signal<RailServer[]>([]);
@@ -568,46 +613,46 @@ export class PrToPoStudioComponent implements OnInit {
   readonly systemId = computed(() => this.system()?.id ?? null);
   readonly chatTick = signal(0);
   readonly chatPrompt = signal('');
-  readonly chatSystemPrompt = signal('');
-  readonly chatFacts = signal('');
   readonly chatDialogue = signal<ChatWriteDialogue | null>(null);
   readonly chatBusy = signal(false);
   readonly chatWriteError = signal<string | null>(null);
   readonly railTools = RAIL_TOOLS;
   readonly chatChips = STUDIO_CHAT_CHIPS;
   readonly writeUnsealed = computed(() => this.workspace.sapWriteUnsealed());
-  readonly pendingCount = computed(
-    () => this.proposals().filter((row) => row.decision === 'pending').length,
-  );
-  readonly postedPoNumbers = computed(() =>
-    this.proposals()
-      .map((row) => row.outcome?.poNumber || '')
-      .filter(Boolean),
-  );
-  readonly postedResults = computed(() =>
-    this.proposals()
-      .filter((row) => row.outcome?.poNumber)
-      .map((row) => ({
-        po: row.outcome!.poNumber,
-        pr: row.prId,
-        amount: formatStudioAmount(row.amount, row.currency),
-      })),
-  );
 
-  private terms = new Map<string, { terms: RecentPoTerms; recentPo: string }>();
-  private candidates: DeskPrItemFields[] = [];
-  private budgetNotes = new Map<string, { ok: boolean; reason: string; warning: string }>();
-  private totalOpen = 0;
+  /** Everything below is a projection of the server Run — no local SAP state. */
+  readonly nodes = computed(() => studioNodesFromRun(this.run()));
+  readonly proposal = computed(() => proposalFromRun(this.run()));
+  readonly decision = computed(() => runDecision(this.run()));
+  readonly outcome = computed(() => postOutcome(this.run()));
+  readonly gateOpen = computed(() => this.run()?.status === 'hitl_pending' && !gateDecided(this.run()));
+  readonly busy = computed(() => this.launching() || runIsBusy(this.run()));
+  readonly candidates = computed(() => nextCandidates(this.proposal()));
+  readonly runHref = computed(() => (this.run() ? factoryRunHref(this.run()!.id) : '/work/pr-to-po'));
+  readonly chatFacts = computed(() => studioFactSheet(this.run()));
+  readonly chatSystemPrompt = computed(() =>
+    this.i18n.t('experience.pr_to_po.studio.chat.system', { facts: this.chatFacts() || '—' }),
+  );
 
   ngOnInit(): void {
     this.loadRail();
     this.loadSystem();
+    this.loadPendingGate();
+  }
+
+  ngOnDestroy(): void {
+    this.pollSub?.unsubscribe();
   }
 
   setMode(mode: StudioMode): void {
     this.mode.set(mode);
-    if (mode === 'chat' && !this.chatPrompt()) {
-      void this.refreshChatPrompt('');
+    if (mode === 'chat') {
+      // The chat answers from a run's facts: warm one up (reads only, the
+      // gate stays closed) so the first question lands on live SAP data.
+      if (!this.run() && !this.busy()) this.runNow();
+      if (!this.chatPrompt()) {
+        this.chatPrompt.set(this.i18n.t('experience.pr_to_po.studio.chip_prompt.open_prs'));
+      }
     }
   }
 
@@ -646,213 +691,168 @@ export class PrToPoStudioComponent implements OnInit {
     });
   }
 
-  askChip(chip: string): void {
-    if (chip === 'create') {
-      void this.openChatWrite();
+  /** Start one run of the published agent through the Experience binding. */
+  runNow(prId = ''): void {
+    if (this.busy()) return;
+    if (!this.workspace.mcpConnectorEnabled()) {
+      this.error.set(this.i18n.t('experience.pr_to_po.studio.error.offline'));
       return;
     }
-    void this.refreshChatPrompt(this.i18n.t(`experience.pr_to_po.studio.chip_prompt.${chip}`));
+    this.error.set(null);
+    this.launching.set(true);
+    this.run.set(null);
+    this.runtime
+      .invoke(this.context, FACTORY_BINDING_KEY, studioRunPayload(this.disabledTools(), prId))
+      .subscribe((started) => {
+        this.launching.set(false);
+        if (!started?.id) {
+          this.error.set(
+            this.runtime.lastError(this.context.stateKey)
+              || this.i18n.t('experience.pr_to_po.studio.error.run_failed'),
+          );
+          return;
+        }
+        this.follow(started.id);
+      });
   }
 
-  /**
-   * The classic chat cannot call tools, so the studio executes the SAP reads
-   * itself and hands the model a live fact sheet. Facts and instructions ride
-   * the system role — the visible thread only ever shows the human question.
-   */
-  private async refreshChatPrompt(question: string): Promise<void> {
-    await this.ensureChatFacts();
-    this.chatFacts.set(
-      studioFactSheet({
-        totalOpen: this.totalOpen,
-        candidates: this.candidates,
-        plantTerms: this.terms,
-        proposals: this.proposals(),
-      }),
-    );
-    this.chatSystemPrompt.set(
-      this.i18n.t('experience.pr_to_po.studio.chat.system', {
-        facts: this.chatFacts() || '—',
-      }),
-    );
-    this.chatPrompt.set(
-      question.trim() || this.i18n.t('experience.pr_to_po.studio.chip_prompt.open_prs'),
-    );
+  /** The gate answer is the canonical HITL decision — the server resumes the DAG. */
+  approve(): void {
+    this.decide('accept');
+  }
+
+  reject(): void {
+    this.decide('reject');
+  }
+
+  askChip(chip: string): void {
+    if (chip === 'create') {
+      this.openChatWrite();
+      return;
+    }
+    this.chatPrompt.set(this.i18n.t(`experience.pr_to_po.studio.chip_prompt.${chip}`));
     this.chatTick.update((tick) => tick + 1);
   }
 
-  /** Reads the chat facts ride on — same live endpoints as the run flow. */
-  private async ensureChatFacts(): Promise<void> {
-    if (this.candidates.length && this.terms.size) return;
-    const sink: StudioCall[] = [];
-    const preview = await this.quietRead<DeskPreview>('sap', approvedPrItemReadBody(), sink);
-    if (!preview || preview.ok === false) return;
-    this.totalOpen = preview.row_count || this.totalOpen;
-    if (!this.candidates.length) this.candidates = openPrRowsFromPreview(preview);
-    for (const plant of studioPlants(this.candidates)) {
-      if (this.terms.get(plant)?.terms.supplier) continue;
-      const history = await this.quietRead<DeskPreview>('hikma', recentPosByPlantReadBody(plant), sink);
-      if (history && history.ok !== false) {
-        this.terms.set(plant, {
-          terms: recentPoTermsFromPreview(history),
-          recentPo: uniquePurchaseOrders(history, 1)[0] || '',
-        });
-      }
-    }
-  }
-
   /** Fifth chip: the write dialogue opens inside the conversation. */
-  async openChatWrite(): Promise<void> {
+  openChatWrite(): void {
     if (this.chatBusy()) return;
-    this.chatBusy.set(true);
     this.chatWriteError.set(null);
-    try {
-      const prepared = await this.prepareChatProposal();
-      if (!prepared) {
-        this.chatDialogue.set(null);
-        this.chatWriteError.set(this.i18n.t('experience.pr_to_po.studio.chat_write.unavailable'));
-        return;
-      }
-      this.chatDialogue.set(openChatWriteDialogue(prepared.proposal, prepared.calls));
-    } finally {
-      this.chatBusy.set(false);
+    const current = this.run();
+    if (current && this.gateOpen()) {
+      this.chatDialogue.set(openChatWriteDialogue(current.id, this.proposal()));
+      return;
+    }
+    if (this.busy()) {
+      this.chatDialogue.set(openChatWriteDialogue(current?.id ?? '', null));
+      return;
+    }
+    // No package waiting: run the agent up to its gate, then propose.
+    this.chatDialogue.set(openChatWriteDialogue('', null));
+    this.runNow();
+    const started = this.run();
+    if (!started && !this.busy()) {
+      this.chatDialogue.set(null);
+      this.chatWriteError.set(this.i18n.t('experience.pr_to_po.studio.chat_write.unavailable'));
     }
   }
 
-  private async prepareChatProposal(): Promise<{ proposal: StudioProposal; calls: StudioCall[] } | null> {
-    const pending = this.proposals().find((row) => row.decision === 'pending' && row.post);
-    if (pending) return { proposal: pending, calls: [] };
-    const calls: StudioCall[] = [];
-    const preview = await this.quietRead<DeskPreview>('sap', approvedPrItemReadBody(), calls);
-    if (!preview || preview.ok === false) return null;
-    this.totalOpen = preview.row_count || this.totalOpen;
-    const rows = openPrRowsFromPreview(preview);
-    const fields = rows[0];
-    if (!fields) return null;
-    if (!this.candidates.length) this.candidates = rows;
-    const plant = fields.plant.trim() || '1000';
-    let known = this.terms.get(plant);
-    if (!known?.terms.supplier) {
-      const history = await this.quietRead<DeskPreview>('hikma', recentPosByPlantReadBody(plant), calls);
-      if (history && history.ok !== false) {
-        known = {
-          terms: recentPoTermsFromPreview(history),
-          recentPo: uniquePurchaseOrders(history, 1)[0] || '',
-        };
-        this.terms.set(plant, known);
-      }
-    }
-    if (!known?.terms.supplier) return null;
-    const proposal = buildStudioProposal(
-      fields,
-      known.terms,
-      known.recentPo,
-      this.budgetNotes.get(fields.pr_id)?.warning || '',
-    );
-    return proposal.post ? { proposal, calls } : null;
-  }
-
-  /** The human said yes in the thread — same guarded path as the run-flow gate. */
-  async confirmChatWrite(): Promise<void> {
+  /** The human said yes in the thread — same canonical decision as the run-flow gate. */
+  confirmChatWrite(): void {
     const dialogue = this.chatDialogue();
     if (!dialogue || dialogue.stage !== 'proposing' || this.chatBusy()) return;
-    const post = dialogue.proposal.post;
-    if (!post) return;
-    this.chatBusy.set(true);
     this.chatDialogue.set({ ...dialogue, stage: 'posting' });
-    try {
-      const create = await this.chatInvoke(bapiCreateInvokeBody(post));
-      let calls = [...dialogue.calls, create];
-      if (create.blocked) {
-        this.chatDialogue.set({ ...dialogue, stage: 'blocked', calls, outcome: blockedOutcome() });
-        return;
-      }
-      const created = outcomeFromInvoke(create.response);
-      if (created.sealed || !created.sapOk) {
-        this.chatDialogue.set({
-          ...dialogue,
-          stage: chatWriteStageFromOutcome(created),
-          calls,
-          outcome: created,
-        });
-        return;
-      }
-      const commit = await this.chatInvoke(bapiCommitInvokeBody());
-      calls = [...calls, commit];
-      const committed = outcomeFromInvoke(commit.response);
-      const done = !commit.blocked && (committed.sealed || committed.sapOk);
-      const outcome = { ...created, sapOk: done && created.sapOk };
-      this.chatDialogue.set({
-        ...dialogue,
-        stage: chatWriteStageFromOutcome(outcome),
-        calls,
-        outcome,
-      });
-      if (done) {
-        this.setDecision(dialogue.proposal.prId, { decision: 'approved', outcome });
-        // The next question rides a recomposed system prompt, so the model
-        // learns the new PO without the thread showing any plumbing.
-        this.chatFacts.set(
-          studioFactSheet({
-            totalOpen: this.totalOpen,
-            candidates: this.candidates,
-            plantTerms: this.terms,
-            proposals: this.proposals(),
-          }),
-        );
-        this.chatSystemPrompt.set(
-          this.i18n.t('experience.pr_to_po.studio.chat.system', {
-            facts: this.chatFacts() || '—',
-          }),
-        );
-      }
-    } finally {
-      this.chatBusy.set(false);
-    }
+    this.decide('accept');
   }
 
+  /** Cancel leaves the package at the gate — nothing is written, nothing discarded. */
   cancelChatWrite(): void {
     this.chatDialogue.update((dialogue) =>
       dialogue && dialogue.stage === 'proposing' ? { ...dialogue, stage: 'cancelled' } : dialogue,
     );
   }
 
-  /** One allow-listed write for the chat dialogue; guardrail first, network second. */
-  private async chatInvoke(body: { tool: string; arguments: Record<string, unknown> }): Promise<StudioCall> {
-    const serverId = STUDIO_WRITE_SERVERS[body.tool] || BAPI_SERVER_ID;
-    if (guardrailBlocked(body.tool, this.disabledTools())) {
-      return blockedCall(serverId, body.tool, body);
+  private decide(action: 'accept' | 'reject'): void {
+    const current = this.run();
+    if (!current || !this.gateOpen() || this.deciding()) return;
+    this.deciding.set(true);
+    this.chatBusy.set(true);
+    this.workApi
+      .decide(current.id, action, this.i18n.t(`experience.pr_to_po.studio.gate.note_${action}`))
+      .subscribe((decided) => {
+        this.deciding.set(false);
+        this.chatBusy.set(false);
+        if (!decided) {
+          this.error.set(this.i18n.t('experience.pr_to_po.studio.error.decision_failed'));
+          this.chatDialogue.update((dialogue) =>
+            dialogue && dialogue.stage === 'posting' ? { ...dialogue, stage: 'proposing' } : dialogue,
+          );
+          return;
+        }
+        // The HITL endpoint answers with the pre-resume status; poll the walk.
+        this.follow(current.id);
+      });
+  }
+
+  /**
+   * Poll the Run until it settles. A `hitl_pending` run whose Decision is
+   * already accepted or rejected is resuming in the background, not settled —
+   * the canonical HITL endpoint answers before the walker moves.
+   */
+  private follow(runId: string): void {
+    this.pollSub?.unsubscribe();
+    let polls = 0;
+    this.pollSub = timer(0, STUDIO_POLL_MS)
+      .pipe(
+        switchMap(() => this.canonical.getRun(runId)),
+        takeWhile((run) => {
+          polls += 1;
+          return polls < STUDIO_MAX_POLLS && !runIsSettled(run);
+        }, true),
+      )
+      .subscribe((run) => {
+        if (run) this.applyRun(run);
+      });
+  }
+
+  private applyRun(run: Run): void {
+    this.run.set(run);
+    this.chatDialogue.update((dialogue) => (dialogue ? chatWriteDialogueFromRun(
+      dialogue.runId ? dialogue : { ...dialogue, runId: run.id },
+      run,
+    ) : dialogue));
+    if (run.status === 'failed') {
+      this.error.set(run.error || this.i18n.t('experience.pr_to_po.studio.error.run_failed'));
     }
-    try {
-      const result = await firstValueFrom(
-        this.api.post<unknown>(`/mcp/servers/${encodeURIComponent(serverId)}/invoke`, body),
+    const outcome = postOutcome(run);
+    const proposal = proposalFromRun(run);
+    if (run.status === 'completed' && outcome?.sapOk && outcome.poNumber && proposal) {
+      this.posted.update((rows) =>
+        rows.some((row) => row.runId === run.id)
+          ? rows
+          : [
+              ...rows,
+              {
+                runId: run.id,
+                po: outcome.poNumber,
+                pr: proposal.prId,
+                amount: formatStudioAmount(proposal.amount, proposal.currency),
+              },
+            ],
       );
-      return studioCallFromInvoke(serverId, body.tool, body, result);
-    } catch (err) {
-      return {
-        server: serverId,
-        tool: body.tool,
-        request: body,
-        response: this.errorBody(err),
-        ok: false,
-        write: true,
-        blocked: false,
-        sealed: false,
-        durationMs: 0,
-      };
+    }
+    if (run.status === 'hitl_pending') {
+      this.expanded.update((current) => new Set([...current, 'gate']));
     }
   }
 
-  private async quietRead<T>(serverId: string, body: { tool: string }, calls: StudioCall[]): Promise<T | null> {
-    try {
-      const result = await firstValueFrom(
-        this.api.post<T>(`/mcp/servers/${encodeURIComponent(serverId)}/read`, body),
-      );
-      calls.push(readCall(serverId, body.tool, body, result));
-      return result;
-    } catch (err) {
-      calls.push(readCall(serverId, body.tool, body, this.errorBody(err), false));
-      return null;
-    }
+  /** A gate left open earlier (another tab, a scheduled tick) is the current run. */
+  private loadPendingGate(): void {
+    this.workApi.listPendingValidations(FACTORY_EXPERIENCE_SLUG).subscribe((result) => {
+      if (result.kind !== 'ok' || !result.items.length || this.run()) return;
+      const pending = result.items.find((row) => row.status === 'hitl_pending');
+      if (pending) this.follow(pending.id);
+    });
   }
 
   private loadRail(): void {
@@ -882,360 +882,5 @@ export class PrToPoStudioComponent implements OnInit {
         catchError(() => of(null)),
       )
       .subscribe((system) => this.system.set(system));
-  }
-
-  private patchNode(id: StudioNodeId, patch: Partial<StudioNodeState>): void {
-    this.nodes.update((rows) =>
-      rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
-    );
-  }
-
-  private appendCall(id: StudioNodeId, call: StudioCall): void {
-    this.nodes.update((rows) =>
-      rows.map((row) => (row.id === id ? { ...row, calls: [...row.calls, call] } : row)),
-    );
-  }
-
-  private async read<T>(serverId: string, body: { tool: string }, node: StudioNodeId): Promise<T | null> {
-    try {
-      const result = await firstValueFrom(
-        this.api.post<T>(`/mcp/servers/${encodeURIComponent(serverId)}/read`, body),
-      );
-      this.appendCall(node, readCall(serverId, body.tool, body, result));
-      return result;
-    } catch (err) {
-      this.appendCall(node, readCall(serverId, body.tool, body, this.errorBody(err), false));
-      return null;
-    }
-  }
-
-  /** One allow-listed write. The guardrail blocks before the network. */
-  private async invokeWrite(
-    body: { tool: string; arguments: Record<string, unknown> },
-    node: StudioNodeId,
-  ): Promise<StudioCall> {
-    const serverId = STUDIO_WRITE_SERVERS[body.tool] || BAPI_SERVER_ID;
-    if (guardrailBlocked(body.tool, this.disabledTools())) {
-      const call = blockedCall(serverId, body.tool, body);
-      this.appendCall(node, call);
-      return call;
-    }
-    try {
-      const result = await firstValueFrom(
-        this.api.post<unknown>(`/mcp/servers/${encodeURIComponent(serverId)}/invoke`, body),
-      );
-      const call = studioCallFromInvoke(serverId, body.tool, body, result);
-      this.appendCall(node, call);
-      return call;
-    } catch (err) {
-      const call: StudioCall = {
-        server: serverId,
-        tool: body.tool,
-        request: body,
-        response: this.errorBody(err),
-        ok: false,
-        write: true,
-        blocked: false,
-        sealed: false,
-        durationMs: 0,
-      };
-      this.appendCall(node, call);
-      return call;
-    }
-  }
-
-  private errorBody(err: unknown): unknown {
-    const detail = (err as { error?: { detail?: unknown } })?.error?.detail;
-    return { ok: false, detail: typeof detail === 'string' ? detail : String(err) };
-  }
-
-  async runNow(): Promise<void> {
-    if (!this.workspace.mcpConnectorEnabled()) {
-      this.error.set(this.i18n.t('experience.pr_to_po.studio.error.offline'));
-      return;
-    }
-    this.error.set(null);
-    this.running.set(true);
-    this.nodes.set(initialStudioNodes());
-    this.proposals.set([]);
-    this.candidates = [];
-    this.terms.clear();
-    this.budgetNotes.clear();
-    try {
-      await this.stepRequisitions();
-      await this.stepBudget();
-      await this.stepAutoDiscard();
-      await this.stepSummarise();
-      await this.stepHistory();
-      this.stepDerive();
-      this.stepProposals();
-    } catch {
-      this.error.set(this.i18n.t('experience.pr_to_po.studio.error.run_failed'));
-    } finally {
-      this.running.set(false);
-    }
-  }
-
-  private async stepRequisitions(): Promise<void> {
-    this.patchNode('requisitions', { status: 'running' });
-    const body = approvedPrItemReadBody();
-    const preview = await this.read<DeskPreview>('sap', body, 'requisitions');
-    if (!preview || preview.ok === false) {
-      this.patchNode('requisitions', { status: 'error' });
-      throw new Error('requisitions read failed');
-    }
-    this.candidates = openPrRowsFromPreview(preview);
-    this.totalOpen = preview.row_count || 0;
-    this.patchNode('requisitions', {
-      status: 'done',
-      noteKey: 'experience.pr_to_po.studio.note.requisitions',
-      noteParams: { shown: this.candidates.length, total: preview.row_count || 0 },
-    });
-  }
-
-  private async stepBudget(): Promise<void> {
-    this.patchNode('budget', { status: 'running' });
-    let pass = 0;
-    let fail = 0;
-    for (const fields of this.candidates) {
-      const body = budgetReadBody(fields.pr_id);
-      const result = await this.read<DeskKeyedRead>('sap', body, 'budget');
-      const verdict = budgetOkFromRead(result);
-      const warning =
-        verdict.ok && verdict.reason !== 'ok' ? verdict.reason : '';
-      this.budgetNotes.set(fields.pr_id, { ok: verdict.ok, reason: verdict.reason, warning });
-      if (verdict.ok) pass += 1;
-      else fail += 1;
-    }
-    this.patchNode('budget', {
-      status: fail ? 'warn' : 'done',
-      noteKey: 'experience.pr_to_po.studio.note.budget',
-      noteParams: { pass, fail },
-    });
-  }
-
-  /** The only write the agent makes without asking — and only on a hard E. */
-  private async stepAutoDiscard(): Promise<void> {
-    const rejected = this.candidates.filter(
-      (fields) => this.budgetNotes.get(fields.pr_id)?.ok === false,
-    );
-    if (!rejected.length) {
-      this.patchNode('discard', {
-        status: 'skipped',
-        noteKey: 'experience.pr_to_po.studio.note.discard_skipped',
-        noteParams: {},
-      });
-      return;
-    }
-    this.patchNode('discard', { status: 'running' });
-    let sealed = false;
-    for (const fields of rejected) {
-      const call = await this.invokeWrite(discardInvokeBody(fields.pr_id, fields.item), 'discard');
-      sealed = sealed || call.sealed;
-    }
-    this.candidates = this.candidates.filter(
-      (fields) => this.budgetNotes.get(fields.pr_id)?.ok !== false,
-    );
-    this.patchNode('discard', {
-      status: 'done',
-      noteKey: sealed
-        ? 'experience.pr_to_po.studio.note.discard_sealed'
-        : 'experience.pr_to_po.studio.note.discard_done',
-      noteParams: { count: rejected.length },
-    });
-  }
-
-  private async stepSummarise(): Promise<void> {
-    this.patchNode('summarise', { status: 'running' });
-    const first = this.candidates[0];
-    if (!first) {
-      this.patchNode('summarise', { status: 'skipped', noteKey: '', noteParams: {} });
-      return;
-    }
-    const body = justificationReadBody(first.pr_id, first.item);
-    const result = await this.read<DeskKeyedRead>('sap', body, 'summarise');
-    const text = (result?.text || extractJustificationText(result?.result) || '').trim();
-    this.patchNode('summarise', {
-      status: text ? 'done' : 'warn',
-      noteKey: text
-        ? 'experience.pr_to_po.studio.note.summarise'
-        : 'experience.pr_to_po.studio.note.summarise_empty',
-      noteParams: { pr: first.pr_id },
-    });
-  }
-
-  private async stepHistory(): Promise<void> {
-    this.patchNode('history', { status: 'running' });
-    const plants = studioPlants(this.candidates);
-    for (const plant of plants) {
-      const body = recentPosByPlantReadBody(plant);
-      const preview = await this.read<DeskPreview>('hikma', body, 'history');
-      if (preview && preview.ok !== false) {
-        this.terms.set(plant, {
-          terms: recentPoTermsFromPreview(preview),
-          recentPo: uniquePurchaseOrders(preview, 1)[0] || '',
-        });
-      }
-    }
-    this.patchNode('history', {
-      status: this.terms.size ? 'done' : 'warn',
-      noteKey: 'experience.pr_to_po.studio.note.history',
-      noteParams: { plants: plants.join(', ') },
-    });
-  }
-
-  private stepDerive(): void {
-    const notes = [...this.terms.entries()]
-      .map(([plant, row]) => `${plant} → ${row.terms.supplier || '—'}`)
-      .join(' · ');
-    this.patchNode('derive', {
-      status: this.terms.size ? 'done' : 'warn',
-      noteKey: 'experience.pr_to_po.studio.note.derive',
-      noteParams: { map: notes || '—' },
-    });
-  }
-
-  private stepProposals(): void {
-    this.patchNode('proposal', { status: 'running' });
-    const proposals = this.candidates
-      .map((fields) => {
-        const plant = fields.plant.trim() || '1000';
-        const known = this.terms.get(plant);
-        if (!known?.terms.supplier) return null;
-        return buildStudioProposal(
-          fields,
-          known.terms,
-          known.recentPo,
-          this.budgetNotes.get(fields.pr_id)?.warning || '',
-        );
-      })
-      .filter((row): row is StudioProposal => row !== null);
-    this.proposals.set(proposals);
-    this.patchNode('proposal', {
-      status: proposals.length ? 'done' : 'warn',
-      noteKey: 'experience.pr_to_po.studio.note.proposal',
-      noteParams: {
-        count: proposals.length,
-        total: formatStudioAmount(proposalsTotal(proposals), proposals[0]?.currency || 'QAR'),
-      },
-    });
-    this.patchNode('gate', {
-      status: proposals.length ? 'waiting' : 'skipped',
-      noteKey: proposals.length ? 'experience.pr_to_po.studio.note.gate' : '',
-      noteParams: { count: proposals.length },
-    });
-    this.expanded.update((current) => new Set([...current, 'gate']));
-  }
-
-  private setDecision(prId: string, patch: Partial<StudioProposal>): void {
-    this.proposals.update((rows) =>
-      rows.map((row) => (row.prId === prId ? { ...row, ...patch } : row)),
-    );
-  }
-
-  /** Two calls or nothing: the create returns a number, the commit makes it real. */
-  async approve(proposal: StudioProposal): Promise<void> {
-    if (!proposal.post || this.deciding()) return;
-    this.deciding.set(true);
-    this.patchNode('post', { status: 'running' });
-    try {
-      const create = await this.invokeWrite(bapiCreateInvokeBody(proposal.post), 'post');
-      const created = outcomeFromInvoke(create.response);
-      if (create.blocked) {
-        this.setDecision(proposal.prId, { outcome: blockedOutcome() });
-        this.patchNode('post', {
-          status: 'warn',
-          noteKey: 'experience.pr_to_po.studio.note.post_blocked',
-          noteParams: {},
-        });
-        return;
-      }
-      if (created.sealed) {
-        this.setDecision(proposal.prId, { decision: 'approved', outcome: created });
-        this.patchNode('post', {
-          status: 'done',
-          noteKey: 'experience.pr_to_po.studio.note.post_sealed',
-          noteParams: {},
-        });
-        return;
-      }
-      if (!created.sapOk) {
-        this.setDecision(proposal.prId, { outcome: created });
-        this.patchNode('post', {
-          status: 'error',
-          noteKey: 'experience.pr_to_po.studio.note.post_failed',
-          noteParams: {},
-        });
-        return;
-      }
-      const commit = await this.invokeWrite(bapiCommitInvokeBody(), 'post');
-      const committed = outcomeFromInvoke(commit.response);
-      const done = !commit.blocked && (committed.sealed || committed.sapOk);
-      this.setDecision(proposal.prId, {
-        decision: 'approved',
-        outcome: { ...created, sapOk: done && created.sapOk },
-      });
-      this.patchNode('post', {
-        status: done ? 'done' : 'error',
-        noteKey: done
-          ? 'experience.pr_to_po.studio.note.post_done'
-          : 'experience.pr_to_po.studio.note.post_failed',
-        noteParams: { pos: this.postedPoNumbers().join(', ') || created.poNumber },
-      });
-    } finally {
-      this.deciding.set(false);
-      this.updateRejectNode();
-    }
-  }
-
-  async approveAll(): Promise<void> {
-    for (const proposal of this.proposals()) {
-      if (proposal.decision === 'pending') {
-        await this.approve(proposal);
-      }
-    }
-  }
-
-  async rejectProposal(proposal: StudioProposal): Promise<void> {
-    if (this.deciding()) return;
-    this.deciding.set(true);
-    this.patchNode('reject', { status: 'running' });
-    try {
-      const call = await this.invokeWrite(discardInvokeBody(proposal.prId, proposal.item), 'reject');
-      const outcome = outcomeFromInvoke(call.response);
-      this.setDecision(proposal.prId, {
-        decision: call.blocked ? 'pending' : 'rejected',
-        outcome: call.blocked ? proposal.outcome : outcome,
-      });
-      this.patchNode('reject', {
-        status: call.blocked ? 'warn' : 'done',
-        noteKey: call.blocked
-          ? 'experience.pr_to_po.studio.note.post_blocked'
-          : outcome.sealed
-            ? 'experience.pr_to_po.studio.note.reject_sealed'
-            : 'experience.pr_to_po.studio.note.reject_done',
-        noteParams: { pr: proposal.prId },
-      });
-    } finally {
-      this.deciding.set(false);
-    }
-  }
-
-  private updateRejectNode(): void {
-    const anyRejected = this.proposals().some((row) => row.decision === 'rejected');
-    if (!anyRejected && this.pendingCount() === 0) {
-      this.patchNode('reject', {
-        status: 'skipped',
-        noteKey: 'experience.pr_to_po.studio.note.reject_skipped',
-        noteParams: {},
-      });
-    }
-    if (this.pendingCount() === 0) {
-      this.patchNode('gate', {
-        status: 'done',
-        noteKey: 'experience.pr_to_po.studio.note.gate_done',
-        noteParams: {},
-      });
-    }
   }
 }
