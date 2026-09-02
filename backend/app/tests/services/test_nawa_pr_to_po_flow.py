@@ -227,6 +227,9 @@ def _registry(*, budget_ok: bool, listed: list[dict[str, Any]]) -> Dict[str, Ski
         }
 
     async def audit(inp: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+        # The real skill raises without an event_type; the fake keeps that contract.
+        assert inp.get("event_type") == "procurement.pr_to_po", inp
+        assert inp.get("details") == {"source": "nawa_pr_to_po"}
         return {"id": "audit-pr-to-po", "status": "recorded"}
 
     return {
@@ -294,6 +297,24 @@ def test_flow_has_no_validator_errors_and_routes_to_dag() -> None:
         assert ref == {"node_id": "hitl.approve_po", "path": ["decided_by"], "required": False}
     reject = next(item for item in FLOW["nodes"] if item["id"] == "task.reject")
     assert "decided_by" not in reject["config"]["inputs_map"]
+
+
+def test_audit_node_reaches_its_event_type_in_overlay_mode() -> None:
+    """``config.params`` is a strict-mode default only. The published run walks
+    in ``dag_overlay``, so the ledger node maps its own params through the
+    ``node`` namespace — otherwise every tick ended on a red audit node
+    (``audit_log_v1 requires an event_type``)."""
+    from app.services.run_engine.variable_pool import VariablePool, apply_inputs_map
+
+    audit = next(node for node in FLOW["nodes"] if node["id"] == "task.audit")
+    node_pool = VariablePool().with_namespace(
+        "node", {"id": audit["id"], "kind": "task", "config": audit["config"]}
+    )
+    upstream = {"sealed": True, "called": False, "tool": "BAPI_PO_CREATE1"}
+    for io_mode in ("overlay", "strict"):
+        payload = apply_inputs_map(audit["config"], node_pool, upstream, io_mode=io_mode)
+        assert payload["event_type"] == "procurement.pr_to_po", io_mode
+        assert payload["details"] == {"source": "nawa_pr_to_po"}, io_mode
 
 
 def test_format_dossier_node_declares_a_managed_env() -> None:
