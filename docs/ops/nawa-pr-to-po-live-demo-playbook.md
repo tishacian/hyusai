@@ -204,9 +204,11 @@ Removed from this desk: Success criteria, numbered beats 1–4, Shown / Play / W
 
 | Item | Value |
 |---|---|
-| Desk route | `/work/pr-to-po?workspace=nawa&lang=en` |
-| Board | `frontend-ng/src/app/features/experience/work/pr-to-po-board.component.ts` |
-| Runtime | `frontend-ng/src/app/features/experience/work/pr-to-po-desk.ts` |
+| Studio route | `/work/pr-to-po?workspace=nawa&lang=en` (`/work/pr-to-po/desk` redirects here) |
+| Studio | `frontend-ng/src/app/features/experience/work/pr-to-po-studio.component.ts` |
+| Run projection | `frontend-ng/src/app/features/experience/work/pr-to-po-studio.ts` (client of the server run — no SAP call from the browser) |
+| Server runtime | `backend/app/services/connectors/mcp/flow.py` (DAG `pr_to_po_flow`), write gate `backend/app/services/connectors/mcp/write.py` |
+| Behavioural contract | `frontend-ng/e2e/tests/18-nawa-agent-studio-canary.spec.ts` |
 | Copy | `frontend-ng/src/app/core/i18n/experience.dict.ts` |
 | Images | `agentium-{backend,worker,frontend}:347311924fab` |
 | Rollback of this desk slice | `AGENTIUM_IMAGE_TAG=cd40fe337285` |

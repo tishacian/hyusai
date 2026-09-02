@@ -151,7 +151,7 @@ export async function api<T>(
   page: Page,
   workspaceSlug: string,
   path: string,
-  options: { method?: 'GET' | 'DELETE'; body?: unknown } = {},
+  options: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown } = {},
 ): Promise<ApiResult<T>> {
   return page.evaluate(
     async ({ slug, apiPath, request }) => {

@@ -11,6 +11,35 @@ push ou déploiement**. Une exécution requiert un GO opérateur distinct, donn�
 pour un SHA, un `deployment-id` et une fenêtre déterminés. Au 23 juillet 2026,
 le verdict reste `NO-GO`.
 
+## Gel de la démo NAWA — ouvert le 02/09/2026 (réalignement post-audit)
+
+Périmètre gelé : le chemin `Studio -> SAP` de la démo PR→PO
+(`/work/pr-to-po`, flow `pr_to_po_flow`, serveurs MCP `sap`/`hikma`/`bapi_po`,
+porte d'écriture `connectors/mcp/write.py`). Commit de référence servi sur la
+VM à l'ouverture : `988ee5c7ec2c1ab2a16e6d42831518d51ed6b39a`.
+
+Pendant le gel : aucune nouvelle fonctionnalité sur ce chemin, aucun
+changement de contrat d'écriture SAP hors du chantier H0+H1 du plan de
+réalignement (une seule porte d'écriture, un seul runtime PR→PO côté serveur).
+Le Studio reste servi tel quel jusqu'au déploiement H1.
+
+Contrat de non-régression : `frontend-ng/e2e/tests/18-nawa-agent-studio-canary.spec.ts`
+(redirect `/desk`, run → gate → décision, verdict d'écriture serveur, zéro
+`invoke` MCP depuis le navigateur, dialogue d'écriture dans le chat). Il est
+figé en H0 ; H1 doit le passer **sans le modifier**.
+
+Critères de sortie du gel :
+
+| Critère | Preuve attendue |
+|---|---|
+| Une seule porte d'écriture | tout `tools/call` non-lecture (HTTP `invoke`, run-engine, `mcp_call_v1`) passe par `mcp_write` — tests `test_mcp_write.py`, `test_mcp_call_skill.py` verts |
+| Un seul runtime PR→PO | `pr-to-po-desk.ts` / `PrToPoBoardComponent` supprimés ; le Studio ne fait ni lecture ni écriture SAP ; `rg BAPI_ frontend-ng/src` ne renvoie que des noms d'outils du rail |
+| Contrat e2e | spec 18 verte sur la VM au SHA déployé, mode par défaut (garde-fou create off) puis `E2E_NAWA_STUDIO_WRITE=1` si un PO réel est accepté |
+| Journal | entrée d'itération H0+H1 avec build-info, gates, QA, rollback |
+
+Fin du gel : à la validation de l'itération H0+H1 ci-dessous. H2, H3, H4
+partent ensuite en PRs séparées, hors gel.
+
 ## Verdict opérationnel au 23 juillet 2026
 
 Le déploiement applicatif direct de l'état historique vers les Lots 7–9 est un

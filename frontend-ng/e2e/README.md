@@ -237,6 +237,35 @@ created app in `/work` at desktop, 456 px, and 320 px, then creates and deploys
 a second release and rolls the channel back to the first. It never executes the
 bound System action.
 
+### NAWA Agent Studio behavioural contract
+
+`tests/18-nawa-agent-studio-canary.spec.ts` is the freeze contract of the
+PR to PO demo: `/work/pr-to-po/desk` lands on the Studio, one click starts the
+published agent through its Experience binding, the read nodes show their
+verbatim SAP calls, the human gate opens with a proposal, and the approval is
+the canonical HITL decision. The write verdict (blocked by the guardrail,
+sealed, or PO created and committed) is the server's — the spec asserts that
+the browser sends zero request to `/mcp/servers/{id}/invoke`. It then opens the
+chat write dialogue, cancels once (nothing written, gate still open) and
+confirms once with the `BAPI_PO_CREATE1` guardrail off (refusal bubble, blocked
+call in the transcript). Every gate it opens is settled before it ends.
+
+The default run keeps the create guardrail off for the run-flow approval too,
+so it never reaches SAP even on an unsealed workspace:
+
+```bash
+E2E_NAWA_STUDIO=1 \
+E2E_USERNAME='...' \
+E2E_PASSWORD='...' \
+E2E_EXPECTED_SHA='<40-char deployed SHA>' \
+E2E_NAWA_STUDIO_EVIDENCE='test-results/nawa-agent-studio.json' \
+npx playwright test e2e/tests/18-nawa-agent-studio-canary.spec.ts
+```
+
+`E2E_NAWA_STUDIO_WRITE=1` approves the run-flow gate with the guardrail on:
+one real PO per run when the workspace carries `sap_write_unsealed`, the
+sealed envelope otherwise. `E2E_NAWA_WORKSPACE_SLUG` overrides `nawa`.
+
 ## Known limits
 
 - Targets a **shared VM** today. Tests create small throwaway systems
