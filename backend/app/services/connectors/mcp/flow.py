@@ -52,6 +52,12 @@ DECIDED_BY_REF: dict[str, Any] = {
     "required": False,
 }
 
+#: The ledger row every tick ends on — NAWA's own audit, never SAP.
+AUDIT_PARAMS: dict[str, Any] = {
+    "event_type": "procurement.pr_to_po",
+    "details": {"source": "nawa_pr_to_po"},
+}
+
 
 def _task(
     node_id: str,
@@ -404,7 +410,15 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "Audit ledger",
                 "audit_log_v1",
                 description="audit_log_v1 — NAWA ledger, not SAP.",
-                params={"event_type": "procurement.pr_to_po", "details": {"source": "nawa_pr_to_po"}},
+                params=AUDIT_PARAMS,
+                # ``config.params`` only reaches a skill as strict-mode defaults;
+                # the published run executes in ``dag_overlay``, where an unmapped
+                # param never arrives. Mapping the node's own config through the
+                # ``node`` namespace makes the ledger row land in both modes.
+                inputs_map={
+                    "event_type": {"node_id": "node", "path": ["config", "params", "event_type"]},
+                    "details": {"node_id": "node", "path": ["config", "params", "details"]},
+                },
                 x=3400,
                 y=200,
             ),
