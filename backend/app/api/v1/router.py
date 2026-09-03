@@ -17,6 +17,7 @@ from app.api.v1.endpoints import (
     catalog,
     catalog_curation,
     chat,
+    chat_execution,
     client360,
     contexts,
     control_plane,
@@ -107,6 +108,7 @@ api_router.include_router(hana.router, prefix="/hana", tags=["hana"])
 api_router.include_router(rpa.router, prefix="/rpa", tags=["rpa"])
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
 api_router.include_router(apps.router, prefix="/workspaces", tags=["apps"])
+api_router.include_router(chat_execution.router, prefix="/workspaces", tags=["chat-execution"])
 api_router.include_router(model_portal.router, prefix="/models", tags=["model-portal"])
 
 # Canonical mental-model layer.
