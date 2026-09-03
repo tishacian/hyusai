@@ -456,13 +456,13 @@ def compose_write_sealed(
     }
 
 
-def read_tool(
+def _read_call(
     server: Mapping[str, Any],
     *,
     tool: str,
-    arguments: Optional[Mapping[str, Any]] = None,
-) -> dict[str, Any]:
-    """``tools/list`` then one read-only ``tools/call``. Write tools never run."""
+    arguments: Optional[Mapping[str, Any]],
+) -> tuple[str, dict[str, Any], Any]:
+    """The one read-only ``tools/call`` both read shapes share. Writes never run."""
     name = str(tool or "").strip()
     if not name:
         raise ValueError("tool is required")
@@ -482,8 +482,12 @@ def read_tool(
     refused = gateway_refusal(called.get("result"))
     if refused:
         raise ValueError(refused)
-    raw = called.get("result")
-    table = flatten_read(raw)
+    return name, called, called.get("result")
+
+
+def _read_envelope(
+    server: Mapping[str, Any], name: str, called: Mapping[str, Any], raw: Any
+) -> dict[str, Any]:
     return {
         "ok": True,
         "server_id": str(called.get("server_id") or server.get("id") or ""),
@@ -493,7 +497,80 @@ def read_tool(
         "duration_ms": called.get("duration_ms"),
         "text": extract_justification_text(raw),
         "result": raw,
-        **table,
+    }
+
+
+def read_tool(
+    server: Mapping[str, Any],
+    *,
+    tool: str,
+    arguments: Optional[Mapping[str, Any]] = None,
+) -> dict[str, Any]:
+    """One read-only ``tools/call`` rendered as a **preview table** for a person.
+
+    The ``columns`` / ``rows`` it returns are capped like every other preview
+    (connector screen, chat transcript). Code that needs the data — a DAG
+    skill, a recipe — reads through :func:`read_rows`, never through this table.
+    """
+    name, called, raw = _read_call(server, tool=tool, arguments=arguments)
+    return {**_read_envelope(server, name, called, raw), **flatten_read(raw)}
+
+
+def project_records(
+    records: list[dict[str, Any]], fields: Optional[Iterable[str]] = None
+) -> list[dict[str, Any]]:
+    """Every record, every requested field guaranteed, no cap.
+
+    A requested field is always present under the caller's spelling — matched
+    case-insensitively against the row (SAP spells ``PurReqnItemCurrency``,
+    a fixture may not) and ``None`` when the row has no such field. Fields the
+    caller did not name are kept: a fixture server's rows stay readable, and
+    nothing decides here which data is worth keeping.
+    """
+    wanted = [str(field).strip() for field in (fields or []) if str(field).strip()]
+    out: list[dict[str, Any]] = []
+    for row in records:
+        lower = {str(key).lower(): key for key in row}
+        projected: dict[str, Any] = {}
+        matched: set[Any] = set()
+        for field in wanted:
+            source = lower.get(field.lower(), field)
+            matched.add(source)
+            projected[field] = row.get(source)
+        for key, value in row.items():
+            if key not in matched:
+                projected.setdefault(str(key), value)
+        out.append(projected)
+    return out
+
+
+def select_fields(select: str) -> list[str]:
+    """The field list an OData ``$select`` names, in order."""
+    return [part.strip() for part in str(select or "").split(",") if part.strip()]
+
+
+def read_rows(
+    server: Mapping[str, Any],
+    *,
+    tool: str,
+    arguments: Optional[Mapping[str, Any]] = None,
+    fields: Optional[Iterable[str]] = None,
+) -> dict[str, Any]:
+    """Typed read for code: the records themselves, not a preview of them.
+
+    ``records`` carries every row the tool returned, projected on ``fields``
+    when given (else whole rows), with no column cap — the cap that once made
+    every proposal leave at 0.00 lived in the preview, and this path never
+    goes through it. ``row_count`` is the server's ``__count`` when it sends
+    one, else the number of records read.
+    """
+    name, called, raw = _read_call(server, tool=tool, arguments=arguments)
+    records = project_records(extract_records(raw), fields)
+    return {
+        **_read_envelope(server, name, called, raw),
+        "records": records,
+        "fields": list(fields or []) or sorted({key for row in records for key in row}),
+        "row_count": _odata_count(raw, len(records)),
     }
 
 
