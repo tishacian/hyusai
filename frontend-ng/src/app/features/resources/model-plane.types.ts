@@ -24,6 +24,18 @@ export interface RoutingPrimary {
   model?: string | null;
 }
 
+export const MODEL_TIERS = ['fast', 'balanced', 'strong'] as const;
+export type ModelTier = (typeof MODEL_TIERS)[number];
+
+export interface RoutingSystem {
+  id?: string;
+  name?: string;
+  default_model?: string | null;
+  status?: string;
+}
+
+export type EffectiveSystemTier = ModelTier | 'pinned' | 'default';
+
 export interface RoutingResponse {
   /** New contract: `{ provider, model }`. Legacy: plain string. */
   primary?: RoutingPrimary | string | null;
@@ -32,12 +44,14 @@ export interface RoutingResponse {
   fallback_chain?: string[];
   default_provider?: string | null;
   default_model?: string | null;
+  ollama_default_model?: string | null;
   source?: 'workspace' | 'global' | string | null;
-  systems?: Array<{
-    id?: string;
-    name?: string;
-    default_model?: string | null;
-  }>;
+  /** `{fast,balanced,strong}` → `provider:model`. Empty = fall through. */
+  tiers?: Partial<Record<ModelTier, string>> | Record<string, string>;
+  tier_names?: string[];
+  registered_clients?: string[];
+  local_serving?: string[];
+  systems?: RoutingSystem[];
 }
 
 export interface CredentialStatus {
@@ -170,6 +184,94 @@ export function routingFallbackLabel(route: RoutingResponse | null | undefined):
   const chain = route.fallback_chain;
   if (Array.isArray(chain) && chain.length) return chain.join(' → ');
   return '—';
+}
+
+export function isModelTier(value: unknown): value is ModelTier {
+  return typeof value === 'string' && (MODEL_TIERS as readonly string[]).includes(value);
+}
+
+/** Split `provider:model` / `provider/model`; bare names stay as the model. */
+export function parseProviderModelSpec(
+  spec: string | null | undefined,
+): { provider: string; model: string } | null {
+  const raw = (spec || '').trim();
+  if (!raw) return null;
+  for (const sep of [':', '/'] as const) {
+    if (!raw.includes(sep)) continue;
+    const head = raw.slice(0, raw.indexOf(sep)).trim();
+    const model = raw.slice(raw.indexOf(sep) + 1).trim();
+    if (!head || !model) continue;
+    if (sep === ':' && head.includes('/')) continue;
+    return { provider: head, model };
+  }
+  return { provider: '', model: raw };
+}
+
+export function formatProviderModelSpec(provider: string, model: string): string {
+  const p = provider.trim();
+  const m = model.trim();
+  if (p && m) return `${p}:${m}`;
+  return m || p;
+}
+
+export function routingTiers(route: RoutingResponse | null | undefined): Record<ModelTier, string> {
+  const raw = route?.tiers && typeof route.tiers === 'object' ? route.tiers : {};
+  return {
+    fast: String(raw['fast'] || '').trim(),
+    balanced: String(raw['balanced'] || '').trim(),
+    strong: String(raw['strong'] || '').trim(),
+  };
+}
+
+/**
+ * What a System would actually serve: a pin beats every tier; otherwise the
+ * workspace default (no per-System tier — the planner picks one per turn).
+ */
+export function effectiveSystemTier(
+  system: RoutingSystem | null | undefined,
+  route: RoutingResponse | null | undefined,
+): EffectiveSystemTier {
+  const pin = String(system?.default_model || '').trim();
+  if (pin) {
+    const tiers = routingTiers(route);
+    const pinNorm = pin.toLowerCase();
+    for (const tier of MODEL_TIERS) {
+      const spec = tiers[tier];
+      if (!spec) continue;
+      if (spec.toLowerCase() === pinNorm) return tier;
+      const parsed = parseProviderModelSpec(spec);
+      if (parsed && parsed.model.toLowerCase() === pinNorm) return tier;
+    }
+    return 'pinned';
+  }
+  return 'default';
+}
+
+/** Suggestions for the tier editor: registered clients, local serving, live models. */
+export function routableModelOptions(
+  route: RoutingResponse | null | undefined,
+  providers: ModelProvider[] = [],
+): string[] {
+  const out = new Set<string>();
+  for (const key of route?.registered_clients ?? []) {
+    if (key) out.add(String(key));
+  }
+  for (const key of route?.local_serving ?? []) {
+    if (key) out.add(String(key));
+  }
+  for (const p of providers) {
+    const provider = (p.key || '').toString();
+    if (provider) out.add(provider);
+    for (const model of p.models ?? []) {
+      if (provider && model) out.add(`${provider}:${model}`);
+      else if (model) out.add(String(model));
+    }
+  }
+  const tiers = routingTiers(route);
+  for (const spec of Object.values(tiers)) {
+    if (spec) out.add(spec);
+  }
+  return [...out].sort((a, b) => a.localeCompare(b));
 }
 
 export function distCount(b: DistributionBucket): number {

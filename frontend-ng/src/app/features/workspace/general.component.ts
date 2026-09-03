@@ -13,6 +13,12 @@ import {
   WorkspaceService,
   type SelectableWorkspaceMode,
 } from '@app/core/workspace.service';
+import {
+  CHAT_EXECUTION_MODES,
+  chatExecutionSaveBody,
+  type ChatExecutionMode,
+  type ChatExecutionState,
+} from '@app/core/chat-execution.types';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
@@ -285,6 +291,99 @@ const FIELD =
         <section class="ck-surface rounded-md p-6">
           <div class="flex items-start gap-3 mb-4">
             <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
+              <app-icon name="git-branch" [size]="18" />
+            </div>
+            <div class="flex-1">
+              <h2 class="text-base font-semibold text-white flex items-center gap-1.5">
+                {{ i18n.t('workspace.general.chat_execution.title') }}
+                <ck-help id="concept.chat-execution" />
+              </h2>
+              <p class="text-sm text-gray-400 mt-0.5 max-w-2xl">
+                {{ i18n.t('workspace.general.chat_execution.description') }}
+              </p>
+            </div>
+          </div>
+          <div class="grid gap-3 md:grid-cols-3">
+            @for (mode of chatExecutionModes; track mode) {
+              <button
+                type="button"
+                (click)="selectChatExecutionMode(mode)"
+                [disabled]="!canEdit() || savingChatExecution()"
+                [class.ring-2]="chatExecutionMode() === mode"
+                [class.ring-cyan-500]="chatExecutionMode() === mode"
+                [class.bg-cyan-500]="chatExecutionMode() === mode"
+                [class.bg-opacity-10]="chatExecutionMode() === mode"
+                class="text-left p-4 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-sm font-semibold text-white">{{ i18n.t('workspace.general.chat_execution.mode.' + mode) }}</span>
+                  @if (chatExecutionMode() === mode) {
+                    <span class="ml-auto text-[10px] uppercase tracking-wider text-cyan-400 font-mono">{{ i18n.t('workspace.general.active_badge') }}</span>
+                  }
+                </div>
+                <p class="text-xs text-gray-400 leading-relaxed">{{ i18n.t('workspace.general.chat_execution.mode.' + mode + '.description') }}</p>
+              </button>
+            }
+          </div>
+          <div class="mt-4 rounded-md bg-black/20 ring-1 ring-white/10 px-4 py-3">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <label class="text-xs font-medium text-gray-400 uppercase tracking-wider" for="chat-execution-percentage">
+                {{ i18n.t('workspace.general.chat_execution.percentage') }}
+              </label>
+              <span class="text-xs font-mono text-cyan-300">{{ i18n.t('workspace.general.chat_execution.percentage.value', { value: chatExecutionPercentage() }) }}</span>
+            </div>
+            <input
+              id="chat-execution-percentage"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              [ngModel]="chatExecutionPercentage()"
+              (ngModelChange)="chatExecutionPercentage.set($event)"
+              [disabled]="!canEdit() || savingChatExecution() || chatExecutionMode() === 'classic'"
+              class="w-full accent-cyan-400"
+            />
+            <p class="text-xs text-gray-500 mt-2">
+              @if (chatExecution()?.target_system_name; as name) {
+                {{ i18n.t('workspace.general.chat_execution.target', { name }) }}
+              } @else {
+                {{ i18n.t('workspace.general.chat_execution.target.none') }}
+              }
+            </p>
+          </div>
+          @if (chatExecution(); as state) {
+            @if (state.invariants.length) {
+              <div class="mt-3 rounded-md bg-amber-500/10 ring-1 ring-amber-400/25 px-4 py-3">
+                <p class="text-xs font-semibold text-amber-200 mb-1">{{ i18n.t('workspace.general.chat_execution.invariants') }}</p>
+                <ul class="list-disc pl-4 text-xs text-amber-100/90 space-y-1">
+                  @for (item of state.invariants; track item) {
+                    <li>{{ item }}</li>
+                  }
+                </ul>
+              </div>
+            } @else {
+              <p class="mt-3 text-xs text-emerald-300">{{ i18n.t('workspace.general.chat_execution.ready') }}</p>
+            }
+          }
+          <div class="mt-4">
+            <button
+              type="button"
+              (click)="saveChatExecution()"
+              [disabled]="!canEdit() || savingChatExecution() || !chatExecutionDirty()"
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
+            >
+              <app-icon name="save" [size]="14" />
+              {{ savingChatExecution() ? i18n.t('workspace.general.chat_execution.saving') : i18n.t('workspace.general.chat_execution.save') }}
+            </button>
+          </div>
+          @if (!canEdit()) {
+            <p class="text-xs text-gray-500 mt-3">{{ i18n.t('workspace.general.chat_execution.admins_only') }}</p>
+          }
+        </section>
+
+        <section class="ck-surface rounded-md p-6">
+          <div class="flex items-start gap-3 mb-4">
+            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
               <app-icon name="panel-left" [size]="18" />
             </div>
             <div class="flex-1">
@@ -414,6 +513,11 @@ export class WorkspaceGeneralComponent {
   readonly savingNavigationProfile = signal(false);
   readonly savingExpertCorrection = signal(false);
   readonly savingExpertReview = signal(false);
+  readonly savingChatExecution = signal(false);
+  readonly chatExecution = signal<ChatExecutionState | null>(null);
+  readonly chatExecutionMode = signal<ChatExecutionMode>('hybrid');
+  readonly chatExecutionPercentage = signal(0);
+  readonly chatExecutionModes = CHAT_EXECUTION_MODES;
   readonly copied = signal(false);
 
   readonly modes: { key: SelectableWorkspaceMode; labelKey: string; icon: string; descriptionKey: string }[] = [
@@ -490,6 +594,14 @@ export class WorkspaceGeneralComponent {
     return role === 'owner' || role === 'admin' || roleTemplate === 'workspace_owner' || roleTemplate === 'workspace_admin';
   });
 
+  readonly chatExecutionDirty = computed(() => {
+    const state = this.chatExecution();
+    if (!state) return false;
+    const mode = this.chatExecutionMode();
+    const percentage = mode === 'classic' ? 0 : this.chatExecutionPercentage();
+    return mode !== state.mode || percentage !== state.percentage;
+  });
+
   readonly dirty = computed(() => {
     const d = this.detail();
     if (!d) return false;
@@ -508,6 +620,7 @@ export class WorkspaceGeneralComponent {
       next: (d) => {
         this.detail.set(d);
         this.name = d.name;
+        this.loadChatExecution(slug);
       },
       error: (err) =>
         this.toastr.error(
@@ -641,6 +754,62 @@ export class WorkspaceGeneralComponent {
         );
       },
     });
+  }
+
+  selectChatExecutionMode(mode: ChatExecutionMode): void {
+    if (!this.canEdit() || this.savingChatExecution()) return;
+    this.chatExecutionMode.set(mode);
+    if (mode === 'classic') this.chatExecutionPercentage.set(0);
+  }
+
+  saveChatExecution(): void {
+    const d = this.detail();
+    if (!d || !this.canEdit()) return;
+    const body = chatExecutionSaveBody(this.chatExecutionMode(), this.chatExecutionPercentage());
+    this.savingChatExecution.set(true);
+    this.workspaceService.setChatExecution(d.slug, body).subscribe({
+      next: (state) => {
+        this.savingChatExecution.set(false);
+        this.applyChatExecution(state);
+        this.toastr.success(
+          this.i18n.t('workspace.general.toast.chat_execution_saved', {
+            mode: this.i18n.t('workspace.general.chat_execution.mode.' + state.mode),
+            percentage: state.percentage,
+          }),
+          this.i18n.t('workspace.toast.saved_title'),
+        );
+      },
+      error: (err) => {
+        this.savingChatExecution.set(false);
+        this.toastr.error(
+          this.chatExecutionError(err),
+          this.i18n.t('workspace.toast.error_title'),
+        );
+      },
+    });
+  }
+
+  private loadChatExecution(slug: string): void {
+    this.workspaceService.getChatExecution(slug).subscribe({
+      next: (state) => this.applyChatExecution(state),
+      error: () => this.chatExecution.set(null),
+    });
+  }
+
+  private applyChatExecution(state: ChatExecutionState): void {
+    this.chatExecution.set(state);
+    this.chatExecutionMode.set(state.mode);
+    this.chatExecutionPercentage.set(state.percentage);
+  }
+
+  private chatExecutionError(err: { error?: { detail?: unknown } }): string {
+    const detail = err?.error?.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail;
+    if (detail && typeof detail === 'object' && 'message' in detail) {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === 'string' && message.trim()) return message;
+    }
+    return this.i18n.t('workspace.general.toast.chat_execution_failed');
   }
 
   setExpertCorrection(enabled: boolean): void {

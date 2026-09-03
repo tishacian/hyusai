@@ -2,6 +2,11 @@ import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { EMPTY, Observable, Subject, catchError, filter, finalize, map, of, shareReplay, switchMap, tap } from 'rxjs';
 import { DEFAULT_BRAND_NAME, platformBrand } from './platform-brand';
+import {
+  type ChatExecutionMode,
+  type ChatExecutionState,
+  parseChatExecution,
+} from './chat-execution.types';
 
 export type WorkspaceMode = 'builder' | 'operator' | 'executive' | 'demo' | 'portfolio';
 export type SelectableWorkspaceMode = Exclude<WorkspaceMode, 'demo' | 'portfolio'>;
@@ -621,6 +626,25 @@ export class WorkspaceService {
     ).pipe(
       tap((workspace) => this.upsertWorkspace(workspace)),
     );
+  }
+
+  getChatExecution(slug: string): Observable<ChatExecutionState> {
+    return this.http
+      .get<ChatExecutionState>(`/api/v1/workspaces/${slug}/chat-execution`, {
+        headers: this.workspaceHeaders(slug),
+      })
+      .pipe(map(parseChatExecution));
+  }
+
+  setChatExecution(
+    slug: string,
+    body: { mode: ChatExecutionMode; percentage: number },
+  ): Observable<ChatExecutionState> {
+    return this.http
+      .put<ChatExecutionState>(`/api/v1/workspaces/${slug}/chat-execution`, body, {
+        headers: this.workspaceHeaders(slug),
+      })
+      .pipe(map(parseChatExecution));
   }
 
   setMode(slug: string, mode: WorkspaceMode): Observable<WorkspaceDetail> {
