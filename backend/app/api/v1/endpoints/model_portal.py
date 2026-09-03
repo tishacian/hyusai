@@ -25,6 +25,7 @@ from app.services.model_plane import providers as providers_service
 from app.services.model_plane import serving_nodes as serving_nodes_service
 from app.services.model_plane import workspace_config as ws_config
 from app.services.model_plane.registration import list_routable_providers
+from app.services.model_plane.routing_policy import MODEL_TIERS, resolve_model, routing_snapshot
 from app.services.model_router import ModelRouter
 from app.services.workspace_features import feature_enabled
 
@@ -86,6 +87,9 @@ class RoutingUpdateBody(BaseModel):
     default_provider: str = Field(..., min_length=1)
     default_model: str = Field(..., min_length=1)
     fallback_chain: Optional[List[str]] = None
+    # ``{"fast": "ollama:qwen3:8b", "balanced": "...", "strong": "..."}``;
+    # omitted keeps the stored table, an empty value clears that tier.
+    tiers: Optional[Dict[str, str]] = None
 
 
 class CredentialUpdateBody(BaseModel):
@@ -122,7 +126,8 @@ async def get_model_routing(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
+    # Routing is a native platform feature: readable by every workspace.  The
+    # beta flag keeps gating credentials, serving nodes and distribution.
     await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
     router_runtime = ModelRouter()
     ws_routing = ws_config.get_routing(workspace)
@@ -141,6 +146,8 @@ async def get_model_routing(
             "model": ws_routing["default_model"],
         },
         "fallback_chain": ws_routing["fallback_chain"],
+        "tiers": ws_routing.get("tiers") or {},
+        "tier_names": list(MODEL_TIERS),
         "source": ws_routing["source"],
         "registered_clients": sorted(router_runtime.clients.keys()),
         "local_serving": list_routable_providers(),
@@ -163,7 +170,6 @@ async def put_model_routing(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
     _require_workspace_admin(db, user=user, workspace=workspace)
     try:
         config = ws_config.set_routing(
@@ -172,10 +178,54 @@ async def put_model_routing(
             default_provider=body.default_provider,
             default_model=body.default_model,
             fallback_chain=body.fallback_chain,
+            tiers=body.tiers,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return config["routing"]
+
+
+@router.get("/routing/resolve")
+async def resolve_model_routing(
+    tier: Optional[str] = Query(default=None, description="fast | balanced | strong (or a retrieval lane)"),
+    system_id: Optional[str] = Query(default=None),
+    model: Optional[str] = Query(default=None, description="explicit model to test"),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Diagnostic: what the platform would pick for this tier / System."""
+    system_default_model = None
+    allowed_models: list[str] = []
+    if system_id:
+        system = (
+            db.query(System)
+            .filter(System.id == system_id, System.workspace_id == workspace.id)
+            .first()
+        )
+        if system is None:
+            raise HTTPException(status_code=404, detail="System not found")
+        system_default_model = system.default_model
+        try:
+            from app.models.policy import ControlPolicy
+            from app.services.membrane.spec import resolve_membrane_spec
+
+            control = (
+                db.query(ControlPolicy).filter(ControlPolicy.id == system.control_policy_id).first()
+                if getattr(system, "control_policy_id", None)
+                else None
+            )
+            allowed_models = list(resolve_membrane_spec(control=control).capabilities.allowed_models)
+        except Exception:  # noqa: BLE001 — diagnostic only
+            allowed_models = []
+    snapshot = routing_snapshot(workspace, allowed_models=allowed_models)
+    choice = resolve_model(
+        snapshot=snapshot,
+        system_default_model=system_default_model,
+        tier_hint=tier,
+        explicit_model=model,
+    )
+    return {"choice": choice.to_dict(), "snapshot": snapshot.to_dict()}
 
 
 @router.get("/config")

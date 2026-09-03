@@ -184,6 +184,81 @@ def test_snapshot_round_trips_and_carries_allowed_models():
     assert isinstance(choice, ModelChoice) and choice.to_dict()["spec"] == "ollama:qwen3:8b"
 
 
+# --- classic /chat path ------------------------------------------------------------
+
+
+def test_resolve_chat_model_keeps_the_preset_when_no_tier_is_configured():
+    from app.services.model_plane.routing_policy import resolve_chat_model
+
+    choice = resolve_chat_model(
+        _workspace(),
+        answer_profile="comparison",
+        preset_model="gpt-4.1",
+        preset_provider="openai",
+    )
+    assert (choice.provider, choice.model, choice.source, choice.tier) == ("openai", "gpt-4.1", "preset", "strong")
+
+
+def test_resolve_chat_model_lets_a_tier_win_over_the_preset_but_not_over_the_request():
+    from app.services.model_plane.routing_policy import resolve_chat_model
+
+    ws = _workspace(llm_portal={"routing": {"default_provider": "openai", "default_model": "gpt-5",
+                                            "tiers": {"strong": "openai:gpt-5", "balanced": "ollama:qwen3:8b"}}})
+    strong = resolve_chat_model(ws, answer_profile="transversal_inventory", preset_model="gpt-4.1", preset_provider="openai")
+    assert (strong.model, strong.source, strong.tier) == ("gpt-5", "tier", "strong")
+    balanced = resolve_chat_model(ws, answer_profile="technical", preset_model="gpt-4.1", preset_provider="openai")
+    assert (balanced.provider, balanced.model, balanced.tier) == ("ollama", "qwen3:8b", "balanced")
+    explicit = resolve_chat_model(ws, answer_profile="technical", requested_model="claude-3-7", requested_provider="anthropic",
+                                  preset_model="gpt-4.1", preset_provider="openai")
+    assert (explicit.provider, explicit.model, explicit.source) == ("anthropic", "claude-3-7", "explicit")
+
+
+def test_chat_seed_writes_the_choice_and_the_snapshot_on_the_request():
+    from app.api.v1.endpoints.chat import _seed_model_preferences
+
+    ws = _workspace(llm_portal={"routing": {"default_provider": "openai", "default_model": "gpt-5",
+                                            "tiers": {"fast": "ollama:qwen3:8b"}}})
+    request_dict = {"answer_profile": "technical", "agent_preferences": {"model_preferences": {}}}
+    prefs = _seed_model_preferences(request_dict, {"defaultModel": "gpt-4.1", "defaultProvider": "openai"}, ws)
+    assert prefs["model"] == "gpt-4.1" and prefs["source"] == "preset" and prefs["tier"] == "balanced"
+    assert request_dict["model_routing"]["tiers"] == {"fast": "ollama:qwen3:8b"}
+    assert request_dict["agent_preferences"]["model_preferences"] is prefs
+
+
+def test_query_rewrite_moves_to_the_fast_tier_only_when_one_is_configured():
+    from app.agents.orchestrator import AgentOrchestrator
+
+    orchestrator = AgentOrchestrator.__new__(AgentOrchestrator)
+    assert orchestrator._rewrite_model({}) == ("gpt-4o-mini", None)
+    assert orchestrator._rewrite_model({"model_routing": {"tiers": {}}}) == ("gpt-4o-mini", None)
+    routed = orchestrator._rewrite_model(
+        {"model_routing": {"default_provider": "openai", "default_model": "gpt-5", "tiers": {"fast": "ollama:qwen3:8b"}}}
+    )
+    assert routed == ("qwen3:8b", "ollama")
+
+
+def test_deep_worker_takes_the_strong_tier_unless_the_request_was_explicit(monkeypatch):
+    from app.services import worker_deep_retrieval as worker
+
+    monkeypatch.setattr(
+        "app.core.settings_manager.get_resolved_settings",
+        lambda **_: {"defaultProvider": "openai", "defaultModel": "gpt-4.1"},
+    )
+    snapshot = {"default_provider": "openai", "default_model": "gpt-4.1", "tiers": {"strong": "openai:gpt-5"}}
+    routed = worker._model_preferences(
+        {"model_routing": snapshot, "agent_preferences": {"model_preferences": {"provider": "openai", "model": "gpt-4.1", "source": "preset"}}}
+    )
+    assert routed == ("openai", "gpt-5")
+    explicit = worker._model_preferences(
+        {"model_routing": snapshot, "agent_preferences": {"model_preferences": {"provider": "anthropic", "model": "claude-3-7", "source": "explicit"}}}
+    )
+    assert explicit == ("anthropic", "claude-3-7")
+    legacy = worker._model_preferences(
+        {"agent_preferences": {"model_preferences": {"provider": "openai", "model": "gpt-4.1", "source": "preset"}}}
+    )
+    assert legacy == ("openai", "gpt-4.1")
+
+
 # --- ModelRouter.resolve ---------------------------------------------------------
 
 

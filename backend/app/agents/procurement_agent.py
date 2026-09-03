@@ -885,15 +885,43 @@ class OmniRAGAgent(BaseAgent):
         self.status = "active"
         logger.info("Procurement agent initialized")
 
-    def _get_llm(self):
-        if self._llm is None:
-            from app.llm.llm import LLM
+    def _get_llm(self, provider: str | None = None):
+        """One ``LLM`` client per provider; the routing policy picks which.
 
-            self._llm = LLM(
-                provider=settings.default_provider,
-                api_key=settings.openai_api_key,
-            )
-        return self._llm
+        The historical default (``settings.default_provider``) stays the
+        cached ``self._llm`` so existing callers and tests are untouched.
+        """
+        from app.llm.llm import LLM
+
+        wanted = str(provider or "").strip().lower()
+        default_provider = str(settings.default_provider or "").strip().lower()
+        if not wanted or wanted == default_provider:
+            if self._llm is None:
+                self._llm = LLM(
+                    provider=settings.default_provider,
+                    api_key=settings.openai_api_key,
+                )
+            return self._llm
+        cache = getattr(self, "_llm_by_provider", None)
+        if cache is None:
+            cache = {}
+            self._llm_by_provider = cache
+        client = cache.get(wanted)
+        if client is None:
+            try:
+                client = LLM(
+                    provider=wanted,
+                    api_key=settings.openai_api_key if wanted in {"openai", "azure"} else None,
+                )
+            except ValueError as exc:
+                logger.warning(
+                    "OmniRAG: routed provider unsupported by app.llm, using default",
+                    provider=wanted,
+                    error=str(exc),
+                )
+                return self._get_llm(None)
+            cache[wanted] = client
+        return client
 
     def _get_document_service(self, request: dict[str, Any] | None = None):
         """Return a DocumentService scoped to the request's workspace.
@@ -950,6 +978,9 @@ class OmniRAGAgent(BaseAgent):
         rewritten = request.get("rewritten_query", query)
         prefs = request.get("agent_preferences", {}).get("model_preferences", {})
         model_name = prefs.get("model", settings.default_model)
+        # Provider chosen by the routing policy (chat._seed_model_preferences);
+        # absent = historical default provider.
+        model_provider = prefs.get("provider") if isinstance(prefs, dict) else None
         temperature = request.get("temperature", 0.3)
         custom_system_prompt = request.get("system_prompt")
         grounding_policy = _grounding_policy_from_request(request)
@@ -1599,7 +1630,7 @@ class OmniRAGAgent(BaseAgent):
             enabled=not _query_requests_contact_info(query)
         )
         try:
-            llm = self._get_llm()
+            llm = self._get_llm(model_provider)
             async for chunk_text in llm.stream_complete(
                 prompt=user_prompt,
                 model=model_name,

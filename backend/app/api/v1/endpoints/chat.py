@@ -747,6 +747,52 @@ def _int_budget(value: Any, default: int) -> int:
     return max(1, parsed)
 
 
+def _seed_model_preferences(
+    request_dict: Dict[str, Any],
+    app_settings: Dict[str, Any],
+    workspace: Any,
+) -> Dict[str, Any]:
+    """Fill ``agent_preferences.model_preferences`` through the routing policy.
+
+    Request > workspace tier (deterministic from the answer profile) > RAG
+    preset defaults.  The resolved choice (``tier``, ``source``,
+    ``fallback_chain``) rides along with the request so the orchestrator, the
+    deep-retrieval worker and the transcript all see the same decision.
+    """
+    from app.services.model_plane.routing_policy import resolve_chat_model, routing_snapshot
+
+    prefs = request_dict.setdefault("agent_preferences", {}) or {}
+    request_dict["agent_preferences"] = prefs
+    model_prefs = prefs.get("model_preferences")
+    if not isinstance(model_prefs, dict):
+        model_prefs = {}
+    try:
+        snapshot = routing_snapshot(workspace)
+        choice = resolve_chat_model(
+            workspace,
+            snapshot=snapshot,
+            answer_profile=request_dict.get("answer_profile"),
+            requested_model=model_prefs.get("model"),
+            requested_provider=model_prefs.get("provider"),
+            preset_model=app_settings.get("defaultModel") or settings.default_model,
+            preset_provider=app_settings.get("defaultProvider") or settings.default_provider,
+        )
+        request_dict["model_routing"] = snapshot.to_dict()
+    except Exception as exc:  # noqa: BLE001 — routing must never take the chat down
+        logger.warning("chat: model routing unavailable, using preset defaults", error=str(exc))
+        model_prefs.setdefault("model", app_settings.get("defaultModel") or settings.default_model)
+        model_prefs.setdefault("provider", app_settings.get("defaultProvider") or settings.default_provider)
+        prefs["model_preferences"] = model_prefs
+        return model_prefs
+    model_prefs["model"] = choice.model
+    model_prefs["provider"] = choice.provider
+    model_prefs["tier"] = choice.tier
+    model_prefs["source"] = choice.source
+    model_prefs["fallback_chain"] = list(choice.fallback_chain)
+    prefs["model_preferences"] = model_prefs
+    return model_prefs
+
+
 def _apply_retrieval_budget_policy(request_dict: Dict[str, Any]) -> None:
     """Clamp retrieval fan-out before any orchestrator sees the request."""
     agent_preferences = (
@@ -2768,16 +2814,7 @@ async def chat_completion(
             request_dict["agent_preferences"]["preferred_agents"] = app_settings.get(
                 "preferredAgents", []
             )
-        if not request_dict["agent_preferences"].get("model_preferences"):
-            request_dict["agent_preferences"]["model_preferences"] = {}
-        if not request_dict["agent_preferences"]["model_preferences"].get("model"):
-            request_dict["agent_preferences"]["model_preferences"]["model"] = (
-                app_settings.get("defaultModel") or settings.default_model
-            )
-        if not request_dict["agent_preferences"]["model_preferences"].get("provider"):
-            request_dict["agent_preferences"]["model_preferences"]["provider"] = (
-                app_settings.get("defaultProvider") or settings.default_provider
-            )
+        _seed_model_preferences(request_dict, app_settings, workspace)
 
         # Apply default temperature and max_tokens from settings
         if request.max_tokens is None:
@@ -4258,16 +4295,7 @@ async def chat_stream(
                 request_dict["agent_preferences"]["preferred_agents"] = app_settings.get(
                     "preferredAgents", []
                 )
-            if not request_dict["agent_preferences"].get("model_preferences"):
-                request_dict["agent_preferences"]["model_preferences"] = {}
-            if not request_dict["agent_preferences"]["model_preferences"].get("model"):
-                request_dict["agent_preferences"]["model_preferences"]["model"] = (
-                    app_settings.get("defaultModel") or settings.default_model
-                )
-            if not request_dict["agent_preferences"]["model_preferences"].get("provider"):
-                request_dict["agent_preferences"]["model_preferences"]["provider"] = (
-                    app_settings.get("defaultProvider") or settings.default_provider
-                )
+            _seed_model_preferences(request_dict, app_settings, workspace)
 
             full_content = []
             all_chunks = []
