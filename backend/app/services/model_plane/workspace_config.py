@@ -155,10 +155,20 @@ def get_routing(workspace: "Workspace") -> Dict[str, Any]:
         chain = [provider]
         if "ollama" not in chain:
             chain.append("ollama")
+    # Tier table: workspace values win per tier, deployment Settings fill the
+    # gaps, an unset tier is simply absent (the resolver falls through).
+    from app.services.model_plane.routing_policy import global_tiers, normalise_tiers
+
+    tiers = global_tiers()
+    try:
+        tiers.update(normalise_tiers(routing.get("tiers")))
+    except ValueError as exc:
+        logger.warning("Ignoring invalid workspace model tiers: %s", exc)
     return {
         "default_provider": provider,
         "default_model": model,
         "fallback_chain": chain,
+        "tiers": tiers,
         "source": "workspace" if routing else "global",
     }
 
@@ -288,7 +298,10 @@ def set_routing(
     default_provider: str,
     default_model: str,
     fallback_chain: Optional[List[str]] = None,
+    tiers: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
+    from app.services.model_plane.routing_policy import normalise_tiers
+
     provider = (default_provider or "").strip()
     model = (default_model or "").strip()
     if not provider or not model:
@@ -297,11 +310,20 @@ def set_routing(
     if provider not in chain:
         chain = [provider, *chain]
     portal = _portal_blob(workspace)
-    portal["routing"] = {
+    previous = portal.get("routing") if isinstance(portal.get("routing"), Mapping) else {}
+    routing: Dict[str, Any] = {
         "default_provider": provider,
         "default_model": model,
         "fallback_chain": chain,
     }
+    # ``tiers=None`` keeps the stored table; an explicit mapping replaces it
+    # (empty values clear a tier).
+    if tiers is None:
+        if isinstance(previous.get("tiers"), Mapping):
+            routing["tiers"] = dict(previous["tiers"])
+    else:
+        routing["tiers"] = normalise_tiers(tiers)
+    portal["routing"] = routing
     return _persist(db, workspace, portal)
 
 

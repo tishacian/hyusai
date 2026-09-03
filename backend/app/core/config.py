@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     # Judge model override. Empty falls back to default_model (gpt-5) and is
     # routed provider-neutrally via ModelRouter (Ollama fallback on-prem).
     judge_model: str = ""
+    # Deployment-level model tier table (``provider:model`` or bare model).
+    # Empty = the tier resolves to default_model, so nothing changes until an
+    # operator fills a tier here or in the workspace Model portal.
+    model_tier_fast: str = ""
+    model_tier_balanced: str = ""
+    model_tier_strong: str = ""
 
     # Route select niche intents (inventory/comparison/equipment/table/multi-hop)
     # through the agentic chat DAG instead of the classic orchestrator. Off by

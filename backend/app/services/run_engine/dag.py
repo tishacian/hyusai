@@ -69,6 +69,7 @@ from .condition import validate as validate_condition
 from .debug_contract import DebugContractError, normalize_debug_config
 from .engine import (
     _attach_authoritative_membrane,
+    _attach_model_governance,
     _build_initial_ctx,
     _evaluate_run_capability,
     _execute_task_node,
@@ -674,6 +675,7 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
 
         initial_ctx = _build_initial_ctx(db, run, system, capability)
         _attach_authoritative_membrane(initial_ctx, control)
+        _attach_model_governance(initial_ctx, control)
         state = WalkerState(
             ctx=initial_ctx,
             pending_counts={nid: len(graph.in_edges[nid]) for nid in graph.nodes},
