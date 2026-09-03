@@ -64,6 +64,18 @@ import {
 /** Instances so far, for the one id each dial's gradient needs to itself. */
 let gauges = 0;
 
+/** The nearest ancestor that scrolls vertically — the cockpit's main column here. */
+function scrollParentOf(el: HTMLElement): HTMLElement | null {
+  if (typeof getComputedStyle !== 'function') return null;
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight) {
+      return node;
+    }
+  }
+  return null;
+}
+
 @Component({
   selector: 'app-model-playground',
   standalone: true,
@@ -362,7 +374,7 @@ let gauges = 0;
             </button>
           </div>
           @if (block.keys.length) {
-            <div class="ck-surface rounded-md overflow-hidden mt-3">
+            <div class="ck-surface rounded-md ck-h-scroll mt-3">
               <table class="w-full text-sm ck-schema">
                 <thead>
                   <tr>
@@ -470,9 +482,15 @@ let gauges = 0;
           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         }
       }
+      :host {
+        display: block;
+        min-width: 0;
+        max-width: 100%;
+      }
       .ck-panel {
         padding: 14px 16px;
         border-radius: 6px;
+        min-width: 0;
         background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.02));
         box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.06));
       }
@@ -732,13 +750,19 @@ let gauges = 0;
           var(--ck-signal-neg, #ef5a6f) 100%
         );
       }
+      /* The request body is one JSON line, and a line that cannot break is a
+         width the whole page inherits: on a laptop it once carried the tab to
+         2.8k pixels and the dial with it. Wrapping keeps the snippet exact and
+         the page the width of the window. */
       .ck-code {
         font-size: 11px;
         line-height: 1.55;
         padding: 10px 12px;
         border-radius: 5px;
-        overflow-x: auto;
-        white-space: pre;
+        min-width: 0;
+        max-width: 100%;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
         color: var(--ck-fg-2, #c3c9d4);
         background: var(--ck-bg-2, rgba(0, 0, 0, 0.28));
         box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.07));
@@ -946,25 +970,35 @@ export class ModelPlaygroundComponent {
    * The shell clips rather than scrolls, so in that second case there was no
    * gesture available to reach it at all.
    *
-   * ``scrollIntoView`` answers both, and it is the reason this is a scroll and
-   * not a layout fix: it moves a container's scroll position programmatically,
-   * which works even where ``overflow: hidden`` denies the reader a scrollbar.
-   * ``nearest`` on both axes makes it the minimum move — nothing happens when
-   * the panel is already on screen, which is the common case and must stay
-   * undisturbed.
+   * The move is a scroll and not a layout fix because it works even where
+   * ``overflow: hidden`` denies the reader a scrollbar. It is not
+   * ``scrollIntoView``: the model page keeps its object header sticky over the
+   * top of the scroller, and "in view" for the layout engine is "under the
+   * header" for the reader — the dial, which sits at the top of the panel, is
+   * exactly the part that ended up covered. So the panel's top is aligned just
+   * below whatever is sticky at the scroller's top, and nothing moves when it
+   * already reads from there, which is the common case and must stay undisturbed.
    */
   private revealAnswer(): void {
     const panel = this.answerPanel()?.nativeElement;
-    if (!panel || typeof panel.scrollIntoView !== 'function') return;
+    if (!panel) return;
     let smooth = true;
     if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
       smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     }
-    panel.scrollIntoView({
-      block: 'nearest',
-      inline: 'nearest',
-      behavior: smooth ? 'smooth' : 'auto',
-    });
+    const behavior: ScrollBehavior = smooth ? 'smooth' : 'auto';
+    const scroller = scrollParentOf(panel);
+    if (!scroller) {
+      panel.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior });
+      return;
+    }
+    const box = scroller.getBoundingClientRect();
+    const sticky = scroller.querySelector<HTMLElement>('ck-object-header header');
+    const readableTop = Math.max(box.top, sticky?.getBoundingClientRect().bottom ?? box.top);
+    const rect = panel.getBoundingClientRect();
+    const gap = 12;
+    if (rect.top >= readableTop + gap && rect.bottom <= box.bottom) return;
+    scroller.scrollBy({ top: rect.top - readableTop - gap, behavior });
   }
 
   protected readonly gauge = computed(() =>

@@ -96,7 +96,7 @@ export interface TrainSeed {
         aria-labelledby="model-train-title"
         cdkTrapFocus
         [cdkTrapFocusAutoCapture]="true"
-        style="max-width: 1040px; border: 1px solid var(--ck-stroke-strong)"
+        style="max-width: 1040px; min-width: 0; border: 1px solid var(--ck-stroke-strong)"
       >
         <header
           class="flex items-start justify-between gap-4 px-6 py-4"
@@ -454,16 +454,20 @@ export interface TrainSeed {
   `,
   styles: [
     `
+      /* minmax(0, 1fr), not 1fr: a bare 1fr track is minmax(auto, 1fr) and grows
+         to the sample table's min-content, which took the whole dialog past
+         the window on a laptop. The column stays its share and the preview
+         scrolls inside it. */
       .ck-studio {
         display: grid;
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
         gap: 0;
         max-height: min(66vh, 620px);
         overflow-y: auto;
       }
       @media (min-width: 900px) {
         .ck-studio {
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         }
         .ck-studio__col + .ck-studio__col {
           border-left: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.06));
@@ -474,6 +478,7 @@ export interface TrainSeed {
         display: flex;
         flex-direction: column;
         gap: 16px;
+        min-width: 0;
       }
       .ck-field {
         display: flex;

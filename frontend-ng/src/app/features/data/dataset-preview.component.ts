@@ -90,6 +90,11 @@ const PAGE_SIZE = 25;
   `,
   styles: [
     `
+      :host {
+        display: block;
+        min-width: 0;
+        max-width: 100%;
+      }
       .ck-dsp__note {
         display: flex;
         align-items: center;
