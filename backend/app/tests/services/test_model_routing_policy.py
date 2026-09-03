@@ -332,3 +332,15 @@ def test_set_routing_keeps_stored_tiers_unless_a_table_is_given():
     with pytest.raises(ValueError):
         workspace_config.set_routing(_FakeDb(), ws, default_provider="openai", default_model="gpt-4.1", tiers={"x": "y"})
     assert workspace_config.get_routing(ws)["tiers"] == {"strong": "openai:gpt-5"}
+
+
+def test_classic_orchestrator_announces_the_routing_decision_only_when_seeded():
+    from app.agents.orchestrator import AgentOrchestrator
+
+    assert AgentOrchestrator._model_routing_step({"model": "gpt-4o"}, {}) is None
+    step = AgentOrchestrator._model_routing_step(
+        {"model": "gpt-5", "provider": "openai", "tier": "strong", "source": "tier"}, {}
+    )
+    assert step["decision_step"]["type"] == "routing"
+    assert step["decision_step"]["title"] == "Modèle strong → openai:gpt-5"
+    assert step["decision_step"]["metrics"]["source"] == "tier"

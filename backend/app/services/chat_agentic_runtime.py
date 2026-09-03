@@ -393,6 +393,52 @@ _NODE_TYPES = {
 }
 
 
+def _model_routing_step(
+    event: Mapping[str, Any], *, run_id: str, node_id: str, kind: str
+) -> Optional[dict[str, Any]]:
+    """One ``routing`` step per model decision: the planner's tier, then the
+    provider/model an LLM node was actually served by."""
+    if kind != "node_end":
+        return None
+    routing = event.get("model_routing") if isinstance(event.get("model_routing"), Mapping) else None
+    tier = event.get("model_tier")
+    if routing:
+        tier = routing.get("model_tier") or tier
+        served = f"{routing.get('provider') or '?'}:{routing.get('model') or '?'}"
+        title = f"Modèle {tier or 'par défaut'} → {served}"
+        description = {
+            "tier": "Niveau choisi dans la table des tiers du workspace",
+            "system": "Modèle épinglé par le System",
+            "explicit": "Modèle demandé explicitement",
+            "workspace": "Modèle par défaut du workspace",
+            "global": "Modèle par défaut de la plateforme",
+            "allowed_models": "Ramené à la liste de modèles autorisés",
+        }.get(str(routing.get("source") or ""), "Politique de routage modèle")
+        if routing.get("fallback"):
+            description += " · repli fournisseur"
+        metrics = {k: v for k, v in dict(routing).items() if v not in (None, "", False)}
+    elif isinstance(tier, str) and tier:
+        title = f"Niveau de modèle demandé : {tier}"
+        description = "Interprétation agentique du routage par le planificateur"
+        metrics = {"model_tier": tier}
+    else:
+        return None
+    return {
+        "chunk_type": "decision_step",
+        "decision_step": {
+            "id": f"agentic:{run_id}:{node_id}:model_routing",
+            "type": "routing",
+            "status": "completed",
+            "title": title,
+            "description": description,
+            "metrics": metrics,
+        },
+        "run_id": run_id,
+        "route": "agentic",
+        "is_final": False,
+    }
+
+
 def agentic_event_chunks(event: Mapping[str, Any], *, run_id: str) -> list[dict[str, Any]]:
     """Map run-engine checkpoints to the append-only chat SSE contract."""
 
@@ -424,9 +470,15 @@ def agentic_event_chunks(event: Mapping[str, Any], *, run_id: str) -> list[dict[
     title = str(event.get("label") or node_id.replace(".", " ").replace("_", " ").title())
     metrics = {
         key: event.get(key)
-        for key in ("skill_slug", "latency_ms", "cost", "chosen_branch", "status")
+        for key in ("skill_slug", "latency_ms", "cost", "chosen_branch", "status", "model_tier")
         if event.get(key) is not None
     }
+    model_routing = event.get("model_routing") if isinstance(event.get("model_routing"), Mapping) else None
+    if model_routing:
+        metrics["model_routing"] = dict(model_routing)
+    description = (
+        "Branche non retenue par le routeur" if skipped else "Exécution du graphe gouverné Agentium"
+    )
     chunks = [
         {
             "chunk_type": "decision_step",
@@ -435,11 +487,7 @@ def agentic_event_chunks(event: Mapping[str, Any], *, run_id: str) -> list[dict[
                 "type": step_type,
                 "status": status,
                 "title": title,
-                "description": (
-                    "Branche non retenue par le routeur"
-                    if skipped
-                    else "Exécution du graphe gouverné Agentium"
-                ),
+                "description": description,
                 "duration": event.get("latency_ms"),
                 "metrics": metrics,
             },
@@ -448,6 +496,9 @@ def agentic_event_chunks(event: Mapping[str, Any], *, run_id: str) -> list[dict[
             "is_final": False,
         }
     ]
+    routing_step = _model_routing_step(event, run_id=run_id, node_id=node_id, kind=kind)
+    if routing_step is not None:
+        chunks.append(routing_step)
     if step_type == "retrieve" and kind == "node_start":
         chunks.append(
             {
@@ -648,10 +699,17 @@ def load_agentic_chat_outcome(
         terminal_route = "agentic_abstain"
     elif policy_terminal:
         terminal_route = "agentic_blocked"
+    generate_output = (
+        _as_dict((by_slug.get("llm_rag_answer_v1") or [None])[-1].output_ref)
+        if by_slug.get("llm_rag_answer_v1")
+        else {}
+    )
     retrieval_plan = {
         "mode": plan_output.get("mode"),
         "retrieval": plan_output.get("retrieval"),
         "sub_queries": plan_output.get("sub_queries") or [],
+        "model_tier": plan_output.get("model_tier"),
+        "model_routing": _as_dict(_as_dict(generate_output.get("meta")).get("model_routing")),
     }
     retrieval_metrics = {
         "pipeline": "agentic_dag",

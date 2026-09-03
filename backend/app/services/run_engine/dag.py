@@ -4283,6 +4283,32 @@ def _metric_block(payload: Any) -> Optional[Dict[str, Any]]:
     return {"key": key, "value": float(value)}
 
 
+def _node_model_routing(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Model-routing facts a node settled with, lifted onto its ``node_end``.
+
+    A planner emits ``model_tier`` (its routing call); an LLM skill reports
+    ``meta.model_routing`` (the tier it asked for and the provider/model that
+    actually served).  Both are optional and read off the output as-is so the
+    chat transcript can show "tier -> model" without a fetch per node.
+    """
+    output = result.get("output")
+    if not isinstance(output, dict):
+        return {}
+    lifted: Dict[str, Any] = {}
+    tier = output.get("model_tier")
+    if isinstance(tier, str) and tier:
+        lifted["model_tier"] = tier
+    meta = output.get("meta")
+    routing = meta.get("model_routing") if isinstance(meta, dict) else None
+    if isinstance(routing, dict) and routing:
+        lifted["model_routing"] = {
+            key: routing.get(key)
+            for key in ("model_tier", "provider", "model", "source", "fallback", "reason")
+            if routing.get(key) is not None
+        }
+    return lifted
+
+
 def _node_data_badge(
     node_input: Optional[Dict[str, Any]], result: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
@@ -4366,6 +4392,9 @@ def _summarise_node_execution(
     badge = _node_data_badge(node_input, result)
     if badge is not None:
         summary["data"] = badge
+    routing = _node_model_routing(result)
+    if routing:
+        summary.update(routing)
     if result.get("pause"):
         summary["pause"] = True
     if node.kind == "decision":
