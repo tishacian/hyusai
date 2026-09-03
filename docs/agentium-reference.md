@@ -68,7 +68,8 @@ Objects a person manipulates, and their primary UI:
 | `Workspace` | Tenant boundary, membership, mode, data isolation | `/workspace`, workspace picker |
 | `Capability` | Business capability blueprint | `/capabilities` |
 | `System` | Configured executable agentic system | `/systems`, `/systems/:id` |
-| `Skill` | One unit of work with a defined input and output; a published ML model is one | `/skills`, Factory |
+| `Skill` | One unit of work with a defined input and output; a published ML model is one (`ml_models.published_skill_id`) | `/skills`, Data & Models |
+| `Dataset` / `Model` | The data plane: what a System's runs produced (`system_id`, from the run) and, once published, a Skill. One Build entry, **Data & Models**; `/data` and `/models` stay distinct routes | `/data`, `/models` |
 | `Experience` | A business application: a no-code UI assembled from published Systems | `/create/apps` (author), `/work/:slug` (use) |
 | `Binding` | A stable link from an app action to one published System version and its contract | Experience editor |
 | `Run` | Execution evidence and runtime ledger | `/runs`, `/observability`, `/tasks` |
