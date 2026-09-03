@@ -88,6 +88,16 @@ class TabularDataset(Base):
     # purges and workspace teardown must stay cheap (same posture as Run).
     run_id = Column(String(36), nullable=True, index=True)
     node_id = Column(String(160), nullable=True)
+    # The System whose run produced the row — the one fact that places a
+    # dataset in the mental model (System → Flow → Run → what it produced).
+    # Resolved from the run at write time; NULL for a hand upload. A deleted
+    # System leaves its datasets: the bytes and the lineage still stand.
+    system_id = Column(
+        String(36),
+        ForeignKey("systems.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     parent_ids = Column(JSON, default=list)
     produced_by = Column(String(120), nullable=True)
     lineage_json = Column(JSON, default=dict)
@@ -191,7 +201,24 @@ class MLModel(Base):
 
     run_id = Column(String(36), nullable=True, index=True)
     node_id = Column(String(160), nullable=True)
+    # Same posture as the dataset: the System whose run trained the row.
+    system_id = Column(
+        String(36),
+        ForeignKey("systems.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     celery_task_id = Column(String(255), nullable=True)
+    # Publication makes the lineage a Skill. The id is the link the registry
+    # joins on and the fact "this lineage is published": a Skill deleted from
+    # the registry nulls it, so the card stops claiming a Skill that is gone.
+    # The slug is the name the card shows. Both are written together.
+    published_skill_id = Column(
+        String(36),
+        ForeignKey("skills.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     published_skill_slug = Column(String(200), nullable=True)
 
     created_by = Column(String(36), nullable=True)

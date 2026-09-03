@@ -917,9 +917,28 @@ def test_publishing_names_the_lineage_so_every_version_reports_it(
     db_session.refresh(first)
     db_session.refresh(second)
     assert first.published_skill_slug == second.published_skill_slug
+    # The link is the Skill row itself, not only its name: the registry can
+    # join on it, and a Skill withdrawn from the registry nulls it.
+    skill = db_session.query(Skill).one()
+    assert first.published_skill_id == second.published_skill_id == skill.id
+    assert tabular_predict.published_skill(db_session, first)["id"] == skill.id
     # Republishing is an update, not a second Skill.
     tabular_predict.publish_as_skill(db_session, model=first)
     assert db_session.query(Skill).count() == 1
+
+
+def test_a_version_born_after_publication_inherits_the_skill_link(
+    db_session, workspace, churn_artifact
+):
+    from app.services.tabular_ml import _lineage_publication
+
+    first = _register(db_session, workspace, churn_artifact, version=1)
+    tabular_predict.publish_as_skill(db_session, model=first)
+    skill = db_session.query(Skill).one()
+
+    assert _lineage_publication(
+        db_session, workspace_id=workspace.id, slug=first.slug
+    ) == (skill.id, skill.slug)
 
 
 def test_withdrawing_removes_the_skill_and_clears_the_lineage(db_session, model):
@@ -929,6 +948,7 @@ def test_withdrawing_removes_the_skill_and_clears_the_lineage(db_session, model)
 
     db_session.refresh(model)
     assert withdrawn and model.published_skill_slug is None
+    assert model.published_skill_id is None
     assert db_session.query(Skill).count() == 0
     assert tabular_predict.unpublish_skill(db_session, model=model) is None
 

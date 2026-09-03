@@ -1494,6 +1494,7 @@ def publish_as_skill(
     row.provider = "internal"
     if existing is None:
         db.add(row)
+    db.flush()
 
     # Every version of the lineage points at the one Skill, so the card of a
     # retired version still says the lineage is published.
@@ -1503,7 +1504,13 @@ def publish_as_skill(
             MLModel.workspace_id == model.workspace_id,
             MLModel.slug == model.slug,
         )
-        .update({MLModel.published_skill_slug: identity.slug}, synchronize_session=False)
+        .update(
+            {
+                MLModel.published_skill_id: row.id,
+                MLModel.published_skill_slug: identity.slug,
+            },
+            synchronize_session=False,
+        )
     )
     db.commit()
     db.refresh(row)
@@ -1532,7 +1539,10 @@ def unpublish_skill(db: DBSession, *, model: MLModel) -> str | None:
             MLModel.workspace_id == model.workspace_id,
             MLModel.slug == model.slug,
         )
-        .update({MLModel.published_skill_slug: None}, synchronize_session=False)
+        .update(
+            {MLModel.published_skill_id: None, MLModel.published_skill_slug: None},
+            synchronize_session=False,
+        )
     )
     db.commit()
     return slug
@@ -1540,6 +1550,7 @@ def unpublish_skill(db: DBSession, *, model: MLModel) -> str | None:
 
 def serialize_published_skill(row: Skill) -> dict[str, Any]:
     return {
+        "id": row.id,
         "slug": row.slug,
         "name": row.name,
         "description": row.description,
@@ -1552,16 +1563,23 @@ def serialize_published_skill(row: Skill) -> dict[str, Any]:
 
 
 def published_skill(db: DBSession, model: MLModel) -> dict[str, Any] | None:
-    if not model.published_skill_slug:
+    """The Skill a lineage is published as — by id, the slug being its name.
+
+    Rows written before the id existed carry only the slug, so the slug is
+    the fallback; a Skill deleted from the registry nulls the id and the
+    lookup by name then says what is true: nothing is published.
+    """
+
+    if not (model.published_skill_id or model.published_skill_slug):
         return None
-    row = (
-        db.query(Skill)
-        .filter(
+    query = db.query(Skill)
+    if model.published_skill_id:
+        row = query.filter(Skill.id == model.published_skill_id).first()
+    else:
+        row = query.filter(
             Skill.slug == model.published_skill_slug,
             Skill.workspace_id == model.workspace_id,
-        )
-        .first()
-    )
+        ).first()
     return serialize_published_skill(row) if row is not None else None
 
 

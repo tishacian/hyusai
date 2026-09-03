@@ -67,6 +67,7 @@ def _dispatch_ingest(dataset_id: str) -> bool:
 async def list_datasets(
     source: Optional[str] = Query(default=None, max_length=16),
     status: Optional[str] = Query(default=None, max_length=16),
+    system_id: Optional[str] = Query(default=None, max_length=36),
     limit: int = Query(default=100, ge=1, le=500),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
@@ -80,6 +81,8 @@ async def list_datasets(
         query = query.filter(TabularDataset.source == source)
     if status:
         query = query.filter(TabularDataset.status == status)
+    if system_id:
+        query = query.filter(TabularDataset.system_id == system_id)
     datasets = query.order_by(TabularDataset.created_at.desc()).limit(limit).all()
     return {
         "datasets": [serialize_dataset(row) for row in datasets],

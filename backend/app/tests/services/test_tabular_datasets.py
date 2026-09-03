@@ -306,6 +306,43 @@ def test_register_frame_versions_the_slug_and_records_lineage(
     assert reference["rows"] == 3 and reference["columns"] == 2
 
 
+def test_a_frame_produced_by_a_run_belongs_to_the_run_system(
+    db_session, workspace, object_store_root
+):
+    """The producers know their run; the row must know its System, or the
+    data plane stays beside the mental model instead of inside it."""
+    from app.models.run import Run
+    from app.models.system import System
+
+    system = System(id=str(uuid4()), workspace_id=workspace.id, name="Scoring")
+    run = Run(id=str(uuid4()), workspace_id=workspace.id, system_id=system.id)
+    db_session.add_all([system, run])
+    db_session.commit()
+
+    scored = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Scored",
+        frame=pl.DataFrame({"id": [1], "score": [0.7]}),
+        produced_by="ml_score_v1",
+        run_id=run.id,
+        node_id="score",
+    )
+    adhoc = register_frame(
+        db_session,
+        workspace_id=workspace.id,
+        name="Adhoc",
+        frame=pl.DataFrame({"id": [1]}),
+        produced_by="sql_transform_v1",
+        run_id="run-that-was-purged",
+    )
+    db_session.commit()
+
+    assert scored.system_id == system.id
+    assert serialize_dataset(scored)["system_id"] == system.id
+    assert adhoc.system_id is None
+
+
 def test_resolve_ref_accepts_id_envelope_or_latest_ready_slug(
     db_session, workspace, object_store_root
 ):

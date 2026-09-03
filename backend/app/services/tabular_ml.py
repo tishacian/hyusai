@@ -71,6 +71,7 @@ from app.services.tabular_datasets import (
     next_version,
     resolve_dataset_ref,
     slugify,
+    system_of_run,
 )
 
 logger = get_logger(__name__)
@@ -669,13 +670,13 @@ def download_model_dir(model: MLModel, destination: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _lineage_published_slug(
+def _lineage_publication(
     db: DBSession, *, workspace_id: str, slug: str
-) -> str | None:
-    """The Skill slug this lineage is published as, read off any sibling."""
+) -> tuple[str | None, str | None]:
+    """``(skill_id, skill_slug)`` this lineage is published as, off any sibling."""
 
     row = (
-        db.query(MLModel.published_skill_slug)
+        db.query(MLModel.published_skill_id, MLModel.published_skill_slug)
         .filter(
             MLModel.workspace_id == workspace_id,
             MLModel.slug == slug,
@@ -683,7 +684,15 @@ def _lineage_published_slug(
         )
         .first()
     )
-    return row[0] if row is not None else None
+    return (row[0], row[1]) if row is not None else (None, None)
+
+
+def _lineage_published_slug(
+    db: DBSession, *, workspace_id: str, slug: str
+) -> str | None:
+    """The Skill slug this lineage is published as, read off any sibling."""
+
+    return _lineage_publication(db, workspace_id=workspace_id, slug=slug)[1]
 
 
 def create_model(
@@ -699,6 +708,12 @@ def create_model(
     """Stage one training run as a ``pending`` model row (not yet dispatched)."""
 
     slug = slugify(spec.name, fallback="model")
+    # Publication is a lineage fact stored per row, so a version born after
+    # it must inherit it or its card would deny what its siblings report —
+    # and a later promotion would find nothing to refresh.
+    published_id, published_slug = _lineage_publication(
+        db, workspace_id=workspace_id, slug=slug
+    )
     model = MLModel(
         id=str(uuid4()),
         workspace_id=workspace_id,
@@ -729,14 +744,11 @@ def create_model(
         input_example_json={},
         classes_json=[],
         mlflow_model_name=f"{workspace_id[:8]}.{slug}",
-        # Publication is a lineage fact stored per row, so a version born after
-        # it must inherit the slug or its card would deny what its siblings
-        # report — and a later promotion would find nothing to refresh.
-        published_skill_slug=_lineage_published_slug(
-            db, workspace_id=workspace_id, slug=slug
-        ),
+        published_skill_id=published_id,
+        published_skill_slug=published_slug,
         run_id=run_id,
         node_id=node_id,
+        system_id=system_of_run(db, run_id),
         created_by=created_by,
     )
     db.add(model)
@@ -1246,8 +1258,10 @@ def serialize_model(
             model.last_predict_at.isoformat() if model.last_predict_at else None
         ),
         "published_skill_slug": model.published_skill_slug,
+        "published_skill_id": model.published_skill_id,
         "run_id": model.run_id,
         "node_id": model.node_id,
+        "system_id": model.system_id,
         "created_at": model.created_at.isoformat() if model.created_at else None,
         "updated_at": model.updated_at.isoformat() if model.updated_at else None,
         "trained_at": model.trained_at.isoformat() if model.trained_at else None,
