@@ -248,8 +248,10 @@ test.describe('NAWA Agent Studio — PR to PO behavioural contract', () => {
       expect(traffic.hitlDecisions[1]).toBe(chatRunId);
       await expect(dialogue).toHaveAttribute('data-stage', 'blocked', { timeout: RUN_TIMEOUT_MS });
       await expect(dialogue.locator('.xp-studio-dialog-blocked')).toContainText(/no call was made/);
-      await expect(dialogue.locator('.xp-studio-dialog-calls')).toBeVisible();
-      await expect(dialogue.locator('.xp-studio-dialog-calls .xp-studio-call[data-blocked="true"]').first()).toBeVisible();
+      const transcript = dialogue.locator('.xp-studio-dialog-calls');
+      await expect(transcript).toBeVisible();
+      await transcript.locator('summary').click();
+      await expect(transcript.locator('.xp-studio-call[data-blocked="true"]').first()).toBeVisible();
       expect(traffic.mcpInvokes, 'the chat dialogue must not write SAP from the browser').toEqual([]);
       leftPending = (await pendingGates(page)).map((run) => run.id);
       expect(leftPending, 'the canary settles every gate it opens').toEqual([]);
