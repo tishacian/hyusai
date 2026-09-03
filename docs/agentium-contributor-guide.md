@@ -23,11 +23,12 @@ Two product layers matter for orientation:
   Authors build and publish Systems.
 - **Experience** — the application layer on top: end-users consume published
   Systems through business applications (`/work`), authors compose them in
-  Studio (`/create`).
+  the Cockpit (`/create`). A **Studio** is the human surface of one such
+  application's agent (the NAWA Agent Studio on `/work/pr-to-po`).
 
 Read [`mental-model.md`](./mental-model.md) first. Then
-[`agentium-experience-platform.md`](./agentium-experience-platform.md) and
-[`agentium-surface-map.md`](./agentium-surface-map.md).
+[`agentium-reference.md`](./agentium-reference.md) — identity, lexicon,
+surfaces and the Experience platform in one document.
 
 ## 2. The branch
 
@@ -166,9 +167,9 @@ commit. A dirty `git status` is not a parking lot: finish or stash.
 ## 9. Reading list, in order
 
 1. [`mental-model.md`](./mental-model.md) — what the product is.
-2. [`agentium-surface-map.md`](./agentium-surface-map.md) — where things live in the UI.
+2. [`agentium-reference.md`](./agentium-reference.md) — the lexicon, where things live in the UI, the Experience layer architecture.
 3. [`agentium-ui-chrome.md`](./agentium-ui-chrome.md) — the visual rules the guard enforces.
-4. [`agentium-experience-platform.md`](./agentium-experience-platform.md) — the Experience layer architecture.
+4. [`agentium-realignment-plan.md`](./agentium-realignment-plan.md) — the drift matrix and target decisions the reference implements.
 5. [`dev-deploy-policy.md`](./dev-deploy-policy.md) — the git/deploy policy and its anti-patterns.
 6. [`agentium-release-process.md`](./agentium-release-process.md) — how a commit reaches the VM.
 7. [`ops/agentium-safe-vm-deployment.md`](./ops/agentium-safe-vm-deployment.md) — the full operator runbook (milestones, incidents, storage protections).

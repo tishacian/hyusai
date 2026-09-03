@@ -413,7 +413,7 @@ before the platform vocabulary:
 - Tools
 
 Layer 0 is the default for a business user. Layer 1 is the default for a business
-owner or author in Studio. The UI must **never force complexity**, but always
+owner or author in the Cockpit. The UI must **never force complexity**, but always
 allow authorised users to reach it without losing application, page or release
 context.
 
@@ -439,7 +439,7 @@ Not:
 
 ### 5.2 System-Centric intelligence, Experience-Centric usage
 
-Studio revolves around Systems, not features. Work revolves around the task the
+The Cockpit revolves around Systems, not features. Work revolves around the task the
 user must accomplish, not the engine that performs it.
 
 Users interact with:
@@ -532,18 +532,26 @@ Agentium's navigation is deliberately **not menu-first**. It is **cognitive-firs
 
 Navigation is a change of **perspective**, never of **context**. The breadcrumb updates *only when the object changes*.
 
-This five-axis model applies to **Studio**. Work is not a sixth lens: an
+This five-axis model applies to the **Cockpit**. Work is not a sixth lens: an
 Experience can bind several Systems, so forcing it into the canonical hierarchy
 would create a false parent-child relation. Agentium exposes two explicit spaces
 in the same product and session:
 
 | Space | Default audience | Canonical routes | Rule |
 | --- | --- | --- | --- |
-| Work | Business users | `/work`, `/work/:slug` | Application-owned shell; no Studio or engine chrome |
-| Studio | Authors, operators, governors | `/create`, `/systems`, `/runs`, … | Five cognitive axes and full progressive disclosure |
+| Work | Business users | `/work`, `/work/:slug` | Application-owned shell; no Cockpit or engine chrome |
+| Cockpit | Authors, operators, governors | `/create`, `/systems`, `/runs`, … | Five cognitive axes and full progressive disclosure |
 
-`Work ↔ Studio` is RBAC-gated navigation, not a visual mode toggle. Both spaces
+`Work ↔ Cockpit` is RBAC-gated navigation, not a visual mode toggle. Both spaces
 share workspace identity, canonical object ids, audit history and deep links.
+
+Inside Work, a **Studio** is the human surface of one application's agent: the
+person watches the run, decides at its gates and talks to the agent (the NAWA
+*Agent Studio* on `/work/pr-to-po`). It is a client of the server `Run`, never a
+second runtime. The lexicon — `frontend-ng/src/app/core/i18n.lexicon.ts`, enforced
+by `check:i18n` — keeps these three words apart and retires **Desk** and
+**Board**, which named the Studio during the PR to PO build-up. The stable form
+is [`agentium-reference.md`](./agentium-reference.md) §2.
 
 ### 5bis.2 Canonical hierarchy (corrected)
 
@@ -560,7 +568,7 @@ The previous ordering (`System › Skill › Run`) was wrong: it placed the ephe
 
 An Experience is deliberately absent from this chain. `ExperienceBinding` is a
 many-to-many edge from a released UI action to the exact published System
-ingress and contract hash. In Studio, an `ExperienceContext` chip may sit beside
+ingress and contract hash. In the Cockpit, an `ExperienceContext` chip may sit beside
 the canonical breadcrumb; it never rewrites it as `App › System`.
 
 ### 5bis.3 Function axis — verbs as lenses (Option A — Outcome-injected)
@@ -3518,8 +3526,8 @@ Agentium must explicitly support a **Builder Onboarding Mode** where ROI is not 
 
 `workspace.mode` is a workspace maturity/default-density preference. It is not
 an IAM role, does not grant authority and must not decide whether an individual
-member can enter Work or Studio. Effective navigation comes from the member's
-permissions; the selected workspace mode only chooses the initial Studio home
+member can enter Work or the Cockpit. Effective navigation comes from the member's
+permissions; the selected workspace mode only chooses the initial Cockpit home
 and how much economic or technical detail is revealed by default.
 
 ---
@@ -3642,7 +3650,7 @@ No duplication, no translation layer.
 - Audience-adapted shells are allowed and desirable. Work and immersive
   applications may own their page as long as canonical ids, APIs, history,
   deep links and contextual bridges remain shared.
-- Inside Studio, only abstraction level and lens change.
+- Inside the Cockpit, only abstraction level and lens change.
 
 > **◻️ Implementation claim — non attesté** — single Angular app, route-based but sharing chrome.
 
@@ -3827,8 +3835,8 @@ Instead of a mode switch, introduce a gradual layering:
 - No dedicated "switch mode" button
 - System suggests activation ("Track value?")
 
-This prohibition concerns a maturity toggle *inside Studio*. It does not forbid
-the explicit, permission-aware Work ↔ Studio boundary: using an application and
+This prohibition concerns a maturity toggle *inside the Cockpit*. It does not forbid
+the explicit, permission-aware Work ↔ Cockpit boundary: using an application and
 authoring or governing it are different user intents, not two maturity stages.
 
 ---
@@ -4670,7 +4678,7 @@ d'accès.
 
 ### 46.2 Contrat no-code
 
-Le Studio est majoritairement no-code : pages et composants certifiés, layouts
+L'éditeur d'Experience du Cockpit est majoritairement no-code : pages et composants certifiés, layouts
 contraints, formulaires issus du schéma d'ingress, liaisons sémantiques de
 données et d'actions, états loading / empty / error / denied, langues, thème,
 audience, preview et publication. Un auteur travaille dans trois zones
