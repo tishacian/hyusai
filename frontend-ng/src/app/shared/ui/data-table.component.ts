@@ -279,10 +279,21 @@ interface RenderedColumn {
   `,
   styles: [
     `
+      /* A wide table scrolls inside its own box. It must never be what sizes
+         the page: a host that lets min-content through pushes the whole
+         cockpit past the window (34 columns once made the Data page 3.9k
+         pixels wide), so the host is capped and the table scrolls within it. */
+      :host {
+        display: block;
+        min-width: 0;
+        max-width: 100%;
+      }
       .ck-dt {
         border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.06));
         border-radius: 8px;
         overflow: hidden;
+        min-width: 0;
+        max-width: 100%;
         background: var(--ck-bg-panel, rgba(255, 255, 255, 0.015));
       }
       .ck-dt__caption {

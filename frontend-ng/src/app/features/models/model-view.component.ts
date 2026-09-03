@@ -480,7 +480,7 @@ const CHART_ASPECT = 300 / 190;
                   </div>
                 }
               </div>
-              <div class="ck-surface rounded-md overflow-hidden">
+              <div class="ck-surface rounded-md ck-h-scroll">
                 <table class="w-full text-sm ck-schema">
                   <thead>
                     <tr>
@@ -564,7 +564,7 @@ const CHART_ASPECT = 300 / 190;
                         {{ i18n.t('models.compare.same.warn.' + caveat.code) }}
                       </div>
                     }
-                    <div class="ck-surface rounded-md overflow-hidden">
+                    <div class="ck-surface rounded-md ck-h-scroll">
                       <table class="w-full text-sm ck-schema">
                         <thead>
                           <tr>
@@ -738,7 +738,7 @@ const CHART_ASPECT = 300 / 190;
                 <div class="ck-section-label">{{ i18n.t('models.contract.title') }}</div>
                 <div class="ck-hint">{{ i18n.t('models.contract.hint') }}</div>
               </div>
-              <div class="ck-surface rounded-md overflow-hidden">
+              <div class="ck-surface rounded-md ck-h-scroll">
                 <table class="w-full text-sm ck-schema">
                   <thead>
                     <tr>
@@ -853,7 +853,7 @@ const CHART_ASPECT = 300 / 190;
 
         <!-- ── Settings ─────────────────────────────────────────────────────── -->
         <ck-tab id="setup" [label]="i18n.t('models.detail.tab.setup')">
-          <div class="ck-surface rounded-md overflow-hidden">
+          <div class="ck-surface rounded-md ck-h-scroll">
             <table class="w-full text-sm ck-schema">
               <tbody>
                 @for (entry of setup(); track entry.label) {
@@ -1196,7 +1196,10 @@ const CHART_ASPECT = 300 / 190;
         line-height: 1.5;
         padding: 10px 12px;
         border-radius: 5px;
-        overflow-x: auto;
+        min-width: 0;
+        max-width: 100%;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
         color: var(--ck-fg-2, #c3c9d4);
         background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.03));
         box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.07));

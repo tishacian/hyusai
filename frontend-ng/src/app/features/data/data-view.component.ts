@@ -158,7 +158,7 @@ const PAGE_SIZE = 50;
         </ck-tab>
 
         <ck-tab id="schema" [label]="i18n.t('data.detail.tab.schema')">
-          <div class="ck-surface rounded-md overflow-hidden">
+          <div class="ck-surface rounded-md ck-h-scroll">
             <table class="w-full text-sm ck-schema">
               <thead>
                 <tr>

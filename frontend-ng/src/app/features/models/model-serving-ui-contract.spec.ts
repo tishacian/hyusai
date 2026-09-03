@@ -101,9 +101,14 @@ test('an answer shows itself to whoever pressed the button', () => {
     /this\.revealAnswer\(\);[\s\S]{0,120}\} catch/,
     'revealed on success, not on refusal — a refusal renders by the button',
   );
-  // `nearest` on both axes, so nothing moves when the panel is already on
-  // screen: that is the common case and it must stay undisturbed.
-  assert.match(PLAYGROUND, /block: 'nearest',\s*\n\s*inline: 'nearest',/);
+  // The model page keeps its object header sticky over the scroller's top, so
+  // "in view" for `scrollIntoView` was "under the header" for the reader — and
+  // the dial sits at the top of the panel. The panel's top is aligned below
+  // whatever is sticky there, and nothing moves when it already reads from
+  // there: that is the common case and it must stay undisturbed.
+  assert.match(PLAYGROUND, /scroller\.querySelector<HTMLElement>\('ck-object-header header'\)/);
+  assert.match(PLAYGROUND, /if \(rect\.top >= readableTop \+ gap && rect\.bottom <= box\.bottom\) return;/);
+  assert.match(PLAYGROUND, /scroller\.scrollBy\(\{ top: rect\.top - readableTop - gap, behavior \}\)/);
   assert.match(PLAYGROUND, /prefers-reduced-motion: reduce/);
 
   // And the split that put the panel out of reach is now asked of the width the
