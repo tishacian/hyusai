@@ -40,6 +40,13 @@ Critères de sortie du gel :
 Fin du gel : à la validation de l'itération H0+H1 ci-dessous. H2, H3, H4
 partent ensuite en PRs séparées, hors gel.
 
+**Gel levé le 03/09/2026** sur l'itération « Réalignement H0+H1 » servie sur
+`1134a61d` (branche de PR `cursor/realign-h0-h1-5b89` → `demo/agentic`) : les
+quatre critères ci-dessus sont tenus, preuves dans l'entrée d'itération en fin
+de journal. Le contrat e2e a été passé sans modification de ses assertions ;
+seules deux retouches d'outillage y ont été faites (option vidéo, ouverture du
+`<details>` du transcript avant lecture).
+
 ## Verdict opérationnel au 23 juillet 2026
 
 Le déploiement applicatif direct de l'état historique vers les Lots 7–9 est un
@@ -5316,4 +5323,59 @@ bonne clarté de la conversation ». Deux commits, `4857b977` puis `988ee5c7`
 | Écritures | aucune sur cette itération (dialogue testé jusqu'à l'annulation) ; le chemin gardé create+commit est inchangé depuis `41a60d7f` |
 | Seed / flags | inchangés — `sap_write_unsealed` reste on pour `nawa` |
 | Rollback | `AGENTIUM_IMAGE_TAG=41a60d7f9e34` puis `up` |
+
+## Itération du 03/09 — réalignement H0+H1, déployée sur `1134a61d`
+
+Chantier du plan de réalignement post-audit, sous gel (voir en tête de
+journal). Branche `cursor/realign-h0-h1-5b89`, PR vers `demo/agentic` ; la VM
+sert le SHA de la PR en attendant la fusion.
+
+- **Une porte d'écriture (H0).** Tout `tools/call` non-lecture — HTTP
+  `/mcp/servers/{id}/invoke`, skills nommés du run-engine, `mcp_call_v1` —
+  passe par `connectors/mcp/write.py` : allow-list BAPI, interdiction de
+  `TESTRUN`, flag `sap_write_unsealed`, garde-fous `disabled_tools`, rollback
+  automatique d'un create sans commit, audit `mcp.write.invoked` pour chaque
+  appel qui est parti. Nouvelle règle : **une écriture que personne n'a
+  décidée reste scellée** (`reason: unattended`) même flag levé — expiration
+  de porte (`system:gate_ttl`), tick planifié, branche automatique.
+- **Un runtime PR→PO côté serveur (H1).** Le DAG `pr_to_po_flow` porte la
+  sélection de PR (`select_next_pr` : PR avec prix réel d'abord, candidats
+  exposés), la porte humaine enrichie (candidats, conditions de paiement,
+  incoterms, `decided_by`) et les écritures `task.create_po` /
+  `task.handle_rejection`. Le Studio est un client du `Run` : il démarre par
+  le binding, suit `checkpoints` et `invocations`, décide par l'HITL
+  canonique et n'appelle jamais un serveur MCP. `pr-to-po-desk.ts` et
+  `PrToPoBoardComponent` supprimés, `/work/pr-to-po/desk` redirige.
+- **Trouvé pendant le déploiement, corrigé sur la branche.**
+  `task.audit` échouait à chaque tick depuis le 01/09 (« audit_log_v1
+  requires an event_type ») : `config.params` n'atteint un skill qu'en mode
+  strict, or les runs publiés marchent en `dag_overlay`. Le nœud mappe
+  désormais ses propres params via l'espace `node` (test
+  `test_audit_node_reaches_its_event_type_in_overlay_mode`, faux `audit`
+  des tests DAG rendu exigeant). Et le seed rendait `system ready` alors que
+  la réconciliation répondait `operator_draft_preserved` : la v2 du flow
+  (31/08) était restée la version live parce qu'un brouillon opérateur
+  (rev 8, retouches de canvas sans changement sémantique) tenait le System.
+  Le seed imprime maintenant le statut, avertit et sort en 1 quand le flow
+  n'est pas celui du fichier ; il reprend aussi les positions du canvas
+  publié pour ne pas déranger la mise en page de l'opérateur.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n` (7165 clés, 22 règles lexique), `run-unit` 1360 verts ; pytest ciblé (`test_mcp_write`, `test_mcp_call_skill`, `test_nawa_pr_to_po_flow`, `test_mcp_read`, `test_mcp_fixture`) 65 verts sur la VM (image `test-realign`), puis 10/10 sur le flow après le correctif audit (3 échecs reproduits sans lui) |
+| Worktree | `sudo git fetch origin cursor/realign-h0-h1-5b89 && checkout --detach` → `f12f8d74`, `b35319a4`, puis `1134a61d8613ae9a6b6c649d0c465d2963e07340` |
+| Build | trois lots `agentium-{backend,worker,frontend}` : `:f12f8d745d16` (~35 min, cache pip froid), `:b35319a41473`, `:1134a61d8613` (~10 min avec cache) ; `AGENTIUM_IMAGE_REVISION` = SHA complet |
+| Dumps pré-bascule | `flow-publication-deployments/2026-09-02-f12f8d745d16/` (sha256 `df007536…`) et `2026-09-03-1134a61d8613/` (sha256 `ba4a5b65…`), 462 Mo chacun |
+| `storage-check` / `migrate` / `up` | sortie 0 ; aucune nouvelle révision Alembic ; cinq services recréés |
+| `build-info` | backend et frontend `revision: 1134a61d8613…`, `revision_verified: true` |
+| Flow live | v3 `5250e776`, sha `3b262625…`, publiée par l'opérateur via `PUT /systems/{id}/flow-draft` (rev 9) puis `POST /systems/{id}/flow/publish` ; positions du canvas conservées ; seed relancé → `flow reconciliation: published_no_op` |
+| Portes de sonde | `782e6032` (garde-fou on) et `f3dff90e` (snapshot v2 sans `decided_by`) réglées par l'API HITL : `create_po` et `handle_rejection` sortis `sealed: true, called: false, reason: unattended` — preuve live de la règle avant même la v3 |
+| Contrat e2e, mode par défaut | `18-nawa-agent-studio-canary.spec.ts` vert en 48 s : redirect `/desk`, run par binding, porte avec proposition, appels de lecture verbatim, décision HITL canonique, verdict `blocked`, audit `done`, chat annulé puis confirmé → refus garde-fou, **0 `invoke` MCP navigateur**, 0 porte laissée ouverte |
+| Contrat e2e, `E2E_NAWA_STUDIO_WRITE=1` | vert en 58 s : verdict `posted`, **PO 4500382548** créée et validée (run `70bacd67`), chat toujours refusé garde-fou off, 0 `invoke` navigateur |
+| Ledger | 4 lignes `procurement.pr_to_po` (une par run, nœud audit réparé) ; 2 lignes `mcp.write.invoked` (`BAPI_PO_CREATE1` « Local PO created under the number 4500382548 », `BAPI_TRANSACTION_COMMIT` ok, 933 ms) ; aucun `mcp.write.invoked` pour les écritures refusées — elles ne sont jamais parties |
+| Runs planifiés | cinq portes `hitl_pending` du 02/09 (04:00→20:00, snapshot v2) restent ouvertes jusqu'à leur TTL d'un jour. Celle de 00:00 (`dc4ffbed`) a expiré à 00:01:50 sous le nouveau backend : `handle_rejection` sorti `sealed: true, called: false, reason: unattended` — la règle tient sur le chemin `system:gate_ttl` en conditions réelles (son nœud audit, snapshot v2, a échoué comme attendu). Le prochain tick (04:00) marche la v3 |
+| Cosmétique noté | le walker émet `node_start` sur le nœud de la branche non prise avant son `node_end skipped` : le Studio affiche `Running` un cycle de polling sur « Discard on human rejection » après une approbation. Fidèle au serveur, hors périmètre H1 |
+| Rollback | `AGENTIUM_IMAGE_TAG=988ee5c7ec2c` puis `up` ; flow : `POST /systems/{id}/flow-draft/restore/b9217063-…` puis publish |
 
