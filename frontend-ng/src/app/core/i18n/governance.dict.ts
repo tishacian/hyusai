@@ -94,8 +94,8 @@ export const GOVERNANCE_FR = {
   'governance.experience.audience.not_deployed': 'À définir au déploiement',
   'governance.experience.drift.count': '{count} à vérifier',
   'governance.experience.drift.none': 'À jour',
-  'governance.experience.action.repair': 'Réparer dans le Studio',
-  'governance.experience.action.inspect': 'Inspecter dans le Studio',
+  'governance.experience.action.repair': 'Réparer dans le Cockpit',
+  'governance.experience.action.inspect': 'Inspecter dans le Cockpit',
   'governance.experience.action.runs': 'Voir les exécutions',
   'governance.experience.journal.title': 'Journal des applications',
   'governance.experience.journal.description':
@@ -617,8 +617,8 @@ export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   'governance.experience.audience.not_deployed': 'Set during deployment',
   'governance.experience.drift.count': '{count} to review',
   'governance.experience.drift.none': 'Up to date',
-  'governance.experience.action.repair': 'Repair in Studio',
-  'governance.experience.action.inspect': 'Inspect in Studio',
+  'governance.experience.action.repair': 'Repair in the Cockpit',
+  'governance.experience.action.inspect': 'Inspect in the Cockpit',
   'governance.experience.action.runs': 'View runs',
   'governance.experience.journal.title': 'Application journal',
   'governance.experience.journal.description':

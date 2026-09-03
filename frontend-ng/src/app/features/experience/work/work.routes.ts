@@ -8,7 +8,7 @@ export const workRoutes: Routes = [
   },
   {
     // The NAWA landing: the Agent Studio is the one client of the published
-    // PR → PO run. The former desk route stays reachable and lands here.
+    // PR → PO run. The retired /desk route stays reachable and lands here.
     path: 'pr-to-po',
     loadComponent: () =>
       import('./pr-to-po-studio.component').then((m) => m.PrToPoStudioComponent),

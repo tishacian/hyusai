@@ -127,6 +127,34 @@ export const UI_LEXICON: readonly LexiconEntry[] = [
     internal: ['ExperienceDraft'],
   },
   {
+    // The human surface of a business application: where a person watches
+    // the agent's run, decides at its gates and talks to it. "Desk" and
+    // "Board" named the same screen during the PR to PO build-up and made it
+    // read as three surfaces; the lexicon keeps one. A client's own "service
+    // desk" (ITSD) is their business noun, allow-listed where it appears.
+    id: 'studio',
+    en: 'Studio',
+    fr: 'Studio',
+    definition: {
+      en: "The screen where a person works with a business application's agent: its run, its gates, its conversation.",
+      fr: "L'écran où une personne travaille avec l'agent d'une application métier : son exécution, ses portes, sa conversation.",
+    },
+    banned: ['desk', 'board'],
+  },
+  {
+    // The other space: where authors, operators and governors work on the
+    // Systems themselves. Docs once called this space "Studio" too; the
+    // product name is the one the code has always carried (`ck-*`).
+    id: 'cockpit',
+    en: 'Cockpit',
+    fr: 'Cockpit',
+    definition: {
+      en: 'The space where you build Systems, run and steer them, and govern them.',
+      fr: 'L’espace où l’on construit les Systems, les exécute, les pilote et les gouverne.',
+    },
+    banned: [],
+  },
+  {
     id: 'binding',
     en: 'Binding',
     fr: 'Liaison',

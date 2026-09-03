@@ -2,7 +2,7 @@
  * PR to PO factory execution contract. Angular-free so the unit spec can
  * pin App → Binding → System → Run without a TestBed.
  *
- * The public /work binding resolve deliberately omits system_id. The desk
+ * The public /work binding resolve deliberately omits system_id. The Studio
  * therefore starts a cycle through the Experience binding, then reads the
  * System from the Run the binding created.
  */
