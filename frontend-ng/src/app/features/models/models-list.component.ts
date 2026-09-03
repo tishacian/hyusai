@@ -66,6 +66,12 @@ type ModelFilter = 'all' | ModelTask | 'serving';
       [kpis]="kpis()"
     >
       <div actions class="flex items-center gap-1.5">
+        <a
+          routerLink="/data"
+          class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+        >
+          <app-icon name="table" [size]="14" /> {{ i18n.t('models.list.go_data') }}
+        </a>
         <button
           type="button"
           class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"

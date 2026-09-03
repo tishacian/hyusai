@@ -252,6 +252,25 @@ const PAGE_SIZE = 50;
               </div>
             }
 
+            @if (dataset()?.system_id; as systemId) {
+              <div>
+                <div class="ck-section-label">{{ i18n.t('data.lineage.origin_system') }}</div>
+                <div class="flex items-center gap-2 flex-wrap" data-testid="origin-system">
+                  <a [routerLink]="['/systems', systemId]" class="ck-lineage-chip">
+                    <app-icon name="box" [size]="12" />
+                    {{ i18n.t('data.lineage.system_chip') }}
+                  </a>
+                  @if (dataset()?.run_id; as runId) {
+                    <a [routerLink]="['/runs', runId]" class="ck-lineage-chip">
+                      <app-icon name="play" [size]="12" />
+                      {{ i18n.t('data.lineage.run_chip') }}
+                      <span class="ck-mono" style="color: var(--ck-fg-4)">{{ runId.slice(0, 8) }}</span>
+                    </a>
+                  }
+                </div>
+              </div>
+            }
+
             @if (scoredBy(); as model) {
               <div>
                 <div class="ck-section-label">{{ i18n.t('data.lineage.model') }}</div>

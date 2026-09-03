@@ -198,8 +198,11 @@ export interface ModelDto {
   predict_count?: number;
   last_predict_at?: string | null;
   published_skill_slug?: string | null;
+  published_skill_id?: string | null;
   run_id?: string | null;
   node_id?: string | null;
+  /** The System whose run trained the row; null when trained from the card. */
+  system_id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   trained_at?: string | null;
