@@ -109,7 +109,14 @@ test('an answer shows itself to whoever pressed the button', () => {
   assert.match(PLAYGROUND, /scroller\.querySelector<HTMLElement>\('ck-object-header header'\)/);
   assert.match(PLAYGROUND, /if \(rect\.top >= readableTop \+ gap && rect\.bottom <= box\.bottom\) return;/);
   assert.match(PLAYGROUND, /scroller\.scrollBy\(\{ top: rect\.top - readableTop - gap, behavior \}\)/);
+  // Measured once the answer has rendered: the panel grows from a placeholder
+  // to a dial and its bars, and the geometry that matters is the final one.
+  assert.match(PLAYGROUND, /afterNextRender\(\(\) => this\.alignAnswer\(\), \{ injector: this\.injector \}\)/);
   assert.match(PLAYGROUND, /prefers-reduced-motion: reduce/);
+  // Side by side, the panel is pinned under the header while the reader works
+  // down the form, so the dial is beside the button when they press it.
+  assert.match(PLAYGROUND, /\.ck-play > \.ck-panel--answer \{\s*\n\s*position: sticky;\s*\n\s*top: var\(--play-pin-top, 12px\);/);
+  assert.match(PLAYGROUND, /'--play-pin-top',\s*\n\s*`\$\{Math\.round\(header\.getBoundingClientRect\(\)\.height\) \+ 12\}px`/);
 
   // And the split that put the panel out of reach is now asked of the width the
   // tab actually has. A viewport query answered for the window, which on a page

@@ -26,7 +26,10 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
+  Injector,
+  afterNextRender,
   computed,
   inject,
   input,
@@ -188,7 +191,7 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
           </section>
 
           <!-- ── The answer ────────────────────────────────────────────────── -->
-          <section class="ck-panel" #answerPanel>
+          <section class="ck-panel ck-panel--answer" #answerPanel>
             <div class="ck-section-label">{{ i18n.t('models.play.answer') }}</div>
             @if (!answer()) {
               <div class="ck-idle">
@@ -480,6 +483,15 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
       @container (min-width: 900px) {
         .ck-play {
           grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        }
+        /* Pinned beside the form, under the page header: the dial is still on
+           screen when the reader reaches the button at the bottom of the form,
+           and it moves in place instead of somewhere they have to scroll back
+           to. The offset is measured by the component (see the constructor). */
+        .ck-play > .ck-panel--answer {
+          position: sticky;
+          top: var(--play-pin-top, 12px);
+          align-self: start;
         }
       }
       :host {
@@ -860,6 +872,32 @@ export class ModelPlaygroundComponent {
   private readonly models = inject(ModelsService);
   private readonly toast = inject(ToastrService);
   private readonly router = inject(Router);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
+
+  constructor() {
+    // Side by side, the answer panel stays pinned while the reader works down
+    // twenty fields — but pinned *below* the page's sticky object header, whose
+    // height depends on the width its subtitle wraps at. The header is measured
+    // rather than guessed and written to a custom property the stylesheet reads.
+    afterNextRender(() => {
+      const scroller = scrollParentOf(this.host.nativeElement);
+      const header = scroller?.querySelector<HTMLElement>('ck-object-header header');
+      if (!header) return;
+      const pin = () => {
+        this.host.nativeElement.style.setProperty(
+          '--play-pin-top',
+          `${Math.round(header.getBoundingClientRect().height) + 12}px`,
+        );
+      };
+      pin();
+      if (typeof ResizeObserver === 'undefined') return;
+      const observer = new ResizeObserver(pin);
+      observer.observe(header);
+      this.destroyRef.onDestroy(() => observer.disconnect());
+    });
+  }
 
   protected readonly arc = GAUGE_ARC;
 
@@ -978,8 +1016,17 @@ export class ModelPlaygroundComponent {
    * exactly the part that ended up covered. So the panel's top is aligned just
    * below whatever is sticky at the scroller's top, and nothing moves when it
    * already reads from there, which is the common case and must stay undisturbed.
+   *
+   * Measured after the answer has rendered, not when it arrives: the panel grows
+   * from an idle placeholder to a dial and its bars, and a pinned panel that no
+   * longer fits under the form's bottom edge is pushed up under the header. The
+   * geometry that matters is the one the reader is about to see.
    */
   private revealAnswer(): void {
+    afterNextRender(() => this.alignAnswer(), { injector: this.injector });
+  }
+
+  private alignAnswer(): void {
     const panel = this.answerPanel()?.nativeElement;
     if (!panel) return;
     let smooth = true;
