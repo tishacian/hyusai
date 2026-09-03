@@ -719,6 +719,21 @@ def fail_frame(db: DBSession, dataset: TabularDataset, error: str) -> None:
     _fail(db, dataset, error)
 
 
+def system_of_run(db: DBSession, run_id: str | None) -> str | None:
+    """The System whose run is producing a row, so the row can say so.
+
+    A dataset or a model born from a Flow node belongs to the System that ran
+    it — that is what lets a System page list what its runs produced. The
+    producers only know the run; the run knows the System.
+    """
+
+    if not run_id:
+        return None
+    from app.models.run import Run
+
+    return db.query(Run.system_id).filter(Run.id == run_id).scalar()
+
+
 def reserve_frame(
     db: DBSession,
     *,
@@ -767,6 +782,7 @@ def reserve_frame(
         parent_ids=[str(parent) for parent in (parent_ids or []) if parent],
         run_id=run_id,
         node_id=node_id,
+        system_id=system_of_run(db, run_id),
         created_by=created_by,
         lineage_json=dict(lineage or {}),
     )
@@ -825,6 +841,7 @@ def register_frame(
             parent_ids=parents,
             run_id=run_id,
             node_id=node_id,
+            system_id=system_of_run(db, run_id),
             created_by=created_by,
             lineage_json=dict(lineage or {}),
         )
@@ -896,6 +913,7 @@ def serialize_dataset(
         "original_filename": dataset.original_filename,
         "run_id": dataset.run_id,
         "node_id": dataset.node_id,
+        "system_id": dataset.system_id,
         "parent_ids": list(dataset.parent_ids or []),
         "produced_by": dataset.produced_by,
         "created_at": dataset.created_at.isoformat() if dataset.created_at else None,

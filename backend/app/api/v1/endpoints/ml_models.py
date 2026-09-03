@@ -135,6 +135,7 @@ async def list_models(
     task: Optional[str] = Query(default=None, max_length=20),
     status: Optional[str] = Query(default=None, max_length=16),
     dataset_id: Optional[str] = Query(default=None, max_length=36),
+    system_id: Optional[str] = Query(default=None, max_length=36),
     limit: int = Query(default=100, ge=1, le=500),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
@@ -147,6 +148,8 @@ async def list_models(
         query = query.filter(MLModel.status == status)
     if dataset_id:
         query = query.filter(MLModel.dataset_id == dataset_id)
+    if system_id:
+        query = query.filter(MLModel.system_id == system_id)
     models = query.order_by(MLModel.created_at.desc()).limit(limit).all()
     badges = badges_for(db, models)
     return {

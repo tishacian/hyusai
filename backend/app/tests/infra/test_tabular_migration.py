@@ -32,16 +32,33 @@ import pytest
 from sqlalchemy import create_engine, inspect
 
 # The slice, in the order the deployment applies it. Listed rather than resolved
-# from ``alembic heads`` so that a third revision has to be admitted here
-# deliberately, and so a step-by-step upgrade is possible at all.
-CHAIN = ("096_tabular_data_plane", "097_ml_training_plane")
+# from ``alembic heads`` so that a new revision has to be admitted here
+# deliberately, and so a step-by-step upgrade is possible at all. 098 shipped
+# without being admitted and the prediction journal went unproven for a week.
+CHAIN = (
+    "096_tabular_data_plane",
+    "097_ml_training_plane",
+    "098_ml_predictions",
+    "099_data_plane_attached",
+)
 HEAD = CHAIN[-1]
 PARENT = "095_python_recipes"
 SCRATCH_DB = "agentium_p4_migration_data_plane"
 
 # The tables the slice owns. Their DDL has one source of truth per environment,
 # and this module's whole job is to prove the two agree.
-PLANE_TABLES = ("tabular_datasets", "ml_models", "ml_model_api_keys")
+PLANE_TABLES = ("tabular_datasets", "ml_models", "ml_model_api_keys", "ml_predictions")
+
+# The pre-slice tables the slice points at or reads from, reduced to the
+# columns it touches: ``workspaces`` and ``systems`` for the tenant and System
+# FKs, ``skills`` for the publication FK, ``runs`` for the 099 backfill.
+NEIGHBOUR_DDL = (
+    "create table workspaces (id varchar(36) primary key)",
+    "create table systems (id varchar(36) primary key)",
+    "create table skills (id varchar(36) primary key, slug varchar(160) unique not null,"
+    " workspace_id varchar(36))",
+    "create table runs (id varchar(36) primary key, system_id varchar(36))",
+)
 
 
 def _connection() -> dict[str, str]:
@@ -127,9 +144,10 @@ def _alembic(*argv: str) -> None:
 def migrated():
     """A database holding exactly what the slice's ``alembic upgrade`` produces.
 
-    The pre-096 state is reduced to the one table 096 points a foreign key at.
-    Restoring the real 95-revision history is neither possible from scratch in
-    this repository nor the point: what has to be proven is the slice's own DDL.
+    The pre-096 state is reduced to the tables the slice points a foreign key
+    at or backfills from. Restoring the real 95-revision history is neither
+    possible from scratch in this repository nor the point: what has to be
+    proven is the slice's own DDL.
 
     The upgrade goes one revision at a time. A single jump to the head would
     prove the same end state but not that each step lands — and an intermediate
@@ -147,7 +165,8 @@ def migrated():
     _psql("postgres", f'drop database if exists "{SCRATCH_DB}"')
     _psql("postgres", f'create database "{SCRATCH_DB}"')
     try:
-        _psql(SCRATCH_DB, "create table workspaces (id varchar(36) primary key)")
+        for ddl in NEIGHBOUR_DDL:
+            _psql(SCRATCH_DB, ddl)
         _alembic("stamp", PARENT)
         for revision in CHAIN:
             _alembic("upgrade", revision)
@@ -269,6 +288,14 @@ def test_the_foreign_keys_cascade_the_way_a_deleted_workspace_needs(migrated):
     assert by_table["ml_models"]["tabular_datasets"] == "SET NULL"
     assert by_table["ml_model_api_keys"]["ml_models"] == "CASCADE"
     assert by_table["ml_model_api_keys"]["workspaces"] == "CASCADE"
+    # The journal of serving calls belongs to the model it measured.
+    assert by_table["ml_predictions"]["ml_models"] == "CASCADE"
+    assert by_table["ml_predictions"]["workspaces"] == "CASCADE"
+    # A System deleted leaves what its runs produced; a Skill withdrawn from
+    # the registry stops the lineage from claiming it. Neither deletes data.
+    assert by_table["tabular_datasets"]["systems"] == "SET NULL"
+    assert by_table["ml_models"]["systems"] == "SET NULL"
+    assert by_table["ml_models"]["skills"] == "SET NULL"
 
 
 def test_a_row_the_application_would_write_actually_inserts(migrated):
@@ -284,6 +311,10 @@ def test_a_row_the_application_would_write_actually_inserts(migrated):
 
     with migrated.begin() as connection:
         connection.exec_driver_sql("insert into workspaces (id) values ('ws-1')")
+        connection.exec_driver_sql("insert into systems (id) values ('sys-1')")
+        connection.exec_driver_sql(
+            "insert into skills (id, slug, workspace_id) values ('sk-1', 'ws.1.predict_churn', 'ws-1')"
+        )
 
     with Session(migrated) as session:
         dataset = TabularDataset(
@@ -293,6 +324,7 @@ def test_a_row_the_application_would_write_actually_inserts(migrated):
             slug="churn",
             source="upload",
             status="ready",
+            system_id="sys-1",
         )
         session.add(dataset)
         session.flush()
@@ -306,6 +338,9 @@ def test_a_row_the_application_would_write_actually_inserts(migrated):
             target="churn",
             dataset_id="ds-1",
             status="ready",
+            system_id="sys-1",
+            published_skill_id="sk-1",
+            published_skill_slug="ws.1.predict_churn",
         )
         session.add(model)
         session.commit()
@@ -320,6 +355,76 @@ def test_a_row_the_application_would_write_actually_inserts(migrated):
         assert stored.last_predict_at is None
         assert stored.artifact_bytes is None
         assert stored.dataset_id == "ds-1"
+        assert stored.system_id == "sys-1"
+        assert stored.published_skill_id == "sk-1"
+
+    # 099's promise: withdrawing the Skill or the System unlinks, never deletes.
+    with migrated.begin() as connection:
+        connection.exec_driver_sql("delete from skills where id = 'sk-1'")
+        connection.exec_driver_sql("delete from systems where id = 'sys-1'")
+    with Session(migrated) as session:
+        stored = session.get(MLModel, "m-1")
+        assert stored is not None
+        assert stored.published_skill_id is None
+        assert stored.system_id is None
+        assert session.get(TabularDataset, "ds-1").system_id is None
+
+
+def test_099_backfills_the_links_the_rows_already_implied(migrated):
+    """Rows written before 099 said which run produced them and which Skill
+    slug they were published as. The upgrade turns both into the links, and
+    leaves NULL where the run or the Skill is gone."""
+
+    _alembic("downgrade", "098_ml_predictions")
+    with migrated.begin() as connection:
+        connection.exec_driver_sql("insert into workspaces (id) values ('ws-1')")
+        connection.exec_driver_sql("insert into systems (id) values ('sys-1')")
+        connection.exec_driver_sql(
+            "insert into runs (id, system_id) values ('run-1', 'sys-1'), ('run-adhoc', null)"
+        )
+        connection.exec_driver_sql(
+            "insert into skills (id, slug, workspace_id) values ('sk-1', 'ws.1.predict_churn', 'ws-1')"
+        )
+        connection.exec_driver_sql(
+            """
+            insert into tabular_datasets
+                (id, workspace_id, name, slug, version, source, status, run_id, created_at, updated_at)
+            values
+                ('ds-flow', 'ws-1', 'Scored', 'scored', 1, 'score', 'ready', 'run-1', now(), now()),
+                ('ds-adhoc', 'ws-1', 'Adhoc', 'adhoc', 1, 'transform', 'ready', 'run-adhoc', now(), now()),
+                ('ds-upload', 'ws-1', 'Upload', 'upload', 1, 'upload', 'ready', null, now(), now())
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            insert into ml_models
+                (id, workspace_id, name, slug, version, task, algo, target, status,
+                 is_champion, run_id, published_skill_slug, created_at, updated_at)
+            values
+                ('m-published', 'ws-1', 'Churn', 'churn', 1, 'classification', 'gb', 'churn',
+                 'ready', true, 'run-1', 'ws.1.predict_churn', now(), now()),
+                ('m-orphan', 'ws-1', 'Old', 'old', 1, 'classification', 'gb', 'y',
+                 'ready', false, 'run-gone', 'ws.1.predict_gone', now(), now())
+            """
+        )
+
+    _alembic("upgrade", HEAD)
+
+    with migrated.connect() as connection:
+        datasets = dict(
+            connection.exec_driver_sql(
+                "select id, system_id from tabular_datasets"
+            ).fetchall()
+        )
+        models = {
+            row[0]: (row[1], row[2])
+            for row in connection.exec_driver_sql(
+                "select id, system_id, published_skill_id from ml_models"
+            ).fetchall()
+        }
+
+    assert datasets == {"ds-flow": "sys-1", "ds-adhoc": None, "ds-upload": None}
+    assert models == {"m-published": ("sys-1", "sk-1"), "m-orphan": (None, None)}
 
 
 def test_no_two_revisions_of_the_slice_add_the_same_column(migrated):
@@ -349,6 +454,16 @@ def test_no_two_revisions_of_the_slice_add_the_same_column(migrated):
                 "second one will fail and roll the whole upgrade back"
             )
             added[key] = revision
+
+
+def test_every_revision_id_fits_the_version_table():
+    """``alembic_version.version_num`` is ``varchar(32)``. A longer id passes
+    every local run (SQLite does not enforce the width) and fails the VM at
+    the very last statement of the upgrade — after the DDL, before the
+    bookkeeping — which is how 099 first arrived here."""
+
+    for revision in CHAIN:
+        assert len(revision) <= 32, f"{revision}: {len(revision)} > 32 characters"
 
 
 def test_the_slice_reverts_cleanly_so_a_rollback_is_real(migrated):
