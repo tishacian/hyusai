@@ -57,7 +57,7 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
             <span class="ck-mono" style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);">
               {{ i18n.t('steering.scope.label') }}
             </span>
-            <div class="flex items-center gap-1 ck-surface rounded" style="padding:3px; background:var(--ck-bg-inset);">
+            <div class="flex items-center gap-1 flex-wrap ck-surface rounded" style="padding:3px; background:var(--ck-bg-inset); min-width:0; max-width:100%;">
               <button
                 type="button"
                 (click)="selectCapability(null)"
