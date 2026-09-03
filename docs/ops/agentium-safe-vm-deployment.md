@@ -5440,3 +5440,65 @@ l'avancée en fast-forward de la branche H0+H1 ; la VM suit `demo/agentic` en
 | Runs planifiés | le tick de 04:00 (`f876079f`) est le premier à marcher la v3 : porte `hitl_pending` ouverte, snapshot avec `decided_by`. Il n'apparaît pas dans `/work/pr-to-po/validations` (origine `scheduler`, pas `experience:pr-to-po`), donc il ne gêne pas le Studio ni le canari ; il expirera en `unattended` → `sealed` sur son TTL. Les quatre portes du 02/09 (08:00→20:00, v2) attendent encore le leur |
 | Rollback | `AGENTIUM_IMAGE_TAG=1134a61d8613` puis `up` ; la 099 est additive (colonnes nullables + index), un retour d'image la tolère ; `alembic downgrade 098_ml_predictions` si l'on veut la retirer, dump pré-migration à portée |
 
+
+## Itération du 03/09 — polish MLOps « écran laptop », déployée sur `f1e0c5de`
+
+Après la démo SAP (réussie), passe de polish sur la partie MLOps du Cockpit.
+Symptôme rapporté : des pages débordent horizontalement sans qu'on puisse
+faire défiler — sur la page d'un modèle, onglet Predict, la colonne de droite
+(score et jauge) n'apparaît pas sur un écran laptop. Directement sur
+`demo/agentic` (`765ad6a3` → `f1e0c5de`, 6 commits), la VM suit en
+`--ff-only`.
+
+**Diagnostic, reproduit sur la VM au SHA `f371d059` en 1366×768.** Un audit
+Playwright qui liste les éléments dont le bord droit dépasse la fenêtre et
+mesure `#main-content` :
+
+| Page | Largeur de `#main-content` | Coupable |
+|---|---|---|
+| `/models/{id}` → Predict | **2 849 px** (fenêtre 1 366) | `pre.ck-code` du cURL : le corps JSON tient sur une ligne, `white-space: pre`, 2 817 px de min-content ; la colonne de grille du shell (`1fr` implicite = `minmax(auto, 1fr)`) s'élargit à cette largeur, la requête de conteneur `≥ 900px` voit une largeur factice et place la jauge en seconde colonne… hors écran, et le shell coupe sans barre |
+| `/data/{id}` → Preview | **3 938 px** | tableau à 34 colonnes ; même chaîne min-content, `.ck-dt__scroll` n'a rien à faire défiler puisque son parent s'est élargi |
+| Train a model | dialogue 1 501 px | grille `1fr 1fr` du studio ; la table « ce que le modèle lira » élargit la colonne 1 et la colonne 2 disparaît |
+| `/steering` | 2 558 px | une ligne non repliable de puces « une par capability » |
+
+Le shell coupait tout dépassement (`body` et shell en `overflow: hidden`,
+colonne implicite en min-content) : ni barre, ni geste pour atteindre ce qui
+dépasse.
+
+**Corrections.**
+
+- **Shell** (cherry-pick de `cursor/shell-horizontal-scroll-5b89`, resté hors
+  `demo/agentic` depuis le 29/08) : colonne `minmax(0, 1fr)`, chaîne
+  `min-width: 0` / `max-width: 100%` de la barre de titre à `#main-content`,
+  `#main-content` seule zone en `overflow-x: auto`, utilitaire `.ck-h-scroll`,
+  fil d'Ariane sémantique qui défile au lieu de tronquer.
+- **MLOps** : hôtes `ck-data-table` / `ck-dataset-preview` bornés — une table
+  large défile dans sa boîte et ne dimensionne plus la page ; grille du
+  studio d'entraînement en `minmax(0, 1fr)`, panneau du dialogue `min-width:
+  0` ; snippet cURL en `pre-wrap` / `overflow-wrap: anywhere` (texte inchangé,
+  le test `curlSnippet` garde le corps compact) ; wrappers `overflow-hidden`
+  des tables (versions, comparaison, contrat, clés) devenus `.ck-h-scroll`.
+- **Jauge** : côte à côte, le panneau de réponse est **épinglé** sous l'en-tête
+  collant pendant qu'on descend les vingt champs — la jauge est à côté du
+  bouton quand on le presse et bouge sur place. La hauteur de l'en-tête est
+  mesurée (`ResizeObserver` → `--play-pin-top`), pas devinée : elle diffère
+  en 1280 et 1366 (le sous-titre replie). La révélation après prédiction
+  mesure après rendu (`afterNextRender`) et aligne le haut du panneau sous ce
+  qui est collant, au lieu de `scrollIntoView(nearest)` qui comptait « sous
+  l'en-tête » comme visible.
+- **Cockpit** : l'en-tête d'objet collant est opaque (couleur de base du
+  thème sous le dégradé) — il laissait le contenu transparaître au défilement.
+- **Steering** : les puces de périmètre se replient.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n` 7172 clés, 24 règles ; `test:unit` 1359 verts (contrat `model-serving-ui-contract.spec.ts` mis à jour : alignement sous l'en-tête, mesure après rendu, panneau épinglé) ; `build:prod` 28 s |
+| Audit local (ng serve + proxy VM) | 1366×768 et 1280×720 : 16 vues MLOps (liste modèles, 7 onglets du modèle dont Predict avant/après prédiction, liste et 4 onglets dataset, studio d'entraînement) — **toutes tiennent dans la fenêtre** ; la table 34 colonnes défile dans `.ck-dt__scroll` (3 936 px dans 1 100) ; jauge visible après prédiction (`y` 262→412 sous un en-tête finissant à 214) ; balayage de 33 routes Cockpit sans débordement hors d'un scroller (`/orchestration` : minimap du canvas, attendu) |
+| Worktree | `sudo git fetch origin demo/agentic && git merge --ff-only` → `d84e7f01` puis `f1e0c5de0495…` |
+| Build | `agentium-{backend,worker,frontend}:d84e7f015171` puis `:f1e0c5de0495`, `AGENTIUM_IMAGE_REVISION` = SHA complet |
+| `storage-check` / `migrate` / `up` | sortie 0 ; aucune révision Alembic (front seul) ; cinq services recréés, backend et frontend `healthy` |
+| `build-info` | backend et frontend `revision: f1e0c5de0495…`, `revision_verified: true` |
+| Audit VM après bascule | mêmes 16 vues en 1366×768 et 1280×720 : toutes tiennent, jauge visible ; vidéo et captures dans les artefacts de l'itération |
+| Rollback | `AGENTIUM_IMAGE_TAG=f371d059b8a6` puis `up` |
