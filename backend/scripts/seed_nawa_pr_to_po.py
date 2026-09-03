@@ -49,6 +49,7 @@ from app.models.capability import Capability
 from app.models.run_schedule import RunSchedule
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.system_version import SystemVersion
 from app.models.workspace import Workspace
 from app.services.connectors.mcp import service as mcp_service
 from app.services.connectors.mcp.flow import PR_TO_PO_SKILL_SLUGS, pr_to_po_flow
@@ -64,6 +65,11 @@ CAPABILITY_SLUG = "nawa_pr_to_po"
 BINDING_KEY = "procurement.pr_to_po.run"
 EXPERIENCE_SLUG = "pr-to-po"
 EXPERIENCE_NAME = "PR to PO"
+#: Reconcile outcomes after which the runs walk the graph this file describes.
+FLOW_LIVE_STATUSES = frozenset(
+    {"published", "published_no_op", "legacy_no_op", "legacy_mirror_updated"}
+)
+FLOW_NOT_LIVE: list[str] = []
 EXPERIENCE_DESCRIPTION = (
     "Purchasing factory on live Hikma. The desk stays /work/pr-to-po."
 )
@@ -319,6 +325,35 @@ def ensure_capability(db: DBSession, workspace: Workspace) -> Capability:
     return row
 
 
+def _keep_canvas_positions(db: DBSession, system: System, flow: dict[str, Any]) -> dict[str, Any]:
+    """Carry the published canvas layout onto the seed's graph.
+
+    The seed owns the graph's semantics, not where an operator dragged its
+    nodes; a re-run must not shuffle the Workbench canvas. Positions are
+    copied for the node ids that still exist, new nodes keep the file's."""
+    version = (
+        db.query(SystemVersion)
+        .filter(
+            SystemVersion.id == system.published_flow_version_id,
+            SystemVersion.system_id == system.id,
+        )
+        .one_or_none()
+    )
+    published = version.flow_definition if version is not None else system.flow_definition
+    if not isinstance(published, dict):
+        return flow
+    positions = {
+        node.get("id"): node.get("position")
+        for node in published.get("nodes") or []
+        if isinstance(node, dict) and isinstance(node.get("position"), dict)
+    }
+    for node in flow.get("nodes") or []:
+        position = positions.get(node.get("id"))
+        if position:
+            node["position"] = dict(position)
+    return flow
+
+
 def ensure_system(db: DBSession, workspace: Workspace, capability: Capability) -> System:
     flow = pr_to_po_flow()
     payload = {
@@ -356,7 +391,8 @@ def ensure_system(db: DBSession, workspace: Workspace, capability: Capability) -
             if key == "flow_definition":
                 continue
             setattr(system, key, value)
-        flow_publication.reconcile_system_flow(
+        flow = _keep_canvas_positions(db, system, flow)
+        outcome = flow_publication.reconcile_system_flow(
             db,
             system=system,
             workspace=workspace,
@@ -366,6 +402,23 @@ def ensure_system(db: DBSession, workspace: Workspace, capability: Capability) -
             ownership_prefix=SEED_ACTOR,
             message="PR to PO — seed reconciliation",
         )
+        print(
+            f"flow reconciliation: {outcome.status}"
+            f" draft_revision={outcome.draft_revision}"
+            f" published_version_id={outcome.published_version_id}"
+        )
+        if outcome.status not in FLOW_LIVE_STATUSES:
+            # The seed never adopts or erases an operator's draft, so the graph
+            # this file describes is not the one the runs walk. Saying "system
+            # ready" here is how a flow change silently never ships.
+            print(
+                "WARNING: the published PR to PO flow is NOT this seed's — an "
+                "operator draft holds the System. Publish it from the Flow "
+                "Workbench (or PUT /systems/{id}/flow-draft then POST "
+                "/systems/{id}/flow/publish) and re-run the seed.",
+                file=sys.stderr,
+            )
+            FLOW_NOT_LIVE.append(system.name)
         system.updated_at = datetime.utcnow()
     else:
         system = System(id=str(uuid4()), workspace_id=workspace.id, name=SYSTEM_NAME, **payload)
@@ -651,6 +704,9 @@ def main() -> int:
         binding = ensure_binding(db, workspace, system)
         ensure_experience(db, workspace, BINDING_KEY if binding is not None else None)
         print("MCP servers:", servers)
+        if FLOW_NOT_LIVE:
+            print(f"seed incomplete: flow not published for {FLOW_NOT_LIVE}", file=sys.stderr)
+            return 1
         return 0
     finally:
         db.close()
