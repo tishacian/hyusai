@@ -295,6 +295,30 @@ export const CHROME_FR = {
   'workspace.general.expert_review.tooltip_off': 'Les corrections sont publiées automatiquement',
   'workspace.general.expert.admins_only':
     'Seuls les propriétaires et les admins peuvent modifier les réglages de correction experte.',
+  'workspace.general.chat_execution.title': 'Exécution du chat',
+  'workspace.general.chat_execution.description':
+    'Choisissez le moteur qui répond dans le chat : classique, hybride (pourcentage agentique) ou agentique par défaut.',
+  'workspace.general.chat_execution.mode.classic': 'Classique',
+  'workspace.general.chat_execution.mode.classic.description':
+    'Chaque tour passe par le moteur OmniRAG classique.',
+  'workspace.general.chat_execution.mode.hybrid': 'Hybride',
+  'workspace.general.chat_execution.mode.hybrid.description':
+    'Une part des tours passe par le graphe agentique ; le reste reste classique.',
+  'workspace.general.chat_execution.mode.agentic_default': 'Agentique',
+  'workspace.general.chat_execution.mode.agentic_default.description':
+    'Le graphe agentique répond par défaut ; le classique reste le repli.',
+  'workspace.general.chat_execution.percentage': 'Part agentique',
+  'workspace.general.chat_execution.percentage.value': '{value} %',
+  'workspace.general.chat_execution.target': 'Cible : {name}',
+  'workspace.general.chat_execution.target.none': 'Aucun system agentique actif',
+  'workspace.general.chat_execution.invariants': 'Le déploiement est bloqué',
+  'workspace.general.chat_execution.ready': 'Prêt pour le déploiement',
+  'workspace.general.chat_execution.save': 'Enregistrer l’exécution',
+  'workspace.general.chat_execution.saving': 'Enregistrement…',
+  'workspace.general.chat_execution.admins_only':
+    'Seuls les propriétaires et les admins peuvent changer l’exécution du chat.',
+  'workspace.general.toast.chat_execution_saved': 'Exécution du chat enregistrée ({mode}, {percentage} %).',
+  'workspace.general.toast.chat_execution_failed': 'Échec de la mise à jour de l’exécution du chat',
   'workspace.general.navigation.title': 'Profil de navigation',
   'workspace.general.navigation.description':
     'Simplifie le workspace pour les utilisateurs métier. Les admins conservent le cockpit {brand} complet par défaut.',
@@ -1058,6 +1082,30 @@ export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
   'workspace.general.expert_review.tooltip_on': 'Corrections require review before publication',
   'workspace.general.expert_review.tooltip_off': 'Corrections are auto-published',
   'workspace.general.expert.admins_only': 'Only owners and admins can change expert correction settings.',
+  'workspace.general.chat_execution.title': 'Chat execution',
+  'workspace.general.chat_execution.description':
+    'Choose which runtime answers chat: classic, hybrid (agentic percentage), or agentic by default.',
+  'workspace.general.chat_execution.mode.classic': 'Classic',
+  'workspace.general.chat_execution.mode.classic.description':
+    'Every turn goes through the classic OmniRAG engine.',
+  'workspace.general.chat_execution.mode.hybrid': 'Hybrid',
+  'workspace.general.chat_execution.mode.hybrid.description':
+    'A share of turns goes through the agentic graph; the rest stays classic.',
+  'workspace.general.chat_execution.mode.agentic_default': 'Agentic',
+  'workspace.general.chat_execution.mode.agentic_default.description':
+    'The agentic graph answers by default; classic stays the fallback.',
+  'workspace.general.chat_execution.percentage': 'Agentic share',
+  'workspace.general.chat_execution.percentage.value': '{value} %',
+  'workspace.general.chat_execution.target': 'Target: {name}',
+  'workspace.general.chat_execution.target.none': 'No active agentic system',
+  'workspace.general.chat_execution.invariants': 'Rollout is blocked',
+  'workspace.general.chat_execution.ready': 'Ready to roll out',
+  'workspace.general.chat_execution.save': 'Save execution',
+  'workspace.general.chat_execution.saving': 'Saving…',
+  'workspace.general.chat_execution.admins_only':
+    'Only owners and admins can change chat execution.',
+  'workspace.general.toast.chat_execution_saved': 'Chat execution saved ({mode}, {percentage}%).',
+  'workspace.general.toast.chat_execution_failed': 'Failed to update chat execution',
   'workspace.general.navigation.title': 'Navigation profile',
   'workspace.general.navigation.description':
     'Simplifies the workspace for business end users. Admins keep the full {brand} cockpit by default.',

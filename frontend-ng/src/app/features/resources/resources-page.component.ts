@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { NgClass } from '@angular/common';
+import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { forkJoin, of } from 'rxjs';
@@ -18,7 +18,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
-import { StatReadoutComponent } from '@app/shared/cockpit';
+import { HelpTooltipComponent, StatReadoutComponent } from '@app/shared/cockpit';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
@@ -47,8 +47,14 @@ import {
   instanceEngine,
   nodeKey,
   providerLabel,
+  MODEL_TIERS,
+  effectiveSystemTier,
+  routableModelOptions,
   routingFallbackLabel,
   routingPrimaryLabel,
+  routingTiers,
+  type EffectiveSystemTier,
+  type ModelTier,
 } from './model-plane.types';
 
 interface ModelInfo {
@@ -72,7 +78,9 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
   imports: [
     FormsModule,
     NgClass,
+    NgTemplateOutlet,
     RouterLink,
+    HelpTooltipComponent,
     IconComponent,
     SectionHeaderComponent,
     StatReadoutComponent,
@@ -176,6 +184,44 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           </p>
         </section>
       } @else {
+        <ng-container [ngTemplateOutlet]="routingEditor" />
+
+        @if (routingSystems().length) {
+          <section class="ck-surface rounded-md overflow-hidden mb-4">
+            <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+              <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
+                <app-icon name="cpu" [size]="16" class="text-cyan-400" />
+                {{ i18n.t('resources.providers.routing.systems.title') }}
+              </h3>
+            </div>
+            <div class="px-5 py-2 grid grid-cols-12 gap-3 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+              <div class="col-span-5">{{ i18n.t('resources.providers.routing.systems.column.name') }}</div>
+              <div class="col-span-4">{{ i18n.t('resources.providers.routing.systems.column.model') }}</div>
+              <div class="col-span-3 text-right">{{ i18n.t('resources.providers.routing.systems.column.tier') }}</div>
+            </div>
+            <ul class="divide-y divide-white/5">
+              @for (system of routingSystems(); track system.id || system.name) {
+                <li class="px-5 py-3 grid grid-cols-12 gap-3 items-center text-sm">
+                  <div class="col-span-5 min-w-0">
+                    <div class="text-white truncate text-xs font-medium">{{ system.name || system.id }}</div>
+                    @if (system.status) {
+                      <div class="text-[11px] text-gray-500">{{ system.status }}</div>
+                    }
+                  </div>
+                  <div class="col-span-4 text-xs text-gray-400 font-mono truncate">
+                    {{ system.default_model || '—' }}
+                  </div>
+                  <div class="col-span-3 text-right">
+                    <span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                      {{ effectiveTierLabel(system) }}
+                    </span>
+                  </div>
+                </li>
+              }
+            </ul>
+          </section>
+        }
+
         <section class="ck-surface rounded-md overflow-hidden">
         <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
@@ -257,70 +303,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         </div>
       }
 
-      <!-- Workspace routing config -->
-      <section class="ck-surface rounded-md p-5 mb-4">
-        <header class="mb-4 flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-              <app-icon name="git-branch" [size]="16" class="text-cyan-400" />
-              {{ i18n.t('resources.providers.routing.title') }}
-            </h3>
-            <p class="text-[11px] text-gray-500 mt-1">
-              {{ i18n.t('resources.providers.routing.description') }}
-              @if (routing()?.source) {
-                <span class="font-mono text-gray-400"> · {{ i18n.t('resources.providers.routing.source', { value: routing()?.source || '' }) }}</span>
-              }
-            </p>
-          </div>
-          @if (routing(); as route) {
-            <div class="text-[11px] text-gray-400 font-mono">
-              {{ primaryRouteLabel(route) }} · {{ fallbackRouteLabel(route) }}
-            </div>
-          }
-        </header>
-        <form class="grid gap-3 sm:grid-cols-3" (ngSubmit)="saveRouting()">
-          <label class="block min-w-0">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.provider') }}</span>
-            <select
-              [(ngModel)]="routingDraft.provider"
-              name="routeProvider"
-              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-            >
-              @for (opt of routingProviderOptions; track opt) {
-                <option [value]="opt">{{ opt }}</option>
-              }
-            </select>
-          </label>
-          <label class="block min-w-0">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.model') }}</span>
-            <input
-              [(ngModel)]="routingDraft.model"
-              name="routeModel"
-              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-              placeholder="gpt-4o-mini"
-            />
-          </label>
-          <label class="block min-w-0">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.fallback') }}</span>
-            <input
-              [(ngModel)]="routingDraft.fallback"
-              name="routeFallback"
-              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-              placeholder="openai, ollama"
-            />
-          </label>
-          <div class="sm:col-span-3">
-            <button
-              type="submit"
-              [disabled]="configBusy() === 'routing'"
-              class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
-            >
-              <app-icon name="save" [size]="14" />
-              {{ configBusy() === 'routing' ? i18n.t('resources.providers.routing.saving') : i18n.t('resources.providers.routing.save') }}
-            </button>
-          </div>
-        </form>
-      </section>
+      <ng-container [ngTemplateOutlet]="routingEditor" />
 
       <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 mb-6">
         @for (p of liveProviders(); track p.key) {
@@ -940,6 +923,99 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         </div>
       </form>
     </app-drawer>
+
+    <ng-template #routingEditor>
+      <section class="ck-surface rounded-md p-5 mb-4">
+        <header class="mb-4 flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
+              <app-icon name="git-branch" [size]="16" class="text-cyan-400" />
+              {{ i18n.t('resources.providers.routing.title') }}
+              <ck-help id="concept.model-routing" />
+            </h3>
+            <p class="text-[11px] text-gray-500 mt-1">
+              {{ i18n.t('resources.providers.routing.description') }}
+              @if (routing()?.source) {
+                <span class="font-mono text-gray-400"> · {{ i18n.t('resources.providers.routing.source', { value: routing()?.source || '' }) }}</span>
+              }
+            </p>
+          </div>
+          @if (routing(); as route) {
+            <div class="text-[11px] text-gray-400 font-mono">
+              {{ primaryRouteLabel(route) }} · {{ fallbackRouteLabel(route) }}
+            </div>
+          }
+        </header>
+        <form class="grid gap-3 sm:grid-cols-3" (ngSubmit)="saveRouting()">
+          <label class="block min-w-0">
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.provider') }}</span>
+            <select
+              [(ngModel)]="routingDraft.provider"
+              name="routeProvider"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+            >
+              @for (opt of routingProviderOptions; track opt) {
+                <option [value]="opt">{{ opt }}</option>
+              }
+            </select>
+          </label>
+          <label class="block min-w-0">
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.model') }}</span>
+            <input
+              [(ngModel)]="routingDraft.model"
+              name="routeModel"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+              placeholder="gpt-4o-mini"
+            />
+          </label>
+          <label class="block min-w-0">
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.fallback') }}</span>
+            <input
+              [(ngModel)]="routingDraft.fallback"
+              name="routeFallback"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+              placeholder="openai, ollama"
+            />
+          </label>
+          <div class="sm:col-span-3">
+            <div class="mb-2 flex items-center gap-1.5">
+              <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.tiers.title') }}</span>
+              <ck-help id="concept.model-tier" />
+            </div>
+            <p class="text-[11px] text-gray-500 mb-3">{{ i18n.t('resources.providers.routing.tiers.description') }}</p>
+            <div class="grid gap-3 sm:grid-cols-3">
+              @for (tier of modelTiers; track tier) {
+                <label class="block min-w-0">
+                  <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.tiers.' + tier) }}</span>
+                  <input
+                    [(ngModel)]="routingTiersDraft[tier]"
+                    [name]="'routeTier' + tier"
+                    list="routable-model-options"
+                    class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                    [placeholder]="i18n.t('resources.providers.routing.tiers.placeholder')"
+                  />
+                </label>
+              }
+            </div>
+            <datalist id="routable-model-options">
+              @for (opt of modelSuggestions(); track opt) {
+                <option [value]="opt"></option>
+              }
+            </datalist>
+          </div>
+          <div class="sm:col-span-3">
+            <button
+              type="submit"
+              [disabled]="configBusy() === 'routing'"
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
+            >
+              <app-icon name="save" [size]="14" />
+              {{ configBusy() === 'routing' ? i18n.t('resources.providers.routing.saving') : i18n.t('resources.providers.routing.save') }}
+            </button>
+          </div>
+        </form>
+      </section>
+    </ng-template>
   `,
 })
 export class ResourcesPageComponent implements OnInit {
@@ -994,6 +1070,8 @@ export class ResourcesPageComponent implements OnInit {
     'gemini',
   ];
   routingDraft = { provider: 'openai', model: 'gpt-4o-mini', fallback: 'openai, ollama' };
+  routingTiersDraft: Record<ModelTier, string> = { fast: '', balanced: '', strong: '' };
+  readonly modelTiers = MODEL_TIERS;
   credentialDrafts: Record<
     string,
     { api_key?: string; endpoint?: string; deployment?: string; api_version?: string }
@@ -1022,6 +1100,11 @@ export class ResourcesPageComponent implements OnInit {
     }
     return max || 1;
   });
+
+  readonly routingSystems = computed(() => this.routing()?.systems ?? []);
+  readonly modelSuggestions = computed(() =>
+    routableModelOptions(this.routing(), this.liveProviders()),
+  );
 
   readonly createNodeLabel = computed(() => {
     const n = this.createNode();
@@ -1129,9 +1212,17 @@ export class ResourcesPageComponent implements OnInit {
       },
     });
     this.refreshSystemUsage();
+    this.loadRouting();
     if (this.showPortalTabs()) {
       this.loadPortalData();
     }
+  }
+
+  private loadRouting(): void {
+    this.api.get<RoutingResponse>('/models/routing').pipe(catchError(() => of(null))).subscribe((routing) => {
+      this.routing.set(routing);
+      this.syncRoutingDraft(routing);
+    });
   }
 
   private loadPortalData(): void {
@@ -1143,9 +1234,6 @@ export class ResourcesPageComponent implements OnInit {
           return of({ providers: [] } as ProvidersResponse);
         }),
       ),
-      routing: this.api.get<RoutingResponse>('/models/routing').pipe(
-        catchError(() => of(null)),
-      ),
       distribution: this.api
         .get<DistributionResponse>('/models/distribution', { window })
         .pipe(catchError(() => of(null))),
@@ -1153,15 +1241,13 @@ export class ResourcesPageComponent implements OnInit {
         catchError(() => of({ nodes: [] } as NodesResponse)),
       ),
     }).subscribe({
-      next: ({ providers, routing, distribution, nodes }) => {
+      next: ({ providers, distribution, nodes }) => {
         this.liveProviders.set(
           (providers?.providers ?? []).map((p) => ({
             ...p,
             models: Array.isArray(p.models) ? p.models.filter(Boolean).map(String) : [],
           })),
         );
-        this.routing.set(routing);
-        this.syncRoutingDraft(routing);
         this.distribution.set(distribution);
         this.servingNodes.set(nodes?.nodes ?? []);
       },
@@ -1180,6 +1266,7 @@ export class ResourcesPageComponent implements OnInit {
         : 'openai, ollama'
       ).toString(),
     };
+    this.routingTiersDraft = routingTiers(routing);
   }
 
   isConfigurableCloud(key: string): boolean {
@@ -1219,6 +1306,7 @@ export class ResourcesPageComponent implements OnInit {
         default_provider: provider,
         default_model: model,
         fallback_chain,
+        tiers: { ...this.routingTiersDraft },
       })
       .subscribe({
         next: (res) => {
@@ -1234,6 +1322,7 @@ export class ResourcesPageComponent implements OnInit {
               model: res.default_model || model,
             },
             source: 'workspace',
+            tiers: res.tiers || { ...this.routingTiersDraft },
           });
           this.syncRoutingDraft(this.routing());
           this.toast.success(
@@ -1648,6 +1737,11 @@ export class ResourcesPageComponent implements OnInit {
 
   fallbackRouteLabel(route: RoutingResponse): string {
     return routingFallbackLabel(route);
+  }
+
+  effectiveTierLabel(system: { default_model?: string | null; name?: string }): string {
+    const tier: EffectiveSystemTier = effectiveSystemTier(system, this.routing());
+    return this.i18n.t(`resources.providers.routing.systems.tier.${tier}`);
   }
 
   bucketCount(b: DistributionBucket): number {

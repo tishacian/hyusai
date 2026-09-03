@@ -357,6 +357,36 @@ export const UI_LEXICON: readonly LexiconEntry[] = [
     banned: [],
     internal: ['STRICT DAG', 'DAG · OVERLAY COMPAT', 'LEGACY · SEQUENTIAL'],
   },
+  {
+    id: 'model-tier',
+    en: 'Tier',
+    fr: 'Tier',
+    definition: {
+      en: 'A named quality level that picks the model for a turn: fast, balanced or strong.',
+      fr: 'Un niveau de qualité nommé qui choisit le modèle d’un tour : fast, balanced ou strong.',
+    },
+    banned: [],
+  },
+  {
+    id: 'model-routing',
+    en: 'Model routing',
+    fr: 'Routage modèle',
+    definition: {
+      en: 'The policy that turns a tier into the provider and model used for a turn.',
+      fr: 'La politique qui transforme un tier en fournisseur et modèle pour un tour.',
+    },
+    banned: ['routeur'],
+  },
+  {
+    id: 'chat-execution',
+    en: 'Chat execution',
+    fr: 'Exécution du chat',
+    definition: {
+      en: 'Which runtime answers a chat turn: classic, hybrid rollout, or agentic by default.',
+      fr: 'Quel moteur répond à un tour de chat : classique, déploiement hybride, ou agentique.',
+    },
+    banned: [],
+  },
 ];
 
 const BY_ID = new Map(UI_LEXICON.map((entry) => [entry.id, entry]));

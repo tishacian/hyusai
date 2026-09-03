@@ -981,7 +981,7 @@ const STEP_ICONS: Record<string, string> = {
                           <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2">
                               <span class="font-medium text-white truncate">{{
-                                step.title || step.type || i18n.t('chat.trail.step')
+                                decisionStepTitle(step)
                               }}</span>
                               @if (step.status === 'active') {
                                 <span
@@ -999,6 +999,9 @@ const STEP_ICONS: Record<string, string> = {
                                  expand affordance. The description is
                                  suppressed in favor of a richer bar view
                                  so numeric scores stay scannable. -->
+                            @if (isRoutingStep(step)) {
+                              <div class="mt-0.5 text-[11px] text-gray-400">{{ routingStepDetail(step) }}</div>
+                            }
                             @if (isEvaluationStep(step)) {
                               <button
                                 type="button"
@@ -1940,7 +1943,7 @@ const STEP_ICONS: Record<string, string> = {
                       [class.animate-spin]="step.status === 'active'"
                     />
                     <span class="font-medium text-white">{{
-                      step.title || step.type || i18n.t('chat.trail.step')
+                      decisionStepTitle(step)
                     }}</span>
                     @if (step.status === 'completed' && step.duration) {
                       <span class="text-[10px] font-mono text-gray-500 ml-auto"
@@ -3271,6 +3274,9 @@ export class ChatPanelComponent implements AfterViewInit {
       if (n === 1) label = this.i18n.t('chat.progress.passages_found_one');
       else if (n != null) label = this.i18n.t('chat.progress.passages_found', { count: n });
       return { label, orb: 'solving' };
+    }
+    if (byType('routing') && !retrieve && !byType('synthesis')) {
+      return { label: this.i18n.t('chat.progress.routing'), orb: 'solving' };
     }
     if (byType('thought')) {
       return { label: this.i18n.t('chat.progress.analysing'), orb: 'solving' };
@@ -4677,7 +4683,54 @@ export class ChatPanelComponent implements AfterViewInit {
   // ─── Evaluation step expand/render helpers ──────────────────────────
   /** Any step with a structured ``metrics`` dict is treated as evaluable. */
   isEvaluationStep(step: DecisionStep): boolean {
+    if (this.isRoutingStep(step)) return false;
     return !!step.metrics && Object.keys(step.metrics).length > 0;
+  }
+
+  isRoutingStep(step: DecisionStep): boolean {
+    return step.type === 'routing' || String(step.id || '').includes('model_routing');
+  }
+
+  decisionStepTitle(step: DecisionStep): string {
+    if (this.isRoutingStep(step)) {
+      const routing = this.routingMetrics(step);
+      const tier = String(routing['model_tier'] || routing['tier'] || '').trim();
+      const spec = this.routingSpec(routing);
+      if (tier || spec) {
+        return this.i18n.t('chat.trail.routing.title', {
+          tier: tier || '—',
+          spec: spec || '—',
+        });
+      }
+      return this.i18n.t('chat.trail.routing.fallback');
+    }
+    return step.title || step.type || this.i18n.t('chat.trail.step');
+  }
+
+  routingStepDetail(step: DecisionStep): string {
+    const routing = this.routingMetrics(step);
+    const source = String(routing['source'] || '').trim();
+    const key = `chat.trail.routing.source.${source}`;
+    const label = this.i18n.t(key);
+    return label === key ? this.i18n.t('chat.trail.routing.source.policy') : label;
+  }
+
+  private routingMetrics(step: DecisionStep): Record<string, unknown> {
+    const metrics = step.metrics && typeof step.metrics === 'object' ? step.metrics : {};
+    const nested = metrics['model_routing'];
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      return nested as Record<string, unknown>;
+    }
+    return metrics;
+  }
+
+  private routingSpec(routing: Record<string, unknown>): string {
+    const spec = String(routing['spec'] || '').trim();
+    if (spec) return spec;
+    const provider = String(routing['provider'] || '').trim();
+    const model = String(routing['model'] || '').trim();
+    if (provider && model) return `${provider}:${model}`;
+    return provider || model;
   }
 
   private evalKey(messageId: string, stepId: string): string {

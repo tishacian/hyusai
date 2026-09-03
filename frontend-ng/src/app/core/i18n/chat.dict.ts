@@ -159,6 +159,7 @@ export const CHAT_FR = {
   'chat.progress.analysing': 'Analyse des passages…',
   'chat.progress.searching': 'Recherche dans les documents…',
   'chat.progress.preparing': 'Préparation de la requête…',
+  'chat.progress.routing': 'Routage modèle…',
   // --- Generated prompt pack ----------------------------------------
   // `[votre sujet]` is a slot the reader replaces by hand, so it stays part
   // of the copy instead of becoming a `{param}`.
@@ -268,6 +269,16 @@ export const CHAT_FR = {
   'chat.trail.toggle_one': 'Fil de raisonnement · 1 étape',
   'chat.trail.step': 'Étape',
   'chat.trail.running': 'en cours',
+  'chat.trail.routing.title': 'Routage modèle · {tier} → {spec}',
+  'chat.trail.routing.fallback': 'Routage modèle',
+  'chat.trail.routing.source.tier': 'Niveau choisi dans la table des tiers du workspace',
+  'chat.trail.routing.source.system': 'Modèle épinglé par le system',
+  'chat.trail.routing.source.explicit': 'Modèle demandé explicitement',
+  'chat.trail.routing.source.workspace': 'Modèle par défaut du workspace',
+  'chat.trail.routing.source.global': 'Modèle par défaut de la plateforme',
+  'chat.trail.routing.source.allowed_models': 'Ramené à la liste de modèles autorisés',
+  'chat.trail.routing.source.preset': 'Preset de recherche du workspace',
+  'chat.trail.routing.source.policy': 'Politique de routage modèle',
   // --- Evaluation metrics --------------------------------------------
   'chat.metrics.collapse': 'Replier les métriques',
   'chat.metrics.expand': 'Déplier les métriques',
@@ -803,6 +814,7 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   'chat.progress.analysing': 'Analysing the passages…',
   'chat.progress.searching': 'Searching the documents…',
   'chat.progress.preparing': 'Preparing the query…',
+  'chat.progress.routing': 'Model routing…',
   // --- Generated prompt pack ----------------------------------------
   'chat.prompt.ask.label': 'Ask a question',
   'chat.prompt.ask.prompt':
@@ -909,6 +921,16 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   'chat.trail.toggle_one': 'Reasoning trail · 1 step',
   'chat.trail.step': 'Step',
   'chat.trail.running': 'running',
+  'chat.trail.routing.title': 'Model routing · {tier} → {spec}',
+  'chat.trail.routing.fallback': 'Model routing',
+  'chat.trail.routing.source.tier': 'Level chosen from the workspace tier table',
+  'chat.trail.routing.source.system': 'Model pinned by the system',
+  'chat.trail.routing.source.explicit': 'Model requested explicitly',
+  'chat.trail.routing.source.workspace': 'Workspace default model',
+  'chat.trail.routing.source.global': 'Platform default model',
+  'chat.trail.routing.source.allowed_models': 'Downgraded to the allowed model list',
+  'chat.trail.routing.source.preset': 'Workspace retrieval preset',
+  'chat.trail.routing.source.policy': 'Model routing policy',
   // --- Evaluation metrics --------------------------------------------
   'chat.metrics.collapse': 'Collapse metrics',
   'chat.metrics.expand': 'Expand metrics',
