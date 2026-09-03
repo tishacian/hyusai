@@ -1995,3 +1995,119 @@ async def test_system_pin_still_wins_over_the_planned_tier(monkeypatch):
     )
     assert recorded["preferences"] == {"provider": "openai", "model": "gpt-4o-mini"}
     assert out["meta"]["model_routing"]["source"] == "system"
+
+
+# ---------------------------------------------------------------------------
+# chat_profile — the skills are parameterised by the workspace, born Andritz
+# ---------------------------------------------------------------------------
+def _generic_profile(**overrides):
+    from app.services.systems.agentic_chat_template import generic_profile
+
+    kwargs = {"slug": "acme", "domain_label": "ACME Corp", "family": "generic"}
+    kwargs.update(overrides)
+    return generic_profile(**kwargs)
+
+
+def test_without_a_profile_the_skills_are_still_the_andritz_agent_byte_for_byte():
+    from app.services.systems.agentic_chat_template import andritz_profile
+
+    q = "Quelle est la largeur de travail de l'AKK200 ?"
+    assert wrappers._build_plan_prompt(q, None) == wrappers._build_plan_prompt(q, None, andritz_profile())
+    assert "agent de chat industriel Andritz" in wrappers._build_plan_prompt(q, None)
+    assert "l'industrie Andritz (machines, pompes" in wrappers._build_plan_prompt(q, None)
+    assert wrappers._build_self_correct_prompt(q, "d", "escalate_deep", 40, 0.3) == (
+        wrappers._build_self_correct_prompt(q, "d", "escalate_deep", 40, 0.3, profile=andritz_profile())
+    )
+    assert wrappers._coerce_plan({"action": "reject_oos"}, "Capitale de l'Australie ?")["oos_reason"] == (
+        "Hors du perimetre Andritz."
+    )
+    assert wrappers._chat_profile({}, {}).key == "andritz"
+
+
+def test_a_generic_profile_leaves_no_andritz_in_any_prompt():
+    profile = _generic_profile()
+    q = "Que dit la politique de conges sur le report ?"
+    plan_prompt = wrappers._build_plan_prompt(q, None, profile)
+    grounded = wrappers._build_grounded_answer_prompt(
+        q, [{"content": "Le report est limite a 5 jours.", "metadata": {"source": "rh.pdf"}}], "fr", "technical", profile=profile
+    )
+    repair = wrappers._build_self_correct_prompt(q, "draft", "escalate_deep", 40, 0.3, profile=profile)
+    for text in (plan_prompt, grounded, repair):
+        assert "andritz" not in text.lower()
+        assert "AKK200" not in text and "QMS-12" not in text
+    assert "agent de chat ACME Corp" in plan_prompt
+    assert "la base de connaissances du workspace ACME Corp" in plan_prompt
+    assert "assistant de connaissances du workspace ACME Corp" in grounded
+    assert "les sources du workspace" in repair
+    # An industrial non-Andritz tenant keeps the industrial persona, not the pilot's name.
+    industrial = _generic_profile(slug="hydro", domain_label="HydroCo", family="industrial")
+    assert "agent de chat industriel HydroCo" in wrappers._build_plan_prompt(q, None, industrial)
+    assert "andritz" not in wrappers._build_plan_prompt(q, None, industrial).lower()
+
+
+def test_a_generic_profile_switches_off_the_industrial_gates():
+    profile = _generic_profile()
+    # No Andritz entity table: the planner's reject_oos on QMS-12 is honoured.
+    out = wrappers._coerce_plan(
+        {"action": "reject_oos"},
+        "Wozu dient das Qualiscan QMS-12 System?",
+        profile=profile,
+    )
+    assert out["action"] == "reject_oos"
+    assert out["oos_reason"] == "Hors du perimetre de la base de connaissances du workspace ACME Corp."
+    # No project-code heuristics: an inventory-looking question is not forced deep.
+    out = wrappers._coerce_plan(
+        {"action": "answer", "mode": "balanced"},
+        "Quels projets utilisent une pompe URACA ?",
+        profile=profile,
+    )
+    assert out["mode"] == "balanced"
+    assert wrappers._is_inventory_query("Quels projets utilisent une pompe URACA ?", profile) is False
+    # A genuine clarify is still honoured; the fallback wording is the workspace's.
+    out = wrappers._coerce_plan(
+        {"action": "clarify", "clarifying_question": "Quel document vous interesse ?"},
+        "infos",
+        profile=profile,
+    )
+    assert out["action"] == "clarify"
+    assert profile.clarify_question == "Pouvez-vous preciser le sujet ou le document concerne ?"
+    # A deterministic project plan never fires for a non-industrial workspace.
+    assert (
+        wrappers._deterministic_single_project_plan(
+            "Quels equipements sur AKK200 ?",
+            has_history=False,
+            ctx={"input": {"response_language": "fr"}},
+            profile=profile,
+        )
+        is None
+    )
+
+
+def test_a_workspace_can_bring_its_own_known_entities():
+    from app.services.systems.agentic_chat_template import AgenticChatProfile
+
+    profile = AgenticChatProfile(
+        slug="acme", domain_label="ACME", known_entities=("payfit", r"sirh[\s-]?\d+")
+    )
+    out = wrappers._coerce_plan({"action": "reject_oos"}, "Comment configurer SIRH-12 ?", profile=profile)
+    assert out["action"] == "answer"
+    out = wrappers._coerce_plan({"action": "reject_oos"}, "Comment cuire des pates ?", profile=profile)
+    assert out["action"] == "reject_oos"
+
+
+def test_the_profile_is_read_from_the_run_ctx_before_the_input_and_the_payload():
+    generic = _generic_profile().to_dict()
+    other = _generic_profile(slug="other", domain_label="Other").to_dict()
+    assert wrappers._chat_profile({"chat_profile": generic, "input": {"chat_profile": other}}, {}).slug == "acme"
+    assert wrappers._chat_profile({"input": {"chat_profile": other}}, {"chat_profile": generic}).slug == "other"
+    assert wrappers._chat_profile({}, {"chat_profile": generic}).slug == "acme"
+    assert wrappers._chat_profile({"chat_profile": {"garbage": True}}, {}).key == "andritz"
+
+
+@pytest.mark.asyncio
+async def test_the_planner_prompt_follows_the_ctx_profile(monkeypatch):
+    _install_fake_router(monkeypatch, '{"action":"answer","mode":"balanced"}')
+    ctx = {"chat_profile": _generic_profile().to_dict(), "input": {"response_language": "fr"}}
+    await wrappers._chat_agentic_plan_v1({"query": "Politique de conges ?"}, ctx)
+    assert "andritz" not in _FakeClient.last_prompt.lower()
+    assert "agent de chat ACME Corp" in _FakeClient.last_prompt

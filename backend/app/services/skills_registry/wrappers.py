@@ -478,15 +478,18 @@ async def _llm_rag_answer_v1(
                 },
                 **contractual_zero_token_usage("llm_rag_answer:no_context_abstention"),
             }
-        passages = _select_inventory_synthesis_passages(
-            query,
-            payload.get("answer_profile"),
-            passages,
-        )
+        chat_profile = _chat_profile(ctx, payload)
+        project_gates = _project_gates_enabled(chat_profile)
+        if project_gates:
+            passages = _select_inventory_synthesis_passages(
+                query,
+                payload.get("answer_profile"),
+                passages,
+            )
         model = _model_name(payload.get("model"), ctx.get("default_model"))
         model_tier = _payload_model_tier(payload)
         prompt = _build_grounded_answer_prompt(
-            query, passages, lang_target, payload.get("answer_profile")
+            query, passages, lang_target, payload.get("answer_profile"), profile=chat_profile
         )
         answer_text = ""
         try:
@@ -494,14 +497,17 @@ async def _llm_rag_answer_v1(
         except Exception as exc:  # noqa: BLE001 — degrade to abstention, never crash the DAG
             logger.warning("llm_rag_answer_v1: grounded synthesis failed", error=str(exc))
             answer_text = _no_context_message(lang_target)
-        answer_text, coverage_review = await _review_inventory_answer_coverage(
-            query=query,
-            passages=passages,
-            draft=answer_text,
-            model=model,
-            ctx=ctx,
-            lang_target=lang_target,
-        )
+        if project_gates:
+            answer_text, coverage_review = await _review_inventory_answer_coverage(
+                query=query,
+                passages=passages,
+                draft=answer_text,
+                model=model,
+                ctx=ctx,
+                lang_target=lang_target,
+            )
+        else:
+            coverage_review = {"status": "not_armed", "reason": "profile_without_project_gates"}
         output = {
             "answer": answer_text,
             "citations": _citations_from_passages(passages),
@@ -666,9 +672,9 @@ async def _semantic_search_v1(
         # retrieve_rag_context only builds the facet when this profile is set AND
         # query_targets_projects(query) — so arming it here is a no-op for ordinary
         # queries and reaches classic parity for inventory ones.
-        if _is_inventory_query(str(payload.get("query") or "")) and not request.get(
-            "answer_profile"
-        ):
+        if _is_inventory_query(
+            str(payload.get("query") or ""), _chat_profile(ctx, payload)
+        ) and not request.get("answer_profile"):
             request["answer_profile"] = "transversal_inventory"
         request = {key: value for key, value in request.items() if value is not None}
         apply_retrieval_profile_to_request(request)
@@ -4475,14 +4481,60 @@ _INVENTORY_RE = re.compile(
 # Named Andritz machines / systems / brands that GUARANTEE the query is in-corpus
 # — used to gate a false ``reject_oos``. QMS-12 etc. are NOT project codes
 # but ARE in-corpus, so the planner must never reject them (fix 2026-06-26).
+# Kept as the Andritz profile's table; other workspaces bring their own list
+# through ``chat_profile.known_entities``.
 _KNOWN_ENTITY_RE = re.compile(
     r"\b(qualiscan|qms[\s-]?\d+|uraca|etachrom|sinamics|simotics|jetlace|servo\s*x|"
     r"pollrich|continental\s*gvjs|wilo|ksb|geotex|excelle|starter|kd724)\b",
     re.IGNORECASE,
 )
+_KNOWN_ENTITY_RE_CACHE: dict[tuple[str, ...], Optional["re.Pattern[str]"]] = {}
 
 
-def _is_inventory_query(query: str) -> bool:
+def _chat_profile(ctx: Optional[dict[str, Any]], payload: Optional[dict[str, Any]] = None):
+    """The workspace profile the agentic skills are parameterised by.
+
+    Read from the run ctx (System-owned ``settings.chat_profile``, seeded by the
+    engine), then the run input, then the payload.  Without any profile the
+    skills behave exactly as they were born: as the Andritz agent — the values
+    hard-coded here historically ARE that profile.
+    """
+    from app.services.systems.agentic_chat_template import AgenticChatProfile, andritz_profile
+
+    ctx = ctx if isinstance(ctx, dict) else {}
+    run_input = ctx.get("input") if isinstance(ctx.get("input"), dict) else {}
+    payload = payload if isinstance(payload, dict) else {}
+    for raw in (ctx.get("chat_profile"), run_input.get("chat_profile"), payload.get("chat_profile")):
+        if isinstance(raw, dict) and raw.get("slug"):
+            try:
+                return AgenticChatProfile.from_dict(raw)
+            except (TypeError, ValueError):
+                continue
+    return andritz_profile()
+
+
+def _known_entity_re(profile: Any) -> Optional["re.Pattern[str]"]:
+    """Compiled in-corpus entity anchors for a profile (``None`` when it has none)."""
+    if profile is None or getattr(profile, "is_andritz", False):
+        return _KNOWN_ENTITY_RE
+    entities = tuple(str(e) for e in (getattr(profile, "known_entities", ()) or ()) if str(e).strip())
+    if not entities:
+        return None
+    cached = _KNOWN_ENTITY_RE_CACHE.get(entities)
+    if cached is None:
+        cached = re.compile(r"\b(" + "|".join(entities) + r")\b", re.IGNORECASE)
+        _KNOWN_ENTITY_RE_CACHE[entities] = cached
+    return cached
+
+
+def _project_gates_enabled(profile: Any) -> bool:
+    """Project-code / inventory heuristics only make sense for industrial corpora."""
+    return bool(getattr(profile, "project_code_gates", True)) if profile is not None else True
+
+
+def _is_inventory_query(query: str, profile: Any = None) -> bool:
+    if not _project_gates_enabled(profile):
+        return False
     return bool(_INVENTORY_RE.search(query or ""))
 
 
@@ -4605,13 +4657,25 @@ def _has_known_corpus_anchor(
     query: str,
     *,
     known_project_codes: set[str] | None = None,
+    profile: Any = None,
 ) -> bool:
-    """True when the query names a known project/machine/system in the corpus."""
+    """True when the query names a known project/machine/system in the corpus.
+
+    Project-code and equipment-reference patterns are industrial heuristics;
+    a non-industrial profile only anchors on its own ``known_entities`` and on
+    codes the authoritative source ledger confirmed.
+    """
     q = query or ""
+    entity_re = _known_entity_re(profile)
+    if entity_re is not None and entity_re.search(q):
+        return True
+    if not _project_gates_enabled(profile):
+        return bool(known_project_codes) and bool(
+            extract_query_project_codes(q, known_codes=known_project_codes)
+        )
     return bool(
         extract_query_project_codes(q, known_codes=known_project_codes)
         or _SPECIAL_CORPUS_REFERENCE_RE.search(q)
-        or _KNOWN_ENTITY_RE.search(q)
     )
 
 
@@ -4646,6 +4710,7 @@ def _assess_clarify_gate(
     *,
     has_history: bool,
     known_project_codes: set[str] | None = None,
+    profile: Any = None,
 ) -> dict[str, Any]:
     """Deterministic sufficiency check — should a clarify actually be allowed?
 
@@ -4654,10 +4719,14 @@ def _assess_clarify_gate(
     explicit question on a named subject, or conversational history).
     """
     q = (query or "").strip()
-    has_project = bool(
-        extract_query_project_codes(q, known_codes=known_project_codes)
-        or _SPECIAL_CORPUS_REFERENCE_RE.search(q)
-    )
+    if _project_gates_enabled(profile):
+        has_project = bool(
+            extract_query_project_codes(q, known_codes=known_project_codes)
+            or _SPECIAL_CORPUS_REFERENCE_RE.search(q)
+        )
+    else:
+        entity_re = _known_entity_re(profile)
+        has_project = bool(entity_re is not None and entity_re.search(q))
     has_question = bool(_QUESTION_WORD_RE.search(q)) or "?" in q
     word_count = len(q.split())
     # Ambiguous = very short / no question framing AND no anchoring signal.
@@ -5548,6 +5617,7 @@ def _build_grounded_answer_prompt(
     passages: list[dict[str, Any]],
     lang_target: Optional[str],
     answer_profile: Optional[str],
+    profile: Any = None,
 ) -> str:
     """Grounded synthesis prompt: extract a complete factual answer from passages.
 
@@ -5559,8 +5629,24 @@ def _build_grounded_answer_prompt(
     m/min") was the top-ranked passage. The corpus mixes FR/EN/DE and HTML tables,
     so the prompt must explicitly invite cross-language table extraction while
     still forbidding fabrication.
+
+    ``profile`` names the domain (industrial technical assistant vs. workspace
+    knowledge assistant); the grounding rules are the same for every workspace.
     """
     profile_contract = _grounded_profile_contract(query, answer_profile)
+    if profile is None or getattr(profile, "is_andritz", False):
+        persona = "Tu es un assistant technique industriel Andritz, specialise dans des "
+        corpus = "issus de notices techniques"
+    elif getattr(profile, "industrial", False):
+        persona = (
+            f"Tu es un assistant technique industriel {profile.domain_label}, specialise dans des "
+        )
+        corpus = "issus de la documentation technique du workspace"
+    else:
+        persona = (
+            f"Tu es l'assistant de connaissances du workspace {profile.domain_label}, specialise dans des "
+        )
+        corpus = "issus de la base de connaissances du workspace"
     blocks = []
     for index, passage in enumerate(passages, start=1):
         metadata = passage.get("metadata") or {}
@@ -5581,10 +5667,10 @@ def _build_grounded_answer_prompt(
         )
     context_text = "\n\n".join(blocks)
     return (
-        "Tu es un assistant technique industriel Andritz, specialise dans des "
+        f"{persona}"
         "reponses factuelles, precises et completes. Reponds a la question en "
-        "t'appuyant sur les extraits de contexte ci-dessous, issus de notices "
-        "techniques. Ces extraits sont souvent en anglais ou en allemand et "
+        f"t'appuyant sur les extraits de contexte ci-dessous, {corpus}"
+        ". Ces extraits sont souvent en anglais ou en allemand et "
         "contiennent des tableaux HTML : EXTRAIS les valeurs chiffrees, references "
         "et specifications pertinentes meme lorsqu'elles figurent dans un tableau "
         "ou dans une autre langue, et traduis-les si besoin (ex. Arbeitsbreite = "
@@ -5663,7 +5749,10 @@ def _merge_passages(
     return merged
 
 
-def _build_plan_prompt(query: str, history: Any) -> str:
+def _build_plan_prompt(query: str, history: Any, profile: Any = None) -> str:
+    from app.services.systems.agentic_chat_template import andritz_profile
+
+    profile = profile if profile is not None else andritz_profile()
     history_lines = ""
     if isinstance(history, (list, tuple)) and history:
         rendered = []
@@ -5675,12 +5764,42 @@ def _build_plan_prompt(query: str, history: Any) -> str:
             elif isinstance(turn, str):
                 rendered.append(turn)
         history_lines = "\n".join(rendered)
+    if profile.industrial:
+        scope_kinds = "(codes projet, equipements, documents cites dans la requete)"
+        anchor_rule = (
+            "- action=answer par defaut, et OBLIGATOIREMENT answer des qu'un code projet / "
+            f"identifiant machine / reference est present (ex: {profile.anchor_examples}).\n"
+            "- action=clarify UNIQUEMENT si la requete est reellement ambigue ET sans aucun "
+            "ancrage (ni code projet, ni identifiant, ni contexte d'historique).\n"
+        )
+        anchor_kinds = "un equipement/systeme/projet connu"
+        deep_rule = (
+            "- mode=deep OBLIGATOIRE pour les questions transversales / inventaire / enumeration "
+            "multi-projets ('quels projets utilisent...', 'liste...', 'sur quels projets', "
+            "agregation cross-projet) ; mode=fast pour un fait ponctuel trivial ; sinon balanced. "
+            "'retrieval' coherent avec 'mode'.\n"
+        )
+    else:
+        scope_kinds = "(documents, references, sujets et entites cites dans la requete)"
+        anchor_rule = (
+            "- action=answer par defaut, et OBLIGATOIREMENT answer des qu'une reference, un "
+            f"identifiant ou un nom de document est present (ex: {profile.anchor_examples}).\n"
+            "- action=clarify UNIQUEMENT si la requete est reellement ambigue ET sans aucun "
+            "ancrage (ni reference, ni sujet nomme, ni contexte d'historique).\n"
+        )
+        anchor_kinds = "un document/sujet/entite connu"
+        deep_rule = (
+            "- mode=deep OBLIGATOIRE pour les questions transversales / enumeration / agregation "
+            "multi-documents ('liste...', 'quels documents...', synthese d'ensemble) ; "
+            "mode=fast pour un fait ponctuel trivial ; sinon balanced. "
+            "'retrieval' coherent avec 'mode'.\n"
+        )
     return (
-        "Tu es le planificateur d'un agent de chat industriel Andritz. Analyse la requete "
+        f"Tu es le planificateur d'un {profile.agent_label}. Analyse la requete "
         "et l'historique, puis reponds en JSON STRICT (aucun texte hors JSON), avec ces cles:\n"
         '{"action": one of answer|clarify|reject_oos, "mode": one of fast|balanced|deep, '
         '"answer_profile": short label, "scope_hint": the CONCRETE search scope '
-        "(codes projet, equipements, documents cites dans la requete), "
+        f"{scope_kinds}, "
         '"clarifying_question": only if action=clarify, "oos_reason": only if action=reject_oos, '
         '"lang_target": ISO code, "confidence": 0..1, '
         '"retrieval": {"latency_profile": fast|balanced|deep, '
@@ -5689,19 +5808,12 @@ def _build_plan_prompt(query: str, history: Any) -> str:
         '"model_tier": one of fast|balanced|strong, '
         '"sub_queries": [liste de 2 a 4 sous-questions autonomes]}\n'
         "Regles STRICTES:\n"
-        "- action=answer par defaut, et OBLIGATOIREMENT answer des qu'un code projet / "
-        "identifiant machine / reference est present (ex: AKK200, CU250S-2, D.60, "
-        "Qualiscan QMS-12, URACA, Etachrom, SINAMICS).\n"
-        "- action=clarify UNIQUEMENT si la requete est reellement ambigue ET sans aucun "
-        "ancrage (ni code projet, ni identifiant, ni contexte d'historique).\n"
-        "- action=reject_oos UNIQUEMENT si la requete n'a AUCUN rapport avec l'industrie "
-        "Andritz (machines, pompes, cartes, variateurs, documentation technique). "
+        f"{anchor_rule}"
+        "- action=reject_oos UNIQUEMENT si la requete n'a AUCUN rapport avec "
+        f"{profile.oos_scope}. "
         "NE JAMAIS rejeter sur la base de la LANGUE (une question valide en allemand/anglais "
-        "reste valide). NE JAMAIS rejeter si un equipement/systeme/projet connu est cite.\n"
-        "- mode=deep OBLIGATOIRE pour les questions transversales / inventaire / enumeration "
-        "multi-projets ('quels projets utilisent...', 'liste...', 'sur quels projets', "
-        "agregation cross-projet) ; mode=fast pour un fait ponctuel trivial ; sinon balanced. "
-        "'retrieval' coherent avec 'mode'.\n"
+        f"reste valide). NE JAMAIS rejeter si {anchor_kinds} est cite.\n"
+        f"{deep_rule}"
         "- scope_hint doit etre derive de la requete reelle ; ne JAMAIS recopier les libelles "
         "d'exemple de ce schema.\n"
         "- model_tier : le niveau de modele que la synthese merite. fast pour un fait ponctuel "
@@ -5854,6 +5966,7 @@ def _deterministic_single_project_plan(
     has_history: bool,
     ctx: dict[str, Any],
     known_project_codes: set[str] | None = None,
+    profile: Any = None,
 ) -> Optional[dict[str, Any]]:
     """Return a deterministic lane plan for a conservative project lookup.
 
@@ -5861,8 +5974,10 @@ def _deterministic_single_project_plan(
     it is absent (for example a generic Systems API invocation), the LLM planner
     remains authoritative.  German is also left to the multilingual planner
     because the public chat language contract currently only normalises FR/EN.
+    Project lookups are an industrial concept: profiles without project gates
+    always leave the plan to the LLM.
     """
-    if has_history:
+    if has_history or not _project_gates_enabled(profile):
         return None
 
     run_input = ctx.get("input") if isinstance(ctx.get("input"), dict) else {}
@@ -5921,16 +6036,17 @@ def _deterministic_single_project_plan(
         query,
         has_history=False,
         known_project_codes=known_project_codes,
+        profile=profile,
     )
 
 
-def _profile_is_multihop(answer_profile: Any, query: str) -> bool:
+def _profile_is_multihop(answer_profile: Any, query: str, profile: Any = None) -> bool:
     """Whether the plan should decompose into sub-queries for this profile.
 
     Gated on the answer_profile label, minus inventory questions (which own the
     deep + transversal_inventory facet lane and must not be split).
     """
-    if _is_inventory_query(query):
+    if _is_inventory_query(query, profile):
         return False
     profile = str(answer_profile or "").lower()
     return any(token in profile for token in _MULTIHOP_PROFILE_TOKENS)
@@ -5954,14 +6070,16 @@ def _derive_comparative_sub_queries(query: str) -> list[str]:
     return [entity for entity in entities if isinstance(entity, str) and entity.strip()]
 
 
-def _coerce_sub_queries(parsed: dict[str, Any], query: str, answer_profile: str) -> list[str]:
+def _coerce_sub_queries(
+    parsed: dict[str, Any], query: str, answer_profile: str, profile: Any = None
+) -> list[str]:
     """Coerce the planner's ``sub_queries`` into a clean 0/2-4 item list.
 
     Contract: populated (2-4 deduped, non-echo sub-questions) only when the
     answer_profile is comparison/multi_hop/transversal; empty otherwise. Robust
     to garbage (non-list, non-string entries) -> defaults to an empty list.
     """
-    if not _profile_is_multihop(answer_profile, query):
+    if not _profile_is_multihop(answer_profile, query, profile):
         return []
     raw = parsed.get("sub_queries")
     subs: list[str] = []
@@ -5996,6 +6114,7 @@ def _coerce_plan(
     *,
     has_history: bool = False,
     known_project_codes: set[str] | None = None,
+    profile: Any = None,
 ) -> dict[str, Any]:
     """Coerce a (possibly partial/garbage) plan dict into the frozen contract.
 
@@ -6009,15 +6128,25 @@ def _coerce_plan(
       * inventory/transversal routing (fix): cross-project / enumeration
         questions are forced to the ``deep`` lane (full deep budget) — the
         planner under-routes them to balanced and misses the aggregated list.
+
+    The project-code / inventory heuristics and the known-entity table come
+    from ``profile`` (industrial workspaces); without one the Andritz profile
+    the gates were written for applies.
     """
+    from app.services.systems.agentic_chat_template import andritz_profile
+
+    profile = profile if profile is not None else andritz_profile()
+    project_gates = _project_gates_enabled(profile)
     parsed = parsed if isinstance(parsed, dict) else {}
     mode = _coerce_enum(parsed.get("mode"), _PLAN_ENUMS["mode"], "balanced")
     action = _coerce_enum(parsed.get("action"), _PLAN_ENUMS["action"], "answer")
 
     # Inventory / transversal questions need the deep lane to aggregate across
     # documents — deterministic upgrade (the LLM under-routes them to balanced).
-    single_project_inventory = _is_single_project_equipment_inventory_query(query)
-    inventory = _is_inventory_query(query) and not single_project_inventory
+    single_project_inventory = project_gates and _is_single_project_equipment_inventory_query(
+        query
+    )
+    inventory = _is_inventory_query(query, profile) and not single_project_inventory
     if single_project_inventory:
         mode = "balanced"
     if inventory:
@@ -6099,6 +6228,7 @@ def _coerce_plan(
     if action == "reject_oos" and _has_known_corpus_anchor(
         query,
         known_project_codes=known_project_codes,
+        profile=profile,
     ):
         action = "answer"
 
@@ -6108,24 +6238,25 @@ def _coerce_plan(
             query,
             has_history=has_history,
             known_project_codes=known_project_codes,
+            profile=profile,
         )
         if gate["has_project_code"] or not gate["allow_clarify"] or not clarifying_question:
             action = "answer"
             clarifying_question = ""
     if action == "clarify" and not clarifying_question:
-        clarifying_question = "Pouvez-vous preciser le projet ou l'equipement concerne ?"
+        clarifying_question = profile.clarify_question
 
     # oos_reason only survives when the action is still reject_oos (a demoted
     # reject_oos must not leak a stale refusal reason into an answer plan).
-    oos_reason = (
-        _as_str("oos_reason", "Hors du perimetre Andritz.") if action == "reject_oos" else ""
-    )
+    oos_reason = _as_str("oos_reason", profile.oos_message) if action == "reject_oos" else ""
 
     answer_profile = _as_str("answer_profile", "technical")
     # Multi-hop decomposition (Phase 4): 2-4 sub-queries for comparison /
     # multi_hop / transversal profiles, empty list otherwise. A clarify /
     # reject_oos plan never decomposes (there is no answer to ground).
-    sub_queries = _coerce_sub_queries(parsed, query, answer_profile) if action == "answer" else []
+    sub_queries = (
+        _coerce_sub_queries(parsed, query, answer_profile, profile) if action == "answer" else []
+    )
 
     # Model tier (agentic interpretation of the routing): the planner's call,
     # defaulting to the lane bridge (deep / multi-hop => strong, fast => fast).
@@ -6232,17 +6363,23 @@ async def _chat_agentic_plan_v1(
     query = str(payload.get("query") or "")
     history = payload.get("conversation_history")
     has_history = bool(isinstance(history, (list, tuple)) and history)
-    known_project_codes = _authoritative_query_project_codes(query, payload, ctx)
+    chat_profile = _chat_profile(ctx, payload)
+    known_project_codes = (
+        _authoritative_query_project_codes(query, payload, ctx)
+        if _project_gates_enabled(chat_profile)
+        else set()
+    )
     deterministic_plan = _deterministic_single_project_plan(
         query,
         has_history=has_history,
         ctx=ctx,
         known_project_codes=known_project_codes,
+        profile=chat_profile,
     )
     if deterministic_plan is not None:
         return deterministic_plan
     model = _model_name(payload.get("model"), ctx.get("default_model"))
-    prompt = _build_plan_prompt(query, history)
+    prompt = _build_plan_prompt(query, history, chat_profile)
     completion = ""
     try:
         # Planning is a short JSON classification: the cheapest tier is enough.
@@ -6256,19 +6393,34 @@ async def _chat_agentic_plan_v1(
         query,
         has_history=has_history,
         known_project_codes=known_project_codes,
+        profile=chat_profile,
     )
 
 
 def _build_self_correct_prompt(
-    query: str, draft: str, action: str, composite: Any, hallucination_rate: Any
+    query: str,
+    draft: str,
+    action: str,
+    composite: Any,
+    hallucination_rate: Any,
+    profile: Any = None,
 ) -> str:
+    from app.services.systems.agentic_chat_template import andritz_profile
+
+    profile = profile if profile is not None else andritz_profile()
+    if profile.is_andritz:
+        sources = "les sources industrielles Andritz"
+    elif profile.industrial:
+        sources = f"les sources industrielles {profile.domain_label}"
+    else:
+        sources = "les sources du workspace"
     guidance = {
-        "escalate_deep": "Approfondis et re-ancre la reponse sur les sources industrielles Andritz ; supprime toute affirmation non etayee.",
+        "escalate_deep": f"Approfondis et re-ancre la reponse sur {sources} ; supprime toute affirmation non etayee.",
         "translate": "Reformule la reponse dans la langue cible attendue de l'utilisateur, sans changer le fond.",
         "declare_partial": "Conserve uniquement ce qui est etaye, et declare explicitement les limites / l'incertitude restante.",
     }[action]
     return (
-        "Tu es le reacteur d'auto-correction (1 passe) d'un agent de chat industriel Andritz.\n"
+        f"Tu es le reacteur d'auto-correction (1 passe) d'un {profile.agent_label}.\n"
         f"Action de reparation choisie: {action}. Consigne: {guidance}\n"
         f"Signaux qualite — composite(0-100)={composite} ; hallucination_rate(0-1)={hallucination_rate}.\n"
         "Re-genere une MEILLEURE reponse et reponds en JSON STRICT (aucun texte hors JSON):\n"
@@ -6413,7 +6565,9 @@ async def _chat_self_correct_v1(
         }
 
     # translate / declare_partial — bounded transform of the EXISTING draft only.
-    prompt = _build_self_correct_prompt(query, draft, action, composite, hallucination_rate)
+    prompt = _build_self_correct_prompt(
+        query, draft, action, composite, hallucination_rate, profile=_chat_profile(ctx, payload)
+    )
     answer = draft
     try:
         completion = await _route_llm_complete(prompt, model, ctx, tier=model_tier)
