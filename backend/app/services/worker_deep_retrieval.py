@@ -218,6 +218,21 @@ def _model_preferences(payload: dict[str, Any]) -> tuple[str, str]:
     requested_provider = str(model_preferences.get("provider") or "").strip()
     requested_model = str(model_preferences.get("model") or "").strip()
 
+    # Deep retrieval synthesises across the widest candidate pool: this is the
+    # ``strong`` tier.  A configured strong tier wins unless the caller asked
+    # for a model explicitly (``source == "explicit"`` set by the chat seed).
+    routed_source = str(model_preferences.get("source") or "").strip()
+    snapshot = payload.get("model_routing")
+    if routed_source != "explicit" and isinstance(snapshot, dict) and snapshot.get("tiers"):
+        try:
+            from app.services.model_plane.routing_policy import resolve_model
+
+            choice = resolve_model(snapshot=snapshot, tier_hint="strong")
+        except Exception:  # noqa: BLE001 — routing must never fail the worker
+            choice = None
+        if choice is not None and choice.source == "tier":
+            return choice.provider, choice.model
+
     legacy_client_defaults = {"gpt-4o", "gpt-4o-mini", "deepseek-r1:14b", ""}
     if requested_model.lower() in legacy_client_defaults and resolved_model:
         provider = resolved_provider

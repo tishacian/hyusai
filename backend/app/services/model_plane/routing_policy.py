@@ -400,6 +400,66 @@ def resolve_model(
     )
 
 
+def resolve_chat_model(
+    workspace: Optional["Workspace"],
+    *,
+    answer_profile: Any = None,
+    requested_model: Optional[str] = None,
+    requested_provider: Optional[str] = None,
+    preset_model: Optional[str] = None,
+    preset_provider: Optional[str] = None,
+    snapshot: Any = None,
+) -> ModelChoice:
+    """Classic ``/chat`` entry: request > workspace tier > RAG preset defaults.
+
+    The classic orchestrator has no System pin; its historical default is the
+    resolved RAG preset (``defaultModel`` / ``defaultProvider``).  That preset
+    keeps precedence over the portal *default* model so existing deployments do
+    not move, but a configured *tier* now wins over it — that is the feature.
+    The tier is deterministic on this path (answer profile -> tier), no extra
+    LLM call.
+    """
+    from app.core.config import settings
+
+    tier = tier_for_answer_profile(answer_profile)
+    snap = (
+        snapshot
+        if isinstance(snapshot, RoutingSnapshot)
+        else RoutingSnapshot.from_mapping(snapshot)
+        if snapshot is not None
+        else routing_snapshot(workspace)
+    )
+    requested = str(requested_model or "").strip()
+    if requested:
+        provider = str(requested_provider or "").strip()
+        prefs = (
+            {"provider": provider, "model": requested}
+            if provider
+            else parse_model_spec(requested, default_provider=snap.default_provider)
+        )
+        return ModelChoice(
+            provider=prefs["provider"],
+            model=prefs["model"],
+            source="explicit",
+            tier=tier,
+            fallback_chain=_fallback_chain(snap, prefs["provider"]),
+            requested=f"{prefs['provider']}:{prefs['model']}",
+        )
+    choice = resolve_model(snapshot=snap, tier_hint=tier)
+    if choice.source == "tier":
+        return choice
+    provider = str(preset_provider or snap.default_provider or settings.default_provider or "openai")
+    model = str(preset_model or snap.default_model or settings.default_model or "")
+    return ModelChoice(
+        provider=provider,
+        model=model,
+        source="preset",
+        tier=tier,
+        fallback_chain=_fallback_chain(snap, provider),
+        requested=f"{provider}:{model}",
+    )
+
+
 def _fallback_chain(snapshot: RoutingSnapshot, provider: str) -> tuple[str, ...]:
     chain = [p for p in snapshot.fallback_chain if p]
     if not chain:

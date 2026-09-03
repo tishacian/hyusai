@@ -109,21 +109,58 @@ class AgentOrchestrator:
         self._rewrite_llm = None
         self.logger = get_logger(__name__)
 
-    def _get_rewrite_llm(self):
-        if self._rewrite_llm is None:
-            from app.core.config import settings
-            from app.llm.llm import LLM
-            self._rewrite_llm = LLM(provider=settings.default_provider, api_key=settings.openai_api_key)
-        return self._rewrite_llm
+    _REWRITE_DEFAULT_MODEL = "gpt-4o-mini"
 
-    async def _rewrite_query(self, query: str) -> str:
-        """Rewrite a query using GPT-4o-mini for better retrieval."""
+    def _get_rewrite_llm(self, provider: str | None = None):
+        from app.core.config import settings
+        from app.llm.llm import LLM
+
+        wanted = str(provider or "").strip().lower()
+        if not wanted or wanted == str(settings.default_provider or "").lower():
+            if self._rewrite_llm is None:
+                self._rewrite_llm = LLM(provider=settings.default_provider, api_key=settings.openai_api_key)
+            return self._rewrite_llm
+        cache = getattr(self, "_rewrite_llm_by_provider", None)
+        if cache is None:
+            cache = {}
+            self._rewrite_llm_by_provider = cache
+        if wanted not in cache:
+            try:
+                cache[wanted] = LLM(
+                    provider=wanted,
+                    api_key=settings.openai_api_key if wanted in {"openai", "azure"} else None,
+                )
+            except ValueError:
+                return self._get_rewrite_llm(None)
+        return cache[wanted]
+
+    def _rewrite_model(self, request: dict[str, Any] | None) -> tuple[str, str | None]:
+        """Query rewriting is the platform's cheapest LLM step: tier ``fast``.
+
+        Only a configured fast tier moves it off the historical gpt-4o-mini.
+        """
+        snapshot = (request or {}).get("model_routing") if isinstance(request, dict) else None
+        if not isinstance(snapshot, dict) or not snapshot.get("tiers"):
+            return self._REWRITE_DEFAULT_MODEL, None
         try:
-            llm = self._get_rewrite_llm()
+            from app.services.model_plane.routing_policy import resolve_model
+
+            choice = resolve_model(snapshot=snapshot, tier_hint="fast")
+        except Exception:  # noqa: BLE001 — rewriting must never fail on routing
+            return self._REWRITE_DEFAULT_MODEL, None
+        if choice.source != "tier":
+            return self._REWRITE_DEFAULT_MODEL, None
+        return choice.model, choice.provider
+
+    async def _rewrite_query(self, query: str, request: dict[str, Any] | None = None) -> str:
+        """Rewrite a query with the fast tier (gpt-4o-mini by default) for better retrieval."""
+        try:
+            rewrite_model, rewrite_provider = self._rewrite_model(request)
+            llm = self._get_rewrite_llm(rewrite_provider)
             result = ""
             async for chunk in llm.stream_complete(
                 prompt=query,
-                model="gpt-4o-mini",
+                model=rewrite_model,
                 system_prompt=REWRITE_SYSTEM,
                 temperature=0.0,
                 max_tokens=200,
@@ -230,14 +267,14 @@ class AgentOrchestrator:
                 "id": rewrite_id,
                 "type": "query_rewrite",
                 "component": "QueryRewriter",
-                "model": "gpt-4o-mini",
+                "model": self._rewrite_model(request)[0],
                 "status": "active",
                 "title": "Expanding and optimizing query",
                 "description": f'Original: "{query[:120]}"',
             }
         }
 
-        rewritten_query = await self._rewrite_query(query)
+        rewritten_query = await self._rewrite_query(query, request)
         request["rewritten_query"] = rewritten_query
 
         rewrite_duration = int((time.time() - rewrite_start) * 1000)
@@ -248,7 +285,7 @@ class AgentOrchestrator:
                 "id": rewrite_id,
                 "type": "query_rewrite",
                 "component": "QueryRewriter",
-                "model": "gpt-4o-mini",
+                "model": self._rewrite_model(request)[0],
                 "duration": rewrite_duration,
                 "status": "completed",
                 "title": "Query optimized" if changed else "Query kept as-is",
