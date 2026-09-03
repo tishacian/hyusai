@@ -171,6 +171,103 @@ def test_read_tool_accepts_fixture_justification():
         assert out["result"]["pr_id"] == "PR-4402"
 
 
+_PR_ITEM_ROW = {
+    "__metadata": {"type": "A_PurchaseRequisitionItemType"},
+    "PurchaseRequisition": "2000276658",
+    "PurchaseRequisitionItem": "10",
+    "PurchaseRequisitionItemText": "4peline Rubber",
+    "Material": "100000003614",
+    "MaterialGroup": "Z100001",
+    "RequestedQuantity": "100.000",
+    "OrderedQuantity": "0",
+    "BaseUnit": "NO",
+    "PurchaseRequisitionPrice": "100.00",
+    "PurReqnItemCurrency": "QAR",
+    "Plant": "8675",
+    "CompanyCode": "8675",
+    "PurchasingGroup": "013",
+    "DeliveryDate": "/Date(1791504000000)/",
+    "PurchaseRequisitionType": "ZNPR",
+}
+
+
+def test_read_rows_keeps_every_selected_field_the_agent_posts_from(monkeypatch):
+    """The PR→PO agent reads price, quantities, currency and delivery date out
+    of this read. The preview's column cap once dropped them and every proposal
+    went to SAP at 0.00 (06/215, live QA 2026-09-01); ``read_rows`` is the path
+    code takes now, and it has no cap to drop anything."""
+    monkeypatch.setattr(
+        mcp_read.mcp_client,
+        "call_tool",
+        lambda server, **kw: {
+            "server_id": server["id"],
+            "tool": kw["contract_tool"],
+            "duration_ms": 3,
+            "credential_source": "workspace",
+            "result": {"status": 200, "data": {"__count": "37", "results": [_PR_ITEM_ROW]}},
+        },
+    )
+    fields = mcp_read.select_fields(mcp_read.APPROVED_PR_SELECT)
+    assert len(fields) == 15
+    out = mcp_read.read_rows(
+        {"id": "sap"}, tool=mcp_read.LIVE_PR_ITEM, arguments={}, fields=fields
+    )
+    assert out["ok"] is True and out["kind"] == "read"
+    assert out["fields"] == fields
+    assert out["row_count"] == 37
+    assert "columns" not in out and "rows" not in out
+    (row,) = out["records"]
+    for column in (
+        "PurchaseRequisitionPrice",
+        "OrderedQuantity",
+        "PurReqnItemCurrency",
+        "DeliveryDate",
+        "Plant",
+        "RequestedQuantity",
+    ):
+        assert column in row, column
+    assert row["PurchaseRequisitionPrice"] == "100.00"
+    assert row["DeliveryDate"] == "/Date(1791504000000)/"
+    # The metadata envelope is a row key too: read_rows hides nothing.
+    assert row["__metadata"] == {"type": "A_PurchaseRequisitionItemType"}
+
+
+def test_project_records_guarantees_fields_and_keeps_fixture_shapes():
+    rows = mcp_read.project_records(
+        [{"pr_id": "PR-1", "amount": 12, "purreqnitemcurrency": "QAR"}],
+        fields=["PurchaseRequisition", "PurReqnItemCurrency"],
+    )
+    assert rows == [
+        {
+            "PurchaseRequisition": None,
+            "PurReqnItemCurrency": "QAR",
+            "pr_id": "PR-1",
+            "amount": 12,
+        }
+    ]
+    assert mcp_read.project_records([{"a": 1}]) == [{"a": 1}]
+
+
+def test_read_rows_rejects_writes_and_refusals_like_read_tool(monkeypatch):
+    with pytest.raises(ValueError, match="not a read"):
+        mcp_read.read_rows({"id": "bapi_po"}, tool="BAPI_PO_CREATE1", arguments={})
+    monkeypatch.setattr(
+        mcp_read.mcp_client,
+        "call_tool",
+        lambda server, **kw: {"result": {"status": "403", "message": {"value": "no auth"}}},
+    )
+    with pytest.raises(ValueError, match="no auth"):
+        mcp_read.read_rows({"id": "sap"}, tool=mcp_read.LIVE_PR_ITEM, arguments={})
+
+
+def test_preview_table_is_a_preview_again():
+    """Eight columns, identifying ones first. Code never reads this table."""
+    assert mcp_preview.PREVIEW_COL_CAP == 8
+    table = mcp_preview.flatten_preview({"status": 200, "data": {"results": [_PR_ITEM_ROW]}})
+    assert len(table["columns"]) == 8
+    assert table["columns"][:2] == ["PurchaseRequisition", "PurchaseRequisitionItem"]
+
+
 def test_read_tool_unknown_live_name_on_fixture():
     with _fixture_http() as base:
         sap = _server(f"{base}/sap", "sap")

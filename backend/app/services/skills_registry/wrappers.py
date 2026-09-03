@@ -1573,21 +1573,23 @@ async def _sap_list_approved_prs_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
     payload = _named_payload(payload)
-    from app.services.connectors.mcp.errors import McpError
-    from app.services.connectors.mcp.preview import extract_records
-    from app.services.connectors.mcp.read import listed_tool_names, pick_approved_pr_tool, read_tool
+    from app.services.connectors.mcp.read import (
+        APPROVED_PR_SELECT,
+        listed_tool_names,
+        pick_approved_pr_tool,
+        read_rows,
+        select_fields,
+    )
 
     db, _workspace, server, owns_db = _named_mcp_server(payload, ctx, "sap")
     try:
         tool, arguments = pick_approved_pr_tool(listed_tool_names(server))
-        try:
-            called = read_tool(server, tool=tool, arguments=arguments)
-        except McpError:
-            raise
-        raw = called.get("result")
-        records = extract_records(raw)
-        if isinstance(raw, dict) and isinstance(raw.get("prs"), list):
-            records = [dict(row) for row in raw["prs"] if isinstance(row, dict)]
+        # Typed read: the agent decides from these rows, so it gets every
+        # selected field on every row — never a preview's column cap.
+        called = read_rows(
+            server, tool=tool, arguments=arguments, fields=select_fields(APPROVED_PR_SELECT)
+        )
+        records = called.pop("records")
         return _mcp_trace(
             {
                 **called,
@@ -1605,13 +1607,14 @@ async def _sap_check_budget_v1(
 ) -> dict[str, Any]:
     payload = _named_payload(payload)
     from app.services.connectors.mcp.errors import McpError, McpToolUnknown
-    from app.services.connectors.mcp.preview import extract_records
     from app.services.connectors.mcp.read import (
+        ACCT_SELECT,
         budget_ok_from_payload,
         listed_tool_names,
         pick_acct_tool,
         pick_budget_tool,
-        read_tool,
+        read_rows,
+        select_fields,
     )
 
     pr_id = str(payload.get("pr_id") or "")
@@ -1619,10 +1622,7 @@ async def _sap_check_budget_v1(
     try:
         names = listed_tool_names(server)
         tool, arguments = pick_budget_tool(names, pr_id=pr_id)
-        try:
-            called = read_tool(server, tool=tool, arguments=arguments)
-        except McpError:
-            raise
+        called = read_rows(server, tool=tool, arguments=arguments)
         raw = called.get("result")
         if isinstance(raw, dict) and "budget_ok" in raw:
             budget_ok = bool(raw.get("budget_ok"))
@@ -1634,8 +1634,9 @@ async def _sap_check_budget_v1(
         acct: list[dict[str, Any]] = []
         try:
             acct_tool, acct_args = pick_acct_tool(names, pr_id=pr_id)
-            acct_called = read_tool(server, tool=acct_tool, arguments=acct_args)
-            acct = extract_records(acct_called.get("result"))
+            acct = read_rows(
+                server, tool=acct_tool, arguments=acct_args, fields=select_fields(ACCT_SELECT)
+            )["records"]
             if acct:
                 fund = str(acct[0].get("Fund") or "")
                 funds_center = str(acct[0].get("FundsCenter") or "")
@@ -1718,15 +1719,17 @@ async def _hikma_list_pos_by_type_v1(
 ) -> dict[str, Any]:
     payload = _named_payload(payload)
     from app.services.connectors.mcp.errors import McpError, McpToolUnknown
-    from app.services.connectors.mcp.preview import extract_records
     from app.services.connectors.mcp.read import (
         LIVE_PO_HEADER,
         PO_HEADER_CAP,
+        PO_HEADER_SELECT,
+        PO_ITEM_SELECT,
         listed_tool_names,
         pick_po_header_tool,
         pick_po_item_tool,
         pick_recent_pos_tool,
-        read_tool,
+        read_rows,
+        select_fields,
     )
 
     material_group = str(payload.get("MaterialGroup") or payload.get("pr_type") or "")
@@ -1738,25 +1741,24 @@ async def _hikma_list_pos_by_type_v1(
         names = listed_tool_names(server)
         if pr_type.strip().upper() == "ZNPR" and plant and LIVE_PO_HEADER in names:
             tool, arguments = pick_recent_pos_tool(names, plant=plant)
+            fields = select_fields(PO_HEADER_SELECT)
         else:
             tool, arguments = pick_po_item_tool(
                 names, material_group=material_group, pr_type=pr_type
             )
-        try:
-            called = read_tool(server, tool=tool, arguments=arguments)
-        except McpError:
-            raise
+            fields = select_fields(PO_ITEM_SELECT)
+        called = read_rows(server, tool=tool, arguments=arguments, fields=fields)
+        items = called.pop("records")
         raw = called.get("result")
         if isinstance(raw, dict) and isinstance(raw.get("pos"), list):
-            pos = [dict(row) for row in raw["pos"] if isinstance(row, dict)]
+            # Fixture shape: the rows come already named ``pos``.
             return _mcp_trace(
                 {
                     **called,
                     "contract_tool": tool,
-                    "result": {"pos": pos, "MaterialGroup": material_group, "pr_type": pr_type},
+                    "result": {"pos": items, "MaterialGroup": material_group, "pr_type": pr_type},
                 }
             )
-        items = extract_records(raw)
         if tool == LIVE_PO_HEADER:
             return _mcp_trace(
                 {
@@ -1779,8 +1781,14 @@ async def _hikma_list_pos_by_type_v1(
         try:
             for po_id in po_ids[:PO_HEADER_CAP]:
                 header_tool, header_args = pick_po_header_tool(names, po_id=po_id)
-                header_called = read_tool(server, tool=header_tool, arguments=header_args)
-                headers.extend(extract_records(header_called.get("result")))
+                headers.extend(
+                    read_rows(
+                        server,
+                        tool=header_tool,
+                        arguments=header_args,
+                        fields=select_fields(PO_HEADER_SELECT),
+                    )["records"]
+                )
         except (McpToolUnknown, McpError, ValueError):
             headers = []
         return _mcp_trace(
