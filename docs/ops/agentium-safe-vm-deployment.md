@@ -38,7 +38,9 @@ Critères de sortie du gel :
 | Journal | entrée d'itération H0+H1 avec build-info, gates, QA, rollback |
 
 Fin du gel : à la validation de l'itération H0+H1 ci-dessous. H2, H3, H4
-partent ensuite en PRs séparées, hors gel.
+partent ensuite hors gel — conformément au guide contributeur et au
+`agentium-release-process`, directement sur `demo/agentic` (une fois H0+H1
+avancés en fast-forward), pas en PRs latérales.
 
 **Gel levé le 03/09/2026** sur l'itération « Réalignement H0+H1 » servie sur
 `1134a61d` (branche de PR `cursor/realign-h0-h1-5b89` → `demo/agentic`) : les
@@ -5378,4 +5380,63 @@ sert le SHA de la PR en attendant la fusion.
 | Runs planifiés | cinq portes `hitl_pending` du 02/09 (04:00→20:00, snapshot v2) restent ouvertes jusqu'à leur TTL d'un jour. Celle de 00:00 (`dc4ffbed`) a expiré à 00:01:50 sous le nouveau backend : `handle_rejection` sorti `sealed: true, called: false, reason: unattended` — la règle tient sur le chemin `system:gate_ttl` en conditions réelles (son nœud audit, snapshot v2, a échoué comme attendu). Le prochain tick (04:00) marche la v3 |
 | Cosmétique noté | le walker émet `node_start` sur le nœud de la branche non prise avant son `node_end skipped` : le Studio affiche `Running` un cycle de polling sur « Discard on human rejection » après une approbation. Fidèle au serveur, hors périmètre H1 |
 | Rollback | `AGENTIUM_IMAGE_TAG=988ee5c7ec2c` puis `up` ; flow : `POST /systems/{id}/flow-draft/restore/b9217063-…` puis publish |
+
+
+## Itération du 03/09 (bis) — réalignement H2+H3+H4, déployée sur `f371d059`
+
+Suite du plan de réalignement, hors gel. Sept commits poussés directement sur
+`demo/agentic` (`45dec136` → `f371d059`, 47 fichiers, +1374/−1513) après
+l'avancée en fast-forward de la branche H0+H1 ; la VM suit `demo/agentic` en
+`--ff-only`, comme convenu dans le guide contributeur et le release process.
+
+- **Une lecture typée pour le code (H2).** `connectors/mcp/read.py` sépare
+  `read_rows` (les enregistrements eux-mêmes, projetés sur `fields`, sans
+  plafond de colonnes) de `read_tool` (l'aperçu humain). Les skills du DAG
+  (`sap_list_approved_prs_v1`, `sap_check_budget_v1`,
+  `hikma_list_pos_by_type_v1`) lisent par `read_rows` ; `preview.py` redevient
+  un aperçu (`PREVIEW_COL_CAP` 18 → 8, colonnes d'en-tête seulement). Le
+  test de non-régression du « prix à 0.00 » passe de `test_mcp_preview` à
+  `test_mcp_read` : l'agent ne poste plus depuis un tableau tronqué.
+- **Le plan data rattaché au modèle mental (H3).** `tabular_datasets` et
+  `ml_models` portent `system_id` (FK `systems`, `SET NULL`) ; `ml_models`
+  porte `published_skill_id` (FK `skills`, `SET NULL`) à côté du slug.
+  Migration additive `099_data_plane_attached` avec backfill depuis le run
+  producteur et le slug du Skill ; `098_ml_predictions` et `099` admises dans
+  le ratchet `test_tabular_migration.py` (voisins `systems`/`skills`/`runs`
+  posés en DDL, cascade `SET NULL` vérifiée, backfill vérifié, longueur des
+  identifiants de révision ≤ 32 vérifiée — la première version du nom, 34
+  caractères, a cassé `alembic_version` en test avant d'atteindre la VM).
+  `GET /datasets` et `GET /ml-models` filtrent par `system_id`. Cockpit :
+  une seule entrée **Data & Models** dans Build (`/data` et `/models`
+  actifs ensemble), navigation croisée, fiche dataset « produit par un run
+  du System » et fiche modèle « entraîné par un run du System » avec liens.
+- **Un lexique (H4).** `Studio` = surface humaine de l'agent ; `Cockpit` =
+  espace d'auteur et d'exploitation ; `Work` = espace métier. `desk` et
+  `board` bannis comme noms de surface par `i18n.lexicon.ts` (allowlist pour
+  « IT Service Desk », terme métier NAWA). `xp-desk-*` → `xp-studio-*` dans
+  le composant, le portail chat et le contrat e2e ; skin `work.scss` réécrit
+  en un bloc court. « Studio hub » / « Repair in Studio » deviennent Cockpit.
+  Docs : `agentium-reference.md` remplace surface-map, identity-card et
+  experience-platform (stubs de redirection conservés) ; `mental-model.md`
+  nomme le Cockpit et fixe le lexique. `pr-to-po-runtime.spec.ts` réduit à
+  un seul invariant de sécurité (aucun chemin SAP dans le navigateur) — le
+  comportement vit dans la spec e2e 18.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `check:i18n` 7172 clés, 24 règles lexique (dont `studio`, `cockpit`) ; `test:unit` 1359 verts ; pytest MCP ciblé (`test_mcp_read`, `test_mcp_preview`, `test_mcp_write`, `test_mcp_call_skill`, `test_mcp_fixture`, `test_nawa_pr_to_po_flow`) 77 verts sur l'image `test-realign` ; ratchet `test_tabular_migration.py` 22 verts contre le Postgres de la VM (base jetable `agentium_p4_migration_data_plane`, conteneur éphémère `test-realign` + `postgresql-client`, 4 min 22) |
+| Worktree | `sudo git fetch origin demo/agentic && git merge --ff-only` → `f371d059b8a6413124b1c3d91e75dde851a91a6d` |
+| Build | `agentium-{backend,worker,frontend}:f371d059b8a6`, `AGENTIUM_IMAGE_REVISION` = SHA complet, journaux `/tmp/build-*-f371d059b8a6.log` |
+| Dump pré-migration | `flow-publication-deployments/2026-09-03-f371d059b8a6/postgres-pre-migration.dump`, 462 Mo, sha256 `bfb7d48d…` |
+| `storage-check` / `migrate` / `up` | sortie 0 ; `alembic current` → `099_data_plane_attached (head)` ; cinq services recréés (`backend`, `worker-cpu`, `frontend`, `p4-maintenance`, `beat`), backend et frontend `healthy` |
+| Backfill | `tabular_datasets` : 43 lignes, 17 avec `system_id` (les autres sont des uploads sans run — NULL est la vérité) ; `ml_models` : 3 lignes, 1 avec `system_id`, 3 avec `published_skill_id` |
+| `build-info` | backend et frontend `revision: f371d059b8a6…`, `revision_verified: true` |
+| API | `GET /datasets` et `GET /ml-models` renvoient `system_id` / `published_skill_id` ; `?system_id=` filtre |
+| Bundle | « Data & Models » présent, classes `xp-studio-*` présentes, aucune `xp-desk-*` |
+| Flow live | inchangée : v3 `5250e776`, sha `3b262625…` (H2 change les wrappers, pas le graphe) |
+| Contrat e2e, mode par défaut | `18-nawa-agent-studio-canary.spec.ts` vert en 48 s au SHA déployé : redirect `/desk`, run par binding (`ed94a939`), porte avec proposition et montant renseigné, lectures verbatim, décision HITL canonique, verdict `blocked`, audit `done`, chat annulé puis confirmé → refus garde-fou (`3273ddb5`), **0 `invoke` MCP navigateur**, 0 porte laissée ouverte ; preuve `e2e/results/nawa-agent-studio-canary-f371d059.json`, vidéo conservée |
+| Runs planifiés | le tick de 04:00 (`f876079f`) est le premier à marcher la v3 : porte `hitl_pending` ouverte, snapshot avec `decided_by`. Il n'apparaît pas dans `/work/pr-to-po/validations` (origine `scheduler`, pas `experience:pr-to-po`), donc il ne gêne pas le Studio ni le canari ; il expirera en `unattended` → `sealed` sur son TTL. Les quatre portes du 02/09 (08:00→20:00, v2) attendent encore le leur |
+| Rollback | `AGENTIUM_IMAGE_TAG=1134a61d8613` puis `up` ; la 099 est additive (colonnes nullables + index), un retour d'image la tolère ; `alembic downgrade 098_ml_predictions` si l'on veut la retirer, dump pré-migration à portée |
 
