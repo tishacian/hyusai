@@ -4,7 +4,7 @@ Version: 2026-08-14. Flags: `settings.features.experience_v1` (Work/runtime) and
 `settings.features.experience_studio_v1` (authoring rollout; inherits the first flag when absent).
 Migration head: `094`.
 
-Architecture: [`agentium-experience-platform.md`](./agentium-experience-platform.md). Mockups: [`docs/design/experience/`](./design/experience/README.md).
+Architecture: [`agentium-reference.md`](./agentium-reference.md) §3. Mockups: [`docs/design/experience/`](./design/experience/README.md).
 
 Stories are compact on purpose. Lots 0–8 have an implementation candidate behind the flag. They are **not production-accepted** until the SHA-bound Experience canary completes creation, release and the configured deployment path on the dedicated QA workspace. Dual-run legacy routes are explicitly outside that cutover. This document is the acceptance ledger; future extensions must not weaken the immutable Release, server-side audience or certified-renderer contracts.
 

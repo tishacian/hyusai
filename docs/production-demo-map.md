@@ -78,7 +78,7 @@ Suivre [`showcase-demo-walkthrough.md`](./showcase-demo-walkthrough.md) sur le w
 | ------ | --------- |
 | Plan de release et journal E | [`vague-e-plan.md`](./vague-e-plan.md) |
 | Sémantique produit complète | [`mental-model.md`](./mental-model.md) |
-| Identité courte | [`agentium-identity-card.md`](./agentium-identity-card.md) |
+| Identité courte | [`agentium-reference.md`](./agentium-reference.md) §1 |
 | Mémoire livraisons session | [`session-deliveries-memory.md`](./session-deliveries-memory.md) |
 | Démo « for dummies » | [`showcase-demo-walkthrough.md`](./showcase-demo-walkthrough.md) |
 
