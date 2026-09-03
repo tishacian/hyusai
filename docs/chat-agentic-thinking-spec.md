@@ -484,7 +484,10 @@ Trois skills restent **à construire** ; leurs contrats sont **figés** ci-desso
 elles DOIVENT résoudre leur client via `ModelRouter.get_client({"provider","model"})`
 — jamais instancier en dur un client provider** (`OpenAIClient`/`OllamaClient`/…).
 
-1. **`chat_agentic_plan_v1`** *(planner, neutre)* — `model` ⇐ `system.default_model`.
+1. **`chat_agentic_plan_v1`** *(planner, neutre)* — le planner **émet** `model_tier`
+   (`fast` / `balanced` / `strong`) ; le modèle servi est décidé par la politique
+   workspace (`routing_policy.resolve_model`), pas par le planner. `system.default_model`
+   reste un pin (priorité 2).
    **GATE clarify (fix C3)** : `_coerce_plan` rejette les `scope_hint`/
    `clarifying_question` recopiant un placeholder de schéma et rétrograde
    `clarify → answer` dès qu'un code projet/identifiant est présent ou que la
@@ -501,6 +504,7 @@ elles DOIVENT résoudre leur client via `ModelRouter.get_client({"provider","mod
      "oos_reason": "string",              // si action == reject_oos
      "lang_target": "string",             // ex: fr
      "confidence": 0.0,                   // confiance PRÉ-answer (info only — PAS la garde d'égress)
+     "model_tier": "fast | balanced | strong",  // émis par le planner ; le modèle est choisi par la politique workspace
      "retrieval": {                       // ⇐ consommé par les retrieve_* via inputs_map (bug P0 #1)
        "latency_profile": "fast | balanced | deep",
        "retrieval_profile": "oracle_fast | chat | deep_async",
@@ -636,14 +640,16 @@ feuille**, sous trois niveaux nettement séparés :
   (`plan.thinking`, `task.self_correct`) bindent des **skills neutres**
   (`chat_agentic_plan_v1`, `chat_self_correct_v1`) qui, en interne, appellent
   `ModelRouter.get_client(...)` — **jamais** un client provider instancié en dur.
-- Le modèle effectif vient de **`system.default_model`** (injecté via
-  `inputs_map.model = {"node_id": "system", "path": ["default_model"]}`) borné par
-  la gouvernance **`capabilities.allowed_models`** de la `MembraneSpec`
-  (`backend/app/services/membrane/spec.py`). `allowed_models = []` ⇒ non restreint
-  (résolu par la config workspace / `ModelRouter`).
+- Le **tier** est décidé par le planner (`plan.thinking.model_tier`, défaut dérivé
+  du `mode` : deep/multihop → `strong`, sinon `balanced`). Le **modèle** est
+  décidé par `routing_policy.resolve_model` : pin System (`inputs_map.model`) >
+  `llm_portal.routing.tiers[tier]` > défaut workspace > `Settings.default_model`,
+  puis filtre `capabilities.allowed_models` de la `MembraneSpec`. La gate
+  membrane reste le backstop. `allowed_models = []` ⇒ non restreint.
 - **Le passage on-prem est de la config, zéro changement au graphe** : on règle
-  `LLM_PROVIDER`, `default_model` et les providers locaux/Ollama ; le DAG, les
-  décisions et la membrane restent identiques.
+  les tiers (`fast` / `balanced` / `strong`) et le défaut workspace dans le
+  portail Modèles, ou `LLM_PROVIDER` / `default_model` ; le DAG, les décisions
+  et la membrane restent identiques.
 
 **Exemple on-prem (full local, sans cloud).**
 

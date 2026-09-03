@@ -77,6 +77,9 @@ Objects a person manipulates, and their primary UI:
 | `Review Queue` | Human validation before policy or knowledge changes | `/steering/review-queue`, `/hypervisor` |
 | `Connector` | External intake or integration surface (SharePoint, SFTP, SAP HANA, MCP, RPA) | `/resources`, `/connectors/*` |
 | `Governance` | Access, audit, presets and platform control | `/governance/*`, `/presets` |
+| `Tier` | Named model quality level: `fast`, `balanced`, `strong`. Distinct from retrieval lanes (`fast` / `balanced` / `deep`). | `/resources` (Model routing) |
+| `Model routing` | Policy that turns a tier into the provider and model for a turn. Order: explicit → System pin → workspace tier → workspace default → global default, then `allowed_models`. | `/resources`, chat trail |
+| `Chat execution` | Which runtime answers `/chat`: classic, hybrid (percentage), or agentic by default. Managed setting; not a generic PATCH. | `/workspace` (general) |
 
 An Experience is **authored**. A Workspace App package is **installed**. An
 Integration is **connected**. Mixing the three words on screen is a bug.

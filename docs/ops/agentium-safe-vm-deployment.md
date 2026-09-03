@@ -5502,3 +5502,29 @@ dépasse.
 | `build-info` | backend et frontend `revision: f1e0c5de0495…`, `revision_verified: true` |
 | Audit VM après bascule | mêmes 16 vues en 1366×768 et 1280×720 : toutes tiennent, jauge visible ; vidéo et captures dans les artefacts de l'itération |
 | Rollback | `AGENTIUM_IMAGE_TAG=f371d059b8a6` puis `up` |
+
+
+## Itération du 03/09 — routage modèle natif + chat agentique généralisé (1C / 2A)
+
+Branche `cursor/model-routing-native-5b89` (PR vers `demo/agentic`). Un seul
+résolveur (`routing_policy.resolve_model`) consomme `llm_portal.routing.tiers` ;
+le planner émet `model_tier` ; chaque workspace reçoit un System agentique
+(Andritz adopté, jamais dupliqué) ; `chat_execution` par défaut `hybrid` / 0 % ;
+le Cockpit édite les tiers hors beta et l'exécution du chat.
+
+**Non déployé sur la VM dans cette itération** — le journal n'autorise aucun
+`up` sans GO opérateur. Preuves de slice ci-dessous ; la boucle
+`ff-only` / build / `up` et les vérifs live (`GET /models/routing` expose les
+tiers, run agentique forcé sur `agentium-showcase` montre `routing.model_tier`,
+Andritz reste `rollout_cohort_classic` à 0 %) restent à jouer sur la VM au SHA
+fast-forwardé.
+
+### Observables du slice
+
+| Pas | Observé |
+|---|---|
+| Contrat | zéro dérive à tiers vides ; digest Andritz = fixture `andritz_chat_agentic_v3` ; rollout Andritz inchangé à 0 % |
+| Backend | pytest ciblé **195 passed** (`test_model_routing_policy`, `test_chat_agentic_skills`, `test_workspace_agentic_bootstrap`, `test_chat_execution_rollout`, `test_chat_execution_policy` dont workspace générique 0 %, `test_andritz_agentic_rollout`, `test_agentic_chat_template`) |
+| Frontend | `check:i18n` 7218 clés, 25 règles lexique (`tier` autorisé, `routeur` refusé) ; `check:ui-chrome` OK ; `build:prod` 28 s ; specs `model-plane.types`, `chat-execution.types`, `model-routing-ui-contract` verts |
+| API | `GET/PUT /models/routing` hors beta + `GET /models/routing/resolve` ; `GET/PUT /workspaces/{slug}/chat-execution` |
+| Rollback prévu | image précédente `demo/agentic` ; `chat_execution` à 0 % ne change pas le chemin classic |

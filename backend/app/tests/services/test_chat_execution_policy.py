@@ -111,6 +111,22 @@ def test_modes_apply_their_distinct_routing_contract(db_session):
     assert agentic_default.is_agentic is True
 
 
+def test_generic_workspace_zero_percent_hybrid_stays_classic(db_session):
+    workspace = _workspace(
+        db_session,
+        workspace_id="ws-acme",
+        settings={
+            "family": "generic",
+            "chat_execution": _policy(policy.CHAT_EXECUTION_HYBRID, percentage=0),
+        },
+    )
+    _system(db_session, workspace)
+    decision = _resolve(db_session, workspace, answer_profile="comparison")
+    assert decision.route == "classic"
+    assert decision.reason == "rollout_cohort_classic"
+    assert decision.is_agentic is False
+
+
 def test_target_selection_requires_exact_active_type_variant_and_workspace(db_session):
     workspace = _workspace(db_session)
     other_workspace = _workspace(db_session, workspace_id="ws-policy-other")
