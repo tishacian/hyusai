@@ -157,12 +157,15 @@ async def test_plan_emits_frozen_contract(monkeypatch):
     assert set(out) == {
         "action", "mode", "answer_profile", "scope_hint", "clarifying_question",
         "oos_reason", "lang_target", "confidence", "retrieval", "sub_queries",
+        "model_tier",
     }
     # sub_queries port is always present (Phase 4 multi-hop); a list, empty
     # unless the profile is comparison/multi_hop/transversal.
     assert isinstance(out["sub_queries"], list)
     assert out["action"] == "answer"
     assert out["mode"] == "deep"
+    # No model_tier in the completion: the lane bridge decides (deep => strong).
+    assert out["model_tier"] == "strong"
     assert out["scope_hint"] == "ACJ100"
     assert out["confidence"] == 0.82
     assert set(out["retrieval"]) == {
@@ -1917,3 +1920,78 @@ def test_skills_are_registered_and_seeded():
     assert {"context", "answer_profile", "lang_target"} <= set(rag_in)
     correct_in = by_slug["chat_self_correct_v1"]["input_schema"]["properties"]
     assert {"scope_hint", "lang_target", "answer_profile"} <= set(correct_in)
+
+
+# ---------------------------------------------------------------------------
+# Model routing: the planner emits a tier, the LLM nodes consume it
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_plan_model_tier_is_the_planners_call_bounded_to_the_enum(monkeypatch):
+    completion = (
+        '{"action":"answer","mode":"balanced","answer_profile":"technical","scope_hint":"AKK200",'
+        '"lang_target":"fr","confidence":0.9,"model_tier":"strong",'
+        '"retrieval":{"latency_profile":"balanced","retrieval_profile":"chat","top_k":8}}'
+    )
+    _install_fake_router(monkeypatch, completion)
+    out = await wrappers._chat_agentic_plan_v1(
+        {"query": "Quelle est la pression nominale de la pompe AKK200 ?", "model": "gpt-4o-mini"}, {}
+    )
+    assert out["model_tier"] == "strong"
+
+    _install_fake_router(monkeypatch, completion.replace('"strong"', '"turbo"'))
+    out = await wrappers._chat_agentic_plan_v1(
+        {"query": "Quelle est la pression nominale de la pompe AKK200 ?", "model": "gpt-4o-mini"}, {}
+    )
+    assert out["model_tier"] == "balanced"  # unknown value -> lane bridge (balanced)
+
+    # The prompt asks for the field so the model knows the vocabulary.
+    assert "model_tier" in wrappers._build_plan_prompt("x", None)
+    assert wrappers._PLAN_ENUMS["model_tier"] == ("fast", "balanced", "strong")
+
+
+@pytest.mark.asyncio
+async def test_planner_runs_on_the_fast_tier_and_generate_on_the_planned_tier(monkeypatch):
+    recorded = _install_fake_router(monkeypatch, '{"action":"answer","mode":"deep"}')
+    ctx = {
+        "model_routing": {
+            "default_provider": "openai",
+            "default_model": "gpt-5",
+            "tiers": {"fast": "ollama:qwen3:8b", "strong": "openai:gpt-5"},
+        }
+    }
+    await wrappers._chat_agentic_plan_v1({"query": "Compare AKK200 et AKK300 en detail"}, ctx)
+    assert recorded["preferences"] == {"provider": "ollama", "model": "qwen3:8b"}
+
+    recorded = _install_fake_router(monkeypatch, "Reponse ancree.")
+    out = await wrappers._llm_rag_answer_v1(
+        {
+            "query": "Compare AKK200 et AKK300",
+            "context": [{"text": "AKK200 : 10 bar. AKK300 : 16 bar.", "metadata": {"source": "notice.pdf"}}],
+            "model_tier": "strong",
+        },
+        dict(ctx),
+    )
+    assert recorded["preferences"] == {"provider": "openai", "model": "gpt-5"}
+    routing = out["meta"]["model_routing"]
+    assert routing["model_tier"] == "strong"
+    assert (routing["provider"], routing["model"], routing["source"]) == ("openai", "gpt-5", "tier")
+
+
+@pytest.mark.asyncio
+async def test_system_pin_still_wins_over_the_planned_tier(monkeypatch):
+    recorded = _install_fake_router(monkeypatch, "Reponse ancree.")
+    ctx = {
+        "default_model": "gpt-4o-mini",
+        "model_routing": {"default_provider": "openai", "default_model": "gpt-5", "tiers": {"strong": "openai:gpt-5"}},
+    }
+    out = await wrappers._llm_rag_answer_v1(
+        {
+            "query": "q",
+            "context": [{"text": "chunk", "metadata": {}}],
+            "model": "gpt-4o-mini",
+            "model_tier": "strong",
+        },
+        ctx,
+    )
+    assert recorded["preferences"] == {"provider": "openai", "model": "gpt-4o-mini"}
+    assert out["meta"]["model_routing"]["source"] == "system"

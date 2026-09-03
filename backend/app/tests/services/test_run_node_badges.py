@@ -235,3 +235,41 @@ def test_a_node_that_returned_nothing_usable_adds_no_data_key():
     )
 
     assert "data" not in summary
+
+
+def test_model_routing_facts_are_lifted_onto_the_node_end():
+    from app.services.run_engine.dag import _node_model_routing
+
+    planner = _node_model_routing({"output": {"action": "answer", "model_tier": "strong"}})
+    assert planner == {"model_tier": "strong"}
+
+    generate = _node_model_routing(
+        {
+            "output": {
+                "answer": "x",
+                "meta": {
+                    "model_routing": {
+                        "model_tier": "strong",
+                        "provider": "openai",
+                        "model": "gpt-5",
+                        "source": "tier",
+                        "fallback": False,
+                        "reason": "",
+                        "served_model": "ignored",
+                    }
+                },
+            }
+        }
+    )
+    assert generate == {
+        "model_routing": {
+            "model_tier": "strong",
+            "provider": "openai",
+            "model": "gpt-5",
+            "source": "tier",
+            "fallback": False,
+            "reason": "",
+        }
+    }
+    assert _node_model_routing({"output": {"answer": "x"}}) == {}
+    assert _node_model_routing({"output": "not a dict"}) == {}

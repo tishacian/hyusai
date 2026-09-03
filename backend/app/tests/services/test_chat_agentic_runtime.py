@@ -160,6 +160,37 @@ def test_source_projection_drops_internal_vector_metadata() -> None:
     assert "object_key" not in sources[0]
 
 
+def test_model_routing_facts_become_a_visible_routing_step() -> None:
+    planned = agentic_event_chunks(
+        {"kind": "node_end", "node_id": "plan.thinking", "status": "completed", "model_tier": "strong"},
+        run_id="run-routing",
+    )
+    assert planned[0]["decision_step"]["metrics"]["model_tier"] == "strong"
+    routing_steps = [c for c in planned if c["decision_step"]["id"].endswith(":model_routing")]
+    assert len(routing_steps) == 1
+    assert routing_steps[0]["decision_step"]["type"] == "routing"
+    assert "strong" in routing_steps[0]["decision_step"]["title"]
+
+    served = agentic_event_chunks(
+        {
+            "kind": "node_end",
+            "node_id": "task.generate",
+            "status": "completed",
+            "model_routing": {"model_tier": "strong", "provider": "openai", "model": "gpt-5", "source": "tier"},
+        },
+        run_id="run-routing",
+    )
+    step = [c for c in served if c["decision_step"]["id"].endswith(":model_routing")][0]["decision_step"]
+    assert step["title"] == "Modèle strong → openai:gpt-5"
+    assert step["metrics"]["source"] == "tier"
+
+    # node_start never announces a routing decision; nothing to say yet.
+    assert all(
+        not c["decision_step"]["id"].endswith(":model_routing")
+        for c in agentic_event_chunks({"kind": "node_start", "node_id": "task.generate"}, run_id="r")
+    )
+
+
 def test_skipped_node_end_closes_the_visible_decision_step() -> None:
     chunks = agentic_event_chunks(
         {

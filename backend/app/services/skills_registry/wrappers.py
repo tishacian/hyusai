@@ -484,12 +484,13 @@ async def _llm_rag_answer_v1(
             passages,
         )
         model = _model_name(payload.get("model"), ctx.get("default_model"))
+        model_tier = _payload_model_tier(payload)
         prompt = _build_grounded_answer_prompt(
             query, passages, lang_target, payload.get("answer_profile")
         )
         answer_text = ""
         try:
-            answer_text = await _route_llm_complete(prompt, model, ctx)
+            answer_text = await _route_llm_complete(prompt, model, ctx, tier=model_tier)
         except Exception as exc:  # noqa: BLE001 — degrade to abstention, never crash the DAG
             logger.warning("llm_rag_answer_v1: grounded synthesis failed", error=str(exc))
             answer_text = _no_context_message(lang_target)
@@ -512,6 +513,7 @@ async def _llm_rag_answer_v1(
                     "stage_timings": {},
                 },
                 "inventory_coverage_review": coverage_review,
+                "model_routing": _model_routing_evidence(ctx, model_tier),
             },
         }
         output.update(provider_usage_evidence(usage_accumulator))
@@ -4396,6 +4398,7 @@ _KNOWN_PROVIDERS = {
 _PLAN_ENUMS = {
     "action": ("answer", "clarify", "reject_oos"),
     "mode": ("fast", "balanced", "deep"),
+    "model_tier": ("fast", "balanced", "strong"),
     "latency_profile": ("fast", "balanced", "deep"),
     "retrieval_profile": ("oracle_fast", "chat", "deep_async"),
     "rag_pipeline_mode": ("chah", "auto"),
@@ -4711,6 +4714,31 @@ def _record_model_choice(ctx: Optional[dict[str, Any]], choice: Any, served: Any
         payload["served_model"] = getattr(served, "model", None)
         payload["fallback"] = bool(getattr(served, "fallback", False))
     ctx["_last_model_choice"] = payload
+
+
+def _payload_model_tier(payload: Any) -> Optional[str]:
+    """Tier hint a DAG node carries (``inputs_map.model_tier`` from the planner)."""
+    from app.services.model_plane.routing_policy import coerce_tier
+
+    payload = payload if isinstance(payload, dict) else {}
+    return coerce_tier(payload.get("model_tier"))
+
+
+def _model_routing_evidence(ctx: Optional[dict[str, Any]], tier: Optional[str]) -> dict[str, Any]:
+    """What the skill asked for and what was served, for the run transcript."""
+    last = ctx.get("_last_model_choice") if isinstance(ctx, dict) else None
+    evidence: dict[str, Any] = {"model_tier": tier}
+    if isinstance(last, dict):
+        evidence.update(
+            {
+                "provider": last.get("served_provider") or last.get("provider"),
+                "model": last.get("served_model") or last.get("model"),
+                "source": last.get("source"),
+                "fallback": bool(last.get("fallback")),
+                "reason": last.get("reason") or "",
+            }
+        )
+    return evidence
 
 
 async def _route_llm_complete(
@@ -5658,6 +5686,7 @@ def _build_plan_prompt(query: str, history: Any) -> str:
         '"retrieval": {"latency_profile": fast|balanced|deep, '
         '"retrieval_profile": oracle_fast|chat|deep_async, "top_k": int, '
         '"rag_pipeline_mode": chah|auto, "deep_retrieval": bool}, '
+        '"model_tier": one of fast|balanced|strong, '
         '"sub_queries": [liste de 2 a 4 sous-questions autonomes]}\n'
         "Regles STRICTES:\n"
         "- action=answer par defaut, et OBLIGATOIREMENT answer des qu'un code projet / "
@@ -5675,6 +5704,10 @@ def _build_plan_prompt(query: str, history: Any) -> str:
         "'retrieval' coherent avec 'mode'.\n"
         "- scope_hint doit etre derive de la requete reelle ; ne JAMAIS recopier les libelles "
         "d'exemple de ce schema.\n"
+        "- model_tier : le niveau de modele que la synthese merite. fast pour un fait ponctuel "
+        "ou une reformulation ; strong pour une comparaison, une agregation multi-documents, un "
+        "raisonnement en plusieurs etapes ou un tableau a extraire ; sinon balanced. Par defaut "
+        "coherent avec 'mode' (deep => strong, fast => fast).\n"
         "- sub_queries : UNIQUEMENT pour un answer_profile comparaison / multi_hop / transversal "
         "(question a plusieurs facettes / plusieurs entites), decompose alors la requete en 2 a 4 "
         "sous-questions AUTONOMES et distinctes (une par entite/facette, reprenant les identifiants "
@@ -6094,9 +6127,21 @@ def _coerce_plan(
     # reject_oos plan never decomposes (there is no answer to ground).
     sub_queries = _coerce_sub_queries(parsed, query, answer_profile) if action == "answer" else []
 
+    # Model tier (agentic interpretation of the routing): the planner's call,
+    # defaulting to the lane bridge (deep / multi-hop => strong, fast => fast).
+    # The workspace tier table decides which model that tier means; a System
+    # pin or the membrane allow-list still bound it downstream.
+    from app.services.model_plane.routing_policy import coerce_tier, tier_for_lane
+
+    model_tier = coerce_tier(
+        parsed.get("model_tier"),
+        tier_for_lane(mode, has_sub_queries=bool(sub_queries)),
+    )
+
     return {
         "action": action,
         "mode": mode,
+        "model_tier": model_tier,
         "answer_profile": answer_profile,
         "scope_hint": scope_hint,
         "clarifying_question": clarifying_question,
@@ -6135,7 +6180,9 @@ async def _decide_next_v1(
     model = _model_name(payload.get("model"), ctx.get("default_model"))
     completion = ""
     try:
-        completion = await _route_llm_complete(prompt, model, ctx)
+        completion = await _route_llm_complete(
+            prompt, model, ctx, tier=_payload_model_tier(payload) or "fast"
+        )
     except Exception as exc:  # noqa: BLE001 — fail-closed, never raise into the walker
         logger.warning("decide_next_v1: model call failed, blocking", error=str(exc))
         return coerce_decide_output({}, visible, confidence_floor=confidence_floor)
@@ -6174,10 +6221,12 @@ async def _chat_agentic_plan_v1(
     OUT (frozen §7): ``{action, mode, answer_profile, scope_hint,
     clarifying_question, oos_reason, lang_target, confidence,
     retrieval:{latency_profile, retrieval_profile, top_k, rag_pipeline_mode,
-    deep_retrieval}, sub_queries:[str]}``. ``sub_queries`` carries 2-4 decomposed
-    sub-questions for comparison/multi_hop/transversal profiles (empty otherwise;
-    Phase 4). Robust to non-JSON model output -> safe defaults (action=answer,
-    mode=balanced, sub_queries=[]).
+    deep_retrieval}, sub_queries:[str], model_tier}``. ``sub_queries`` carries
+    2-4 decomposed sub-questions for comparison/multi_hop/transversal profiles
+    (empty otherwise; Phase 4). ``model_tier`` (fast|balanced|strong) is the
+    planner's routing call, consumed by ``task.generate`` / ``task.self_correct``
+    through the workspace tier table. Robust to non-JSON model output -> safe
+    defaults (action=answer, mode=balanced, model_tier=balanced, sub_queries=[]).
     """
     ctx = ctx or {}
     query = str(payload.get("query") or "")
@@ -6196,7 +6245,8 @@ async def _chat_agentic_plan_v1(
     prompt = _build_plan_prompt(query, history)
     completion = ""
     try:
-        completion = await _route_llm_complete(prompt, model, ctx)
+        # Planning is a short JSON classification: the cheapest tier is enough.
+        completion = await _route_llm_complete(prompt, model, ctx, tier="fast")
     except Exception as exc:  # noqa: BLE001 — never crash the DAG on a model hiccup
         logger.warning(
             "chat_agentic_plan_v1: model call failed, using safe defaults", error=str(exc)
@@ -6284,6 +6334,9 @@ async def _chat_self_correct_v1(
     answer_profile = payload.get("answer_profile")
     scope_hint = payload.get("scope_hint")
     model = _model_name(payload.get("model"), ctx.get("default_model"))
+    # A repair pass re-grounds on a wider pool: at least the planner's tier,
+    # escalated to strong when the deep lane is re-run below.
+    model_tier = _payload_model_tier(payload)
     # Original (pre-correction) retrieval context, wired from join.retrieval.
     # Kept so a deep re-retrieval can MERGE (never lose) carrier chunks the
     # first pass already surfaced.
@@ -6340,6 +6393,7 @@ async def _chat_self_correct_v1(
                 "lang_target": lang_target,
                 "answer_profile": answer_profile,
                 "model": model,
+                "model_tier": "strong",
             },
             ctx,
         )
@@ -6362,7 +6416,7 @@ async def _chat_self_correct_v1(
     prompt = _build_self_correct_prompt(query, draft, action, composite, hallucination_rate)
     answer = draft
     try:
-        completion = await _route_llm_complete(prompt, model, ctx)
+        completion = await _route_llm_complete(prompt, model, ctx, tier=model_tier)
         parsed = _loads_lenient_json(completion)
         if parsed:
             candidate = parsed.get("answer")

@@ -152,6 +152,41 @@ class AgentOrchestrator:
             return self._REWRITE_DEFAULT_MODEL, None
         return choice.model, choice.provider
 
+    @staticmethod
+    def _model_routing_step(
+        model_prefs: Dict[str, Any], request: Dict[str, Any] | None
+    ) -> Dict[str, Any] | None:
+        """Visible ``routing`` step for the classic path (deterministic tier)."""
+        source = str(model_prefs.get("source") or "")
+        tier = model_prefs.get("tier")
+        if not source or not tier:
+            return None
+        provider = str(model_prefs.get("provider") or "?")
+        model = str(model_prefs.get("model") or "?")
+        description = {
+            "tier": "Niveau choisi dans la table des tiers du workspace",
+            "explicit": "Modèle demandé explicitement",
+            "preset": "Modèle par défaut du préréglage RAG",
+        }.get(source, "Politique de routage modèle")
+        return {
+            "chunk_type": "decision_step",
+            "decision_step": {
+                "id": f"model-routing-{id(request) if request is not None else 0}",
+                "type": "routing",
+                "component": "ModelRouting",
+                "model": model,
+                "status": "completed",
+                "title": f"Modèle {tier} → {provider}:{model}",
+                "description": description,
+                "metrics": {
+                    "model_tier": tier,
+                    "provider": provider,
+                    "model": model,
+                    "source": source,
+                },
+            },
+        }
+
     async def _rewrite_query(self, query: str, request: dict[str, Any] | None = None) -> str:
         """Rewrite a query with the fast tier (gpt-4o-mini by default) for better retrieval."""
         try:
@@ -252,11 +287,15 @@ class AgentOrchestrator:
         """Process a request through selected agents with fallback strategy"""
 
         query = request.get("query", "")
-        model_name = (
-            request.get("agent_preferences", {})
-            .get("model_preferences", {})
-            .get("model", "gpt-4o")
-        )
+        model_prefs = request.get("agent_preferences", {}).get("model_preferences", {})
+        model_prefs = model_prefs if isinstance(model_prefs, dict) else {}
+        model_name = model_prefs.get("model", "gpt-4o")
+
+        # Decision Step 0: the model routing decision the chat seed already
+        # made (tier -> provider:model), shown only when a policy took part.
+        routing_step = self._model_routing_step(model_prefs, request)
+        if routing_step is not None:
+            yield routing_step
 
         # Decision Step 1: Real Query Rewrite via GPT-4o-mini
         rewrite_start = time.time()
