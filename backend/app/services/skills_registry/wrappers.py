@@ -4671,29 +4671,46 @@ def _resolve_model_preferences(model: Optional[str]) -> dict[str, Any]:
     OpenAI for the gpt/o-series and falls back to the configured default
     provider (Ollama-friendly for on-prem).
     """
-    from app.core.config import settings
+    from app.services.model_plane.routing_policy import parse_model_spec
 
-    default_provider = getattr(settings, "default_provider", None) or "ollama"
-    raw = (model or "").strip()
-    if not raw:
-        return {
-            "provider": default_provider,
-            "model": getattr(settings, "default_model", None) or "",
-        }
-    for sep in (":", "/"):
-        if sep in raw:
-            head, tail = raw.split(sep, 1)
-            head_l = head.lower()
-            # serving_<node>_<id> keys from model_plane local registration
-            if (
-                head_l in _KNOWN_PROVIDERS or head_l.startswith("serving_")
-            ) and tail.strip():
-                provider = "openai" if head_l == "azure" else head_l
-                return {"provider": provider, "model": tail.strip()}
-    low = raw.lower()
-    if low.startswith(("gpt", "o1", "o3", "o4", "chatgpt", "text-", "davinci")):
-        return {"provider": "openai", "model": raw}
-    return {"provider": default_provider, "model": raw}
+    return parse_model_spec(model)
+
+
+def _resolve_model_choice(
+    model: Optional[str],
+    ctx: Optional[dict[str, Any]],
+    tier: Optional[str] = None,
+):
+    """Apply the platform routing policy to one skill call.
+
+    ``model`` is the node/payload value (usually the System pin injected via
+    ``inputs_map``), ``tier`` the planner's or caller's tier hint, and
+    ``ctx["model_routing"]`` the workspace snapshot the run engine seeded.
+    Outside the run engine (no snapshot) the answer degrades to the historical
+    ``settings.default_provider`` / ``settings.default_model`` behaviour.
+    """
+    from app.services.model_plane.routing_policy import resolve_model
+
+    ctx = ctx if isinstance(ctx, dict) else {}
+    snapshot = ctx.get("model_routing") if isinstance(ctx.get("model_routing"), dict) else None
+    return resolve_model(
+        snapshot=snapshot if snapshot else None,
+        system_default_model=ctx.get("default_model"),
+        tier_hint=tier or ctx.get("model_tier"),
+        explicit_model=model,
+    )
+
+
+def _record_model_choice(ctx: Optional[dict[str, Any]], choice: Any, served: Any = None) -> None:
+    """Keep the last routing decision on the ctx so skills can report it."""
+    if not isinstance(ctx, dict):
+        return
+    payload = choice.to_dict() if hasattr(choice, "to_dict") else dict(choice or {})
+    if served is not None:
+        payload["served_provider"] = getattr(served, "provider", None)
+        payload["served_model"] = getattr(served, "model", None)
+        payload["fallback"] = bool(getattr(served, "fallback", False))
+    ctx["_last_model_choice"] = payload
 
 
 async def _route_llm_complete(
@@ -4702,29 +4719,49 @@ async def _route_llm_complete(
     ctx: dict[str, Any],
     *,
     generation_options: Optional[dict[str, Any]] = None,
+    tier: Optional[str] = None,
 ) -> str:
     """Single-shot completion resolved through ``ModelRouter`` (provider-neutral).
 
-    Normalises the heterogeneous client return shapes (OpenAI ``content`` vs
-    Ollama ``response`` vs ``completion``) into a plain string.
+    The provider/model pair comes from the platform routing policy
+    (``_resolve_model_choice``: explicit > System pin > workspace tier >
+    workspace default > global); the workspace fallback chain is honoured by
+    ``ModelRouter.resolve``.  Normalises the heterogeneous client return shapes
+    (OpenAI ``content`` vs Ollama ``response`` vs ``completion``) into a plain
+    string.
     """
     from app.services.model_router import ModelRouter
 
-    prefs = _resolve_model_preferences(model or (ctx or {}).get("default_model"))
+    choice = _resolve_model_choice(model, ctx, tier)
+    prefs = choice.preferences()
     cache_owner = ctx if isinstance(ctx, dict) else {}
     client_cache = cache_owner.get("_resolved_model_client_cache")
     if not isinstance(client_cache, dict):
         client_cache = {}
         cache_owner["_resolved_model_client_cache"] = client_cache
     cache_key = f"{prefs.get('provider')}\x00{prefs.get('model')}"
-    client = client_cache.get(cache_key)
-    if client is None:
+    resolved = client_cache.get(cache_key)
+    if resolved is None:
         router = ModelRouter()
-        client = await router.get_client(prefs)
+        if hasattr(router, "resolve"):
+            resolved = await router.resolve(prefs, fallback_chain=list(choice.fallback_chain))
+        else:  # test doubles / legacy routers only expose get_client
+            from app.services.model_router import ResolvedClient
+
+            resolved = ResolvedClient(
+                client=await router.get_client(prefs),
+                provider=str(prefs.get("provider") or ""),
+                model=str(prefs.get("model") or ""),
+            )
         # Skill context is an ephemeral shallow copy and is never persisted;
         # reusing the just-validated client avoids a second remote health probe
         # when a bounded answer audit immediately follows generation.
-        client_cache[cache_key] = client
+        client_cache[cache_key] = resolved
+    client = resolved.client
+    # The served model can differ from the requested one after a fallback
+    # (cloud model name on a local Ollama); generate with what the client hosts.
+    prefs = {"provider": resolved.provider, "model": resolved.model}
+    _record_model_choice(cache_owner, choice, resolved)
     options = dict(generation_options or {})
     try:
         from app.services.model_clients.ollama_client import OllamaClient

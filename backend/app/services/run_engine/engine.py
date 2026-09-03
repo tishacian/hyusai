@@ -467,6 +467,7 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
 
         ctx = _build_initial_ctx(db, run, system, capability)
         _attach_authoritative_membrane(ctx, control)
+        _attach_model_governance(ctx, control)
 
         start = time.monotonic()
         invocations_out: List[SkillInvocation] = []
@@ -562,8 +563,12 @@ def _build_initial_ctx(
         max_runtime_s = 40.0
     max_runtime_s = max(1.0, min(44.0, max_runtime_s))
     run_deadline_monotonic = time.monotonic() + max_runtime_s
-    workspace_slug = db.query(Workspace.slug).filter(Workspace.id == run.workspace_id).scalar()
+    workspace_row = db.query(Workspace).filter(Workspace.id == run.workspace_id).first()
+    workspace_slug = getattr(workspace_row, "slug", None)
     return {
+        # Workspace routing policy (tiers, default, fallback chain) read once
+        # per run so LLM skills never re-open the workspace to pick a model.
+        "model_routing": _model_routing_snapshot(workspace_row),
         "system_id": system.id,
         "capability_id": capability.id if capability else None,
         "workspace_id": run.workspace_id,
@@ -1388,6 +1393,29 @@ def _attach_authoritative_membrane(
     )
     source_policy["membrane_spec"] = spec.to_dict()
     ctx["source_policy"] = source_policy
+
+
+def _model_routing_snapshot(workspace: Optional[Workspace]) -> Dict[str, Any]:
+    """Serialisable workspace routing policy; never fails the run."""
+    try:
+        from app.services.model_plane.routing_policy import routing_snapshot
+
+        return routing_snapshot(workspace).to_dict()
+    except Exception as exc:  # noqa: BLE001 — routing policy must never block a run
+        logger.warning("run_engine: model routing snapshot unavailable", error=str(exc))
+        return {}
+
+
+def _attach_model_governance(ctx: Dict[str, Any], control: Optional[ControlPolicy]) -> None:
+    """Expose the membrane ``allowed_models`` to the routing resolver."""
+    try:
+        allowed = list(_safe_membrane(control).capabilities.allowed_models)
+    except Exception:  # noqa: BLE001 — the capability gate reports the error itself
+        allowed = []
+    routing = ctx.get("model_routing") if isinstance(ctx.get("model_routing"), dict) else {}
+    routing = dict(routing)
+    routing["allowed_models"] = allowed
+    ctx["model_routing"] = routing
 
 
 def _effective_invocation_model(ctx: Dict[str, Any], payload: Any) -> Optional[str]:

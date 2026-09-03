@@ -1,4 +1,5 @@
 """Model router for intelligent model selection and fallback"""
+from dataclasses import dataclass
 from typing import Dict, Any, Optional, List
 import os
 from app.core.logging import get_logger
@@ -7,6 +8,16 @@ from app.services.model_clients.ollama_client import OllamaClient
 from app.core.config import settings
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class ResolvedClient:
+    """A healthy client plus the model name it will actually serve."""
+
+    client: ModelClient
+    provider: str
+    model: str
+    fallback: bool = False
 
 
 class ModelRouter:
@@ -78,44 +89,78 @@ class ModelRouter:
                 )
     
     async def get_client(
-        self, 
-        preferences: Optional[Dict[str, Any]] = None
+        self,
+        preferences: Optional[Dict[str, Any]] = None,
+        *,
+        fallback_chain: Optional[List[str]] = None,
     ) -> ModelClient:
         """Get appropriate model client based on preferences"""
+        return (await self.resolve(preferences, fallback_chain=fallback_chain)).client
+
+    async def resolve(
+        self,
+        preferences: Optional[Dict[str, Any]] = None,
+        *,
+        fallback_chain: Optional[List[str]] = None,
+    ) -> "ResolvedClient":
+        """Pick a healthy client and the model name it should actually serve.
+
+        ``fallback_chain`` (workspace routing policy) overrides the instance
+        chain for this call.  When the walk lands on Ollama with a model that
+        the local daemon does not host (typically a cloud model name), the
+        deployment's ``ollama_default_model`` is served instead — the same
+        degradation the evaluation judge already applied by hand.
+        """
         if not preferences:
             preferences = {
                 "provider": "ollama",
                 "model": settings.ollama_default_model
             }
-        
+
         provider = preferences.get("provider", "ollama")
         model_name = preferences.get("model", settings.ollama_default_model)
-        
+        chain = [p for p in (fallback_chain or self.fallback_chain) if p]
+
         # Try primary provider
         if provider in self.clients:
             client = self.clients[provider]
             if await self._check_client_health(client, model_name):
                 self.logger.info("Using primary provider", provider=provider, model=model_name)
-                return client
-        
+                return ResolvedClient(client=client, provider=provider, model=model_name, fallback=False)
+
         # Try fallback providers
-        for fallback_provider in self.fallback_chain:
+        for fallback_provider in chain:
             if fallback_provider == provider:
                 continue  # Skip if already tried
-            
+
             if fallback_provider in self.clients:
                 client = self.clients[fallback_provider]
-                if await self._check_client_health(client, model_name):
+                served_model = model_name
+                healthy = await self._check_client_health(client, model_name)
+                if (
+                    not healthy
+                    and isinstance(client, OllamaClient)
+                    and model_name != settings.ollama_default_model
+                ):
+                    served_model = settings.ollama_default_model
+                    healthy = await self._check_client_health(client, served_model)
+                if healthy:
                     self.logger.info(
-                        "Using fallback provider", 
-                        fallback=fallback_provider, 
+                        "Using fallback provider",
+                        fallback=fallback_provider,
                         original=provider,
-                        model=model_name
+                        model=served_model,
+                        requested_model=model_name,
                     )
-                    return client
-        
+                    return ResolvedClient(
+                        client=client,
+                        provider=fallback_provider,
+                        model=served_model,
+                        fallback=True,
+                    )
+
         # If no client available, raise error
-        raise RuntimeError(f"No available model clients. Tried: {provider} and fallbacks: {self.fallback_chain}")
+        raise RuntimeError(f"No available model clients. Tried: {provider} and fallbacks: {chain}")
     
     async def _check_client_health(
         self, 
