@@ -586,6 +586,10 @@ def _build_initial_ctx(
         # ``_snapshot_run_flow`` replaces caller input with the System-owned
         # contract on first execution, then preserves that immutable snapshot.
         "retrieval_contract": input_ref.get("retrieval_contract") or {},
+        # Workspace profile the agentic chat skills are parameterised by
+        # (domain label, OOS scope, known entities, project gates).  System-owned
+        # like the retrieval contract: caller input never re-labels the tenant.
+        "chat_profile": _system_chat_profile(system, input_ref),
         "default_prompt_type": getattr(system, "default_prompt_type", None),
         "default_model": getattr(system, "default_model", None),
         "retrieval_mode_default": getattr(system, "retrieval_mode_default", None),
@@ -594,6 +598,15 @@ def _build_initial_ctx(
         # A monotonic value is deliberately ephemeral and never persisted.
         "_run_deadline_monotonic": run_deadline_monotonic,
     }
+
+
+def _system_chat_profile(system: System, input_ref: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """``settings.chat_profile`` of the System, else the snapshot in the run input."""
+    settings = system.settings if isinstance(system.settings, dict) else {}
+    for candidate in (settings.get("chat_profile"), input_ref.get("chat_profile")):
+        if isinstance(candidate, dict) and candidate.get("slug"):
+            return dict(candidate)
+    return None
 
 
 _VERSION_BINDING_FIELDS = (

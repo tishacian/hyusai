@@ -90,6 +90,34 @@ class AgenticChatProfile:
     def key(self) -> str:
         return "andritz" if self.family == "andritz" else self.slug
 
+    @property
+    def is_andritz(self) -> bool:
+        return self.family == "andritz"
+
+    @property
+    def agent_label(self) -> str:
+        """"agent de chat industriel Andritz" / "agent de chat ACME"."""
+        kind = "industriel " if self.industrial else ""
+        return f"agent de chat {kind}{self.domain_label or self.slug}".strip()
+
+    @property
+    def oos_message(self) -> str:
+        if self.is_andritz:
+            return "Hors du perimetre Andritz."
+        return f"Hors du perimetre de {self.oos_scope}." if self.oos_scope else "Hors du perimetre du workspace."
+
+    @property
+    def clarify_question(self) -> str:
+        if self.industrial:
+            return "Pouvez-vous preciser le projet ou l'equipement concerne ?"
+        return "Pouvez-vous preciser le sujet ou le document concerne ?"
+
+    @property
+    def anchor_examples(self) -> str:
+        if self.example_entities:
+            return self.example_entities
+        return "une reference, un identifiant ou un nom de document"
+
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["known_entities"] = list(self.known_entities)

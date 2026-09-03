@@ -205,6 +205,20 @@ def create_chat_adapter_run(
     return run
 
 
+def _run_chat_profile(system: System, workspace: Workspace) -> dict[str, Any]:
+    """The profile snapshot a chat Run carries: the System's, else the workspace's.
+
+    A System the bootstrap has not adopted yet (startup reconciliation off)
+    still gets the right profile — Andritz derives to the Andritz profile.
+    """
+    recorded = _as_dict(_as_dict(system.settings).get("chat_profile"))
+    if recorded.get("slug"):
+        return deepcopy(recorded)
+    from app.services.systems.agentic_chat_template import workspace_agentic_chat_profile
+
+    return workspace_agentic_chat_profile(workspace).to_dict()
+
+
 def create_agentic_chat_run(
     db: DBSession,
     *,
@@ -277,6 +291,7 @@ def create_agentic_chat_run(
             "chat_turn_id": chat_turn_id,
             "chat_execution": decision.ledger(),
             "retrieval_contract": deepcopy(decision.retrieval_contract or {}),
+            "chat_profile": _run_chat_profile(system, workspace),
             **runtime_fields,
         },
         adapter_evidence={
