@@ -202,6 +202,42 @@
         "pipeline"
       ],
       "reason": "Pending: \"OmniRAG pipeline\" is the product name of the non-flow stage chain; renaming it needs a product copy decision (flow-clarity pass)."
+    },
+    "src/app/features/nawa/nawa-assistant.component.ts": {
+      "words": [
+        "desk"
+      ],
+      "reason": "NAWA WE's own business noun: the IT Service Desk (ITSD) is the client's department, whose requests this surface takes. Not a name for the Studio."
+    },
+    "src/app/features/nawa/nawa-assistant.ts": {
+      "words": [
+        "desk"
+      ],
+      "reason": "NAWA WE's own business noun: the IT Service Desk (ITSD) is the client's department, whose requests this surface takes. Not a name for the Studio."
+    },
+    "src/app/features/nawa/nawa-itsd-catalog.component.ts": {
+      "words": [
+        "desk"
+      ],
+      "reason": "NAWA WE's own business noun: the IT Service Desk (ITSD) is the client's department, whose requests this surface takes. Not a name for the Studio."
+    },
+    "src/app/features/nawa/nawa-preview.ts": {
+      "words": [
+        "desk"
+      ],
+      "reason": "NAWA WE's own business noun: the IT Service Desk (ITSD) is the client's department, whose requests this surface takes. Not a name for the Studio."
+    },
+    "src/app/features/nawa/nawa-run-fixtures.ts": {
+      "words": [
+        "desk"
+      ],
+      "reason": "NAWA WE's own business noun: the IT Service Desk (ITSD) is the client's department, whose requests this surface takes. Not a name for the Studio."
+    },
+    "src/app/core/i18n/experience.dict.ts": {
+      "words": [
+        "desk"
+      ],
+      "reason": "\"desk\" in experience.wizard.pattern.dashboard.example names a client's service desk as a sample business domain, not the Studio."
     }
   }
 }

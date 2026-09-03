@@ -223,7 +223,7 @@ test.describe('NAWA Agent Studio — PR to PO behavioural contract', () => {
       await page.getByRole('tab', { name: /Chat/ }).click();
       await expect(page.locator('.xp-studio-chips')).toBeVisible();
       await expect(page.locator('.xp-studio-chat header ck-thinking-orb')).toBeVisible();
-      const createChip = page.locator('.xp-desk-chip[data-write="true"]');
+      const createChip = page.locator('.xp-studio-chip[data-write="true"]');
       await createChip.click();
       const dialogue = page.locator('.xp-studio-dialog');
       await expect(dialogue).toBeVisible();

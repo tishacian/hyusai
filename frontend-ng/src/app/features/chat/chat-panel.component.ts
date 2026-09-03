@@ -3055,17 +3055,17 @@ const STEP_ICONS: Record<string, string> = {
       background: color-mix(in oklab, var(--ck-signal-pos) 88%, black) !important;
     }
 
-    /* --- NAWA factory-portal skin. The PR to PO desk wraps this panel in
-           .xp-desk-portal; inside it the chat drops the cockpit cyan and takes
-           the desk charter (coral accent, sage ok-green, warm charcoal
-           surfaces) so the portal reads as one surface with the desk. The
+    /* --- NAWA Studio skin. The PR to PO Studio wraps this panel in
+           .xp-studio-portal; inside it the chat drops the cockpit cyan and takes
+           the Studio charter (coral accent, sage ok-green, warm charcoal
+           surfaces) so the portal reads as one surface with the Studio. The
            .ck-chat-* hooks exist for skins like this one; they carry no style
            of their own. Last in the sheet on purpose: the skin must outrank
            the light-theme remaps at equal specificity. --- */
-    :host-context(.xp-desk-portal) .chat-history-shell {
+    :host-context(.xp-studio-portal) .chat-history-shell {
       background: transparent;
     }
-    :host-context(.xp-desk-portal) .ck-chat-user-bubble {
+    :host-context(.xp-studio-portal) .ck-chat-user-bubble {
       border: 1px solid color-mix(in srgb, #ffffff 16%, transparent);
       background: linear-gradient(
         135deg,
@@ -3079,7 +3079,7 @@ const STEP_ICONS: Record<string, string> = {
       line-height: 1.55;
       box-shadow: 0 14px 34px color-mix(in srgb, var(--nawa-accent, #e8543a) 28%, transparent);
     }
-    :host-context(.xp-desk-portal) .ck-chat-assistant-bubble {
+    :host-context(.xp-studio-portal) .ck-chat-assistant-bubble {
       border: 1px solid var(--nawa-line, rgba(245, 242, 239, 0.1));
       background: var(--nawa-surface-2, #1d1d1d);
       color: var(--nawa-fg, #f5f2ef);
@@ -3088,7 +3088,7 @@ const STEP_ICONS: Record<string, string> = {
       line-height: 1.65;
       box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
     }
-    :host-context(.xp-desk-portal) .ck-chat-progress {
+    :host-context(.xp-studio-portal) .ck-chat-progress {
       border: 1px solid color-mix(in srgb, var(--nawa-accent, #e8543a) 32%, transparent);
       background:
         radial-gradient(
@@ -3100,13 +3100,13 @@ const STEP_ICONS: Record<string, string> = {
       color: var(--nawa-fg, #f5f2ef);
       box-shadow: none;
     }
-    :host-context(.xp-desk-portal) .ck-chat-input-bar {
+    :host-context(.xp-studio-portal) .ck-chat-input-bar {
       border-top-color: var(--nawa-line, rgba(245, 242, 239, 0.1));
       background: color-mix(in srgb, var(--nawa-bg, #070707) 72%, transparent);
       padding: 14px 16px;
       gap: 10px;
     }
-    :host-context(.xp-desk-portal) .ck-chat-input {
+    :host-context(.xp-studio-portal) .ck-chat-input {
       border-color: var(--nawa-line, rgba(245, 242, 239, 0.12));
       background: var(--nawa-surface-2, #1d1d1d);
       color: var(--nawa-fg, #f5f2ef);
@@ -3121,22 +3121,22 @@ const STEP_ICONS: Record<string, string> = {
          a soft coral halo on focus below. */
       --tw-ring-color: transparent;
     }
-    :host-context(.xp-desk-portal) .ck-chat-input-bar button:not(.ck-chat-send) {
+    :host-context(.xp-studio-portal) .ck-chat-input-bar button:not(.ck-chat-send) {
       min-height: 52px;
       min-width: 48px;
       border-radius: 14px;
     }
-    :host-context(.xp-desk-portal) .ck-chat-input::placeholder {
+    :host-context(.xp-studio-portal) .ck-chat-input::placeholder {
       color: var(--nawa-fg-dim, rgba(245, 242, 239, 0.55));
     }
-    :host-context(.xp-desk-portal) .ck-chat-input:focus {
+    :host-context(.xp-studio-portal) .ck-chat-input:focus {
       border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 55%, transparent);
       background: color-mix(in srgb, var(--nawa-accent, #e8543a) 5%, var(--nawa-surface-2, #1d1d1d));
       box-shadow:
         0 0 0 3px color-mix(in srgb, var(--nawa-accent, #e8543a) 18%, transparent),
         0 12px 30px color-mix(in srgb, var(--nawa-accent, #e8543a) 12%, transparent);
     }
-    :host-context(.xp-desk-portal) .ck-chat-send {
+    :host-context(.xp-studio-portal) .ck-chat-send {
       border: 1px solid transparent;
       background: var(--nawa-accent, #e8543a);
       color: #140806;
@@ -3146,35 +3146,35 @@ const STEP_ICONS: Record<string, string> = {
       padding-inline: 18px;
       box-shadow: 0 10px 24px color-mix(in srgb, var(--nawa-accent, #e8543a) 35%, transparent);
     }
-    :host-context(.xp-desk-portal) .ck-chat-send:hover:not(:disabled) {
+    :host-context(.xp-studio-portal) .ck-chat-send:hover:not(:disabled) {
       background: color-mix(in srgb, var(--nawa-accent, #e8543a) 86%, #ffffff);
     }
-    :host-context(.xp-desk-portal) .ck-chat-empty-mark {
+    :host-context(.xp-studio-portal) .ck-chat-empty-mark {
       border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 30%, transparent);
       background: color-mix(in srgb, var(--nawa-accent, #e8543a) 10%, var(--nawa-surface, #141414));
       box-shadow: 0 0 32px color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
     }
-    :host-context(.xp-desk-portal) .ck-chat-empty-title {
+    :host-context(.xp-studio-portal) .ck-chat-empty-title {
       color: var(--nawa-fg, #f5f2ef);
     }
-    :host-context(.xp-desk-portal) .ck-chat-empty-hint {
+    :host-context(.xp-studio-portal) .ck-chat-empty-hint {
       color: var(--nawa-fg-dim, rgba(245, 242, 239, 0.64));
     }
-    :host-context(.xp-desk-portal) .ck-chat-trace-summary {
+    :host-context(.xp-studio-portal) .ck-chat-trace-summary {
       border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
       background: color-mix(in srgb, var(--nawa-accent, #e8543a) 6%, var(--nawa-surface, #141414));
     }
-    :host-context(.xp-desk-portal) ck-thinking-orb {
+    :host-context(.xp-studio-portal) ck-thinking-orb {
       border-radius: 999px;
       filter: drop-shadow(0 0 9px color-mix(in srgb, var(--nawa-accent, #e8543a) 45%, transparent));
     }
-    :host-context(.xp-desk-portal) .text-cyan-400,
-    :host-context(.xp-desk-portal) .text-cyan-300,
-    :host-context(.xp-desk-portal) .text-sky-300 {
+    :host-context(.xp-studio-portal) .text-cyan-400,
+    :host-context(.xp-studio-portal) .text-cyan-300,
+    :host-context(.xp-studio-portal) .text-sky-300 {
       color: var(--nawa-accent, #e8543a);
     }
-    :host-context(.xp-desk-portal) .text-emerald-400,
-    :host-context(.xp-desk-portal) .text-emerald-300 {
+    :host-context(.xp-studio-portal) .text-emerald-400,
+    :host-context(.xp-studio-portal) .text-emerald-300 {
       color: var(--nawa-ok, #8fd0a8);
     }
   `],
@@ -3202,13 +3202,13 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly assistantProfileKey = input<string | null>(null);
   readonly initialPrompt = input<string | null>(null);
   readonly autoStartVoiceLoop = input(false);
-  /** Hide the conversation rail. Used when the panel sits inside a business desk. */
+  /** Hide the conversation rail. Used when the panel sits inside a Studio. */
   readonly compact = input(false);
   /** Open on a blank conversation instead of resuming the last session. A
-      desk portal opens clean every time; send() creates the session lazily. */
+      Studio portal opens clean every time; send() creates the session lazily. */
   readonly freshSession = input(false);
   /**
-   * Per-embed system prompt. A desk that grounds the model on live facts
+   * Per-embed system prompt. A Studio that grounds the model on live facts
    * passes them here so the visible thread carries only the human question —
    * the instructions ride the system role, never a bubble.
    */

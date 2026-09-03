@@ -1,5 +1,5 @@
 /**
- * Experience / Studio create hub — business applications, the /create
+ * Experience / Cockpit create hub — business applications, the /create
  * intent page, and the inventory stub.
  *
  * Accepted key prefix: 'experience.'. Navigation labels stay in chrome
@@ -243,7 +243,7 @@ export const EXPERIENCE_FR = {
   'experience.apps.col.audience': 'Audience',
   'experience.apps.col.actions': 'Actions',
   'experience.apps.origin.existing': 'Existante',
-  'experience.apps.origin.studio': 'Studio',
+  'experience.apps.origin.studio': 'Créée ici',
   'experience.apps.state.draft': 'Brouillon',
   'experience.apps.state.pilot': 'Pilote',
   'experience.apps.state.live': 'En service',
@@ -385,7 +385,7 @@ export const EXPERIENCE_FR = {
   'experience.editor.review_mode': 'Revue seule',
   'experience.editor.origin_release': 'Depuis R{n} · {id}',
   'experience.editor.origin_release.hint':
-    'Version ouverte depuis Work. Le Studio modifie toujours le brouillon courant, jamais cette release immuable.',
+    'Version ouverte depuis Work. L’éditeur modifie toujours le brouillon courant, jamais cette release immuable.',
   'experience.editor.save': 'Enregistrer',
   'experience.editor.saved': 'Brouillon enregistré',
   'experience.editor.saving': 'Enregistrement…',
@@ -1146,7 +1146,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.apps.col.audience': 'Audience',
   'experience.apps.col.actions': 'Actions',
   'experience.apps.origin.existing': 'Existing',
-  'experience.apps.origin.studio': 'Studio',
+  'experience.apps.origin.studio': 'Authored here',
   'experience.apps.state.draft': 'Draft',
   'experience.apps.state.pilot': 'Pilot',
   'experience.apps.state.live': 'In service',
@@ -1288,7 +1288,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.editor.review_mode': 'Review only',
   'experience.editor.origin_release': 'From R{n} · {id}',
   'experience.editor.origin_release.hint':
-    'Version opened from Work. Studio always edits the current draft, never this immutable release.',
+    'Version opened from Work. The editor always edits the current draft, never this immutable release.',
   'experience.editor.save': 'Save',
   'experience.editor.saved': 'Draft saved',
   'experience.editor.saving': 'Saving…',

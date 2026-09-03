@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
@@ -76,67 +76,23 @@ test('factory provenance is the Experience origin on the Run ingress', () => {
   assert.equal(isFactoryOriginRun({}), false);
 });
 
-test('the studio is a client of the server run — it never reads or writes SAP itself', () => {
-  const studio = readFileSync(
-    join(process.cwd(), 'src/app/features/experience/work/pr-to-po-studio.component.ts'),
-    'utf8',
-  );
-  // One run through the Experience binding, one canonical HITL decision.
-  assert.match(studio, /ExperienceRuntimeService/);
-  assert.match(studio, /FACTORY_BINDING_KEY/);
-  assert.match(studio, /studioRunPayload\(/);
-  assert.match(studio, /this\.workApi\s*\.decide\(/);
-  assert.match(studio, /listPendingValidations/);
-  assert.match(studio, /this\.canonical\.getRun\(/);
-  // No MCP read/invoke from the browser, no SAP tool name in a request body.
-  assert.doesNotMatch(studio, /\/mcp\/servers\/[^'`]*\/(read|invoke|preview)/);
-  assert.doesNotMatch(studio, /tools\/call/);
-  assert.doesNotMatch(studio, /composeSealedPoPost|bapiCreateInvokeBody|bapiCommitInvokeBody|discardInvokeBody/);
-  assert.doesNotMatch(studio, /approvedPrItemReadBody|budgetReadBody|recentPosByPlantReadBody|justificationReadBody/);
-  // Guardrails ride the run input; the server blocks before the network.
-  assert.match(studio, /disabledTools\(\)/);
-  assert.match(studio, /sapWriteUnsealed/);
-  // The gate and the chat dialogue share the one decision path.
-  assert.match(studio, /approve\(\): void \{[\s\S]{0,60}this\.decide\('accept'\)/);
-  assert.match(studio, /confirmChatWrite\(\): void \{[\s\S]{0,400}this\.decide\('accept'\)/);
-  assert.match(studio, /chip === 'create'[\s\S]{0,80}openChatWrite/);
-  assert.match(studio, /xp-studio-dialog-yes[\s\S]{0,120}confirmChatWrite/);
-  assert.match(studio, /xp-studio-dialog-no[\s\S]{0,120}cancelChatWrite/);
-  // Facts ride the system role; the thread shows only the human question.
-  assert.match(studio, /\[systemPrompt\]="chatSystemPrompt\(\)"/);
-  assert.match(studio, /studioFactSheet\(this\.run\(\)\)/);
-  assert.doesNotMatch(studio, /studio\.chat\.prompt/);
-  assert.match(studio, /app-chat-panel/);
-  assert.match(studio, /\[freshSession\]="true"/);
-  assert.match(studio, /ck-thinking-orb/);
-  assert.match(studio, /xp-desk-portal-head[\s\S]{0,120}ck-thinking-orb/);
-  // Lineage stays visible: the run is one click away.
-  assert.match(studio, /factoryRunHref/);
-});
-
-test('the studio owns the app root and the former desk route lands on it', () => {
-  const routes = readFileSync(
-    join(process.cwd(), 'src/app/features/experience/work/work.routes.ts'),
-    'utf8',
-  );
-  assert.match(routes, /path: 'pr-to-po',[\s\S]{0,160}pr-to-po-studio\.component/);
-  assert.match(routes, /path: 'pr-to-po\/desk', redirectTo: 'pr-to-po'/);
-  assert.doesNotMatch(routes, /pr-to-po-board/);
-  assert.equal(existsSync(join(process.cwd(), 'src/app/features/experience/work/pr-to-po-desk.ts')), false);
-  assert.equal(existsSync(join(process.cwd(), 'src/app/features/experience/work/pr-to-po-board.component.ts')), false);
-});
-
-test('the chat panel wears the NAWA skin with orbs and forwards the system prompt', () => {
-  const panel = readFileSync(
-    join(process.cwd(), 'src/app/features/chat/chat-panel.component.ts'),
-    'utf8',
-  );
-  assert.match(panel, /:host-context\(\.xp-desk-portal\) \.ck-chat-user-bubble/);
-  assert.match(panel, /:host-context\(\.xp-desk-portal\) \.ck-chat-assistant-bubble/);
-  assert.match(panel, /:host-context\(\.xp-desk-portal\) \.ck-chat-send/);
-  assert.match(panel, /:host-context\(\.xp-desk-portal\) \.ck-chat-input\b/);
-  assert.match(panel, /--nawa-accent/);
-  assert.match(panel, /ck-chat-empty-mark[\s\S]{0,200}ck-thinking-orb/);
-  assert.match(panel, /ck-chat-progress[\s\S]{0,400}ck-thinking-orb/);
-  assert.match(panel, /system_prompt: this\.systemPrompt\(\) \?\?/);
+// The Studio's behaviour — run through the binding, gate, canonical HITL
+// decision, chat write dialogue, skin and orbs — is the e2e contract in
+// `e2e/tests/18-nawa-agent-studio-canary.spec.ts`, exercised against the
+// deployed revision. This file keeps a single source-level check, for the one
+// invariant a browser test cannot prove by observation alone: the source has
+// no path that could ever talk to SAP.
+test('security invariant: the browser has no SAP path — no MCP call, no BAPI body', () => {
+  const workDir = join(process.cwd(), 'src/app/features/experience/work');
+  const sources = readdirSync(workDir)
+    .filter((name) => name.endsWith('.ts') && !name.endsWith('.spec.ts'))
+    .map((name) => [name, readFileSync(join(workDir, name), 'utf8')] as const);
+  assert.ok(sources.some(([name]) => name === 'pr-to-po-studio.component.ts'));
+  for (const [name, source] of sources) {
+    assert.doesNotMatch(source, /\/mcp\/servers\/[^'`]*\/(read|invoke|preview)/, name);
+    assert.doesNotMatch(source, /tools\/call/, name);
+    // Tool *names* stay (the guardrail list shows them); a BAPI *body* never.
+    assert.doesNotMatch(source, /TESTRUN/, name);
+    assert.doesNotMatch(source, /POHEADER|POITEM|PoHeader|composeSealedPoPost/, name);
+  }
 });

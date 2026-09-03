@@ -101,7 +101,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
   imports: [CommonModule, RouterLink, ChatPanelComponent, ThinkingOrbComponent],
   styleUrl: './work.scss',
   template: `
-    <div class="xp-work xp-studio" data-theme="dark" data-desk="nawa">
+    <div class="xp-work xp-studio" data-theme="dark" data-studio="nawa">
       <header class="xp-studio-bar">
         <div class="xp-studio-brand">
           <ck-thinking-orb [state]="busy() ? 'working' : 'listening'" [size]="20" />
@@ -156,9 +156,9 @@ const RAIL_TOOLS: readonly RailTool[] = [
           @if (mode() === 'run') {
             <section class="xp-studio-hero">
               <div>
-                <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.studio.hero.kicker') }}</p>
+                <p class="xp-studio-kicker">{{ i18n.t('experience.pr_to_po.studio.hero.kicker') }}</p>
                 <h2>{{ i18n.t('experience.pr_to_po.studio.hero.title') }}</h2>
-                <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.studio.hero.hint') }}</p>
+                <p class="xp-studio-note">{{ i18n.t('experience.pr_to_po.studio.hero.hint') }}</p>
               </div>
               <button
                 type="button"
@@ -217,7 +217,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
                   @if (expanded().has(node.id)) {
                     <div class="xp-studio-node-detail">
                       @if (node.calls.length === 0) {
-                        <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.studio.no_calls') }}</p>
+                        <p class="xp-studio-note">{{ i18n.t('experience.pr_to_po.studio.no_calls') }}</p>
                       }
                       @for (call of node.calls; track $index) {
                         <details class="xp-studio-call" [attr.data-blocked]="call.blocked" [attr.data-sealed]="call.sealed">
@@ -345,7 +345,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
                                 }
                               </div>
                             } @else if (decision() !== 'pending') {
-                              <p class="xp-desk-note">
+                              <p class="xp-studio-note">
                                 {{
                                   decision() === 'approved'
                                     ? i18n.t('experience.pr_to_po.studio.gate.approved')
@@ -356,7 +356,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
                           </article>
                           @if (candidates().length && !busy()) {
                             <div class="xp-studio-next">
-                              <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.studio.gate.next') }}</p>
+                              <p class="xp-studio-note">{{ i18n.t('experience.pr_to_po.studio.gate.next') }}</p>
                               @for (prId of candidates(); track prId) {
                                 <button
                                   type="button"
@@ -378,11 +378,11 @@ const RAIL_TOOLS: readonly RailTool[] = [
             </ol>
           } @else {
             <section class="xp-studio-chat-wrap">
-              <div class="xp-desk-chips xp-studio-chips">
+              <div class="xp-studio-chips">
                 @for (chip of chatChips; track chip) {
                   <button
                     type="button"
-                    class="xp-desk-chip"
+                    class="xp-studio-chip"
                     [attr.data-write]="chip === 'create'"
                     (click)="askChip(chip)"
                   >
@@ -511,13 +511,13 @@ const RAIL_TOOLS: readonly RailTool[] = [
                 <p class="xp-work-error xp-studio-dialog-error">{{ chatWriteError() }}</p>
               }
               @if (systemId(); as chatSystemId) {
-                <section class="xp-desk-portal xp-studio-chat">
+                <section class="xp-studio-portal xp-studio-chat">
                   <header>
-                    <div class="xp-desk-portal-head">
+                    <div class="xp-studio-portal-head">
                       <ck-thinking-orb [state]="chatBusy() || busy() ? 'working' : 'composing'" [size]="20" />
                       <div>
-                        <p class="xp-desk-kicker">{{ i18n.t('experience.pr_to_po.studio.chat.title') }}</p>
-                        <p class="xp-desk-note">
+                        <p class="xp-studio-kicker">{{ i18n.t('experience.pr_to_po.studio.chat.title') }}</p>
+                        <p class="xp-studio-note">
                           {{
                             run()
                               ? i18n.t('experience.pr_to_po.studio.chat.hint')
@@ -538,7 +538,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
                   }
                 </section>
               } @else {
-                <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.studio.chat.offline') }}</p>
+                <p class="xp-studio-note">{{ i18n.t('experience.pr_to_po.studio.chat.offline') }}</p>
               }
             </section>
           }
@@ -576,8 +576,8 @@ const RAIL_TOOLS: readonly RailTool[] = [
               </li>
             }
           </ul>
-          <p class="xp-desk-note">{{ i18n.t('experience.pr_to_po.studio.rail.hint') }}</p>
-          <p class="xp-desk-note">
+          <p class="xp-studio-note">{{ i18n.t('experience.pr_to_po.studio.rail.hint') }}</p>
+          <p class="xp-studio-note">
             {{
               writeUnsealed()
                 ? i18n.t('experience.pr_to_po.studio.rail.live_note')
