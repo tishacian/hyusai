@@ -599,7 +599,6 @@ export type CockpitSectionKey =
   | 'skills'
   | 'knowledge'
   | 'data'
-  | 'models'
   | 'flows'
   | 'runs'
   | 'observability'
@@ -804,6 +803,18 @@ function section(
   };
 }
 
+/**
+ * The data plane is one entry in the Build menu, not two. Datasets and
+ * models are a single lineage (a model is fitted on a dataset and scores
+ * into another) and land in the platform the same way — as what a System's
+ * runs produced and, once published, as a Skill. `/data` and `/models` stay
+ * distinct routes so deep links hold; the rail paints the entry active on
+ * both.
+ */
+function dataPlaneSection(): CockpitSection {
+  return section('data', 'Data & Models', 'table', 'data', 'dataset', ['/data', '/models']);
+}
+
 function hierarchySections(): CockpitSection[] {
   return [
     section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability', undefined, true),
@@ -838,8 +849,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     sections: [
       ...hierarchySections(),
       section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
-      section('data', 'Data', 'table', 'data', 'dataset'),
-      section('models', 'Models', 'chart', 'models', 'model'),
+      dataPlaneSection(),
       section('flows', 'Flow builder', 'flow', 'orchestration', 'flow', undefined, true),
     ],
     legacySections: [
@@ -847,16 +857,14 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability'),
       section('skills', 'Skills', 'bolt', 'skills', 'skill'),
       section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
-      section('data', 'Data', 'table', 'data', 'dataset'),
-      section('models', 'Models', 'chart', 'models', 'model'),
+      dataPlaneSection(),
       section('flows', 'Flow builder', 'flow', 'orchestration', 'flow'),
     ],
     experienceSections: [
       { ...section('business_apps', 'Business application', 'orbit', 'create-apps', 'app'), group: 'create' },
       { ...section('systems', 'Systems', 'cube', 'systems', 'system'), group: 'create' },
       { ...section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'), group: 'create' },
-      { ...section('data', 'Data', 'table', 'data', 'dataset'), group: 'create' },
-      { ...section('models', 'Models', 'chart', 'models', 'model'), group: 'create' },
+      { ...dataPlaneSection(), group: 'create' },
       { ...section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability'), group: 'library' },
       { ...section('skills', 'Skills', 'bolt', 'skills', 'skill'), group: 'library' },
       { ...section('certified', 'Certified components', 'check', 'apps', 'app'), group: 'library' },

@@ -7,8 +7,9 @@
 
 export const DATA_FR = {
   // ---- navigation & page chrome ------------------------------------------
-  'data.eyebrow': 'Plan data',
+  'data.eyebrow': 'Données & modèles · Jeux de données',
   'data.title': 'Données',
+  'data.list.go_models': 'Modèles',
   'data.subtitle':
     'Jeux de données tabulaires : import, profil de colonnes, transformations et lignage.',
 
@@ -120,6 +121,9 @@ export const DATA_FR = {
   'data.lineage.children': 'En aval',
   'data.lineage.none': 'Aucune dépendance enregistrée',
   'data.lineage.produced_by': 'Produit par {producer}',
+  'data.lineage.origin_system': 'Produit par une exécution de Système',
+  'data.lineage.system_chip': 'Système',
+  'data.lineage.run_chip': 'Exécution',
   'data.lineage.origin': 'Fichier importé : {filename}',
   'data.lineage.run': 'Exécution {run}',
   'data.lineage.model': 'Modèle',
@@ -155,8 +159,9 @@ export const DATA_FR = {
 } as const;
 
 export const DATA_EN: Record<keyof typeof DATA_FR, string> = {
-  'data.eyebrow': 'Data plane',
+  'data.eyebrow': 'Data & Models · Datasets',
   'data.title': 'Data',
+  'data.list.go_models': 'Models',
   'data.subtitle':
     'Tabular datasets: import, column profile, transformations and lineage.',
 
@@ -254,6 +259,9 @@ export const DATA_EN: Record<keyof typeof DATA_FR, string> = {
   'data.lineage.children': 'Downstream',
   'data.lineage.none': 'No recorded dependency',
   'data.lineage.produced_by': 'Produced by {producer}',
+  'data.lineage.origin_system': 'Produced by a System run',
+  'data.lineage.system_chip': 'System',
+  'data.lineage.run_chip': 'Run',
   'data.lineage.origin': 'Uploaded file: {filename}',
   'data.lineage.run': 'Run {run}',
   'data.lineage.model': 'Model',

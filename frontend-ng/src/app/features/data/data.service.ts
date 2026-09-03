@@ -41,6 +41,8 @@ export interface DatasetDto {
   original_filename?: string | null;
   run_id?: string | null;
   node_id?: string | null;
+  /** The System whose run produced the row; null for a hand upload. */
+  system_id?: string | null;
   parent_ids: string[];
   produced_by?: string | null;
   created_at?: string | null;

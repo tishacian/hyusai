@@ -16,8 +16,9 @@
 
 export const MODELS_FR = {
   // ---- chrome de page -----------------------------------------------------
-  'models.eyebrow': 'Plan modèles',
+  'models.eyebrow': 'Données & modèles · Modèles',
   'models.title': 'Modèles',
+  'models.list.go_data': 'Jeux de données',
   'models.subtitle':
     'Entraînez un modèle sur un jeu de données, comparez ses versions et choisissez celle qui répond.',
 
@@ -171,6 +172,9 @@ export const MODELS_FR = {
   'models.detail.dataset': 'Jeu de données',
   'models.detail.dataset.open': 'Ouvrir le jeu de données',
   'models.detail.provenance': 'Provenance',
+  'models.detail.origin_system': 'Entraîné par une exécution de Système',
+  'models.detail.system_chip': 'Système',
+  'models.detail.run_chip': 'Exécution',
   'models.detail.provenance.dataset': '{name}',
   'models.detail.provenance.transform': '{name} · {engine}',
   'models.detail.provenance.model': '{name} v{version}',
@@ -559,8 +563,9 @@ export const MODELS_FR = {
 } as const;
 
 export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
-  'models.eyebrow': 'Model plane',
+  'models.eyebrow': 'Data & Models · Models',
   'models.title': 'Models',
+  'models.list.go_data': 'Datasets',
   'models.subtitle':
     'Train a model on a dataset, compare its versions and choose the one that answers.',
 
@@ -708,6 +713,9 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.detail.dataset': 'Dataset',
   'models.detail.dataset.open': 'Open the dataset',
   'models.detail.provenance': 'Provenance',
+  'models.detail.origin_system': 'Trained by a System run',
+  'models.detail.system_chip': 'System',
+  'models.detail.run_chip': 'Run',
   'models.detail.provenance.dataset': '{name}',
   'models.detail.provenance.transform': '{name} · {engine}',
   'models.detail.provenance.model': '{name} v{version}',

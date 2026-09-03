@@ -298,13 +298,12 @@ test('experience_v1 Build menu is grouped Create plus library and has no Flow en
     'systems',
     'knowledge',
     'data',
-    'models',
     'capabilities',
     'skills',
     'certified',
     'integrations',
   ]);
   assert.equal(rail.sectionGroupLabel(rail.visibleSections()[0], 0), 'nav.group.create');
-  assert.equal(rail.sectionGroupLabel(rail.visibleSections()[5], 5), 'nav.group.library');
+  assert.equal(rail.sectionGroupLabel(rail.visibleSections()[4], 4), 'nav.group.library');
   assert.equal(rail.sectionLabel(rail.visibleSections()[0]), 'Business application');
 });

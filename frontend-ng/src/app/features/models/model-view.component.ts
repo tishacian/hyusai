@@ -218,6 +218,26 @@ const CHART_ASPECT = 300 / 190;
         </nav>
       }
 
+      @if (row.system_id; as systemId) {
+        <nav class="ck-provenance" [attr.aria-label]="i18n.t('models.detail.origin_system')">
+          <span class="ck-provenance__label">{{ i18n.t('models.detail.origin_system') }}</span>
+          <ol class="ck-lineage" data-testid="origin-system">
+            <li class="ck-lineage__item">
+              <a [routerLink]="['/systems', systemId]" class="ck-lineage__link" data-kind="system">
+                {{ i18n.t('models.detail.system_chip') }}
+              </a>
+            </li>
+            @if (row.run_id; as runId) {
+              <li class="ck-lineage__item">
+                <a [routerLink]="['/runs', runId]" class="ck-lineage__link" data-kind="run">
+                  {{ i18n.t('models.detail.run_chip') }} <em>{{ runId.slice(0, 8) }}</em>
+                </a>
+              </li>
+            }
+          </ol>
+        </nav>
+      }
+
       @if (isActive(row)) {
         <div class="ck-progress rounded-md px-4 py-3 mb-3">
           <div class="flex items-center gap-2 text-sm" style="color: var(--ck-fg-1)">

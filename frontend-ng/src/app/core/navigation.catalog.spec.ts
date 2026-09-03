@@ -293,7 +293,6 @@ test('experience_v1 Build menu replaces the flat sections and drops the scratchp
     'skills',
     'knowledge',
     'data',
-    'models',
     'flows',
   ]);
 
@@ -303,7 +302,6 @@ test('experience_v1 Build menu replaces the flat sections and drops the scratchp
     'systems',
     'knowledge',
     'data',
-    'models',
     'capabilities',
     'skills',
     'certified',
@@ -312,4 +310,20 @@ test('experience_v1 Build menu replaces the flat sections and drops the scratchp
   assert.equal(on.some((section) => section.key === 'flows'), false);
   assert.equal(matchCockpitVerb('/create')?.key, 'build');
   assert.equal(matchCockpitVerb('/create/apps')?.key, 'build');
+});
+
+test('the data plane is one Build entry that owns both of its routes', () => {
+  const build = COCKPIT_VERBS.find((verb) => verb.key === 'build')!;
+  for (const sections of [build.sections!, build.legacySections!, build.experienceSections!]) {
+    const keys = sections.map((section) => section.key);
+    assert.equal(keys.filter((key) => key === 'data').length, 1);
+    assert.equal(keys.includes('models' as never), false);
+    const entry = sections.find((section) => section.key === 'data')!;
+    assert.equal(entry.label, 'Data & Models');
+    assert.equal(entry.route, '/data');
+    assert.deepEqual(entry.matches, ['/data', '/models']);
+  }
+  // Deep links to a model card still resolve to a catalogued surface.
+  assert.equal(agentiumSurfaceById('models')?.route, '/models');
+  assert.equal(navigationRouteContext('/models/m-1?scope=models').scope, null);
 });

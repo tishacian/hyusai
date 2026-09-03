@@ -58,16 +58,23 @@ type OriginFilter = 'all' | DatasetSource;
       [subtitle]="i18n.t('data.subtitle')"
       [kpis]="kpis()"
     >
-      <button
-        actions
-        type="button"
-        class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
-        (click)="reload()"
-        [disabled]="data.loading()"
-      >
-        <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="data.loading()" />
-        {{ i18n.t('data.list.refresh') }}
-      </button>
+      <div actions class="flex items-center gap-1.5">
+        <a
+          routerLink="/models"
+          class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+        >
+          <app-icon name="brain" [size]="14" /> {{ i18n.t('data.list.go_models') }}
+        </a>
+        <button
+          type="button"
+          class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
+          (click)="reload()"
+          [disabled]="data.loading()"
+        >
+          <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="data.loading()" />
+          {{ i18n.t('data.list.refresh') }}
+        </button>
+      </div>
     </ck-object-header>
 
     <div
