@@ -13,6 +13,7 @@ import { HelpTooltipComponent } from '@app/shared/cockpit';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
 import { canEditExperienceStudio, canReleaseExperienceStudio } from '../experience-access';
 import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.component';
 import { workPageHref } from '../work/work-catalog';
@@ -1355,7 +1356,7 @@ export class ExperienceEditorComponent implements OnDestroy {
   readonly returnTo = signal<string | null>(null);
   readonly originReleaseId = signal<string | null>(null);
   readonly originReleaseNumber = signal<number | null>(null);
-  readonly backHref = computed(() => this.returnTo() ?? '/create/apps');
+  readonly backHref = computed(() => this.returnTo() ?? navigationSurfaceUrl('create-apps'));
   readonly accessRoles = signal<string[]>([]);
   readonly accessGroups = signal<string[]>([]);
   readonly accessWhole = signal(false);

@@ -11,7 +11,13 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, distinctUntilChanged, map } from 'rxjs';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { HelpTooltipComponent, PageFrameComponent, RunOutcomeCardComponent } from '@app/shared/cockpit';
+import {
+  CkBackLinkComponent,
+  HelpTooltipComponent,
+  NavLinkDirective,
+  PageFrameComponent,
+  RunOutcomeCardComponent,
+} from '@app/shared/cockpit';
 import { CkObjectHeaderComponent, type CkObjectKpi } from '@app/shared/cockpit/object-header.component';
 import { CkTabComponent, CkTabsComponent } from '@app/shared/cockpit/tabs.component';
 import { ObjectPerspectiveComponent } from '@app/shared/cockpit/object-perspective.component';
@@ -34,6 +40,8 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterLink,
+    NavLinkDirective,
+    CkBackLinkComponent,
     IconComponent,
     EmptyStateComponent,
     PageFrameComponent,
@@ -47,15 +55,13 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
   template: `
     @if (projectionEnabled()) {
       <ck-object-header
-        [eyebrow]="i18n.t('runs.detail.eyebrow')"
+        [eyebrow]="objectEyebrow(i18n.t('runs.detail.eyebrow'))"
         [title]="titleLabel()"
         [subtitle]="descriptionLabel()"
         [kpis]="perspectiveKpis()"
       >
         <div actions class="inline-flex items-center gap-2">
-          <a routerLink="/runs" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition">
-            <app-icon name="arrow-left" [size]="12" /> {{ i18n.t('runs.detail.all_runs') }}
-          </a>
+          <ck-back-link />
           @if (run()?.system_id) {
             <a
               [routerLink]="navigation.objectUrlTree('system', run()!.system_id, {
@@ -83,12 +89,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                 @for (inv of skillInvocations(); track inv.id || $index) {
                   @if (inv.id) {
                     <a
-                      [routerLink]="['/runs', runId(), 'invocations', inv.id]"
-                      [queryParams]="{
-                        lens: activeLens(),
-                        capabilityId: run()!.capability_id || navigation.capabilityId(),
-                        systemId: run()!.system_id
-                      }"
+                      [navLink]="{ type: 'skill_invocation', ref: inv.id }"
                       class="flex items-center justify-between gap-3 rounded px-3 py-2 bg-white/[0.03] hover:bg-white/[0.07] ring-1 ring-white/10 text-xs"
                     >
                       <span class="font-mono text-cyan-200">{{ inv.skill_slug || inv.skill_id || inv.id }}</span>
@@ -115,13 +116,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
       [status]="statusLabel(run()?.status)"
     >
       <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
-        <a
-          routerLink="/runs"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
-        >
-          <app-icon name="arrow-left" [size]="12" />
-          {{ i18n.t('runs.detail.all_runs') }}
-        </a>
+        <ck-back-link />
         @if (run()?.system_id) {
           <a
             [routerLink]="navigation.objectUrlTree('system', run()!.system_id, {
@@ -344,12 +339,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                     <div class="flex items-baseline justify-between gap-3">
                       @if (skillInvocationProjectionEnabled() && inv.id) {
                         <a
-                          [routerLink]="['/runs', runId(), 'invocations', inv.id]"
-                          [queryParams]="{
-                            lens: activeLens(),
-                            capabilityId: run()!.capability_id || navigation.capabilityId(),
-                            systemId: run()!.system_id
-                          }"
+                          [navLink]="{ type: 'skill_invocation', ref: inv.id }"
                           class="font-mono text-sm text-white truncate hover:text-cyan-300"
                         >{{ inv.skill_slug || inv.skill_id || i18n.t('runs.detail.trail.invocation_fallback') }}</a>
                       } @else if (inv.skill_slug) {
@@ -465,6 +455,14 @@ export class RunViewComponent implements OnInit, OnDestroy {
   private readonly perspectiveStore = inject(ObjectPerspectiveStore);
   protected readonly navigation = inject(ZoomContextService);
   readonly i18n = inject(I18nService);
+
+  objectEyebrow(type: string): string {
+    if (!this.navigation.navV5Enabled()) return type;
+    return this.i18n.t('nav.eyebrow.from_zone', {
+      type,
+      zone: this.i18n.t(this.navigation.zoneI18nKey()),
+    });
+  }
   private routeSubscription: Subscription | null = null;
   private facetRouteSubscription: Subscription | null = null;
   private loadSubscription: Subscription | null = null;
@@ -577,7 +575,7 @@ export class RunViewComponent implements OnInit, OnDestroy {
       distinctUntilChanged(),
     ).subscribe((id) => {
       if (!id) {
-        this.router.navigate(['/runs']);
+        void this.router.navigateByUrl(this.navigation.surfaceUrl('runs'));
         return;
       }
       this.runId.set(id);
@@ -624,7 +622,12 @@ export class RunViewComponent implements OnInit, OnDestroy {
     this.canonical.rerunRun(id).subscribe({
       next: (replay) => {
         this.rerunning.set(false);
-        if (replay?.id) void this.router.navigate(['/runs', replay.id]);
+        if (replay?.id) {
+          void this.router.navigateByUrl(this.navigation.objectUrl('run', replay.id, {
+            capabilityId: this.run()?.capability_id || this.navigation.capabilityId(),
+            systemId: this.run()?.system_id || this.navigation.systemId(),
+          }));
+        }
       },
       error: () => this.rerunning.set(false),
     });
@@ -662,6 +665,7 @@ export class RunViewComponent implements OnInit, OnDestroy {
       relativeTo: this.route,
       queryParams: { facet: value },
       queryParamsHandling: 'merge',
+      replaceUrl: true,
     });
   }
 

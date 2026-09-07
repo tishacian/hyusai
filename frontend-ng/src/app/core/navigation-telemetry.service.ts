@@ -9,10 +9,35 @@ import {
 } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { ApiService } from './api.service';
-import { AGENTIUM_SURFACE_ROUTES, matchAgentiumSurface } from './navigation.catalog';
+import {
+  AGENTIUM_SURFACE_ROUTES,
+  matchAgentiumSurface,
+  navigationRouteContext,
+  type HierarchyObjectType,
+} from './navigation.catalog';
 import { WorkspaceService } from './workspace.service';
 
 export const NAVIGATION_RESOLVED_EVENT = 'navigation.resolved';
+export const NAVIGATION_TRANSITION_EVENT = 'navigation.transition';
+
+export type NavigationTransitionTrigger =
+  | 'rail'
+  | 'minirail'
+  | 'breadcrumb'
+  | 'inpage'
+  | 'palette'
+  | 'history'
+  | 'redirect';
+
+export interface NavigationTransitionDetails {
+  schema_version: 2;
+  from_surface: string;
+  to_surface: string;
+  trigger: NavigationTransitionTrigger;
+  zone_changed: boolean;
+  depth_delta: number;
+  facet_changed: boolean;
+}
 
 export type NavigationResolutionOwner =
   | 'angular_router'
@@ -27,6 +52,9 @@ export type NavigationRedirectReason =
   | 'workspace_default_route'
   | 'workspace_extension_unavailable'
   | 'legacy_hypervisor_object_lens'
+  | 'legacy_focus_query'
+  | 'legacy_tab_query'
+  | 'workspace_mode_home'
   | 'workspace_settings_entrypoint';
 
 export interface NavigationRedirectDecision {
@@ -162,6 +190,30 @@ export function navigationSurfaceForRoute(value: string): string {
   return matchAgentiumSurface(path)?.id ?? 'unknown';
 }
 
+const DEPTH_BY_TYPE: Record<HierarchyObjectType, number> = {
+  capability: 2,
+  system: 3,
+  run: 4,
+  skill_invocation: 5,
+  skill: 5,
+};
+
+/** Hierarchy depth 1–5. Zone lists and homes sit at 1 (Portfolio). */
+export function navigationDepthForRoute(value: string): number {
+  const selected = navigationRouteContext(value, false).selectedType;
+  return selected ? DEPTH_BY_TYPE[selected] : 1;
+}
+
+function navigationFacetToken(value: string): string {
+  const query = navigationRouteContext(value, false).query;
+  const token = query['facet'] || query['tab'] || '';
+  return /^[a-z0-9][a-z0-9._-]{0,63}$/i.test(token) ? token.toLowerCase() : '';
+}
+
+function navigationZoneForRoute(value: string): string {
+  return navigationRouteContext(value).lens;
+}
+
 /**
  * Emits one best-effort audit event after each authenticated navigation has
  * resolved. Explicit redirect owners register their decision before invoking
@@ -177,20 +229,26 @@ export class NavigationTelemetryService implements OnDestroy {
   private subscription: Subscription | null = null;
   private requestedRoute = '/';
   private pendingRedirect: NavigationRedirectDecision | null = null;
+  private pendingTrigger: NavigationTransitionTrigger | null = null;
+  private lastNavigationTrigger: 'imperative' | 'popstate' | 'hashchange' | null = null;
+  private lastResolvedUrl = '/';
   private deferredDetails: DeferredNavigationDetails | null = null;
   private readonly unregisterContextReset: () => void;
 
   constructor() {
     this.unregisterContextReset = this.workspace.registerContextReset(() => {
       this.pendingRedirect = null;
+      this.pendingTrigger = null;
       this.deferredDetails = null;
       this.requestedRoute = privacySafeNavigationRoute(this.router.url || '/');
+      this.lastResolvedUrl = this.router.url || '/';
     });
   }
 
   start(): void {
     if (this.subscription) return;
     this.requestedRoute = privacySafeNavigationRoute(this.router.url || '/');
+    this.lastResolvedUrl = this.router.url || '/';
     this.subscription = this.router.events.subscribe((event) => {
       if (event instanceof NavigationStart) {
         const requestedRoute = privacySafeNavigationRoute(event.url);
@@ -201,6 +259,7 @@ export class NavigationTelemetryService implements OnDestroy {
           this.pendingRedirect = null;
         }
         this.requestedRoute = requestedRoute;
+        this.lastNavigationTrigger = event.navigationTrigger ?? 'imperative';
       } else if (event instanceof NavigationEnd) {
         this.emitResolved(event);
       } else if (event instanceof NavigationCancel) {
@@ -219,6 +278,11 @@ export class NavigationTelemetryService implements OnDestroy {
         this.pendingRedirect = null;
       }
     });
+  }
+
+  /** Chrome registers the control that initiated the next navigation. Consumed once. */
+  registerTrigger(trigger: NavigationTransitionTrigger): void {
+    this.pendingTrigger = trigger;
   }
 
   registerRedirect(decision: NavigationRedirectDecision): void {
@@ -280,6 +344,7 @@ export class NavigationTelemetryService implements OnDestroy {
     }
     this.deferredDetails = null;
     this.emitAudit(details, workspaceSlug);
+    this.emitTransition(event.urlAfterRedirects || event.url, Boolean(explicit));
   }
 
   private emitAudit(details: DeferredNavigationDetails, workspaceSlug: string): void {
@@ -289,6 +354,52 @@ export class NavigationTelemetryService implements OnDestroy {
         ...details,
         effective_workspace: workspaceSlug,
       } satisfies NavigationResolvedDetails,
+      severity: 'info',
+    }).subscribe({
+      next: () => {
+        // Telemetry never blocks navigation.
+      },
+      error: () => {
+        // Audit ingestion is intentionally best-effort.
+      },
+    });
+  }
+
+  private telemetryV2Enabled(): boolean {
+    const features = this.workspace.current()?.settings?.['features'];
+    return Boolean(
+      features
+      && typeof features === 'object'
+      && !Array.isArray(features)
+      && (features as Record<string, unknown>)['navigation_telemetry_v2'] === true,
+    );
+  }
+
+  private consumeTrigger(redirected: boolean): NavigationTransitionTrigger {
+    const registered = this.pendingTrigger;
+    this.pendingTrigger = null;
+    if (redirected) return 'redirect';
+    if (this.lastNavigationTrigger === 'popstate') return 'history';
+    return registered ?? 'inpage';
+  }
+
+  private emitTransition(rawUrl: string, redirected: boolean): void {
+    const fromUrl = this.lastResolvedUrl || rawUrl;
+    const trigger = this.consumeTrigger(redirected);
+    this.lastResolvedUrl = rawUrl;
+    if (!this.telemetryV2Enabled() || !this.workspace.currentSlug()) return;
+    const details: NavigationTransitionDetails = {
+      schema_version: 2,
+      from_surface: navigationSurfaceForRoute(fromUrl),
+      to_surface: navigationSurfaceForRoute(rawUrl),
+      trigger,
+      zone_changed: navigationZoneForRoute(fromUrl) !== navigationZoneForRoute(rawUrl),
+      depth_delta: navigationDepthForRoute(rawUrl) - navigationDepthForRoute(fromUrl),
+      facet_changed: navigationFacetToken(fromUrl) !== navigationFacetToken(rawUrl),
+    };
+    this.api.post('/audit', {
+      event_type: NAVIGATION_TRANSITION_EVENT,
+      details,
       severity: 'info',
     }).subscribe({
       next: () => {

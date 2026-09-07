@@ -5,6 +5,7 @@ import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceDetail, WorkspaceService } from '@app/core/workspace.service';
+import { navigationLeafUrl } from '@app/core/navigation.catalog';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 
@@ -158,7 +159,7 @@ export class WorkspaceDangerComponent {
           this.i18n.t('workspace.danger.toast.left'),
           this.i18n.t('workspace.danger.toast.left_title'),
         );
-        this.router.navigate(['/workspace']);
+        void this.router.navigateByUrl(navigationLeafUrl('workspace-list'));
       },
       error: (err) => {
         this.leaving.set(false);
@@ -183,7 +184,7 @@ export class WorkspaceDangerComponent {
           this.i18n.t('workspace.danger.toast.deleted', { name: d.name }),
           this.i18n.t('workspace.danger.toast.deleted_title'),
         );
-        this.router.navigate(['/workspace']);
+        void this.router.navigateByUrl(navigationLeafUrl('workspace-list'));
       },
       error: (err) => {
         this.deleting.set(false);

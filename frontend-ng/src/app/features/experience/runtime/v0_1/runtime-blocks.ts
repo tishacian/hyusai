@@ -10,6 +10,7 @@ import {
   signal,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { take } from 'rxjs/operators';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { TagComponent, type CkTagTone } from '@app/shared/cockpit';
@@ -916,6 +917,7 @@ export class FormBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
   private readonly element: ElementRef<HTMLElement> = inject(ElementRef);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
@@ -1138,7 +1140,10 @@ export class FormBlock {
     const context = this.context();
     if (context.mode !== 'live' || !context.experienceSlug) return;
     void this.router.navigateByUrl(
-      `/work/${encodeURIComponent(context.experienceSlug)}/${encodeURIComponent(pageId)}`,
+      this.navigation.leafUrl('work-page', {
+        slug: context.experienceSlug,
+        pageId,
+      }),
     );
   }
 }
@@ -1195,6 +1200,7 @@ export class ActionButtonBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
   private readonly element: ElementRef<HTMLElement> = inject(ElementRef);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
@@ -1278,7 +1284,10 @@ export class ActionButtonBlock {
       const context = this.context();
       if (context.mode === 'live' && context.experienceSlug) {
         void this.router.navigateByUrl(
-          `/work/${encodeURIComponent(context.experienceSlug)}/${encodeURIComponent(outcome.pageId)}`,
+          this.navigation.leafUrl('work-page', {
+            slug: context.experienceSlug,
+            pageId: outcome.pageId,
+          }),
         );
       }
       return;

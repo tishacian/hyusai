@@ -16,37 +16,6 @@ import { WorkspaceService, type WorkspaceContextTransition } from './workspace.s
 import { COCKPIT_VERBS } from './navigation.catalog';
 import { ZoomContextService } from './zoom-context.service';
 
-/** `sessionStorage` is a browser global; the last-System memory degrades to a
- *  no-op without it, so install one before exercising that behaviour. */
-class MemorySessionStorage {
-  private readonly entries = new Map<string, string>();
-
-  getItem(key: string): string | null {
-    return this.entries.get(key) ?? null;
-  }
-
-  setItem(key: string, value: string): void {
-    this.entries.set(key, value);
-  }
-
-  removeItem(key: string): void {
-    this.entries.delete(key);
-  }
-}
-
-function withSessionStorage<T>(run: (storage: MemorySessionStorage) => T): T {
-  const globals = globalThis as { sessionStorage?: unknown };
-  const previous = globals.sessionStorage;
-  const storage = new MemorySessionStorage();
-  globals.sessionStorage = storage;
-  try {
-    return run(storage);
-  } finally {
-    if (previous === undefined) delete globals.sessionStorage;
-    else globals.sessionStorage = previous;
-  }
-}
-
 class RouterStub {
   readonly events = new Subject<unknown>();
   readonly parsedUrls: string[] = [];
@@ -75,6 +44,7 @@ class WorkspaceStub {
   private epoch = 1;
   private axesEnabled = true;
   private axesV4 = false;
+  private navV5 = false;
   private readonly resetters = new Set<(transition: WorkspaceContextTransition) => void>();
 
   currentSlug = () => this.slug;
@@ -86,6 +56,7 @@ class WorkspaceStub {
     settings: { features: {
       cockpit_router_axes_v3: this.axesEnabled,
       cockpit_router_axes_v4: this.axesV4,
+      cockpit_nav_v5: this.navV5,
     } },
   });
 
@@ -110,6 +81,10 @@ class WorkspaceStub {
     this.axesV4 = enabled;
   }
 
+  setNavV5Enabled(enabled: boolean): void {
+    this.navV5 = enabled;
+  }
+
   switchWorkspace(): void {
     const transition: WorkspaceContextTransition = {
       previousSlug: this.slug,
@@ -123,10 +98,11 @@ class WorkspaceStub {
   }
 }
 
-function graphHarness(url: string, options: { axesV4?: boolean } = {}) {
+function graphHarness(url: string, options: { axesV4?: boolean; navV5?: boolean } = {}) {
   const router = new RouterStub(url);
   const workspace = new WorkspaceStub();
   workspace.setAxesV4Enabled(options.axesV4 === true);
+  workspace.setNavV5Enabled(options.navV5 === true);
   const capability: Capability = {
     id: 'cap-real',
     slug: 'contract-risk',
@@ -289,14 +265,14 @@ test('scoped-list rail clicks are inert while canonical ancestry is still loadin
     ],
   });
   const navigation = injector.get(ZoomContextService);
-  const skills = COCKPIT_VERBS
+  const runs = COCKPIT_VERBS
     .find((verb) => verb.key === 'operate')!
     .sections!
-    .find((section) => section.key === 'skills')!;
+    .find((section) => section.key === 'runs')!;
 
   assert.equal(navigation.loading(), true);
   assert.equal(navigation.urlForLens('steer', '/steering'), router.url);
-  assert.equal(navigation.urlForScope(skills), router.url);
+  assert.equal(navigation.urlForScope(runs), router.url);
 });
 
 test('global object jumps clear the previous ancestry and UrlTree parsing keeps query separators', () => {
@@ -404,86 +380,35 @@ const flowsSection = () => COCKPIT_VERBS
   .sections!
   .find((section) => section.key === 'flows')!;
 
-test('leaving a System for a flat list keeps Flow builder pointing at that System', () => {
-  withSessionStorage(() => {
-    const { router, navigation } = graphHarness('/systems/sys-real?lens=build');
-    const flows = flowsSection();
-
-    assert.equal(navigation.systemId(), 'sys-real');
-    assert.equal(navigation.urlForScope(flows).split('?')[0], '/systems/sys-real/flow');
-
-    router.navigate('/skills');
-    assert.equal(navigation.systemId(), null, 'the list route proves no System');
-    assert.equal(navigation.urlForScope(flows).split('?')[0], '/systems/sys-real/flow');
-  });
+test('nav v5 zone sommaire omits ?scope= (I5)', () => {
+  const { navigation } = graphHarness('/systems/sys-real?lens=operate', { navV5: true });
+  const runs = COCKPIT_VERBS.find((verb) => verb.key === 'operate')!.sections!.find((section) => section.key === 'runs')!;
+  const url = navigation.urlForScope(runs);
+  assert.equal(url.split('?')[0], '/runs');
+  assert.equal(new URL(url, 'https://agentium.local').searchParams.get('scope'), null);
 });
 
-test('the legacy rail also returns to the last System opened', () => {
-  withSessionStorage(() => {
-    const router = new RouterStub('/systems/sys-real');
-    const workspace = new WorkspaceStub();
-    workspace.setAxesEnabled(false);
-    const canonical = {
-      getRun: () => of(null),
-      getSkill: () => of(null),
-      getSystem: (id: string) => of(
-        id === 'sys-real' ? ({ id, name: 'System', capability_id: null } satisfies System) : null,
-      ),
-      getCapability: () => of(null),
-    };
-    const injector = Injector.create({
-      providers: [
-        ZoomContextService,
-        { provide: Router, useValue: router },
-        { provide: WorkspaceService, useValue: workspace },
-        { provide: CanonicalApiService, useValue: canonical },
-      ],
-    });
-    const navigation = injector.get(ZoomContextService);
-    const flows = flowsSection();
+test('Flow builder follows the proven System, else the scratchpad — never session memory', () => {
+  const { router, navigation } = graphHarness('/systems/sys-real?lens=build');
+  const flows = flowsSection();
 
-    assert.equal(navigation.urlForScope(flows), '/systems/sys-real/flow');
+  assert.equal(navigation.systemId(), 'sys-real');
+  assert.equal(navigation.urlForScope(flows).split('?')[0], '/systems/sys-real/flow');
 
-    router.navigate('/skills');
-    assert.equal(navigation.systemId(), null);
-    assert.equal(navigation.urlForScope(flows), '/systems/sys-real/flow');
-  });
+  router.navigate('/skills');
+  assert.equal(navigation.systemId(), null);
+  assert.equal(navigation.urlForScope(flows).split('?')[0], '/orchestration');
 });
 
-test('opening the scratchpad releases the remembered System', () => {
-  withSessionStorage(() => {
-    const { router, navigation } = graphHarness('/systems/sys-real?lens=build');
-    const flows = flowsSection();
-    assert.equal(navigation.urlForScope(flows).split('?')[0], '/systems/sys-real/flow');
-
-    router.navigate('/orchestration');
-    assert.equal(navigation.urlForScope(flows).split('?')[0], '/orchestration');
-  });
+test('parentUrl is the breadcrumb parent (D6)', () => {
+  const { navigation } = graphHarness('/runs/run-real?lens=operate');
+  assert.equal(navigation.parentLabel(), 'Contract Risk Copilot');
+  assert.equal(navigation.parentUrl().split('?')[0], '/systems/sys-real');
 });
 
-test('a System id never survives a workspace switch', () => {
-  withSessionStorage((storage) => {
-    const { workspace, navigation } = graphHarness('/systems/sys-real?lens=build');
-    const flows = flowsSection();
-    assert.equal(navigation.urlForScope(flows).split('?')[0], '/systems/sys-real/flow');
-    assert.ok(storage.getItem('agentium_last_flow_system:workspace-a'));
-
-    workspace.switchWorkspace();
-    assert.equal(storage.getItem('agentium_last_flow_system:workspace-a'), null);
-    assert.equal(navigation.urlForScope(flows).split('?')[0], '/orchestration');
-  });
-});
-
-test('a System id forged under another workspace slug is rejected', () => {
-  withSessionStorage((storage) => {
-    storage.setItem(
-      'agentium_last_flow_system:workspace-a',
-      JSON.stringify({ workspace_slug: 'workspace-b', system_id: 'sys-from-b' }),
-    );
-    const { navigation } = graphHarness('/skills?lens=build');
-
-    assert.equal(navigation.urlForScope(flowsSection()).split('?')[0], '/orchestration');
-  });
+test('parentUrl of a non-hierarchy object is its catalog list', () => {
+  const { navigation } = graphHarness('/knowledge/kb-1?lens=operate');
+  assert.equal(navigation.parentUrl().split('?')[0], '/knowledge');
 });
 
 test('workspace reset clears synchronously and ignores the late graph from the old epoch', async () => {

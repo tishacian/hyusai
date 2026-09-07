@@ -9,6 +9,8 @@
     "build:prod": "ng build -c production",
     "check:ui-chrome": "node scripts/check-ui-chrome.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "check:nav-links": "node scripts/check-nav-links.mjs --fail-closed",
+    "check:nav-links:report": "node scripts/check-nav-links.mjs",
     "lint": "ng lint",
     "test": "ng test",
     "test:unit": "node scripts/run-unit.mjs",

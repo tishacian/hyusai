@@ -212,7 +212,7 @@ test('the explanation is asked for explicitly, and only for the one row on scree
 });
 
 test('publishing links into the catalog and carries the model’s provenance', () => {
-  assert.match(PLAYGROUND, /routerLink="\/skills"/);
+  assert.match(PLAYGROUND, /\[routerLink\]="navigation\.surfaceUrlTree\('skills'\)"/);
   assert.match(PLAYGROUND, /models\.publish\.provenance/);
   assert.match(PLAYGROUND, /\(changed\)|changed\.emit\(\)/);
 
@@ -221,7 +221,10 @@ test('publishing links into the catalog and carries the model’s provenance', (
   // that is a tap on the thing that just said so — so the toast survives the
   // tap and navigates, rather than dismissing and leaving the reader to hunt.
   assert.match(PLAYGROUND, /\.onTap\.subscribe\(\(\) => \{/);
-  assert.match(PLAYGROUND, /this\.router\.navigate\(\['\/skills'\], \{ queryParams: \{ q: slug \} \}\)/);
+  assert.match(
+    PLAYGROUND,
+    /this\.router\.parseUrl\(this\.navigation\.surfaceUrl\('skills'\)\);\s*tree\.queryParams = \{ \.\.\.tree\.queryParams, q: slug \};\s*void this\.router\.navigateByUrl\(tree\)/,
+  );
   assert.match(PLAYGROUND, /tapToDismiss: false/);
   for (const dict of [MODELS_FR, MODELS_EN]) {
     const copy = (dict as Record<string, string>)['models.publish.done'];
@@ -240,7 +243,7 @@ test('the catalog card says which model a published skill answers from', () => {
   // claim should be checkable in one click.
   assert.match(catalog, /data-testid="skill-provenance"/);
   assert.match(catalog, /data-testid="skill-provenance-detail"/);
-  assert.match(catalog, /\[routerLink\]="\['\/models', sk\.provenance!\.model_id\]"/);
+  assert.match(catalog, /\[navLink\]="\{ leaf: 'model-doc', ref: sk\.provenance!\.model_id \}"/);
   // The same sentence the model card uses — written once, so the two cannot
   // drift into saying the model differently.
   assert.match(catalog, /this\.i18n\.t\('models\.publish\.provenance', params\)/);
@@ -350,7 +353,7 @@ test('a dead link to a model says so, and offers the way back', () => {
     'the card does not borrow the list page empty copy',
   );
   // An empty state with nothing to click is a dead end.
-  assert.match(CARD, /routerLink="\/models"[\s\S]{0,220}models\.detail\.back/);
+  assert.match(CARD, /\[navLink\]="\{ surface: 'models' \}"[\s\S]{0,220}models\.detail\.back/);
   for (const key of ['models.detail.gone.title', 'models.detail.gone.description']) {
     assert.ok(MODELS_FR[key], `${key} has FR copy`);
     assert.ok(MODELS_EN[key], `${key} has EN copy`);

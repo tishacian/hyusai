@@ -93,6 +93,7 @@ Frontend (from `frontend-ng/`):
 
 ```bash
 npm run check:i18n       # i18n keys, FR/EN parity, lexicon, hardcoded-string hunt
+npm run check:nav-links  # fail-closed: no raw Cockpit links outside the allowlist
 npm run check:ui-chrome  # UI chrome rules (docs/agentium-ui-chrome.md)
 npm run test:unit        # co-located *.spec.ts via node:test (no Karma)
 npm run build:prod       # the type gate — ng lint is NOT configured; the prod build is

@@ -1,0 +1,365 @@
+{
+  "schema_version": 1,
+  "mode": "report",
+  "generated_at": "2026-09-08T03:48:05.389Z",
+  "motifs": {
+    "A": "routerLink=\"/…\"",
+    "B": "[routerLink]=\"['/…']\"",
+    "C": "router.navigate(['/…']) / navigateByUrl('/…')"
+  },
+  "totals": {
+    "cockpit": {
+      "A": 0,
+      "B": 0,
+      "C": 0,
+      "total": 0
+    },
+    "allowlist": {
+      "A": 25,
+      "B": 5,
+      "C": 33,
+      "total": 63
+    }
+  },
+  "allowlist": [
+    "features/mission-room/",
+    "features/nawa/",
+    "features/layout/business-shell-header.component.ts",
+    "features/auth/",
+    "core/auth.guard.ts",
+    "core/auth-refresh-coordinator.service.ts",
+    "features/workspace-app-runtime/workspace-app-unavailable.component.ts",
+    "features/account/",
+    "features/experience/work/"
+  ],
+  "files": [
+    {
+      "file": "features/mission-room/mission-room.component.ts",
+      "A": 4,
+      "B": 0,
+      "C": 21,
+      "total": 25,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 1131,
+          "snippet": "routerLink=\"/hypervisor/mission-room/recherche\""
+        },
+        {
+          "line": 1178,
+          "snippet": "routerLink=\"/systems\""
+        },
+        {
+          "line": 1812,
+          "snippet": "routerLink=\"/hypervisor/mission-room/decisions\""
+        },
+        {
+          "line": 5417,
+          "snippet": "this.router.navigate(['/"
+        }
+      ]
+    },
+    {
+      "file": "features/layout/business-shell-header.component.ts",
+      "A": 5,
+      "B": 0,
+      "C": 2,
+      "total": 7,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 30,
+          "snippet": "routerLink=\"/chat\""
+        },
+        {
+          "line": 49,
+          "snippet": "routerLink=\"/client360\""
+        },
+        {
+          "line": 67,
+          "snippet": "routerLink=\"/knowledge/capture\""
+        },
+        {
+          "line": 435,
+          "snippet": "this.router.navigateByUrl('/"
+        }
+      ]
+    },
+    {
+      "file": "features/nawa/nawa-password-reset.component.ts",
+      "A": 2,
+      "B": 4,
+      "C": 0,
+      "total": 6,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 116,
+          "snippet": "routerLink=\"/nawa/itsd\""
+        },
+        {
+          "line": 271,
+          "snippet": "routerLink=\"/governance\""
+        },
+        {
+          "line": 110,
+          "snippet": "[routerLink]=\"['/"
+        },
+        {
+          "line": 260,
+          "snippet": "[routerLink]=\"['/"
+        }
+      ]
+    },
+    {
+      "file": "features/mission-room/generic-mission-room.component.ts",
+      "A": 0,
+      "B": 0,
+      "C": 3,
+      "total": 3,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 222,
+          "snippet": "this.router.navigate(['/"
+        },
+        {
+          "line": 237,
+          "snippet": "this.router.navigate(['/"
+        },
+        {
+          "line": 254,
+          "snippet": "this.router.navigateByUrl('/"
+        }
+      ]
+    },
+    {
+      "file": "features/nawa/nawa-assistant.component.ts",
+      "A": 2,
+      "B": 1,
+      "C": 0,
+      "total": 3,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 201,
+          "snippet": "routerLink=\"/nawa/itsd\""
+        },
+        {
+          "line": 206,
+          "snippet": "routerLink=\"/knowledge\""
+        },
+        {
+          "line": 472,
+          "snippet": "[routerLink]=\"['/"
+        }
+      ]
+    },
+    {
+      "file": "features/workspace-app-runtime/workspace-app-unavailable.component.ts",
+      "A": 1,
+      "B": 0,
+      "C": 2,
+      "total": 3,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 31,
+          "snippet": "routerLink=\"/workspace-app-repair\""
+        },
+        {
+          "line": 136,
+          "snippet": "this.router.navigateByUrl('/"
+        },
+        {
+          "line": 141,
+          "snippet": "this.router.navigateByUrl('/"
+        }
+      ]
+    },
+    {
+      "file": "core/auth.guard.ts",
+      "A": 0,
+      "B": 0,
+      "C": 2,
+      "total": 2,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 22,
+          "snippet": "router.navigate(['/"
+        },
+        {
+          "line": 31,
+          "snippet": "router.navigate(['/"
+        }
+      ]
+    },
+    {
+      "file": "features/auth/password-reset.component.ts",
+      "A": 2,
+      "B": 0,
+      "C": 0,
+      "total": 2,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 28,
+          "snippet": "routerLink=\"/auth/signin\""
+        },
+        {
+          "line": 57,
+          "snippet": "routerLink=\"/auth/signin\""
+        }
+      ]
+    },
+    {
+      "file": "features/auth/signin.component.ts",
+      "A": 2,
+      "B": 0,
+      "C": 0,
+      "total": 2,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 124,
+          "snippet": "routerLink=\"/auth/password-reset\""
+        },
+        {
+          "line": 128,
+          "snippet": "routerLink=\"/auth/signup\""
+        }
+      ]
+    },
+    {
+      "file": "features/auth/signup.component.ts",
+      "A": 2,
+      "B": 0,
+      "C": 0,
+      "total": 2,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 24,
+          "snippet": "routerLink=\"/auth/signin\""
+        },
+        {
+          "line": 126,
+          "snippet": "routerLink=\"/auth/signin\""
+        }
+      ]
+    },
+    {
+      "file": "core/auth-refresh-coordinator.service.ts",
+      "A": 0,
+      "B": 0,
+      "C": 1,
+      "total": 1,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 84,
+          "snippet": "this.router.navigate(['/"
+        }
+      ]
+    },
+    {
+      "file": "features/account/danger.component.ts",
+      "A": 0,
+      "B": 0,
+      "C": 1,
+      "total": 1,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 77,
+          "snippet": "this.router.navigate(['/"
+        }
+      ]
+    },
+    {
+      "file": "features/account/sessions.component.ts",
+      "A": 0,
+      "B": 0,
+      "C": 1,
+      "total": 1,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 131,
+          "snippet": "this.router.navigate(['/"
+        }
+      ]
+    },
+    {
+      "file": "features/experience/work/work-shell.component.ts",
+      "A": 1,
+      "B": 0,
+      "C": 0,
+      "total": 1,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 66,
+          "snippet": "routerLink=\"/work\""
+        }
+      ]
+    },
+    {
+      "file": "features/mission-room/security-monitor.component.ts",
+      "A": 1,
+      "B": 0,
+      "C": 0,
+      "total": 1,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 77,
+          "snippet": "routerLink=\"/hypervisor/mission-room/securite\""
+        }
+      ]
+    },
+    {
+      "file": "features/mission-room/social-pulse-page.component.ts",
+      "A": 1,
+      "B": 0,
+      "C": 0,
+      "total": 1,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 33,
+          "snippet": "routerLink=\"/hypervisor/mission-room/cockpit\""
+        }
+      ]
+    },
+    {
+      "file": "features/mission-room/vp-meeting.component.ts",
+      "A": 1,
+      "B": 0,
+      "C": 0,
+      "total": 1,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 97,
+          "snippet": "routerLink=\"/hypervisor/mission-room/agenda\""
+        }
+      ]
+    },
+    {
+      "file": "features/nawa/nawa-itsd-catalog.component.ts",
+      "A": 1,
+      "B": 0,
+      "C": 0,
+      "total": 1,
+      "allowlisted": true,
+      "examples": [
+        {
+          "line": 74,
+          "snippet": "routerLink=\"/systems\""
+        }
+      ]
+    }
+  ]
+}

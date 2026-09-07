@@ -7,9 +7,11 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ToastrService } from 'ngx-toastr';
 
+import { CkBackLinkComponent } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -60,7 +62,7 @@ const CHUNKING_METHODS = [
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    CkBackLinkComponent,
     FormsModule,
     CkObjectHeaderComponent,
     CkTabsComponent,
@@ -122,9 +124,7 @@ const CHUNKING_METHODS = [
     } @else if (!preset()) {
       <div class="ck-surface rounded-md p-8 text-center">
         <h3 class="text-sm font-semibold text-white mb-2">{{ i18n.t('presets.view.notfound.title') }}</h3>
-        <a routerLink="/presets" class="text-xs text-cyan-300 hover:underline">
-          {{ i18n.t('presets.view.notfound.back') }}
-        </a>
+        <ck-back-link />
       </div>
     } @else {
       <ck-tabs
@@ -423,6 +423,7 @@ const CHUNKING_METHODS = [
 export class PresetViewComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly service = inject(RagPresetService);
   private readonly toastr = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
@@ -539,10 +540,12 @@ export class PresetViewComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    const facet = this.route.snapshot.queryParamMap.get('facet');
+    if (facet) this.activeTab.set(facet as PresetTab);
     this.route.paramMap.subscribe((params) => {
       const id = params.get('presetId');
       if (!id) {
-        this.router.navigate(['/presets']);
+        void this.router.navigateByUrl(this.navigation.surfaceUrl('presets'));
         return;
       }
       this.loadById(id);
@@ -586,6 +589,12 @@ export class PresetViewComponent implements OnInit {
 
   onTabChange(id: string): void {
     this.activeTab.set(id as PresetTab);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   patch(delta: Partial<AppSettings>): void {

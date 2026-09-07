@@ -121,6 +121,25 @@ const LEGACY_WORKSPACE_APP_LABELS = new Map<string, string>(
   BUSINESS_WORKSPACE_APPS.map((item) => [item.key, item.label]),
 );
 
+/** Graduated Lot 6 flags: absence means enabled; stored `false` is a real opt-out. */
+export const GRADUATED_NAV_FEATURES = [
+  'cockpit_router_axes_v3',
+  'cockpit_router_axes_v4',
+  'cockpit_nav_v5',
+] as const;
+
+export function workspaceSettingFeature(
+  workspace: { settings?: Record<string, unknown> | null } | null | undefined,
+  key: string,
+  graduated = false,
+): boolean {
+  const features = workspace?.settings?.['features'];
+  if (features && typeof features === 'object' && !Array.isArray(features) && key in features) {
+    return (features as Record<string, unknown>)[key] === true;
+  }
+  return graduated;
+}
+
 export function isWorkspaceAppEntitlement(value: unknown): value is WorkspaceAppEntitlement {
   return typeof value === 'string' && WORKSPACE_APP_ENTITLEMENT_RE.test(value);
 }

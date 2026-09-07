@@ -690,10 +690,10 @@ test('the pipeline banner walks dataset, transform, this version and scored tabl
     hops.map((hop) => hop.kind),
     ['dataset', 'transform', 'model', 'scored'],
   );
-  assert.deepEqual(hops[0].link, ['/data', 'ds']);
-  assert.deepEqual(hops[2].link, ['/models', 'md']);
+  assert.deepEqual(hops[0].link, { leaf: 'data-doc', ref: 'ds' });
+  assert.deepEqual(hops[2].link, { leaf: 'model-doc', ref: 'md' });
   assert.equal(hops[2].current, true);
-  assert.deepEqual(hops[3].link, ['/data', 'sc']);
+  assert.deepEqual(hops[3].link, { leaf: 'data-doc', ref: 'sc' });
 });
 
 test('a card with only this version is not a pipeline', () => {

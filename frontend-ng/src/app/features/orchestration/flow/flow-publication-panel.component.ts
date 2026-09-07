@@ -9,6 +9,7 @@ import {
 import { DOCUMENT } from '@angular/common';
 import { A11yModule } from '@angular/cdk/a11y';
 import { Router } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { I18nService } from '@app/core/i18n.service';
@@ -238,6 +239,7 @@ export class FlowPublicationPanelComponent {
   private readonly store = inject(FlowStore);
   private readonly home = inject(SystemHomeService);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly toastr = inject(ToastrService);
   private readonly document = inject(DOCUMENT);
   protected readonly message = signal('');
@@ -314,7 +316,9 @@ export class FlowPublicationPanelComponent {
         }
       : null;
     this.home.provide(compiled.document, binding);
-    void this.router.navigate(['/create/preview'], { queryParams: { source: 'home' } });
+    const tree = this.router.parseUrl(this.navigation.leafUrl('create-preview'));
+    tree.queryParams = { ...tree.queryParams, source: 'home' };
+    void this.router.navigateByUrl(tree);
   }
 
   protected createHome(): void {
@@ -353,7 +357,7 @@ export class FlowPublicationPanelComponent {
           this.creating.set(false);
           this.pendingHomeCreate = null;
           this.toastr.success(this.i18n.t('experience.home.created'));
-          void this.router.navigate(['/create/apps', created.id]);
+          void this.router.navigateByUrl(this.navigation.leafUrl('create-app-edit', { ref: created.id }));
         },
         error: (err: unknown) => {
           this.creating.set(false);

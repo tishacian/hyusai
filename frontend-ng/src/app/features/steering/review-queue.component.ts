@@ -9,7 +9,8 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { map } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import {
@@ -50,7 +51,7 @@ import { I18nService } from '@app/core/i18n.service';
   selector: 'app-steering-review-queue',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, PageFrameComponent, GlyphComponent, TagComponent],
+  imports: [FormsModule, NavLinkDirective, PageFrameComponent, GlyphComponent, TagComponent],
   template: `
     <ck-page-frame
       [eyebrow]="i18n.t('steering.review.eyebrow')"
@@ -89,7 +90,7 @@ import { I18nService } from '@app/core/i18n.service';
                 {{ i18n.t('steering.review.component_chip', { component: component.toUpperCase() }) }}
               </span>
               <a
-                routerLink="/steering/review-queue"
+                [navLink]="{ surface: 'review-queue' }"
                 class="ck-mono"
                 style="font-size:10px; color:var(--ck-fg-4); text-decoration:underline;"
               >
@@ -109,7 +110,7 @@ import { I18nService } from '@app/core/i18n.service';
               {{ loading() ? i18n.t('common.loading') : i18n.t('common.refresh') }}
             </button>
             <a
-              routerLink="/presets/evaluation"
+              [navLink]="{ leaf: 'preset-evaluation' }"
               class="ck-mono"
               style="padding:4px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-inset); text-decoration:none;"
             >
@@ -305,7 +306,7 @@ import { I18nService } from '@app/core/i18n.service';
                           {{ i18n.t('steering.review.rerun') }}
                         </button>
                         <a
-                          [routerLink]="['/runs', item.run.id]"
+                          [navLink]="{ type: 'run', ref: item.run.id }"
                           class="ck-mono"
                           style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-inset); text-decoration:none; text-align:center;"
                         >
@@ -409,7 +410,7 @@ import { I18nService } from '@app/core/i18n.service';
                   style="margin-top:8px; padding:10px 12px; background:var(--ck-bg-inset); border-radius:3px; border-left:2px solid var(--ck-signal-cool); font-size:11px; color:var(--ck-fg-2); line-height:1.6;"
                 >
                   <div style="color:var(--ck-signal-cool);">{{ i18n.t('steering.review.replay.status', { status: statusLabel(r.status) }) }}</div>
-                  <div>{{ i18n.t('steering.review.replay.new_run') }} · <a [routerLink]="['/runs', r.run_id]" style="color:var(--ck-fg-1); text-decoration:underline;">{{ r.run_id.slice(0, 8) }}</a> · {{ r.duration_ms }}ms</div>
+                  <div>{{ i18n.t('steering.review.replay.new_run') }} · <a [navLink]="{ type: 'run', ref: r.run_id }" style="color:var(--ck-fg-1); text-decoration:underline;">{{ r.run_id.slice(0, 8) }}</a> · {{ r.duration_ms }}ms</div>
                   @if (r.response_preview) {
                     <div style="margin-top:6px; color:var(--ck-fg-2); white-space:pre-wrap;">{{ truncate(r.response_preview, 400) }}</div>
                   }

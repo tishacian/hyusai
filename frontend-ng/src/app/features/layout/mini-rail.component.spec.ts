@@ -84,6 +84,7 @@ test('clicking the active mini-rail scope is a strict no-op', () => {
           lens,
           axesV3Enabled: () => true,
           axesV4Enabled: () => false,
+          navV5Enabled: () => true,
           experienceV1Enabled: () => false,
           experienceStudioV1Enabled: () => false,
           loading: () => false,
@@ -260,7 +261,7 @@ test('axes v4 exposes no object index under the Portfolio-only Hypervisor destin
   assert.deepEqual(injector.get(MiniRailComponent).visibleSections(), []);
 });
 
-test('experience_v1 Build menu is grouped Create plus library and has no Flow entry', () => {
+test('experience studio prepends Business application to the Create catalogues', () => {
   const injector = Injector.create({
     providers: [
       MiniRailComponent,
@@ -296,14 +297,63 @@ test('experience_v1 Build menu is grouped Create plus library and has no Flow en
   assert.deepEqual(keys, [
     'business_apps',
     'systems',
-    'knowledge',
-    'data',
     'capabilities',
     'skills',
-    'certified',
-    'integrations',
+    'knowledge',
+    'data',
+    'flows',
   ]);
-  assert.equal(rail.sectionGroupLabel(rail.visibleSections()[0], 0), 'nav.group.create');
-  assert.equal(rail.sectionGroupLabel(rail.visibleSections()[4], 4), 'nav.group.library');
   assert.equal(rail.sectionLabel(rail.visibleSections()[0]), 'Business application');
+});
+
+test('nav v5 Operate sommaire has no object ladder and exposes a System facet branch (I1)', () => {
+  const injector = Injector.create({
+    providers: [
+      MiniRailComponent,
+      {
+        provide: ZoomContextService,
+        useValue: {
+          lens: () => 'operate',
+          axesV3Enabled: () => true,
+          axesV4Enabled: () => true,
+          experienceV1Enabled: () => false,
+          experienceStudioV1Enabled: () => false,
+          navV5Enabled: () => true,
+          loading: () => false,
+          route: () => navigationRouteContext('/systems/sys-x?lens=operate&facet=runs'),
+          scope: () => null,
+          capabilityId: () => 'cap-a',
+          systemId: () => 'sys-x',
+          runId: () => null,
+          skillInvocationId: () => null,
+          skillRef: () => null,
+          capabilityLabel: () => 'Cap',
+          systemLabel: () => 'System X',
+          runLabel: () => null,
+          skillInvocationLabel: () => null,
+          skillLabel: () => null,
+          deepestResolvedType: () => 'system',
+          urlForScope: (section: CockpitSection) => section.route,
+        },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  const rail = injector.get(MiniRailComponent);
+  const forbidden = new Set(['capability', 'system', 'run', 'skill']);
+  assert.equal(
+    rail.visibleSections().some((section) => forbidden.has(section.scopeType)),
+    false,
+  );
+  assert.equal(rail.stableLayout(), true);
+  const branch = rail.systemBranch();
+  assert.ok(branch);
+  assert.deepEqual(branch.facets.map((facet) => facet.id), [
+    'overview',
+    'runs',
+    'skills',
+    'knowledge',
+    'flow',
+  ]);
+  assert.equal(branch.activeId, 'runs');
 });

@@ -3,6 +3,7 @@ import { Router } from '@angular/router';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { navigationLeafUrl } from '@app/core/navigation.catalog';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { ChatOverlayService } from './chat-overlay.service';
 import { ChatWorkspaceComponent } from './chat-workspace.component';
@@ -202,7 +203,9 @@ export class ChatOverlayComponent {
       if (initialPrompt) queryParams['initialPrompt'] = initialPrompt;
       if (autoStartVoiceLoop) queryParams['autoStartVoiceLoop'] = 'true';
       this.overlay.close();
-      this.router.navigate(['/workspace', slug, 'chat'], { queryParams });
+      const base = navigationLeafUrl('workspace-chat-page', { slug });
+      const extra = new URLSearchParams(queryParams).toString();
+      void this.router.navigateByUrl(extra ? `${base}${base.includes('?') ? '&' : '?'}${extra}` : base);
     };
 
     if (this.workspace.current()) {

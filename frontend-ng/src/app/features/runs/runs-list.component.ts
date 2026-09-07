@@ -13,7 +13,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, distinctUntilChanged, map } from 'rxjs';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { HelpTooltipComponent, PageFrameComponent } from '@app/shared/cockpit';
+import { HelpTooltipComponent, NavLinkDirective, PageFrameComponent } from '@app/shared/cockpit';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
@@ -33,6 +33,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
     EmptyStateComponent,
     PageFrameComponent,
     HelpTooltipComponent,
+    NavLinkDirective,
     RouterLink,
   ],
   template: `
@@ -43,6 +44,29 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
     >
       <ck-help titleHelp id="concept.run" />
       <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
+        @if (navigation.navV5Enabled() && (filterCapabilityId() || filterSystemId())) {
+          @if (filterCapabilityId(); as capId) {
+            <button
+              type="button"
+              class="ck-mono inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] uppercase"
+              style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2); color:var(--ck-fg-2);"
+              (click)="clearListFilter('capabilityId')"
+            >{{ i18n.t('nav.filter.clear_capability', { name: capId }) }} ×</button>
+          }
+          @if (filterSystemId(); as sysId) {
+            <button
+              type="button"
+              class="ck-mono inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] uppercase"
+              style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2); color:var(--ck-fg-2);"
+              (click)="clearListFilter('systemId')"
+            >{{ i18n.t('nav.filter.clear_system', { name: sysId }) }} ×</button>
+            <a
+              [navLink]="{ type: 'system', ref: sysId }"
+              class="ck-mono text-[10px] uppercase"
+              style="color:var(--ck-signal-cool);"
+            >{{ i18n.t('nav.facet.open_system', { name: sysId }) }}</a>
+          }
+        }
         <ck-help id="runs.list" />
         <form
           [style.display]="'inline-flex'"
@@ -237,7 +261,7 @@ export class RunsListComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
-  private readonly navigation = inject(ZoomContextService);
+  protected readonly navigation = inject(ZoomContextService);
   readonly i18n = inject(I18nService);
   private readonly workspace = inject(WorkspaceService);
   private scopeParams: { system_id?: string; capability_id?: string; origin?: string } | undefined;
@@ -257,6 +281,8 @@ export class RunsListComponent implements OnInit, OnDestroy {
   readonly originInvalid = signal(false);
   originDraft = '';
   readonly statusFilter = signal<StatusFilter>('all');
+  readonly filterSystemId = signal<string | null>(null);
+  readonly filterCapabilityId = signal<string | null>(null);
 
   readonly visibleRuns = computed(() => {
     const list = this.runs();
@@ -272,6 +298,8 @@ export class RunsListComponent implements OnInit, OnDestroy {
         this.originDraft = experienceSlugFromOrigin(origin);
         this.originActive.set(!!origin);
         this.originInvalid.set(false);
+        this.filterSystemId.set(params.get('systemId') ?? params.get('system_id'));
+        this.filterCapabilityId.set(params.get('capabilityId') ?? params.get('capability_id'));
         return this.effectiveScope(
           params.get('systemId') ?? params.get('system_id'),
           params.get('capabilityId') ?? params.get('capability_id'),
@@ -353,6 +381,17 @@ export class RunsListComponent implements OnInit, OnDestroy {
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { origin },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  clearListFilter(key: 'systemId' | 'capabilityId'): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: key === 'systemId'
+        ? { systemId: null, system_id: null }
+        : { capabilityId: null, capability_id: null },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });

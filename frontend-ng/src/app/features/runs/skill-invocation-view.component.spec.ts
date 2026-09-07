@@ -9,6 +9,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
 import { ObjectPerspectiveStore } from '@app/core/object-perspective.store';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import type { ObjectLens } from '@app/core/navigation.catalog';
 import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
 import { SkillInvocationViewComponent } from './skill-invocation-view.component';
@@ -83,6 +84,7 @@ test('SkillInvocation facets follow validated deep links and preserve query cont
       { provide: ObjectPerspectiveStore, useValue: { loadAll: () => of(emptyBundle()) } },
       { provide: LensService, useValue: { lens: () => 'govern' } },
       { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
+      { provide: ZoomContextService, useValue: { navV5Enabled: () => false, zoneI18nKey: () => 'nav.operate' } },
     ],
   });
   const view = injector.get(SkillInvocationViewComponent);
@@ -138,6 +140,7 @@ test('SkillInvocation loads its projection when the effective gate activates in 
       },
       { provide: LensService, useValue: { lens: () => 'operate' } },
       { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
+      { provide: ZoomContextService, useValue: { navV5Enabled: () => false, zoneI18nKey: () => 'nav.operate' } },
     ],
   });
   const view = injector.get(SkillInvocationViewComponent);

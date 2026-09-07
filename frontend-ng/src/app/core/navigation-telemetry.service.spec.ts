@@ -15,8 +15,10 @@ import { Observable, Subject, of } from 'rxjs';
 import { ApiService } from './api.service';
 import {
   NAVIGATION_RESOLVED_EVENT,
+  NAVIGATION_TRANSITION_EVENT,
   NavigationResolvedDetails,
   NavigationTelemetryService,
+  navigationDepthForRoute,
   navigationSurfaceForRoute,
   privacySafeNavigationRoute,
 } from './navigation-telemetry.service';
@@ -47,6 +49,7 @@ class ApiStub {
 
 class WorkspaceStub {
   readonly currentSlug = signal<string | null>('andritz');
+  readonly current = signal<{ settings?: { features?: Record<string, boolean> } } | null>(null);
   private resetter: (() => void) | null = null;
 
   registerContextReset(resetter: () => void): () => void {
@@ -371,4 +374,61 @@ test('privacy and surface helpers redact identifiers and reuse the catalog ids',
   assert.equal(navigationSurfaceForRoute('/systems/system-1/capture'), 'system-capture');
   assert.equal(navigationSurfaceForRoute('/hypervisor/mission-room/strategie'), 'mission-room');
   assert.equal(navigationSurfaceForRoute('/does-not-exist'), 'unknown');
+  assert.equal(navigationDepthForRoute('/runs'), 1);
+  assert.equal(navigationDepthForRoute('/systems/sys-x?lens=operate'), 3);
+  assert.equal(navigationDepthForRoute('/runs/run-1/invocations/inv-1'), 5);
+});
+
+test('navigation.transition is off unless the workspace opts in', () => {
+  const { router, api } = makeHarness();
+  router.events.next(new NavigationStart(1, '/systems/sys-x?lens=operate'));
+  router.events.next(new NavigationEnd(
+    1,
+    '/systems/sys-x?lens=operate',
+    '/systems/sys-x?lens=operate',
+  ));
+  assert.equal(api.calls.length, 1);
+  assert.equal(api.calls[0].body.event_type, NAVIGATION_RESOLVED_EVENT);
+});
+
+test('navigation.transition records zone, depth and inferred trigger behind the flag', () => {
+  const { router, api, workspace, telemetry } = makeHarness();
+  workspace.current.set({ settings: { features: { navigation_telemetry_v2: true } } });
+  router.events.next(new NavigationStart(1, '/systems/sys-x?lens=operate&facet=overview'));
+  router.events.next(new NavigationEnd(
+    1,
+    '/systems/sys-x?lens=operate&facet=overview',
+    '/systems/sys-x?lens=operate&facet=overview',
+  ));
+  telemetry.registerTrigger('rail');
+  router.events.next(new NavigationStart(2, '/systems/sys-x?lens=build&facet=editor'));
+  router.events.next(new NavigationEnd(
+    2,
+    '/systems/sys-x?lens=build&facet=editor',
+    '/systems/sys-x?lens=build&facet=editor',
+  ));
+
+  const transitions = api.calls.filter((call) => call.body.event_type === NAVIGATION_TRANSITION_EVENT);
+  assert.equal(transitions.length, 2);
+  assert.deepEqual(transitions[1].body.details, {
+    schema_version: 2,
+    from_surface: 'systems',
+    to_surface: 'systems',
+    trigger: 'rail',
+    zone_changed: true,
+    depth_delta: 0,
+    facet_changed: true,
+  });
+});
+
+test('popstate navigations classify as history without leaking query text', () => {
+  const { router, api, workspace } = makeHarness();
+  workspace.current.set({ settings: { features: { navigation_telemetry_v2: true } } });
+  router.events.next(new NavigationStart(1, '/systems/sys-x?lens=operate', 'popstate'));
+  router.events.next(new NavigationEnd(1, '/systems/sys-x?lens=operate', '/systems/sys-x?lens=operate'));
+
+  const transition = api.calls.find((call) => call.body.event_type === NAVIGATION_TRANSITION_EVENT);
+  assert.ok(transition);
+  assert.equal(transition.body.details.trigger, 'history');
+  assert.equal('system_id' in transition.body.details, false);
 });

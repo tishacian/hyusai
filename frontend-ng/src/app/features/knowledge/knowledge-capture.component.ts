@@ -12,6 +12,7 @@ import {
   WorkspaceChangedDuringTransportError,
 } from '@app/core/livekit-conversation.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
+import { navigationLeafUrl } from '@app/core/navigation.catalog';
 import { PermissionsService } from '@app/core/permissions.service';
 import {
   ResolvedVoiceCaptureConfig,
@@ -5545,9 +5546,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   openPublishedFicheCollection(row: PublishedCaptureFiche): void {
     const slug = row.collection_slug || row.destination;
     if (!slug) return;
-    const workspaceSlug = this.workspace.current()?.slug || this.workspace.currentSlug();
-    if (!workspaceSlug) return;
-    void this.router.navigate(['/workspace', workspaceSlug, 'knowledge', slug]);
+    void this.router.navigateByUrl(navigationLeafUrl('knowledge-doc', { kbId: slug }));
   }
 
   openPublishedFicheSession(row: PublishedCaptureFiche): void {

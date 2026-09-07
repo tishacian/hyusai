@@ -36,6 +36,7 @@ import {
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { Subscription } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import {
@@ -186,6 +187,7 @@ export class FlowPersistenceService {
   private readonly validation = inject(FlowValidationService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly toastr = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly workspace = inject(WorkspaceService);
@@ -1020,7 +1022,7 @@ export class FlowPersistenceService {
           this.toastr.success(`Promoted to System "${system.name}".`, 'Flow builder');
           this.consumeShareLink();
           this.clearDraftForWorkspace(scope.workspaceSlug);
-          this.router.navigate(['/systems', system.id, 'flow']);
+          void this.router.navigateByUrl(this.navigation.leafUrl('system-flow', { ref: system.id }));
         },
         error: () => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;

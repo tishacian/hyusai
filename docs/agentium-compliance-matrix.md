@@ -20,6 +20,7 @@ Source contract: [`config/agentium/product-compliance.v1.json`](../config/agenti
 | 5 | `LOT5-SURFACE-CATALOG-COVERAGE` — API catalog coverage uses the production router as oracle | `api` | ✅ 1/1 required | ✅ 1/1 required | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
 | 5 | `LOT5-CANONICAL-CONTRACTS` — Canonical workspace contracts replace implicit tenant branching progressively | `full_stack` | ✅ 7/7 required | ✅ 2/2 required | ❌ 2/3 required | ✅ 8/8 required | `node`, `pytest` | 🟡 Partial |
 | 5 | `LOT5-COMPLIANCE-GOVERNANCE` — Product claims are computed and external evidence cannot self-promote | `governance` | ✅ 4/4 required | — | — | ✅ 1/1 required | `pytest` | 🟠 Static verified |
+| 6 | `LOT6-NAV-ONE-SCALE-PER-AXIS` — Cockpit navigation uses one scale per axis | `frontend` | ✅ 3/3 required | — | ✅ 2/2 required | ✅ 2/2 required | `node`, `playwright` | 🟠 Static verified |
 | 6 | `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives | `full_stack` | ✅ 5/5 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 1/1 required | `playwright` | 🟠 Static verified |
 | 6 | `LOT6-P4-DURABLE-SUBFLOWS` — Durable Celery subflows preserve delegated Run identity | `backend` | ✅ 6/6 required | — | — | ✅ 4/4 required | `pytest` | 🟠 Static verified |
 | 7 | `LOT7-OBJECT-GRAPH-PROJECTIONS` — Capability, Run and SkillInvocation expose governed object perspectives | `full_stack` | ❌ 7/8 required | ✅ 2/2 required | ✅ 1/1 required | ✅ 7/7 required | `playwright`, `pytest` | 🟡 Partial |
@@ -171,6 +172,18 @@ One machine-readable manifest derives repository states, rejects manual formal b
 - **implementation / PASS** — [Repository CI compliance gate](../.gitlab-ci.yml)
 - **implementation / PASS** — [Pinned-checkout deployment static gate](../scripts/deploy-vm.sh)
 - **tests / PASS** — [Static compliance governance tests](../backend/app/tests/infra/test_agentium_compliance_contract.py)
+
+### `LOT6-NAV-ONE-SCALE-PER-AXIS` — Cockpit navigation uses one scale per axis
+
+Zone is the rail, object is the breadcrumb, facet is ?facet=. The zone summary never lists the four object types. Work is an RBAC link. cockpit\_nav\_v5 and the routed axes graduate to code defaults. Mental model: §5bis.
+
+- **implementation / PASS** — [Lot 6 one-scale-per-axis contract](../docs/agentium-navigation-lot-6-one-scale-per-axis.md)
+- **implementation / PASS** — [URL grammar v5](../docs/agentium-reference.md)
+- **implementation / PASS** — [Facet catalogue and zone sections](../frontend-ng/src/app/core/navigation.catalog.ts)
+- **frontend / PASS** — [Zone summary and System facet branch](../frontend-ng/src/app/features/layout/mini-rail.component.ts)
+- **frontend / PASS** — [Builder mode home](../frontend-ng/src/app/core/navigation-resolver.service.ts)
+- **tests / PASS** — [I1 sommaire and OBJECT\_FACETS](../frontend-ng/src/app/core/navigation.catalog.spec.ts)
+- **tests / PASS** — [Navigation v5 canary](../frontend-ng/e2e/tests/19-navigation-v5-canary.spec.ts)
 
 ### `LOT6-SYSTEM360-PERSPECTIVES` — One marked System exposes four distinct, evidence-backed perspectives
 

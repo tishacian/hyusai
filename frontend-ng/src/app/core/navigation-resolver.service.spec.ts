@@ -78,7 +78,13 @@ class WorkspaceStub {
         slug,
         role: options.role || 'member',
         mode: options.mode || 'builder',
-        settings: options.settings || {},
+        settings: {
+          ...(options.settings || {}),
+          features: {
+            cockpit_nav_v5: false,
+            ...((options.settings?.['features'] as Record<string, unknown> | undefined) ?? {}),
+          },
+        },
         app_entitlements: options.appEntitlements,
         workspace_app_runtime: options.appRuntime,
       },
@@ -383,6 +389,45 @@ test('axes v4 owns legacy hypervisor object links and keeps Hypervisor at Portfo
   });
   assert.equal(resolver.resolve('/systems/system-42?lens=operate'), null);
   assert.equal(resolver.resolve('/hypervisor'), null);
+});
+
+test('builder + nav v5 sends Portfolio home to /create (D4)', () => {
+  const { resolver } = makeHarness({
+    mode: 'builder',
+    settings: { features: { cockpit_nav_v5: true } },
+  });
+
+  assert.deepEqual(resolver.resolve('/'), {
+    requestedRoute: '/',
+    resolvedRoute: '/create',
+    owner: 'navigation_resolver',
+    reason: 'workspace_mode_home',
+  });
+  assert.deepEqual(resolver.resolve('/hypervisor'), {
+    requestedRoute: '/hypervisor',
+    resolvedRoute: '/create',
+    owner: 'navigation_resolver',
+    reason: 'workspace_mode_home',
+  });
+  assert.equal(resolver.resolve('/systems/sys-1'), null);
+});
+
+test('legacy focus and tab queries rewrite to the v5 grammar', () => {
+  const { resolver } = makeHarness({});
+
+  assert.deepEqual(resolver.resolve('/capabilities?focus=cap-a&lens=operate'), {
+    requestedRoute: '/capabilities?focus=cap-a&lens=operate',
+    resolvedRoute: '/capabilities/cap-a?lens=operate',
+    owner: 'navigation_resolver',
+    reason: 'legacy_focus_query',
+  });
+  assert.deepEqual(resolver.resolve('/resources?tab=providers'), {
+    requestedRoute: '/resources?tab=providers',
+    resolvedRoute: '/resources?facet=providers',
+    owner: 'navigation_resolver',
+    reason: 'legacy_tab_query',
+  });
+  assert.equal(resolver.resolve('/resources?facet=providers'), null);
 });
 
 test('Mission Room fallback and deep links require the workspace extension', () => {

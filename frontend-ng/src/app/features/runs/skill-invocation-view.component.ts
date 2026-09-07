@@ -7,13 +7,14 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription, distinctUntilChanged, map } from 'rxjs';
 import {
   CanonicalApiService,
   type SkillInvocation,
 } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { LensService } from '@app/core/lens';
 import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
 import {
@@ -25,6 +26,7 @@ import {
   WorkspaceViewContext,
   type WorkspaceViewRequest,
 } from '@app/core/workspace-view-context';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -38,7 +40,7 @@ import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-persp
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    NavLinkDirective,
     CkObjectHeaderComponent,
     CkTabsComponent,
     CkTabComponent,
@@ -46,17 +48,17 @@ import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-persp
   ],
   template: `
     <ck-object-header
-      [eyebrow]="i18n.t('runs.invocation.eyebrow')"
+      [eyebrow]="objectEyebrow(i18n.t('runs.invocation.eyebrow'))"
       [title]="title()"
       [subtitle]="i18n.t('runs.invocation.subtitle')"
       [kpis]="kpis()"
     >
       <div actions class="inline-flex items-center gap-2">
-        <a [routerLink]="['/runs', runId()]" [queryParams]="{ lens: activeLens() }" class="px-3 py-1.5 rounded text-xs bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200">
+        <a [navLink]="{ type: 'run', ref: runId(), lens: activeLens() }" class="px-3 py-1.5 rounded text-xs bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200">
           {{ i18n.t('runs.invocation.back') }}
         </a>
-        @if (invocation()?.skill_slug) {
-          <a [routerLink]="['/skills', invocation()!.skill_slug]" [queryParams]="{ lens: 'build', runId: runId() }" class="px-3 py-1.5 rounded text-xs bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200">
+        @if (invocation()?.skill_slug; as skillSlug) {
+          <a [navLink]="{ type: 'skill', ref: skillSlug, lens: 'build' }" class="px-3 py-1.5 rounded text-xs bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200">
             {{ i18n.t('runs.invocation.open_skill') }}
           </a>
         }
@@ -93,6 +95,15 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
   private readonly store = inject(ObjectPerspectiveStore);
   private readonly workspace = inject(WorkspaceService);
   readonly i18n = inject(I18nService);
+  protected readonly navigation = inject(ZoomContextService);
+
+  objectEyebrow(type: string): string {
+    if (!this.navigation.navV5Enabled()) return type;
+    return this.i18n.t('nav.eyebrow.from_zone', {
+      type,
+      zone: this.i18n.t(this.navigation.zoneI18nKey()),
+    });
+  }
   private routeSubscription: Subscription | null = null;
   private facetRouteSubscription: Subscription | null = null;
   private invocationSubscription: Subscription | null = null;

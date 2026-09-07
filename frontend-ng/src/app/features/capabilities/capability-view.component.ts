@@ -7,8 +7,9 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription, distinctUntilChanged, map } from 'rxjs';
+import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -24,6 +25,8 @@ import {
   ObjectPerspectiveStore,
 } from '@app/core/object-perspective.store';
 import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
+import { I18nService } from '@app/core/i18n.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import {
   WorkspaceViewContext,
@@ -49,7 +52,8 @@ import {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    CkBackLinkComponent,
+    NavLinkDirective,
     CkObjectHeaderComponent,
     CkTabsComponent,
     CkTabComponent,
@@ -58,7 +62,7 @@ import {
   ],
   template: `
     <ck-object-header
-      eyebrow="Capabilities · Capability"
+      [eyebrow]="objectEyebrow('Capabilities · Capability')"
       [title]="title()"
       subtitle="A capability defines an outcome promise delivered by one or more Systems."
       [kpis]="kpis()"
@@ -104,10 +108,8 @@ import {
           <section class="ck-surface rounded-md p-5">
             <h3 class="text-sm font-semibold text-white mb-2">Explore related</h3>
             <div class="flex items-center gap-2 flex-wrap text-xs">
-              <a routerLink="/capabilities" class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition">
-                Back to catalog
-              </a>
-              <a routerLink="/systems" class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition">
+              <ck-back-link />
+              <a [navLink]="{ surface: 'systems' }" class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition">
                 Systems bound to this capability
               </a>
             </div>
@@ -131,7 +133,7 @@ import {
           Systems that implement this capability will be listed here.
           <div class="mt-3">
             <a
-              routerLink="/systems"
+              [navLink]="{ surface: 'systems' }"
               class="inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
             >
               Open Systems catalog
@@ -196,6 +198,16 @@ import {
 export class CapabilityViewComponent implements OnInit, OnDestroy {
   /** Screen copy names the product by its brand in this workspace. */
   protected readonly brand = inject(WorkspaceService).brandName;
+  readonly i18n = inject(I18nService);
+  protected readonly navigation = inject(ZoomContextService);
+
+  objectEyebrow(type: string): string {
+    if (!this.navigation.navV5Enabled()) return type;
+    return this.i18n.t('nav.eyebrow.from_zone', {
+      type,
+      zone: this.i18n.t(this.navigation.zoneI18nKey()),
+    });
+  }
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
@@ -293,6 +305,7 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
       relativeTo: this.route,
       queryParams: { facet: id },
       queryParamsHandling: 'merge',
+      replaceUrl: true,
     });
   }
 

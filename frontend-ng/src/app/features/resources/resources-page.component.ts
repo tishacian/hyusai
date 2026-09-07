@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgClass } from '@angular/common';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -18,7 +18,8 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
-import { StatReadoutComponent } from '@app/shared/cockpit';
+import { NavLinkDirective, StatReadoutComponent } from '@app/shared/cockpit';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
@@ -72,7 +73,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
   imports: [
     FormsModule,
     NgClass,
-    RouterLink,
+    NavLinkDirective,
     IconComponent,
     SectionHeaderComponent,
     StatReadoutComponent,
@@ -125,7 +126,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         [hint]="i18n.t('resources.kpi.connectors.hint', { configured: connectorsActive(), coming: connectorsComingSoon() })"
       />
       <a
-        routerLink="/apps"
+        [navLink]="{ surface: 'apps' }"
         class="block group"
         [title]="i18n.t('resources.kpi.apps.title', { count: APPS.length })"
       >
@@ -946,6 +947,7 @@ export class ResourcesPageComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastrService);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly route = inject(ActivatedRoute);
   private readonly workspace = inject(WorkspaceService);
   readonly i18n = inject(I18nService);
@@ -1097,7 +1099,8 @@ export class ResourcesPageComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    const q = this.route.snapshot.queryParamMap.get('tab');
+    const q = this.route.snapshot.queryParamMap.get('facet')
+      ?? this.route.snapshot.queryParamMap.get('tab');
     if (q && TAB_IDS.includes(q as Tab)) {
       this.tab.set(q as Tab);
     }
@@ -1108,7 +1111,7 @@ export class ResourcesPageComponent implements OnInit {
     this.tab.set(id);
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { tab: id === 'models' ? null : id },
+      queryParams: { facet: id === 'models' ? null : id, tab: null },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
@@ -1454,20 +1457,24 @@ export class ResourcesPageComponent implements OnInit {
   }
 
   openConnector(c: ConnectorDef): void {
-    if (c.id === 'sharepoint' || c.id === 'sftp') {
-      this.router.navigate(['/connectors', c.id]);
+    if (c.id === 'sharepoint') {
+      void this.router.navigateByUrl(this.navigation.surfaceUrl('sharepoint'));
+      return;
+    }
+    if (c.id === 'sftp') {
+      void this.router.navigateByUrl(this.navigation.surfaceUrl('secure-deposit'));
       return;
     }
     if (c.id === 'sap_hana') {
-      this.router.navigate(['/connectors', 'sap-hana']);
+      void this.router.navigateByUrl(this.navigation.surfaceUrl('sap-hana'));
       return;
     }
     if (c.id === 'rpa_bridge') {
-      this.router.navigate(['/connectors', 'rpa-bridge']);
+      void this.router.navigateByUrl(this.navigation.leafUrl('connector-rpa-bridge'));
       return;
     }
     if (c.id === 'mcp') {
-      this.router.navigate(['/connectors', 'mcp']);
+      void this.router.navigateByUrl(this.navigation.surfaceUrl('mcp'));
       return;
     }
     this.active.set(c);

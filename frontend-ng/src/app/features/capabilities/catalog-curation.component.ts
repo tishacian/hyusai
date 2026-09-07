@@ -1,5 +1,4 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
@@ -7,6 +6,7 @@ import {
   GlyphComponent,
   KbdComponent,
   MicroBarComponent,
+  NavLinkDirective,
   PageFrameComponent,
   StatReadoutComponent,
   TagComponent,
@@ -32,7 +32,7 @@ import {
     MicroBarComponent,
     TagComponent,
     KbdComponent,
-    RouterLink,
+    NavLinkDirective,
   ],
   template: `
     <ck-page-frame
@@ -88,7 +88,7 @@ import {
                 </div>
                 <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4); line-height:1.6; margin:0;">
                   Enabling a wired app writes its skills into this policy. Turn the app off in
-                  <a routerLink="/apps" style="color:var(--ck-fg-2);">Apps &amp; integrations</a>
+                  <a [navLink]="{ surface: 'apps' }" style="color:var(--ck-fg-2);">Apps &amp; integrations</a>
                   to remove them — {{ appOverrides().length === 1 ? 'it is' : 'they are' }} not curation decisions.
                 </p>
               </div>

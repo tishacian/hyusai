@@ -6,7 +6,7 @@ import { catchError, distinctUntilChanged, map } from 'rxjs/operators';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
-import { RunOutcomeCardComponent, StatReadoutComponent } from '@app/shared/cockpit';
+import { NavLinkDirective, RunOutcomeCardComponent, StatReadoutComponent } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -21,6 +21,8 @@ import { LensService } from '@app/core/lens';
 import { SettingsService } from '@app/core/settings.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
+import { ZoomContextService } from '@app/core/zoom-context.service';
+import { WorkApiService } from '@app/features/experience/work/work-api.service';
 import {
   WorkspaceViewContext,
   type WorkspaceViewRequest,
@@ -82,7 +84,7 @@ interface WizardStep {
   description: string;
   icon: string;
   cta: string;
-  route: string | unknown[];
+  route: string;
   done: boolean;
 }
 
@@ -92,7 +94,7 @@ interface PipelineStage {
   icon: string;
   description: string;
   configureLabel: string;
-  route: string | unknown[];
+  route: string;
   tone: 'brand' | 'violet' | 'emerald';
 }
 
@@ -119,6 +121,7 @@ interface ContextConfigRow {
   imports: [
     NgClass,
     RouterLink,
+    NavLinkDirective,
     ChatPanelComponent,
     IconComponent,
     StatReadoutComponent,
@@ -147,7 +150,7 @@ interface ContextConfigRow {
       @if (flowPublicationEnabled()) {
         <a
           actions
-          [routerLink]="['/systems', systemId, 'run']"
+          [navLink]="{ leaf: 'system-run', ref: systemId }"
           class="ck-btn-accent inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium transition"
           title="Open the published Flow in the Operator Runner"
           data-testid="system-operator-runner-link"
@@ -172,12 +175,19 @@ interface ContextConfigRow {
       @if (isExpertKnowledgeCapture()) {
         <a
           actions
-          [routerLink]="['/systems', systemId, 'capture']"
+          [navLink]="{ leaf: 'system-capture-page', ref: systemId }"
           class="ck-cta inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
           [title]="i18n.t('systems.view.capture.cta.hint')"
         >
           <app-icon name="mic" [size]="14" /> {{ i18n.t('systems.view.capture.cta') }}
         </a>
+      }
+      @if (workOpenHref(); as workHref) {
+        <a
+          actions
+          [navLink]="{ surface: 'work' }"
+          class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+        >{{ i18n.t('nav.open_in_work') }}</a>
       }
       <button
         actions
@@ -241,7 +251,7 @@ interface ContextConfigRow {
                   </p>
                 </div>
                 <a
-                  [routerLink]="['/systems', systemId, 'capture']"
+                  [navLink]="{ leaf: 'system-capture-page', ref: systemId }"
                   class="ck-cta inline-flex shrink-0 items-center justify-center gap-2 rounded px-4 py-3 text-sm font-semibold"
                 >
                   <app-icon name="mic" [size]="16" /> {{ i18n.t('systems.view.capture.open_sessions') }}
@@ -286,7 +296,7 @@ interface ContextConfigRow {
                   </p>
                 </div>
                 <a
-                  [routerLink]="['/systems', systemId, 'flow']"
+                  [navLink]="{ leaf: 'system-flow', ref: systemId }"
                   class="ck-cta inline-flex shrink-0 items-center gap-2 rounded px-4 py-2.5 text-sm font-semibold"
                   data-testid="system-flow-open-builder"
                 >
@@ -531,6 +541,11 @@ interface ContextConfigRow {
           <div class="flex items-center justify-between">
             <div>
               <h3 class="text-sm font-semibold text-white">Run outcomes</h3>
+              @if (navigation.navV5Enabled()) {
+                <a [navLink]="{ surface: 'runs' }" class="ck-mono text-xs" style="color:var(--ck-signal-cool);">
+                  {{ i18n.t('nav.facet.see_in_runs') }}
+                </a>
+              }
               <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); letter-spacing:0.08em; margin-top:2px;">
                 Decision · Confidence · Value · Cost · Efficiency — canonical Outcome block per run.
               </p>
@@ -594,7 +609,7 @@ interface ContextConfigRow {
                 </p>
               </div>
               <a
-                [routerLink]="['/systems', systemId, 'flow']"
+                [navLink]="{ leaf: 'system-flow', ref: systemId }"
                 class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium shrink-0"
               >
                 <app-icon name="workflow" [size]="14" /> Open in flow builder
@@ -669,7 +684,7 @@ interface ContextConfigRow {
                 <div class="flex flex-wrap gap-2">
                   @for (slug of flow.skillSlugs; track slug) {
                     <a
-                      [routerLink]="['/skills', slug]"
+                      [navLink]="{ type: 'skill', ref: slug }"
                       class="ck-tone-info font-mono text-[11px] px-2 py-1 rounded"
                     >
                       {{ slug }}
@@ -698,7 +713,7 @@ interface ContextConfigRow {
             </p>
           </div>
           <a
-            [routerLink]="['/systems', systemId, 'flow']"
+            [navLink]="{ leaf: 'system-flow', ref: systemId }"
             class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium shrink-0"
           >
             <app-icon name="workflow" [size]="14" /> Open in flow builder
@@ -783,13 +798,13 @@ interface ContextConfigRow {
               </div>
               <div class="flex items-center gap-2 shrink-0">
                 <a
-                  routerLink="/knowledge"
+                  [navLink]="{ surface: 'knowledge' }"
                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
                 >
                   <app-icon name="database" [size]="12" /> Open Knowledge
                 </a>
                 <a
-                  [routerLink]="['/systems', systemId, 'flow']"
+                  [navLink]="{ leaf: 'system-flow', ref: systemId }"
                   class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
                 >
                   <app-icon name="workflow" [size]="12" /> Open flow
@@ -884,7 +899,7 @@ interface ContextConfigRow {
             No dedicated Context attached. This System runs on the workspace default.
             <div class="mt-3">
               <a
-                routerLink="/steering/contexts"
+                [navLink]="{ surface: 'contexts' }"
                 class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
               >
                 <app-icon name="external-link" [size]="12" /> Manage contexts
@@ -952,7 +967,7 @@ interface ContextConfigRow {
           overridden on a per-system basis.
         </p>
         <a
-          routerLink="/settings"
+          [navLink]="{ surface: 'presets' }"
           class="ck-cta inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium"
         >
           <app-icon name="sliders-horizontal" [size]="12" /> Edit in Settings
@@ -1026,7 +1041,7 @@ interface ContextConfigRow {
             <div>Similarity: <span class="text-white font-mono">{{ settings.settings().ragSimilarityThreshold?.toFixed(2) ?? '—' }}</span></div>
             <div class="pt-1">
               <a
-                routerLink="/knowledge"
+                [navLink]="{ surface: 'knowledge' }"
                 class="ck-accent inline-flex items-center gap-1 text-xs"
               >
                 <app-icon name="external-link" [size]="11" /> Manage collections
@@ -1064,6 +1079,9 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
   readonly settings = inject(SettingsService);
   readonly lensService = inject(LensService);
+  readonly navigation = inject(ZoomContextService);
+  private readonly workApi = inject(WorkApiService);
+  readonly workOpenHref = signal(false);
   private systemRouteSubscription: Subscription | null = null;
   private facetRouteSubscription: Subscription | null = null;
   private viewSubscriptions = new Subscription();
@@ -1094,8 +1112,8 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   readonly isIntelligence = computed(() => this.variant() === 'intelligence');
   readonly isExpertKnowledgeCapture = computed(() => this.variant() === 'expert_knowledge_capture');
   readonly isTranslationSuite = computed(() => this.variant() === 'translation_suite');
-  readonly headerEyebrow = computed(() =>
-    this.isIntelligence()
+  readonly headerEyebrow = computed(() => {
+    const type = this.isIntelligence()
       ? 'Systems · Intelligence'
       : this.isExpertKnowledgeCapture()
         ? this.i18n.t('systems.view.capture.eyebrow')
@@ -1103,8 +1121,13 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           ? 'PMI Sovereign Stack'
           : this.flowChromeActive()
             ? 'Systems · Flow'
-            : 'Systems · System',
-  );
+            : 'Systems · System';
+    if (!this.navigation.navV5Enabled()) return type;
+    return this.i18n.t('nav.eyebrow.from_zone', {
+      type,
+      zone: this.i18n.t(this.navigation.zoneI18nKey()),
+    });
+  });
   readonly headerFallbackSubtitle = computed(() =>
     this.isIntelligence()
       ? 'Market-signal briefs and continuous monitoring.'
@@ -1183,7 +1206,9 @@ export class SystemViewComponent implements OnInit, OnDestroy {
 
   readonly workspaceAccessRoute = computed(() => {
     const slug = this.workspace.current()?.slug || this.workspace.currentSlug();
-    return slug ? ['/workspace', slug, 'access'] : '/governance/access';
+    return slug
+      ? `/workspace/${encodeURIComponent(slug)}/access`
+      : this.navigation.leafUrl('governance-access');
   });
 
   readonly systemSnapshot = signal<System | null>(null);
@@ -1361,11 +1386,11 @@ export class SystemViewComponent implements OnInit, OnDestroy {
 
   onTabChange(id: string): void {
     this.activeTab.set(id as SystemTabId);
-    if (!this.system360Enabled()) return;
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams: { facet: id },
       queryParamsHandling: 'merge',
+      replaceUrl: true,
     });
   }
 
@@ -1381,7 +1406,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         description: 'Name, description and prompt.',
         icon: 'tag',
         cta: 'Review',
-        route: ['/systems', this.systemId],
+        route: this.navigation.objectUrl('system', this.systemId),
         done: !!this.agentName() && this.agentName() !== 'System',
       },
       {
@@ -1390,7 +1415,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         description: 'Collections the system can retrieve from.',
         icon: 'database',
         cta: 'Open Knowledge',
-        route: '/knowledge',
+        route: this.navigation.surfaceUrl('knowledge'),
         done: this.hasCollections(),
       },
       {
@@ -1401,7 +1426,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           : 'Default LLM, temperature, max tokens.',
         icon: 'cpu',
         cta: this.isDemoMode() ? 'Review' : 'Configure',
-        route: '/settings',
+        route: this.navigation.surfaceUrl('presets'),
         done: this.isDemoMode() ? true : hasModel,
       },
       {
@@ -1410,7 +1435,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         description: 'RAG pipeline mode, similarity threshold, safety filters.',
         icon: 'shield-check',
         cta: 'Configure',
-        route: '/settings',
+        route: this.navigation.surfaceUrl('presets'),
         done: hasPipeline,
       },
       {
@@ -1419,7 +1444,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         description: 'Promote this draft and start serving traffic.',
         icon: 'rocket',
         cta: 'Open chat',
-        route: ['/systems', this.systemId],
+        route: this.navigation.objectUrl('system', this.systemId),
         done: !draft,
       },
     ];
@@ -1434,7 +1459,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'archive',
           description: 'Validate DITA archive, manifest hash and topic inventory.',
           configureLabel: 'Source',
-          route: ['/systems', this.systemId, 'flow'],
+          route: this.navigation.leafUrl('system-flow', { systemId: this.systemId }),
           tone: 'brand',
         },
         {
@@ -1443,7 +1468,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'database',
           description: 'Retrieve reviewed bilingual examples from sovereign translation memory.',
           configureLabel: 'Knowledge',
-          route: '/knowledge',
+          route: this.navigation.surfaceUrl('knowledge'),
           tone: 'violet',
         },
         {
@@ -1452,7 +1477,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'workflow',
           description: 'Normalize source DITA into a deterministic en-GB pivot.',
           configureLabel: 'Flow',
-          route: ['/systems', this.systemId, 'flow'],
+          route: this.navigation.leafUrl('system-flow', { systemId: this.systemId }),
           tone: 'brand',
         },
         {
@@ -1461,7 +1486,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'globe-2',
           description: 'Translate the pivot into 39 target locales with bounded parallelism.',
           configureLabel: 'Runtime',
-          route: ['/systems', this.systemId, 'flow'],
+          route: this.navigation.leafUrl('system-flow', { systemId: this.systemId }),
           tone: 'violet',
         },
         {
@@ -1470,7 +1495,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'list-checks',
           description: 'Run seven category agents and supervisor convergence.',
           configureLabel: 'Guardrails',
-          route: '/governance/blueprints',
+          route: this.navigation.surfaceUrl('workspace-blueprints'),
           tone: 'emerald',
         },
         {
@@ -1479,7 +1504,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'shield-check',
           description: 'Apply CDC E1 guards, CDT approval and ACCEPT_4D delivery evidence.',
           configureLabel: 'Audit',
-          route: '/governance/audit',
+          route: this.navigation.leafUrl('governance-audit'),
           tone: 'emerald',
         },
       ];
@@ -1492,7 +1517,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'list-checks',
           description: this.i18n.t('systems.view.stage.plan.desc'),
           configureLabel: this.i18n.t('systems.view.capture.cta'),
-          route: ['/systems', this.systemId, 'capture'],
+          route: this.navigation.leafUrl('system-capture-page', { systemId: this.systemId }),
           tone: 'brand',
         },
         {
@@ -1501,7 +1526,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'mic',
           description: this.i18n.t('systems.view.stage.voice.desc'),
           configureLabel: this.i18n.t('systems.view.capture.cta'),
-          route: ['/systems', this.systemId, 'capture'],
+          route: this.navigation.leafUrl('system-capture-page', { systemId: this.systemId }),
           tone: 'violet',
         },
         {
@@ -1510,7 +1535,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'database',
           description: this.i18n.t('systems.view.stage.sources.desc'),
           configureLabel: this.i18n.t('systems.view.stage.sources'),
-          route: '/knowledge',
+          route: this.navigation.surfaceUrl('knowledge'),
           tone: 'brand',
         },
         {
@@ -1519,7 +1544,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'check-circle-2',
           description: this.i18n.t('systems.view.stage.report.desc'),
           configureLabel: this.i18n.t('systems.view.stage.report'),
-          route: ['/systems', this.systemId, 'flow'],
+          route: this.navigation.leafUrl('system-flow', { systemId: this.systemId }),
           tone: 'emerald',
         },
       ];
@@ -1531,7 +1556,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         icon: 'message-square',
         description: 'User intent parsing, query rewriting and routing.',
         configureLabel: 'System prompt',
-        route: '/settings',
+        route: this.navigation.surfaceUrl('presets'),
         tone: 'brand',
       },
       {
@@ -1540,7 +1565,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         icon: 'database',
         description: 'Planner-bounded retrieval over your collections.',
         configureLabel: 'Collections',
-        route: '/knowledge',
+        route: this.navigation.surfaceUrl('knowledge'),
         tone: 'violet',
       },
       {
@@ -1549,7 +1574,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         icon: 'filter',
         description: 'Cross-encoder reranking + context filtering.',
         configureLabel: 'Top-K & threshold',
-        route: '/settings',
+        route: this.navigation.surfaceUrl('presets'),
         tone: 'brand',
       },
       {
@@ -1558,7 +1583,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         icon: 'sparkles',
         description: 'LLM synthesis with citations and guardrails.',
         configureLabel: 'Model',
-        route: '/settings',
+        route: this.navigation.surfaceUrl('presets'),
         tone: 'emerald',
       },
     ];
@@ -1571,6 +1596,11 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    if (this.workspace.experienceV1Enabled()) {
+      this.workApi.listExperiences().subscribe((result) => {
+        this.workOpenHref.set(result.kind === 'ok' && result.items.length > 0);
+      });
+    }
     this.systemRouteSubscription = this.route.paramMap.pipe(
       map((params) => params.get('systemId') ?? ''),
       distinctUntilChanged(),

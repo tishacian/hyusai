@@ -111,7 +111,7 @@ test('a dead link to a dataset says so, and offers the way back', () => {
     'the detail page does not borrow the list page empty copy',
   );
   // An empty state with nothing to click is a dead end.
-  assert.match(view, /routerLink="\/data"[\s\S]{0,220}data\.detail\.back/);
+  assert.match(view, /\[navLink\]="\{ surface: 'data' \}"[\s\S]{0,220}data\.detail\.back/);
   for (const key of ['data.detail.gone.title', 'data.detail.gone.description']) {
     assert.ok((DATA_FR as Record<string, string>)[key]?.trim(), `${key} has FR copy`);
     assert.ok((DATA_EN as Record<string, string>)[key]?.trim(), `${key} has EN copy`);
@@ -130,7 +130,7 @@ test('the detail page badges the scored columns and links back to the card', () 
     /data-testid="scored-by-model"/,
     'the lineage chain names the model',
   );
-  assert.match(view, /modelLink\(\)/, 'and the chip is a way back to its card');
+  assert.match(view, /\[navLink\]="modelNavLink\(\)"/, 'and the chip is a way back to its card');
   for (const key of [
     'data.lineage.model',
     'data.lineage.scored_by',

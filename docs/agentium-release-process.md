@@ -45,7 +45,7 @@ Two paths on the VM, don't confuse them:
 All green before pushing:
 
 ```bash
-cd frontend-ng && npm run check:i18n && npm run check:ui-chrome && npm run test:unit && npm run build:prod
+cd frontend-ng && npm run check:i18n && npm run check:nav-links && npm run check:ui-chrome && npm run test:unit && npm run build:prod
 cd backend && pytest app/tests/...        # scoped to the slice being shipped
 git status                                # clean tree, closed file list staged
 git push origin demo/agentic

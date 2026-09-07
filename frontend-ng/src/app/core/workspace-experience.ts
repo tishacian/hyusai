@@ -120,6 +120,9 @@ export interface WorkspaceExperienceRouteResolution {
     | 'workspace_default_route'
     | 'workspace_extension_unavailable'
     | 'legacy_hypervisor_object_lens'
+    | 'legacy_focus_query'
+    | 'legacy_tab_query'
+    | 'workspace_mode_home'
     | 'workspace_settings_entrypoint';
 }
 

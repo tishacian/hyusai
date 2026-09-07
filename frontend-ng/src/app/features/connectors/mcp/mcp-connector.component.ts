@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { ToastrService } from 'ngx-toastr';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { ApiService } from '@app/core/api.service';
@@ -134,7 +134,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
   selector: 'app-mcp-connector',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterLink, IconComponent, SectionHeaderComponent],
+  imports: [CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
   template: `
     <app-section-header
       [breadcrumb]="i18n.t('connectors.title')"
@@ -151,13 +151,7 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
         <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="loading()" />
         {{ i18n.t('common.refresh') }}
       </button>
-      <a
-        routerLink="/connectors"
-        [queryParams]="workspaceQuery()"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-      >
-        <app-icon name="arrow-left" [size]="14" /> {{ i18n.t('connectors.back_to_resources') }}
-      </a>
+      <ck-back-link [fallback]="{ surface: 'connectors' }" />
     </app-section-header>
 
     @if (!featureEnabled()) {
@@ -233,24 +227,21 @@ const NAMED_CANVAS_SERVERS = new Set(['sap', 'hikma']);
       }
       <div class="mt-4 flex flex-wrap gap-2">
         <a
-          routerLink="/systems"
-          [queryParams]="workspaceQuery()"
+          [navLink]="{ surface: 'systems' }"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-cyan-500 text-white hover:bg-cyan-400"
         >
           <app-icon name="arrow-right" [size]="14" />
           {{ i18n.t('connectors.mcp.use.systems') }}
         </a>
         <a
-          routerLink="/work/pr-to-po"
-          [queryParams]="workspaceQuery()"
+          [navLink]="{ leaf: 'work-pr-to-po' }"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10"
         >
           {{ i18n.t('connectors.mcp.use.work') }}
         </a>
         @if (prToPoSystemId(); as systemId) {
           <a
-            [routerLink]="['/systems', systemId, 'flow']"
-            [queryParams]="workspaceQuery()"
+            [navLink]="{ leaf: 'system-flow', ref: systemId }"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10"
           >
             {{ i18n.t('connectors.mcp.use.flow') }}
@@ -781,10 +772,6 @@ export class McpConnectorComponent implements OnInit {
       this.workspace.currentSlug() ||
       this.i18n.t('connectors.workspace.fallback'),
   );
-  readonly workspaceQuery = computed(() => {
-    const slug = this.workspace.currentSlug();
-    return slug ? { workspace: slug } : {};
-  });
   readonly readyCount = computed(
     () => this.drafts().filter((row) => row.configured && row.enabled).length,
   );

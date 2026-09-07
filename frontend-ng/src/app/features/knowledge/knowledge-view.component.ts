@@ -9,9 +9,10 @@ import {
 import { I18nService } from '@app/core/i18n.service';
 import { HttpClient } from '@angular/common/http';
 import { SlicePipe } from '@angular/common';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, Observable, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
+import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -235,7 +236,8 @@ type KbTabId =
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    NavLinkDirective,
+    CkBackLinkComponent,
     SlicePipe,
     IconComponent,
     EmptyStateComponent,
@@ -277,13 +279,7 @@ type KbTabId =
       >
         <app-icon name="link" [size]="14" /> Bindings
       </button>
-      <a
-        actions
-        routerLink="/knowledge"
-        class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
-      >
-        <app-icon name="arrow-left" [size]="14" /> Back
-      </a>
+      <ck-back-link />
     </ck-object-header>
 
     @if (!loading() && docCount() === 0 && chunkCount() === 0) {
@@ -1303,7 +1299,7 @@ type KbTabId =
                     </p>
                   </div>
                   <a
-                    [routerLink]="['/workspace', workspaceSlug(), 'chat-knowledge']"
+                    [navLink]="{ leaf: 'workspace-chat-knowledge', ref: workspaceSlug() }"
                     class="ck-btn-soft inline-flex shrink-0 items-center gap-1.5 rounded px-3 py-2 text-xs font-medium"
                   >
                     <app-icon name="pencil" [size]="13" /> Edit in settings
@@ -1517,7 +1513,7 @@ type KbTabId =
                 </div>
                 <div class="flex-1 min-w-0">
                   <a
-                    [routerLink]="['/systems', sys.id]"
+                    [navLink]="{ type: 'system', ref: sys.id }"
                     class="ck-link text-sm font-medium transition truncate block"
                   >
                     {{ sys.name }}
@@ -1676,6 +1672,7 @@ type KbTabId =
 export class KnowledgeViewComponent implements OnInit {
   readonly i18n = inject(I18nService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly http = inject(HttpClient);
   private readonly canonical = inject(CanonicalApiService);
   private readonly api = inject(ApiService);
@@ -2009,11 +2006,19 @@ export class KnowledgeViewComponent implements OnInit {
   ngOnInit(): void {
     this.kbId = this.route.snapshot.paramMap.get('kbId') ?? '';
     this.title.set(this.kbId || 'Knowledge base');
+    const facet = this.route.snapshot.queryParamMap.get('facet');
+    if (facet) this.activeTab.set(facet as KbTabId);
     this.loadAll();
   }
 
   onTabChange(id: string): void {
     this.activeTab.set(id as KbTabId);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
     if (id === 'diagnostics' && !this.diagnostics()) {
       this.loadDiagnostics();
     }
@@ -2186,6 +2191,12 @@ export class KnowledgeViewComponent implements OnInit {
     this.previewTitle.set(doc.filename || 'Document preview');
     this.previewUrl.set(url);
     this.previewOpen.set(true);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { doc: doc.document_id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   previewFromNode(selection: EmbeddingNodeSelection): void {
@@ -2197,6 +2208,12 @@ export class KnowledgeViewComponent implements OnInit {
     this.previewTitle.set(selection.title || 'Document preview');
     this.previewUrl.set(url);
     this.previewOpen.set(true);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { doc: selection.document_id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   closePreview(): void {

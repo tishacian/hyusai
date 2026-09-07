@@ -17,6 +17,7 @@ import {
   type LastEvalContext,
 } from '@app/core/evaluation-context.storage';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
 import {
   CanonicalApiService,
   type EvaluationComponentHealthResponse,
@@ -26,6 +27,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
   GlyphComponent,
+  NavLinkDirective,
   PageFrameComponent,
   StatReadoutComponent,
   TagComponent,
@@ -63,6 +65,7 @@ const PALETTE = {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    NavLinkDirective,
     RouterLink,
     BaseChartDirective,
     IconComponent,
@@ -206,7 +209,7 @@ const PALETTE = {
         </div>
 
         <a
-          routerLink="/steering/review-queue"
+          [navLink]="{ surface: 'review-queue' }"
           class="ck-mono"
           [style.display]="'inline-flex'"
           [style.alignItems]="'center'"
@@ -264,7 +267,7 @@ const PALETTE = {
         <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(auto-fit, minmax(170px, 1fr))'" [style.gap.px]="10">
           @for (item of componentHealthItems(); track item.component) {
             <a
-              routerLink="/steering/review-queue"
+              [routerLink]="reviewQueueHref"
               [queryParams]="{ component: item.component }"
               [style.display]="'block'"
               [style.textDecoration]="'none'"
@@ -470,6 +473,8 @@ export class QualityDashboardComponent implements OnInit {
   private readonly workspace = inject(WorkspaceService);
   private readonly zone = inject(NgZone);
   private readonly toast = inject(ToastrService);
+  /** Review queue keeps its own `component` filter; not part of the nav grammar. */
+  protected readonly reviewQueueHref = navigationSurfaceUrl('review-queue');
 
   chartsReady = signal(false);
   loading = signal(false);

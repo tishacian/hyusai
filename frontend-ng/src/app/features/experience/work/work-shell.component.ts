@@ -15,6 +15,8 @@ import { Subscription, timer } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { I18nService, type Locale } from '@app/core/i18n.service';
+import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
+import { canEditExperienceStudio } from '../experience-access';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { type Run } from '@app/core/canonical-api.service';
 import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
@@ -104,6 +106,9 @@ const POLL_MS = 8000;
                 </button>
               }
             </span>
+          }
+          @if (showCockpitLink()) {
+            <a class="xp-work-link" [routerLink]="cockpitHref()">{{ i18n.t('nav.cockpit') }}</a>
           }
           @if (canEdit()) {
             <a class="xp-work-link" [routerLink]="studioLink()">{{ i18n.t('experience.work.edit_studio') }}</a>
@@ -271,6 +276,18 @@ export class WorkShellComponent {
     this.workspace.experienceStudioV1Enabled()
     && canEditExperience(this.workspace.current()?.role_template, this.workspace.isAdmin()),
   );
+
+  readonly showCockpitLink = computed(() => {
+    const current = this.workspace.current();
+    return canEditExperienceStudio(current?.role_template, current?.role, this.workspace.isAdmin())
+      || canEditExperience(current?.role_template, this.workspace.isAdmin());
+  });
+
+  cockpitHref(): string {
+    return this.workspace.mode() === 'builder'
+      ? navigationSurfaceUrl('create')
+      : navigationSurfaceUrl('hypervisor');
+  }
 
   constructor() {
     let generation = 0;

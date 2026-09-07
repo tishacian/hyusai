@@ -8,6 +8,7 @@ import {
   GlyphComponent,
   KbdComponent,
   LiveDotComponent,
+  NavLinkDirective,
   PageFrameComponent,
   StatReadoutComponent,
   TagComponent,
@@ -42,6 +43,7 @@ interface Template {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterLink,
+    NavLinkDirective,
     FormsModule,
     PageFrameComponent,
     GlyphComponent,
@@ -59,7 +61,7 @@ interface Template {
     >
       <a
         actions
-        routerLink="/systems/new"
+        [navLink]="{ leaf: 'system-new' }"
         [style.display]="'inline-flex'"
         [style.alignItems]="'center'"
         [style.gap.px]="6"
@@ -208,7 +210,7 @@ interface Template {
             {{ i18n.t('systems.grid.empty_description') }}
           </p>
           <a
-            routerLink="/systems/new"
+            [navLink]="{ leaf: 'system-new' }"
             [style.display]="'inline-flex'"
             [style.alignItems]="'center'"
             [style.gap.px]="6"
@@ -425,12 +427,13 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
   startFromPrompt(): void {
     const p = this.prompt.trim();
     if (!p) return;
-    this.router.navigate(['/systems/new'], {
-      queryParams: {
-        prompt: p,
-        name: this.suggestNameFromPrompt(p),
-      },
-    });
+    const tree = this.router.parseUrl(this.navigation.leafUrl('system-new'));
+    tree.queryParams = {
+      ...tree.queryParams,
+      prompt: p,
+      name: this.suggestNameFromPrompt(p),
+    };
+    void this.router.navigateByUrl(tree);
   }
 
   private suggestNameFromPrompt(p: string): string {

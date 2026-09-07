@@ -28,6 +28,9 @@ import { DEFAULT_BRAND_NAME } from '@app/core/platform-brand';
 import { PermissionsService } from '@app/core/permissions.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
 import { I18nService } from '@app/core/i18n.service';
+import { navigationObjectUrl, navigationSurfaceUrl } from '@app/core/navigation.catalog';
+import type { HierarchyObjectType } from '@app/core/navigation.catalog';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { REGISTERED_LUCIDE_ICONS } from '@app/shared/ui/icon-registry';
 import { ChatPanelComponent } from './chat-panel.component';
 
@@ -161,6 +164,13 @@ function makeHarness() {
         },
       },
       { provide: Router, useValue: { navigate: () => undefined, navigateByUrl: () => undefined } },
+      {
+        provide: ZoomContextService,
+        useValue: {
+          surfaceUrl: (id: string) => navigationSurfaceUrl(id),
+          objectUrl: (type: HierarchyObjectType, ref: string) => navigationObjectUrl(type, ref),
+        },
+      },
       { provide: RuntimeHealthService, useValue: { load: () => of(null), presetStatus: () => null } },
       { provide: VoiceSessionService, useValue: { open: () => Promise.reject(new Error('unused')) } },
       { provide: VoiceLoopControllerFactory, useValue: { create: () => voiceLoop } },

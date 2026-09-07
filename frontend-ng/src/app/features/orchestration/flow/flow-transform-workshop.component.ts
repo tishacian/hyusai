@@ -47,7 +47,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { A11yModule } from '@angular/cdk/a11y';
-import { RouterLink } from '@angular/router';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import {
   CodeEditorComponent,
   type CodeEditorPosition,
@@ -104,7 +104,7 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
   selector: 'app-flow-transform-workshop',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [A11yModule, RouterLink, CodeEditorComponent, DataTableComponent, IconComponent],
+  imports: [A11yModule, NavLinkDirective, CodeEditorComponent, DataTableComponent, IconComponent],
   styleUrl: './flow-transform-workshop.component.scss',
   template: `
     <div
@@ -631,7 +631,7 @@ const PROGRAM_WRITE_DEBOUNCE_MS = 400;
                     <p class="ck-transform-workshop__hint">
                       {{ i18n.t('flow.transform.output.versioning') }}
                     </p>
-                    <a class="ck-transform-workshop__action" routerLink="/data">
+                    <a class="ck-transform-workshop__action" [navLink]="{ surface: 'data' }">
                       <app-icon name="table" [size]="13" />
                       {{ i18n.t('flow.transform.output.open_data') }}
                     </a>

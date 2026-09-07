@@ -1062,6 +1062,86 @@
       }
     },
     {
+      "id": "LOT6-NAV-ONE-SCALE-PER-AXIS",
+      "lot": 6,
+      "title": "Cockpit navigation uses one scale per axis",
+      "kind": "frontend",
+      "description": "Zone is the rail, object is the breadcrumb, facet is ?facet=. The zone summary never lists the four object types. Work is an RBAC link. cockpit_nav_v5 and the routed axes graduate to code defaults.",
+      "mental_model_sections": [
+        "5bis"
+      ],
+      "proofs": {
+        "implementation": [
+          {
+            "label": "Lot 6 one-scale-per-axis contract",
+            "path": "docs/agentium-navigation-lot-6-one-scale-per-axis.md",
+            "contains": [
+              "# Agentium — Lot 6 : une échelle par axe",
+              "I1",
+              "cockpit_nav_v5"
+            ]
+          },
+          {
+            "label": "URL grammar v5",
+            "path": "docs/agentium-reference.md",
+            "contains": [
+              "### 6.1 URL grammar v5 — one scale per axis",
+              "?lens=build|operate|steer|govern",
+              "OBJECT_FACETS"
+            ]
+          },
+          {
+            "label": "Facet catalogue and zone sections",
+            "path": "frontend-ng/src/app/core/navigation.catalog.ts",
+            "contains": [
+              "export const OBJECT_FACETS",
+              "export function objectFacetsFor",
+              "id: 'work'"
+            ]
+          }
+        ],
+        "frontend": [
+          {
+            "label": "Zone summary and System facet branch",
+            "path": "frontend-ng/src/app/features/layout/mini-rail.component.ts",
+            "contains": [
+              "ck-mini-rail-stable",
+              "nav.sommaire.in_system",
+              "navTrigger=\"minirail\""
+            ]
+          },
+          {
+            "label": "Builder mode home",
+            "path": "frontend-ng/src/app/core/navigation-resolver.service.ts",
+            "contains": [
+              "workspace_mode_home",
+              "agentiumSurfaceRoute('create')"
+            ]
+          }
+        ],
+        "tests": [
+          {
+            "label": "I1 sommaire and OBJECT_FACETS",
+            "path": "frontend-ng/src/app/core/navigation.catalog.spec.ts",
+            "contains": [
+              "nav v5 sommaire has no object-type index outside Create (I1)",
+              "OBJECT_FACETS lists System descendants used by the sommaire branch"
+            ],
+            "runner": "node"
+          },
+          {
+            "label": "Navigation v5 canary",
+            "path": "frontend-ng/e2e/tests/19-navigation-v5-canary.spec.ts",
+            "contains": [
+              "Lot 6 — navigation v5 canary",
+              "identity is conserved across four lenses, facets restore, drill-down keeps zone"
+            ],
+            "runner": "playwright"
+          }
+        ]
+      }
+    },
+    {
       "id": "LOT6-SYSTEM360-PERSPECTIVES",
       "lot": 6,
       "title": "One marked System exposes four distinct, evidence-backed perspectives",

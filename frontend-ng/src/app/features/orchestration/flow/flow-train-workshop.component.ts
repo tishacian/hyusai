@@ -47,7 +47,7 @@ import {
   signal,
 } from '@angular/core';
 import { A11yModule } from '@angular/cdk/a11y';
-import { RouterLink } from '@angular/router';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { DataTableComponent } from '@app/shared/ui/data-table.component';
 import type {
@@ -109,7 +109,7 @@ const SCORE_LIMIT = 4;
     A11yModule,
     DataTableComponent,
     DatasetPreviewComponent,
-    RouterLink,
+    NavLinkDirective,
     IconComponent,
   ],
   styleUrl: './flow-train-workshop.component.scss',
@@ -582,7 +582,7 @@ const SCORE_LIMIT = 4;
                           }}
                           <a
                             class="ck-train-workshop__mini"
-                            [routerLink]="['/models', trained.id]"
+                            [navLink]="{ leaf: 'model-doc', ref: trained.id }"
                           >
                             {{ i18n.t('flow.ml.train.open_card') }}
                           </a>
@@ -627,7 +627,7 @@ const SCORE_LIMIT = 4;
                     <p class="ck-train-workshop__hint">
                       {{ i18n.t('flow.ml.train.versioning') }}
                     </p>
-                    <a class="ck-train-workshop__action" routerLink="/models">
+                    <a class="ck-train-workshop__action" [navLink]="{ surface: 'models' }">
                       <app-icon name="brain" [size]="13" />
                       {{ i18n.t('flow.ml.train.open_models') }}
                     </a>

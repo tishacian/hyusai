@@ -4,6 +4,7 @@ import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { KbdComponent, LiveDotComponent } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 
 /**
  * Bottom command bar (28px). Mirrors the BottomCommand region of the
@@ -38,7 +39,7 @@ import { I18nService } from '@app/core/i18n.service';
         [style.fontSize.px]="10"
         [style.letterSpacing]="'0.10em'"
         [style.color]="'var(--ck-fg-2)'"
-      >{{ path() }}</span>
+      >{{ position() }}</span>
       <span [style.flex]="'1 1 auto'"></span>
       <span
         class="ck-mono"
@@ -82,6 +83,7 @@ import { I18nService } from '@app/core/i18n.service';
 })
 export class CommandBarComponent {
   readonly i18n = inject(I18nService);
+  private readonly navigation = inject(ZoomContextService);
   private readonly router = inject(Router);
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -94,11 +96,44 @@ export class CommandBarComponent {
 
   readonly path = computed(() => (this.url() || '/').split('?')[0]);
 
+  readonly position = computed(() => {
+    if (!this.navigation.navV5Enabled?.()) return this.path();
+    const depth = this.depth();
+    const zone = this.i18n.t(this.navigation.zoneI18nKey());
+    const filtered = Boolean(
+      !this.navigation.deepestResolvedType()
+      && (this.navigation.systemId() || this.navigation.capabilityId()),
+    );
+    return this.i18n.t(filtered ? 'nav.command.position_filter' : 'nav.command.position', {
+      zone,
+      depth: String(depth),
+    });
+  });
+
+  private depth(): number {
+    switch (this.navigation.deepestResolvedType()) {
+      case 'skill':
+      case 'skill_invocation':
+        return 5;
+      case 'run':
+        return 4;
+      case 'system':
+        return 3;
+      case 'capability':
+        return 2;
+      default:
+        return 1;
+    }
+  }
+
   /** Canonical zoom chain, in the order `SemanticZoomBreadcrumbComponent` walks it. */
   readonly zoomHint = computed(() => {
     const chain = (['portfolio', 'capability', 'system', 'run', 'skill'] as const)
       .map((key) => this.i18n.t(`nav.zoom.${key}`))
       .join(' › ');
-    return this.i18n.t('nav.zoom.hint', { chain });
+    return this.i18n.t(
+      this.navigation.navV5Enabled?.() ? 'nav.zoom.hint_v5' : 'nav.zoom.hint',
+      { chain },
+    );
   });
 }

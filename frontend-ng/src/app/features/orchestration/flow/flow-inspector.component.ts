@@ -29,7 +29,7 @@ import {
   signal,
 } from '@angular/core';
 import { A11yModule } from '@angular/cdk/a11y';
-import { RouterLink } from '@angular/router';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
 import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -178,7 +178,7 @@ export function buildRetrievalDocumentOptions(
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     A11yModule,
-    RouterLink,
+    NavLinkDirective,
     GlyphComponent,
     HelpTooltipComponent,
     EmptyStateComponent,
@@ -564,7 +564,7 @@ export function buildRetrievalDocumentOptions(
                       {{ i18n.t('flow.ml.serving.output.produced') }}
                     </span>
                     <ck-dataset-preview [datasetId]="scored" maxHeight="180px" />
-                    <a class="ck-flow-link" [routerLink]="['/data', scored]">
+                    <a class="ck-flow-link" [navLink]="{ leaf: 'data-doc', ref: scored }">
                       {{ i18n.t('flow.ml.serving.output.open') }}
                     </a>
                   </div>
@@ -799,12 +799,12 @@ export function buildRetrievalDocumentOptions(
               </label>
 
               @if (collectionSlug(n); as slug) {
-                <a class="ck-flow-action" [routerLink]="['/knowledge', slug]">
+                <a class="ck-flow-action" [navLink]="{ leaf: 'knowledge-doc', ref: slug }">
                   <ck-glyph name="layers" [size]="12" color="currentColor" />
                   {{ i18n.t('flow.inspector.asset.open') }}
                 </a>
               } @else {
-                <a class="ck-flow-action" routerLink="/knowledge">
+                <a class="ck-flow-action" [navLink]="{ surface: 'knowledge' }">
                   <ck-glyph name="layers" [size]="12" color="currentColor" />
                   {{ i18n.t('flow.inspector.asset.open_knowledge') }}
                 </a>
@@ -937,7 +937,7 @@ export function buildRetrievalDocumentOptions(
                 <ck-help id="concept.trigger" />
               </span>
               @if (isSftpTrigger(n)) {
-                <a class="ck-flow-action" routerLink="/connectors/sftp">
+                <a class="ck-flow-action" [navLink]="{ surface: 'secure-deposit' }">
                   <ck-glyph name="orbit" [size]="12" color="currentColor" />
                   {{ i18n.t('flow.inspector.trigger.sftp') }}
                 </a>
@@ -961,7 +961,7 @@ export function buildRetrievalDocumentOptions(
                 <p class="ck-flow-hint">{{ i18n.t('flow.inspector.mcp.credential', { source }) }}</p>
               }
               @if (mcpConnectorEnabled()) {
-                <a class="ck-flow-action" routerLink="/connectors/mcp" [queryParams]="workspaceQuery()">
+                <a class="ck-flow-action" [navLink]="{ surface: 'mcp' }">
                   <ck-glyph name="orbit" [size]="12" color="currentColor" />
                   {{ i18n.t('flow.inspector.mcp.open') }}
                 </a>
@@ -1239,10 +1239,6 @@ export class FlowInspectorComponent {
   }
 
   readonly mcpConnectorEnabled = this.workspace.mcpConnectorEnabled;
-  readonly workspaceQuery = computed(() => {
-    const slug = this.workspace.currentSlug();
-    return slug ? { workspace: slug } : {};
-  });
   private readonly mcpServers = signal<Array<{ id?: string; credential_source?: string | null }>>([]);
   private mcpServersLoaded = false;
 

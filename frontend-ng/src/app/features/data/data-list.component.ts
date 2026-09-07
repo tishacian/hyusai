@@ -18,7 +18,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
@@ -46,7 +46,7 @@ type OriginFilter = 'all' | DatasetSource;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
-    RouterLink,
+    NavLinkDirective,
     IconComponent,
     EmptyStateComponent,
     CkObjectHeaderComponent,
@@ -60,7 +60,7 @@ type OriginFilter = 'all' | DatasetSource;
     >
       <div actions class="flex items-center gap-1.5">
         <a
-          routerLink="/models"
+          [navLink]="{ surface: 'models' }"
           class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
         >
           <app-icon name="brain" [size]="14" /> {{ i18n.t('data.list.go_models') }}
@@ -149,7 +149,7 @@ type OriginFilter = 'all' | DatasetSource;
         @for (row of visible(); track row.id) {
           <li>
             <a
-              [routerLink]="['/data', row.id]"
+              [navLink]="{ leaf: 'data-doc', ref: row.id }"
               class="flex items-center gap-3 ck-surface rounded-md px-4 py-3 transition group ck-row"
             >
               <div class="ck-icon-tile" [class.ck-icon-tile--warn]="row.status === 'failed'">

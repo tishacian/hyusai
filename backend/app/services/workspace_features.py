@@ -37,11 +37,8 @@ not, with the reason they remain flags:
 - ``flow_v3_dag_authoritative`` — flips the walker for already-published
   ``schema_version>=3`` / ``io_mode=strict`` graphs; an execution-semantics
   change needs the orchestrated rollout, not a default.
-- ``cockpit_router_axes_v3`` / ``_v4`` — staged, not superseded. ``_v3`` is read
-  in exactly one place, the axes zoom gate, as ``v3 or v4``; every other reader
-  (navigation resolver, System perspective, Lot 7 rollout) tests ``_v4`` alone.
-  Both true is therefore redundant but harmless, and dropping ``_v3`` would
-  change behaviour for a stage-one workspace that has ``_v4`` off.
+- ``navigation_telemetry_v2`` — additive ``navigation.transition`` events
+  (Lot 6). Off until a workspace opts in; v1 ``navigation.resolved`` stays on.
 - ``system_360_projection_v1`` — vertical slice, additionally gated per System
   by ``settings.experience.system_360_canary``.
 - ``workspace_experience_v2`` / ``app_entitlements_v1`` — navigation ownership
@@ -66,6 +63,9 @@ KNOWN_FAMILIES = frozenset(family.value for family in WorkspaceFamily)
 DEFAULT_ON_FEATURES: frozenset[str] = frozenset(
     {
         "chat_document_upload",
+        "cockpit_nav_v5",
+        "cockpit_router_axes_v3",
+        "cockpit_router_axes_v4",
         "experience_studio_v1",
         "flow_publication_v1",
     }

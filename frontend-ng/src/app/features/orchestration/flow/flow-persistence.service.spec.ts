@@ -29,6 +29,8 @@ import {
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
 import { workspaceLocalStorageKey, type WorkspaceLocalStorage } from '@app/core/workspace-local-storage';
+import { navigationLeafUrl } from '@app/core/navigation.catalog';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { FlowManifestService } from './flow-manifest.service';
 import { FlowValidationService } from './flow-validation.service';
 import {
@@ -363,7 +365,19 @@ function makeHarness(systemId: string | null = null): Harness {
           },
         },
       },
-      { provide: Router, useValue: { navigate: (commands: unknown[]) => navigations.push(commands) } },
+      {
+        provide: Router,
+        useValue: {
+          navigate: (commands: unknown[]) => navigations.push(commands),
+          navigateByUrl: (url: string) => navigations.push([url]),
+        },
+      },
+      {
+        provide: ZoomContextService,
+        useValue: {
+          leafUrl: (leaf: string, params: Record<string, string>) => navigationLeafUrl(leaf, params),
+        },
+      },
       {
         provide: ToastrService,
         useValue: {
@@ -486,7 +500,7 @@ test('successful promotion clears the captured A draft and never the current B s
       null,
       'promotion completion must not clear B',
     );
-    assert.deepEqual(harness.navigations, [['/systems', 'system-a', 'flow']]);
+    assert.deepEqual(harness.navigations, [['/systems/system-a/flow']]);
   } finally {
     harness.cleanup();
   }

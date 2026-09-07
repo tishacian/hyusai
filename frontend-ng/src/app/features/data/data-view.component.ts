@@ -18,10 +18,13 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import type { NavLinkInput } from '@app/core/navigation.catalog';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -55,7 +58,8 @@ const PAGE_SIZE = 50;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    NavLinkDirective,
+    CkBackLinkComponent,
     IconComponent,
     EmptyStateComponent,
     CkObjectHeaderComponent,
@@ -64,13 +68,7 @@ const PAGE_SIZE = 50;
     DataTableComponent,
   ],
   template: `
-    <a
-      routerLink="/data"
-      class="inline-flex items-center gap-1.5 text-[11px] ck-mono mb-3 transition"
-      style="color: var(--ck-fg-4)"
-    >
-      <app-icon name="chevron-left" [size]="13" /> {{ i18n.t('data.detail.back') }}
-    </a>
+    <ck-back-link />
 
     @if (dataset(); as ds) {
       <ck-object-header
@@ -118,7 +116,7 @@ const PAGE_SIZE = 50;
         </div>
       }
 
-      <ck-tabs [active]="tab()" (activeChange)="tab.set($event)">
+      <ck-tabs [active]="tab()" (activeChange)="onTabChange($event)">
         <ck-tab id="preview" [label]="i18n.t('data.detail.tab.preview')">
           <ck-data-table
             [columns]="columns()"
@@ -230,7 +228,7 @@ const PAGE_SIZE = 50;
               @if (parents().length) {
                 <div class="flex items-center gap-2 flex-wrap">
                   @for (parent of parents(); track parent.id) {
-                    <a [routerLink]="['/data', parent.id]" class="ck-lineage-chip">
+                    <a [navLink]="{ leaf: 'data-doc', ref: parent.id }" class="ck-lineage-chip">
                       <app-icon name="table" [size]="12" />
                       {{ parent.name }}
                       <span class="ck-mono" style="color: var(--ck-fg-4)">
@@ -256,12 +254,12 @@ const PAGE_SIZE = 50;
               <div>
                 <div class="ck-section-label">{{ i18n.t('data.lineage.origin_system') }}</div>
                 <div class="flex items-center gap-2 flex-wrap" data-testid="origin-system">
-                  <a [routerLink]="['/systems', systemId]" class="ck-lineage-chip">
+                  <a [navLink]="{ type: 'system', ref: systemId }" class="ck-lineage-chip">
                     <app-icon name="box" [size]="12" />
                     {{ i18n.t('data.lineage.system_chip') }}
                   </a>
                   @if (dataset()?.run_id; as runId) {
-                    <a [routerLink]="['/runs', runId]" class="ck-lineage-chip">
+                    <a [navLink]="{ type: 'run', ref: runId }" class="ck-lineage-chip">
                       <app-icon name="play" [size]="12" />
                       {{ i18n.t('data.lineage.run_chip') }}
                       <span class="ck-mono" style="color: var(--ck-fg-4)">{{ runId.slice(0, 8) }}</span>
@@ -278,7 +276,7 @@ const PAGE_SIZE = 50;
                   <a
                     class="ck-lineage-chip"
                     data-testid="scored-by-model"
-                    [routerLink]="modelLink()"
+                    [navLink]="modelNavLink()"
                   >
                     <app-icon name="brain" [size]="12" />
                     {{ model }}
@@ -301,7 +299,7 @@ const PAGE_SIZE = 50;
               @if (children().length) {
                 <div class="flex items-center gap-2 flex-wrap">
                   @for (child of children(); track child.id) {
-                    <a [routerLink]="['/data', child.id]" class="ck-lineage-chip">
+                    <a [navLink]="{ leaf: 'data-doc', ref: child.id }" class="ck-lineage-chip">
                       <app-icon [name]="child.source === 'score' ? 'target' : 'git-branch'" [size]="12" />
                       {{ child.name }}
                     </a>
@@ -321,7 +319,7 @@ const PAGE_SIZE = 50;
             @for (version of versions(); track version.id) {
               <li>
                 <a
-                  [routerLink]="['/data', version.id]"
+                  [navLink]="{ leaf: 'data-doc', ref: version.id }"
                   class="flex items-center gap-3 ck-surface rounded-md px-4 py-2.5 transition ck-row"
                 >
                   <span class="ck-badge ck-mono">{{
@@ -360,7 +358,7 @@ const PAGE_SIZE = 50;
         [title]="i18n.t('data.detail.gone.title')"
         [description]="i18n.t('data.detail.gone.description')"
       >
-        <a routerLink="/data" class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm">
+        <a [navLink]="{ surface: 'data' }" class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm">
           <app-icon name="chevron-left" [size]="13" /> {{ i18n.t('data.detail.back') }}
         </a>
       </app-empty-state>
@@ -522,6 +520,7 @@ export class DataViewComponent implements OnInit {
   private readonly data = inject(DataService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly toast = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -596,9 +595,9 @@ export class DataViewComponent implements OnInit {
   protected readonly addedColumns = computed(() => [
     ...scoredColumns(this.dataset()?.lineage),
   ]);
-  protected readonly modelLink = computed(() => {
+  protected readonly modelNavLink = computed<NavLinkInput>(() => {
     const id = this.dataset()?.lineage?.model?.model_id;
-    return id ? ['/models', id] : ['/models'];
+    return id ? { leaf: 'model-doc', ref: id } : { surface: 'models' };
   });
 
   /** Column rows for the schema tab, with the same bars the header draws. */
@@ -627,8 +626,20 @@ export class DataViewComponent implements OnInit {
 
   ngOnInit(): void {
     this.datasetId = this.route.snapshot.paramMap.get('datasetId') ?? '';
+    const facet = this.route.snapshot.queryParamMap.get('facet');
+    if (facet) this.tab.set(facet);
     void this.load();
     this.destroyRef.onDestroy(() => this.stopPolling());
+  }
+
+  protected onTabChange(id: string): void {
+    this.tab.set(id);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   protected isActive(dataset: DatasetDto): boolean {
@@ -722,7 +733,7 @@ export class DataViewComponent implements OnInit {
     if (!confirm(this.i18n.t('data.detail.delete_confirm', { name: ds.name }))) return;
     await this.data.remove(ds.id);
     this.toast.success(this.i18n.t('data.detail.deleted', { name: ds.name }));
-    void this.router.navigate(['/data']);
+    void this.router.navigateByUrl(this.navigation.surfaceUrl('data'));
   }
 
   private async load(): Promise<void> {

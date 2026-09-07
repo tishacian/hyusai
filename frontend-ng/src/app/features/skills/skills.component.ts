@@ -12,6 +12,7 @@ import {
   HelpTooltipComponent,
   KbdComponent,
   MicroBarComponent,
+  NavLinkDirective,
   PageFrameComponent,
   StatReadoutComponent,
   TagComponent,
@@ -51,6 +52,7 @@ interface SkillsScope {
     MicroBarComponent,
     TagComponent,
     RouterLink,
+    NavLinkDirective,
     BrdImportComponent,
     NewSkillDialogComponent,
   ],
@@ -204,7 +206,7 @@ interface SkillsScope {
                        difference between a name and a thing you can trust. -->
                   @if (provenanceLine(sk); as line) {
                     <a
-                      [routerLink]="['/models', sk.provenance!.model_id]"
+                      [navLink]="{ leaf: 'model-doc', ref: sk.provenance!.model_id }"
                       (click)="$event.stopPropagation()"
                       data-testid="skill-provenance"
                       class="ck-mono"
@@ -253,7 +255,7 @@ interface SkillsScope {
                 <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4); margin-top:4px;">{{ sk.slug }}</p>
                 @if (provenanceLine(sk); as line) {
                   <a
-                    [routerLink]="['/models', sk.provenance!.model_id]"
+                    [navLink]="{ leaf: 'model-doc', ref: sk.provenance!.model_id }"
                     data-testid="skill-provenance-detail"
                     class="ck-mono"
                     style="display:inline-flex; align-items:center; gap:5px; margin-top:6px; font-size:10px; color:var(--ck-accent); text-decoration:none;"

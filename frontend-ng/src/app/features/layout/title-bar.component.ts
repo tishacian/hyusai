@@ -9,6 +9,7 @@ import { ApiService } from '@app/core/api.service';
 import { ThemeService, type ThemeMode } from '@app/core/theme.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { agentiumSurfaceRoute, navigationLeafUrl, navigationSurfaceUrl } from '@app/core/navigation.catalog';
 import { platformBrand } from '@app/core/platform-brand';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import { AuthStore } from '@app/store/auth.store';
@@ -88,6 +89,21 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       <div class="tb-breadcrumb">
         <app-semantic-zoom-breadcrumb />
       </div>
+
+      @if (showWorkLink()) {
+        <a
+          class="ck-mono"
+          [routerLink]="workHref"
+          data-testid="titlebar-work-link"
+          [style.marginLeft.px]="8"
+          [style.color]="'var(--ck-fg-2)'"
+          [style.fontSize.px]="10"
+          [style.letterSpacing]="'0.10em'"
+          [style.textTransform]="'uppercase'"
+          [style.textDecoration]="'none'"
+          [style.whiteSpace]="'nowrap'"
+        >{{ i18n.t('nav.work') }}</a>
+      }
 
       <!-- Readouts -->
       <div class="tb-readouts">
@@ -646,6 +662,9 @@ export class TitleBarComponent {
 
   readonly hasTelemetry = computed(() => (this.telemetry()?.runs_count ?? 0) > 0);
 
+  readonly showWorkLink = computed(() => this.workspaceService.experienceV1Enabled());
+  readonly workHref = navigationSurfaceUrl('work');
+
   readonly thrpt = computed(() => {
     const t = this.telemetry()?.throughput_rpm;
     return t == null ? '— r/m' : `${t.toFixed(t < 10 ? 1 : 0)} r/m`;
@@ -858,7 +877,10 @@ export class TitleBarComponent {
     }
     // CanDeactivate runs while the old workspace is still the sole active
     // context. Only a successful exit may publish the next tenant.
-    const leftCurrentWorkspace = await this.router.navigateByUrl('/hypervisor', { replaceUrl: true });
+    const leftCurrentWorkspace = await this.router.navigateByUrl(
+      agentiumSurfaceRoute('hypervisor'),
+      { replaceUrl: true },
+    );
     if (!leftCurrentWorkspace || !this.workspaceService.switchWorkspace(slug)) return false;
     return this.router.navigateByUrl(destination, { replaceUrl: true });
   }
@@ -877,6 +899,6 @@ export class TitleBarComponent {
     this.tokenStorage.clear();
     this.authStore.clear();
     this.authBootstrap.markInvalid();
-    this.router.navigate(['/auth/signin']);
+    void this.router.navigateByUrl(navigationLeafUrl('auth-signin'));
   }
 }

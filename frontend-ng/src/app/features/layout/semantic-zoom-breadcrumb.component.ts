@@ -5,8 +5,8 @@ import {
   ZoomContextService,
   type ZoomHierarchyKey,
 } from '@app/core/zoom-context.service';
-import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
 import { I18nService } from '@app/core/i18n.service';
+import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 
 interface ZoomLevel {
   key: ZoomHierarchyKey;
@@ -77,9 +77,9 @@ export class SemanticZoomBreadcrumbComponent {
   private readonly router = inject(Router);
   private readonly navigation = inject(ZoomContextService);
   private readonly i18n = inject(I18nService);
+  private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
 
   readonly levels = computed<ZoomLevel[]>(() => {
-    if (!this.navigation.axesV3Enabled()) return this.legacyLevels();
     const nodes = this.navigation.nodes();
     const selected = this.navigation.route().selectedType;
     const activeKey: ZoomHierarchyKey = selected && nodes.some((node) => node.key === selected)
@@ -96,52 +96,9 @@ export class SemanticZoomBreadcrumbComponent {
     }));
   });
 
-  private legacyLevels(): ZoomLevel[] {
-    const path = this.navigation.route().path;
-    const first = path.split('/').filter(Boolean)[0] ?? '';
-    const byKey = new Map(this.navigation.nodes().map((node) => [node.key, node]));
-    const level = (
-      key: ZoomHierarchyKey,
-      fallbackLabel: string,
-      fallbackHref: string,
-      active: boolean,
-    ): ZoomLevel => {
-      const node = byKey.get(key);
-      return {
-        key,
-        label: node?.label || fallbackLabel,
-        sub: node?.sub || fallbackLabel,
-        href: node?.href || fallbackHref,
-        active,
-      };
-    };
-    const t = (key: ZoomHierarchyKey) => this.i18n.t(`nav.zoom.${key}`);
-    return [
-      level('portfolio', t('portfolio'), agentiumSurfaceRoute('hypervisor'), first === 'hypervisor'),
-      level(
-        'capability',
-        t('capability'),
-        agentiumSurfaceRoute('capabilities'),
-        first === 'capabilities',
-      ),
-      level(
-        'system',
-        t('system'),
-        agentiumSurfaceRoute('systems'),
-        first === 'systems' || first === 'steering',
-      ),
-      level(
-        'run',
-        t('run'),
-        agentiumSurfaceRoute('runs'),
-        first === 'runs' || first === 'observability',
-      ),
-      level('skill', t('skill'), agentiumSurfaceRoute('skills'), first === 'skills'),
-    ];
-  }
-
   goto(lv: ZoomLevel): void {
     if (!lv.href) return;
+    this.telemetry?.registerTrigger('breadcrumb');
     if (Array.isArray(lv.href)) this.router.navigate(lv.href);
     else this.router.navigateByUrl(lv.href);
   }
@@ -168,6 +125,7 @@ export class SemanticZoomBreadcrumbComponent {
     const active = document.activeElement as HTMLElement | null;
     if (target && this.isEditable(target)) return;
     if (active && this.isEditable(active)) return;
+    if (ev.shiftKey && this.navigation.navV5Enabled?.() === true) return;
 
     ev.preventDefault();
     ev.stopPropagation();

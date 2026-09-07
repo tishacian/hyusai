@@ -7,7 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of, type Observable } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
@@ -21,13 +21,16 @@ import {
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { SettingsService } from '@app/core/settings.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
   type CkGlyphName,
+  CkBackLinkComponent,
   GlyphComponent,
   HelpTooltipComponent,
   LiveDotComponent,
+  NavLinkDirective,
   RuntimeStatusBadgeComponent,
   StatReadoutComponent,
   TagComponent,
@@ -131,7 +134,8 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
-    RouterLink,
+    NavLinkDirective,
+    CkBackLinkComponent,
     IconComponent,
     EmptyStateComponent,
     GlyphComponent,
@@ -150,12 +154,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
       [kpis]="headerKpis()"
     >
       <span actions>
-        <a
-          routerLink="/systems"
-          class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium mr-2"
-        >
-          <app-icon name="arrow-left" [size]="14" /> Cancel
-        </a>
+        <ck-back-link />
         <button
           type="button"
           (click)="switchToFlow()"
@@ -245,7 +244,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                     Edited in Flow — re-open this section from the flow builder to adjust it.
                   </div>
                   <a
-                    [routerLink]="['/systems', editingSystemId(), 'flow']"
+                    [navLink]="{ leaf: 'system-flow', ref: editingSystemId()! }"
                     class="ck-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded"
                     style="border:1px solid currentColor; pointer-events:auto;"
                   >
@@ -437,7 +436,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               @if (enabledApps().length === 0) {
                 <p class="text-xs" style="color:var(--ck-fg-4);">
                   No apps enabled for this workspace.
-                  <a routerLink="/apps" class="ck-accent">Manage apps</a>
+                  <a [navLink]="{ surface: 'apps' }" class="ck-accent">Manage apps</a>
                 </p>
               } @else {
                 <ul style="display:flex; flex-direction:column; gap:4px;">
@@ -461,7 +460,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                       </div>
                       @if (app.wiring === 'wired' && app.connectorRoute) {
                         <a
-                          [routerLink]="app.connectorRoute"
+                          [navLink]="{ leaf: 'connector-rpa-bridge' }"
                           class="ck-mono ck-accent"
                           style="font-size:10px; white-space:nowrap;"
                         >
@@ -469,7 +468,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                         </a>
                       } @else {
                         <a
-                          routerLink="/apps"
+                          [navLink]="{ surface: 'apps' }"
                           class="ck-mono"
                           style="font-size:10px; color:var(--ck-fg-4); white-space:nowrap;"
                         >
@@ -546,7 +545,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                 description="Upload documents in Knowledge to create one."
               >
                 <a
-                  routerLink="/knowledge"
+                  [navLink]="{ surface: 'knowledge' }"
                   class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium text-white transition"
                   style="background: var(--ck-signal-cool); color: var(--ck-on-signal);"
                 >
@@ -910,6 +909,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
 export class SystemBuilderComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly navigation = inject(ZoomContextService);
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly health = inject(RuntimeHealthService);
@@ -1331,7 +1331,7 @@ export class SystemBuilderComponent implements OnInit {
         return;
       }
       this.toast.info(`"${sys.name}" opened in Flow`, 'Draft saved');
-      this.router.navigate(['/systems', sys.id, 'flow']);
+      void this.router.navigateByUrl(this.navigation.leafUrl('system-flow', { ref: sys.id }));
     });
   }
 
@@ -1560,7 +1560,7 @@ export class SystemBuilderComponent implements OnInit {
         this.launching.set(false);
         if (sys) {
           this.toast.success(`"${sys.name}" is live`, sid ? 'System saved' : 'System created');
-          this.router.navigate(['/systems', sys.id]);
+          void this.router.navigateByUrl(this.navigation.objectUrl('system', sys.id));
           return;
         }
         if (sid) {
@@ -1579,7 +1579,7 @@ export class SystemBuilderComponent implements OnInit {
           collections: [...this.draft.collections],
         });
         this.toast.warning('Created as local draft (API unreachable)', 'System draft');
-        this.router.navigate(['/systems', draft.id]);
+        void this.router.navigateByUrl(this.navigation.objectUrl('system', draft.id));
       });
     });
   }
