@@ -11,6 +11,8 @@ import {
   type Context,
 } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { navigationLeafUrl } from '@app/core/navigation.catalog';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import {
   WorkspaceService,
@@ -106,7 +108,13 @@ function makeHarness() {
       { provide: CanonicalApiService, useValue: canonical },
       { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
       { provide: NavigationProfileService, useValue: { businessShellActive: () => false } },
-      { provide: Router, useValue: { navigate: () => undefined } },
+      { provide: Router, useValue: { navigate: () => undefined, navigateByUrl: () => undefined } },
+      {
+        provide: ZoomContextService,
+        useValue: {
+          leafUrl: (leaf: string, params: Record<string, string>) => navigationLeafUrl(leaf, params),
+        },
+      },
       {
         provide: ToastrService,
         useValue: { success: () => undefined, warning: () => undefined, error: () => undefined },

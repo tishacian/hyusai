@@ -5,6 +5,7 @@ import { Injector, signal } from '@angular/core';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { BehaviorSubject, Subject, of, throwError } from 'rxjs';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
 import {
   ObjectPerspectiveGateRevokedError,
@@ -14,7 +15,14 @@ import {
   WorkspaceService,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { CapabilityViewComponent } from './capability-view.component';
+
+const i18nStub = { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } };
+const navigationStub = {
+  provide: ZoomContextService,
+  useValue: { navV5Enabled: () => false, zoneI18nKey: () => 'nav.operate' },
+};
 
 class WorkspaceStub {
   private readonly projectionsEnabled = signal(true);
@@ -73,6 +81,8 @@ test('Capability facets follow validated query state and tab changes merge the U
       { provide: WorkspaceService, useValue: new WorkspaceStub() },
       { provide: ObjectPerspectiveStore, useValue: { loadAll: () => of({}) } },
       { provide: LensService, useValue: { lens: () => 'operate' } },
+      i18nStub,
+      navigationStub,
     ],
   });
   const view = injector.get(CapabilityViewComponent);
@@ -119,6 +129,8 @@ test('Capability facet routing leaves the historical gate-off behavior unchanged
       { provide: WorkspaceService, useValue: new WorkspaceStub(false) },
       { provide: ObjectPerspectiveStore, useValue: {} },
       { provide: LensService, useValue: { lens: () => 'build' } },
+      i18nStub,
+      navigationStub,
     ],
   });
   const view = injector.get(CapabilityViewComponent);
@@ -157,6 +169,8 @@ test('Capability falls back without an error panel when the server revokes its p
         },
       },
       { provide: LensService, useValue: { lens: () => 'build' } },
+      i18nStub,
+      navigationStub,
     ],
   });
   const view = injector.get(CapabilityViewComponent);
@@ -197,6 +211,8 @@ test('Capability loads its projection when the effective gate activates in the s
         },
       },
       { provide: LensService, useValue: { lens: () => 'build' } },
+      i18nStub,
+      navigationStub,
     ],
   });
   const view = injector.get(CapabilityViewComponent);

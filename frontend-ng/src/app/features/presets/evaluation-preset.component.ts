@@ -7,7 +7,6 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import {
   CanonicalApiService,
   type EvaluationPresetConfig,
@@ -16,6 +15,7 @@ import {
 import { I18nService } from '@app/core/i18n.service';
 import {
   GlyphComponent,
+  NavLinkDirective,
   PageFrameComponent,
   TagComponent,
 } from '@app/shared/cockpit';
@@ -47,7 +47,7 @@ interface DimensionMinError {
   selector: 'app-evaluation-preset',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, PageFrameComponent, GlyphComponent, TagComponent],
+  imports: [FormsModule, NavLinkDirective, PageFrameComponent, GlyphComponent, TagComponent],
   template: `
     <ck-page-frame
       [eyebrow]="i18n.t('presets.evaluation.eyebrow')"
@@ -81,7 +81,7 @@ interface DimensionMinError {
                 </div>
                 <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-3); line-height:1.6;">
                   {{ i18n.t('presets.evaluation.master.body1') }}
-                  <a routerLink="/steering/review-queue" style="color:var(--ck-signal-cool);">{{ i18n.t('presets.evaluation.master.queue') }}</a>{{ i18n.t('presets.evaluation.master.body2') }}
+                  <a [navLink]="{ surface: 'review-queue' }" style="color:var(--ck-signal-cool);">{{ i18n.t('presets.evaluation.master.queue') }}</a>{{ i18n.t('presets.evaluation.master.body2') }}
                 </p>
               </div>
               <label
@@ -260,7 +260,7 @@ interface DimensionMinError {
             </span>
             <span class="ml-auto flex items-center gap-2">
               <a
-                routerLink="/steering/review-queue"
+                [navLink]="{ surface: 'review-queue' }"
                 class="ck-mono"
                 style="padding:6px 12px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-2); background:var(--ck-bg-inset); text-decoration:none;"
               >

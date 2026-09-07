@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
 
 /**
@@ -48,6 +49,7 @@ import { CanonicalApiService, type System } from '@app/core/canonical-api.servic
 export class IntelligenceEntryComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
 
   readonly error = signal(false);
   readonly retryIn = signal(3);
@@ -72,10 +74,10 @@ export class IntelligenceEntryComponent implements OnInit, OnDestroy {
       next: (systems) => {
         const intel = this.pickIntelligenceSystem(systems);
         if (intel) {
-          this.router.navigate(['/systems', intel.id], {
-            queryParams: { facet: 'intelligence' },
-            replaceUrl: true,
-          });
+          void this.router.navigateByUrl(
+            this.navigation.objectUrl('system', intel.id, { facet: 'intelligence' }),
+            { replaceUrl: true },
+          );
         } else {
           this.scheduleRetry();
         }

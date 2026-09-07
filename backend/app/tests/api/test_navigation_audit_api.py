@@ -180,6 +180,9 @@ def test_navigation_resolved_canonicalizes_all_dynamic_path_segments(db_session)
         ("navigation_resolver", "workspace_extension_unavailable"),
         ("navigation_resolver", "workspace_settings_entrypoint"),
         ("navigation_resolver", "legacy_hypervisor_object_lens"),
+        ("navigation_resolver", "legacy_focus_query"),
+        ("navigation_resolver", "legacy_tab_query"),
+        ("navigation_resolver", "workspace_mode_home"),
     ),
 )
 def test_navigation_resolved_accepts_each_redirect_owner_reason_pair(

@@ -24,6 +24,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { GlyphComponent, KbdComponent, TagComponent } from '@app/shared/cockpit';
 import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 
 type Tone = 'pos' | 'cool' | 'violet' | 'warn' | 'neg';
 
@@ -200,6 +201,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   private readonly chatOverlay = inject(ChatOverlayService);
   private readonly workspace = inject(WorkspaceService);
   private readonly navigation = inject(ZoomContextService);
+  private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
   protected readonly i18n = inject(I18nService);
 
   readonly open = signal(false);
@@ -540,6 +542,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
       r.action();
       return;
     }
+    this.telemetry?.registerTrigger('palette');
     this.router.navigateByUrl(r.route);
   }
 

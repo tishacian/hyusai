@@ -9,6 +9,7 @@ import {
   GlyphComponent,
   KbdComponent,
   MicroBarComponent,
+  NavLinkDirective,
   PageFrameComponent,
   RunOutcomeCardComponent,
   RuntimeStatusBadgeComponent,
@@ -31,6 +32,7 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
     KbdComponent,
     RunOutcomeCardComponent,
     RuntimeStatusBadgeComponent,
+    NavLinkDirective,
     RouterLink,
   ],
   template: `
@@ -41,7 +43,7 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
     >
       <a
         actions
-        routerLink="/capabilities/curation"
+        [navLink]="{ leaf: 'capability-curation' }"
         class="ck-mono"
         style="padding:6px 12px; border-radius:4px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-bg-inset); color:var(--ck-fg-2); border:1px solid var(--ck-stroke-soft); text-decoration:none;"
         title="Which skills this workspace sees, and the lever behind every exclusion"

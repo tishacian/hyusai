@@ -17,6 +17,7 @@ import type {
   CurvePoint,
   VizBar,
 } from '@app/features/data/viz/viz.vm';
+import type { NavLinkInput } from '@app/core/navigation.catalog';
 import type { TabularColumn, TabularColumnStats } from '@app/shared/ui/data-table.vm';
 
 // ---------------------------------------------------------------------------
@@ -932,7 +933,7 @@ export interface PipelineHop {
   id: string;
   kind: PipelineHopKind;
   label: string;
-  link: readonly string[];
+  link: NavLinkInput;
   current?: boolean;
 }
 
@@ -953,7 +954,7 @@ export function pipelineHops(
       id: provenance.dataset.id,
       kind: 'dataset',
       label: label(provenance.dataset),
-      link: ['/data', provenance.dataset.id],
+      link: { leaf: 'data-doc', ref: provenance.dataset.id },
     });
   }
   if (provenance.transform) {
@@ -961,14 +962,14 @@ export function pipelineHops(
       id: provenance.transform.id,
       kind: 'transform',
       label: label(provenance.transform),
-      link: ['/data', provenance.transform.id],
+      link: { leaf: 'data-doc', ref: provenance.transform.id },
     });
   }
   hops.push({
     id: provenance.model.id,
     kind: 'model',
     label: label(provenance.model),
-    link: ['/models', provenance.model.id],
+    link: { leaf: 'model-doc', ref: provenance.model.id },
     current: true,
   });
   for (const scored of provenance.scored ?? []) {
@@ -976,7 +977,7 @@ export function pipelineHops(
       id: scored.id,
       kind: 'scored',
       label: label(scored),
-      link: ['/data', scored.id],
+      link: { leaf: 'data-doc', ref: scored.id },
     });
   }
   if (hops.length < 2) return [];

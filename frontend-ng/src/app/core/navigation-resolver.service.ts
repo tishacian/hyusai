@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { NavigationProfileService } from './navigation-profile.service';
 import type { NavigationRedirectDecision } from './navigation-telemetry.service';
-import { WorkspaceService } from './workspace.service';
+import { WorkspaceService, workspaceSettingFeature } from './workspace.service';
 import { agentiumSurfaceRoute } from './navigation.catalog';
 import {
   MISSION_ROOM_EXTENSION,
@@ -25,7 +25,9 @@ export class NavigationResolverService {
   resolve(requestedRoute: string): NavigationRedirectDecision | null {
     return (
       this.resolveLegacyHypervisorObjectLens(requestedRoute) ||
+      this.resolveLegacyQueryAliases(requestedRoute) ||
       this.resolveBusinessProfile(requestedRoute) ||
+      this.resolveModeHome(requestedRoute) ||
       this.resolveStaleWorkspaceAppUnavailable(requestedRoute) ||
       this.resolveUnavailableWorkspaceExtension(requestedRoute) ||
       this.resolveDemoEntrypoint(requestedRoute) ||
@@ -49,6 +51,51 @@ export class NavigationResolverService {
       agentiumSurfaceRoute('hypervisor'),
       'legacy_hypervisor_object_lens',
     );
+  }
+
+  /** Builder + `cockpit_nav_v5`: Portfolio home is `/create` (D4). */
+  private resolveModeHome(requestedRoute: string): NavigationRedirectDecision | null {
+    if (!this.navV5Enabled()) return null;
+    if (this.workspace.current()?.mode !== 'builder') return null;
+    const path = this.pathOnly(requestedRoute);
+    if (path !== '/' && path !== agentiumSurfaceRoute('hypervisor')) return null;
+    return this.decision(requestedRoute, agentiumSurfaceRoute('create'), 'workspace_mode_home');
+  }
+
+  /** `?focus=` / `?tab=` become object paths and `?facet=` (L6.1). */
+  private resolveLegacyQueryAliases(
+    requestedRoute: string,
+  ): NavigationRedirectDecision | null {
+    const path = this.pathOnly(requestedRoute);
+    const rawQuery = requestedRoute.includes('?')
+      ? requestedRoute.slice(requestedRoute.indexOf('?') + 1).split('#')[0]
+      : '';
+    const params = new URLSearchParams(rawQuery);
+    const focus = params.get('focus');
+    if (path === agentiumSurfaceRoute('capabilities') && focus) {
+      params.delete('focus');
+      const query = params.toString();
+      return this.decision(
+        requestedRoute,
+        `/capabilities/${encodeURIComponent(focus)}${query ? `?${query}` : ''}`,
+        'legacy_focus_query',
+      );
+    }
+    const tab = params.get('tab');
+    if (tab && !params.get('facet')) {
+      params.set('facet', tab);
+      params.delete('tab');
+      const query = params.toString();
+      const resolvedRoute = query ? `${path}?${query}` : path;
+      if (resolvedRoute === requestedRoute) return null;
+      return {
+        requestedRoute,
+        resolvedRoute,
+        owner: 'navigation_resolver',
+        reason: 'legacy_tab_query',
+      };
+    }
+    return null;
   }
 
   /**
@@ -179,8 +226,8 @@ export class NavigationResolverService {
       !this.workspace.isDemoMode() ||
       this.pathOnly(requestedRoute) !== agentiumSurfaceRoute('hypervisor')
     ) return null;
-    // Under axes v4 the explicit Hypervisor destination is the Portfolio
-    // home. Mission Room remains an extension reachable by its own route.
+    // Explicit v4 (not the graduated default) keeps Hypervisor as Portfolio.
+    // Demo workspaces without the stored flag still bounce to Mission Room.
     if (this.axesV4Enabled()) return null;
 
     const configuredDefault = this.absoluteRoute(
@@ -259,14 +306,12 @@ export class NavigationResolverService {
     return (value || '/').split('?')[0].split('#')[0] || '/';
   }
 
+  private navV5Enabled(): boolean {
+    return workspaceSettingFeature(this.workspace.current(), 'cockpit_nav_v5', true);
+  }
+
   private axesV4Enabled(): boolean {
-    const features = this.workspace.current()?.settings?.['features'];
-    return Boolean(
-      features &&
-      typeof features === 'object' &&
-      !Array.isArray(features) &&
-      (features as Record<string, unknown>)['cockpit_router_axes_v4'] === true
-    );
+    return workspaceSettingFeature(this.workspace.current(), 'cockpit_router_axes_v4', false);
   }
 
   private isMissionRoomRoute(value: string): boolean {

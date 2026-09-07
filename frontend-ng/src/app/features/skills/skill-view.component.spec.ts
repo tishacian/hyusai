@@ -2,10 +2,12 @@ import '@angular/compiler';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Injector } from '@angular/core';
-import { ActivatedRoute, convertToParamMap } from '@angular/router';
+import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { BehaviorSubject, Subject } from 'rxjs';
 import { CanonicalApiService, type Skill } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import {
   WorkspaceService,
   type WorkspaceContextTransition,
@@ -65,12 +67,15 @@ test('Skill view purges A synchronously and only accepts the B reload', async ()
         provide: ActivatedRoute,
         useValue: {
           paramMap: params.asObservable(),
-          snapshot: { paramMap: params.value },
+          snapshot: { paramMap: params.value, queryParamMap: convertToParamMap({}) },
         },
       },
+      { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
       { provide: CanonicalApiService, useValue: canonical },
       { provide: WorkspaceService, useValue: workspace },
       { provide: LensService, useValue: { lens: () => 'build' } },
+      { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
+      { provide: ZoomContextService, useValue: { navV5Enabled: () => false, zoneI18nKey: () => 'nav.build.create' } },
     ],
   });
   const view = injector.get(SkillViewComponent);

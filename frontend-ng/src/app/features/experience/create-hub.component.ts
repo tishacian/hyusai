@@ -1,13 +1,14 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
   GlyphComponent,
   HelpTooltipComponent,
+  NavLinkDirective,
   PageFrameComponent,
   TagComponent,
   type CkGlyphName,
 } from '@app/shared/cockpit';
+import { type NavLinkInput } from '@app/core/navigation.catalog';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { canEditExperienceStudio } from './experience-access';
@@ -19,7 +20,7 @@ import { inventoryState, type StudioExperience } from './studio/studio-model';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    NavLinkDirective,
     EmptyStateComponent,
     GlyphComponent,
     HelpTooltipComponent,
@@ -67,7 +68,7 @@ export class CreateHubComponent {
     bodyKey: 'experience.hub.intent.app.body' | 'experience.hub.intent.system.body' | 'experience.hub.intent.knowledge.body';
     badges: readonly string[];
     ctaKey: 'experience.hub.intent.app.cta' | 'experience.hub.intent.system.cta' | 'experience.hub.intent.knowledge.cta';
-    route: string;
+    link: NavLinkInput;
   }[] = [
     {
       glyph: 'orbit',
@@ -79,7 +80,7 @@ export class CreateHubComponent {
         'experience.hub.intent.app.badge.nocode',
       ],
       ctaKey: 'experience.hub.intent.app.cta',
-      route: '/create/apps/new',
+      link: { leaf: 'create-app-new' },
     },
     {
       glyph: 'cube',
@@ -88,7 +89,7 @@ export class CreateHubComponent {
       bodyKey: 'experience.hub.intent.system.body',
       badges: ['experience.hub.intent.system.badge'],
       ctaKey: 'experience.hub.intent.system.cta',
-      route: '/systems/new',
+      link: { leaf: 'system-new' },
     },
     {
       glyph: 'layers',
@@ -97,7 +98,7 @@ export class CreateHubComponent {
       bodyKey: 'experience.hub.intent.knowledge.body',
       badges: ['experience.hub.intent.knowledge.badge'],
       ctaKey: 'experience.hub.intent.knowledge.cta',
-      route: '/knowledge',
+      link: { surface: 'knowledge' },
     },
   ];
 }

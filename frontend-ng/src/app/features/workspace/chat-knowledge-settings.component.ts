@@ -1,6 +1,7 @@
 import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Subscription, forkJoin, map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
@@ -182,7 +183,7 @@ interface AssistantProfileDraft {
 @Component({
   selector: 'app-chat-knowledge-settings',
   standalone: true,
-  imports: [FormsModule, RouterLink, IconComponent, SectionHeaderComponent],
+  imports: [FormsModule, NavLinkDirective, IconComponent, SectionHeaderComponent],
   template: `
     <app-section-header
       [breadcrumb]="i18n.t('workspace.chat_sources.breadcrumb')"
@@ -1328,7 +1329,7 @@ interface AssistantProfileDraft {
                   </small>
                 </button>
                 <div class="collection-option-actions">
-                  <a class="guide-button" [routerLink]="['/knowledge', collection]">
+                  <a class="guide-button" [navLink]="{ leaf: 'knowledge-doc', ref: collection }">
                     <app-icon name="external-link" [size]="13" /> {{ i18n.t('common.open') }}
                   </a>
                   <button type="button" class="guide-button" (click)="copyCollection(collection)">

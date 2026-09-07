@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { Subscription, catchError, forkJoin, map, of } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
@@ -8,7 +9,7 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { PageFrameComponent } from '@app/shared/cockpit';
+import { NavLinkDirective, PageFrameComponent } from '@app/shared/cockpit';
 import {
   StudioApiService,
   type StudioDrift,
@@ -35,7 +36,7 @@ interface ExperienceAuditResponse {
   selector: 'app-experience-governance',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, EmptyStateComponent, IconComponent, PageFrameComponent],
+  imports: [FormsModule, RouterLink, NavLinkDirective, EmptyStateComponent, IconComponent, PageFrameComponent],
   template: `
     <ck-page-frame
       [eyebrow]="i18n.t('governance.experience.eyebrow')"
@@ -195,13 +196,13 @@ interface ExperienceAuditResponse {
                       <td>
                         <div class="xp-gov-actions">
                           @if (workspace.experienceStudioV1Enabled()) {
-                            <a [routerLink]="['/create/apps', app.id]">
+                            <a [navLink]="{ leaf: 'create-app-edit', ref: app.id }">
                               {{ i18n.t(workspace.isAdmin() && driftCount(app) > 0
                                 ? 'governance.experience.action.repair'
                                 : 'governance.experience.action.inspect') }}
                             </a>
                           }
-                          <a routerLink="/runs" [queryParams]="{ origin: originFor(app) }">
+                          <a [routerLink]="navigation.surfaceUrlTree('runs')" [queryParams]="{ origin: originFor(app) }">
                             {{ i18n.t('governance.experience.action.runs') }}
                           </a>
                         </div>
@@ -359,6 +360,7 @@ export class ExperienceGovernanceComponent implements OnInit, OnDestroy {
   private readonly studio = inject(StudioApiService);
   readonly workspace = inject(WorkspaceService);
   readonly i18n = inject(I18nService);
+  protected readonly navigation = inject(ZoomContextService);
   private requestSubscription: Subscription | null = null;
   private readonly workspaceView = new WorkspaceViewContext(
     this.workspace,

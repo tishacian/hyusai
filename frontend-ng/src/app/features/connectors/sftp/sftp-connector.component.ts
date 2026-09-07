@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
@@ -294,7 +294,7 @@ const BULK_PROMOTE_LIMIT = 25;
 @Component({
   selector: 'app-sftp-connector',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, DrawerComponent, IconComponent, SectionHeaderComponent],
+  imports: [CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, DrawerComponent, IconComponent, SectionHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-section-header
@@ -312,12 +312,7 @@ const BULK_PROMOTE_LIMIT = 25;
         <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="loading()" />
         Refresh
       </button>
-      <a
-        routerLink="/resources"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-      >
-        <app-icon name="arrow-left" [size]="14" /> Back to Resources
-      </a>
+      <ck-back-link [fallback]="{ surface: 'resources' }" />
     </app-section-header>
 
     @if (error()) {
@@ -425,7 +420,7 @@ const BULK_PROMOTE_LIMIT = 25;
               <h2 class="mt-1 text-base font-semibold text-white">Knowledge destination</h2>
             </div>
             <a
-              [routerLink]="['/knowledge', targetCollectionSlug()]"
+              [navLink]="{ leaf: 'knowledge-doc', ref: targetCollectionSlug() }"
               class="inline-flex shrink-0 items-center gap-1.5 rounded bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10"
             >
               <app-icon name="external-link" [size]="12" />
@@ -595,7 +590,7 @@ const BULK_PROMOTE_LIMIT = 25;
                 Refresh pipeline
               </button>
               <a
-                [routerLink]="['/knowledge', targetCollectionSlug()]"
+                [navLink]="{ leaf: 'knowledge-doc', ref: targetCollectionSlug() }"
                 class="inline-flex items-center justify-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10"
               >
                 <app-icon name="external-link" [size]="13" />
@@ -619,7 +614,7 @@ const BULK_PROMOTE_LIMIT = 25;
                     <span class="font-mono text-[11px] text-emerald-200/70">· job {{ banner.job_id }}</span>
                   }
                 </span>
-                <a [routerLink]="['/knowledge', banner.collection_slug]" class="inline-flex w-fit items-center gap-1.5 rounded bg-emerald-400/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-50 ring-1 ring-emerald-300/20 hover:bg-emerald-400/15">
+                <a [navLink]="{ leaf: 'knowledge-doc', ref: banner.collection_slug }" class="inline-flex w-fit items-center gap-1.5 rounded bg-emerald-400/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-50 ring-1 ring-emerald-300/20 hover:bg-emerald-400/15">
                   Open collection
                   <app-icon name="external-link" [size]="12" />
                 </a>
@@ -1188,7 +1183,7 @@ const BULK_PROMOTE_LIMIT = 25;
                         @if (file.status === 'promoted' && file.promoted_collection_slug) {
                           <p class="mt-1 truncate text-[11px] text-emerald-300/80">
                             Indexed target ·
-                            <a [routerLink]="['/knowledge', file.promoted_collection_slug]" class="underline decoration-emerald-300/30 underline-offset-2 hover:text-emerald-100">
+                            <a [navLink]="{ leaf: 'knowledge-doc', ref: file.promoted_collection_slug }" class="underline decoration-emerald-300/30 underline-offset-2 hover:text-emerald-100">
                               {{ file.promoted_collection_slug }}
                             </a>
                             @if (fileIndexingState(file); as indexingStatus) {

@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import {
@@ -23,6 +24,7 @@ import {
   StatReadoutComponent,
   TagComponent,
   HelpTooltipComponent,
+  NavLinkDirective,
 } from '@app/shared/cockpit';
 import { formatYieldIndex, formatYieldPercent } from '@app/shared/cockpit/yield-format';
 import { I18nService } from '@app/core/i18n.service';
@@ -56,7 +58,7 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    NavLinkDirective,
     PageFrameComponent,
     StatReadoutComponent,
     MicroBarComponent,
@@ -240,8 +242,7 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
                 } @else {
                   @for (scenario of valueLoop()!.scenarios.items.slice(0, 4); track scenario.id) {
                     <a
-                      [routerLink]="['/systems', scenario.system_id]"
-                      [queryParams]="{ lens: 'steer', capabilityId: scenario.capability_id, facet: 'overview' }"
+                      [navLink]="{ type: 'system', ref: scenario.system_id, lens: 'steer', facet: 'overview' }"
                       class="ck-mono"
                       style="display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--ck-hair); font-size:10px; color:var(--ck-fg-2);"
                     >
@@ -313,7 +314,7 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
                 }
               </div>
               <a
-                routerLink="/capabilities"
+                [navLink]="{ surface: 'capabilities' }"
                 class="ck-mono"
                 style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-3);"
               >
@@ -333,9 +334,9 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
                 {{ i18n.t('hypervisor.capabilities.empty_hint') }}
               </div>
               <div style="display:inline-flex; gap:8px; margin-top:14px;">
-                <a routerLink="/observability" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">{{ i18n.t('hypervisor.links.observability') }}</a>
-                <a routerLink="/chat" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">{{ i18n.t('hypervisor.links.chat') }}</a>
-                <a routerLink="/runs" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">{{ i18n.t('hypervisor.links.runs') }}</a>
+                <a [navLink]="{ surface: 'observability' }" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">{{ i18n.t('hypervisor.links.observability') }}</a>
+                <a [navLink]="{ surface: 'chat' }" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">{{ i18n.t('hypervisor.links.chat') }}</a>
+                <a [navLink]="{ surface: 'runs' }" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">{{ i18n.t('hypervisor.links.runs') }}</a>
               </div>
             </div>
           } @else {
@@ -713,11 +714,10 @@ export class HypervisorComponent implements OnInit {
   readonly i18n = inject(I18nService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
 
   drillDown(c: CapabilityRow): void {
-    // Semantic zoom: Portfolio > Capability. Single click navigates to the
-    // catalog page with the capability pre-selected via query param.
-    this.router.navigate(['/capabilities'], { queryParams: { focus: c.capability_id } });
+    void this.router.navigateByUrl(this.navigation.objectUrl('capability', c.capability_id));
   }
 
   readonly periods = computed<{ id: PeriodKey; label: string }[]>(() =>
@@ -890,7 +890,7 @@ export class HypervisorComponent implements OnInit {
   });
 
   openRuns(c: CapabilityRow): void {
-    this.router.navigate(['/runs'], { queryParams: { capability_id: c.capability_id } });
+    void this.router.navigateByUrl(this.navigation.surfaceUrl('runs', { capabilityId: c.capability_id }));
   }
 
   efficiencyColor(v: number | null | undefined): string {

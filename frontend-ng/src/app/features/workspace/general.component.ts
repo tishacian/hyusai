@@ -7,6 +7,7 @@ import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import {
   WorkspaceDetail,
   WorkspaceMode,
@@ -397,6 +398,7 @@ export class WorkspaceGeneralComponent {
   private readonly navigationProfile = inject(NavigationProfileService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly toastr = inject(ToastrService);
 
   protected readonly field = FIELD;
@@ -739,7 +741,7 @@ export class WorkspaceGeneralComponent {
 
   previewBusinessNavigation(): void {
     this.navigationProfile.setBusinessPreview(true);
-    this.router.navigateByUrl('/chat');
+    void this.router.navigateByUrl(this.navigation.surfaceUrl('chat'));
   }
 
   copy(slug: string): void {

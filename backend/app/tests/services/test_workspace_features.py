@@ -96,6 +96,9 @@ def test_flow_publication_honours_an_explicit_workspace_opt_out():
 def test_graduated_features_are_declared_for_audit():
     assert DEFAULT_ON_FEATURES == {
         "chat_document_upload",
+        "cockpit_nav_v5",
+        "cockpit_router_axes_v3",
+        "cockpit_router_axes_v4",
         "experience_studio_v1",
         FLOW_PUBLICATION_FEATURE,
     }

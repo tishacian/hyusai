@@ -16,6 +16,7 @@ import {
 import { I18nService } from '@app/core/i18n.service';
 import { COCKPIT_VERBS, agentiumSurfaceRoute, type CockpitVerb } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 
 /**
  * Primary rail — 5 cockpit verbs in a compact 56px column, hybrid expand.
@@ -53,6 +54,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
             [class.ck-rail-item-active]="isActive(v)"
             [title]="verbTitle(v)"
             [attr.aria-current]="isActive(v) ? 'page' : null"
+            (click)="onVerbClick()"
           >
             @if (isActive(v)) {
               <span class="ck-rail-active-bar" aria-hidden="true"></span>
@@ -249,6 +251,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
 export class SideRailComponent {
   private readonly workspace = inject(WorkspaceService);
   private readonly navigation = inject(ZoomContextService);
+  private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
   protected readonly i18n = inject(I18nService);
 
   readonly expanded = signal(false);
@@ -265,13 +268,17 @@ export class SideRailComponent {
   }
 
   verbLabel(v: CockpitVerb): string {
-    return v.key === 'build' && this.workspace.experienceStudioV1Enabled()
+    return v.key === 'build' && (
+      this.navigation.navV5Enabled?.() === true || this.workspace.experienceStudioV1Enabled()
+    )
       ? this.i18n.t('nav.build.create')
       : this.i18n.t('nav.' + v.key);
   }
 
   verbHint(v: CockpitVerb): string {
-    return v.key === 'build' && this.workspace.experienceStudioV1Enabled()
+    return v.key === 'build' && (
+      this.navigation.navV5Enabled?.() === true || this.workspace.experienceStudioV1Enabled()
+    )
       ? this.i18n.t('nav.hint.build.create')
       : this.i18n.t('nav.hint.' + v.key);
   }
@@ -304,6 +311,10 @@ export class SideRailComponent {
     )
       ? MISSION_ROOM_EXTENSION.defaultRoute
       : v.primaryRoute;
+  }
+
+  onVerbClick(): void {
+    this.telemetry?.registerTrigger('rail');
   }
 
   onEnter(): void {

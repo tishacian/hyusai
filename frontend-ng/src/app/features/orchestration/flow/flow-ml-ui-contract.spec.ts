@@ -412,7 +412,7 @@ test('the evidence is a score plus what it moved, and names what it registered',
   // A fit cannot be a dry run: the artifact IS the product. So the panel says
   // which version it registered, and links to it.
   assert.match(workshop, /data-testid="train-registered"/);
-  assert.match(workshop, /\[routerLink\]="\['\/models', trained\.id\]"/);
+  assert.match(workshop, /\[navLink\]="\{ leaf: 'model-doc', ref: trained\.id \}"/);
   for (const key of [
     'flow.ml.train.registered',
     'flow.ml.train.open_card',
@@ -553,7 +553,7 @@ test('the rows a fit will read, and the rows a score wrote, use the one table', 
     /this\.runSvc\?\.nodeRunFor\(n\.id\)\?\.data\?\.dataset_id/,
     'the reference comes off the badge the run already emitted',
   );
-  assert.match(inspector, /\[routerLink\\?\]="\['\/data', scored\]"/);
+  assert.match(inspector, /\[navLink\]="\{ leaf: 'data-doc', ref: scored \}"/);
 
   for (const key of [
     'flow.ml.train.sample',

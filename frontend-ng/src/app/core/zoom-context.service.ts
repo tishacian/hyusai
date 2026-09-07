@@ -10,27 +10,27 @@ import {
   type System,
 } from './canonical-api.service';
 import {
-  agentiumSurfaceRoute,
+  matchAgentiumSurface,
+  navigationLeafUrl,
   navigationLensUrl,
   navigationObjectUrl,
   navigationPortfolioUrl,
   navigationRouteContext,
   navigationScopeUrl,
+  navigationSurfaceUrl,
+  navigationZoneSurfaceUrl,
+  resolveNavLink,
   type CockpitLens,
   type CockpitDestination,
   type CockpitRouteContext,
   type CockpitSection,
   type HierarchyObjectType,
+  type NavLinkInput,
+  type NavLinkResolution,
   type NavigationAncestry,
   type NavigationObjectUrlOptions,
 } from './navigation.catalog';
-import { WorkspaceService, type WorkspaceRequestScope } from './workspace.service';
-import {
-  readWorkspaceLocalJson,
-  removeWorkspaceLocalValue,
-  writeWorkspaceLocalJson,
-  type WorkspaceLocalStorage,
-} from './workspace-local-storage';
+import { WorkspaceService, workspaceSettingFeature, type WorkspaceRequestScope } from './workspace.service';
 
 export type ZoomHierarchyKey = 'portfolio' | HierarchyObjectType;
 
@@ -65,42 +65,8 @@ const EMPTY_ANCESTRY: NavigationAncestry = {
   skillRef: null,
 };
 
-/**
- * Session-scoped memory of the last Flow surface the user opened. It exists
- * so a detour through a flat list (Skills, Runs…) does not silently reset
- * "Flow builder" to the scratchpad — the QA loop System → Skills → Flow
- * builder must come back to the same graph.
- *
- * Written only for a System the canonical, workspace-scoped API has already
- * proven, keyed AND tagged by workspace slug, and dropped on every workspace
- * transition: a System id from another tenant can never be resurrected here.
- */
-const LAST_FLOW_SYSTEM_KEY = 'agentium_last_flow_system';
-
-/** The scratchpad is a destination in its own right — landing on it means the
- *  user chose it, so the remembered System is released. */
-const SCRATCHPAD_PATH = agentiumSurfaceRoute('orchestration');
-
-interface LastFlowSystem {
-  readonly workspace_slug: string;
-  readonly system_id: string;
-}
-
-function isLastFlowSystem(value: unknown): value is LastFlowSystem {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const candidate = value as Record<string, unknown>;
-  return typeof candidate['workspace_slug'] === 'string'
-    && typeof candidate['system_id'] === 'string'
-    && candidate['system_id'].length > 0;
-}
-
-/** `sessionStorage` is absent from SSR and from the unit-test runtime. */
-function sessionStore(): WorkspaceLocalStorage | null {
-  try {
-    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
-  } catch {
-    return null;
-  }
+function pathOnly(value: string): string {
+  return (value || '/').split('?')[0].split('#')[0] || '/';
 }
 
 /**
@@ -119,26 +85,17 @@ export class ZoomContextService implements OnDestroy {
 
   /** Visible rollout gate. Showcase enables it first, then the internal canary. */
   readonly axesV3Enabled = computed(() => {
-    const features = this.workspace.current()?.settings?.['features'];
-    return Boolean(
-      features &&
-      typeof features === 'object' &&
-      !Array.isArray(features) &&
-      ((features as Record<string, unknown>)['cockpit_router_axes_v3'] === true ||
-        (features as Record<string, unknown>)['cockpit_router_axes_v4'] === true),
+    const workspace = this.workspace.current();
+    return (
+      workspaceSettingFeature(workspace, 'cockpit_router_axes_v3', true) ||
+      workspaceSettingFeature(workspace, 'cockpit_router_axes_v4', true)
     );
   });
 
   /** Axes v4 separates the Portfolio home from the four object lenses. */
-  readonly axesV4Enabled = computed(() => {
-    const features = this.workspace.current()?.settings?.['features'];
-    return Boolean(
-      features &&
-      typeof features === 'object' &&
-      !Array.isArray(features) &&
-      (features as Record<string, unknown>)['cockpit_router_axes_v4'] === true,
-    );
-  });
+  readonly axesV4Enabled = computed(() =>
+    workspaceSettingFeature(this.workspace.current(), 'cockpit_router_axes_v4', true),
+  );
 
   readonly experienceV1Enabled = computed(() => {
     const features = this.workspace.current()?.settings?.['features'];
@@ -149,6 +106,10 @@ export class ZoomContextService implements OnDestroy {
       (features as Record<string, unknown>)['experience_v1'] === true,
     );
   });
+
+  readonly navV5Enabled = computed(() =>
+    workspaceSettingFeature(this.workspace.current(), 'cockpit_nav_v5', true),
+  );
 
   readonly experienceStudioV1Enabled = computed(() => {
     const features = this.workspace.current()?.settings?.['features'];
@@ -162,7 +123,6 @@ export class ZoomContextService implements OnDestroy {
   });
 
   private generation = 0;
-  private rememberedFlowSystem: { slug: string; systemId: string | null } | null = null;
   private graphSubscription = new Subscription();
   private readonly subscriptions = new Subscription();
   private readonly unregisterContextReset: () => void;
@@ -193,6 +153,14 @@ export class ZoomContextService implements OnDestroy {
   );
   readonly skillLabel = computed(() => this.node('skill')?.label ?? null);
 
+  zoneI18nKey(): 'nav.build.create' | `nav.${CockpitLens}` {
+    return this.lens() === 'build' ? 'nav.build.create' : `nav.${this.lens()}`;
+  }
+
+  private workspaceMode(): string | undefined {
+    return this.workspace.current()?.mode ?? this.workspace.mode?.();
+  }
+
   readonly deepestResolvedType = computed<HierarchyObjectType | null>(() => {
     const nodes = this.nodes();
     if (nodes.some((node) => node.key === 'skill_invocation')) return 'skill_invocation';
@@ -215,7 +183,6 @@ export class ZoomContextService implements OnDestroy {
 
     this.unregisterContextReset = this.workspace.registerContextReset((transition) => {
       this.cancelGraphResolution();
-      this.forgetFlowSystem(transition.previousSlug);
       const route = this.routeContext(this.router.url || '/');
       this.state.set(this.provisional(route, true));
       queueMicrotask(() => {
@@ -258,15 +225,16 @@ export class ZoomContextService implements OnDestroy {
   }
 
   urlForScope(section: CockpitSection): string {
-    const rememberedSystemId = section.key === 'flows'
-      ? this.rememberedFlowSystemId()
-      : null;
+    if (this.navV5Enabled()) {
+      if (section.key === 'flows' && this.systemId()) {
+        return navigationLeafUrl('system-flow', { systemId: this.systemId()! }, this.linkOptions({}));
+      }
+      return navigationZoneSurfaceUrl(section, this.lens());
+    }
     if (!this.axesV3Enabled()) {
-      const systemId = section.key === 'flows'
-        ? this.systemId() ?? rememberedSystemId
-        : null;
+      const systemId = section.key === 'flows' ? this.systemId() : null;
       return systemId
-        ? `/systems/${encodeURIComponent(systemId)}/flow`
+        ? navigationLeafUrl('system-flow', { systemId })
         : section.route;
     }
     // Scope destinations are list routes, so every hierarchy id would be
@@ -276,7 +244,6 @@ export class ZoomContextService implements OnDestroy {
       section,
       this.projection().ancestry,
       this.lens(),
-      rememberedSystemId,
     );
   }
 
@@ -302,6 +269,7 @@ export class ZoomContextService implements OnDestroy {
         ? (options.lens === undefined ? this.lens() : options.lens)
         : null,
       tab: options.tab,
+      facet: options.facet,
       scope: axesEnabled ? options.scope : null,
     });
   }
@@ -314,6 +282,65 @@ export class ZoomContextService implements OnDestroy {
     return this.router.parseUrl(this.objectUrl(type, ref, options));
   }
 
+  surfaceUrl(surfaceId: string, options: NavigationObjectUrlOptions = {}): string {
+    return navigationSurfaceUrl(surfaceId, this.linkOptions(options));
+  }
+
+  surfaceUrlTree(surfaceId: string, options: NavigationObjectUrlOptions = {}): UrlTree {
+    return this.router.parseUrl(this.surfaceUrl(surfaceId, options));
+  }
+
+  leafUrl(
+    leafId: string,
+    params: Record<string, string> = {},
+    options: NavigationObjectUrlOptions = {},
+  ): string {
+    return navigationLeafUrl(leafId, params, this.linkOptions(options));
+  }
+
+  leafUrlTree(
+    leafId: string,
+    params: Record<string, string> = {},
+    options: NavigationObjectUrlOptions = {},
+  ): UrlTree {
+    return this.router.parseUrl(this.leafUrl(leafId, params, options));
+  }
+
+  resolveLink(input: NavLinkInput): NavLinkResolution {
+    const axesEnabled = this.axesV3Enabled();
+    return resolveNavLink(input, {
+      lens: axesEnabled ? this.lens() : null,
+      ancestry: axesEnabled ? this.projection().ancestry : EMPTY_ANCESTRY,
+      currentUrl: this.route().url,
+    });
+  }
+
+  /** Breadcrumb parent, else the list surface of a non-hierarchy object. */
+  parentUrl(): string {
+    const parent = this.parentNode();
+    if (parent) return parent.href;
+    const path = this.route().path;
+    const surface = matchAgentiumSurface(path);
+    if (surface && pathOnly(surface.route) !== path) {
+      return this.surfaceUrl(surface.id);
+    }
+    return navigationPortfolioUrl(this.axesV3Enabled() ? this.lens() : null);
+  }
+
+  parentLabel(): string {
+    const parent = this.parentNode();
+    if (parent) return parent.label;
+    const path = this.route().path;
+    const surface = matchAgentiumSurface(path);
+    if (surface && pathOnly(surface.route) !== path) return surface.label;
+    return 'Portfolio';
+  }
+
+  parentNode(): ZoomGraphNode | null {
+    const nodes = this.nodes();
+    return nodes.length >= 2 ? nodes[nodes.length - 2] : null;
+  }
+
   ngOnDestroy(): void {
     this.unregisterContextReset();
     this.cancelGraphResolution();
@@ -324,9 +351,6 @@ export class ZoomContextService implements OnDestroy {
     const generation = ++this.generation;
     const requestScope = this.workspace.captureRequestScope();
     const route = this.routeContext(url);
-    if (route.path === SCRATCHPAD_PATH) {
-      this.forgetFlowSystem(this.workspace.currentSlug());
-    }
     const needsGraph = Boolean(
       route.capabilityId
       || route.systemId
@@ -395,62 +419,32 @@ export class ZoomContextService implements OnDestroy {
     ).subscribe((graph) => {
       if (!this.isCurrent(generation, requestScope, url)) return;
       this.state.set(this.resolvedProjection(route, graph));
-      this.rememberFlowSystem(this.systemId());
     });
   }
 
-  /**
-   * The last System proven inside the CURRENT workspace, or null.
-   *
-   * Cached per slug because the rail asks for it on every change-detection
-   * pass, while the read itself is a one-shot migration read that retires the
-   * pre-workspace slot as a side effect.
-   */
-  private rememberedFlowSystemId(): string | null {
-    const workspaceSlug = this.workspace.currentSlug();
-    if (!workspaceSlug) return null;
-    if (this.rememberedFlowSystem?.slug !== workspaceSlug) {
-      this.rememberedFlowSystem = {
-        slug: workspaceSlug,
-        systemId: this.readFlowSystem(workspaceSlug),
-      };
-    }
-    return this.rememberedFlowSystem.systemId;
-  }
-
-  private readFlowSystem(workspaceSlug: string): string | null {
-    const storage = sessionStore();
-    if (!storage) return null;
-    return readWorkspaceLocalJson<LastFlowSystem>({
-      storage,
-      baseKey: LAST_FLOW_SYSTEM_KEY,
-      workspaceSlug,
-      knownWorkspaceSlugs: [],
-      isValue: isLastFlowSystem,
-      valueWorkspaceSlug: (value) => value.workspace_slug,
-    })?.system_id ?? null;
-  }
-
-  private rememberFlowSystem(systemId: string | null): void {
-    const workspaceSlug = this.workspace.currentSlug();
-    if (!workspaceSlug || !systemId) return;
-    this.rememberedFlowSystem = { slug: workspaceSlug, systemId };
-    const storage = sessionStore();
-    if (!storage) return;
-    writeWorkspaceLocalJson<LastFlowSystem>(
-      storage,
-      LAST_FLOW_SYSTEM_KEY,
-      workspaceSlug,
-      { workspace_slug: workspaceSlug, system_id: systemId },
-    );
-  }
-
-  private forgetFlowSystem(workspaceSlug: string | null): void {
-    this.rememberedFlowSystem = workspaceSlug
-      ? { slug: workspaceSlug, systemId: null }
-      : null;
-    const storage = sessionStore();
-    if (storage) removeWorkspaceLocalValue(storage, LAST_FLOW_SYSTEM_KEY, workspaceSlug);
+  private linkOptions(options: NavigationObjectUrlOptions): NavigationObjectUrlOptions {
+    const axesEnabled = this.axesV3Enabled();
+    return {
+      capabilityId: axesEnabled
+        ? (options.capabilityId !== undefined ? options.capabilityId : this.capabilityId())
+        : null,
+      systemId: axesEnabled
+        ? (options.systemId !== undefined ? options.systemId : this.systemId())
+        : null,
+      runId: axesEnabled
+        ? (options.runId !== undefined ? options.runId : this.runId())
+        : null,
+      skillRef: axesEnabled
+        ? (options.skillRef !== undefined ? options.skillRef : this.skillRef())
+        : null,
+      lens: axesEnabled
+        ? (options.lens === undefined ? this.lens() : options.lens)
+        : null,
+      tab: options.tab,
+      facet: options.facet,
+      doc: options.doc,
+      scope: axesEnabled ? options.scope : null,
+    };
   }
 
   private routeContext(url: string): CockpitRouteContext {
@@ -459,8 +453,8 @@ export class ZoomContextService implements OnDestroy {
     if (enabled) return route;
 
     // Outside the canary, axis query parameters are inert. Direct object
-    // paths still hydrate labels for the legacy breadcrumb, but deep links
-    // copied from a canary cannot activate routed lenses or scoped lists.
+    // paths still hydrate breadcrumb labels, but deep links copied from a
+    // canary cannot activate routed lenses or scoped lists.
     return {
       ...route,
       query: Object.fromEntries(
@@ -676,7 +670,9 @@ export class ZoomContextService implements OnDestroy {
       id: workspace?.id ?? null,
       label: 'Portfolio',
       sub: workspace?.name || 'Workspace portfolio',
-      href: navigationPortfolioUrl(lens, this.axesV4Enabled()),
+      href: this.navV5Enabled() && this.workspaceMode() === 'builder'
+        ? navigationSurfaceUrl('create')
+        : navigationPortfolioUrl(lens, this.axesV4Enabled()),
     };
   }
 

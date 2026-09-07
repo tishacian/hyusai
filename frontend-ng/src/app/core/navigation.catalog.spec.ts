@@ -1,19 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  AGENTIUM_SURFACE_LEAVES,
   AGENTIUM_SURFACE_ROUTES,
   BUSINESS_NAVIGATION_SURFACE_IDS,
   COCKPIT_VERBS,
   agentiumSurfaceById,
   cockpitVerbSections,
+  objectFacetsFor,
+  systemFacetForChild,
   matchCockpitVerb,
+  navigationLeafUrl,
   navigationLensUrl,
   navigationObjectUrl,
   navigationPortfolioUrl,
   navigationRouteContext,
   navigationScopeUrl,
   navigationSectionNaming,
+  navigationSurfaceUrl,
   pathAllowedBySurfaceIds,
+  resolveNavLink,
   isObjectLens,
 } from './navigation.catalog';
 
@@ -25,30 +31,26 @@ const EMPTY_ANCESTRY = {
   skillRef: null,
 };
 
-function flowSection(legacy = false) {
+function flowSection() {
   const build = COCKPIT_VERBS.find((verb) => verb.key === 'build')!;
-  return (legacy ? build.legacySections! : build.sections!)
-    .find((section) => section.key === 'flows')!;
+  return build.sections!.find((section) => section.key === 'flows')!;
 }
 
 test('the Flow entry is named after the destination it resolves to', () => {
-  for (const legacy of [false, true]) {
-    const section = flowSection(legacy);
+  const section = flowSection();
 
-    const scratchpad = navigationScopeUrl(section, EMPTY_ANCESTRY, 'build');
-    assert.equal(navigationSectionNaming(section, scratchpad).label, 'Scratchpad');
+  const scratchpad = navigationScopeUrl(section, EMPTY_ANCESTRY, 'build');
+  assert.equal(navigationSectionNaming(section, scratchpad).label, 'Scratchpad');
 
-    const systemFlow = navigationScopeUrl(
-      section,
-      { ...EMPTY_ANCESTRY, systemId: 'sys-42' },
-      'build',
-    );
-    assert.equal(navigationSectionNaming(section, systemFlow).label, 'Flow builder');
+  const systemFlow = navigationScopeUrl(
+    section,
+    { ...EMPTY_ANCESTRY, systemId: 'sys-42' },
+    'build',
+  );
+  assert.equal(navigationSectionNaming(section, systemFlow).label, 'Flow builder');
 
-    // The remembered System reached through a flat list names it too.
-    const remembered = navigationScopeUrl(section, EMPTY_ANCESTRY, 'build', 'sys-42');
-    assert.equal(navigationSectionNaming(section, remembered).label, 'Flow builder');
-  }
+  const remembered = navigationScopeUrl(section, EMPTY_ANCESTRY, 'build', 'sys-42');
+  assert.equal(navigationSectionNaming(section, remembered).label, 'Flow builder');
 });
 
 test('destination naming exposes a dedicated key so a locale can override it', () => {
@@ -66,11 +68,7 @@ test('destination naming exposes a dedicated key so a locale can override it', (
 
 test('sections without a dynamic destination keep their catalog naming', () => {
   for (const verb of COCKPIT_VERBS) {
-    for (const section of [
-        ...(verb.sections ?? []),
-        ...(verb.legacySections ?? []),
-        ...(verb.experienceSections ?? []),
-      ]) {
+    for (const section of verb.sections ?? []) {
       if (section.key === 'flows') continue;
       const naming = navigationSectionNaming(section, section.route);
       assert.equal(naming.label, section.label, section.key);
@@ -121,11 +119,7 @@ test('surface registry owns unique ids and every rail section references it', ()
   );
   for (const verb of COCKPIT_VERBS) {
     assert.ok(agentiumSurfaceById(verb.primarySurfaceId), verb.primarySurfaceId);
-    for (const section of [
-        ...(verb.sections ?? []),
-        ...(verb.legacySections ?? []),
-        ...(verb.experienceSections ?? []),
-      ]) {
+    for (const section of cockpitVerbSections(verb, { experienceStudio: true })) {
       assert.ok(agentiumSurfaceById(section.surfaceId), section.surfaceId);
     }
   }
@@ -262,7 +256,7 @@ test('axes v4 has four object lenses and a distinct Portfolio destination', () =
     COCKPIT_VERBS.filter((verb) => isObjectLens(verb.key)).map((verb) => verb.key),
     ['build', 'operate', 'steer', 'govern'],
   );
-  assert.deepEqual(COCKPIT_VERBS.find((verb) => verb.key === 'hypervisor')?.v4Sections, []);
+  assert.deepEqual(COCKPIT_VERBS.find((verb) => verb.key === 'hypervisor')?.sections, []);
   assert.equal(isObjectLens('hypervisor'), false);
   assert.equal(
     navigationLensUrl(
@@ -284,9 +278,9 @@ test('unknown navigation query values never influence the cockpit projection', (
   assert.equal(parsed.capabilityId, null);
 });
 
-test('experience_v1 Build menu replaces the flat sections and drops the scratchpad', () => {
+test('experience studio adds one Create entry and keeps the zone catalogues', () => {
   const build = COCKPIT_VERBS.find((verb) => verb.key === 'build')!;
-  const off = cockpitVerbSections(build, { axesV3: false, axesV4: false, experienceV1: false });
+  const off = cockpitVerbSections(build);
   assert.deepEqual(off.map((section) => section.key), [
     'systems',
     'capabilities',
@@ -296,34 +290,128 @@ test('experience_v1 Build menu replaces the flat sections and drops the scratchp
     'flows',
   ]);
 
-  const on = cockpitVerbSections(build, { axesV3: true, axesV4: false, experienceV1: true });
+  const on = cockpitVerbSections(build, { experienceStudio: true });
   assert.deepEqual(on.map((section) => section.key), [
     'business_apps',
     'systems',
-    'knowledge',
-    'data',
     'capabilities',
     'skills',
-    'certified',
-    'integrations',
+    'knowledge',
+    'data',
+    'flows',
   ]);
-  assert.equal(on.some((section) => section.key === 'flows'), false);
   assert.equal(matchCockpitVerb('/create')?.key, 'build');
   assert.equal(matchCockpitVerb('/create/apps')?.key, 'build');
 });
 
 test('the data plane is one Build entry that owns both of its routes', () => {
   const build = COCKPIT_VERBS.find((verb) => verb.key === 'build')!;
-  for (const sections of [build.sections!, build.legacySections!, build.experienceSections!]) {
-    const keys = sections.map((section) => section.key);
-    assert.equal(keys.filter((key) => key === 'data').length, 1);
-    assert.equal(keys.includes('models' as never), false);
-    const entry = sections.find((section) => section.key === 'data')!;
-    assert.equal(entry.label, 'Data & Models');
-    assert.equal(entry.route, '/data');
-    assert.deepEqual(entry.matches, ['/data', '/models']);
-  }
+  const keys = build.sections!.map((section) => section.key);
+  assert.equal(keys.filter((key) => key === 'data').length, 1);
+  assert.equal(keys.includes('models' as never), false);
+  const entry = build.sections!.find((section) => section.key === 'data')!;
+  assert.equal(entry.label, 'Data & Models');
+  assert.equal(entry.route, '/data');
+  assert.deepEqual(entry.matches, ['/data', '/models']);
   // Deep links to a model card still resolve to a catalogued surface.
   assert.equal(agentiumSurfaceById('models')?.route, '/models');
   assert.equal(navigationRouteContext('/models/m-1?scope=models').scope, null);
+});
+
+test('Lot 6 orphan leaves are catalogued', () => {
+  const ids = AGENTIUM_SURFACE_LEAVES.map((leaf) => leaf.id);
+  for (const id of [
+    'system-new',
+    'system-flow',
+    'system-run',
+    'capability-curation',
+    'connector-rpa-bridge',
+    'create-app-new',
+    'create-preview',
+    'workspace-app-unavailable',
+    'workspace-app-repair',
+  ]) {
+    assert.ok(ids.includes(id), id);
+  }
+  assert.equal(
+    navigationLeafUrl('system-flow', { systemId: 'sys-x' }, { lens: 'operate', capabilityId: 'cap-a' }),
+    '/systems/sys-x/flow?lens=operate&capabilityId=cap-a',
+  );
+  assert.equal(
+    navigationSurfaceUrl('model-portal'),
+    '/resources?facet=providers',
+  );
+  assert.equal(navigationSurfaceUrl('work'), '/work');
+});
+
+test('legacy query aliases hydrate the canonical grammar', () => {
+  const parsed = navigationRouteContext(
+    '/runs?tab=timeline&capability_id=cap-a&system_id=sys-x',
+  );
+  assert.equal(parsed.query['facet'], 'timeline');
+  assert.equal(parsed.capabilityId, 'cap-a');
+  assert.equal(parsed.systemId, 'sys-x');
+});
+
+test('nav v5 sommaire has no object-type index outside Create (I1)', () => {
+  const forbidden = new Set(['capability', 'system', 'run', 'skill']);
+  for (const verb of COCKPIT_VERBS) {
+    const sections = cockpitVerbSections(verb);
+    if (verb.key === 'build') {
+      assert.ok(sections.some((section) => section.key === 'systems'));
+      continue;
+    }
+    for (const section of sections) {
+      assert.equal(
+        forbidden.has(section.scopeType),
+        false,
+        `${verb.key}.${section.key} scopeType=${section.scopeType}`,
+      );
+    }
+  }
+});
+
+test('OBJECT_FACETS lists System descendants used by the sommaire branch', () => {
+  const facets = objectFacetsFor('system', 'operate');
+  assert.deepEqual(facets.map((facet) => facet.id), [
+    'overview',
+    'runs',
+    'skills',
+    'knowledge',
+    'flow',
+  ]);
+  assert.equal(systemFacetForChild('run'), 'runs');
+  assert.equal(systemFacetForChild('skill'), 'skills');
+  assert.equal(systemFacetForChild('capability'), null);
+});
+
+test('a page link keeps lens and ancestry (I3)', () => {
+  const context = {
+    lens: 'operate' as const,
+    ancestry: {
+      capabilityId: 'cap-a',
+      systemId: 'sys-x',
+      runId: null,
+      skillInvocationId: null,
+      skillRef: null,
+    },
+    currentUrl: '/systems/sys-x?lens=operate&capabilityId=cap-a',
+  };
+
+  assert.equal(
+    resolveNavLink({ leaf: 'system-flow', ref: 'sys-x' }, context).url,
+    '/systems/sys-x/flow?lens=operate&capabilityId=cap-a',
+  );
+  assert.equal(
+    resolveNavLink({ surface: 'knowledge' }, context).url,
+    '/knowledge?lens=operate&capabilityId=cap-a&systemId=sys-x',
+  );
+  assert.equal(
+    resolveNavLink({ type: 'run', ref: 'run-1' }, context).url,
+    '/runs/run-1?capabilityId=cap-a&systemId=sys-x',
+  );
+
+  const facet = resolveNavLink({ facet: 'runs' }, context);
+  assert.equal(facet.replaceUrl, true);
+  assert.equal(facet.url, '/systems/sys-x?lens=operate&facet=runs&capabilityId=cap-a');
 });

@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ToastrService } from 'ngx-toastr';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -15,11 +16,12 @@ import {
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
+import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 
 @Component({
   selector: 'app-connectors-page',
   standalone: true,
-  imports: [CommonModule, RouterLink, IconComponent, SectionHeaderComponent, DrawerComponent],
+  imports: [CommonModule, NavLinkDirective, CkBackLinkComponent, IconComponent, SectionHeaderComponent, DrawerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-section-header
@@ -28,12 +30,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
       icon="layers"
       [subtitle]="i18n.t('connectors.subtitle', { name: workspaceName() })"
     >
-      <a
-        routerLink="/resources"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-      >
-        <app-icon name="arrow-left" [size]="14" /> {{ i18n.t('connectors.back_to_resources') }}
-      </a>
+      <ck-back-link [fallback]="{ surface: 'resources' }" />
     </app-section-header>
 
     <section class="grid gap-3 md:grid-cols-4 mb-5">
@@ -101,7 +98,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
               <div class="mt-5">
                 @if (connector.id === 'sftp') {
                   <a
-                    routerLink="/connectors/sftp"
+                    [navLink]="{ surface: 'secure-deposit' }"
                     class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
@@ -109,7 +106,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                   </a>
                 } @else if (connector.id === 'sap_hana') {
                   <a
-                    routerLink="/connectors/sap-hana"
+                    [navLink]="{ surface: 'sap-hana' }"
                     class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
@@ -117,7 +114,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                   </a>
                 } @else if (connector.id === 'rpa_bridge') {
                   <a
-                    routerLink="/connectors/rpa-bridge"
+                    [navLink]="{ leaf: 'connector-rpa-bridge' }"
                     class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
@@ -125,8 +122,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                   </a>
                 } @else if (connector.id === 'mcp') {
                   <a
-                    routerLink="/connectors/mcp"
-                    [queryParams]="workspaceQuery()"
+                    [navLink]="{ surface: 'mcp' }"
                     class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
@@ -134,7 +130,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                   </a>
                 } @else if (connector.id === 'institutional_calendar') {
                   <a
-                    routerLink="/hypervisor/mission-room/agenda"
+                    [navLink]="{ leaf: 'mission-room-agenda' }"
                     class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
@@ -142,7 +138,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                   </a>
                 } @else if (connector.id === 'visual_streams') {
                   <a
-                    routerLink="/hypervisor/mission-room/monitor"
+                    [navLink]="{ leaf: 'mission-room-monitor' }"
                     class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
@@ -150,7 +146,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                   </a>
                 } @else if (connector.id === 'sharepoint') {
                   <a
-                    routerLink="/connectors/sharepoint"
+                    [navLink]="{ surface: 'sharepoint' }"
                     class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
@@ -260,6 +256,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
 export class ConnectorsPageComponent {
   private readonly workspace = inject(WorkspaceService);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly toast = inject(ToastrService);
   readonly i18n = inject(I18nService);
 
@@ -277,10 +274,6 @@ export class ConnectorsPageComponent {
       this.workspace.currentSlug() ||
       this.i18n.t('connectors.workspace.fallback'),
   );
-  readonly workspaceQuery = computed(() => {
-    const slug = this.workspace.currentSlug();
-    return slug ? { workspace: slug } : {};
-  });
   readonly workspaceSettings = computed(
     () => (this.workspace.current()?.settings || {}) as Record<string, any>,
   );
@@ -345,20 +338,24 @@ export class ConnectorsPageComponent {
   }
 
   openSetup(connector: ConnectorDef): void {
-    if (connector.id === 'sharepoint' || connector.id === 'sftp') {
-      this.router.navigate(['/connectors', connector.id]);
+    if (connector.id === 'sharepoint') {
+      void this.router.navigateByUrl(this.navigation.surfaceUrl('sharepoint'));
+      return;
+    }
+    if (connector.id === 'sftp') {
+      void this.router.navigateByUrl(this.navigation.surfaceUrl('secure-deposit'));
       return;
     }
     if (connector.id === 'sap_hana') {
-      this.router.navigate(['/connectors', 'sap-hana']);
+      void this.router.navigateByUrl(this.navigation.surfaceUrl('sap-hana'));
       return;
     }
     if (connector.id === 'rpa_bridge') {
-      this.router.navigate(['/connectors', 'rpa-bridge']);
+      void this.router.navigateByUrl(this.navigation.leafUrl('connector-rpa-bridge'));
       return;
     }
     if (connector.id === 'mcp') {
-      this.router.navigate(['/connectors', 'mcp']);
+      void this.router.navigateByUrl(this.navigation.surfaceUrl('mcp'));
       return;
     }
     this.activeConnector.set(connector);

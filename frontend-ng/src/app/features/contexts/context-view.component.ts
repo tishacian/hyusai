@@ -23,10 +23,12 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -48,7 +50,8 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
-    RouterLink,
+    NavLinkDirective,
+    CkBackLinkComponent,
     IconComponent,
     EmptyStateComponent,
     CkObjectHeaderComponent,
@@ -71,13 +74,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
       >
         <app-icon name="alert-triangle" [size]="14" /> {{ i18n.t('contexts.view.impact') }}
       </button>
-      <a
-        actions
-        routerLink="/steering/contexts"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
-      >
-        <app-icon name="arrow-left" [size]="14" /> {{ i18n.t('common.back') }}
-      </a>
+      <ck-back-link />
       <button
         actions
         type="button"
@@ -278,7 +275,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                   </div>
                   <div class="flex-1 min-w-0">
                     <a
-                      [routerLink]="['/systems', sys.id]"
+                      [navLink]="{ type: 'system', ref: sys.id }"
                       class="text-sm font-medium text-white hover:text-cyan-300 transition truncate block"
                     >
                       {{ sys.name }}
@@ -326,7 +323,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
           @for (sys of boundSystems(); track sys.id) {
             <li>
               <a
-                [routerLink]="['/systems', sys.id]"
+                [navLink]="{ type: 'system', ref: sys.id }"
                 class="text-xs text-cyan-300 hover:text-cyan-200 transition truncate block"
               >
                 {{ sys.name }}
@@ -341,6 +338,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
 export class ContextViewComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly toast = inject(ToastrService);
   readonly i18n = inject(I18nService);
@@ -410,9 +408,11 @@ export class ContextViewComponent implements OnInit {
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id') ?? '';
     if (!id) {
-      this.router.navigateByUrl('/steering/contexts');
+      void this.router.navigateByUrl(this.navigation.surfaceUrl('contexts'));
       return;
     }
+    const facet = this.route.snapshot.queryParamMap.get('facet');
+    if (facet) this.activeTab.set(facet as ContextTabId);
     this.load(id);
     this.canonical.listSystems().subscribe({
       next: (list) => this.systems.set(list ?? []),
@@ -422,6 +422,12 @@ export class ContextViewComponent implements OnInit {
 
   onTabChange(id: string): void {
     this.activeTab.set(id as ContextTabId);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   private load(id: string): void {
@@ -429,14 +435,14 @@ export class ContextViewComponent implements OnInit {
       next: (c) => {
         if (!c) {
           this.toast.error(this.i18n.t('contexts.toast.not_found'), this.i18n.t('contexts.page.title'));
-          this.router.navigateByUrl('/steering/contexts');
+          void this.router.navigateByUrl(this.navigation.surfaceUrl('contexts'));
           return;
         }
         this.applyContext(c);
       },
       error: () => {
         this.toast.error(this.i18n.t('contexts.toast.load_failed'), this.i18n.t('contexts.page.title'));
-        this.router.navigateByUrl('/steering/contexts');
+        void this.router.navigateByUrl(this.navigation.surfaceUrl('contexts'));
       },
     });
   }
@@ -534,7 +540,7 @@ export class ContextViewComponent implements OnInit {
             this.i18n.t('contexts.toast.deleted', { name: c.name }),
             this.i18n.t('contexts.view.title_fallback'),
           );
-          this.router.navigateByUrl('/steering/contexts');
+          void this.router.navigateByUrl(this.navigation.surfaceUrl('contexts'));
         } else {
           this.toast.error(this.i18n.t('contexts.toast.delete_failed'), this.i18n.t('contexts.view.title_fallback'));
         }

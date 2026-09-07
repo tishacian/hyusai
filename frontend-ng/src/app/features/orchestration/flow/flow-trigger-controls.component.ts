@@ -21,7 +21,7 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { ToastrService } from 'ngx-toastr';
 import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
 import { ApiService } from '@app/core/api.service';
@@ -42,7 +42,7 @@ type LoadState = 'loading' | 'loaded' | 'error';
   selector: 'app-flow-trigger-controls',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, GlyphComponent],
+  imports: [NavLinkDirective, GlyphComponent],
   styleUrl: './flow-trigger-controls.component.scss',
   template: `
     <section class="ck-trig">
@@ -129,8 +129,7 @@ type LoadState = 'loading' | 'loaded' | 'error';
 
         <a
           class="ck-trig__runs"
-          [routerLink]="['/systems', systemId()]"
-          [queryParams]="{ facet: 'runs' }"
+          [navLink]="{ type: 'system', ref: systemId(), facet: 'runs' }"
         >
           <ck-glyph name="ledger" [size]="12" color="currentColor" />
           {{ i18n.t('flow.triggers.piloting.runs') }}

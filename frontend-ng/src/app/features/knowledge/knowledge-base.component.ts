@@ -10,7 +10,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
-import { RouterLink } from '@angular/router';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import {
   CkObjectHeaderComponent,
@@ -80,7 +80,7 @@ interface SearchResult {
     StatusPulseComponent,
     DrawerComponent,
     ConfirmDialogComponent,
-    RouterLink,
+    NavLinkDirective,
   ],
   template: `
     <ck-object-header
@@ -99,7 +99,7 @@ interface SearchResult {
       </button>
       <a
         actions
-        routerLink="/knowledge/capture"
+        [navLink]="{ surface: 'knowledge-capture' }"
         class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
         [title]="i18n.t('capture.kb.start_capture_title')"
       >
@@ -211,7 +211,7 @@ interface SearchResult {
           </p>
         </div>
         <a
-          routerLink="/knowledge/capture"
+          [navLink]="{ surface: 'knowledge-capture' }"
           class="ck-btn-primary shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
         >
           <app-icon name="arrow-right" [size]="14" /> {{ i18n.t('capture.kb.start_capture') }}
@@ -283,7 +283,7 @@ interface SearchResult {
               <app-status-pulse tone="success" [label]="i18n.t('knowledge.collections.indexed')" />
               <div class="flex items-center gap-1">
                 <a
-                  [routerLink]="['/knowledge', doc.slug]"
+                  [navLink]="{ leaf: 'knowledge-doc', ref: doc.slug }"
                   class="ck-ghost-icon p-1.5 rounded inline-flex items-center"
                   [title]="i18n.t('knowledge.collections.open_detail')"
                 >

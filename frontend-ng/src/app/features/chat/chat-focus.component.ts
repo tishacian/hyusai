@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { ChatWorkspaceComponent } from './chat-workspace.component';
 import { type ChatStartMode } from './chat-overlay.service';
 
@@ -16,7 +17,7 @@ import { type ChatStartMode } from './chat-overlay.service';
   selector: 'app-chat-focus',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, IconComponent, ChatWorkspaceComponent],
+  imports: [NavLinkDirective, IconComponent, ChatWorkspaceComponent],
   template: `
     <div class="chat-focus-shell">
       <header class="chat-focus-header">
@@ -32,7 +33,7 @@ import { type ChatStartMode } from './chat-overlay.service';
         <nav class="chat-focus-actions" aria-label="Chat workspace actions">
           <a
             class="chat-focus-link"
-            [routerLink]="['/workspace', workspaceSlug(), 'chat-knowledge']"
+            [navLink]="{ leaf: 'workspace-chat-knowledge', ref: workspaceSlug() }"
             title="Configure source scopes and chat defaults"
           >
             <app-icon name="settings" [size]="13" />
@@ -40,7 +41,7 @@ import { type ChatStartMode } from './chat-overlay.service';
           </a>
           <a
             class="chat-focus-link"
-            routerLink="/chat"
+            [navLink]="{ surface: 'chat' }"
             title="Open the standard {{ brand() }} chat route"
           >
             <app-icon name="panel-left" [size]="13" />
@@ -48,7 +49,7 @@ import { type ChatStartMode } from './chat-overlay.service';
           </a>
           <a
             class="chat-focus-link"
-            routerLink="/"
+            [navLink]="{ surface: 'hypervisor' }"
             title="Return to {{ brand() }}"
           >
             <app-icon name="x" [size]="13" />

@@ -7,7 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Subscription, switchMap, timer } from 'rxjs';
 
@@ -24,6 +24,7 @@ import {
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 
 export type ParsedRunnerPayload =
   | { ok: true; value: Record<string, unknown> }
@@ -62,7 +63,7 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
   selector: 'app-flow-runner',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, IconComponent],
+  imports: [FormsModule, NavLinkDirective, CkBackLinkComponent, IconComponent],
   styles: [
     `
       :host { display: block; min-height: 100%; }
@@ -91,12 +92,7 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
       <header class="runner-card p-5">
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <a
-              [routerLink]="['/systems', systemId]"
-              class="runner-label inline-flex items-center gap-1"
-            >
-              <app-icon name="arrow-left" [size]="12" /> System
-            </a>
+            <ck-back-link />
             <h1 class="mt-2 text-2xl font-semibold text-white">Operator Runner</h1>
             <p class="runner-muted mt-1 text-sm">
               Durable sessions executing the immutable published Flow only.
@@ -260,7 +256,7 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
                 >
                   <div class="flex flex-wrap items-center justify-between gap-2">
                     <a
-                      [routerLink]="['/runs', run.id]"
+                      [navLink]="{ type: 'run', ref: run.id }"
                       class="ck-accent font-mono text-xs"
                     >{{ run.id }}</a>
                     <span class="runner-badge">{{ run.status }}</span>

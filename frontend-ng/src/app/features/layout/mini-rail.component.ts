@@ -1,15 +1,21 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink, type UrlTree } from '@angular/router';
-import { GlyphComponent } from '@app/shared/cockpit';
+import { GlyphComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 import { I18nService } from '@app/core/i18n.service';
 import {
   COCKPIT_VERBS,
   cockpitVerbSections,
+  isObjectLens,
   navigationSectionNaming,
+  objectFacetsFor,
+  systemFacetForChild,
   type CockpitScopeType,
   type CockpitSection,
   type CockpitVerb,
+  type NavLinkInput,
+  type ObjectFacet,
 } from '@app/core/navigation.catalog';
 
 /**
@@ -38,33 +44,32 @@ const SCOPE_ORDER: CockpitScopeType[] = [
  *   - A click never resets the canvas context; clicking the already-active
  *     item is a no-op.
  *
- * The component resolves the active verb from the URL (same rule as
- * `<app-side-rail>`) and renders its filtered sections; if the verb has no
- * sections (Hypervisor today) or all sections are filtered out, the
- * component self-hides so the canvas flows edge-to-edge.
+ * Under `cockpit_nav_v5` this is the **zone sommaire**: stable width, no
+ * ancestry filter, no self-hide (I1, I7). The object ladder stays on the
+ * breadcrumb; the facet branch arrives in L6.3.
  */
 @Component({
   selector: 'app-mini-rail',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, GlyphComponent],
+  imports: [RouterLink, GlyphComponent, NavLinkDirective],
+  host: {
+    '[class.ck-mini-rail-stable]': 'stableLayout()',
+  },
   template: `
     @if (activeVerb(); as verb) {
-      @if (visibleSections().length > 0) {
-        <aside class="ck-mini-rail" [attr.aria-label]="i18n.t('nav.object_index')">
+      @if (visibleSections().length > 0 || stableLayout()) {
+        <aside class="ck-mini-rail" [attr.aria-label]="i18n.t(stableLayout() ? 'nav.sommaire' : 'nav.object_index')">
           <header class="ck-mini-head">
-            <span class="ck-mini-eyebrow">{{ i18n.t('nav.scope') }}</span>
-            <span class="ck-mini-verb">{{ i18n.t('nav.' + verb.key) }}</span>
-            @if (scopeSuffix()) {
+            <span class="ck-mini-eyebrow">{{ i18n.t(stableLayout() ? 'nav.sommaire' : 'nav.scope') }}</span>
+            <span class="ck-mini-verb">{{ verbLabel(verb) }}</span>
+            @if (!stableLayout() && scopeSuffix()) {
               <span class="ck-mini-scope" [title]="scopeSuffixFull()">{{ scopeSuffix() }}</span>
             }
           </header>
 
           <nav class="ck-mini-nav">
-            @for (s of visibleSections(); track s.key; let i = $index) {
-              @if (sectionGroupLabel(s, i); as group) {
-                <span class="ck-mini-group">{{ group }}</span>
-              }
+            @for (s of visibleSections(); track s.key) {
               <a
                 [routerLink]="routeTreeFor(s)"
                 class="ck-mini-item"
@@ -81,6 +86,29 @@ const SCOPE_ORDER: CockpitScopeType[] = [
                 <span class="ck-mini-label">{{ sectionLabel(s) }}</span>
               </a>
             }
+            @if (systemBranch(); as branch) {
+              <span class="ck-mini-group">{{ i18n.t('nav.sommaire.in_system', { name: branch.name }) }}</span>
+              @for (facet of branch.facets; track facet.id) {
+                <a
+                  [navLink]="facetLink(facet)"
+                  navTrigger="minirail"
+                  class="ck-mini-item"
+                  [class.ck-mini-item-active]="branch.activeId === facet.id"
+                  [attr.aria-current]="branch.activeId === facet.id ? 'page' : null"
+                >
+                  @if (branch.activeId === facet.id) {
+                    <span class="ck-mini-active-bar" aria-hidden="true"></span>
+                  }
+                  <span class="ck-mini-glyph" aria-hidden="true">
+                    <ck-glyph [name]="facet.glyph" [size]="14" />
+                  </span>
+                  <span class="ck-mini-label">{{ i18n.t(facet.i18nKey) }}</span>
+                </a>
+              }
+            }
+            @if (stableLayout() && visibleSections().length === 0 && !systemBranch()) {
+              <p class="ck-mini-empty">{{ i18n.t('nav.sommaire.empty') }}</p>
+            }
           </nav>
         </aside>
       }
@@ -89,6 +117,12 @@ const SCOPE_ORDER: CockpitScopeType[] = [
   styles: [
     `
       :host { display: contents; }
+      :host.ck-mini-rail-stable {
+        display: block;
+        width: 208px;
+        flex: 0 0 208px;
+        min-width: 208px;
+      }
 
       .ck-mini-rail {
         width: 208px;
@@ -132,6 +166,15 @@ const SCOPE_ORDER: CockpitScopeType[] = [
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      .ck-mini-empty {
+        margin: 8px 6px 0;
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ck-fg-4);
       }
 
       .ck-mini-nav {
@@ -250,6 +293,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
 })
 export class MiniRailComponent {
   private readonly navigation = inject(ZoomContextService);
+  private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
   protected readonly i18n = inject(I18nService);
 
   readonly currentPath = computed(() => this.navigation.route().path);
@@ -272,15 +316,16 @@ export class MiniRailComponent {
     return null;
   });
 
+  readonly stableLayout = computed(() => this.navigation.navV5Enabled?.() === true);
+
   readonly visibleSections = computed<CockpitSection[]>(() => {
     const verb = this.activeVerb();
     if (!verb) return [];
     const sections = cockpitVerbSections(verb, {
-      axesV3: this.navigation.axesV3Enabled(),
-      axesV4: this.navigation.axesV4Enabled(),
-      experienceV1: this.navigation.experienceStudioV1Enabled(),
+      experienceStudio: this.navigation.experienceStudioV1Enabled(),
     });
     if (!sections.length) return [];
+    if (this.stableLayout()) return sections;
     const deepest = this.deepestResolvedScope();
     if (!this.navigation.axesV3Enabled() || !deepest) return sections;
     const cutoff = SCOPE_ORDER.indexOf(deepest);
@@ -326,7 +371,19 @@ export class MiniRailComponent {
     return parts.join(' › ');
   });
 
+  verbLabel(verb: CockpitVerb): string {
+    return verb.key === 'build' && (this.stableLayout() || this.navigation.experienceStudioV1Enabled())
+      ? this.i18n.t('nav.build.create')
+      : this.i18n.t('nav.' + verb.key);
+  }
+
   isSectionActive(s: CockpitSection): boolean {
+    if (this.stableLayout()) {
+      const path = this.currentPath();
+      const route = s.route.split('?')[0];
+      const patterns = s.matches ?? [route];
+      return patterns.some((m) => path === m || path.startsWith(m + '/'));
+    }
     // While a detail graph is hydrating every scope URL is intentionally a
     // no-op to protect ancestry; do not consequently paint every section as
     // active just because they all resolve to the current URL.
@@ -348,13 +405,6 @@ export class MiniRailComponent {
     return this.navigation.urlTreeForScope(s);
   }
 
-  sectionGroupLabel(s: CockpitSection, index: number): string | null {
-    if (!s.group) return null;
-    const previous = this.visibleSections()[index - 1];
-    if (previous?.group === s.group) return null;
-    return this.i18n.t(s.group === 'library' ? 'nav.group.library' : 'nav.group.create');
-  }
-
   sectionLabel(s: CockpitSection): string {
     // Name the destination this item actually links to, not the section in
     // the abstract: the Flow entry reads "Scratchpad" while it opens one.
@@ -371,10 +421,42 @@ export class MiniRailComponent {
    * Clicking the already-active scope is a **no-op** — the Object Index
    * never resets the canvas context, even if the user clicks twice.
    */
+  readonly systemBranch = computed(() => {
+    if (!this.stableLayout()) return null;
+    const systemId = this.navigation.systemId();
+    if (!systemId) return null;
+    const lens = this.navigation.lens();
+    const objectLens = isObjectLens(lens) ? lens : 'operate';
+    const facets = objectFacetsFor('system', objectLens);
+    if (!facets.length) return null;
+    const selected = this.navigation.route().selectedType;
+    const activeId = selected === 'system'
+      ? (this.navigation.route().query['facet'] || 'overview')
+      : systemFacetForChild(this.navigation.deepestResolvedType());
+    return {
+      systemId,
+      name: this.navigation.systemLabel() || 'System',
+      facets,
+      activeId,
+    };
+  });
+
+  facetLink(facet: ObjectFacet): NavLinkInput {
+    const systemId = this.navigation.systemId();
+    if (!systemId) return { facet: facet.id };
+    const route = this.navigation.route();
+    if (route.selectedType === 'system' && route.selectedRef === systemId) {
+      return { facet: facet.id };
+    }
+    return { type: 'system', ref: systemId, facet: facet.id };
+  }
+
   onItemClick(ev: MouseEvent, s: CockpitSection): void {
     if (this.isSectionActive(s)) {
       ev.preventDefault();
       ev.stopPropagation();
+      return;
     }
+    this.telemetry?.registerTrigger('minirail');
   }
 }

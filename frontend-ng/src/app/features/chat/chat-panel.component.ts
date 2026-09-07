@@ -16,7 +16,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
-import { Router, RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 import { ToastrService, ActiveToast } from 'ngx-toastr';
 import { ApiService, VoiceRuntimeCatalog, VoiceRuntimeProviderOption } from '@app/core/api.service';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
@@ -53,10 +53,12 @@ import { PermissionsService } from '@app/core/permissions.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import {
+  NavLinkDirective,
   RuntimeStatusBadgeComponent,
   ThinkingOrbComponent,
   type CkOrbState,
 } from '@app/shared/cockpit';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import {
   SharedVoiceOracleStep,
   SharedVoiceRuntimeOption,
@@ -482,7 +484,7 @@ const STEP_ICONS: Record<string, string> = {
   imports: [
     FormsModule,
     NgTemplateOutlet,
-    RouterLink,
+    NavLinkDirective,
     IconComponent,
     RuntimeStatusBadgeComponent,
     ThinkingOrbComponent,
@@ -1425,14 +1427,14 @@ const STEP_ICONS: Record<string, string> = {
                     </span>
                   }
                   <a
-                    routerLink="/runs"
+                    [navLink]="{ surface: 'runs' }"
                     class="ml-auto text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
                   >
                     <app-icon name="git-commit" [size]="11" />
                     {{ i18n.t('chat.summary.runs_link') }}
                   </a>
                   <a
-                    routerLink="/observability"
+                    [navLink]="{ surface: 'observability' }"
                     class="text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
                   >
                     <app-icon name="activity" [size]="11" />
@@ -3219,6 +3221,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private readonly canonicalApi = inject(CanonicalApiService);
   private readonly toast = inject(ToastrService);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly health = inject(RuntimeHealthService);
   private readonly voiceSession = inject(VoiceSessionService);
   private readonly voiceLoopFactory = inject(VoiceLoopControllerFactory);
@@ -7199,11 +7202,11 @@ export class ChatPanelComponent implements AfterViewInit {
     // to the review queue (so the reviewer can accept/reject inline);
     // otherwise we fall back to the Run inspector for raw context.
     if (decisionId) {
-      this.router.navigate(['/steering', 'review-queue'], {
-        queryParams: { decision: decisionId },
-      });
+      const tree = this.router.parseUrl(this.navigation.surfaceUrl('review-queue'));
+      tree.queryParams = { ...tree.queryParams, decision: decisionId };
+      void this.router.navigateByUrl(tree);
     } else {
-      this.router.navigate(['/runs', runId]);
+      void this.router.navigateByUrl(this.navigation.objectUrl('run', runId));
     }
   }
 
@@ -7647,7 +7650,7 @@ export class ChatPanelComponent implements AfterViewInit {
       void this.router.navigateByUrl(url);
       return;
     }
-    void this.router.navigate(['/knowledge/capture']);
+    void this.router.navigateByUrl(this.navigation.surfaceUrl('knowledge-capture'));
   }
 
   /** Encode a Blob as a base64 string (without the ``data:`` URL prefix). */

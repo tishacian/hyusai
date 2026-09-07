@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, ElementRef, inject, signal, viewChild } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
-import { HelpTooltipComponent } from '@app/shared/cockpit';
+import { Router } from '@angular/router';
+import { HelpTooltipComponent, NavLinkDirective } from '@app/shared/cockpit';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { I18nService } from '@app/core/i18n.service';
 import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.component';
 import { SystemHomeService } from '../system-home.service';
@@ -32,7 +33,7 @@ import { formSchemaSupported, type ExperienceDocument } from '../runtime/model';
   selector: 'app-experience-wizard',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, HelpTooltipComponent, ExperienceRuntimeHostComponent],
+  imports: [NavLinkDirective, HelpTooltipComponent, ExperienceRuntimeHostComponent],
   styleUrl: './studio.scss',
   template: `
     <section class="xp-wizard" aria-labelledby="xp-wiz-heading">
@@ -370,7 +371,7 @@ import { formSchemaSupported, type ExperienceDocument } from '../runtime/model';
             {{ i18n.t('experience.wizard.back') }}
           </button>
         } @else {
-          <a routerLink="/create/apps" class="xp-btn">{{ i18n.t('common.cancel') }}</a>
+          <a [navLink]="{ surface: 'create-apps' }" class="xp-btn">{{ i18n.t('common.cancel') }}</a>
         }
         <div class="xp-foot-end">
           @if (step() === 1 && !canNext()) {
@@ -405,6 +406,7 @@ export class ExperienceWizardComponent {
   private readonly api = inject(StudioApiService);
   private readonly home = inject(SystemHomeService);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly wizardHeading = viewChild<ElementRef<HTMLHeadingElement>>('wizardHeading');
 
   readonly patterns = EXPERIENCE_PATTERNS;
@@ -759,7 +761,7 @@ export class ExperienceWizardComponent {
   closeWizard(): void {
     const hasLocalChoices = !!this.experienceId() && (this.step() > 1 || this.stagedBindings().length > 0);
     if (hasLocalChoices && !globalThis.confirm(this.i18n.t('experience.wizard.discard_confirm'))) return;
-    void this.router.navigate(['/create/apps']);
+    void this.router.navigateByUrl(this.navigation.surfaceUrl('create-apps'));
   }
 
   private goToStep(step: number): void {
@@ -773,10 +775,10 @@ export class ExperienceWizardComponent {
       return;
     }
     if (!this.experienceId()) {
-      void this.router.navigate(['/create/apps']);
+      void this.router.navigateByUrl(this.navigation.surfaceUrl('create-apps'));
       return;
     }
-    const close = () => void this.router.navigate(['/create/apps']);
+    const close = () => void this.router.navigateByUrl(this.navigation.surfaceUrl('create-apps'));
     if (this.step() === 1) {
       this.persistStep1(close);
       return;
@@ -822,7 +824,11 @@ export class ExperienceWizardComponent {
         this.draftRevision.set(draft.revision);
         this.stagedBindings.set([]);
         this.busy.set(false);
-        void this.router.navigate(openEditor ? ['/create/apps', id] : ['/create/apps']);
+        void this.router.navigateByUrl(
+          openEditor
+            ? this.navigation.leafUrl('create-app-edit', { ref: id })
+            : this.navigation.surfaceUrl('create-apps'),
+        );
       },
       error: (err) => {
         if (apiCode(err) === 'BINDING_NOT_CURRENT_PUBLISH') {

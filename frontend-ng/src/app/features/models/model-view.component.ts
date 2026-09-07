@@ -28,10 +28,12 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -97,7 +99,8 @@ const CHART_ASPECT = 300 / 190;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    NavLinkDirective,
+    CkBackLinkComponent,
     IconComponent,
     EmptyStateComponent,
     CkObjectHeaderComponent,
@@ -110,13 +113,7 @@ const CHART_ASPECT = 300 / 190;
     CurveChartComponent,
   ],
   template: `
-    <a
-      routerLink="/models"
-      class="inline-flex items-center gap-1.5 text-[11px] ck-mono mb-3 transition"
-      style="color: var(--ck-fg-4)"
-    >
-      <app-icon name="chevron-left" [size]="13" /> {{ i18n.t('models.detail.back') }}
-    </a>
+    <ck-back-link />
 
     @if (model(); as row) {
       <ck-object-header
@@ -205,7 +202,7 @@ const CHART_ASPECT = 300 / 190;
             @for (hop of pipeline(); track hop.kind + hop.id) {
               <li class="ck-lineage__item">
                 <a
-                  [routerLink]="hop.link"
+                  [navLink]="hop.link"
                   class="ck-lineage__link"
                   [attr.data-kind]="hop.kind"
                   [attr.data-current]="hop.current"
@@ -223,13 +220,13 @@ const CHART_ASPECT = 300 / 190;
           <span class="ck-provenance__label">{{ i18n.t('models.detail.origin_system') }}</span>
           <ol class="ck-lineage" data-testid="origin-system">
             <li class="ck-lineage__item">
-              <a [routerLink]="['/systems', systemId]" class="ck-lineage__link" data-kind="system">
+              <a [navLink]="{ type: 'system', ref: systemId }" class="ck-lineage__link" data-kind="system">
                 {{ i18n.t('models.detail.system_chip') }}
               </a>
             </li>
             @if (row.run_id; as runId) {
               <li class="ck-lineage__item">
-                <a [routerLink]="['/runs', runId]" class="ck-lineage__link" data-kind="run">
+                <a [navLink]="{ type: 'run', ref: runId }" class="ck-lineage__link" data-kind="run">
                   {{ i18n.t('models.detail.run_chip') }} <em>{{ runId.slice(0, 8) }}</em>
                 </a>
               </li>
@@ -271,7 +268,7 @@ const CHART_ASPECT = 300 / 190;
         </div>
       }
 
-      <ck-tabs [active]="tab()" (activeChange)="tab.set($event)">
+      <ck-tabs [active]="tab()" (activeChange)="onTabChange($event)">
         <!-- ── Results ──────────────────────────────────────────────────── -->
         <ck-tab id="evidence" [label]="i18n.t('models.detail.tab.evidence')">
           @if (!scores().length) {
@@ -307,7 +304,7 @@ const CHART_ASPECT = 300 / 190;
                   }
                   @if (against(); as earlier) {
                     <a
-                      [routerLink]="['/models', earlier.id]"
+                      [navLink]="{ leaf: 'model-doc', ref: earlier.id }"
                       class="text-[11px] ck-mono transition"
                       style="color: var(--ck-fg-4)"
                     >
@@ -715,7 +712,7 @@ const CHART_ASPECT = 300 / 190;
                       {{ i18n.t('models.monitor.retrain') }}
                     </button>
                     <a
-                      [routerLink]="['/data', ds.id]"
+                      [navLink]="{ leaf: 'data-doc', ref: ds.id }"
                       class="text-[11px] ck-mono"
                       style="color: var(--ck-signal-cool)"
                     >
@@ -793,7 +790,7 @@ const CHART_ASPECT = 300 / 190;
                 @for (link of lineage(); track link.id) {
                   <li class="ck-lineage__item">
                     <a
-                      [routerLink]="['/models', link.id]"
+                      [navLink]="{ leaf: 'model-doc', ref: link.id }"
                       class="ck-lineage__link"
                       [attr.data-current]="link.current"
                       [attr.data-champion]="link.champion"
@@ -815,7 +812,7 @@ const CHART_ASPECT = 300 / 190;
               @for (version of versions(); track version.id) {
                 <li>
                   <a
-                    [routerLink]="['/models', version.id]"
+                    [navLink]="{ leaf: 'model-doc', ref: version.id }"
                     class="flex items-center gap-3 ck-surface rounded-md px-4 py-2.5 transition ck-row"
                   >
                     <span class="ck-badge ck-mono">{{
@@ -871,7 +868,7 @@ const CHART_ASPECT = 300 / 190;
           </div>
           @if (dataset(); as ds) {
             <a
-              [routerLink]="['/data', ds.id]"
+              [navLink]="{ leaf: 'data-doc', ref: ds.id }"
               class="inline-flex items-center gap-1.5 text-[11px] ck-mono mt-3 transition"
               style="color: var(--ck-signal-cool)"
             >
@@ -893,7 +890,7 @@ const CHART_ASPECT = 300 / 190;
         [title]="i18n.t('models.detail.gone.title')"
         [description]="i18n.t('models.detail.gone.description')"
       >
-        <a routerLink="/models" class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm">
+        <a [navLink]="{ surface: 'models' }" class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm">
           <app-icon name="chevron-left" [size]="13" /> {{ i18n.t('models.detail.back') }}
         </a>
       </app-empty-state>
@@ -1287,6 +1284,7 @@ export class ModelViewComponent implements OnInit {
   protected readonly models = inject(ModelsService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly toast = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -1632,8 +1630,20 @@ export class ModelViewComponent implements OnInit {
         this.modelId = next;
         void this.load();
       });
+    const facet = this.route.snapshot.queryParamMap.get('facet');
+    if (facet) this.tab.set(facet);
     void this.data.refresh();
     this.destroyRef.onDestroy(() => this.stopPolling());
+  }
+
+  protected onTabChange(id: string): void {
+    this.tab.set(id);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   protected isActive(model: ModelDto): boolean {
@@ -2061,7 +2071,7 @@ export class ModelViewComponent implements OnInit {
 
   protected onRetrained(model: ModelDto): void {
     this.studioOpen.set(false);
-    void this.router.navigate(['/models', model.id]);
+    void this.router.navigateByUrl(this.navigation.leafUrl('model-doc', { ref: model.id }));
   }
 
   protected async remove(): Promise<void> {
@@ -2076,7 +2086,7 @@ export class ModelViewComponent implements OnInit {
     if (!confirmed) return;
     await this.models.remove(row.id);
     this.toast.success(this.i18n.t('models.detail.deleted', { name: row.name }));
-    void this.router.navigate(['/models']);
+    void this.router.navigateByUrl(this.navigation.surfaceUrl('models'));
   }
 
   private number(value: unknown): string {

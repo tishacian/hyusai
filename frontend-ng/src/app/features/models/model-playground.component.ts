@@ -40,6 +40,7 @@ import {
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -434,7 +435,7 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
               <div class="ck-chip ck-mono mt-2">{{ provenance() }}</div>
               <div class="flex items-center gap-2 flex-wrap mt-3">
                 <a
-                  routerLink="/skills"
+                  [routerLink]="navigation.surfaceUrlTree('skills')"
                   [queryParams]="{ q: published.slug }"
                   class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
                 >
@@ -872,6 +873,7 @@ export class ModelPlaygroundComponent {
   private readonly models = inject(ModelsService);
   private readonly toast = inject(ToastrService);
   private readonly router = inject(Router);
+  protected readonly navigation = inject(ZoomContextService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
@@ -1185,7 +1187,9 @@ export class ModelPlaygroundComponent {
           { tapToDismiss: false, closeButton: true },
         )
         .onTap.subscribe(() => {
-          void this.router.navigate(['/skills'], { queryParams: { q: slug } });
+          const tree = this.router.parseUrl(this.navigation.surfaceUrl('skills'));
+          tree.queryParams = { ...tree.queryParams, q: slug };
+          void this.router.navigateByUrl(tree);
         });
       this.changed.emit();
     } catch (error) {

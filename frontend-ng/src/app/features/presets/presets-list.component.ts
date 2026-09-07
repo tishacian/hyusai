@@ -7,7 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { ToastrService } from 'ngx-toastr';
 
 import {
@@ -56,7 +56,7 @@ type DraftState = {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    NavLinkDirective,
     FormsModule,
     CkObjectHeaderComponent,
     CkPanelComponent,
@@ -78,7 +78,7 @@ type DraftState = {
       </button>
       <a
         actions
-        routerLink="/presets/evaluation"
+        [navLink]="{ leaf: 'preset-evaluation' }"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-emerald-500/15 hover:bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-500/30 transition"
       >
         {{ i18n.t('presets.list.evaluation.cta') }}
@@ -102,7 +102,7 @@ type DraftState = {
         <h3 class="text-sm font-semibold text-white mb-2">{{ i18n.t('presets.list.empty.title') }}</h3>
         <p class="text-xs text-gray-400 mb-4">
           {{ i18n.t('presets.list.empty.body1') }}
-          <a routerLink="/presets/evaluation" class="text-cyan-300 hover:text-cyan-200">{{ i18n.t('presets.list.evaluation.cta') }}</a>.
+          <a [navLink]="{ leaf: 'preset-evaluation' }" class="text-cyan-300 hover:text-cyan-200">{{ i18n.t('presets.list.evaluation.cta') }}</a>.
           {{ i18n.t('presets.list.empty.body2') }}
           <span class="font-semibold">{{ i18n.t('presets.list.empty.new') }}</span>
           {{ i18n.t('presets.list.empty.body3') }}
@@ -156,7 +156,7 @@ type DraftState = {
                     <div class="min-w-0">
                       <div class="flex items-center gap-2 flex-wrap">
                         <a
-                          [routerLink]="['/presets', p.id]"
+                          [navLink]="{ leaf: 'preset-doc', ref: p.id }"
                           class="text-sm font-medium text-white hover:text-cyan-300 truncate"
                         >
                           {{ p.name }}
@@ -207,7 +207,7 @@ type DraftState = {
                       {{ i18n.t('common.delete') }}
                     </button>
                     <a
-                      [routerLink]="['/presets', p.id]"
+                      [navLink]="{ leaf: 'preset-doc', ref: p.id }"
                       class="px-2.5 py-1 text-[11px] rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-300 transition"
                     >
                       {{ i18n.t('presets.list.open.cta') }}

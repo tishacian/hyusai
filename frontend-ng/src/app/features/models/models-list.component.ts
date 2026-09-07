@@ -19,7 +19,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
@@ -52,7 +52,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    NavLinkDirective,
     IconComponent,
     EmptyStateComponent,
     CkObjectHeaderComponent,
@@ -67,7 +67,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
     >
       <div actions class="flex items-center gap-1.5">
         <a
-          routerLink="/data"
+          [navLink]="{ surface: 'data' }"
           class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
         >
           <app-icon name="table" [size]="14" /> {{ i18n.t('models.list.go_data') }}
@@ -141,7 +141,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
             </button>
           } @else {
             <a
-              routerLink="/data"
+              [navLink]="{ surface: 'data' }"
               class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
             >
               <app-icon name="table" [size]="14" /> {{ i18n.t('models.list.import_data') }}
@@ -153,7 +153,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
           @for (row of visible(); track row.id) {
             <li>
               <a
-                [routerLink]="['/models', row.id]"
+                [navLink]="{ leaf: 'model-doc', ref: row.id }"
                 class="flex items-center gap-3 ck-surface rounded-md px-4 py-3 transition group ck-row"
               >
                 <div

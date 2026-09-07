@@ -7,8 +7,9 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription, distinctUntilChanged, map } from 'rxjs';
+import { CkBackLinkComponent } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -17,6 +18,8 @@ import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.compon
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { CanonicalApiService, type Skill } from '@app/core/canonical-api.service';
 import { LensService } from '@app/core/lens';
+import { I18nService } from '@app/core/i18n.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 
@@ -34,7 +37,7 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    CkBackLinkComponent,
     CkObjectHeaderComponent,
     CkTabsComponent,
     CkTabComponent,
@@ -42,7 +45,7 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
   ],
   template: `
     <ck-object-header
-      eyebrow="Skills · Skill"
+      [eyebrow]="objectEyebrow('Skills · Skill')"
       [title]="title()"
       [subtitle]="subtitle()"
       [kpis]="kpis()"
@@ -69,9 +72,7 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
             {{ skill()?.description ?? 'Skill description will appear once the catalog is wired.' }}
           </p>
           <div class="flex items-center gap-2 flex-wrap text-xs">
-            <a routerLink="/skills" class="ck-btn-quiet px-3 py-1.5 rounded">
-              Back to catalog
-            </a>
+            <ck-back-link />
           </div>
           <p class="text-[11px]" style="color:var(--ck-fg-4);">
             Lens: <span class="font-mono" style="color:var(--ck-signal-cool);">{{ lens() }}</span>
@@ -114,7 +115,19 @@ import { WorkspaceViewContext } from '@app/core/workspace-view-context';
   `,
 })
 export class SkillViewComponent implements OnInit, OnDestroy {
+  readonly i18n = inject(I18nService);
+  protected readonly navigation = inject(ZoomContextService);
+
+  objectEyebrow(type: string): string {
+    if (!this.navigation.navV5Enabled()) return type;
+    return this.i18n.t('nav.eyebrow.from_zone', {
+      type,
+      zone: this.i18n.t(this.navigation.zoneI18nKey()),
+    });
+  }
+
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
   readonly lensService = inject(LensService);
@@ -161,6 +174,8 @@ export class SkillViewComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
+    const facet = this.route.snapshot.queryParamMap.get('facet');
+    if (facet) this.activeTab.set(facet as SkillTabId);
     this.routeSubscription = this.route.paramMap.pipe(
       map((params) => params.get('skillId') ?? ''),
       distinctUntilChanged(),
@@ -179,6 +194,12 @@ export class SkillViewComponent implements OnInit, OnDestroy {
 
   onTabChange(id: string): void {
     this.activeTab.set(id as SkillTabId);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   private reloadCurrentSkill(): void {

@@ -29,6 +29,8 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
+import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
 import { FlowStore } from './flow.store';
 import { FlowIngressAvailabilityService } from './flow-ingress-availability.service';
@@ -115,7 +117,7 @@ import {
                   ? i18n.t('flow.entry.registration.http')
                   : i18n.t('flow.entry.registration.schedule')
               }}
-              <a class="ck-ingress__link" routerLink="/orchestration/triggers">{{
+              <a class="ck-ingress__link" [routerLink]="triggersHref()">{{
                 i18n.t('flow.entry.registration.link')
               }}</a
               >.
@@ -136,6 +138,7 @@ import {
 })
 export class FlowIngressEditorComponent {
   private readonly store = inject(FlowStore);
+  private readonly navigation = inject(ZoomContextService);
   protected readonly availability = inject(FlowIngressAvailabilityService);
   readonly i18n = inject(I18nService);
 
@@ -180,6 +183,13 @@ export class FlowIngressEditorComponent {
   protected noteFor(kind: IngressKind): string {
     return this.i18n.t(`flow.entry.note.${kind}`);
   }
+
+  /** Dead `/orchestration/triggers` → current System's Runs facet, else Scratchpad. */
+  protected readonly triggersHref = computed(() => {
+    const id = this.systemId();
+    if (!id) return navigationSurfaceUrl('orchestration');
+    return this.navigation.objectUrl('system', id, { facet: 'runs' });
+  });
 
   protected onKind(event: Event): void {
     const id = this.node()?.id;

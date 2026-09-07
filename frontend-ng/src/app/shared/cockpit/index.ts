@@ -26,6 +26,8 @@ export {
   type CkObjectKpi,
   type CkObjectKpiTone,
 } from './object-header.component';
+export { NavLinkDirective } from './nav-link.directive';
+export { CkBackLinkComponent } from './back-link.component';
 export {
   CkPanelComponent,
   CkPanelHostComponent,

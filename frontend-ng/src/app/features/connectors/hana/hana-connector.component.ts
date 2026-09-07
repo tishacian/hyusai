@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { CkBackLinkComponent } from '@app/shared/cockpit';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
@@ -52,7 +52,7 @@ const MASKED_PASSWORD = /^[*•]+$/;
   selector: 'app-hana-connector',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterLink, IconComponent, SectionHeaderComponent],
+  imports: [CommonModule, FormsModule, CkBackLinkComponent, IconComponent, SectionHeaderComponent],
   template: `
     <app-section-header
       breadcrumb="Connectors"
@@ -73,12 +73,7 @@ const MASKED_PASSWORD = /^[*•]+$/;
         <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="loading()" />
         Refresh
       </button>
-      <a
-        routerLink="/connectors"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-      >
-        <app-icon name="arrow-left" [size]="14" /> Back to Connectors
-      </a>
+      <ck-back-link [fallback]="{ surface: 'connectors' }" />
     </app-section-header>
 
     @if (!featureEnabled()) {

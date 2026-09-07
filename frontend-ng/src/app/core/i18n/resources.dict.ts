@@ -143,6 +143,7 @@ export const RESOURCES_FR = {
   'connectors.subtitle':
     'Catalogue de connecteurs du workspace {name}. La configuration reste dans le périmètre du workspace.',
   'connectors.back_to_resources': 'Ressources',
+  'connectors.back_to_connectors': 'Connecteurs',
   'connectors.kpi.supported': 'Pris en charge',
   'connectors.kpi.configured': 'Configurés',
   'connectors.kpi.available': 'Disponibles',
@@ -563,6 +564,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'connectors.subtitle':
     'Workspace-scoped connector catalog for {name}. Setup stays inside the workspace boundary.',
   'connectors.back_to_resources': 'Resources',
+  'connectors.back_to_connectors': 'Connectors',
   'connectors.kpi.supported': 'Supported',
   'connectors.kpi.configured': 'Configured',
   'connectors.kpi.available': 'Available',

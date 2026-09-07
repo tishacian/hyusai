@@ -15,7 +15,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
@@ -34,7 +34,7 @@ import { I18nService } from '@app/core/i18n.service';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    RouterLink,
+    NavLinkDirective,
     IconComponent,
     EmptyStateComponent,
     CkObjectHeaderComponent,
@@ -48,7 +48,7 @@ import { I18nService } from '@app/core/i18n.service';
     >
       <a
         actions
-        routerLink="/systems/new"
+        [navLink]="{ leaf: 'system-new' }"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
       >
         <app-icon name="plus" [size]="14" /> {{ i18n.t('contexts.page.new_via_builder') }}
@@ -70,7 +70,7 @@ import { I18nService } from '@app/core/i18n.service';
         [description]="i18n.t('contexts.empty.description')"
       >
         <a
-          routerLink="/systems/new"
+          [navLink]="{ leaf: 'system-new' }"
           class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
         >
           <app-icon name="plus" [size]="14" /> {{ i18n.t('contexts.empty.open_builder') }}
@@ -81,7 +81,7 @@ import { I18nService } from '@app/core/i18n.service';
         @for (c of contexts(); track c.id) {
           <li>
             <a
-              [routerLink]="['/steering/contexts', c.id]"
+              [navLink]="{ leaf: 'context-doc', ref: c.id }"
               class="flex items-center gap-3 ck-surface rounded-md px-4 py-3 transition hover:bg-white/5 group"
             >
               <div

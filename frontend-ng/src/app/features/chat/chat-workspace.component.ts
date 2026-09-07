@@ -11,6 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ToastrService } from 'ngx-toastr';
 import { Subscription } from 'rxjs';
 import { CanonicalApiService, type Context, type System } from '@app/core/canonical-api.service';
@@ -821,6 +822,7 @@ export class ChatWorkspaceComponent implements OnInit {
   private readonly workspace = inject(WorkspaceService);
   private readonly navigationProfile = inject(NavigationProfileService);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
   private readonly destroyRef = inject(DestroyRef);
   private workspaceGeneration = 0;
   private workspaceSubscriptions = new Subscription();
@@ -999,7 +1001,7 @@ export class ChatWorkspaceComponent implements OnInit {
   openFlowBuilder(): void {
     const systemId = this.flowBuilderSystemId();
     if (!systemId) return;
-    this.router.navigate(['/systems', systemId, 'flow']);
+    void this.router.navigateByUrl(this.navigation.leafUrl('system-flow', { ref: systemId }));
   }
 
   private isWorkspaceChatSystem(system: System): boolean {

@@ -70,6 +70,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'Portfolio balance sheet, recommendations and what-if decisions.',
   },
   {
+    id: 'work',
+    label: 'Work',
+    route: '/work',
+    lens: 'hypervisor',
+    object: 'Workspace',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/experience',
+    status: 'canonical',
+    audience: 'workspace-user',
+    description: 'Published business applications. An RBAC space, never a cockpit verb.',
+  },
+  {
     id: 'mission-room',
     label: 'Mission Room',
     route: '/hypervisor/mission-room/cockpit',
@@ -519,7 +531,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
   {
     id: 'model-portal',
     label: 'Models & Providers',
-    route: '/resources?tab=providers',
+    route: '/resources?facet=providers',
     lens: 'govern',
     object: 'Connector',
     scope: 'workspace',
@@ -578,7 +590,57 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
   },
 ];
 
+/**
+ * Parameterized or one-off destinations that the Router serves but that are
+ * not chrome surfaces. L6.1: every Router path has a surface, a leaf, or a
+ * named exemption (`navigation.routes.spec.ts`).
+ */
+export interface AgentiumSurfaceLeaf {
+  id: string;
+  parent: string;
+  route: string;
+  label: string;
+}
+
+export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
+  { id: 'system-new', parent: 'systems', route: '/systems/new', label: 'New System' },
+  { id: 'system-flow', parent: 'systems', route: '/systems/:systemId/flow', label: 'System Flow' },
+  { id: 'system-run', parent: 'systems', route: '/systems/:systemId/run', label: 'System Run' },
+  { id: 'capability-curation', parent: 'capabilities', route: '/capabilities/curation', label: 'Capability curation' },
+  { id: 'connector-rpa-bridge', parent: 'connectors', route: '/connectors/rpa-bridge', label: 'RPA bridge' },
+  { id: 'create-app-new', parent: 'create-apps', route: '/create/apps/new', label: 'New business application' },
+  { id: 'create-app-edit', parent: 'create-apps', route: '/create/apps/:appId', label: 'Studio editor' },
+  { id: 'create-preview', parent: 'create', route: '/create/preview', label: 'Studio preview' },
+  { id: 'workspace-app-unavailable', parent: 'hypervisor', route: '/workspace-app-unavailable', label: 'Workspace app unavailable' },
+  { id: 'workspace-app-repair', parent: 'hypervisor', route: '/workspace-app-repair', label: 'Workspace app repair' },
+  { id: 'work-pr-to-po', parent: 'work', route: '/work/pr-to-po', label: 'PR to PO Studio' },
+  { id: 'work-page', parent: 'work', route: '/work/:slug/:pageId', label: 'Work page' },
+  { id: 'connector-models-redirect', parent: 'resources', route: '/connectors/models', label: 'Models & providers redirect' },
+  { id: 'governance-audit', parent: 'governance', route: '/governance/audit', label: 'Audit' },
+  { id: 'governance-experiences', parent: 'governance', route: '/governance/experiences', label: 'Experience governance' },
+  { id: 'governance-access', parent: 'governance', route: '/governance/access', label: 'Access' },
+  { id: 'governance-chat-history', parent: 'governance', route: '/governance/chat-history', label: 'Chat history' },
+  { id: 'governance-canonical-answers', parent: 'governance', route: '/governance/canonical-answers', label: 'Canonical answers' },
+  { id: 'observability-quality', parent: 'observability', route: '/observability/quality', label: 'Quality' },
+  { id: 'observability-performance', parent: 'observability', route: '/observability/performance', label: 'Performance' },
+  { id: 'observability-traces', parent: 'observability', route: '/observability/traces', label: 'Traces (compat)' },
+  { id: 'preset-evaluation', parent: 'presets', route: '/presets/evaluation', label: 'Evaluation preset' },
+  { id: 'system-capture-page', parent: 'systems', route: '/systems/:systemId/capture', label: 'System capture' },
+  { id: 'knowledge-doc', parent: 'knowledge', route: '/knowledge/:kbId', label: 'Knowledge collection' },
+  { id: 'data-doc', parent: 'data', route: '/data/:datasetId', label: 'Dataset' },
+  { id: 'model-doc', parent: 'models', route: '/models/:modelId', label: 'Model' },
+  { id: 'context-doc', parent: 'contexts', route: '/steering/contexts/:contextId', label: 'Context' },
+  { id: 'preset-doc', parent: 'presets', route: '/presets/:presetId', label: 'Preset' },
+  { id: 'mission-room-agenda', parent: 'mission-room', route: '/hypervisor/mission-room/agenda', label: 'Mission Room agenda' },
+  { id: 'mission-room-monitor', parent: 'mission-room', route: '/hypervisor/mission-room/monitor', label: 'Mission Room monitor' },
+  { id: 'workspace-list', parent: 'workspace-admin', route: '/workspace', label: 'Workspace picker' },
+  { id: 'workspace-chat-page', parent: 'workspace-chat', route: '/workspace/:slug/chat', label: 'Workspace chat' },
+  { id: 'workspace-chat-knowledge', parent: 'workspace-admin', route: '/workspace/:slug/chat-knowledge', label: 'Chat knowledge settings' },
+  { id: 'auth-signin', parent: 'account', route: '/auth/signin', label: 'Sign in' },
+];
+
 export type CockpitScopeType =
+  | 'surface'
   | 'capability'
   | 'system'
   | 'skill'
@@ -627,8 +689,6 @@ export interface CockpitSection {
   scopeType: CockpitScopeType;
   /** The target canvas consumes the routed hierarchy instead of going global. */
   ancestryAware: boolean;
-  /** Mini-rail group; used by the experience_v1 Build menu. */
-  group?: 'create' | 'library';
 }
 
 export interface CockpitVerb {
@@ -640,12 +700,6 @@ export interface CockpitVerb {
   primaryRoute: string;
   matches: string[];
   sections?: CockpitSection[];
-  /** Sections under axes v4; an empty list makes a destination Portfolio-only. */
-  v4Sections?: CockpitSection[];
-  /** Pre-Lot-3 section set, retained while the routed axes feature is gated. */
-  legacySections?: CockpitSection[];
-  /** Build menu when `settings.features.experience_v1` is on. */
-  experienceSections?: CockpitSection[];
   hiddenInModes?: WorkspaceMode[];
 }
 
@@ -677,8 +731,33 @@ export interface CockpitRouteContext extends NavigationAncestry {
 export interface NavigationObjectUrlOptions extends Partial<NavigationAncestry> {
   lens?: CockpitLens | null;
   tab?: string | null;
+  facet?: string | null;
+  doc?: string | null;
   scope?: CockpitSectionKey | null;
 }
+
+export type NavLinkInput =
+  | {
+      type: HierarchyObjectType;
+      ref: string;
+      lens?: CockpitLens | null;
+      facet?: string | null;
+    }
+  | {
+      surface: string;
+      lens?: CockpitLens | null;
+      facet?: string | null;
+    }
+  | {
+      leaf: string;
+      ref?: string;
+      params?: Record<string, string>;
+      lens?: CockpitLens | null;
+      facet?: string | null;
+    }
+  | {
+      facet: string;
+    };
 
 export const BUSINESS_NAVIGATION_SURFACE_IDS = [
   'chat',
@@ -709,11 +788,14 @@ const NAVIGATION_QUERY_KEYS = new Set([
   'tab',
   'facet',
   'focus',
+  'doc',
   'capabilityId',
   'systemId',
   'runId',
   'skillRef',
 ]);
+
+const LEAF_PARAM = /:([A-Za-z][A-Za-z0-9]*)/g;
 
 function pathOnly(value: string): string {
   const path = (value || '/').split('?')[0].split('#')[0] || '/';
@@ -741,6 +823,10 @@ export function agentiumSurfaceRoute(surfaceId: string): string {
   const surface = agentiumSurfaceById(surfaceId);
   if (!surface) throw new Error(`Unknown Agentium surface: ${surfaceId}`);
   return surface.route;
+}
+
+export function agentiumLeafById(leafId: string): AgentiumSurfaceLeaf | null {
+  return AGENTIUM_SURFACE_LEAVES.find((leaf) => leaf.id === leafId) ?? null;
 }
 
 export function routeMatchesSurfacePattern(path: string, pattern: string): boolean {
@@ -815,15 +901,6 @@ function dataPlaneSection(): CockpitSection {
   return section('data', 'Data & Models', 'table', 'data', 'dataset', ['/data', '/models']);
 }
 
-function hierarchySections(): CockpitSection[] {
-  return [
-    section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability', undefined, true),
-    section('systems', 'Systems', 'cube', 'systems', 'system', undefined, true),
-    section('runs', 'Runs', 'ledger', 'runs', 'run', undefined, true),
-    section('skills', 'Skills', 'bolt', 'skills', 'skill', undefined, true),
-  ];
-}
-
 export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'hypervisor',
@@ -833,9 +910,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     primarySurfaceId: 'hypervisor',
     primaryRoute: agentiumSurfaceRoute('hypervisor'),
     matches: surfaceRootsForLens('hypervisor'),
-    sections: hierarchySections(),
-    v4Sections: [],
-    legacySections: [],
+    sections: [],
     hiddenInModes: ['builder'],
   },
   {
@@ -847,28 +922,12 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     primaryRoute: agentiumSurfaceRoute('systems'),
     matches: surfaceRootsForLens('build'),
     sections: [
-      ...hierarchySections(),
+      section('systems', 'Systems', 'cube', 'systems', 'system', undefined, true),
+      section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability', undefined, true),
+      section('skills', 'Skills', 'bolt', 'skills', 'skill', undefined, true),
       section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
       dataPlaneSection(),
       section('flows', 'Flow builder', 'flow', 'orchestration', 'flow', undefined, true),
-    ],
-    legacySections: [
-      section('systems', 'Systems', 'cube', 'systems', 'system'),
-      section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability'),
-      section('skills', 'Skills', 'bolt', 'skills', 'skill'),
-      section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
-      dataPlaneSection(),
-      section('flows', 'Flow builder', 'flow', 'orchestration', 'flow'),
-    ],
-    experienceSections: [
-      { ...section('business_apps', 'Business application', 'orbit', 'create-apps', 'app'), group: 'create' },
-      { ...section('systems', 'Systems', 'cube', 'systems', 'system'), group: 'create' },
-      { ...section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'), group: 'create' },
-      { ...dataPlaneSection(), group: 'create' },
-      { ...section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability'), group: 'library' },
-      { ...section('skills', 'Skills', 'bolt', 'skills', 'skill'), group: 'library' },
-      { ...section('certified', 'Certified components', 'check', 'apps', 'app'), group: 'library' },
-      { ...section('integrations', 'Integrations', 'layers', 'connectors', 'connector'), group: 'library' },
     ],
   },
   {
@@ -880,16 +939,10 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     primaryRoute: agentiumSurfaceRoute('runs'),
     matches: surfaceRootsForLens('operate'),
     sections: [
-      ...hierarchySections(),
-      section('observability', 'Observability', 'telemetry', 'observability', 'system'),
-      section('intelligence', 'Intelligence', 'pulse', 'intelligence', 'system'),
-      section('missions', 'Missions', 'play', 'tasks', 'run'),
-    ],
-    legacySections: [
-      section('runs', 'Runs', 'ledger', 'runs', 'run'),
-      section('observability', 'Observability', 'telemetry', 'observability', 'system'),
-      section('intelligence', 'Intelligence', 'pulse', 'intelligence', 'system'),
-      section('missions', 'Missions', 'play', 'tasks', 'run'),
+      section('runs', 'Runs', 'ledger', 'runs', 'surface'),
+      section('observability', 'Observability', 'telemetry', 'observability', 'surface'),
+      section('intelligence', 'Intelligence', 'pulse', 'intelligence', 'surface'),
+      section('missions', 'Missions', 'play', 'tasks', 'surface'),
     ],
   },
   {
@@ -901,15 +954,9 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     primaryRoute: agentiumSurfaceRoute('steering'),
     matches: surfaceRootsForLens('steer'),
     sections: [
-      ...hierarchySections(),
-      section('levers', 'Control plane', 'sliders', 'steering', 'system'),
+      section('levers', 'Control plane', 'sliders', 'steering', 'surface'),
       section('contexts', 'Contexts', 'crosshair', 'contexts', 'context'),
-      section('review', 'Review queue', 'warn', 'review-queue', 'system'),
-    ],
-    legacySections: [
-      section('levers', 'Control plane', 'sliders', 'steering', 'system'),
-      section('contexts', 'Contexts', 'crosshair', 'contexts', 'context'),
-      section('review', 'Review queue', 'warn', 'review-queue', 'system'),
+      section('review', 'Review queue', 'warn', 'review-queue', 'surface'),
     ],
     hiddenInModes: ['builder'],
   },
@@ -922,25 +969,24 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     primaryRoute: agentiumSurfaceRoute('governance'),
     matches: surfaceRootsForLens('govern'),
     sections: [
-      ...hierarchySections(),
-      section('audit', 'Governance', 'shield', 'governance', 'system'),
+      section('audit', 'Governance', 'shield', 'governance', 'surface'),
       // `/workspace` is the registry-owned entry alias resolved to the active slug.
-      { ...section('workspace', 'Workspace settings', 'sliders', 'workspace-admin', 'system'), route: '/workspace' },
+      { ...section('workspace', 'Workspace settings', 'sliders', 'workspace-admin', 'surface'), route: '/workspace' },
       section('apps', 'Apps', 'bolt', 'apps', 'app'),
-      section('resources', 'Resources', 'orbit', 'resources', 'system'),
-      section('connectors', 'Connectors', 'layers', 'connectors', 'connector'),
-      section('presets', 'Presets', 'sliders', 'presets', 'preset'),
-    ],
-    legacySections: [
-      section('audit', 'Governance', 'shield', 'governance', 'system'),
-      { ...section('workspace', 'Workspace settings', 'sliders', 'workspace-admin', 'system'), route: '/workspace' },
-      section('apps', 'Apps', 'bolt', 'apps', 'app'),
-      section('resources', 'Resources', 'orbit', 'resources', 'system'),
+      section('resources', 'Resources', 'orbit', 'resources', 'surface'),
       section('connectors', 'Connectors', 'layers', 'connectors', 'connector'),
       section('presets', 'Presets', 'sliders', 'presets', 'preset'),
     ],
   },
 ];
+
+const CREATE_STUDIO_SECTION = section(
+  'business_apps',
+  'Business application',
+  'orbit',
+  'create-apps',
+  'app',
+);
 
 export const LENS_MATCHES: Record<CockpitLens, string[]> = COCKPIT_VERBS.reduce(
   (acc, verb) => ({ ...acc, [verb.key]: verb.matches }),
@@ -949,14 +995,88 @@ export const LENS_MATCHES: Record<CockpitLens, string[]> = COCKPIT_VERBS.reduce(
 
 export function cockpitVerbSections(
   verb: CockpitVerb,
-  flags: { axesV3: boolean; axesV4: boolean; experienceV1: boolean },
+  flags: { experienceStudio?: boolean } = {},
 ): CockpitSection[] {
-  if (flags.experienceV1 && verb.key === 'build' && verb.experienceSections) {
-    return verb.experienceSections;
+  const sections = verb.sections ?? [];
+  if (verb.key === 'build' && flags.experienceStudio) {
+    return [CREATE_STUDIO_SECTION, ...sections];
   }
-  if (flags.axesV4) return verb.v4Sections ?? verb.sections ?? [];
-  if (flags.axesV3) return verb.sections ?? [];
-  return verb.legacySections ?? [];
+  return sections;
+}
+
+export type ObjectFacetHost =
+  | 'system'
+  | 'capability'
+  | 'run'
+  | 'skill'
+  | 'skill_invocation';
+
+export interface ObjectFacet {
+  id: string;
+  i18nKey: string;
+  glyph: CkGlyphName;
+}
+
+const SYSTEM_OBJECT_FACETS: readonly ObjectFacet[] = [
+  { id: 'overview', i18nKey: 'nav.facet.overview', glyph: 'cube' },
+  { id: 'runs', i18nKey: 'nav.runs', glyph: 'ledger' },
+  { id: 'skills', i18nKey: 'nav.skills', glyph: 'bolt' },
+  { id: 'knowledge', i18nKey: 'nav.knowledge', glyph: 'layers' },
+  { id: 'flow', i18nKey: 'nav.flows', glyph: 'flow' },
+];
+
+/** Object type × lens → facets. Source for `?facet=`, `ck-tabs`, and the sommaire branch (D7). */
+export const OBJECT_FACETS: Record<
+  ObjectFacetHost,
+  Partial<Record<ObjectLens | 'any', readonly ObjectFacet[]>>
+> = {
+  system: { any: SYSTEM_OBJECT_FACETS },
+  capability: {
+    any: [
+      { id: 'overview', i18nKey: 'nav.facet.overview', glyph: 'focus' },
+      { id: 'systems', i18nKey: 'nav.systems', glyph: 'cube' },
+      { id: 'outcomes', i18nKey: 'nav.facet.outcomes', glyph: 'chart' },
+      { id: 'policies', i18nKey: 'nav.facet.policies', glyph: 'shield' },
+    ],
+  },
+  run: {
+    any: [
+      { id: 'overview', i18nKey: 'nav.facet.overview', glyph: 'ledger' },
+      { id: 'invocations', i18nKey: 'nav.facet.invocations', glyph: 'bolt' },
+    ],
+  },
+  skill: {
+    any: [
+      { id: 'overview', i18nKey: 'nav.facet.overview', glyph: 'bolt' },
+      { id: 'invocations', i18nKey: 'nav.facet.invocations', glyph: 'play' },
+      { id: 'spec', i18nKey: 'nav.facet.spec', glyph: 'layers' },
+      { id: 'knowledge', i18nKey: 'nav.knowledge', glyph: 'layers' },
+    ],
+  },
+  skill_invocation: {
+    any: [
+      { id: 'overview', i18nKey: 'nav.facet.overview', glyph: 'bolt' },
+      { id: 'io', i18nKey: 'nav.facet.io', glyph: 'table' },
+      { id: 'runtime', i18nKey: 'nav.facet.runtime', glyph: 'telemetry' },
+    ],
+  },
+};
+
+export function objectFacetsFor(host: ObjectFacetHost, lens: ObjectLens): readonly ObjectFacet[] {
+  const byLens = OBJECT_FACETS[host];
+  return byLens[lens] ?? byLens.any ?? [];
+}
+
+export function systemFacetForChild(child: HierarchyObjectType | null): string | null {
+  if (child === 'run' || child === 'skill_invocation') return 'runs';
+  if (child === 'skill') return 'skills';
+  return null;
+}
+
+export function navigationZoneSurfaceUrl(section: CockpitSection, lens: CockpitLens): string {
+  return appendNavigationQuery(section.route, {
+    lens: lensQueryForPath(section.route, lens),
+  });
 }
 
 export function matchCockpitVerb(path: string): CockpitVerb | null {
@@ -982,6 +1102,12 @@ export function navigationRouteContext(value: string, parseLens = true): Cockpit
   for (const [key, item] of params.entries()) {
     if (NAVIGATION_QUERY_KEYS.has(key) && item) query[key] = item;
   }
+  const tabAlias = params.get('tab');
+  if (!query['facet'] && tabAlias) query['facet'] = tabAlias;
+  const capabilityAlias = params.get('capability_id');
+  if (!query['capabilityId'] && capabilityAlias) query['capabilityId'] = capabilityAlias;
+  const systemAlias = params.get('system_id');
+  if (!query['systemId'] && systemAlias) query['systemId'] = systemAlias;
 
   const segments = routeSegments(path);
   let selectedType: HierarchyObjectType | null = null;
@@ -1062,6 +1188,138 @@ function lensQueryForPath(path: string, lens: CockpitLens | null | undefined): C
   return matchAgentiumSurface(path)?.lens === lens ? null : lens;
 }
 
+function queryFromRoute(route: string): Record<string, string> {
+  if (!route.includes('?')) return {};
+  const params = new URLSearchParams(route.slice(route.indexOf('?') + 1).split('#')[0]);
+  const query: Record<string, string> = {};
+  for (const [key, item] of params.entries()) {
+    if (NAVIGATION_QUERY_KEYS.has(key) && item) query[key] = item;
+  }
+  return query;
+}
+
+function instantiateLeafRoute(pattern: string, params: Record<string, string>): string {
+  const values = { ...params };
+  if (params['ref']) {
+    const first = /:([A-Za-z][A-Za-z0-9]*)/.exec(pattern);
+    if (first && !values[first[1]]) values[first[1]] = params['ref'];
+  }
+  return pattern.replace(LEAF_PARAM, (_, name: string) => {
+    const value = values[name];
+    if (!value) throw new Error(`Leaf route ${pattern} requires :${name}`);
+    return encodeURIComponent(value);
+  });
+}
+
+export function navigationSurfaceUrl(
+  surfaceId: string,
+  options: NavigationObjectUrlOptions = {},
+): string {
+  const surface = agentiumSurfaceById(surfaceId);
+  if (!surface) throw new Error(`Unknown Agentium surface: ${surfaceId}`);
+  const path = pathOnly(surface.route);
+  const catalogQuery = queryFromRoute(surface.route);
+  return appendNavigationQuery(path, {
+    lens: lensQueryForPath(path, options.lens),
+    tab: options.tab,
+    facet: options.facet ?? catalogQuery['facet'] ?? null,
+    scope: options.scope,
+    capabilityId: options.capabilityId,
+    systemId: options.systemId,
+    runId: options.runId,
+    skillRef: options.skillRef,
+    doc: options.doc,
+  });
+}
+
+export function navigationLeafUrl(
+  leafId: string,
+  params: Record<string, string> = {},
+  options: NavigationObjectUrlOptions = {},
+): string {
+  const leaf = agentiumLeafById(leafId);
+  if (!leaf) throw new Error(`Unknown Agentium leaf: ${leafId}`);
+  const path = instantiateLeafRoute(leaf.route, params);
+  return appendNavigationQuery(path, {
+    lens: lensQueryForPath(path, options.lens),
+    tab: options.tab,
+    facet: options.facet,
+    scope: options.scope,
+    capabilityId: options.capabilityId,
+    systemId: path.startsWith('/systems/') ? null : options.systemId,
+    runId: options.runId,
+    skillRef: options.skillRef,
+    doc: options.doc,
+  });
+}
+
+export interface NavLinkResolution {
+  url: string;
+  replaceUrl: boolean;
+}
+
+export function resolveNavLink(
+  input: NavLinkInput,
+  context: {
+    lens: CockpitLens | null;
+    ancestry: NavigationAncestry;
+    currentUrl: string;
+  },
+): NavLinkResolution {
+  const lens = 'lens' in input && input.lens !== undefined ? input.lens : context.lens;
+
+  if ('type' in input) {
+    return {
+      url: navigationObjectUrl(input.type, input.ref, {
+        ...context.ancestry,
+        lens,
+        facet: input.facet,
+      }),
+      replaceUrl: false,
+    };
+  }
+  if ('surface' in input) {
+    return {
+      url: navigationSurfaceUrl(input.surface, {
+        ...context.ancestry,
+        lens,
+        facet: input.facet,
+      }),
+      replaceUrl: false,
+    };
+  }
+  if ('leaf' in input) {
+    return {
+      url: navigationLeafUrl(input.leaf, {
+        ...(input.params ?? {}),
+        ...(input.ref ? { ref: input.ref } : {}),
+      }, {
+        ...context.ancestry,
+        lens,
+        facet: input.facet,
+      }),
+      replaceUrl: false,
+    };
+  }
+
+  const current = navigationRouteContext(context.currentUrl);
+  return {
+    url: appendNavigationQuery(current.path, {
+      lens: lensQueryForPath(current.path, lens),
+      facet: input.facet,
+      scope: current.scope,
+      capabilityId: current.selectedType === 'capability' ? null : current.capabilityId,
+      systemId: current.selectedType === 'system' ? null : current.systemId,
+      runId: current.selectedType === 'run' || current.selectedType === 'skill_invocation'
+        ? null
+        : current.runId,
+      skillRef: current.selectedType === 'skill' ? null : current.skillRef,
+      doc: current.query['doc'] ?? null,
+    }),
+    replaceUrl: true,
+  };
+}
+
 export function navigationObjectUrl(
   type: HierarchyObjectType,
   ref: string,
@@ -1075,6 +1333,7 @@ export function navigationObjectUrl(
     return appendNavigationQuery(path, {
       lens: lensQueryForPath(path, options.lens),
       tab: options.tab,
+      facet: options.facet,
       scope: options.scope,
       capabilityId: options.capabilityId,
       systemId: options.systemId,
@@ -1084,6 +1343,7 @@ export function navigationObjectUrl(
   return appendNavigationQuery(path, {
     lens: lensQueryForPath(path, options.lens),
     tab: options.tab,
+    facet: options.facet,
     scope: options.scope,
     capabilityId: type === 'capability' ? null : options.capabilityId,
     systemId: type === 'run' || type === 'skill' ? options.systemId : null,

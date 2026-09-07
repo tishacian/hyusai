@@ -24,7 +24,7 @@ import {
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { catchError, map, of, switchMap, throwError } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import {
@@ -33,7 +33,7 @@ import {
 } from '@app/core/canonical-api.service';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
+import { CkBackLinkComponent, HelpTooltipComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -120,7 +120,8 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     FlowMlService,
   ],
   imports: [
-    RouterLink,
+    NavLinkDirective,
+    CkBackLinkComponent,
     IconComponent,
     FlowCanvasComponent,
     FlowOutlineComponent,
@@ -150,12 +151,10 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     >
       <header class="flow-builder__header">
         <div class="flow-builder__crumbs">
-          <a routerLink="/systems" class="flow-builder__crumb">{{
-            i18n.t('flow.builder.crumb.systems')
-          }}</a>
+          <ck-back-link />
           <span class="flow-builder__sep">/</span>
           @if (system(); as sys) {
-            <a [routerLink]="['/systems', sys.id]" class="flow-builder__crumb">{{ sys.name }}</a>
+            <a [navLink]="{ type: 'system', ref: sys.id }" class="flow-builder__crumb">{{ sys.name }}</a>
             <span class="flow-builder__sep">/</span>
             <span class="flow-builder__here">{{ i18n.t('flow.builder.crumb.here') }}</span>
           } @else {

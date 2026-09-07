@@ -7,7 +7,7 @@
   <div class="xp-hub">
     @if (canEdit()) {
     <div class="xp-intents">
-      @for (intent of intents; track intent.route) {
+      @for (intent of intents; track intent.titleKey) {
         <article class="xp-card">
           <header class="xp-card-head">
             <span class="xp-card-glyph" aria-hidden="true">
@@ -24,7 +24,7 @@
               <ck-tag tone="cool">{{ i18n.t(badge) }}</ck-tag>
             }
           </div>
-          <a [routerLink]="intent.route" class="xp-card-cta">
+          <a [navLink]="intent.link" class="xp-card-cta">
             {{ i18n.t(intent.ctaKey) }}
             <ck-glyph name="arrow-right" [size]="12" />
           </a>
@@ -37,7 +37,7 @@
           <h2>{{ i18n.t('experience.hub.review.title') }}</h2>
           <p>{{ i18n.t('experience.hub.review.body') }}</p>
         </div>
-        <a routerLink="/create/apps" class="xp-card-cta">
+        <a [navLink]="{ surface: 'create-apps' }" class="xp-card-cta">
           {{ i18n.t('experience.hub.resume.all') }}
           <ck-glyph name="arrow-right" [size]="12" />
         </a>
@@ -71,7 +71,7 @@
           @for (app of recentApps(); track app.id) {
             <li>
               <span><strong>{{ app.name }}</strong><small>{{ state(app) }} · /work/{{ app.slug }}</small></span>
-              <a [routerLink]="['/create/apps', app.id]" class="xp-card-cta">
+              <a [navLink]="{ leaf: 'create-app-edit', ref: app.id }" class="xp-card-cta">
                 {{ i18n.t('experience.apps.action.continue') }}
                 <ck-glyph name="arrow-right" [size]="12" />
               </a>
@@ -81,7 +81,7 @@
       }
       @if (recentState() === 'ready') {
         <p class="xp-resume-note">{{ i18n.t('experience.hub.resume.note') }}</p>
-        <a routerLink="/create/apps" class="xp-preview-link">{{ i18n.t('experience.hub.resume.all') }}</a>
+        <a [navLink]="{ surface: 'create-apps' }" class="xp-preview-link">{{ i18n.t('experience.hub.resume.all') }}</a>
       }
     </section>
 

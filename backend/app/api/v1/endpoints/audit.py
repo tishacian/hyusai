@@ -37,6 +37,7 @@ from app.services.surface_catalog import SURFACE_METADATA
 logger = get_logger(__name__)
 router = APIRouter()
 NAVIGATION_RESOLVED_EVENT = "navigation.resolved"
+NAVIGATION_TRANSITION_EVENT = "navigation.transition"
 _SERVER_AUDIT_PREFIXES = (
     "action.",
     "admin.",
@@ -148,6 +149,9 @@ _REDIRECT_REASONS = frozenset(
         "business_system_capture_compatibility",
         "direct",
         "legacy_hypervisor_object_lens",
+        "legacy_focus_query",
+        "legacy_tab_query",
+        "workspace_mode_home",
         "workspace_default_route",
         "workspace_extension_unavailable",
         "workspace_settings_entrypoint",
@@ -161,6 +165,9 @@ _REDIRECT_OWNER_BY_REASON = {
     "business_profile_disallowed": "navigation_resolver",
     "business_system_capture_compatibility": "navigation_resolver",
     "legacy_hypervisor_object_lens": "navigation_resolver",
+    "legacy_focus_query": "navigation_resolver",
+    "legacy_tab_query": "navigation_resolver",
+    "workspace_mode_home": "navigation_resolver",
     "workspace_default_route": "navigation_resolver",
     "workspace_extension_unavailable": "navigation_resolver",
     "workspace_settings_entrypoint": "navigation_resolver",
@@ -383,6 +390,61 @@ class NavigationResolvedDetails(BaseModel):
         return self
 
 
+_TRANSITION_TRIGGERS = frozenset(
+    {
+        "rail",
+        "minirail",
+        "breadcrumb",
+        "inpage",
+        "palette",
+        "history",
+        "redirect",
+    }
+)
+
+
+class NavigationTransitionDetails(BaseModel):
+    """Additive Lot 6 v2 payload. Surfaces only — never object ids.
+
+    ``extra='forbid'`` keeps the same privacy boundary as ``navigation.resolved``.
+    Depth is a signed delta of the five-level hierarchy, not a path.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[2] = 2
+    from_surface: str
+    to_surface: str
+    trigger: str
+    zone_changed: bool
+    depth_delta: int
+    facet_changed: bool
+
+    @field_validator("from_surface", "to_surface")
+    @classmethod
+    def _known_transition_surface(cls, value: str) -> str:
+        token = str(value or "").strip().lower()
+        if token not in _NAVIGATION_SURFACES:
+            raise ValueError("unknown navigation surface")
+        return token
+
+    @field_validator("trigger")
+    @classmethod
+    def _known_trigger(cls, value: str) -> str:
+        token = str(value or "").strip().lower()
+        if token not in _TRANSITION_TRIGGERS:
+            raise ValueError("unknown navigation transition trigger")
+        return token
+
+    @field_validator("depth_delta")
+    @classmethod
+    def _bounded_depth_delta(cls, value: int) -> int:
+        delta = int(value)
+        if delta < -8 or delta > 8:
+            raise ValueError("depth_delta must be between -8 and 8")
+        return delta
+
+
 class AuditEvent(BaseModel):
     event_type: str
     # `actor` is advisory only — we override it server-side with the
@@ -426,6 +488,19 @@ async def create_audit_event(
             raise HTTPException(
                 status_code=422,
                 detail="Invalid navigation.resolved details",
+            ) from exc
+        actor = "authenticated_user"
+        trace_id = None
+        agent_id = None
+        severity = "info"
+
+    if event.event_type == NAVIGATION_TRANSITION_EVENT:
+        try:
+            details = NavigationTransitionDetails.model_validate(event.details).model_dump()
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid navigation.transition details",
             ) from exc
         actor = "authenticated_user"
         trace_id = None

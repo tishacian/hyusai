@@ -277,6 +277,38 @@ flags, presets, Knowledge collection metadata; never members, credentials,
 Secure Deposit files, raw documents, vectors, runs or audit logs. See
 `docs/workspace-blueprints.md`.
 
+### 6.1 URL grammar v5 — one scale per axis
+
+The stable form of mental-model §5bis; how the lot landed is in
+[`agentium-navigation-lot-6-one-scale-per-axis.md`](./agentium-navigation-lot-6-one-scale-per-axis.md).
+
+```text
+/{zone-home}                          # /hypervisor /create /runs /steering /governance
+/{objectType}/{id}                    # object; ancestry is the proven graph, never the URL
+    ?lens=build|operate|steer|govern  # zone (build = technical id of Create)
+    ?facet=<id>                       # facet — replaces tab/focus
+/skills/{slug}?systemId=&runId=       # only case where the URL names a parent
+/{zone-list}?systemId=&capabilityId=  # list filter (chip; breadcrumb = Portfolio)
+```
+
+Recognised keys: `lens`, `facet`, `systemId`, `capabilityId`, `runId`.
+
+Retired (aliases, then removed after quiet telemetry): `scope`, `tab`, `focus`,
+`capability_id`, `system_id`.
+
+Rules:
+
+- Zone is a pure function of `path` + `?lens`.
+- The breadcrumb is the only object ladder.
+- Facet and lens use `replaceUrl`; object or zone-home use push.
+- Zone summary width is 208 px. Descendants of a System are facets
+  (`OBJECT_FACETS`), not a scoped `/runs?scope=`.
+- Work is a catalog surface (`/work`, lens `hypervisor`), joined by an RBAC
+  link, never a rail verb.
+- Builder home is `/create`.
+- In-page links resolve through the catalogue (`NavLink`, `ck-back-link`);
+  `check:nav-links` fails closed on a hand-written cockpit route.
+
 ## 7. Quality gates
 
 Playwright canaries for `/work`, the Cockpit's Experience editor and the NAWA

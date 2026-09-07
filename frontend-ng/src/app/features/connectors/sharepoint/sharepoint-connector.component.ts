@@ -37,7 +37,7 @@ import {
 import { WorkspaceService } from '@app/core/workspace.service';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { CkBackLinkComponent } from '@app/shared/cockpit';
 import { ToastrService } from 'ngx-toastr';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -58,7 +58,7 @@ type UiMode = 'guest_link' | 'oauth';
   imports: [
     CommonModule,
     FormsModule,
-    RouterLink,
+    CkBackLinkComponent,
     IconComponent,
     SectionHeaderComponent,
     EmptyStateComponent,
@@ -79,12 +79,7 @@ type UiMode = 'guest_link' | 'oauth';
         <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="jobsLoading()" />
         Refresh jobs
       </button>
-      <a
-        routerLink="/resources"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-      >
-        <app-icon name="arrow-left" [size]="14" /> Back to Resources
-      </a>
+      <ck-back-link [fallback]="{ surface: 'resources' }" />
     </app-section-header>
 
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">

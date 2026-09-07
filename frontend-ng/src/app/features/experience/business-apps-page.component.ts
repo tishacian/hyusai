@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { HelpTooltipComponent, PageFrameComponent, TagComponent } from '@app/shared/cockpit';
+import { HelpTooltipComponent, NavLinkDirective, PageFrameComponent, TagComponent } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { canEditExperienceStudio, canReleaseExperienceStudio } from './experience-access';
@@ -23,7 +23,7 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
   selector: 'app-business-apps-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, EmptyStateComponent, HelpTooltipComponent, PageFrameComponent, TagComponent],
+  imports: [RouterLink, NavLinkDirective, EmptyStateComponent, HelpTooltipComponent, PageFrameComponent, TagComponent],
   template: `
     <ck-page-frame
       [eyebrow]="i18n.t('experience.apps.eyebrow')"
@@ -32,7 +32,7 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
     >
       <ck-help titleHelp id="concept.business-application" />
       @if (canEdit()) {
-        <a actions routerLink="/create/apps/new" class="xp-btn xp-btn-primary">
+        <a actions [navLink]="{ leaf: 'create-app-new' }" class="xp-btn xp-btn-primary">
           {{ i18n.t('experience.apps.new') }}
         </a>
       }
@@ -84,7 +84,7 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
           [description]="i18n.t(hasActiveFilter() ? 'experience.work.search.empty.description' : 'experience.apps.empty.description')"
         >
           @if (canEdit() && !hasActiveFilter()) {
-            <a routerLink="/create/apps/new" class="xp-btn xp-btn-primary">
+            <a [navLink]="{ leaf: 'create-app-new' }" class="xp-btn xp-btn-primary">
               {{ i18n.t('experience.apps.new') }}
             </a>
           }
@@ -127,7 +127,7 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
                   <td>{{ audienceText(app) }}</td>
                   <td class="xp-actions">
                     @if (canEdit()) {
-                      <a [routerLink]="['/create/apps', app.id]">
+                      <a [navLink]="{ leaf: 'create-app-edit', ref: app.id }">
                         {{
                           stateOf(app) === 'draft'
                             ? i18n.t('experience.apps.action.continue')
@@ -135,7 +135,7 @@ const LIFECYCLE = ['draft', 'checks', 'release', 'pilot', 'live'] as const;
                         }}
                       </a>
                     } @else if (canReview()) {
-                      <a [routerLink]="['/create/apps', app.id]">
+                      <a [navLink]="{ leaf: 'create-app-edit', ref: app.id }">
                         {{ i18n.t('experience.apps.action.review') }}
                       </a>
                     }

@@ -39,6 +39,6 @@ export const connectorsRoutes: Routes = [
     path: 'models',
     pathMatch: 'full',
     // RedirectFunction must return string | UrlTree (not RedirectCommand).
-    redirectTo: () => inject(Router).parseUrl('/resources?tab=providers'),
+    redirectTo: () => inject(Router).parseUrl('/resources?facet=providers'),
   },
 ];
