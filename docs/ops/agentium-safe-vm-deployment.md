@@ -5727,3 +5727,65 @@ showcase). Alias flottant `demo-agentic` non déplacé. Alembic inchangé
   jetons light-theme, pas un bug de spec.
 - **16.** Inchangé : `GET /work` = 0 Experience Pilot/In-service.
 - **12.** Vert (cinq tests), non demandé, exécuté par le script.
+
+## Itération du 08/09 (soir) — images `4efd57c0`, seed Showcase **arrêté**
+
+Deux commits poussés en fast-forward sur `demo/agentic` : `03e58731` (backfill
+d'activité 90 jours + bases attachées via `System.capability_id`) et
+`4efd57c0` (recomposition Hypervisor V2, sélecteurs canari 20, spec visuelle
+21). Les arbres `docs/render/**`, `docs/pih/**`, `docs/demo-runs/**` du poste
+sont restés non suivis. Alias flottant `demo-agentic` non déplacé.
+`hypervisor_v2` laissé `true` uniquement sur `agentium-showcase`. Alembic
+inchangé (`100_capability_value_basis`).
+
+**Seed.** `seed_showcase_workspace --skip-ingest` a été lancé une seule fois
+dans le backend servi (`thibaud.ishacian@datategy.net`, propriétaire déjà
+présent). Il s'est arrêté dans `ensure_systems` →
+`reconcile_system_flow(..., publish_if_owned=True)` → `publish_draft` avec
+`FlowPublicationError` (`FLOW_PUBLISH_VALIDATION_FAILED`). Le backfill
+d'activité et `apply_showcase_value_bases` n'ont pas été atteints. Pas de
+second essai, pas de one-off de contournement, pas de
+`seed_agentium_video_demo`.
+
+Diagnostic en lecture seule après l'échec (aucun `publish`) :
+
+- **Contract Risk Copilot** (premier spec, `_lot6_system360_rollout_v1` :
+  le seed conserve le graphe live) — `flow_output_sink_required`.
+- **Tender Response Analyst** — le graphe seedé lui-même échoue
+  (`decision_branch_unwired` sur `route`/`escalate`). Un passage ultérieur
+  s'arrêterait là même si le contrat passait.
+- Compliance, Translation, HANA : graphes seedés valides.
+
+Effet de bord avant l'exception : `ensure_member` a ajouté
+`alice@acme.test` en owner (défaut `--smoke-user`). Runs Showcase **50 → 50**,
+`input_ref.showcase_activity` = 0. Tender reste sur la Capability
+`video_tender_response` **sans** `value_basis` (Knowledge Capture et HANA
+gardent les bases EUR de l'après-midi).
+
+Canaris 20/11/17, vérifications `GET /hypervisor/series` et captures live
+**non joués** : le portefeuille 90 jours n'existe pas.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `4f5661ba` → `03e58731` → `4efd57c0abd41043cc1a2a75d2bdcfc8422bd000` (`git push --ff-only` absent de ce Git ; push normal, refus non-FF) |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
+| Worktree | `sudo git fetch origin demo/agentic && sudo git merge --ff-only FETCH_HEAD` → `4efd57c0…`, porcelain vide |
+| Build | `agentium-{backend,worker,frontend}:4efd57c0abd4`, `AGENTIUM_IMAGE_REVISION` = SHA complet ; journaux `/srv/agentium-data/hypervisor-v2-deployments/2026-09-08-4efd57c0abd4/build.log` ; le Dockerfile frontend ne consomme pas `PIP_INDEX_URL`/`USER_UID`/`USER_GID` (avertissement attendu) |
+| Dump pré-bascule | `hypervisor-v2-deployments/2026-09-08-4efd57c0abd4/postgres-pre-migration.dump`, 466 973 182 o, sha256 `09917a16677b2742162db18ae3a5871883bed1ad3e36daec3127f6cd105ed467`, 1335 TOC, triplet `.sha256`/`.ready` en `0600`, fenêtre `0700` |
+| `storage-check` / `up` | sortie 0 ; **aucune révision Alembic** (tête déjà `100`) ; cinq services recréés, backend et frontend `healthy` |
+| `build-info` | `revision: 4efd57c0abd41043cc1a2a75d2bdcfc8422bd000`, `revision_verified: true` en localhost Host **et** sur `https://agentium.papai.ai` ; `/` = 200 ; 0 `traceback`/`exception` backend et worker après bascule |
+| Seed | **échec unique**, voir ci-dessus ; `showcase_activity.py` est bien dans l'image (`/app/backend/scripts/showcase_activity.py`) |
+| Canaris / captures | non joués |
+| Rollback | `AGENTIUM_IMAGE_TAG=c20fbdc9ff2e` puis `up` ; dump pré-bascule à portée |
+
+**Prochain pas recommandé (opérateur, pas rejoué ici).** Ne pas relancer le
+seed complet tant que `ensure_systems` republie des graphes live invalides.
+Pour n'obtenir que l'activité 90 jours et les trois bases via
+`System.capability_id`, un one-off qui appelle `backfill_showcase_activity` +
+`apply_showcase_value_bases` (sans `reconcile`/`publish`) est le chemin qui
+correspond au commentaire du script — à autoriser séparément. Réparer les
+deux graphes (`flow_output_sink_required` sur Contract Risk live, branche
+`escalate` du Tender seedé) est l'autre voie si l'on veut que le seed
+complet redevienne exécutable.
