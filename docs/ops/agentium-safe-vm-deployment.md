@@ -5569,8 +5569,9 @@ d'itération en itération ne l'était plus. Deux des trois échouent ailleurs.
   doit porter sur l'identité de l'objet — fil d'Ariane, onglets, révision — et
   exclure le chapeau de zone. À noter que 11 était **déjà rouge** avant la
   bascule, sur le rail `Build` absent sous `experience_v1` ; Lot 6 fait passer
-  cette assertion, le test va plus loin et trébuche sur l'invariant. Correctif
-  attendu côté spec, hors tranche.
+  cette assertion, le test va plus loin et trébuche sur l'invariant. Corrigé
+  dans `5d775487` : le chapeau est asservi à la lentille, l'identité en dessous
+  reste l'invariant.
 - **16 — `/work`.** Signature **inchangée** : `GET /work` ne renvoie aucune
   Experience Pilot/In-service. Condition de données, hors axe navigation.
 - **17 — Studio.** `app-experience-wizard` existe et son contenu est rendu
@@ -5579,12 +5580,19 @@ d'itération en itération ne l'était plus. Deux des trois échouent ailleurs.
   l'assertion 320 px que ce journal citait jusqu'ici. Ni le spec ni
   `studio.scss` n'ont bougé dans la fenêtre des 170 commits, et la seule
   retouche Lot 6 du wizard est un remplacement de liens (`RouterLink` →
-  `NavLink`, surface `create-apps` bien cataloguée). En amont dans la même
-  fenêtre : `99c677ec` « Let wide Agentium screens scroll horizontally inside
-  the shell » et `5862309d` sur la chaîne de zoom de la title-bar, tous deux sur
-  l'overflow du shell — piste la plus probable pour un hôte sans boîte de
-  layout. **Attribution non prouvée** : mesurer `getBoundingClientRect()` de
-  l'hôte sur le DOM vif avant de corriger.
+  `NavLink`, surface `create-apps` bien cataloguée). Cause trouvée sans passer
+  par le DOM vif : `.xp-wizard` est `position: fixed; inset: 0` depuis
+  `56a9c57b`/`37dbae21`, **antérieurs à la fenêtre**. L'hôte Angular n'enveloppe
+  donc rien dans le flux et n'a aucune boîte à mesurer — l'assertion attendait
+  la visibilité d'un élément qui n'en a jamais eu, tandis que l'overlay, lui, se
+  peint. Sans rapport avec Lot 6. Corrigé dans `5d775487` en visant l'overlay.
+
+Les deux correctifs ne sont **pas encore éprouvés** : le runner protégé lie le
+HEAD du checkout relu au SHA rapporté par `build-info`, donc les rejouer
+imposerait un cycle de trois images pour un changement qui ne touche aucun
+octet livré. Ils voyageront avec la prochaine tranche produit. Attendu alors :
+**7 passed / 1 failed**, le 16 restant rouge tant qu'aucune Experience
+Pilot/In-service n'est visible.
 
 Rappel de méthode : un `fetch origin` qui sort en 0 sur le dépôt du runner ne
 prouve rien (son `origin` est un bundle `/tmp` périssable). Vérifier
