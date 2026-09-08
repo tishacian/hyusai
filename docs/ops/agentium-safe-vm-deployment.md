@@ -5853,3 +5853,81 @@ pas de date ISO brute, pas de `$`, pas de « ROI ».
 bloqué par deux graphes invalides : Contract Risk live
 `flow_output_sink_required`, Tender seedé `decision_branch_unwired` sur
 `escalate`. Le one-off ne les a pas touchés.
+
+## Itération du 08/09 (nuit) — motion + hover Hypervisor V2, déployée sur `7ae835ec`
+
+Un commit frontend-only sur `demo/agentic` (`56801e27` → `7ae835ec`) : le
+grand livre V2 entre en scène (spokes, rubans, rivières, monument) et
+répond au pointeur (tip radial / Sankey / stream, ligne de registre
+allumée). Delta borné à `frontend-ng/**` ; lock inchangé. Les arbres
+`docs/render/**`, `docs/pih/**` et `docs/demo-runs/**` du poste sont
+restés non suivis. Alias flottant `demo-agentic` non déplacé.
+`hypervisor_v2` laissé `true` uniquement sur `agentium-showcase`. Alembic
+inchangé (`100_capability_value_basis`). Pas de dump, pas de `migrate`,
+pas de seed, pas de one-off.
+
+Les trois images ont été reconstruites malgré un delta front seul :
+`AGENTIUM_IMAGE_REVISION` est cuit dans l'image, un re-tag du backend
+`4efd57c0abd4` aurait cassé `revision_verified` (piège du 10/08).
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `56801e274d8a31224b487e1f9bd46110dbd9fc1a` → `7ae835ec39703bb770ac6470d7d85290edb8e606` |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
+| Worktree | `sudo git fetch origin demo/agentic && sudo git merge --ff-only FETCH_HEAD` → `7ae835ec…`, porcelain vide |
+| Build | `agentium-{backend,worker,frontend}:7ae835ec3970`, `AGENTIUM_IMAGE_REVISION` = SHA complet ; journaux `/srv/agentium-data/hypervisor-v2-deployments/2026-09-08-7ae835ec3970/build.log` ; le Dockerfile frontend ne consomme pas `PIP_INDEX_URL`/`USER_UID`/`USER_GID` (avertissement attendu) |
+| `storage-check` / `up` | sortie 0 ; **aucune révision Alembic** (tête déjà `100`, confirmée avant et après) ; cinq services recréés, backend et frontend `healthy` |
+| `build-info` | `revision: 7ae835ec39703bb770ac6470d7d85290edb8e606`, `revision_verified: true` en localhost Host **et** sur `https://agentium.papai.ai` ; `/` = 200 ; 0 `traceback`/`exception` backend et worker après bascule |
+| Seed / flag | intouchés |
+| Canaris carakai | checkout `4efd57c0` → `7ae835ec` par bundle incrémental `4efd57c0..demo/agentic` (sha256 `38815962642a4b12e0051cdce9c6e5a7b7a3aa982b396e9039363912d0d9a724` identique des deux côtés, `cat-file -e` positif), marqueur réaligné, `node_modules` inchangé (`frontend-deps-cfded9c9…`). Specs 20 et 11 seulement, `E2E_HYPERVISOR_V2_CANARY=1`. **2 passed / 0 failed** en 24,1 s, artefacts `/tmp/iteration-canaries-20260908T191157Z.qIuLz6` |
+| Rollback | `AGENTIUM_IMAGE_TAG=4efd57c0abd4` puis `up` |
+
+### Canaris 20 et 11
+
+- **11 — System 360.** **Vert** (16,2 s).
+- **20 — Hypervisor V2.** **Vert** (6,6 s). Flag off → V1 ; flag on → grand livre tonal, facettes, honnêteté. Le canari restore le flag ; aucun write opérateur hors de ce contrat.
+- **17.** Non rejoué : contraste light-theme déjà connu, hors périmètre.
+
+### Captures live (motion + hover)
+
+Playwright `/tmp/hypervisor-live-motion.mjs` sur carakai, admin Showcase,
+1680×1100, copiées sur le poste :
+`/tmp/hyperviseur/live-motion/`. Thème sombre par défaut, clair via
+`titlebar-theme-toggle` (même mécanisme que la spec 21).
+
+- **Synthèse posée** (`synthese-{dark,light}.png`) : 3 008 h, 91 rais,
+  trois rubans vers le résultat, HANA stale, totaux inchangés
+  (€6 300 / ≈ €25,5 k, Ratio ×4).
+- **Hover radial** : tip `lun. 31 août / 109 h / 73 runs / 2 Systems`,
+  lisible sombre et clair. À 91 rais le tip se pose près de l'anneau
+  interne ; le « 91j » du centre reste lisible, le coin du tip le
+  frôle. Pas de clipping hors carte.
+- **Hover Sankey** (première source) : Knowledge Capture, 1 216 runs /
+  2 240 h / 8 960 €. Tip contenu dans la carte.
+- **Hover stream** (jour médian, index 45 / 91) : `sam. 25 juil.`,
+  8,8 h ; le cadran central suit (8,8 h / 25 juil.).
+- **Hover registre** (pleine page, première ligne scrollée) : pas de
+  tip flottant — le contrat est l'allumage de ligne + croisement
+  Sankey. Sur les deux PNG pleine page l'allumage est discret ; le
+  croisement n'est pas évident à l'œil.
+
+Les trois noms demandés — **Knowledge Capture**, **Tender Response
+Analyst**, **SAP HANA Maintenance Copilot** — sont maintenant complets
+sur le Sankey et sur les rivières, sombre et clair. Plus l'ellipsis
+que le journal de `4efd57c0` notait.
+
+**Entrée.** Le burst 0 / 300 / 600 / 1200 ms *après navigation* tombe
+sur « Chargement du grand livre… » : la série n'est pas encore là,
+`hv2-enter` non plus. La preuve d'animation est la vidéo
+`synthese-enter-dark.webm` (6,6 s) et le burst *après premier paint
+des graphiques* (`synthese-enter-after-load-*`) : le monument compte
+2 179 h → 2 912 h → 3 008 h pendant que les rais et les rivières se
+remplissent. L'entrée ne part qu'une fois le payload chargé, pas au
+`goto`.
+
+**Défaut ouvert, inchangé.** Seed Showcase complet toujours bloqué
+(Contract Risk `flow_output_sink_required`, Tender
+`decision_branch_unwired` / `escalate`). Canari 17 light-theme
+`color-contrast` non rejoué.
