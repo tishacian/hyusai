@@ -18,6 +18,16 @@ export {
 
 export { ckChartToneVar, ckChartUid, type CkChartTick, type CkChartTone, type CkStreamTone } from './chart.types';
 
+export {
+  easeOutProgress,
+  memoizeLayout,
+  nearestDayIndex,
+  placeTooltip,
+  prefersReducedMotion,
+  shouldRebuildLayout,
+  wrapLabelLines,
+} from './chart-interact';
+export { CkChartTipComponent, type CkChartTipLine } from './chart-tip.component';
 export { CkChartRadialDaysComponent, type CkRadialDay, type CkRadialMark } from './radial-days.component';
 export { CkChartSankeyFlowComponent, type CkSankeySource } from './sankey-flow.component';
 export { layoutSankey, truncateLabel, type SankeyLayout } from './sankey-layout';

@@ -1,9 +1,34 @@
-import { ChangeDetectionStrategy, Component, Input, booleanAttribute } from '@angular/core';
+import {
+  AfterViewInit,
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  OnChanges,
+  OnDestroy,
+  Output,
+  SimpleChanges,
+  booleanAttribute,
+  inject,
+} from '@angular/core';
 
+import {
+  attrFromTarget,
+  hostPointerPoint,
+  measureLabelWidth,
+  nearestDayIndex,
+  observeHostWidth,
+  shouldRebuildLayout,
+  svgPointerPoint,
+} from './chart-interact';
+import { CkChartTipComponent, type CkChartTipLine } from './chart-tip.component';
 import { ckChartToneVar, ckChartUid, type CkChartTick, type CkStreamTone } from './chart.types';
 import { accumulateStackedSeries, cubicSmoothAreaPath, niceStep, spreadLabelRows } from './svg-path';
 
 export interface CkStreamSeries {
+  id?: string;
   label: string;
   detail?: string;
   values: number[];
@@ -23,6 +48,7 @@ export interface CkStreamPeak {
 interface StreamArea {
   d: string;
   fill: string;
+  id?: string;
 }
 
 interface StreamText {
@@ -35,6 +61,7 @@ interface StreamText {
   font: 'sans' | 'mono';
   weight?: number;
   opacity?: number;
+  id?: string;
 }
 
 interface StreamBand {
@@ -44,21 +71,37 @@ interface StreamBand {
   h: number;
 }
 
+interface StreamLayout {
+  areas: StreamArea[];
+  labels: StreamText[];
+  upperY: number[][];
+  totals: number[];
+  plotRight: number;
+}
+
 /** Vertical room one ribbon label (name + mono total) needs. */
 const LABEL_ROW = 24;
+const LABEL_MIN = 150;
 
 @Component({
   selector: 'ck-chart-stream',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [CkChartTipComponent],
   template: `
     <svg
       [attr.viewBox]="'0 0 ' + width + ' ' + height"
-      [attr.width]="width"
-      [attr.height]="height"
+      [attr.width]="fluid ? '100%' : width"
+      [attr.height]="fluid ? null : height"
       [style.width]="fluid ? '100%' : null"
       [style.height]="fluid ? 'auto' : null"
       style="display:block;overflow:visible"
+      data-testid="ck-stream-plot"
+      (pointerdown)="onPointer($event)"
+      (pointermove)="onPointer($event)"
+      (pointerleave)="onLeave()"
+      (focusin)="onFocus($event)"
+      (focusout)="onLeave()"
     >
       <defs>
         <linearGradient [attr.id]="inkId" x1="0" y1="0" x2="0" y2="1">
@@ -104,10 +147,46 @@ const LABEL_ROW = 24;
         />
       }
       @for (area of areas; track $index) {
-        <path [attr.d]="area.d" [attr.fill]="area.fill" />
+        <path
+          class="ck-area"
+          [class.is-lit]="isSeriesLit(area.id)"
+          [class.is-dim]="isSeriesDimmed() && !isSeriesLit(area.id)"
+          [style.--i]="$index"
+          [attr.d]="area.d"
+          [attr.fill]="area.fill"
+        />
+      }
+      @for (i of dayHits; track i) {
+        <rect
+          class="ck-day-hit"
+          [attr.data-day]="i"
+          [attr.data-testid]="'ck-stream-day-' + i"
+          [attr.x]="dayHitX(i)"
+          [attr.y]="plotTop"
+          [attr.width]="dayHitW()"
+          [attr.height]="plotHeight"
+        />
+      }
+      @if (crosshairX != null) {
+        <line
+          class="ck-crosshair"
+          [attr.x1]="crosshairX"
+          [attr.y1]="plotTop"
+          [attr.x2]="crosshairX"
+          [attr.y2]="plotTop + plotHeight"
+          stroke="var(--ck-fg-3)"
+          stroke-width="1"
+          stroke-dasharray="2 3"
+        />
+        @for (dot of crosshairDots; track $index) {
+          <circle [attr.cx]="crosshairX" [attr.cy]="dot" r="3" fill="var(--ck-fg-1)" />
+        }
       }
       @for (label of seriesLabels; track $index) {
         <text
+          class="ck-stream-label"
+          [class.is-lit]="isSeriesLit(label.id)"
+          [class.is-dim]="isSeriesDimmed() && !isSeriesLit(label.id)"
           [attr.x]="label.x"
           [attr.y]="label.y"
           [attr.fill]="label.fill"
@@ -116,6 +195,9 @@ const LABEL_ROW = 24;
           [attr.font-size]="label.size"
           [attr.font-weight]="label.weight ?? 400"
           [attr.text-anchor]="label.anchor"
+          [attr.data-system]="label.id || null"
+          [attr.tabindex]="label.id && label.font === 'sans' ? 0 : -1"
+          [attr.aria-label]="label.text"
         >{{ label.text }}</text>
       }
       @if (peakMark; as mark) {
@@ -148,12 +230,42 @@ const LABEL_ROW = 24;
         >{{ tick.text }}</text>
       }
     </svg>
+    <ck-chart-tip
+      [open]="tipOpen"
+      [title]="tipTitle"
+      [lines]="tipLines"
+      [x]="tipX"
+      [y]="tipY"
+    />
   `,
-  styles: [':host { display: block; }'],
+  styles: [`
+    :host { display: block; position: relative; width: 100%; }
+    .ck-area, .ck-stream-label { transition: opacity 160ms var(--ck-ease-out, ease-out); }
+    .is-dim { opacity: 0.35; }
+    .is-lit { opacity: 1; }
+    .ck-day-hit { fill: transparent; }
+    .ck-stream-label { cursor: pointer; }
+    :host-context(.hv2-enter) .ck-area {
+      transform: scaleY(0);
+      transform-box: fill-box;
+      transform-origin: 50% 100%;
+      animation: ckAreaIn 600ms var(--ck-ease-out, ease-out) forwards;
+      animation-delay: calc(var(--i, 0) * 50ms);
+    }
+    @keyframes ckAreaIn { to { transform: none; } }
+    @media (prefers-reduced-motion: reduce) {
+      .ck-area, .ck-stream-label { transition: none; }
+      :host-context(.hv2-enter) .ck-area { animation: none; transform: none; }
+    }
+  `],
 })
-export class CkChartStreamComponent {
+export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestroy {
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly cdr = inject(ChangeDetectorRef);
+
   @Input() series: CkStreamSeries[] = [];
   @Input() weekendStarts: number[] = [];
+  @Input() dayLabels: string[] = [];
   /** Explicit gridlines; when empty, round steps are derived from the maximum. */
   @Input() gridLines: CkStreamGridLine[] = [];
   /** Formats a derived gridline value (e.g. `40 h`). */
@@ -163,8 +275,12 @@ export class CkChartStreamComponent {
   @Input() width = 612;
   @Input() height = 196;
   @Input() maxValue: number | null = null;
-  /** Scale the drawing to the host width (keeps the 612×196 composition). */
+  /** Scale the drawing to the host width (keeps the composition, grows the label column). */
   @Input({ transform: booleanAttribute }) fluid = false;
+  @Input() hoverDay: number | null = null;
+  @Input() hoverSystem: string | null = null;
+  @Output() readonly dayHover = new EventEmitter<number | null>();
+  @Output() readonly systemHover = new EventEmitter<string | null>();
 
   readonly inkId = ckChartUid('ck-stream-ink');
   readonly declaredId = ckChartUid('ck-stream-teal');
@@ -173,7 +289,20 @@ export class CkChartStreamComponent {
   readonly plotTop = 12;
   readonly plotBottom = 26;
   readonly plotLeft = 6;
-  readonly plotRight = 118;
+
+  tipOpen = false;
+  tipTitle = '';
+  tipLines: CkChartTipLine[] = [];
+  tipX = 0;
+  tipY = 0;
+  private localDay: number | null = null;
+  private localSystem: string | null = null;
+  private built: StreamLayout | null = null;
+  private stopWidth: (() => void) | null = null;
+
+  get plotRight(): number {
+    return this.layout().plotRight;
+  }
 
   get plotWidth(): number {
     return this.width - this.plotLeft - this.plotRight;
@@ -181,6 +310,11 @@ export class CkChartStreamComponent {
 
   get plotHeight(): number {
     return this.height - this.plotTop - this.plotBottom;
+  }
+
+  get dayHits(): number[] {
+    const n = this.pointCount();
+    return n ? Array.from({ length: n }, (_, i) => i) : [];
   }
 
   get grid(): Array<{ y: number; label: string }> {
@@ -218,14 +352,13 @@ export class CkChartStreamComponent {
   get peakMark(): { x: number; y: number; label: string; anchor: 'start' | 'end' } | null {
     const peak = this.peak;
     if (!peak) return null;
-    const totals = this.totals();
+    const totals = this.layout().totals;
     if (peak.index < 0 || peak.index >= totals.length) return null;
     const x = this.xOf(peak.index);
     return {
       x,
-      y: this.yOf(totals[peak.index], this.resolvedMax()),
+      y: this.yOf(totals[peak.index]!, this.resolvedMax()),
       label: peak.label,
-      // Near the right edge the label would run into the ribbon names.
       anchor: x > this.plotLeft + this.plotWidth * 0.78 ? 'end' : 'start',
     };
   }
@@ -244,34 +377,174 @@ export class CkChartStreamComponent {
     }));
   }
 
-  private layout(): { areas: StreamArea[]; labels: StreamText[] } {
+  get crosshairX(): number | null {
+    const day = this.activeDay();
+    return day == null ? null : this.xOf(day);
+  }
+
+  get crosshairDots(): number[] {
+    const day = this.activeDay();
+    if (day == null) return [];
+    return this.layout().upperY.map((row) => row[day] ?? this.plotTop + this.plotHeight);
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (shouldRebuildLayout(Object.keys(changes)) || !this.built) {
+      this.built = this.build();
+    }
+  }
+
+  ngAfterViewInit(): void {
+    if (!this.fluid) return;
+    this.stopWidth = observeHostWidth(this.host.nativeElement, (width) => {
+      const next = Math.max(360, Math.round(width));
+      if (next === this.width) return;
+      this.width = next;
+      this.built = this.build();
+      this.cdr.markForCheck();
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.stopWidth?.();
+  }
+
+  dayHitX(index: number): number {
+    return this.xOf(index) - this.dayHitW() / 2;
+  }
+
+  dayHitW(): number {
+    const n = this.pointCount();
+    return n <= 1 ? this.plotWidth : this.plotWidth / (n - 1);
+  }
+
+  isSeriesLit(id: string | undefined): boolean {
+    const system = this.activeSystem();
+    return Boolean(system && id === system);
+  }
+
+  isSeriesDimmed(): boolean {
+    return this.activeSystem() != null;
+  }
+
+  onPointer(event: PointerEvent): void {
+    if (event.pointerType === 'touch' && event.type === 'pointermove') return;
+    const system = attrFromTarget(event.target, 'data-system');
+    if (system) {
+      if (event.pointerType === 'touch' && event.type === 'pointerdown') this.toggleSystem(system);
+      else this.setSystem(system);
+      this.setDay(null);
+      this.tipOpen = false;
+      return;
+    }
+    const svg = event.currentTarget as SVGSVGElement;
+    const pt = svgPointerPoint(svg, event.clientX, event.clientY);
+    const index = nearestDayIndex(pt.x, this.plotLeft, this.plotWidth, this.pointCount());
+    if (event.pointerType === 'touch' && event.type === 'pointerdown') this.toggleDay(index);
+    else this.setDay(index);
+    this.setSystem(null);
+    this.showDayTip(index, event);
+  }
+
+  onFocus(event: FocusEvent): void {
+    const system = attrFromTarget(event.target, 'data-system');
+    if (!system) return;
+    this.setSystem(system);
+  }
+
+  onLeave(): void {
+    this.setDay(null);
+    this.setSystem(null);
+    this.tipOpen = false;
+  }
+
+  private activeDay(): number | null {
+    return this.localDay ?? this.hoverDay;
+  }
+
+  private activeSystem(): string | null {
+    return this.localSystem ?? this.hoverSystem;
+  }
+
+  private toggleDay(index: number): void {
+    this.setDay(this.localDay === index ? null : index);
+    if (this.localDay == null) this.tipOpen = false;
+  }
+
+  private toggleSystem(id: string): void {
+    this.setSystem(this.localSystem === id ? null : id);
+  }
+
+  private setDay(index: number | null): void {
+    if (this.localDay === index) return;
+    this.localDay = index;
+    this.dayHover.emit(index);
+  }
+
+  private setSystem(id: string | null): void {
+    if (this.localSystem === id) return;
+    this.localSystem = id;
+    this.systemHover.emit(id);
+  }
+
+  private showDayTip(index: number, event: PointerEvent): void {
+    const pt = hostPointerPoint(this.host.nativeElement, event.clientX, event.clientY);
+    this.tipX = pt.x;
+    this.tipY = pt.y;
+    this.tipTitle = this.dayLabels[index] || '';
+    const lines: CkChartTipLine[] = this.series.map((row) => ({
+      label: row.label,
+      value: `${this.gridLabel(row.values[index] ?? 0)} ${row.tone === 'ink' ? '●' : '◐'}`,
+    }));
+    const total = this.layout().totals[index] ?? 0;
+    lines.push({ label: '', value: this.gridLabel(total) });
+    this.tipLines = lines;
+    this.tipOpen = true;
+  }
+
+  private layout(): StreamLayout {
+    return this.built ?? (this.built = this.build());
+  }
+
+  private build(): StreamLayout {
     const series = this.series;
     const n = this.pointCount();
+    const plotRight = this.labelColumn();
+    const plotWidth = this.width - this.plotLeft - plotRight;
     const areas: StreamArea[] = [];
     const labels: StreamText[] = [];
-    if (n < 2 || !series.length) return { areas, labels };
+    const upperY: number[][] = [];
+    if (n < 2 || !series.length) {
+      return { areas, labels, upperY, totals: [], plotRight };
+    }
     const max = this.resolvedMax();
     const stacked = accumulateStackedSeries(series.map((row) => row.values));
     const desired: number[] = [];
+    const xOf = (index: number): number => {
+      if (n <= 1) return this.plotLeft;
+      return this.plotLeft + index * (plotWidth / (n - 1));
+    };
     stacked.forEach((band, index) => {
-      const row = series[index];
+      const row = series[index]!;
       const tone = row.tone ?? 'ink';
-      const upper = band.upper.map((value, i) => ({ x: this.xOf(i), y: this.yOf(value, max) }));
-      const lower = band.lower.map((value, i) => ({ x: this.xOf(i), y: this.yOf(value, max) }));
+      const upper = band.upper.map((value, i) => ({ x: xOf(i), y: this.yOf(value, max) }));
+      const lower = band.lower.map((value, i) => ({ x: xOf(i), y: this.yOf(value, max) }));
       areas.push({
         d: band.lower.every((value) => value === 0)
           ? cubicSmoothAreaPath(upper, null, this.yOf(0, max))
           : cubicSmoothAreaPath(upper, lower),
         fill: this.fillFor(tone),
+        id: row.id,
       });
-      desired.push((upper[n - 1].y + lower[n - 1].y) / 2);
+      upperY.push(upper.map((point) => point.y));
+      desired.push((upper[n - 1]!.y + lower[n - 1]!.y) / 2);
     });
     const rows = spreadLabelRows(desired, LABEL_ROW, this.plotTop + 6, this.plotTop + this.plotHeight - 12);
     series.forEach((row, index) => {
       const tone = row.tone ?? 'ink';
-      const midY = rows[index];
+      const midY = rows[index]!;
       labels.push({
-        x: this.plotLeft + this.plotWidth + 30,
+        x: this.plotLeft + plotWidth + 16,
         y: midY + 3,
         text: row.label,
         fill: ckChartToneVar(tone),
@@ -279,10 +552,11 @@ export class CkChartStreamComponent {
         anchor: 'start',
         font: 'sans',
         weight: 500,
+        id: row.id,
       });
       if (row.detail) {
         labels.push({
-          x: this.plotLeft + this.plotWidth + 30,
+          x: this.plotLeft + plotWidth + 16,
           y: midY + 14,
           text: row.detail,
           fill: ckChartToneVar(tone),
@@ -290,10 +564,17 @@ export class CkChartStreamComponent {
           anchor: 'start',
           font: 'mono',
           opacity: 0.75,
+          id: row.id,
         });
       }
     });
-    return { areas, labels };
+    return { areas, labels, upperY, totals: this.totals(), plotRight };
+  }
+
+  private labelColumn(): number {
+    const names = this.series.flatMap((row) => [row.label, row.detail ?? '']);
+    const longest = names.reduce((max, text) => Math.max(max, measureLabelWidth(text)), 0);
+    return Math.max(LABEL_MIN, Math.ceil(longest) + 28);
   }
 
   private fillFor(tone: CkStreamTone): string {

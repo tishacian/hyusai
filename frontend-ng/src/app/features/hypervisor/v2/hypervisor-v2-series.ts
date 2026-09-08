@@ -63,6 +63,8 @@ export interface HypervisorDayPoint {
   weekend: boolean;
   measured: number;
   declared: number;
+  runs: number;
+  systems: number;
 }
 
 /**
@@ -437,7 +439,14 @@ function projectDay(
     if (system.value_basis?.status === 'measured') measured += value;
     else declared += value;
   }
-  return { date, weekday, weekend: weekday === 0 || weekday === 6, measured, declared };
+  return {
+    date,
+    weekday,
+    weekend: weekday === 0 || weekday === 6,
+    measured,
+    declared,
+    ...peakActivity(systems, date, denominator),
+  };
 }
 
 function dailyMetric(

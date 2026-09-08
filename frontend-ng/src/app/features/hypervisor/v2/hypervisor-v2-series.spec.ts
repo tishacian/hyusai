@@ -143,6 +143,8 @@ test('picks the peak day from measured+declared and marks stale systems', () => 
   assert.equal(view.peak?.declared, 1.25);
   assert.equal(view.peak?.runs, 2, 'runs of in-denominator systems on the peak day');
   assert.equal(view.peak?.systems, 2);
+  assert.equal(view.days[view.peak!.index]?.runs, view.peak?.runs);
+  assert.equal(view.days[view.peak!.index]?.systems, view.peak?.systems);
   assert.deepEqual(view.staleSystemIds, ['sys-bare']);
   assert.equal(STALE_AFTER_DAYS, 7);
 });

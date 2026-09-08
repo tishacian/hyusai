@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   HostListener,
   OnDestroy,
   OnInit,
@@ -32,6 +33,7 @@ import {
   CkChartRadialDaysComponent,
   CkChartSankeyFlowComponent,
   CkChartStreamComponent,
+  CkChartTipComponent,
   CkChartUnitDotsComponent,
   CkPanelComponent,
   CkTabComponent,
@@ -41,12 +43,14 @@ import {
   PageFrameComponent,
   TagComponent,
   type CkChartTick,
+  type CkChartTipLine,
   type CkChartTone,
   type CkRadialDay,
   type CkSankeySource,
   type CkStreamPeak,
   type CkStreamSeries,
 } from '@app/shared/cockpit';
+import { easeOutProgress, prefersReducedMotion } from '@app/shared/cockpit/charts/chart-interact';
 import {
   STALE_AFTER_DAYS,
   availableNumber,
@@ -106,6 +110,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
   selector: 'app-hypervisor-v2',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[class.hv2-enter]': 'entering()' },
   imports: [
     NgTemplateOutlet,
     PageFrameComponent,
@@ -121,6 +126,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
     CkChartMiniAreaComponent,
     CkChartUnitDotsComponent,
     CkChartPulseComponent,
+    CkChartTipComponent,
   ],
   template: `
     <ck-page-frame
@@ -156,6 +162,13 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
           <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
         } @else {
           <div class="hv2-page">
+            <ck-chart-tip
+              [open]="pageTipOpen()"
+              [title]="pageTipTitle()"
+              [lines]="pageTipLines()"
+              [x]="pageTipX()"
+              [y]="pageTipY()"
+            />
             @if (showStratum('comprendre')) {
               <section class="hv2-stratum" data-testid="hypervisor-v2-stratum-comprendre">
                 <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'comprendre', num: '01' }"></ng-container>
@@ -169,7 +182,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                             @if (showBlock('comprendre', 'monument')) {
                               @if (monument(); as mon) {
                                 <div class="hv2-monument-row">
-                                  <span class="hv2-monument ck-tnum">{{ mon.value }}</span>
+                                  <span class="hv2-monument ck-tnum">{{ monumentValue() }}</span>
                                   <span class="hv2-monument-unit">{{ mon.unit }}</span>
                                 </div>
                                 <p class="hv2-sentence">{{ heroSentence() }}</p>
@@ -185,16 +198,39 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                           @if (showBlock('comprendre', 'provenance')) {
                             <div class="hv2-provenance-block">
                               @if (provenance(); as prov) {
-                                <div class="hv2-provenance" aria-hidden="true">
-                                  <span class="hv2-provenance-ink" [style.flexGrow]="prov.measured"></span>
-                                  <span class="hv2-provenance-teal" [style.flexGrow]="prov.declared"></span>
+                                <div class="hv2-provenance">
+                                  <span
+                                    class="hv2-provenance-ink"
+                                    tabindex="0"
+                                    [style.flexGrow]="prov.measured"
+                                    [attr.aria-label]="provenanceMeasuredTip()"
+                                    (pointerenter)="onProvenanceTip('measured', $event)"
+                                    (pointerleave)="clearPageTip()"
+                                    (focus)="onProvenanceTip('measured', $event)"
+                                    (blur)="clearPageTip()"
+                                  ></span>
+                                  <span
+                                    class="hv2-provenance-teal"
+                                    tabindex="0"
+                                    [style.flexGrow]="prov.declared"
+                                    [attr.aria-label]="provenanceDeclaredTip()"
+                                    (pointerenter)="onProvenanceTip('declared', $event)"
+                                    (pointerleave)="clearPageTip()"
+                                    (focus)="onProvenanceTip('declared', $event)"
+                                    (blur)="clearPageTip()"
+                                  ></span>
                                 </div>
                                 <div class="ck-mono hv2-provenance-legend">
                                   <span>{{ measuredMark }} {{ i18n.t('hypervisor.v2.hero.measured_share', { pct: prov.measuredPct }) }}</span>
                                   <span class="hv2-teal">{{ declaredMark }} {{ i18n.t('hypervisor.v2.hero.declared_share', { pct: prov.declaredPct }) }}</span>
                                 </div>
                               }
-                              <div class="hv2-peak-card">
+                              <div
+                                class="hv2-peak-card"
+                                [class.hv2-peak-lit]="hoverDay() != null && hoverDay() === series()!.peak?.index"
+                                (pointerenter)="onDayHover(series()!.peak?.index ?? null)"
+                                (pointerleave)="onDayHover(null)"
+                              >
                                 @if (peakCard(); as peak) {
                                   <div class="ck-mono hv2-peak-kicker">
                                     <span class="hv2-dot-teal" aria-hidden="true"></span>
@@ -243,6 +279,8 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                             [centerCaption]="i18n.t('hypervisor.v2.cadran.grammar')"
                             [rangeLabel]="rangeLabel()"
                             [peakLabel]="quantityLabel"
+                            [hoverDay]="hoverDay()"
+                            (dayHover)="onDayHover($event)"
                           />
                           <div class="ck-mono hv2-chart-caption">{{ i18n.t('hypervisor.v2.cadran.legend') }}</div>
                         </div>
@@ -259,6 +297,11 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                               [leftCaption]="i18n.t('hypervisor.v2.sankey.left_caption') + ' ' + measuredMark"
                               [middleCaption]="i18n.t('hypervisor.v2.sankey.middle_caption')"
                               [rightCaption]="i18n.t('hypervisor.v2.sankey.right_caption') + ' ' + declaredMark"
+                              [hoverSystem]="hoverSystem()"
+                              [middleTip]="sankeyMiddleTip()"
+                              [rightTip]="sankeyRightTip()"
+                              (systemHover)="onSystemHover($event)"
+                              (systemClick)="onSystemClick($event)"
                             />
                           }
                         </div>
@@ -280,10 +323,15 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                             <ck-chart-stream
                               fluid
                               [series]="streamSeries()"
+                              [dayLabels]="dayLabels()"
                               [weekendStarts]="series()!.weekendStarts"
                               [ticks]="streamTicks()"
                               [peak]="streamPeak()"
                               [gridLabel]="quantityLabel"
+                              [hoverDay]="hoverDay()"
+                              [hoverSystem]="hoverSystem()"
+                              (dayHover)="onDayHover($event)"
+                              (systemHover)="onSystemHover($event)"
                             />
                           } @else {
                             <p class="hv2-muted">{{ i18n.t('hypervisor.v2.rivers.empty') }}</p>
@@ -300,13 +348,24 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                             <h3 class="hv2-hors-title">{{ horsTitle() }}</h3>
                             <div class="hv2-hors-list">
                               @for (row of series()!.outside; track row.systemId) {
-                                <div class="hv2-hors-row">
+                                <div
+                                  class="hv2-hors-row"
+                                  [class.hv2-row-lit]="hoverSystem() === row.systemId"
+                                  (pointerenter)="onSystemHover(row.systemId)"
+                                  (pointerleave)="onSystemHover(null)"
+                                >
                                   <div class="hv2-hors-line">
                                     <span class="hv2-hors-name">{{ row.name }}</span>
                                     <span class="ck-mono ck-tnum hv2-hors-value" [attr.title]="dotsTitle(row)">{{ outcomeLabel(row) }} {{ outcomeMark(row) }}</span>
                                   </div>
                                   @if (outcomeCount(row) > 0) {
-                                    <ck-chart-unit-dots [units]="outcomeCount(row)" [unitsPerDot]="unitsPerDot()" [dotSize]="5" [gap]="3" />
+                                    <ck-chart-unit-dots
+                                      [units]="outcomeCount(row)"
+                                      [unitsPerDot]="unitsPerDot()"
+                                      [dotSize]="5"
+                                      [gap]="3"
+                                      [tipTitle]="dotsTip(row)"
+                                    />
                                   }
                                 </div>
                               }
@@ -335,7 +394,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                 <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'decider', num: '03' }"></ng-container>
                 <div class="hv2-body hv2-cards3">
                   @if (showBlock('decider', 'signal')) {
-                    <article class="hv2-card hv2-card-signal">
+                    <article class="hv2-card hv2-card-signal" [style.--stagger]="0">
                       <div class="ck-mono hv2-kicker">{{ signalKicker() }}</div>
                       <h3 class="hv2-card-title">{{ signalCopy() }}</h3>
                       <ck-chart-pulse
@@ -346,6 +405,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                         [startLabel]="i18n.t('hypervisor.v2.journal.start')"
                         [endLabel]="i18n.t('hypervisor.v2.journal.end')"
                         [zeroLabel]="i18n.t('hypervisor.v2.journal.zero')"
+                        [valueLabel]="pulseTip"
                       />
                       <p class="hv2-card-sub">{{ signalContext() }}</p>
                       @if (staleRows().length === 1) {
@@ -354,7 +414,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                     </article>
                   }
                   @if (showBlock('decider', 'decisions')) {
-                    <article class="hv2-card hv2-card-decision">
+                    <article class="hv2-card hv2-card-decision" [style.--stagger]="1">
                       @if (firstProposed(); as decision) {
                         <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker', { date: formatDate(decision.created_at, true) }) }}</div>
                         <h3 class="hv2-card-title">{{ decision.title }}</h3>
@@ -375,7 +435,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                       }
                     </article>
                   }
-                  <article class="hv2-card hv2-card-bases">
+                  <article class="hv2-card hv2-card-bases" [style.--stagger]="2">
                     <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.bases.kicker', { declared: declaredCount(), total: series()!.register.length }) }}</div>
                     <h3 class="hv2-card-title">{{ basesTitle() }}</h3>
                     @if (series()!.outside.length) {
@@ -424,9 +484,14 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                   <ck-chart-stream
                     fluid
                     [series]="costStreamSeries()"
+                    [dayLabels]="dayLabels()"
                     [weekendStarts]="view.weekendStarts"
                     [ticks]="streamTicks()"
                     [gridLabel]="moneyLabel"
+                    [hoverDay]="hoverDay()"
+                    [hoverSystem]="hoverSystem()"
+                    (dayHover)="onDayHover($event)"
+                    (systemHover)="onSystemHover($event)"
                   />
                 } @else {
                   <p class="hv2-muted">{{ factLabel(view.costTotal) }}</p>
@@ -523,6 +588,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                 [startLabel]="i18n.t('hypervisor.v2.journal.start')"
                 [endLabel]="i18n.t('hypervisor.v2.journal.end')"
                 [zeroLabel]="i18n.t('hypervisor.v2.journal.zero')"
+                [valueLabel]="pulseTip"
               />
             }
             <ul class="hv2-list">
@@ -576,8 +642,16 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
               </tr>
             </thead>
             <tbody>
-              @for (row of registerRows(); track row.systemId) {
-                <tr [class.hv2-row-outside]="row.outsideDenominator">
+              @for (row of registerRows(); track row.systemId; let i = $index) {
+                <tr
+                  [attr.data-system-id]="row.systemId"
+                  [class.hv2-row-outside]="row.outsideDenominator"
+                  [class.hv2-row-lit]="hoverSystem() === row.systemId"
+                  [class.hv2-row-flash]="flashSystem() === row.systemId"
+                  [style.--stagger]="i"
+                  (pointerenter)="onSystemHover(row.systemId)"
+                  (pointerleave)="onSystemHover(null)"
+                >
                   <td>
                     <div class="hv2-system">
                       <span class="hv2-glyph ck-mono" [attr.data-health]="row.health">{{ row.initials }}</span>
@@ -594,7 +668,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                     </td>
                   }
                   @if (showCol('spark')) {
-                    <td><ck-chart-mini-area [values]="row.weekSpark" [tone]="sparkTone(row)" [width]="84" [height]="24" /></td>
+                    <td><ck-chart-mini-area [values]="row.weekSpark" [tone]="sparkTone(row)" [width]="84" [height]="24" [valueLabel]="sparkTip" /></td>
                   }
                   @if (showCol('cost')) { <td class="ck-mono ck-tnum hv2-num">{{ formatFact(row.cost, 'currency') }}</td> }
                   @if (showCol('basis')) {
@@ -793,7 +867,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
       display: flex; justify-content: flex-end; font-size: 11px; color: var(--ck-fg-3);
       margin: -6px 0 14px; letter-spacing: 0.02em;
     }
-    .hv2-page { display: flex; flex-direction: column; gap: 36px; }
+    .hv2-page { display: flex; flex-direction: column; gap: 36px; position: relative; }
     .hv2-stratum { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 24px; align-items: start; }
     .hv2-body { min-width: 0; display: flex; flex-direction: column; gap: 0; }
     .hv2-leader { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
@@ -826,7 +900,8 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
     .hv2-provenance-teal { background: var(--ck-signal-cool); }
     .hv2-provenance-legend { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--ck-fg-2); }
     .hv2-teal { color: var(--ck-signal-cool); }
-    .hv2-peak-card { border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-panel); padding: 10px 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .hv2-peak-card { border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-panel); padding: 10px 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 6px; transition: background 120ms var(--ck-ease-out, ease-out); }
+    .hv2-peak-lit { background: var(--ck-bg-inset); }
     .hv2-peak-kicker { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ck-fg-3); display: flex; align-items: center; gap: 6px; }
     .hv2-dot-teal { width: 6px; height: 6px; border-radius: 50%; background: var(--ck-signal-cool); display: inline-block; }
     .hv2-peak-row { display: flex; align-items: baseline; gap: 8px; }
@@ -852,7 +927,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
     .hv2-card-legend { font-size: 10px; color: var(--ck-fg-3); white-space: nowrap; }
     .hv2-hors-title { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.3; color: var(--ck-fg-1); }
     .hv2-hors-list { display: flex; flex-direction: column; gap: 12px; }
-    .hv2-hors-row { display: flex; flex-direction: column; gap: 5px; }
+    .hv2-hors-row { display: flex; flex-direction: column; gap: 5px; padding: 4px 6px; margin: 0 -6px; border-radius: 6px; transition: background 120ms var(--ck-ease-out, ease-out); }
     .hv2-hors-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
     .hv2-hors-name { font-size: 12px; color: var(--ck-fg-1); }
     .hv2-hors-value { font-size: 11px; color: var(--ck-fg-1); white-space: nowrap; }
@@ -890,6 +965,23 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
     .hv2-glyph[data-health='warn'] { border-color: var(--ck-signal-warn); }
     .hv2-glyph[data-health='neg'] { border-color: var(--ck-signal-neg); }
     .hv2-row-focus { background: var(--ck-bg-inset); }
+    .hv2-table tbody tr { transition: background 120ms var(--ck-ease-out, ease-out); }
+    .hv2-row-lit { background: var(--ck-bg-inset); }
+    .hv2-row-flash { outline: 1px solid var(--ck-signal-cool); outline-offset: -1px; }
+    .hv2-enter .hv2-register tbody tr,
+    .hv2-enter .hv2-cards3 > .hv2-card {
+      animation: hv2FadeUp 400ms var(--ck-ease-out, ease-out) both;
+      animation-delay: calc(var(--stagger, 0) * 30ms);
+    }
+    @keyframes hv2FadeUp {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .hv2-enter .hv2-register tbody tr,
+      .hv2-enter .hv2-cards3 > .hv2-card { animation: none; }
+      .hv2-table tbody tr, .hv2-hors-row, .hv2-peak-card { transition: none; }
+    }
 
     .hv2-cards3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
     .hv2-cards3 .hv2-card { display: flex; flex-direction: column; gap: 10px; }
@@ -936,6 +1028,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
 })
 export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
+  private readonly host = inject(ElementRef<HTMLElement>);
   private readonly api = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
   private readonly route = inject(ActivatedRoute);
@@ -982,6 +1075,16 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly basisError = signal(false);
   readonly editingId = signal<string | null>(null);
   readonly draft = signal<BasisDraft | null>(null);
+  readonly hoverDay = signal<number | null>(null);
+  readonly hoverSystem = signal<string | null>(null);
+  readonly flashSystem = signal<string | null>(null);
+  readonly entering = signal(false);
+  readonly monumentValue = signal('');
+  readonly pageTipOpen = signal(false);
+  readonly pageTipTitle = signal('');
+  readonly pageTipLines = signal<CkChartTipLine[]>([]);
+  readonly pageTipX = signal(0);
+  readonly pageTipY = signal(0);
 
   readonly activeView = computed(() =>
     this.views().find((view) => view.id === this.activeViewId()) ?? this.views()[0] ?? null,
@@ -1017,9 +1120,174 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   /** Bound as properties so the chart primitives can call them without `this`. */
   readonly quantityLabel = (value: number): string => this.formatQuantity(value);
   readonly moneyLabel = (value: number): string => this.formatMoney(value, this.series()?.currency, 0);
+  readonly sparkTip = (value: number): string => this.i18n.t('hypervisor.v2.spark.tip', {
+    value: this.formatNumber(value, Math.abs(value) < 10 ? 1 : 0),
+  });
+  readonly pulseTip = (value: number, index: number): string => this.i18n.t('hypervisor.v2.pulse.tip', {
+    date: this.formatDate(this.series()?.dates[index]),
+    value: this.formatNumber(value, 0),
+  });
+
+  readonly radialDays = computed((): CkRadialDay[] => {
+    const view = this.series();
+    if (!view) return [];
+    this.i18n.locale();
+    return view.days.map((day) => {
+      const total = day.measured + day.declared;
+      const lines: CkChartTipLine[] = [
+        { label: this.i18n.t('hypervisor.v2.tip.label.total'), value: this.formatQuantity(total) },
+      ];
+      if (day.measured > 0) {
+        lines.push({
+          label: '',
+          value: this.i18n.t('hypervisor.v2.tip.measured', {
+            mark: MARK_MEASURED,
+            value: this.formatQuantity(day.measured),
+          }),
+        });
+      }
+      if (day.declared > 0) {
+        lines.push({
+          label: '',
+          value: this.i18n.t('hypervisor.v2.tip.declared', {
+            mark: MARK_DECLARED,
+            value: this.formatQuantity(day.declared),
+          }),
+        });
+      }
+      lines.push({ label: this.i18n.t('hypervisor.v2.tip.label.runs'), value: this.formatNumber(day.runs, 0) });
+      lines.push({ label: this.i18n.t('hypervisor.v2.tip.label.systems'), value: this.formatNumber(day.systems, 0) });
+      const title = this.formatDate(day.date, true);
+      return {
+        measured: day.measured,
+        declared: day.declared,
+        weekend: day.weekend,
+        dateLabel: title,
+        shortLabel: this.formatDate(day.date),
+        runs: day.runs,
+        systems: day.systems,
+        tip: { title, lines },
+        aria: [title, ...lines.map((line) => `${line.label} ${line.value}`.trim())].join(' · '),
+      };
+    });
+  });
+
+  readonly radialTicks = computed((): CkChartTick[] => {
+    this.i18n.locale();
+    return (this.series()?.ticks ?? [])
+      .filter((tick) => tick.kind === 'week')
+      .map((tick) => ({ index: tick.index, label: this.tickLabel(tick), anchor: 'middle' as const }));
+  });
+
+  readonly streamTicks = computed((): CkChartTick[] => {
+    this.i18n.locale();
+    return (this.series()?.ticks ?? []).map((tick) => ({
+      index: tick.index,
+      label: this.tickLabel(tick),
+      anchor: tick.anchor,
+    }));
+  });
+
+  readonly dayLabels = computed((): string[] => {
+    this.i18n.locale();
+    return (this.series()?.dates ?? []).map((date) => this.formatDate(date, true));
+  });
+
+  readonly streamSeries = computed((): CkStreamSeries[] => {
+    this.i18n.locale();
+    return (this.series()?.streams ?? []).map((row) => ({
+      id: row.systemId,
+      label: row.label,
+      detail: `${this.formatQuantity(row.total)} ${row.basisStatus === 'measured' ? MARK_MEASURED : MARK_DECLARED}`,
+      values: row.values,
+      tone: row.tone,
+    }));
+  });
+
+  readonly costStreamSeries = computed((): CkStreamSeries[] => {
+    this.i18n.locale();
+    return (this.series()?.costStreams ?? []).map((row) => ({
+      id: row.systemId,
+      label: row.label,
+      detail: this.formatMoney(row.total, this.series()?.currency, 0),
+      values: row.values,
+      tone: row.tone,
+    }));
+  });
+
+  readonly streamPeak = computed((): CkStreamPeak | null => {
+    const peak = this.series()?.peak;
+    if (!peak) return null;
+    this.i18n.locale();
+    return { index: peak.index, label: `${this.formatQuantity(peak.total)} · ${this.formatDate(peak.date)}` };
+  });
+
+  readonly sankeySources = computed((): CkSankeySource[] => {
+    const view = this.series();
+    if (!view) return [];
+    this.i18n.locale();
+    const byId = new Map(view.register.map((row) => [row.systemId, row]));
+    return view.sankey.map((row) => {
+      const register = byId.get(row.systemId);
+      const lines: CkChartTipLine[] = [
+        { label: this.i18n.t('hypervisor.v2.tip.label.runs'), value: `${this.formatNumber(row.runs, 0)} ${this.i18n.t('hypervisor.v2.unit.runs')}` },
+        { label: this.i18n.t('hypervisor.v2.tip.label.outcomes'), value: this.outcomeLabel(row) },
+      ];
+      const hours = availableNumber(register?.hours);
+      const value = availableNumber(register?.valueDeclared);
+      if (hours != null) {
+        lines.push({ label: this.i18n.t('hypervisor.v2.tip.label.hours'), value: this.formatQuantity(hours) });
+      }
+      if (value != null) {
+        lines.push({
+          label: this.i18n.t('hypervisor.v2.tip.label.value'),
+          value: this.formatMoney(value, register?.currency ?? view.currency, 0),
+        });
+      }
+      const basis = row.basisStatus && row.basisStatus !== 'none' ? row.basisStatus : 'none';
+      lines.push({
+        label: this.i18n.t('hypervisor.v2.tip.label.basis'),
+        value: this.i18n.t(`hypervisor.v2.register.basis_state.${basis}`),
+      });
+      return {
+        id: row.systemId,
+        label: row.label,
+        detail: `${this.formatNumber(row.runs, 0)} ${this.i18n.t('hypervisor.v2.unit.runs')}`,
+        value: row.runs,
+        ...(row.outsideDenominator ? { stubLabel: `${this.outcomeLabel(row)} ${MARK_NONE}` } : {}),
+        tip: { title: row.label, lines },
+      };
+    });
+  });
+
+  readonly sankeyMiddleTip = computed(() => {
+    const view = this.series();
+    if (!view) return null;
+    this.i18n.locale();
+    const converting = view.sankey.filter((row) => !row.outsideDenominator).length;
+    return {
+      title: this.sankeyMiddleLabel(),
+      lines: [{ label: this.i18n.t('hypervisor.v2.sankey.tip.aggregates', { count: converting }), value: '' }],
+    };
+  });
+
+  readonly sankeyRightTip = computed(() => {
+    const view = this.series();
+    if (!view) return null;
+    this.i18n.locale();
+    const converting = view.sankey.filter((row) => !row.outsideDenominator).length;
+    return {
+      title: this.sankeyRightLabel(),
+      lines: [{ label: this.i18n.t('hypervisor.v2.sankey.tip.aggregates', { count: converting }), value: '' }],
+    };
+  });
 
   private routeSub: Subscription | null = null;
   private lastSeries: HypervisorSeriesResponse | null = null;
+  private painted = false;
+  private enterTimer: ReturnType<typeof setTimeout> | null = null;
+  private flashTimer: ReturnType<typeof setTimeout> | null = null;
+  private monumentRaf = 0;
 
   ngOnInit(): void {
     this.routeSub = this.route.queryParamMap.subscribe((params) => {
@@ -1033,6 +1301,85 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.routeSub?.unsubscribe();
     this.workspaceView.destroy();
+    this.stopMonument();
+    if (this.enterTimer) clearTimeout(this.enterTimer);
+    if (this.flashTimer) clearTimeout(this.flashTimer);
+  }
+
+  onDayHover(index: number | null): void {
+    if (this.hoverDay() === index) return;
+    this.hoverDay.set(index);
+  }
+
+  onSystemHover(id: string | null): void {
+    if (this.hoverSystem() === id) return;
+    this.hoverSystem.set(id);
+  }
+
+  onSystemClick(id: string): void {
+    this.onSystemHover(id);
+    const row = this.host.nativeElement.querySelector(
+      `[data-testid="hypervisor-v2-register"] [data-system-id="${CSS.escape(id)}"]`,
+    );
+    if (!(row instanceof HTMLElement)) return;
+    row.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+    this.flashSystem.set(id);
+    if (this.flashTimer) clearTimeout(this.flashTimer);
+    this.flashTimer = setTimeout(() => {
+      if (this.flashSystem() === id) this.flashSystem.set(null);
+    }, 600);
+  }
+
+  onProvenanceTip(kind: 'measured' | 'declared', event: Event): void {
+    const title = kind === 'measured' ? this.provenanceMeasuredTip() : this.provenanceDeclaredTip();
+    this.showPageTip(title, event);
+  }
+
+  clearPageTip(): void {
+    this.pageTipOpen.set(false);
+  }
+
+  provenanceMeasuredTip(): string {
+    const view = this.series();
+    const prov = this.provenance();
+    if (!view || !prov) return '';
+    return this.i18n.t('hypervisor.v2.hero.provenance.measured_tip', {
+      mark: MARK_MEASURED,
+      pct: prov.measuredPct,
+      value: this.formatQuantity(view.measuredTotal),
+    });
+  }
+
+  provenanceDeclaredTip(): string {
+    const view = this.series();
+    const prov = this.provenance();
+    if (!view || !prov) return '';
+    return this.i18n.t('hypervisor.v2.hero.provenance.declared_tip', {
+      mark: MARK_DECLARED,
+      pct: prov.declaredPct,
+      value: this.formatQuantity(view.declaredTotal),
+    });
+  }
+
+  dotsTip(row: HypervisorRegisterRow): string {
+    return this.i18n.t('hypervisor.v2.hors.units_tip', {
+      count: this.outcomeCount(row),
+      n: this.unitsPerDot(),
+      unit: row.outputUnit ?? this.i18n.t('hypervisor.v2.unit.units'),
+    });
+  }
+
+  private showPageTip(title: string, event: Event): void {
+    const page = this.host.nativeElement.querySelector('.hv2-page');
+    const origin = page instanceof HTMLElement ? page : this.host.nativeElement;
+    const target = event.target instanceof HTMLElement ? event.target : origin;
+    const hostRect = origin.getBoundingClientRect();
+    const rect = target.getBoundingClientRect();
+    this.pageTipTitle.set(title);
+    this.pageTipLines.set([]);
+    this.pageTipX.set(rect.left + rect.width / 2 - hostRect.left);
+    this.pageTipY.set(rect.top - hostRect.top);
+    this.pageTipOpen.set(true);
   }
 
   @HostListener('document:keydown', ['$event'])
@@ -1200,65 +1547,10 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   // --- Charts -------------------------------------------------------------
 
-  radialDays(): CkRadialDay[] {
-    return (this.series()?.days ?? []).map((day) => ({
-      measured: day.measured,
-      declared: day.declared,
-      weekend: day.weekend,
-    }));
-  }
-
-  radialTicks(): CkChartTick[] {
-    return (this.series()?.ticks ?? [])
-      .filter((tick) => tick.kind === 'week')
-      .map((tick) => ({ index: tick.index, label: this.tickLabel(tick), anchor: 'middle' as const }));
-  }
-
-  streamTicks(): CkChartTick[] {
-    return (this.series()?.ticks ?? []).map((tick) => ({
-      index: tick.index,
-      label: this.tickLabel(tick),
-      anchor: tick.anchor,
-    }));
-  }
-
   rangeLabel(): string {
     const view = this.series();
     if (!view) return '';
     return `${this.formatDate(view.from)} → ${this.formatDate(view.to)}`;
-  }
-
-  streamSeries(): CkStreamSeries[] {
-    return (this.series()?.streams ?? []).map((row) => ({
-      label: row.label,
-      detail: `${this.formatQuantity(row.total)} ${row.basisStatus === 'measured' ? MARK_MEASURED : MARK_DECLARED}`,
-      values: row.values,
-      tone: row.tone,
-    }));
-  }
-
-  costStreamSeries(): CkStreamSeries[] {
-    return (this.series()?.costStreams ?? []).map((row) => ({
-      label: row.label,
-      detail: this.formatMoney(row.total, this.series()?.currency, 0),
-      values: row.values,
-      tone: row.tone,
-    }));
-  }
-
-  streamPeak(): CkStreamPeak | null {
-    const peak = this.series()?.peak;
-    if (!peak) return null;
-    return { index: peak.index, label: `${this.formatQuantity(peak.total)} · ${this.formatDate(peak.date)}` };
-  }
-
-  sankeySources(): CkSankeySource[] {
-    return (this.series()?.sankey ?? []).map((row) => ({
-      label: row.label,
-      detail: `${this.formatNumber(row.runs, 0)} ${this.i18n.t('hypervisor.v2.unit.runs')}`,
-      value: row.runs,
-      ...(row.outsideDenominator ? { stubLabel: `${this.outcomeLabel(row)} ${MARK_NONE}` } : {}),
-    }));
   }
 
   sankeyMiddleLabel(): string {
@@ -1738,6 +2030,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     const raw = this.lastSeries;
     if (!raw) return;
     this.series.set(projectSeries(raw, viewDenominator(this.activeView())));
+    this.syncMonument(false);
   }
 
   private reset(): void {
@@ -1747,6 +2040,12 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     this.recommendations.set([]);
     this.signals.set([]);
     this.editingId.set(null);
+    this.painted = false;
+    this.entering.set(false);
+    this.monumentValue.set('');
+    this.hoverDay.set(null);
+    this.hoverSystem.set(null);
+    this.stopMonument();
   }
 
   private reload(): void {
@@ -1791,7 +2090,59 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       this.decisions.set(bundle.decisions.items);
       this.signals.set(bundle.balance?.signals ?? []);
       this.loading.set(false);
+      const firstPaint = !this.painted && this.series() != null;
+      if (this.series()) this.painted = true;
+      this.syncMonument(firstPaint);
+      if (firstPaint) this.beginEntrance();
     });
+  }
+
+  private beginEntrance(): void {
+    if (prefersReducedMotion()) {
+      this.entering.set(false);
+      return;
+    }
+    this.entering.set(true);
+    if (this.enterTimer) clearTimeout(this.enterTimer);
+    this.enterTimer = setTimeout(() => this.entering.set(false), 1600);
+  }
+
+  private syncMonument(animate: boolean): void {
+    const mon = this.monument();
+    const raw = availableNumber(this.series()?.monument);
+    if (!mon || raw == null) {
+      this.stopMonument();
+      this.monumentValue.set(mon?.value ?? '');
+      return;
+    }
+    if (!animate || prefersReducedMotion()) {
+      this.stopMonument();
+      this.monumentValue.set(mon.value);
+      return;
+    }
+    this.beginCountUp(raw, mon.value, raw < 10 ? 1 : 0);
+  }
+
+  private beginCountUp(target: number, final: string, digits: number): void {
+    this.stopMonument();
+    this.monumentValue.set(this.formatNumber(0, digits));
+    const start = performance.now();
+    const step = (now: number): void => {
+      const t = (now - start) / 900;
+      if (t >= 1) {
+        this.monumentValue.set(final);
+        this.monumentRaf = 0;
+        return;
+      }
+      this.monumentValue.set(this.formatNumber(target * easeOutProgress(t), digits));
+      this.monumentRaf = requestAnimationFrame(step);
+    };
+    this.monumentRaf = requestAnimationFrame(step);
+  }
+
+  private stopMonument(): void {
+    if (this.monumentRaf) cancelAnimationFrame(this.monumentRaf);
+    this.monumentRaf = 0;
   }
 }
 

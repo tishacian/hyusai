@@ -59,6 +59,8 @@ const pureSpecs = [
   'src/app/shared/cockpit/cockpit-contrast.spec.ts',
   'src/app/shared/cockpit/yield-format.spec.ts',
   'src/app/shared/cockpit/charts/svg-path.spec.ts',
+  'src/app/shared/cockpit/charts/chart-interact.spec.ts',
+  'src/app/shared/cockpit/charts/sankey-layout.spec.ts',
   'src/app/shared/schema-builder/schema-builder.vm.spec.ts',
   'src/app/shared/ui/data-table.vm.spec.ts',
   'src/app/shared/ui/icon-registry.spec.ts',
