@@ -7,8 +7,12 @@ Usage:
 
 The script is deliberately idempotent and append-only for historical facts.
 It reconciles current configuration through new SystemVersions and never
-deletes the target workspace, Runs, Decisions, audits or previous versions.
-No customer data is used.
+deletes the target workspace, story Runs, Decisions, audits or previous
+versions. The one exception is the synthetic daily activity backfill
+(scripts/showcase_activity.py): runs flagged ``input_ref.showcase_activity``
+in this workspace are wiped and regenerated on every replay so the Hypervisor
+window stays populated without duplicating runs. Pass ``--skip-activity`` to
+leave it alone. No customer data is used.
 """
 from __future__ import annotations
 
@@ -79,6 +83,12 @@ from app.services.skill_invocation_snapshot import capture_skill_execution_evide
 from app.services.skills_registry import seed_skills_and_capabilities
 from app.services.systems import flow_publication
 from app.services.systems.bootstrap import ensure_workspace_chat_system_default
+from scripts.showcase_activity import (
+    DEFAULT_SEED,
+    DEFAULT_VOLUME_SCALE,
+    DEFAULT_WINDOW_DAYS,
+    backfill_showcase_activity,
+)
 
 SHOWCASE_SOURCE = "showcase_seed"
 SYSTEM360_AUDIT_EVENT_TYPE = "system.contract_risk.claims_audited"
@@ -127,6 +137,28 @@ CAPTURE_VALUE_BASIS = _declared_value_basis(
     value_per_unit=8.0,
     currency="EUR",
 )
+TENDER_VALUE_BASIS = _declared_value_basis(
+    unit="answer",
+    hours_per_unit=0.75,
+    value_per_unit=12.0,
+    currency="EUR",
+)
+HANA_VALUE_BASIS = _declared_value_basis(
+    unit="maintenance_brief",
+    hours_per_unit=0.4,
+    value_per_unit=18.0,
+    currency="EUR",
+)
+# The Hypervisor series joins System.capability_id -> Capability, and that
+# reference is not stable across seeds (seed_agentium_video_demo re-points
+# "Tender Response Analyst" to `video_tender_response`, which has no basis).
+# Bases are therefore keyed by System and written on whatever Capability the
+# System references at apply time; see apply_showcase_value_bases().
+SHOWCASE_VALUE_BASES_BY_SYSTEM: dict[str, dict[str, Any]] = {
+    "Tender Response Analyst": TENDER_VALUE_BASIS,
+    "SAP HANA Maintenance Copilot": HANA_VALUE_BASIS,
+    CAPTURE_SYSTEM_NAME: CAPTURE_VALUE_BASIS,
+}
 
 # Positive allowlist of the Lot 6-8 state that a seed refresh is allowed to
 # observe for change detection. Values are hashed into SystemVersion evidence;
@@ -575,12 +607,7 @@ CAPABILITIES = [
         "skill_slugs": ["llm_rag_answer_v1", "semantic_search_v1", "audit_log_v1"],
         "pricing": {"unit": "per_answer", "unit_price": 0.45, "currency": "EUR"},
         "value_per_outcome": 12.0,
-        "value_basis": _declared_value_basis(
-            unit="answer",
-            hours_per_unit=0.75,
-            value_per_unit=12.0,
-            currency="EUR",
-        ),
+        "value_basis": TENDER_VALUE_BASIS,
     },
     {
         "slug": "showcase_compliance_loop",
@@ -632,12 +659,7 @@ CAPABILITIES = [
         "skill_slugs": ["sap_hana_query_v1", "llm_rag_answer_v1"],
         "pricing": {"unit": "per_brief", "unit_price": 0.35, "currency": "EUR"},
         "value_per_outcome": 18.0,
-        "value_basis": _declared_value_basis(
-            unit="maintenance_brief",
-            hours_per_unit=0.4,
-            value_per_unit=18.0,
-            currency="EUR",
-        ),
+        "value_basis": HANA_VALUE_BASIS,
     },
 ]
 
@@ -669,6 +691,29 @@ def parse_args() -> argparse.Namespace:
         help="Demo persona provisioned as a workspace member so the documented smoke runs out of the box; set empty to skip",
     )
     parser.add_argument("--skip-ingest", action="store_true")
+    parser.add_argument(
+        "--skip-activity",
+        action="store_true",
+        help="Leave the synthetic daily activity backfill untouched",
+    )
+    parser.add_argument(
+        "--activity-window-days",
+        type=int,
+        default=DEFAULT_WINDOW_DAYS,
+        help="Days of synthetic activity to (re)generate, counted back from now",
+    )
+    parser.add_argument(
+        "--activity-volume",
+        type=float,
+        default=DEFAULT_VOLUME_SCALE,
+        help="Multiplier on per-System weekday base rates (1.0 ~ 50 runs per weekday)",
+    )
+    parser.add_argument(
+        "--activity-seed",
+        type=int,
+        default=DEFAULT_SEED,
+        help="RNG seed; same seed and window reproduce the same plan",
+    )
     return parser.parse_args()
 
 
@@ -689,10 +734,26 @@ def main() -> int:
         _maybe_configure_hana_connector(db, workspace)
         context = ensure_context(db, workspace, systems)
         knowledge = seed_knowledge_and_capture(db, workspace, skip_ingest=args.skip_ingest)
+        bases = apply_showcase_value_bases(db, workspace)
         doc_paths = write_docs(workspace.slug)
         if not args.skip_ingest:
             ingest_docs_best_effort(workspace.slug, doc_paths)
         seeded = seed_story(db, workspace, owner, systems, capabilities, context)
+        activity: dict[str, Any] = {"created_runs": 0, "wiped_runs": 0, "elapsed_seconds": 0.0}
+        if not args.skip_activity:
+            systems_by_name = {
+                system.name: system
+                for system in db.query(System).filter(System.workspace_id == workspace.id).all()
+            }
+            activity = backfill_showcase_activity(
+                db,
+                workspace,
+                systems_by_name,
+                window_days=args.activity_window_days,
+                seed=args.activity_seed,
+                volume_scale=args.activity_volume,
+            )
+            db.commit()
         seed_sharepoint_job(db, workspace)
         generate_proactive_recommendations(
             db,
@@ -706,6 +767,15 @@ def main() -> int:
         print(
             f"Showcase workspace ready: slug={workspace.slug} id={workspace.id} "
             f"systems={len(systems)} runs={seeded['runs']} evals={seeded['evals']}"
+        )
+        print(
+            "Value bases attached: "
+            + ", ".join(f"{name}->{slug or 'MISSING'}" for name, slug in bases.items())
+        )
+        print(
+            "Synthetic activity: "
+            f"created={activity['created_runs']} wiped={activity['wiped_runs']} "
+            f"in {activity['elapsed_seconds']}s"
         )
         print(
             "Knowledge baseline ready: "
@@ -1234,6 +1304,38 @@ def ensure_capabilities(db: DBSession, workspace: Workspace) -> dict[str, Capabi
         out[entry["slug"]] = cap
     db.commit()
     return out
+
+
+def apply_showcase_value_bases(db: DBSession, workspace: Workspace) -> dict[str, str | None]:
+    """Write each declared basis on the Capability its System actually references.
+
+    Returns ``{system_name: capability_slug | None}``. A one-off on the VM
+    should import and call this rather than writing bases by Capability slug:
+    the series endpoint converts through ``System.capability_id``, so a basis
+    on a Capability no System references converts nothing.
+    """
+    applied: dict[str, str | None] = {}
+    for system_name, basis in SHOWCASE_VALUE_BASES_BY_SYSTEM.items():
+        system = (
+            db.query(System)
+            .filter(System.workspace_id == workspace.id, System.name == system_name)
+            .one_or_none()
+        )
+        capability = (
+            db.get(Capability, system.capability_id)
+            if system is not None and system.capability_id
+            else None
+        )
+        if capability is None:
+            print(f"WARN: value basis for {system_name!r} not applied (System or Capability missing)")
+            applied[system_name] = None
+            continue
+        capability.value_basis = dict(basis)
+        capability.value_per_outcome = basis["value_per_unit"]
+        db.add(capability)
+        applied[system_name] = capability.slug
+    db.commit()
+    return applied
 
 
 def ensure_policies(db: DBSession, workspace: Workspace) -> dict[str, Any]:
@@ -3722,10 +3824,58 @@ def create_run_eval(
     started_at: datetime,
     value: float,
     cost: float,
+    decision: str = "answer",
+    trigger: str = "chat",
+    topic: str = "SLA and contract risk",
+    sources: list[dict[str, Any]] | None = None,
+    claims: list[str] | None = None,
+    flush: bool = True,
 ) -> tuple[Run, EvaluationScore]:
     completed = started_at + timedelta(seconds=2)
     score_id = str(uuid4())
     breach = bool(failed_components or composite < 70 or hallucination > 0.3)
+    if sources is None:
+        sources = [
+            {"filename": "sla-enterprise-policy.md"},
+            {"filename": "contract-risk-policy.md"},
+        ]
+    if claims is None:
+        claim_audit = {
+            "supported": 3 if not breach else 1,
+            "unsupported": 0 if not breach else 2,
+            "claims": [
+                {
+                    "claim": "Enterprise SLA is 99.9% uptime",
+                    "supported": not breach,
+                    "source": "sla-enterprise-policy.md",
+                },
+                {
+                    "claim": "Priority escalation is within four business hours",
+                    "supported": True,
+                    "source": "sla-enterprise-policy.md",
+                },
+                {
+                    "claim": "Trial workspaces inherit enterprise SLA",
+                    "supported": False if breach else True,
+                    "source": "sla-enterprise-policy.md",
+                },
+            ],
+        }
+    else:
+        # A breached answer carries exactly one unsupported claim (the first).
+        unsupported = 1 if breach and claims else 0
+        claim_audit = {
+            "supported": len(claims) - unsupported,
+            "unsupported": unsupported,
+            "claims": [
+                {
+                    "claim": claim,
+                    "supported": not (breach and idx == 0),
+                    "source": (sources[0].get("filename") if sources else None),
+                }
+                for idx, claim in enumerate(claims)
+            ],
+        }
     reasons = []
     if composite < 70:
         reasons.append(
@@ -3751,19 +3901,13 @@ def create_run_eval(
         system_id=system.id,
         capability_id=system.capability_id,
         input_ref={"query": query, "context_id": workspace.slug},
-        output_ref={
-            "response": response,
-            "sources": [
-                {"filename": "sla-enterprise-policy.md"},
-                {"filename": "contract-risk-policy.md"},
-            ],
-        },
+        output_ref={"response": response, "sources": sources},
         status="completed",
         started_at=started_at,
         completed_at=completed,
         duration_ms=1800 + int(cost * 1000),
-        trigger="chat",
-        decision="answer",
+        trigger=trigger,
+        decision=decision,
         confidence=max(0.1, min(0.99, composite / 100)),
         value_estimated=value,
         cost_internal=cost,
@@ -3782,7 +3926,7 @@ def create_run_eval(
         "reasons": reasons,
         "question_type": question_type,
         "failed_components": failed_components,
-        "topic": "SLA and contract risk",
+        "topic": topic,
         "evaluation_id": score_id,
         "evaluated_at": completed.isoformat(),
     }
@@ -3800,33 +3944,14 @@ def create_run_eval(
         drift_rate=0.0,
         question_type=question_type,
         failed_components=failed_components,
-        topic="SLA and contract risk",
-        claim_audit={
-            "supported": 3 if not breach else 1,
-            "unsupported": 0 if not breach else 2,
-            "claims": [
-                {
-                    "claim": "Enterprise SLA is 99.9% uptime",
-                    "supported": not breach,
-                    "source": "sla-enterprise-policy.md",
-                },
-                {
-                    "claim": "Priority escalation is within four business hours",
-                    "supported": True,
-                    "source": "sla-enterprise-policy.md",
-                },
-                {
-                    "claim": "Trial workspaces inherit enterprise SLA",
-                    "supported": False if breach else True,
-                    "source": "sla-enterprise-policy.md",
-                },
-            ],
-        },
+        topic=topic,
+        claim_audit=claim_audit,
         metadata_={"showcase_seed": True, "system": system.name},
         created_at=completed,
     )
     db.add_all([run, score])
-    db.flush()
+    if flush:
+        db.flush()
     return run, score
 
 
@@ -3920,6 +4045,9 @@ def create_translation_run(
     replay_overrides: Optional[dict[str, Any]] = None,
     blocked_topic: Optional[str] = None,
     replayed_topics: int = 0,
+    decision: str | None = None,
+    flush: bool = True,
+    with_invocations: bool = True,
 ) -> tuple[Run, EvaluationScore]:
     completed_at = started_at + timedelta(minutes=duration_minutes)
     score_id = str(uuid4())
@@ -3953,7 +4081,10 @@ def create_translation_run(
         trigger=trigger,
         parent_run_id=parent_run_id,
         replay_overrides=replay_overrides,
-        decision=verdict,
+        # The story keeps the domain verdict as decision; the activity backfill
+        # passes an outcome decision (approved/partial/...) so the Hypervisor
+        # counts it, while output_ref/checkpoints still carry the verdict.
+        decision=decision or verdict,
         confidence=confidence,
         value_estimated=value,
         cost_internal=cost,
@@ -4032,14 +4163,16 @@ def create_translation_run(
         created_at=completed_at,
     )
     db.add_all([run, score])
-    db.flush()
-    seed_translation_invocations(
-        db,
-        run,
-        verdict=verdict,
-        blocked_topic=blocked_topic,
-        replayed_topics=replayed_topics,
-    )
+    if flush:
+        db.flush()
+    if with_invocations:
+        seed_translation_invocations(
+            db,
+            run,
+            verdict=verdict,
+            blocked_topic=blocked_topic,
+            replayed_topics=replayed_topics,
+        )
     return run, score
 
 
