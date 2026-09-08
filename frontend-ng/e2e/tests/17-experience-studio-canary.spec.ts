@@ -318,7 +318,10 @@ test.describe('US-8 — Experience Studio lifecycle canary', () => {
 
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto('/create/apps/new');
-      await expect(page.locator('app-experience-wizard')).toBeVisible();
+      // The wizard paints itself as a fixed full-screen overlay, so its Angular
+      // host element wraps nothing in flow and has no box of its own. Assert on
+      // the overlay, which is what the reader actually sees.
+      await expect(page.locator('app-experience-wizard .xp-wizard')).toBeVisible();
       const selectedPattern = page.locator('[role="radio"][aria-checked="true"]').first();
       await selectedPattern.focus();
       await page.keyboard.press('ArrowRight');

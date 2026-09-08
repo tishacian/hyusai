@@ -323,10 +323,33 @@ async function selectLens(page: Page, lens: Lens, systemId: string, facet: Facet
   ).toBeVisible();
 }
 
+const zoneLabels: Record<Lens, string> = {
+  build: 'CREATE',
+  operate: 'OPERATE',
+  steer: 'STEER',
+  govern: 'GOVERN',
+};
+
+/**
+ * The object header carries two different claims and only one of them is an
+ * invariant. Its first line is the zone chapeau — `… · VIEWED FROM <ZONE>` —
+ * which names the zone the reader is looking from, so it *must* follow the
+ * lens. Everything under it is the object's own identity, which must not move
+ * when the lens does. Splitting them lets each be asserted for what it is.
+ */
+async function headerParts(page: Page): Promise<{ zone: string; identity: string }> {
+  const lines = (await page.locator('app-system-view ck-object-header header').innerText())
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const [zone = '', ...identity] = lines;
+  return { zone: normalizeText(zone), identity: normalizeText(identity.join(' ')) };
+}
+
 async function chromeSignature(page: Page): Promise<Record<string, unknown>> {
   const tabs = page.getByRole('tablist', { name: 'System facets' }).getByRole('tab');
   return {
-    header: normalizeText(await page.locator('app-system-view ck-object-header header').innerText()),
+    header: (await headerParts(page)).identity,
     breadcrumb: normalizeText(await page.locator('app-semantic-zoom-breadcrumb').innerText()),
     tabs: (await tabs.allTextContents()).map(normalizeText),
   };
@@ -499,6 +522,9 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
       // after a lens switch; poll so the invariant is compared once the chrome
       // has settled rather than racing the semantic-zoom renderer.
       await expect.poll(() => chromeSignature(page)).toEqual(invariantChrome);
+      await expect
+        .poll(async () => (await headerParts(page)).zone)
+        .toContain(zoneLabels[lens]);
       const expectedBlocks = payloads[lens].facets.overview.blocks.map((block) => block.id).sort();
       const renderedBlocks = await page
         .locator('#ck-tabpanel-overview app-system-perspective article[data-block-id]')
