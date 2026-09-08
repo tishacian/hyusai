@@ -5502,3 +5502,90 @@ dépasse.
 | `build-info` | backend et frontend `revision: f1e0c5de0495…`, `revision_verified: true` |
 | Audit VM après bascule | mêmes 16 vues en 1366×768 et 1280×720 : toutes tiennent, jauge visible ; vidéo et captures dans les artefacts de l'itération |
 | Rollback | `AGENTIUM_IMAGE_TAG=f371d059b8a6` puis `up` |
+
+## Itération du 08/09 — navigation v5 « une échelle par axe » (Lot 6), déployée sur `02744cd8`
+
+Le lecteur avait trois façons de changer d'échelle et aucun moyen de savoir
+laquelle il tenait : rail, fil d'Ariane et onglets bougeaient les mêmes axes.
+Chaque contrôle répond désormais à une seule question — le rail « quelle
+zone », le fil d'Ariane « quel objet », les `ck-tabs` « quelle facette » — et
+l'URL le redit par `?lens=`, le chemin et `?facet=`. Tout lien en page passe
+par le catalogue (`NavLink`, `ck-back-link`) au lieu d'une route écrite à la
+main, donc un lien ne peut plus perdre silencieusement la zone ou l'ascendance
+d'où il a été ouvert. Contrat :
+[`agentium-navigation-lot-6-one-scale-per-axis.md`](../agentium-navigation-lot-6-one-scale-per-axis.md).
+
+**La tranche a été écrite sur une base du 26/08 et rebasée de 154 commits.**
+C'est l'essentiel du travail d'intégration, et trois arbitrages méritent
+d'être écrits :
+
+- **H3 contre Lot 6 sur le catalogue.** `97e1ea94` avait fusionné Data et
+  Models en une entrée « Data & Models » à l'intérieur des trois catalogues
+  par flag (`v4Sections`, `legacySections`, `experienceSections`) que Lot 6
+  supprime. La décision structurelle de Lot 6 est conservée — un seul jeu de
+  sections par zone — et l'entrée unique de H3 y est portée. Le test upstream
+  qui gardait cet invariant est réécrit sur `build.sections` seul.
+- **`sectionGroupLabel` et `nav.group.*` restent supprimés.** Ils ne
+  servaient que dans `experienceSections` ; leur retrait n'annule pas H3.
+- **`agentium-reference.md` était un add/add.** La version upstream (310
+  lignes : identité, lexique, surfaces, plateforme Experience) est gardée, la
+  grammaire v5 y est insérée en `### 6.1`, et le littéral attendu par
+  `product-compliance.v1.json` réaligné. Même logique sur `mental-model.md` :
+  les définitions upstream (Studio, `ExperienceBinding`, lexique Desk/Board)
+  sont préservées, la formulation Lot 6 des trois contrôles s'y ajoute.
+
+**Vingt liens bruts sont arrivés avec upstream** et ne pouvaient pas être
+migrés avant le rebase : la page connecteur MCP (`f07fbc6d`) et les liens
+croisés data ↔ models de H3 n'existaient pas sur la base de départ. Migrés
+sur la même grammaire ; `PipelineHop.link` porte un `NavLinkInput` au lieu
+d'un tableau de segments. Le Studio PR to PO est **catalogué** (`work-pr-to-po`)
+plutôt qu'exempté, parce que la page MCP le nomme comme destination ; seul le
+redirect retiré `/work/pr-to-po/desk` est une exemption nommée.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Gates | `build:prod` 30 s, 0 erreur ; unitaires **1371 verts** ; backend 53 verts (audit navigation + `workspace_features`) ; `check:nav-links --fail-closed` **0 lien brut** (allowlist 63) ; `check:i18n` 7193 clés / 24 règles ; `check:ui-chrome` OK ; `agentium_compliance.py --check` 19/22 statiques, inchangé |
+| Réserve sur les gates | disque du poste saturé (< 1 Go) : `npm run test:unit` échoue en une passe sur `no space left on device`, la suite a été jouée en 12 lots (même runner, mêmes 144 specs, empreinte temporaire réduite). À rejouer en une passe une fois le disque libéré |
+| Worktree | `sudo git fetch origin demo/agentic && git merge --ff-only FETCH_HEAD` → `02744cd808b9…`, `status --porcelain` vide |
+| Build | `agentium-{backend,worker,frontend}:02744cd808b9`, `AGENTIUM_IMAGE_REVISION` = SHA complet ; le Dockerfile frontend ne consomme pas `PIP_INDEX_URL`/`USER_UID`/`USER_GID` (avertissement attendu) |
+| `storage-check` / `migrate` / `up` | sortie 0 ; **aucune révision Alembic** (front + audit only), §5 sautée, pas de fenêtre de dump ; cinq services recréés, backend et frontend `healthy` |
+| `build-info` | `revision: 02744cd808b91d0f61f342aebbc5f8b3b939fd0d`, `revision_verified: true` ; `/` en 200 ; 0 `traceback`/`exception` dans les logs backend sur 5 min |
+| Canaris carakai | checkout avancé `fb62edba` → `02744cd8` par bundle incrémental (sha256 `85b37ad75fb2290f6e0f6f2522db0c42c105e8c2e6242a3acd0212ad42d47a58` identique des deux côtés, `cat-file -e` positif), marqueur `.agentium-source-sha` réaligné — il était resté à `fb62edba`. Symlink `node_modules` inchangé (`frontend-deps-cfded9c9…`, lock du candidat = `cfded9c9…`, `npm ci` non rejoué). **5 passed / 3 failed** en 1,3 min, artefacts `/tmp/iteration-canaries-20260908T065956Z.OOaqqk`. Même compte que la baseline, mais **deux signatures sur trois ont bougé** — relecture ci-dessous |
+| Rollback | `AGENTIUM_IMAGE_TAG=f1e0c5de0495` puis `up` |
+
+### Les trois canaris rouges, relus un par un
+
+Le compte est stable depuis `6d15e521` (5/3) mais la description reportée
+d'itération en itération ne l'était plus. Deux des trois échouent ailleurs.
+
+- **11 — System 360.** Le test fige la signature du chrome sous `?lens=build`,
+  puis exige qu'elle soit identique après chaque bascule de lentille. Lot 6
+  ajoute `nav.eyebrow.from_zone` (`{type} · VIEWED FROM {zone}`) : l'en-tête
+  nomme maintenant la zone d'où l'on regarde, donc il **doit** changer entre
+  Create et Operate. Reçu `VIEWED FROM OPERATE` là où l'invariant gelé disait
+  `CREATE`. C'est le contrat du test qui est périmé, pas l'objet : l'invariant
+  doit porter sur l'identité de l'objet — fil d'Ariane, onglets, révision — et
+  exclure le chapeau de zone. À noter que 11 était **déjà rouge** avant la
+  bascule, sur le rail `Build` absent sous `experience_v1` ; Lot 6 fait passer
+  cette assertion, le test va plus loin et trébuche sur l'invariant. Correctif
+  attendu côté spec, hors tranche.
+- **16 — `/work`.** Signature **inchangée** : `GET /work` ne renvoie aucune
+  Experience Pilot/In-service. Condition de données, hors axe navigation.
+- **17 — Studio.** `app-experience-wizard` existe et son contenu est rendu
+  (les six gabarits sont dans l'arbre d'accessibilité, « Form » coché), mais
+  l'élément **hôte** est rapporté `hidden` à 1440×900 — donc bien avant
+  l'assertion 320 px que ce journal citait jusqu'ici. Ni le spec ni
+  `studio.scss` n'ont bougé dans la fenêtre des 170 commits, et la seule
+  retouche Lot 6 du wizard est un remplacement de liens (`RouterLink` →
+  `NavLink`, surface `create-apps` bien cataloguée). En amont dans la même
+  fenêtre : `99c677ec` « Let wide Agentium screens scroll horizontally inside
+  the shell » et `5862309d` sur la chaîne de zoom de la title-bar, tous deux sur
+  l'overflow du shell — piste la plus probable pour un hôte sans boîte de
+  layout. **Attribution non prouvée** : mesurer `getBoundingClientRect()` de
+  l'hôte sur le DOM vif avant de corriger.
+
+Rappel de méthode : un `fetch origin` qui sort en 0 sur le dépôt du runner ne
+prouve rien (son `origin` est un bundle `/tmp` périssable). Vérifier
+`cat-file -e <sha40>` **et** le marqueur avant de lancer les canaris.
