@@ -5789,3 +5789,67 @@ correspond au commentaire du script — à autoriser séparément. Réparer les
 deux graphes (`flow_output_sink_required` sur Contract Risk live, branche
 `escalate` du Tender seedé) est l'autre voie si l'on veut que le seed
 complet redevienne exécutable.
+
+## Itération du 08/09 (soir, suite) — one-off activité 90 jours, **sans** rejeu du seed
+
+Le seed complet reste arrêté. One-off unique dans le backend servi, fichier
+`/tmp/showcase_activity_backfill_oneoff.py` (scp → `docker cp` →
+`sudo docker exec -w /app/backend agentium-backend python /tmp/…`). Il ouvre
+`SessionLocal` comme le seed, charge `agentium-showcase`, construit
+`systems_by_name` depuis les Systems du workspace, appelle
+`backfill_showcase_activity` (qui wipe d'abord ses propres lignes
+`input_ref.showcase_activity` — 0 ce soir) puis `apply_showcase_value_bases`,
+commit. **Pas** de `ensure_systems` / `reconcile_system_flow` / `seed_story` /
+`ensure_member` / `seed_agentium_video_demo`. Aucun fichier du dépôt n'a été
+modifié pour ce pas. Images inchangées (`4efd57c0abd4`). Pas de rebuild, pas
+de bascule.
+
+Avant : Showcase **50** runs, `showcase_activity` **0**, autres workspaces
+**2 337**. Après : **3 574** / **3 524** / **2 337**. Sortie one-off :
+`WIPED=0 CREATED=3524` en 3,6 s, seed `20260908`, fenêtre
+`2026-06-11..2026-09-08`, pic `2026-08-31`, stale HANA 14 j. Par System :
+Knowledge Capture 1 216, Tender 919, Contract Risk 623, HANA 375, Compliance
+263, Translation 128. Bases : Tender → `video_tender_response`, HANA →
+`showcase_hana_maintenance`, Knowledge Capture → `expert_knowledge_capture`.
+
+SQL (même voie, `started_at` — la table `runs` n'a pas de `created_at`) :
+min `2026-06-11 07:08:49`, max `2026-09-08 16:42:50`, span 89 jours, HANA
+14 j = **0**, autres workspaces **2 337**.
+
+`GET /hypervisor/series?window=30d` (principal Showcase
+`thibaud.ishacian@datategy.net` ; `alice@acme.test` / `alice-demo` → 401) :
+**6** Systems, seaux journaliers. Heures `available` : Knowledge Capture
+**774 h** / 413 runs / €131 ; Tender **216 h** / 322 / €148,42 ; HANA
+**28,8 h** / 79 / €19,29, `days_since_last_run=14`. Témoins
+`not_configured` : Contract Risk 220 / €131,38 ; Compliance 106 / €81,20 ;
+Translation 47 / €1 134,82. `GET /hypervisor/value-bases` : **quatre**
+bases `declared` EUR (les trois convertissantes + reliquat de l'après-midi
+sur `showcase_tender_response`, que Tender ne référence plus). Fenêtre
+Direction 90 j (la page live) : 8 Systems, monument **3 008 h**, coût
+mesuré **€6 300**, valeur déclarée **≈ €25,5 k**, HANA toujours à 14 j.
+
+Canaris carakai : checkout `c20fbdc9` → `4efd57c0` par bundle incrémental
+`c20fbdc9..demo/agentic` (sha256
+`1f112d9bfc7822c397a865b8dd6ac037a6357d884889c94d335f9c514a78c188`
+identique des deux côtés, `cat-file -e` positif), marqueur réaligné,
+`node_modules` inchangé (`frontend-deps-cfded9c9…`). Specs 20, 11, 17,
+`E2E_HYPERVISOR_V2_CANARY=1`. **2 passed / 1 failed** en 51,7 s,
+artefacts `/tmp/iteration-canaries-20260908T173131Z.txCnTe`. **20** vert
+(6,7 s). **11** vert (13,9 s). **17** rouge, signature inchangée : axe
+`color-contrast` (serious) en thème clair seulement, sur
+`.is-on[aria-current="page"][type="button"]` et `.xp-tag-warn` (FR/EN ×
+desktop/456/320). Spec intouchée.
+
+Captures live (Playwright `/tmp/hypervisor-live-shots.mjs` sur carakai,
+admin Showcase, 1440 px, pleine page) copiées sur le poste :
+`/tmp/hyperviseur/live/{synthese,registre,decisions,bases}-{light,dark}.png`.
+Synthèse : radial dense (91 rais, un par jour), trois rubans Sankey vers
+le résultat en heures (Knowledge Capture, Tender, HANA), HANA est le
+signal stale (trou en fin de cadran / sparkline plate), totaux réalistes
+(3 008 h, €6 300 / ≈ €25,5 k, Ratio ×4). Noms Sankey parfois ellipsés ;
+pas de date ISO brute, pas de `$`, pas de « ROI ».
+
+**Défaut ouvert, inchangé.** Le rejeu complet du seed Showcase reste
+bloqué par deux graphes invalides : Contract Risk live
+`flow_output_sink_required`, Tender seedé `decision_branch_unwired` sur
+`escalate`. Le one-off ne les a pas touchés.
