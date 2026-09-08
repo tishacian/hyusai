@@ -467,6 +467,9 @@ export class WorkspaceService {
       && (features as Record<string, unknown>)['experience_v1'] === true,
     );
   });
+  readonly hypervisorV2Enabled = computed(() =>
+    workspaceSettingFeature(this.current(), 'hypervisor_v2'),
+  );
   /** Studio can roll out independently; absence preserves the pre-split flag. */
   readonly experienceStudioV1Enabled = computed(() => {
     const features = this.current()?.settings?.['features'];

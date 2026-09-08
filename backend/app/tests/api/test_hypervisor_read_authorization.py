@@ -436,3 +436,123 @@ def test_recommendation_generation_exact_enforce_denies_non_admin(
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "WORKSPACE_PERMISSION_DENIED"
     assert called is False
+
+
+def test_series_aggregates_only_readable_runs(
+    db_session,
+    attest_authorization_v2,
+):
+    seeded = _seed(db_session)
+    workspace = seeded["workspace"]
+    config = _config(
+        db_session,
+        workspace=workspace,
+        user=seeded["admin"],
+        modes={"run.read": "enforce"},
+    )
+    attest_authorization_v2(config, ["run.read"])
+    db_session.commit()
+
+    contributor = _client(db_session, workspace, seeded["contributor"]).get(
+        "/hypervisor/series",
+        params={"window": "30d"},
+    )
+    assert contributor.status_code == 200
+    body = contributor.json()
+    assert body["authorization_scope"] == {
+        "resource": "run",
+        "action": "read",
+        "aggregation": "post_authorization_filter",
+        "counts_include_only_readable_runs": True,
+    }
+    assert [row["system_id"] for row in body["systems"]] == [
+        "system-hypervisor-read-authz"
+    ]
+    assert sum(bucket["runs"]["value"] for bucket in body["systems"][0]["buckets"]) == 1
+    assert sum(
+        bucket["cost"]["value"]
+        for bucket in body["systems"][0]["buckets"]
+        if bucket["cost"]["state"] == "available"
+    ) == 1.0
+    assert seeded["private_run"].id not in contributor.text
+    assert "PRIVATE RUN ERROR" not in contributor.text
+
+    reviewer = _client(db_session, workspace, seeded["reviewer"]).get(
+        "/hypervisor/series",
+        params={"window": "30d"},
+    )
+    assert reviewer.status_code == 200
+    assert sum(
+        bucket["runs"]["value"] for bucket in reviewer.json()["systems"][0]["buckets"]
+    ) == 3
+
+
+def test_value_bases_follow_workspace_catalog_visibility(db_session):
+    seeded = _seed(db_session)
+    foreign = Capability(
+        id="cap-hypervisor-foreign",
+        workspace_id="ws-hypervisor-read-authz-foreign",
+        slug="hypervisor_foreign_cap",
+        name="FOREIGN CAPABILITY SECRET",
+        tier="client",
+    )
+    db_session.add(foreign)
+    db_session.commit()
+
+    response = _client(db_session, seeded["workspace"], seeded["contributor"]).get(
+        "/hypervisor/value-bases"
+    )
+    assert response.status_code == 200
+    ids = {item["capability_id"] for item in response.json()["items"]}
+    assert seeded["workspace"].id
+    assert "cap-hypervisor-read-authz" in ids
+    assert "cap-hypervisor-foreign" not in ids
+    assert "FOREIGN CAPABILITY SECRET" not in response.text
+
+
+def test_views_default_for_members_and_put_is_admin_only(db_session):
+    seeded = _seed(db_session)
+    workspace = seeded["workspace"]
+    contributor = _client(db_session, workspace, seeded["contributor"])
+    admin = _client(db_session, workspace, seeded["admin"])
+
+    defaults = contributor.get("/hypervisor/views")
+    assert defaults.status_code == 200
+    assert defaults.json()["can_edit"] is False
+    assert [view["id"] for view in defaults.json()["views"]] == [
+        "direction",
+        "operations",
+        "conformite",
+    ]
+
+    denied = contributor.put(
+        "/hypervisor/views",
+        json={"views": defaults.json()["views"]},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "WORKSPACE_PERMISSION_DENIED"
+    assert (workspace.settings or {}).get("hypervisor_views") is None
+
+    custom = [
+        {
+            "id": "direction",
+            "label": "Direction",
+            "denominator": "value",
+            "period": "30d",
+            "strata": {
+                "comprendre": ["monument"],
+                "detailler": ["registre"],
+                "decider": ["signal"],
+            },
+            "register_columns": ["cost", "value"],
+            "sort": "cost",
+        }
+    ]
+    written = admin.put("/hypervisor/views", json={"views": custom})
+    assert written.status_code == 200
+    assert written.json()["can_edit"] is True
+    assert written.json()["views"] == custom
+    reread = contributor.get("/hypervisor/views")
+    assert reread.json()["views"] == custom
+    assert reread.json()["can_edit"] is False
+    assert admin.get("/hypervisor/views").json()["can_edit"] is True
