@@ -261,7 +261,7 @@ interface BasisDraft {
             @if (showStratum('detailler') && showBlock('detailler', 'registre')) {
               <section data-testid="hypervisor-v2-stratum-detailler">
                 <h2 class="ck-mono hv2-stratum"><ck-glyph name="table" [size]="12" /> {{ i18n.t('hypervisor.v2.stratum.detailler') }}</h2>
-                <ng-container [ngTemplateOutlet]="registerTpl"></ng-container>
+                <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register' }"></ng-container>
               </section>
             }
             @if (showStratum('decider')) {
@@ -277,7 +277,7 @@ interface BasisDraft {
         <ck-tab id="registre" [label]="i18n.t('nav.facet.registre')">
           <section>
             @if (series()) {
-              <ng-container [ngTemplateOutlet]="registerTpl"></ng-container>
+              <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register-registre' }"></ng-container>
             } @else {
               <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
             }
@@ -295,7 +295,7 @@ interface BasisDraft {
                   [ticks]="view.ticks"
                 />
               </article>
-              <ng-container [ngTemplateOutlet]="registerTpl"></ng-container>
+              <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register-couts' }"></ng-container>
             } @else {
               <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
             }
@@ -337,8 +337,8 @@ interface BasisDraft {
       }
     </ck-page-frame>
 
-    <ng-template #registerTpl>
-      <article class="ck-surface hv2-card ck-h-scroll" data-testid="hypervisor-v2-register">
+    <ng-template #registerTpl let-testid="testid">
+      <article class="ck-surface hv2-card ck-h-scroll" [attr.data-testid]="testid">
         <h3 class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.block.registre') }}</h3>
         @if (registerRows().length === 0) {
           <p class="hv2-muted">{{ i18n.t('hypervisor.v2.register.empty') }}</p>

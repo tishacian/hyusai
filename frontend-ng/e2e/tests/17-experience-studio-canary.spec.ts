@@ -169,7 +169,9 @@ async function checkMobileAuthoringShell(
 async function checkMobileEditor(page: Page, editorPath: string, width: 320 | 456): Promise<void> {
   await page.setViewportSize({ width, height: 720 });
   await page.goto(editorPath);
-  await expect(page.locator('app-experience-editor')).toBeVisible();
+  // Same contract as the wizard: the Studio paints a fixed overlay, so the
+  // Angular host wraps nothing in flow and has no box. Assert the overlay.
+  await expect(page.locator('app-experience-editor .xp-ed')).toBeVisible();
   await expectNoPageOverflow(page, width);
   await expectContained(page.locator('.xp-ed'), width);
   await expectContained(page.locator('.xp-ed-chrome'), width);
@@ -413,7 +415,7 @@ test.describe('US-8 — Experience Studio lifecycle canary', () => {
         page,
         testInfo,
         path: editorPath,
-        readySelector: 'app-experience-editor',
+        readySelector: 'app-experience-editor .xp-ed',
         surface: 'studio',
       });
       await page.setViewportSize({ width: 1440, height: 900 });
