@@ -34,6 +34,7 @@ class Capability(Base):
     # Economics — fully configurable per workspace.
     pricing = Column(JSON, default=lambda: {"unit": "per_outcome", "unit_price": 0.0, "currency": "USD"})
     value_per_outcome = Column(Float, nullable=True)
+    value_basis = Column(JSON, nullable=True)
     confidence_threshold = Column(Float, nullable=True)
     sla = Column(JSON, default=dict)
     roi_model = Column(JSON, default=dict)

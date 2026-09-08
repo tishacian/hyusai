@@ -1027,6 +1027,100 @@ export interface HypervisorBalance {
   signals: HypervisorSignal[];
 }
 
+export type HypervisorSeriesWindow = '30d' | '90d';
+export type HypervisorViewDenominator = 'hours' | 'units' | 'value';
+export type HypervisorValueBasisStatus = 'declared' | 'measured' | 'none';
+
+export interface HypervisorSeriesFact {
+  state: PortfolioEvidenceState;
+  value: number | null;
+  unit?: string;
+}
+
+export interface HypervisorValueBasis {
+  unit: string | null;
+  hours_per_unit: number | null;
+  value_per_unit: number | null;
+  currency: string | null;
+  declared_by: string | null;
+  declared_at: string | null;
+  status: HypervisorValueBasisStatus;
+  note: string | null;
+}
+
+export interface HypervisorSeriesBucket {
+  date: string;
+  runs: HypervisorSeriesFact;
+  outcomes: HypervisorSeriesFact;
+  cost: HypervisorSeriesFact;
+  hours: HypervisorSeriesFact;
+  value_declared: HypervisorSeriesFact;
+}
+
+export interface HypervisorSeriesSystem {
+  system_id: string;
+  capability_id: string | null;
+  name: string;
+  output_unit: string | null;
+  value_basis: HypervisorValueBasis | null;
+  days_since_last_run: HypervisorSeriesFact;
+  buckets: HypervisorSeriesBucket[];
+}
+
+export interface HypervisorSeriesResponse {
+  window: HypervisorSeriesWindow;
+  from: string;
+  to: string;
+  authorization_scope: {
+    resource: string;
+    action: string;
+    aggregation: string;
+    counts_include_only_readable_runs: boolean;
+  };
+  systems: HypervisorSeriesSystem[];
+}
+
+export interface HypervisorValueBasisItem {
+  capability_id: string;
+  slug: string;
+  name: string;
+  tier?: string | null;
+  industry?: string | null;
+  input_unit?: string | null;
+  output_unit?: string | null;
+  value_per_outcome?: number | null;
+  value_basis: HypervisorValueBasis | null;
+  systems?: Array<{ system_id: string; name: string }>;
+}
+
+export interface HypervisorValueBasisUpdate {
+  unit: string;
+  hours_per_unit: number | null;
+  value_per_unit: number | null;
+  currency: string;
+  status: HypervisorValueBasisStatus;
+  note?: string | null;
+}
+
+export interface HypervisorNamedView {
+  id: string;
+  label: string;
+  denominator: HypervisorViewDenominator;
+  period: string;
+  strata: {
+    comprendre: string[];
+    detailler: string[];
+    decider: string[];
+  };
+  register_columns: string[];
+  sort: string;
+}
+
+export interface HypervisorViewsPayload {
+  views: HypervisorNamedView[];
+  can_edit: boolean;
+}
+
 export type PortfolioEvidenceState =
   | 'available'
   | 'not_measured'
@@ -2285,6 +2379,47 @@ export class CanonicalApiService {
     return this.api
       .get<HypervisorBalance>('/hypervisor/balance-sheet', { period })
       .pipe(catchError(() => of(null)));
+  }
+
+  hypervisorSeries(window: HypervisorSeriesWindow = '30d'): Observable<HypervisorSeriesResponse | null> {
+    return this.api
+      .get<HypervisorSeriesResponse>('/hypervisor/series', { window })
+      .pipe(catchError(() => of(null)));
+  }
+
+  hypervisorValueBases(): Observable<HypervisorValueBasisItem[]> {
+    return this.api
+      .get<{ items: HypervisorValueBasisItem[] }>('/hypervisor/value-bases')
+      .pipe(
+        map((r) => r?.items ?? []),
+        catchError(() => of([] as HypervisorValueBasisItem[])),
+      );
+  }
+
+  getCapabilityValueBasis(id: string): Observable<HypervisorValueBasisItem | null> {
+    return this.api
+      .get<HypervisorValueBasisItem>(`/capabilities/${encodeURIComponent(id)}/value-basis`)
+      .pipe(catchError(() => of(null)));
+  }
+
+  putCapabilityValueBasis(
+    id: string,
+    body: HypervisorValueBasisUpdate,
+  ): Observable<HypervisorValueBasisItem> {
+    return this.api.put<HypervisorValueBasisItem>(
+      `/capabilities/${encodeURIComponent(id)}/value-basis`,
+      body,
+    );
+  }
+
+  hypervisorViews(): Observable<HypervisorViewsPayload | null> {
+    return this.api
+      .get<HypervisorViewsPayload>('/hypervisor/views')
+      .pipe(catchError(() => of(null)));
+  }
+
+  putHypervisorViews(views: HypervisorNamedView[]): Observable<HypervisorViewsPayload> {
+    return this.api.put<HypervisorViewsPayload>('/hypervisor/views', { views });
   }
 
   hypervisorValueLoop(): Observable<PortfolioValueLoop> {

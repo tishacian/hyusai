@@ -4,11 +4,12 @@ The seed catalog (5-10 universal capabilities) is provisioned by the
 `skills_registry.seed_capabilities()` helper at startup and exposed here
 as `/catalog`. Workspaces can override pricing / value / SLA.
 """
+from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
@@ -78,6 +79,108 @@ class CapabilityUpdate(BaseModel):
     confidence_threshold: Optional[float] = None
     sla: Optional[Dict[str, Any]] = None
     roi_model: Optional[Dict[str, Any]] = None
+
+
+class ValueBasis(BaseModel):
+    unit: Optional[str] = None
+    hours_per_unit: Optional[float] = Field(default=None, ge=0)
+    value_per_unit: Optional[float] = Field(default=None, ge=0)
+    currency: Optional[str] = None
+    declared_by: Optional[str] = None
+    declared_at: Optional[str] = None
+    status: Literal["declared", "measured", "none"] = "none"
+    note: Optional[str] = None
+
+
+class ValueBasisUpdate(BaseModel):
+    unit: Optional[str] = None
+    hours_per_unit: Optional[float] = Field(default=None, ge=0)
+    value_per_unit: Optional[float] = Field(default=None, ge=0)
+    currency: Optional[str] = None
+    status: Literal["declared", "measured", "none"] = "declared"
+    note: Optional[str] = None
+
+
+def serialize_value_basis(
+    raw: Any,
+    *,
+    default_unit: str | None = None,
+    default_currency: str | None = None,
+) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    status = raw.get("status")
+    if status not in {"declared", "measured", "none"}:
+        status = "none"
+    unit = raw.get("unit") or default_unit
+    currency = raw.get("currency") or default_currency
+    return ValueBasis(
+        unit=unit,
+        hours_per_unit=_optional_float(raw.get("hours_per_unit")),
+        value_per_unit=_optional_float(raw.get("value_per_unit")),
+        currency=currency,
+        declared_by=raw.get("declared_by"),
+        declared_at=raw.get("declared_at"),
+        status=status,
+        note=raw.get("note"),
+    ).model_dump()
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pricing_currency(capability: Capability) -> str:
+    pricing = capability.pricing if isinstance(capability.pricing, dict) else {}
+    return str(pricing.get("currency") or "USD")
+
+
+def _value_basis_response(capability: Capability) -> dict[str, Any]:
+    return {
+        "capability_id": capability.id,
+        "slug": capability.slug,
+        "name": capability.name,
+        "tier": capability.tier,
+        "industry": capability.industry,
+        "input_unit": capability.input_unit,
+        "output_unit": capability.output_unit,
+        "value_per_outcome": capability.value_per_outcome,
+        "value_basis": serialize_value_basis(
+            capability.value_basis,
+            default_unit=capability.output_unit,
+            default_currency=_pricing_currency(capability),
+        ),
+    }
+
+
+def _visible_capability_or_404(
+    db: DBSession,
+    *,
+    cap_id: str,
+    workspace: Workspace,
+) -> Capability:
+    capability = (
+        db.query(Capability)
+        .filter(
+            Capability.id == cap_id,
+            ((Capability.workspace_id == workspace.id) | (Capability.workspace_id.is_(None))),
+        )
+        .first()
+    )
+    if capability is None or not capability_is_visible(capability, workspace):
+        raise HTTPException(404, "Capability not found")
+    return capability
+
+
+def _actor_label(user: User) -> str:
+    return user.email or user.username or user.id
 
 
 def _serialize(c: Capability, workspace: Workspace | None = None) -> Dict[str, Any]:
@@ -287,3 +390,70 @@ async def update_capability(
     db.commit()
     db.refresh(c)
     return _serialize(c, workspace)
+
+
+@router.get("/{cap_id}/value-basis")
+async def get_capability_value_basis(
+    cap_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    capability = _visible_capability_or_404(db, cap_id=cap_id, workspace=workspace)
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="capability",
+        action="read",
+        legacy_allowed=True,
+        resource_attrs={"capability_id": capability.id},
+    )
+    return _value_basis_response(capability)
+
+
+@router.put("/{cap_id}/value-basis")
+async def put_capability_value_basis(
+    cap_id: str,
+    body: ValueBasisUpdate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    capability = (
+        db.query(Capability)
+        .filter(Capability.id == cap_id, Capability.workspace_id == workspace.id)
+        .first()
+    )
+    if not capability:
+        raise HTTPException(404, "Capability not found (or not editable in this workspace)")
+    enforce_action(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="capability",
+        action="admin",
+        legacy_allowed=legacy_object_action_allowed(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capability",
+            action="admin",
+        ),
+        resource_attrs={"capability_id": capability.id},
+    )
+    stored = {
+        "unit": body.unit or capability.output_unit,
+        "hours_per_unit": body.hours_per_unit,
+        "value_per_unit": body.value_per_unit,
+        "currency": body.currency or _pricing_currency(capability),
+        "declared_by": _actor_label(user),
+        "declared_at": datetime.utcnow().isoformat(),
+        "status": body.status,
+        "note": body.note,
+    }
+    capability.value_basis = stored
+    capability.value_per_outcome = body.value_per_unit
+    db.commit()
+    db.refresh(capability)
+    return _value_basis_response(capability)

@@ -1,8 +1,10 @@
+import { inject } from '@angular/core';
 import { Routes } from '@angular/router';
 import { authGuard } from './core/auth.guard';
 import { loginGuard } from './core/login.guard';
 import { navigationProfileGuard } from './core/navigation-profile.guard';
 import { workspaceHydrationGuard } from './core/workspace-hydration.guard';
+import { WorkspaceService } from './core/workspace.service';
 import { workspaceAppAdminGuard } from './features/governance/workspace-app-admin.guard';
 import { experienceV1Guard } from './features/experience/experience.guard';
 
@@ -63,8 +65,16 @@ export const routes: Routes = [
       },
       {
         path: 'hypervisor',
-        loadComponent: () =>
-          import('./features/hypervisor/hypervisor.component').then((m) => m.HypervisorComponent),
+        loadComponent: () => {
+          const workspace = inject(WorkspaceService);
+          return workspace.hypervisorV2Enabled()
+            ? import('./features/hypervisor/v2/hypervisor-v2.component').then(
+              (m) => m.HypervisorV2Component,
+            )
+            : import('./features/hypervisor/hypervisor.component').then(
+              (m) => m.HypervisorComponent,
+            );
+        },
       },
       {
         path: 'steering',

@@ -757,6 +757,7 @@ export type NavLinkInput =
     }
   | {
       facet: string;
+      capabilityId?: string | null;
     };
 
 export const BUSINESS_NAVIGATION_SURFACE_IDS = [
@@ -1067,6 +1068,21 @@ export function objectFacetsFor(host: ObjectFacetHost, lens: ObjectLens): readon
   return byLens[lens] ?? byLens.any ?? [];
 }
 
+export const HYPERVISOR_FACETS: readonly ObjectFacet[] = [
+  { id: 'synthese', i18nKey: 'nav.facet.synthese', glyph: 'ledger' },
+  { id: 'registre', i18nKey: 'nav.facet.registre', glyph: 'table' },
+  { id: 'couts', i18nKey: 'nav.facet.couts', glyph: 'chart' },
+  { id: 'bases', i18nKey: 'nav.facet.bases', glyph: 'sliders' },
+  { id: 'decisions', i18nKey: 'nav.facet.decisions', glyph: 'focus' },
+  { id: 'journal', i18nKey: 'nav.facet.journal', glyph: 'pulse' },
+];
+
+export type HypervisorFacetId = (typeof HYPERVISOR_FACETS)[number]['id'];
+
+export function isHypervisorFacet(value: string | null | undefined): value is HypervisorFacetId {
+  return HYPERVISOR_FACETS.some((facet) => facet.id === value);
+}
+
 export function systemFacetForChild(child: HierarchyObjectType | null): string | null {
   if (child === 'run' || child === 'skill_invocation') return 'runs';
   if (child === 'skill') return 'skills';
@@ -1308,7 +1324,9 @@ export function resolveNavLink(
       lens: lensQueryForPath(current.path, lens),
       facet: input.facet,
       scope: current.scope,
-      capabilityId: current.selectedType === 'capability' ? null : current.capabilityId,
+      capabilityId: input.capabilityId !== undefined
+        ? input.capabilityId
+        : current.selectedType === 'capability' ? null : current.capabilityId,
       systemId: current.selectedType === 'system' ? null : current.systemId,
       runId: current.selectedType === 'run' || current.selectedType === 'skill_invocation'
         ? null

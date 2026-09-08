@@ -100,6 +100,33 @@ SHOWCASE_SEED_ACTOR = "system:showcase-seed"
 SHOWCASE_CONFIGURATION_AUDIT_EVENT = "showcase.seed.system_configuration.changed"
 SHOWCASE_CONFIGURATION_TRANSITION_KIND = "showcase_seed_reconcile"
 CONTRACT_RISK_SYSTEM_NAME = "Contract Risk Copilot"
+SHOWCASE_VALUE_BASIS_DECLARED_AT = "2026-07-01T00:00:00"
+
+
+def _declared_value_basis(
+    *,
+    unit: str,
+    hours_per_unit: float,
+    value_per_unit: float,
+    currency: str,
+) -> dict[str, Any]:
+    return {
+        "unit": unit,
+        "hours_per_unit": hours_per_unit,
+        "value_per_unit": value_per_unit,
+        "currency": currency,
+        "declared_by": SHOWCASE_SEED_ACTOR,
+        "declared_at": SHOWCASE_VALUE_BASIS_DECLARED_AT,
+        "status": "declared",
+    }
+
+
+CAPTURE_VALUE_BASIS = _declared_value_basis(
+    unit="knowledge_update_proposal",
+    hours_per_unit=2.0,
+    value_per_unit=8.0,
+    currency="EUR",
+)
 
 # Positive allowlist of the Lot 6-8 state that a seed refresh is allowed to
 # observe for change detection. Values are hashed into SystemVersion evidence;
@@ -548,6 +575,12 @@ CAPABILITIES = [
         "skill_slugs": ["llm_rag_answer_v1", "semantic_search_v1", "audit_log_v1"],
         "pricing": {"unit": "per_answer", "unit_price": 0.45, "currency": "EUR"},
         "value_per_outcome": 12.0,
+        "value_basis": _declared_value_basis(
+            unit="answer",
+            hours_per_unit=0.75,
+            value_per_unit=12.0,
+            currency="EUR",
+        ),
     },
     {
         "slug": "showcase_compliance_loop",
@@ -599,6 +632,12 @@ CAPABILITIES = [
         "skill_slugs": ["sap_hana_query_v1", "llm_rag_answer_v1"],
         "pricing": {"unit": "per_brief", "unit_price": 0.35, "currency": "EUR"},
         "value_per_outcome": 18.0,
+        "value_basis": _declared_value_basis(
+            unit="maintenance_brief",
+            hours_per_unit=0.4,
+            value_per_unit=18.0,
+            currency="EUR",
+        ),
     },
 ]
 
@@ -1184,6 +1223,8 @@ def ensure_capabilities(db: DBSession, workspace: Workspace) -> dict[str, Capabi
             ),
             "is_seeded": "Y",
         }
+        if "value_basis" in entry:
+            payload["value_basis"] = entry["value_basis"]
         if cap:
             for key, value in payload.items():
                 setattr(cap, key, value)
@@ -3421,6 +3462,8 @@ def seed_knowledge_and_capture(
             "skipping Knowledge Capture System wiring"
         )
     else:
+        capability.value_basis = dict(CAPTURE_VALUE_BASIS)
+        capability.value_per_outcome = CAPTURE_VALUE_BASIS["value_per_unit"]
         capture_context = ensure_capture_context(db, workspace, collection_slug=notices.slug)
         capture_system = ensure_capture_system(
             db,

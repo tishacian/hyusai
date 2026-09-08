@@ -3,14 +3,18 @@
 Composes data from `impact`, `runs`, `capabilities` and `decisions` to feed
 the executive cockpit. Designed to be a single roundtrip per surface.
 """
+from collections import defaultdict
 from collections.abc import Mapping
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, model_validator
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm.attributes import flag_modified
 
+from app.api.v1.endpoints.capabilities import serialize_value_basis
 from app.api.v1.endpoints.impact import _period_start
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
@@ -38,6 +42,8 @@ from app.services.evaluation.feedback_service import (
     serialize_feedback,
 )
 from app.services.iam.decision_plane import enforce_action
+from app.services.iam.legacy_authority import legacy_workspace_admin
+from app.services.object_perspective import FACT_STATES, WINDOW_DAYS
 from app.services.recommendations.proactive_service import (
     generate_proactive_recommendations,
 )
@@ -47,6 +53,97 @@ from app.services.value_scenario_access import readable_value_scenarios
 
 router = APIRouter()
 
+HYPERVISOR_VIEWS_KEY = "hypervisor_views"
+OUTCOME_DECISIONS = frozenset({"approved", "partial"})
+SERIES_RUN_SCOPE = {
+    "resource": "run",
+    "action": "read",
+    "aggregation": "post_authorization_filter",
+    "counts_include_only_readable_runs": True,
+}
+DEFAULT_HYPERVISOR_VIEWS: List[Dict[str, Any]] = [
+    {
+        "id": "direction",
+        "label": "Direction",
+        "denominator": "hours",
+        "period": "90d",
+        "strata": {
+            "comprendre": [
+                "monument",
+                "provenance",
+                "cadran",
+                "sankey",
+                "rivers",
+                "hors_denominateur",
+            ],
+            "detailler": ["registre"],
+            "decider": ["signal", "decisions"],
+        },
+        "register_columns": ["unit", "spark", "cost", "basis", "value"],
+        "sort": "value",
+    },
+    {
+        "id": "operations",
+        "label": "Operations",
+        "denominator": "units",
+        "period": "30d",
+        "strata": {
+            "comprendre": ["rivers", "hors_denominateur"],
+            "detailler": ["registre"],
+            "decider": ["signal"],
+        },
+        "register_columns": ["unit", "spark", "cost", "basis"],
+        "sort": "days_since_last_run",
+    },
+    {
+        "id": "conformite",
+        "label": "Conformite",
+        "denominator": "hours",
+        "period": "90d",
+        "strata": {
+            "comprendre": ["provenance", "hors_denominateur"],
+            "detailler": ["registre"],
+            "decider": ["decisions"],
+        },
+        "register_columns": ["unit", "basis", "value"],
+        "sort": "name",
+    },
+]
+
+
+def _visible_completed_runs(
+    db: DBSession,
+    workspace: Workspace,
+    user: User,
+    *,
+    start: datetime | None = None,
+) -> List[Run]:
+    run_query = db.query(Run).filter(
+        Run.workspace_id == workspace.id,
+        Run.status == "completed",
+    )
+    if start is not None:
+        run_query = run_query.filter(Run.completed_at >= start)
+    return readable_runs(
+        db,
+        runs=run_query.order_by(Run.completed_at.desc(), Run.id.asc()).all(),
+        user=user,
+        workspace=workspace,
+    )
+
+
+def _visible_workspace_capabilities(
+    db: DBSession,
+    workspace: Workspace,
+) -> List[Capability]:
+    caps: List[Capability] = (
+        db.query(Capability)
+        .filter((Capability.workspace_id == workspace.id) | (Capability.workspace_id.is_(None)))
+        .order_by(Capability.tier, Capability.name)
+        .all()
+    )
+    return visible_capabilities(caps, workspace, workspace_catalog_policy(workspace))
+
 
 @router.get("/balance-sheet")
 async def balance_sheet(
@@ -55,29 +152,10 @@ async def balance_sheet(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    run_query = db.query(Run).filter(
-        Run.workspace_id == workspace.id,
-        Run.status == "completed",
-    )
     start = _period_start(period)
-    if start is not None:
-        run_query = run_query.filter(Run.completed_at >= start)
-    completed_runs = readable_runs(
-        db,
-        runs=run_query.order_by(Run.completed_at.desc(), Run.id.asc()).all(),
-        user=user,
-        workspace=workspace,
-    )
+    completed_runs = _visible_completed_runs(db, workspace, user, start=start)
     portfolio = _aggregate_visible_runs(completed_runs)
-
-    caps: List[Capability] = (
-        db.query(Capability)
-        .filter((Capability.workspace_id == workspace.id) | (Capability.workspace_id.is_(None)))
-        .order_by(Capability.tier, Capability.name)
-        .all()
-    )
-    policy = workspace_catalog_policy(workspace)
-    caps = visible_capabilities(caps, workspace, policy)
+    caps = _visible_workspace_capabilities(db, workspace)
     capability_rows = []
     for c in caps:
         agg = _aggregate_visible_runs(
@@ -112,13 +190,289 @@ async def balance_sheet(
                 workspace=workspace,
             )[:20]
         ),
-        "authorization_scope": {
-            "resource": "run",
-            "action": "read",
-            "aggregation": "post_authorization_filter",
-            "counts_include_only_readable_runs": True,
-        },
+        "authorization_scope": dict(SERIES_RUN_SCOPE),
     }
+
+
+class HypervisorViewStrata(BaseModel):
+    comprendre: List[str] = []
+    detailler: List[str] = []
+    decider: List[str] = []
+
+
+class HypervisorView(BaseModel):
+    id: str
+    label: str
+    denominator: Literal["hours", "units", "value"]
+    period: str
+    strata: HypervisorViewStrata
+    register_columns: List[str] = []
+    sort: str = "name"
+
+
+class HypervisorViewsUpdate(BaseModel):
+    views: List[HypervisorView]
+
+
+def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> None:
+    if not legacy_workspace_admin(db, user=user, workspace=workspace):
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "WORKSPACE_PERMISSION_DENIED"},
+        )
+
+
+def _pricing_currency(capability: Capability | None) -> str | None:
+    if capability is None or not isinstance(capability.pricing, dict):
+        return None
+    currency = capability.pricing.get("currency")
+    return str(currency) if currency else None
+
+
+def _series_fact(
+    *,
+    state: str,
+    value: Any = None,
+    unit: str | None = None,
+) -> dict[str, Any]:
+    if state not in FACT_STATES:
+        raise ValueError(f"unknown fact state {state!r}")
+    if state != "available":
+        value = None
+    payload: dict[str, Any] = {"state": state, "value": value}
+    if unit is not None:
+        payload["unit"] = unit
+    return payload
+
+
+def _run_at(run: Run) -> datetime | None:
+    return run.completed_at or run.started_at
+
+
+def _hours_per_unit(basis: dict[str, Any] | None) -> float | None:
+    if not basis or basis.get("status") == "none":
+        return None
+    return _optional_rate(basis.get("hours_per_unit"))
+
+
+def _value_per_unit(basis: dict[str, Any] | None) -> float | None:
+    if not basis or basis.get("status") == "none":
+        return None
+    return _optional_rate(basis.get("value_per_unit"))
+
+
+def _optional_rate(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _days_since(moment: datetime | None, *, now: datetime) -> dict[str, Any]:
+    if moment is None:
+        return _series_fact(state="not_measured")
+    delta = now - moment
+    days = max(0, int(delta.total_seconds() // 86400))
+    return _series_fact(state="available", value=days)
+
+
+def _bucket_metrics(
+    runs: List[Run],
+    *,
+    output_unit: str | None,
+    hours_per_unit: float | None,
+    value_per_unit: float | None,
+) -> dict[str, Any]:
+    outcomes = len([run for run in runs if (run.decision or "") in OUTCOME_DECISIONS])
+    costs = [float(run.cost_internal) for run in runs if run.cost_internal is not None]
+    return {
+        "runs": _series_fact(state="available", value=len(runs)),
+        "outcomes": _series_fact(state="available", value=outcomes, unit=output_unit),
+        "cost": _series_fact(
+            state="available" if costs else "not_measured",
+            value=float(sum(costs)) if costs else None,
+        ),
+        "hours": _series_fact(
+            state="available" if hours_per_unit is not None else "not_configured",
+            value=(outcomes * hours_per_unit) if hours_per_unit is not None else None,
+        ),
+        "value_declared": _series_fact(
+            state="available" if value_per_unit is not None else "not_configured",
+            value=(outcomes * value_per_unit) if value_per_unit is not None else None,
+        ),
+    }
+
+
+def _views_payload(workspace: Workspace, *, can_edit: bool) -> dict[str, Any]:
+    stored = (workspace.settings or {}).get(HYPERVISOR_VIEWS_KEY)
+    views = stored if isinstance(stored, list) else DEFAULT_HYPERVISOR_VIEWS
+    return {"views": views, "can_edit": can_edit}
+
+
+@router.get("/value-bases")
+async def list_value_bases(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    caps = _visible_workspace_capabilities(db, workspace)
+    systems = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id)
+        .order_by(System.name.asc(), System.id.asc())
+        .all()
+    )
+    systems_by_cap: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for system in systems:
+        if system.capability_id:
+            systems_by_cap[system.capability_id].append(
+                {"system_id": system.id, "name": system.name}
+            )
+    return {
+        "items": [
+            {
+                "capability_id": capability.id,
+                "slug": capability.slug,
+                "name": capability.name,
+                "tier": capability.tier,
+                "industry": capability.industry,
+                "input_unit": capability.input_unit,
+                "output_unit": capability.output_unit,
+                "value_per_outcome": capability.value_per_outcome,
+                "value_basis": serialize_value_basis(
+                    capability.value_basis,
+                    default_unit=capability.output_unit,
+                    default_currency=_pricing_currency(capability),
+                ),
+                "systems": systems_by_cap.get(capability.id, []),
+            }
+            for capability in caps
+        ]
+    }
+
+
+@router.get("/series")
+async def hypervisor_series(
+    window: Literal["30d", "90d"] = Query("30d"),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    now = datetime.utcnow()
+    start = now - timedelta(days=WINDOW_DAYS[window])
+    completed_runs = _visible_completed_runs(db, workspace, user, start=start)
+    runs_by_system: dict[str, list[Run]] = defaultdict(list)
+    for run in completed_runs:
+        if run.system_id:
+            runs_by_system[run.system_id].append(run)
+    system_ids = list(runs_by_system)
+    systems = (
+        db.query(System)
+        .filter(System.id.in_(system_ids), System.workspace_id == workspace.id)
+        .order_by(System.name.asc(), System.id.asc())
+        .all()
+        if system_ids
+        else []
+    )
+    cap_ids = {
+        system.capability_id
+        for system in systems
+        if system.capability_id
+    }
+    capabilities = (
+        {
+            capability.id: capability
+            for capability in db.query(Capability).filter(Capability.id.in_(cap_ids)).all()
+        }
+        if cap_ids
+        else {}
+    )
+    items = []
+    for system in systems:
+        capability = capabilities.get(system.capability_id) if system.capability_id else None
+        basis = serialize_value_basis(
+            capability.value_basis if capability is not None else None,
+            default_unit=capability.output_unit if capability is not None else None,
+            default_currency=_pricing_currency(capability),
+        )
+        hours_per_unit = _hours_per_unit(basis)
+        value_per_unit = _value_per_unit(basis)
+        output_unit = (
+            (basis or {}).get("unit")
+            or (capability.output_unit if capability is not None else None)
+        )
+        system_runs = runs_by_system[system.id]
+        last_at = max(
+            (moment for moment in (_run_at(run) for run in system_runs) if moment is not None),
+            default=None,
+        )
+        by_day: dict[str, list[Run]] = defaultdict(list)
+        for run in system_runs:
+            moment = _run_at(run)
+            if moment is None:
+                continue
+            by_day[moment.date().isoformat()].append(run)
+        items.append(
+            {
+                "system_id": system.id,
+                "capability_id": system.capability_id,
+                "name": system.name,
+                "output_unit": output_unit,
+                "value_basis": basis,
+                "days_since_last_run": _days_since(last_at, now=now),
+                "buckets": [
+                    {
+                        "date": day,
+                        **_bucket_metrics(
+                            by_day[day],
+                            output_unit=output_unit,
+                            hours_per_unit=hours_per_unit,
+                            value_per_unit=value_per_unit,
+                        ),
+                    }
+                    for day in sorted(by_day)
+                ],
+            }
+        )
+    return {
+        "window": window,
+        "from": start.isoformat(),
+        "to": now.isoformat(),
+        "authorization_scope": dict(SERIES_RUN_SCOPE),
+        "systems": items,
+    }
+
+
+@router.get("/views")
+async def get_hypervisor_views(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    return _views_payload(
+        workspace,
+        can_edit=legacy_workspace_admin(db, user=user, workspace=workspace),
+    )
+
+
+@router.put("/views")
+async def put_hypervisor_views(
+    body: HypervisorViewsUpdate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_workspace_admin(db, user, workspace)
+    settings = dict(workspace.settings or {})
+    settings[HYPERVISOR_VIEWS_KEY] = [view.model_dump() for view in body.views]
+    workspace.settings = settings
+    flag_modified(workspace, "settings")
+    db.add(workspace)
+    db.commit()
+    db.refresh(workspace)
+    return _views_payload(workspace, can_edit=True)
 
 
 @router.get("/value-loop")

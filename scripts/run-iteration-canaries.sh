@@ -53,6 +53,7 @@ export E2E_EXPERIENCE_CANARY=1
 export E2E_EXPERIENCE_EVIDENCE="$WORK/experience.json"
 export E2E_FORMAL_RELEASE_ELIGIBLE=false
 export E2E_LOT6_CANARY=1
+export E2E_HYPERVISOR_V2_CANARY=1
 export E2E_LOT6_RUNNER_ATTESTATION="$WORK/system360-runner.json"
 export E2E_LOT6_BEHAVIOR_ATTESTATION="$WORK/system360-behavior.json"
 export E2E_PRINCIPAL_CLASS=operator_personal_admin
@@ -103,6 +104,7 @@ cd "$SOURCE_ROOT/frontend-ng"
   e2e/tests/12-protected-runner-canaries.spec.ts \
   e2e/tests/16-experience-work-canary.spec.ts \
   e2e/tests/17-experience-studio-canary.spec.ts \
+  e2e/tests/20-hypervisor-v2-canary.spec.ts \
   --project=chromium \
   --reporter=list \
   --output="$E2E_PLAYWRIGHT_OUTPUT_DIR"

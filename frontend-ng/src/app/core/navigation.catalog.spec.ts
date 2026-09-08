@@ -21,6 +21,7 @@ import {
   pathAllowedBySurfaceIds,
   resolveNavLink,
   isObjectLens,
+  HYPERVISOR_FACETS,
 } from './navigation.catalog';
 
 const EMPTY_ANCESTRY = {
@@ -414,4 +415,21 @@ test('a page link keeps lens and ancestry (I3)', () => {
   const facet = resolveNavLink({ facet: 'runs' }, context);
   assert.equal(facet.replaceUrl, true);
   assert.equal(facet.url, '/systems/sys-x?lens=operate&facet=runs&capabilityId=cap-a');
+
+  assert.deepEqual(HYPERVISOR_FACETS.map((item) => item.id), [
+    'synthese',
+    'registre',
+    'couts',
+    'bases',
+    'decisions',
+    'journal',
+  ]);
+  assert.equal(
+    resolveNavLink({ facet: 'bases', capabilityId: 'cap-basis' }, {
+      lens: 'hypervisor',
+      ancestry: EMPTY_ANCESTRY,
+      currentUrl: '/hypervisor',
+    }).url,
+    '/hypervisor?facet=bases&capabilityId=cap-basis',
+  );
 });
