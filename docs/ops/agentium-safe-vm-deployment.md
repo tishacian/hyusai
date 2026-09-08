@@ -5662,3 +5662,68 @@ Arrêt ici : pas de retouche de spec, pas de second passage.
 
 Attendu inchangé pour le 16 s'il est rejoué : rouge tant qu'aucune Experience
 Pilot/In-service n'est visible.
+
+## Itération du 08/09 — correctifs des trois canaris rouges, déployée sur `c20fbdc9`
+
+Les trois échecs de `c50ac8f0` n'étaient pas de l'honnêteté V2. Deux commits
+produit + spec, puis une bascule d'images sans migration.
+
+**159c1acd** — les trois locators.
+
+- **20.** `#registerTpl` est projeté trois fois (strate Détailler, facette
+  Registre, facette Coûts). Un seul `data-testid="hypervisor-v2-register"`
+  faisait échouer Playwright en strict mode avant l'honnêteté `$` / ROI.
+  Chaque outlet a maintenant son testid
+  (`hypervisor-v2-register`, `-registre`, `-couts`).
+- **11.** `5d775487` avait déjà exclu le chapeau de zone de l'invariant
+  d'identité, mais `selectLens` cherchait encore `/Build/i`. Lot 6 affiche
+  `nav.build.create` : Créer / Create (CSS uppercase CRÉER / CREATE). Le
+  rail et le chapeau utilisent la même regex bilingue.
+- **17.** Même contrat que le wizard : `.xp-ed` est `position: fixed;
+  inset: 0`, l'hôte `app-experience-editor` n'a pas de boîte. Assertion
+  déplacée sur l'overlay. Ce n'est pas un relâchement : chrome, tools,
+  inspector, overflow 456/320 restent exigés.
+
+**c20fbdc9** — ce que le premier passage live a révélé ensuite.
+
+- **20.** Le premier `hypervisorSeries` partait de `viewPeriod(null)` →
+  `30d`, puis gardait ce payload une fois Direction (`90d`) chargé. Le
+  registre ne montrait que les Systems du mois. Premier fetch sur la
+  fenêtre Direction ; refetch si la vue chargée diverge.
+- **17.** L'overlay et le mobile tiennent. `getByRole('main')` ne voit
+  pas `#main-content` une fois le chat ouvert (`inert` + `aria-hidden`).
+  L'inert est maintenant lu sur `#main-content`.
+
+`hypervisor_v2` reste hors `GRADUATED_NAV_FEATURES` (true seulement sur
+showcase). Alias flottant `demo-agentic` non déplacé. Alembic inchangé
+(`100_capability_value_basis`). Les arbres `docs/render/**`,
+`docs/pih/**`, `docs/demo-runs/**` du poste sont restés non suivis.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `8a3f0f8e` → `159c1acd` puis `c20fbdc9ff2ecb7171e5fe3655b80c12c4bfdb09` |
+| Worktree | `sudo git fetch origin demo/agentic && sudo git merge --ff-only FETCH_HEAD` → `c20fbdc9…`, porcelain vide |
+| Build | `agentium-{backend,worker,frontend}:c20fbdc9ff2e` (après `:159c1acd6ad4` au premier passage), `AGENTIUM_IMAGE_REVISION` = SHA complet ; journaux `/srv/agentium-data/canary-fixes-deployments/2026-09-08-c20fbdc9ff2e/build.log` |
+| `storage-check` / `up` | sortie 0 ; **aucune révision Alembic** (tête déjà `100`) ; cinq services recréés, backend et frontend `healthy` |
+| `build-info` | `revision: c20fbdc9ff2ecb7171e5fe3655b80c12c4bfdb09`, `revision_verified: true` en localhost Host **et** sur `https://agentium.papai.ai` ; `/` = 200 ; 0 `traceback`/`exception` backend sur 2 min |
+| Canaris carakai | checkout `c50ac8f0` → `159c1acd` (bundle sha256 `caf0f065…`) puis `c20fbdc9` (bundle sha256 `345ce456…`), `cat-file -e` positif, marqueur réaligné, `node_modules` inchangé (`frontend-deps-cfded9c9…`). Script officiel (11+12+16+17+20). **7 passed / 2 failed** en 1,6 min, artefacts `/tmp/iteration-canaries-20260908T152321Z.wYiuBz` |
+| Rollback | `AGENTIUM_IMAGE_TAG=c50ac8f0173b` puis `up` |
+
+### Canaris 20, 11, 17
+
+- **11 — System 360.** **Vert** (18,7 s). Rail CREATE / Create, chapeau
+  asservi à la zone, identité figée en dessous.
+- **20 — Hypervisor V2.** **Vert** (4,1 s) au second passage. Testid
+  unique, registre 90d, honnêteté atteinte.
+- **17 — Studio.** **Rouge**, plus tard. Overlay, create/save/ready-check,
+  `checkMobileEditor` (456 et 320) et l'inert du chat tiennent. Échec dans
+  `runAccessibilityMatrix` : axe `color-contrast` (serious) en thème
+  **clair** seulement, sur `.is-on[aria-current="page"][type="button"]` et
+  `.xp-tag-warn` (FR/EN × desktop/456/320). Le sombre passe. Deux
+  tentatives honnêtes ont levé des contrats de locator, pas ce contraste :
+  arrêt ici, pas d'affaiblissement de la matrice. C'est un choix de
+  jetons light-theme, pas un bug de spec.
+- **16.** Inchangé : `GET /work` = 0 Experience Pilot/In-service.
+- **12.** Vert (cinq tests), non demandé, exécuté par le script.
