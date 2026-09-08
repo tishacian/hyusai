@@ -1,5 +1,7 @@
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Input, inject } from '@angular/core';
 
+import { hostPointerPoint, nearestDayIndex } from './chart-interact';
+import { CkChartTipComponent } from './chart-tip.component';
 import { ckChartUid } from './chart.types';
 
 export const CK_CHART_PULSE_VALUES: readonly number[] = [1, 2, 1, 2, 1, 2, 1, 0, 0, 0];
@@ -8,6 +10,7 @@ export const CK_CHART_PULSE_VALUES: readonly number[] = [1, 2, 1, 2, 1, 2, 1, 0,
   selector: 'ck-chart-pulse',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [CkChartTipComponent],
   template: `
     @if (points.length >= 2) {
       <svg
@@ -15,6 +18,8 @@ export const CK_CHART_PULSE_VALUES: readonly number[] = [1, 2, 1, 2, 1, 2, 1, 0,
         [attr.width]="width"
         [attr.height]="height"
         style="display:block;overflow:visible"
+        (pointermove)="onMove($event)"
+        (pointerleave)="onLeave()"
       >
         <defs>
           <linearGradient [attr.id]="fadeId" x1="0" y1="0" x2="0" y2="1">
@@ -98,11 +103,13 @@ export const CK_CHART_PULSE_VALUES: readonly number[] = [1, 2, 1, 2, 1, 2, 1, 0,
           >{{ endLabel }}</text>
         }
       </svg>
+      <ck-chart-tip [open]="tipOpen" [title]="tipTitle" [lines]="[]" [x]="tipX" [y]="tipY" />
     }
   `,
-  styles: [':host { display: block; }'],
+  styles: [':host { display: block; position: relative; }'],
 })
 export class CkChartPulseComponent {
+  private readonly host = inject(ElementRef<HTMLElement>);
   @Input() values: number[] = [...CK_CHART_PULSE_VALUES];
   @Input() staleFrom: number | null = null;
   @Input() width = 195;
@@ -110,6 +117,12 @@ export class CkChartPulseComponent {
   @Input() startLabel = '';
   @Input() endLabel = '';
   @Input() zeroLabel = '';
+  @Input() valueLabel: (value: number, index: number) => string = (value) => String(value);
+
+  tipOpen = false;
+  tipTitle = '';
+  tipX = 0;
+  tipY = 0;
 
   readonly fadeId = ckChartUid('ck-pulse-fade');
   readonly glowId = ckChartUid('ck-pulse-glow');
@@ -180,5 +193,19 @@ export class CkChartPulseComponent {
   get zeroX(): number {
     const wash = this.wash;
     return wash ? wash.x + wash.w / 2 : this.width - 29;
+  }
+
+  onMove(event: PointerEvent): void {
+    const values = this.values.filter((value) => Number.isFinite(value));
+    const index = nearestDayIndex(event.offsetX, 8, this.width - 15, values.length);
+    const pt = hostPointerPoint(this.host.nativeElement, event.clientX, event.clientY);
+    this.tipX = pt.x;
+    this.tipY = pt.y;
+    this.tipTitle = this.valueLabel(values[index] ?? 0, index);
+    this.tipOpen = true;
+  }
+
+  onLeave(): void {
+    this.tipOpen = false;
   }
 }

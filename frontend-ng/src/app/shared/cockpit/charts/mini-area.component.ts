@@ -1,5 +1,7 @@
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Input, inject } from '@angular/core';
 
+import { hostPointerPoint, nearestDayIndex } from './chart-interact';
+import { CkChartTipComponent } from './chart-tip.component';
 import { ckChartToneVar, ckChartUid, type CkChartTone } from './chart.types';
 import { cubicSmoothAreaPath, cubicSmoothPath } from './svg-path';
 
@@ -7,6 +9,7 @@ import { cubicSmoothAreaPath, cubicSmoothPath } from './svg-path';
   selector: 'ck-chart-mini-area',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [CkChartTipComponent],
   template: `
     @if (points.length >= 2) {
       <svg
@@ -14,6 +17,8 @@ import { cubicSmoothAreaPath, cubicSmoothPath } from './svg-path';
         [attr.width]="width"
         [attr.height]="height"
         style="display:block;overflow:visible"
+        (pointermove)="onMove($event)"
+        (pointerleave)="onLeave()"
       >
         <defs>
           <linearGradient [attr.id]="fillId" x1="0" y1="0" x2="0" y2="1">
@@ -36,16 +41,25 @@ import { cubicSmoothAreaPath, cubicSmoothPath } from './svg-path';
           [attr.fill]="color"
         />
       </svg>
+      <ck-chart-tip [open]="tipOpen" [title]="tipTitle" [lines]="[]" [x]="tipX" [y]="tipY" />
     }
   `,
-  styles: [':host { display: block; }'],
+  styles: [':host { display: block; position: relative; }'],
 })
 export class CkChartMiniAreaComponent {
+  private readonly host = inject(ElementRef<HTMLElement>);
+
   @Input() values: number[] = [];
   @Input() width = 70;
   @Input() height = 24;
   @Input() tone: CkChartTone = 'ink';
   @Input() maxValue: number | null = null;
+  @Input() valueLabel: (value: number, index: number) => string = (value) => String(value);
+
+  tipOpen = false;
+  tipTitle = '';
+  tipX = 0;
+  tipY = 0;
 
   readonly fillId = ckChartUid('ck-mini-area');
 
@@ -80,5 +94,19 @@ export class CkChartMiniAreaComponent {
 
   get end(): { x: number; y: number } {
     return this.points[this.points.length - 1] ?? { x: 0, y: 0 };
+  }
+
+  onMove(event: PointerEvent): void {
+    const values = this.values.filter((value) => Number.isFinite(value));
+    const index = nearestDayIndex(event.offsetX, 2, this.width - 4, values.length);
+    const pt = hostPointerPoint(this.host.nativeElement, event.clientX, event.clientY);
+    this.tipX = pt.x;
+    this.tipY = pt.y;
+    this.tipTitle = this.valueLabel(values[index] ?? 0, index);
+    this.tipOpen = true;
+  }
+
+  onLeave(): void {
+    this.tipOpen = false;
   }
 }

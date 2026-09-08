@@ -1,17 +1,22 @@
+import { wrapLabelLines } from './chart-interact';
+import { type CkChartTipLine } from './chart-tip.component';
 import { sankeyRibbonPath } from './svg-path';
 
 export interface CkSankeySource {
+  id?: string;
   label: string;
   /** Mono caption under the name when the node is tall enough (e.g. `612 runs`). */
   detail?: string;
   value: number;
   /** Set when the source stops at its own result instead of converging (dashed stub). */
   stubLabel?: string;
+  tip?: { title: string; lines: readonly CkChartTipLine[] };
 }
 
 export interface SankeyRibbon {
   d: string;
   kind: 'runs' | 'value';
+  sourceId?: string;
 }
 
 export interface SankeyNode {
@@ -20,6 +25,8 @@ export interface SankeyNode {
   w: number;
   h: number;
   fill: string;
+  sourceId?: string;
+  role?: 'source' | 'hours' | 'value' | 'stub';
 }
 
 export interface SankeyLabel {
@@ -34,6 +41,8 @@ export interface SankeyLabel {
   tracking?: number;
   /** Full text when `text` was shortened. */
   title?: string;
+  sourceId?: string;
+  role?: 'source' | 'hours' | 'value';
 }
 
 export interface SankeyStub {
@@ -62,7 +71,7 @@ export interface SankeyLayoutOptions {
 }
 
 /** Approved geometry on the 336 canvas: node columns, stacking origin and gap. */
-const XA = 100;
+const XA = 130;
 const XB = 184;
 const XC = 322;
 const TOP = 14;
@@ -71,9 +80,8 @@ const BOTTOM = 20;
 const GAP = 18;
 const MIN_NODE = 4;
 const MAX_NODE_SHARE = 0.55;
-const NAME_MAX_CHARS = 16;
 
-export function truncateLabel(text: string, max = NAME_MAX_CHARS): string {
+export function truncateLabel(text: string, max = 16): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max - 1).trimEnd()}…`;
 }
@@ -132,18 +140,22 @@ export function layoutSankey(
     y += heights[index] + GAP;
   });
 
+  const maxChars = Math.max(16, Math.floor((xa - 10) / 6.2));
   let acc = HOURS_TOP;
   for (const row of rows) {
+    const sourceId = row.source.id;
     if (row.converts) {
       ribbons.push({
         d: sankeyRibbonPath({ x: xa + nw, y: row.y, height: row.h }, { x: xb, y: acc, height: row.h }),
         kind: 'runs',
+        sourceId,
       });
       acc += row.h;
     } else {
       ribbons.push({
         d: sankeyRibbonPath({ x: xa + nw, y: row.y, height: row.h }, { x: xb, y: row.y, height: row.h }),
         kind: 'runs',
+        sourceId,
       });
     }
   }
@@ -155,34 +167,43 @@ export function layoutSankey(
   }
 
   for (const row of rows) {
-    nodes.push({ x: xa, y: row.y, w: nw, h: row.h, fill: 'var(--ck-fg-1)' });
-    const shortName = truncateLabel(row.source.label);
-    labels.push({
-      x: xa - 8,
-      y: row.y + row.h / 2 + 3.5,
-      text: shortName,
-      fill: 'var(--ck-fg-1)',
-      size: 10.5,
-      anchor: 'end',
-      font: 'sans',
-      ...(shortName !== row.source.label ? { title: row.source.label } : {}),
-    });
-    if (row.source.detail && row.h >= 26) {
+    const sourceId = row.source.id;
+    nodes.push({ x: xa, y: row.y, w: nw, h: row.h, fill: 'var(--ck-fg-1)', sourceId, role: 'source' });
+    const lines = wrapLabelLines(row.source.label, maxChars);
+    const mid = row.y + row.h / 2;
+    const nameOffset = lines.length > 1 ? 6 : 0;
+    lines.forEach((line, lineIndex) => {
       labels.push({
         x: xa - 8,
-        y: row.y + row.h / 2 + 14,
+        y: mid + 3.5 + (lineIndex - (lines.length - 1) / 2) * 12 - (row.source.detail && row.h >= 38 ? 4 : 0),
+        text: line,
+        fill: 'var(--ck-fg-1)',
+        size: 10.5,
+        anchor: 'end',
+        font: 'sans',
+        title: row.source.label,
+        sourceId,
+        role: 'source',
+      });
+    });
+    if (row.source.detail && row.h >= (lines.length > 1 ? 38 : 26)) {
+      labels.push({
+        x: xa - 8,
+        y: mid + 14 + nameOffset,
         text: row.source.detail,
         fill: 'var(--ck-fg-3)',
         size: 8.5,
         anchor: 'end',
         font: 'mono',
+        sourceId,
+        role: 'source',
       });
     }
   }
 
   if (convertingCount > 0) {
-    nodes.push({ x: xb, y: HOURS_TOP, w: nw, h: hoursH, fill: 'var(--ck-fg-1)' });
-    nodes.push({ x: xc, y: HOURS_TOP, w: nw, h: hoursH, fill: 'var(--ck-signal-cool)' });
+    nodes.push({ x: xb, y: HOURS_TOP, w: nw, h: hoursH, fill: 'var(--ck-fg-1)', role: 'hours' });
+    nodes.push({ x: xc, y: HOURS_TOP, w: nw, h: hoursH, fill: 'var(--ck-signal-cool)', role: 'value' });
     if (options.middleLabel) {
       labels.push({
         x: xb + 3,
@@ -192,6 +213,7 @@ export function layoutSankey(
         size: 10.5,
         anchor: 'middle',
         font: 'mono',
+        role: 'hours',
       });
     }
     if (options.rightLabel) {
@@ -203,13 +225,14 @@ export function layoutSankey(
         size: 10.5,
         anchor: 'end',
         font: 'mono',
+        role: 'value',
       });
     }
   }
 
   for (const row of rows) {
     if (row.converts) continue;
-    nodes.push({ x: xb, y: row.y, w: nw, h: row.h, fill: 'var(--ck-fg-1)' });
+    nodes.push({ x: xb, y: row.y, w: nw, h: row.h, fill: 'var(--ck-fg-1)', sourceId: row.source.id, role: 'stub' });
     const midY = row.y + row.h / 2;
     stubs.push({ x1: xb + nw + 2, y1: midY, x2: xb + nw + 40, y2: midY });
     labels.push({

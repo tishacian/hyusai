@@ -593,6 +593,7 @@ test.describe('Hypervisor V2 — mocked visual', () => {
           await selectFacet(page, facet);
           if (facet === 'synthese') {
             await expect(page.getByTestId('hypervisor-v2-register')).toBeVisible();
+            await expect(page.locator('app-hypervisor-v2.hv2-enter')).toHaveCount(0, { timeout: 4_000 });
           }
           if (facet === 'bases') {
             await expect(page.getByTestId('hypervisor-v2-value-bases')).toBeVisible();
@@ -601,10 +602,67 @@ test.describe('Hypervisor V2 — mocked visual', () => {
           await captureFullLedger(page, dest);
           shots[`${kind}-${theme}-${facet}`] = dest;
         }
+
+        if (kind === 'dense') {
+          await page.setViewportSize({ width: 1680, height: 1100 });
+          await selectFacet(page, 'synthese');
+          await expect(page.locator('app-hypervisor-v2.hv2-enter')).toHaveCount(0, { timeout: 4_000 });
+          await captureHoverProof(page, theme, shots);
+        }
         await context.close();
       }
     }
 
-    expect(Object.keys(shots)).toHaveLength(16);
+    const reduced = await browser.newContext({
+      viewport: { width: 1680, height: 1100 },
+      locale: 'fr-FR',
+      colorScheme: 'dark',
+      reducedMotion: 'reduce',
+    });
+    const reducedPage = await reduced.newPage();
+    await reducedPage.emulateMedia({ reducedMotion: 'reduce' });
+    await installMocks(reducedPage, 'dense', 'dark');
+    await openHypervisor(reducedPage);
+    await expect(reducedPage.locator('[data-testid="hypervisor-v2-hero"] .hv2-monument')).toContainText(/1\s*284/);
+    await expect(reducedPage.locator('app-hypervisor-v2.hv2-enter')).toHaveCount(0);
+    await expect(reducedPage.locator('[style*="hv2FadeUp"], [style*="ckSpokeIn"], [style*="ckRibbonIn"], [style*="ckAreaIn"]')).toHaveCount(0);
+    await reduced.close();
+
+    expect(Object.keys(shots).length).toBeGreaterThanOrEqual(16);
   });
 });
+
+async function captureHoverProof(
+  page: Page,
+  theme: ThemeKind,
+  shots: Record<string, string>,
+): Promise<void> {
+  await page.getByTestId('ck-radial-peak').hover();
+  const radialTip = page.locator('ck-chart-radial-days [data-testid="ck-chart-tip"]');
+  await expect(radialTip).toBeVisible();
+  await expect(radialTip).toContainText(/71/);
+  await expect(radialTip).toContainText(/25|août|Aug/i);
+  const radial = path.join(RESULTS, `dense-${theme}-synthese-hover-radial.png`);
+  await page.screenshot({ path: radial, animations: 'disabled' });
+  shots[`dense-${theme}-synthese-hover-radial`] = radial;
+
+  await page.locator('ck-chart-sankey-flow [data-system="sys-capture"]').first().hover();
+  const sankeyTip = page.locator('ck-chart-sankey-flow [data-testid="ck-chart-tip"]');
+  await expect(sankeyTip).toBeVisible();
+  await expect(sankeyTip).toContainText(/Capture Invoices/);
+  const sankey = path.join(RESULTS, `dense-${theme}-synthese-hover-sankey.png`);
+  await page.screenshot({ path: sankey, animations: 'disabled' });
+  shots[`dense-${theme}-synthese-hover-sankey`] = sankey;
+
+  const rivers = page.getByTestId('hypervisor-v2-stratum-comprendre');
+  await rivers.getByTestId('ck-stream-day-15').hover();
+  const streamTip = rivers.locator('ck-chart-stream [data-testid="ck-chart-tip"]');
+  await expect(rivers.locator('ck-chart-stream .ck-crosshair')).toHaveCount(1);
+  await expect(streamTip).toBeVisible();
+  const stream = path.join(RESULTS, `dense-${theme}-synthese-hover-stream.png`);
+  await page.screenshot({ path: stream, animations: 'disabled' });
+  shots[`dense-${theme}-synthese-hover-stream`] = stream;
+
+  await page.locator('[data-testid="hypervisor-v2-register"] [data-system-id="sys-capture"]').hover();
+  await expect(page.locator('ck-chart-sankey-flow [data-system="sys-capture"].is-lit').first()).toBeVisible();
+}

@@ -1,32 +1,44 @@
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Input, inject } from '@angular/core';
 
+import { hostPointerPoint } from './chart-interact';
+import { CkChartTipComponent } from './chart-tip.component';
 import { ckChartToneVar, type CkChartTone } from './chart.types';
 
 @Component({
   selector: 'ck-chart-unit-dots',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [CkChartTipComponent],
   template: `
     <svg
       [attr.viewBox]="'0 0 ' + svgWidth + ' ' + svgHeight"
       [attr.width]="svgWidth"
       [attr.height]="svgHeight"
       style="display:block;overflow:visible"
+      (pointermove)="onMove($event)"
+      (pointerleave)="onLeave()"
     >
       @for (dot of dots; track $index) {
         <circle [attr.cx]="dot.x" [attr.cy]="dot.y" [attr.r]="radius" [attr.fill]="color" />
       }
     </svg>
+    <ck-chart-tip [open]="tipOpen" [title]="tipTitle" [lines]="[]" [x]="tipX" [y]="tipY" />
   `,
-  styles: [':host { display: block; }'],
+  styles: [':host { display: block; position: relative; }'],
 })
 export class CkChartUnitDotsComponent {
+  private readonly host = inject(ElementRef<HTMLElement>);
   @Input() units = 0;
   @Input() unitsPerDot = 1;
   @Input() tone: CkChartTone = 'ink';
   @Input() dotSize = 5;
   @Input() gap = 3;
   @Input() width: number | null = null;
+  @Input() tipTitle = '';
+
+  tipOpen = false;
+  tipX = 0;
+  tipY = 0;
 
   get color(): string {
     return ckChartToneVar(this.tone);
@@ -57,6 +69,18 @@ export class CkChartUnitDotsComponent {
   get svgHeight(): number {
     const rows = Math.max(1, Math.ceil(this.count / this.columns));
     return rows * this.dotSize + Math.max(0, rows - 1) * this.gap;
+  }
+
+  onMove(event: PointerEvent): void {
+    if (!this.tipTitle) return;
+    const pt = hostPointerPoint(this.host.nativeElement, event.clientX, event.clientY);
+    this.tipX = pt.x;
+    this.tipY = pt.y;
+    this.tipOpen = true;
+  }
+
+  onLeave(): void {
+    this.tipOpen = false;
   }
 
   get dots(): { x: number; y: number }[] {

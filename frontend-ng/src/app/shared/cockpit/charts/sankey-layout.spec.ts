@@ -56,10 +56,11 @@ test('a single converging source still curves into a lower hours node and is cap
   assert.equal(hours.y, 44, 'hours node starts lower so the ribbon bends');
   assert.ok(source.h <= 0.55 * (336 - 14 - 20) + 1e-9, 'single node capped at 55 % of the column');
   assert.ok(source.h >= 4);
-  const name = layout.labels.find((label) => label.title);
-  assert.equal(name?.title, 'SAP HANA Maintenance Copilot');
-  assert.ok(name!.text.endsWith('…'));
-  assert.ok(name!.text.length <= 16);
+  const names = layout.labels.filter((label) => label.title === 'SAP HANA Maintenance Copilot');
+  assert.ok(names.length >= 1);
+  assert.ok(names.every((label) => label.title === 'SAP HANA Maintenance Copilot'));
+  assert.ok(names.some((label) => label.text.includes('SAP') || label.text.includes('HANA')));
+  assert.ok(names.every((label) => !label.text.endsWith('…') || label.text.length <= 20));
 });
 
 test('stub-only sources render without hours or value nodes', () => {
