@@ -2,11 +2,13 @@ export {
   accumulateStackedSeries,
   cubicSmoothAreaPath,
   cubicSmoothPath,
+  niceStep,
   radialDayAngle,
   radialPoint,
   radialSpokeEndpoints,
   radialSpokeLength,
   sankeyRibbonPath,
+  spreadLabelRows,
   type RadialSpokeEnds,
   type RadialSpokeInput,
   type StackedBand,
@@ -18,6 +20,7 @@ export { ckChartToneVar, ckChartUid, type CkChartTick, type CkChartTone, type Ck
 
 export { CkChartRadialDaysComponent, type CkRadialDay, type CkRadialMark } from './radial-days.component';
 export { CkChartSankeyFlowComponent, type CkSankeySource } from './sankey-flow.component';
+export { layoutSankey, truncateLabel, type SankeyLayout } from './sankey-layout';
 export {
   CkChartStreamComponent,
   type CkStreamGridLine,

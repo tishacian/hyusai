@@ -7,7 +7,6 @@ export interface CkRadialDay {
   measured: number;
   declared: number;
   weekend?: boolean;
-  label?: string;
 }
 
 export interface CkRadialMark {
@@ -15,6 +14,9 @@ export interface CkRadialMark {
   y: number;
   label: string;
 }
+
+/** Days at or above this share of the maximum get a value label at the spoke tip. */
+export const CK_RADIAL_PEAK_SHARE = 0.93;
 
 @Component({
   selector: 'ck-chart-radial-days',
@@ -101,6 +103,7 @@ export interface CkRadialMark {
           font-size="8"
           letter-spacing="1"
           text-anchor="middle"
+          style="text-transform:uppercase"
         >{{ rangeLabel }}</text>
       }
       @if (centerValue) {
@@ -139,6 +142,8 @@ export class CkChartRadialDaysComponent {
   @Input() centerCaption = '';
   @Input() rangeLabel = '';
   @Input() ticks: CkChartTick[] = [];
+  /** Formats the total of a peak day for its spoke-tip label (e.g. `71 h`). */
+  @Input() peakLabel: (total: number) => string = (total) => String(Math.round(total));
 
   readonly haloId = ckChartUid('ck-radial-halo');
 
@@ -223,11 +228,11 @@ export class CkChartRadialDaysComponent {
         if (measured > 0) ink.push(inner);
         if (declared > 0) teal.push(outer);
       }
-      if (day.label) {
+      if (total >= CK_RADIAL_PEAK_SHARE * max) {
         peaks.push({
           x: this.cx + (this.innerRadius + length + 13) * Math.cos(angle),
           y: this.cy + (this.innerRadius + length + 13) * Math.sin(angle) + 3,
-          label: day.label,
+          label: this.peakLabel(total),
         });
       }
     }

@@ -1,7 +1,7 @@
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, booleanAttribute } from '@angular/core';
 
 import { ckChartToneVar, ckChartUid, type CkChartTick, type CkStreamTone } from './chart.types';
-import { accumulateStackedSeries, cubicSmoothAreaPath } from './svg-path';
+import { accumulateStackedSeries, cubicSmoothAreaPath, niceStep, spreadLabelRows } from './svg-path';
 
 export interface CkStreamSeries {
   label: string;
@@ -44,6 +44,9 @@ interface StreamBand {
   h: number;
 }
 
+/** Vertical room one ribbon label (name + mono total) needs. */
+const LABEL_ROW = 24;
+
 @Component({
   selector: 'ck-chart-stream',
   standalone: true,
@@ -53,6 +56,8 @@ interface StreamBand {
       [attr.viewBox]="'0 0 ' + width + ' ' + height"
       [attr.width]="width"
       [attr.height]="height"
+      [style.width]="fluid ? '100%' : null"
+      [style.height]="fluid ? 'auto' : null"
       style="display:block;overflow:visible"
     >
       <defs>
@@ -118,7 +123,7 @@ interface StreamBand {
           [attr.cx]="mark.x"
           [attr.cy]="mark.y"
           r="3.5"
-          fill="var(--ck-bg-panel)"
+          fill="var(--ck-bg-base)"
           stroke="var(--ck-fg-1)"
           stroke-width="1.5"
         />
@@ -128,6 +133,7 @@ interface StreamBand {
           fill="var(--ck-fg-1)"
           font-family="var(--ck-font-mono)"
           font-size="9"
+          [attr.text-anchor]="mark.anchor"
         >{{ mark.label }}</text>
       }
       @for (tick of axisTicks; track $index) {
@@ -148,12 +154,17 @@ interface StreamBand {
 export class CkChartStreamComponent {
   @Input() series: CkStreamSeries[] = [];
   @Input() weekendStarts: number[] = [];
+  /** Explicit gridlines; when empty, round steps are derived from the maximum. */
   @Input() gridLines: CkStreamGridLine[] = [];
+  /** Formats a derived gridline value (e.g. `40 h`). */
+  @Input() gridLabel: (value: number) => string = (value) => String(value);
   @Input() ticks: CkChartTick[] = [];
   @Input() peak: CkStreamPeak | null = null;
   @Input() width = 612;
   @Input() height = 196;
   @Input() maxValue: number | null = null;
+  /** Scale the drawing to the host width (keeps the 612×196 composition). */
+  @Input({ transform: booleanAttribute }) fluid = false;
 
   readonly inkId = ckChartUid('ck-stream-ink');
   readonly declaredId = ckChartUid('ck-stream-teal');
@@ -174,10 +185,16 @@ export class CkChartStreamComponent {
 
   get grid(): Array<{ y: number; label: string }> {
     const max = this.resolvedMax();
-    return this.gridLines.map((line) => ({
-      y: this.yOf(line.value, max),
-      label: line.label,
-    }));
+    if (this.gridLines.length) {
+      return this.gridLines.map((line) => ({ y: this.yOf(line.value, max), label: line.label }));
+    }
+    if (!this.series.length) return [];
+    const step = niceStep(max);
+    const lines: Array<{ y: number; label: string }> = [];
+    for (let value = step; value < max * 0.98 && lines.length < 6; value += step) {
+      lines.push({ y: this.yOf(value, max), label: this.gridLabel(value) });
+    }
+    return lines;
   }
 
   get weekendBands(): StreamBand[] {
@@ -198,15 +215,18 @@ export class CkChartStreamComponent {
     return this.layout().labels;
   }
 
-  get peakMark(): { x: number; y: number; label: string } | null {
+  get peakMark(): { x: number; y: number; label: string; anchor: 'start' | 'end' } | null {
     const peak = this.peak;
     if (!peak) return null;
     const totals = this.totals();
     if (peak.index < 0 || peak.index >= totals.length) return null;
+    const x = this.xOf(peak.index);
     return {
-      x: this.xOf(peak.index),
+      x,
       y: this.yOf(totals[peak.index], this.resolvedMax()),
       label: peak.label,
+      // Near the right edge the label would run into the ribbon names.
+      anchor: x > this.plotLeft + this.plotWidth * 0.78 ? 'end' : 'start',
     };
   }
 
@@ -232,6 +252,7 @@ export class CkChartStreamComponent {
     if (n < 2 || !series.length) return { areas, labels };
     const max = this.resolvedMax();
     const stacked = accumulateStackedSeries(series.map((row) => row.values));
+    const desired: number[] = [];
     stacked.forEach((band, index) => {
       const row = series[index];
       const tone = row.tone ?? 'ink';
@@ -243,7 +264,12 @@ export class CkChartStreamComponent {
           : cubicSmoothAreaPath(upper, lower),
         fill: this.fillFor(tone),
       });
-      const midY = (upper[n - 1].y + lower[n - 1].y) / 2;
+      desired.push((upper[n - 1].y + lower[n - 1].y) / 2);
+    });
+    const rows = spreadLabelRows(desired, LABEL_ROW, this.plotTop + 6, this.plotTop + this.plotHeight - 12);
+    series.forEach((row, index) => {
+      const tone = row.tone ?? 'ink';
+      const midY = rows[index];
       labels.push({
         x: this.plotLeft + this.plotWidth + 30,
         y: midY + 3,

@@ -65,26 +65,47 @@ export interface HypervisorDayPoint {
   declared: number;
 }
 
+/**
+ * A calendar tick to be formatted by the consumer in the active locale:
+ * `start`/`end` carry the range bounds, `week` marks every 7th day with its ISO week.
+ */
 export interface HypervisorChartTick {
   index: number;
-  label: string;
-  anchor?: 'start' | 'middle' | 'end';
+  kind: 'start' | 'week' | 'end';
+  date: string;
+  isoWeek: number;
+  anchor: 'start' | 'middle' | 'end';
 }
 
 export interface HypervisorStreamRow {
   systemId: string;
   label: string;
   values: number[];
+  total: number;
   tone: StreamTone;
+  basisStatus: ValueBasisStatus | null;
 }
 
+/** One source of the runs → results → value flow; width is the run count. */
 export interface HypervisorSankeyRow {
   systemId: string;
   capabilityId: string | null;
   label: string;
-  detail?: string;
-  value: number;
+  runs: number;
+  outcomes: SeriesFact;
+  outputUnit: string | null;
+  basisStatus: ValueBasisStatus | null;
   outsideDenominator: boolean;
+}
+
+export interface HypervisorPeak {
+  index: number;
+  date: string;
+  total: number;
+  measured: number;
+  declared: number;
+  runs: number;
+  systems: number;
 }
 
 export interface HypervisorRegisterRow {
@@ -114,7 +135,7 @@ export interface HypervisorSeriesView {
   days: HypervisorDayPoint[];
   weekendStarts: number[];
   ticks: HypervisorChartTick[];
-  peak: { index: number; date: string; total: number } | null;
+  peak: HypervisorPeak | null;
   monument: SeriesFact;
   measuredTotal: number;
   declaredTotal: number;
@@ -282,11 +303,21 @@ export function projectSeries(
       ? { state: 'not_configured' as const, value: null }
       : { state: 'not_measured' as const, value: null };
 
-  let peak: HypervisorSeriesView['peak'] = null;
+  let peak: HypervisorPeak | null = null;
   for (let i = 0; i < days.length; i += 1) {
-    const total = days[i]!.measured + days[i]!.declared;
+    const day = days[i]!;
+    const total = day.measured + day.declared;
     if (total <= 0) continue;
-    if (!peak || total > peak.total) peak = { index: i, date: days[i]!.date, total };
+    if (!peak || total > peak.total) {
+      peak = {
+        index: i,
+        date: day.date,
+        total,
+        measured: day.measured,
+        declared: day.declared,
+        ...peakActivity(systems, day.date, denominator),
+      };
+    }
   }
 
   const pulseValues = dates.map((date) => {
@@ -305,7 +336,7 @@ export function projectSeries(
     dates,
     days,
     weekendStarts: dates.flatMap((date, index) => (weekdayUtc(date) === 6 ? [index] : [])),
-    ticks: weekTicks(dates),
+    ticks: calendarTicks(dates),
     peak,
     monument,
     measuredTotal,
@@ -316,30 +347,42 @@ export function projectSeries(
     unitsTotal,
     ratio,
     currency: firstCurrency(systems),
-    streams: inDenominator.map((row) => ({
-      systemId: row.systemId,
-      label: row.name,
-      values: dailyMetric(systems.find((system) => system.system_id === row.systemId)!, dates, denominator),
-      tone: row.basisStatus === 'measured' ? 'ink' : 'declared',
+    streams: orderStreams(inDenominator.map((row) => {
+      const values = dailyMetric(systems.find((system) => system.system_id === row.systemId)!, dates, denominator);
+      return {
+        systemId: row.systemId,
+        label: row.name,
+        values,
+        total: values.reduce((sum, value) => sum + value, 0),
+        tone: 'ink' as const,
+        basisStatus: row.basisStatus,
+      };
     })),
     costStreams: register
       .filter((row) => row.cost.state === 'available')
-      .map((row) => ({
-        systemId: row.systemId,
-        label: row.name,
-        values: dailyCost(systems.find((system) => system.system_id === row.systemId)!, dates),
-        tone: 'ink' as const,
-      })),
+      .map((row) => {
+        const values = dailyCost(systems.find((system) => system.system_id === row.systemId)!, dates);
+        return {
+          systemId: row.systemId,
+          label: row.name,
+          values,
+          total: values.reduce((sum, value) => sum + value, 0),
+          tone: 'ink' as const,
+          basisStatus: row.basisStatus,
+        };
+      }),
     sankey: register
       .map((row) => ({
         systemId: row.systemId,
         capabilityId: row.capabilityId,
         label: row.name,
-        detail: row.outputUnit ?? undefined,
-        value: sankeyValue(row, denominator),
+        runs: availableNumber(row.runs) ?? 0,
+        outcomes: row.outcomes,
+        outputUnit: row.outputUnit,
+        basisStatus: row.basisStatus,
         outsideDenominator: row.outsideDenominator,
       }))
-      .filter((row) => row.outsideDenominator || row.value > 0),
+      .filter((row) => row.runs > 0),
     register,
     outside: register.filter((row) => row.outsideDenominator),
     staleSystemIds: register
@@ -425,10 +468,39 @@ function dailySystemMetric(
   return availableNumber(bucket.outcomes) ?? 0;
 }
 
-function sankeyValue(row: HypervisorRegisterRow, denominator: HypervisorDenominator): number {
-  if (denominator === 'hours') return availableNumber(row.hours) ?? 0;
-  if (denominator === 'value') return availableNumber(row.valueDeclared) ?? 0;
-  return availableNumber(row.outcomes) ?? 0;
+function peakActivity(
+  systems: readonly HypervisorSeriesSystem[],
+  date: string,
+  denominator: HypervisorDenominator,
+): Pick<HypervisorPeak, 'runs' | 'systems'> {
+  let runs = 0;
+  let active = 0;
+  for (const system of systems) {
+    if (isOutsideDenominator(system, denominator)) continue;
+    const bucket = bucketOn(system, date);
+    if (!bucket) continue;
+    runs += availableNumber(bucket.runs) ?? 0;
+    if (dailySystemMetric(system, date, denominator) > 0) active += 1;
+  }
+  return { runs, systems: active };
+}
+
+/**
+ * Stack order for the rivers: measured systems first (ink, at the bottom), then
+ * declared ones by weight, alternating the two teal tones so neighbours stay apart.
+ */
+export function orderStreams(rows: readonly HypervisorStreamRow[]): HypervisorStreamRow[] {
+  const byWeight = (left: HypervisorStreamRow, right: HypervisorStreamRow): number =>
+    right.total - left.total || left.label.localeCompare(right.label);
+  const measured = rows.filter((row) => row.basisStatus === 'measured').sort(byWeight);
+  const declared = rows.filter((row) => row.basisStatus !== 'measured').sort(byWeight);
+  return [
+    ...measured.map((row) => ({ ...row, tone: 'ink' as const })),
+    ...declared.map((row, index) => ({
+      ...row,
+      tone: index % 2 === 0 ? ('declared' as const) : ('declared-soft' as const),
+    })),
+  ];
 }
 
 function foldConfigured(
@@ -457,14 +529,31 @@ function weekdayUtc(date: string): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay();
 }
 
-function weekTicks(dates: readonly string[]): HypervisorChartTick[] {
-  const ticks: HypervisorChartTick[] = [];
-  for (let i = 0; i < dates.length; i += 7) {
-    ticks.push({
-      index: i,
-      label: dates[i]!.slice(5),
-      anchor: i === 0 ? 'start' : 'middle',
-    });
+export function isoWeek(date: string): number {
+  const d = new Date(`${date}T00:00:00Z`);
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = Date.UTC(d.getUTCFullYear(), 0, 1);
+  return Math.ceil(((d.getTime() - yearStart) / 86_400_000 + 1) / 7);
+}
+
+/**
+ * Range bounds plus a week tick every 7 days (every 4 weeks past 45 days),
+ * skipping ticks that would crowd the end label.
+ */
+export function calendarTicks(dates: readonly string[]): HypervisorChartTick[] {
+  const n = dates.length;
+  if (!n) return [];
+  const last = n - 1;
+  const step = n > 45 ? 28 : 7;
+  const ticks: HypervisorChartTick[] = [
+    { index: 0, kind: 'start', date: dates[0]!, isoWeek: isoWeek(dates[0]!), anchor: 'start' },
+  ];
+  for (let i = step; i <= last - 4; i += step) {
+    ticks.push({ index: i, kind: 'week', date: dates[i]!, isoWeek: isoWeek(dates[i]!), anchor: 'middle' });
+  }
+  if (last > 0) {
+    ticks.push({ index: last, kind: 'end', date: dates[last]!, isoWeek: isoWeek(dates[last]!), anchor: 'end' });
   }
   return ticks;
 }

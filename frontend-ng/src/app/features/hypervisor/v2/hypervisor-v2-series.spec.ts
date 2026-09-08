@@ -3,10 +3,13 @@ import { test } from 'node:test';
 import {
   STALE_AFTER_DAYS,
   buildCalendar,
+  calendarTicks,
   foldFacts,
   hasHoursBasis,
   initialsFor,
   isOutsideDenominator,
+  isoWeek,
+  orderStreams,
   projectSeries,
   sortRegisterRows,
   weekSpark,
@@ -136,8 +139,53 @@ test('picks the peak day from measured+declared and marks stale systems', () => 
   const view = projectSeries(WINDOW, 'hours');
   assert.equal(view.peak?.date, '2026-09-02');
   assert.equal(view.peak?.total, 3.25);
+  assert.equal(view.peak?.measured, 2);
+  assert.equal(view.peak?.declared, 1.25);
+  assert.equal(view.peak?.runs, 2, 'runs of in-denominator systems on the peak day');
+  assert.equal(view.peak?.systems, 2);
   assert.deepEqual(view.staleSystemIds, ['sys-bare']);
   assert.equal(STALE_AFTER_DAYS, 7);
+});
+
+test('sankey widths are run counts and outside systems keep their native outcome', () => {
+  const view = projectSeries(WINDOW, 'hours');
+  const declared = view.sankey.find((row) => row.systemId === 'sys-declared');
+  assert.equal(declared?.runs, 2);
+  assert.equal(declared?.outsideDenominator, false);
+  const bare = view.sankey.find((row) => row.systemId === 'sys-bare');
+  assert.equal(bare?.outsideDenominator, true);
+  assert.equal(bare?.outcomes.state, 'available');
+  assert.equal(bare?.outcomes.value, 1);
+  assert.equal(bare?.outputUnit, 'brief');
+});
+
+test('rivers stack measured first, then declared by weight with alternating teal tones', () => {
+  const view = projectSeries(WINDOW, 'hours');
+  assert.deepEqual(view.streams.map((row) => row.systemId), ['sys-measured', 'sys-declared']);
+  assert.deepEqual(view.streams.map((row) => row.tone), ['ink', 'declared']);
+  const ordered = orderStreams([
+    { systemId: 'a', label: 'A', values: [1], total: 1, tone: 'ink', basisStatus: 'declared' },
+    { systemId: 'b', label: 'B', values: [5], total: 5, tone: 'ink', basisStatus: 'declared' },
+    { systemId: 'c', label: 'C', values: [2], total: 2, tone: 'ink', basisStatus: 'measured' },
+  ]);
+  assert.deepEqual(ordered.map((row) => `${row.systemId}:${row.tone}`), ['c:ink', 'b:declared', 'a:declared-soft']);
+});
+
+test('calendar ticks carry range bounds and ISO weeks without crowding the end', () => {
+  const dates = buildCalendar('2026-08-09', '2026-09-07');
+  const ticks = calendarTicks(dates);
+  assert.deepEqual(ticks.map((tick) => [tick.index, tick.kind]), [
+    [0, 'start'],
+    [7, 'week'],
+    [14, 'week'],
+    [21, 'week'],
+    [29, 'end'],
+  ]);
+  assert.equal(ticks[1]?.date, '2026-08-16');
+  assert.equal(ticks[1]?.isoWeek, 33);
+  assert.equal(isoWeek('2026-01-01'), 1);
+  assert.equal(isoWeek('2026-12-31'), 53);
+  assert.equal(calendarTicks(['2026-09-01']).length, 1);
 });
 
 test('week spark collapses the calendar from the end without fabricating cost', () => {

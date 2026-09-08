@@ -111,6 +111,47 @@ export function radialSpokeEndpoints(input: RadialSpokeInput): RadialSpokeEnds {
   };
 }
 
+/** A round gridline step (1, 2, 2.5, 5 × 10ⁿ) giving about four lines up to `max`. */
+export function niceStep(max: number): number {
+  if (!(max > 0)) return 1;
+  const rough = max / 4;
+  const power = 10 ** Math.floor(Math.log10(rough));
+  for (const factor of [1, 2, 2.5, 5, 10]) {
+    if (factor * power >= rough) return factor * power;
+  }
+  return 10 * power;
+}
+
+/**
+ * Push overlapping label rows apart while keeping them inside `[min, max]`.
+ * Returns one y per input, in input order; ties keep input order.
+ */
+export function spreadLabelRows(
+  desired: readonly number[],
+  minGap: number,
+  min: number,
+  max: number,
+): number[] {
+  const order = desired.map((y, index) => ({ y, index })).sort((a, b) => a.y - b.y || a.index - b.index);
+  const placed = order.map((item) => Math.min(Math.max(item.y, min), max));
+  for (let i = 1; i < placed.length; i += 1) {
+    placed[i] = Math.max(placed[i], placed[i - 1] + minGap);
+  }
+  const overflow = placed.length ? placed[placed.length - 1] - max : 0;
+  if (overflow > 0) {
+    for (let i = 0; i < placed.length; i += 1) placed[i] -= overflow;
+    placed[0] = Math.max(placed[0], min);
+    for (let i = 1; i < placed.length; i += 1) {
+      placed[i] = Math.max(placed[i], placed[i - 1] + minGap);
+    }
+  }
+  const out = new Array<number>(desired.length);
+  order.forEach((item, i) => {
+    out[item.index] = placed[i];
+  });
+  return out;
+}
+
 export function accumulateStackedSeries(
   series: readonly (readonly number[])[],
 ): StackedBand[] {
