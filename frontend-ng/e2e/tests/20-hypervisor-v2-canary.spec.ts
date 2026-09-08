@@ -236,6 +236,7 @@ async function assertHonesty(
   assertMissingFact((await metrics.nth(2).innerText()).trim(), view.ratio, 'hero ratio');
 
   const register = page.getByTestId('hypervisor-v2-register');
+  await expect(register, 'synthese register testid must be unique').toHaveCount(1);
   const headers = await register.locator('thead th').allTextContents();
   const costIdx = headers.findIndex((header) => /co[uû]t|cost/i.test(header));
   const valueIdx = headers.findIndex((header) => /^valeur$|^value$/i.test(header.trim()));
@@ -322,6 +323,7 @@ test.describe.serial('Hypervisor V2 — instrumented ledger canary', () => {
       await expect(page.getByTestId('hypervisor-v2-stratum-decider')).toBeVisible();
 
       const register = page.getByTestId('hypervisor-v2-register');
+      await expect(register, 'synthese register testid must be unique').toHaveCount(1);
       await expect(register).toBeVisible();
       for (const system of seriesResult.body.systems) {
         await expect(register).toContainText(system.name);

@@ -309,9 +309,16 @@ async function selectFacet(page: Page, facet: Facet): Promise<void> {
   await expect.poll(() => new URL(page.url()).searchParams.get('facet')).toBe(facet);
 }
 
+/** Lot 6 rail + eyebrow: `nav.build.create` / `nav.{lens}` in FR and EN, plus CSS uppercase. */
+const zoneLabels: Record<Lens, RegExp> = {
+  build: /Créer|CRÉER|Create|CREATE/,
+  operate: /Opérer|OPÉRER|Operate|OPERATE/,
+  steer: /Piloter|PILOTER|Steer|STEER/,
+  govern: /Gouverner|GOUVERNER|Govern|GOVERN/,
+};
+
 async function selectLens(page: Page, lens: Lens, systemId: string, facet: Facet): Promise<void> {
-  const label = lens[0].toUpperCase() + lens.slice(1);
-  const link = page.locator('app-side-rail a.ck-rail-item').filter({ hasText: new RegExp(label, 'i') });
+  const link = page.locator('app-side-rail a.ck-rail-item').filter({ hasText: zoneLabels[lens] });
   await expect(link).toHaveCount(1);
   await link.click();
   await expect.poll(() => {
@@ -322,13 +329,6 @@ async function selectLens(page: Page, lens: Lens, systemId: string, facet: Facet
     page.locator(`#ck-tabpanel-${facet} app-system-perspective section[data-system-id="${systemId}"][data-perspective-lens="${lens}"]`),
   ).toBeVisible();
 }
-
-const zoneLabels: Record<Lens, string> = {
-  build: 'CREATE',
-  operate: 'OPERATE',
-  steer: 'STEER',
-  govern: 'GOVERN',
-};
 
 /**
  * The object header carries two different claims and only one of them is an
@@ -524,7 +524,7 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
       await expect.poll(() => chromeSignature(page)).toEqual(invariantChrome);
       await expect
         .poll(async () => (await headerParts(page)).zone)
-        .toContain(zoneLabels[lens]);
+        .toMatch(zoneLabels[lens]);
       const expectedBlocks = payloads[lens].facets.overview.blocks.map((block) => block.id).sort();
       const renderedBlocks = await page
         .locator('#ck-tabpanel-overview app-system-perspective article[data-block-id]')
