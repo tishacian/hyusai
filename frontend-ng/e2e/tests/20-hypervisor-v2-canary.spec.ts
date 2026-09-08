@@ -28,6 +28,8 @@ const showcaseSlug =
   ?? 'agentium-showcase';
 
 const FACETS = ['synthese', 'registre', 'couts', 'bases', 'decisions', 'journal'] as const;
+/** `<ck-tabs>` paints at most five tabs; the rest live under the More menu. */
+const VISIBLE_FACETS = 5;
 const ADMIN_ROLES = new Set([
   'owner',
   'admin',
@@ -230,10 +232,10 @@ async function assertHonesty(
     'hero monument',
   );
 
-  const metrics = page.locator('[data-testid="hypervisor-v2-hero"] ck-stat-readout');
-  assertMissingFact((await metrics.nth(0).innerText()).trim(), view.costTotal, 'hero cost');
-  assertMissingFact((await metrics.nth(1).innerText()).trim(), view.valueTotal, 'hero value');
-  assertMissingFact((await metrics.nth(2).innerText()).trim(), view.ratio, 'hero ratio');
+  const hero = page.locator('[data-testid="hypervisor-v2-hero"]');
+  assertMissingFact((await hero.locator('[data-fact="cost"]').innerText()).trim(), view.costTotal, 'hero cost');
+  assertMissingFact((await hero.locator('[data-fact="value"]').innerText()).trim(), view.valueTotal, 'hero value');
+  assertMissingFact((await hero.locator('[data-fact="ratio"]').innerText()).trim(), view.ratio, 'hero ratio');
 
   const register = page.getByTestId('hypervisor-v2-register');
   await expect(register, 'synthese register testid must be unique').toHaveCount(1);
@@ -314,9 +316,14 @@ test.describe.serial('Hypervisor V2 — instrumented ledger canary', () => {
 
       const facets = page.getByTestId('hypervisor-v2-facets');
       await expect(facets).toBeVisible();
-      for (const facet of FACETS) {
-        await expect(page.getByTestId(`hypervisor-v2-facet-${facet}`)).toBeVisible();
+      for (const facet of FACETS.slice(0, VISIBLE_FACETS)) {
+        await expect(page.locator(`#ck-tab-${facet}`)).toBeVisible();
       }
+      const more = facets.getByRole('button', { name: /^(Plus|More)$/i });
+      await expect(more, 'Journal lives under the ck-tabs More menu').toBeVisible();
+      await more.click();
+      await expect(page.getByRole('menuitem', { name: /Journal/i })).toBeVisible();
+      await page.keyboard.press('Escape');
 
       await expect(page.getByTestId('hypervisor-v2-stratum-comprendre')).toBeVisible();
       await expect(page.getByTestId('hypervisor-v2-stratum-detailler')).toBeVisible();
@@ -333,12 +340,13 @@ test.describe.serial('Hypervisor V2 — instrumented ledger canary', () => {
       await expect(hors).toBeVisible();
       await assertHonesty(page, seriesResult.body);
 
-      await page.getByTestId('hypervisor-v2-facet-registre').click();
+      await page.locator('#ck-tab-registre').click();
       await expect.poll(() => new URL(page.url()).searchParams.get('facet')).toBe('registre');
-      await expect(page.getByTestId('hypervisor-v2-facet-registre')).toHaveClass(/hv2-facets-on/);
+      await expect(page.locator('#ck-tab-registre')).toHaveAttribute('aria-selected', 'true');
 
-      await page.getByTestId('hypervisor-v2-facet-synthese').click();
+      await page.locator('#ck-tab-synthese').click();
       await expect.poll(() => new URL(page.url()).searchParams.get('facet')).toBe('synthese');
+      await expect(page.locator('#ck-tab-synthese')).toHaveAttribute('aria-selected', 'true');
       await expect(hors.getByRole('link').first()).toBeVisible();
       await hors.getByRole('link').first().click();
 

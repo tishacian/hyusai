@@ -1,4 +1,4 @@
-export type CkChartTone = 'ink' | 'declared' | 'negative';
+export type CkChartTone = 'ink' | 'declared' | 'negative' | 'muted';
 
 export type CkStreamTone = 'ink' | 'declared' | 'declared-soft';
 
@@ -15,6 +15,8 @@ export function ckChartToneVar(tone: CkChartTone | CkStreamTone): string {
       return 'var(--ck-signal-cool)';
     case 'negative':
       return 'var(--ck-signal-neg)';
+    case 'muted':
+      return 'var(--ck-fg-4)';
     default:
       return 'var(--ck-fg-1)';
   }

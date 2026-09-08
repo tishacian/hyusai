@@ -5,12 +5,29 @@ import {
   accumulateStackedSeries,
   cubicSmoothAreaPath,
   cubicSmoothPath,
+  niceStep,
   radialDayAngle,
   radialPoint,
   radialSpokeEndpoints,
   radialSpokeLength,
   sankeyRibbonPath,
+  spreadLabelRows,
 } from './svg-path';
+
+test('niceStep picks round gridline steps that give about four lines', () => {
+  assert.equal(niceStep(71), 20);
+  assert.equal(niceStep(0.8), 0.2);
+  assert.equal(niceStep(3.25), 1);
+  assert.equal(niceStep(1000), 250);
+  assert.equal(niceStep(0), 1);
+});
+
+test('spreadLabelRows pushes overlapping labels apart inside the plot', () => {
+  assert.deepEqual(spreadLabelRows([50, 52, 54], 24, 10, 180), [50, 74, 98]);
+  assert.deepEqual(spreadLabelRows([170, 175, 178], 24, 10, 180), [132, 156, 180]);
+  assert.deepEqual(spreadLabelRows([90, 20], 24, 10, 180), [90, 20]);
+  assert.deepEqual(spreadLabelRows([], 24, 10, 180), []);
+});
 
 test('cubicSmoothPath uses horizontal midpoints between consecutive points', () => {
   assert.equal(cubicSmoothPath([]), '');
