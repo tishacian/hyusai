@@ -5597,3 +5597,68 @@ Pilot/In-service n'est visible.
 Rappel de méthode : un `fetch origin` qui sort en 0 sur le dépôt du runner ne
 prouve rien (son `origin` est un bundle `/tmp` périssable). Vérifier
 `cat-file -e <sha40>` **et** le marqueur avant de lancer les canaris.
+
+## Itération du 08/09 — Hypervisor V2, déployée sur `c50ac8f0`
+
+Tranche « Grand Livre instrumenté » : une base de valeur gouvernée sur
+Capability, des séries journalières honnêtes, des vues nommées, une grammaire
+SVG, et la page V2 derrière `settings.features.hypervisor_v2` (opt-in, hors
+`GRADUATED_NAV_FEATURES`). Commit produit `c50ac8f0173b` ; le worktree a
+avancé de `02744cd8` et emporte aussi les deux correctifs de canari
+(`5d775487`) qui attendaient cette bascule.
+
+Les fichiers `docs/render/**`, `docs/pih/**` et `docs/demo-runs/**` du poste
+sont restés non suivis.
+
+**Seed.** Le seed complet (story, ingest, réécriture des Systems) n'a pas
+été rejoué : trop large pour trois colonnes JSON. One-off dans le backend
+servi, en important les constantes de `seed_showcase_workspace.py` :
+`expert_knowledge_capture`, `showcase_tender_response` et
+`showcase_hana_maintenance` portent désormais une base `declared` en **EUR**.
+Les trois témoins (`showcase_contract_risk`, `showcase_compliance_loop`,
+`showcase_translation_suite`) restent sans `value_basis`. Knowledge Capture
+avait `pricing.currency=USD` et `value_basis=null` — pas un USD persisté ;
+la base posée est EUR, donc le rendu V2 ne peut plus inventer un `$`.
+
+**Flag.** `settings.features.hypervisor_v2 = true` uniquement sur
+`agentium-showcase` (`e2ed9e40-…`). Les quinze autres workspaces actifs
+restent sans la clé.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `af0c8415` → `c50ac8f0173b5475c6a9312ad0465e3776cdad47` |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
+| Worktree | `sudo git fetch origin demo/agentic && sudo git merge --ff-only FETCH_HEAD` → `c50ac8f0173b…`, `status --porcelain` vide |
+| Build | `agentium-{backend,worker,frontend}:c50ac8f0173b`, `AGENTIUM_IMAGE_REVISION` = SHA complet ; journaux `/srv/agentium-data/hypervisor-v2-deployments/2026-09-08-c50ac8f0173b/build.log` ; le Dockerfile frontend ne consomme pas `PIP_INDEX_URL`/`USER_UID`/`USER_GID` (avertissement attendu) |
+| Dump pré-migration | `hypervisor-v2-deployments/2026-09-08-c50ac8f0173b/postgres-pre-migration.dump`, 466 906 191 o, sha256 `0ef19f1a567fafdf76ac09a02dc21e2ce99ed1e9101eab4db7ea87f5c9a7a2ae`, 1335 TOC, triplet `.sha256`/`.ready` en `0600`, fenêtre `0700` |
+| `storage-check` / `migrate` / `up` | sortie 0 ; `099_data_plane_attached` → `100_capability_value_basis (head)` ; cinq services recréés, backend et frontend `healthy` |
+| `build-info` | `revision: c50ac8f0173b5475c6a9312ad0465e3776cdad47`, `revision_verified: true` en localhost Host **et** sur `https://agentium.papai.ai` ; `/` = 200 ; 0 `traceback`/`exception` backend et worker sur 3 min |
+| Seed / flag | trois bases EUR `declared` ; trois témoins unset ; flag showcase only |
+| Canaris carakai | checkout avancé `02744cd8` → `c50ac8f0` par bundle incrémental (sha256 `acb21baf5b1e51d523c1d27960f4abc2ae48c210eb4c6ecc6c4f462093d2644c` identique des deux côtés, `cat-file -e` positif), marqueur `.agentium-source-sha` réaligné. Symlink `node_modules` inchangé (`frontend-deps-cfded9c9…`). **0 passed / 3 failed** en 47 s, artefacts `/tmp/iteration-canaries-20260908T143022Z.vzQCUb`. Specs 20, 11, 17 seulement — 12 et 16 non rejoués |
+| Rollback | `AGENTIUM_IMAGE_TAG=02744cd808b9` puis `up` ; la 100 est additive (colonne JSON nullable), un retour d'image la tolère ; dump pré-migration à portée |
+
+### Les trois canaris, relus un par un
+
+Arrêt ici : pas de retouche de spec, pas de second passage.
+
+- **11 — System 360.** Le contrat d'identité (chapeau asservi à la lentille,
+  chrome figé en dessous) a tenu assez longtemps pour arriver à
+  `selectLens(..., 'build', ...)` ligne 549. Là le rail est interrogé avec
+  `/Build/i` : **0** `a.ck-rail-item`. Lot 6 nomme cette zone **CREATE**
+  (`zoneLabels.build = 'CREATE'`). Ce n'est plus l'invariant d'en-tête que
+  `5d775487` corrigeait, ni le « Build absent sous `experience_v1` » d'avant
+  Lot 6 : c'est le sélecteur de lentille qui parle encore l'ancien mot.
+- **17 — Studio.** L'overlay du wizard (`5d775487`) a tenu : le run arrive
+  jusqu'à `checkMobileEditor` après create/save/ready-check. À 456 ou 320,
+  `app-experience-editor` est dans l'arbre et Playwright le rapporte
+  `hidden`. Signature nouvelle, plus tardive que l'hôte wizard sans boîte.
+- **20 — Hypervisor V2.** Première exécution live. La page V2 s'est peinte
+  (héros, facettes, trois strates). Échec à
+  `getByTestId('hypervisor-v2-register')` : **strict mode**, trois nœuds
+  (strate Détailler, facette Register, facette Costs). Ce n'est pas un `$`
+  ni un « ROI » — l'assertion d'honnêteté n'a pas été atteinte.
+
+Attendu inchangé pour le 16 s'il est rejoué : rouge tant qu'aucune Experience
+Pilot/In-service n'est visible.
