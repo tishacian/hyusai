@@ -188,12 +188,13 @@ async function checkMobileEditor(page: Page, editorPath: string, width: 320 | 45
   await expect(chat).toBeVisible();
   await expectContained(chat, width);
   await expect(chat.locator('button').first()).toBeFocused();
-  await expect(page.getByRole('main')).toHaveAttribute('inert', '');
+  // Chat sets aria-hidden on #main-content; getByRole('main') cannot see it.
+  await expect(page.locator('#main-content')).toHaveAttribute('inert', '');
   const chatInput = chat.getByRole('textbox').first();
   if (await chatInput.count()) await chatInput.focus();
   await page.keyboard.press('Escape');
   await expect(chat).toHaveCount(0);
-  await expect(page.getByRole('main')).not.toHaveAttribute('inert', '');
+  await expect(page.locator('#main-content')).not.toHaveAttribute('inert', '');
   await expect(editorHeading).toBeFocused();
 }
 
