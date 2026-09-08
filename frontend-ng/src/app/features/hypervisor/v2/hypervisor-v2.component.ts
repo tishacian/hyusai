@@ -63,6 +63,7 @@ import {
 import {
   COMPRENDRE_BLOCKS,
   DECIDER_BLOCKS,
+  DEFAULT_HYPERVISOR_VIEWS,
   DETAILLER_BLOCKS,
   REGISTER_COLUMNS,
   VIEW_SORTS,
@@ -1022,7 +1023,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   private reload(): void {
     const request = this.workspaceView.beginRequest();
-    const period = viewPeriod(this.activeView());
+    const period = viewPeriod(this.activeView() ?? DEFAULT_HYPERVISOR_VIEWS[0]);
     this.loading.set(true);
     forkJoin({
       series: this.api.hypervisorSeries(period),
@@ -1049,6 +1050,10 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       this.canEdit.set(parsed.can_edit);
       if (!parsed.views.some((view) => view.id === this.activeViewId())) {
         this.activeViewId.set(parsed.views[0]?.id ?? 'direction');
+      }
+      if (viewPeriod(this.activeView()) !== period) {
+        this.reload();
+        return;
       }
       this.lastSeries = bundle.series;
       this.series.set(bundle.series ? projectSeries(bundle.series, viewDenominator(this.activeView())) : null);
