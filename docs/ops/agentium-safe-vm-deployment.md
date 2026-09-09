@@ -5931,3 +5931,89 @@ remplissent. L'entrée ne part qu'une fois le payload chargé, pas au
 (Contract Risk `flow_output_sink_required`, Tender
 `decision_branch_unwired` / `escalate`). Canari 17 light-theme
 `color-contrast` non rejoué.
+
+## Incident du 09/09 — VM « bloquée » : OOM par un run narration, démon Docker verrouillé
+
+Signalé comme « 100 % de stockage ». Le disque n'était que le symptôme
+visible : `/` a bien touché 100 % à 09:01 UTC (rsyslog `No space left
+on device`) puis est redescendu seul à 88 %. Ce qui a couché la
+plateforme, c'est la mémoire, puis le démon Docker resté figé.
+
+### Chronologie (UTC)
+
+| Heure | Observé |
+|---|---|
+| 08/09 ~19:00 | `docker compose run narration …` de débogage (test de nettoyage DITA, lot Andritz `X1325_en_GB_v1`, dépôt `/home/ubuntu/narration`) part en **récursion de shells** ; conteneur `narration-narration-run-585d8b8c65a9`, aucune limite mémoire |
+| 08/09 ~19:40 | premiers tués par l'OOM killer : `agentium-kc`, `agentium-livekit`, `agentium-livekit-agent` (tous trois en `restart: no`, donc pas relancés) |
+| 09/09 08:44 | containerd : `ttrpc: received message on inactive stream`, `get state … context deadline exceeded` |
+| 09:01 | `/` à 100 % ; rsyslog en `No space left on device` |
+| 09:03 | OOM en rafale : `worker-cpu`, `p4-maintenance`, `beat`, `sftp`, `qdrant`, `minio` ; `journald` crashe (`/var/crash`) ; beat / p4 / sftp entrent en boucle de redémarrage (~600 relances) |
+| 09:03 → 09:35 | états `docker ps` **figés** (Restarting « 49 minutes ago » immobile, RabbitMQ `health: starting` sans fin) ; backend `unhealthy` ; 57 Mo de RAM disponibles sur 58 Go, 56 Go tenus par le conteneur narration |
+
+### Actions
+
+1. `docker stop narration-…` : la mémoire est rendue immédiatement
+   (49 Go disponibles) mais le démon répond « did not receive an exit
+   event » et garde le conteneur `Up` ; `docker inspect` ne rend plus
+   la main.
+2. Le shim containerd du conteneur (PID 265768) est orphelin, sans
+   enfant : `kill -9`. Le démon reste verrouillé sur le conteneur.
+3. `systemctl stop docker.socket docker.service` →
+   `systemctl restart containerd` → `systemctl start docker.socket
+   docker.service`. Live-restore était **désactivé** : tous les
+   conteneurs sont repartis (Postgres arrêté proprement, reparti
+   `healthy` sur son volume). Les `unless-stopped` reviennent seuls ;
+   `docker start agentium-kc agentium-livekit agentium-livekit-agent`
+   à la main.
+4. Qdrant `unhealthy` ~90 s : rejeu de 1 967 collections, toutes à
+   100 %, puis `all shards are ready`. Pas de corruption.
+
+État final : 13 conteneurs `Up`, backend et Qdrant `healthy`,
+`https://agentium.papai.ai/` = 200, `build-info` `7ae835ec…` avec
+`revision_verified: true`, 0 `traceback` backend, 41 Go de RAM
+disponibles. Rien n'a été supprimé côté données.
+
+### Disque : où sont les 337 Go de `/`
+
+| Chemin | Taille |
+|---|---|
+| `/var/lib/containerd` (store d'images Docker, driver overlayfs) | **205 Go** — 302 tags `agentium-*`, un trio d'images par déploiement depuis des semaines ; un seul trio en usage (`7ae835ec3970`) |
+| `/home/ubuntu` | 58 Go, dont `omnirag` 42 Go, `narration` 1,3 Go, cinq dumps `agentium-before-*` de ~416 Mo |
+| `/var/lib/docker` | 47 Go (couches de conteneurs, volumes — piège du « 49 Go reclaimable » inchangé) |
+| `/root` | 6,3 Go |
+| journald | 407 Mo |
+
+Ménage décidé : **tags `agentium-*` de plus de 30 jours seulement**.
+36 candidats (12 déploiements du 20/07 au 10/08) ; 35 supprimés, 1
+refusé par le démon lui-même — `agentium-backend:b0ce840ab020` fait
+tourner `agentium-sftp` (`eddce4dfca79`, image `af7ef7a728e8`), le
+conteneur que ce document interdit de toucher. Les **23 tags
+`agentium-rollback/*`** du 20/07 (filet posé lors de la migration 060,
+mêmes dates que les dumps `agentium-before-060-*`) ont été exclus à
+dessein. Gain : **16 Go** (50 → 66 Go libres, `/` à 83 %) — les couches
+de base étant partagées, les vieux trios pesaient peu en propre ;
+l'essentiel des 205 Go tient dans les ~90 trios récents. Le préflight
+de déploiement exige 40 Go : deux déploiements de marge, pas plus, sans
+une coupe plus profonde (garder les N derniers trios).
+
+### Durcissement appliqué
+
+- `/etc/docker/daemon.json` (absent jusqu'ici) : `{"live-restore":
+  true}`, appliqué par `systemctl reload docker` sans toucher aux
+  conteneurs (`Live Restore Enabled: true`). Un prochain redémarrage
+  du démon ne couchera plus la plateforme.
+- `/home/ubuntu/narration/docker-compose.override.yml` (spécifique VM,
+  exclu du `narration remote sync`) : `mem_limit: 8g` sur le service
+  `narration` ; `docker compose config` résout `8589934592`. Ancien
+  fichier en `.bak-20260909`.
+
+### Reste ouvert
+
+- La récursion du script narration n'est pas corrigée : ne pas
+  relancer ce test sans l'avoir comprise. La limite mémoire borne les
+  dégâts, elle ne les évite pas.
+- `agentium-kc`, `agentium-livekit`, `agentium-livekit-agent` restent
+  en `restart: no` : après tout OOM ou reboot, les relancer à la main.
+- Disque à 83 % : décider d'une politique de rétention des images
+  (garder courant + rollback + N derniers trios) avant que le préflight
+  ne bloque un déploiement.
