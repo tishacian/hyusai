@@ -367,6 +367,16 @@ test.describe.serial('Hypervisor V2 — instrumented ledger canary', () => {
       expect(tableCopy, 'value-bases must not render a $ currency symbol').not.toMatch(/\$/);
       expect(tableCopy, 'value-bases must not render the word ROI').not.toMatch(/ROI/i);
 
+      await page.locator('#ck-tab-synthese').click();
+      await page.getByTestId('hypervisor-v2-view-operations').click();
+      await expect(page.locator('[data-testid="hypervisor-v2-hero"] .hv2-monument-unit')).toContainText(/runs/i);
+      await expect(page.getByTestId('hypervisor-v2-hero-signal')).toBeVisible();
+      await expect(page.getByTestId('hypervisor-v2-stratum-decider')).toHaveCount(0);
+
+      await page.getByTestId('hypervisor-v2-view-conformite').click();
+      await expect(page.getByTestId('hypervisor-v2-unites')).toBeVisible();
+      await expect(page.getByTestId('hypervisor-v2-couverture')).toBeVisible();
+
       const screenshot = testInfo.outputPath('hypervisor-v2-canary.png');
       await page.screenshot({ path: screenshot, animations: 'disabled' });
       await testInfo.attach('hypervisor-v2-canary', { path: screenshot, contentType: 'image/png' });

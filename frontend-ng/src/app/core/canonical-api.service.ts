@@ -1028,7 +1028,7 @@ export interface HypervisorBalance {
 }
 
 export type HypervisorSeriesWindow = '30d' | '90d';
-export type HypervisorViewDenominator = 'hours' | 'units' | 'value';
+export type HypervisorViewDenominator = 'hours' | 'runs' | 'value' | 'units';
 export type HypervisorValueBasisStatus = 'declared' | 'measured' | 'none';
 
 export interface HypervisorSeriesFact {

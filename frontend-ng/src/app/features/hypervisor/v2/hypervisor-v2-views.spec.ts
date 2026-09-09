@@ -12,12 +12,28 @@ import {
   viewPeriod,
 } from './hypervisor-v2-views';
 
-test('parseViewsPayload falls back to the Direction / Operations / Conformite defaults', () => {
+test('parseViewsPayload falls back to Direction / Operations / Conformite defaults', () => {
   const parsed = parseViewsPayload(null);
   assert.equal(parsed.can_edit, false);
   assert.deepEqual(parsed.views.map((view) => view.id), ['direction', 'operations', 'conformite']);
   assert.equal(viewPeriod(parsed.views[0]), '90d');
-  assert.equal(viewDenominator(parsed.views[1]), 'units');
+  assert.equal(viewDenominator(parsed.views[1]), 'runs');
+  assert.equal(viewDenominator(parsed.views[2]), 'runs');
+  assert.deepEqual(parsed.views[1]?.strata.comprendre, ['monument', 'cadran', 'rivers', 'signal']);
+  assert.deepEqual(parsed.views[1]?.strata.decider, []);
+  assert.deepEqual(parsed.views[2]?.strata.comprendre, ['unites', 'couverture', 'decisions']);
+  assert.equal(showsBlock(parsed.views[0]!, 'comprendre', 'unites'), false);
+});
+
+test('legacy units denominator is an alias of runs', () => {
+  const parsed = parseViewsPayload({
+    can_edit: false,
+    views: [{
+      ...DEFAULT_HYPERVISOR_VIEWS[1]!,
+      denominator: 'units' as unknown as 'runs',
+    }],
+  });
+  assert.equal(viewDenominator(parsed.views[0]), 'runs');
 });
 
 test('toggle and move keep the rest of the view intact', () => {

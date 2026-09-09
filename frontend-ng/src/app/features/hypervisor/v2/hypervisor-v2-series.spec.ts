@@ -10,6 +10,7 @@ import {
   isOutsideDenominator,
   isoWeek,
   orderStreams,
+  projectNativeUnits,
   projectSeries,
   sortRegisterRows,
   weekSpark,
@@ -130,9 +131,28 @@ test('partitions hors-denominateur on hours and keeps native units in-denominato
   const hours = projectSeries(WINDOW, 'hours');
   assert.deepEqual(hours.outside.map((row) => row.systemId), ['sys-bare']);
   assert.equal(hours.sankey.some((row) => row.systemId === 'sys-bare' && row.outsideDenominator), true);
-  const units = projectSeries(WINDOW, 'units');
-  assert.equal(units.outside.length, 0);
-  assert.equal(units.register.find((row) => row.systemId === 'sys-bare')?.outsideDenominator, false);
+  const runs = projectSeries(WINDOW, 'runs');
+  assert.equal(runs.outside.length, 0);
+  assert.equal(runs.register.find((row) => row.systemId === 'sys-bare')?.outsideDenominator, false);
+});
+
+test('runs projection is ink-only, never sums native units, and shares a dot step', () => {
+  const view = projectSeries(WINDOW, 'runs');
+  assert.equal(view.monument.state, 'available');
+  assert.equal(view.monument.value, 4);
+  assert.ok(view.days.every((day) => day.declared === 0));
+  assert.deepEqual(view.streams.map((row) => row.tone), ['ink', 'ink-soft', 'ink']);
+  assert.equal(view.outside.length, 0);
+  const units = projectNativeUnits(view.register);
+  assert.equal(units.length, 1);
+  assert.equal(units[0]?.unit, 'brief');
+  assert.equal(units[0]?.total, 4);
+  const mixed = projectNativeUnits([
+    { ...view.register[0]!, outputUnit: 'risk_brief', outcomes: { state: 'available', value: 550 } },
+    { ...view.register[1]!, outputUnit: 'audited_outcome', outcomes: { state: 'available', value: 298 } },
+  ]);
+  assert.deepEqual(mixed.map((group) => `${group.unit}:${group.total}`), ['risk_brief:550', 'audited_outcome:298']);
+  assert.notEqual(mixed[0]!.total + mixed[1]!.total, mixed[0]!.total);
 });
 
 test('picks the peak day from measured+declared and marks stale systems', () => {
@@ -223,7 +243,7 @@ test('sorts register rows with null facts last', () => {
 test('basis helpers treat status none as unusable', () => {
   assert.equal(hasHoursBasis({ ...DECLARED, status: 'none' }), false);
   assert.equal(isOutsideDenominator({ value_basis: null }, 'hours'), true);
-  assert.equal(isOutsideDenominator({ value_basis: DECLARED }, 'units'), false);
+  assert.equal(isOutsideDenominator({ value_basis: DECLARED }, 'runs'), false);
   assert.equal(initialsFor('Tender Response Analyst'), 'TR');
 });
 

@@ -66,7 +66,7 @@ All primitives live in `frontend-ng/src/app/shared/cockpit/charts/`.
 
 `ck-chart-stream` — one series per System.
 
-- `series: { label, detail?, values, tone?: ink | declared | declared-soft }[]`
+- `series: { label, detail?, values, tone?: ink | ink-soft | declared | declared-soft }[]`
 - `weekendStarts`, `gridLines`, `ticks`, `peak: { index, label } \| null`
 - `width`, `height`, `maxValue`
 
@@ -113,9 +113,31 @@ Absence returns Direction / Operations / Conformite. `PUT` is workspace-admin
 only.
 
 ```
-{ id, label, denominator: hours|units|value, period: 30d|90d,
+{ id, label, denominator: hours|runs|value, period: 30d|90d,
   strata: { comprendre, detailler, decider }, register_columns, sort }
 ```
+
+`units` is a legacy alias of `runs`: accepted on write, coerced to `runs` on
+read. There is no fourth denominator.
+
+A run is always a measured fact. Under `runs` the dial and rivers are ink
+only, no System is hors-dénominateur, and the monument is the run count
+(available even at 0). Native output units are not a denominator: the
+`unites` block groups `register` by `output_unit` and never adds a brief to
+an audit.
+
+Default views:
+
+- Direction — hours, 90d, full ledger (monument, provenance, dial, Sankey,
+  rivers, hors-dénominateur, register, signal, decisions)
+- Operations — runs, 30d: monument, ink dial, run rivers, signal in the
+  hero; register sorted by silence; no euro columns
+- Conformite — runs, 90d: native-unit wall, basis coverage, pending
+  decision in the hero; register by name
+
+`signal` and `decisions` may sit in stratum 01 (hero) or 03. `couverture`
+and `unites` are 01-only catalogue blocks. An empty stratum is hidden.
+Customize (P3) can restack blocks; it cannot invent a denominator.
 
 `can_edit` is true only for a workspace admin. Non-admins still preview locally.
 
