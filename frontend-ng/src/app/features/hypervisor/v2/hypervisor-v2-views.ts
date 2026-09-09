@@ -1,4 +1,4 @@
-export type HypervisorViewDenominator = 'hours' | 'units' | 'value';
+export type HypervisorViewDenominator = 'hours' | 'runs' | 'value';
 export type HypervisorViewPeriod = '30d' | '90d';
 export type HypervisorStratumId = 'comprendre' | 'detailler' | 'decider';
 
@@ -9,6 +9,10 @@ export const COMPRENDRE_BLOCKS = [
   'sankey',
   'rivers',
   'hors_denominateur',
+  'unites',
+  'couverture',
+  'signal',
+  'decisions',
 ] as const;
 
 export const DETAILLER_BLOCKS = ['registre'] as const;
@@ -50,7 +54,7 @@ export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
     denominator: 'hours',
     period: '90d',
     strata: {
-      comprendre: [...COMPRENDRE_BLOCKS],
+      comprendre: ['monument', 'provenance', 'cadran', 'sankey', 'rivers', 'hors_denominateur'],
       detailler: [...DETAILLER_BLOCKS],
       decider: [...DECIDER_BLOCKS],
     },
@@ -60,27 +64,27 @@ export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
   {
     id: 'operations',
     label: 'Operations',
-    denominator: 'units',
+    denominator: 'runs',
     period: '30d',
     strata: {
-      comprendre: ['rivers', 'hors_denominateur'],
+      comprendre: ['monument', 'cadran', 'rivers', 'signal'],
       detailler: ['registre'],
-      decider: ['signal'],
+      decider: [],
     },
-    register_columns: ['unit', 'spark', 'cost', 'basis'],
+    register_columns: ['unit', 'spark'],
     sort: 'days_since_last_run',
   },
   {
     id: 'conformite',
     label: 'Conformite',
-    denominator: 'hours',
+    denominator: 'runs',
     period: '90d',
     strata: {
-      comprendre: ['provenance', 'hors_denominateur'],
+      comprendre: ['unites', 'couverture', 'decisions'],
       detailler: ['registre'],
-      decider: ['decisions'],
+      decider: [],
     },
-    register_columns: ['unit', 'basis', 'value'],
+    register_columns: ['unit', 'basis'],
     sort: 'name',
   },
 ];
@@ -111,8 +115,10 @@ export function viewPeriod(view: HypervisorNamedView | null | undefined): Hyperv
 }
 
 export function viewDenominator(view: HypervisorNamedView | null | undefined): HypervisorViewDenominator {
-  const value = view?.denominator;
-  return value === 'units' || value === 'value' ? value : 'hours';
+  const value = view?.denominator as string | undefined;
+  if (value === 'value') return 'value';
+  if (value === 'runs' || value === 'units') return 'runs';
+  return 'hours';
 }
 
 export function showsBlock(view: HypervisorNamedView | null | undefined, stratum: HypervisorStratumId, block: string): boolean {
@@ -160,17 +166,29 @@ export function toggleRegisterColumn(view: HypervisorNamedView, column: string):
   return next;
 }
 
-export function parseViewsPayload(raw: HypervisorViewsPayload | null | undefined): HypervisorViewsPayload {
+export function parseViewsPayload(
+  raw: { views?: readonly RawNamedView[]; can_edit?: boolean } | null | undefined,
+): HypervisorViewsPayload {
   const views = raw?.views?.length ? raw.views.map(normalizeView) : DEFAULT_HYPERVISOR_VIEWS.map(cloneView);
   return { views, can_edit: raw?.can_edit === true };
 }
 
-function normalizeView(view: HypervisorNamedView): HypervisorNamedView {
+interface RawNamedView {
+  id: string;
+  label: string;
+  denominator?: string;
+  period?: string;
+  strata?: Partial<HypervisorViewStrata>;
+  register_columns?: string[];
+  sort?: string;
+}
+
+function normalizeView(view: RawNamedView): HypervisorNamedView {
   return {
     id: view.id,
     label: view.label,
-    denominator: viewDenominator(view),
-    period: viewPeriod(view),
+    denominator: viewDenominator(view as HypervisorNamedView),
+    period: viewPeriod(view as HypervisorNamedView),
     strata: {
       comprendre: [...(view.strata?.comprendre ?? [])],
       detailler: [...(view.strata?.detailler ?? [])],

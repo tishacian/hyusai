@@ -294,19 +294,27 @@ function viewsPayload() {
       {
         id: 'operations',
         label: 'Opérations',
-        denominator: 'units',
+        denominator: 'runs',
         period: '30d',
-        strata: STRATA,
-        register_columns: ['unit', 'spark', 'cost', 'basis'],
+        strata: {
+          comprendre: ['monument', 'cadran', 'rivers', 'signal'],
+          detailler: ['registre'],
+          decider: [],
+        },
+        register_columns: ['unit', 'spark'],
         sort: 'days_since_last_run',
       },
       {
         id: 'conformite',
         label: 'Conformité',
-        denominator: 'hours',
+        denominator: 'runs',
         period: '30d',
-        strata: STRATA,
-        register_columns: ['unit', 'basis', 'value'],
+        strata: {
+          comprendre: ['unites', 'couverture', 'decisions'],
+          detailler: ['registre'],
+          decider: [],
+        },
+        register_columns: ['unit', 'basis'],
         sort: 'name',
       },
     ],
@@ -608,6 +616,16 @@ test.describe('Hypervisor V2 — mocked visual', () => {
           await selectFacet(page, 'synthese');
           await expect(page.locator('app-hypervisor-v2.hv2-enter')).toHaveCount(0, { timeout: 4_000 });
           await captureHoverProof(page, theme, shots);
+          await page.getByTestId('hypervisor-v2-view-operations').click();
+          await expect(page.locator('[data-testid="hypervisor-v2-hero"] .hv2-monument-unit')).toContainText(/runs/i);
+          const operations = path.join(RESULTS, `dense-${theme}-operations.png`);
+          await captureFullLedger(page, operations);
+          shots[`dense-${theme}-operations`] = operations;
+          await page.getByTestId('hypervisor-v2-view-conformite').click();
+          await expect(page.getByTestId('hypervisor-v2-unites')).toBeVisible();
+          const conformite = path.join(RESULTS, `dense-${theme}-conformite.png`);
+          await captureFullLedger(page, conformite);
+          shots[`dense-${theme}-conformite`] = conformite;
         }
         await context.close();
       }

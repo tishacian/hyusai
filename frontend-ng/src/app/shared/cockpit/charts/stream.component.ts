@@ -116,6 +116,10 @@ const LABEL_MIN = 150;
           <stop offset="0" stop-color="var(--ck-signal-cool)" stop-opacity="0.45" />
           <stop offset="1" stop-color="var(--ck-signal-cool)" stop-opacity="0.22" />
         </linearGradient>
+        <linearGradient [attr.id]="inkSoftId" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--ck-fg-1)" stop-opacity="0.42" />
+          <stop offset="1" stop-color="var(--ck-fg-1)" stop-opacity="0.18" />
+        </linearGradient>
       </defs>
       @for (line of grid; track $index) {
         <line
@@ -283,6 +287,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   @Output() readonly systemHover = new EventEmitter<string | null>();
 
   readonly inkId = ckChartUid('ck-stream-ink');
+  readonly inkSoftId = ckChartUid('ck-stream-ink-soft');
   readonly declaredId = ckChartUid('ck-stream-teal');
   readonly declaredSoftId = ckChartUid('ck-stream-teal-soft');
 
@@ -494,7 +499,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
     this.tipTitle = this.dayLabels[index] || '';
     const lines: CkChartTipLine[] = this.series.map((row) => ({
       label: row.label,
-      value: `${this.gridLabel(row.values[index] ?? 0)} ${row.tone === 'ink' ? '●' : '◐'}`,
+      value: `${this.gridLabel(row.values[index] ?? 0)} ${row.tone === 'declared' || row.tone === 'declared-soft' ? '◐' : '●'}`,
     }));
     const total = this.layout().totals[index] ?? 0;
     lines.push({ label: '', value: this.gridLabel(total) });
@@ -580,6 +585,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   private fillFor(tone: CkStreamTone): string {
     if (tone === 'declared') return `url(#${this.declaredId})`;
     if (tone === 'declared-soft') return `url(#${this.declaredSoftId})`;
+    if (tone === 'ink-soft') return `url(#${this.inkSoftId})`;
     return `url(#${this.inkId})`;
   }
 

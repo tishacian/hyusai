@@ -85,27 +85,27 @@ DEFAULT_HYPERVISOR_VIEWS: List[Dict[str, Any]] = [
     {
         "id": "operations",
         "label": "Operations",
-        "denominator": "units",
+        "denominator": "runs",
         "period": "30d",
         "strata": {
-            "comprendre": ["rivers", "hors_denominateur"],
+            "comprendre": ["monument", "cadran", "rivers", "signal"],
             "detailler": ["registre"],
-            "decider": ["signal"],
+            "decider": [],
         },
-        "register_columns": ["unit", "spark", "cost", "basis"],
+        "register_columns": ["unit", "spark"],
         "sort": "days_since_last_run",
     },
     {
         "id": "conformite",
         "label": "Conformite",
-        "denominator": "hours",
+        "denominator": "runs",
         "period": "90d",
         "strata": {
-            "comprendre": ["provenance", "hors_denominateur"],
+            "comprendre": ["unites", "couverture", "decisions"],
             "detailler": ["registre"],
-            "decider": ["decisions"],
+            "decider": [],
         },
-        "register_columns": ["unit", "basis", "value"],
+        "register_columns": ["unit", "basis"],
         "sort": "name",
     },
 ]
@@ -203,7 +203,7 @@ class HypervisorViewStrata(BaseModel):
 class HypervisorView(BaseModel):
     id: str
     label: str
-    denominator: Literal["hours", "units", "value"]
+    denominator: Literal["hours", "runs", "value", "units"]
     period: str
     strata: HypervisorViewStrata
     register_columns: List[str] = []
@@ -305,9 +305,20 @@ def _bucket_metrics(
     }
 
 
+def _coerce_view_denominator(value: Any) -> str:
+    return "runs" if value == "units" else str(value or "hours")
+
+
+def _normalize_view(view: dict[str, Any]) -> dict[str, Any]:
+    next_view = dict(view)
+    next_view["denominator"] = _coerce_view_denominator(view.get("denominator"))
+    return next_view
+
+
 def _views_payload(workspace: Workspace, *, can_edit: bool) -> dict[str, Any]:
     stored = (workspace.settings or {}).get(HYPERVISOR_VIEWS_KEY)
-    views = stored if isinstance(stored, list) else DEFAULT_HYPERVISOR_VIEWS
+    raw = stored if isinstance(stored, list) else DEFAULT_HYPERVISOR_VIEWS
+    views = [_normalize_view(view) if isinstance(view, dict) else view for view in raw]
     return {"views": views, "can_edit": can_edit}
 
 
@@ -466,7 +477,7 @@ async def put_hypervisor_views(
 ):
     _require_workspace_admin(db, user, workspace)
     settings = dict(workspace.settings or {})
-    settings[HYPERVISOR_VIEWS_KEY] = [view.model_dump() for view in body.views]
+    settings[HYPERVISOR_VIEWS_KEY] = [_normalize_view(view.model_dump()) for view in body.views]
     workspace.settings = settings
     flag_modified(workspace, "settings")
     db.add(workspace)

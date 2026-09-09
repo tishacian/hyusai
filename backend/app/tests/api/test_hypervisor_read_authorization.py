@@ -524,6 +524,8 @@ def test_views_default_for_members_and_put_is_admin_only(db_session):
         "operations",
         "conformite",
     ]
+    assert defaults.json()["views"][1]["denominator"] == "runs"
+    assert defaults.json()["views"][2]["denominator"] == "runs"
 
     denied = contributor.put(
         "/hypervisor/views",
@@ -556,3 +558,8 @@ def test_views_default_for_members_and_put_is_admin_only(db_session):
     assert reread.json()["views"] == custom
     assert reread.json()["can_edit"] is False
     assert admin.get("/hypervisor/views").json()["can_edit"] is True
+
+    legacy = [{**custom[0], "denominator": "units"}]
+    aliased = admin.put("/hypervisor/views", json={"views": legacy})
+    assert aliased.status_code == 200
+    assert aliased.json()["views"][0]["denominator"] == "runs"

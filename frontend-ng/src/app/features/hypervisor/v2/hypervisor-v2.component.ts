@@ -58,6 +58,7 @@ import {
   sortRegisterRows,
   type HypervisorChartTick,
   type HypervisorDenominator,
+  type HypervisorNativeUnit,
   type HypervisorRegisterRow,
   type HypervisorSeriesResponse,
   type HypervisorSeriesView,
@@ -140,6 +141,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
             <button
               type="button"
               class="ck-mono"
+              [attr.data-testid]="'hypervisor-v2-view-' + view.id"
               [class.hv2-switch-on]="view.id === activeViewId()"
               (click)="selectView(view.id)"
             >{{ viewLabel(view) }}</button>
@@ -173,12 +175,14 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
               <section class="hv2-stratum" data-testid="hypervisor-v2-stratum-comprendre">
                 <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'comprendre', num: '01' }"></ng-container>
                 <div class="hv2-body">
-                  @if (showBlock('comprendre', 'monument') || showBlock('comprendre', 'provenance') || showBlock('comprendre', 'cadran') || showBlock('comprendre', 'sankey')) {
+                  @if (showHero()) {
                     <section class="hv2-hero" data-testid="hypervisor-v2-hero">
-                      @if (showBlock('comprendre', 'monument') || showBlock('comprendre', 'provenance')) {
+                      @if (showBlock('comprendre', 'monument') || showBlock('comprendre', 'provenance') || showBlock('comprendre', 'unites')) {
                         <div class="hv2-hero-text">
                           <div>
-                            <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.hero.kicker', { days: dayCount() }) }}</div>
+                            @if (showBlock('comprendre', 'monument') || showBlock('comprendre', 'provenance')) {
+                              <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.hero.kicker', { days: dayCount() }) }}</div>
+                            }
                             @if (showBlock('comprendre', 'monument')) {
                               @if (monument(); as mon) {
                                 <div class="hv2-monument-row">
@@ -193,6 +197,9 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                                 </div>
                                 <p class="hv2-sub">{{ i18n.t('hypervisor.v2.hero.not_configured') }}</p>
                               }
+                            }
+                            @if (showBlock('comprendre', 'unites')) {
+                              <ng-container [ngTemplateOutlet]="unitesTpl"></ng-container>
                             }
                           </div>
                           @if (showBlock('comprendre', 'provenance')) {
@@ -282,8 +289,11 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                             [hoverDay]="hoverDay()"
                             (dayHover)="onDayHover($event)"
                           />
-                          <div class="ck-mono hv2-chart-caption">{{ i18n.t('hypervisor.v2.cadran.legend') }}</div>
+                          <div class="ck-mono hv2-chart-caption">{{ cadranLegend() }}</div>
                         </div>
+                      }
+                      @if (showBlock('comprendre', 'couverture')) {
+                        <ng-container [ngTemplateOutlet]="couvertureTpl"></ng-container>
                       }
                       @if (showBlock('comprendre', 'sankey')) {
                         <div class="hv2-hero-flow">
@@ -306,6 +316,14 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                           }
                         </div>
                       }
+                      @if (showBlock('comprendre', 'signal')) {
+                        <ng-container [ngTemplateOutlet]="signalTpl" [ngTemplateOutletContext]="{ hero: true }"></ng-container>
+                      }
+                      @if (showBlock('comprendre', 'decisions')) {
+                        <div class="hv2-hero-decision">
+                          <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
+                        </div>
+                      }
                     </section>
                   }
                   @if (showBlock('comprendre', 'rivers') || showBlock('comprendre', 'hors_denominateur')) {
@@ -317,7 +335,7 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                               <h3 class="hv2-card-title">{{ riversTitle() }}</h3>
                               <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.rivers.sub') }}</p>
                             </div>
-                            <span class="ck-mono hv2-card-legend">{{ i18n.t('hypervisor.v2.rivers.legend') }}</span>
+                            <span class="ck-mono hv2-card-legend">{{ riversLegend() }}</span>
                           </header>
                           @if (streamSeries().length) {
                             <ck-chart-stream
@@ -394,45 +412,11 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
                 <ng-container [ngTemplateOutlet]="leaderTpl" [ngTemplateOutletContext]="{ id: 'decider', num: '03' }"></ng-container>
                 <div class="hv2-body hv2-cards3">
                   @if (showBlock('decider', 'signal')) {
-                    <article class="hv2-card hv2-card-signal" [style.--stagger]="0">
-                      <div class="ck-mono hv2-kicker">{{ signalKicker() }}</div>
-                      <h3 class="hv2-card-title">{{ signalCopy() }}</h3>
-                      <ck-chart-pulse
-                        [values]="series()!.pulseValues"
-                        [staleFrom]="series()!.staleFrom"
-                        [width]="250"
-                        [height]="56"
-                        [startLabel]="i18n.t('hypervisor.v2.journal.start')"
-                        [endLabel]="i18n.t('hypervisor.v2.journal.end')"
-                        [zeroLabel]="i18n.t('hypervisor.v2.journal.zero')"
-                        [valueLabel]="pulseTip"
-                      />
-                      <p class="hv2-card-sub">{{ signalContext() }}</p>
-                      @if (staleRows().length === 1) {
-                        <a class="hv2-btn" [navLink]="systemLink(staleRows()[0]!)">{{ i18n.t('hypervisor.v2.signal.open_system') }}</a>
-                      }
-                    </article>
+                    <ng-container [ngTemplateOutlet]="signalTpl" [ngTemplateOutletContext]="{ hero: false }"></ng-container>
                   }
                   @if (showBlock('decider', 'decisions')) {
                     <article class="hv2-card hv2-card-decision" [style.--stagger]="1">
-                      @if (firstProposed(); as decision) {
-                        <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker', { date: formatDate(decision.created_at, true) }) }}</div>
-                        <h3 class="hv2-card-title">{{ decision.title }}</h3>
-                        <dl class="hv2-facts hv2-facts-plain">
-                          <div class="hv2-fact"><dt>{{ i18n.t('hypervisor.v2.decision.scope') }}</dt><dd>{{ scopeLabel(decision.scope) }}</dd></div>
-                          <div class="hv2-fact"><dt>{{ i18n.t('hypervisor.v2.decision.kind') }}</dt><dd>{{ kindLabel(decision.kind) }}</dd></div>
-                          @if (proposedDecisions().length > 1) {
-                            <div class="hv2-fact"><dt>{{ i18n.t('hypervisor.v2.decisions.proposed') }}</dt><dd>{{ pendingLabel(proposedDecisions().length - 1) }}</dd></div>
-                          }
-                        </dl>
-                        <div class="hv2-btn-row">
-                          <button type="button" class="hv2-btn hv2-btn-primary" (click)="accept(decision)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
-                          <button type="button" class="hv2-btn" (click)="reject(decision)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
-                        </div>
-                      } @else {
-                        <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker_none') }}</div>
-                        <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.decision.empty') }}</p>
-                      }
+                      <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
                     </article>
                   }
                   <article class="hv2-card hv2-card-bases" [style.--stagger]="2">
@@ -607,6 +591,97 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
 
     <ng-template #legendTpl>
       <div class="ck-mono hv2-legend">{{ i18n.t('hypervisor.v2.legend') }}</div>
+    </ng-template>
+
+    <ng-template #unitesTpl>
+      <div class="hv2-unites" data-testid="hypervisor-v2-unites">
+        <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.unites.kicker') }}</div>
+        @for (group of nativeUnits(); track group.unit) {
+          <div class="hv2-unites-group">
+            <div class="hv2-monument-row">
+              <span class="hv2-monument hv2-unites-value ck-tnum">{{ formatNumber(group.total, 0) }}</span>
+              <span class="hv2-monument-unit">{{ group.unit || i18n.t('hypervisor.v2.unit.units') }}</span>
+            </div>
+            <p class="hv2-sub">{{ unitesSystems(group) }}</p>
+            @if (group.total > 0) {
+              <ck-chart-unit-dots
+                [units]="group.total"
+                [unitsPerDot]="nativeUnitsPerDot()"
+                [dotSize]="7"
+                [gap]="4"
+                [tipTitle]="unitesDotsTip(group)"
+              />
+            }
+          </div>
+        }
+        <p class="hv2-sub">{{ unitesNote() }}</p>
+      </div>
+    </ng-template>
+
+    <ng-template #couvertureTpl>
+      <div class="hv2-hero-couverture" data-testid="hypervisor-v2-couverture">
+        <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.couverture.kicker', { declared: declaredCount(), total: series()!.register.length }) }}</div>
+        <h3 class="hv2-card-title">{{ couvertureTitle() }}</h3>
+        <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.couverture.note') }}</p>
+        @if (missingBasisRows().length) {
+          <ul class="hv2-bases-list">
+            @for (row of missingBasisRows(); track row.systemId) {
+              <li class="hv2-bases-row">
+                <span>{{ row.name }}</span>
+                <span class="ck-mono ck-tnum hv2-muted">{{ outcomeLabel(row) }}</span>
+              </li>
+            }
+          </ul>
+          <a class="hv2-link" [navLink]="basesFacetLink()">{{ couvertureDeclare() }}</a>
+        }
+      </div>
+    </ng-template>
+
+    <ng-template #signalTpl let-hero="hero">
+      <article
+        class="hv2-card hv2-card-signal"
+        [class.hv2-hero-signal]="hero"
+        [attr.data-testid]="hero ? 'hypervisor-v2-hero-signal' : null"
+        [style.--stagger]="0"
+      >
+        <div class="ck-mono hv2-kicker">{{ signalKicker() }}</div>
+        <h3 class="hv2-card-title">{{ signalCopy() }}</h3>
+        <ck-chart-pulse
+          [values]="series()!.pulseValues"
+          [staleFrom]="series()!.staleFrom"
+          [width]="250"
+          [height]="56"
+          [startLabel]="i18n.t('hypervisor.v2.journal.start')"
+          [endLabel]="i18n.t('hypervisor.v2.journal.end')"
+          [zeroLabel]="i18n.t('hypervisor.v2.journal.zero')"
+          [valueLabel]="pulseTip"
+        />
+        <p class="hv2-card-sub">{{ signalContext() }}</p>
+        @if (staleRows().length === 1) {
+          <a class="hv2-btn" [navLink]="systemLink(staleRows()[0]!)">{{ i18n.t('hypervisor.v2.signal.open_system') }}</a>
+        }
+      </article>
+    </ng-template>
+
+    <ng-template #decisionTpl>
+      @if (firstProposed(); as decision) {
+        <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker', { date: formatDate(decision.created_at, true) }) }}</div>
+        <h3 class="hv2-card-title">{{ decision.title }}</h3>
+        <dl class="hv2-facts hv2-facts-plain">
+          <div class="hv2-fact"><dt>{{ i18n.t('hypervisor.v2.decision.scope') }}</dt><dd>{{ scopeLabel(decision.scope) }}</dd></div>
+          <div class="hv2-fact"><dt>{{ i18n.t('hypervisor.v2.decision.kind') }}</dt><dd>{{ kindLabel(decision.kind) }}</dd></div>
+          @if (proposedDecisions().length > 1) {
+            <div class="hv2-fact"><dt>{{ i18n.t('hypervisor.v2.decisions.proposed') }}</dt><dd>{{ pendingLabel(proposedDecisions().length - 1) }}</dd></div>
+          }
+        </dl>
+        <div class="hv2-btn-row">
+          <button type="button" class="hv2-btn hv2-btn-primary" (click)="accept(decision)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
+          <button type="button" class="hv2-btn" (click)="reject(decision)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
+        </div>
+      } @else {
+        <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker_none') }}</div>
+        <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.decision.empty') }}</p>
+      }
     </ng-template>
 
     <ng-template #leaderTpl let-id="id" let-num="num">
@@ -887,6 +962,17 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
     .hv2-hero-dial { display: flex; flex-direction: column; align-items: center; gap: 4px; }
     .hv2-hero-flow { min-width: 0; display: flex; flex-direction: column; }
     .hv2-hero-flow ck-chart-sankey-flow { margin-top: auto; }
+    .hv2-hero:has([data-testid="hypervisor-v2-unites"]) {
+      grid-template-columns: minmax(260px, 1.15fr) minmax(220px, 0.95fr) minmax(0, 1fr);
+    }
+    .hv2-unites { display: flex; flex-direction: column; gap: 16px; }
+    .hv2-unites-group { display: flex; flex-direction: column; gap: 6px; }
+    .hv2-unites-value { font-size: 56px; }
+    .hv2-hero-couverture, .hv2-hero-decision {
+      min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 4px 0;
+    }
+    .hv2-hero-couverture .hv2-link { margin-top: auto; }
+    .hv2-card.hv2-hero-signal { align-self: stretch; }
     .hv2-kicker { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ck-fg-3); margin: 0 0 10px; }
     .hv2-monument-row { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
     .hv2-monument { font-size: 88px; font-weight: 600; letter-spacing: -0.05em; line-height: 0.9; color: var(--ck-fg-1); }
@@ -1044,7 +1130,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly showsBlock = showsBlock;
   readonly measuredMark = MARK_MEASURED;
   readonly declaredMark = MARK_DECLARED;
-  readonly denominators: readonly HypervisorViewDenominator[] = ['hours', 'units', 'value'];
+  readonly denominators: readonly HypervisorViewDenominator[] = ['hours', 'runs', 'value'];
   readonly periods = ['30d', '90d'] as const;
   readonly columns = REGISTER_COLUMNS;
   readonly sorts = VIEW_SORTS;
@@ -1198,7 +1284,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     return (this.series()?.streams ?? []).map((row) => ({
       id: row.systemId,
       label: row.label,
-      detail: `${this.formatQuantity(row.total)} ${row.basisStatus === 'measured' ? MARK_MEASURED : MARK_DECLARED}`,
+      detail: `${this.formatQuantity(row.total)} ${row.tone === 'declared' || row.tone === 'declared-soft' ? MARK_DECLARED : MARK_MEASURED}`,
       values: row.values,
       tone: row.tone,
     }));
@@ -1405,6 +1491,10 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     return { facet: 'bases', capabilityId };
   }
 
+  basesFacetLink(): NavLinkInput {
+    return { facet: 'bases' };
+  }
+
   systemLink(row: HypervisorRegisterRow): NavLinkInput {
     return { type: 'system', ref: row.systemId };
   }
@@ -1460,6 +1550,19 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     return showsBlock(this.activeView(), stratum, block);
   }
 
+  showHero(): boolean {
+    return (
+      this.showBlock('comprendre', 'monument')
+      || this.showBlock('comprendre', 'provenance')
+      || this.showBlock('comprendre', 'cadran')
+      || this.showBlock('comprendre', 'sankey')
+      || this.showBlock('comprendre', 'unites')
+      || this.showBlock('comprendre', 'couverture')
+      || this.showBlock('comprendre', 'signal')
+      || this.showBlock('comprendre', 'decisions')
+    );
+  }
+
   showCol(column: string): boolean {
     return showsColumn(this.activeView(), column);
   }
@@ -1476,7 +1579,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     }
     return {
       value: this.formatNumber(value, value < 10 ? 1 : 0),
-      unit: denominator === 'hours' ? this.i18n.t('hypervisor.v2.unit.hours_short') : this.i18n.t('hypervisor.v2.unit.units'),
+      unit: denominator === 'hours' ? this.i18n.t('hypervisor.v2.unit.hours_short') : this.i18n.t('hypervisor.v2.unit.runs'),
     };
   }
 
@@ -1587,6 +1690,68 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       : this.i18n.t(`hypervisor.v2.rivers.title.${denominator}`, { count });
   }
 
+  riversLegend(): string {
+    return this.denominator() === 'runs'
+      ? this.i18n.t('hypervisor.v2.rivers.legend_runs')
+      : this.i18n.t('hypervisor.v2.rivers.legend');
+  }
+
+  cadranLegend(): string {
+    return this.denominator() === 'runs'
+      ? this.i18n.t('hypervisor.v2.cadran.legend_runs')
+      : this.i18n.t('hypervisor.v2.cadran.legend');
+  }
+
+  nativeUnits(): HypervisorNativeUnit[] {
+    return this.series()?.nativeUnits ?? [];
+  }
+
+  nativeUnitsPerDot(): number {
+    const max = Math.max(0, ...this.nativeUnits().map((group) => group.total));
+    const needed = max / MAX_UNIT_DOTS;
+    return NICE_DOT_STEPS.find((step) => step >= needed) ?? Math.ceil(needed);
+  }
+
+  unitesNote(): string {
+    const groups = this.nativeUnits();
+    if (groups.length < 2) return this.i18n.t('hypervisor.v2.unites.note_one');
+    return this.i18n.t('hypervisor.v2.unites.note', {
+      left: groups[0]!.unit || this.i18n.t('hypervisor.v2.unit.units'),
+      right: groups[1]!.unit || this.i18n.t('hypervisor.v2.unit.units'),
+    });
+  }
+
+  unitesSystems(group: HypervisorNativeUnit): string {
+    return group.systems.length === 1
+      ? this.i18n.t('hypervisor.v2.unites.systems_one')
+      : this.i18n.t('hypervisor.v2.unites.systems', { count: group.systems.length });
+  }
+
+  unitesDotsTip(group: HypervisorNativeUnit): string {
+    const unit = group.unit || this.i18n.t('hypervisor.v2.unit.units');
+    return this.i18n.t('hypervisor.v2.unites.dots', { n: this.nativeUnitsPerDot(), unit });
+  }
+
+  missingBasisRows(): HypervisorRegisterRow[] {
+    return (this.series()?.register ?? []).filter((row) => !row.basisStatus || row.basisStatus === 'none');
+  }
+
+  couvertureTitle(): string {
+    const missing = this.missingBasisRows().length;
+    if (missing === 0) return this.i18n.t('hypervisor.v2.couverture.title_none');
+    return this.i18n.t('hypervisor.v2.couverture.title', {
+      declared: this.declaredCount(),
+      missing,
+    });
+  }
+
+  couvertureDeclare(): string {
+    const count = this.missingBasisRows().length;
+    return count === 1
+      ? this.i18n.t('hypervisor.v2.couverture.declare_one')
+      : this.i18n.t('hypervisor.v2.couverture.declare', { count });
+  }
+
   horsTitle(): string {
     const count = this.series()?.outside.length ?? 0;
     const key = this.denominator() === 'value' ? 'value' : 'hours';
@@ -1652,7 +1817,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   resultMain(row: HypervisorRegisterRow): string {
     const denominator = this.denominator();
-    if (row.outsideDenominator || denominator === 'units') return this.outcomeLabel(row);
+    if (row.outsideDenominator || denominator === 'runs') return this.outcomeLabel(row);
     if (denominator === 'value') {
       const value = availableNumber(row.valueDeclared);
       if (value == null) return this.factLabel(row.valueDeclared);
@@ -1664,7 +1829,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   resultQualifier(row: HypervisorRegisterRow): string {
-    if (row.outsideDenominator || this.denominator() === 'units') {
+    if (row.outsideDenominator || this.denominator() === 'runs') {
       return availableNumber(row.outcomes) == null
         ? ''
         : `· ${this.i18n.t('hypervisor.v2.register.qualifier.outcome')} ${MARK_MEASURED}`;
@@ -1677,6 +1842,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   sparkTone(row: HypervisorRegisterRow): CkChartTone {
+    if (this.denominator() === 'runs') return 'ink';
     if (row.outsideDenominator) return 'muted';
     return row.basisStatus === 'measured' ? 'ink' : 'declared';
   }
@@ -1780,7 +1946,9 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     const current = this.activeView();
     this.activeViewId.set(id);
     const next = this.views().find((view) => view.id === id);
-    if (current && next && viewPeriod(current) !== viewPeriod(next)) this.reload();
+    if (!current || !next) return;
+    if (viewPeriod(current) !== viewPeriod(next)) this.reload();
+    else if (viewDenominator(current) !== viewDenominator(next)) this.reproject();
   }
 
   setDenominator(value: HypervisorViewDenominator): void {
@@ -1939,7 +2107,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     const denominator = this.denominator();
     if (denominator === 'value') return this.formatMoney(value, this.series()?.currency, 0);
     const number = this.formatNumber(value, Math.abs(value) < 10 ? 1 : 0);
-    const unit = denominator === 'hours' ? this.i18n.t('hypervisor.v2.unit.hours_short') : this.i18n.t('hypervisor.v2.unit.units');
+    const unit = denominator === 'hours' ? this.i18n.t('hypervisor.v2.unit.hours_short') : this.i18n.t('hypervisor.v2.unit.runs');
     return `${number} ${unit}`;
   }
 

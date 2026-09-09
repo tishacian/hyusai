@@ -7,11 +7,11 @@ export type SeriesFactState =
   | 'restricted'
   | 'unavailable';
 
-export type HypervisorDenominator = 'hours' | 'units' | 'value';
+export type HypervisorDenominator = 'hours' | 'runs' | 'value';
 export type HypervisorSeriesWindow = '30d' | '90d';
 export type ValueBasisStatus = 'declared' | 'measured' | 'none';
 export type RegisterHealth = 'pos' | 'warn' | 'neg' | 'neutral';
-export type StreamTone = 'ink' | 'declared' | 'declared-soft';
+export type StreamTone = 'ink' | 'ink-soft' | 'declared' | 'declared-soft';
 
 export interface SeriesFact {
   state: SeriesFactState;
@@ -110,6 +110,19 @@ export interface HypervisorPeak {
   systems: number;
 }
 
+export interface HypervisorNativeUnitSystem {
+  systemId: string;
+  name: string;
+  total: number;
+}
+
+/** One native output unit. Totals are never summed across units. */
+export interface HypervisorNativeUnit {
+  unit: string;
+  total: number;
+  systems: HypervisorNativeUnitSystem[];
+}
+
 export interface HypervisorRegisterRow {
   systemId: string;
   capabilityId: string | null;
@@ -155,6 +168,7 @@ export interface HypervisorSeriesView {
   staleSystemIds: string[];
   pulseValues: number[];
   staleFrom: number | null;
+  nativeUnits: HypervisorNativeUnit[];
 }
 
 export function dateKey(iso: string): string {
@@ -200,6 +214,27 @@ export function isOutsideDenominator(
   if (denominator === 'hours') return !hasHoursBasis(system.value_basis);
   if (denominator === 'value') return !hasValueBasis(system.value_basis);
   return false;
+}
+
+export function projectNativeUnits(register: readonly HypervisorRegisterRow[]): HypervisorNativeUnit[] {
+  const groups = new Map<string, HypervisorNativeUnitSystem[]>();
+  for (const row of register) {
+    const unit = row.outputUnit ?? '';
+    const list = groups.get(unit) ?? [];
+    list.push({
+      systemId: row.systemId,
+      name: row.name,
+      total: availableNumber(row.outcomes) ?? 0,
+    });
+    groups.set(unit, list);
+  }
+  return [...groups.entries()]
+    .map(([unit, systems]) => ({
+      unit,
+      total: systems.reduce((sum, item) => sum + item.total, 0),
+      systems: [...systems].sort((left, right) => right.total - left.total || left.name.localeCompare(right.name)),
+    }))
+    .sort((left, right) => right.total - left.total || left.unit.localeCompare(right.unit));
 }
 
 export function foldFacts(facts: readonly SeriesFact[]): SeriesFact {
@@ -289,9 +324,11 @@ export function projectSeries(
   const measuredTotal = days.reduce((sum, day) => sum + day.measured, 0);
   const declaredTotal = days.reduce((sum, day) => sum + day.declared, 0);
   const inDenominator = register.filter((row) => !row.outsideDenominator);
-  const monument = inDenominator.length === 0 && (denominator === 'hours' || denominator === 'value')
-    ? { state: 'not_configured' as const, value: null }
-    : { state: 'available' as const, value: measuredTotal + declaredTotal };
+  const monument = denominator === 'runs'
+    ? { state: 'available' as const, value: measuredTotal }
+    : inDenominator.length === 0 && (denominator === 'hours' || denominator === 'value')
+      ? { state: 'not_configured' as const, value: null }
+      : { state: 'available' as const, value: measuredTotal + declaredTotal };
 
   const costTotal = foldFacts(register.map((row) => row.cost));
   const valueTotal = foldFacts(register.map((row) => row.valueDeclared));
@@ -359,7 +396,7 @@ export function projectSeries(
         tone: 'ink' as const,
         basisStatus: row.basisStatus,
       };
-    })),
+    }), denominator === 'runs' ? 'ink' : 'declared'),
     costStreams: register
       .filter((row) => row.cost.state === 'available')
       .map((row) => {
@@ -395,6 +432,7 @@ export function projectSeries(
       .map((row) => row.systemId),
     pulseValues,
     staleFrom: trailingQuietFrom(pulseValues),
+    nativeUnits: projectNativeUnits(register),
   };
 }
 
@@ -436,7 +474,7 @@ function projectDay(
   for (const system of systems) {
     if (isOutsideDenominator(system, denominator)) continue;
     const value = dailySystemMetric(system, date, denominator);
-    if (system.value_basis?.status === 'measured') measured += value;
+    if (denominator === 'runs' || system.value_basis?.status === 'measured') measured += value;
     else declared += value;
   }
   return {
@@ -474,7 +512,7 @@ function dailySystemMetric(
   if (!bucket) return 0;
   if (denominator === 'hours') return availableNumber(bucket.hours) ?? 0;
   if (denominator === 'value') return availableNumber(bucket.value_declared) ?? 0;
-  return availableNumber(bucket.outcomes) ?? 0;
+  return availableNumber(bucket.runs) ?? 0;
 }
 
 function peakActivity(
@@ -498,9 +536,18 @@ function peakActivity(
  * Stack order for the rivers: measured systems first (ink, at the bottom), then
  * declared ones by weight, alternating the two teal tones so neighbours stay apart.
  */
-export function orderStreams(rows: readonly HypervisorStreamRow[]): HypervisorStreamRow[] {
+export function orderStreams(
+  rows: readonly HypervisorStreamRow[],
+  palette: 'declared' | 'ink' = 'declared',
+): HypervisorStreamRow[] {
   const byWeight = (left: HypervisorStreamRow, right: HypervisorStreamRow): number =>
     right.total - left.total || left.label.localeCompare(right.label);
+  if (palette === 'ink') {
+    return [...rows].sort(byWeight).map((row, index) => ({
+      ...row,
+      tone: index % 2 === 0 ? ('ink' as const) : ('ink-soft' as const),
+    }));
+  }
   const measured = rows.filter((row) => row.basisStatus === 'measured').sort(byWeight);
   const declared = rows.filter((row) => row.basisStatus !== 'measured').sort(byWeight);
   return [

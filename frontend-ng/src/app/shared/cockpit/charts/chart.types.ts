@@ -1,6 +1,6 @@
 export type CkChartTone = 'ink' | 'declared' | 'negative' | 'muted';
 
-export type CkStreamTone = 'ink' | 'declared' | 'declared-soft';
+export type CkStreamTone = 'ink' | 'ink-soft' | 'declared' | 'declared-soft';
 
 export interface CkChartTick {
   index: number;
