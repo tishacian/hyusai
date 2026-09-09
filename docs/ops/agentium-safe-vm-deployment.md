@@ -6017,3 +6017,59 @@ une coupe plus profonde (garder les N derniers trios).
 - Disque à 83 % : décider d'une politique de rétention des images
   (garder courant + rollback + N derniers trios) avant que le préflight
   ne bloque un déploiement.
+
+## Itération du 09/09 (nuit) — trois vues, trois faits, déployée sur `cbcb298c`
+
+Direction reste le grand livre des heures. Opérations compte les runs
+mesurés (cadran et rivières tout encre, signal dans le héros, pas de
+strate 03). Conformité montre les unités natives jamais additionnées
+entre elles, la couverture des bases, et la décision en attente. Le
+dénominateur `units` n'est plus qu'un alias filaire de `runs`.
+
+Delta borné à l'Hyperviseur V2 + tests + grammaire des graphiques.
+Les arbres `docs/render/**`, `docs/pih/**` et `docs/demo-runs/**` du
+poste sont restés non suivis. Alias flottant `demo-agentic` non
+déplacé. `hypervisor_v2` laissé `true` uniquement sur
+`agentium-showcase` ; aucune vue stockée (les défauts s'appliquent).
+Alembic inchangé (`100_capability_value_basis`). Pas de dump, pas de
+`migrate`, pas de seed, pas de one-off.
+
+Les trois images ont été reconstruites : `AGENTIUM_IMAGE_REVISION` est
+cuit dans l'image, un re-tag du backend `7ae835ec3970` aurait cassé
+`revision_verified` (piège du 10/08). Premier `git fetch` VM bloqué
+~6 min sur `git-upload-pack` Bitbucket ; le second, avec `timeout 90`,
+a avancé `7ae835ec` → `cbcb298c` (journal d'incident `3c0591c4` inclus).
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `a209417e61db24e117a14f03941ddd40439bae90` → `cbcb298c91e029926807d1bd03bc965805aff3dc` (journal 09/09 `3c0591c4` + cette tranche) |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
+| Worktree | `sudo git fetch origin demo/agentic && sudo git merge --ff-only FETCH_HEAD` → `cbcb298c…`, porcelain vide |
+| Build | `agentium-{backend,worker,frontend}:cbcb298c91e0` (`827fcaf926cb` / `03e2dcdc9306` / `99ea0038e6fd`), `AGENTIUM_IMAGE_REVISION` = SHA complet, ~10 min ; journaux `/srv/agentium-data/hypervisor-v2-deployments/2026-09-09-cbcb298c91e0/build.log` ; le Dockerfile frontend ne consomme pas `PIP_INDEX_URL`/`USER_UID`/`USER_GID` (avertissement attendu) |
+| Disque | `/` 84 %, **65 Go** libres après les images (préflight 40 Go) |
+| `storage-check` / `up` | sortie 0 ; **aucune révision Alembic** (tête déjà `100`, confirmée avant et après) ; cinq services recréés, backend et frontend `healthy` |
+| `build-info` | `revision: cbcb298c91e029926807d1bd03bc965805aff3dc`, `revision_verified: true` en `:8001` **et** sur `https://agentium.papai.ai` ; `/` = 200 ; 0 `traceback` backend et worker après bascule |
+| Seed / flag / vues | intouchés. Showcase `features.hypervisor_v2 = true`, `hypervisor_views` absent. Nawa sans drapeau |
+| Canaris carakai | checkout `7ae835ec` → `cbcb298c` par bundle incrémental `7ae835ec..HEAD` (sha256 `309160d4da1f534fcec5dea489cf17ce3367c1fe0bfc54381178d9a79e779228` identique des deux côtés, `cat-file -e` positif), marqueur réaligné, `node_modules` inchangé. Specs 20 et 11 seulement, `E2E_HYPERVISOR_V2_CANARY=1`. **2 passed / 0 failed** en 25,7 s, artefacts `/tmp/iteration-canaries-20260909T221037Z.sKdceb` |
+| Rollback | `AGENTIUM_IMAGE_TAG=7ae835ec3970` puis `up` |
+
+### Canaris 20 et 11
+
+- **11 — System 360.** **Vert** (15,5 s).
+- **20 — Hypervisor V2.** **Vert** (8,9 s). Flag off → V1 ; flag on →
+  grand livre tonal, facettes, honnêteté ; clic Opérations → monument
+  en `runs` + signal héros, strate 03 absente ; clic Conformité →
+  `unites` + `couverture`. Le canari restore le flag ; aucun write
+  opérateur hors de ce contrat. Capture live : unités natives 1 106 /
+  818 / 545 (non sommé), couverture 3 déclarées / 5 manquantes, une
+  décision en attente.
+- **17.** Non rejoué : contraste light-theme déjà connu, hors
+  périmètre.
+
+**Défauts ouverts, inchangés.** Seed Showcase complet toujours bloqué
+(Contract Risk `flow_output_sink_required`, Tender
+`decision_branch_unwired` / `escalate`). Canari 17 light-theme
+`color-contrast`. Tip radial à 91 rais. Récursion narration, `restart:
+no` sur kc/livekit, rétention des images.
