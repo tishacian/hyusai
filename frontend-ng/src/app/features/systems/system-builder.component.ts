@@ -329,8 +329,8 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                     (click)="selectCapability(cap)"
                     class="text-left transition ck-surface rounded-md"
                     [style.padding]="'14px 16px'"
-                    [style.borderColor]="draft.capability_id === cap.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
-                    [style.boxShadow]="draft.capability_id === cap.id ? 'var(--ck-glow-cool)' : 'none'"
+                    [style.borderColor]="selectedCapabilityId() === cap.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
+                    [style.boxShadow]="selectedCapabilityId() === cap.id ? 'var(--ck-glow-cool)' : 'none'"
                   >
                     <div class="flex items-start justify-between gap-3 mb-2">
                       <div class="flex-1 min-w-0">
@@ -342,7 +342,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                         </div>
                         <div class="text-sm font-medium text-white truncate">{{ cap.name }}</div>
                       </div>
-                      @if (draft.capability_id === cap.id) {
+                      @if (selectedCapabilityId() === cap.id) {
                         <ck-live-dot tone="cool" />
                       }
                     </div>
@@ -1018,9 +1018,15 @@ export class SystemBuilderComponent implements OnInit {
   readonly reasoningTemplates = signal<ReasoningTemplateOpt[]>([]);
   readonly availableModels = signal<ModelOpt[]>([]);
   readonly existingContexts = signal<Context[]>([]);
+  /**
+   * Reactive mirror of the serializer draft field. The draft remains a plain
+   * object for ngModel/serialization, while derived UI state must depend on a
+   * Signal so selecting a capability invalidates its computed projections.
+   */
+  readonly selectedCapabilityId = signal<string | null>(null);
 
   readonly selectedCapability = computed<Capability | null>(() => {
-    const id = this.draft.capability_id;
+    const id = this.selectedCapabilityId();
     if (!id) return null;
     return this.capabilities().find((c) => c.id === id) ?? null;
   });
@@ -1125,6 +1131,7 @@ export class SystemBuilderComponent implements OnInit {
 
   selectCapability(cap: Capability): void {
     this.draft.capability_id = cap.id;
+    this.selectedCapabilityId.set(cap.id);
     if (!this.draft.name) this.draft.name = cap.name;
     if (!this.draft.objective && cap.description) this.draft.objective = cap.description;
     if (cap.confidence_threshold != null) this.draft.confidence_threshold = cap.confidence_threshold;
@@ -1411,6 +1418,7 @@ export class SystemBuilderComponent implements OnInit {
     this.draft.name = hydrated.name;
     this.draft.objective = hydrated.objective;
     this.draft.capability_id = hydrated.capability_id ?? null;
+    this.selectedCapabilityId.set(this.draft.capability_id);
     this.draft.collections = [...hydrated.collections];
     this.draft.rag_mode = hydrated.rag_mode;
     this.draft.reuse_context_id = hydrated.reuse_context_id ?? null;

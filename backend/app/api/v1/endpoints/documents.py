@@ -56,6 +56,7 @@ from app.services.knowledge_collections import (
     get_collection_or_404,
     normalize_source_name,
     original_key,
+    record_ingested_sources,
     resolve_original_key,
     serialize_collection,
     serialize_job,
@@ -486,6 +487,13 @@ async def upload_documents_batch(
         }
 
     db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+    collection = create_or_get_collection(
+        db,
+        workspace=workspace,
+        name=collection_name,
+        created_by_user_id=user.id,
+        slug=collection_name,
+    )
 
     # We write each upload into a fresh tmpdir using its *original* filename so
     # downstream parsers surface `slides_admin_cockpit.pdf` in chunk metadata
@@ -509,6 +517,37 @@ async def upload_documents_batch(
             workspace_slug=workspace.slug,
         )
         result = await doc_service.ingest_documents_batch(file_paths)
+
+        # The synchronous path writes vectors directly, so mirror the worker
+        # path's collection ledger update before retrieval can plan against it.
+        # Without this bridge drop-and-ask visibly indexes a file but the corpus
+        # planner sees zero sources and returns a no-grounded-context fallback.
+        uploaded_names = [Path(path).name for path in file_paths]
+        record_ingested_sources(
+            db,
+            collection=collection,
+            ingest_result=result,
+            document_names=uploaded_names,
+            origin="chat_drop_and_ask" if source == "chat_drop_and_ask" else "upload",
+        )
+        db.flush()
+        successful_names = [
+            uploaded_names[index]
+            for index, item in enumerate(result.get("results") or [])
+            if isinstance(item, dict) and item.get("status") == "success"
+        ]
+        document_names = list(dict.fromkeys([*(collection.document_names or []), *successful_names]))
+        source_rows = collection_source_rows(db, collection=collection)
+        update_collection_status(
+            db,
+            collection.id,
+            status="ready" if result["successful"] else "error",
+            last_error=None if result["successful"] else "No document could be indexed",
+            document_names=document_names,
+            document_count=len(document_names),
+            chunk_count=sum(int(row.chunk_count or 0) for row in source_rows),
+        )
+        db.commit()
 
         # Surface per-document ids + filenames so the UI can request
         # docmeta for each (Doc-facts panel) without re-uploading or

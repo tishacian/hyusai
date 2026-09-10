@@ -166,6 +166,7 @@ const storeSpecs = [
   'src/app/features/orchestration/flow/flow-correction-context.spec.ts',
   'src/app/features/runs/skill-invocation-view.component.spec.ts',
   'src/app/features/systems/system-value-loop.component.spec.ts',
+  'src/app/features/systems/system-builder.component.spec.ts',
   'src/app/features/systems/flow-runner.component.spec.ts',
   'src/app/features/governance/workspace-app-lifecycle.component.spec.ts',
   'src/app/features/governance/workspace-app-admin.guard.spec.ts',

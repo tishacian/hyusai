@@ -779,6 +779,17 @@ def test_catalogue_query_accepts_docs_abbreviation():
     assert classify_intent("Dans le projet AKK200, quelle source contient Filtering cartridge LM 300 ?") == "source_lookup"
 
 
+def test_content_quantity_with_a_citation_request_is_not_catalogue():
+    query = (
+        "How many paid annual-leave days do full-time employees receive, and how many "
+        "unused days may they carry over? Cite the source."
+    )
+
+    assert not is_catalogue_query(query)
+    assert classify_intent(query) == "source_lookup"
+    assert not rag_context.is_collection_inventory_query(query)
+
+
 def test_project_summary_with_citation_words_is_not_catalogue():
     queries = (
         # Needlepunch numeric5 project reference (live regression).

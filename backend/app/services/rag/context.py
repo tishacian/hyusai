@@ -98,18 +98,6 @@ _SPREADSHEET_SIGNAL_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
-_INVENTORY_QUERY_RE = re.compile(
-    r"\b("
-    r"combien|nombre|count|how\s+many|liste|lister|list|inventaire|inventory|"
-    r"typolog(?:ie|y)|types?|formats?|extensions?|donn[ée]es?|data|datasets?|"
-    r"disposes?-?tu|available\s+data"
-    r")\b",
-    re.IGNORECASE,
-)
-_INVENTORY_OBJECT_RE = re.compile(
-    r"\b(" r"docs?|documents?|sources?|fichiers?|files?|collection|knowledge\s+collection" r")\b",
-    re.IGNORECASE,
-)
 _INVENTORY_EXCLUSION_RE = re.compile(
     r"\b(compare|comparaison|compar[ea]|diff[ée]rences?|versus|vs\.?|"
     r"pourquoi|why|warum|comment|how|wie|si|if|wenn|"
@@ -220,9 +208,7 @@ def is_collection_inventory_query(query: str) -> bool:
         return False
     if is_catalogue_query(text):
         return True
-    if not (_INVENTORY_QUERY_RE.search(text) and _INVENTORY_OBJECT_RE.search(text)):
-        return False
-    return True
+    return False
 
 
 def _explicit_mode(value: Any) -> str | None:

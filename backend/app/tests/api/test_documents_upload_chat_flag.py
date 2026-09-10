@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import documents
 from app.core.config import settings
+from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
 from app.models.user import User
 from app.models.workspace import Workspace
 
@@ -103,3 +104,58 @@ def test_knowledge_base_upload_never_blocked_by_flag(db_session, monkeypatch):
 
     assert response.status_code != 403
     assert response.status_code == 200
+
+
+def test_sync_chat_drop_upload_records_collection_inventory(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "document_ingest_async_enabled", False)
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            assert kwargs["collection_name"] == "documents"
+            assert kwargs["workspace_slug"] == "sync-chat"
+
+        async def ingest_documents_batch(self, paths):
+            assert [path.rsplit("/", 1)[-1] for path in paths] == ["policy.md"]
+            return {
+                "total": 1,
+                "successful": 1,
+                "failed": 0,
+                "results": [
+                    {
+                        "document_id": "doc-policy",
+                        "filename": "policy.md",
+                        "status": "success",
+                        "chunks_processed": 3,
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
+    workspace = Workspace(id="ws-sync-chat", name="Sync Chat", slug="sync-chat", settings={})
+    user = User(id="user-sync-chat", email="sync@datategy.net", username="sync")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+
+    response = _client(db_session, workspace, user).post(
+        "/documents/upload-batch",
+        files={"files": ("policy.md", b"# Leave\n25 days", "text/markdown")},
+        data={"collection_name": "documents", "source": "chat_drop_and_ask"},
+    )
+
+    assert response.status_code == 200
+    collection = db_session.query(KnowledgeCollection).filter_by(
+        workspace_id=workspace.id,
+        slug="documents",
+    ).one()
+    source = db_session.query(KnowledgeCollectionSource).filter_by(
+        collection_id=collection.id,
+    ).one()
+    assert collection.status == "ready"
+    assert collection.document_names == ["policy.md"]
+    assert collection.document_count == 1
+    assert collection.chunk_count == 3
+    assert source.filename == "policy.md"
+    assert source.status == "ready"
+    assert source.chunk_count == 3
+    assert source.origin == "chat_drop_and_ask"
+    assert source.source_metadata["document_id"] == "doc-policy"
