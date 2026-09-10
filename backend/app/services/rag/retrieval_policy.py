@@ -808,6 +808,62 @@ def is_expert_fiche_metadata(metadata: Mapping[str, Any] | None) -> bool:
     return str(metadata.get("origin") or "").strip().lower() == "chat_correction"
 
 
+# Function words dropped before a fiche is allowed to pin/boost. A two-token
+# overlap on "quelle / dans / pour" would otherwise promote every fiche.
+_FICHE_TOPIC_STOP = frozenset(
+    {
+        "a", "au", "aux", "avec", "ce", "ces", "cet", "cette", "dans", "de",
+        "des", "du", "en", "et", "est", "etre", "être", "il", "la", "le",
+        "les", "mode", "on", "ou", "par", "pas", "plus", "pour", "que",
+        "quel", "quelle", "quelles", "quels", "qui", "sur", "un", "une",
+        "and", "for", "from", "how", "the", "what", "when", "which", "with",
+    }
+)
+_FICHE_TOPIC_TOKEN_RE = re.compile(r"[a-z0-9à-ÿ]{2,}", re.IGNORECASE)
+
+
+def _fiche_topic_terms(text: Any) -> set[str]:
+    return {
+        token
+        for token in (
+            match.group(0).lower()
+            for match in _FICHE_TOPIC_TOKEN_RE.finditer(str(text or ""))
+        )
+        if token not in _FICHE_TOPIC_STOP
+    }
+
+
+def expert_fiche_matches_query(
+    query: str,
+    *,
+    content: str = "",
+    metadata: Mapping[str, Any] | None = None,
+) -> bool:
+    """Whether a fiche is about the question, not merely present in the pool.
+
+    Pin/boost without this gate promoted every validated fiche (toile, strip,
+    nettoyage) onto the next turn. A digit-bearing overlap (J1, 2310PW, 2n9)
+    is enough on its own; otherwise two topic tokens must match.
+    """
+    query_terms = _fiche_topic_terms(query)
+    if not query_terms:
+        return False
+    metadata = metadata or {}
+    haystack = " ".join(
+        (
+            str(content or ""),
+            str(metadata.get("question") or ""),
+            str(metadata.get("title") or ""),
+            str(metadata.get("publication_final_title") or ""),
+            str(metadata.get("document_filename") or ""),
+        )
+    )
+    overlap = query_terms & _fiche_topic_terms(haystack)
+    if any(any(char.isdigit() for char in term) for term in overlap):
+        return True
+    return len(overlap) >= 2
+
+
 def matched_required_terms(
     *,
     content: str,
@@ -841,9 +897,9 @@ def rerank_results_with_policy(
     # Flag read once (cheap gating): 0 keeps the OFF path byte-for-byte identical.
     expert_fiche_boost = int(settings.rag_expert_fiche_boost) if settings.rag_expert_fiche_boost_enabled else 0
     has_expert_fiche_boost = False
-    # Hard pin (flag-gated, default OFF): a validated expert fiche present among
-    # the candidates is ordered ahead of regular documents regardless of score.
-    # OFF keeps is_fiche=0 for every row, so the sort key is unchanged.
+    # Hard pin (flag-gated, default OFF): a validated expert fiche that is
+    # about this question is ordered ahead of regular documents. An off-topic
+    # fiche in the same pool must not steal the citation slots.
     pin_enabled = bool(settings.rag_expert_fiche_pin_enabled)
     has_expert_fiche_pin = False
     for index, row in enumerate(results):
@@ -885,13 +941,16 @@ def rerank_results_with_policy(
             metadata["retrieval_evidence_coverage"] = float(evidence_details.get("coverage") or 0.0)
             if int(evidence_details.get("score") or 0) > 0:
                 has_policy_ranking = True
-        if expert_fiche_boost and is_expert_fiche_metadata(metadata):
+        fiche_on_topic = is_expert_fiche_metadata(metadata) and expert_fiche_matches_query(
+            query, content=content, metadata=metadata
+        )
+        if expert_fiche_boost and fiche_on_topic:
             policy_score += expert_fiche_boost
             metadata["expert_fiche_boost_applied"] = True
             has_expert_fiche_boost = True
             row = {**row, "metadata": metadata}
         is_fiche = 0
-        if pin_enabled and is_expert_fiche_metadata(metadata):
+        if pin_enabled and fiche_on_topic:
             is_fiche = 1
             metadata["expert_fiche_pinned"] = True
             has_expert_fiche_pin = True
@@ -933,9 +992,9 @@ def rerank_aligned_with_policy(
     # Flag read once (cheap gating): 0 keeps the OFF path byte-for-byte identical.
     expert_fiche_boost = int(settings.rag_expert_fiche_boost) if settings.rag_expert_fiche_boost_enabled else 0
     has_expert_fiche_boost = False
-    # Hard pin (flag-gated, default OFF): a validated expert fiche present among
-    # the candidates is ordered ahead of regular documents regardless of score.
-    # OFF keeps is_fiche=0 for every row, so the sort key is unchanged.
+    # Hard pin (flag-gated, default OFF): a validated expert fiche that is
+    # about this question is ordered ahead of regular documents. An off-topic
+    # fiche in the same pool must not steal the citation slots.
     pin_enabled = bool(settings.rag_expert_fiche_pin_enabled)
     has_expert_fiche_pin = False
     for index, chunk in enumerate(chunks):
@@ -975,12 +1034,15 @@ def rerank_aligned_with_policy(
             metadata["retrieval_evidence_coverage"] = float(evidence_details.get("coverage") or 0.0)
             if int(evidence_details.get("score") or 0) > 0:
                 has_policy_ranking = True
-        if expert_fiche_boost and is_expert_fiche_metadata(metadata):
+        fiche_on_topic = is_expert_fiche_metadata(metadata) and expert_fiche_matches_query(
+            query, content=chunk, metadata=metadata
+        )
+        if expert_fiche_boost and fiche_on_topic:
             policy_score += expert_fiche_boost
             metadata["expert_fiche_boost_applied"] = True
             has_expert_fiche_boost = True
         is_fiche = 0
-        if pin_enabled and is_expert_fiche_metadata(metadata):
+        if pin_enabled and fiche_on_topic:
             is_fiche = 1
             metadata["expert_fiche_pinned"] = True
             has_expert_fiche_pin = True

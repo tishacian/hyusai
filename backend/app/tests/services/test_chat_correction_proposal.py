@@ -20,6 +20,8 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.iam.engine import AuthorizationEngine
 from app.services.knowledge_capture import (
+    _chat_correction_markdown,
+    _normalize_chat_correction_sources,
     create_chat_correction_proposal,
     is_teaching_utterance,
     list_capture_events,
@@ -120,6 +122,77 @@ def test_chat_correction_proposal_is_pending_review_with_provenance(db_session):
     assert "7 bar" in recommended["content"]
     # Text path leaves no audio_ref behind.
     assert "audio_ref" not in meta
+
+
+def test_chat_correction_sources_keep_documents_and_drop_nested_fiches():
+    sources = _normalize_chat_correction_sources(
+        [
+            {
+                "type": "expert_fiche",
+                "title": "capture-5fb7229f.md",
+                "filename": "capture-5fb7229f.md",
+                "collection": "andritz-expert-fiche",
+            },
+            {
+                "type": "document",
+                "title": "notice injecteur pre-mouillage - indD EN.doc",
+                "filename": "E__ECO100__notice injecteur pre-mouillage - indD EN.pdf",
+                "collection": "andritz-notices-techniques-spl-pilot",
+                "page": 16,
+            },
+            {
+                "type": "expert_fiche",
+                "title": "capture-84715b1e.md",
+                "collection": "andritz-expert-fiche",
+            },
+            {
+                "type": "document",
+                "title": "notice injecteur pre-mouillage - indD EN.doc",
+                "filename": "E__ECO100__notice injecteur pre-mouillage - indD EN.pdf",
+                "page": 16,
+            },
+        ]
+    )
+
+    assert sources == [
+        {
+            "title": "notice injecteur pre-mouillage - indD EN.doc",
+            "filename": "E__ECO100__notice injecteur pre-mouillage - indD EN.pdf",
+            "collection": "andritz-notices-techniques-spl-pilot",
+            "page": 16,
+        }
+    ]
+    markdown = _chat_correction_markdown(
+        query="quel strip",
+        correction_text="strip 2n9",
+        sources=sources,
+        expert_name="pascal.benassi@andritz.com",
+        title="Correction experte – quel strip",
+    )
+    assert "notice injecteur pre-mouillage - indD EN.doc (p. 16)" in markdown
+    assert "capture-5fb7229f.md" not in markdown
+
+
+def test_chat_correction_sources_mark_expert_only_when_no_document():
+    sources = _normalize_chat_correction_sources(
+        [
+            {
+                "type": "expert_fiche",
+                "filename": "capture-467f0beb.md",
+                "collection": "andritz-expert-fiche",
+            }
+        ]
+    )
+
+    assert sources == []
+    markdown = _chat_correction_markdown(
+        query="toile J1",
+        correction_text="2310PW",
+        sources=sources,
+        expert_name=None,
+        title="Correction experte – toile J1",
+    )
+    assert "Aucune source documentaire — fait d'expert." in markdown
 
 
 def test_chat_correction_voice_records_voice_event(db_session):

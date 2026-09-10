@@ -46,6 +46,25 @@ def test_display_title_prefers_real_title():
     assert _display_title(meta) == "Spare Parts List AKK200"
 
 
+def test_display_title_uses_fiche_question_instead_of_capture_filename():
+    meta = {
+        "source_type": "expert_fiche",
+        "title": "capture-5fb7229f.md",
+        "document_filename": "capture-5fb7229f.md",
+        "question": "quelle est la réference de la toile du convoyeur j1",
+    }
+    assert _display_title(meta) == "quelle est la réference de la toile du convoyeur j1"
+
+
+def test_display_title_falls_back_when_capture_fiche_has_no_question():
+    meta = {
+        "source_type": "expert_fiche",
+        "title": "capture-5fb7229f.md",
+        "document_filename": "capture-5fb7229f.md",
+    }
+    assert _display_title(meta) == "Fiche experte"
+
+
 # ── Item 1: Knowledge Guide excluded from the citable sources ──────────────
 def test_knowledge_guide_excluded_from_sources_but_kept_as_context():
     chunks = [
