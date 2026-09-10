@@ -375,6 +375,8 @@ test.describe.serial('Hypervisor V2 — instrumented ledger canary', () => {
 
       await page.getByTestId('hypervisor-v2-view-conformite').click();
       await expect(page.getByTestId('hypervisor-v2-unites')).toBeVisible();
+      await expect(page.getByTestId('hypervisor-v2-unites').locator('.hv2-monument')).toHaveCount(0);
+      await expect(page.getByTestId('hypervisor-v2-unites').locator('.hv2-unites-row')).not.toHaveCount(0);
       await expect(page.getByTestId('hypervisor-v2-couverture')).toBeVisible();
 
       const screenshot = testInfo.outputPath('hypervisor-v2-canary.png');

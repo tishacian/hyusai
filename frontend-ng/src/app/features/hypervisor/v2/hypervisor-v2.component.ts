@@ -107,6 +107,11 @@ const MARK_NONE = '○';
 const MAX_UNIT_DOTS = 24;
 const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
 
+function humanizeOutputUnit(unit: string | null | undefined, fallback: string): string {
+  const raw = (unit ?? '').trim();
+  return raw ? raw.replace(/_/g, ' ') : fallback;
+}
+
 @Component({
   selector: 'app-hypervisor-v2',
   standalone: true,
@@ -596,24 +601,27 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
     <ng-template #unitesTpl>
       <div class="hv2-unites" data-testid="hypervisor-v2-unites">
         <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.unites.kicker') }}</div>
-        @for (group of nativeUnits(); track group.unit) {
-          <div class="hv2-unites-group">
-            <div class="hv2-monument-row">
-              <span class="hv2-monument hv2-unites-value ck-tnum">{{ formatNumber(group.total, 0) }}</span>
-              <span class="hv2-monument-unit">{{ group.unit || i18n.t('hypervisor.v2.unit.units') }}</span>
-            </div>
-            <p class="hv2-sub">{{ unitesSystems(group) }}</p>
-            @if (group.total > 0) {
-              <ck-chart-unit-dots
-                [units]="group.total"
-                [unitsPerDot]="nativeUnitsPerDot()"
-                [dotSize]="7"
-                [gap]="4"
-                [tipTitle]="unitesDotsTip(group)"
-              />
-            }
-          </div>
-        }
+        <ul class="hv2-unites-list">
+          @for (group of nativeUnits(); track group.unit) {
+            <li class="hv2-unites-row">
+              <span class="hv2-unites-value ck-tnum">{{ formatNumber(group.total, 0) }}</span>
+              <div class="hv2-unites-meta">
+                <span class="hv2-unites-unit">{{ nativeUnitLabel(group.unit) }}</span>
+                <span class="ck-mono hv2-unites-systems">{{ unitesSystems(group) }}</span>
+              </div>
+              @if (group.total > 0) {
+                <ck-chart-unit-dots
+                  [units]="group.total"
+                  [unitsPerDot]="nativeUnitsPerDot()"
+                  [width]="96"
+                  [dotSize]="5"
+                  [gap]="3"
+                  [tipTitle]="unitesDotsTip(group)"
+                />
+              }
+            </li>
+          }
+        </ul>
         <p class="hv2-sub">{{ unitesNote() }}</p>
       </div>
     </ng-template>
@@ -963,11 +971,27 @@ const NICE_DOT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
     .hv2-hero-flow { min-width: 0; display: flex; flex-direction: column; }
     .hv2-hero-flow ck-chart-sankey-flow { margin-top: auto; }
     .hv2-hero:has([data-testid="hypervisor-v2-unites"]) {
-      grid-template-columns: minmax(260px, 1.15fr) minmax(220px, 0.95fr) minmax(0, 1fr);
+      grid-template-columns: minmax(280px, 1.15fr) minmax(220px, 0.9fr) minmax(240px, 1fr);
+      align-items: start;
+      gap: 28px;
     }
-    .hv2-unites { display: flex; flex-direction: column; gap: 16px; }
-    .hv2-unites-group { display: flex; flex-direction: column; gap: 6px; }
-    .hv2-unites-value { font-size: 56px; }
+    .hv2-unites { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .hv2-unites-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+    .hv2-unites-row {
+      display: grid; grid-template-columns: 4.6rem minmax(0, 1fr) 96px;
+      gap: 8px 12px; align-items: center;
+    }
+    .hv2-unites-value {
+      font-size: 22px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;
+      text-align: right; color: var(--ck-fg-1);
+    }
+    .hv2-unites-meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .hv2-unites-unit {
+      font-size: 13px; line-height: 1.25; color: var(--ck-fg-1);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .hv2-unites-systems { font-size: 10px; color: var(--ck-fg-3); }
+    .hv2-unites-row ck-chart-unit-dots { justify-self: end; }
     .hv2-hero-couverture, .hv2-hero-decision {
       min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 4px 0;
     }
@@ -1712,12 +1736,16 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     return NICE_DOT_STEPS.find((step) => step >= needed) ?? Math.ceil(needed);
   }
 
+  nativeUnitLabel(unit: string | null | undefined): string {
+    return humanizeOutputUnit(unit, this.i18n.t('hypervisor.v2.unit.units'));
+  }
+
   unitesNote(): string {
     const groups = this.nativeUnits();
     if (groups.length < 2) return this.i18n.t('hypervisor.v2.unites.note_one');
     return this.i18n.t('hypervisor.v2.unites.note', {
-      left: groups[0]!.unit || this.i18n.t('hypervisor.v2.unit.units'),
-      right: groups[1]!.unit || this.i18n.t('hypervisor.v2.unit.units'),
+      left: this.nativeUnitLabel(groups[0]!.unit),
+      right: this.nativeUnitLabel(groups[1]!.unit),
     });
   }
 
@@ -1728,8 +1756,10 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   unitesDotsTip(group: HypervisorNativeUnit): string {
-    const unit = group.unit || this.i18n.t('hypervisor.v2.unit.units');
-    return this.i18n.t('hypervisor.v2.unites.dots', { n: this.nativeUnitsPerDot(), unit });
+    return this.i18n.t('hypervisor.v2.unites.dots', {
+      n: this.nativeUnitsPerDot(),
+      unit: this.nativeUnitLabel(group.unit),
+    });
   }
 
   missingBasisRows(): HypervisorRegisterRow[] {
@@ -1767,7 +1797,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   outcomeLabel(row: Pick<HypervisorRegisterRow, 'outcomes' | 'outputUnit'>): string {
     const value = availableNumber(row.outcomes);
     if (value == null) return this.factLabel(row.outcomes);
-    return `${this.formatNumber(value, 0)} ${row.outputUnit ?? this.i18n.t('hypervisor.v2.unit.units')}`.trim();
+    return `${this.formatNumber(value, 0)} ${this.nativeUnitLabel(row.outputUnit)}`.trim();
   }
 
   outcomeMark(row: Pick<HypervisorRegisterRow, 'outcomes'>): string {

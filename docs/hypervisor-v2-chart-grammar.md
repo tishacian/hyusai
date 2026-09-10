@@ -132,8 +132,9 @@ Default views:
   rivers, hors-dénominateur, register, signal, decisions)
 - Operations — runs, 30d: monument, ink dial, run rivers, signal in the
   hero; register sorted by silence; no euro columns
-- Conformite — runs, 90d: native-unit wall, basis coverage, pending
-  decision in the hero; register by name
+- Conformite — runs, 90d: native-unit catalog (register scale, never
+  monument type), basis coverage, pending decision in the hero;
+  register by name
 
 `signal` and `decisions` may sit in stratum 01 (hero) or 03. `couverture`
 and `unites` are 01-only catalogue blocks. An empty stratum is hidden.
