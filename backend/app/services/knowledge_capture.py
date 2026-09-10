@@ -7461,6 +7461,50 @@ def create_update_proposal(
     return proposal
 
 
+# Teaching detection for the /chat surface. An expert who states a fact after an
+# answer ("Pour ta connaissance, ... on installe une toile 2310PW") must produce
+# an expert fiche, not a new retrieval. Deterministic string/regex matching only:
+# the chat hot path cannot afford a second LLM, and a heuristic that silently
+# consumes a turn must be predictable.
+#
+# Conservative by construction — a teaching utterance is an assertion:
+#   * an explicit lead-in is required (a keyword alone is never enough), and
+#   * any interrogative form disqualifies the turn, so questions that happen to
+#     carry a lead-in keep the normal retrieval behaviour.
+_TEACHING_LEAD_IN_RE = re.compile(
+    r"pour (?:ta|votre) (?:connaissance|information|info|gouverne)"
+    r"|pour info(?:rmation)?\b"
+    r"|merci de (?:noter|retenir)"
+    r"|(?:a|à) (?:noter|retenir)\b"
+    r"|(?:note|notez|retiens|retenez|sache|sachez)(?:\s+bien)?\s+que\b"
+    r"|je (?:te|vous) (?:corrige|informe)\b"
+    r"|correction\s*:"
+    # Normative assertions: "on installe toujours", "on ne met jamais". The verb
+    # is left open so a typo ("on instale toujours") still lands in the fiche.
+    r"|\bon\s+(?:n[e']\s*)?\w+\s+(?:toujours|jamais)\b"
+    r"|\bil faut toujours\b",
+    re.IGNORECASE,
+)
+_TEACHING_INTERROGATIVE_RE = re.compile(
+    r"\?"
+    r"|\b(?:est[- ]ce|qu'est[- ]ce|peux[- ]tu|pouvez[- ]vous|sais[- ]tu|savez[- ]vous)\b"
+    r"|^(?:quel|quelle|quels|quelles|comment|pourquoi|combien|quand|où|qui)\b",
+    re.IGNORECASE,
+)
+# Below this, the "correction" would carry no reusable knowledge ("pour info").
+_TEACHING_MIN_WORDS = 6
+
+
+def is_teaching_utterance(text: Optional[str]) -> bool:
+    """Whether a chat message teaches a fact instead of asking for one."""
+    normalized = " ".join(str(text or "").split())
+    if len(normalized.split()) < _TEACHING_MIN_WORDS:
+        return False
+    if _TEACHING_INTERROGATIVE_RE.search(normalized):
+        return False
+    return bool(_TEACHING_LEAD_IN_RE.search(normalized))
+
+
 def _chat_correction_title(query: Optional[str]) -> str:
     """Derive a short human title from the originating chat question."""
     text = " ".join(str(query or "").split())

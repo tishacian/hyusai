@@ -2,12 +2,14 @@
 
 Focused unit tests for the expert-fiche chat-correction capture path:
 proposal status + provenance metadata, the voice audit event, the
-``chat_correct`` RBAC rule and the per-workspace feature-flag gate (403).
+``chat_correct`` RBAC rule, the per-workspace feature-flag gate (403) and the
+deterministic teaching detector the ``/chat`` surface routes through it.
 """
 from __future__ import annotations
 
 import base64
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -19,6 +21,7 @@ from app.models.workspace import Workspace, WorkspaceMember
 from app.services.iam.engine import AuthorizationEngine
 from app.services.knowledge_capture import (
     create_chat_correction_proposal,
+    is_teaching_utterance,
     list_capture_events,
 )
 
@@ -35,6 +38,44 @@ class _FakeStore:
     def write_bytes(self, key: str, content: bytes) -> str:
         self.writes[key] = content
         return key
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # The two production messages of the Andritz session (typo included).
+        "Pour un J1 on instale toujours une toile 2310PW",
+        "Pour ta connaissance, merci de noter que sur un convoyeur J1, "
+        "on installe une toile 2310 PW",
+        "À retenir : sur un convoyeur J1 la toile est une 2310PW",
+        "Sache que la toile du convoyeur J1 est une 2310PW",
+        "Pour info, la distance C1-J1 est de 2 mètres sur cette ligne",
+    ],
+)
+def test_teaching_utterance_detects_expert_assertions(text):
+    assert is_teaching_utterance(text) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Plain questions must keep the retrieval path.
+        "quelle est la référence de la toile du convoyeur j1",
+        "Compare les consignes J2S et Scorpio",
+        # Interrogative forms win over a teaching lead-in.
+        "Pour ta connaissance, quelle est la toile du J1 ?",
+        "Est-ce qu'on installe toujours une toile 2310PW sur un J1",
+        "Peux-tu noter que la toile du J1 est une 2310PW ?",
+        # A keyword or a bare assertion is not enough on its own.
+        "On installe la toile 2310PW demain sur la ligne",
+        "La toile du convoyeur J1 est une 2310PW",
+        "pour info",
+        "merci",
+        "",
+    ],
+)
+def test_teaching_utterance_ignores_questions_and_plain_messages(text):
+    assert is_teaching_utterance(text) is False
 
 
 def _seed_workspace_user(db_session, *, ws_id: str, slug: str, user_id: str) -> tuple[Workspace, User]:

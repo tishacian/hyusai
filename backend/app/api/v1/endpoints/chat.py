@@ -20,6 +20,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.agents import get_orchestrator
+from app.api.v1.endpoints.knowledge_capture import (
+    apply_chat_correction,
+    authorize_chat_correction,
+)
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.core.errors import ValidationError
@@ -70,6 +74,7 @@ from app.services.industrial_answer_profile import (
     industrial_answer_policy,
     resolve_answer_profile,
 )
+from app.services.knowledge_capture import is_teaching_utterance
 from app.services.mission_room import (
     briefing_payload,
     cockpit_payload,
@@ -1991,6 +1996,60 @@ async def _maybe_agentic_chat_completion(
         return None
 
 
+_SALIENT_ENTITY_KEYS = ("references", "positions", "documents")
+
+
+def _source_anchor_texts(item: Mapping[str, Any]) -> list[str]:
+    """Prefer the payload filename over the unwrapped display title.
+
+    ``_display_title`` strips archive-flattened paths down to the leaf name
+    (``Spare Parts List_BBA120.pdf``). The planner matches session document
+    anchors by substring against ledger paths, so the real
+    ``document_filename`` is the value that can be resolved exactly.
+    """
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    texts: list[str] = []
+    for raw in (
+        item.get("filename"),
+        item.get("document_filename"),
+        metadata.get("document_filename"),
+        item.get("title"),
+    ):
+        value = str(raw or "").strip()
+        if value and value not in texts:
+            texts.append(value)
+    return texts
+
+
+def _turn_salient_entities(
+    *texts: Any,
+    previous: Optional[Mapping[str, Any]] = None,
+) -> Optional[dict[str, list[str]]]:
+    """Build the next-turn anchors, including a station-only follow-up."""
+    from app.services.rag.conversation_anchors import extract_salient_entities
+
+    turn_entities = extract_salient_entities(*texts)
+    if isinstance(previous, Mapping):
+        for key in _SALIENT_ENTITY_KEYS:
+            for value in previous.get(key) or []:
+                if value not in turn_entities[key] and len(turn_entities[key]) < 6:
+                    turn_entities[key].append(value)
+    if any(turn_entities.get(key) for key in _SALIENT_ENTITY_KEYS):
+        return turn_entities
+    return None
+
+
+def _latest_salient_entities(messages: list[Any]) -> Optional[dict[str, Any]]:
+    for msg in reversed(messages):
+        meta = getattr(msg, "meta_data", None)
+        if not isinstance(meta, dict):
+            continue
+        entities = meta.get("salient_entities")
+        if isinstance(entities, dict):
+            return dict(entities)
+    return None
+
+
 def _load_chat_conversation_state(
     db: Session,
     *,
@@ -2012,16 +2071,7 @@ def _load_chat_conversation_state(
         [{"role": msg.role, "content": msg.content} for msg in previous_messages],
         max_tokens=settings.chat_history_token_budget,
     )
-    salient = None
-    for msg in reversed(previous_messages):
-        if (
-            msg.role == "assistant"
-            and isinstance(msg.meta_data, dict)
-            and isinstance(msg.meta_data.get("salient_entities"), dict)
-        ):
-            salient = dict(msg.meta_data["salient_entities"])
-            break
-    return history, salient
+    return history, _latest_salient_entities(previous_messages)
 
 
 def _agentic_request_context(
@@ -2069,16 +2119,16 @@ def _persist_agentic_chat_turn(
         "chat_adapter_token": adapter_token,
     }
     try:
-        from app.services.rag.conversation_anchors import extract_salient_entities
-
-        source_titles = [str(item.get("title") or "") for item in sources if isinstance(item, dict)]
-        turn_entities = extract_salient_entities(query, content, *source_titles)
-        if isinstance(previous_salient_entities, dict):
-            for key in ("references", "documents"):
-                for value in previous_salient_entities.get(key) or []:
-                    if value not in turn_entities[key] and len(turn_entities[key]) < 6:
-                        turn_entities[key].append(value)
-        if turn_entities.get("references") or turn_entities.get("documents"):
+        source_texts = [
+            text
+            for item in sources
+            if isinstance(item, dict)
+            for text in _source_anchor_texts(item)
+        ]
+        turn_entities = _turn_salient_entities(
+            query, content, *source_texts, previous=previous_salient_entities
+        )
+        if turn_entities:
             message_metadata["salient_entities"] = turn_entities
     except Exception:  # noqa: BLE001 - anchoring must not break turn persistence.
         pass
@@ -2194,6 +2244,162 @@ def _apply_agentic_classic_fallback_scope(
     return collection
 
 
+def _previous_answered_turn(db: Session, *, session_id: str) -> Optional[Dict[str, Any]]:
+    """Last answered turn of the session an expert correction can attach to.
+
+    Correction acknowledgements are skipped: they acquit a fiche, they are not
+    an answer an expert can correct.
+    """
+    messages = (
+        db.query(Message)
+        .filter(Message.session_id == session_id)
+        .order_by(Message.timestamp.asc())
+        .all()
+    )
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.role != "assistant":
+            continue
+        meta = message.meta_data if isinstance(message.meta_data, dict) else {}
+        if meta.get("kind") == "expert_correction_ack":
+            continue
+        question = next(
+            (item.content for item in reversed(messages[:index]) if item.role == "user"),
+            "",
+        )
+        sources = meta.get("sources")
+        return {
+            "question": question,
+            "answer": message.content,
+            "message_id": message.id,
+            "sources": sources if isinstance(sources, list) else [],
+        }
+    return None
+
+
+async def _consume_expert_teaching_turn(
+    db: Session,
+    *,
+    workspace: Workspace,
+    user: User,
+    request: ChatRequest,
+    query: str,
+) -> Optional[Dict[str, Any]]:
+    """Capture an expert teaching turn as a fiche instead of a new query.
+
+    An expert who answers the assistant ("Pour ta connaissance, sur un J1 on
+    installe une toile 2310PW") is not asking anything: replanning retrieval on
+    that message produces an unscoped dense fallback and loses the fact. The
+    turn is routed to the same proposal path as the "Corriger" button, behind
+    the same gates.
+
+    Returns ``None`` — leaving the message on the normal retrieval path — when
+    the turn is not a teaching assertion, when there is no previous answer to
+    attach it to, or when the caller fails the chat-correction gates. A user
+    without ``knowledge_proposal:chat_correct`` therefore keeps plain chat and
+    never loses the message.
+    """
+    if not request.session_id or not is_teaching_utterance(query):
+        return None
+    anchor = _previous_answered_turn(db, session_id=request.session_id)
+    if anchor is None:
+        return None
+    try:
+        source_policy, collection_slug = authorize_chat_correction(
+            db,
+            user=user,
+            workspace=workspace,
+        )
+    except HTTPException:
+        return None
+
+    started_at = datetime.utcnow()
+    try:
+        correction = await apply_chat_correction(
+            db,
+            user=user,
+            workspace=workspace,
+            source_policy=source_policy,
+            collection_slug=collection_slug,
+            query=anchor["question"],
+            assistant_answer=anchor["answer"],
+            correction_text=query,
+            sources=anchor["sources"],
+            session_id=request.session_id,
+            message_id=anchor["message_id"],
+            trigger="chat_teaching",
+        )
+    except Exception as exc:  # noqa: BLE001 - a capture failure must not eat the turn.
+        db.rollback()
+        logger.warning("chat: expert teaching capture failed", error=str(exc))
+        return None
+
+    # The teaching message is a real chat turn. It is persisted with a timestamp
+    # taken before the capture so it stays ahead of the acknowledgement the
+    # correction path already wrote. Positions the expert just taught (J1, …)
+    # are stored on both the user turn and the ack so the next question can
+    # reuse them.
+    teaching_entities = _turn_salient_entities(query)
+    teaching_meta: dict[str, Any] = {"expert_teaching": True}
+    if teaching_entities:
+        teaching_meta["salient_entities"] = teaching_entities
+        ack_id = correction.get("ack_message_id")
+        if ack_id:
+            ack = db.query(Message).filter(Message.id == ack_id).first()
+            if ack is not None:
+                ack.meta_data = {**(ack.meta_data or {}), "salient_entities": teaching_entities}
+    db.add(
+        Message(
+            id=str(uuid.uuid4()),
+            session_id=request.session_id,
+            role="user",
+            content=request.query,
+            timestamp=started_at,
+            meta_data=teaching_meta,
+        )
+    )
+    _touch_chat_session(
+        db,
+        db.query(ChatSession).filter(ChatSession.id == request.session_id).first(),
+        query=query,
+    )
+    db.commit()
+
+    expert_correction = {
+        "proposal_id": correction.get("proposal_id"),
+        "status": correction.get("status"),
+        "collection": correction.get("collection"),
+        "document_id": correction.get("document_id"),
+        "message_id": correction.get("ack_message_id"),
+    }
+    completed_at = datetime.utcnow()
+    run_id = _persist_chat_run(
+        db,
+        workspace_id=workspace.id,
+        system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+        query=query,
+        response_text=correction["acknowledgement"],
+        sources=[],
+        reasoning_trace=None,
+        started_at=started_at,
+        completed_at=completed_at,
+        duration_ms=(completed_at - started_at).total_seconds() * 1000,
+        trigger="expert_teaching_correction",
+        # The turn acquits a fiche instead of answering: nothing grounded for
+        # the auto-eval judge to score.
+        schedule=False,
+        extra_output={
+            "expert_correction": expert_correction,
+            "session_id": request.session_id,
+        },
+    )
+    return {
+        "acknowledgement": correction["acknowledgement"],
+        "run_id": run_id,
+        "expert_correction": expert_correction,
+    }
+
+
 @router.post("/completion")
 async def chat_completion(
     request: ChatRequest,
@@ -2258,6 +2464,22 @@ async def chat_completion(
                 bypass=trivial_bypass,
             )
             return _trivial_bypass_completion_payload(run_id, trivial_bypass)
+
+        teaching = await _consume_expert_teaching_turn(
+            db,
+            workspace=workspace,
+            user=user,
+            request=request,
+            query=validated_query,
+        )
+        if teaching:
+            return {
+                "run_id": teaching["run_id"],
+                "content": teaching["acknowledgement"],
+                "sources": [],
+                "status": "completed",
+                "expert_correction": teaching["expert_correction"],
+            }
 
         canonical = (
             None
@@ -3494,6 +3716,29 @@ async def chat_stream(
                 yield _sse_done()
                 return
 
+            teaching = await _consume_expert_teaching_turn(
+                db,
+                workspace=workspace,
+                user=user,
+                request=request,
+                query=validated_query,
+            )
+            if teaching:
+                # Consumed as a correction: no retrieval, so no density banner
+                # and no async Deep Retrieval for this turn.
+                yield _sse_data(
+                    {
+                        "chunk_type": "text",
+                        "content": teaching["acknowledgement"],
+                        "sources": [],
+                        "run_id": teaching["run_id"],
+                        "expert_correction": teaching["expert_correction"],
+                        "is_final": True,
+                    }
+                )
+                yield _sse_done()
+                return
+
             canonical = (
                 None
                 if (
@@ -4329,15 +4574,9 @@ async def chat_stream(
 
                 # Salient entities precomputed when the previous turn was
                 # persisted — lets follow-up retrieval anchor on the project/
-                # machine references without re-scanning the history.
-                for msg in reversed(previous_messages):
-                    if (
-                        msg.role == "assistant"
-                        and isinstance(msg.meta_data, dict)
-                        and msg.meta_data.get("salient_entities")
-                    ):
-                        previous_salient_entities = msg.meta_data["salient_entities"]
-                        break
+                # machine references and line positions without re-scanning
+                # the history. A teaching turn stores them on the ack.
+                previous_salient_entities = _latest_salient_entities(previous_messages)
 
                 # Save user message
                 user_message = Message(
@@ -4579,25 +4818,19 @@ async def chat_stream(
                 # Precompute salient entities for the next turn's retrieval
                 # anchoring — paid here, post-stream, never on the hot path.
                 try:
-                    from app.services.rag.conversation_anchors import extract_salient_entities
-
-                    source_titles = [
-                        str(item.get("title") or "")
+                    source_texts = [
+                        text
                         for item in (chunk_state.get("sources") or [])
                         if isinstance(item, dict)
+                        for text in _source_anchor_texts(item)
                     ]
-                    turn_entities = extract_salient_entities(
-                        validated_query, "".join(full_content), *source_titles
+                    turn_entities = _turn_salient_entities(
+                        validated_query,
+                        "".join(full_content),
+                        *source_texts,
+                        previous=previous_salient_entities,
                     )
-                    if isinstance(previous_salient_entities, dict):
-                        for key in ("references", "documents"):
-                            carried = previous_salient_entities.get(key)
-                            if not isinstance(carried, list):
-                                continue
-                            for value in carried:
-                                if value not in turn_entities[key] and len(turn_entities[key]) < 6:
-                                    turn_entities[key].append(value)
-                    if turn_entities.get("references") or turn_entities.get("documents"):
+                    if turn_entities:
                         meta_data["salient_entities"] = turn_entities
                 except Exception:  # noqa: BLE001 - anchoring must never break persistence.
                     pass

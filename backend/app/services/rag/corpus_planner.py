@@ -22,6 +22,12 @@ from app.core.logging import get_logger
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.services.knowledge_collections import collection_source_rows
+from app.services.rag.conversation_anchors import (
+    LINE_POSITION_RE,
+    line_position_terms,
+    session_document_anchors,
+    strip_conversation_anchor,
+)
 from app.services.rag.project_references import (
     extract_query_project_codes,
     numeric_project_candidates,
@@ -219,8 +225,6 @@ def normalize_latency_profile(value: Any, *, deep_retrieval: Any = None) -> Late
 
 
 def is_catalogue_query(query: str) -> bool:
-    from app.services.rag.conversation_anchors import strip_conversation_anchor
-
     text = strip_conversation_anchor(query).strip()
     if not text:
         return False
@@ -245,8 +249,6 @@ def is_catalogue_query(query: str) -> bool:
 
 
 def classify_intent(query: str) -> str:
-    from app.services.rag.conversation_anchors import strip_conversation_anchor
-
     text = strip_conversation_anchor(query)
     # Citation/source wording is answer-shaping context for a scoped project
     # summary, not a request to enumerate the corpus.  Resolve this strong
@@ -409,6 +411,12 @@ def _source_lookup_terms(project_codes: list[str], source_lookup_query: str | No
             and len(compact_term) == 5
             and compact_term not in query_numeric_candidates
         ):
+            continue
+        # A line position is shorter than the >=5 filename signal below, but it
+        # is the only token that separates the J1 documents from every other
+        # conveyor document of the deposit, so it targets on its own.
+        if LINE_POSITION_RE.fullmatch(compact_term):
+            lookup_terms.add(compact_term)
             continue
         # >=5 mirrors the strong filename signal in _infer_ledger_document_scope
         # (len(compact_term) >= 5 in source_only_compact). This keeps the DB
@@ -877,14 +885,17 @@ def _expanded_query_terms(query: str, policy: RetrievalPolicy | None = None) -> 
     text = _search_text(query)
     terms: list[str] = []
 
+    # Line positions are two or three characters ("j1", "c1", "j2s") yet carry
+    # the most selective signal of a station question, so they bypass the
+    # generic short-token floor instead of being dropped as noise.
     def add(*values: str) -> None:
         for value in values:
             cleaned = _search_text(value)
-            if len(cleaned) >= 3 and cleaned not in terms:
+            if (len(cleaned) >= 3 or LINE_POSITION_RE.fullmatch(cleaned)) and cleaned not in terms:
                 terms.append(cleaned)
 
     for token in text.split():
-        if len(token) >= 3 and token not in _QUERY_STOPWORDS:
+        if (len(token) >= 3 or LINE_POSITION_RE.fullmatch(token)) and token not in _QUERY_STOPWORDS:
             add(token)
     add(*expanded_terms_for_query(query, policy))
     return terms[:40]
@@ -909,15 +920,45 @@ _DEMOTE_SOURCE_RE = re.compile(
 _PROJECT_SCOPE_STRONG_MATCH = 20.0
 
 
+def _session_document_anchors(
+    request: Mapping[str, Any] | None,
+    *,
+    query: str,
+    policy: RetrievalPolicy | None,
+) -> list[str]:
+    """Documents this session already answered from, for the same station/family.
+
+    The chat endpoints persist ``salient_entities`` on each assistant turn and
+    replay them in ``context``; the planner reads them here so a follow-up is
+    not replanned from scratch onto another machine's folder.
+    """
+    context = request.get("context") if isinstance(request, Mapping) else None
+    entities = context.get("salient_entities") if isinstance(context, Mapping) else None
+    return session_document_anchors(entities, query=query, policy=policy)
+
+
+def _compact_anchor_documents(anchor_documents: list[str] | None) -> list[str]:
+    """Compact forms of the session's anchor documents, long enough to match.
+
+    Substring matching a short anchor would tag half the ledger, so anything
+    below six characters is dropped rather than allowed to widen the scope.
+    """
+    compacted = [_compact_text(name) for name in (anchor_documents or [])]
+    return [name for name in compacted if len(name) >= 6]
+
+
 def _infer_ledger_document_scope(
     query: str,
     rows: list[Any],
     *,
     policy: RetrievalPolicy | None = None,
+    anchor_documents: list[str] | None = None,
 ) -> tuple[dict[str, Any], float, str, list[str]]:
     if not rows:
         return {}, 0.0, "", []
     terms = _expanded_query_terms(query, policy)
+    query_positions = set(line_position_terms(query))
+    anchors = _compact_anchor_documents(anchor_documents)
     family_expanded_terms = {_search_text(term) for term in expanded_terms_for_query(query, policy)}
     project_codes = _query_project_codes(
         query,
@@ -936,7 +977,7 @@ def _infer_ledger_document_scope(
     if not terms and not project_codes:
         return {}, 0.0, "", []
 
-    scored: list[tuple[float, bool, bool, Any]] = []
+    scored: list[tuple[float, bool, bool, bool, Any]] = []
     for row in rows:
         filename = str(getattr(row, "filename", "") or "")
         if not filename:
@@ -958,6 +999,21 @@ def _infer_ledger_document_scope(
         score = 0.0
         matched_project = False
         strong_phrase_match = False
+        strong_source_term_match = False
+        # A filename that carries the station the question names is about *that*
+        # machine, not merely about the same family of machines. Guarded so the
+        # scan only runs for the questions that name a station.
+        position_in_source = bool(
+            query_positions and query_positions.intersection(line_position_terms(source_only_text))
+        )
+        if position_in_source:
+            score += 3.0
+        if anchors and any(anchor in source_only_compact for anchor in anchors):
+            # A document an earlier turn already answered from stays a
+            # candidate even when this turn's wording no longer matches its
+            # filename. It is a bonus, never a phrase match: the anchor must
+            # widen the scope, not become the new lock-in.
+            score += 6.0
         metadata_project_code = _compact_text(source_metadata.get("project_code")).upper()
         for code in project_codes:
             # A Needlepunch numeric5 identifier is a project only when the
@@ -997,6 +1053,7 @@ def _infer_ledger_document_scope(
                 and not is_family_term
             ):
                 score += 8.0
+                strong_source_term_match = True
         family_score, family_matches = score_source_family_match(
             query=query,
             row_text=source_only_text,
@@ -1005,16 +1062,29 @@ def _infer_ledger_document_scope(
         )
         if family_score:
             score += family_score
-            strong_phrase_match = True
+            # A family hit ("conveyor", "spare parts") describes a KIND of
+            # document, not this one: dozens of machines carry a conveyor
+            # section. Alone it used to set strong_phrase_match, and the phrase
+            # filter below then reduced the whole scope to one arbitrary family
+            # document of an unrelated machine while the answer sat in another
+            # line's spare-parts list. Require a second, document-specific
+            # signal: the project the question named, the station it named, or
+            # a long non-family term (part/drawing number) in the filename.
+            if matched_project or position_in_source or strong_source_term_match:
+                strong_phrase_match = True
         if compact_query and compact_query in compact_haystack:
             score += 4.0
             strong_phrase_match = True
         elif any(
             len(_compact_text(term)) >= 6
             and _compact_text(term).upper() not in project_codes
+            and _search_text(term) not in family_expanded_terms
             and _compact_text(term) in compact_haystack
             for term in terms
         ):
+            # Family words are excluded here for the same reason as above: a
+            # long term only identifies a document when it is not the name of
+            # the family every sibling document shares.
             strong_phrase_match = True
         if has_source_lookup_signal:
             score += min(max(int(getattr(row, "chunk_count", 0) or 0), 0), 100) / 200.0
@@ -1023,7 +1093,7 @@ def _infer_ledger_document_scope(
             strong_phrase_match = False
         threshold = 6.0 if project_codes else 7.0
         if score >= threshold:
-            scored.append((score, matched_project, strong_phrase_match, row))
+            scored.append((score, matched_project, strong_phrase_match, position_in_source, row))
     if not scored:
         return {}, 0.0, "", []
     if project_codes and any(item[1] for item in scored):
@@ -1041,11 +1111,11 @@ def _infer_ledger_document_scope(
             scored = phrase_scored
 
     ranked = sorted(
-        scored, key=lambda item: (-item[0], str(getattr(item[3], "filename", "") or "").lower())
+        scored, key=lambda item: (-item[0], str(getattr(item[4], "filename", "") or "").lower())
     )[:20]
     filenames: list[str] = []
     collection_refs: list[str] = []
-    for _, _matched_project, _strong_phrase_match, row in ranked:
+    for _, _matched_project, _strong_phrase_match, _position_in_source, row in ranked:
         filename = str(getattr(row, "filename", "") or "").strip()
         if filename and filename not in filenames:
             filenames.append(filename)
@@ -1055,34 +1125,55 @@ def _infer_ledger_document_scope(
     if not filenames:
         return {}, 0.0, "", []
     top_score = float(ranked[0][0])
+    # Only emit a project_code filter for codes that are actually indexed as a
+    # ``project_code`` payload value among the matched rows. A query identifier
+    # that merely appears inside filenames (e.g. a sub-component code like
+    # CU250S, whose documents carry parent-project codes such as
+    # ACJ100/AKI300/AMM100) is never a project_code value, so the Qdrant
+    # project_code filter would match zero chunks, collapse retrieval and trip
+    # the exact-match guardrail. In that case fall through to the precise
+    # document_filename allowlist below instead.
+    indexed_project_codes = {
+        _compact_text(_source_metadata(row).get("project_code")).upper()
+        for *_unused, row in ranked
+    }
+    indexed_project_codes.discard("")
+    scoped_codes = [code for code in project_codes if code in indexed_project_codes]
     broad_project_scope = bool(project_codes) and top_score < _PROJECT_SCOPE_STRONG_MATCH
-    if broad_project_scope:
+    if broad_project_scope and scoped_codes:
         # Generic project question (no document scored clearly above the
         # project-code base): scope the dense search to the whole project so
         # ranking can surface content-bearing documents the filename allowlist
         # would otherwise drop.
-        #
-        # Only emit a project_code filter for codes that are actually indexed as
-        # a ``project_code`` payload value among the matched rows. A query
-        # identifier that merely appears inside filenames (e.g. a sub-component
-        # code like CU250S, whose documents carry parent-project codes such as
-        # ACJ100/AKI300/AMM100) is never a project_code value, so the Qdrant
-        # project_code filter would match zero chunks, collapse retrieval and
-        # trip the exact-match guardrail. In that case fall through to the
-        # precise document_filename allowlist below instead.
-        indexed_project_codes = {
-            _compact_text(_source_metadata(row).get("project_code")).upper()
-            for *_unused, row in ranked
-        }
-        indexed_project_codes.discard("")
-        scoped_codes = [code for code in project_codes if code in indexed_project_codes]
+        confidence = min(0.85, 0.62 + min(top_score, 16.0) / 40.0)
+        reason = (
+            f"project scope for {', '.join(scoped_codes[:3])} "
+            f"({len(filenames)} filename candidates, top_score={top_score:.1f} below strong-match)"
+        )
+        return {"project_code": scoped_codes}, confidence, reason, collection_refs
+    if query_positions and not any(item[3] for item in ranked):
+        # The question names a station (J1, C1, J2S) and not one candidate
+        # filename carries it: every candidate was selected on family or word
+        # overlap alone. That is how "la référence de la toile du convoyeur J1"
+        # locked onto the first conveyor section of an unrelated machine while
+        # the belt reference sat in another line's spare-parts list — a hard
+        # filename allowlist makes that answer unreachable before retrieval
+        # runs. Keep the real project scope when the question named one, and
+        # otherwise emit no scope: a bounded open search plus the queued deep
+        # refinement beats a precise wrong scope.
+        positions = ", ".join(sorted(query_positions)[:3])
         if scoped_codes:
             confidence = min(0.85, 0.62 + min(top_score, 16.0) / 40.0)
             reason = (
-                f"project scope for {', '.join(scoped_codes[:3])} "
-                f"({len(filenames)} filename candidates, top_score={top_score:.1f} below strong-match)"
+                f"project scope for {', '.join(scoped_codes[:3])}; no candidate filename "
+                f"carries line position {positions}"
             )
             return {"project_code": scoped_codes}, confidence, reason, collection_refs
+        reason = (
+            f"no document scope: line position {positions} is absent from all "
+            f"{len(filenames)} family/keyword candidate(s)"
+        )
+        return {}, 0.0, reason, []
     confidence = min(0.94, 0.66 + min(top_score, 12.0) / 35.0)
     reason = f"ledger source scope matched {len(filenames)} candidate document(s)"
     if project_codes:
@@ -1431,6 +1522,7 @@ def _fast_ledger_candidate_rows(
     rows: list[Any],
     *,
     policy: RetrievalPolicy | None = None,
+    anchor_documents: list[str] | None = None,
     limit: int = 600,
 ) -> list[Any]:
     """Return a cheap candidate subset before expensive source-ledger scoring.
@@ -1449,9 +1541,10 @@ def _fast_ledger_candidate_rows(
         for term in _expanded_query_terms(query, policy)
         if len(_compact_text(term)) >= 5
     ][:24]
+    anchors = _compact_anchor_documents(anchor_documents)
     if len(rows) <= limit and not project_codes:
         return rows
-    if not project_codes and not terms:
+    if not project_codes and not terms and not anchors:
         return []
 
     scored: list[tuple[int, str, Any]] = []
@@ -1485,6 +1578,9 @@ def _fast_ledger_candidate_rows(
                 score += 12
         if project_codes and score <= 0:
             continue
+        anchored = bool(anchors) and any(anchor in compact for anchor in anchors)
+        if anchored:
+            score += 6
         term_hits = 0
         for term in terms:
             if term and term in compact:
@@ -1500,7 +1596,10 @@ def _fast_ledger_candidate_rows(
             if family_score:
                 term_hits += 1
                 score += int(round(family_score))
-        if not project_codes and term_hits < 2:
+        if not project_codes and term_hits < 2 and not anchored:
+            # A document the session already answered from survives this cheap
+            # pre-filter on the anchor alone; the ledger scorer still has to
+            # rank it against the rest.
             continue
         filename = str(getattr(row, "filename", "") or "").lower()
         scored.append((score, filename, row))
@@ -1694,6 +1793,12 @@ def plan_corpus(
         )
     else:
         source_lookup_query = query
+    anchor_documents = _session_document_anchors(request, query=query, policy=retrieval_policy)
+    if source_lookup_query and anchor_documents:
+        # Candidate targeting is filename-substring based, so an anchored
+        # document has to be part of the lookup text or the bounded candidate
+        # set can never contain it and the anchor bonus would score nothing.
+        source_lookup_query = " ".join([source_lookup_query, *anchor_documents])
     rows, collection_rows = _rows_for_collections(
         db,
         collections,
@@ -1707,6 +1812,7 @@ def plan_corpus(
             query,
             rows,
             policy=retrieval_policy,
+            anchor_documents=anchor_documents,
         )
     if workspace_id and not authoritative_collections:
         should_expand_workspace = True
@@ -1748,6 +1854,7 @@ def plan_corpus(
                 query,
                 workspace_rows,
                 policy=retrieval_policy,
+                anchor_documents=anchor_documents,
             )
         (
             ledger_filters,
@@ -1758,6 +1865,7 @@ def plan_corpus(
             query,
             ledger_rows,
             policy=retrieval_policy,
+            anchor_documents=anchor_documents,
         )
     table_lookup_collections = (
         _spreadsheet_collection_refs(workspace_rows) if _TABLE_VALUE_LOOKUP_RE.search(query) else []

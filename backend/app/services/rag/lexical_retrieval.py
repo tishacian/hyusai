@@ -39,6 +39,20 @@ DEFAULT_METADATA_FIELD_WEIGHTS: dict[str, int] = {
     "tags": 3,
 }
 
+# Digit-first part identifiers (``2310PW``, ``2030B``, ``7310D``) share their
+# shape with glued measurements (``400V``, ``250BAR``, ``1500MM``), so the unit
+# lookahead is what keeps ordinary quantities out of exact matching.  Spaced
+# measurements ("20 mm") and bare numbers (years, page numbers) never match.
+_MEASUREMENT_UNIT_SUFFIXES: tuple[str, ...] = (
+    "BARS", "BAR", "GSM", "KHZ", "KPA", "KVA", "MPA", "PPM", "PSI", "RPM",
+    "CM", "DB", "HZ", "KG", "KN", "KV", "KW", "MA", "MIN", "ML", "MM", "MS",
+    "MW", "NM", "PA", "TR", "VA",
+    "A", "C", "F", "G", "H", "K", "L", "M", "N", "S", "T", "V", "W",
+)
+DIGIT_FIRST_IDENTIFIER_PATTERN = (
+    r"\b\d{3,5}(?!(?:" + "|".join(_MEASUREMENT_UNIT_SUFFIXES) + r")\b)[A-Z]{1,3}\b"
+)
+
 DEFAULT_EXACT_IDENTIFIER_PATTERNS: tuple[str, ...] = (
     r"\b[A-Z]{2,}[A-Z0-9]*[\s_.-]?\d{2,}[A-Z0-9]*\b",
     r"\b(?=[A-Z0-9_-]*\d)[A-Z0-9]{2,}[-_][A-Z0-9]{2,}\b",
@@ -47,6 +61,7 @@ DEFAULT_EXACT_IDENTIFIER_PATTERNS: tuple[str, ...] = (
     # when present, must be punctuation (no whitespace) to avoid matching
     # incidental "<letter> <number>" phrasing.
     r"\b[A-Z][._-]?\d{2,}[A-Z0-9]*\b",
+    DIGIT_FIRST_IDENTIFIER_PATTERN,
 )
 
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_.-]{2,}")

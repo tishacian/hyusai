@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
+
 from app.services.rag.lexical_retrieval import (
+    DIGIT_FIRST_IDENTIFIER_PATTERN,
     SPARSE_SCHEMA_VERSION,
     analyze_query,
     derived_industrial_metadata,
@@ -67,6 +70,25 @@ def test_query_analysis_recognizes_compact_and_separated_short_codes():
     assert "D60" in analyze_query("graissage du palier D60").exact_terms
     assert "D40" in analyze_query("palier moteur D-40").exact_terms
     assert "D60" in analyze_query("référence palier D_60").exact_terms
+
+
+def test_query_analysis_recognizes_digit_first_part_identifiers():
+    # SPL part numbers are digit-first with a short letter suffix (the inlet
+    # conveyor belt 2310PW). Every identifier pattern used to require a leading
+    # letter, so those references never reached exact matching.
+    for query, code in (
+        ("la toile du convoyeur est la 2310PW", "2310PW"),
+        ("on monte une 2030B", "2030B"),
+        ("le tapis 7310D", "7310D"),
+    ):
+        signals = analyze_query(query)
+        assert code in signals.exact_terms, query
+        assert signals.requires_exact_match is True, query
+
+
+def test_digit_first_identifiers_exclude_measurements_and_bare_numbers():
+    for text in ("250bar", "1500mm", "400V", "2000rpm", "3000tr", "en 2024", "page 120", "20 mm"):
+        assert re.search(DIGIT_FIRST_IDENTIFIER_PATTERN, text.upper(), re.IGNORECASE) is None, text
 
 
 def test_short_code_extraction_stays_code_like():

@@ -6387,6 +6387,10 @@ export class ChatPanelComponent implements AfterViewInit {
     let mapCommand: Record<string, unknown> | undefined;
     let turnRunId: string | undefined;
     let retrievalInfo: ChatMessage['retrievalInfo'] = null;
+    // Set when the backend consumed this turn as an expert correction (a
+    // teaching message detected on /chat): the reply is the same sober
+    // acknowledgement the "Corriger" composer produces, not an answer.
+    let expertCorrection: Record<string, unknown> | null = null;
     let pendingDeepSearch:
       | {
           jobId: string;
@@ -6464,6 +6468,9 @@ export class ChatPanelComponent implements AfterViewInit {
           // chunks and the trailing ``eval_pending`` chunk both carry it).
           // Remember it so the auto-QA verdict can be pinned to this bubble.
           if (chunk.run_id) turnRunId = chunk.run_id;
+          if (this.isRecord((chunk as Record<string, unknown>)['expert_correction'])) {
+            expertCorrection = (chunk as Record<string, unknown>)['expert_correction'] as Record<string, unknown>;
+          }
           if (chunk.chunk_type === 'session' && typeof (chunk as Record<string, unknown>)['session_id'] === 'string') {
             const sessionId = (chunk as Record<string, unknown>)['session_id'] as string;
             this.chatSessionId = sessionId;
@@ -6592,11 +6599,15 @@ export class ChatPanelComponent implements AfterViewInit {
             sources = chunk.sources as Source[];
           } else if (chunk.type === 'done') {
             const durationMs = Date.now() - this.streamStart;
-            const assistantId = cryptoId();
+            // Reuse the backend's acknowledgement message id so the bubble
+            // matches the persisted one after a reload.
+            const ackId = expertCorrection?.['message_id'];
+            const assistantId = typeof ackId === 'string' && ackId ? ackId : cryptoId();
             const assistantMsg: ChatMessage = {
               id: assistantId,
               role: 'assistant',
               content: buffer,
+              kind: expertCorrection ? 'correction_ack' : undefined,
               decisionSteps: reasoning.length ? reasoning : undefined,
               sources,
               mapCommand,
