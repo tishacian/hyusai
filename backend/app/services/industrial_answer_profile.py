@@ -237,7 +237,23 @@ _COMPARISON_RE = re.compile(
 )
 _EQUIPMENT_DETAIL_RE = re.compile(
     r"\b(d[ée]tails?|fiche|caract[ée]ristiques?|sp[ée]cifications?|details?|datasheet)\b.*"
-    r"\b([A-Z]{2,}\d{2,}|pompe|pump|moteur|motor|injecteur|buse|nozzle|rouleau|dryer|s[ée]cheur|filtre)\b",
+    r"\b([A-Z]{2,}\d{2,}|pompe|pump|moteur|motor|injecteur|buse|nozzle|rouleau|dryer|s[ée]cheur|filtre|"
+    r"toile|belt|convoyeur|conveyor|palier|bearing|strip)\b",
+    re.IGNORECASE,
+)
+# Part-identity questions ("quelle est la référence de la toile du convoyeur
+# J1") open with an interrogative, so they are claimed by ``_PRECISE_FACT_RE``
+# unless resolved first, even though they belong to the equipment niche. The
+# ``de`` lookbehind keeps adjectival French wording ("la pression de référence
+# de la pompe") on the factual profile, and the reference term must be followed
+# by the part it identifies rather than appearing anywhere in the sentence.
+_PART_REFERENCE_RE = re.compile(
+    r"(?<!de\s)\b(?:r[ée]f[ée]rence[s]?|reference[s]?|code\s+pi[eè]ce|"
+    r"part\s*(?:number|no\.?|n[°o]))\b"
+    r"[^?.!\n]{0,40}?"
+    r"\b(?:toile[s]?|convoyeur[s]?|conveyor|belt|palier[s]?|bearing|strip[s]?|"
+    r"courroie[s]?|pi[eè]ce[s]?|part|pompe|moteur|injecteur|buse|rouleau|filtre|"
+    r"[A-Z]{2,}\d{2,})\b",
     re.IGNORECASE,
 )
 # Tabular-extraction intent: the user wants values laid out as a table/BOM, not
@@ -369,6 +385,8 @@ def resolve_answer_profile(
         return AnswerProfileDecision("transversal_inventory", "cross_project_inventory_query", True)
     if _EQUIPMENT_DETAIL_RE.search(text):
         return AnswerProfileDecision("equipment_detail", "equipment_detail_query")
+    if _PART_REFERENCE_RE.search(text):
+        return AnswerProfileDecision("equipment_detail", "part_reference_query")
     # table_extract / multi_hop only shape the answer when agentic chat routing
     # is enabled. Gating them keeps the classic prompt shaping byte-for-byte
     # unchanged while ``enable_agentic_chat`` is off (zero drift pre-enablement);

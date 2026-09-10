@@ -20,7 +20,11 @@ from typing import TYPE_CHECKING, Any, List, Literal, Optional
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.services.rag.fusion_weights import FusionWeights, resolve_fusion_weights
-from app.services.rag.lexical_retrieval import analyze_query, identifier_variants
+from app.services.rag.lexical_retrieval import (
+    DIGIT_FIRST_IDENTIFIER_PATTERN,
+    analyze_query,
+    identifier_variants,
+)
 from app.services.rag.project_references import extract_query_project_codes
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
@@ -92,9 +96,14 @@ _TRIAL_CODE_RE = re.compile(
     re.IGNORECASE,
 )
 # Exact retrieval ranking also serves equipment/part identifiers (TTN20777J,
-# V10234, CU250S-2). They are deliberately separate from project identity:
-# matching one here may boost a document, but can never create a project filter.
-_TECHNICAL_REFERENCE_RE = re.compile(r"\b[A-Z]{1,}[A-Z0-9_-]*\d{2,}[A-Z0-9_-]*\b")
+# V10234, CU250S-2, 2310PW). They are deliberately separate from project
+# identity: matching one here may boost a document, but can never create a
+# project filter. The digit-first alternative is shared with the lexical layer
+# so both arms of hybrid retrieval recognise the same part numbers.
+_TECHNICAL_REFERENCE_RE = re.compile(
+    r"\b[A-Z]{1,}[A-Z0-9_-]*\d{2,}[A-Z0-9_-]*\b"
+    rf"|{DIGIT_FIRST_IDENTIFIER_PATTERN}"
+)
 _DATE_DMY_RE = re.compile(r"\b([0-3]?\d)[/-]([01]?\d)[/-](20\d{2}|19\d{2})\b")
 _DATE_YMD_RE = re.compile(r"\b(20\d{2}|19\d{2})[/-]([01]?\d)[/-]([0-3]?\d)\b")
 

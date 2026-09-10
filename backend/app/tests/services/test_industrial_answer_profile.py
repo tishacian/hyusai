@@ -5,6 +5,7 @@ from app.services.industrial_answer_profile import (
     industrial_answer_policy,
     resolve_answer_profile,
 )
+from app.services.rag.corpus_planner import classify_intent
 
 
 def test_resolve_transversal_inventory_requires_exhaustive_retrieval():
@@ -83,6 +84,86 @@ def test_resolve_imperative_project_inventory_as_transversal_inventory():
         resolve_answer_profile("quelle pompe est utilisée dans ce projet ?", policy).profile
         == "precise_fact"
     )
+
+
+def test_resolve_part_reference_question_as_equipment_detail():
+    # "quelle est la référence de la toile du convoyeur J1" used to be claimed by
+    # _PRECISE_FACT_RE (leading "quelle"), which kept part-identity questions out
+    # of the equipment niche. They must resolve before the precise_fact branch.
+    policy = industrial_answer_policy()
+    for query in (
+        "quelle est la réference de la toile du convoyeur j1",
+        "quelle est la référence de la toile du convoyeur J1 ?",
+        "référence du palier du J2S ?",
+        "code pièce de la toile",
+        "part number of the conveyor belt",
+        "quelle est la reference de la courroie ?",
+    ):
+        decision = resolve_answer_profile(query, policy)
+        assert decision.profile == "equipment_detail", query
+        assert decision.reason == "part_reference_query", query
+        assert decision.requires_exhaustive_retrieval is False, query
+
+
+def test_part_reference_detection_does_not_claim_adjectival_reference_wording():
+    # French "X de référence" is an adjectival qualifier, not a part number
+    # request, so the asked fact must stay on precise_fact.
+    policy = industrial_answer_policy()
+    for query in (
+        "quelle est la pression de référence de la pompe ?",
+        "quel est le débit de référence du convoyeur ?",
+    ):
+        assert resolve_answer_profile(query, policy).profile == "precise_fact", query
+
+
+def test_equipment_detail_covers_conveyor_and_belt_vocabulary():
+    policy = industrial_answer_policy()
+    for query in (
+        "donne-moi la fiche de la toile du convoyeur",
+        "caractéristiques du palier du J2S",
+        "spécifications du strip de l'injecteur",
+    ):
+        decision = resolve_answer_profile(query, policy)
+        assert decision.profile == "equipment_detail", query
+        assert decision.reason == "equipment_detail_query", query
+
+
+def test_part_reference_profile_does_not_cannibalise_neighbouring_profiles():
+    # The three other Pascal queries must keep the profile they already had:
+    # the scope/anchor fixes own them, not the answer profile.
+    policy = industrial_answer_policy()
+    expected = {
+        "quel strip mettre dans l'injecteur de prémouillage": "precise_fact",
+        "quelle est la distance entre le j1 et le c1 en mode isojet": "precise_fact",
+        "quelle toile sur le convoyeur JP": "precise_fact",
+        "Compare les consignes J2S avec et sans Scorpio": "comparison",
+        "Donne-moi la nomenclature des pièces du sécheur": "table_extract",
+        "Quelle est la pression nominale de la pompe URACA ?": "precise_fact",
+        "Donne-moi la fiche technique de la pompe URACA": "equipment_detail",
+        "Quels projets utilisent une pompe Uraca ?": "transversal_inventory",
+    }
+    for query, profile in expected.items():
+        decision = resolve_answer_profile(query, policy, include_agentic_profiles=True)
+        assert decision.profile == profile, query
+
+
+def test_compare_intent_always_resolves_to_the_comparison_profile():
+    # The planner's compare grammar must stay a subset of the profile's, so a
+    # compare turn can never reach hybrid routing on a non-niche profile. This
+    # replaces a runtime "intent=compare -> agentic" net with a contract the
+    # two regexes have to keep.
+    policy = industrial_answer_policy()
+    for query in (
+        "Compare les consignes J2S avec et sans Scorpio",
+        "compare AKK200 et ACJ100",
+        "comparer les consignes J2S",
+        "différence entre le J1 et le C1",
+        "différences entre AKK200 et ACJ100",
+        "J2S versus Scorpio",
+        "J2S vs Scorpio",
+    ):
+        assert classify_intent(query) == "compare", query
+        assert resolve_answer_profile(query, policy).profile == "comparison", query
 
 
 def test_answer_policy_removes_internal_mechanics_terms():

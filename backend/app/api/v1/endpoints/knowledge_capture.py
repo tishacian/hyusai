@@ -2540,18 +2540,21 @@ async def publish_capture_proposal(
 _CHAT_CORRECTION_AUDIO_MAX_BYTES = 25 * 1024 * 1024
 
 
-@router.post("/chat-correction")
-async def submit_chat_correction(
-    body: ChatCorrectionRequest,
-    user: User = Depends(get_current_user),
-    workspace: Workspace = Depends(get_current_workspace),
-    db: DBSession = Depends(get_db),
-) -> Dict[str, Any]:
-    """Turn an inline chat correction/completion into a ``pending_review`` proposal.
+def authorize_chat_correction(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+) -> tuple[Dict[str, Any], str]:
+    """Enforce the two chat-correction gates and resolve the fiche destination.
 
-    Reserved to ``REVIEW_ROLES`` via the ``knowledge_proposal:chat_correct``
-    rule and gated by the per-workspace ``expert_fiche_correction_enabled``
-    source-policy flag (403 when off, so the frontend degrades gracefully).
+    Shared by the inline "Corriger" composer and the ``/chat`` teaching
+    detector so both surfaces are reserved to ``REVIEW_ROLES`` via the
+    ``knowledge_proposal:chat_correct`` rule and honour the per-workspace
+    ``expert_fiche_correction_enabled`` source-policy flag. Raises
+    ``HTTPException(403)`` when either gate rejects the caller, so the frontend
+    composer degrades gracefully and the chat surface can fall back to a plain
+    answer instead of dropping the message.
     """
     enforce_permission(
         db,
@@ -2570,49 +2573,46 @@ async def submit_chat_correction(
             detail="Expert fiche correction is disabled for this workspace.",
         )
 
-    correction_text = body.correction.strip()
-    if not correction_text:
-        raise HTTPException(status_code=400, detail="Chat correction cannot be empty.")
+    return source_policy, resolve_expert_fiche_collection(workspace, source_policy)
 
-    collection_slug = resolve_expert_fiche_collection(workspace, source_policy)
 
-    audio_ref = (body.audio_ref or "").strip() or None
-    if not audio_ref and body.audio_base64:
-        try:
-            raw_audio = base64.b64decode(body.audio_base64, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise HTTPException(status_code=400, detail="Invalid audio_base64 payload.") from exc
-        if len(raw_audio) > _CHAT_CORRECTION_AUDIO_MAX_BYTES:
-            raise HTTPException(status_code=413, detail="Audio payload exceeds the 25 MB limit.")
-        if raw_audio:
-            store = get_object_store()
-            capture_ref = uuid.uuid4().hex
-            audio_ref = store.key(
-                "workspaces",
-                workspace.id,
-                "expert-fiche-captures",
-                collection_slug,
-                capture_ref,
-                f"audio{_audio_extension(body.audio_content_type)}",
-            )
-            store.write_bytes(audio_ref, raw_audio)
+async def apply_chat_correction(
+    db: DBSession,
+    *,
+    user: User,
+    workspace: Workspace,
+    source_policy: Dict[str, Any],
+    collection_slug: str,
+    query: str,
+    assistant_answer: str,
+    correction_text: str,
+    sources: Optional[List[Any]] = None,
+    session_id: Optional[str] = None,
+    message_id: Optional[str] = None,
+    transcript_raw: Optional[str] = None,
+    audio_ref: Optional[str] = None,
+    input_modality: str = "text",
+    trigger: str = "correction_composer",
+) -> Dict[str, Any]:
+    """Capture an expert correction, auto-publish when allowed, acknowledge it.
 
-    try:
-        proposal, session = create_chat_correction_proposal(
-            db,
-            workspace=workspace,
-            user=user,
-            query=body.query,
-            assistant_answer=body.answer,
-            correction_text=correction_text,
-            sources=body.sources,
-            transcript_raw=body.transcript_raw,
-            audio_ref=audio_ref,
-            input_modality=body.input_modality or "text",
-            source_policy=source_policy,
-        )
-    except ValueError as exc:
-        raise _http_error_from_value_error(exc) from exc
+    Callers must have passed :func:`authorize_chat_correction` first.
+    ``trigger`` records which surface produced the fiche (the composer button or
+    the ``/chat`` teaching detector) so auto-captured knowledge stays traceable.
+    """
+    proposal, session = create_chat_correction_proposal(
+        db,
+        workspace=workspace,
+        user=user,
+        query=query,
+        assistant_answer=assistant_answer,
+        correction_text=correction_text,
+        sources=sources,
+        transcript_raw=transcript_raw,
+        audio_ref=audio_ref,
+        input_modality=input_modality,
+        source_policy=source_policy,
+    )
 
     emit_audit_event(
         db=db,
@@ -2623,10 +2623,11 @@ async def submit_chat_correction(
             "proposal_id": proposal.id,
             "session_id": session.id,
             "collection": collection_slug,
-            "input_modality": body.input_modality or "text",
-            "message_id": body.message_id,
-            "chat_session_id": body.session_id,
+            "input_modality": input_modality,
+            "message_id": message_id,
+            "chat_session_id": session_id,
             "audio_ref": audio_ref,
+            "trigger": trigger,
         },
     )
 
@@ -2679,7 +2680,7 @@ async def submit_chat_correction(
             status = "pending_review"
 
     theme = await summarize_chat_correction_theme(
-        body.query,
+        query,
         correction_text,
         workspace_id=workspace.id,
     )
@@ -2691,19 +2692,20 @@ async def submit_chat_correction(
     # endpoint's Message persistence) so the trace survives a reload. Only when
     # a chat session_id is supplied.
     ack_message_id: Optional[str] = None
-    if body.session_id:
+    if session_id:
         ack_message_id = str(uuid.uuid4())
         db.add(
             Message(
                 id=ack_message_id,
-                session_id=body.session_id,
+                session_id=session_id,
                 role="assistant",
                 content=acknowledgement,
                 meta_data={
                     "kind": "expert_correction_ack",
                     "proposal_id": proposal.id,
                     "status": status,
-                    "source_message_id": body.message_id,
+                    "source_message_id": message_id,
+                    "trigger": trigger,
                 },
             )
         )
@@ -2719,3 +2721,61 @@ async def submit_chat_correction(
         "summary": theme,
         "review_queue_url": "/api/v1/knowledge-capture/proposals?status=pending_review",
     }
+
+
+@router.post("/chat-correction")
+async def submit_chat_correction(
+    body: ChatCorrectionRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Turn an inline chat correction/completion into a ``pending_review`` proposal."""
+    source_policy, collection_slug = authorize_chat_correction(
+        db, user=user, workspace=workspace
+    )
+
+    correction_text = body.correction.strip()
+    if not correction_text:
+        raise HTTPException(status_code=400, detail="Chat correction cannot be empty.")
+
+    audio_ref = (body.audio_ref or "").strip() or None
+    if not audio_ref and body.audio_base64:
+        try:
+            raw_audio = base64.b64decode(body.audio_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Invalid audio_base64 payload.") from exc
+        if len(raw_audio) > _CHAT_CORRECTION_AUDIO_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Audio payload exceeds the 25 MB limit.")
+        if raw_audio:
+            store = get_object_store()
+            capture_ref = uuid.uuid4().hex
+            audio_ref = store.key(
+                "workspaces",
+                workspace.id,
+                "expert-fiche-captures",
+                collection_slug,
+                capture_ref,
+                f"audio{_audio_extension(body.audio_content_type)}",
+            )
+            store.write_bytes(audio_ref, raw_audio)
+
+    try:
+        return await apply_chat_correction(
+            db,
+            user=user,
+            workspace=workspace,
+            source_policy=source_policy,
+            collection_slug=collection_slug,
+            query=body.query,
+            assistant_answer=body.answer,
+            correction_text=correction_text,
+            sources=body.sources,
+            session_id=body.session_id,
+            message_id=body.message_id,
+            transcript_raw=body.transcript_raw,
+            audio_ref=audio_ref,
+            input_modality=body.input_modality or "text",
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc

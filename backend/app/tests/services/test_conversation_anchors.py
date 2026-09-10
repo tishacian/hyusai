@@ -3,7 +3,59 @@ from app.services.rag.conversation_anchors import (
     anchor_terms,
     extract_salient_entities,
     has_reference,
+    line_position_terms,
+    session_document_anchors,
 )
+
+
+def test_line_position_terms_separate_stations_from_machine_and_part_numbers():
+    assert line_position_terms("quelle est la réference de la toile du convoyeur j1") == ("J1",)
+    assert line_position_terms("quelle doit être la distance entre le C1 et le J1") == ("C1", "J1")
+    assert line_position_terms("compare les consignes J2S et Scorpio") == ("J2S",)
+    # Machine, drawing and part references keep their own grammar.
+    for text in ("BEX200", "TTN16697J", "la pompe URACA KD724-G", "la toile 2310PW", "AVA100 RUS"):
+        assert line_position_terms(text) == (), text
+
+
+def test_extract_salient_entities_anchors_line_positions():
+    entities = extract_salient_entities(
+        "quelle est la réference de la toile du convoyeur J1 ?",
+        "La toile du J1 est référencée dans la spare parts list ASY200.pdf.",
+    )
+
+    assert entities["positions"] == ["J1"]
+    assert any("ASY200.pdf" in document for document in entities["documents"])
+
+
+def test_extract_salient_entities_drops_documents_of_a_turn_that_found_nothing():
+    """A refused turn describes the scope that already failed, not a good one."""
+    entities = extract_salient_entities(
+        "quelle est la réference de la toile du convoyeur J1 ?",
+        "Je n'ai pas trouvé cette information dans les documents consultés.",
+        "V.1.Conveyor BEX200.pdf",
+    )
+
+    assert entities["documents"] == []
+    assert entities["positions"] == ["J1"]
+
+
+def test_session_document_anchors_keep_the_station_document_only():
+    entities = {
+        "references": ["ACJ100"],
+        "positions": ["J1", "C1"],
+        "documents": ["V.1.Conveyor J1.pdf", "Chapter 01.pdf"],
+    }
+
+    assert session_document_anchors(
+        entities,
+        query="quelle doit être la distance entre le C1 et le J1",
+    ) == ["V.1.Conveyor J1.pdf", "Chapter 01.pdf"]
+    # Another station, another subject: nothing from the previous turn applies.
+    assert session_document_anchors(
+        {**entities, "positions": ["J1"]},
+        query="quel est le poids de la machine",
+    ) == []
+    assert session_document_anchors(None, query="et pour le J1 ?") == []
 
 
 def test_extract_salient_entities_finds_references_and_documents():
@@ -32,6 +84,7 @@ def test_extract_salient_entities_rejects_french_article_measurement():
 
     assert entities == {
         "references": ["61035"],
+        "positions": [],
         "documents": ["TTN17829J.pdf"],
     }
 

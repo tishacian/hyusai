@@ -10,6 +10,10 @@ import pytest
 from app.models.system import System
 from app.models.workspace import Workspace
 from app.services import chat_execution_policy as policy
+from app.services.industrial_answer_profile import (
+    industrial_answer_policy,
+    resolve_answer_profile,
+)
 
 
 def _policy(
@@ -109,6 +113,52 @@ def test_modes_apply_their_distinct_routing_contract(db_session):
         "policy_agentic_default",
     )
     assert agentic_default.is_agentic is True
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_profile", "expected_route"),
+    [
+        ("quelle est la réference de la toile du convoyeur j1", "equipment_detail", "agentic"),
+        ("Compare les consignes J2S avec et sans Scorpio", "comparison", "agentic"),
+        ("quel strip mettre dans l'injecteur de prémouillage", "precise_fact", "classic"),
+        (
+            "quelle est la distance entre le j1 et le c1 en mode isojet",
+            "precise_fact",
+            "classic",
+        ),
+    ],
+)
+def test_pascal_queries_route_through_the_seeded_hybrid_niches(
+    db_session,
+    query,
+    expected_profile,
+    expected_route,
+):
+    """End-to-end profile -> route contract for the failing Andritz session.
+
+    The classifier and the niche allowlist live in two modules; pinning them
+    together is what guarantees a part-reference or compare turn actually
+    reaches the Agentic runtime instead of silently staying classic.
+    """
+
+    workspace = _workspace(
+        db_session,
+        settings={"chat_execution": _policy(policy.CHAT_EXECUTION_HYBRID, percentage=100)},
+    )
+    _system(db_session, workspace)
+    decision = resolve_answer_profile(
+        query,
+        industrial_answer_policy(),
+        include_agentic_profiles=True,
+    )
+
+    assert decision.profile == expected_profile
+    assert (decision.profile in policy.AGENTIC_NICHE_PROFILES) is (expected_route == "agentic")
+
+    route = _resolve(db_session, workspace, answer_profile=decision.profile)
+
+    assert route.route == expected_route
+    assert route.reason == ("policy_hybrid" if expected_route == "agentic" else "hybrid_profile_classic")
 
 
 def test_target_selection_requires_exact_active_type_variant_and_workspace(db_session):

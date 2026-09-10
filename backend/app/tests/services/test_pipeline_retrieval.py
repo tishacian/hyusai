@@ -14,6 +14,7 @@ from app.services.rag.pipeline_retrieval import (
     _merge_rrf,
     _prioritise_exact_project_reference_matches,
     _prioritise_spreadsheet_label_matches,
+    _query_exact_references,
     _query_project_references,
     _query_variants,
     _search_documents,
@@ -120,6 +121,50 @@ def test_project_ranking_resolver_distinguishes_needlepunch_from_part_references
     assert _query_project_references("notice TTN17829J") == []
     assert _query_project_references("variante V10234") == []
     assert _query_project_references("vitesse 10000 rpm", known_codes={"10000"}) == []
+    # A digit-first part number is exact-rankable but never a project identity.
+    assert _query_project_references("la toile 2310PW") == []
+
+
+def test_query_exact_references_accepts_digit_first_part_numbers():
+    assert _query_exact_references("la toile du convoyeur J1 est la 2310PW") == ["2310PW"]
+    assert _query_exact_references("on monte la 2030B puis la 2040B") == ["2030B", "2040B"]
+    assert _query_exact_references("notice AVA200 pour la 7310D") == ["AVA200", "7310D"]
+
+
+def test_query_exact_references_rejects_measurements_years_and_page_numbers():
+    assert _query_exact_references("pression 250bar, largeur 1500mm, 400V et 2000rpm") == []
+    assert _query_exact_references("voir page 120 du rapport de 2024, largeur 20 mm") == []
+
+
+def test_query_exact_references_keeps_the_five_reference_cap():
+    refs = _query_exact_references("2310PW 2030B 2040B 7310D 2050B 2060D")
+
+    assert len(refs) == 5
+    assert refs[0] == "2310PW"
+
+
+def test_prioritise_digit_first_part_reference_over_higher_scored_circuit():
+    rows = [
+        {
+            "content": "Circuit HP: pompe haute pression et flexibles.",
+            "score": 0.95,
+            "combined_score": 0.95,
+            "metadata": {"document_filename": "BEX200 V.1 HP circuit.pdf"},
+        },
+        {
+            "content": "Inlet conveyor with belt 2310PW",
+            "score": 0.2,
+            "combined_score": 0.2,
+            "metadata": {"document_filename": "AVA200 Spare Parts List.pdf"},
+        },
+    ]
+
+    out = _prioritise_exact_project_reference_matches(
+        rows,
+        "Pour ta connaissance, la toile du convoyeur J1 est la 2310PW",
+    )
+
+    assert out[0]["metadata"]["document_filename"] == "AVA200 Spare Parts List.pdf"
 
 
 def test_prioritise_exact_needlepunch_project_metadata():
