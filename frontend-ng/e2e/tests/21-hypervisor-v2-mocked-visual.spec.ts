@@ -623,6 +623,8 @@ test.describe('Hypervisor V2 — mocked visual', () => {
           shots[`dense-${theme}-operations`] = operations;
           await page.getByTestId('hypervisor-v2-view-conformite').click();
           await expect(page.getByTestId('hypervisor-v2-unites')).toBeVisible();
+          await expect(page.getByTestId('hypervisor-v2-unites').locator('.hv2-monument')).toHaveCount(0);
+          await expect(page.getByTestId('hypervisor-v2-unites').locator('.hv2-unites-row')).not.toHaveCount(0);
           const conformite = path.join(RESULTS, `dense-${theme}-conformite.png`);
           await captureFullLedger(page, conformite);
           shots[`dense-${theme}-conformite`] = conformite;
