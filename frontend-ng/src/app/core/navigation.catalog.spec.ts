@@ -377,12 +377,11 @@ test('OBJECT_FACETS lists System descendants used by the sommaire branch', () =>
   assert.deepEqual(facets.map((facet) => facet.id), [
     'overview',
     'runs',
-    'skills',
-    'knowledge',
-    'flow',
+    'design',
+    'context',
   ]);
   assert.equal(systemFacetForChild('run'), 'runs');
-  assert.equal(systemFacetForChild('skill'), 'skills');
+  assert.equal(systemFacetForChild('skill'), 'design');
   assert.equal(systemFacetForChild('capability'), null);
 });
 

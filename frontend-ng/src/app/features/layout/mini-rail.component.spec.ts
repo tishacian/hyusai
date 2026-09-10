@@ -351,9 +351,8 @@ test('nav v5 Operate sommaire has no object ladder and exposes a System facet br
   assert.deepEqual(branch.facets.map((facet) => facet.id), [
     'overview',
     'runs',
-    'skills',
-    'knowledge',
-    'flow',
+    'design',
+    'context',
   ]);
   assert.equal(branch.activeId, 'runs');
 });

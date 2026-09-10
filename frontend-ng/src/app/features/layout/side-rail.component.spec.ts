@@ -125,6 +125,7 @@ test('experience_v1 Build verb opens the Create hub', () => {
         useValue: {
           mode: () => 'portfolio',
           isDemoMode: () => false,
+          current: () => ({settings:{features:{}}}),
           experienceV1Enabled: () => true,
           experienceStudioV1Enabled: () => true,
         },

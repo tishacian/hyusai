@@ -1,3 +1,4 @@
+import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -72,7 +73,7 @@ interface SearchResult {
   selector: 'app-knowledge-base',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [HelpTooltipComponent,
     FormsModule,
     IconComponent,
     CkObjectHeaderComponent,
@@ -83,12 +84,14 @@ interface SearchResult {
     NavLinkDirective,
   ],
   template: `
+
     <ck-object-header
       [eyebrow]="i18n.t('knowledge.header.eyebrow')"
       [title]="i18n.t('knowledge.title')"
       [subtitle]="i18n.t('knowledge.header.subtitle')"
       [kpis]="headerKpis()"
     >
+      <ck-help actions id="adoption.sources" />
       <button
         actions
         type="button"
@@ -251,7 +254,7 @@ interface SearchResult {
           icon="database"
           [title]="i18n.t('knowledge.collections.empty.title')"
           [description]="i18n.t('knowledge.collections.empty.description')"
-        />
+        ><a class="ck-btn-soft" [navLink]="{leaf:'help-guide',params:{guideId:'sources'}}">{{i18n.t('experience.adoption.documents')}}</a></app-empty-state>
       </div>
     } @else {
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -365,13 +368,13 @@ interface SearchResult {
           icon="circle-alert"
           [title]="i18n.t('knowledge.search.error.title')"
           [description]="searchError()!"
-        />
+        ><button type="button" class="ck-btn-soft" (click)="runSearch()">{{i18n.t('common.retry')}}</button><a [navLink]="{leaf:'help-guide',params:{guideId:'sources'}}">{{i18n.t('experience.adoption.documents')}}</a></app-empty-state>
       } @else if (searchResults().length === 0 && !searching() && searchAttempted()) {
         <app-empty-state
           icon="search"
           [title]="i18n.t('knowledge.search.empty.title')"
           [description]="i18n.t('knowledge.search.empty.description')"
-        />
+        ><a class="ck-btn-soft" [navLink]="{leaf:'help-guide',params:{guideId:'sources'}}">{{i18n.t('experience.adoption.documents')}}</a></app-empty-state>
       }
 
       <ul class="space-y-2">
@@ -432,7 +435,7 @@ interface SearchResult {
           icon="file-text"
           [title]="i18n.t('knowledge.browse.empty.title')"
           [description]="i18n.t('knowledge.browse.empty.description')"
-        />
+        ><a class="ck-btn-soft" [navLink]="{leaf:'help-guide',params:{guideId:'sources'}}">{{i18n.t('experience.adoption.documents')}}</a></app-empty-state>
       } @else {
         <div class="mb-3 flex items-center justify-between gap-2 text-xs" style="color:var(--ck-fg-3);">
           <span class="font-mono">

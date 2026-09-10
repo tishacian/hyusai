@@ -19,7 +19,7 @@ function sources(root: string): string[] {
 }
 
 const source = readFileSync(join(process.cwd(), 'src/styles/cockpit-tokens.scss'), 'utf8');
-const dark = source.slice(source.indexOf(':root {'), source.indexOf('html:not(.dark)'));
+const dark = source.slice(source.indexOf(':root,'), source.indexOf('html:not(.dark)'));
 const light = source.slice(source.indexOf('html:not(.dark)'));
 
 function token(block: string, name: string): string {

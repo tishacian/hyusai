@@ -613,6 +613,8 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'create-preview', parent: 'create', route: '/create/preview', label: 'Studio preview' },
   { id: 'workspace-app-unavailable', parent: 'hypervisor', route: '/workspace-app-unavailable', label: 'Workspace app unavailable' },
   { id: 'workspace-app-repair', parent: 'hypervisor', route: '/workspace-app-repair', label: 'Workspace app repair' },
+  { id: 'help-guide', parent: 'work', route: '/help/:guideId', label: 'Help guide' },
+  { id: 'work-getting-started', parent: 'work', route: '/work/getting-started', label: 'Getting started' },
   { id: 'work-pr-to-po', parent: 'work', route: '/work/pr-to-po', label: 'PR to PO Studio' },
   { id: 'work-page', parent: 'work', route: '/work/:slug/:pageId', label: 'Work page' },
   { id: 'connector-models-redirect', parent: 'resources', route: '/connectors/models', label: 'Models & providers redirect' },
@@ -1021,9 +1023,8 @@ export interface ObjectFacet {
 const SYSTEM_OBJECT_FACETS: readonly ObjectFacet[] = [
   { id: 'overview', i18nKey: 'nav.facet.overview', glyph: 'cube' },
   { id: 'runs', i18nKey: 'nav.runs', glyph: 'ledger' },
-  { id: 'skills', i18nKey: 'nav.skills', glyph: 'bolt' },
-  { id: 'knowledge', i18nKey: 'nav.knowledge', glyph: 'layers' },
-  { id: 'flow', i18nKey: 'nav.flows', glyph: 'flow' },
+  { id: 'design', i18nKey: 'systems.view.tab.design', glyph: 'flow' },
+  { id: 'context', i18nKey: 'systems.view.tab.context', glyph: 'layers' },
 ];
 
 /** Object type × lens → facets. Source for `?facet=`, `ck-tabs`, and the sommaire branch (D7). */
@@ -1085,7 +1086,7 @@ export function isHypervisorFacet(value: string | null | undefined): value is Hy
 
 export function systemFacetForChild(child: HierarchyObjectType | null): string | null {
   if (child === 'run' || child === 'skill_invocation') return 'runs';
-  if (child === 'skill') return 'skills';
+  if (child === 'skill') return 'design';
   return null;
 }
 

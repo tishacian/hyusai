@@ -32,6 +32,8 @@ from app.db.base import get_db
 from app.models.mfa import MfaChallenge
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.schemas.adoption import ExperienceProgressUpdate
+from app.schemas.brand_appearance import PlatformBrand
 from app.schemas.canonical import WorkspaceFamily, WorkspaceMode
 from app.services.actions.contracts import normalize_workspace_action_pack_settings
 from app.services.email import render_mfa_email, send_email
@@ -59,6 +61,47 @@ from app.services.workspace_app_runtime import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+@router.get("/workspaces/{slug}/me/experience")
+async def get_member_experience(
+    slug: str, user: User = Depends(get_current_user), db: DBSession = Depends(get_db),
+):
+    from app.schemas.adoption import ExperienceProgress
+    workspace, member = _resolve_workspace_and_role(db, user, slug)
+    from app.models.knowledge_collection import KnowledgeCollection
+    available = workspace.slug == "agentium-showcase" and db.query(KnowledgeCollection).filter_by(
+        workspace_id=workspace.id, slug="agentium-showcase-notices", status="ready").filter(KnowledgeCollection.document_count > 0, KnowledgeCollection.chunk_count > 0).first() is not None
+    return {**ExperienceProgress.model_validate(member.experience_progress or {}).model_dump(), "example_available": available}
+
+
+@router.patch("/workspaces/{slug}/me/experience")
+async def update_member_experience(
+    slug: str, body: "ExperienceProgressUpdate",
+    user: User = Depends(get_current_user), db: DBSession = Depends(get_db),
+):
+    from app.schemas.adoption import update_progress
+    from app.services.audit_logger import emit_audit_event
+    workspace, member = _resolve_workspace_and_role(db, user, slug)
+    member = db.query(WorkspaceMember).filter(WorkspaceMember.id == member.id).populate_existing().with_for_update().one()
+    if body.session_id:
+        from app.models.user import Session as ChatSession
+        if not db.query(ChatSession).filter_by(id=body.session_id, workspace_id=workspace.id, user_id=user.id, status="active").first():
+            raise HTTPException(404, "Conversation unavailable")
+    if body.run_id:
+        from app.models.run import Run
+        from app.services.run_access import run_is_visible
+        run = db.query(Run).filter_by(id=body.run_id, workspace_id=workspace.id, initiated_by_user_id=user.id).first()
+        if run is None or not run_is_visible(db, run=run, user=user, workspace=workspace):
+            raise HTTPException(404, "Run unavailable")
+    progress = update_progress(member.experience_progress or {}, body)
+    member.experience_progress = progress.model_dump()
+    emit_audit_event(
+        event_type="adoption.progress", workspace_id=workspace.id, actor=user.id,
+        details={"journey": progress.journey, **body.model_dump(exclude_none=True)}, db=db,
+    )
+    db.commit()
+    return progress.model_dump()
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +191,8 @@ class WorkspaceCreate(BaseModel):
 
 
 class WorkspaceUpdate(BaseModel):
+    platform_brand: PlatformBrand | None = None
+    expected_platform_brand: dict | None = None
     name: Optional[str] = None
     settings: Optional[dict] = None
     mode: Optional[WorkspaceMode] = None
@@ -157,6 +202,9 @@ class WorkspaceUpdate(BaseModel):
     def _validate_settings_contract(cls, value: Optional[dict]) -> Optional[dict]:
         if value is not None:
             normalized = dict(value)
+            brand = normalized.get("platform_brand")
+            if isinstance(brand, dict) and "appearance" in brand:
+                normalized["platform_brand"] = PlatformBrand.model_validate(brand).model_dump(exclude_none=True)
             if "family" in normalized:
                 raw_family = normalized["family"]
                 if not isinstance(raw_family, str):
@@ -1297,6 +1345,32 @@ async def update_workspace(
         workspace,
     )
     _require_admin(membership)
+
+    if "platform_brand" in body.model_fields_set:
+        # Narrow compare-and-set under the existing workspace lock. Branding
+        # must not overwrite unrelated settings or a concurrent brand edit.
+        if body.settings is not None or "expected_platform_brand" not in body.model_fields_set:
+            raise HTTPException(status_code=422, detail="BRAND_EXPECTED_VALUE_REQUIRED")
+        current_settings = dict(workspace.settings or {})
+        if current_settings.get("platform_brand") != body.expected_platform_brand:
+            raise HTTPException(status_code=409, detail="WORKSPACE_BRAND_CONFLICT")
+        if body.platform_brand is None:
+            current_settings.pop("platform_brand", None)
+        else:
+            current_settings["platform_brand"] = body.platform_brand.model_dump(exclude_none=True)
+        workspace.settings = current_settings
+        from app.services.audit_logger import emit_audit_event
+
+        before = body.expected_platform_brand or {}
+        after = current_settings.get("platform_brand") or {}
+        emit_audit_event(
+            event_type="workspace.brand.updated", workspace_id=workspace.id, actor=user.id,
+            details={
+                "enabled": bool(after),
+                "changed_fields": sorted(key for key in before.keys() | after.keys() if before.get(key) != after.get(key)),
+            },
+            db=db,
+        )
 
     if body.name is not None:
         workspace.name = body.name

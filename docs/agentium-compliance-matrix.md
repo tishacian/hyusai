@@ -364,7 +364,7 @@ Release schema v2 binds the exact repository revision, populated SBOM, SLSA buil
 
 ## Residual workspace-slug branch debt
 
-Inventory schema v1 declares **2 occurrence(s)** across **2 expression(s)**. Any new, removed, duplicated or edited branch fails `--check` until this versioned debt list is reviewed explicitly.
+Inventory schema v1 declares **3 occurrence(s)** across **3 expression(s)**. Any new, removed, duplicated or edited branch fails `--check` until this versioned debt list is reviewed explicitly.
 
 Runtime scan roots: `backend/app`, `frontend-ng/src/app`. Excluded paths: `backend/app/tests`, `backend/app/cli`. Excluded suffixes: `*.spec.ts`.
 
@@ -372,6 +372,7 @@ Alembic migrations and repository utilities under `backend/scripts` are outside 
 
 | Path | Expression | Occurrences | Category | Reason |
 |---|---|---:|---|---|
+| [`backend/app/api/v1/endpoints/auth.py`](../backend/app/api/v1/endpoints/auth.py) | `workspace.slug == "agentium-showcase"` | 1 | `ui_compatibility` | The initial NorthForge adoption exercise is offered only inside the synthetic Showcase workspace with a ready tenant-scoped corpus. This eligibility check grants no role, entitlement or document permission. Revisit it when the exercise is packaged for portable installation; the current rollout explicitly excludes client corpora. |
 | [`backend/app/services/mission_room.py`](../backend/app/services/mission_room.py) | `Workspace.slug == OCTOCITY_WORKSPACE_SLUG` | 1 | `provisioning_identity` | The explicit, idempotent Octocity provisioning command locates the workspace identity it owns; runtime presentation and authorization use the Mission Room profile instead. |
 | [`backend/app/services/mission_room.py`](../backend/app/services/mission_room.py) | `Workspace.slug == SENTINEL_WORKSPACE_SLUG` | 1 | `provisioning_identity` | The explicit, idempotent Sentinel provisioning command locates the workspace identity it owns; runtime behavior is family/profile/action-pack driven. |
 

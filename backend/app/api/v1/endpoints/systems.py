@@ -527,6 +527,9 @@ def _enforce_system_run_authority(
 
 
 # ---------------- Pydantic ----------------
+from app.schemas.operational_objective import OperationalObjective, validate_objective_settings
+
+
 class SystemCreate(BaseModel):
     name: str
     objective: str = ""
@@ -552,7 +555,7 @@ class SystemCreate(BaseModel):
             settings=value,
             execution_profile=None,
         )
-        return normalized or {}
+        return validate_objective_settings(normalized) or {}
 
     @field_validator("execution_profile")
     @classmethod
@@ -597,7 +600,7 @@ class SystemUpdate(BaseModel):
             settings=value,
             execution_profile=None,
         )
-        return normalized
+        return validate_objective_settings(normalized)
 
     @field_validator("execution_profile")
     @classmethod
@@ -1087,6 +1090,8 @@ async def create_system(
         default_model=body.default_model,
         retrieval_mode_default=body.retrieval_mode_default or "auto",
     )
+    if system_settings.get("operational_objective") is not None:
+        _enforce_operational_objective_admin(db, user=user, workspace=workspace, system=s)
     db.add(s)
     db.flush()
 
@@ -1355,9 +1360,15 @@ async def update_system(
 
     updates = body.model_dump(exclude_unset=True, mode="json")
     if "settings" in updates:
+        incoming = updates["settings"] or {}
+        current_objective = (s.settings or {}).get("operational_objective")
+        if "operational_objective" not in incoming and current_objective is not None:
+            incoming = {**incoming, "operational_objective": current_objective}
+        elif incoming.get("operational_objective") != current_objective:
+            _enforce_operational_objective_admin(db, user=user, workspace=workspace, system=s)
         updates["settings"] = _settings_with_managed_system_fields_preserved(
             s.settings,
-            updates["settings"] or {},
+            incoming,
         )
     flow_touched = "flow_definition" in updates
     if flow_touched and flow_publication.flow_publication_enabled(workspace):
@@ -2510,3 +2521,47 @@ async def delete_system_hook(
     db.delete(row)
     db.commit()
     return None
+
+
+@router.get("/{system_id}/operational-metrics")
+async def get_operational_metrics(system_id: str, workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user), db: DBSession = Depends(get_db)):
+    system = db.query(System).filter_by(id=system_id, workspace_id=workspace.id).first()
+    if not system:
+        raise HTTPException(404, "System not found")
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    from app.services.operational_metrics import operational_metrics
+    try:
+        _enforce_operational_objective_admin(db, user=user, workspace=workspace, system=system)
+        can_edit = True
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        can_edit = False
+    return {**operational_metrics(db, user=user, workspace=workspace, system=system), "can_edit": can_edit}
+
+
+@router.put("/{system_id}/operational-objective")
+async def put_operational_objective(system_id: str, body: OperationalObjective,
+    workspace: Workspace = Depends(get_current_workspace), user: User = Depends(get_current_user), db: DBSession = Depends(get_db)):
+    system = db.query(System).filter_by(id=system_id, workspace_id=workspace.id).populate_existing().with_for_update().first()
+    if not system:
+        raise HTTPException(404, "System not found")
+    _enforce_operational_objective_admin(db, user=user, workspace=workspace, system=system)
+    system.settings = {**(system.settings or {}), "operational_objective": body.model_dump(mode="json")}
+    from app.services.audit_logger import emit_audit_event
+    emit_audit_event(db=db, workspace_id=workspace.id, event_type="system.objective.updated", actor=user.id,
+        details={"system_id": system.id, "metric": body.metric})
+    db.commit()
+    return body.model_dump(mode="json")
+
+
+def _enforce_operational_objective_admin(db, *, user, workspace, system):
+    from app.services.iam.legacy_authority import legacy_workspace_admin
+    _require_managed_system_admin(db, user=user, workspace=workspace, system=system)
+    enforce_action(
+        db, user=user, workspace=workspace, resource_kind="system", action="admin",
+        legacy_allowed=legacy_workspace_admin(db, user=user, workspace=workspace),
+        resource_attrs={"system_id": system.id, "capability_id": system.capability_id,
+                        "mutation": "operational_objective"},
+    )

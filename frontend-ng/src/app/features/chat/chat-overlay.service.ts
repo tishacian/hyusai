@@ -1,4 +1,5 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { AdoptionService } from '@app/core/adoption.service';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { WorkspaceService } from '@app/core/workspace.service';
 
 /**
@@ -24,7 +25,11 @@ export type ChatStartMode = 'quick' | 'system' | 'drop';
 export class ChatOverlayService {
   private readonly workspace = inject(WorkspaceService);
 
+  readonly adoption = inject(AdoptionService);
   readonly isOpen = signal(false);
+  readonly expanded = signal(false);
+  readonly narrow = signal(typeof window !== 'undefined' && window.innerWidth <= 700);
+  readonly blocksPage = computed(() => this.isOpen() && (!this.adoption.enabled() || this.expanded() || this.narrow()));
   readonly startMode = signal<ChatStartMode>('quick');
   readonly preselectedSystemId = signal<string | null>(null);
   readonly preselectedContextId = signal<string | null>(null);
@@ -77,6 +82,7 @@ export class ChatOverlayService {
 
   reset(): void {
     this.isOpen.set(false);
+    this.expanded.set(false);
     this.startMode.set('quick');
     this.preselectedSystemId.set(null);
     this.preselectedContextId.set(null);

@@ -1,3 +1,4 @@
+import { output } from '@angular/core';
 import {
   AfterViewInit,
   ChangeDetectionStrategy,
@@ -3195,6 +3196,9 @@ export class ChatPanelComponent implements AfterViewInit {
    * downstream analytics can bucket conversations by system.
    */
   readonly systemId = input<string | null>(null);
+  readonly resumeSessionId = input<string | null>(null);
+  readonly knowledgeScopeOverride = input<string | null>(null);
+  readonly adoptionInteraction = output<{step:'question'|'source'|'answer';runId?:string;sessionId?:string}>();
   /**
    * Optional ephemeral Context id (drop-and-ask). When set, the chat
    * automatically attaches the context ids to every outgoing query so
@@ -3986,7 +3990,7 @@ export class ChatPanelComponent implements AfterViewInit {
         const stored = this.loadSelectedSessionId(scope.workspaceSlug);
         // A fresh-session panel never resumes an old conversation on its own;
         // it only follows the session it just created (selectId after send()).
-        const target = selectId || (this.freshSession() ? null : stored);
+        const target = selectId || this.resumeSessionId() || (this.freshSession() ? null : stored);
         const exists = target && sessions.some((session) => session.id === target);
         if (exists && target) {
           this.openChatSession(target);
@@ -5153,6 +5157,7 @@ export class ChatPanelComponent implements AfterViewInit {
       ? (msg.retrievalInfo?.deepSources?.length ? msg.retrievalInfo.deepSources : msg.sources)
       : msg.sources;
     if (!this.isValidCitationForSources(sources, n)) return;
+    this.adoptionInteraction.emit({step:'source'});
     if (openDirectSources && !this.isSourcesOpen(msg.id)) this.toggleSources(msg.id);
     setTimeout(() => {
       const el = document.getElementById(this.sourceDomId(sourceHostId, n));
@@ -6413,6 +6418,7 @@ export class ChatPanelComponent implements AfterViewInit {
     const deferToWorkspace = this.isDemoMode();
     const streamScope = this.workspace.captureRequestScope();
     const streamGeneration = this.chatWorkspaceGeneration;
+    this.adoptionInteraction.emit({step:'question'});
     const streamSubscription = this.sse
       .stream('/api/v1/chat/stream', {
         query: text,
@@ -6443,7 +6449,7 @@ export class ChatPanelComponent implements AfterViewInit {
         rag_mode_override: ragOverride !== 'auto' ? ragOverride : null,
         // Per-query reasoning template; "auto" lets the mode_selector decide.
         prompt_type: promptTypeSel !== 'auto' ? promptTypeSel : null,
-        knowledge_scope: this.activeKnowledgeScope(),
+        knowledge_scope: this.knowledgeScopeOverride() || this.activeKnowledgeScope(),
         assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
         grounding_mode: this.groundingMode(),
         system_prompt: this.systemPrompt() ?? ((s['systemPrompt'] as string | undefined) ?? null),
@@ -6598,6 +6604,7 @@ export class ChatPanelComponent implements AfterViewInit {
           } else if (chunk.sources && Array.isArray(chunk.sources)) {
             sources = chunk.sources as Source[];
           } else if (chunk.type === 'done') {
+            this.adoptionInteraction.emit({step:'answer',runId:turnRunId,sessionId:this.chatSessionId || undefined});
             const durationMs = Date.now() - this.streamStart;
             // Reuse the backend's acknowledgement message id so the bubble
             // matches the persisted one after a reload.
@@ -6791,7 +6798,7 @@ export class ChatPanelComponent implements AfterViewInit {
         rag_pipeline_mode: ragOverride !== 'auto' ? ragOverride : s.ragPipelineMode,
         rag_mode_override: ragOverride !== 'auto' ? ragOverride : null,
         prompt_type: promptTypeSel !== 'auto' ? promptTypeSel : null,
-        knowledge_scope: this.activeKnowledgeScope(),
+        knowledge_scope: this.knowledgeScopeOverride() || this.activeKnowledgeScope(),
         assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
         grounding_mode: this.groundingMode(),
         system_prompt: this.systemPrompt() ?? ((s['systemPrompt'] as string | undefined) ?? null),
@@ -6866,7 +6873,7 @@ export class ChatPanelComponent implements AfterViewInit {
       context_mode: this.contextId() ? this.sessionDocsMode() : null,
       assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
       grounding_mode: this.groundingMode(),
-      knowledge_scope: this.activeKnowledgeScope(),
+      knowledge_scope: this.knowledgeScopeOverride() || this.activeKnowledgeScope(),
       source_selection: this.selectedSource(),
       created_from: 'chat_panel',
     };

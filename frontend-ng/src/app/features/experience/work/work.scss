@@ -1306,3 +1306,15 @@ li[data-status='waiting'] .xp-studio-node-status {
     animation: none;
   }
 }
+
+.adoption-work-links {display:flex;gap:.75rem;flex-wrap:wrap;margin:1rem 0;}
+.adoption-work-links a {min-height:2.5rem;padding:.55rem .85rem;border:1px solid currentColor;border-radius:.4rem;text-decoration:none;}
+.adoption-work-links a:focus-visible {outline:2px solid currentColor;outline-offset:3px;}
+
+/* Generated Work surfaces opt in; native NAWA components retain their own skin. */
+.xp-work-brand-image { max-width:140px; max-height:40px; object-fit:contain; }
+.xp-work[data-brand-scope] {
+  .xp-work-card, .xp-work-intro { border-radius:var(--ck-radius-lg); }
+  .xp-work-btn, input, select { border-radius:var(--ck-radius-md); }
+  .xp-work-btn-primary { background:var(--ck-cta-bg); color:var(--ck-cta-fg); }
+}

@@ -44,6 +44,8 @@ class Decision(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     approved_by = Column(String(255), nullable=True)
     approved_at = Column(DateTime, nullable=True)
+    human_confirmed_by = Column(String(36), nullable=True)
+    human_confirmed_at = Column(DateTime, nullable=True)
 
     # Gate TTL (HITL / membrane HOLD). When ``expires_at`` elapses while still
     # ``proposed``, ``scheduler_tick`` applies ``expiry_action``.

@@ -1,0 +1,70 @@
+{
+  "start": {
+    "fr": [
+      "Bien démarrer",
+      "Choisissez une application à laquelle vous avez accès. Posez une question, puis ouvrez sa source pour vérifier la réponse.",
+      "Dans le Showcase, les exemples NorthForge utilisent des données fictives. Votre progression indique les étapes parcourues, pas une certification de qualité."
+    ],
+    "en": [
+      "Getting started",
+      "Choose an application you can access. Ask a question, then open its source to check the answer.",
+      "Showcase NorthForge examples use fictional data. Progress records steps visited, not a quality certification."
+    ]
+  },
+  "sources": {
+    "fr": [
+      "Documents et sources",
+      "Une collection regroupe des documents. Attendez la fin de leur indexation avant de les interroger.",
+      "Une source récupérée n’est pas nécessairement citée. Vérifiez chaque affirmation dans le passage affiché. Si la source manque, la réponse doit le signaler."
+    ],
+    "en": [
+      "Documents and sources",
+      "A collection groups documents. Wait for indexing to complete before querying them.",
+      "A retrieved source is not necessarily cited. Check each claim against its displayed passage. Missing evidence should be acknowledged."
+    ]
+  },
+  "systems": {
+    "fr": [
+      "Systèmes et outils",
+      "Un System relie un objectif à des opérations, des sources et des règles. Un Flow organise leur exécution.",
+      "Une Skill est une opération réutilisable avec des entrées et sorties définies. Chaque appel produit une invocation consultable dans un Run. Travaillez dans un draft avant de publier.",
+      "Exercice Analyse opérationnelle : lancez l’application synthétique depuis Work. La référence attendue est 4 ordres, 120 minutes prévues, 155 réalisées, 35 minutes de dépassement net et 3 ordres en retard. Le contrôle automatique des nombres ne certifie pas la synthèse du modèle.",
+      "Ouvrez le Flow depuis l’application, puis exportez son JSON. Dans Créer, créez votre propre System et importez ce Flow dans son draft. Gardez les données fictives séparées des données clients. Inspectez le calcul Python et ses entrées/sorties avant de modifier le prompt de synthèse.",
+      "Exécutez le draft et vérifiez les nombres ainsi que la synthèse. Consultez les évaluations et les invocations du Run. La publication présente les changements par rapport à la version publiée ; corrigez les contrats, outils, sources ou règles manquants avant de poursuivre.",
+      "Pour partager le résultat, créez votre propre application dans le Studio avec un binding vers votre version publiée. Passez son contrôle de préparation, puis publiez une release avec une audience autorisée. La version de l’application de référence doit rester inchangée."
+    ],
+    "en": [
+      "Systems and tools",
+      "A System connects an objective to operations, sources and policies. A Flow organizes their execution.",
+      "A Skill is a reusable operation with defined inputs and outputs. Each call produces an invocation within a Run. Work in a draft before publishing.",
+      "Operational Analysis exercise: run the synthetic application from Work. Expect 4 orders, 120 planned minutes, 155 actual minutes, 35 minutes of net overrun and 3 late orders. The automatic numerical check does not certify the model summary.",
+      "Open the Flow from the application and export its JSON. In Create, create your own System and import that Flow into its draft. Keep fictional data separate from customer data. Inspect the Python calculation and its inputs/outputs before changing the summary prompt.",
+      "Run the draft and check both its numbers and its summary. Inspect the Run evaluations and invocations. Publication shows changes against the published version; resolve missing contracts, tools, sources or policies before proceeding.",
+      "To share the result, create your own application in Studio with a binding to your published version. Pass its readiness check, then publish a release for an authorized audience. The reference application version must remain unchanged."
+    ]
+  },
+  "runs": {
+    "fr": [
+      "Exécutions et validations",
+      "Un Run enregistre une exécution : version, entrées, sorties, durées et décisions. Terminé ne signifie pas que la réponse a été validée.",
+      "Une attente humaine demande une décision autorisée. Avant d’accepter ou de rejeter, lisez les conséquences : un rejet peut aussi déclencher une action externe."
+    ],
+    "en": [
+      "Executions and approvals",
+      "A Run records an execution: version, inputs, outputs, timings and decisions. Completed does not mean the answer was validated.",
+      "A human gate needs an authorized decision. Read its consequences before accepting or rejecting: a rejection may also trigger an external action."
+    ]
+  },
+  "value": {
+    "fr": [
+      "Objectifs et valeur",
+      "Distinguez le coût observé, la valeur unitaire déclarée, les projections et l’impact mesuré. Une donnée absente n’est pas un zéro.",
+      "Le responsable peut modifier une base de valeur appartenant au workspace. Les bases du catalogue restent verrouillées. Une évaluation automatique ne prouve pas une économie réalisée."
+    ],
+    "en": [
+      "Objectives and value",
+      "Distinguish observed cost, declared unit value, projections and measured impact. Missing data is not zero.",
+      "An authorized owner can edit a workspace-owned value basis. Catalog bases remain locked. An automatic evaluation does not establish realized savings."
+    ]
+  }
+}

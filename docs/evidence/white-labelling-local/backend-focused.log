@@ -1,0 +1,37 @@
+..........                                                               [100%]
+=============================== warnings summary ===============================
+app/tests/api/test_brand_appearance.py::test_workspace_brand_is_atomic_scoped_and_admin_only
+app/tests/api/test_brand_appearance.py::test_workspace_brand_is_atomic_scoped_and_admin_only
+app/tests/api/test_brand_appearance.py::test_workspace_brand_is_atomic_scoped_and_admin_only
+app/tests/api/test_brand_appearance.py::test_application_brand_is_validated_and_frozen_in_release
+app/tests/api/test_brand_appearance.py::test_application_brand_is_validated_and_frozen_in_release
+app/tests/api/test_brand_appearance.py::test_application_brand_is_validated_and_frozen_in_release
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/api/test_brand_appearance.py::test_workspace_brand_is_atomic_scoped_and_admin_only
+app/tests/api/test_brand_appearance.py::test_application_brand_is_validated_and_frozen_in_release
+app/tests/api/test_brand_appearance.py::test_application_brand_is_validated_and_frozen_in_release
+app/tests/api/test_brand_appearance.py::test_application_brand_is_validated_and_frozen_in_release
+app/tests/api/test_brand_appearance.py::test_application_brand_is_validated_and_frozen_in_release
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-adoption-roadmap/backend/app/services/audit_logger.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+app/tests/api/test_brand_appearance.py::test_application_brand_is_validated_and_frozen_in_release
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-adoption-roadmap/backend/app/services/experience/lifecycle.py:1149: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/api/test_brand_appearance.py::test_application_brand_is_validated_and_frozen_in_release
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-adoption-roadmap/backend/app/services/experience/lifecycle.py:1400: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    draft.updated_at = datetime.utcnow()
+
+app/tests/api/test_brand_appearance.py::test_application_brand_is_validated_and_frozen_in_release
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-adoption-roadmap/backend/app/services/experience/lifecycle.py:2749: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+app/tests/api/test_brand_appearance.py::test_application_brand_is_validated_and_frozen_in_release
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-adoption-roadmap/backend/app/services/experience/lifecycle.py:1340: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    row.updated_at = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+10 passed, 15 warnings in 3.11s

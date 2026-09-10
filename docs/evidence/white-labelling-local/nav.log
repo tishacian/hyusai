@@ -1,0 +1,5 @@
+
+> agentium@0.1.0 check:nav-links
+> node scripts/check-nav-links.mjs --fail-closed
+
+check-nav-links (fail-closed): cockpit 0 raw links (A 0 · B 0 · C 0) · allowlist 67

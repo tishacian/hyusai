@@ -1,3 +1,12 @@
+import { NgStyle } from '@angular/common';
+import { ThemeService } from '@app/core/theme.service';
+import { platformBrand } from '@app/core/platform-brand';
+import { appearanceStyles } from '@app/core/brand-appearance';
+import { NavigationProfileService } from '@app/core/navigation-profile.service';
+import { NavLinkDirective } from '@app/shared/cockpit';
+import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
+import { AdoptionService } from '@app/core/adoption.service';
+import { AdoptionJourneyComponent } from './adoption-journey.component';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -18,14 +27,14 @@ import {
   selector: 'app-work-launcher',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, EmptyStateComponent],
+  imports: [NgStyle, RouterLink, EmptyStateComponent, AdoptionJourneyComponent, NavLinkDirective],
   styleUrl: './work.scss',
   template: `
-    <div class="xp-work xp-work-launcher" data-theme="light">
+    <div class="xp-work xp-work-launcher" data-brand-scope [attr.data-theme]="theme.resolved()" [ngStyle]="brandStyles()">
       <header class="xp-work-bar xp-work-global-bar">
         <div class="xp-work-brand-line">
-          <span class="xp-work-logo" aria-hidden="true">◇</span>
-          <strong>Agentium</strong>
+          @if (brand(); as identity) { <img class="xp-work-brand-image" [src]="theme.resolved() === 'light' ? identity.emblemLight || identity.emblem : identity.emblem" alt="" /> } @else { <span class="xp-work-logo" aria-hidden="true">◇</span> }
+          <strong>{{ workspace.brandName() }}</strong>
           <span class="xp-work-divider" aria-hidden="true"></span>
           <span>{{ workspace.current()?.name }}</span>
         </div>
@@ -38,7 +47,8 @@ import {
             (input)="query.set(inputValue($event))"
           />
         </label>
-      </header>
+      @if (adoption.enabled()) { <button type="button" class="xp-work-btn" (click)="companion.open()">{{ i18n.t('experience.adoption.companion') }}</button> }
+</header>
       <section class="xp-work-main xp-work-home" aria-labelledby="work-launcher-title">
         <div class="xp-work-intro">
           <div>
@@ -61,6 +71,15 @@ import {
           }
         </div>
 
+        @if (adoption.enabled()) {
+          <nav class="adoption-work-links" [attr.aria-label]="i18n.t('experience.adoption.help')">
+            @if (!profile.effective().active || profile.isBusinessAllowedPath('/knowledge')) {<a [navLink]="{surface:'knowledge'}">{{i18n.t('experience.adoption.documents')}}</a>}
+            @if (!profile.effective().active || profile.isBusinessAllowedPath('/steering/review-queue')) {<a [navLink]="{surface:'review-queue',lens:'steer'}">{{i18n.t('experience.adoption.tasks')}}</a>}
+            <a [navLink]="{leaf:'help-guide',params:{guideId:'start'}}">{{i18n.t('experience.adoption.help')}}</a>
+          </nav>
+          @if (!adoption.progress()?.dismissed) { <app-adoption-journey /> }
+          @else { <a [routerLink]="['/work','getting-started']">{{ i18n.t('experience.adoption.resume') }}</a> }
+        }
         @switch (state()) {
           @case ('loading') {
             <app-empty-state icon="sparkles" size="lg" [title]="i18n.t('common.loading')" />
@@ -83,6 +102,7 @@ import {
                 [title]="i18n.t(hasQuery() ? 'experience.work.search.empty.title' : 'experience.work.empty.title')"
                 [description]="i18n.t(hasQuery() ? 'experience.work.search.empty.description' : 'experience.work.empty.description')"
               >
+                @if (hasQuery()) { <button type="button" class="xp-work-btn" (click)="query.set('')">{{ i18n.t('experience.adoption.clear') }}</button> }
                 @if (canEdit() && !hasQuery()) {
                   <a class="xp-work-btn xp-work-btn-primary" [routerLink]="studioLink">
                     {{ i18n.t('experience.work.empty.create') }}
@@ -116,9 +136,18 @@ import {
   `,
 })
 export class WorkLauncherComponent {
+  readonly companion = inject(ChatOverlayService);
+  readonly adoption = inject(AdoptionService);
+  readonly profile = inject(NavigationProfileService);
   private readonly api = inject(WorkApiService);
   private readonly router = inject(Router);
   readonly workspace = inject(WorkspaceService);
+  readonly theme = inject(ThemeService);
+  readonly brand = computed(() => platformBrand(this.workspace.current()?.settings));
+  readonly brandStyles = computed(() => {
+    const brand = this.workspace.current()?.settings?.['platform_brand'] as Record<string, unknown> | undefined;
+    return appearanceStyles(brand?.['appearance'], this.theme.resolved());
+  });
   readonly i18n = inject(I18nService);
 
   readonly state = signal<'loading' | 'ready' | 'error'>('loading');
@@ -153,7 +182,7 @@ export class WorkLauncherComponent {
         this.state.set('error');
         return;
       }
-      if (result.items.length === 1) {
+      if (result.items.length === 1 && !this.adoption.enabled()) {
         void this.router.navigateByUrl(catalogLaunchHref(result.items[0]!));
         return;
       }

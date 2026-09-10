@@ -32,6 +32,13 @@
     ],
     "entries": [
       {
+        "path": "backend/app/api/v1/endpoints/auth.py",
+        "expression": "workspace.slug == \"agentium-showcase\"",
+        "occurrences": 1,
+        "category": "ui_compatibility",
+        "reason": "The initial NorthForge adoption exercise is offered only inside the synthetic Showcase workspace with a ready tenant-scoped corpus. This eligibility check grants no role, entitlement or document permission. Revisit it when the exercise is packaged for portable installation; the current rollout explicitly excludes client corpora."
+      },
+      {
         "path": "backend/app/services/mission_room.py",
         "expression": "Workspace.slug == OCTOCITY_WORKSPACE_SLUG",
         "occurrences": 1,

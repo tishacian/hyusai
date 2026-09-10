@@ -54,6 +54,7 @@ const pureSpecs = [
   'src/app/core/i18n.lexicon.spec.ts',
   'src/app/core/theme-preference.spec.ts',
   'src/app/core/platform-brand.spec.ts',
+  'src/app/core/brand-appearance.spec.ts',
   'src/app/core/workspace-locale.spec.ts',
   'src/app/shared/cockpit/thinking-orb/thinking-orb.spec.ts',
   'src/app/shared/cockpit/cockpit-contrast.spec.ts',
@@ -111,6 +112,7 @@ const pureSpecs = [
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
+  'src/app/features/chat/assistant-pilot.service.spec.ts',
   'src/app/features/experience/runtime/renderer-registry.spec.ts',
   'src/app/features/experience/runtime/chart-block.spec.ts',
   'src/app/core/canonical-api-skills.spec.ts',

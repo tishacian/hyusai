@@ -72,7 +72,10 @@ from app.models.workspace_app import (
     WorkspaceAppOperation,
 )
 
+from app.models.assistant_request import AssistantRequest
+
 __all__ = [
+    "AssistantRequest",
     "User", "Session", "Message",
     "Workspace", "WorkspaceMember", "WorkspaceMemberAppEntitlement", "WorkspaceIAMConfig",
     "MfaChallenge",

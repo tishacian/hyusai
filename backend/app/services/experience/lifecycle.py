@@ -352,7 +352,19 @@ def _validate_theme(value: Any) -> dict[str, Any]:
             message="theme must be an object.",
             status_code=422,
         )
-    return copy.deepcopy(value)
+    normalized = copy.deepcopy(value)
+    if "appearance" in normalized:
+        from app.schemas.brand_appearance import validate_appearance
+
+        try:
+            normalized["appearance"] = validate_appearance(normalized["appearance"])
+        except ValueError as exc:
+            raise ExperienceError(
+                code="EXPERIENCE_THEME_INVALID",
+                message="Invalid brand appearance options or logo.",
+                status_code=422,
+            ) from exc
+    return normalized
 
 
 def _validate_audience(value: Any) -> dict[str, Any]:

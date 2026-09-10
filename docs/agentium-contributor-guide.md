@@ -30,6 +30,12 @@ Read [`mental-model.md`](./mental-model.md) first. Then
 [`agentium-reference.md`](./agentium-reference.md) — identity, lexicon,
 surfaces and the Experience platform in one document.
 
+The opt-in adoption experience, synthetic exercise and acceptance protocol are
+documented in [agentium-adoption-roadmap.md](./agentium-adoption-roadmap.md).
+Conversation is a first-class interface for using and controlling published
+Systems; the graphical and conversational surfaces share execution and
+authorization contracts.
+
 ## 2. The branch
 
 `demo/agentic` is both the integration branch and the deployed branch. It is

@@ -113,6 +113,7 @@ class WorkspaceMember(Base):
     role = Column(String(50), default="member")
     role_template = Column(String(80), nullable=True, index=True)
     custom_labels = Column(JSON, default=list)
+    experience_progress = Column(JSON, nullable=True)
     joined_at = Column(DateTime, default=datetime.utcnow)
 
     workspace = relationship("Workspace", back_populates="members")

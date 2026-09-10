@@ -1,3 +1,4 @@
+import { OperationalObjectiveComponent } from '@app/features/systems/operational-objective.component';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -134,6 +135,7 @@ interface ContextConfigRow {
     NewsLabComponent,
     SystemPerspectiveComponent,
     SystemValueLoopComponent,
+    OperationalObjectiveComponent,
   ],
   template: `
     <ck-object-header
@@ -223,6 +225,7 @@ interface ContextConfigRow {
       }
 
       <ck-tab id="overview" [label]="i18n.t('systems.view.tab.overview')">
+<app-operational-objective [systemId]="systemId" />
         @if (system360Enabled()) {
           <app-system-perspective
             [lens]="activeObjectLens()"
@@ -1670,7 +1673,8 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   }
 
   private applyRequestedFacet(): void {
-    const facet = this.route.snapshot.queryParamMap.get('facet');
+    const requestedFacet = this.route.snapshot.queryParamMap.get('facet');
+    const facet = ({ skills: 'design', flow: 'design', knowledge: 'context' } as Record<string, string>)[requestedFacet || ''] || requestedFacet;
     const allowed: SystemTabId[] = this.isIntelligence()
       ? ['intelligence', 'overview', 'runs', 'design', 'context']
       : ['overview', 'runs', 'design', 'context'];

@@ -180,7 +180,8 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
             [description]="i18n.t(originActive()
               ? 'runs.list.empty.experience_description'
               : 'runs.list.empty.description')"
-          />
+          ><button type="button" class="ck-btn-soft" (click)="statusFilter.set('all'); clearOrigin()">{{i18n.t('experience.adoption.clear')}}</button>
+ <a [navLink]="{leaf:'help-guide',params:{guideId:'runs'}}">{{i18n.t('experience.adoption.help')}}</a></app-empty-state>
         } @else {
           <div
             class="px-5 py-2 text-[10px] uppercase tracking-wider text-gray-500 font-semibold grid grid-cols-12 gap-3 border-b border-white/5"

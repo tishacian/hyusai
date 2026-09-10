@@ -9,6 +9,7 @@ import { workspaceAppAdminGuard } from './features/governance/workspace-app-admi
 import { experienceV1Guard } from './features/experience/experience.guard';
 
 export const routes: Routes = [
+  { path: 'help/:guideId', loadComponent: () => import('./features/help/help-guide.component').then(m => m.HelpGuideComponent) },
   {
     path: 'auth',
     canActivate: [loginGuard],
@@ -42,7 +43,7 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/layout/shell.component').then((m) => m.ShellComponent),
     children: [
-      { path: '', redirectTo: 'hypervisor', pathMatch: 'full' },
+      { path: '', pathMatch: 'full', loadComponent: () => import('./features/layout/home-entry.component').then(m => m.HomeEntryComponent) },
       {
         path: 'workspace-app-unavailable',
         loadComponent: () =>

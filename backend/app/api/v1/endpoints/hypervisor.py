@@ -1377,7 +1377,9 @@ async def accept_decision(
         resource_attrs={"decision_id": d.id, "owner_user_id": None},
     )
     try:
-        sm_accept(db, d, actor=actor, note=(body.note if body else None))
+        sm_accept(db, d, actor=actor, note=(body.note if body else None), commit=False)
+        d.human_confirmed_by = user.id
+        d.human_confirmed_at = d.approved_at
     except InvalidTransition as exc:
         raise HTTPException(409, str(exc))
     feedback = _maybe_record_eval_feedback(
@@ -1416,7 +1418,9 @@ async def reject_decision(
         resource_attrs={"decision_id": d.id, "owner_user_id": None},
     )
     try:
-        sm_reject(db, d, actor=actor, note=(body.note if body else None))
+        sm_reject(db, d, actor=actor, note=(body.note if body else None), commit=False)
+        d.human_confirmed_by = user.id
+        d.human_confirmed_at = d.approved_at
     except InvalidTransition as exc:
         raise HTTPException(409, str(exc))
     feedback = _maybe_record_eval_feedback(

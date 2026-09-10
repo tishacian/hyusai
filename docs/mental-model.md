@@ -108,6 +108,37 @@ map the prose to candidate artifacts. Where the text describes an unbuilt concep
 
 Agentium is an **operating system for intelligent systems**: you declare an **objective**, bind it to **capabilities** and **skills**, and let the runtime produce measurable, governed, continuously optimized **decisions**.
 
+### 0.0 Product interaction and value
+
+This interaction rule guides new product decisions and supersedes historical
+positioning that excludes conversation from the product.
+
+Agentium lets cross-functional teams create, orchestrate, monitor, consume and
+industrialize AI Systems aligned with business capabilities. A business
+application and a conversation are first-class ways to use and control these
+Systems. Work serves the task; Cockpit exposes construction, operation,
+improvement, impact and administration.
+
+The conversation has an explicit scope of one or more authorized Systems in
+one workspace. It uses the same execution services, published policies, tool
+permissions and evidence as a graphical action. Required human approval stays
+an explicit human decision. This interface does not add a separate execution
+model or memory shared between tenants.
+
+Success is a verifiable outcome followed by operational or economic improvement.
+Technical health indicators support diagnosis; they are not the permanent
+substitute for the business objective. Declared value, projected benefit,
+operational measurement and verified economic impact must remain distinguishable.
+Hours saved or money gained require a defined counterfactual/baseline, comparable
+units and periods, and attributable outcome evidence. A successful Run, a model
+score or an editable status cannot attest those benefits.
+
+Implementation scope and outstanding evidence are recorded in
+[the adoption delivery contract](agentium-adoption-roadmap.md). Its current
+structured objectives cover five operational metrics. The existing value loop
+owns economic measurements; the adoption change does not claim a complete
+economic-goal editor or verified client ROI.
+
 ### 0.1 Canonical entities (persisted in Postgres)
 
 ```

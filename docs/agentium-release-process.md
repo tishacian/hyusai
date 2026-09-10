@@ -54,6 +54,16 @@ git push origin demo/agentic
 Record the SHA: `git rev-parse HEAD` (40-hex, call it `<sha40>`; its 12-char
 prefix is `<sha12>`).
 
+GitLab's required `agentium-frontend-quality` job runs the three frontend guards,
+unit tests and production build in every pipeline, independently of feature
+flags. The production job also needs this gate explicitly, so its DAG cannot
+skip the frontend checks. Verify that job on the release SHA; a local pass alone
+does not establish that the remote pipeline ran.
+
+The adoption flag's default switch and retirement are separate release changes:
+see [adoption rollout decisions](agentium-adoption-roadmap.md#default-switch-and-retirement).
+An optional walkthrough remains optional after the flag is removed.
+
 ## 3. Advance the VM build worktree
 
 The worktree is root-administered and its tracking refs are **not** the ones

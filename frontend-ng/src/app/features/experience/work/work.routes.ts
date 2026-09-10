@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 
 export const workRoutes: Routes = [
+  { path: 'getting-started', loadComponent: () => import('./adoption-journey.component').then(m => m.AdoptionPageComponent) },
   {
     path: '',
     loadComponent: () =>

@@ -577,7 +577,18 @@ TRANSLATION_SKILL_SLUGS = [
 ]
 
 
+from scripts.showcase_operational_analysis import flow_operational_analysis
+
+
 CAPABILITIES = [
+    {
+        "slug": "showcase_operational_analysis", "name": "Operational Analysis",
+        "description": "Synthetic work orders: Python/Polars arithmetic, grounded explanation and an exact numerical reference.",
+        "tier": "client", "industry": "enterprise", "input_unit": "work_order_batch", "output_unit": "operational_brief",
+        "skill_slugs": ["python_recipe_v1", "llm_rag_answer_v1"],
+        "pricing": {"unit": "per_batch", "unit_price": 0.0, "currency": "USD"},
+        "value_per_outcome": None, "roi_model": {"seed": SHOWCASE_SOURCE},
+    },
     {
         "slug": "video_contract_risk",
         "name": "Contract Risk Detection",
@@ -731,6 +742,8 @@ def main() -> int:
         controls = ensure_policies(db, workspace)
         capabilities = ensure_capabilities(db, workspace)
         systems = ensure_systems(db, workspace, capabilities, controls)
+        from scripts.showcase_operational_analysis import ensure_experience
+        ensure_experience(db, workspace, systems["operational_analysis"])
         _maybe_configure_hana_connector(db, workspace)
         context = ensure_context(db, workspace, systems)
         knowledge = seed_knowledge_and_capture(db, workspace, skip_ingest=args.skip_ingest)
@@ -2557,6 +2570,8 @@ def ensure_systems(
 ) -> dict[str, System]:
     workspace = _lock_workspace_for_seed(db, workspace.id)
     specs = [
+        {"key": "operational_analysis", "name": "Operational Analysis", "objective": "Explain a synthetic delay from exact Python/Polars calculations; do not claim economic savings.",
+         "capability": "showcase_operational_analysis", "flow": flow_operational_analysis(), "prompt": "analytical", "retrieval": "hybrid"},
         {
             "key": "contract",
             "name": "Contract Risk Copilot",

@@ -50,6 +50,7 @@ class WorkspaceStub {
     const workspace = this.current();
     return workspace?.role === 'admin' || workspace?.role === 'owner';
   });
+  readonly experienceV1Enabled = computed(() => (this.current()?.settings?.['features'] as Record<string, unknown>)?.['experience_v1'] === true);
   readonly isDemoMode = computed(() => this.current()?.mode === 'demo');
   readonly switches: string[] = [];
 
@@ -568,4 +569,22 @@ test('business policy has deterministic precedence over demo and workspace entry
 
   assert.equal(resolver.resolve('/hypervisor')?.reason, 'business_profile_disallowed');
   assert.equal(resolver.resolve('/workspace')?.reason, 'business_profile_disallowed');
+});
+
+
+test('adoption generic home follows the task and retains authorized deep links', () => {
+  const {resolver,workspace}=makeHarness({mode:'builder',settings:{features:{adoption_experience_v1:true,experience_v1:true}}});
+  assert.equal(resolver.resolve('/')?.resolvedRoute,'/create');
+  assert.equal(resolver.resolve('/systems/system-42?facet=design'),null);
+  workspace.configure({mode:'portfolio',settings:{features:{adoption_experience_v1:true,experience_v1:true}}});
+  assert.equal(resolver.resolve('/')?.resolvedRoute,'/work');
+  assert.equal(resolver.resolve('/hypervisor'),null);
+  workspace.configure({mode:'portfolio',settings:{default_route:'/systems',features:{adoption_experience_v1:true,experience_v1:true}}});
+  assert.equal(resolver.resolve('/')?.resolvedRoute,'/systems');
+});
+
+test('an unavailable application is never bypassed by the adoption home', () => {
+  const {resolver}=makeHarness({mode:'portfolio',settings:{...BUSINESS_PROFILE,features:{adoption_experience_v1:true,experience_v1:true}}});
+  assert.equal(resolver.resolve('/')?.resolvedRoute,'/chat');
+  assert.equal(resolver.resolve('/systems')?.resolvedRoute,'/chat');
 });

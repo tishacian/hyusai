@@ -1,6 +1,9 @@
+import { BrandAppearanceEditorComponent } from '@app/shared/brand-appearance-editor.component';
+import { brandAppearance, type BrandAppearance } from '@app/core/brand-appearance';
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   HostListener,
   OnDestroy,
   computed,
@@ -153,6 +156,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    BrandAppearanceEditorComponent,
     RouterLink,
     HelpTooltipComponent,
     ExperienceRuntimeHostComponent,
@@ -195,6 +199,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
           }
         </div>
         <div class="xp-ed-tools">
+          <button type="button" class="xp-btn" (click)="openVisualIdentity()">{{ i18n.t('experience.brand.title') }}</button>
           @if (!readOnly()) {
           <div class="xp-ed-group">
             <button
@@ -985,7 +990,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
         </aside>
       </div>
 
-      <div class="xp-bottom" [class.is-open]="bottomOpen()">
+      <div class="xp-bottom" [class.is-open]="bottomOpen()" [class.is-identity]="bottomTab() === 'access'">
         <div class="xp-bottom-bar">
           <div class="xp-bottom-tabs" role="tablist" [attr.aria-label]="i18n.t('experience.editor.bottom.label')">
             @for (tab of bottomTabs; track tab; let index = $index) {
@@ -1114,10 +1119,14 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                       (change)="setMetadataTheme($event)"
                     >
                       @for (mode of ['default', 'light', 'dark']; track mode) {
-                        <option [value]="mode">{{ i18n.t('experience.wizard.access.theme.' + mode) }}</option>
+                        <option [value]="mode" [selected]="metadataTheme() === mode">{{ i18n.t('experience.wizard.access.theme.' + mode) }}</option>
                       }
                     </select>
                   </label>
+                  @if (!detail()?.theme?.['live_href']) {
+                    <app-brand-appearance-editor [name]="detail()?.name || ''" [appearance]="metadataAppearance()" [disabled]="readOnly() || metadataBusy()" (changed)="setMetadataAppearance($event)" />
+                    <p class="xp-hint">{{ i18n.t('experience.brand.publish_hint') }}</p>
+                  } @else { <p class="xp-hint">{{ i18n.t('experience.brand.native_preserved') }}</p> }
                   @if (!readOnly()) {
                     <button
                       type="button"
@@ -1362,6 +1371,8 @@ export class ExperienceEditorComponent implements OnDestroy {
   readonly accessWhole = signal(false);
   readonly metadataLanguages = signal<string[]>([]);
   readonly metadataTheme = signal('default');
+  readonly metadataAppearance = signal<BrandAppearance>({});
+  private appearanceEdited = false;
   readonly metadataDescription = signal('');
   readonly metadataEmblem = signal('◇');
   readonly metadataBusy = signal(false);
@@ -2733,6 +2744,25 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.metadataDirty.set(true);
   }
 
+  private readonly hostElement: ElementRef<HTMLElement> = inject(ElementRef);
+
+  openVisualIdentity(): void {
+    this.bottomTab.set('access');
+    this.bottomOpen.set(true);
+    requestAnimationFrame(() => {
+      const control = this.hostElement.nativeElement.querySelector<HTMLElement>('app-brand-appearance-editor select');
+      control?.scrollIntoView({ block: 'center' });
+      control?.focus({ preventScroll: true });
+    });
+  }
+
+  setMetadataAppearance(value: BrandAppearance): void {
+    if (this.readOnly() || this.detail()?.theme?.['live_href']) return;
+    this.metadataAppearance.set(value);
+    this.appearanceEdited = true;
+    this.metadataDirty.set(true);
+  }
+
   setMetadataTheme(event: Event): void {
     if (this.readOnly()) return;
     this.metadataTheme.set(this.selectValue(event));
@@ -2764,7 +2794,7 @@ export class ExperienceEditorComponent implements OnDestroy {
       languages: this.metadataLanguages(),
       description: this.metadataDescription().trim() || null,
       emblem: this.metadataEmblem().trim() || null,
-      theme: { ...(row.theme ?? {}), mode: this.metadataTheme() },
+      theme: { ...(row.theme ?? {}), mode: this.metadataTheme(), ...(this.appearanceEdited ? { appearance: this.metadataAppearance() } : {}) },
       access_policy: {
         roles: this.accessWhole() ? [] : this.accessRoles(),
         groups: this.accessWhole() ? [] : this.accessGroups(),
@@ -2829,6 +2859,8 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.accessWhole.set(false);
     this.metadataLanguages.set([]);
     this.metadataTheme.set('default');
+    this.metadataAppearance.set({});
+    this.appearanceEdited = false;
     this.metadataDescription.set('');
     this.metadataEmblem.set('◇');
     this.metadataBusy.set(false);
@@ -2920,6 +2952,8 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.metadataLanguages.set(
       [...new Set((row.languages ?? []).map((item) => item.toLowerCase()).filter((item) => item === 'fr' || item === 'en'))],
     );
+    this.metadataAppearance.set(brandAppearance(row.theme?.['appearance']));
+    this.appearanceEdited = false;
     const mode = row.theme?.['mode'];
     this.metadataTheme.set(mode === 'light' || mode === 'dark' ? mode : 'default');
     this.metadataDescription.set(row.description ?? '');

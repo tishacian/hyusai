@@ -1,3 +1,4 @@
+import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -41,7 +42,7 @@ interface Template {
   selector: 'app-systems-grid',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [HelpTooltipComponent,
     RouterLink,
     NavLinkDirective,
     FormsModule,
@@ -53,12 +54,14 @@ interface Template {
     TagComponent,
   ],
   template: `
+
     <ck-page-frame
       [eyebrow]="i18n.t('systems.grid.eyebrow')"
       [title]="i18n.t('systems.grid.title')"
       [description]="i18n.t('systems.grid.description')"
-      [status]="i18n.t('systems.grid.status_active', { count: agents().length })"
+      [status]="loadProblem() ? '' : i18n.t('systems.grid.status_active', { count: systems().length })"
     >
+      <ck-help titleHelp id="adoption.systems" />
       <a
         actions
         [navLink]="{ leaf: 'system-new' }"
@@ -172,13 +175,13 @@ interface Template {
 
       <!-- Grid header -->
       <div [style.display]="'flex'" [style.alignItems]="'center'" [style.justifyContent]="'space-between'" [style.marginBottom.px]="12">
-        <span class="ck-label">{{ i18n.t('systems.grid.count', { count: agents().length }) }}</span>
+        <span class="ck-label">{{ loadProblem() ? '' : i18n.t('systems.grid.count', { count: systems().length }) }}</span>
         <span class="ck-mono" [style.fontSize.px]="10" [style.color]="'var(--ck-fg-4)'" [style.letterSpacing]="'0.10em'">
           <ck-kbd>⌘K</ck-kbd> {{ i18n.t('systems.grid.navigate_hint') }}
         </span>
       </div>
 
-      @if (store.loading()) {
+      @if (store.loading() && !loadProblem()) {
         <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(auto-fill, minmax(320px, 1fr))'" [style.gap.px]="12">
           @for (_ of [0, 1, 2, 3, 4, 5]; track $index) {
             <div
@@ -190,7 +193,15 @@ interface Template {
             ></div>
           }
         </div>
-      } @else if (agents().length === 0) {
+      } @else if (loadProblem(); as problem) {
+        <section role="alert" class="ck-surface" style="padding:24px">
+          <p>{{ i18n.t(problem) }}</p>
+          <div style="display:flex;align-items:center;gap:16px;margin-top:12px">
+            <button type="button" style="padding:8px 16px;border:1px solid var(--ck-stroke-2);border-radius:4px" (click)="reloadCurrentScope()">{{ i18n.t('common.retry') }}</button>
+            <a style="text-decoration:underline" [navLink]="{ leaf: 'help-guide', ref: 'systems' }">{{ i18n.t('experience.adoption.help') }}</a>
+          </div>
+        </section>
+      } @else if (systems().length === 0) {
         <div
           [style.padding]="'48px 32px'"
           [style.background]="'var(--ck-bg-panel)'"
@@ -232,9 +243,9 @@ interface Template {
         </div>
       } @else {
         <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(auto-fill, minmax(340px, 1fr))'" [style.gap.px]="12">
-          @for (agent of agents(); track agent.id) {
+          @for (system of systems(); track system.id) {
             <a
-              [routerLink]="navigation.objectUrlTree('system', agent.id, {
+              [routerLink]="navigation.objectUrlTree('system', system.id, {
                 capabilityId: navigation.capabilityId()
               })"
               [style.position]="'relative'"
@@ -276,8 +287,8 @@ interface Template {
                       [style.overflow]="'hidden'"
                       [style.textOverflow]="'ellipsis'"
                       [style.whiteSpace]="'nowrap'"
-                    >{{ agent.name }}</span>
-                    @if (agent.draft) {
+                    >{{ system.name }}</span>
+                    @if (system.draft) {
                       <ck-tag tone="warn" variant="outline">DRAFT</ck-tag>
                     } @else {
                       <ck-live-dot tone="pos" />
@@ -291,22 +302,22 @@ interface Template {
                     [style.display]="'-webkit-box'"
                     [style.overflow]="'hidden'"
                     style="-webkit-line-clamp: 2; -webkit-box-orient: vertical;"
-                  >{{ agent.description || i18n.t('systems.grid.no_description') }}</p>
+                  >{{ system.description || i18n.t('systems.grid.no_description') }}</p>
                 </div>
               </div>
 
               <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(3, 1fr)'" [style.gap.px]="8" [style.paddingTop.px]="12" [style.borderTop]="'1px solid var(--ck-stroke-1)'">
-                <ck-stat-readout [label]="i18n.t('systems.grid.stat_runs')"   [value]="statsFor(agent.id).runs > 0 ? statsFor(agent.id).runs.toString() : '—'" tone="cool" [size]="14" />
-                <ck-stat-readout [label]="i18n.t('systems.grid.stat_avg_ms')" [value]="statsFor(agent.id).avgLatency > 0 ? statsFor(agent.id).avgLatency.toString() : '—'" tone="pos" [size]="14" />
-                <ck-stat-readout [label]="i18n.t('systems.grid.stat_last')"   [value]="statsFor(agent.id).lastRun ?? '—'" tone="violet" [size]="14" />
+                <ck-stat-readout [label]="i18n.t('systems.grid.stat_runs')"   [value]="statsFor(system.id).runs > 0 ? statsFor(system.id).runs.toString() : '—'" tone="cool" [size]="14" />
+                <ck-stat-readout [label]="i18n.t('systems.grid.stat_avg_ms')" [value]="statsFor(system.id).avgLatency > 0 ? statsFor(system.id).avgLatency.toString() : '—'" tone="pos" [size]="14" />
+                <ck-stat-readout [label]="i18n.t('systems.grid.stat_last')"   [value]="statsFor(system.id).lastRun ?? '—'" tone="violet" [size]="14" />
               </div>
 
               <div [style.display]="'flex'" [style.alignItems]="'center'" [style.justifyContent]="'space-between'">
                 <span [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
                   <ck-tag tone="cool" variant="soft">
-                    {{ badgeFor(agent) }}
+                    {{ badgeFor(system) }}
                   </ck-tag>
-                  @if (isPromotedScratchpad(agent)) {
+                  @if (isPromotedScratchpad(system)) {
                     <ck-tag tone="neutral" variant="outline">SCRATCHPAD</ck-tag>
                   }
                 </span>
@@ -323,6 +334,7 @@ interface Template {
 })
 export class SystemsGridComponent implements OnInit, OnDestroy {
   protected readonly store = inject(SystemsStore);
+  readonly loadProblem = signal<string | null>(null);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly canonical = inject(CanonicalApiService);
@@ -381,7 +393,7 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
     return Math.round(diff / day) + 'd';
   }
 
-  readonly agents = this.store.systems;
+  readonly systems = this.store.systems;
 
   readonly templates: Template[] = [
     { id: 'contract',   labelKey: 'systems.template.contract',   descriptionKey: 'systems.template.contract.desc',   promptKey: 'systems.template.contract.prompt' },
@@ -444,21 +456,22 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
       .join(' ');
   }
 
-  agentIcon(agent: SystemAgent): string {
+  systemIcon(system: SystemAgent): string {
     // Legacy helper, retained for back-compat with any remaining callers; the
     // grid now renders a single canonical glyph.
     return 'cube';
   }
 
-  badgeFor(agent: SystemAgent): string {
-    return systemCatalogBadge(agent, agent.rag_mode);
+  badgeFor(system: SystemAgent): string {
+    return systemCatalogBadge(system, system.rag_mode);
   }
 
-  isPromotedScratchpad(agent: SystemAgent): boolean {
-    return isPromotedFromScratchpad(agent);
+  isPromotedScratchpad(system: SystemAgent): boolean {
+    return isPromotedFromScratchpad(system);
   }
 
   private loadScope(capabilityId: string | null): void {
+    this.loadProblem.set(null);
     this.requestSubscription?.unsubscribe();
     this.requestSubscription = null;
     const request = this.workspaceView.beginRequest();
@@ -476,7 +489,7 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
         }
         this.runs.set(runs ?? []);
       },
-      error: () => {
+      error: (error: { status?: number }) => {
         if (
           !this.workspaceView.isCurrent(request)
           || capabilityId !== this.currentCapabilityId
@@ -484,6 +497,7 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
           return;
         }
         this.runs.set([]);
+        this.loadProblem.set(error?.status === 403 ? 'experience.adoption.access_denied' : 'experience.adoption.load_failed');
       },
     });
     this.requestSubscription = subscription.closed ? null : subscription;
@@ -493,7 +507,7 @@ export class SystemsGridComponent implements OnInit, OnDestroy {
     return this.navigation.axesV3Enabled() ? capabilityId : null;
   }
 
-  private reloadCurrentScope(): void {
+  reloadCurrentScope(): void {
     this.currentCapabilityId = this.effectiveCapabilityId(
       this.route.snapshot.queryParamMap.get('capabilityId'),
     );
