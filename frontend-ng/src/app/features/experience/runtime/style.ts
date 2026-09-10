@@ -213,11 +213,15 @@ export function accentContrastWarning(accent: string, theme: PageTheme): boolean
 }
 
 /** Chooses the higher-contrast text colour for any valid custom accent. */
-export function onAccentColor(accent: string): '#05070a' | '#ffffff' {
+export function onAccentColor(accent: string): '#05070a' | '#000000' | '#ffffff' {
   const rgb = parseHex(accent);
   if (!rgb) return '#05070a';
   const background = luminance(rgb);
-  return contrast(background, 0) >= contrast(background, 1) ? '#05070a' : '#ffffff';
+  const dark = contrast(background, luminance({ r: 5, g: 7, b: 10 }));
+  const white = contrast(background, 1);
+  // A narrow mid-tone band needs pure black to reach the text contrast floor.
+  if (Math.max(dark, white) < 4.5) return '#000000';
+  return dark >= white ? '#05070a' : '#ffffff';
 }
 
 function parseHex(value: string): { r: number; g: number; b: number } | null {

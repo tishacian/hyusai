@@ -1130,6 +1130,8 @@ async def resolve_run_hitl(
         except InvalidTransition as exc:
             db.rollback()
             raise HTTPException(409, str(exc)) from exc
+        decision.human_confirmed_by = user.id
+        decision.human_confirmed_at = decision.approved_at
         if delegated_celery_child and deadline is not None:
             approved_at = _utc_naive_datetime(decision.approved_at)
             if approved_at is None or approved_at > deadline:

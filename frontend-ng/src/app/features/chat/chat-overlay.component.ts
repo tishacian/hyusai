@@ -1,3 +1,4 @@
+import { AssistantPilotComponent } from './assistant-pilot.component';
 import { ChangeDetectionStrategy, Component, HostListener, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
@@ -35,33 +36,37 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
   selector: 'app-chat-overlay',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CkPanelComponent, IconComponent, ChatWorkspaceComponent],
+  imports: [CkPanelComponent, IconComponent, ChatWorkspaceComponent, AssistantPilotComponent],
   template: `
     <ck-panel
       [open]="overlay.isOpen()"
       (openChange)="onOpenChange($event)"
       position="side"
-      [modal]="true"
+      [modal]="overlay.blocksPage()"
       [eyebrow]="i18n.t('titlebar.chat.tooltip')"
       [title]="title()"
       [width]="panelWidth()"
     >
       @if (overlay.isOpen()) {
-        <div class="chat-overlay-frame" [class.sentinel-chat-overlay]="sentinelShowcase()">
+        <div class="chat-overlay-frame" [class.sentinel-chat-overlay]="sentinelShowcase()" [class.adoption-companion]="overlay.adoption.enabled()">
           <div class="chat-overlay-toolbar">
             <span class="chat-overlay-hint">
               {{ i18n.t('chat.overlay.hint') }}
             </span>
-            <button
+            @if (!overlay.adoption.enabled() || !overlay.narrow()) { <button
               type="button"
               class="chat-overlay-expand"
               (click)="expandToWorkspaceChat()"
               [title]="i18n.t('chat.overlay.expand.hint')"
             >
               <app-icon name="maximize" [size]="13" />
-              {{ i18n.t('chat.overlay.expand') }}
+              {{ i18n.t(overlay.adoption.enabled() && overlay.expanded() ? 'experience.adoption.reduce' : 'chat.overlay.expand') }}
             </button>
+            }
           </div>
+          @if (overlay.adoption.enabled() && !overlay.assistantProfile() && overlay.startMode() !== 'drop') {
+            <app-assistant-pilot [initialSystemId]="overlay.preselectedSystemId()" />
+          } @else {
           <app-chat-workspace
             [inline]="true"
             [startMode]="overlay.startMode()"
@@ -71,6 +76,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [initialPrompt]="overlay.initialPrompt()"
             [autoStartVoiceLoop]="overlay.autoStartVoiceLoop()"
           />
+          }
         </div>
       }
     </ck-panel>
@@ -126,6 +132,8 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       background: rgba(34, 211, 238, 0.14);
       color: rgb(245, 248, 252);
     }
+    .adoption-companion .chat-overlay-expand {color:var(--ck-fg-1);background:var(--ck-bg-panel);border-color:var(--ck-stroke-2);min-height:32px;}
+    .adoption-companion .chat-overlay-hint {color:var(--ck-fg-3);}
     .sentinel-chat-overlay .chat-overlay-expand {
       border-color: rgba(101, 214, 110, 0.28);
       background:
@@ -176,6 +184,7 @@ export class ChatOverlayComponent {
   });
 
   readonly panelWidth = computed<string>(() => {
+    if (this.overlay.adoption.enabled() && (this.overlay.expanded() || this.overlay.narrow())) return '100vw';
     return isSentinelShowcaseProfile(this.activeProfile()) ? '680px' : '560px';
   });
 
@@ -185,7 +194,11 @@ export class ChatOverlayComponent {
     if (!open) this.overlay.close();
   }
 
+  @HostListener('window:resize')
+  onResize(): void { this.overlay.narrow.set(window.innerWidth <= 700); }
+
   expandToWorkspaceChat(): void {
+    if (this.overlay.adoption.enabled()) { this.overlay.expanded.update(value => !value); return; }
     const navigate = () => {
       const slug = this.workspace.currentSlug() || this.workspace.current()?.slug;
       if (!slug) return;

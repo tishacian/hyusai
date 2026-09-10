@@ -91,6 +91,9 @@ class ToolContext:
     session_id: str
     surface: str
     session_context: Mapping[str, Any]
+    system_ids: tuple[str, ...] | None = None
+    model_driven: bool = False
+    expected_decision_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -223,24 +226,35 @@ def _system_row(ctx: ToolContext, system: System) -> dict[str, Any]:
     }
 
 
+def visible_system(ctx: ToolContext, system_id: str) -> System:
+    if ctx.system_ids is not None and system_id not in ctx.system_ids:
+        raise AssistantToolError("system_out_of_scope", "Choose this System explicitly before acting on it.")
+    system = ctx.db.query(System).filter(System.id == system_id, System.workspace_id == ctx.workspace.id).first()
+    if system is None:
+        raise AssistantToolError("system_not_found", "System unavailable in this workspace.")
+    enforce_action(ctx.db, user=ctx.user, workspace=ctx.workspace, resource_kind="system", action="read",
+                   legacy_allowed=True, resource_attrs={"system_id": system.id, "capability_id": system.capability_id})
+    return system
+
+
 async def _list_systems(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    enforce_action(
-        ctx.db,
-        user=ctx.user,
-        workspace=ctx.workspace,
-        resource_kind="system",
-        action="read",
-        legacy_allowed=True,
-        resource_attrs={"execution_source": EXECUTION_SOURCE},
-    )
-    rows = (
-        ctx.db.query(System)
-        .filter(System.workspace_id == ctx.workspace.id)
-        .order_by(System.name.asc())
-        .limit(MAX_SYSTEMS)
-        .all()
-    )
-    return _ok(systems=[_system_row(ctx, system) for system in rows])
+    enforce_action(ctx.db, user=ctx.user, workspace=ctx.workspace, resource_kind="system", action="read",
+                   legacy_allowed=True, resource_attrs={"scope": "collection"})
+    query = ctx.db.query(System).filter(System.workspace_id == ctx.workspace.id)
+    if ctx.system_ids:
+        query = query.filter(System.id.in_(ctx.system_ids))
+    systems = []
+    for system in query.order_by(System.name.asc()).limit(MAX_SYSTEMS).all():
+        try:
+            # Empty scope permits discovery; it never permits a launch.
+            discovery = ToolContext(**{**ctx.__dict__, "system_ids": None})
+            visible_system(discovery, system.id)
+        except HTTPException as exc:
+            if exc.status_code != 403:
+                raise
+            continue
+        systems.append(_system_row(ctx, system))
+    return _ok(systems=systems)
 
 
 def _visible_run(ctx: ToolContext, run_id: str, *, for_hitl: bool = False) -> Run:
@@ -249,7 +263,7 @@ def _visible_run(ctx: ToolContext, run_id: str, *, for_hitl: bool = False) -> Ru
         .filter(Run.id == run_id, Run.workspace_id == ctx.workspace.id)
         .first()
     )
-    if run is None or not run_is_visible(
+    if run is None or (ctx.system_ids is not None and run.system_id not in ctx.system_ids) or not run_is_visible(
         ctx.db,
         run=run,
         user=ctx.user,
@@ -257,6 +271,9 @@ def _visible_run(ctx: ToolContext, run_id: str, *, for_hitl: bool = False) -> Ru
         allow_managed_hitl_for_resolution=for_hitl,
     ):
         raise AssistantToolError("run_not_found", f"No visible run {run_id!r} in this workspace.")
+    if not for_hitl:
+        enforce_action(ctx.db, user=ctx.user, workspace=ctx.workspace, resource_kind="run", action="read",
+            legacy_allowed=True, resource_attrs=run_read_attrs(run))
     return run
 
 
@@ -289,6 +306,9 @@ async def _get_run_status(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
         system_id=run.system_id,
         status=run.status,
         trigger=run.trigger,
+        flow_sha256=run.flow_sha256,
+        published_flow_version_id=run.published_flow_version_id,
+        evaluation_scores=run.evaluation_scores,
         error=run.error,
         started_at=run.started_at.isoformat() if run.started_at else None,
         completed_at=run.completed_at.isoformat() if run.completed_at else None,
@@ -318,11 +338,7 @@ async def _start_system_run(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     system_id = _text_arg(args, "system_id", limit=64)
     if not system_id:
         raise AssistantToolError("system_id_required", "start_system_run needs a system_id.")
-    system = (
-        ctx.db.query(System)
-        .filter(System.id == system_id, System.workspace_id == ctx.workspace.id)
-        .first()
-    )
+    system = visible_system(ctx, system_id)
     if system is None:
         raise AssistantToolError(
             "system_not_found",
@@ -389,6 +405,7 @@ async def _start_system_run(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
             kind="manual",
             payload=run_input,
             initiated_by_user_id=getattr(ctx.user, "id", None),
+            runner_session_id=ctx.session_id if ctx.surface == "pilot" else None,
             expected_flow_sha256=expected_flow_sha256,
             adapter_evidence={"surface": EXECUTION_SOURCE, "assistant_surface": ctx.surface},
             trigger=RUN_TRIGGER,
@@ -416,6 +433,7 @@ async def _start_system_run(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
         system_id=system.id,
         status=run.status,
         flow_sha256=expected_flow_sha256,
+        published_flow_version_id=run.published_flow_version_id,
     )
 
 
@@ -423,6 +441,8 @@ async def _start_system_run(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
 # answer_hitl_gate
 # ---------------------------------------------------------------------------
 async def _answer_hitl_gate(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    if ctx.model_driven:
+        raise AssistantToolError("human_confirmation_required", "Open the pending decision and choose Accept or Reject yourself.")
     run_id = _text_arg(args, "run_id", limit=64)
     decision_value = _text_arg(args, "decision", limit=16).lower()
     if not run_id:
@@ -444,6 +464,8 @@ async def _answer_hitl_gate(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     decision_id = str(checkpoint.get("decision_id") or "")
     if not decision_id:
         raise AssistantToolError("gate_corrupt", "The pending gate carries no decision id.")
+    if ctx.expected_decision_id is not None and decision_id != ctx.expected_decision_id:
+        raise AssistantToolError("gate_stale", "The pending decision changed. Refresh it before deciding.")
 
     system = (
         ctx.db.query(System)
@@ -547,6 +569,8 @@ async def _answer_hitl_gate(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     # leaves the paused Run waiting on nobody.
     actor = _actor_label(ctx.user)
     expected_final = "accepted" if decision_value == "accept" else "rejected"
+    if decision.status == expected_final:
+        return _ok(run_id=run.id, decision_id=decision.id, decision_status=decision.status, replayed=True)
     if decision.status != expected_final:
         try:
             if decision_value == "accept":
@@ -556,6 +580,9 @@ async def _answer_hitl_gate(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
         except Exception as exc:  # noqa: BLE001 — an invalid transition is a refusal.
             ctx.db.rollback()
             raise AssistantToolError("gate_transition_invalid", str(exc)) from exc
+        if ctx.expected_decision_id:
+            decision.human_confirmed_by = ctx.user.id
+            decision.human_confirmed_at = decision.approved_at
         ctx.db.commit()
 
     _dispatch_gate_resume(run.id, decision.id)
@@ -655,6 +682,32 @@ async def _preview_service(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
+async def _inspect_system(ctx, args):
+    system = visible_system(ctx, _text_arg(args, "system_id", limit=64))
+    row = _system_row(ctx, system)
+    try:
+        _, _, _, contract = flow_publication.published_run_evidence(ctx.db, system=system, workspace=ctx.workspace)
+        row["execution_contract"] = contract
+    except flow_publication.FlowPublicationError:
+        row["execution_contract"] = None
+    return _ok(**row, next_action="Open this System's design facet to inspect or create a dedicated draft. Publication uses the existing evaluation and publication gates.")
+
+
+async def _compare_runs(ctx, args):
+    identifiers = args.get("run_ids")
+    if not isinstance(identifiers, list) or not 2 <= len(identifiers) <= 10 or any(not isinstance(i, str) for i in identifiers):
+        raise AssistantToolError("run_ids_invalid", "Choose between two and ten Run identifiers.")
+    # Fail closed for the entire comparison if any member is unavailable.
+    runs = [await _get_run_status(ctx, {"run_id": identifier}) for identifier in identifiers]
+    return _ok(runs=runs, note="Run completion, automatic evaluation and human validation are distinct.")
+
+
+async def _read_operational_metrics(ctx, args):
+    system = visible_system(ctx, _text_arg(args, "system_id", limit=64))
+    from app.services.operational_metrics import operational_metrics
+    return _ok(**operational_metrics(ctx.db, user=ctx.user, workspace=ctx.workspace, system=system))
+
+
 TOOLS: dict[str, AssistantTool] = {
     tool.name: tool
     for tool in (
@@ -784,6 +837,13 @@ TOOLS: dict[str, AssistantTool] = {
         ),
     )
 }
+
+for _name, _description, _handler, _properties, _required, _authorization in (
+    ("inspect_system", "Explain a System's published input contract and open its design for a proposed improvement.", _inspect_system, {"system_id": {"type": "string"}}, ["system_id"], "system.read"),
+    ("compare_runs", "Compare two to ten authorized Runs in the active System scope, with their execution evidence.", _compare_runs, {"run_ids": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 10}}, ["run_ids"], "run.read"),
+    ("read_operational_metrics", "Read operational objectives, measured activity and costs with provenance. Missing evidence is not zero or verified savings.", _read_operational_metrics, {"system_id": {"type": "string"}}, ["system_id"], "system.read+run.read"),
+):
+    TOOLS[_name] = AssistantTool(_name, _description, {"type": "object", "properties": _properties, "required": _required}, _handler, False, _authorization)
 
 KNOWN_TOOLS: frozenset[str] = frozenset(TOOLS)
 

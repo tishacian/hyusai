@@ -1663,3 +1663,7 @@
 @media (prefers-reduced-motion: reduce) {
   .xp-canvas-preview { transition: none; }
 }
+
+/* Identity editing needs enough room to compare controls and the live preview. */
+.xp-bottom.is-identity .xp-bottom-panel { height:min(72dvh,900px); }
+.xp-bottom.is-identity app-brand-appearance-editor { grid-column:1 / -1; }

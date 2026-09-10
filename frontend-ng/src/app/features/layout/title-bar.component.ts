@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { NgTemplateOutlet } from '@angular/common';
 import { ToastrService } from 'ngx-toastr';
 import { Subscription, timer } from 'rxjs';
 import { AuthApiService } from '@app/core/auth-api.service';
@@ -27,7 +28,8 @@ const THEME_ICONS: Record<ThemeMode, string> = {
 
 /**
  * Cockpit title bar (48px tall). Hosts the brand mark, the semantic zoom
- * breadcrumb, the live readouts (THRPT/LATENCY/YIELD), the LIVE pulse, the
+ * breadcrumb, technical readouts (behind Diagnostics in the adoption
+ * experience), the
  * theme toggle and the workspace + user menus.
  */
 @Component({
@@ -36,6 +38,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    NgTemplateOutlet,
     GlyphComponent,
     LiveDotComponent,
     StatReadoutComponent,
@@ -105,13 +108,25 @@ const THEME_ICONS: Record<ThemeMode, string> = {
         >{{ i18n.t('nav.work') }}</a>
       }
 
-      <!-- Readouts -->
-      <div class="tb-readouts">
-        <ck-stat-readout label="THRPT"   [value]="thrpt()"   [tone]="hasTelemetry() ? 'cool' : 'neutral'"   [size]="12" align="end" />
-        <ck-stat-readout label="LATENCY" [value]="latency()" [tone]="hasTelemetry() ? 'pos' : 'neutral'"    [size]="12" align="end" />
-        <ck-stat-readout label="YIELD"   [value]="outputYield()" [tone]="hasTelemetry() ? 'violet' : 'neutral'" [size]="12" align="end" />
-        <ck-live-dot [tone]="hasTelemetry() ? 'pos' : 'neutral'" [label]="hasTelemetry() ? 'Live' : 'Idle'" />
-      </div>
+      <ng-template #technicalReadouts>
+        <div class="tb-readouts">
+          <ck-stat-readout [label]="i18n.t('titlebar.telemetry.throughput')" [value]="thrpt()" [tone]="hasTelemetry() ? 'cool' : 'neutral'" [size]="12" align="end" />
+          <ck-stat-readout [label]="i18n.t('titlebar.telemetry.latency')" [value]="latency()" [tone]="hasTelemetry() ? 'pos' : 'neutral'" [size]="12" align="end" />
+          <ck-stat-readout [label]="i18n.t('titlebar.telemetry.completed')" [value]="outputYield()" [tone]="hasTelemetry() ? 'violet' : 'neutral'" [size]="12" align="end" />
+          <ck-live-dot [tone]="hasTelemetry() ? 'pos' : 'neutral'" [label]="hasTelemetry() ? 'Live' : 'Idle'" />
+        </div>
+      </ng-template>
+      @if (chatOverlay.adoption.enabled()) {
+        <details class="tb-diagnostics" data-testid="titlebar-diagnostics">
+          <summary>{{ i18n.t('titlebar.telemetry.details') }}</summary>
+          <div class="tb-diagnostics-panel">
+            <ng-container [ngTemplateOutlet]="technicalReadouts" />
+            <p>{{ i18n.t('titlebar.telemetry.note') }}</p>
+          </div>
+        </details>
+      } @else {
+        <ng-container [ngTemplateOutlet]="technicalReadouts" />
+      }
 
       <span class="ck-hairline-v tb-divider tb-divider-telemetry" [style.height.px]="22" [style.flex]="'0 0 auto'"></span>
 
@@ -126,7 +141,8 @@ const THEME_ICONS: Record<ThemeMode, string> = {
         [style.border]="'1px solid var(--ck-stroke-2)'"
         [style.borderRadius.px]="4"
         [style.height.px]="28"
-        [style.width.px]="28"
+        [style.width.px]="chatOverlay.adoption.enabled() ? null : 28"
+        [style.padding]="chatOverlay.adoption.enabled() ? '0 .5rem' : null"
         [style.display]="'inline-flex'"
         [style.alignItems]="'center'"
         [style.justifyContent]="'center'"
@@ -136,6 +152,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
         [attr.aria-label]="i18n.t('titlebar.chat')"
       >
         <app-icon name="message-square" [size]="14" />
+        @if (chatOverlay.adoption.enabled()) { <span style="margin-left:.4rem">{{i18n.t('titlebar.chat')}}</span> }
       </button>
 
       <!-- Theme switch: cycles system → light → dark. -->
@@ -476,7 +493,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       flex: 0 0 auto;
     }
 
-    .tb :where(a, button):focus-visible {
+    .tb :where(a, button, summary):focus-visible {
       outline: 2px solid var(--ck-signal-cool);
       outline-offset: 2px;
     }
@@ -534,6 +551,21 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       max-width: calc(100vw - 16px);
     }
 
+    .tb-diagnostics { position: relative; flex: 0 0 auto; font-size: 12px; }
+    .tb-diagnostics summary {
+      cursor: pointer; border: 1px solid var(--ck-stroke-2);
+      padding: 5px 8px; border-radius: 4px;
+    }
+    .tb-diagnostics-panel {
+      position: absolute; right: 0; top: calc(100% + 8px); z-index: 50;
+      width: max-content; max-width: calc(100vw - 16px);
+      padding: 16px; background: var(--ck-bg-panel);
+      border: 1px solid var(--ck-stroke-2); border-radius: 6px;
+      box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+    }
+    .tb-diagnostics .tb-readouts { display: flex; flex-wrap: wrap; }
+    .tb-diagnostics-panel p { margin-top: 12px; max-width: 34ch; color: var(--ck-fg-3); }
+
     @media (max-width: 1000px) {
       .tb-readouts,
       .tb-divider-telemetry {
@@ -576,6 +608,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
         min-width: 0;
         max-width: none;
       }
+      .tb-diagnostics-panel { position: fixed; top: 54px; right: 8px; left: 8px; width: auto; }
 
       .tb-user-toggle {
         padding-right: 2px !important;

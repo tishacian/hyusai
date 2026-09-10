@@ -33,3 +33,15 @@ async def reload_help_content():
     """Hot-reload the registry — useful in dev / after content edits."""
     index = load_help_index(force=True)
     return {"version": index.version, "count": len(index.items)}
+
+
+@router.get("/guides/{guide_id}")
+async def read_help_guide(guide_id: str, language: str = "en"):
+    import json
+    from pathlib import Path
+    from fastapi import HTTPException
+    guides = json.loads((Path(__file__).resolve().parents[3] / "content" / "adoption_guides.json").read_text())
+    if guide_id not in guides or language not in {"en", "fr"}:
+        raise HTTPException(status_code=404, detail="Guide not found")
+    title, *paragraphs = guides[guide_id][language]
+    return {"id": guide_id, "language": language, "title": title, "paragraphs": paragraphs}

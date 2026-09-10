@@ -673,8 +673,8 @@ export class ApiService {
     });
   }
 
-  put<T>(path: string, body: unknown = {}): Observable<T> {
-    return this.http.put<T>(`${this.base}${path}`, body);
+  put<T>(path: string, body: unknown = {}, options?: { workspaceSlug?: string | null }): Observable<T> {
+    return this.http.put<T>(`${this.base}${path}`, body, {headers: this.workspaceHeaders(options?.workspaceSlug)});
   }
 
   delete<T>(path: string, options?: { workspaceSlug?: string | null }): Observable<T> {

@@ -10,10 +10,23 @@
 
 ## 1. In one sentence
 
-**Agentium** is a cockpit for running **intelligent systems** in an enterprise:
-business objectives, capabilities and policies, measured executions,
-governance and continuous improvement — not a chat nor an isolated agent
-builder.
+**Agentium** is an enterprise platform for creating, orchestrating, using and
+improving **intelligent systems** against business objectives, with governed
+execution and evidence of their results.
+
+**Conversation is a first-class control interface.** From Work or Cockpit, a
+person can use a business application or converse with one or more authorized
+Systems in the same workspace. Both interfaces use the same published contracts,
+permissions, human gates and canonical execution evidence. Conversation can
+initiate an authorized action; it cannot invent a permission or replace a
+required human decision.
+
+The product's success criteria are verifiable task outcomes and operational or
+economic improvement. Throughput and latency explain execution health.
+Economic benefit requires a comparison baseline and measured outcome; the UI
+must distinguish it from declared assumptions, projections and unavailable data.
+See the normative [product interaction rule](mental-model.md#00-product-interaction-and-value)
+and the [adoption implementation limits](agentium-adoption-roadmap.md).
 
 | Axis | What Agentium brings |
 | --- | --- |
@@ -21,6 +34,7 @@ builder.
 | **Observability** | Every answer goes through traceable **Runs** (cost, latency, context). |
 | **Quality** | **Evaluations** score outputs; thresholds and presets make measurement systematic. |
 | **Action** | **Decisions** (Hypervisor / Steering) materialise acceptance, rejection or recommendations; the loop reaches **replay**, **feedback** and **canonical answers**. |
+| **Conversation** | A scoped interface for discovery, execution and inspection; every action retains its System, Run and decision evidence. |
 | **Governance** | Audit, policies, human approval, connectors with a trail — control is explicit, never "prompt only". |
 
 The canonical business chain:

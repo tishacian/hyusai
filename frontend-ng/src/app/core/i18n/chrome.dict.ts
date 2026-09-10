@@ -7,9 +7,24 @@
  */
 
 export const CHROME_FR = {
+  "workspace.brand.title": "Marque blanche",
+  "workspace.brand.description": "Personnalisez le Cockpit et l’accueil Work de cet espace. Les applications dédiées conservent leur identité.",
+  "workspace.brand.enable": "Utiliser une identité personnalisée pour cet espace",
+  "workspace.brand.name": "Nom affiché",
+  "workspace.brand.required": "Renseignez un nom et un logo principal pour enregistrer cette identité.",
+  "workspace.brand.permissions": "La modification de la marque de l’espace nécessite les droits d’administration.",
+  "workspace.brand.saved": "Identité enregistrée pour cet espace.",
+  "workspace.brand.conflict": "L’identité a changé depuis son ouverture. Rechargez la page pour comparer les modifications avant de réessayer.",
+  "workspace.brand.error": "L’identité n’a pas pu être enregistrée. Vérifiez vos droits et les images sélectionnées, puis réessayez.",
+
   'nav.skip_to_content': 'Aller au contenu principal',
   // --- Title bar ---------------------------------------------------
   'titlebar.chat': 'Chat',
+  'titlebar.telemetry.details': 'Diagnostics',
+  'titlebar.telemetry.throughput': 'Débit',
+  'titlebar.telemetry.latency': 'Latence',
+  'titlebar.telemetry.completed': 'Runs terminés',
+  'titlebar.telemetry.note': 'Ces indicateurs décrivent l’exécution technique. Un Run terminé ne prouve ni la qualité de sa réponse ni un gain économique.',
   'titlebar.chat.tooltip': 'Chat · ⌘J',
   'titlebar.palette': 'Palette de commandes',
   'titlebar.palette.tooltip': 'Palette · ⌘K',
@@ -799,9 +814,24 @@ export const CHROME_FR = {
  * other, before the guard even runs.
  */
 export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
+  "workspace.brand.title": "White labelling",
+  "workspace.brand.description": "Customise this workspace’s Cockpit and Work home. Dedicated applications retain their identity.",
+  "workspace.brand.enable": "Use a custom identity for this workspace",
+  "workspace.brand.name": "Display name",
+  "workspace.brand.required": "Enter a name and a main logo to save this identity.",
+  "workspace.brand.permissions": "Changing the workspace brand requires administrator permissions.",
+  "workspace.brand.saved": "Identity saved for this workspace.",
+  "workspace.brand.conflict": "The identity changed since you opened it. Reload the page to compare changes before trying again.",
+  "workspace.brand.error": "The identity could not be saved. Check your permissions and selected images, then retry.",
+
   'nav.skip_to_content': 'Skip to main content',
   // --- Title bar ---------------------------------------------------
   'titlebar.chat': 'Chat',
+  'titlebar.telemetry.details': 'Diagnostics',
+  'titlebar.telemetry.throughput': 'Throughput',
+  'titlebar.telemetry.latency': 'Latency',
+  'titlebar.telemetry.completed': 'Completed Runs',
+  'titlebar.telemetry.note': 'These indicators describe technical execution. A completed Run proves neither answer quality nor economic benefit.',
   'titlebar.chat.tooltip': 'Chat · ⌘J',
   'titlebar.palette': 'Command palette',
   'titlebar.palette.tooltip': 'Palette · ⌘K',

@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { RouterLink, type UrlTree } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit';
-import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceService, workspaceSettingFeature } from '@app/core/workspace.service';
 import {
   MISSION_ROOM_EXTENSION,
   missionRoomExtensionState,
@@ -40,6 +40,7 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
   template: `
     <aside
       class="ck-rail"
+      [class.ck-rail-readable]="adoptionEnabled()"
       [class.ck-rail-expanded]="expanded()"
       (mouseenter)="onEnter()"
       (mouseleave)="onLeave()"
@@ -222,6 +223,12 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
         text-align: left;
       }
 
+      @media (min-width: 701px) {
+        :host:has(.ck-rail-readable) { width: 184px; min-width: 184px; flex-basis: 184px; }
+        .ck-rail-readable { width: 184px; }
+        .ck-rail-readable .ck-rail-label { opacity: 1; transform: none; }
+        .ck-rail-readable .ck-rail-label-hint { display: none; }
+      }
       @media (max-width: 700px) {
         :host {
           width: 48px;
@@ -250,6 +257,7 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
 })
 export class SideRailComponent {
   private readonly workspace = inject(WorkspaceService);
+  readonly adoptionEnabled = computed(() => workspaceSettingFeature(this.workspace.current(), 'adoption_experience_v1', false));
   private readonly navigation = inject(ZoomContextService);
   private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
   protected readonly i18n = inject(I18nService);
@@ -268,6 +276,7 @@ export class SideRailComponent {
   }
 
   verbLabel(v: CockpitVerb): string {
+    if (this.adoptionEnabled()) return this.i18n.t('experience.adoption.nav.' + v.key);
     return v.key === 'build' && (
       this.navigation.navV5Enabled?.() === true || this.workspace.experienceStudioV1Enabled()
     )

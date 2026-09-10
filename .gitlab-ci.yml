@@ -7,6 +7,32 @@ include:
       python-req-enabled: false
       python-tests-enabled: false
       sonar-python-version: "3.12"
+# These checks apply to every pipeline, including client branches. A product
+# flag must never disable vocabulary, navigation or UI regression gates.
+agentium-frontend-quality:
+  stage: test
+  image: node:22-bookworm
+  needs: []
+  interruptible: true
+  allow_failure: false
+  cache:
+    key:
+      files:
+        - frontend-ng/package-lock.json
+    paths:
+      - frontend-ng/.npm/
+  before_script:
+    - cd frontend-ng
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run check:i18n
+    - npm run check:nav-links
+    - npm run check:ui-chrome
+    - npm run test:unit
+    - npm run build:prod
+  rules:
+    - when: on_success
+
 agentium-compliance:
   stage: test
   image: python:3.12-bookworm
@@ -181,6 +207,7 @@ agentium-lot6-system360-production:
   image: node:22-bookworm
   needs:
     - job: agentium-compliance
+    - job: agentium-frontend-quality
   resource_group: agentium-production
   interruptible: false
   timeout: 2h

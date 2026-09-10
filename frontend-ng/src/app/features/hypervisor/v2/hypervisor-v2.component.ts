@@ -1,3 +1,4 @@
+import { OperationalObjectiveComponent } from '@app/features/systems/operational-objective.component';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -120,6 +121,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
   imports: [
     NgTemplateOutlet,
     PageFrameComponent,
+    OperationalObjectiveComponent,
     NavLinkDirective,
     KbdComponent,
     TagComponent,
@@ -160,13 +162,22 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
 
       @if (loading()) {
         <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.loading') }}</p>
+      } @else if (loadProblem(); as problem) {
+        <section role="alert">
+          <p>{{ i18n.t(problem) }}</p>
+          <div style="display:flex;align-items:center;gap:16px;margin-top:12px">
+            <button type="button" style="padding:8px 16px;border:1px solid var(--ck-stroke-2);border-radius:4px" (click)="reload()">{{ i18n.t('common.retry') }}</button>
+            <a style="text-decoration:underline" [navLink]="{ leaf: 'help-guide', ref: 'value' }">{{ i18n.t('experience.adoption.help') }}</a>
+          </div>
+        </section>
       } @else {
         <div class="hv2-facets" data-testid="hypervisor-v2-facets">
         <ck-tabs [active]="activeFacet()" (activeChange)="onFacetChange($event)">
         <ck-tab id="synthese" [label]="i18n.t('nav.facet.synthese')">
+<app-operational-objective />
         <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
         @if (!series()) {
-          <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
+          <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
         } @else {
           <div class="hv2-page">
             <ck-chart-tip
@@ -454,7 +465,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           @if (series()) {
             <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register-registre' }"></ng-container>
           } @else {
-            <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
+            <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
           }
         </ck-tab>
 
@@ -488,7 +499,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               </article>
               <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register-couts' }"></ng-container>
             } @else {
-              <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
+              <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
             }
           </div>
         </ck-tab>
@@ -1165,6 +1176,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   ];
 
   readonly loading = signal(true);
+  readonly loadProblem = signal<string | null>(null);
   readonly views = signal<HypervisorNamedView[]>([]);
   readonly canEdit = signal(false);
   readonly activeViewId = signal('direction');
@@ -2246,10 +2258,11 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     this.stopMonument();
   }
 
-  private reload(): void {
+  reload(): void {
     const request = this.workspaceView.beginRequest();
     const period = viewPeriod(this.activeView() ?? DEFAULT_HYPERVISOR_VIEWS[0]);
     this.loading.set(true);
+    this.loadProblem.set(null);
     forkJoin({
       series: this.api.hypervisorSeries(period),
       views: this.api.hypervisorViews(),
@@ -2259,7 +2272,11 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       recos: this.api.hypervisorRecommendations(),
       decisions: this.api.listDecisions({ limit: 20 }),
     }).pipe(
-      catchError(() => of({
+      catchError((error: unknown) => {
+        if (this.workspaceView.isCurrent(request)) this.loadProblem.set(
+          error instanceof HttpErrorResponse && error.status === 403
+            ? 'experience.adoption.access_denied' : 'experience.adoption.load_failed');
+        return of({
         series: null,
         views: null,
         bases: [] as HypervisorValueBasisItem[],
@@ -2267,9 +2284,10 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
         balance: null,
         recos: [] as Recommendation[],
         decisions: { items: [] as DecisionRow[], total: 0, limit: 20, offset: 0 },
-      })),
+      }); }),
     ).subscribe((bundle) => {
       if (!this.workspaceView.isCurrent(request)) return;
+      if (this.loadProblem()) { this.loading.set(false); return; }
       const parsed = parseViewsPayload(bundle.views);
       this.views.set(parsed.views);
       this.canEdit.set(parsed.can_edit);

@@ -1,4 +1,7 @@
-import { NgComponentOutlet } from '@angular/common';
+import { appearanceLogo, appearanceStyles, brandAppearance, type BrandAppearance } from '@app/core/brand-appearance';
+import { AdoptionService } from '@app/core/adoption.service';
+import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
+import { NgComponentOutlet, NgStyle } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -14,6 +17,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, timer } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
 import { canEditExperienceStudio } from '../experience-access';
@@ -50,18 +54,20 @@ const POLL_MS = 8000;
   selector: 'app-work-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, NgComponentOutlet, EmptyStateComponent],
+  imports: [NgStyle, RouterLink, NgComponentOutlet, EmptyStateComponent, NavLinkDirective],
   styleUrl: './work.scss',
   template: `
     <div
       class="xp-work"
+      data-brand-scope
+      [ngStyle]="brandStyles()"
       [attr.data-theme]="theme().mode"
-      [style.--xp-app-accent]="theme().accent || null"
-      [style.--xp-on-accent]="theme().onAccent || null"
+      [style.--xp-app-accent]="appearance().accent || theme().accent || null"
+      [style.--xp-on-accent]="brandStyles()['--xp-on-accent'] || theme().onAccent || null"
     >
       <header class="xp-work-bar">
         <div class="xp-work-brand-cluster">
-          <span class="xp-work-app-icon" aria-hidden="true">{{ emblem() }}</span>
+          @if (brandLogo()) { <img class="xp-work-brand-image" [src]="brandLogo()" alt="" /> } @else { <span class="xp-work-app-icon" aria-hidden="true">{{ emblem() }}</span> }
           <div class="xp-work-brand">
             <a routerLink="/work">{{ i18n.t('experience.work.back') }}</a>
             <h1 id="work-app-title">{{ title() }}</h1>
@@ -92,6 +98,7 @@ const POLL_MS = 8000;
           </nav>
         }
         <div class="xp-work-actions">
+          @if (adoption.enabled()) { <button type="button" class="xp-work-btn" (click)="companion.open()">{{ i18n.t('experience.adoption.companion') }}</button> }
           @if (locales().length > 1) {
             <span class="xp-work-locales" role="group" [attr.aria-label]="i18n.t('experience.work.lang.label')">
               @for (locale of locales(); track locale) {
@@ -109,6 +116,12 @@ const POLL_MS = 8000;
           }
           @if (showCockpitLink()) {
             <a class="xp-work-link" [routerLink]="cockpitHref()">{{ i18n.t('nav.cockpit') }}</a>
+            @if (adoption.enabled()) {
+              @for (id of boundSystemIds(); track id) {
+                <a class="xp-work-link" [navLink]="{ type: 'system', ref: id, lens: 'build', facet: 'design' }">{{ i18n.t('experience.adoption.inspect_design') }}</a>
+              }
+              <a class="xp-work-link" [navLink]="{ leaf: 'help-guide', ref: 'systems' }">{{ i18n.t('experience.adoption.build_guide') }}</a>
+            }
           }
           @if (canEdit()) {
             <a class="xp-work-link" [routerLink]="studioLink()">{{ i18n.t('experience.work.edit_studio') }}</a>
@@ -221,6 +234,8 @@ const POLL_MS = 8000;
   `,
 })
 export class WorkShellComponent {
+  readonly adoption = inject(AdoptionService);
+  readonly companion = inject(ChatOverlayService);
   @ViewChild('workMain') private workMain?: ElementRef<HTMLElement>;
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -257,6 +272,9 @@ export class WorkShellComponent {
     accent: '',
     onAccent: '',
   });
+  readonly appearance = signal<BrandAppearance>({});
+  readonly brandStyles = computed(() => appearanceStyles(this.appearance(), this.theme().mode));
+  readonly brandLogo = computed(() => appearanceLogo(this.appearance(), this.theme().mode));
   readonly activePage = signal<string | null>(null);
   readonly locales = signal<Locale[]>([]);
   readonly pending = signal<Run[]>([]);
@@ -268,6 +286,7 @@ export class WorkShellComponent {
   readonly experienceId = signal<string | null>(null);
   readonly releaseId = signal<string | null>(null);
   readonly releaseNumber = signal<number | null>(null);
+  readonly boundSystemIds = signal<string[]>([]);
   readonly announcement = signal('');
   readonly decisionBusy = signal<ReadonlySet<string>>(new Set());
   readonly decisionError = signal(false);
@@ -379,6 +398,8 @@ export class WorkShellComponent {
   }
 
   private open(body: WorkResolve): void {
+    this.boundSystemIds.set([...new Set((body.release.bindings_snapshot || [])
+      .map(binding => binding['system_id']).filter((id): id is string => typeof id === 'string' && !!id))]);
     this.experienceId.set(body.experience.id);
     this.releaseId.set(body.release.id);
     this.releaseNumber.set(body.release.release_number ?? null);
@@ -409,6 +430,7 @@ export class WorkShellComponent {
     this.renderer.set(renderer);
     this.rawDocument.set(body.release.pages);
     this.theme.set(workTheme(body.release.theme ?? body.experience.theme));
+    this.appearance.set(brandAppearance((body.release.theme ?? body.experience.theme)?.['appearance']));
     this.locales.set(locales);
     this.showValidations.set(needsQueue);
     this.state.set('ready');
@@ -470,6 +492,7 @@ export class WorkShellComponent {
   }
 
   private resetExperienceState(): void {
+    this.boundSystemIds.set([]);
     this.validationWatch?.unsubscribe();
     this.validationWatch = null;
     this.runtime.reset();
@@ -492,5 +515,6 @@ export class WorkShellComponent {
     this.activePage.set(null);
     this.locales.set([]);
     this.theme.set({ mode: 'light', accent: '', onAccent: '' });
+    this.appearance.set({});
   }
 }

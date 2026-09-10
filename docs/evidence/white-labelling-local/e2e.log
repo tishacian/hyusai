@@ -1,0 +1,15 @@
+
+> agentium@0.1.0 test:e2e
+> playwright test e2e/tests/16-experience-work-canary.spec.ts --grep local contract
+
+
+Running 2 tests using 1 worker
+
+(node:77172) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:77172) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › e2e/tests/16-experience-work-canary.spec.ts:137:7 › Adoption local contract › keeps a non-modal companion through navigation and serves bilingual guides (2.8s)
+  ✓  2 [chromium] › e2e/tests/16-experience-work-canary.spec.ts:217:7 › White labelling local contract › edits workspace identity, persists it and renders an application from its release (5.0s)
+
+  2 passed (9.6s)

@@ -1,0 +1,269 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+} from "@angular/core";
+import { JsonPipe } from "@angular/common";
+import { FormsModule } from "@angular/forms";
+import { I18nService } from "@app/core/i18n.service";
+import { NavigationProfileService } from "@app/core/navigation-profile.service";
+import { NavLinkDirective } from "@app/shared/cockpit";
+import { AssistantPilotService } from "./assistant-pilot.service";
+
+@Component({
+  selector: "app-assistant-pilot",
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [FormsModule, NavLinkDirective, JsonPipe],
+  template: ` <section class="pilot" [attr.aria-label]="t('companion')">
+    <fieldset [disabled]="pilot.busy()">
+      <legend>{{ t("scope") }}</legend>
+      <p>{{ t("scope_hint") }}</p>
+      @for (system of pilot.systems(); track system.system_id) {
+        <label class="system"
+          ><input
+            type="checkbox"
+            [checked]="pilot.systemIds().includes(system.system_id)"
+            (change)="toggle(system.system_id)"
+          />
+          {{ system.name }}</label
+        >
+        @if (canInspect()) {
+          <a
+            [navLink]="{ type: 'system', lens: 'build', ref: system.system_id }"
+            >{{ t("inspect") }}</a
+          >
+        }
+      }
+      @if (!pilot.systemIds().length) {
+        <p>{{ t("empty_scope") }}</p>
+      }
+    </fieldset>
+    <div class="turns" aria-live="polite" aria-relevant="additions">
+      @for (turn of pilot.turns(); track $index) {
+        <article>
+          <p class="question">{{ turn.question }}</p>
+          <p class="answer">{{ turn.response.answer }}</p>
+          @if (turn.response.finish_reason === "tool_turn_limit") {
+            <p role="status">{{ t("tools_limited") }}</p>
+          }
+          @for (call of turn.response.tool_calls; track $index) {
+            <section class="evidence">
+              <strong>{{ t("proof") }} · {{ call.name }}</strong>
+              <p>
+                {{ call.ok ? "✓" : "!" }} {{ call.error || call.result.status }}
+              </p>
+              @if (canInspect()) {
+                @if (call.result.system_id; as id) {
+                  <a [navLink]="{ type: 'system', lens: 'build', ref: id }">{{
+                    t("inspect")
+                  }}</a>
+                  @if (call.name === "inspect_system") {
+                    <a
+                      [navLink]="{
+                        type: 'system',
+                        lens: 'build',
+                        ref: id,
+                        facet: 'design',
+                      }"
+                      >{{ t("inspect_design") }}</a
+                    >
+                    <a [navLink]="{ leaf: 'help-guide', ref: 'systems' }">{{
+                      t("build_guide")
+                    }}</a>
+                  }
+                }
+                @if (call.result.run_id; as id) {
+                  <a [navLink]="{ type: 'run', lens: 'operate', ref: id }"
+                    >{{ t("inspect_run") }} · {{ id.slice(0, 8) }}</a
+                  >
+                }
+                @for (run of call.result.runs || []; track run.run_id) {
+                  @if (run.run_id; as id) {
+                    <a [navLink]="{ type: 'run', lens: 'operate', ref: id }"
+                      >{{ t("inspect_run") }} · {{ id.slice(0, 8) }}</a
+                    >
+                  }
+                }
+              }
+              @if (call.result.awaiting_gate; as gate) {
+                <p>{{ gate.prompt }}</p>
+                <button
+                  type="button"
+                  [disabled]="pilot.busy()"
+                  (click)="pilot.decide(call.result, 'accept')"
+                >
+                  {{ t("accept") }}
+                </button>
+                <button
+                  type="button"
+                  [disabled]="pilot.busy()"
+                  (click)="pilot.decide(call.result, 'reject')"
+                >
+                  {{ t("reject") }}
+                </button>
+              }
+              <details>
+                <summary>{{ t("detail") }}</summary>
+                <pre>{{ call.result | json }}</pre>
+              </details>
+            </section>
+          }
+        </article>
+      }
+    </div>
+    @if (pilot.error(); as error) {
+      <p role="alert">{{ t(error) }}</p>
+      @if (pilot.retryRequest()) {
+        <button type="button" [disabled]="pilot.busy()" (click)="pilot.retry()">
+          {{ t("retry_turn") }}
+        </button>
+      }
+    }
+    <form (ngSubmit)="submit()">
+      <label for="pilot-prompt">{{ t("request") }}</label>
+      <textarea
+        id="pilot-prompt"
+        name="prompt"
+        [(ngModel)]="prompt"
+        maxlength="8000"
+        rows="3"
+        [disabled]="pilot.busy()"
+        required
+      ></textarea>
+      <button
+        class="ck-btn-soft"
+        type="submit"
+        [disabled]="pilot.busy() || !!pilot.retryRequest() || !prompt.trim()"
+      >
+        {{ pilot.busy() ? i18n.t("common.loading") : t("send") }}
+      </button>
+      <button type="button" [disabled]="pilot.busy()" (click)="pilot.reset()">
+        {{ t("new") }}
+      </button>
+    </form>
+  </section>`,
+  styles: [
+    `
+      button {
+        border: 1px solid var(--ck-stroke-2);
+        border-radius: 0.4rem;
+        padding: 0.5rem 0.85rem;
+        color: var(--ck-fg-1);
+        background: var(--ck-bg-panel);
+        font-weight: 550;
+      }
+      button[type="submit"]:not(:disabled) {
+        background: var(--ck-signal-cool);
+        color: var(--ck-on-signal);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      a {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      :focus-visible {
+        outline: 2px solid var(--ck-signal-cool);
+        outline-offset: 3px;
+      }
+      :host {
+        display: block;
+        overflow: auto;
+        min-height: 0;
+      }
+      .pilot {
+        padding: 1rem;
+        display: grid;
+        gap: 1rem;
+      }
+      fieldset {
+        padding: 0.8rem;
+        border: 1px solid var(--ck-stroke-2);
+      }
+      .system {
+        display: block;
+        margin-top: 0.5rem;
+      }
+      p {
+        line-height: 1.5;
+      }
+      .answer {
+        white-space: pre-wrap;
+      }
+      .question {
+        font-weight: 600;
+      }
+      .evidence {
+        padding: 0.6rem;
+        margin: 0.6rem 0;
+        border: 1px solid var(--ck-stroke-2);
+      }
+      a {
+        display: inline-block;
+        margin: 0.3rem;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-size: 0.75rem;
+      }
+      textarea {
+        display: block;
+        width: 100%;
+        border: 1px solid var(--ck-stroke-2);
+        background: var(--ck-bg-base);
+        color: inherit;
+      }
+      button {
+        margin: 0.4rem 0.4rem 0.4rem 0;
+        min-height: 2.5rem;
+      }
+      form {
+        position: sticky;
+        bottom: 0;
+        background: var(--ck-bg-base);
+        padding: 0.5rem 0;
+      }
+    `,
+  ],
+})
+export class AssistantPilotComponent {
+  readonly pilot = inject(AssistantPilotService);
+  readonly i18n = inject(I18nService);
+  private readonly profile = inject(NavigationProfileService);
+  readonly canInspect = computed(() => {
+    const profile = this.profile.effective();
+    return (
+      !profile.active || profile.advancedAccess === "link" || profile.admin
+    );
+  });
+  readonly initialSystemId = input<string | null>(null);
+  prompt = "";
+  constructor() {
+    this.pilot.load();
+    effect(() => {
+      const id = this.initialSystemId();
+      if (id) this.pilot.select([id]);
+    });
+  }
+  t(key: string): string {
+    return this.i18n.t("experience.adoption." + key);
+  }
+  toggle(id: string): void {
+    const ids = this.pilot.systemIds();
+    this.pilot.select(
+      ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id],
+    );
+  }
+  submit(): void {
+    this.pilot.send(this.prompt);
+    this.prompt = "";
+  }
+}

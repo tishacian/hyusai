@@ -36,6 +36,9 @@ DEFAULT_ALLOWED_TOOLS: tuple[str, ...] = (
     "get_run_status",
     "list_services",
     "preview_service",
+    "inspect_system",
+    "compare_runs",
+    "read_operational_metrics",
 )
 
 DEFAULT_MAX_TOOL_TURNS = 4

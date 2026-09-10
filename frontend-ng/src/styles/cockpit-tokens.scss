@@ -10,7 +10,8 @@
    only uses --ck-* variables to remain isolated and easily themable.
    ============================================================================ */
 
-:root {
+:root,
+[data-brand-scope][data-theme="dark"] {
   /* ---- SURFACES (deep cockpit blacks) ---- */
   --ck-bg-void:      #05070a;
   --ck-bg-base:      #07090c;
@@ -252,4 +253,33 @@ html:not(.dark),
      visible against the warm paper. */
   --ck-tint-faint: rgba(17, 24, 39, 0.05);
   --ck-tint-soft:  rgba(17, 24, 39, 0.08);
+}
+
+/* Generic branded scopes only. Native client themes keep their existing cascade. */
+[data-brand-scope] {
+  --ck-hair:           var(--ck-stroke-2);
+  --ck-stroke:         var(--ck-stroke-2);
+  --ck-stroke-strong:  var(--ck-stroke-3);
+  --ck-bg-0:           var(--ck-bg-void);
+  --ck-bg-1:           var(--ck-bg-base);
+  --ck-bg-2:           var(--ck-bg-panel);
+  --ck-bg-surface:     var(--ck-bg-panel);
+  --ck-bg-canvas:      var(--ck-bg-base);
+  --ck-bg-raised:      var(--ck-bg-panel-hi);
+  --ck-bg-focus:       var(--ck-bg-panel-hi);
+  --ck-bg-sunken:      var(--ck-bg-inset);
+  --ck-accent:         var(--ck-signal-cool);
+  --ck-pos:            var(--ck-signal-pos);
+  --ck-neg:            var(--ck-signal-neg);
+  --ck-warn:           var(--ck-signal-warn);
+  --ck-fg-warn:        var(--ck-signal-warn);
+  --ck-signal-warm:    var(--ck-signal-warn);
+  --ck-signal-danger:  var(--ck-signal-neg);
+  --ck-cta-fg: var(--ck-on-signal);
+  --ck-status-neutral-fg: var(--ck-fg-3);
+  --ck-status-neutral-bg: var(--ck-tint-faint);
+  --ck-status-neutral-line: var(--ck-stroke-2);
+  --text-primary: var(--ck-fg-1);
+  --text-secondary: var(--ck-fg-3);
+  --text-muted: var(--ck-fg-4);
 }

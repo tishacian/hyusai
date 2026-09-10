@@ -1,3 +1,5 @@
+import { NgStyle } from '@angular/common';
+import { appearanceStyles } from '@app/core/brand-appearance';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
@@ -13,7 +15,6 @@ import { CommandBarComponent } from './command-bar.component';
 import { CommandPaletteComponent } from './command-palette.component';
 import { BusinessShellHeaderComponent } from './business-shell-header.component';
 import { CkPanelHostComponent } from '@app/shared/cockpit/panel.component';
-import { ChatOverlayComponent } from '@app/features/chat/chat-overlay.component';
 import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draft-drawer.component';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { missionRoomUsesImmersiveShell } from '@app/features/mission-room/mission-room.extension';
@@ -29,6 +30,7 @@ import { I18nService } from '@app/core/i18n.service';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    NgStyle,
     RouterOutlet,
     TitleBarComponent,
     SideRailComponent,
@@ -37,12 +39,13 @@ import { I18nService } from '@app/core/i18n.service';
     CommandPaletteComponent,
     BusinessShellHeaderComponent,
     CkPanelHostComponent,
-    ChatOverlayComponent,
     AssistantDraftDrawerComponent,
   ],
   template: `
     <div
-      [attr.data-theme]="businessShell() ? theme.businessResolved() : null"
+      [attr.data-brand-scope]="immersiveWorkspaceApp() ? null : ''"
+      [attr.data-theme]="immersiveWorkspaceApp() ? null : theme.resolved()"
+      [ngStyle]="brandStyles()"
       [attr.data-workspace-app-state]="workspaceAppUnavailable() ? 'unavailable' : null"
       [attr.data-workspace-app-brand]="workspaceAppBranding()"
       [style.position]="'fixed'"
@@ -127,7 +130,6 @@ import { I18nService } from '@app/core/i18n.service';
           [attr.inert]="chromeInert() ? '' : null"
           [attr.aria-hidden]="chromeInert() ? 'true' : null"
         ></app-panel-host>
-        <app-chat-overlay></app-chat-overlay>
         <app-assistant-draft-drawer
           [attr.inert]="chromeInert() ? '' : null"
           [attr.aria-hidden]="chromeInert() ? 'true' : null"
@@ -210,6 +212,11 @@ export class ShellComponent {
   private readonly navigationProfile = inject(NavigationProfileService);
   private readonly navigationTelemetry = inject(NavigationTelemetryService);
   protected readonly theme = inject(ThemeService);
+  readonly brandStyles = computed(() => {
+    if (this.immersiveWorkspaceApp()) return {};
+    const brand = this.workspaceService.current()?.settings?.['platform_brand'] as Record<string, unknown> | undefined;
+    return appearanceStyles(brand?.['appearance'], this.theme.resolved());
+  });
   private readonly chatOverlay = inject(ChatOverlayService);
   private readonly router = inject(Router);
   readonly routeAnnouncement = signal('');
@@ -224,8 +231,8 @@ export class ShellComponent {
 
   readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
   readonly routeOverlayOpen = computed(() => this.currentPath().startsWith('/create/apps/'));
-  readonly chromeInert = computed(() => this.routeOverlayOpen() || this.chatOverlay.isOpen());
-  readonly mainInert = computed(() => this.chatOverlay.isOpen());
+  readonly chromeInert = computed(() => this.routeOverlayOpen() || this.chatOverlay.blocksPage());
+  readonly mainInert = computed(() => this.chatOverlay.blocksPage());
   readonly workspaceAppUnavailable = this.navigationProfile.workspaceAppUnavailable;
   readonly workspaceAppBranding = computed(() => {
     const runtime = this.workspaceService.current()?.workspace_app_runtime;

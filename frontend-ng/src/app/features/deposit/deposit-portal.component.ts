@@ -31,7 +31,7 @@ interface DepositLink {
   imports: [CommonModule, FormsModule, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <main class="min-h-screen bg-[#05080d] text-white">
+    <main class="min-h-screen" style="background:var(--ck-bg-base);color:var(--ck-fg-1)">
       <div class="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-6">
         <header class="flex items-center justify-between border-b border-white/10 pb-5">
           <div class="flex items-center gap-3">

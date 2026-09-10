@@ -645,6 +645,12 @@ export class WorkspaceService {
     );
   }
 
+  updateWorkspaceBrand(slug: string, brand: Record<string, unknown> | null, expected: Record<string, unknown> | null): Observable<WorkspaceDetail> {
+    return this.http.patch<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}`, {
+      platform_brand: brand, expected_platform_brand: expected,
+    }, { headers: this.workspaceHeaders(slug) }).pipe(tap(workspace => this.upsertWorkspace(workspace)));
+  }
+
   setMode(slug: string, mode: WorkspaceMode): Observable<WorkspaceDetail> {
     return this.http.patch<WorkspaceDetail>(`/api/v1/auth/workspaces/${slug}/mode`, { mode }).pipe(
       tap((workspace) => this.upsertWorkspace(workspace)),

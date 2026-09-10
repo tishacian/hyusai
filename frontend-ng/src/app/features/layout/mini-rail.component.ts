@@ -54,11 +54,11 @@ const SCOPE_ORDER: CockpitScopeType[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, GlyphComponent, NavLinkDirective],
   host: {
-    '[class.ck-mini-rail-stable]': 'stableLayout()',
+    '[class.ck-mini-rail-stable]': 'stableLayout() && (visibleSections().length > 0 || !!systemBranch())',
   },
   template: `
     @if (activeVerb(); as verb) {
-      @if (visibleSections().length > 0 || stableLayout()) {
+      @if (visibleSections().length > 0 || systemBranch()) {
         <aside class="ck-mini-rail" [attr.aria-label]="i18n.t(stableLayout() ? 'nav.sommaire' : 'nav.object_index')">
           <header class="ck-mini-head">
             <span class="ck-mini-eyebrow">{{ i18n.t(stableLayout() ? 'nav.sommaire' : 'nav.scope') }}</span>

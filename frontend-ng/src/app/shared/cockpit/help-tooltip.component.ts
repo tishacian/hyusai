@@ -1,3 +1,4 @@
+import { AdoptionService } from '@app/core/adoption.service';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -314,6 +315,7 @@ import { I18nService } from '@app/core/i18n.service';
   ],
 })
 export class HelpTooltipComponent {
+  private readonly adoption = inject(AdoptionService);
   readonly help = inject(HelpService);
   /** UI-locale chrome only (aria labels); panel copy follows `help.language()`. */
   readonly i18n = inject(I18nService);
@@ -412,7 +414,8 @@ export class HelpTooltipComponent {
   }
 
   switchPersona(p: Persona): void {
-    this.help.setPersona(p);
+    if (this.adoption.enabled()) this.adoption.update({persona:p});
+    else this.help.setPersona(p);
   }
 
   switchLanguage(lang: Language): void {

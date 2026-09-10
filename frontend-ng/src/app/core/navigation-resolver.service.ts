@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { NavigationProfileService } from './navigation-profile.service';
 import type { NavigationRedirectDecision } from './navigation-telemetry.service';
 import { WorkspaceService, workspaceSettingFeature } from './workspace.service';
-import { agentiumSurfaceRoute } from './navigation.catalog';
+import { agentiumSurfaceRoute, matchAgentiumSurface } from './navigation.catalog';
 import {
   MISSION_ROOM_EXTENSION,
   missionRoomExtensionState,
@@ -24,6 +24,7 @@ export class NavigationResolverService {
 
   resolve(requestedRoute: string): NavigationRedirectDecision | null {
     return (
+      this.resolveGenericHome(requestedRoute) ||
       this.resolveLegacyHypervisorObjectLens(requestedRoute) ||
       this.resolveLegacyQueryAliases(requestedRoute) ||
       this.resolveBusinessProfile(requestedRoute) ||
@@ -33,6 +34,31 @@ export class NavigationResolverService {
       this.resolveDemoEntrypoint(requestedRoute) ||
       this.resolveWorkspaceEntrypoint(requestedRoute)
     );
+  }
+
+  private resolveGenericHome(requestedRoute: string): NavigationRedirectDecision | null {
+    if (this.pathOnly(requestedRoute) !== '/') return null;
+    const current = this.workspace.current();
+    const adoption = workspaceSettingFeature(current, 'adoption_experience_v1', false);
+    if (!adoption) {
+      const profile = this.resolveBusinessProfile(requestedRoute);
+      return profile || this.decision(requestedRoute,
+        current?.mode === 'builder' && this.navV5Enabled() ? agentiumSurfaceRoute('create') : agentiumSurfaceRoute('hypervisor'), 'workspace_mode_home');
+    }
+    const experience = this.navigationProfile.resolveWorkspaceExperience(requestedRoute);
+    if (experience?.shellKind === 'workspace_app_unavailable') return this.resolveBusinessProfile(requestedRoute);
+    const profileSettings = current?.settings?.['navigation_profile'] as Record<string, unknown> | undefined;
+    const configured = this.absoluteRoute(profileSettings?.['default_route'] || current?.settings?.['default_route']);
+    if (configured && this.pathOnly(configured) !== '/' && matchAgentiumSurface(configured)) {
+      const policy = this.resolveBusinessProfile(configured) || this.resolveUnavailableWorkspaceExtension(configured);
+      if (!policy) return this.decision(requestedRoute, configured, 'workspace_default_route');
+    }
+    if (this.workspace.experienceV1Enabled()) {
+      const home = current?.mode === 'builder' && !this.navigationProfile.businessShellActive() ? 'create' : 'work';
+      return this.decision(requestedRoute, agentiumSurfaceRoute(home), 'workspace_mode_home');
+    }
+    return this.resolveBusinessProfile(requestedRoute) || this.decision(requestedRoute,
+      current?.mode === 'builder' ? agentiumSurfaceRoute('create') : agentiumSurfaceRoute('hypervisor'), 'workspace_mode_home');
   }
 
   /** Axes v4 makes Hypervisor a Portfolio destination, never an object lens. */
@@ -104,7 +130,7 @@ export class NavigationResolverService {
    * the guard only executes the returned URL tree.
    */
   resolveWorkspaceLoadFailure(requestedRoute: string): NavigationRedirectDecision | null {
-    if (this.pathOnly(requestedRoute) !== '/workspace') return null;
+    if (!['/', '/workspace'].includes(this.pathOnly(requestedRoute))) return null;
     return this.decision(
       requestedRoute,
       agentiumSurfaceRoute('hypervisor'),

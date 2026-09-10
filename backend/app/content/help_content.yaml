@@ -11,7 +11,7 @@ items:
       en: "Balance sheet"
       fr: "Balance sheet"
     category: metric
-    learn_more: "#s-22-hypervisor"
+    learn_more: "/help/value"
     by_persona:
       executive:
         summary:
@@ -48,7 +48,7 @@ items:
       en: "Scale a capability"
       fr: "Scaler une capability"
     category: action
-    learn_more: "#s-22-hypervisor"
+    learn_more: "/help/value"
     by_persona:
       executive:
         summary:
@@ -89,7 +89,7 @@ items:
       en: "Decision feed"
       fr: "Flux de décisions"
     category: navigation
-    learn_more: "#s-24-decisions"
+    learn_more: "/help/runs"
     by_persona:
       executive:
         summary:
@@ -124,7 +124,7 @@ items:
       en: "Accept a decision"
       fr: "Accepter une décision"
     category: action
-    learn_more: "#s-24-decisions"
+    learn_more: "/help/runs"
     by_persona:
       executive:
         summary:
@@ -201,7 +201,7 @@ items:
       en: "Legacy decision Apply (retired)"
       fr: "Apply de décision legacy (retiré)"
     category: action
-    learn_more: "#s-24-decisions"
+    learn_more: "/help/runs"
     by_persona:
       operator:
         summary:
@@ -240,7 +240,7 @@ items:
       en: "Legacy portfolio What-If (retired)"
       fr: "What-If portfolio legacy (retiré)"
     category: action
-    learn_more: "#s-36-steering"
+    learn_more: "/help/value"
     by_persona:
       executive:
         summary:
@@ -278,7 +278,7 @@ items:
       en: "Resource lever"
       fr: "Levier Resource"
     category: control
-    learn_more: "#s-36-steering"
+    learn_more: "/help/value"
     by_persona:
       executive:
         summary:
@@ -313,7 +313,7 @@ items:
       en: "Velocity lever"
       fr: "Levier Velocity"
     category: control
-    learn_more: "#s-36-steering"
+    learn_more: "/help/value"
     by_persona:
       operator:
         summary:
@@ -348,7 +348,7 @@ items:
       en: "Autonomy lever"
       fr: "Levier Autonomy"
     category: control
-    learn_more: "#s-36-steering"
+    learn_more: "/help/value"
     by_persona:
       operator:
         summary:
@@ -383,7 +383,7 @@ items:
       en: "Risk tolerance lever"
       fr: "Levier Risk tolerance"
     category: control
-    learn_more: "#s-36-steering"
+    learn_more: "/help/value"
     by_persona:
       executive:
         summary:
@@ -421,7 +421,7 @@ items:
       en: "Assemble a System"
       fr: "Assembler un System"
     category: concept
-    learn_more: "#s-8-system"
+    learn_more: "/help/systems"
     by_persona:
       builder:
         summary:
@@ -456,7 +456,7 @@ items:
       en: "Skills step"
       fr: "Étape Skills"
     category: action
-    learn_more: "#s-15-skills"
+    learn_more: "/help/systems"
     by_persona:
       builder:
         summary:
@@ -527,7 +527,7 @@ items:
       en: "Policy step"
       fr: "Étape Policy"
     category: action
-    learn_more: "#s-21-policies"
+    learn_more: "/help/systems"
     by_persona:
       builder:
         summary:
@@ -565,7 +565,7 @@ items:
       en: "Override Outcome.value"
       fr: "Override Outcome.value"
     category: action
-    learn_more: "#s-22-hypervisor"
+    learn_more: "/help/value"
     by_persona:
       operator:
         summary:
@@ -602,7 +602,7 @@ items:
       en: "Runs list"
       fr: "Liste des Runs"
     category: navigation
-    learn_more: "#s-22-hypervisor"
+    learn_more: "/help/value"
     by_persona:
       operator:
         summary:
@@ -640,7 +640,7 @@ items:
       en: "Switch workspace mode"
       fr: "Changer de mode workspace"
     category: navigation
-    learn_more: "#s-37-modes"
+    learn_more: "/help/start"
     by_persona:
       builder:
         summary:
@@ -667,5 +667,137 @@ items:
         user_story:
           en: "As an executive, I stay in executive mode 90% of the time."
           fr: "En tant que dirigeant, je reste en mode executive 90% du temps."
+        prerequisites: []
+        related_actions: []
+
+# Adoption: contextual entry points reuse the existing registry.
+  - id: adoption.start
+    title:
+      fr: Bien démarrer
+      en: Getting started
+    category: concept
+    learn_more: /help/start
+    by_persona:
+      builder:
+        summary: &id001
+          fr: Choisissez une application à laquelle vous avez accès. Posez une question,
+            puis ouvrez sa source pour vérifier la réponse.
+          en: Choose an application you can access. Ask a question, then open its source
+            to check the answer.
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+      operator:
+        summary: *id001
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: *id001
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+  - id: adoption.sources
+    title:
+      fr: Documents et sources
+      en: Documents and sources
+    category: concept
+    learn_more: /help/sources
+    by_persona:
+      builder:
+        summary: &id002
+          fr: Une collection regroupe des documents. Attendez la fin de leur indexation
+            avant de les interroger.
+          en: A collection groups documents. Wait for indexing to complete before querying
+            them.
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+      operator:
+        summary: *id002
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: *id002
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+  - id: adoption.systems
+    title:
+      fr: Systèmes et outils
+      en: Systems and tools
+    category: concept
+    learn_more: /help/systems
+    by_persona:
+      builder:
+        summary: &id003
+          fr: Un System relie un objectif à des opérations, des sources et des règles.
+            Un Flow organise leur exécution.
+          en: A System connects an objective to operations, sources and policies. A
+            Flow organizes their execution.
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+      operator:
+        summary: *id003
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: *id003
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+  - id: adoption.runs
+    title:
+      fr: Exécutions et validations
+      en: Executions and approvals
+    category: concept
+    learn_more: /help/runs
+    by_persona:
+      builder:
+        summary: &id004
+          fr: 'Un Run enregistre une exécution : version, entrées, sorties, durées et
+            décisions. Terminé ne signifie pas que la réponse a été validée.'
+          en: 'A Run records an execution: version, inputs, outputs, timings and decisions.
+            Completed does not mean the answer was validated.'
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+      operator:
+        summary: *id004
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: *id004
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+  - id: adoption.value
+    title:
+      fr: Objectifs et valeur
+      en: Objectives and value
+    category: concept
+    learn_more: /help/value
+    by_persona:
+      builder:
+        summary: &id005
+          fr: Distinguez le coût observé, la valeur unitaire déclarée, les projections
+            et l’impact mesuré. Une donnée absente n’est pas un zéro.
+          en: Distinguish observed cost, declared unit value, projections and measured
+            impact. Missing data is not zero.
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+      operator:
+        summary: *id005
+        user_story: {}
+        prerequisites: []
+        related_actions: []
+      executive:
+        summary: *id005
+        user_story: {}
         prerequisites: []
         related_actions: []

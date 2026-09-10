@@ -1,3 +1,4 @@
+import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, distinctUntilChanged, forkJoin, map } from 'rxjs';
@@ -23,7 +24,7 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
   selector: 'app-capabilities',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [HelpTooltipComponent,
     PageFrameComponent,
     GlyphComponent,
     StatReadoutComponent,
@@ -36,11 +37,13 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
     RouterLink,
   ],
   template: `
+
     <ck-page-frame
       eyebrow="Catalog · Capabilities"
       title="Universal · Industry · Client"
       description="Browse and configure the canonical capabilities your systems can compose. Each capability bundles certified skills, pricing and SLA."
     >
+      <ck-help titleHelp id="adoption.systems" />
       <a
         actions
         [navLink]="{ leaf: 'capability-curation' }"

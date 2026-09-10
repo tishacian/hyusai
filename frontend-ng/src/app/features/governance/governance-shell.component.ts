@@ -1,3 +1,4 @@
+import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
@@ -28,8 +29,9 @@ interface Tab {
   selector: 'app-governance-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouterOutlet, GlyphComponent],
+  imports: [HelpTooltipComponent, RouterLink, RouterOutlet, GlyphComponent],
   template: `
+
     <nav
       [attr.aria-label]="i18n.t('nav.governance')"
       [style.padding]="'18px clamp(12px, 4vw, 32px) 0'"
@@ -50,6 +52,7 @@ interface Tab {
         [style.borderRadius.px]="4"
         [style.padding.px]="2"
       >
+        <ck-help id="adoption.runs" />
         @for (t of visibleTabs(); track t.route) {
           <a
             [routerLink]="t.route"

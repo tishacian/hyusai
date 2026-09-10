@@ -1,3 +1,5 @@
+import { BrandAppearanceEditorComponent } from '@app/shared/brand-appearance-editor.component';
+import type { BrandAppearance } from '@app/core/brand-appearance';
 import { ChangeDetectionStrategy, Component, computed, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { HelpTooltipComponent, NavLinkDirective } from '@app/shared/cockpit';
@@ -33,7 +35,7 @@ import { formSchemaSupported, type ExperienceDocument } from '../runtime/model';
   selector: 'app-experience-wizard',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NavLinkDirective, HelpTooltipComponent, ExperienceRuntimeHostComponent],
+  imports: [BrandAppearanceEditorComponent, NavLinkDirective, HelpTooltipComponent, ExperienceRuntimeHostComponent],
   styleUrl: './studio.scss',
   template: `
     <section class="xp-wizard" aria-labelledby="xp-wiz-heading">
@@ -326,6 +328,7 @@ import { formSchemaSupported, type ExperienceDocument } from '../runtime/model';
               <option value="light">{{ i18n.t('experience.wizard.access.theme.light') }}</option>
             </select>
           </label>
+          <app-brand-appearance-editor [name]="name()" [appearance]="appearance()" [disabled]="busy()" (changed)="appearance.set($event)" />
           <fieldset class="xp-wizard-fieldset">
             <legend>{{ i18n.t('experience.wizard.access.who') }}</legend>
             <p class="xp-hint">{{ i18n.t('experience.wizard.access.who.hint') }}</p>
@@ -454,6 +457,7 @@ export class ExperienceWizardComponent {
   readonly systemQuery = signal('');
   readonly langs = signal<string[]>([this.i18n.locale()]);
   readonly themeMode = signal('default');
+  readonly appearance = signal<BrandAppearance>({});
   readonly audience = signal<string[]>([]);
   readonly groups = signal<string[]>([]);
   readonly wholeWorkspace = signal(false);
@@ -811,7 +815,7 @@ export class ExperienceWizardComponent {
       expectedRevision: this.draftRevision(),
       bindings: this.stagedBindings(),
       languages: this.langs(),
-      theme: { mode: this.themeMode() },
+      theme: { mode: this.themeMode(), appearance: this.appearance() },
       accessPolicy: {
         roles: this.wholeWorkspace() ? [] : this.audience(),
         groups: this.wholeWorkspace() ? [] : this.groups(),
@@ -1006,7 +1010,7 @@ export class ExperienceWizardComponent {
         : uniqueExperienceSlug(this.name(), this.taken()),
       pattern: this.selectedPattern(),
       languages: this.langs(),
-      theme: { mode: this.themeMode() },
+      theme: { mode: this.themeMode(), appearance: this.appearance() },
     };
     const existing = this.experienceId();
     const expectedUpdatedAt = this.experienceUpdatedAt();
