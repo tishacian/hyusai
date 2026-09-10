@@ -730,6 +730,21 @@ def test_grounding_degraded_reply_fires_only_on_strict_and_empty_retrieval():
     assert chat._grounding_degraded_reply({"retrieval_metrics": {}}, policy) is None
 
 
+def test_grounding_degraded_reply_localizes_the_platform_default_to_english():
+    reply = chat._grounding_degraded_reply(
+        {"retrieval_metrics": {"chunks_retrieved": 0}},
+        {
+            "mode": "strict",
+            "fallback_disclaimer": chat.DEFAULT_FALLBACK_DISCLAIMER,
+        },
+        response_language="en",
+    )
+
+    assert reply is not None
+    assert reply.startswith("I could not find usable sources")
+    assert "Je n'ai" not in reply
+
+
 def test_grounding_degraded_reply_reports_fallback_reason():
     policy = {"mode": "strict", "fallback_disclaimer": "Pas de source fiable."}
     state = {

@@ -42,16 +42,24 @@ logger = get_logger(__name__)
 
 LatencyProfile = str
 
-_CATALOGUE_RE = re.compile(
-    r"\b("
-    r"disposes?-?tu|as[-\s]?tu|donn[ée]es?|data|datasets?|catalogue|inventaire|"
-    r"sources?|fichiers?|docs?|documents?|collections?|types?|formats?|extensions?|"
-    r"combien|nombre|count|how\s+many|what\s+data|available\s+data"
-    r")\b",
-    re.IGNORECASE,
-)
 _CATALOGUE_PHRASE_RE = re.compile(
     r"(?:de\s+quelles?\s+donn[ée]es?|quelles?\s+donn[ée]es?|what\s+data|available\s+data)",
+    re.IGNORECASE,
+)
+_CATALOGUE_OBJECT_RE = re.compile(
+    r"\b(?:data|donn[ée]es?|docs?|documents?|sources?|fichiers?|files?|collections?)\b",
+    re.IGNORECASE,
+)
+_CATALOGUE_CARDINALITY_RE = re.compile(
+    r"\b(?:combien(?:\s+de)?|nombre(?:\s+de)?|count(?:\s+of)?|how\s+many)\b"
+    r"(?:[\s\W]+[\wÀ-ÿ-]+){0,4}?[\s\W]+"
+    r"(?:data|donn[ée]es?|docs?|documents?|sources?|fichiers?|files?|collections?)\b",
+    re.IGNORECASE,
+)
+_CATALOGUE_LIST_RE = re.compile(
+    r"\b(?:liste(?:r)?|list)\b"
+    r"(?:[\s\W]+[\wÀ-ÿ-]+){0,4}?[\s\W]+"
+    r"(?:data|donn[ée]es?|docs?|documents?|sources?|fichiers?|files?|collections?)\b",
     re.IGNORECASE,
 )
 _PROJECT_SUMMARY_REQUEST_RE = re.compile(
@@ -238,14 +246,19 @@ def is_catalogue_query(query: str) -> bool:
         return False
     if _CATALOGUE_PHRASE_RE.search(text):
         return True
-    return bool(
-        _CATALOGUE_RE.search(text)
-        and re.search(
-            r"\b(data|donn[ée]es?|docs?|documents?|sources?|fichiers?|collections?)\b",
-            text,
-            re.IGNORECASE,
-        )
-    )
+    if re.search(r"\b(?:catalogue|inventaire|inventory)\b", text, re.IGNORECASE):
+        return True
+    if _CATALOGUE_CARDINALITY_RE.search(text):
+        return True
+    if _CATALOGUE_LIST_RE.search(text):
+        return True
+    if re.search(r"\b(?:types?|formats?|extensions?)\b", text, re.IGNORECASE):
+        return bool(_CATALOGUE_OBJECT_RE.search(text))
+    if re.search(
+        r"\b(?:disposes?-?tu|as[-\s]?tu|available)\b", text, re.IGNORECASE
+    ):
+        return bool(_CATALOGUE_OBJECT_RE.search(text))
+    return False
 
 
 def classify_intent(query: str) -> str:

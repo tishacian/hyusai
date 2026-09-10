@@ -59,7 +59,7 @@ from app.services.chat_execution_policy import (
     ChatExecutionDecision,
     resolve_chat_execution,
 )
-from app.services.chat_grounding import resolve_grounding_policy
+from app.services.chat_grounding import DEFAULT_FALLBACK_DISCLAIMER, resolve_grounding_policy
 from app.services.chat_run_ledger import enrich_chat_run_ledger
 from app.services.chat_trivial_bypass import TrivialBypass, maybe_trivial_bypass
 from app.services.evaluation.auto_eval import schedule_eval
@@ -1255,6 +1255,11 @@ def _grounding_degraded_reply(
     if _retrieval_has_grounded_context(state) is not False:
         return None
     disclaimer = str(policy.get("fallback_disclaimer") or "").strip()
+    if (
+        (response_language or "fr") == "en"
+        and disclaimer == DEFAULT_FALLBACK_DISCLAIMER
+    ):
+        disclaimer = "I could not find usable sources in the selected scope; I will not answer without documentary evidence."
     if not disclaimer:
         disclaimer = (
             "Je n'ai trouvé aucune source exploitable dans le périmètre sélectionné ; "
