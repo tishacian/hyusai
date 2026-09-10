@@ -3184,6 +3184,8 @@ async def publish_proposal_to_knowledge(
                 "source_type": metadata.get("source_type") or "expert_fiche",
                 "origin": metadata.get("origin"),
                 "input_modality": metadata.get("input_modality"),
+                "question": metadata.get("question"),
+                "sources": metadata.get("sources"),
                 "related_documents": metadata.get("related_documents"),
                 "fse_customer": metadata.get("fse_customer"),
                 "fse_machine": metadata.get("fse_machine"),
@@ -7516,29 +7518,73 @@ def _chat_correction_title(query: Optional[str]) -> str:
     return f"Correction experte – {snippet}"
 
 
+_CAPTURE_FICHE_FILENAME_RE = re.compile(r"^capture-[0-9a-f]{6,}\.md$", re.IGNORECASE)
+
+
+def _is_nested_expert_fiche_source(item: Mapping[str, Any]) -> bool:
+    """True when a chat source is itself a published fiche, not a document.
+
+    Copying those into the next fiche's « Sources citées » is how a strip
+    correction ended up citing the toile and nettoyage fiches. Provenance
+    must point at manuals, not at other expert captures.
+    """
+    source_type = str(item.get("type") or item.get("source_type") or "").strip().lower()
+    if source_type == "expert_fiche":
+        return True
+    if str(item.get("origin") or "").strip().lower() == "chat_correction":
+        return True
+    collection = str(item.get("collection") or item.get("collection_slug") or "").lower()
+    if "expert-fiche" in collection or "expert_fiche" in collection:
+        return True
+    for raw in (item.get("filename"), item.get("document_filename"), item.get("title")):
+        name = str(raw or "").strip().rsplit("/", 1)[-1]
+        if _CAPTURE_FICHE_FILENAME_RE.match(name):
+            return True
+    return False
+
+
 def _normalize_chat_correction_sources(sources: Optional[List[Any]]) -> List[Dict[str, Any]]:
-    """Coerce free-form chat sources into a stable list of dicts for metadata."""
+    """Keep the document provenance of a correction; drop nested fiches."""
     normalized: List[Dict[str, Any]] = []
+    seen: set[tuple[str, ...]] = set()
     for item in sources or []:
         if isinstance(item, Mapping):
+            if _is_nested_expert_fiche_source(item):
+                continue
             entry = {
                 key: value
                 for key, value in {
                     "title": _clean_optional_string(item.get("title") or item.get("name")),
+                    "filename": _clean_optional_string(
+                        item.get("filename") or item.get("document_filename")
+                    ),
                     "url": _clean_optional_string(item.get("url") or item.get("uri")),
                     "document_id": _clean_optional_string(item.get("document_id") or item.get("id")),
                     "collection": _clean_optional_string(
                         item.get("collection") or item.get("collection_slug")
                     ),
+                    "page": item.get("page")
+                    if isinstance(item.get("page"), (int, float, str)) and str(item.get("page") or "")
+                    else None,
                     "snippet": _clean_optional_string(item.get("snippet") or item.get("excerpt")),
                 }.items()
-                if value
+                if value not in (None, "")
             }
-            if entry:
-                normalized.append(entry)
+            if not entry:
+                continue
+            identity = (
+                str(entry.get("filename") or ""),
+                str(entry.get("document_id") or ""),
+                str(entry.get("title") or ""),
+                str(entry.get("page") or ""),
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
+            normalized.append(entry)
         else:
             label = _clean_optional_string(item)
-            if label:
+            if label and not _CAPTURE_FICHE_FILENAME_RE.match(label):
                 normalized.append({"title": label})
     return normalized
 
@@ -7560,12 +7606,24 @@ def _chat_correction_markdown(
     correction = str(correction_text or "").strip()
     source_lines = []
     for source in sources:
-        label = source.get("title") or source.get("url") or source.get("document_id")
+        label = (
+            source.get("title")
+            or source.get("filename")
+            or source.get("url")
+            or source.get("document_id")
+        )
         if not label:
             continue
+        if _CAPTURE_FICHE_FILENAME_RE.match(str(label).rsplit("/", 1)[-1]):
+            continue
+        page = source.get("page")
+        if page not in (None, ""):
+            label = f"{label} (p. {page})"
         url = source.get("url")
         source_lines.append(f"- [{label}]({url})" if url else f"- {label}")
-    sources_block = "\n".join(source_lines) or "- Aucune source citée."
+    sources_block = (
+        "\n".join(source_lines) or "- Aucune source documentaire — fait d'expert."
+    )
     expert_block = f"\n_Expert : {expert_name}_\n" if expert_name else ""
     return (
         f"# {title}\n"

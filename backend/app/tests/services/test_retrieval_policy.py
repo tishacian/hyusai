@@ -907,7 +907,10 @@ def test_expert_fiche_pin_on_reorders_fiche_to_top(monkeypatch):
 
 
 def _pin_aligned_sample():
-    chunks = ["Plain manual chunk.", "Expert fiche chunk."]
+    chunks = [
+        "Pump maintenance procedure from the manual.",
+        "Pump maintenance procedure corrected by an expert.",
+    ]
     scores = [0.95, 0.10]
     metadatas = [
         {"document_filename": "manual-extract.md"},
@@ -948,5 +951,38 @@ def test_expert_fiche_pin_aligned_on_promotes_fiche(monkeypatch):
     )
 
     assert ranked_metas[0]["document_filename"] == "fiche.md"
-    assert ranked_chunks[0] == "Expert fiche chunk."
+    assert ranked_chunks[0] == "Pump maintenance procedure corrected by an expert."
     assert ranked_metas[0]["expert_fiche_pinned"] is True
+
+
+def test_expert_fiche_pin_skips_off_topic_fiche(monkeypatch):
+    from app.core.config import settings as app_config
+
+    monkeypatch.setattr(app_config, "rag_expert_fiche_boost_enabled", True)
+    monkeypatch.setattr(app_config, "rag_expert_fiche_boost", 18)
+    monkeypatch.setattr(app_config, "rag_expert_fiche_pin_enabled", True)
+
+    rows = [
+        {
+            "content": "Notice injecteur de prémouillage : un seul strip par tube.",
+            "score": 0.40,
+            "metadata": {"document_filename": "notice-injecteur.pdf"},
+        },
+        {
+            "content": "Pour 90% des cas on installe une toile 2310PW sur le convoyeur J1.",
+            "score": 0.10,
+            "metadata": {
+                "document_filename": "capture-5fb7229f.md",
+                "source_type": "expert_fiche",
+                "question": "quelle est la réference de la toile du convoyeur j1",
+            },
+        },
+    ]
+
+    ranked = rerank_results_with_policy(
+        rows, "quel strip doit-on mettre dans l'injecteur de prémouillage", None
+    )
+
+    assert ranked[0]["metadata"]["document_filename"] == "notice-injecteur.pdf"
+    assert all("expert_fiche_pinned" not in r["metadata"] for r in ranked)
+    assert all("expert_fiche_boost_applied" not in r["metadata"] for r in ranked)

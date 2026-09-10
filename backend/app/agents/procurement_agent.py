@@ -256,6 +256,7 @@ _PLACEHOLDER_TITLE_RE = re.compile(
     r"nouveau\s+document|new\s+document|titre|title)$",
     re.IGNORECASE,
 )
+_CAPTURE_FICHE_FILENAME_RE = re.compile(r"^capture-[0-9a-f]{6,}\.md$", re.IGNORECASE)
 
 # Synthetic "analysis evidence" chunks are prefixed with a bureaucratic
 # locator header ("Document analysis evidence: <type>; file=...; locator=...."
@@ -335,13 +336,26 @@ def _filename_display(filename: Any) -> str:
 
 def _display_title(meta: dict[str, Any]) -> str:
     """Resolve a recognizable title, falling back past known placeholders."""
+    if _is_expert_fiche_meta(meta):
+        question = str(meta.get("question") or "").strip()
+        if question:
+            return question if len(question) <= 96 else f"{question[:93]}…"
+        published = str(meta.get("publication_final_title") or "").strip()
+        if published:
+            return published
     for key in ("title", "document_title"):
         value = str(meta.get(key) or "").strip()
-        if value and not _is_placeholder_title(value):
+        if (
+            value
+            and not _is_placeholder_title(value)
+            and not _CAPTURE_FICHE_FILENAME_RE.match(value)
+        ):
             return value
     filename = _filename_display(meta.get("document_filename") or meta.get("filename"))
-    if filename:
+    if filename and not _CAPTURE_FICHE_FILENAME_RE.match(filename):
         return filename
+    if _is_expert_fiche_meta(meta):
+        return "Fiche experte"
     # Nothing better than a placeholder is available — keep it rather than the
     # generic default so at least *something* is shown.
     for key in ("title", "document_title"):
