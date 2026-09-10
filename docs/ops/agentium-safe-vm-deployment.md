@@ -6110,3 +6110,77 @@ inchangé (`100`). Pas de dump, pas de `migrate`, pas de seed.
   Conformité sans `.hv2-monument` dans `#hypervisor-v2-unites`, au moins
   une `.hv2-unites-row`.
 - **17.** Non rejoué.
+
+## Itération du 10/09 (soir) — expérience d'adoption, déployée sur `ead98d91`
+
+Livraison du worktree `codex/adoption-roadmap` (base exacte `7a4924f7`,
+soit la révision alors en production : fast-forward pur, aucun conflit).
+Un seul commit `ead98d91` : parcours d'adoption, compagnon persistant
+scopé, guides d'aide `/help/{id}`, objectifs opérationnels, marque
+blanche d'espace, rail lisible et Diagnostics — le tout derrière
+`settings.features.adoption_experience_v1` (défaut off, **activé nulle
+part**). Hors drapeau : facettes System `skills/knowledge/flow` →
+`design/context` (anciens `?facet=` remappés), racine `''` résolue par
+le résolveur au lieu du redirect statique, `data-brand-scope` sur le
+shell non immersif, chat overlay déplacé dans `app.component`
+(`@defer`), job CI `agentium-frontend-quality` bloquant.
+
+**Premier déploiement avec Alembic** depuis `100` : migrations
+additives `101_member_experience` (JSON sur `workspace_members`),
+`102_assistant_requests` (table), `103_human_confirmation` (deux
+colonnes nullable sur `decisions`). Dump Postgres pris avant
+`migrate`. Rollback = redéployer `7a4924f7dd40` sans downgrade : les
+anciennes images ignorent colonnes nullable et table supplémentaire.
+Seed non relancé (le System « Operational Analysis » n'existe donc pas
+encore sur Showcase).
+
+Portes locales relancées dans le worktree avant commit : `check:i18n`
+7 551 clés, `check:nav-links` 0 lien brut, `check:ui-chrome` OK,
+`test:unit` 1 412/1 412, `build:prod` 888 kB, pytest ciblé (adoption,
+migrations 101–103, identifiants, sémantique et lecture V2, HITL,
+marque) 60 passed.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `7a4924f7dd406b831ca0b2eafd110d079b664330` → `ead98d91e4b8c844e75d21b2042435ce84fc00ff` (113 fichiers, +5 488 / −175) |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
+| Worktree | `sudo timeout 90 git fetch origin demo/agentic && sudo git merge --ff-only origin/demo/agentic` → `ead98d91…`, porcelain vide |
+| Dump | `pg_dump -Fc` 470 Mo → `/srv/agentium-data/hypervisor-v2-deployments/2026-09-10-ead98d91e4b8/pre-migrate-101-103.dump` |
+| Build | `agentium-{backend,worker,frontend}:ead98d91e4b8` (`e10483329d46` / `efd9c84bd3b6` / `2c264d52a2e7`), `AGENTIUM_IMAGE_REVISION` = SHA complet, 21:33 → 21:43 UTC ; `build.log` dans le même dossier |
+| Disque | `/` 86 %, **58 Go** libres après les images — sous les 63 Go du matin, rétention d'images à traiter avant le prochain déploiement |
+| `storage-check` / `migrate` | sortie 0 ; `100_capability_value_basis` → `101` → `102` → `103_human_confirmation`, DDL transactionnel |
+| `up` / `ps` | cinq services recréés, backend et frontend `healthy` ; `deploy.log` dans le dossier |
+| `build-info` | `revision: ead98d91e4b8c844e75d21b2042435ce84fc00ff`, `revision_verified: true` en `:8001` et `https://agentium.papai.ai` ; `/` = 200 ; `/api/v1/help-content/guides/start?language=fr` = 200 ; 0 `Traceback` sur backend, worker, beat, p4 |
+| Schéma | `alembic_version = 103_human_confirmation` ; `assistant_requests` vide ; `decisions.human_confirmed_{by,at}` présents |
+| Drapeaux | `hypervisor_v2 = true` sur Showcase seul ; `adoption_experience_v1` absent de tous les espaces ; `experience_v1` inchangé (Showcase, Nawa) ; alias flottant `demo-agentic` non déplacé |
+| Canaris carakai | checkout `ab9a4f76` → `ead98d91` par bundle `ab9a4f76..demo/agentic` (sha256 `2714fc1027e251b6559cfe9c56d89dcfddcbae46399980cae4ce6cb18775a203`), marqueur réaligné. Specs 20, 11, 16 : **2 passed / 1 failed / 2 skipped** en 24,8 s, artefacts `/tmp/iteration-canaries-20260910T214916Z.vAVHXO` |
+| Rollback | `AGENTIUM_IMAGE_TAG=7a4924f7dd40` puis `up` ; ne pas downgrader Alembic |
+
+### Canaris 20, 11 et 16
+
+- **11 — System 360.** **Vert** (13,2 s).
+- **20 — Hypervisor V2.** **Vert** (8,4 s) : flag off garde V1, flag on
+  sert le registre tonal, catalogue Conformité sans monument.
+- **16 — Experience /work.** **Rouge, état de données et non code** :
+  `GET /work` renvoie 0 Experience sur Showcase. En base, Showcase a
+  1 Experience et **0 `experience_deployments`** (Nawa : 9 / 5, canaux
+  pilot et live). L'endpoint `/work` n'est pas modifié par `ead98d91`
+  (seule `_validate_theme` change, côté écriture). Le canari exige un
+  déploiement pilot/live sur Showcase, bloqué depuis le seed complet
+  (`flow_output_sink_required`, `decision_branch_unwired`). Les deux
+  contrats locaux (adoption, marque blanche) sont `skipped` sans
+  `E2E_ADOPTION_MOCKED=1`, comme prévu.
+- **17.** Non rejoué.
+
+### Reste à faire avant toute activation
+
+- Publier une Experience pilot sur Showcase (ou corriger le seed) pour
+  rendre le canari 16 vert, puis rejouer 16 avant d'activer
+  `adoption_experience_v1` sur Showcase.
+- Contrôle visuel Nawa et Andritz (facettes System, racine, ⌘J, shell
+  `data-brand-scope`) — non fait ce soir.
+- Pipeline GitLab : premier passage du job `agentium-frontend-quality`
+  à observer ; il bloque désormais la production GitLab.
+- Rétention d'images : 58 Go libres pour un préflight à 40 Go.
