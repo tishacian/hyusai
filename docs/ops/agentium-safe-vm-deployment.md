@@ -6073,3 +6073,40 @@ a avancé `7ae835ec` → `cbcb298c` (journal d'incident `3c0591c4` inclus).
 `decision_branch_unwired` / `escalate`). Canari 17 light-theme
 `color-contrast`. Tip radial à 91 rais. Récursion narration, `restart:
 no` sur kc/livekit, rétention des images.
+
+## Itération du 10/09 — catalogue Conformité, déployée sur `ab9a4f76`
+
+Le héros Conformité de `cbcb298c` empilait cinq monuments (56 px) dans
+la grille Direction : les unités natives écrasaient couverture et
+décision, et les `output_unit` restaient en snake_case. Cette tranche
+les ramène à un catalogue à l'échelle du registre (compte tabulaire,
+nom lisible, points de poids) pour que les trois faits tiennent dans
+la même bande. Spec 21 sombre/clair verte en local avant push.
+
+Delta borné au composant V2 + canaris 20/21 + grammaire. Alias
+flottant `demo-agentic` non déplacé. `hypervisor_v2` laissé `true`
+uniquement sur `agentium-showcase` ; aucune vue stockée. Alembic
+inchangé (`100`). Pas de dump, pas de `migrate`, pas de seed.
+
+### Observables du déploiement
+
+| Pas | Observé |
+|---|---|
+| Push | `demo/agentic` en fast-forward `d1e590da72ec5d7ca8793776d7a9b5f0b4855d91` → `ab9a4f76f4024bbae19b5aba7c7c632734d20351` |
+| Ancre | `/home/ubuntu/omnirag` **intouchée** (`56a9c57b`) |
+| Worktree | `sudo git fetch origin demo/agentic && sudo git merge --ff-only FETCH_HEAD` → `ab9a4f76…`, porcelain vide |
+| Build | `agentium-{backend,worker,frontend}:ab9a4f76f402` (`1bb01317d5b4` / `344cbe5c3bb9` / `6b7ffb0b8c74`), `AGENTIUM_IMAGE_REVISION` = SHA complet, ~10 min ; journaux `/srv/agentium-data/hypervisor-v2-deployments/2026-09-10-ab9a4f76f402/build.log` |
+| Disque | `/` 84 %, **63 Go** libres après les images |
+| `storage-check` / `up` | sortie 0 ; tête Alembic déjà `100` ; cinq services recréés, backend et frontend `healthy` |
+| `build-info` | `revision: ab9a4f76f4024bbae19b5aba7c7c632734d20351`, `revision_verified: true` en `:8001` et `https://agentium.papai.ai` ; `/` = 200 ; 0 `traceback` |
+| Seed / flag / vues | intouchés. Showcase `hypervisor_v2 = true`, `hypervisor_views` absent. Nawa sans drapeau |
+| Canaris carakai | checkout `cbcb298c` → `ab9a4f76` par bundle `cbcb298c..HEAD` (sha256 `77f689b9963e5cb3b7eccb635f12e730718386d21b1631fff0aeaf575b1bf948`), marqueur réaligné. Specs 20 et 11, `E2E_HYPERVISOR_V2_CANARY=1`. **2 passed / 0 failed** en 25,8 s, artefacts `/tmp/iteration-canaries-20260910T065546Z.yoPFlu` |
+| Rollback | `AGENTIUM_IMAGE_TAG=cbcb298c91e0` puis `up` |
+
+### Canaris 20 et 11
+
+- **11 — System 360.** **Vert** (16,3 s).
+- **20 — Hypervisor V2.** **Vert** (8,4 s). Inclut le contrat catalogue :
+  Conformité sans `.hv2-monument` dans `#hypervisor-v2-unites`, au moins
+  une `.hv2-unites-row`.
+- **17.** Non rejoué.
