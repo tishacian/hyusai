@@ -6184,10 +6184,48 @@ est disponible. Seed non relancé : pas de System « Operational
 Analysis », aucune Experience déployée sur Showcase. Aucun autre
 espace touché ; 0 traceback après activation.
 
+### Corrections du matin — `912b554b` puis `769563d4`
+
+Premier regard sponsor sur Showcase avec le drapeau actif : deux
+défauts.
+
+- **Clés brutes dans le sommaire** : `systems.view.tab.design` et
+  `systems.view.tab.context` apparaissaient telles quelles. Le catalogue
+  de navigation les référençait mais aucun dictionnaire ne les
+  définissait (seule `.overview` existait) ; `check:i18n` ne scanne pas
+  les chaînes du catalogue. Ajoutées FR/EN (« Conception » /
+  « Contexte ») et les onglets de la fiche System, codés en dur
+  (« Design », « Context »), passent par les mêmes clés.
+- **Chat dépouillé** : avec le drapeau, `AssistantPilotComponent`
+  (fieldset, cases à cocher, `<pre>` JSON) remplaçait tout
+  `ChatWorkspaceComponent` dans l'overlay ⌘J. Le pilote devient opt-in :
+  `ChatOverlayService.pilot`, posé par `open({ pilot: true })` depuis
+  les boutons « Piloter avec la conversation » de Work, ou par un bouton
+  de bascule « Piloter les Systems » / « Revenir au chat » dans la barre
+  de l'overlay. ⌘J rouvre le chat conçu.
+
+Portes : i18n 7 555 clés, ui-chrome OK, unit 1 412/1 412, build 888 kB,
+spec 16 « Adoption local contract » mockée verte. Déployé `912b554b`
+(3 images, `storage-check`, `up`, healthy, `build-info` vérifié,
+Alembic `103`, 0 traceback, `/` 86 %, 56 Go libres).
+
+Canaris sur `912b554b` : **20 vert, 11 rouge** — le rail Showcase dit
+désormais « Suivre » et le canari 11 cherchait « Opérer ». Conséquence
+de l'activation du drapeau, pas de la correction. `zoneLabels` élargi
+au vocabulaire d'adoption (Suivre/Monitor, Améliorer/Improve,
+Administrer/Administer) dans `769563d4`, redéployé par le circuit
+normal pour que le checkout carakai égale le SHA live. Live
+`769563d4`, `revision_verified: true`, healthy, 0 traceback, `/` 87 %,
+**54 Go** libres. Canaris 20 et 11 : **2 passed / 0 failed** en 27,8 s
+(`/tmp/iteration-canaries-20260911T060710Z.0IGdp9`). Rollback :
+`AGENTIUM_IMAGE_TAG=ead98d91e4b8` puis `up`.
+
 ### Reste à faire
 
 - Publier une Experience pilot sur Showcase (ou corriger le seed) pour
   rendre le canari 16 vert.
+- Restyler `AssistantPilotComponent` au niveau du chat conçu avant d'en
+  faire le compagnon par défaut.
 - Contrôle visuel Nawa et Andritz (facettes System, racine, ⌘J, shell
   `data-brand-scope`) — non fait ce soir.
 - Pipeline GitLab : premier passage du job `agentium-frontend-quality`
