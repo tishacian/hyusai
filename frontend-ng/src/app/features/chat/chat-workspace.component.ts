@@ -24,7 +24,7 @@ import {
 } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { TagComponent } from '@app/shared/cockpit';
-import { ChatPanelComponent } from './chat-panel.component';
+import { ChatPanelComponent, type ChatViewMode } from './chat-panel.component';
 import { ThinkingOrbComponent } from '@app/shared/cockpit';
 import { type ChatStartMode } from './chat-overlay.service';
 
@@ -132,7 +132,12 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
           </div>
         } @else {
           <div class="t-header-left">
-            <ck-tag [tone]="modeTone()" variant="solid">{{ modeLabel() }}</ck-tag>
+            <!-- The mode badge names an internal distinction (quick / system /
+                 drop) that Quick Ask does not ask the user to hold. The hint
+                 alone carries the useful half. -->
+            @if (!simpleMode()) {
+              <ck-tag [tone]="modeTone()" variant="solid">{{ modeLabel() }}</ck-tag>
+            }
             <span class="t-header-hint">{{ modeHint() }}</span>
           </div>
           <div class="t-header-right">
@@ -337,6 +342,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [assistantProfileKey]="assistantProfileKey()"
             [initialPrompt]="initialPrompt()"
             [autoStartVoiceLoop]="autoStartVoiceLoop()"
+            [viewMode]="viewMode()"
           />
         </section>
       </div>
@@ -842,6 +848,14 @@ export class ChatWorkspaceComponent implements OnInit {
   readonly initialPrompt = input<string | null>(null);
   /** When true, open the chat in persistent session voice loop mode. */
   readonly autoStartVoiceLoop = input(false);
+  /**
+   * How much of the chat panel to render. Forwarded verbatim: this component
+   * lays out the context picker and the dropzone, and takes no view on which
+   * expert controls the panel shows. Containers decide (see
+   * `ChatFocusComponent`), so `/chat` and the overlay keep today's behaviour.
+   */
+  readonly viewMode = input<ChatViewMode>('standard');
+  readonly simpleMode = computed(() => this.viewMode() === 'simple');
 
   readonly systems = signal<System[]>([]);
   readonly selectedSystemId = signal<string | null>(null);

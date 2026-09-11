@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import type { ModelReadiness } from '@app/features/resources/model-plane.types';
 
 export interface CapturePlanRequest {
   objective: string;
@@ -739,6 +740,17 @@ export class ApiService {
 
   listVoiceRuntimes(): Observable<VoiceRuntimeCatalog> {
     return this.get<VoiceRuntimeCatalog>('/voice/runtimes');
+  }
+
+  /**
+   * Readiness of the workspace's active provider/model selection.
+   *
+   * Scoped like every other call here: the slug rides the workspace header, so
+   * a late answer from the workspace the user just left is still attributable
+   * and can be dropped by the caller's request-scope check.
+   */
+  getModelReadiness(options?: { workspaceSlug?: string | null }): Observable<ModelReadiness> {
+    return this.get<ModelReadiness>('/models/readiness', undefined, options);
   }
 
   listKnowledgeGuides(params?: {
