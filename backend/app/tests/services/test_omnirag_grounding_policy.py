@@ -50,6 +50,8 @@ def test_strict_grounding_prompt_preserves_source_required_behavior():
 
     assert "answer from general knowledge" not in system_prompt
     assert "say so clearly rather than guessing" in user_prompt
+    assert "authoritative over conversation history" in user_prompt
+    assert "ignore the stale answer completely" in user_prompt
 
 
 def test_context_assembly_keeps_extra_context_but_caps_displayed_sources():

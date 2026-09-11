@@ -822,6 +822,7 @@ If the context is not relevant or missing, say so clearly rather than guessing."
     answer_shaping_lines = [
         "Answer-shaping instructions:",
         "- Start with the direct factual answer or synthesis; do not open with discovery phrases such as \"I found\" or \"the documents indicate\".",
+        "- Treat the Knowledge base context for this turn as authoritative over conversation history. If an earlier assistant answer conflicts with the current context, ignore the stale answer completely and use only the current context for that fact.",
         "- Include useful evidence/citations after the answer when workspace sources exist.",
         "- For broad questions, synthesize by theme instead of listing every retrieved excerpt; use 3 to 5 key points only when useful.",
         "- If the retrieved content is too thin or contradictory, say that explicitly and name the gap.",

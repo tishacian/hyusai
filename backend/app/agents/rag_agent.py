@@ -500,6 +500,8 @@ Context:
 
 Question: {query}
 
+The current retrieved context is authoritative. If an earlier assistant answer conflicts with it, ignore the stale answer and use the current context.
+
 Please provide a comprehensive answer based on the context above. Format your response using Markdown:
 - Use **bold** for important terms
 - Use *italics* for emphasis
@@ -543,7 +545,15 @@ If the context doesn't contain enough information to answer the question, use yo
                 lines.append(f"{role}: {msg.get('content', '')}")
             history_text = "\n\nPrevious conversation:\n" + "\n".join(lines) + "\n\n"
         rendered = template.format(context=context or "(no retrieved context)", question=query)
-        return f"{rendered}{history_text}"
+        # Keep history before the current evidence and question. Appending it
+        # after the template made a stale prior assistant answer the final
+        # content seen by small local models, which could override freshly
+        # retrieved replacement-context evidence.
+        return (
+            f"{history_text}{rendered}\n\n"
+            "The current retrieved context is authoritative. If an earlier assistant answer "
+            "conflicts with it, ignore the stale answer and use the current context."
+        )
 
     def _construct_general_prompt(self, query: str, conversation_history: list = None) -> str:
         """Construct general knowledge prompt when no context is available"""

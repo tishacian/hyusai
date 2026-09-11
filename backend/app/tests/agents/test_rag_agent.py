@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.agents.rag_agent import RAGAgent
+from app.services.system_prompts.types import SystemPromptType
 
 
 class _FakeStream:
@@ -101,3 +102,37 @@ async def test_rag_agent_uses_planned_retrieval_context(monkeypatch):
     first_text = next(event for event in events if event.get("chunk_type") == "text")
     assert first_text["sources"][0]["id"] == "chunk-1"
     assert first_text["sources"][0]["metadata"]["document_filename"] == "manual.pdf"
+
+
+def test_reasoning_template_places_current_evidence_after_stale_history():
+    agent = object.__new__(RAGAgent)
+
+    prompt = agent._render_reasoning_template(
+        SystemPromptType.FACTUAL,
+        "How many annual leave days are provided?",
+        "Employees receive 22 paid working days of annual leave.",
+        [
+            {
+                "role": "assistant",
+                "content": "Employees receive 35 paid working days of annual leave.",
+            }
+        ],
+    )
+
+    assert prompt is not None
+    assert prompt.index("35 paid") < prompt.index("22 paid")
+    assert prompt.index("22 paid") < prompt.index("current retrieved context is authoritative")
+    assert "ignore the stale answer" in prompt
+
+
+def test_default_rag_prompt_marks_current_context_authoritative():
+    agent = object.__new__(RAGAgent)
+
+    prompt = agent._construct_prompt(
+        "How many annual leave days are provided?",
+        "Employees receive 22 paid working days of annual leave.",
+        [{"role": "assistant", "content": "The allowance is 35 days."}],
+    )
+
+    assert prompt.index("35 days") < prompt.index("22 paid")
+    assert "current retrieved context is authoritative" in prompt
