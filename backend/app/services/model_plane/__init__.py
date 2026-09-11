@@ -1,7 +1,7 @@
 """Model plane: live provider health, serving-node proxy, routing distribution."""
 
 from app.services.model_plane.distribution import get_distribution
-from app.services.model_plane.providers import list_providers
+from app.services.model_plane.providers import get_readiness, list_providers
 from app.services.model_plane.registration import (
     build_llm,
     list_routable_providers,
@@ -20,6 +20,7 @@ __all__ = [
     "create_instance",
     "delete_instance",
     "get_distribution",
+    "get_readiness",
     "list_nodes",
     "list_providers",
     "list_routable_providers",

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
+import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -211,6 +213,24 @@ class DeepRecommendedOrchestrator:
 class ExplodingOrchestrator:
     async def process_request(self, _request):
         raise AssertionError("trivial bypass should not call orchestrator")
+
+
+class StoppedProviderOrchestrator:
+    async def process_request(self, _request):
+        if False:  # pragma: no cover - keeps this an async generator
+            yield {}
+        raise httpx.ConnectError(
+            "All connection attempts failed for http://ollama.internal:11434?token=secret",
+            request=httpx.Request("POST", "http://ollama.internal:11434/api/chat"),
+        )
+
+
+def _sse_payloads(response) -> list[dict]:
+    return [
+        json.loads(line.removeprefix("data: "))
+        for line in response.text.splitlines()
+        if line.startswith("data: {")
+    ]
 
 
 def test_chat_completion_trivial_bypasses_orchestrator(db_session, monkeypatch):
@@ -1076,6 +1096,40 @@ def test_chat_stream_timeout_returns_controlled_error(db_session, monkeypatch):
     assert '"partial_answer_chars"' in response.text
     assert "data: [DONE]" in response.text
     assert db_session.query(Run).filter(Run.workspace_id == workspace.id).count() == 0
+
+
+def test_chat_stream_stopped_provider_is_structured_compatible_and_redacted(
+    db_session, monkeypatch
+):
+    workspace = Workspace(id="ws-stopped-provider", name="Stopped", slug="stopped-provider")
+    db_session.add(workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, StoppedProviderOrchestrator(), monkeypatch).post(
+        "/chat/stream",
+        json={"query": "Generate a provider-backed answer"},
+    )
+
+    assert response.status_code == 200
+    errors = [item for item in _sse_payloads(response) if item["chunk_type"] == "error"]
+    assert len(errors) == 1
+    event = errors[0]
+    assert event["code"] == "CHAT_STREAM_ERROR"
+    assert event["content"] == event["error"]["message"]
+    assert event["is_final"] is True
+    assert event["error"] == {
+        "code": "provider_unreachable",
+        "message": (
+            "The configured model provider is unreachable. "
+            "Check that it is running and try again."
+        ),
+        "retryable": True,
+    }
+    assert event["recoverable"] is True
+    assert "All connection attempts failed" not in response.text
+    assert "ollama.internal" not in response.text
+    assert "secret" not in response.text
+    assert "data: [DONE]" in response.text
 
 
 def test_chat_stream_vigie_map_query_emits_map_command(db_session, monkeypatch):
