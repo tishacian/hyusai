@@ -5,6 +5,7 @@ import tempfile
 import os
 import numpy as np
 from app.services.rag.document_service import DocumentService, _document_extra_metadata
+from app.services.vector_db.faiss_db import FAISSVectorDB
 from app.services.vector_db.factory import VectorDBFactory
 
 
@@ -21,6 +22,28 @@ class FakeVectorDB:
         for embedding, metadata, chunk_id in zip(embeddings, metadatas, ids):
             self.vectors[chunk_id] = np.array(embedding)
             self.metadatas[chunk_id] = dict(metadata)
+
+    async def delete(self, ids):
+        for chunk_id in ids:
+            self.vectors.pop(chunk_id, None)
+            self.metadatas.pop(chunk_id, None)
+
+    async def delete_by_metadata(self, filters=None):
+        matching = [
+            chunk_id
+            for chunk_id, metadata in self.metadatas.items()
+            if all(metadata.get(key) == value for key, value in (filters or {}).items())
+        ]
+        await self.delete(matching)
+        return True
+
+    async def list_payloads(self, filters=None, limit=100, offset=0):
+        payloads = [
+            {**metadata, "chunk_id": chunk_id}
+            for chunk_id, metadata in self.metadatas.items()
+            if all(metadata.get(key) == value for key, value in (filters or {}).items())
+        ]
+        return payloads[offset : offset + limit]
 
     async def search(self, query_embedding, top_k: int = 10, filters=None):
         query = np.array(query_embedding)
@@ -60,13 +83,13 @@ def sample_text_file():
 It involves training algorithms on data to make predictions.
 Deep learning uses neural networks with multiple layers.
 Natural language processing helps computers understand human language."""
-    
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
         f.write(content)
         temp_path = f.name
-    
+
     yield temp_path
-    
+
     # Cleanup
     if os.path.exists(temp_path):
         os.unlink(temp_path)
@@ -107,7 +130,7 @@ async def test_document_ingestion(sample_text_file, fake_vector_db):
     service = DocumentService(collection_name="test_collection")
     assert service.vector_db_type == "qdrant"
     result = await service.ingest_document(sample_text_file)
-    
+
     assert result["status"] == "success"
     assert "document_id" in result
     assert result["chunks_processed"] > 0
@@ -118,17 +141,97 @@ async def test_document_search(sample_text_file, fake_vector_db):
     """Test document search"""
     service = DocumentService(collection_name="test_collection")
     assert service.vector_db_type == "qdrant"
-    
+
     # First ingest document
     await service.ingest_document(sample_text_file)
-    
+
     # Then search
     results = await service.search("machine learning", top_k=5)
-    
+
     assert len(results) > 0
     assert "id" in results[0]
     assert "score" in results[0]
     assert "metadata" in results[0]
+
+
+@pytest.mark.asyncio
+async def test_reupload_same_filename_replaces_old_chunks_and_keeps_stable_id(
+    tmp_path, fake_vector_db
+):
+    first_dir = tmp_path / "upload-one"
+    second_dir = tmp_path / "upload-two"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    first_path = first_dir / "company-policy.md"
+    second_path = second_dir / "company-policy.md"
+    first_path.write_text("Employees receive 25 paid working days.")
+    second_path.write_text("Employees receive 27 paid working days.")
+
+    service = DocumentService(
+        collection_name="documents",
+        vector_db_type="faiss",
+        workspace_slug="personal-test",
+        use_cache=True,
+        use_hybrid=False,
+        use_reranker=False,
+    )
+    first = await service.ingest_document(str(first_path))
+    service.cache.set(
+        "annual leave",
+        5,
+        [{"content": "25 paid working days"}],
+        namespace=service.cache_namespace,
+    )
+    second = await service.ingest_document(str(second_path))
+
+    assert first["status"] == "success"
+    assert second["status"] == "success"
+    assert first["document_id"] == second["document_id"]
+    assert len(fake_vector_db.metadatas) == second["chunks_processed"]
+    indexed_content = "\n".join(
+        metadata["content"] for metadata in fake_vector_db.metadatas.values()
+    )
+    assert "27 paid working days" in indexed_content
+    assert "25 paid working days" not in indexed_content
+    assert (
+        service.cache.get(
+            "annual leave",
+            5,
+            namespace=service.cache_namespace,
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_faiss_filtered_delete_rebuilds_index_without_duplicate_vectors(tmp_path):
+    vector_db = FAISSVectorDB(
+        persist_directory=str(tmp_path),
+        collection_name="replacement-test",
+    )
+    await vector_db.create_index(2)
+    await vector_db.add_vectors(
+        np.array([[1.0, 0.0], [0.9, 0.1], [0.0, 1.0]]),
+        [
+            {"document_filename": "policy.md", "content": "25 days"},
+            {"document_filename": "policy.md", "content": "carry over"},
+            {"document_filename": "other.md", "content": "other"},
+        ],
+        ["old-1", "old-2", "other-1"],
+    )
+
+    assert await vector_db.delete_by_metadata({"document_filename": "policy.md"})
+    assert await vector_db.get_count() == 1
+    assert vector_db.index.ntotal == 1
+    assert await vector_db.get_all_ids() == ["other-1"]
+
+    reloaded = FAISSVectorDB(
+        persist_directory=str(tmp_path),
+        collection_name="replacement-test",
+    )
+    assert await reloaded.get_count() == 1
+    assert reloaded.index.ntotal == 1
+    assert await reloaded.get_all_ids() == ["other-1"]
 
 
 @pytest.mark.asyncio
