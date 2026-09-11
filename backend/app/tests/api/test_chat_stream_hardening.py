@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.iam.roles import WORKSPACE_OWNER
 from app.models.context import Context
 from app.models.run import Run, SkillInvocation
+from app.models.user import Session as ChatSession
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
@@ -346,6 +347,96 @@ def test_chat_stream_uses_selected_context_collection(db_session, monkeypatch):
     assert orchestrator.last_request["context"]["context_id"] == "ctx-context-chat"
     run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
     assert run.output_ref["context_id"] == "ctx-context-chat"
+
+
+def test_chat_stream_scopes_drop_and_ask_replace_context_to_attached_files(
+    db_session, monkeypatch
+):
+    workspace = Workspace(id="ws-drop-chat", name="Drop Chat", slug="drop-chat")
+    db_session.add(workspace)
+    db_session.add(
+        Context(
+            id="ctx-drop-chat",
+            workspace_id=workspace.id,
+            name="Drop-and-ask policy",
+            environment_state={"collection": "documents"},
+            data_refs=["demo-company-policy.md"],
+            business_constraints={"source": "drop_and_ask"},
+            ephemeral=True,
+        )
+    )
+    db_session.commit()
+    orchestrator = CapturingOrchestrator()
+
+    response = _client(db_session, workspace, orchestrator, monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "How many annual leave days are provided?",
+            "context_id": "ctx-drop-chat",
+            "context_mode": "replace",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "data: [DONE]" in response.text
+    assert orchestrator.last_request["context_collection"] == "documents"
+    assert orchestrator.last_request["retrieval_filters"] == {
+        "document_filename": ["demo-company-policy.md"]
+    }
+
+
+def test_chat_stream_restores_tagged_context_from_resumed_session(
+    db_session, monkeypatch
+):
+    workspace = Workspace(
+        id="ws-resumed-drop-chat",
+        name="Resumed Drop Chat",
+        slug="resumed-drop-chat",
+    )
+    db_session.add(workspace)
+    db_session.add(
+        Context(
+            id="ctx-resumed-drop-chat",
+            workspace_id=workspace.id,
+            name="Resumed drop-and-ask policy",
+            environment_state={"collection": "documents"},
+            data_refs=["demo-company-policy.md"],
+            business_constraints={"source": "drop_and_ask"},
+            ephemeral=True,
+        )
+    )
+    db_session.commit()
+    orchestrator = CapturingOrchestrator()
+    client = _client(db_session, workspace, orchestrator, monkeypatch)
+    session = ChatSession(
+        id="session-resumed-drop-chat",
+        user_id=f"user-{workspace.id}",
+        workspace_id=workspace.id,
+        status="active",
+        context_signature="resumed-drop-chat",
+        meta_data={
+            "context_id": "ctx-resumed-drop-chat",
+            "context_mode": "replace",
+        },
+    )
+    db_session.add(session)
+    db_session.commit()
+
+    response = client.post(
+        "/chat/stream",
+        json={
+            "query": "How many annual leave days are provided?",
+            "session_id": session.id,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "data: [DONE]" in response.text
+    assert orchestrator.last_request["context_id"] == "ctx-resumed-drop-chat"
+    assert orchestrator.last_request["context_mode"] == "replace"
+    assert orchestrator.last_request["retrieval_filters"] == {
+        "document_filename": ["demo-company-policy.md"]
+    }
 
 
 def test_chat_stream_clamps_untrusted_fast_retrieval_budget(db_session, monkeypatch):

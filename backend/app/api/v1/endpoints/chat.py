@@ -75,6 +75,7 @@ from app.services.industrial_answer_profile import (
     resolve_answer_profile,
 )
 from app.services.knowledge_capture import is_teaching_utterance
+from app.services.knowledge_collections import normalize_source_name
 from app.services.mission_room import (
     briefing_payload,
     cockpit_payload,
@@ -693,6 +694,32 @@ def _touch_chat_session(
         session.title = _chat_title_from_query(query)
 
 
+def _restore_chat_request_from_session(
+    request: ChatRequest,
+    session: Optional[ChatSession],
+) -> None:
+    """Restore sticky chat scope when a resumed client omits it.
+
+    The quick-chat route persists only ``session_id`` across a reload. The
+    server remains the source of truth for the Context that was selected when
+    the session was created, so later turns must inherit it instead of silently
+    broadening back to the whole workspace collection.
+    """
+    if not session or request.context_id:
+        return
+    metadata = session.meta_data if isinstance(session.meta_data, dict) else {}
+    context_id = str(metadata.get("context_id") or "").strip()
+    if not context_id:
+        return
+    request.context_id = context_id
+    if not request.context_mode:
+        context_mode = str(metadata.get("context_mode") or "").strip().lower()
+        if context_mode in {"replace", "combine"}:
+            request.context_mode = context_mode
+    if not request.knowledge_scope and metadata.get("knowledge_scope"):
+        request.knowledge_scope = str(metadata["knowledge_scope"])
+
+
 def _resolve_chat_context(
     db: Session,
     *,
@@ -742,6 +769,33 @@ def _apply_context_to_chat_request(
             request_dict["context_collection"] = str(collection)
         if not request_dict.get("knowledge_scope") and knowledge_scope:
             request_dict["knowledge_scope"] = str(knowledge_scope)
+
+        # A drop-and-ask Context represents the files explicitly attached to
+        # this chat turn, not the entire shared collection that stores them.
+        # In replace mode those filenames are a hard retrieval boundary. The
+        # previous implementation carried data_refs only as audit context, so
+        # retrieval saw an empty filter and mixed in unrelated documents.
+        constraints = context.business_constraints or {}
+        is_drop_and_ask = (
+            isinstance(constraints, dict)
+            and constraints.get("source") == "drop_and_ask"
+        )
+        if (
+            is_drop_and_ask
+            and str(request_dict.get("context_mode") or "").lower() == "replace"
+            and collection
+        ):
+            filenames = list(
+                dict.fromkeys(
+                    normalize_source_name(ref)
+                    for ref in data_refs
+                    if isinstance(ref, str) and normalize_source_name(ref)
+                )
+            )
+            if filenames:
+                retrieval_filters = dict(request_dict.get("retrieval_filters") or {})
+                retrieval_filters["document_filename"] = filenames
+                request_dict["retrieval_filters"] = retrieval_filters
 
 
 def _int_budget(value: Any, default: int) -> int:
@@ -2423,6 +2477,7 @@ async def chat_completion(
             request_payload=request.model_dump(),
         )
         request.session_id = chat_session.id
+        _restore_chat_request_from_session(request, chat_session)
 
         chat_context = _resolve_chat_context(
             db,
@@ -3332,6 +3387,7 @@ async def create_deep_retrieval_job(
         session = session_query.first()
         if not session:
             raise HTTPException(status_code=404, detail="Chat session not found")
+    _restore_chat_request_from_session(request, session)
 
     chat_context = _resolve_chat_context(
         db,
@@ -3584,6 +3640,7 @@ async def chat_stream(
                     request_payload=request.model_dump(),
                 )
                 request.session_id = chat_session.id
+                _restore_chat_request_from_session(request, chat_session)
             except HTTPException:
                 yield _sse_data(
                     _error_chunk(
