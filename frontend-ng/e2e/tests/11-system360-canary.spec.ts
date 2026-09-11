@@ -311,10 +311,11 @@ async function selectFacet(page: Page, facet: Facet): Promise<void> {
 
 /** Lot 6 rail + eyebrow: `nav.build.create` / `nav.{lens}` in FR and EN, plus CSS uppercase. */
 const zoneLabels: Record<Lens, RegExp> = {
+  // Each lens accepts the Cockpit vocabulary and the adoption_experience_v1 rail labels.
   build: /Créer|CRÉER|Create|CREATE/,
-  operate: /Opérer|OPÉRER|Operate|OPERATE/,
-  steer: /Piloter|PILOTER|Steer|STEER/,
-  govern: /Gouverner|GOUVERNER|Govern|GOVERN/,
+  operate: /Opérer|OPÉRER|Operate|OPERATE|Suivre|SUIVRE|Monitor|MONITOR/,
+  steer: /Piloter|PILOTER|Steer|STEER|Améliorer|AMÉLIORER|Improve|IMPROVE/,
+  govern: /Gouverner|GOUVERNER|Govern|GOVERN|Administrer|ADMINISTRER|Administer|ADMINISTER/,
 };
 
 async function selectLens(page: Page, lens: Lens, systemId: string, facet: Facet): Promise<void> {
