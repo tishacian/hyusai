@@ -886,7 +886,10 @@ class OmniRAGAgent(BaseAgent):
             name="RAG Agent",
             agent_type="rag",
         )
-        self._llm = None
+        # LLM clients are provider-specific.  A single client created from the
+        # process default silently routed every request through OpenAI even
+        # when Chat supplied an Ollama/Anthropic provider override.
+        self._llms: dict[str, Any] = {}
         # Cache DocumentService instances by (workspace_slug, collection, vector_db_type)
         # so we don't rebuild retrieval helpers on every request, but still keep
         # each tenant's index isolated. A single shared instance (the pre-D8
@@ -899,15 +902,16 @@ class OmniRAGAgent(BaseAgent):
         self.status = "active"
         logger.info("Procurement agent initialized")
 
-    def _get_llm(self):
-        if self._llm is None:
+    def _get_llm(self, provider: str | None = None):
+        provider_name = str(provider or settings.default_provider or "openai").strip().lower()
+        if provider_name not in self._llms:
             from app.llm.llm import LLM
 
-            self._llm = LLM(
-                provider=settings.default_provider,
-                api_key=settings.openai_api_key,
+            self._llms[provider_name] = LLM(
+                provider=provider_name,
+                api_key=settings.openai_api_key if provider_name == "openai" else None,
             )
-        return self._llm
+        return self._llms[provider_name]
 
     def _get_document_service(self, request: dict[str, Any] | None = None):
         """Return a DocumentService scoped to the request's workspace.
@@ -964,6 +968,7 @@ class OmniRAGAgent(BaseAgent):
         rewritten = request.get("rewritten_query", query)
         prefs = request.get("agent_preferences", {}).get("model_preferences", {})
         model_name = prefs.get("model", settings.default_model)
+        provider_name = prefs.get("provider", settings.default_provider)
         temperature = request.get("temperature", 0.3)
         custom_system_prompt = request.get("system_prompt")
         grounding_policy = _grounding_policy_from_request(request)
@@ -1613,7 +1618,7 @@ class OmniRAGAgent(BaseAgent):
             enabled=not _query_requests_contact_info(query)
         )
         try:
-            llm = self._get_llm()
+            llm = self._get_llm(provider_name)
             async for chunk_text in llm.stream_complete(
                 prompt=user_prompt,
                 model=model_name,

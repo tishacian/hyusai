@@ -28,6 +28,29 @@ _HISTORY = [
 ]
 
 
+def test_llm_client_honors_request_provider_and_caches_per_provider(monkeypatch):
+    from app.llm import llm as llm_module
+
+    created: list[tuple[str, str | None]] = []
+
+    class _FakeLLM:
+        def __init__(self, *, provider: str, api_key: str | None = None):
+            self.provider = provider
+            created.append((provider, api_key))
+
+    monkeypatch.setattr(llm_module, "LLM", _FakeLLM)
+    agent = OmniRAGAgent()
+
+    ollama = agent._get_llm("ollama")
+    assert ollama.provider == "ollama"
+    assert agent._get_llm("ollama") is ollama
+
+    openai = agent._get_llm("openai")
+    assert openai.provider == "openai"
+    assert openai is not ollama
+    assert [provider for provider, _ in created] == ["ollama", "openai"]
+
+
 # ── Follow-up / meta detection ─────────────────────────────────────────────
 def test_meta_followups_detected_with_history():
     for query in [
