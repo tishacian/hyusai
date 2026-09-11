@@ -86,6 +86,13 @@ class FAISSVectorDB(VectorDBBase):
             self.index = faiss.IndexFlatIP(dimension)
             logger.info(f"Created FAISS IndexFlatIP with dimension {dimension}")
 
+    def _reset_index(self, dimension: int):
+        """Create a fresh empty index even when the dimension is unchanged."""
+        import faiss
+
+        self.dimension = dimension
+        self.index = faiss.IndexFlatIP(dimension)
+
     async def create_index(self, dimension: int, index_type: str = "default"):
         """Create FAISS index"""
         self._ensure_index(dimension)
@@ -203,10 +210,10 @@ class FAISSVectorDB(VectorDBBase):
             if self.index.ntotal > 0 and keep_positions:
                 all_vecs = self.index.reconstruct_n(0, self.index.ntotal)
                 kept_vecs = all_vecs[keep_positions].astype("float32")
-                self._ensure_index(self.dimension)
+                self._reset_index(self.dimension)
                 self.index.add(kept_vecs)
             else:
-                self._ensure_index(self.dimension)  # empty index
+                self._reset_index(self.dimension)  # empty index
 
             self.ids = [self.ids[i] for i in keep_positions]
             for vid in ids_set:
@@ -216,6 +223,22 @@ class FAISSVectorDB(VectorDBBase):
 
         await loop.run_in_executor(None, _delete)
         logger.debug(f"Deleted {len(ids)} vectors from FAISS index")
+
+    async def delete_by_metadata(self, filters: dict | None = None) -> bool:
+        """Delete all vectors matching exact metadata filters."""
+        if not filters:
+            return False
+        matching_ids = [
+            vec_id
+            for vec_id in self.ids
+            if _metadata_matches_filters(self.metadatas.get(vec_id, {}), filters)
+        ]
+        if matching_ids:
+            await self.delete(matching_ids)
+        return not any(
+            _metadata_matches_filters(self.metadatas.get(vec_id, {}), filters)
+            for vec_id in self.ids
+        )
 
     async def update(self, ids: list[str], vectors: np.ndarray, metadatas: list[dict]):
         """Update vectors"""
@@ -343,7 +366,7 @@ class FAISSVectorDB(VectorDBBase):
 
         def _clear():
             if self.index is not None:
-                self._ensure_index(self.dimension or 384)  # Reset index
+                self._reset_index(self.dimension or 384)
             self.metadatas.clear()
             self.ids.clear()
             self.vectors = None
