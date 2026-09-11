@@ -30,6 +30,8 @@ export const SYSTEMS_FR = {
   'systems.grid.stat_last': 'DERNIER',
   // --- System view (knowledge-capture variant) ---------------------
   'systems.view.tab.overview': 'Aperçu',
+  'systems.view.tab.design': 'Conception',
+  'systems.view.tab.context': 'Contexte',
   'systems.view.capture.eyebrow': 'Capture de connaissances',
   'systems.view.capture.cta': 'Capture de connaissances',
   'systems.view.capture.cta.hint': 'Lancer une session de capture de connaissances',
@@ -104,6 +106,8 @@ export const SYSTEMS_EN: Record<keyof typeof SYSTEMS_FR, string> = {
   'systems.grid.stat_last': 'LAST',
   // --- System view (knowledge-capture variant) ---------------------
   'systems.view.tab.overview': 'Overview',
+  'systems.view.tab.design': 'Design',
+  'systems.view.tab.context': 'Context',
   'systems.view.capture.eyebrow': 'Knowledge capture',
   'systems.view.capture.cta': 'Knowledge capture',
   'systems.view.capture.cta.hint': 'Start a knowledge capture session',

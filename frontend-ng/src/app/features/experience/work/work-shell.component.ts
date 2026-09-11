@@ -98,7 +98,7 @@ const POLL_MS = 8000;
           </nav>
         }
         <div class="xp-work-actions">
-          @if (adoption.enabled()) { <button type="button" class="xp-work-btn" (click)="companion.open()">{{ i18n.t('experience.adoption.companion') }}</button> }
+          @if (adoption.enabled()) { <button type="button" class="xp-work-btn" (click)="companion.open({ pilot: true })">{{ i18n.t('experience.adoption.companion') }}</button> }
           @if (locales().length > 1) {
             <span class="xp-work-locales" role="group" [attr.aria-label]="i18n.t('experience.work.lang.label')">
               @for (locale of locales(); track locale) {

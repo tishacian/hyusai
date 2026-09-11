@@ -53,6 +53,16 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             <span class="chat-overlay-hint">
               {{ i18n.t('chat.overlay.hint') }}
             </span>
+            @if (pilotAvailable()) {
+              <button
+                type="button"
+                class="chat-overlay-expand"
+                (click)="togglePilot()"
+                [attr.aria-pressed]="overlay.pilot()"
+              >
+                {{ i18n.t(overlay.pilot() ? 'experience.adoption.pilot.back' : 'experience.adoption.pilot.switch') }}
+              </button>
+            }
             @if (!overlay.adoption.enabled() || !overlay.narrow()) { <button
               type="button"
               class="chat-overlay-expand"
@@ -64,7 +74,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             </button>
             }
           </div>
-          @if (overlay.adoption.enabled() && !overlay.assistantProfile() && overlay.startMode() !== 'drop') {
+          @if (pilotAvailable() && overlay.pilot()) {
             <app-assistant-pilot [initialSystemId]="overlay.preselectedSystemId()" />
           } @else {
           <app-chat-workspace
@@ -183,6 +193,10 @@ export class ChatOverlayComponent {
     }
   });
 
+  readonly pilotAvailable = computed(
+    () => this.overlay.adoption.enabled() && !this.overlay.assistantProfile() && this.overlay.startMode() !== 'drop',
+  );
+
   readonly panelWidth = computed<string>(() => {
     if (this.overlay.adoption.enabled() && (this.overlay.expanded() || this.overlay.narrow())) return '100vw';
     return isSentinelShowcaseProfile(this.activeProfile()) ? '680px' : '560px';
@@ -196,6 +210,10 @@ export class ChatOverlayComponent {
 
   @HostListener('window:resize')
   onResize(): void { this.overlay.narrow.set(window.innerWidth <= 700); }
+
+  togglePilot(): void {
+    this.overlay.pilot.update((value) => !value);
+  }
 
   expandToWorkspaceChat(): void {
     if (this.overlay.adoption.enabled()) { this.overlay.expanded.update(value => !value); return; }
