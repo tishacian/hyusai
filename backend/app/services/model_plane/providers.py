@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
-
+import hashlib
 import os
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -12,6 +12,7 @@ import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.model_plane.errors import classify_provider_error, provider_failure
 from app.services.model_plane.registration import list_routable_providers, provider_key
 
 if TYPE_CHECKING:
@@ -60,6 +61,13 @@ def _cache_set(key: str, payload: Dict[str, Any]) -> None:
     _cache[(_cache_workspace.get(), key)] = (time.monotonic() + HEALTH_TTL_SECONDS, dict(payload))
 
 
+def _scoped_cache_key(provider: str, *configuration: Optional[str]) -> str:
+    """Keep health results isolated without retaining credentials in cache keys."""
+    material = "\0".join(str(item or "") for item in configuration).encode("utf-8")
+    digest = hashlib.sha256(material).hexdigest()[:16]
+    return f"{provider}:{digest}"
+
+
 def clear_health_cache(*, workspace: Optional["Workspace"] = None) -> None:
     if workspace is None:
         _cache.clear()
@@ -83,27 +91,48 @@ async def _probe(
             response = await client.request(method, url, headers=headers or {}, params=params)
         latency_ms = round((time.perf_counter() - started) * 1000, 1)
         if response.status_code >= 400:
+            failure = classify_provider_error(
+                httpx.HTTPStatusError(
+                    "Provider health probe returned an error",
+                    request=httpx.Request(method, "https://provider.invalid"),
+                    response=response,
+                )
+            )
             return {
                 "status": "unreachable",
                 "latency_ms": latency_ms,
                 "models": [],
-                "error": f"HTTP {response.status_code}",
+                "models_verified": False,
+                "error": failure.message,
+                "error_code": failure.code,
+                "retryable": failure.retryable,
             }
         models = _extract_models(response)
         return {
             "status": "active",
             "latency_ms": latency_ms,
             "models": models,
+            "models_verified": bool(models),
             "error": None,
+            "error_code": None,
+            "retryable": False,
         }
     except Exception as exc:  # noqa: BLE001 — surface as unreachable for UI
         latency_ms = round((time.perf_counter() - started) * 1000, 1)
-        logger.debug("Provider health probe failed", url=url, error=str(exc))
+        failure = classify_provider_error(exc)
+        logger.debug(
+            "Provider health probe failed",
+            error_code=failure.code,
+            exception_type=type(exc).__name__,
+        )
         return {
             "status": "unreachable",
             "latency_ms": latency_ms,
             "models": [],
-            "error": f"{type(exc).__name__}: provider request failed",
+            "models_verified": False,
+            "error": failure.message,
+            "error_code": failure.code,
+            "retryable": failure.retryable,
         }
 
 
@@ -149,10 +178,10 @@ def _extract_models(response: httpx.Response) -> List[str]:
 
 
 async def _health_openai(*, api_key: Optional[str] = None) -> Dict[str, Any]:
-    key = api_key or os.getenv("OPENAI_API_KEY")
+    key = api_key or settings.openai_api_key or os.getenv("OPENAI_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
-    cache_key = f"openai:{'ws' if api_key else 'env'}"
+    cache_key = _scoped_cache_key("openai", key)
     cached = _cache_get(cache_key)
     if cached:
         return cached
@@ -178,18 +207,24 @@ async def _health_azure(
     resolved_endpoint = (endpoint or os.getenv("AZURE_OPENAI_ENDPOINT") or "").rstrip("/")
     if not resolved_key or not resolved_endpoint:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
-    cache_key = f"azure_openai:{'ws' if api_key else 'env'}"
+    version = api_version or os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
+    dep = deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT")
+    cache_key = _scoped_cache_key(
+        "azure_openai",
+        resolved_key,
+        resolved_endpoint,
+        version,
+        dep,
+    )
     cached = _cache_get(cache_key)
     if cached:
         return cached
-    version = api_version or os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
     result = await _probe(
         method="GET",
         url=f"{resolved_endpoint}/openai/models",
         headers={"api-key": resolved_key},
         params={"api-version": version},
     )
-    dep = deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT")
     if result["status"] == "active" and not result["models"] and dep:
         result["models"] = [dep]
     elif result["status"] != "active" and dep:
@@ -209,11 +244,18 @@ async def _health_foundry(
     resolved_endpoint = (endpoint or os.getenv("AZURE_FOUNDRY_ENDPOINT") or "").rstrip("/")
     if not resolved_key or not resolved_endpoint:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
-    cache_key = f"azure_foundry:{'ws' if api_key else 'env'}"
+    version = api_version or os.getenv("AZURE_FOUNDRY_API_VERSION", "2024-05-01-preview")
+    dep = deployment or os.getenv("AZURE_FOUNDRY_MODEL")
+    cache_key = _scoped_cache_key(
+        "azure_foundry",
+        resolved_key,
+        resolved_endpoint,
+        version,
+        dep,
+    )
     cached = _cache_get(cache_key)
     if cached:
         return cached
-    version = api_version or os.getenv("AZURE_FOUNDRY_API_VERSION", "2024-05-01-preview")
     # Foundry serverless / Models-as-a-Service endpoints expose the Azure AI
     # Model Inference API; /info returns the deployed model's metadata.
     result = await _probe(
@@ -222,7 +264,6 @@ async def _health_foundry(
         headers={"api-key": resolved_key, "Authorization": f"Bearer {resolved_key}"},
         params={"api-version": version},
     )
-    dep = deployment or os.getenv("AZURE_FOUNDRY_MODEL")
     if not result["models"] and dep:
         result["models"] = [dep]
     _cache_set(cache_key, result)
@@ -233,7 +274,7 @@ async def _health_openrouter(*, api_key: Optional[str] = None) -> Dict[str, Any]
     key = api_key or os.getenv("OPENROUTER_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
-    cache_key = f"openrouter:{'ws' if api_key else 'env'}"
+    cache_key = _scoped_cache_key("openrouter", key)
     cached = _cache_get(cache_key)
     if cached:
         return cached
@@ -252,7 +293,7 @@ async def _health_anthropic(*, api_key: Optional[str] = None) -> Dict[str, Any]:
     key = api_key or os.getenv("ANTHROPIC_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
-    cache_key = f"anthropic:{'ws' if api_key else 'env'}"
+    cache_key = _scoped_cache_key("anthropic", key)
     cached = _cache_get(cache_key)
     if cached:
         return cached
@@ -274,7 +315,7 @@ async def _health_gemini(*, api_key: Optional[str] = None) -> Dict[str, Any]:
     key = api_key or os.getenv("GEMINI_API_KEY")
     if not key:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
-    cache_key = f"gemini:{'ws' if api_key else 'env'}"
+    cache_key = _scoped_cache_key("gemini", key)
     cached = _cache_get(cache_key)
     if cached:
         return cached
@@ -294,7 +335,8 @@ async def _health_ollama() -> Dict[str, Any]:
     if not base:
         return {"status": "available", "latency_ms": None, "models": [], "error": None}
     # Ollama is "configured" when a base URL is set; probe for active/unreachable.
-    cached = _cache_get("ollama")
+    cache_key = _scoped_cache_key("ollama", base)
+    cached = _cache_get(cache_key)
     if cached:
         return cached
     result = await _probe(method="GET", url=f"{base}/api/tags")
@@ -304,7 +346,7 @@ async def _health_ollama() -> Dict[str, Any]:
     # the probe did not run (shouldn't happen); unreachable/active cover live.
     if result["status"] == "unreachable" and not result.get("error"):
         result["status"] = "configured"
-    _cache_set("ollama", result)
+    _cache_set(cache_key, result)
     return result
 
 
@@ -327,6 +369,7 @@ def _base_catalog(
     foundry_model = foundry_meta.get("deployment") or os.getenv("AZURE_FOUNDRY_MODEL")
     foundry_endpoint = foundry_meta.get("endpoint") or os.getenv("AZURE_FOUNDRY_ENDPOINT")
     foundry_key = keys.get("azure_foundry") or os.getenv("AZURE_FOUNDRY_API_KEY")
+    openai_key = keys.get("openai") or settings.openai_api_key or os.getenv("OPENAI_API_KEY")
 
     return [
         {
@@ -344,12 +387,12 @@ def _base_catalog(
             "key": "openai",
             "label": "OpenAI",
             "kind": "cloud",
-            "configured": bool(keys.get("openai") or os.getenv("OPENAI_API_KEY")),
+            "configured": bool(openai_key),
             "fallback_models": [settings.default_model] if settings.default_model else ["gpt-5"],
             "notes": "OpenAI API (chat completions, streaming)",
             "health": lambda: _health_openai(api_key=keys.get("openai")),
-            "api_key_set": bool(keys.get("openai") or os.getenv("OPENAI_API_KEY")),
-            "credential_source": "workspace" if keys.get("openai") else ("env" if os.getenv("OPENAI_API_KEY") else None),
+            "api_key_set": bool(openai_key),
+            "credential_source": "workspace" if keys.get("openai") else ("env" if openai_key else None),
         },
         {
             "key": "azure_openai",
@@ -519,11 +562,15 @@ async def _list_providers(
             models = health.get("models") or entry["fallback_models"]
             latency_ms = health.get("latency_ms")
             error = health.get("error")
+            error_code = health.get("error_code")
+            retryable = health.get("retryable")
         else:
             status = "available"
             models = entry["fallback_models"]
             latency_ms = None
             error = None
+            error_code = None
+            retryable = False
         providers.append(
             {
                 "key": entry["key"],
@@ -534,6 +581,8 @@ async def _list_providers(
                 "latency_ms": latency_ms,
                 "notes": entry["notes"],
                 "error": error,
+                "error_code": error_code,
+                "retryable": retryable,
                 "api_key_set": entry.get("api_key_set"),
                 "credential_source": entry.get("credential_source"),
                 "configured": entry["configured"],
@@ -563,6 +612,8 @@ async def _list_providers(
                     "latency_ms": None,
                     "notes": local.get("notes"),
                     "error": None,
+                    "error_code": None,
+                    "retryable": False,
                     "runtime": local.get("runtime"),
                     "node": local.get("node"),
                     "openai_base_url": local.get("openai_base_url"),
@@ -573,3 +624,147 @@ async def _list_providers(
                 }
             )
     return providers
+
+
+async def get_readiness(*, workspace: "Workspace") -> Dict[str, Any]:
+    """Report readiness for only the workspace's selected provider and model."""
+    from app.services.model_plane import workspace_config as ws_cfg
+
+    routing = ws_cfg.get_routing(workspace)
+    provider_key = str(routing["default_provider"])
+    model = str(routing["default_model"])
+    ws_keys = _workspace_keys(workspace)
+
+    entry = next(
+        (
+            item
+            for item in _base_catalog(workspace=workspace, ws_keys=ws_keys)
+            if item["key"] == provider_key
+        ),
+        None,
+    )
+    local = next(
+        (item for item in list_routable_providers() if item.get("key") == provider_key),
+        None,
+    )
+
+    base = {
+        "provider": provider_key,
+        "model": model,
+        "source": routing["source"],
+    }
+    if entry is None and local is None:
+        if provider_key.startswith("serving_"):
+            failure = provider_failure("provider_unreachable")
+            return {
+                **base,
+                "status": "unavailable",
+                "reason": failure.code,
+                "message": failure.message,
+                "retryable": failure.retryable,
+                "provider_status": "unreachable",
+            }
+        return {
+            **base,
+            "status": "needs_setup",
+            "reason": "provider_not_configured",
+            "message": "The selected model provider is not configured.",
+            "retryable": False,
+        }
+
+    if local is not None:
+        provider_status = str(local.get("status") or "unavailable")
+        models = [str(item) for item in (local.get("models") or [])]
+        if provider_status != "active":
+            failure = provider_failure("provider_unreachable")
+            return {
+                **base,
+                "status": "unavailable",
+                "reason": failure.code,
+                "message": failure.message,
+                "retryable": failure.retryable,
+                "provider_status": provider_status,
+            }
+        if model not in models:
+            failure = provider_failure("model_missing")
+            return {
+                **base,
+                "status": "needs_setup",
+                "reason": failure.code,
+                "message": failure.message,
+                "retryable": failure.retryable,
+                "provider_status": provider_status,
+            }
+        return {
+            **base,
+            "status": "ready",
+            "reason": "ready",
+            "message": "The selected provider and model are ready.",
+            "retryable": False,
+            "provider_status": provider_status,
+        }
+
+    if not entry["configured"]:
+        return {
+            **base,
+            "status": "needs_setup",
+            "reason": "provider_not_configured",
+            "message": "The selected model provider is not configured.",
+            "retryable": False,
+            "provider_status": "available",
+        }
+
+    health = await entry["health"]()
+    provider_status = str(health.get("status") or "unavailable")
+    if provider_status != "active":
+        reason = str(health.get("error_code") or "provider_unreachable")
+        if reason not in {
+            "provider_unreachable",
+            "credentials_invalid",
+            "model_missing",
+            "rate_limited",
+            "timeout",
+            "generation_failed",
+        }:
+            reason = "generation_failed"
+        failure = provider_failure(reason)  # type: ignore[arg-type]
+        status = (
+            "needs_setup"
+            if reason in {"credentials_invalid", "model_missing"}
+            else "unavailable"
+        )
+        return {
+            **base,
+            "status": status,
+            "reason": reason,
+            "message": failure.message,
+            "retryable": failure.retryable,
+            "provider_status": provider_status,
+        }
+
+    # Only models returned by the successful live probe count here. Catalog
+    # fallbacks remain useful display hints in list_providers, but are not proof
+    # that the selected model exists.
+    verified_models = (
+        [str(item) for item in (health.get("models") or [])]
+        if health.get("models_verified") is not False
+        else []
+    )
+    if model not in verified_models:
+        failure = provider_failure("model_missing")
+        return {
+            **base,
+            "status": "needs_setup",
+            "reason": failure.code,
+            "message": failure.message,
+            "retryable": failure.retryable,
+            "provider_status": provider_status,
+        }
+    return {
+        **base,
+        "status": "ready",
+        "reason": "ready",
+        "message": "The selected provider and model are ready.",
+        "retryable": False,
+        "provider_status": provider_status,
+    }

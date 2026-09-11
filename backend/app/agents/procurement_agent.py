@@ -13,6 +13,7 @@ from typing import Any, AsyncGenerator
 from app.agents.base import BaseAgent
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.model_plane.errors import classify_provider_error
 from app.services.rag.conversation_anchors import has_reference
 
 logger = get_logger(__name__)
@@ -1640,9 +1641,21 @@ class OmniRAGAgent(BaseAgent):
                         "sequence": sequence,
                         "is_final": False,
                     }
-        except Exception as e:
-            logger.error("LLM generation failed", error=str(e))
-            yield {"chunk_type": "error", "content": f"LLM generation error: {e}", "is_final": True}
+        except Exception as exc:
+            failure = classify_provider_error(exc)
+            logger.error(
+                "LLM generation failed",
+                error_code=failure.code,
+                exception_type=type(exc).__name__,
+                provider=provider_name,
+                model=model_name,
+            )
+            yield {
+                "chunk_type": "error",
+                "content": failure.message,
+                "error": failure.as_dict(),
+                "is_final": True,
+            }
             yield self._step(
                 sid,
                 "error",
@@ -1650,7 +1663,7 @@ class OmniRAGAgent(BaseAgent):
                 "Synthesizer",
                 model_name,
                 "Generation failed",
-                str(e),
+                failure.message,
                 duration=self._ms_since(step_start),
                 has_text=True,
             )

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
+import httpx
 import pytest
 
 from app.models.run import Run, SkillInvocation
@@ -13,7 +14,204 @@ from app.services.model_plane import distribution as distribution_mod
 from app.services.model_plane import providers as providers_mod
 from app.services.model_plane import registration as registration_mod
 from app.services.model_plane import serving_nodes as serving_nodes_mod
+from app.services.model_plane.errors import classify_provider_error
 from app.services.model_router import ModelRouter
+
+
+def _http_status_error(status_code: int, body: str = "") -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", "http://internal-provider.local/v1/models?key=secret")
+    response = httpx.Response(status_code, request=request, text=body)
+    return httpx.HTTPStatusError(
+        f"upstream returned {status_code}: {body}",
+        request=request,
+        response=response,
+    )
+
+
+@pytest.mark.parametrize(
+    ("exc", "code", "retryable"),
+    [
+        (
+            httpx.ConnectError(
+                "All connection attempts failed for http://ollama.internal:11434?token=secret",
+                request=httpx.Request("POST", "http://ollama.internal:11434/api/chat"),
+            ),
+            "provider_unreachable",
+            True,
+        ),
+        (httpx.ReadTimeout("slow provider"), "timeout", True),
+        (_http_status_error(401, "invalid sk-secret"), "credentials_invalid", False),
+        (_http_status_error(404, "model secret-model absent"), "model_missing", False),
+        (_http_status_error(429, "quota for secret tenant"), "rate_limited", True),
+        (RuntimeError("response body with sk-secret"), "generation_failed", True),
+    ],
+)
+def test_provider_error_classification_is_stable_and_redacted(exc, code, retryable):
+    failure = classify_provider_error(exc)
+
+    assert failure.code == code
+    assert failure.retryable is retryable
+    payload = failure.as_dict()
+    assert set(payload) == {"code", "message", "retryable"}
+    serialized = str(payload).lower()
+    assert "secret" not in serialized
+    assert "http://" not in serialized
+    assert "traceback" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_provider_probe_returns_only_safe_classified_error(monkeypatch):
+    class FailedClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def request(self, *_args, **_kwargs):
+            raise httpx.ConnectError(
+                "refused http://provider.internal?api_key=sk-secret",
+                request=httpx.Request("GET", "http://provider.internal"),
+            )
+
+    monkeypatch.setattr(providers_mod.httpx, "AsyncClient", FailedClient)
+    result = await providers_mod._probe(method="GET", url="http://provider.internal")
+
+    assert result["status"] == "unreachable"
+    assert result["error_code"] == "provider_unreachable"
+    assert result["retryable"] is True
+    assert result["models_verified"] is False
+    assert "internal" not in result["error"]
+    assert "secret" not in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_readiness_uses_only_selected_ollama_and_live_model(monkeypatch):
+    workspace = SimpleNamespace(
+        settings={
+            "llm_portal": {
+                "routing": {
+                    "default_provider": "ollama",
+                    "default_model": "qwen3:8b",
+                }
+            }
+        }
+    )
+
+    async def fake_ollama():
+        return {
+            "status": "active",
+            "latency_ms": 3.0,
+            "models": ["qwen3:8b"],
+            "error": None,
+        }
+
+    monkeypatch.setattr(providers_mod, "_health_ollama", fake_ollama)
+    readiness = await providers_mod.get_readiness(workspace=workspace)
+
+    assert readiness == {
+        "provider": "ollama",
+        "model": "qwen3:8b",
+        "source": "workspace",
+        "status": "ready",
+        "reason": "ready",
+        "message": "The selected provider and model are ready.",
+        "retryable": False,
+        "provider_status": "active",
+    }
+
+
+@pytest.mark.asyncio
+async def test_readiness_reports_stopped_ollama_as_unavailable(monkeypatch):
+    workspace = SimpleNamespace(
+        settings={
+            "llm_portal": {
+                "routing": {
+                    "default_provider": "ollama",
+                    "default_model": "qwen3:8b",
+                }
+            }
+        }
+    )
+
+    async def stopped_ollama():
+        return {
+            "status": "unreachable",
+            "latency_ms": 1.0,
+            "models": [],
+            "error": "All connection attempts failed at http://ollama.internal:11434",
+            "error_code": "provider_unreachable",
+            "retryable": True,
+        }
+
+    monkeypatch.setattr(providers_mod, "_health_ollama", stopped_ollama)
+    readiness = await providers_mod.get_readiness(workspace=workspace)
+
+    assert readiness["status"] == "unavailable"
+    assert readiness["reason"] == "provider_unreachable"
+    assert readiness["retryable"] is True
+    assert "http://" not in readiness["message"]
+    assert "All connection attempts failed" not in readiness["message"]
+
+
+@pytest.mark.asyncio
+async def test_readiness_never_promotes_catalog_fallback_to_verified_model(monkeypatch):
+    workspace = SimpleNamespace(
+        settings={
+            "llm_portal": {
+                "routing": {
+                    "default_provider": "ollama",
+                    "default_model": "qwen3:8b",
+                }
+            }
+        }
+    )
+
+    async def empty_ollama():
+        return {
+            "status": "active",
+            "latency_ms": 2.0,
+            # Catalog fallback/display hint: not evidence from the probe.
+            "models": ["qwen3:8b"],
+            "models_verified": False,
+            "error": None,
+        }
+
+    monkeypatch.setattr(providers_mod, "_health_ollama", empty_ollama)
+    readiness = await providers_mod.get_readiness(workspace=workspace)
+
+    assert readiness["status"] == "needs_setup"
+    assert readiness["reason"] == "model_missing"
+
+
+@pytest.mark.asyncio
+async def test_readiness_checks_only_selected_unconfigured_provider(monkeypatch):
+    workspace = SimpleNamespace(
+        settings={
+            "llm_portal": {
+                "routing": {
+                    "default_provider": "openai",
+                    "default_model": "gpt-5",
+                }
+            }
+        }
+    )
+    monkeypatch.setattr(providers_mod.settings, "openai_api_key", "")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    async def forbidden_ollama_probe():
+        raise AssertionError("readiness must not probe a fallback provider")
+
+    monkeypatch.setattr(providers_mod, "_health_ollama", forbidden_ollama_probe)
+    readiness = await providers_mod.get_readiness(workspace=workspace)
+
+    assert readiness["provider"] == "openai"
+    assert readiness["model"] == "gpt-5"
+    assert readiness["status"] == "needs_setup"
+    assert readiness["reason"] == "provider_not_configured"
 
 
 def test_parse_serving_nodes_empty_is_first_class():

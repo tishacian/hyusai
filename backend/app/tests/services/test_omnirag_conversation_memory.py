@@ -12,6 +12,8 @@ These guard the live Andritz demo fixes for the dominant end-user complaint
 """
 from __future__ import annotations
 
+import httpx
+
 from app.agents.procurement_agent import (
     OmniRAGAgent,
     _cited_source_indices,
@@ -215,6 +217,54 @@ def test_gate_sources_suppressed_when_not_grounded_and_not_discovery():
         discovery_intent=False,
     )
     assert kept == []
+
+
+async def test_generation_connection_failure_emits_safe_structured_error(monkeypatch):
+    class _StoppedLLM:
+        async def stream_complete(self, **_kwargs):
+            if False:  # pragma: no cover - keeps this an async generator
+                yield ""
+            raise httpx.ConnectError(
+                "All connection attempts failed for http://ollama.internal:11434?token=secret",
+                request=httpx.Request("POST", "http://ollama.internal:11434/api/chat"),
+            )
+
+    agent = OmniRAGAgent()
+    monkeypatch.setattr(agent, "_get_llm", lambda _provider: _StoppedLLM())
+    chunks = [
+        chunk
+        async for chunk in agent.process(
+            {
+                "query": "continue",
+                "agent_preferences": {
+                    "model_preferences": {"provider": "ollama", "model": "qwen3:8b"}
+                },
+                "context": {"conversation_history": _HISTORY},
+            }
+        )
+    ]
+
+    errors = [chunk for chunk in chunks if chunk.get("chunk_type") == "error"]
+    assert errors == [
+        {
+            "chunk_type": "error",
+            "content": (
+                "The configured model provider is unreachable. "
+                "Check that it is running and try again."
+            ),
+            "error": {
+                "code": "provider_unreachable",
+                "message": (
+                    "The configured model provider is unreachable. "
+                    "Check that it is running and try again."
+                ),
+                "retryable": True,
+            },
+            "is_final": True,
+        }
+    ]
+    assert "ollama.internal" not in str(chunks)
+    assert "secret" not in str(chunks)
 
 
 # ── stream_complete passes conversation history to the model ───────────────

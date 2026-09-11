@@ -83,6 +83,7 @@ from app.services.mission_room import (
     present_payload_for_workspace,
     source_index,
 )
+from app.services.model_plane.errors import classify_provider_error
 from app.services.rag.decision_trace import build_trivial_retrieval_decision_trace
 from app.services.run_outcome_provenance import record_runtime_auto_outcome
 from app.services.system_engine_authorization import enforce_system_engine_run
@@ -1128,6 +1129,7 @@ def _error_chunk(
     recoverable: bool = False,
     details: Optional[Dict[str, Any]] = None,
     is_final: bool = True,
+    error: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     return {
         "chunk_type": "error",
@@ -1136,6 +1138,12 @@ def _error_chunk(
         "recoverable": recoverable,
         "details": details or {},
         "is_final": is_final,
+        "error": error
+        or {
+            "code": code,
+            "message": content,
+            "retryable": recoverable,
+        },
     }
 
 
@@ -4790,12 +4798,18 @@ async def chat_stream(
                 logger.warning("Chat stream timed out", error=str(exc))
             except Exception as exc:  # noqa: BLE001
                 stream_status = "error"
+                failure = classify_provider_error(exc)
                 stream_error = _error_chunk(
                     "CHAT_STREAM_ERROR",
-                    str(exc),
-                    recoverable=True,
+                    failure.message,
+                    recoverable=failure.retryable,
+                    error=failure.as_dict(),
                 )
-                logger.error("Streaming error", error=str(exc))
+                logger.error(
+                    "Streaming error",
+                    error_code=failure.code,
+                    exception_type=type(exc).__name__,
+                )
 
             if stream_error:
                 yield _sse_data(stream_error)
@@ -5047,8 +5061,20 @@ async def chat_stream(
             raise
         except Exception as e:
             stream_status = "error"
-            logger.error("Streaming error", error=str(e))
-            yield _sse_data(_error_chunk("CHAT_STREAM_ERROR", str(e), recoverable=True))
+            failure = classify_provider_error(e)
+            logger.error(
+                "Streaming error",
+                error_code=failure.code,
+                exception_type=type(e).__name__,
+            )
+            yield _sse_data(
+                _error_chunk(
+                    "CHAT_STREAM_ERROR",
+                    failure.message,
+                    recoverable=failure.retryable,
+                    error=failure.as_dict(),
+                )
+            )
             yield _sse_done()
         finally:
             metrics_collector.finish_stream(stream_id, status=stream_status)

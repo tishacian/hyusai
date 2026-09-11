@@ -135,6 +135,19 @@ async def list_model_providers(
     return {"providers": providers, "can_configure": _can_configure(db, user=user, workspace=workspace)}
 
 
+@router.get("/readiness")
+async def get_model_readiness(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+):
+    """Return readiness for the workspace's active provider/model only."""
+    _require_enabled(workspace)
+    routing = ws_config.get_routing(workspace)
+    if str(routing["default_provider"]).startswith("serving_"):
+        await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
+    return await providers_service.get_readiness(workspace=workspace)
+
+
 @router.get("/routing")
 async def get_model_routing(
     workspace: Workspace = Depends(get_current_workspace),
