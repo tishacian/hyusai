@@ -25,6 +25,121 @@ export interface ProvidersResponse {
   can_configure?: boolean;
 }
 
+/**
+ * Readiness of the workspace's *active* provider/model selection, as answered
+ * by `GET /api/v1/models/readiness`. One selection, one verdict — the endpoint
+ * deliberately does not enumerate the catalog, so a surface that only needs to
+ * say "your model is ready / needs setup / is down" pays for nothing more.
+ */
+export type ModelReadinessStatus = 'ready' | 'needs_setup' | 'unavailable';
+
+/**
+ * Why the selection is in that state. `ready` is the only non-failure member;
+ * the rest mirror `app/services/model_plane/errors.py` and are shared with the
+ * nested chat-stream error below, which is the same classification observed
+ * mid-turn rather than at rest.
+ */
+export type ModelReadinessReason =
+  | 'ready'
+  | 'provider_not_configured'
+  | 'provider_unreachable'
+  | 'credentials_invalid'
+  | 'model_missing'
+  | 'rate_limited'
+  | 'timeout'
+  | 'generation_failed';
+
+export interface ModelReadiness {
+  provider: string;
+  model: string;
+  source: string;
+  status: ModelReadinessStatus;
+  reason: ModelReadinessReason;
+  /** Provider-neutral copy, safe to render verbatim. */
+  message: string;
+  retryable: boolean;
+  provider_status?: ProviderStatus;
+}
+
+/** The failure classifications a chat stream can report (never `ready`). */
+export type ChatStreamErrorCode = Exclude<ModelReadinessReason, 'ready'>;
+
+/**
+ * The nested `error` object on a `chunk_type: "error"` SSE chunk. The chunk
+ * keeps its legacy top-level `code`/`content`/`recoverable` fields for older
+ * clients; this object is the structured half the UI renders from.
+ */
+export interface ChatStreamError {
+  code: ChatStreamErrorCode;
+  message: string;
+  retryable: boolean;
+  /** True when the fix is configuration, not waiting — drives the CTA. */
+  needsSetup: boolean;
+}
+
+const CHAT_STREAM_ERROR_CODES: ReadonlySet<string> = new Set<ChatStreamErrorCode>([
+  'provider_unreachable',
+  'credentials_invalid',
+  'model_missing',
+  'rate_limited',
+  'timeout',
+  'generation_failed',
+]);
+
+/**
+ * Codes an operator fixes in provider settings rather than by retrying. The
+ * readiness endpoint says this with `status: 'needs_setup'`; a stream chunk
+ * carries no status, so the code alone has to answer it.
+ */
+const SETUP_ERROR_CODES: ReadonlySet<string> = new Set<ChatStreamErrorCode>([
+  'credentials_invalid',
+  'model_missing',
+]);
+
+export function isChatStreamErrorCode(value: unknown): value is ChatStreamErrorCode {
+  return typeof value === 'string' && CHAT_STREAM_ERROR_CODES.has(value);
+}
+
+/**
+ * Dictionary key for a failure reason.
+ *
+ * Unknown, absent and `ready` reasons all collapse to the neutral line, which
+ * is what keeps an unrecognised backend string from reaching the screen: the
+ * UI can only ever render copy it shipped.
+ */
+export function failureCopyKey(reason: ModelReadinessReason | null | undefined): string {
+  if (!reason || reason === 'ready') return 'chat.failure.generic';
+  return `chat.failure.${reason}`;
+}
+
+export function readinessNeedsSetup(readiness: ModelReadiness | null): boolean {
+  return readiness?.status === 'needs_setup';
+}
+
+/**
+ * Read the structured failure out of an SSE error chunk.
+ *
+ * Returns `null` for anything that is not a recognised provider failure, so the
+ * caller falls back to neutral copy. Nothing is lifted from the raw exception
+ * path: `message` is taken only from the backend's classified, provider-neutral
+ * string, never from `content`, a URL, or `String(error)`.
+ */
+export function parseChatStreamError(chunk: unknown): ChatStreamError | null {
+  if (!chunk || typeof chunk !== 'object') return null;
+  const nested = (chunk as Record<string, unknown>)['error'];
+  if (!nested || typeof nested !== 'object') return null;
+  const record = nested as Record<string, unknown>;
+  const code = record['code'];
+  if (!isChatStreamErrorCode(code)) return null;
+  const message = typeof record['message'] === 'string' ? record['message'].trim() : '';
+  return {
+    code,
+    message,
+    retryable: record['retryable'] === true,
+    needsSetup: SETUP_ERROR_CODES.has(code),
+  };
+}
+
 export interface RoutingPrimary {
   provider?: string | null;
   model?: string | null;

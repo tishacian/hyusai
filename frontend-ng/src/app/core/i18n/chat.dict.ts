@@ -648,6 +648,43 @@ export const CHAT_FR = {
   'chat.workspace.toast.persisted_title': 'Session conservée',
   'chat.workspace.toast.persisted': 'Enregistré sous « {name} »',
   'chat.workspace.toast.persist_failed': 'Échec de la conservation de la session',
+
+  // --- Model readiness (Question rapide) ---------------------------
+  // Une seule phrase par état : l'utilisateur doit savoir s'il peut poser
+  // sa question, et sinon quel est le geste suivant.
+  'chat.readiness.checking': 'Vérification du modèle…',
+  'chat.readiness.ready': 'Assistant prêt',
+  'chat.readiness.ready_detail': 'Modèle {model} · posez votre question.',
+  'chat.readiness.needs_setup': 'Configuration requise',
+  'chat.readiness.unavailable': 'Assistant indisponible',
+  'chat.readiness.configure': 'Configurer le modèle',
+  'chat.readiness.retry': 'Réessayer',
+  'chat.readiness.settings': 'Paramètres du modèle',
+  'chat.readiness.unknown':
+    "L'état du modèle n'a pas pu être vérifié. Vous pouvez essayer de poser votre question.",
+
+  // --- Provider failures -------------------------------------------
+  // Rendues comme une carte d'erreur dans le fil, jamais ajoutées au texte
+  // de la réponse. Aucune exception, URL ni identifiant n'y apparaît.
+  'chat.failure.title': 'La réponse n’a pas pu être terminée',
+  'chat.failure.partial_answer': 'Début de réponse reçu avant l’interruption',
+  'chat.failure.retry': 'Réessayer',
+  'chat.failure.settings': 'Paramètres du modèle',
+  'chat.failure.generic':
+    "L'assistant n'a pas pu répondre. Réessayez dans un instant.",
+  'chat.failure.provider_not_configured':
+    "Aucun modèle n'est configuré pour cet espace de travail.",
+  'chat.failure.provider_unreachable':
+    "Le service de modèle ne répond pas. Réessayez dans un instant.",
+  'chat.failure.credentials_invalid':
+    "Les identifiants du fournisseur de modèle ont été refusés. Mettez-les à jour dans les paramètres.",
+  'chat.failure.model_missing':
+    "Le modèle sélectionné n'est plus disponible. Choisissez-en un autre dans les paramètres.",
+  'chat.failure.rate_limited':
+    'Le fournisseur de modèle limite les requêtes. Patientez un instant puis réessayez.',
+  'chat.failure.timeout': 'La réponse a pris trop de temps. Réessayez.',
+  'chat.failure.generation_failed':
+    "L'assistant n'a pas pu terminer cette réponse. Réessayez.",
 } as const satisfies Record<string, string>;
 
 /**
@@ -1272,4 +1309,34 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   'chat.workspace.toast.persisted_title': 'Session persisted',
   'chat.workspace.toast.persisted': 'Saved as "{name}"',
   'chat.workspace.toast.persist_failed': 'Failed to persist session',
+
+  // --- Model readiness (Quick ask) ---------------------------------
+  'chat.readiness.checking': 'Checking the model…',
+  'chat.readiness.ready': 'Assistant ready',
+  'chat.readiness.ready_detail': '{model} · ask anything.',
+  'chat.readiness.needs_setup': 'Setup needed',
+  'chat.readiness.unavailable': 'Assistant unavailable',
+  'chat.readiness.configure': 'Set up the model',
+  'chat.readiness.retry': 'Try again',
+  'chat.readiness.settings': 'Model settings',
+  'chat.readiness.unknown':
+    'The model status could not be checked. You can still try asking your question.',
+
+  // --- Provider failures -------------------------------------------
+  'chat.failure.title': 'The answer could not be completed',
+  'chat.failure.partial_answer': 'Partial answer received before the interruption',
+  'chat.failure.retry': 'Try again',
+  'chat.failure.settings': 'Model settings',
+  'chat.failure.generic': 'The assistant could not answer. Try again in a moment.',
+  'chat.failure.provider_not_configured': 'No model is configured for this workspace.',
+  'chat.failure.provider_unreachable':
+    'The model service is not responding. Try again in a moment.',
+  'chat.failure.credentials_invalid':
+    'The model provider rejected its credentials. Update them in settings.',
+  'chat.failure.model_missing':
+    'The selected model is no longer available. Pick another one in settings.',
+  'chat.failure.rate_limited':
+    'The model provider is throttling requests. Wait a moment, then try again.',
+  'chat.failure.timeout': 'The answer took too long. Try again.',
+  'chat.failure.generation_failed': 'The assistant could not finish this answer. Try again.',
 };

@@ -8,6 +8,7 @@ import {
   ɵChangeDetectionScheduler as ChangeDetectionScheduler,
   ɵEffectScheduler as EffectScheduler,
 } from '@angular/core';
+import { SIGNAL, signalSetFn } from '@angular/core/primitives/signals';
 import { Router } from '@angular/router';
 import { Subject, NEVER, of } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
@@ -80,8 +81,17 @@ class ApiStub {
   readonly deepPolls: Array<Subject<Record<string, unknown>>> = [];
   readonly deepPollOptions: unknown[] = [];
 
+  readonly readinessRequests: Array<Subject<Record<string, unknown>>> = [];
+  readonly readinessOptions: unknown[] = [];
+
   get(path: string, _params?: unknown, options?: unknown) {
     if (path === '/reasoning/templates') return of({ templates: [] });
+    if (path === '/models/readiness') {
+      const request = new Subject<Record<string, unknown>>();
+      this.readinessRequests.push(request);
+      this.readinessOptions.push(options);
+      return request.asObservable();
+    }
     if (path.startsWith('/sessions?')) return of({ sessions: [] });
     if (path.startsWith('/sessions/')) {
       const request = new Subject<Record<string, unknown>>();
@@ -108,6 +118,10 @@ class ApiStub {
     return of({});
   }
 
+  getModelReadiness(options?: unknown) {
+    return this.get('/models/readiness', undefined, options);
+  }
+
   listVoiceRuntimes() {
     return of({
       default_provider: 'cascade_openai',
@@ -130,9 +144,44 @@ class CanonicalStub {
   }
 }
 
-function makeHarness() {
+/**
+ * Controllable chat stream. `stream()` hands back a Subject the test drives
+ * chunk by chunk, so a provider failure can be delivered exactly as the SSE
+ * endpoint would deliver it.
+ */
+class SseStub {
+  readonly streams: Array<Subject<Record<string, unknown>>> = [];
+  readonly payloads: unknown[] = [];
+
+  stream(_path: string, payload?: unknown) {
+    const subject = new Subject<Record<string, unknown>>();
+    this.streams.push(subject);
+    this.payloads.push(payload);
+    return subject.asObservable();
+  }
+
+  /** The stream for the most recent turn. */
+  last(): Subject<Record<string, unknown>> {
+    return this.streams[this.streams.length - 1];
+  }
+}
+
+/**
+ * Write to a signal input from outside a template.
+ *
+ * The panel is instantiated through a bare `Injector`, not a fixture, so there
+ * is no `ComponentRef.setInput`. Inputs are ordinary signal nodes underneath,
+ * and the signals primitives package is the supported way to reach one.
+ */
+function setInput<T>(inputSignal: unknown, value: T): void {
+  const node = (inputSignal as Record<symbol, unknown>)[SIGNAL];
+  signalSetFn(node as never, value);
+}
+
+function makeHarness(options?: { can?: boolean }) {
   const workspace = new WorkspaceStub();
   const api = new ApiStub();
+  const sse = new SseStub();
   const canonical = new CanonicalStub();
   const warnings: unknown[][] = [];
   const voiceLoop = {
@@ -153,7 +202,7 @@ function makeHarness() {
       { provide: WorkspaceService, useValue: workspace },
       { provide: ApiService, useValue: api },
       { provide: CanonicalApiService, useValue: canonical },
-      { provide: SseService, useValue: { stream: () => NEVER } },
+      { provide: SseService, useValue: sse },
       {
         provide: ToastrService,
         useValue: {
@@ -193,7 +242,10 @@ function makeHarness() {
           }),
         },
       },
-      { provide: PermissionsService, useValue: { refresh: () => of(null), can: () => false } },
+      {
+        provide: PermissionsService,
+        useValue: { refresh: () => of(null), can: () => options?.can ?? false },
+      },
       { provide: AssistantEffectsService, useValue: { handleActionEffect: () => undefined } },
       { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
       { provide: ChangeDetectorRef, useValue: { markForCheck: () => undefined } },
@@ -208,7 +260,7 @@ function makeHarness() {
     ],
   });
   const component = injector.get(ChatPanelComponent);
-  return { injector, component, workspace, api, canonical, warnings };
+  return { injector, component, workspace, api, sse, canonical, warnings };
 }
 
 test('voice oracle timeline only uses registered Lucide icons', () => {
@@ -421,7 +473,6 @@ test('a HITL poll from a conversation left behind cannot mutate the active conve
   }
 });
 
-
 test('spreadsheet citations preserve the sheet and cell range in the source preview request', () => {
   const { injector, component } = makeHarness();
   try {
@@ -446,4 +497,287 @@ test('spreadsheet citations preserve the sheet and cell range in the source prev
     component.previewSource({ document_id: 'scan', collection: 'manuals', page: '12oops' });
     assert.equal(component.sourcePreviewPage(), null);
   } finally { injector.destroy(); }
+});
+
+// ---------------------------------------------------------------------------
+// Quick Ask: what the simple view hides, and what standard chat keeps.
+// ---------------------------------------------------------------------------
+
+test('Quick Ask hides the advanced controls, expert details, voice and correction', () => {
+  const { injector, component } = makeHarness({ can: true });
+  try {
+    setInput(component.viewMode, 'simple');
+
+    assert.equal(component.simpleMode(), true);
+    assert.equal(component.showAdvancedChatControls(), false, 'runtime chip, retrieval mode, reasoning template');
+    assert.equal(component.showExpertDetails(), false, 'trace, fact-check, evaluation score');
+    assert.equal(component.showVoiceControls(), false, 'dictation, capture and transport controls');
+    assert.equal(component.canCorrectInChat(), false, 'expert correction is not a Quick Ask affordance');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('standard chat keeps every control Quick Ask hides', () => {
+  const { injector, component } = makeHarness({ can: true });
+  try {
+    // `standard` is the default: no input is set here on purpose.
+    assert.equal(component.simpleMode(), false);
+    assert.equal(component.showAdvancedChatControls(), true);
+    assert.equal(component.showExpertDetails(), true);
+    assert.equal(component.showVoiceControls(), true);
+    assert.equal(component.canCorrectInChat(), true, 'permission still decides in standard chat');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('standard chat still hides expert correction without the permission', () => {
+  const { injector, component } = makeHarness();
+  try {
+    assert.equal(component.canCorrectInChat(), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Model readiness.
+// ---------------------------------------------------------------------------
+
+test('readiness is requested workspace-scoped and drives the banner state', () => {
+  const { injector, component, api } = makeHarness();
+  try {
+    setInput(component.viewMode, 'simple');
+    component.refreshModelReadiness();
+
+    assert.equal(api.readinessRequests.length, 1);
+    assert.deepEqual(api.readinessOptions[0], { workspaceSlug: 'andritz' });
+    assert.equal(component.modelReadinessLoading(), true);
+
+    api.readinessRequests[0].next({
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      source: 'workspace',
+      status: 'needs_setup',
+      reason: 'provider_not_configured',
+      message: 'No model is configured for this workspace.',
+      retryable: false,
+    });
+
+    assert.equal(component.modelReadinessLoading(), false);
+    assert.equal(component.modelReadiness()?.status, 'needs_setup');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a failed readiness probe clears the banner instead of blaming the model', () => {
+  const { injector, component, api } = makeHarness();
+  try {
+    setInput(component.viewMode, 'simple');
+    component.refreshModelReadiness();
+    api.readinessRequests[0].error(new Error('network'));
+
+    // Silence, not a false "unavailable" verdict — the composer stays usable.
+    assert.equal(component.modelReadiness(), null);
+    assert.equal(component.modelReadinessLoading(), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test("a late readiness answer from A cannot describe B's model", () => {
+  const { injector, component, workspace, api } = makeHarness();
+  try {
+    setInput(component.viewMode, 'simple');
+    component.refreshModelReadiness();
+
+    workspace.switchWorkspace();
+    api.readinessRequests[0].next({
+      provider: 'private-a',
+      model: 'a-only',
+      source: 'workspace',
+      status: 'ready',
+      reason: 'ready',
+      message: '',
+      retryable: false,
+    });
+
+    assert.equal(component.modelReadiness(), null);
+    assert.equal(component.modelReadinessLoading(), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Structured provider failures in the thread.
+// ---------------------------------------------------------------------------
+
+/** Drive a turn up to the point where the stream is open, then return it. */
+function startTurn(
+  harness: ReturnType<typeof makeHarness>,
+  query: string,
+): Subject<Record<string, unknown>> {
+  const { component, api, sse } = harness;
+  (component as unknown as { focusComposer(): void }).focusComposer = () => undefined;
+  (component as unknown as { persistLastEvalContext(q: string, r: string): void })
+    .persistLastEvalContext = () => undefined;
+  component.userInput = query;
+  component.send();
+  // The first send creates the session, then re-enters and opens the stream.
+  api.sessionCreates[api.sessionCreates.length - 1].next({ id: 'session-1', title: query });
+  return sse.last();
+}
+
+test('a structured provider error becomes a failure message, not warning text', () => {
+  const harness = makeHarness();
+  const { injector, component } = harness;
+  try {
+    const stream = startTurn(harness, 'Quel est le délai de livraison ?');
+
+    stream.next({ chunk_type: 'text', content: 'Le délai observé est' });
+    stream.next({
+      chunk_type: 'error',
+      code: 'CHAT_STREAM_ERROR',
+      content: 'The assistant could not answer.',
+      recoverable: true,
+      is_final: true,
+      error: {
+        code: 'provider_unreachable',
+        message: 'The model service is not responding.',
+        retryable: true,
+      },
+    });
+    stream.next({ type: 'done' });
+
+    const answer = component.messages()[1];
+    assert.equal(answer.role, 'assistant');
+    assert.deepEqual(answer.failure, {
+      code: 'provider_unreachable',
+      message: 'The model service is not responding.',
+      retryable: true,
+      needsSetup: false,
+    });
+    // The partial answer is preserved, and untouched by the failure copy.
+    assert.equal(answer.content, 'Le délai observé est');
+    assert.equal(answer.content.includes('⚠'), false);
+    assert.equal(answer.content.includes('not responding'), false);
+    assert.equal(answer.failedQuery, 'Quel est le délai de livraison ?');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a legacy error chunk falls back to neutral copy carrying no backend text', () => {
+  const harness = makeHarness();
+  const { injector, component } = harness;
+  try {
+    const stream = startTurn(harness, 'Question');
+
+    stream.next({
+      chunk_type: 'error',
+      code: 'CHAT_STREAM_ERROR',
+      content: "ConnectionError: HTTPSConnectionPool(host='api.internal', port=443)",
+      recoverable: true,
+    });
+    stream.next({ type: 'done' });
+
+    const answer = component.messages()[1];
+    assert.equal(answer.failure?.code, 'generation_failed');
+    assert.equal(answer.failure?.message, '', 'no exception text reaches the thread');
+    assert.equal(answer.failure?.retryable, true);
+    assert.equal(answer.content, '');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a dropped connection also renders as a failure and keeps the partial answer', () => {
+  const harness = makeHarness();
+  const { injector, component } = harness;
+  try {
+    const stream = startTurn(harness, 'Question');
+
+    stream.next({ chunk_type: 'text', content: 'Partial' });
+    stream.error(new Error('socket hang up'));
+
+    const answer = component.messages()[1];
+    assert.equal(answer.failure?.code, 'generation_failed');
+    assert.equal(answer.failure?.message, '');
+    assert.equal(answer.content, 'Partial');
+    assert.equal(component.streaming(), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('retry resends the failed question without leaving the failed turn behind', () => {
+  const harness = makeHarness();
+  const { injector, component, sse } = harness;
+  try {
+    const stream = startTurn(harness, 'Quel est le délai ?');
+    stream.next({
+      chunk_type: 'error',
+      error: { code: 'rate_limited', message: 'Throttled.', retryable: true },
+    });
+    stream.next({ type: 'done' });
+
+    assert.equal(component.messages().length, 2, 'the question and the failure card');
+    const failed = component.messages()[1];
+
+    component.retryFailedTurn(failed);
+
+    // The failed turn and the question that produced it are gone; the retry
+    // asks the same question once, not a transcript of the outage.
+    assert.equal(sse.streams.length, 2, 'a second turn was streamed');
+    assert.deepEqual(
+      component.messages().map((message) => [message.role, message.content]),
+      [['user', 'Quel est le délai ?']],
+    );
+    assert.equal(component.messages().some((message) => message.failure), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('retry re-probes readiness in Quick Ask', () => {
+  const harness = makeHarness();
+  const { injector, component, api } = harness;
+  try {
+    setInput(component.viewMode, 'simple');
+    const stream = startTurn(harness, 'Question');
+    stream.next({
+      chunk_type: 'error',
+      error: { code: 'provider_unreachable', message: 'Down.', retryable: true },
+    });
+    stream.next({ type: 'done' });
+
+    // The failed turn itself refreshes the banner, so it cannot keep claiming
+    // the model is ready while the thread says otherwise.
+    assert.equal(api.readinessRequests.length, 1, 'the failure re-probes readiness');
+
+    component.retryFailedTurn(component.messages()[1]);
+    assert.equal(api.readinessRequests.length, 2, 'retry re-probes readiness again');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('standard chat does not probe readiness on a failed turn', () => {
+  const harness = makeHarness();
+  const { injector, component, api } = harness;
+  try {
+    const stream = startTurn(harness, 'Question');
+    stream.next({
+      chunk_type: 'error',
+      error: { code: 'provider_unreachable', message: 'Down.', retryable: true },
+    });
+    stream.next({ type: 'done' });
+
+    assert.equal(api.readinessRequests.length, 0, 'the banner is a Quick Ask surface only');
+  } finally {
+    injector.destroy();
+  }
 });

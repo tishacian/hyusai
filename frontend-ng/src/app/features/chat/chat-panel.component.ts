@@ -66,6 +66,15 @@ import {
   VoiceControlsComponent,
 } from '@app/shared/voice/voice-controls.component';
 import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
+import {
+  parseChatStreamError,
+  type ChatStreamError,
+  type ModelReadiness,
+} from '@app/features/resources/model-plane.types';
+import {
+  ChatErrorCardComponent,
+  ChatReadinessBannerComponent,
+} from './chat-reliability.component';
 
 interface DecisionStep {
   id: string;
@@ -143,6 +152,24 @@ interface RetrievalDecisionTrace {
   trace_source?: string;
 }
 
+/**
+ * How much of the panel a container wants. See `ChatPanelComponent.viewMode`.
+ */
+export type ChatViewMode = 'standard' | 'simple';
+
+/**
+ * What an unclassifiable failure becomes: a legacy error chunk, a malformed
+ * one, or a dropped connection. Deliberately carries no message — the card
+ * renders neutral dictionary copy — so no exception text, URL, credential or
+ * stack trace can reach the thread through this path.
+ */
+const FALLBACK_STREAM_FAILURE: ChatStreamError = Object.freeze({
+  code: 'generation_failed',
+  message: '',
+  retryable: true,
+  needsSetup: false,
+});
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -154,6 +181,15 @@ interface ChatMessage {
    * and carries no action row, sources panel, or fact-check affordances.
    */
   kind?: 'correction_ack';
+  /**
+   * A provider failure that ended this turn. When set the bubble renders as an
+   * error/recovery card instead of an answer: `content` holds only whatever
+   * the model had genuinely streamed before the break (often empty), and the
+   * failure copy lives here, never concatenated onto the answer.
+   */
+  failure?: ChatStreamError | null;
+  /** The question that produced this turn, so Retry can resend it verbatim. */
+  failedQuery?: string | null;
   decisionSteps?: DecisionStep[];
   sources?: Source[];
   mapCommand?: Record<string, unknown>;
@@ -492,6 +528,8 @@ const STEP_ICONS: Record<string, string> = {
     ThinkingOrbComponent,
     VoiceControlsComponent,
     DocumentPreviewComponent,
+    ChatReadinessBannerComponent,
+    ChatErrorCardComponent,
   ],
   template: `
     <div class="chat-history-shell" [class.chat-history-embed]="compact()">
@@ -928,6 +966,17 @@ const STEP_ICONS: Record<string, string> = {
                 {{ msg.content }}
               </div>
             </div>
+          } @else if (msg.failure) {
+            <!-- A turn the provider could not finish. Rendered as its own
+                 recovery state — never as answer text with a warning glyph —
+                 with any partial answer kept visibly apart from the failure. -->
+            <div class="flex justify-start">
+              <app-chat-error-card
+                [error]="msg.failure"
+                [partialAnswer]="msg.content"
+                (retry)="retryFailedTurn(msg)"
+              />
+            </div>
           } @else if (msg.kind === 'correction_ack') {
             <!-- Sober conversational acknowledgement of an expert correction.
                  Intentionally carries no action row, sources, or fact-check —
@@ -941,7 +990,7 @@ const STEP_ICONS: Record<string, string> = {
           } @else {
             <!-- Assistant bubble with reasoning trail -->
             <div class="flex flex-col gap-2">
-              @if (!isDemoMode() && msg.decisionSteps && msg.decisionSteps.length > 0) {
+              @if (showExpertDetails() && msg.decisionSteps && msg.decisionSteps.length > 0) {
                 <div class="ml-0 space-y-1.5">
                   <button
                     type="button"
@@ -1228,7 +1277,7 @@ const STEP_ICONS: Record<string, string> = {
               <!-- Missing-citations banner: model cited [N] but the retrieval
                    returned fewer (or zero) chunks. Surface it so operators
                    do not mistake disabled grey chips for a styling bug. -->
-              @if (!isDemoMode() && missingCitations(msg); as missing) {
+              @if (showExpertDetails() && missingCitations(msg); as missing) {
                 @if (missing.length > 0) {
                   <div
                     class="ml-0 mt-1 flex items-start gap-2 rounded-md px-3 py-2 text-[11px] bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/25"
@@ -1342,10 +1391,10 @@ const STEP_ICONS: Record<string, string> = {
               }
 
               <!-- Task summary -->
-              @if (!isDemoMode() && msg.decisionSteps && msg.decisionSteps.length > 0) {
+              @if (showExpertDetails() && msg.decisionSteps && msg.decisionSteps.length > 0) {
                 <div
                   class="ck-chat-trace-summary ml-0 mt-1 rounded-md px-3 py-2 flex items-center gap-3 text-[11px] text-gray-700 dark:text-gray-300"
-                  [class.hidden]="isDemoMode() || (executiveMode() && !traceOpen())"
+                  [class.hidden]="!showExpertDetails() || (executiveMode() && !traceOpen())"
                 >
                   <app-icon name="circle-dot" [size]="11" class="text-cyan-400 shrink-0" />
                   <span class="font-medium">
@@ -1657,6 +1706,7 @@ const STEP_ICONS: Record<string, string> = {
                 >
                   <app-icon name="copy" [size]="12" />
                 </button>
+                @if (showExpertDetails()) {
                 <button
                   type="button"
                   class="p-1 rounded hover:bg-sky-500/10 transition flex items-center gap-1 text-sky-300 disabled:opacity-50"
@@ -1675,7 +1725,8 @@ const STEP_ICONS: Record<string, string> = {
                     <span>{{ i18n.t('chat.audit.deep_search') }}</span>
                   }
                 </button>
-                @if (!isDemoMode()) {
+                }
+                @if (showExpertDetails()) {
                   <button
                     type="button"
                     class="p-1 rounded hover:bg-white/5 transition flex items-center gap-1"
@@ -1704,7 +1755,7 @@ const STEP_ICONS: Record<string, string> = {
                     <span>{{ i18n.t('chat.correct.action') }}</span>
                   </button>
                 }
-                @if (!isDemoMode() && msg.evaluation) {
+                @if (showExpertDetails() && msg.evaluation) {
                   <span class="ml-auto font-mono text-[10px] text-emerald-400"
                     >{{ i18n.t('chat.audit.score', { value: (msg.evaluation.composite_score?.toFixed(1) ?? '—') }) }}</span
                   >
@@ -1876,7 +1927,7 @@ const STEP_ICONS: Record<string, string> = {
                     <app-icon name="shield-alert" [size]="12" />
                     <span>{{ i18n.t('chat.qa.verify') }}</span>
                   </button>
-                  @if (!isDemoMode() && qa.reasons.length) {
+                  @if (showExpertDetails() && qa.reasons.length) {
                     <span class="text-[10px] font-mono text-gray-500">
                       {{ qa.compositeScore != null ? qa.compositeScore + '/100 · ' : '' }}{{ qa.reasons.slice(0, 3).join(', ') }}
                     </span>
@@ -1927,7 +1978,7 @@ const STEP_ICONS: Record<string, string> = {
                 </div>
               </div>
             }
-            @if (!isDemoMode() && liveSteps().length > 0) {
+            @if (showExpertDetails() && liveSteps().length > 0) {
               <div class="space-y-1">
                 @for (step of liveSteps(); track step.id) {
                   <div
@@ -2008,6 +2059,17 @@ const STEP_ICONS: Record<string, string> = {
         }
       </div>
 
+      <!-- Model readiness. Sits with the composer because that is where the
+           question is asked; it never covers the thread, and a slow probe
+           leaves the composer fully usable. -->
+      @if (simpleMode()) {
+        <app-chat-readiness-banner
+          [readiness]="modelReadiness()"
+          [loading]="modelReadinessLoading()"
+          (retry)="refreshModelReadiness()"
+        />
+      }
+
       <!-- Live dictation preview: partial transcript while recording -->
       @if (recording() && voicePartial()) {
         <div class="px-3 pt-2 -mb-1 flex items-center gap-2 text-xs text-gray-400">
@@ -2022,6 +2084,7 @@ const STEP_ICONS: Record<string, string> = {
         class="ck-chat-input-bar flex items-end gap-2 p-3 border-t border-white/5 bg-white/[0.02]"
         [class.vigie-input-bar]="executiveMode()"
       >
+        @if (showVoiceControls()) {
         <button
           type="button"
           class="p-2.5 rounded-xl transition ring-1 relative"
@@ -2046,6 +2109,7 @@ const STEP_ICONS: Record<string, string> = {
             [class.animate-spin]="transcribing()"
           />
         </button>
+        }
         <textarea
           #inputEl
           [(ngModel)]="userInput"
@@ -3223,6 +3287,20 @@ export class ChatPanelComponent implements AfterViewInit {
    * the instructions ride the system role, never a bubble.
    */
   readonly systemPrompt = input<string | null>(null);
+  /**
+   * How much of the panel to show.
+   *
+   * `standard` is everything: retrieval mode, reasoning template, runtime
+   * chip, voice, trace and evaluation. `simple` is the Quick Ask story —
+   * context, files, history, composer, answers, citations — and nothing an
+   * operator would need a glossary for.
+   *
+   * This is an explicit contract rather than a URL read inside this component:
+   * the container that knows it is rendering Quick Ask says so, and the panel
+   * stays route-agnostic (the overlay, the Studio embeds and `/chat` all reach
+   * it by different paths).
+   */
+  readonly viewMode = input<ChatViewMode>('standard');
 
   private readonly sse = inject(SseService);
   private readonly api = inject(ApiService);
@@ -3401,15 +3479,38 @@ export class ChatPanelComponent implements AfterViewInit {
   }>>({});
 
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
+  /** Quick Ask. Drives every "hide the expert chrome" decision below. */
+  readonly simpleMode = computed(() => this.viewMode() === 'simple');
   readonly showAdvancedChatControls = computed(() =>
-    !this.isDemoMode() && (!this.executiveMode() || this.traceOpen()),
+    !this.isDemoMode() && !this.simpleMode() && (!this.executiveMode() || this.traceOpen()),
   );
+  /**
+   * Per-answer expert detail: the reasoning trail, the trace summary, the
+   * citation-coverage warning, fact-check and the evaluation score.
+   *
+   * Demo-safe workspaces already hid all of this; Quick Ask hides it for the
+   * same reason — it answers a question nobody asked. Standard chat is
+   * unchanged, since with `viewMode` left at `standard` this is exactly the
+   * `!isDemoMode()` test it replaced.
+   */
+  readonly showExpertDetails = computed(() => !this.isDemoMode() && !this.simpleMode());
+  /** Voice capture, dictation and the batch/transport controls. */
+  readonly showVoiceControls = computed(() => !this.simpleMode());
   readonly chatRuntimeLabel = computed(() =>
     this.isDemoMode()
       ? this.i18n.t('chat.controls.runtime_managed')
       : this.settings.settings().defaultModel || '—',
   );
   readonly traceOpen = signal(false);
+
+  // --- Model readiness (Quick Ask) ----------------------------------------
+  // Loaded only for the focused simple surface: standard chat already exposes
+  // the runtime chip and the provider settings, so it needs no banner.
+  readonly modelReadiness = signal<ModelReadiness | null>(null);
+  readonly modelReadinessLoading = signal(false);
+  /** Guards against a second in-flight probe while one is already running. */
+  private readinessRequest: Subscription | null = null;
+  private loadedReadinessSlug: string | null = null;
 
   readonly activeAssistantProfile = computed<AssistantProfile | null>(() => {
     const settings = this.workspace.current()?.settings;
@@ -3512,6 +3613,11 @@ export class ChatPanelComponent implements AfterViewInit {
    */
   readonly canCorrectInChat = computed(() => {
     if (this.expertCorrectionFlag() === false) return false;
+    // Correcting the knowledge base is expert work with a review queue behind
+    // it. Quick Ask asks questions; it does not teach the corpus. Gating here
+    // rather than at each of the three call sites keeps the CTA, the composer
+    // and the persistent trace from ever disagreeing.
+    if (this.simpleMode()) return false;
     return this.permissions.can('knowledge_proposal', 'chat_correct');
   });
 
@@ -3930,6 +4036,16 @@ export class ChatPanelComponent implements AfterViewInit {
       this.loadEffectiveChatActions(profileKey, systemId);
       this.loadDemoVoiceActions(profileKey, systemId);
     });
+    // Readiness follows the workspace the same way the action manifests do:
+    // one probe per workspace the simple surface is shown in, re-run when the
+    // user switches. Retry goes through `refreshModelReadiness()`.
+    effect(() => {
+      if (!this.simpleMode()) return;
+      const workspaceSlug = this.workspace.current()?.slug || '';
+      if (!workspaceSlug || workspaceSlug === this.loadedReadinessSlug) return;
+      this.loadedReadinessSlug = workspaceSlug;
+      queueMicrotask(() => this.loadModelReadiness());
+    });
     this.settings.refresh();
     // Refresh the IAM matrix so the inline expert-correction CTA can gate on
     // the `chat_correct` permission (capability-active + REVIEW_ROLES).
@@ -4221,6 +4337,11 @@ export class ChatPanelComponent implements AfterViewInit {
     this.evaluatingId.set(null);
     this.deepSearchLaunchingId.set(null);
     this.userInput = '';
+    // A verdict about A's provider must never be read as a verdict about B.
+    this.readinessRequest = null;
+    this.loadedReadinessSlug = null;
+    this.modelReadiness.set(null);
+    this.modelReadinessLoading.set(false);
 
     // The atomic transition has not published B yet while the resetter runs.
     // Rehydrate only once B is visible and only if this panel survived it.
@@ -4237,6 +4358,69 @@ export class ChatPanelComponent implements AfterViewInit {
     this.chatWorkspaceSubscriptions = new Subscription();
     for (const timer of this.chatPollingTimers) clearTimeout(timer);
     this.chatPollingTimers.clear();
+  }
+
+  /**
+   * Probe the active provider/model selection.
+   *
+   * Failure of the probe itself is *not* reported as an unavailable model —
+   * that would blame the assistant for a flaky metadata call. The banner
+   * simply falls silent, and the composer stays usable: a user who can ask is
+   * never blocked by a status widget.
+   */
+  private loadModelReadiness(): void {
+    const scope = this.workspace.captureRequestScope();
+    const generation = this.chatWorkspaceGeneration;
+    this.readinessRequest?.unsubscribe();
+    this.modelReadinessLoading.set(true);
+    const request = this.api
+      .getModelReadiness({ workspaceSlug: scope.workspaceSlug })
+      .subscribe({
+        next: (readiness) => {
+          if (!this.isChatContinuationCurrent(scope, generation)) return;
+          this.modelReadiness.set(readiness ?? null);
+          this.modelReadinessLoading.set(false);
+          this.cdr.markForCheck();
+        },
+        error: () => {
+          if (!this.isChatContinuationCurrent(scope, generation)) return;
+          this.modelReadiness.set(null);
+          this.modelReadinessLoading.set(false);
+          this.cdr.markForCheck();
+        },
+      });
+    this.readinessRequest = request;
+    this.chatWorkspaceSubscriptions.add(request);
+  }
+
+  /** Re-probe on demand — the Retry action on the banner and the error card. */
+  refreshModelReadiness(): void {
+    this.loadedReadinessSlug = this.workspace.current()?.slug || null;
+    this.loadModelReadiness();
+  }
+
+  /**
+   * Resend the question that failed.
+   *
+   * The failed bubble and the user bubble that produced it both leave the
+   * thread, so a successful retry reads as the answer to a question asked
+   * once, not as a transcript of the outage. Readiness is re-probed alongside,
+   * since the most common reason a retry works is that the provider came back.
+   */
+  retryFailedTurn(msg: ChatMessage): void {
+    if (this.streaming()) return;
+    const query = (msg.failedQuery || this.previousUserQueryFor(msg.id) || '').trim();
+    if (!query) return;
+    this.messages.update((messages) => {
+      const index = messages.findIndex((candidate) => candidate.id === msg.id);
+      if (index < 0) return messages;
+      const previous = messages[index - 1];
+      const dropFrom = previous?.role === 'user' ? index - 1 : index;
+      return messages.filter((_, position) => position < dropFrom || position > index);
+    });
+    if (this.simpleMode()) this.refreshModelReadiness();
+    this.userInput = query;
+    this.send();
   }
 
   private isChatContinuationCurrent(
@@ -6408,6 +6592,8 @@ export class ChatPanelComponent implements AfterViewInit {
     // teaching message detected on /chat): the reply is the same sober
     // acknowledgement the "Corriger" composer produces, not an answer.
     let expertCorrection: Record<string, unknown> | null = null;
+    /** Set by a `chunk_type: "error"` chunk; turns this turn into a card. */
+    let streamFailure: ChatStreamError | null = null;
     let pendingDeepSearch:
       | {
           jobId: string;
@@ -6571,9 +6757,11 @@ export class ChatPanelComponent implements AfterViewInit {
               deepPollUrl: (details['deep_poll_url'] as string | undefined) ?? retrievalInfo?.deepPollUrl ?? null,
             };
             this.liveRetrievalInfo.set(retrievalInfo);
-          } else if (chunk.chunk_type === 'error' && chunk.content) {
-            buffer += `\n\n⚠ ${chunk.content}`;
-            this.streamBuffer.set(buffer);
+          } else if (chunk.chunk_type === 'error') {
+            // A provider failure is a state, not prose. Keep it off the answer
+            // buffer: whatever the model streamed before the break stays the
+            // answer, and the failure rides its own card on `done`.
+            streamFailure = parseChatStreamError(chunk) ?? FALLBACK_STREAM_FAILURE;
           } else if (chunk.chunk_type === 'action_result') {
             const action = String((chunk as Record<string, unknown>)['action'] || '');
             if (action.startsWith('calendar_')) {
@@ -6627,6 +6815,8 @@ export class ChatPanelComponent implements AfterViewInit {
               role: 'assistant',
               content: buffer,
               kind: expertCorrection ? 'correction_ack' : undefined,
+              failure: streamFailure,
+              failedQuery: streamFailure ? text : null,
               decisionSteps: reasoning.length ? reasoning : undefined,
               sources,
               mapCommand,
@@ -6661,6 +6851,9 @@ export class ChatPanelComponent implements AfterViewInit {
             this.streamBuffer.set('');
             this.liveSteps.set([]);
             this.liveRetrievalInfo.set(null);
+            // A failed turn is the most reliable signal the banner has that
+            // its verdict is stale — re-probe so Quick Ask agrees with itself.
+            if (streamFailure && this.simpleMode()) this.refreshModelReadiness();
             this.persistLastEvalContext(text, buffer);
             this.logAudit('chat_query', {
               message_id: assistantId,
@@ -6683,6 +6876,19 @@ export class ChatPanelComponent implements AfterViewInit {
         },
         error: () => {
           if (!this.isChatContinuationCurrent(streamScope, streamGeneration)) return;
+          // Transport-level loss: no classified failure to show, so the card
+          // uses neutral copy. The partial answer is kept as the bubble's own
+          // content rather than being discarded with the connection.
+          this.messages.update((messages) => [...messages, {
+            id: cryptoId(),
+            role: 'assistant',
+            content: buffer,
+            failure: FALLBACK_STREAM_FAILURE,
+            failedQuery: text,
+            sources,
+            feedback: null,
+            evaluation: null,
+          } as ChatMessage]);
           this.toast.error(this.i18n.t('chat.toast.stream_lost'), this.i18n.t('chat.title'));
           this.streaming.set(false);
           this.streamBuffer.set('');

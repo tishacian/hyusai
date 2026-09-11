@@ -4,6 +4,7 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { ChatWorkspaceComponent } from './chat-workspace.component';
+import { type ChatViewMode } from './chat-panel.component';
 import { type ChatStartMode } from './chat-overlay.service';
 
 /**
@@ -66,6 +67,7 @@ import { type ChatStartMode } from './chat-overlay.service';
           [assistantProfileKey]="assistantProfileKey()"
           [initialPrompt]="initialPrompt()"
           [autoStartVoiceLoop]="autoStartVoiceLoop()"
+          [viewMode]="viewMode()"
         />
       </main>
     </div>
@@ -85,9 +87,9 @@ import { type ChatStartMode } from './chat-overlay.service';
       height: 100vh;
       width: 100%;
       overflow: hidden;
-      background:
-        radial-gradient(circle at 78% -20%, rgba(34, 211, 238, 0.06), transparent 34%),
-        var(--ck-bg-base, #0a0e14);
+      /* Content-first: a flat surface, no corner glow competing with the
+         answer for attention. */
+      background: var(--ck-bg-base, #0a0e14);
     }
     .chat-focus-header {
       display: flex;
@@ -200,6 +202,15 @@ export class ChatFocusComponent implements OnInit {
   readonly assistantProfileKey = signal<string | null>(null);
   readonly initialPrompt = signal<string | null>(null);
   readonly autoStartVoiceLoop = signal(false);
+
+  /**
+   * Quick Ask is the simple surface; `?mode=system` and `?mode=drop` keep the
+   * full panel. The mode is read here, at the route boundary, so the chat
+   * panel itself never has to inspect the URL.
+   */
+  readonly viewMode = computed<ChatViewMode>(() =>
+    this.startMode() === 'quick' ? 'simple' : 'standard',
+  );
 
   readonly workspaceName = computed(() => {
     const current = this.workspace.current();
