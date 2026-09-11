@@ -28,6 +28,8 @@ export class ChatOverlayService {
   readonly adoption = inject(AdoptionService);
   readonly isOpen = signal(false);
   readonly expanded = signal(false);
+  /** Opt-in System pilot; the designed chat workspace stays the default companion. */
+  readonly pilot = signal(false);
   readonly narrow = signal(typeof window !== 'undefined' && window.innerWidth <= 700);
   readonly blocksPage = computed(() => this.isOpen() && (!this.adoption.enabled() || this.expanded() || this.narrow()));
   readonly startMode = signal<ChatStartMode>('quick');
@@ -60,8 +62,10 @@ export class ChatOverlayService {
     assistantProfile?: string | null;
     initialPrompt?: string | null;
     autoStartVoiceLoop?: boolean;
+    pilot?: boolean;
   }): void {
     let mode = options?.mode ?? 'quick';
+    this.pilot.set(!!options?.pilot);
     // When chat document upload is disabled for the workspace, the
     // drop-and-ask surface is hidden, so fall back to a quick ask.
     if (mode === 'drop' && !this.chatUploadEnabled()) {
@@ -83,6 +87,7 @@ export class ChatOverlayService {
   reset(): void {
     this.isOpen.set(false);
     this.expanded.set(false);
+    this.pilot.set(false);
     this.startMode.set('quick');
     this.preselectedSystemId.set(null);
     this.preselectedContextId.set(null);

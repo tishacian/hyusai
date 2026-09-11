@@ -587,7 +587,7 @@ interface ContextConfigRow {
         }
       </ck-tab>
 
-      <ck-tab id="design" label="Design">
+      <ck-tab id="design" [label]="i18n.t('systems.view.tab.design')">
         @if (system360Enabled()) {
           <app-system-perspective
             [lens]="activeObjectLens()"
@@ -768,7 +768,7 @@ interface ContextConfigRow {
         }
       </ck-tab>
 
-      <ck-tab id="context" label="Context">
+      <ck-tab id="context" [label]="i18n.t('systems.view.tab.context')">
         @if (system360Enabled()) {
           <app-system-perspective
             [lens]="activeObjectLens()"

@@ -65,6 +65,8 @@ export const EXPERIENCE_FR = {
 
     "experience.adoption.done": "Interaction effectuée",
   "experience.adoption.companion": "Piloter avec la conversation",
+  "experience.adoption.pilot.switch": "Piloter les Systems",
+  "experience.adoption.pilot.back": "Revenir au chat",
   "experience.adoption.scope": "Systems concernés",
   "experience.adoption.scope_hint": "Sélectionnez les Systems avant une action. Changer de portée ouvre une nouvelle conversation.",
   "experience.adoption.send": "Envoyer",
@@ -1079,6 +1081,8 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
 
     "experience.adoption.done": "Interaction completed",
   "experience.adoption.companion": "Control through conversation",
+  "experience.adoption.pilot.switch": "Pilot Systems",
+  "experience.adoption.pilot.back": "Back to chat",
   "experience.adoption.scope": "Systems in scope",
   "experience.adoption.scope_hint": "Select Systems before an action. Changing scope starts a new conversation.",
   "experience.adoption.send": "Send",
