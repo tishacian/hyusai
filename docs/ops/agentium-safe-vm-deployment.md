@@ -6174,11 +6174,20 @@ marque) 60 passed.
   `E2E_ADOPTION_MOCKED=1`, comme prévu.
 - **17.** Non rejoué.
 
-### Reste à faire avant toute activation
+### Activation pilote — 11/09 07:20
+
+`adoption_experience_v1 = true` posé sur `agentium-showcase` seul, à la
+demande du sponsor, par `jsonb_set` sur `workspaces.settings` (les
+autres `features` conservées). Collection `agentium-showcase-notices`
+`ready` (9 documents, 11 chunks) : le parcours `/work/getting-started`
+est disponible. Seed non relancé : pas de System « Operational
+Analysis », aucune Experience déployée sur Showcase. Aucun autre
+espace touché ; 0 traceback après activation.
+
+### Reste à faire
 
 - Publier une Experience pilot sur Showcase (ou corriger le seed) pour
-  rendre le canari 16 vert, puis rejouer 16 avant d'activer
-  `adoption_experience_v1` sur Showcase.
+  rendre le canari 16 vert.
 - Contrôle visuel Nawa et Andritz (facettes System, racine, ⌘J, shell
   `data-brand-scope`) — non fait ce soir.
 - Pipeline GitLab : premier passage du job `agentium-frontend-quality`
