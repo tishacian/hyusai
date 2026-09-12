@@ -16,8 +16,9 @@ from sqlalchemy.orm.attributes import flag_modified
 if TYPE_CHECKING:
     from app.models.workspace import Workspace
 
-# Backend-known app definitions. Frontend may list additional catalog-only cards;
-# enablement for unknown ids is still accepted and stored.
+# Backend-known app definitions. Only entries with a real runtime may be
+# returned or enabled. Historical catalog-only ids can remain in persisted
+# settings during migration, but they never become available product actions.
 WIRED_APPS: dict[str, dict[str, Any]] = {
     "rpa_bridge": {
         "id": "rpa_bridge",
@@ -174,24 +175,21 @@ def describe_app(app_id: str, *, enabled: bool) -> dict[str, Any]:
 
 
 def list_workspace_apps(workspace: "Workspace") -> dict[str, Any]:
-    enabled = read_enabled_app_ids(workspace)
+    stored_enabled = read_enabled_app_ids(workspace)
+    enabled = [app_id for app_id in stored_enabled if app_id in WIRED_APPS]
     enabled_set = set(enabled)
 
-    # Known catalog + wired ids first (stable order), then any extra enabled ids.
-    known_ids = list(WIRED_APPS.keys()) + sorted(CATALOG_APP_IDS)
-    extras = [app_id for app_id in enabled if app_id not in WIRED_APPS and app_id not in CATALOG_APP_IDS]
-    ordered = known_ids + extras
-
-    apps = [describe_app(app_id, enabled=app_id in enabled_set) for app_id in ordered]
+    # Catalog-only and unknown entries are intentionally absent. Presence in a
+    # catalog is not evidence that a user can execute the app.
+    apps = [describe_app(app_id, enabled=app_id in enabled_set) for app_id in WIRED_APPS]
     wired_enabled = sum(1 for a in apps if a["wiring"] == "wired" and a["enabled"])
-    catalog_enabled = sum(1 for a in apps if a["wiring"] == "catalog" and a["enabled"])
 
     return {
         "enabled": enabled,
         "apps": apps,
         "wired_count": sum(1 for a in apps if a["wiring"] == "wired"),
         "wired_enabled_count": wired_enabled,
-        "catalog_enabled_count": catalog_enabled,
+        "catalog_enabled_count": 0,
         "has_wired_apps": any(a["wiring"] == "wired" for a in apps),
     }
 
@@ -203,6 +201,9 @@ def set_enabled_apps(
 ) -> dict[str, Any]:
     previous = read_enabled_app_ids(workspace)
     next_enabled = _normalize_enabled(enabled)
+    unsupported = sorted(set(next_enabled) - set(WIRED_APPS))
+    if unsupported:
+        raise ValueError("Apps without runtime wiring cannot be enabled: " + ", ".join(unsupported))
 
     settings = _as_dict(workspace.settings)
     apps_blob = _as_dict(settings.get("apps"))

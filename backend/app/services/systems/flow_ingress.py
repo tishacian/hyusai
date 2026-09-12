@@ -80,6 +80,11 @@ def _published_evidence(
             {"status": system.status},
         )
     try:
+        flow_publication.assert_system_skills_ready(
+            db,
+            system=system,
+            workspace=workspace,
+        )
         version, flow, flow_sha256, contract = flow_publication.published_run_evidence(
             db,
             system=system,

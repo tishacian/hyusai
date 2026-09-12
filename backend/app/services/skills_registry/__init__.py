@@ -12,6 +12,7 @@ Skills are seeded into the DB on application startup (idempotent upsert)
 so the `/skills` endpoint returns them without a separate Alembic-level
 data migration. Runtime invocation is wired in phase 6 by `run_engine`.
 """
+
 from .binding import (
     SkillBindingError,
     is_workspace_skill_slug,
@@ -21,12 +22,13 @@ from .binding import (
 from .executors import (
     VERIFIED_EXECUTORS,
     bind_executor,
+    executor_runtime_status,
     validate_executor_binding,
     verified_executor_catalog,
 )
-from .seed import SEED_SKILLS, SEED_CAPABILITIES, seed_skills_and_capabilities
+from .seed import SEED_CAPABILITIES, SEED_SKILLS, seed_skills_and_capabilities
 from .workspace_skills import workspace_skill_callable
-from .wrappers import resolve, bound_slugs, registry_snapshot, runtime_status
+from .wrappers import bound_slugs, registry_snapshot, resolve, runtime_status
 
 __all__ = [
     "SEED_SKILLS",
@@ -34,6 +36,7 @@ __all__ = [
     "SkillBindingError",
     "VERIFIED_EXECUTORS",
     "bind_executor",
+    "executor_runtime_status",
     "bound_slugs",
     "is_workspace_skill_slug",
     "parse_workspace_skill_slug",

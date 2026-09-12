@@ -26,7 +26,8 @@ import {
   writeAppToggles,
 } from '../resources/resources.catalog';
 
-type Filter = 'all' | 'enabled' | 'ready' | 'beta' | 'wired';
+type Filter = 'all' | 'enabled' | 'ready' | 'beta';
+const RUNTIME_APPS = APPS.filter((app) => app.wiring === 'wired');
 
 interface WorkspaceAppsResponse {
   enabled?: string[];
@@ -57,31 +58,9 @@ interface WorkspaceAppsResponse {
       [title]="i18n.t('apps.title')"
       [subtitle]="i18n.t('apps.subtitle')"
       [kpis]="headerKpis()"
-    >
-      <a
-        actions
-        href="mailto:product@agentium.papai.ai?subject=App%20runtime%20wiring%20request"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-      >
-        <app-icon name="send" [size]="14" /> {{ i18n.t('apps.request_wiring') }}
-      </a>
-    </ck-object-header>
+    ></ck-object-header>
 
-    @if (showCatalogBanner()) {
-      <div class="mb-5 rounded-md p-3 bg-amber-500/5 ring-1 ring-amber-500/25 flex items-start gap-3">
-        <app-icon name="alert-triangle" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
-        <div class="flex-1">
-          <div class="text-[11px] uppercase tracking-wider font-semibold text-amber-300 mb-0.5">
-            Catalog only · no runtime wiring yet
-          </div>
-          <p class="text-[11px] text-amber-200/80 leading-relaxed">
-            {{ i18n.t('apps.banner.catalog.lead') }}
-            <span class="font-semibold">{{ i18n.t('apps.request_wiring') }}</span>
-            {{ i18n.t('apps.banner.catalog.tail') }} <span class="font-mono">/skills</span>.
-          </p>
-        </div>
-      </div>
-    } @else if (wiredEnabledCount() > 0) {
+    @if (wiredEnabledCount() > 0) {
       <div class="mb-5 rounded-md p-3 bg-cyan-500/5 ring-1 ring-cyan-500/25 flex items-start gap-3">
         <app-icon name="plug" [size]="14" class="text-cyan-400 mt-0.5 shrink-0" />
         <div class="flex-1">
@@ -145,23 +124,12 @@ interface WorkspaceAppsResponse {
               <app-icon [name]="a.icon" [size]="20" />
             </div>
             <div class="flex items-center gap-2">
-              @if (a.wiring === 'wired') {
-                <span
-                  class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1 bg-cyan-500/10 text-cyan-300 ring-cyan-500/30"
-                  [title]="i18n.t('apps.badge.wired.hint')"
-                >
-                  {{ i18n.t('apps.badge.wired') }}
-                </span>
-              } @else {
-                <!-- Raw status label: "catalog only" is lexicon-allowlisted for
-                     this file only, so it stays out of the dictionary. -->
-                <span
-                  class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1 bg-white/5 text-gray-400 ring-white/10"
-                  [title]="i18n.t('apps.badge.catalog.hint')"
-                >
-                  catalog only
-                </span>
-              }
+              <span
+                class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ring-1 bg-cyan-500/10 text-cyan-300 ring-cyan-500/30"
+                [title]="i18n.t('apps.badge.wired.hint')"
+              >
+                {{ i18n.t('apps.badge.wired') }}
+              </span>
               <button
                 type="button"
                 (click)="toggle(a.id)"
@@ -188,7 +156,7 @@ interface WorkspaceAppsResponse {
             <div class="text-[10px] font-mono text-gray-500">
               {{ i18n.t('apps.card.id', { id: a.id }) }}
             </div>
-            @if (a.wiring === 'wired' && a.connectorRoute) {
+            @if (a.connectorRoute) {
               <a
                 [routerLink]="a.connectorRoute"
                 class="text-[10px] text-cyan-400 hover:text-cyan-300 inline-flex items-center gap-1"
@@ -217,7 +185,7 @@ export class AppsPageComponent implements OnInit {
   private readonly api = inject(ApiService);
   readonly i18n = inject(I18nService);
 
-  readonly APPS = APPS;
+  readonly APPS = RUNTIME_APPS;
   readonly filter = signal<Filter>('all');
   private readonly version = signal(0);
   readonly loading = signal(false);
@@ -229,9 +197,8 @@ export class AppsPageComponent implements OnInit {
   /** Label keys resolved with t() in the template so the pills react to
    * locale changes (a label frozen here would not). */
   readonly filters = [
-    { id: 'all' as Filter, labelKey: 'common.all', count: () => APPS.length },
+    { id: 'all' as Filter, labelKey: 'common.all', count: () => RUNTIME_APPS.length },
     { id: 'enabled' as Filter, labelKey: 'apps.filter.enabled', count: () => this.enabledCount() },
-    { id: 'wired' as Filter, labelKey: 'apps.filter.wired', count: () => this.wiredCount() },
     { id: 'ready' as Filter, labelKey: 'apps.filter.ready', count: () => this.readyCount() },
     { id: 'beta' as Filter, labelKey: 'apps.filter.beta', count: () => this.betaCount() },
   ];
@@ -241,15 +208,13 @@ export class AppsPageComponent implements OnInit {
     const enabled = this.enabledIds();
     switch (this.filter()) {
       case 'enabled':
-        return APPS.filter((a) => enabled.has(a.id));
-      case 'wired':
-        return APPS.filter((a) => a.wiring === 'wired');
+        return RUNTIME_APPS.filter((a) => enabled.has(a.id));
       case 'ready':
-        return APPS.filter((a) => a.status === 'ready');
+        return RUNTIME_APPS.filter((a) => a.status === 'ready');
       case 'beta':
-        return APPS.filter((a) => a.status === 'beta');
+        return RUNTIME_APPS.filter((a) => a.status === 'beta');
       default:
-        return APPS;
+        return RUNTIME_APPS;
     }
   });
 
@@ -257,19 +222,17 @@ export class AppsPageComponent implements OnInit {
     this.version();
     return this.enabledIds().size;
   });
-  readonly wiredCount = computed(() => APPS.filter((a) => a.wiring === 'wired').length);
+  readonly wiredCount = computed(() => RUNTIME_APPS.length);
   readonly wiredEnabledCount = computed(() => {
     this.version();
     const enabled = this.enabledIds();
-    return APPS.filter((a) => a.wiring === 'wired' && enabled.has(a.id)).length;
+    return RUNTIME_APPS.filter((a) => enabled.has(a.id)).length;
   });
-  readonly readyCount = computed(() => APPS.filter((a) => a.status === 'ready').length);
-  readonly betaCount = computed(() => APPS.filter((a) => a.status === 'beta').length);
-  /** Banner only when there are no wired apps in the catalog at all. */
-  readonly showCatalogBanner = computed(() => this.wiredCount() === 0);
+  readonly readyCount = computed(() => RUNTIME_APPS.filter((a) => a.status === 'ready').length);
+  readonly betaCount = computed(() => RUNTIME_APPS.filter((a) => a.status === 'beta').length);
 
   readonly headerKpis = computed<CkObjectKpi[]>(() => [
-    { label: this.i18n.t('apps.kpi.total'), value: String(APPS.length) },
+    { label: this.i18n.t('apps.kpi.total'), value: String(RUNTIME_APPS.length) },
     {
       label: this.i18n.t('apps.kpi.enabled'),
       value: String(this.enabledCount()),
@@ -387,7 +350,8 @@ export class AppsPageComponent implements OnInit {
   }
 
   private applyEnabledList(enabled: string[]): void {
-    this.enabledIds.set(new Set(enabled));
+    const runtimeIds = new Set(RUNTIME_APPS.map((app) => app.id));
+    this.enabledIds.set(new Set(enabled.filter((id) => runtimeIds.has(id))));
     this.version.update((v) => v + 1);
   }
 }
