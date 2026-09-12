@@ -6,25 +6,28 @@ import {
   signal,
   HostListener,
 } from '@angular/core';
-import { RouterLink, type UrlTree } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit';
-import { WorkspaceService, workspaceSettingFeature } from '@app/core/workspace.service';
-import {
-  MISSION_ROOM_EXTENSION,
-  missionRoomExtensionState,
-} from '@app/features/mission-room/mission-room.extension';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { I18nService } from '@app/core/i18n.service';
-import { COCKPIT_VERBS, agentiumSurfaceRoute, type CockpitVerb } from '@app/core/navigation.catalog';
+import {
+  PRIMARY_NAVIGATION,
+  primaryNavActive,
+  primaryNavRoute,
+  type PrimaryNavItem,
+} from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 
 /**
- * Primary rail — 5 cockpit verbs in a compact 56px column, hybrid expand.
+ * Primary rail — 4 task-led destinations in a compact 56px column.
  *
- * Replaces the former 5-view rail + slide-over "secondary views" panel.
- * Every canonical route now lives under exactly one verb and the rail
- * becomes the single functional entry point. The semantic-zoom breadcrumb
- * in the title bar remains the single hierarchical entry point.
+ * Ask, Knowledge, Build and Runs name what a workspace member wants to do.
+ * Hypervisor, Steering, Governance, Skills, Capabilities, Apps, Connectors,
+ * Resources and Models keep every one of their routes and deep links; they
+ * are reached from the command palette, from the screens that own them and
+ * from saved links, rather than from primary navigation. The semantic-zoom
+ * breadcrumb in the title bar remains the hierarchical entry point.
  *
  * Hybrid behaviour: by default the rail is 56px (icons only). When the
  * pointer enters, the rail expands to 200px after a short hold to reveal
@@ -40,7 +43,6 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
   template: `
     <aside
       class="ck-rail"
-      [class.ck-rail-readable]="adoptionEnabled()"
       [class.ck-rail-expanded]="expanded()"
       (mouseenter)="onEnter()"
       (mouseleave)="onLeave()"
@@ -48,24 +50,26 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
       (focusout)="onFocusOut($event)"
     >
       <nav class="ck-rail-nav" [attr.aria-label]="i18n.t('nav.primary')">
-        @for (v of visibleVerbs(); track v.key) {
+        @for (item of items(); track item.key) {
           <a
-            [routerLink]="routeTreeFor(v)"
+            [routerLink]="routeFor(item)"
+            [queryParams]="queryFor(item)"
             class="ck-rail-item"
-            [class.ck-rail-item-active]="isActive(v)"
-            [title]="verbTitle(v)"
-            [attr.aria-current]="isActive(v) ? 'page' : null"
-            (click)="onVerbClick()"
+            [class.ck-rail-item-active]="isActive(item)"
+            [title]="itemTitle(item)"
+            [attr.aria-label]="itemLabel(item)"
+            [attr.aria-current]="isActive(item) ? 'page' : null"
+            (click)="onItemClick()"
           >
-            @if (isActive(v)) {
+            @if (isActive(item)) {
               <span class="ck-rail-active-bar" aria-hidden="true"></span>
             }
             <span class="ck-rail-glyph" aria-hidden="true">
-              <ck-glyph [name]="v.glyph" [size]="18" />
+              <ck-glyph [name]="item.glyph" [size]="18" />
             </span>
             <span class="ck-rail-label">
-              <span class="ck-rail-label-name">{{ verbLabel(v) }}</span>
-              <span class="ck-rail-label-hint">{{ verbHint(v) }}</span>
+              <span class="ck-rail-label-name">{{ itemLabel(item) }}</span>
+              <span class="ck-rail-label-hint">{{ itemHint(item) }}</span>
             </span>
           </a>
         }
@@ -223,12 +227,6 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
         text-align: left;
       }
 
-      @media (min-width: 701px) {
-        :host:has(.ck-rail-readable) { width: 184px; min-width: 184px; flex-basis: 184px; }
-        .ck-rail-readable { width: 184px; }
-        .ck-rail-readable .ck-rail-label { opacity: 1; transform: none; }
-        .ck-rail-readable .ck-rail-label-hint { display: none; }
-      }
       @media (max-width: 700px) {
         :host {
           width: 48px;
@@ -257,7 +255,6 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
 })
 export class SideRailComponent {
   private readonly workspace = inject(WorkspaceService);
-  readonly adoptionEnabled = computed(() => workspaceSettingFeature(this.workspace.current(), 'adoption_experience_v1', false));
   private readonly navigation = inject(ZoomContextService);
   private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
   protected readonly i18n = inject(I18nService);
@@ -266,63 +263,51 @@ export class SideRailComponent {
   private expandTimer: ReturnType<typeof setTimeout> | null = null;
   private collapseTimer: ReturnType<typeof setTimeout> | null = null;
 
-  readonly visibleVerbs = computed(() => {
-    const mode = this.workspace.mode();
-    return COCKPIT_VERBS.filter((v) => !v.hiddenInModes || !v.hiddenInModes.includes(mode));
-  });
+  /**
+   * The standard rail is the same four destinations for every workspace
+   * member. Nothing here is mode-dependent any more: the entries that used to
+   * disappear in one mode or another were cockpit lenses, not user tasks.
+   */
+  readonly items = computed<readonly PrimaryNavItem[]>(() => PRIMARY_NAVIGATION);
 
-  isActive(v: CockpitVerb): boolean {
-    return this.navigation.lens() === v.key;
+  /** Studio moves Build from the System catalogue to the Create hub. */
+  private studioEnabled(): boolean {
+    return this.workspace.experienceStudioV1Enabled();
   }
 
-  verbLabel(v: CockpitVerb): string {
-    if (this.adoptionEnabled()) return this.i18n.t('experience.adoption.nav.' + v.key);
-    return v.key === 'build' && (
-      this.navigation.navV5Enabled?.() === true || this.workspace.experienceStudioV1Enabled()
-    )
-      ? this.i18n.t('nav.build.create')
-      : this.i18n.t('nav.' + v.key);
+  /**
+   * Route-based, so a descendant such as `/knowledge/:kbId` or
+   * `/runs/:runId/invocations/:id` keeps its parent entry lit. The lens
+   * services still drive the advanced screens; they no longer decide which
+   * primary entry is current.
+   */
+  isActive(item: PrimaryNavItem): boolean {
+    return primaryNavActive(item, this.navigation.route().path);
   }
 
-  verbHint(v: CockpitVerb): string {
-    return v.key === 'build' && (
-      this.navigation.navV5Enabled?.() === true || this.workspace.experienceStudioV1Enabled()
-    )
+  itemLabel(item: PrimaryNavItem): string {
+    return this.i18n.t('nav.' + item.key);
+  }
+
+  itemHint(item: PrimaryNavItem): string {
+    return item.key === 'build' && this.studioEnabled()
       ? this.i18n.t('nav.hint.build.create')
-      : this.i18n.t('nav.hint.' + v.key);
+      : this.i18n.t('nav.hint.' + item.key);
   }
 
-  verbTitle(v: CockpitVerb): string {
-    return `${this.verbLabel(v)} — ${this.verbHint(v)}`;
+  itemTitle(item: PrimaryNavItem): string {
+    return `${this.itemLabel(item)} · ${this.itemHint(item)}`;
   }
 
-  routeFor(v: CockpitVerb): string {
-    const fallback = this.fallbackRoute(v);
-    return this.navigation.urlForLens(v.key, fallback);
+  routeFor(item: PrimaryNavItem): string {
+    return primaryNavRoute(item, { experienceStudio: this.studioEnabled() });
   }
 
-  routeTreeFor(v: CockpitVerb): UrlTree {
-    const fallback = this.fallbackRoute(v);
-    return this.navigation.urlTreeForLens(v.key, fallback);
+  queryFor(item: PrimaryNavItem): Readonly<Record<string, string>> | null {
+    return item.query ?? null;
   }
 
-  private fallbackRoute(v: CockpitVerb): string {
-    if (v.key === 'build' && this.workspace.experienceStudioV1Enabled()) {
-      return agentiumSurfaceRoute('create');
-    }
-    if (v.key === 'hypervisor' && this.navigation.axesV4Enabled()) {
-      return v.primaryRoute;
-    }
-    return (
-      v.key === 'hypervisor' &&
-      this.workspace.isDemoMode() &&
-      missionRoomExtensionState(this.workspace.current()).enabled
-    )
-      ? MISSION_ROOM_EXTENSION.defaultRoute
-      : v.primaryRoute;
-  }
-
-  onVerbClick(): void {
+  onItemClick(): void {
     this.telemetry?.registerTrigger('rail');
   }
 

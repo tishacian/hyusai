@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ToastrService } from 'ngx-toastr';
 import { Subscription } from 'rxjs';
@@ -342,7 +342,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [assistantProfileKey]="assistantProfileKey()"
             [initialPrompt]="initialPrompt()"
             [autoStartVoiceLoop]="autoStartVoiceLoop()"
-            [viewMode]="viewMode()"
+            [viewMode]="effectiveViewMode()"
           />
         </section>
       </div>
@@ -828,10 +828,12 @@ export class ChatWorkspaceComponent implements OnInit {
   private readonly workspace = inject(WorkspaceService);
   private readonly navigationProfile = inject(NavigationProfileService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute, { optional: true });
   private readonly navigation = inject(ZoomContextService);
   private readonly destroyRef = inject(DestroyRef);
   private workspaceGeneration = 0;
   private workspaceSubscriptions = new Subscription();
+  private readonly routeSubscriptions = new Subscription();
   private destroyed = false;
 
   /** When `true`, render the compact (overlay) layout. Full-screen otherwise. */
@@ -855,7 +857,17 @@ export class ChatWorkspaceComponent implements OnInit {
    * `ChatFocusComponent`), so `/chat` and the overlay keep today's behaviour.
    */
   readonly viewMode = input<ChatViewMode>('standard');
-  readonly simpleMode = computed(() => this.viewMode() === 'simple');
+  /**
+   * `/chat?mode=quick` is the canonical Ask home, so the routed surface reads
+   * its own mode at the route boundary. Containers that mount this component
+   * themselves (the overlay, `ChatFocusComponent`) pass `viewMode` and are
+   * never affected: only a full-screen mount consults the URL.
+   */
+  private readonly routeQuickAsk = signal(false);
+  readonly effectiveViewMode = computed<ChatViewMode>(() =>
+    this.viewMode() === 'simple' || this.routeQuickAsk() ? 'simple' : 'standard',
+  );
+  readonly simpleMode = computed(() => this.effectiveViewMode() === 'simple');
 
   readonly systems = signal<System[]>([]);
   readonly selectedSystemId = signal<string | null>(null);
@@ -970,11 +982,19 @@ export class ChatWorkspaceComponent implements OnInit {
     this.destroyRef.onDestroy(() => {
       this.destroyed = true;
       unregisterWorkspaceReset();
+      this.routeSubscriptions.unsubscribe();
       this.cancelWorkspaceRequests();
     });
   }
 
   ngOnInit(): void {
+    if (!this.inline() && this.route) {
+      this.routeSubscriptions.add(
+        this.route.queryParamMap.subscribe((params) => {
+          this.routeQuickAsk.set(params.get('mode') === 'quick');
+        }),
+      );
+    }
     this.selectedSystemId.set(this.businessSurface() ? null : this.initialSystemId() ?? null);
     this.ephemeralContextId.set(this.initialContextId() ?? null);
     // Inline overlay: keep dropzone collapsed unless drop-mode was asked.

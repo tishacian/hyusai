@@ -1,5 +1,6 @@
 import { inject } from '@angular/core';
-import { Routes } from '@angular/router';
+import { DefaultUrlSerializer, Routes } from '@angular/router';
+import { ASK_HOME_ROUTE } from './core/navigation.catalog';
 import { authGuard } from './core/auth.guard';
 import { loginGuard } from './core/login.guard';
 import { navigationProfileGuard } from './core/navigation-profile.guard';
@@ -9,7 +10,6 @@ import { workspaceAppAdminGuard } from './features/governance/workspace-app-admi
 import { experienceV1Guard } from './features/experience/experience.guard';
 
 export const routes: Routes = [
-  { path: 'help/:guideId', loadComponent: () => import('./features/help/help-guide.component').then(m => m.HelpGuideComponent) },
   {
     path: 'auth',
     canActivate: [loginGuard],
@@ -43,7 +43,16 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/layout/shell.component').then((m) => m.ShellComponent),
     children: [
-      { path: '', pathMatch: 'full', loadComponent: () => import('./features/layout/home-entry.component').then(m => m.HomeEntryComponent) },
+      {
+        // Ask is the first useful action, so the authenticated root lands on
+        // the simple grounded-question surface instead of Hypervisor. The
+        // canonical `?mode=quick` query needs no workspace slug, so it
+        // resolves before a workspace is known. Configured business-workspace
+        // homes still win: `navigationProfileGuard` runs on the resolved URL.
+        path: '',
+        pathMatch: 'full',
+        redirectTo: () => new DefaultUrlSerializer().parse(ASK_HOME_ROUTE),
+      },
       {
         path: 'workspace-app-unavailable',
         loadComponent: () =>

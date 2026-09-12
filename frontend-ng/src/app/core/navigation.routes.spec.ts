@@ -168,6 +168,11 @@ test('every catalogued surface route is reachable through a declared route', () 
   assert.deepEqual(unreachable, []);
 });
 
+test('the authenticated root redirects to the canonical Quick Ask home', () => {
+  const source = readFileSync(APP_ROUTES, 'utf8');
+  assert.match(source, /path:\s*'',\s*pathMatch:\s*'full',\s*redirectTo:\s*\(\)\s*=>\s*new DefaultUrlSerializer\(\)\.parse\(ASK_HOME_ROUTE\)/s);
+});
+
 test('every surface and leaf route is absolute', () => {
   const relative = [
     ...AGENTIUM_SURFACE_ROUTES.map((surface) => surface.route),
