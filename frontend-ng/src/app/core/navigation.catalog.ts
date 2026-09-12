@@ -678,7 +678,6 @@ export type CockpitSectionKey =
   | 'connectors'
   | 'presets'
   | 'business_apps'
-  | 'certified'
   | 'integrations';
 
 export interface CockpitSection {

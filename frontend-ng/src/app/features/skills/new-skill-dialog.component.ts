@@ -2,8 +2,8 @@
  * `<app-new-skill-dialog>` — author a Skill this workspace owns, in four steps.
  *
  * The server owns everything the workspace does not decide: the slug is derived
- * from `local_name`, the certification is `basic`, and the runtime must be one
- * of the verified executors. So this form is built from the descriptors the API
+ * from `local_name`, and the runtime must be one of the verified executors.
+ * So this form is built from the descriptors the API
  * serves (`GET /skills/executors`): the kinds, their parameter names, their
  * enums and their length limits are read from `params_schema` instead of being
  * restated here, and a kind added server-side gets its controls for free.
@@ -955,11 +955,6 @@ export class NewSkillDialogComponent implements OnInit, OnDestroy {
         value: this.executorKind() ? this.runtimeLabel(this.executorKind()) : '—',
       },
       { label: 'skills.field.category', value: this.category() || '—' },
-      {
-        label: 'skills.review.cert',
-        value: this.i18n.t('skills.review.cert.value'),
-        note: 'skills.review.cert.hint',
-      },
     ];
     if (!this.editing()) {
       const capability = this.capabilities.find((row) => row.id === this.capabilityId());

@@ -225,7 +225,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     { id: 'view.steering', label: this.i18n.t('palette.view.steering'), hint: this.i18n.t('palette.view.steering.hint'), tone: 'violet', kind: 'view', route: agentiumSurfaceRoute('steering'), keywords: 'levers policy control governance' },
     { id: 'view.review-queue', label: this.i18n.t('palette.view.review_queue'), hint: this.i18n.t('palette.view.review_queue.hint'), tone: 'warn', kind: 'view', route: agentiumSurfaceRoute('review-queue'), keywords: 'review eval evaluation queue triage hallucination threshold' },
     { id: 'view.eval-thresholds', label: this.i18n.t('palette.view.eval_thresholds'), hint: this.i18n.t('palette.view.eval_thresholds.hint'), tone: 'violet', kind: 'view', route: `${agentiumSurfaceRoute('presets')}/evaluation`, keywords: 'evaluation thresholds preset composite hallucination' },
-    { id: 'view.capabilities', label: this.i18n.t('palette.view.capabilities'), hint: this.i18n.t('palette.view.capabilities.hint'), tone: 'pos', kind: 'view', route: agentiumSurfaceRoute('capabilities'), keywords: 'catalog capability marketplace' },
+    { id: 'view.capabilities', label: this.i18n.t('palette.view.capabilities'), hint: this.i18n.t('palette.view.capabilities.hint'), tone: 'pos', kind: 'view', route: agentiumSurfaceRoute('capabilities'), keywords: 'catalog capability template' },
     { id: 'view.skills', label: this.i18n.t('palette.view.skills'), hint: this.i18n.t('palette.view.skills.hint'), tone: 'cool', kind: 'view', route: agentiumSurfaceRoute('skills'), keywords: 'skills registry atomic' },
     { id: 'view.systems', label: this.i18n.t('palette.view.systems'), hint: this.i18n.t('palette.view.systems.hint'), tone: 'cool', kind: 'view', route: agentiumSurfaceRoute('systems'), keywords: 'system composition deployments' },
     { id: 'view.knowledge', label: this.i18n.t('palette.view.knowledge'), hint: this.i18n.t('palette.view.knowledge.hint'), tone: 'violet', kind: 'view', route: agentiumSurfaceRoute('knowledge'), keywords: 'knowledge rag documents collections' },
@@ -335,7 +335,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     const sks: CommandItem[] = this.skills().map((s) => ({
       id: `sk.${s.id}`,
       label: s.name,
-      hint: `${(s.certification_level || 'basic').toUpperCase()} · ${s.type || 'generic'}`,
+      hint: `${s.type || 'generic'} · ${s.version || 'v1'}`,
       tone: 'cool' as Tone,
       kind: 'skill',
       route: this.navigation.objectUrl('skill', s.slug),

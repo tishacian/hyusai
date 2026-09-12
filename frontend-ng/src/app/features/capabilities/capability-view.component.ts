@@ -44,7 +44,7 @@ import {
  *   Overview · Systems · Outcomes · Policies
  *
  * This first wave wires the contract visually; concrete data projections
- * (aggregate ROI, policy bindings, outcome rollups) land in the follow-up
+ * (policy bindings, outcome rollups) land in the follow-up
  * lens-aware data wave.
  */
 @Component({
@@ -248,7 +248,6 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
     if (!this.projectionEnabled()) {
       return [
         { label: 'Systems', value: '—', hint: 'Number of Systems bound to this Capability.' },
-        { label: 'ROI', value: '—', tone: 'neutral', hint: 'Aggregated ROI — upcoming.' },
         { label: 'Yield', value: '—', tone: 'neutral', hint: 'Composite success rate across runs.' },
         { label: 'Policies', value: '—', tone: 'neutral', hint: 'Active Adaptive + Control policies.' },
       ];
@@ -256,7 +255,6 @@ export class CapabilityViewComponent implements OnInit, OnDestroy {
     const header = this.perspectives()['build']?.header;
     return [
       { label: 'Systems', value: this.factValue(header?.['system_count']), hint: 'Number of Systems bound to this Capability.' },
-      { label: 'ROI', value: this.factValue(header?.['roi'], '%'), tone: 'neutral', hint: 'Measured aggregate ROI.' },
       { label: 'Yield', value: this.factValue(header?.['success_rate'], '%'), tone: 'neutral', hint: 'Composite success rate across runs.' },
       { label: 'Policies', value: '—', tone: 'neutral', hint: 'Open the Policies facet for authoritative bindings.' },
     ];

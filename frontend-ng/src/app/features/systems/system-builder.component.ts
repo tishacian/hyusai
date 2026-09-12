@@ -32,7 +32,6 @@ import {
   LiveDotComponent,
   NavLinkDirective,
   RuntimeStatusBadgeComponent,
-  StatReadoutComponent,
   TagComponent,
 } from '@app/shared/cockpit';
 import {
@@ -142,7 +141,6 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
     HelpTooltipComponent,
     LiveDotComponent,
     RuntimeStatusBadgeComponent,
-    StatReadoutComponent,
     TagComponent,
     CkObjectHeaderComponent,
   ],
@@ -353,9 +351,6 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                       <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
                         {{ cap.skill_ids?.length || 0 }} SKILLS · {{ cap.input_unit || '—' }} → {{ cap.output_unit || '—' }}
                       </span>
-                      <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-2);">
-                        {{ formatPrice(cap.pricing?.unit_price) }}
-                      </span>
                     </div>
                   </button>
                 }
@@ -398,10 +393,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                 </div>
                 <ul style="display:flex; flex-direction:column; gap:4px;">
                   @for (sk of bundledSkills(); track sk.id) {
-                    <li style="display:grid; grid-template-columns: 70px 90px 1fr 80px 70px; gap:10px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
-                      <ck-tag [tone]="certTone(sk.certification_level)" variant="outline">
-                        {{ (sk.certification_level || 'basic').slice(0, 4).toUpperCase() }}
-                      </ck-tag>
+                    <li style="display:grid; grid-template-columns: 90px 1fr 80px 70px; gap:10px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
                       <ck-runtime-status [status]="sk.runtime_status" />
                       <div style="min-width:0;">
                         <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
@@ -415,7 +407,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                         {{ sk.type || '—' }}
                       </span>
                       <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-3); text-align:right;">
-                        {{ formatPrice(sk.pricing?.unit_price) }}
+                        {{ sk.version || 'v1' }}
                       </span>
                     </li>
                   }
@@ -761,19 +753,6 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               </p>
             </header>
 
-            <!-- ROI projection -->
-            <div class="ck-surface rounded" style="padding:16px 18px; background: var(--ck-bg-inset);">
-              <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:12px;">
-                PROJECTED OUTCOME (PER RUN)
-              </div>
-              <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:18px;">
-                <ck-stat-readout label="COST" [value]="formatPrice(selectedCapability()?.pricing?.unit_price)" tone="cool" [size]="16" />
-                <ck-stat-readout label="VALUE" [value]="formatPrice(selectedCapability()?.value_per_outcome)" tone="pos" [size]="16" />
-                <ck-stat-readout label="MARGIN" [value]="projectedMargin()" tone="pos" [size]="16" />
-                <ck-stat-readout label="ROI" [value]="projectedRoi()" tone="violet" [size]="16" />
-              </div>
-            </div>
-
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div class="ck-surface rounded" style="padding:14px 16px;">
                 <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:6px;">OBJECTIVE</div>
@@ -1048,20 +1027,6 @@ export class SystemBuilderComponent implements OnInit {
       ).length,
   );
 
-  readonly projectedMargin = computed(() => {
-    const cap = this.selectedCapability();
-    if (!cap?.value_per_outcome || cap?.pricing?.unit_price == null) return '—';
-    const m = cap.value_per_outcome - cap.pricing.unit_price;
-    return `$${m.toFixed(2)}`;
-  });
-
-  readonly projectedRoi = computed(() => {
-    const cap = this.selectedCapability();
-    if (!cap?.value_per_outcome || !cap?.pricing?.unit_price) return '—';
-    const roi = (cap.value_per_outcome - cap.pricing.unit_price) / cap.pricing.unit_price;
-    return `${(roi * 100).toFixed(0)}%`;
-  });
-
   ngOnInit(): void {
     const q = this.route.snapshot.queryParamMap;
     if (q.get('name')) this.draft.name = q.get('name') ?? '';
@@ -1135,9 +1100,6 @@ export class SystemBuilderComponent implements OnInit {
     if (!this.draft.name) this.draft.name = cap.name;
     if (!this.draft.objective && cap.description) this.draft.objective = cap.description;
     if (cap.confidence_threshold != null) this.draft.confidence_threshold = cap.confidence_threshold;
-    if (cap.pricing?.unit_price != null) {
-      this.draft.max_cost = Math.max(this.draft.max_cost, cap.pricing.unit_price * 2);
-    }
   }
 
   isCollectionChecked(name: string): boolean {
@@ -1491,12 +1453,6 @@ export class SystemBuilderComponent implements OnInit {
         tone: this.unboundSkillsCount() ? 'warn' : 'neutral',
         hint: 'Skills bundled by the selected capability.',
       },
-      {
-        label: 'Est. cost',
-        value: this.formatPrice(cap?.pricing?.unit_price),
-        tone: 'neutral',
-        hint: 'Projected unit cost per run based on the capability pricing.',
-      },
     ];
   }
 
@@ -1592,20 +1548,7 @@ export class SystemBuilderComponent implements OnInit {
     });
   }
 
-  formatPrice(v: number | null | undefined): string {
-    if (v == null) return '—';
-    if (v < 0.01) return `$${v.toFixed(4)}`;
-    if (v < 1) return `$${v.toFixed(3)}`;
-    return `$${v.toFixed(2)}`;
-  }
-
   tierTone(tier: string | undefined): 'pos' | 'cool' | 'violet' | 'warn' {
     return TIER_TONE[tier || 'universal'] ?? 'pos';
-  }
-
-  certTone(cert: string | undefined): 'pos' | 'cool' | 'violet' | 'warn' {
-    if (cert === 'enterprise') return 'violet';
-    if (cert === 'production') return 'pos';
-    return 'cool';
   }
 }
