@@ -414,7 +414,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                 </ul>
                 @if (stubSkillsCount() > 0 || unboundSkillsCount() > 0) {
                   <div class="ck-mono mt-3" style="font-size:10px; color:var(--ck-signal-warn); letter-spacing:0.06em;">
-                    WARNING · {{ stubSkillsCount() }} stub · {{ unboundSkillsCount() }} unbound — runs may return degraded payloads.
+                    BLOCKED · {{ stubSkillsCount() }} stub · {{ unboundSkillsCount() }} unbound. Bind every required Skill before creating this System.
                   </div>
                 }
               </div>
@@ -954,17 +954,9 @@ export class SystemBuilderComponent implements OnInit {
   /** Enabled workspace app ids (API-authoritative, localStorage as cache). */
   readonly enabledAppIds = signal<string[]>([]);
   readonly enabledApps = computed<AppDef[]>(() => {
-    const ids = this.enabledAppIds();
-    return ids
-      .map((id) => appById(id) ?? {
-        id,
-        name: id.replace(/_/g, ' '),
-        description: '',
-        icon: 'plug',
-        status: 'ready' as const,
-        wiring: 'catalog' as const,
-      })
-      .filter(Boolean);
+    return this.enabledAppIds()
+      .map((id) => appById(id))
+      .filter((app): app is AppDef => app?.wiring === 'wired');
   });
 
   draft = {
@@ -1023,8 +1015,15 @@ export class SystemBuilderComponent implements OnInit {
   readonly unboundSkillsCount = computed(
     () =>
       this.bundledSkills().filter(
-        (s) => s.runtime_status === 'unbound' || s.runtime_status === 'catalog_only',
+        (s) =>
+          !s.runtime_status ||
+          s.runtime_status === 'unbound' ||
+          s.runtime_status === 'catalog_only',
       ).length,
+  );
+
+  readonly blockedSkillsCount = computed(
+    () => this.stubSkillsCount() + this.unboundSkillsCount(),
   );
 
   ngOnInit(): void {
@@ -1107,28 +1106,34 @@ export class SystemBuilderComponent implements OnInit {
   }
 
   private loadEnabledApps(): void {
+    const keepWiredIds = (ids: string[]): string[] =>
+      ids.filter((id) => appById(id)?.wiring === 'wired');
     const slug = this.workspace.currentSlug();
     if (!slug) {
       const cached = readAppToggles(null);
       this.enabledAppIds.set(
-        Object.entries(cached)
-          .filter(([, on]) => on)
-          .map(([id]) => id),
+        keepWiredIds(
+          Object.entries(cached)
+            .filter(([, on]) => on)
+            .map(([id]) => id),
+        ),
       );
       return;
     }
     this.api.get<WorkspaceAppsResponse>(`/workspaces/${encodeURIComponent(slug)}/apps`).subscribe({
       next: (res) => {
-        const enabled = Array.isArray(res?.enabled) ? res.enabled : [];
+        const enabled = keepWiredIds(Array.isArray(res?.enabled) ? res.enabled : []);
         this.enabledAppIds.set(enabled);
         writeAppToggles(slug, enabled);
       },
       error: () => {
         const cached = readAppToggles(slug);
         this.enabledAppIds.set(
-          Object.entries(cached)
-            .filter(([, on]) => on)
-            .map(([id]) => id),
+          keepWiredIds(
+            Object.entries(cached)
+              .filter(([, on]) => on)
+              .map(([id]) => id),
+          ),
         );
       },
     });
@@ -1181,11 +1186,16 @@ export class SystemBuilderComponent implements OnInit {
       case 'capability':
         return !!this.draft.capability_id;
       case 'skills':
+        return !!this.draft.capability_id && this.blockedSkillsCount() === 0;
       case 'context':
       case 'policy':
         return true;
       case 'launch':
-        return this.draft.name.trim().length > 0 && !!this.draft.capability_id;
+        return (
+          this.draft.name.trim().length > 0 &&
+          !!this.draft.capability_id &&
+          this.blockedSkillsCount() === 0
+        );
       default:
         return true;
     }
@@ -1207,6 +1217,8 @@ export class SystemBuilderComponent implements OnInit {
         return 'Give this system a name.';
       case 'capability':
         return 'Pick the capability this system will produce.';
+      case 'skills':
+        return 'Bind every required Skill before creating this System.';
       case 'launch':
         return 'Fill the name and pick a capability before launching.';
       default:
@@ -1226,6 +1238,9 @@ export class SystemBuilderComponent implements OnInit {
         const unbound = this.unboundSkillsCount();
         if (!this.draft.capability_id) return 'Bundled automatically once a capability is picked.';
         if (!n) return 'No bundled skill — runs will fall back to defaults.';
+        if (this.blockedSkillsCount()) {
+          return `${n} bundled · blocked until every runtime is bound`;
+        }
         return `${n} bundled · ${stubs} stub · ${unbound} unbound`;
       }
       case 'context':
@@ -1450,7 +1465,7 @@ export class SystemBuilderComponent implements OnInit {
       {
         label: 'Skills',
         value: String(this.bundledSkills().length || 0),
-        tone: this.unboundSkillsCount() ? 'warn' : 'neutral',
+        tone: this.blockedSkillsCount() ? 'warn' : 'neutral',
         hint: 'Skills bundled by the selected capability.',
       },
     ];

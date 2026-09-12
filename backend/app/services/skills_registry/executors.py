@@ -104,9 +104,7 @@ def _bind_registry_call(params: Mapping[str, Any]) -> SkillCallable:
             raise SkillBindingError(code="executor_collection_conflict", message="Frozen retrieval collection aliases must agree.")
         pinned_collection = next(iter(collections), None)
 
-    async def _run(
-        payload: dict[str, Any], ctx: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    async def _run(payload: dict[str, Any], ctx: dict[str, Any] | None = None) -> dict[str, Any]:
         # Frozen last: the authored configuration is the contract, so a run must
         # not be able to substitute its own value for a pinned one.
         if pinned_collection:
@@ -169,9 +167,7 @@ def _bind_prompt_template(params: Mapping[str, Any]) -> SkillCallable:
     inner = _seeded_callable(slug, path="params.provider")
     template = str(params.get("template") or "")
 
-    async def _run(
-        payload: dict[str, Any], ctx: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    async def _run(payload: dict[str, Any], ctx: dict[str, Any] | None = None) -> dict[str, Any]:
         request = {"prompt": _render_template(template, payload)}
         # The engine resolves input > binding > System > workspace before its
         # membrane gate. Keep input schemas untouched: an author-pinned model
@@ -242,9 +238,7 @@ def validate_executor_binding(binding: Any) -> dict[str, Any]:
         raise SkillBindingError(
             code="executor_kind_unknown",
             message=(
-                "executor.kind must be one of: "
-                + ", ".join(sorted(VERIFIED_EXECUTORS))
-                + "."
+                "executor.kind must be one of: " + ", ".join(sorted(VERIFIED_EXECUTORS)) + "."
             ),
         )
     raw_params = binding.get("params")
@@ -276,6 +270,28 @@ def bind_executor(binding: Any) -> SkillCallable:
     return VERIFIED_EXECUTORS[canonical["kind"]].bind(canonical["params"])
 
 
+def executor_runtime_status(binding: Any) -> str:
+    """Return the underlying seeded runtime status for an authored binding.
+
+    Structural validation alone is not enough: ``resolve`` intentionally
+    returns registered stub callables, which are useful for diagnostics but
+    must never make publication look runnable. Every verified authored
+    executor ultimately delegates to one seeded wrapper, so expose that
+    wrapper's real status to publication and readiness gates.
+    """
+
+    canonical = validate_executor_binding(binding)
+    params = canonical["params"]
+    if canonical["kind"] == "registry_call":
+        target_slug = str(params["skill_slug"])
+    else:
+        target_slug = _PROMPT_PROVIDERS[str(params["provider"])]
+
+    from app.services.skills_registry.wrappers import runtime_status
+
+    return runtime_status(target_slug)
+
+
 def verified_executor_catalog() -> list[dict[str, Any]]:
     """The executor choices an authoring surface may offer, in a stable order."""
 
@@ -286,6 +302,7 @@ __all__ = [
     "VERIFIED_EXECUTORS",
     "VerifiedExecutor",
     "bind_executor",
+    "executor_runtime_status",
     "validate_executor_binding",
     "verified_executor_catalog",
 ]

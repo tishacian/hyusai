@@ -191,6 +191,10 @@ def test_contract_allowlist_uses_bound_capability_skills_when_system_list_is_emp
         input_schema={},
         output_schema={},
         execution={},
+        executor={
+            "kind": "registry_call",
+            "params": {"skill_slug": "audit_log_v1"},
+        },
     )
     capability = Capability(
         id="capability-publication",
@@ -636,6 +640,10 @@ def test_same_graph_republishes_changed_skill_schema_as_breaking_contract(
             "additionalProperties": False,
         },
         execution={},
+        executor={
+            "kind": "registry_call",
+            "params": {"skill_slug": "audit_log_v1"},
+        },
     )
     flow = _flow("skill-contract-v1")
     flow["nodes"].insert(

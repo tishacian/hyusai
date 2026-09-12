@@ -73,3 +73,46 @@ test('selecting a capability refreshes its summary and bundled skills', () => {
   assert.equal(builder.headerKpis()[1]?.value, 'UNIVERSAL');
   assert.equal(builder.headerKpis()[2]?.value, '2');
 });
+
+test('stub and unbound Skills block System creation until every runtime is bound', () => {
+  const builder = makeBuilder();
+  const capability: Capability = {
+    id: 'cap-runtime',
+    slug: 'runtime-ready',
+    name: 'Runtime ready',
+    tier: 'universal',
+    skill_ids: ['skill-bound', 'skill-stub'],
+  };
+  builder.capabilities.set([capability]);
+  builder.skills.set([
+    { id: 'skill-bound', slug: 'bound', name: 'Bound', runtime_status: 'bound' },
+    { id: 'skill-stub', slug: 'stub', name: 'Stub', runtime_status: 'stub' },
+  ]);
+
+  builder.selectCapability(capability);
+
+  assert.equal(builder.blockedSkillsCount(), 1);
+  assert.equal(builder.isSectionValid('skills'), false);
+  assert.equal(builder.isSectionValid('launch'), false);
+  assert.equal(
+    builder.firstInvalidGateMessage(),
+    'Bind every required Skill before creating this System.',
+  );
+  assert.equal(builder.headerKpis()[2]?.tone, 'warn');
+
+  builder.skills.update((skills) =>
+    skills.map((skill) => ({ ...skill, runtime_status: 'bound' as const })),
+  );
+
+  assert.equal(builder.blockedSkillsCount(), 0);
+  assert.equal(builder.isSectionValid('skills'), true);
+  assert.equal(builder.isSectionValid('launch'), true);
+});
+
+test('historical catalog-only app ids are not exposed in the System Builder', () => {
+  const builder = makeBuilder();
+
+  builder.enabledAppIds.set(['memory', 'rpa_bridge', 'unknown']);
+
+  assert.deepEqual(builder.enabledApps().map((app) => app.id), ['rpa_bridge']);
+});

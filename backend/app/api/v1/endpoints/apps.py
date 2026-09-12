@@ -31,9 +31,7 @@ def _resolve_workspace_and_role(
     db: DBSession, user: User, slug: str
 ) -> tuple[Workspace, WorkspaceMember]:
     workspace = (
-        db.query(Workspace)
-        .filter(Workspace.slug == slug, Workspace.deleted_at.is_(None))
-        .first()
+        db.query(Workspace).filter(Workspace.slug == slug, Workspace.deleted_at.is_(None)).first()
     )
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
@@ -83,4 +81,7 @@ async def put_workspace_apps(
     """
     workspace, membership = _resolve_workspace_and_role(db, user, slug)
     _require_admin(membership)
-    return apps_service.set_enabled_apps(db, workspace, body.enabled)
+    try:
+        return apps_service.set_enabled_apps(db, workspace, body.enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

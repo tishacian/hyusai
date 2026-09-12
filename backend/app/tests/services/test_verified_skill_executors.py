@@ -7,6 +7,7 @@ committed to running. Both halves are pinned here: the closed executor set that
 replaces "bring your own code", and resolution that refuses rather than
 degrades.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -17,6 +18,7 @@ from app.services.skills_registry.binding import SkillBindingError
 from app.services.skills_registry.executors import (
     VERIFIED_EXECUTORS,
     bind_executor,
+    executor_runtime_status,
     validate_executor_binding,
     verified_executor_catalog,
 )
@@ -119,9 +121,7 @@ def test_every_verified_executor_closes_its_parameter_object():
         assert executor.params_schema["additionalProperties"] is False, executor.kind
         assert executor.params_schema["type"] == "object", executor.kind
 
-    assert [item["kind"] for item in verified_executor_catalog()] == sorted(
-        VERIFIED_EXECUTORS
-    )
+    assert [item["kind"] for item in verified_executor_catalog()] == sorted(VERIFIED_EXECUTORS)
 
 
 # ---------------------------------------------------------------------------
@@ -144,9 +144,7 @@ async def test_pinned_parameters_win_over_the_run(recorded):
 
     await call({"event_type": "attacker_supplied", "details": {"a": 1}}, {})
 
-    assert recorded == [
-        {"event_type": "pinned", "severity": "warning", "details": {"a": 1}}
-    ]
+    assert recorded == [{"event_type": "pinned", "severity": "warning", "details": {"a": 1}}]
 
 
 def test_an_authored_skill_cannot_chain_onto_another_authored_skill():
@@ -161,6 +159,39 @@ def test_an_authored_skill_cannot_chain_onto_another_authored_skill():
             }
         )
     assert refused.value.code == "executor_target_not_seeded"
+
+
+def test_registry_binding_exposes_stub_runtime_status(monkeypatch):
+    monkeypatch.setattr(wrappers, "runtime_status", lambda slug: "stub")
+
+    status = executor_runtime_status(
+        {
+            "kind": "registry_call",
+            "params": {"skill_slug": "audit_log_v1"},
+        }
+    )
+
+    assert status == "stub"
+
+
+def test_prompt_binding_exposes_provider_runtime_status(monkeypatch):
+    seen: list[str] = []
+
+    def _status(slug: str) -> str:
+        seen.append(slug)
+        return "bound"
+
+    monkeypatch.setattr(wrappers, "runtime_status", _status)
+
+    status = executor_runtime_status(
+        {
+            "kind": "prompt_template",
+            "params": {"provider": "ollama", "template": "Answer {question}."},
+        }
+    )
+
+    assert status == "bound"
+    assert seen == ["ollama_llm_v1"]
 
 
 # ---------------------------------------------------------------------------
@@ -204,9 +235,7 @@ async def test_a_placeholder_cannot_walk_the_object_graph(recorded):
 
     await call({"ticket": "INC-1"}, {})
 
-    assert recorded == [
-        {"prompt": "{ticket.__class__.__init__.__globals__} {0} {ticket[0]}"}
-    ]
+    assert recorded == [{"prompt": "{ticket.__class__.__init__.__globals__} {0} {ticket[0]}"}]
 
 
 @pytest.mark.asyncio
@@ -252,10 +281,7 @@ def test_a_seeded_slug_needs_no_row_lookup(db_session):
     keeps this tranche off the run engine's hot path.
     """
 
-    assert (
-        workspace_skill_callable(db_session, workspace_id="ws-exec", slug="audit_log_v1")
-        is None
-    )
+    assert workspace_skill_callable(db_session, workspace_id="ws-exec", slug="audit_log_v1") is None
 
 
 def test_an_authored_slug_resolves_to_its_binding(db_session, recorded):
@@ -282,9 +308,7 @@ def test_an_authored_slug_resolves_to_its_binding(db_session, recorded):
         ("ws-exec", "ws.ws-exec.NOPE", "skill_slug_malformed"),
     ],
 )
-def test_dispatch_never_falls_back_to_the_global_catalog(
-    db_session, workspace_id, slug, code
-):
+def test_dispatch_never_falls_back_to_the_global_catalog(db_session, workspace_id, slug, code):
     """A deleted, foreign or malformed authored slug must not be answered by
     whatever the seeded registry happens to hold under a similar name."""
 

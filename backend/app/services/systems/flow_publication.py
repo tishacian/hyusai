@@ -32,6 +32,9 @@ from app.services.run_engine.run_contracts import (
     RuntimeContractError,
     validate_ingress_payload,
 )
+from app.services.skills_registry import runtime_status
+from app.services.skills_registry.binding import SkillBindingError
+from app.services.skills_registry.executors import executor_runtime_status
 from app.services.system_catalog_bindings import (
     SystemCatalogBindingError,
     resolve_persisted_system_catalog_bindings,
@@ -87,6 +90,56 @@ def require_flow_publication(workspace: Any) -> None:
         )
 
 
+def assert_system_skills_ready(
+    db: DBSession,
+    *,
+    system: System,
+    workspace: Any,
+) -> set[str]:
+    """Return bound Skill ids or refuse a System with a non-working runtime.
+
+    Catalog membership is an authoring concern, not executable evidence. This
+    check is shared by Publish and every published Run ingress so an older
+    version cannot keep dispatching after a required runtime becomes missing.
+    """
+
+    try:
+        bindings = resolve_persisted_system_catalog_bindings(
+            db,
+            workspace=workspace,
+            system=system,
+        )
+    except SystemCatalogBindingError as exc:
+        raise FlowPublicationError(
+            code=exc.code.upper(),
+            message=str(exc),
+            status_code=422,
+            details={"field": exc.field},
+        ) from exc
+
+    for skill in bindings.skills:
+        status = "bound"
+        if skill.workspace_id is None:
+            status = runtime_status(skill.slug)
+        else:
+            try:
+                status = executor_runtime_status(skill.executor)
+            except SkillBindingError:
+                status = "unbound"
+        if status != "bound":
+            raise FlowPublicationError(
+                code="SKILL_RUNTIME_NOT_READY",
+                message="A required Skill has no verified runtime.",
+                status_code=422,
+                details={
+                    "skill_id": skill.id,
+                    "skill_slug": skill.slug,
+                    "runtime_status": status,
+                },
+            )
+    return set(bindings.effective_skill_ids)
+
+
 def compile_execution_contract(
     db: DBSession,
     flow: Any,
@@ -100,20 +153,11 @@ def compile_execution_contract(
     resolution = resolve_flow_execution(canonical, workspace)
     allowed_skill_ids: set[str] | None = None
     if system is not None:
-        try:
-            bindings = resolve_persisted_system_catalog_bindings(
-                db,
-                workspace=workspace,
-                system=system,
-            )
-        except SystemCatalogBindingError as exc:
-            raise FlowPublicationError(
-                code=exc.code.upper(),
-                message=str(exc),
-                status_code=422,
-                details={"field": exc.field},
-            ) from exc
-        allowed_skill_ids = set(bindings.effective_skill_ids)
+        allowed_skill_ids = assert_system_skills_ready(
+            db,
+            system=system,
+            workspace=workspace,
+        )
     try:
         contract = flow_contracts.compile_execution_contract(
             db,
@@ -486,9 +530,7 @@ def reconcile_system_flow(
 
     owner_prefix = ownership_prefix if ownership_prefix is not None else actor
     owns_system = bool(
-        publish_if_owned
-        and owner_prefix
-        and str(locked.created_by or "").startswith(owner_prefix)
+        publish_if_owned and owner_prefix and str(locked.created_by or "").startswith(owner_prefix)
     )
     clean_draft = draft.flow_sha256 == published_sha256
     contract_missing = _pinned_execution_contract(published) is None
@@ -499,9 +541,7 @@ def reconcile_system_flow(
             # exact desired draft and failed before Publish. It alone may
             # resume; an operator-authored draft is never adopted or erased.
             can_resume_owned_draft = bool(
-                owns_system
-                and draft.flow_sha256 == desired_sha256
-                and draft.updated_by == actor
+                owns_system and draft.flow_sha256 == desired_sha256 and draft.updated_by == actor
             )
             if not can_resume_owned_draft:
                 return FlowReconcileResult(
@@ -937,9 +977,7 @@ def create_draft_test_run(
             status_code=422,
         )
     if selected_ingress is not None:
-        contract_payload = {
-            key: value for key, value in accepted_input.items() if key != "_debug"
-        }
+        contract_payload = {key: value for key, value in accepted_input.items() if key != "_debug"}
         try:
             validate_ingress_payload(
                 contract,
