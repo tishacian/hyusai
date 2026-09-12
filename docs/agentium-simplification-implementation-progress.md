@@ -7,7 +7,7 @@ This ledger records the product-wide implementation queue. Each slice is reviewe
 | Order | Slice | Owner | Status | Evidence |
 | --- | --- | --- | --- | --- |
 | 1 | P0.1 + P0.3: Ask default entry and four-item primary navigation | Claude, reviewed and landed by Codex | Complete | 17 focused tests; i18n, nav-link, UI-chrome, and Angular compiler gates pass |
-| 2 | P0.4: remove unsupported pricing, marketplace, and certification UI | Claude, reviewed and landed by Codex | Queued | Pending |
+| 2 | P0.4: remove unsupported pricing, marketplace, and certification UI | Claude, reviewed and landed by Codex | Complete | 33 focused tests; commercial-UI source contract; i18n, nav-link, UI-chrome, and Angular compiler gates pass |
 | 3 | P0.5: fail closed for catalog-only, stub, and unbound runtimes | Codex | Queued | Pending |
 | 4 | P0.2 + P1.1: first-run model setup and one model settings surface | Codex | Queued | Pending |
 | 5 | P1.2 + P1.3: progressive Knowledge and Build flows | Codex | Queued | Pending |

@@ -1349,12 +1349,12 @@ export class SystemViewComponent implements OnInit, OnDestroy {
 
   /**
    * Object-level KPIs rendered in the persistent `<ck-object-header>`.
-   * Values not yet tracked (ROI, unit cost) render as `—` — better to show
-   * the slot and admit ignorance than fake a number. See mental-model §6.
+   * Values not yet tracked render as `—` — better to show the slot and admit
+   * ignorance than fake a number. See mental-model §6.
    *
    * The current lens is threaded in as a hint so future iterations can
    * adapt the *set* of KPIs per lens (e.g. Govern highlights audit
-   * deltas); for now all lenses share the same 4 KPIs.
+   * deltas); for now all lenses share the same KPI set.
    */
   readonly objectKpis = computed<CkObjectKpi[]>(() => {
     if (this.system360Enabled()) {
@@ -1371,8 +1371,6 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     const yieldValue =
       quality != null ? quality.toFixed(0) : errRate != null ? (100 - errRate).toFixed(0) : '—';
     return [
-      { label: 'ROI', value: '—', hint: 'Return on decision — coming when Outcome.value is priced.' },
-      { label: 'Cost', value: '—', hint: 'Unit cost per run — coming with cost accounting.' },
       {
         label: 'Yield',
         value: yieldValue === '—' ? '—' : `${yieldValue}%`,

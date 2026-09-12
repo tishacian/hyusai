@@ -148,6 +148,7 @@ const storeSpecs = [
   'src/app/features/capabilities/capabilities.component.spec.ts',
   'src/app/features/capabilities/capability-view.component.spec.ts',
   'src/app/features/capabilities/catalog-curation.component.spec.ts',
+  'src/app/features/capabilities/commercial-ui-contract.spec.ts',
   'src/app/features/skills/skill-view.component.spec.ts',
   'src/app/features/skills/skill-authoring.component.spec.ts',
   'src/app/features/skills/brd-system-proposal.component.spec.ts',

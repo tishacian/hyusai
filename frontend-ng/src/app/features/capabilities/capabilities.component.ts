@@ -14,7 +14,6 @@ import {
   PageFrameComponent,
   RunOutcomeCardComponent,
   RuntimeStatusBadgeComponent,
-  StatReadoutComponent,
   TagComponent,
 } from '@app/shared/cockpit';
 
@@ -27,7 +26,6 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
   imports: [HelpTooltipComponent,
     PageFrameComponent,
     GlyphComponent,
-    StatReadoutComponent,
     MicroBarComponent,
     TagComponent,
     KbdComponent,
@@ -41,7 +39,7 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
     <ck-page-frame
       eyebrow="Catalog · Capabilities"
       title="Universal · Industry · Client"
-      description="Browse and configure the canonical capabilities your systems can compose. Each capability bundles certified skills, pricing and SLA."
+      description="Browse and configure the canonical capabilities your systems can compose. Each capability is a reusable business template that bundles the skills it runs."
     >
       <ck-help titleHelp id="adoption.systems" />
       <a
@@ -129,14 +127,6 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                   {{ c.description || '—' }}
                 </p>
 
-                <div [style.display]="'grid'" [style.grid-template-columns]="hideRoi() ? '1fr 1fr' : '1fr 1fr 1fr'" style="gap:10px;">
-                  <ck-stat-readout label="COST" [value]="formatPrice(c.pricing?.unit_price)" tone="cool" [size]="13" />
-                  <ck-stat-readout label="VALUE" [value]="formatPrice(c.value_per_outcome)" tone="pos" [size]="13" />
-                  @if (!hideRoi()) {
-                    <ck-stat-readout label="ROI" [value]="projectedRoi(c)" tone="violet" [size]="13" />
-                  }
-                </div>
-
                 <footer class="pt-3" style="border-top:1px solid var(--ck-hair);">
                   <div class="flex items-center justify-between">
                     <span class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
@@ -199,10 +189,7 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                   </div>
                   <ul style="display:flex; flex-direction:column; gap:4px;">
                     @for (sk of bundledSkills(cap); track sk.id) {
-                      <li style="display:grid; grid-template-columns: 70px 90px 1fr 70px 70px; gap:10px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
-                        <ck-tag [tone]="certTone(sk.certification_level)" variant="outline">
-                          {{ (sk.certification_level || 'basic').slice(0, 4).toUpperCase() }}
-                        </ck-tag>
+                      <li style="display:grid; grid-template-columns: 90px 1fr 70px 70px; gap:10px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
                         <ck-runtime-status [status]="sk.runtime_status" />
                         <div class="min-w-0">
                           <div class="text-sm text-white font-medium">{{ sk.name }}</div>
@@ -212,7 +199,7 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                           {{ sk.type || '—' }}
                         </span>
                         <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-2); text-align:right;">
-                          {{ formatPrice(sk.pricing?.unit_price) }}
+                          {{ sk.version || 'v1' }}
                         </span>
                       </li>
                     }
@@ -223,14 +210,10 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
               <div class="flex flex-col gap-4">
                 <div>
                   <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:6px;">
-                    ECONOMICS
+                    UNITS
                   </div>
-                  <div class="flex flex-col gap-3">
-                    <ck-stat-readout label="UNIT PRICE" [value]="formatPrice(cap.pricing?.unit_price)" tone="cool" [size]="16" />
-                    <ck-stat-readout label="VALUE / OUTCOME" [value]="formatPrice(cap.value_per_outcome)" tone="pos" [size]="16" />
-                    @if (!hideRoi()) {
-                      <ck-stat-readout label="PROJECTED ROI" [value]="projectedRoi(cap)" tone="violet" [size]="16" />
-                    }
+                  <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-2);">
+                    {{ cap.input_unit || '—' }} → {{ cap.output_unit || '—' }}
                   </div>
                 </div>
 
@@ -255,13 +238,6 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
                     </p>
                   </div>
                 }
-
-                <div>
-                  <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:6px;">
-                    SLA
-                  </div>
-                  <pre class="ck-mono" style="font-size:10px; color:var(--ck-fg-2); margin:0; background:var(--ck-bg-inset); padding:8px 10px; border-radius:4px; white-space:pre-wrap;">{{ formatJson(cap.sla) }}</pre>
-                </div>
               </div>
             </div>
 
@@ -303,8 +279,6 @@ export class CapabilitiesComponent implements OnInit, OnDestroy {
     () => this.resetWorkspaceState(),
     () => this.reloadCatalog(),
   );
-
-  readonly hideRoi = computed(() => this.workspace.isBuilderMode());
 
   readonly tiers: { id: TierFilter; label: string }[] = [
     { id: 'all', label: 'ALL' },
@@ -411,26 +385,6 @@ export class CapabilitiesComponent implements OnInit, OnDestroy {
     return this.skills().filter((s) => ids.has(s.id));
   }
 
-  projectedRoi(cap: Capability): string {
-    const cost = cap.pricing?.unit_price;
-    const value = cap.value_per_outcome;
-    if (!cost || !value) return '—';
-    const roi = (value - cost) / cost;
-    return `${(roi * 100).toFixed(0)}%`;
-  }
-
-  formatPrice(v: number | null | undefined): string {
-    if (v == null) return '—';
-    if (v < 0.01) return `$${v.toFixed(4)}`;
-    if (v < 1) return `$${v.toFixed(3)}`;
-    return `$${v.toFixed(2)}`;
-  }
-
-  formatJson(v: Record<string, unknown> | undefined): string {
-    if (!v || Object.keys(v).length === 0) return '—';
-    return JSON.stringify(v, null, 2);
-  }
-
   tierTone(tier: string | undefined): 'pos' | 'cool' | 'violet' | 'warn' {
     switch (tier) {
       case 'industry': return 'violet';
@@ -438,12 +392,6 @@ export class CapabilitiesComponent implements OnInit, OnDestroy {
       case 'universal':
       default:         return 'pos';
     }
-  }
-
-  certTone(cert: string | undefined): 'pos' | 'cool' | 'violet' {
-    if (cert === 'enterprise') return 'violet';
-    if (cert === 'production') return 'pos';
-    return 'cool';
   }
 
   asInput(ev: Event): HTMLInputElement {
