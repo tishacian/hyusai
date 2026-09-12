@@ -7,142 +7,128 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { SideRailComponent } from './side-rail.component';
 
-test('side rail delegates every lens route to the route-owned navigation projection', () => {
-  const lens = signal<'hypervisor' | 'build' | 'operate' | 'steer' | 'govern'>('operate');
-  const calls: Array<[string, string]> = [];
+function railFor(options: { path?: string; experienceStudio?: boolean; mode?: string } = {}) {
+  const path = signal(options.path ?? '/chat');
   const injector = Injector.create({
     providers: [
       SideRailComponent,
       {
         provide: WorkspaceService,
         useValue: {
-          mode: () => 'portfolio',
-          isDemoMode: () => false,
-          experienceV1Enabled: () => false,
-          experienceStudioV1Enabled: () => false,
+          current: () => ({ mode: options.mode ?? 'portfolio' }),
+          mode: () => options.mode ?? 'portfolio',
+          isDemoMode: () => (options.mode ?? 'portfolio') === 'demo',
+          experienceV1Enabled: () => options.experienceStudio === true,
+          experienceStudioV1Enabled: () => options.experienceStudio === true,
         },
       },
       {
         provide: ZoomContextService,
         useValue: {
-          lens,
-          axesV4Enabled: () => false,
-          urlForLens: (target: string, fallback: string) => {
-            calls.push([target, fallback]);
-            return `/systems/system-42?lens=${target}`;
-          },
-        },
-      },
-      { provide: I18nService, useValue: { t: (key: string) => key } },
-    ],
-  });
-  const rail = injector.get(SideRailComponent);
-  const operate = rail.visibleVerbs().find((verb) => verb.key === 'operate')!;
-  const govern = rail.visibleVerbs().find((verb) => verb.key === 'govern')!;
-
-  assert.equal(rail.isActive(operate), true);
-  assert.equal(rail.isActive(govern), false);
-  assert.equal(rail.routeFor(govern), '/systems/system-42?lens=govern');
-  assert.deepEqual(calls, [['govern', '/governance']]);
-});
-
-test('demo rail uses Mission Room home only when the extension is enabled', () => {
-  let current = {
-    mode: 'demo',
-    settings: { mission_room: { enabled: true } },
-  };
-  const injector = Injector.create({
-    providers: [
-      SideRailComponent,
-      {
-        provide: WorkspaceService,
-        useValue: {
-          current: () => current,
-          mode: () => 'demo',
-          isDemoMode: () => true,
-          experienceV1Enabled: () => false,
-          experienceStudioV1Enabled: () => false,
-        },
-      },
-      {
-        provide: ZoomContextService,
-        useValue: {
-          lens: () => 'hypervisor',
-          axesV4Enabled: () => false,
-          urlForLens: (_target: string, fallback: string) => fallback,
-          urlTreeForLens: (_target: string, fallback: string) => fallback,
-        },
-      },
-      { provide: I18nService, useValue: { t: (key: string) => key } },
-    ],
-  });
-  const rail = injector.get(SideRailComponent);
-  const hypervisor = rail.visibleVerbs().find((verb) => verb.key === 'hypervisor')!;
-
-  assert.equal(rail.routeFor(hypervisor), '/hypervisor/mission-room/cockpit');
-
-  current = { mode: 'demo', settings: { mission_room: { enabled: false } } };
-  assert.equal(rail.routeFor(hypervisor), '/hypervisor');
-});
-
-test('axes v4 makes Hypervisor the Portfolio home even in a demo workspace', () => {
-  const injector = Injector.create({
-    providers: [
-      SideRailComponent,
-      {
-        provide: WorkspaceService,
-        useValue: {
-          current: () => ({ mode: 'demo', settings: { mission_room: { enabled: true } } }),
-          mode: () => 'demo',
-          isDemoMode: () => true,
-          experienceV1Enabled: () => false,
-          experienceStudioV1Enabled: () => false,
-        },
-      },
-      {
-        provide: ZoomContextService,
-        useValue: {
+          route: () => ({ path: path() }),
           lens: () => 'operate',
-          axesV4Enabled: () => true,
-          urlForLens: (_target: string, fallback: string) => fallback,
-          urlTreeForLens: (_target: string, fallback: string) => fallback,
+          axesV4Enabled: () => false,
         },
       },
       { provide: I18nService, useValue: { t: (key: string) => key } },
     ],
   });
-  const rail = injector.get(SideRailComponent);
-  const hypervisor = rail.visibleVerbs().find((verb) => verb.key === 'hypervisor')!;
-  assert.equal(rail.routeFor(hypervisor), '/hypervisor');
+  return { rail: injector.get(SideRailComponent), path };
+}
+
+test('the standard rail is exactly Ask, Knowledge, Build, Runs, in that order', () => {
+  const { rail } = railFor();
+  assert.deepEqual(
+    rail.items().map((item) => item.key),
+    ['ask', 'knowledge', 'build', 'runs'],
+  );
 });
 
-test('experience_v1 Build verb opens the Create hub', () => {
-  const injector = Injector.create({
-    providers: [
-      SideRailComponent,
-      {
-        provide: WorkspaceService,
-        useValue: {
-          mode: () => 'portfolio',
-          isDemoMode: () => false,
-          current: () => ({settings:{features:{}}}),
-          experienceV1Enabled: () => true,
-          experienceStudioV1Enabled: () => true,
-        },
-      },
-      {
-        provide: ZoomContextService,
-        useValue: {
-          lens: () => 'build',
-          axesV4Enabled: () => false,
-          urlForLens: (_target: string, fallback: string) => fallback,
-        },
-      },
-      { provide: I18nService, useValue: { t: (key: string) => key } },
-    ],
-  });
-  const rail = injector.get(SideRailComponent);
-  const build = rail.visibleVerbs().find((verb) => verb.key === 'build')!;
+test('every destination points at its task route', () => {
+  const { rail } = railFor();
+  const [ask, knowledge, build, runs] = rail.items();
+
+  assert.equal(rail.routeFor(ask), '/chat');
+  assert.deepEqual(rail.queryFor(ask), { mode: 'quick' });
+  assert.equal(rail.routeFor(knowledge), '/knowledge');
+  assert.equal(rail.queryFor(knowledge), null);
+  assert.equal(rail.routeFor(build), '/systems');
+  assert.equal(rail.routeFor(runs), '/runs');
+});
+
+test('Build opens the Create hub when Experience Studio is enabled', () => {
+  const { rail } = railFor({ experienceStudio: true });
+  const build = rail.items().find((item) => item.key === 'build')!;
   assert.equal(rail.routeFor(build), '/create');
-  assert.equal(rail.verbLabel(build), 'nav.build.create');
+  assert.equal(rail.itemLabel(build), 'nav.build');
+  assert.equal(rail.itemHint(build), 'nav.hint.build.create');
+});
+
+test('the rail keeps the same four destinations in every workspace mode', () => {
+  for (const mode of ['portfolio', 'builder', 'demo']) {
+    const { rail } = railFor({ mode });
+    assert.deepEqual(
+      rail.items().map((item) => item.key),
+      ['ask', 'knowledge', 'build', 'runs'],
+      `mode ${mode}`,
+    );
+  }
+});
+
+test('active state is route-based and holds on descendants', () => {
+  const { rail, path } = railFor();
+
+  const cases: Array<[string, string]> = [
+    ['/chat', 'ask'],
+    ['/knowledge', 'knowledge'],
+    ['/knowledge/kb-42', 'knowledge'],
+    ['/systems', 'build'],
+    ['/systems/sys-1/flow', 'build'],
+    ['/create', 'build'],
+    ['/create/apps/app-7', 'build'],
+    ['/runs', 'runs'],
+    ['/runs/run-9/invocations/inv-3', 'runs'],
+  ];
+
+  for (const [url, expected] of cases) {
+    path.set(url);
+    const active = rail.items().filter((item) => rail.isActive(item)).map((item) => item.key);
+    assert.deepEqual(active, [expected], url);
+  }
+});
+
+test('an advanced deep link lights no primary destination', () => {
+  const { rail, path } = railFor();
+  for (const url of ['/hypervisor', '/steering/contexts', '/governance/audit', '/models/m-1']) {
+    path.set(url);
+    assert.deepEqual(rail.items().filter((item) => rail.isActive(item)), [], url);
+  }
+});
+
+test('/knowledge-adjacent paths do not leak into the Knowledge entry', () => {
+  const { rail, path } = railFor();
+  path.set('/knowledge-capture');
+  assert.deepEqual(rail.items().filter((item) => rail.isActive(item)), []);
+});
+
+test('the accessible name and the title stay free of em dashes', () => {
+  const { rail } = railFor();
+  const ask = rail.items().find((item) => item.key === 'ask')!;
+  assert.equal(rail.itemLabel(ask), 'nav.ask');
+  assert.equal(rail.itemHint(ask), 'nav.hint.ask');
+  assert.ok(!rail.itemTitle(ask).includes('—'));
+});
+
+test('Escape collapses the expanded rail', () => {
+  const { rail } = railFor();
+  rail.onFocusIn();
+  assert.equal(rail.expanded(), true);
+  rail.onKey({ key: 'Escape' } as KeyboardEvent);
+  assert.equal(rail.expanded(), false);
+});
+
+test('clicking a destination records the rail as the navigation trigger', () => {
+  const { rail } = railFor();
+  // No telemetry service is provided: the optional dependency must stay optional.
+  assert.doesNotThrow(() => rail.onItemClick());
 });

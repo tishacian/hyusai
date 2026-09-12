@@ -983,6 +983,76 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
   },
 ];
 
+/**
+ * Standard primary navigation: four task-led destinations.
+ *
+ * The rail names what a workspace member wants to do, not the cockpit lens
+ * that owns the screen. Hypervisor, Steering, Governance, Skills,
+ * Capabilities, Apps, Connectors, Resources and Models keep their routes and
+ * their deep links; they are simply no longer primary destinations. The five
+ * cockpit verbs above still drive the advanced surfaces and the mini rail.
+ */
+export type PrimaryNavKey = 'ask' | 'knowledge' | 'build' | 'runs';
+
+export interface PrimaryNavItem {
+  key: PrimaryNavKey;
+  glyph: CkGlyphName;
+  /** Destination when no workspace flag moves it. */
+  route: string;
+  /** Destination when Experience Studio is enabled. */
+  studioRoute?: string;
+  /** Query the destination carries. Works before a workspace slug is known. */
+  query?: Readonly<Record<string, string>>;
+  /** Path roots that paint this entry active, descendants included. */
+  matches: readonly string[];
+}
+
+/** Canonical Ask home. `mode=quick` selects the simple grounded-question view. */
+export const ASK_HOME_QUERY: Readonly<Record<string, string>> = { mode: 'quick' };
+export const ASK_HOME_ROUTE = `${agentiumSurfaceRoute('chat')}?mode=quick`;
+
+export const PRIMARY_NAVIGATION: readonly PrimaryNavItem[] = [
+  {
+    key: 'ask',
+    glyph: 'focus',
+    route: agentiumSurfaceRoute('chat'),
+    query: ASK_HOME_QUERY,
+    matches: [agentiumSurfaceRoute('chat')],
+  },
+  {
+    key: 'knowledge',
+    glyph: 'layers',
+    route: agentiumSurfaceRoute('knowledge'),
+    matches: [agentiumSurfaceRoute('knowledge')],
+  },
+  {
+    key: 'build',
+    glyph: 'cube',
+    route: agentiumSurfaceRoute('systems'),
+    studioRoute: agentiumSurfaceRoute('create'),
+    matches: [agentiumSurfaceRoute('systems'), agentiumSurfaceRoute('create')],
+  },
+  {
+    key: 'runs',
+    glyph: 'ledger',
+    route: agentiumSurfaceRoute('runs'),
+    matches: [agentiumSurfaceRoute('runs')],
+  },
+];
+
+export function primaryNavRoute(
+  item: PrimaryNavItem,
+  flags: { experienceStudio?: boolean } = {},
+): string {
+  return flags.experienceStudio && item.studioRoute ? item.studioRoute : item.route;
+}
+
+/** Route-based active state: a destination owns its descendants. */
+export function primaryNavActive(item: PrimaryNavItem, url: string): boolean {
+  const path = pathOnly(url);
+  return item.matches.some((match) => path === match || path.startsWith(`${match}/`));
+}
+
 const CREATE_STUDIO_SECTION = section(
   'business_apps',
   'Business application',

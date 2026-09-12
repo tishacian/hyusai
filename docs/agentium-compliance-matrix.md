@@ -43,7 +43,7 @@ The pre-migration Andritz, Showcase, Sentinel and Octocity contracts are recorde
 
 ### `LOT1-STABILITY-CONTRACT` — Workspace navigation remains stable across retries, rails and switches
 
-The workspace header survives retry, one resolver owns redirects, the expanded rail overlays a fixed slot, Client360 stays in Operate, and workspace context changes are atomic. Mental model: §5bis, §34, §38.
+The workspace header survives retry, one resolver owns redirects, the expanded rail overlays a fixed slot, the primary rail exposes four task-led destinations, and workspace context changes are atomic. Mental model: §5bis, §34, §38.
 
 - **implementation / PASS** — [Workspace-scoped authentication retry](../frontend-ng/src/app/core/auth.interceptor.ts)
 - **implementation / PASS** — [Single navigation redirect owner](../frontend-ng/src/app/core/navigation-resolver.service.ts)
@@ -51,7 +51,7 @@ The workspace header survives retry, one resolver owns redirects, the expanded r
 - **implementation / PASS** — [Client360 Operate classification](../frontend-ng/src/app/core/navigation.catalog.ts)
 - **implementation / PASS** — [Atomic workspace context epoch](../frontend-ng/src/app/core/workspace.service.ts)
 - **frontend / PASS** — [Workspace request-scope public contract](../frontend-ng/src/app/core/workspace.service.ts)
-- **frontend / PASS** — [Five-verb rail implementation](../frontend-ng/src/app/features/layout/side-rail.component.ts)
+- **frontend / PASS** — [Four-destination primary rail implementation](../frontend-ng/src/app/features/layout/side-rail.component.ts)
 - **tests / PASS** — [Retry header tests](../frontend-ng/src/app/core/auth.interceptor.spec.ts)
 - **tests / PASS** — [Resolver ownership tests](../frontend-ng/src/app/core/navigation-resolver.service.spec.ts)
 - **tests / PASS** — [Client360 lens test](../frontend-ng/src/app/core/navigation.catalog.spec.ts)

@@ -104,7 +104,7 @@
       "lot": 1,
       "title": "Workspace navigation remains stable across retries, rails and switches",
       "kind": "frontend",
-      "description": "The workspace header survives retry, one resolver owns redirects, the expanded rail overlays a fixed slot, Client360 stays in Operate, and workspace context changes are atomic.",
+      "description": "The workspace header survives retry, one resolver owns redirects, the expanded rail overlays a fixed slot, the primary rail exposes four task-led destinations, and workspace context changes are atomic.",
       "mental_model_sections": [
         "5bis",
         "34",
@@ -166,10 +166,10 @@
             ]
           },
           {
-            "label": "Five-verb rail implementation",
+            "label": "Four-destination primary rail implementation",
             "path": "frontend-ng/src/app/features/layout/side-rail.component.ts",
             "contains": [
-              "Primary rail — 5 cockpit verbs",
+              "Primary rail — 4 task-led destinations",
               "[class.ck-rail-expanded]"
             ]
           }

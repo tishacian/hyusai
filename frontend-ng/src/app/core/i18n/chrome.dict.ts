@@ -47,6 +47,7 @@ export const CHROME_FR = {
   'titlebar.workspace.create_error.body': 'Le workspace n’a pas pu être créé.',
   // --- Side rail / primary navigation ------------------------------
   'nav.primary': 'Navigation principale',
+  'nav.ask': 'Demander',
   'nav.hypervisor': 'Hyperviseur',
   'nav.build': 'Construire',
   'nav.operate': 'Opérer',
@@ -124,6 +125,9 @@ export const CHROME_FR = {
   'nav.footer.command': 'Commande',
   'nav.footer.zoom': 'Zoom',
   // --- Verb hints (side-rail second line) --------------------------
+  'nav.hint.ask': 'Poser une question sur vos documents',
+  'nav.hint.knowledge': 'Collections, documents et sources',
+  'nav.hint.runs': 'Exécutions et leurs preuves',
   'nav.hint.hypervisor': 'Décider · bilan, résultats, what-if',
   'nav.hint.build': 'Créer Systèmes, Capabilities, Skills, Knowledge & Flows',
   'nav.hint.build.create': 'Applications métier, Systems, Knowledge',
@@ -854,6 +858,7 @@ export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
   'titlebar.workspace.create_error.body': 'The workspace could not be created.',
   // --- Side rail / primary navigation ------------------------------
   'nav.primary': 'Primary navigation',
+  'nav.ask': 'Ask',
   'nav.hypervisor': 'Hypervisor',
   'nav.build': 'Build',
   'nav.operate': 'Operate',
@@ -929,6 +934,9 @@ export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
   'nav.footer.status_operational': 'System operational',
   'nav.footer.command': 'Command',
   'nav.footer.zoom': 'Zoom',
+  'nav.hint.ask': 'Ask a question about your documents',
+  'nav.hint.knowledge': 'Collections, documents and sources',
+  'nav.hint.runs': 'Executions and their evidence',
   'nav.hint.hypervisor': 'Decide · balance sheet, outcomes, what-if',
   'nav.hint.build': 'Create Systems, Capabilities, Skills, Knowledge & Flows',
   'nav.hint.build.create': 'Business applications, Systems, Knowledge',
