@@ -83,6 +83,8 @@ const pureSpecs = [
   'src/app/features/resources/resources.catalog.spec.ts',
   'src/app/features/resources/model-plane-reliability.spec.ts',
   'src/app/features/resources/model-setup-ui-contract.spec.ts',
+  'src/app/features/knowledge/knowledge-progressive-ui-contract.spec.ts',
+  'src/app/features/systems/system-builder-progressive.spec.ts',
   'src/app/features/connectors/mcp/mcp-catalog.spec.ts',
   'src/app/features/connectors/mcp/mcp-showcase.spec.ts',
   'src/app/features/systems/system-flow-profile.spec.ts',
