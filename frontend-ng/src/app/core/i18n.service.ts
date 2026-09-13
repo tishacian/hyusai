@@ -1,6 +1,7 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
 
-import { FR_DICT, EN_DICT, type I18nKey } from './i18n.dict';
+import type { I18nKey } from './i18n.dict';
+import { CORE_EN_DICT, CORE_FR_DICT } from './i18n.core-dict';
 import { LOCALES, isLocale, type Locale } from './locale';
 import { workspaceLocale } from './workspace-locale';
 import { WorkspaceService } from './workspace.service';
@@ -47,12 +48,15 @@ export class I18nService {
 
   readonly locale = signal<Locale>(this.readInitialLocale());
 
-  private readonly dicts: Record<Locale, Record<string, string>> = {
-    fr: FR_DICT,
-    en: EN_DICT,
+  private readonly dictionaryRevision = signal(0);
+  private dicts: Record<Locale, Record<string, string>> = {
+    fr: CORE_FR_DICT,
+    en: CORE_EN_DICT,
   };
+  private extendedDictionaryLoad?: Promise<void>;
 
   constructor() {
+    this.scheduleExtendedDictionaryLoad();
     effect(() => {
       const declared = workspaceLocale(this.workspace.current()?.settings);
       if (declared && !this.asked()) {
@@ -91,9 +95,14 @@ export class I18nService {
     key: I18nKey | string,
     params?: Record<string, string | number>,
   ): string => {
+    this.dictionaryRevision();
     const locale = this.locale();
     const dict = this.dicts[locale] ?? this.dicts.fr;
-    let value = dict[key] ?? this.dicts.fr[key] ?? key;
+    let value = dict[key] ?? this.dicts.fr[key];
+    if (value === undefined) {
+      void this.loadExtendedDictionaries();
+      value = key;
+    }
     for (const [k, v] of Object.entries({ brand: this.workspace.brandName(), ...params })) {
       value = value.replaceAll(`{${k}}`, String(v));
     }
@@ -141,5 +150,32 @@ export class I18nService {
       if (nav.startsWith('en')) return 'en';
     }
     return 'fr';
+  }
+
+  private loadExtendedDictionaries(): Promise<void> {
+    if (this.extendedDictionaryLoad) return this.extendedDictionaryLoad;
+
+    this.extendedDictionaryLoad = import('./i18n.dict')
+      .then(({ EN_DICT, FR_DICT }) => {
+        this.dicts = { fr: FR_DICT, en: EN_DICT };
+        this.dictionaryRevision.update((revision) => revision + 1);
+      })
+      .catch(() => {
+        // A later lookup should be allowed to retry after a transient chunk
+        // failure. Core navigation and Ask remain translated in the meantime.
+        this.extendedDictionaryLoad = undefined;
+      });
+    return this.extendedDictionaryLoad;
+  }
+
+  private scheduleExtendedDictionaryLoad(): void {
+    if (typeof window === 'undefined') return;
+
+    const load = () => void this.loadExtendedDictionaries();
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(load, { timeout: 2_000 });
+      return;
+    }
+    globalThis.setTimeout(load, 1_000);
   }
 }

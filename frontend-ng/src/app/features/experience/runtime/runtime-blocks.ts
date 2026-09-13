@@ -12,6 +12,7 @@ import {
 import { Router, RouterLink } from '@angular/router';
 import type { ChartConfiguration, ChartData } from 'chart.js';
 import { BaseChartDirective } from 'ng2-charts';
+import { ensureChartsRegistered } from '@app/shared/charts/chart-registry';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { take } from 'rxjs/operators';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -50,6 +51,8 @@ import {
   valuesToPayload,
 } from './model';
 import { a11yOf, appearanceOf } from './style';
+
+ensureChartsRegistered();
 
 function str(node: ExperienceNode, key: string, fallback = ''): string {
   const value = node.props?.[key];

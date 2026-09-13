@@ -9,6 +9,9 @@ const apiKey = process.env['E2E_GOLDEN_API_KEY'] ?? '';
 const endpoint = process.env['E2E_GOLDEN_ENDPOINT'] ?? '';
 const deployment = process.env['E2E_GOLDEN_DEPLOYMENT'] ?? '';
 const maxFirstAnswerMs = Number(process.env['E2E_GOLDEN_MAX_FIRST_ANSWER_MS'] ?? '45000');
+const maxSignInToComposerMs = Number(process.env['E2E_PERF_SIGNIN_TO_COMPOSER_MS'] ?? '15000');
+const maxModelReadinessMs = Number(process.env['E2E_PERF_MODEL_READINESS_MS'] ?? '15000');
+const maxSourcePreviewMs = Number(process.env['E2E_PERF_SOURCE_PREVIEW_MS'] ?? '5000');
 
 test.describe('P0.6 — first-use golden path', () => {
   test.skip(!enabled, 'Set E2E_GOLDEN_PATH=1 against an isolated clean workspace.');
@@ -16,7 +19,11 @@ test.describe('P0.6 — first-use golden path', () => {
 
   for (const locale of ['en', 'fr'] as const) {
     test(`${locale}: connect → add knowledge → ask → source → recover`, async ({ page }, testInfo) => {
+      const metrics: Record<string, number> = {};
+      const signInStartedAt = Date.now();
       await loginAsAlice(page);
+      metrics.signInToUsableComposerMs = Date.now() - signInStartedAt;
+      expect(metrics.signInToUsableComposerMs).toBeLessThanOrEqual(maxSignInToComposerMs);
       await page.evaluate((nextLocale) => localStorage.setItem('agentium_locale', nextLocale), locale);
 
       await page.goto('/settings');
@@ -32,12 +39,15 @@ test.describe('P0.6 — first-use golden path', () => {
       const setupResponse = page.waitForResponse((response) =>
         response.url().includes('/api/v1/models/setup') && response.request().method() === 'PUT',
       );
+      const readinessStartedAt = Date.now();
       await page
         .locator('form')
         .filter({ has: page.locator('select[name="routeProvider"]') })
         .getByRole('button')
         .click();
       expect((await setupResponse).ok(), 'model setup must probe successfully before it is saved').toBe(true);
+      metrics.modelReadinessMs = Date.now() - readinessStartedAt;
+      expect(metrics.modelReadinessMs).toBeLessThanOrEqual(maxModelReadinessMs);
 
       await page.goto('/knowledge');
       const fixtureName = `agentium-golden-${locale}.pdf`;
@@ -57,13 +67,22 @@ test.describe('P0.6 — first-use golden path', () => {
       await composer.press('Enter');
       const citation = page.locator('[data-cite-chip], button:has-text("[1]")').first();
       await expect(citation).toBeVisible({ timeout: maxFirstAnswerMs });
-      expect(Date.now() - startedAt, 'time to first cited answer exceeded the release budget')
+      metrics.questionToFirstCitedAnswerMs = Date.now() - startedAt;
+      expect(metrics.questionToFirstCitedAnswerMs, 'time to first cited answer exceeded the release budget')
         .toBeLessThanOrEqual(maxFirstAnswerMs);
 
+      const sourceStartedAt = Date.now();
       await citation.click();
       const sourcesButton = page.getByRole('button', { name: /Sources|Sources utilisées/i }).first();
       if (await sourcesButton.isVisible().catch(() => false)) await sourcesButton.click();
       await expect(page.locator('body')).toContainText(fixtureName);
+      metrics.citationToSourcePreviewMs = Date.now() - sourceStartedAt;
+      expect(metrics.citationToSourcePreviewMs).toBeLessThanOrEqual(maxSourcePreviewMs);
+
+      await testInfo.attach(`core-performance-${locale}.json`, {
+        body: Buffer.from(JSON.stringify({ locale, metrics }, null, 2)),
+        contentType: 'application/json',
+      });
 
       let forced = false;
       await page.route('**/api/v1/chat/stream**', async (route) => {

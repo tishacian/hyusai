@@ -18,6 +18,7 @@ import { observabilityText, observabilityNumber } from './observability-labels';
 import { QualityEvidenceChartsComponent } from './quality-evidence-charts.component';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
+import { ensureChartsRegistered } from '@app/shared/charts/chart-registry';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -67,6 +68,8 @@ const PALETTE = {
   current: { stroke: '#00bcd4', fill: 'rgba(0,188,212,0.18)' },
   target: { stroke: 'rgba(139,92,246,0.6)', fill: 'rgba(139,92,246,0.08)' },
 };
+
+ensureChartsRegistered();
 
 @Component({
   selector: 'app-quality-dashboard',

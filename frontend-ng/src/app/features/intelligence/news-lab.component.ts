@@ -11,6 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
+import { ensureChartsRegistered } from '@app/shared/charts/chart-registry';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { SseChunk, SseService } from '@app/core/sse.service';
@@ -20,6 +21,8 @@ import { StatReadoutComponent } from '@app/shared/cockpit';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
+
+ensureChartsRegistered();
 
 interface Feed {
   id: string;
