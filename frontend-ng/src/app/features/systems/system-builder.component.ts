@@ -19,6 +19,7 @@ import {
   type CanonicalFlow,
   type SystemBuilderDraft,
 } from '@app/core/flow-serializer.service';
+import { ProductTelemetryService } from '@app/core/product-telemetry.service';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { SettingsService } from '@app/core/settings.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -938,6 +939,7 @@ export class SystemBuilderComponent implements OnInit {
   private readonly store = inject(SystemsStore);
   private readonly serializer = inject(FlowSerializerService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly productTelemetry = inject(ProductTelemetryService);
   readonly i18n = inject(I18nService);
   readonly settings = inject(SettingsService);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
@@ -1625,6 +1627,14 @@ export class SystemBuilderComponent implements OnInit {
       op$.subscribe((sys) => {
         this.launching.set(false);
         if (sys) {
+          // Authoritative publication: the API returned a live (`status:
+          // 'active'`) System. The local-draft fallback below is explicitly
+          // not a publication, and neither is reaching the Launch step.
+          this.productTelemetry.recordOccurrence('system_published', {
+            // Local System id: guards a replayed response from reporting the
+            // same publication twice. Never part of the payload.
+            dedupeKey: sys.id,
+          });
           this.toast.success(`"${sys.name}" is live`, sid ? 'System saved' : 'System created');
           void this.router.navigateByUrl(this.navigation.objectUrl('system', sys.id));
           return;

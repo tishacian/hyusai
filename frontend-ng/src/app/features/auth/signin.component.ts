@@ -20,6 +20,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
 import { AuthStore } from '@app/store/auth.store';
 import { AuthBootstrapService } from '@app/core/auth-bootstrap.service';
+import { ProductTelemetryService } from '@app/core/product-telemetry.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import {
   resolveSigninExperience,
@@ -554,6 +555,7 @@ export class SigninComponent implements OnDestroy {
   private readonly authStore = inject(AuthStore);
   private readonly authBootstrap = inject(AuthBootstrapService);
   private readonly workspaceService = inject(WorkspaceService);
+  private readonly productTelemetry = inject(ProductTelemetryService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
@@ -708,6 +710,10 @@ export class SigninComponent implements OnDestroy {
     this.authBootstrap.markValid();
     this.workspaceService.loadWorkspaces().subscribe({
       next: () => {
+        // Authoritative sign-in: credentials were accepted and the workspace
+        // the event must be scoped to is now known. Emitted before navigating
+        // so the funnel does not depend on where the user lands.
+        this.productTelemetry.recordOnce('signed_in');
         const redirect = this.normalizeRedirect(this.route.snapshot.queryParams['redirectURL']);
         this.router.navigateByUrl(redirect).then(
           () => this.loading.set(false),

@@ -15,6 +15,7 @@ import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { ProductTelemetryService } from '@app/core/product-telemetry.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -929,7 +930,16 @@ export class ResourcesPageComponent implements OnInit {
   private readonly navigation = inject(ZoomContextService);
   private readonly route = inject(ActivatedRoute);
   private readonly workspace = inject(WorkspaceService);
+  private readonly productTelemetry = inject(ProductTelemetryService);
   readonly i18n = inject(I18nService);
+
+  /**
+   * Counts failed model-setup saves. Used only as a local dedupe key so a
+   * replayed success response cannot report the same recovery twice; the
+   * counter itself is never emitted.
+   */
+  private setupFailureCount = 0;
+  private setupRecoveryPending = false;
 
   readonly APPS = APPS;
   readonly categories = CONNECTOR_CATEGORIES;
@@ -1241,10 +1251,22 @@ export class ResourcesPageComponent implements OnInit {
             this.i18n.t('resources.toast.routing.saved'),
             this.i18n.t('resources.toast.routing'),
           );
+          // Authoritative model readiness: the API validated the credentials
+          // and the live model before this atomic save returned.
+          this.productTelemetry.recordOnce('model_ready');
+          if (this.setupRecoveryPending) {
+            this.setupRecoveryPending = false;
+            this.productTelemetry.recordOccurrence('failure_recovered', {
+              dedupeKey: `model-setup-${this.setupFailureCount}`,
+              recoveryKind: 'model_setup_save',
+            });
+          }
           this.finishSetupReturn();
         },
         error: (err) => {
           this.configBusy.set(null);
+          this.setupFailureCount += 1;
+          this.setupRecoveryPending = true;
           this.toast.error(
             this.setupErrorMessage(err, 'resources.toast.routing.save_failed'),
             this.i18n.t('resources.toast.routing'),

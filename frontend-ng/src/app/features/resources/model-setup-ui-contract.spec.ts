@@ -29,6 +29,17 @@ test('Settings owns the single provider setup surface', () => {
   assert.match(routesSource, /path: 'settings\/models',[\s\S]*?redirectTo: 'settings'/);
 });
 
+test('model readiness is reported from the validated save, never from the form', () => {
+  assert.match(
+    resourcesSource,
+    /next: \(res\) => \{[\s\S]{0,1200}?recordOnce\('model_ready'\)/,
+  );
+  assert.match(resourcesSource, /recoveryKind: 'model_setup_save',/);
+  // The failing save arms the recovery instead of claiming one.
+  assert.match(resourcesSource, /error: \(err\) => \{[\s\S]{0,300}?this\.setupRecoveryPending = true;/);
+  assert.equal(resourcesSource.includes('product.activation'), false);
+});
+
 test('chat recovery preserves the question and exposes only compact safe diagnostics', () => {
   assert.ok(recoverySource.includes('readonly configure = output<void>()'));
   assert.ok(recoverySource.includes("chat.failure.technical_details"));

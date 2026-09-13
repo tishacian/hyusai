@@ -52,6 +52,10 @@ import {
 import { persistWorkspaceEvalContext } from '@app/core/evaluation-context.storage';
 import { PermissionsService } from '@app/core/permissions.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
+import {
+  ProductTelemetryService,
+  type ProductRecoveryKind,
+} from '@app/core/product-telemetry.service';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import {
   NavLinkDirective,
@@ -3319,7 +3323,16 @@ export class ChatPanelComponent implements AfterViewInit {
   private readonly workspace = inject(WorkspaceService);
   private readonly permissions = inject(PermissionsService);
   private readonly assistantEffects = inject(AssistantEffectsService);
+  private readonly productTelemetry = inject(ProductTelemetryService);
   readonly i18n = inject(I18nService);
+
+  /**
+   * Which failed action the next turn is trying to recover from. Set by the
+   * retry affordances, consumed by the turn they start, and cleared when that
+   * turn finishes either way — so an unrelated later question is never
+   * reported as a recovery.
+   */
+  private pendingRecoveryKind: ProductRecoveryKind | null = null;
   readonly settings = inject(SettingsService);
 
   messages = signal<ChatMessage[]>([]);
@@ -4387,6 +4400,13 @@ export class ChatPanelComponent implements AfterViewInit {
           if (!this.isChatContinuationCurrent(scope, generation)) return;
           this.modelReadiness.set(readiness ?? null);
           this.modelReadinessLoading.set(false);
+          // A returning user never re-runs setup, so the validated save is not
+          // the only way to reach model readiness. This probe is authoritative
+          // for the current workspace and says the configured model answers.
+          // `recordOnce` reconciles it with the setup-save emission.
+          if (readiness?.status === 'ready') {
+            this.productTelemetry.recordOnce('model_ready');
+          }
           this.cdr.markForCheck();
         },
         error: () => {
@@ -4443,7 +4463,10 @@ export class ChatPanelComponent implements AfterViewInit {
     if (!query) return;
     this.userInput = query;
     this.cdr.markForCheck();
-    if (pending.autoRetry && !this.streaming()) queueMicrotask(() => this.send());
+    if (pending.autoRetry && !this.streaming()) {
+      this.pendingRecoveryKind = 'model_setup_return';
+      queueMicrotask(() => this.send());
+    }
   }
 
   /**
@@ -4467,6 +4490,7 @@ export class ChatPanelComponent implements AfterViewInit {
     });
     if (this.simpleMode()) this.refreshModelReadiness();
     this.userInput = query;
+    this.pendingRecoveryKind = 'chat_retry';
     this.send();
   }
 
@@ -5712,6 +5736,9 @@ export class ChatPanelComponent implements AfterViewInit {
     this.sourcePreviewPage.set(this.sourcePageNumber(src));
     this.sourcePreviewHighlight.set(this.sourceHighlightText(src));
     this.sourcePreviewOpen.set(true);
+    // Authoritative: a citation resolved to a real document and the preview is
+    // open. Nothing about the document travels with the event.
+    this.productTelemetry.recordOnce('source_opened');
     this.cdr.markForCheck();
   }
 
@@ -6611,6 +6638,12 @@ export class ChatPanelComponent implements AfterViewInit {
       return;
     }
 
+    // Bind any pending recovery to THIS turn. The first send() returns early
+    // to create the session and re-enters, so the kind is consumed here rather
+    // than at the top of the method.
+    const recoveryKind = this.pendingRecoveryKind;
+    this.pendingRecoveryKind = null;
+
     const userMsg: ChatMessage = {
       id: cryptoId(),
       role: 'user',
@@ -6902,6 +6935,23 @@ export class ChatPanelComponent implements AfterViewInit {
             // its verdict is stale — re-probe so Quick Ask agrees with itself.
             if (streamFailure && this.simpleMode()) this.refreshModelReadiness();
             this.persistLastEvalContext(text, buffer);
+            // An answer is a completed, non-failed turn that actually produced
+            // text. A correction acknowledgement is a receipt for a teaching
+            // message, not an answer to a question, so it is excluded.
+            if (!streamFailure && !expertCorrection && buffer.trim().length > 0) {
+              // `durationMs` is emitted as a coarse bucket only.
+              this.productTelemetry.recordOnce('first_answer_completed', {
+                elapsedMs: durationMs,
+              });
+              if (recoveryKind) {
+                this.productTelemetry.recordOccurrence('failure_recovered', {
+                  // Local message id: identifies this occurrence for the
+                  // duplicate guard and is never part of the payload.
+                  dedupeKey: assistantId,
+                  recoveryKind,
+                });
+              }
+            }
             this.logAudit('chat_query', {
               message_id: assistantId,
               agent_id: this.systemId(),
@@ -6947,6 +6997,10 @@ export class ChatPanelComponent implements AfterViewInit {
         },
       });
     this.chatWorkspaceSubscriptions.add(streamSubscription);
+    // Authoritative: the question left the composer and the stream request is
+    // open. Deduplicated per authenticated browser session and workspace, so
+    // later turns and re-renders add nothing.
+    this.productTelemetry.recordOnce('first_question_sent');
   }
 
   clearConversation(): void {

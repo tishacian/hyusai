@@ -38,3 +38,16 @@ test('simple Build reveals only outcome and knowledge until Advanced is requeste
   assert.match(builderSource, /firstRunnableCapability\(caps, skills\)/);
   assert.match(builderSource, /@if \(advancedOpen\(\)\) \{[\s\S]*Switch to Flow/);
 });
+
+test('publication is reported from the live System the API returned', () => {
+  assert.match(
+    builderSource,
+    /if \(sys\) \{[\s\S]{0,400}?recordOccurrence\('system_published', \{[\s\S]{0,300}?dedupeKey: sys\.id,/,
+  );
+  // Reaching Launch, or falling back to a local draft, publishes nothing.
+  assert.equal(
+    /createDraft\(\{[\s\S]{0,600}?recordOccurrence\('system_published'/.test(builderSource),
+    false,
+  );
+  assert.equal(builderSource.includes('product.activation'), false);
+});

@@ -8,6 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { I18nService } from '@app/core/i18n.service';
+import { ProductTelemetryService } from '@app/core/product-telemetry.service';
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
@@ -816,8 +817,18 @@ export class KnowledgeBaseComponent implements OnInit {
   readonly i18n = inject(I18nService);
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastrService);
+  private readonly productTelemetry = inject(ProductTelemetryService);
 
   private readonly base = '/api/v1/documents';
+
+  /**
+   * An upload request failed outright and has not yet been followed by a clean
+   * batch. `uploadState` cannot answer this at success time — the next attempt
+   * has already moved it to `uploading` — so the intent is tracked explicitly.
+   * The counter beside it is a local dedupe key and is never emitted.
+   */
+  private uploadRecoveryPending = false;
+  private uploadFailureCount = 0;
 
   // Collections
   collections = signal<CollectionInfo[]>([]);
@@ -1007,6 +1018,21 @@ export class KnowledgeBaseComponent implements OnInit {
       next: (res) => {
         this.uploading.set(false);
         this.uploadState.set(res.failed > 0 ? 'partial' : 'ready');
+        if (res.successful > 0) {
+          // Authoritative: the batch endpoint confirmed at least one indexed
+          // document. A dropped file that never reached the API is not
+          // knowledge added.
+          this.productTelemetry.recordOnce('knowledge_added');
+          // Recovery means the user is out of the failure, so a batch that
+          // still leaves documents failing keeps the intent armed.
+          if (this.uploadRecoveryPending && res.failed === 0) {
+            this.uploadRecoveryPending = false;
+            this.productTelemetry.recordOccurrence('failure_recovered', {
+              dedupeKey: `knowledge-upload-${this.uploadFailureCount}`,
+              recoveryKind: 'knowledge_upload',
+            });
+          }
+        }
         if (res.failed > 0) {
           this.toast.warning(
             this.i18n.t('knowledge.toast.upload_partial', {
@@ -1027,6 +1053,8 @@ export class KnowledgeBaseComponent implements OnInit {
       error: () => {
         this.uploading.set(false);
         this.uploadState.set('error');
+        this.uploadFailureCount += 1;
+        this.uploadRecoveryPending = true;
         this.toast.error(
           this.i18n.t('knowledge.toast.upload_failed'),
           this.i18n.t('knowledge.toast.upload_error_title'),

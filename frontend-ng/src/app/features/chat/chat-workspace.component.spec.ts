@@ -15,11 +15,29 @@ import { navigationLeafUrl } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import {
+  ProductTelemetryService,
+  type ProductActivationMilestone,
+} from '@app/core/product-telemetry.service';
+import {
   WorkspaceService,
   type WorkspaceContextTransition,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
 import { ChatWorkspaceComponent } from './chat-workspace.component';
+
+/** Deduplicating recorder mirroring ProductTelemetryService's `recordOnce`. */
+class ActivationTelemetryStub {
+  readonly milestones: ProductActivationMilestone[] = [];
+
+  recordOnce(milestone: ProductActivationMilestone): void {
+    if (this.milestones.includes(milestone)) return;
+    this.milestones.push(milestone);
+  }
+
+  recordOccurrence(milestone: ProductActivationMilestone): void {
+    this.milestones.push(milestone);
+  }
+}
 
 class WorkspaceStub {
   private slug = 'andritz';
@@ -100,6 +118,7 @@ function makeHarness() {
   const workspace = new WorkspaceStub();
   const http = new HttpStub();
   const canonical = new CanonicalStub();
+  const activation = new ActivationTelemetryStub();
   const injector = Injector.create({
     providers: [
       ChatWorkspaceComponent,
@@ -108,6 +127,7 @@ function makeHarness() {
       { provide: CanonicalApiService, useValue: canonical },
       { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
       { provide: NavigationProfileService, useValue: { businessShellActive: () => false } },
+      { provide: ProductTelemetryService, useValue: activation },
       { provide: Router, useValue: { navigate: () => undefined, navigateByUrl: () => undefined } },
       {
         provide: ZoomContextService,
@@ -123,7 +143,7 @@ function makeHarness() {
   });
   const component = injector.get(ChatWorkspaceComponent);
   component.ngOnInit();
-  return { injector, component, workspace, http, canonical };
+  return { injector, component, workspace, http, canonical, activation };
 }
 
 function oneFile(name: string): FileList {
@@ -194,6 +214,49 @@ test('a late A context creation cannot attach its id or documents to B', async (
 
     assert.equal(component.ephemeralContextId(), null);
     assert.deepEqual(component.sessionDocs(), []);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('drop-and-ask records knowledge added only when a document was indexed', () => {
+  const { injector, component, http, activation } = makeHarness();
+  try {
+    upload(component, oneFile('andritz-private.pdf'));
+    http.uploads[0].next({ total: 1, successful: 0, failed: 1, documents: [] });
+    assert.deepEqual(activation.milestones, [], 'a batch that indexed nothing adds no knowledge');
+
+    upload(component, oneFile('andritz-private.pdf'));
+    http.uploads[1].next({
+      total: 1,
+      successful: 1,
+      failed: 0,
+      documents: [{
+        document_id: 'doc-1',
+        filename: 'andritz-private.pdf',
+        status: 'success',
+        chunks_processed: 1,
+      }],
+    });
+
+    assert.deepEqual(activation.milestones, ['knowledge_added']);
+    // A second successful drop is not a second activation.
+    upload(component, oneFile('second.pdf'));
+    http.uploads[2].next({ total: 1, successful: 1, failed: 0, documents: [] });
+    assert.deepEqual(activation.milestones, ['knowledge_added']);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('an upload answered after the workspace changed records nothing', () => {
+  const { injector, component, workspace, http, activation } = makeHarness();
+  try {
+    upload(component, oneFile('andritz-private.pdf'));
+    workspace.switchWorkspace();
+    http.uploads[0].next({ total: 1, successful: 1, failed: 0, documents: [] });
+
+    assert.deepEqual(activation.milestones, []);
   } finally {
     injector.destroy();
   }

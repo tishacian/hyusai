@@ -17,6 +17,7 @@ import { Subscription } from 'rxjs';
 import { CanonicalApiService, type Context, type System } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
+import { ProductTelemetryService } from '@app/core/product-telemetry.service';
 import {
   WorkspaceService,
   type WorkspaceContextTransition,
@@ -827,6 +828,7 @@ export class ChatWorkspaceComponent implements OnInit {
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
   private readonly navigationProfile = inject(NavigationProfileService);
+  private readonly productTelemetry = inject(ProductTelemetryService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute, { optional: true });
   private readonly navigation = inject(ZoomContextService);
@@ -1113,6 +1115,11 @@ export class ChatWorkspaceComponent implements OnInit {
         next: (res) => {
           if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
           this.uploading.set(false);
+          if (res.successful > 0) {
+            // Drop-and-ask is the other supported way to add knowledge; the
+            // batch endpoint has confirmed at least one indexed document.
+            this.productTelemetry.recordOnce('knowledge_added');
+          }
           const addedDocs: SessionDoc[] = (res.documents ?? [])
             .filter((d) => d.status === 'success')
             .map((d) => ({

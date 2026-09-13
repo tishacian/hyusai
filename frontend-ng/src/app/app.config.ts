@@ -12,6 +12,7 @@ import { AuthBootstrapService } from './core/auth-bootstrap.service';
 import { IdlePreloadStrategy } from './core/idle-preload.strategy';
 import { HelpService } from './core/help.service';
 import { NavigationTelemetryService } from './core/navigation-telemetry.service';
+import { ProductTelemetryService } from './core/product-telemetry.service';
 import { WorkspaceRouteReuseStrategy } from './core/workspace-route-reuse.strategy';
 
 Chart.register(...registerables);
@@ -43,6 +44,12 @@ export const appConfig: ApplicationConfig = {
       multi: true,
       useFactory: (svc: NavigationTelemetryService) => () => svc.start(),
       deps: [NavigationTelemetryService],
+    },
+    {
+      provide: APP_INITIALIZER,
+      multi: true,
+      useFactory: (svc: ProductTelemetryService) => () => svc.start(),
+      deps: [ProductTelemetryService],
     },
     provideToastr({
       positionClass: 'toast-top-right',
