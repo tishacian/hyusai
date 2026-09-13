@@ -43,10 +43,12 @@ not, with the reason they remain flags:
   by ``settings.experience.system_360_canary``.
 - ``workspace_experience_v2`` / ``app_entitlements_v1`` — navigation ownership
   and entitlement grants, named in the product-compliance contract.
-- ``rpa_bridge`` / ``sap_hana_connector`` / ``mcp_connector`` / ``model_portal_beta``
-  — each needs per-workspace credentials or an external endpoint, so enabling
-  one without configuration would only advertise a connector that cannot
-  connect.
+- ``rpa_bridge`` / ``sap_hana_connector`` / ``mcp_connector`` — each needs
+  per-workspace credentials or an external endpoint, so enabling one without
+  configuration would only advertise a connector that cannot connect.
+- ``model_portal_beta`` — advanced serving-node and distribution controls.
+  Core model setup and readiness are available to every workspace because Ask
+  cannot recover without them.
 """
 
 from __future__ import annotations

@@ -82,6 +82,7 @@ const pureSpecs = [
   'src/app/features/mission-room/mission-room.extension.spec.ts',
   'src/app/features/resources/resources.catalog.spec.ts',
   'src/app/features/resources/model-plane-reliability.spec.ts',
+  'src/app/features/resources/model-setup-ui-contract.spec.ts',
   'src/app/features/connectors/mcp/mcp-catalog.spec.ts',
   'src/app/features/connectors/mcp/mcp-showcase.spec.ts',
   'src/app/features/systems/system-flow-profile.spec.ts',

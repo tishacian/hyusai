@@ -18,23 +18,19 @@
  */
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { I18nService } from '@app/core/i18n.service';
-import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { failureCopyKey } from '@app/features/resources/model-plane.types';
 import type { ChatStreamError, ModelReadiness } from '@app/features/resources/model-plane.types';
 
 /**
- * The catalogue entry that owns `/resources?facet=providers`. Resolved through
- * `NavLinkDirective` so the destination stays a catalogue fact rather than a
- * string duplicated across two templates.
+ * Navigation remains an emitted intent so the parent can preserve the current
+ * question and return location before opening model setup.
  */
-const PROVIDER_SETTINGS_LINK = { surface: 'model-portal' } as const;
-
 @Component({
   selector: 'app-chat-readiness-banner',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, NavLinkDirective],
+  imports: [IconComponent],
   template: `
     @if (loading()) {
       <div class="rd-line" role="status" aria-live="polite">
@@ -61,17 +57,21 @@ const PROVIDER_SETTINGS_LINK = { surface: 'model-portal' } as const;
                 <app-icon name="refresh-cw" [size]="12" />
                 {{ i18n.t('chat.readiness.retry') }}
               </button>
-              <a class="rd-btn" [navLink]="providerSettingsLink">
+              <button type="button" class="rd-btn" (click)="configure.emit()">
                 <app-icon name="settings" [size]="12" />
                 {{ i18n.t('chat.readiness.settings') }}
-              </a>
+              </button>
             } @else {
-              <a class="rd-btn rd-btn-primary" [navLink]="providerSettingsLink">
+              <button type="button" class="rd-btn rd-btn-primary" (click)="configure.emit()">
                 <app-icon name="settings" [size]="12" />
                 {{ i18n.t('chat.readiness.configure') }}
-              </a>
+              </button>
             }
           </div>
+          <details class="rd-diagnostics">
+            <summary>{{ i18n.t('chat.failure.technical_details') }}</summary>
+            <span>{{ state.reason }} · {{ state.provider }} · {{ state.model }}</span>
+          </details>
         </div>
       }
     }
@@ -112,6 +112,9 @@ const PROVIDER_SETTINGS_LINK = { surface: 'model-portal' } as const;
     .rd-title { color: var(--ck-fg-1); font-size: 12px; font-weight: 650; }
     .rd-message { color: var(--ck-fg-3); font-size: 11.5px; line-height: 1.45; }
     .rd-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; flex-wrap: wrap; }
+    .rd-diagnostics { width: 100%; color: var(--ck-fg-4); font: 10px/1.5 var(--ck-font-mono, ui-monospace, monospace); }
+    .rd-diagnostics summary { cursor: pointer; }
+    .rd-diagnostics span { display: block; margin-top: 4px; }
     .rd-btn {
       display: inline-flex;
       align-items: center;
@@ -148,8 +151,7 @@ export class ChatReadinessBannerComponent {
   readonly loading = input(false);
 
   readonly retry = output<void>();
-
-  protected readonly providerSettingsLink = PROVIDER_SETTINGS_LINK;
+  readonly configure = output<void>();
 
   protected readonly headline = computed(() => {
     const status = this.readiness()?.status;
@@ -175,7 +177,7 @@ export class ChatReadinessBannerComponent {
   selector: 'app-chat-error-card',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, NavLinkDirective],
+  imports: [IconComponent],
   template: `
     <div class="ec-card" role="alert">
       <div class="ec-head">
@@ -197,12 +199,16 @@ export class ChatReadinessBannerComponent {
           </button>
         }
         @if (needsSetup()) {
-          <a class="ec-btn" [class.ec-btn-primary]="!canRetry()" [navLink]="providerSettingsLink">
+          <button type="button" class="ec-btn" [class.ec-btn-primary]="!canRetry()" (click)="configure.emit()">
             <app-icon name="settings" [size]="12" />
             {{ i18n.t('chat.failure.settings') }}
-          </a>
+          </button>
         }
       </div>
+      <details class="ec-diagnostics">
+        <summary>{{ i18n.t('chat.failure.technical_details') }}</summary>
+        <span>{{ error()?.code || 'generation_failed' }}</span>
+      </details>
     </div>
   `,
   styles: [`
@@ -245,6 +251,9 @@ export class ChatReadinessBannerComponent {
       white-space: pre-wrap;
     }
     .ec-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .ec-diagnostics { color: var(--ck-fg-4); font: 10px/1.5 var(--ck-font-mono, ui-monospace, monospace); }
+    .ec-diagnostics summary { cursor: pointer; }
+    .ec-diagnostics span { display: block; margin-top: 4px; }
     .ec-btn {
       display: inline-flex;
       align-items: center;
@@ -282,8 +291,7 @@ export class ChatErrorCardComponent {
   readonly partialAnswer = input<string>('');
 
   readonly retry = output<void>();
-
-  protected readonly providerSettingsLink = PROVIDER_SETTINGS_LINK;
+  readonly configure = output<void>();
 
   /** A legacy or transport error carries no classification — always retryable. */
   protected readonly canRetry = computed(() => this.error()?.retryable ?? true);
