@@ -42,6 +42,7 @@ import type {
   ScriptableContext,
 } from 'chart.js';
 import { BaseChartDirective } from 'ng2-charts';
+import { ensureChartsRegistered } from '@app/shared/charts/chart-registry';
 
 import { ThemeService } from '@app/core/theme.service';
 
@@ -56,6 +57,8 @@ import {
   type CurvePoint,
   type CurveReference,
 } from './viz.vm';
+
+ensureChartsRegistered();
 
 export type { CurveReference } from './viz.vm';
 

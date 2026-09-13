@@ -7,6 +7,14 @@ const source = readFileSync(
   join(process.cwd(), 'src/app/features/knowledge/knowledge-base.component.ts'),
   'utf8',
 );
+const routes = readFileSync(
+  join(process.cwd(), 'src/app/features/knowledge/knowledge.routes.ts'),
+  'utf8',
+);
+const captureRouter = readFileSync(
+  join(process.cwd(), 'src/app/features/knowledge/capture-fil/capture-router.component.ts'),
+  'utf8',
+);
 
 test('Knowledge defaults to upload and Ask while advanced tools stay opt-in', () => {
   assert.match(source, /advancedOpen = signal\(false\)/);
@@ -33,4 +41,12 @@ test('Knowledge reports activation from the batch result, not from the drop', ()
   );
   assert.match(source, /recoveryKind: 'knowledge_upload',/);
   assert.equal(/uploadFiles\(files: FileList\): void \{[\s\S]{0,400}?recordOnce/.test(source), false);
+});
+
+test('heavy capture experiences stay behind the explicit capture route', () => {
+  assert.doesNotMatch(source, /import\s+\{\s*KnowledgeCaptureComponent/);
+  assert.doesNotMatch(source, /<app-knowledge-capture/);
+  assert.match(routes, /path: 'capture',[\s\S]*import\('\.\/capture-fil\/capture-router\.component'\)/);
+  assert.match(captureRouter, /@defer \(on immediate\)[\s\S]*<app-knowledge-capture/);
+  assert.match(captureRouter, /@defer \(on immediate\)[\s\S]*<app-capture-fil-shell/);
 });

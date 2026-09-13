@@ -2,7 +2,6 @@ import { APP_INITIALIZER, ApplicationConfig, provideZonelessChangeDetection } fr
 import { provideRouter, RouteReuseStrategy, withPreloading } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
-import { Chart, registerables } from 'chart.js';
 import { provideToastr } from 'ngx-toastr';
 
 import { routes } from './app.routes';
@@ -14,8 +13,6 @@ import { HelpService } from './core/help.service';
 import { NavigationTelemetryService } from './core/navigation-telemetry.service';
 import { ProductTelemetryService } from './core/product-telemetry.service';
 import { WorkspaceRouteReuseStrategy } from './core/workspace-route-reuse.strategy';
-
-Chart.register(...registerables);
 
 export const appConfig: ApplicationConfig = {
   providers: [

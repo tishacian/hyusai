@@ -109,7 +109,7 @@ interface SearchResult {
         [attr.aria-expanded]="advancedOpen()"
         (click)="advancedOpen.set(!advancedOpen())"
       >
-        <app-icon name="sliders" [size]="14" />
+        <app-icon name="sliders-horizontal" [size]="14" />
         {{ advancedOpen() ? i18n.t('knowledge.advanced.hide') : i18n.t('knowledge.advanced.show') }}
       </button>
     </ck-object-header>

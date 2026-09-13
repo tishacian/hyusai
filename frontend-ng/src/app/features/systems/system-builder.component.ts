@@ -162,7 +162,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium mr-2"
           [attr.aria-expanded]="advancedOpen()"
         >
-          <app-icon name="sliders" [size]="14" />
+          <app-icon name="sliders-horizontal" [size]="14" />
           {{ advancedOpen() ? i18n.t('systems.builder.advanced.hide') : i18n.t('systems.builder.advanced.show') }}
         </button>
         @if (advancedOpen()) {

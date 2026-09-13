@@ -68,6 +68,18 @@ provide `E2E_GOLDEN_ENDPOINT` and `E2E_GOLDEN_DEPLOYMENT`. The test principal
 must already belong to the isolated workspace. The test runs the same journey
 in English and French and fails when the first cited answer takes
 longer than `E2E_GOLDEN_MAX_FIRST_ANSWER_MS` (45 seconds by default).
+It also attaches a privacy-safe JSON timing record for sign-in to usable Ask,
+provider readiness, first cited answer, and citation to source preview. The
+remaining budgets can be tuned with `E2E_PERF_SIGNIN_TO_COMPOSER_MS`,
+`E2E_PERF_MODEL_READINESS_MS`, and `E2E_PERF_SOURCE_PREVIEW_MS`.
+
+## Core startup performance gate
+
+`npm run check:performance` makes a real optimized production build, reads the
+Angular/esbuild dependency graph, and fails if the initial bundle exceeds
+1,000,000 bytes, Chart.js or the complete translation catalogue becomes eager,
+or any of Ask, Settings, Knowledge, Build, and Runs stops being route-lazy. The
+gate fails closed when build statistics are missing or malformed.
 
 ## Current status
 
