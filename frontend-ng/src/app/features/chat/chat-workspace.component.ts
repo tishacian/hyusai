@@ -98,7 +98,12 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, IconComponent, TagComponent, ChatPanelComponent, ThinkingOrbComponent],
   template: `
-    <div class="t-shell" [class.t-inline]="inline()" [class.t-executive-shell]="executiveAssistant()">
+    <div
+      class="t-shell"
+      [class.t-inline]="inline()"
+      [class.t-executive-shell]="executiveAssistant()"
+      [class.t-simple-shell]="simpleMode()"
+    >
       <!-- Header — system picker + mode badge -->
       <header class="t-header">
         @if (businessSurface()) {
@@ -814,6 +819,18 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       flex: 1 1 auto;
       width: 100%;
       min-height: 0;
+    }
+    @media (max-width: 640px) {
+      .t-simple-shell .t-header {
+        align-items: stretch;
+        flex-direction: column;
+        padding: 8px 10px;
+      }
+      .t-simple-shell .t-header-left { display: none; }
+      .t-simple-shell .t-header-right,
+      .t-simple-shell .t-system-control,
+      .t-simple-shell .t-picker-wrap { width: 100%; min-width: 0; }
+      .t-simple-shell .t-picker-label { display: none; }
     }
     @keyframes chatSpin { to { transform: rotate(360deg); } }
     .animate-spin { animation: chatSpin 1s linear infinite; }

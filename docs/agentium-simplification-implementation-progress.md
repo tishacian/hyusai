@@ -12,7 +12,7 @@ This ledger records the product-wide implementation queue. Each slice is reviewe
 | 4 | P0.2 + P1.1: first-run model setup and one model settings surface | Codex | Complete | Settings owns one guided provider/model form; the API validates credentials and live model availability before one atomic save; failed questions return and retry automatically; safe technical details stay collapsed; 68 backend and 57 focused frontend tests pass |
 | 5 | P1.2 + P1.3: progressive Knowledge and Build flows | Codex | Complete | Knowledge now defaults to upload → processing/recovery → Ask, with collections/search/capture behind Advanced; Build defaults to desired result + knowledge, selects only a runnable capability automatically, reveals technical controls on demand, and fails closed when none is runnable; 38 focused tests and all frontend/compiler/compliance guards pass |
 | 6 | P0.6 + P1.4 + P1.5: golden path, deployed Work consolidation, and legacy redirects/docs | Codex | In progress | Work remains the deployed-experience launcher; Tasks now resolve inside Runs; Apps and Missions were removed from user navigation; legacy settings/agents/traces/playground routes redirect canonically; the root README now describes Agentium and its supported journey. The EN/FR live golden-path gate compiles and launches with system Chrome, but the current local database lacks the documented E2E test principal, so behavioral execution stopped at a 401 before product state changed. |
-| 7 | P2: accessibility, performance, activation telemetry, and visual cleanup | Codex | In progress | The five supported first-use surfaces share an opt-in EN/FR × light/dark × desktop/456/320 real-browser gate for WCAG AA, reduced motion, reflow, and visual evidence. Static compilation is enforced locally; authenticated execution still requires the documented isolated-workspace test principal. **P2.2 performance and P2.3 activation telemetry are implemented** (see below). Broader visual cleanup (P2.4) remains, so the row stays open. |
+| 7 | P2: accessibility, performance, activation telemetry, and visual cleanup | Codex | Complete (live matrix pending credentials) | The five supported first-use surfaces share an opt-in EN/FR × light/dark × desktop/456/320 real-browser gate for WCAG AA, reduced motion, reflow, and visual evidence. **P2.2 performance, P2.3 activation telemetry, and P2.4 core visual cleanup are implemented.** Static/compiler/source gates pass; authenticated matrix execution still requires the documented isolated-workspace test principal. |
 
 ## P2.2 performance and perceived speed
 
@@ -22,6 +22,16 @@ This ledger records the product-wide implementation queue. Each slice is reviewe
 - The opt-in EN/FR golden path now records privacy-safe timings for sign-in to usable Ask, provider readiness, question to first cited answer, and citation to visible source preview. The artifact contains locale and millisecond measurements only.
 
 Evidence: successful optimized production build; deterministic bundle gate and focused unit contracts pass; the live timing gate compiles and lists both locale runs. Behavioral timings still require the isolated-workspace principal noted in P0.6.
+
+## P2.4 core visual cleanup
+
+- `/settings` is now a focused model-setup surface. The broader model, connector, and App portfolio remains on Resources instead of competing with first-run setup.
+- Shared object headers are flat, opaque, and token-driven rather than gradient glass cards. Generic section-header icons no longer sit in decorative tiles.
+- Knowledge uses smaller upload/dialog icons, a flat advanced-capture surface, a solid primary action, and an opaque dialog scrim.
+- Build removes selected-card glow and decorative violet, reduces accordion icon tiles, and presents the simple-mode explanation as inline guidance rather than another nested card.
+- Ask uses solid Cockpit surfaces for history and controls, and its context selector fits a 320 px screen. Runs actions wrap and its filters flex instead of overflowing narrow layouts.
+
+Evidence: source-level visual regression contract plus the complete 1,517-test frontend unit suite, compiler, i18n, navigation, UI-chrome, and compliance gates. The preceding P2.2 slice passed the production performance gate at 854,344 initial bytes; a fresh rebuild after these visual-only lazy-route changes is currently blocked by a local Node/esbuild 0.28 process crash. The opt-in browser matrix remains the behavioral evidence path when credentials are available.
 
 ## P2.3 activation telemetry
 

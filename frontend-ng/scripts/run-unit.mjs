@@ -62,6 +62,7 @@ const pureSpecs = [
   'src/app/core/workspace-locale.spec.ts',
   'src/app/shared/cockpit/thinking-orb/thinking-orb.spec.ts',
   'src/app/shared/cockpit/cockpit-contrast.spec.ts',
+  'src/app/shared/cockpit/core-visual-simplification.spec.ts',
   'src/app/shared/cockpit/yield-format.spec.ts',
   'src/app/shared/cockpit/charts/svg-path.spec.ts',
   'src/app/shared/cockpit/charts/chart-interact.spec.ts',

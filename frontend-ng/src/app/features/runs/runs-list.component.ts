@@ -43,7 +43,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
       [description]="i18n.t('runs.list.description')"
     >
       <ck-help titleHelp id="concept.run" />
-      <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
+      <div actions class="runs-actions">
         @if (navigation.navV5Enabled() && (filterCapabilityId() || filterSystemId())) {
           @if (filterCapabilityId(); as capId) {
             <button
@@ -68,12 +68,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           }
         }
         <ck-help id="runs.list" />
-        <form
-          [style.display]="'inline-flex'"
-          [style.alignItems]="'center'"
-          [style.gap.px]="4"
-          (submit)="applyOrigin($event)"
-        >
+        <form class="runs-origin-filter" (submit)="applyOrigin($event)">
           <label
             class="ck-mono"
             for="runs-experience-filter"
@@ -86,13 +81,12 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           </label>
           <input
             id="runs-experience-filter"
+            class="ck-mono runs-control runs-origin-input"
             name="experienceFilter"
             [(ngModel)]="originDraft"
-            class="ck-mono"
             [attr.aria-invalid]="originInvalid()"
             [attr.aria-describedby]="originInvalid() ? 'runs-experience-filter-error' : null"
             [style.height.px]="28"
-            [style.width.px]="150"
             [style.padding]="'0 9px'"
             [style.background]="'var(--ck-bg-inset)'"
             [style.color]="'var(--ck-fg-1)'"
@@ -103,14 +97,14 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           />
           <button
             type="submit"
-            class="inline-flex items-center px-2.5 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+            class="runs-action-button inline-flex items-center px-2.5 py-1.5 rounded text-xs font-medium transition"
           >
             {{ i18n.t('runs.list.filter.apply') }}
           </button>
           @if (originActive()) {
             <button
               type="button"
-              class="inline-flex items-center px-2.5 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+              class="runs-action-button inline-flex items-center px-2.5 py-1.5 rounded text-xs font-medium transition"
               (click)="clearOrigin()"
             >
               {{ i18n.t('runs.list.filter.clear') }}
@@ -126,7 +120,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           [ngModel]="statusFilter()"
           (ngModelChange)="statusFilter.set($event)"
           [attr.aria-label]="i18n.t('runs.list.column.status')"
-          class="ck-mono"
+          class="ck-mono runs-control"
           [style.height.px]="28"
           [style.padding]="'0 10px'"
           [style.background]="'var(--ck-bg-inset)'"
@@ -144,7 +138,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
         </select>
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          class="runs-action-button inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition"
           (click)="refresh()"
           [disabled]="loading()"
         >
@@ -159,7 +153,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
             <p class="mb-3 text-sm text-red-300">{{ i18n.t('state.error.network') }}</p>
             <button
               type="button"
-              class="inline-flex items-center px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+              class="runs-action-button inline-flex items-center px-3 py-1.5 rounded text-xs font-medium transition"
               (click)="refresh()"
             >
               {{ i18n.t('common.retry') }}
@@ -257,6 +251,33 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
       </div>
     </ck-page-frame>
   `,
+  styles: [`
+    .runs-actions,
+    .runs-origin-filter {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .runs-actions { justify-content: flex-end; }
+    .runs-control,
+    .runs-action-button {
+      background: var(--ck-bg-inset);
+      border: 1px solid var(--ck-stroke-2);
+      color: var(--ck-fg-2);
+    }
+    .runs-action-button:hover:not(:disabled) {
+      background: var(--ck-bg-panel-hi);
+      border-color: var(--ck-stroke-3);
+      color: var(--ck-fg-1);
+    }
+    .runs-origin-input { width: 150px; }
+    @media (max-width: 640px) {
+      .runs-actions,
+      .runs-origin-filter { width: 100%; justify-content: flex-start; }
+      .runs-origin-input { flex: 1 1 140px; min-width: 0; width: auto; }
+    }
+  `],
 })
 export class RunsListComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);

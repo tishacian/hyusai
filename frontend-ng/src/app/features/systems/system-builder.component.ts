@@ -124,9 +124,9 @@ function normalizeModels(raw: Array<Record<string, unknown>>): ModelOpt[] {
   return out;
 }
 
-const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
+const TIER_TONE: Record<string, 'pos' | 'cool' | 'neutral' | 'warn'> = {
   universal: 'pos',
-  industry: 'violet',
+  industry: 'neutral',
   client: 'cool',
 };
 
@@ -192,7 +192,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
     </ck-object-header>
 
     @if (!advancedOpen()) {
-      <section class="ck-surface rounded-md px-4 py-3 mb-4 flex items-start gap-3">
+      <section class="px-1 pb-4 mb-4 flex items-start gap-3" style="border-bottom:1px solid var(--ck-stroke-2);">
         <ck-glyph name="focus" [size]="15" style="color:var(--ck-signal-cool); margin-top:2px;" />
         <div>
           <div class="text-sm font-medium" style="color:var(--ck-fg-1);">
@@ -221,7 +221,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               style="padding:14px 18px; background: var(--ck-bg-inset);"
             >
               <div
-                class="w-8 h-8 rounded-md flex items-center justify-center shrink-0 ck-surface"
+                class="w-6 h-6 flex items-center justify-center shrink-0"
                 [style.color]="isSectionValid(section.key) ? 'var(--ck-signal-pos)' : 'var(--ck-signal-warn)'"
                 [style.borderColor]="isSectionValid(section.key) ? 'var(--ck-stroke-soft)' : 'var(--ck-signal-warn)'"
               >
@@ -362,14 +362,13 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                     class="text-left transition ck-surface rounded-md"
                     [style.padding]="'14px 16px'"
                     [style.borderColor]="selectedCapabilityId() === cap.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
-                    [style.boxShadow]="selectedCapabilityId() === cap.id ? 'var(--ck-glow-cool)' : 'none'"
                   >
                     <div class="flex items-start justify-between gap-3 mb-2">
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1">
                           <ck-tag [tone]="tierTone(cap.tier)" variant="soft">{{ cap.tier || 'UNIV' }}</ck-tag>
                           @if (cap.industry) {
-                            <ck-tag tone="violet" variant="outline">{{ cap.industry }}</ck-tag>
+                            <ck-tag tone="neutral" variant="outline">{{ cap.industry }}</ck-tag>
                           }
                         </div>
                         <div class="text-sm font-medium text-white truncate">{{ cap.name }}</div>
@@ -669,7 +668,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               <div>
                 <label class="ck-mono" style="display:flex; align-items:center; justify-content:space-between; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
                   <span>ADAPTIVE · confidence threshold</span>
-                  <span class="ck-tnum" style="color:var(--ck-signal-violet);">{{ draft.confidence_threshold.toFixed(2) }}</span>
+                  <span class="ck-tnum" style="color:var(--ck-signal-cool);">{{ draft.confidence_threshold.toFixed(2) }}</span>
                 </label>
                 <input type="range" min="0" max="1" step="0.01" [(ngModel)]="draft.confidence_threshold" class="w-full accent-sky-400" />
                 <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:4px;">
@@ -679,7 +678,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               <div>
                 <label class="ck-mono" style="display:flex; align-items:center; justify-content:space-between; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
                   <span>ADAPTIVE · temperature</span>
-                  <span class="ck-tnum" style="color:var(--ck-signal-violet);">{{ draft.temperature.toFixed(2) }}</span>
+                  <span class="ck-tnum" style="color:var(--ck-signal-cool);">{{ draft.temperature.toFixed(2) }}</span>
                 </label>
                 <input type="range" min="0" max="2" step="0.05" [(ngModel)]="draft.temperature" class="w-full accent-sky-400" />
               </div>
@@ -698,7 +697,6 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                     style="padding:10px 12px;"
                     [title]="mode.description"
                     [style.borderColor]="draft.execution_mode === mode.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
-                    [style.boxShadow]="draft.execution_mode === mode.id ? 'var(--ck-glow-cool)' : 'none'"
                   >
                     <div class="text-sm font-medium" [style.color]="draft.execution_mode === mode.id ? 'var(--ck-fg-1)' : 'var(--ck-fg-2)'">
                       {{ mode.label }}
@@ -1660,7 +1658,7 @@ export class SystemBuilderComponent implements OnInit {
     });
   }
 
-  tierTone(tier: string | undefined): 'pos' | 'cool' | 'violet' | 'warn' {
+  tierTone(tier: string | undefined): 'pos' | 'cool' | 'neutral' | 'warn' {
     return TIER_TONE[tier || 'universal'] ?? 'pos';
   }
 }

@@ -140,10 +140,10 @@ interface SearchResult {
       />
       <div class="flex items-center justify-center gap-4">
         <div
-          class="w-12 h-12 rounded-md flex items-center justify-center shrink-0"
+          class="w-10 h-10 rounded flex items-center justify-center shrink-0"
           style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-hot); color:var(--ck-signal-cool);"
         >
-          <app-icon name="cloud-upload" [size]="22" />
+          <app-icon name="cloud-upload" [size]="18" />
         </div>
         <div class="text-left">
           <div class="text-sm font-medium" style="color:var(--ck-fg-1);">
@@ -213,7 +213,7 @@ interface SearchResult {
     @if (advancedOpen()) {
     <section
       class="ck-surface rounded-md p-5 mb-6"
-      style="border-color:var(--ck-stroke-hot); background:linear-gradient(180deg, rgba(125, 211, 252, 0.05), transparent);"
+      style="border-color:var(--ck-stroke-2); background:var(--ck-bg-panel);"
     >
       <div class="flex items-start justify-between gap-4">
         <div class="space-y-1">
@@ -608,17 +608,17 @@ interface SearchResult {
     <!-- Create collection dialog -->
     @if (createOpen()) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div class="absolute inset-0 backdrop-blur-sm" style="background:var(--ck-scrim);" (click)="createOpen.set(false)"></div>
+        <div class="absolute inset-0" style="background:var(--ck-scrim);" (click)="createOpen.set(false)"></div>
         <div
           class="ck-surface-hi relative max-w-md w-full p-6"
           style="border-radius:var(--ck-radius-lg); box-shadow:var(--ck-shadow-panel);"
         >
           <div class="flex items-start gap-4 mb-4">
             <div
-              class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
+              class="w-8 h-8 rounded flex items-center justify-center shrink-0"
               style="background:rgba(125, 211, 252, 0.15); color:var(--ck-signal-cool);"
             >
-              <app-icon name="folder-plus" [size]="20" />
+              <app-icon name="folder-plus" [size]="16" />
             </div>
             <div class="flex-1">
               <h2 class="text-base font-semibold mb-1" style="color:var(--ck-fg-1);">{{ i18n.t('knowledge.collections.new') }}</h2>
@@ -748,14 +748,14 @@ interface SearchResult {
     }
     .ck-btn-soft:disabled { opacity: 0.4; cursor: not-allowed; }
     .ck-btn-primary {
-      background: linear-gradient(180deg, rgba(125, 211, 252, 0.22), rgba(125, 211, 252, 0.12));
-      border: 1px solid var(--ck-stroke-hot);
-      color: var(--ck-fg-1);
+      background: var(--ck-signal-cool);
+      border: 1px solid var(--ck-signal-cool);
+      color: var(--ck-on-signal);
       font-weight: 600;
     }
     .ck-btn-primary:hover:not(:disabled) {
-      background: linear-gradient(180deg, rgba(125, 211, 252, 0.30), rgba(125, 211, 252, 0.18));
-      border-color: rgba(125, 211, 252, 0.55);
+      background: color-mix(in oklab, var(--ck-signal-cool) 88%, black);
+      border-color: var(--ck-signal-cool);
     }
     .ck-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 

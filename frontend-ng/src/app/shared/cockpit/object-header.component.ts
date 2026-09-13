@@ -40,15 +40,13 @@ export interface CkObjectKpi {
       [style.display]="'flex'"
       [style.flexDirection]="'column'"
       [style.gap.px]="10"
-      [style.padding]="'16px 20px'"
-      [style.background]="'linear-gradient(180deg, rgba(125,211,252,0.04) 0%, transparent 100%), color-mix(in srgb, var(--ck-bg-base, #0b0f14) 94%, transparent)'"
-      [style.border]="'1px solid var(--ck-stroke-2, rgba(255,255,255,0.06))'"
-      [style.borderRadius.px]="8"
-      [style.marginBottom.px]="12"
+      [style.padding]="'12px 0 16px'"
+      [style.background]="'var(--ck-bg-base, #0b0f14)'"
+      [style.borderBottom]="'1px solid var(--ck-stroke-2, rgba(255,255,255,0.06))'"
+      [style.marginBottom.px]="16"
       [style.position]="'sticky'"
       [style.top.px]="0"
       [style.zIndex]="5"
-      [style.backdropFilter]="'blur(6px)'"
     >
       <div
         [style.display]="'flex'"
@@ -116,7 +114,7 @@ export interface CkObjectKpi {
           [style.gap.px]="16"
           [style.flexWrap]="'wrap'"
           [style.paddingTop.px]="6"
-          [style.borderTop]="'1px dashed var(--ck-stroke-2, rgba(255,255,255,0.05))'"
+          [style.borderTop]="'1px solid var(--ck-stroke-2, rgba(255,255,255,0.05))'"
         >
           @for (k of kpis; track k.label) {
             <div

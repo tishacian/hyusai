@@ -88,13 +88,15 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
   template: `
     <app-section-header
       [breadcrumb]="i18n.t('resources.breadcrumb')"
-      [title]="i18n.t('resources.title')"
-      icon="plug"
-      [subtitle]="isDemoMode() ? i18n.t('resources.subtitle.demo') : i18n.t('resources.subtitle')"
+      [title]="focusedSettings() ? i18n.t('resources.providers.routing.title') : i18n.t('resources.title')"
+      [icon]="focusedSettings() ? 'cpu' : 'plug'"
+      [subtitle]="focusedSettings()
+        ? i18n.t('resources.providers.routing.description')
+        : (isDemoMode() ? i18n.t('resources.subtitle.demo') : i18n.t('resources.subtitle'))"
     >
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+        class="ck-settings-action inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium transition"
         (click)="refresh()"
         [disabled]="loading()"
       >
@@ -103,7 +105,8 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
       </button>
     </app-section-header>
 
-    <!-- KPIs -->
+    @if (!focusedSettings()) {
+    <!-- Portfolio summary belongs to Resources, not the focused setup route. -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       @if (isDemoMode()) {
         <ck-stat-readout variant="tile"
@@ -145,7 +148,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
     </div>
 
     <!-- Tabs -->
-    <div class="flex items-center gap-1 mb-5 p-1 bg-white/5 ring-1 ring-white/10 rounded-md w-fit flex-wrap">
+    <div class="ck-settings-tabs flex items-center gap-1 mb-5 p-1 rounded-md w-fit flex-wrap">
       @for (t of tabs(); track t.id) {
         <button
           type="button"
@@ -167,6 +170,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         </button>
       }
     </div>
+    }
 
     <!-- Models tab -->
     @if (tab() === 'models') {
@@ -922,6 +926,22 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
       </form>
     </app-drawer>
   `,
+  styles: [`
+    .ck-settings-action {
+      background: var(--ck-bg-panel-hi);
+      border: 1px solid var(--ck-stroke-2);
+      color: var(--ck-fg-2);
+    }
+    .ck-settings-action:hover:not(:disabled) {
+      background: var(--ck-bg-inset);
+      border-color: var(--ck-stroke-3);
+      color: var(--ck-fg-1);
+    }
+    .ck-settings-tabs {
+      background: var(--ck-bg-panel-hi);
+      border: 1px solid var(--ck-stroke-2);
+    }
+  `],
 })
 export class ResourcesPageComponent implements OnInit {
   private readonly api = inject(ApiService);
@@ -947,6 +967,7 @@ export class ResourcesPageComponent implements OnInit {
   readonly distWindows: DistributionWindow[] = ['7d', '30d'];
 
   readonly tab = signal<Tab>('models');
+  readonly focusedSettings = signal(false);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
   readonly modelPortalEnabled = this.workspace.modelPortalEnabled;
   /** Core model setup is available to every non-demo workspace. Advanced
@@ -1087,6 +1108,7 @@ export class ResourcesPageComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.focusedSettings.set(this.router.url.split('?')[0] === '/settings');
     const q = this.route.snapshot.queryParamMap.get('facet')
       ?? this.route.snapshot.queryParamMap.get('tab')
       ?? this.route.snapshot.data['defaultFacet'];

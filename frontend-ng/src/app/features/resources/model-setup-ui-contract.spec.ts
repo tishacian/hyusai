@@ -27,6 +27,8 @@ test('Settings owns the single provider setup surface', () => {
     /path: 'settings',[\s\S]*?defaultFacet: 'providers'[\s\S]*?ResourcesPageComponent/,
   );
   assert.match(routesSource, /path: 'settings\/models',[\s\S]*?redirectTo: 'settings'/);
+  assert.match(resourcesSource, /focusedSettings\.set\(this\.router\.url\.split\('\?'\)\[0\] === '\/settings'\)/);
+  assert.match(resourcesSource, /@if \(!focusedSettings\(\)\) \{[\s\S]*Portfolio summary belongs to Resources/);
 });
 
 test('model readiness is reported from the validated save, never from the form', () => {
