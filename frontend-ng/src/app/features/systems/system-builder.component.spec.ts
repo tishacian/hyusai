@@ -13,6 +13,7 @@ import {
   type Skill,
 } from '@app/core/canonical-api.service';
 import { FlowSerializerService } from '@app/core/flow-serializer.service';
+import { ProductTelemetryService } from '@app/core/product-telemetry.service';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { SettingsService } from '@app/core/settings.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -36,6 +37,10 @@ function makeBuilder(): SystemBuilderComponent {
       { provide: ToastrService, useValue: {} },
       { provide: SystemsStore, useValue: {} },
       { provide: FlowSerializerService, useValue: {} },
+      {
+        provide: ProductTelemetryService,
+        useValue: { recordOnce: () => undefined, recordOccurrence: () => undefined },
+      },
       { provide: I18nService, useValue: { t: (key: string) => key } },
       {
         provide: WorkspaceService,

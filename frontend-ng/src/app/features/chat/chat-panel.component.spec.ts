@@ -28,12 +28,50 @@ import {
 import { DEFAULT_BRAND_NAME } from '@app/core/platform-brand';
 import { PermissionsService } from '@app/core/permissions.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
+import {
+  ProductTelemetryService,
+  type ProductActivationMilestone,
+  type ProductActivationOptions,
+} from '@app/core/product-telemetry.service';
 import { I18nService } from '@app/core/i18n.service';
 import { navigationObjectUrl, navigationSurfaceUrl } from '@app/core/navigation.catalog';
 import type { HierarchyObjectType } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { REGISTERED_LUCIDE_ICONS } from '@app/shared/ui/icon-registry';
 import { ChatPanelComponent } from './chat-panel.component';
+
+/**
+ * Records activation milestones the way the real service would: `recordOnce`
+ * is deduplicated, `recordOccurrence` is deduplicated by its local key. The
+ * `dedupeKey` is kept here only so the tests can prove it never travels.
+ */
+class ActivationTelemetryStub {
+  readonly calls: Array<{
+    milestone: ProductActivationMilestone;
+    options: ProductActivationOptions;
+  }> = [];
+  private readonly seen = new Set<string>();
+
+  recordOnce(milestone: ProductActivationMilestone, options: ProductActivationOptions = {}): void {
+    if (this.seen.has(milestone)) return;
+    this.seen.add(milestone);
+    this.calls.push({ milestone, options });
+  }
+
+  recordOccurrence(
+    milestone: ProductActivationMilestone,
+    options: ProductActivationOptions & { dedupeKey: string },
+  ): void {
+    const key = `${milestone}:${options.dedupeKey}`;
+    if (this.seen.has(key)) return;
+    this.seen.add(key);
+    this.calls.push({ milestone, options });
+  }
+
+  milestones(): ProductActivationMilestone[] {
+    return this.calls.map((call) => call.milestone);
+  }
+}
 
 class WorkspaceStub {
   private slug = 'andritz';
@@ -196,6 +234,7 @@ function makeHarness(options?: { can?: boolean }) {
     reset: () => undefined,
     destroy: () => undefined,
   };
+  const activation = new ActivationTelemetryStub();
   const injector = Injector.create({
     providers: [
       ChatPanelComponent,
@@ -247,6 +286,7 @@ function makeHarness(options?: { can?: boolean }) {
         useValue: { refresh: () => of(null), can: () => options?.can ?? false },
       },
       { provide: AssistantEffectsService, useValue: { handleActionEffect: () => undefined } },
+      { provide: ProductTelemetryService, useValue: activation },
       { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
       { provide: ChangeDetectorRef, useValue: { markForCheck: () => undefined } },
       {
@@ -260,7 +300,7 @@ function makeHarness(options?: { can?: boolean }) {
     ],
   });
   const component = injector.get(ChatPanelComponent);
-  return { injector, component, workspace, api, sse, canonical, warnings };
+  return { injector, component, workspace, api, sse, canonical, warnings, activation };
 }
 
 test('voice oracle timeline only uses registered Lucide icons', () => {
@@ -777,6 +817,257 @@ test('standard chat does not probe readiness on a failed turn', () => {
     stream.next({ type: 'done' });
 
     assert.equal(api.readinessRequests.length, 0, 'the banner is a Quick Ask surface only');
+  } finally {
+    injector.destroy();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Activation funnel (P2.3).
+// ---------------------------------------------------------------------------
+
+test('a ready readiness probe records model ready once, without a new setup', () => {
+  const { injector, component, api, activation } = makeHarness();
+  try {
+    setInput(component.viewMode, 'simple');
+    component.refreshModelReadiness();
+    api.readinessRequests[0].next({
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      source: 'workspace',
+      status: 'ready',
+      reason: 'ok',
+      message: '',
+      retryable: false,
+    });
+
+    assert.deepEqual(activation.milestones(), ['model_ready']);
+    assert.equal(
+      JSON.stringify(activation.calls).includes('gpt-4o-mini'),
+      false,
+      'the provider and model never travel with the milestone',
+    );
+
+    // Re-probing the same ready workspace is not a second activation.
+    component.refreshModelReadiness();
+    api.readinessRequests[1].next({
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      source: 'workspace',
+      status: 'ready',
+      reason: 'ok',
+      message: '',
+      retryable: false,
+    });
+
+    assert.deepEqual(activation.milestones(), ['model_ready']);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a probe that is not ready, or that fails, records nothing', () => {
+  const { injector, component, api, activation } = makeHarness();
+  try {
+    setInput(component.viewMode, 'simple');
+    component.refreshModelReadiness();
+    api.readinessRequests[0].next({
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      source: 'workspace',
+      status: 'needs_setup',
+      reason: 'provider_not_configured',
+      message: 'No model is configured for this workspace.',
+      retryable: false,
+    });
+    assert.deepEqual(activation.milestones(), []);
+
+    component.refreshModelReadiness();
+    api.readinessRequests[1].error(new Error('network'));
+
+    assert.deepEqual(activation.milestones(), []);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a ready answer for the workspace the user left records nothing', () => {
+  const { injector, component, api, workspace, activation } = makeHarness();
+  try {
+    setInput(component.viewMode, 'simple');
+    component.refreshModelReadiness();
+    workspace.switchWorkspace();
+    api.readinessRequests[0].next({
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      source: 'workspace',
+      status: 'ready',
+      reason: 'ok',
+      message: '',
+      retryable: false,
+    });
+
+    assert.deepEqual(activation.milestones(), []);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a successful turn records the first question and the first answer once', () => {
+  const harness = makeHarness();
+  const { injector, component, sse, activation } = harness;
+  try {
+    const stream = startTurn(harness, 'Quel est le délai de livraison ?');
+    assert.deepEqual(activation.milestones(), ['first_question_sent']);
+
+    stream.next({ chunk_type: 'text', content: 'Le délai observé est de six semaines.' });
+    stream.next({ type: 'done' });
+
+    assert.deepEqual(activation.milestones(), ['first_question_sent', 'first_answer_completed']);
+
+    // A second turn is not a first anything.
+    component.userInput = 'Et pour la France ?';
+    component.send();
+    const second = sse.last();
+    second.next({ chunk_type: 'text', content: 'Quatre semaines.' });
+    second.next({ type: 'done' });
+
+    assert.deepEqual(activation.milestones(), ['first_question_sent', 'first_answer_completed']);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('activation details never carry the question or the answer', () => {
+  const harness = makeHarness();
+  const { injector, activation } = harness;
+  try {
+    const stream = startTurn(harness, 'Quel est le tarif confidentiel Andritz ?');
+    stream.next({ chunk_type: 'text', content: 'Le tarif confidentiel est 42 EUR.' });
+    stream.next({ type: 'done' });
+
+    const serialized = JSON.stringify(activation.calls);
+    assert.equal(serialized.includes('confidentiel'), false);
+    assert.equal(serialized.includes('42 EUR'), false);
+    for (const call of activation.calls) {
+      for (const key of Object.keys(call.options)) {
+        assert.ok(
+          ['dedupeKey', 'recoveryKind', 'elapsedMs'].includes(key),
+          `unexpected activation option ${key}`,
+        );
+      }
+    }
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a failed turn records the question but never an answer', () => {
+  const harness = makeHarness();
+  const { injector, activation } = harness;
+  try {
+    const stream = startTurn(harness, 'Question');
+    stream.next({ chunk_type: 'text', content: 'Partiel' });
+    stream.next({
+      chunk_type: 'error',
+      error: { code: 'provider_unreachable', message: 'Down.', retryable: true },
+    });
+    stream.next({ type: 'done' });
+
+    assert.deepEqual(activation.milestones(), ['first_question_sent']);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('an empty non-failed turn is not an answer', () => {
+  const harness = makeHarness();
+  const { injector, activation } = harness;
+  try {
+    const stream = startTurn(harness, 'Question');
+    stream.next({ type: 'done' });
+
+    assert.deepEqual(activation.milestones(), ['first_question_sent']);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a retry that succeeds records a chat recovery, a retry that fails does not', () => {
+  const harness = makeHarness();
+  const { injector, component, sse, activation } = harness;
+  try {
+    const stream = startTurn(harness, 'Quel est le délai ?');
+    stream.next({
+      chunk_type: 'error',
+      error: { code: 'provider_unreachable', message: 'Down.', retryable: true },
+    });
+    stream.next({ type: 'done' });
+
+    component.retryFailedTurn(component.messages()[1]);
+    const firstRetry = sse.last();
+    firstRetry.next({
+      chunk_type: 'error',
+      error: { code: 'provider_unreachable', message: 'Still down.', retryable: true },
+    });
+    firstRetry.next({ type: 'done' });
+    assert.equal(
+      activation.milestones().includes('failure_recovered'),
+      false,
+      'a retry that failed again is not a recovery',
+    );
+
+    component.retryFailedTurn(component.messages()[1]);
+    const secondRetry = sse.last();
+    secondRetry.next({ chunk_type: 'text', content: 'Six semaines.' });
+    secondRetry.next({ type: 'done' });
+
+    const recovery = activation.calls.find((call) => call.milestone === 'failure_recovered');
+    assert.equal(recovery?.options.recoveryKind, 'chat_retry');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a plain question after a failed turn is not reported as a recovery', () => {
+  const harness = makeHarness();
+  const { injector, component, sse, activation } = harness;
+  try {
+    const stream = startTurn(harness, 'Question');
+    stream.next({
+      chunk_type: 'error',
+      error: { code: 'provider_unreachable', message: 'Down.', retryable: true },
+    });
+    stream.next({ type: 'done' });
+
+    component.userInput = 'Une autre question';
+    component.send();
+    const next = sse.last();
+    next.next({ chunk_type: 'text', content: 'Une réponse.' });
+    next.next({ type: 'done' });
+
+    assert.equal(activation.milestones().includes('failure_recovered'), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('opening a resolvable source records it; an unresolvable one records nothing', () => {
+  const harness = makeHarness();
+  const { injector, component, activation } = harness;
+  try {
+    component.previewSource({ title: 'Contrat 2026' } as never);
+    assert.equal(activation.milestones().includes('source_opened'), false);
+
+    component.previewSource({
+      document_id: '3f2a1b4c-5d6e-4f70-8192-a3b4c5d6e7f8',
+      collection_name: 'documents',
+      filename: 'contrat-confidentiel.pdf',
+      title: 'Contrat 2026',
+    } as never);
+
+    assert.deepEqual(activation.milestones(), ['source_opened']);
+    assert.equal(JSON.stringify(activation.calls).includes('contrat-confidentiel'), false);
   } finally {
     injector.destroy();
   }
