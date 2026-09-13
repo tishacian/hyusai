@@ -15,6 +15,13 @@ export const KNOWLEDGE_FR = {
   'knowledge.header.subtitle': 'Ingérez des documents et donnez à chaque système un contexte à jour.',
   'knowledge.header.capture': 'Capture',
   'knowledge.header.upload': 'Téléverser',
+  'knowledge.advanced.show': 'Options avancées',
+  'knowledge.advanced.hide': 'Masquer les options',
+  'knowledge.advanced.description': 'Collections, recherche sémantique et capture experte.',
+  'knowledge.ask.cta': 'Poser une question',
+  'knowledge.library.title': 'Vos documents sont prêts',
+  'knowledge.library.summary': '{count} document(s) disponibles pour vos questions.',
+  'knowledge.library.review': 'Voir les documents',
 
   // --- KPI strip (labels rendered uppercase by CSS; hints are tooltips)
   'knowledge.kpi.collections': 'Collections',
@@ -33,6 +40,14 @@ export const KNOWLEDGE_FR = {
   'knowledge.dropzone.target': '→ cible :',
   'knowledge.dropzone.formats': 'PDF · TXT · MD · DOCX · CSV · JSON',
   'knowledge.upload.progress': 'Ingestion de {count} fichier(s)…',
+  'knowledge.upload.status.processing': 'Traitement de {count} fichier(s)',
+  'knowledge.upload.status.ready': '{count} fichier(s) prêt(s)',
+  'knowledge.upload.status.partial': 'Certains fichiers sont prêts',
+  'knowledge.upload.status.error': 'Échec du traitement',
+  'knowledge.upload.message.processing': 'Nous préparons vos documents pour les rendre interrogeables.',
+  'knowledge.upload.message.ready': 'Vous pouvez maintenant poser une question fondée sur ces documents.',
+  'knowledge.upload.message.partial': 'Les fichiers traités sont utilisables. Réessayez les autres séparément.',
+  'knowledge.upload.message.error': 'Vos documents n’ont pas été ajoutés. Vérifiez le format puis réessayez.',
 
   // --- Collections grid ------------------------------------------------
   'knowledge.collections.new': 'Nouvelle collection',
@@ -126,6 +141,13 @@ export const KNOWLEDGE_EN: Record<keyof typeof KNOWLEDGE_FR, string> = {
   'knowledge.header.subtitle': 'Ingest documents and give every system fresh context.',
   'knowledge.header.capture': 'Capture',
   'knowledge.header.upload': 'Upload',
+  'knowledge.advanced.show': 'Advanced options',
+  'knowledge.advanced.hide': 'Hide options',
+  'knowledge.advanced.description': 'Collections, semantic search and expert capture.',
+  'knowledge.ask.cta': 'Ask a question',
+  'knowledge.library.title': 'Your documents are ready',
+  'knowledge.library.summary': '{count} document(s) available for your questions.',
+  'knowledge.library.review': 'View documents',
 
   // --- KPI strip (labels rendered uppercase by CSS; hints are tooltips)
   'knowledge.kpi.collections': 'Collections',
@@ -144,6 +166,14 @@ export const KNOWLEDGE_EN: Record<keyof typeof KNOWLEDGE_FR, string> = {
   'knowledge.dropzone.target': '→ target:',
   'knowledge.dropzone.formats': 'PDF · TXT · MD · DOCX · CSV · JSON',
   'knowledge.upload.progress': 'Ingesting {count} file(s)…',
+  'knowledge.upload.status.processing': 'Processing {count} file(s)',
+  'knowledge.upload.status.ready': '{count} file(s) ready',
+  'knowledge.upload.status.partial': 'Some files are ready',
+  'knowledge.upload.status.error': 'Processing failed',
+  'knowledge.upload.message.processing': 'We are preparing your documents so they can be used in answers.',
+  'knowledge.upload.message.ready': 'You can now ask a question grounded in these documents.',
+  'knowledge.upload.message.partial': 'Processed files are usable. Retry the others separately.',
+  'knowledge.upload.message.error': 'Your documents were not added. Check the format and try again.',
 
   // --- Collections grid ------------------------------------------------
   'knowledge.collections.new': 'New collection',

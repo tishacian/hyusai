@@ -12,6 +12,7 @@ import { forkJoin, of, type Observable } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { CanonicalApiService, type Capability, type Context, type Skill, type System } from '@app/core/canonical-api.service';
 import {
   FlowSerializerService,
@@ -45,6 +46,7 @@ import {
   readAppToggles,
   writeAppToggles,
 } from '../resources/resources.catalog';
+import { firstRunnableCapability } from './system-builder-progressive';
 
 type CanvasSectionKey =
   | 'objective'
@@ -148,11 +150,21 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
     <ck-object-header
       eyebrow="Build · System"
       [title]="draft.name || 'New system'"
-      [subtitle]="draft.objective || 'Compose a system on a single canvas — every gate must turn green before launch.'"
+      [subtitle]="draft.objective || i18n.t('systems.builder.subtitle')"
       [kpis]="headerKpis()"
     >
       <span actions>
         <ck-back-link />
+        <button
+          type="button"
+          (click)="setAdvancedOpen(!advancedOpen())"
+          class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium mr-2"
+          [attr.aria-expanded]="advancedOpen()"
+        >
+          <app-icon name="sliders" [size]="14" />
+          {{ advancedOpen() ? i18n.t('systems.builder.advanced.hide') : i18n.t('systems.builder.advanced.show') }}
+        </button>
+        @if (advancedOpen()) {
         <button
           type="button"
           (click)="switchToFlow()"
@@ -162,6 +174,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
         >
           <app-icon name="workflow" [size]="14" /> Switch to Flow
         </button>
+        }
         <button
           type="button"
           (click)="launch()"
@@ -177,13 +190,25 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
       </span>
     </ck-object-header>
 
-    <!-- Single-surface canvas: every section is always visible, collapsible,
-         gated by a live badge. No prev/next — the operator can zoom into any
-         concern at any time. -->
-    <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+    @if (!advancedOpen()) {
+      <section class="ck-surface rounded-md px-4 py-3 mb-4 flex items-start gap-3">
+        <ck-glyph name="focus" [size]="15" style="color:var(--ck-signal-cool); margin-top:2px;" />
+        <div>
+          <div class="text-sm font-medium" style="color:var(--ck-fg-1);">
+            {{ i18n.t('systems.builder.simple.title') }}
+          </div>
+          <p class="text-xs mt-1" style="color:var(--ck-fg-3);">
+            {{ i18n.t('systems.builder.simple.description') }}
+          </p>
+        </div>
+      </section>
+    }
+
+    <div [class]="advancedOpen() ? 'grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6' : 'grid grid-cols-1 gap-6'">
       <div class="space-y-3">
-        @for (section of sections; track section.key) {
+        @for (section of visibleSections(); track section.key) {
           <section
+            [attr.data-section-key]="section.key"
             class="ck-surface rounded-md overflow-hidden"
             [style.borderColor]="isSectionValid(section.key) ? 'var(--ck-stroke-soft)' : 'var(--ck-signal-warn)'"
             [style.borderWidth]="isSectionValid(section.key) ? '1px' : '1px'"
@@ -207,7 +232,11 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2">
-                  <span class="text-sm font-medium text-white">{{ section.title }}</span>
+                  <span class="text-sm font-medium text-white">
+                    {{ !advancedOpen() && section.key === 'context'
+                      ? i18n.t('systems.builder.knowledge.title')
+                      : section.title }}
+                  </span>
                   <span
                     class="ck-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
                     [class.ck-tone-ok]="isSectionValid(section.key)"
@@ -255,11 +284,15 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <ck-glyph name="focus" [size]="16" />
-                Objective
-                <ck-help id="builder.steps.overview" />
+                {{ advancedOpen() ? 'Objective' : i18n.t('systems.builder.goal.title') }}
+                @if (advancedOpen()) {
+                  <ck-help id="builder.steps.overview" />
+                }
               </h2>
               <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
-                Define what this system should achieve — a single, measurable objective the Hypervisor can track.
+                {{ advancedOpen()
+                  ? 'Define what this system should achieve — a single, measurable objective.'
+                  : i18n.t('systems.builder.goal.description') }}
               </p>
             </header>
             <div>
@@ -480,16 +513,20 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <ck-glyph name="ledger" [size]="16" />
-                Context
-                <ck-help id="builder.steps.context" />
+                {{ advancedOpen() ? 'Context' : i18n.t('systems.builder.knowledge.title') }}
+                @if (advancedOpen()) {
+                  <ck-help id="builder.steps.context" />
+                }
               </h2>
               <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
-                Knowledge collections and the retrieval pipeline. Becomes the versioned Context attached to every Run —
-                or pick an existing one to reuse.
+                {{ advancedOpen()
+                  ? 'Knowledge collections and the retrieval pipeline. Becomes the versioned Context attached to every Run.'
+                  : i18n.t('systems.builder.knowledge.description') }}
               </p>
             </header>
 
             <!-- Reuse existing context -->
+            @if (advancedOpen()) {
             @if (existingContexts().length > 0) {
               <div style="border-bottom: 1px solid var(--ck-hair); padding-bottom:16px;">
                 <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
@@ -522,6 +559,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                   </button>
                 }
               </div>
+            }
             }
 
             @if (loadingCollections()) {
@@ -566,6 +604,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               </div>
             }
 
+            @if (advancedOpen()) {
             <div style="border-top: 1px solid var(--ck-hair); padding-top:16px;">
               <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
                 Retrieval pipeline
@@ -594,6 +633,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                 }
               </div>
             </div>
+            }
           </div>
         }
 
@@ -796,6 +836,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
         }
       </div>
 
+      @if (advancedOpen()) {
       <aside class="ck-surface rounded-md self-start sticky top-4" style="padding:20px;">
         <div class="flex items-center gap-3 mb-4 pb-3" style="border-bottom: 1px solid var(--ck-hair);">
           <div class="w-10 h-10 rounded-md flex items-center justify-center ck-surface" style="background:var(--ck-bg-inset); border-color: var(--ck-stroke-soft);">
@@ -882,6 +923,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           </div>
         }
       </aside>
+      }
     </div>
   `,
 })
@@ -896,6 +938,7 @@ export class SystemBuilderComponent implements OnInit {
   private readonly store = inject(SystemsStore);
   private readonly serializer = inject(FlowSerializerService);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
   readonly settings = inject(SettingsService);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
@@ -933,16 +976,16 @@ export class SystemBuilderComponent implements OnInit {
     { key: 'launch', title: 'Launch', description: 'Review & create', glyph: 'bolt' },
   ];
 
-  /** Set of expanded accordion sections; all open by default. */
+  readonly advancedOpen = signal(false);
+  readonly visibleSections = computed(() =>
+    this.advancedOpen()
+      ? this.sections
+      : this.sections.filter((section) => section.key === 'objective' || section.key === 'context'),
+  );
+
+  /** The simple path begins with only the outcome and knowledge expanded. */
   readonly openSections = signal<Set<CanvasSectionKey>>(
-    new Set<CanvasSectionKey>([
-      'objective',
-      'capability',
-      'skills',
-      'context',
-      'policy',
-      'launch',
-    ]),
+    new Set<CanvasSectionKey>(['objective', 'context']),
   );
   readonly launching = signal(false);
 
@@ -1032,6 +1075,7 @@ export class SystemBuilderComponent implements OnInit {
     if (q.get('objective')) this.draft.objective = q.get('objective') ?? '';
 
     const editId = q.get('systemId');
+    const requestedCapabilityId = q.get('capabilityId') || q.get('capability_id');
     if (editId) {
       // Edit mode: round-trip an existing System's flow back into the
       // canvas. Sections authored in Flow with custom nodes will be
@@ -1078,6 +1122,18 @@ export class SystemBuilderComponent implements OnInit {
     }).subscribe(({ caps, skills, collections }) => {
       this.capabilities.set(caps);
       this.skills.set(skills);
+      if (!editId && !this.draft.capability_id) {
+        const requested = requestedCapabilityId
+          ? caps.find((capability) => capability.id === requestedCapabilityId)
+          : undefined;
+        const defaultCapability = requested || firstRunnableCapability(caps, skills);
+        if (defaultCapability) {
+          this.selectCapability(defaultCapability, !!requested);
+        } else {
+          this.setAdvancedOpen(true);
+          this.expandSection('capability');
+        }
+      }
       const cols = collections?.collections ?? [];
       this.collections.set(cols);
       if (cols.length && this.draft.collections.length === 0) {
@@ -1093,12 +1149,24 @@ export class SystemBuilderComponent implements OnInit {
     });
   }
 
-  selectCapability(cap: Capability): void {
+  selectCapability(cap: Capability, applyContentDefaults = true): void {
     this.draft.capability_id = cap.id;
     this.selectedCapabilityId.set(cap.id);
-    if (!this.draft.name) this.draft.name = cap.name;
-    if (!this.draft.objective && cap.description) this.draft.objective = cap.description;
+    if (applyContentDefaults && !this.draft.name) this.draft.name = cap.name;
+    if (applyContentDefaults && !this.draft.objective && cap.description) {
+      this.draft.objective = cap.description;
+    }
     if (cap.confidence_threshold != null) this.draft.confidence_threshold = cap.confidence_threshold;
+  }
+
+  setAdvancedOpen(open: boolean): void {
+    this.advancedOpen.set(open);
+    if (!open) return;
+    this.openSections.update((current) => {
+      const next = new Set(current);
+      next.add('capability');
+      return next;
+    });
   }
 
   isCollectionChecked(name: string): boolean {
@@ -1418,6 +1486,7 @@ export class SystemBuilderComponent implements OnInit {
     } else {
       this.lockedSections.set(new Set());
     }
+    this.setAdvancedOpen(true);
 
   }
 
@@ -1446,6 +1515,24 @@ export class SystemBuilderComponent implements OnInit {
   /** Object-level KPIs rendered in `<ck-object-header>`. */
   headerKpis(): CkObjectKpi[] {
     const cap = this.selectedCapability();
+    if (!this.advancedOpen()) {
+      return [
+        {
+          label: this.i18n.t('systems.builder.kpi.goal'),
+          value: this.draft.name.trim()
+            ? this.i18n.t('systems.builder.kpi.ready')
+            : this.i18n.t('systems.builder.kpi.needed'),
+          tone: this.draft.name.trim() ? 'pos' : 'warn',
+          hint: this.i18n.t('systems.builder.kpi.goal_hint'),
+        },
+        {
+          label: this.i18n.t('systems.builder.kpi.knowledge'),
+          value: String(this.draft.collections.length),
+          tone: this.draft.collections.length ? 'cool' : 'neutral',
+          hint: this.i18n.t('systems.builder.kpi.knowledge_hint'),
+        },
+      ];
+    }
     const gatesLabel = `${this.gatesValidCount()}/${this.sections.length}`;
     return [
       {

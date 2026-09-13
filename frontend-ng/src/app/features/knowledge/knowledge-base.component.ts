@@ -92,43 +92,24 @@ interface SearchResult {
       [kpis]="headerKpis()"
     >
       <ck-help actions id="adoption.sources" />
+      @if (totalDocs() > 0) {
+        <a
+          actions
+          [navLink]="{ surface: 'chat' }"
+          class="ck-btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
+        >
+          <app-icon name="message-circle" [size]="14" /> {{ i18n.t('knowledge.ask.cta') }}
+        </a>
+      }
       <button
         actions
         type="button"
         class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
-        (click)="openGlobalSearch()"
+        [attr.aria-expanded]="advancedOpen()"
+        (click)="advancedOpen.set(!advancedOpen())"
       >
-        <app-icon name="search" [size]="14" /> {{ i18n.t('common.search') }}
-      </button>
-      <a
-        actions
-        [navLink]="{ surface: 'knowledge-capture' }"
-        class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
-        [title]="i18n.t('capture.kb.start_capture_title')"
-      >
-        <app-icon name="mic" [size]="14" /> {{ i18n.t('knowledge.header.capture') }}
-      </a>
-      <button
-        actions
-        type="button"
-        class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
-        [class.opacity-50]="collectionsError()"
-        [class.cursor-not-allowed]="collectionsError()"
-        [disabled]="!!collectionsError()"
-        (click)="openCreateCollection()"
-      >
-        <app-icon name="folder-plus" [size]="14" /> {{ i18n.t('knowledge.collections.new') }}
-      </button>
-      <button
-        actions
-        type="button"
-        (click)="openFilePicker(fileInput)"
-        [class.opacity-50]="collectionsError()"
-        [class.cursor-not-allowed]="collectionsError()"
-        [disabled]="!!collectionsError()"
-        class="ck-btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
-      >
-        <app-icon name="cloud-upload" [size]="14" /> {{ i18n.t('knowledge.header.upload') }}
+        <app-icon name="sliders" [size]="14" />
+        {{ advancedOpen() ? i18n.t('knowledge.advanced.hide') : i18n.t('knowledge.advanced.show') }}
       </button>
     </ck-object-header>
 
@@ -167,20 +148,22 @@ interface SearchResult {
           <div class="text-sm font-medium" style="color:var(--ck-fg-1);">
             {{ i18n.t('knowledge.dropzone.prefix') }}
             <span style="color:var(--ck-signal-cool);">{{ i18n.t('knowledge.dropzone.browse') }}</span>
-            <span class="ml-2" style="color:var(--ck-fg-4);">{{ i18n.t('knowledge.dropzone.target') }} </span>
-            <select
-              class="ck-field-select ck-field-select-inline ml-1"
-              [(ngModel)]="uploadTarget"
-              [disabled]="!!collectionsError()"
-              (click)="$event.stopPropagation()"
-            >
-              <option value="documents">documents</option>
-              @for (c of collections(); track c.slug) {
-                @if (c.slug !== 'documents') {
-                  <option [value]="c.slug">{{ c.name }}</option>
+            @if (advancedOpen()) {
+              <span class="ml-2" style="color:var(--ck-fg-4);">{{ i18n.t('knowledge.dropzone.target') }} </span>
+              <select
+                class="ck-field-select ck-field-select-inline ml-1"
+                [(ngModel)]="uploadTarget"
+                [disabled]="!!collectionsError()"
+                (click)="$event.stopPropagation()"
+              >
+                <option value="documents">documents</option>
+                @for (c of collections(); track c.slug) {
+                  @if (c.slug !== 'documents') {
+                    <option [value]="c.slug">{{ c.name }}</option>
+                  }
                 }
-              }
-            </select>
+              </select>
+            }
           </div>
           <p class="text-xs mt-0.5" style="color:var(--ck-fg-4);">{{ i18n.t('knowledge.dropzone.formats') }}</p>
         </div>
@@ -197,6 +180,36 @@ interface SearchResult {
       }
     </div>
 
+    @if (uploadState() !== 'idle') {
+      <section
+        class="ck-surface rounded-md px-4 py-3 mb-6 flex flex-col sm:flex-row sm:items-center gap-3"
+        aria-live="polite"
+      >
+        <app-status-pulse
+          [tone]="uploadState() === 'ready' ? 'success' : uploadState() === 'uploading' ? 'accent' : 'warning'"
+          [label]="i18n.t(uploadStatusKey(), { count: uploadCount() })"
+        />
+        <p class="text-sm flex-1" style="color:var(--ck-fg-3);">{{ i18n.t(uploadMessageKey()) }}</p>
+        @if (uploadState() === 'ready' || uploadState() === 'partial') {
+          <a
+            [navLink]="{ surface: 'chat' }"
+            class="ck-btn-primary inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+          >
+            <app-icon name="message-circle" [size]="14" /> {{ i18n.t('knowledge.ask.cta') }}
+          </a>
+        } @else if (uploadState() === 'error') {
+          <button
+            type="button"
+            class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+            (click)="openFilePicker(fileInput)"
+          >
+            <app-icon name="refresh-cw" [size]="14" /> {{ i18n.t('common.retry') }}
+          </button>
+        }
+      </section>
+    }
+
+    @if (advancedOpen()) {
     <section
       class="ck-surface rounded-md p-5 mb-6"
       style="border-color:var(--ck-stroke-hot); background:linear-gradient(180deg, rgba(125, 211, 252, 0.05), transparent);"
@@ -221,6 +234,7 @@ interface SearchResult {
         </a>
       </div>
     </section>
+    }
 
     <!-- Collections -->
     @if (loadingCollections()) {
@@ -256,7 +270,60 @@ interface SearchResult {
           [description]="i18n.t('knowledge.collections.empty.description')"
         ><a class="ck-btn-soft" [navLink]="{leaf:'help-guide',params:{guideId:'sources'}}">{{i18n.t('experience.adoption.documents')}}</a></app-empty-state>
       </div>
+    } @else if (!advancedOpen()) {
+      <section class="ck-surface rounded-md p-5">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+          <div
+            class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
+            style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-hot); color:var(--ck-signal-cool);"
+          >
+            <app-icon name="file-text" [size]="18" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <h2 class="text-base font-semibold" style="color:var(--ck-fg-1);">
+              {{ i18n.t('knowledge.library.title') }}
+            </h2>
+            <p class="text-sm mt-1" style="color:var(--ck-fg-3);">
+              {{ i18n.t('knowledge.library.summary', { count: totalDocs() }) }}
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+              (click)="openBrowse(defaultCollectionSlug())"
+            >
+              <app-icon name="folder" [size]="14" /> {{ i18n.t('knowledge.library.review') }}
+            </button>
+            <a
+              [navLink]="{ surface: 'chat' }"
+              class="ck-btn-primary inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+            >
+              <app-icon name="message-circle" [size]="14" /> {{ i18n.t('knowledge.ask.cta') }}
+            </a>
+          </div>
+        </div>
+      </section>
     } @else {
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <p class="text-xs" style="color:var(--ck-fg-4);">{{ i18n.t('knowledge.advanced.description') }}</p>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+            (click)="openGlobalSearch()"
+          >
+            <app-icon name="search" [size]="14" /> {{ i18n.t('common.search') }}
+          </button>
+          <button
+            type="button"
+            class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+            (click)="openCreateCollection()"
+          >
+            <app-icon name="folder-plus" [size]="14" /> {{ i18n.t('knowledge.collections.new') }}
+          </button>
+        </div>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         @for (doc of collections(); track doc.slug) {
           <div class="ck-surface rounded-md p-5 group">
@@ -761,6 +828,8 @@ export class KnowledgeBaseComponent implements OnInit {
   uploading = signal(false);
   uploadCount = signal(0);
   dragging = signal(false);
+  advancedOpen = signal(false);
+  uploadState = signal<'idle' | 'uploading' | 'ready' | 'partial' | 'error'>('idle');
   uploadTarget = 'documents';
 
   // Create collection
@@ -810,6 +879,11 @@ export class KnowledgeBaseComponent implements OnInit {
   );
   readonly totalChunks = computed(() =>
     this.collections().reduce((acc, c) => acc + (c.chunks || 0), 0),
+  );
+  readonly defaultCollectionSlug = computed(() =>
+    this.collections().find((collection) => collection.slug === 'documents')?.slug
+      || this.collections()[0]?.slug
+      || 'documents',
   );
   readonly indexingLabel = computed(() =>
     this.loadingCollections() ? this.i18n.t('knowledge.kpi.indexing') : this.i18n.t('knowledge.kpi.ready'),
@@ -920,6 +994,7 @@ export class KnowledgeBaseComponent implements OnInit {
       return;
     }
     this.uploading.set(true);
+    this.uploadState.set('uploading');
     this.uploadCount.set(files.length);
     const formData = new FormData();
     Array.from(files).forEach((f) => formData.append('files', f));
@@ -931,6 +1006,7 @@ export class KnowledgeBaseComponent implements OnInit {
     ).subscribe({
       next: (res) => {
         this.uploading.set(false);
+        this.uploadState.set(res.failed > 0 ? 'partial' : 'ready');
         if (res.failed > 0) {
           this.toast.warning(
             this.i18n.t('knowledge.toast.upload_partial', {
@@ -948,14 +1024,34 @@ export class KnowledgeBaseComponent implements OnInit {
         }
         this.loadCollections();
       },
-      error: (err) => {
+      error: () => {
         this.uploading.set(false);
+        this.uploadState.set('error');
         this.toast.error(
-          err?.error?.detail || this.i18n.t('knowledge.toast.upload_failed'),
+          this.i18n.t('knowledge.toast.upload_failed'),
           this.i18n.t('knowledge.toast.upload_error_title'),
         );
       },
     });
+  }
+
+  uploadStatusKey(): string {
+    switch (this.uploadState()) {
+      case 'uploading': return 'knowledge.upload.status.processing';
+      case 'ready': return 'knowledge.upload.status.ready';
+      case 'partial': return 'knowledge.upload.status.partial';
+      case 'error': return 'knowledge.upload.status.error';
+      default: return 'knowledge.upload.status.processing';
+    }
+  }
+
+  uploadMessageKey(): string {
+    switch (this.uploadState()) {
+      case 'ready': return 'knowledge.upload.message.ready';
+      case 'partial': return 'knowledge.upload.message.partial';
+      case 'error': return 'knowledge.upload.message.error';
+      default: return 'knowledge.upload.message.processing';
+    }
   }
 
   createCollection(): void {

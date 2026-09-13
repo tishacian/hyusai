@@ -6,6 +6,7 @@ import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { of } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   CanonicalApiService,
   type Capability,
@@ -35,6 +36,7 @@ function makeBuilder(): SystemBuilderComponent {
       { provide: ToastrService, useValue: {} },
       { provide: SystemsStore, useValue: {} },
       { provide: FlowSerializerService, useValue: {} },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
       {
         provide: WorkspaceService,
         useValue: { isDemoSafeMode: () => false, currentSlug: () => 'demo' },
@@ -47,6 +49,7 @@ function makeBuilder(): SystemBuilderComponent {
 
 test('selecting a capability refreshes its summary and bundled skills', () => {
   const builder = makeBuilder();
+  builder.setAdvancedOpen(true);
   const capability: Capability = {
     id: 'cap-qna',
     slug: 'intelligent-qna',
@@ -76,6 +79,7 @@ test('selecting a capability refreshes its summary and bundled skills', () => {
 
 test('stub and unbound Skills block System creation until every runtime is bound', () => {
   const builder = makeBuilder();
+  builder.setAdvancedOpen(true);
   const capability: Capability = {
     id: 'cap-runtime',
     slug: 'runtime-ready',
