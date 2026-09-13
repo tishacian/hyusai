@@ -61,6 +61,15 @@ export interface ModelReadiness {
   provider_status?: ProviderStatus;
 }
 
+export interface ModelSetupResponse {
+  readiness: ModelReadiness;
+  routing: RoutingResponse;
+  provider: {
+    key: string;
+    api_key_set: boolean;
+  };
+}
+
 /** The failure classifications a chat stream can report (never `ready`). */
 export type ChatStreamErrorCode = Exclude<ModelReadinessReason, 'ready'>;
 

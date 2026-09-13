@@ -531,7 +531,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
   {
     id: 'model-portal',
     label: 'Models & Providers',
-    route: '/resources?facet=providers',
+    route: '/settings',
     lens: 'govern',
     object: 'Connector',
     scope: 'workspace',

@@ -667,6 +667,7 @@ export const CHAT_FR = {
   // Rendues comme une carte d'erreur dans le fil, jamais ajoutées au texte
   // de la réponse. Aucune exception, URL ni identifiant n'y apparaît.
   'chat.failure.title': 'La réponse n’a pas pu être terminée',
+  'chat.failure.technical_details': 'Détails techniques',
   'chat.failure.partial_answer': 'Début de réponse reçu avant l’interruption',
   'chat.failure.retry': 'Réessayer',
   'chat.failure.settings': 'Paramètres du modèle',
@@ -1324,6 +1325,7 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
 
   // --- Provider failures -------------------------------------------
   'chat.failure.title': 'The answer could not be completed',
+  'chat.failure.technical_details': 'Technical details',
   'chat.failure.partial_answer': 'Partial answer received before the interruption',
   'chat.failure.retry': 'Try again',
   'chat.failure.settings': 'Model settings',

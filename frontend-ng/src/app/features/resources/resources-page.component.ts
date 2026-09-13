@@ -1,12 +1,7 @@
 import {
   ChangeDetectionStrategy,
-  afterNextRender,
-  Injector,
-  ElementRef,
-  viewChild,
   Component,
   OnInit,
-  OnDestroy,
   computed,
   effect,
   inject,
@@ -14,19 +9,13 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgClass } from '@angular/common';
-import { ActivatedRoute, Router, RouterLink, type UrlTree } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
-import { Subscription, forkJoin, of, timer } from 'rxjs';
-import { catchError, exhaustMap, take, takeWhile } from 'rxjs/operators';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
-import { WorkspaceViewContext } from '@app/core/workspace-view-context';
-import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
-import { type ModelCatalogEntry, type ModelResolution, catalogModelName, selectableTextModel } from '@app/core/model-catalog';
-import { valueFieldsFromSchema, valuesToObject, objectToValues } from '@app/shared/schema-builder/schema-builder.vm';
-import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
-import { formatSkillCost } from '../skills/skill-cost';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 import { NavLinkDirective, StatReadoutComponent } from '@app/shared/cockpit';
@@ -49,14 +38,16 @@ import {
   DistributionResponse,
   DistributionWindow,
   ModelProvider,
+  ModelReadinessReason,
+  ModelSetupResponse,
   NodesResponse,
   ProvidersResponse,
-  PortalConfigResponse,
   RoutingResponse,
   ServingInstance,
   ServingNode,
   distCount,
   distLatency,
+  failureCopyKey,
   instanceEngine,
   nodeKey,
   providerLabel,
@@ -64,26 +55,14 @@ import {
   routingPrimaryLabel,
 } from './model-plane.types';
 
-type ModelInfo = ModelCatalogEntry;
-
-interface ModelTestTarget {
-  system_id: string;
-  system_name: string;
-  node_id: string;
-  node_label: string;
-  skill_slug: string;
-  skill_name: string;
-  provider: string;
-  model: string;
-  input_schema: Record<string, unknown>;
-  input_defaults: Record<string, unknown>;
-  expected_flow_sha256: string;
-}
-
-interface ModelTestTargetsResponse {
-  can_test: boolean;
-  blockers?: Array<{ code: string; message: string }>;
-  targets: ModelTestTarget[];
+interface ModelInfo {
+  id?: string;
+  name?: string;
+  provider?: string;
+  context_length?: number;
+  size?: number;
+  modified_at?: string;
+  [key: string]: unknown;
 }
 
 type Tab = 'models' | 'providers' | 'serving' | 'connectors';
@@ -96,8 +75,6 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
-    ModelExecutionComponent,
-    RouterLink,
     NgClass,
     NavLinkDirective,
     IconComponent,
@@ -141,7 +118,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         />
         <ck-stat-readout variant="tile"
           [label]="i18n.t('resources.kpi.providers')"
-          [value]="showPortalTabs() ? liveProviders().length : providers().length"
+          [value]="showProviderSettings() ? liveProviders().length : providers().length"
           icon="server"
         />
       }
@@ -190,9 +167,6 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
       }
     </div>
 
-    @if (portalUnavailable()) {
-      <p role="status" class="ck-surface p-4 mb-4 rounded text-sm">{{ isDemoMode() ? i18n.t('resources.portal.demo_unavailable') : i18n.t('resources.portal.disabled') }}</p>
-    }
     <!-- Models tab -->
     @if (tab() === 'models') {
       @if (isDemoMode()) {
@@ -217,25 +191,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           </span>
         </div>
 
-        <div class="px-5 py-3 flex gap-3 flex-wrap border-b border-white/5">
-          <label class="flex-1 min-w-48 text-xs" style="color:var(--ck-fg-3);">
-            {{ i18n.t('resources.models.search') }}
-            <input [ngModel]="modelSearch()" (ngModelChange)="modelSearch.set($event)" class="w-full mt-1 rounded px-3 py-2" [style]="portalInputStyle" />
-          </label>
-          <label class="text-xs" style="color:var(--ck-fg-3);">
-            {{ i18n.t('resources.models.usage') }}
-            <select [ngModel]="modelUsage()" (ngModelChange)="modelUsage.set($event)" class="block mt-1 rounded px-3 py-2" [style]="portalInputStyle">
-              <option value="text_generation">{{ i18n.t('resources.models.usage.text') }}</option>
-              <option value="all">{{ i18n.t('resources.models.usage.all') }}</option>
-            </select>
-          </label>
-        </div>
-        @if (modelsError(); as error) {
-          <div role="alert" class="p-5 text-sm" style="color:var(--ck-neg);">
-            {{ error }}
-            <button class="ck-btn-quiet px-3 py-2 ml-2" (click)="refresh()">{{ i18n.t('common.refresh') }}</button>
-          </div>
-        } @else if (loading() && models().length === 0) {
+        @if (loading() && models().length === 0) {
           <div class="divide-y divide-white/5">
             @for (_ of [0, 1, 2, 3, 4]; track $index) {
               <div class="px-5 py-3 animate-pulse">
@@ -248,52 +204,47 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             icon="cpu"
             [title]="i18n.t('resources.models.empty.title')"
             [description]="i18n.t('resources.models.empty.description')"
-          >
-            @if (showPortalTabs()) {
-              <button class="ck-btn-quiet px-3 py-2 text-sm" (click)="selectTab('providers')">{{ i18n.t('resources.models.connect') }}</button>
-            }
-          </app-empty-state>
-        } @else if (filteredModels().length === 0) {
-          <app-empty-state icon="search" [title]="i18n.t('resources.models.filtered_empty')">
-            <button class="ck-btn-quiet px-3 py-2 text-sm" (click)="modelSearch.set(''); modelUsage.set('all')">{{ i18n.t('resources.models.clear_filters') }}</button>
-          </app-empty-state>
+          />
         } @else {
           <ul class="divide-y divide-white/5">
-            @for (m of filteredModels(); track modelKey(m)) {
-              <li class="px-5 py-3 flex flex-wrap gap-3 items-center text-sm">
-                <div class="flex-1 min-w-48 flex items-center gap-2">
+            @for (m of models(); track modelKey(m)) {
+              <li class="px-5 py-3 grid grid-cols-12 gap-3 items-center text-sm" [title]="usageLabel(m)">
+                <div class="col-span-6 min-w-0 flex items-center gap-2">
                   <div class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0 bg-white/[0.04] ring-1 ring-cyan-400/25 text-cyan-300">
                     {{ providerInitial(m) }}
                   </div>
                   <div class="min-w-0">
                     <div class="text-white truncate font-mono text-xs">{{ modelName(m) }}</div>
                     @if (m.provider) {
-                      <div class="text-[11px] text-gray-500">{{ modelProviderLabel(m.provider) }}</div>
+                      <div class="text-[11px] text-gray-500 capitalize">{{ m.provider }}</div>
                     }
                   </div>
                 </div>
-                <div class="text-xs text-gray-400 font-mono tabular-nums">
+                <div class="col-span-2 text-xs text-gray-400 font-mono tabular-nums">
                   @if (m.context_length) {
                     {{ (m.context_length / 1000).toFixed(0) }}k ctx
                   }
                 </div>
-                <div class="text-xs text-gray-400 font-mono tabular-nums">
+                <div class="col-span-2 text-xs text-gray-400 font-mono tabular-nums">
                   @if (m.size) {
                     {{ (m.size / 1e9).toFixed(1) }} GB
                   }
                 </div>
-                <span class="text-xs" style="color:var(--ck-fg-3);">{{ modelStateLabel(m) }}</span>
-                @if (showPortalTabs() && isSelectableModel(m)) {
-                  <button class="ck-btn-quiet px-3 py-2 text-xs" (click)="selectTestModel(m)">{{ i18n.t('resources.test.choose') }}</button>
-                  <a [routerLink]="skillsUrl(m)" class="ck-btn-quiet px-3 py-2 text-xs">{{ i18n.t('resources.models.use_skill') }}</a>
-                }
-                @if (configuredUsage(m).length) {
-                  <div class="w-full text-xs" style="color:var(--ck-fg-3);">{{ i18n.t('resources.models.configured_systems') }}
-                    @for (usage of configuredUsage(m); track usage.system_id + ':' + usage.node_id) {
-                      <a [navLink]="{ leaf: 'system-flow', ref: usage.system_id }" class="inline-block ml-2 break-words" style="color:var(--ck-signal-cool);">{{ usage.system_name }} · {{ usage.node_id }}</a>
-                    }
-                  </div>
-                }
+                <div class="col-span-1 text-xs text-right">
+                  @if (usageCount(m) > 0) {
+                    <span
+                      class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20"
+                      [title]="i18n.t('resources.models.pinned_by', { systems: (systemUsage()[modelKey(m)] || systemUsage()[modelName(m)] || []).join(', ') })"
+                    >
+                      {{ usageLabel(m) }}
+                    </span>
+                  } @else {
+                    <span class="text-gray-600">—</span>
+                  }
+                </div>
+                <div class="col-span-1 text-right">
+                  <app-status-pulse tone="success" [label]="i18n.t('resources.models.status.ready')" />
+                </div>
               </li>
             }
           </ul>
@@ -303,14 +254,11 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
     }
 
     <!-- Providers tab -->
-    @if (tab() === 'providers' && showPortalTabs()) {
+    @if (tab() === 'providers' && showProviderSettings()) {
       @if (portalError(); as err) {
         <div class="mb-4 rounded-md bg-amber-500/10 p-3 text-sm text-amber-100 ring-1 ring-amber-400/25">
           {{ err }}
         </div>
-      }
-      @if (configError(); as error) {
-        <p role="alert" class="mb-4 p-3 rounded-md text-sm" style="color:var(--ck-neg); background:var(--ck-bg-inset);">{{ error }}</p>
       }
 
       <!-- Workspace routing config -->
@@ -334,80 +282,75 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             </div>
           }
         </header>
-        @if (routingError(); as error) {
-          <p role="alert" class="text-sm mb-3" style="color:var(--ck-neg);">{{ error }}</p>
-        }
-        @if (!canConfigure()) {
-          <p class="text-xs mb-3" style="color:var(--ck-fg-3);">{{ i18n.t('resources.portal.read_only') }}</p>
-        }
         <form class="grid gap-3 sm:grid-cols-2" (ngSubmit)="saveRouting()">
           <label class="block min-w-0">
             <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.provider') }}</span>
             <select
-              [ngModel]="routingDraft.provider"
-              (ngModelChange)="setRoutingProvider($event)"
-              [disabled]="!canConfigure() || !routing()"
+              [(ngModel)]="routingDraft.provider"
               name="routeProvider"
               class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
             >
-              <option value="">{{ i18n.t('resources.models.choose_provider') }}</option>
-              @if (routingDraft.provider && !routingProviderOptions().includes(routingDraft.provider)) {
-                <option [value]="routingDraft.provider" disabled>{{ routingDraft.provider }} — {{ i18n.t('resources.models.unavailable') }}</option>
-              }
-              @for (opt of routingProviderOptions(); track opt) {
+              @for (opt of routingProviderOptions; track opt) {
                 <option [value]="opt">{{ opt }}</option>
               }
             </select>
           </label>
           <label class="block min-w-0">
             <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.providers.routing.model') }}</span>
-            <select
+            <input
               [(ngModel)]="routingDraft.model"
-              [disabled]="!canConfigure() || !routing()"
               name="routeModel"
               class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-            >
-              <option value="">{{ i18n.t('resources.models.choose_model') }}</option>
-              @if (routingDraft.model && !routingModelAvailable()) {
-                <option [value]="routingDraft.model" disabled>{{ routingDraft.model }} — {{ i18n.t('resources.models.unavailable') }}</option>
-              }
-              @for (model of modelsForProvider(routingDraft.provider); track modelKey(model)) {
-                <option [value]="modelName(model)">{{ modelName(model) }}</option>
-              }
-            </select>
+              placeholder="gpt-4o-mini"
+            />
           </label>
-          <fieldset class="sm:col-span-2" [disabled]="!canConfigure() || !routing()">
-            <legend class="text-xs mb-2" style="color:var(--ck-fg-3);">{{ i18n.t('resources.providers.routing.fallback') }}</legend>
-            <div class="flex flex-wrap gap-3">
-              @for (provider of routingProviderOptions(); track provider) {
-                @if (provider !== routingDraft.provider) {
-                  <label class="flex gap-2 items-center text-xs">
-                    <input type="checkbox" [checked]="routingDraft.fallback.includes(provider)" (change)="toggleFallback(provider)" />{{ provider }}
-                  </label>
-                }
-              }
-            </div>
-            @for (provider of routingDraft.fallback; track provider; let index = $index) {
-              <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
-                <span>{{ index + 1 }}. {{ provider }}</span>
-                @if (providerConnectionUnavailable(provider)) { <span style="color:var(--ck-neg);">{{ i18n.t('resources.providers.state.unavailable') }}</span> }
-                @if (!routingProviderOptions().includes(provider) || provider === routingDraft.provider) {
-                  <span style="color:var(--ck-neg);">{{ i18n.t('resources.models.unavailable') }}</span>
-                }
-                <button type="button" class="ck-btn-quiet px-2 py-1" (click)="moveFallback(index, -1)" [disabled]="index === 0">{{ i18n.t('resources.routing.move_up') }}</button>
-                <button type="button" class="ck-btn-quiet px-2 py-1" (click)="toggleFallback(provider)">{{ i18n.t('resources.routing.remove') }}</button>
-              </div>
-            }
-          </fieldset>
-          <div class="sm:col-span-2">
+          @if (isConfigurableCloud(routingDraft.provider)) {
+            <label class="block min-w-0">
+              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                {{ i18n.t('resources.providers.api_key') }}
+              </span>
+              <input
+                type="password"
+                [(ngModel)]="routingCredentialDraft.api_key"
+                name="routeApiKey"
+                autocomplete="new-password"
+                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                [placeholder]="selectedProviderHasKey() ? '••••••••' : 'sk-…'"
+              />
+            </label>
+          }
+          @if (hasEndpointFields(routingDraft.provider)) {
+            <label class="block min-w-0">
+              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Endpoint</span>
+              <input
+                type="url"
+                [(ngModel)]="routingCredentialDraft.endpoint"
+                name="routeEndpoint"
+                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                placeholder="https://…"
+              />
+            </label>
+            <label class="block min-w-0">
+              <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Deployment</span>
+              <input
+                type="text"
+                [(ngModel)]="routingCredentialDraft.deployment"
+                name="routeDeployment"
+                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
+                placeholder="deployment"
+              />
+            </label>
+          }
+          <div class="sm:col-span-2 flex items-center gap-3">
             <button
               type="submit"
-              [disabled]="!canSaveRouting()"
+              [disabled]="configBusy() === 'routing'"
               class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
             >
               <app-icon name="save" [size]="14" />
               {{ configBusy() === 'routing' ? i18n.t('resources.providers.routing.saving') : i18n.t('resources.providers.routing.save') }}
             </button>
+            <span class="text-[11px] text-gray-500">{{ i18n.t('resources.providers.routing.validation_hint') }}</span>
           </div>
         </form>
       </section>
@@ -438,9 +381,8 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               <span
                 class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded ring-1"
                 [ngClass]="providerStatusClass(p.status)"
-                [style.color]="p.status === 'active' ? 'var(--ck-pos)' : p.status === 'unreachable' ? 'var(--ck-neg)' : 'var(--ck-fg-2)'"
               >
-                {{ providerStateLabel(p) }}
+                {{ p.status }}
               </span>
             </header>
 
@@ -453,13 +395,12 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                       ? 'bg-cyan-500/10 text-cyan-300 ring-cyan-500/20'
                       : 'bg-indigo-500/10 text-indigo-300 ring-indigo-500/20'
                   "
-                  style="color:var(--ck-fg-2);"
                 >
                   {{ p.kind }}
                 </span>
               }
               @if (p.api_key_set) {
-                <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 ring-1 ring-emerald-500/20" style="color:var(--ck-pos);">
+                <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
                   {{ i18n.t('resources.providers.key_set') }}
                 </span>
               }
@@ -479,102 +420,19 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               <p class="text-[11px] text-gray-400 leading-relaxed">{{ p.notes }}</p>
             }
 
-            @if (p.error) {
-              <p role="alert" class="text-xs break-words" style="color:var(--ck-neg);">{{ p.error }}</p>
-            }
-            @if (p.runtime_available === false) {
-              <p class="text-xs" style="color:var(--ck-fg-3);">{{ i18n.t('resources.providers.runtime_unavailable') }}</p>
-            }
-            <button type="button" class="ck-btn-quiet px-3 py-2 text-xs self-start" (click)="testConnection(p.key)" [disabled]="!canConfigure() || connectionBusy() !== null || !p.configured">
-              {{ i18n.t('resources.providers.test_connection') }}
-            </button>
-            <p class="text-xs" style="color:var(--ck-fg-3);">{{ i18n.t('resources.providers.connection_hint') }}</p>
-            @if (connectionResults()[p.key]; as result) {
-              <p role="status" class="text-xs break-words" style="color:var(--ck-fg-2);">{{ result }}</p>
-            }
-            @if (hasEndpointFields(p.key)) {
-              <dl class="text-xs space-y-1" style="color:var(--ck-fg-3);">
-                <div><dt>{{ i18n.t('resources.providers.endpoint') }}</dt><dd class="m-0 font-mono break-all">{{ savedCredential(p.key)?.endpoint || p.endpoint || '—' }}</dd></div>
-                <div><dt>{{ i18n.t('resources.providers.deployment') }}</dt><dd class="m-0 font-mono">{{ savedCredential(p.key)?.deployment || p.deployment || '—' }}</dd></div>
-                <div><dt>{{ i18n.t('resources.providers.api_version') }}</dt><dd class="m-0 font-mono">{{ savedCredential(p.key)?.api_version || p.api_version || '—' }}</dd></div>
-              </dl>
-            }
-
-            @if (canConfigure() && isConfigurableCloud(p.key)) {
-              <form class="mt-1 space-y-2 border-t border-white/5 pt-3" (ngSubmit)="saveCredential(p.key)">
-                <label class="block">
-                  <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                    {{ i18n.t('resources.providers.api_key') }} {{ p.api_key_set ? i18n.t('resources.providers.api_key.keep') : '' }}
-                  </span>
-                  <input
-                    type="password"
-                    [ngModel]="credentialDrafts[p.key]?.api_key || ''"
-                    (ngModelChange)="setCredentialField(p.key, 'api_key', $event)"
-                    [name]="'key-' + p.key"
-                    autocomplete="new-password"
-                    class="w-full rounded bg-black/30 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                    [placeholder]="p.api_key_set ? '••••••••' : 'sk-…'"
-                  />
-                </label>
-                @if (hasEndpointFields(p.key)) {
-                  <label class="block text-xs">{{ i18n.t('resources.providers.endpoint') }}
-                  <input
-                    type="text"
-                    [ngModel]="credentialDrafts[p.key]?.endpoint || ''"
-                    (ngModelChange)="setCredentialField(p.key, 'endpoint', $event)"
-                    [name]="'endpoint-' + p.key"
-                    [placeholder]="p.key === 'azure_foundry' ? 'https://….services.ai.azure.com' : 'https://….openai.azure.com'"
-                    class="w-full rounded bg-black/30 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                  />
-                  </label>
-                  <div class="grid grid-cols-2 gap-2">
-                    <label class="block text-xs">{{ i18n.t('resources.providers.deployment') }}
-                    <input
-                      type="text"
-                      [ngModel]="credentialDrafts[p.key]?.deployment || ''"
-                      (ngModelChange)="setCredentialField(p.key, 'deployment', $event)"
-                      [name]="'dep-' + p.key"
-                      placeholder="deployment"
-                      class="w-full rounded bg-black/30 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                    />
-                    </label>
-                    <label class="block text-xs">{{ i18n.t('resources.providers.api_version') }}
-                    <input
-                      type="text"
-                      [ngModel]="credentialDrafts[p.key]?.api_version || ''"
-                      (ngModelChange)="setCredentialField(p.key, 'api_version', $event)"
-                      [name]="'ver-' + p.key"
-                      placeholder="api-version"
-                      class="w-full rounded bg-black/30 border border-white/10 px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
-                    />
-                    </label>
-                  </div>
-                }
-                <div class="flex items-center gap-2">
-                  <button
-                    type="submit"
-                    [disabled]="configBusy() !== null"
-                    class="ck-btn-quiet inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium disabled:opacity-40"
-                  >
-                    {{ i18n.t('resources.providers.save_key') }}
-                  </button>
-                  @if (p.api_key_set && p.credential_source === 'workspace') {
-                    <button
-                      type="button"
-                      (click)="clearCredential(p.key)"
-                      [disabled]="configBusy() !== null"
-                      class="ck-btn-quiet inline-flex items-center gap-1 px-2.5 py-1 text-[11px] disabled:opacity-40"
-                      style="color:var(--ck-neg);"
-                    >
-                      {{ i18n.t('resources.providers.clear_key') }}
-                    </button>
-                  }
-                </div>
-              </form>
+            @if (p.api_key_set && p.credential_source === 'workspace') {
+              <button
+                type="button"
+                (click)="clearCredential(p.key)"
+                [disabled]="configBusy() === 'cred:' + p.key"
+                class="self-start text-[11px] text-red-300/90 hover:text-red-200 disabled:opacity-40"
+              >
+                {{ i18n.t('resources.providers.clear_key') }}
+              </button>
             }
           </section>
         } @empty {
-          @if (!loading() && !portalError()) {
+          @if (!loading()) {
             <app-empty-state
               icon="cloud"
               [title]="i18n.t('resources.providers.empty.title')"
@@ -584,108 +442,9 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         }
       </div>
 
-      <section class="ck-surface rounded-md p-5 mb-6" id="model-system-test" #modelTestPanel tabindex="-1" [attr.aria-label]="i18n.t('resources.test.title')">
-        <h3 class="text-sm font-semibold mb-2" style="color:var(--ck-fg-1);">{{ i18n.t('resources.test.title') }}</h3>
-        <p class="text-xs mb-4" style="color:var(--ck-fg-3);">{{ i18n.t('resources.test.description') }}</p>
-        <div class="grid gap-5 lg:grid-cols-2">
-          <div class="space-y-3">
-            <div class="grid gap-3 sm:grid-cols-2">
-              <label class="text-xs">{{ i18n.t('resources.providers.routing.provider') }}
-                <select [ngModel]="testProvider" (ngModelChange)="setTestProvider($event)" class="block w-full rounded px-3 py-2 mt-1" [style]="portalInputStyle" [disabled]="testRunning()">
-                  <option value="">{{ i18n.t('resources.models.choose_provider') }}</option>
-                  @for (provider of routingProviderOptions(); track provider) { <option [value]="provider">{{ provider }}</option> }
-                </select>
-              </label>
-              <label class="text-xs">{{ i18n.t('resources.test.model') }}
-                <select [ngModel]="testModelName" (ngModelChange)="setTestModel($event)" class="block w-full rounded px-3 py-2 mt-1" [style]="portalInputStyle" [disabled]="testRunning() || !testProvider">
-                  <option value="">{{ i18n.t('resources.models.choose_model') }}</option>
-                  @for (model of modelsForProvider(testProvider); track modelKey(model)) { <option [value]="modelName(model)">{{ modelName(model) }}</option> }
-                </select>
-              </label>
-            </div>
-            @if (testTargetsLoading()) {
-              <p role="status" class="text-xs">{{ i18n.t('resources.test.loading_targets') }}</p>
-            }
-            @for (blocker of testBlockers(); track blocker) { <p class="text-xs" style="color:var(--ck-fg-3);">{{ blocker }}</p> }
-            @if (selectedTestModel(); as model) {
-              @if (!testTargetsLoading() && !testTargets().length && !testError()) {
-                <p class="text-sm" style="color:var(--ck-fg-2);">{{ i18n.t('resources.test.no_target') }}</p>
-              }
-              <a [routerLink]="skillsUrl(model)" class="ck-btn-quiet inline-flex px-3 py-2 text-sm">{{ i18n.t('resources.models.use_skill') }}</a>
-            }
-            @if (testTargets().length) {
-              <label class="block text-xs">{{ i18n.t('resources.test.target') }}
-                <select [ngModel]="targetKey(selectedTarget())" (ngModelChange)="selectTarget($event)" [disabled]="testRunning()" class="block w-full rounded px-3 py-2 mt-1" [style]="portalInputStyle">
-                  <option value="">{{ i18n.t('resources.test.choose_target') }}</option>
-                  @for (target of testTargets(); track targetKey(target)) { <option [value]="targetKey(target)">{{ target.system_name }} · {{ target.node_label }}</option> }
-                </select>
-              </label>
-            }
-            @if (selectedTarget(); as target) {
-              <p class="text-xs" style="color:var(--ck-fg-3);">{{ target.skill_name }} · {{ target.provider }} / {{ target.model }}</p>
-              <a [navLink]="{ leaf: 'system-flow', ref: target.system_id }" class="text-xs" style="color:var(--ck-signal-cool);">{{ i18n.t('resources.test.open_flow') }}</a>
-              <div class="flex gap-2 text-xs">
-                @if (testFields().length) { <button type="button" class="ck-btn-quiet px-3 py-2" [attr.aria-pressed]="testInputMode === 'fields'" (click)="setTestInputMode('fields')" [disabled]="testRunning()">{{ i18n.t('resources.test.fields') }}</button> }
-                <button type="button" class="ck-btn-quiet px-3 py-2" [attr.aria-pressed]="testInputMode === 'json'" (click)="setTestInputMode('json')" [disabled]="testRunning()">{{ i18n.t('resources.test.advanced') }}</button>
-              </div>
-              @if (testInputMode === 'fields') {
-                @for (field of testFields(); track field.name) {
-                  <label class="block text-xs">{{ field.name }}{{ field.required ? ' *' : '' }}
-                    @if (field.options.length || field.type === 'boolean') {
-                      <select [(ngModel)]="testValues[field.name]" [disabled]="testRunning()" class="block w-full rounded p-3 mt-1" [style]="portalInputStyle">
-                        <option value=""></option>
-                        @for (option of field.type === 'boolean' ? ['true', 'false'] : field.options; track option) { <option [value]="option">{{ option }}</option> }
-                      </select>
-                    } @else if (field.type === 'integer' || field.type === 'number') {
-                      <input type="number" [step]="field.type === 'integer' ? '1' : 'any'" [(ngModel)]="testValues[field.name]" [disabled]="testRunning()" class="block w-full rounded p-3 mt-1" [style]="portalInputStyle" />
-                    } @else {
-                      <textarea [(ngModel)]="testValues[field.name]" [disabled]="testRunning()" rows="3" class="block w-full rounded p-3 mt-1 text-sm" [style]="portalInputStyle"></textarea>
-                    }
-                    @if (field.description) { <span class="block mt-1" style="color:var(--ck-fg-3);">{{ field.description }}</span> }
-                  </label>
-                }
-              } @else {
-                <label class="block text-xs">{{ i18n.t('resources.test.inputs') }}
-                  <textarea [(ngModel)]="testInputs" [disabled]="testRunning()" rows="8" spellcheck="false" class="block w-full rounded p-3 mt-1 font-mono text-xs" [style]="portalInputStyle"></textarea>
-                </label>
-              }
-              <details class="text-xs">
-                <summary>{{ i18n.t('resources.test.contract') }}</summary>
-                <pre class="whitespace-pre-wrap break-words mt-2">{{ json(target.input_schema) }}</pre>
-              </details>
-              <label class="flex items-start gap-2 text-xs"><input type="checkbox" [(ngModel)]="testAcknowledged" [disabled]="testRunning()" />{{ i18n.t('resources.test.acknowledge') }}</label>
-              <button type="button" class="ck-btn-quiet px-4 py-2 text-sm" [disabled]="!canStartTest()" (click)="startModelTest()">{{ testRunning() ? i18n.t('resources.test.running') : i18n.t('resources.test.start') }}</button>
-            }
-            @if (testError(); as error) {
-              <p role="alert" class="text-xs break-words" style="color:var(--ck-neg);">{{ error }}</p>
-            }
-          </div>
-          <div class="rounded-md p-4 min-w-0" style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-soft);">
-            <h4 class="text-sm font-semibold mb-3">{{ i18n.t('resources.test.result') }}</h4>
-            @if (testRun(); as run) {
-              <p role="status" class="text-xs mb-3">{{ run.status }} · {{ run.id }}</p>
-              <a [navLink]="{ type: 'run', ref: run.id }" class="text-xs" style="color:var(--ck-signal-cool);">{{ i18n.t('resources.test.open_run') }}</a>
-              @if (run.error) { <p role="alert" class="text-xs mt-2" style="color:var(--ck-neg);">{{ run.error }}</p> }
-              <pre class="text-sm whitespace-pre-wrap break-words my-4" style="overflow-wrap:anywhere;">{{ testCompletion() }}</pre>
-              <app-model-execution [resolution]="testModelResolution()" />
-              <dl class="grid grid-cols-2 gap-3 text-xs mt-3">
-                <div><dt>{{ i18n.t('resources.test.returned_model') }}</dt><dd class="m-0 mt-1 font-mono">{{ testReturnedModel() }}</dd></div>
-                <div><dt>{{ i18n.t('resources.test.tokens') }}</dt><dd class="m-0 mt-1 font-mono">{{ testTokens() }}</dd></div>
-                <div><dt>{{ i18n.t('resources.test.duration') }}</dt><dd class="m-0 mt-1 font-mono">{{ run.duration_ms ?? '—' }} ms</dd></div>
-                <div><dt>{{ i18n.t('resources.test.cost') }}</dt><dd class="m-0 mt-1">{{ testCostLabel() }}</dd></div>
-              </dl>
-              @if (!testRunning() && (run.status === 'pending' || run.status === 'running')) { <p class="text-xs mt-3">{{ i18n.t('resources.test.continue_run') }}</p> }
-              <p class="text-xs mt-4" style="color:var(--ck-fg-3);">{{ i18n.t('resources.test.quality_hint') }}</p>
-              <details class="text-xs mt-3"><summary>{{ i18n.t('resources.test.provenance') }}</summary><pre class="whitespace-pre-wrap break-words mt-2">{{ json(testProvenance()) }}</pre></details>
-            } @else {
-              <p class="text-sm" style="color:var(--ck-fg-3);">{{ i18n.t('resources.test.empty') }}</p>
-            }
-          </div>
-        </div>
-      </section>
-
-      <!-- Distribution mini-view -->
-      <section class="ck-surface rounded-md overflow-hidden">
+      <!-- Technical routing distribution stays behind the advanced portal flag. -->
+      @if (showServingTools()) {
+        <section class="ck-surface rounded-md overflow-hidden">
         <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3 flex-wrap">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
             <app-icon name="bar-chart-3" [size]="16" class="text-cyan-400" />
@@ -706,9 +465,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             }
           </div>
         </div>
-        @if (distributionError(); as error) {
-          <p role="alert" class="p-5 text-sm" style="color:var(--ck-neg);">{{ error }}</p>
-        } @else if (distributionBuckets().length === 0) {
+        @if (distributionBuckets().length === 0) {
           <app-empty-state
             size="sm"
             icon="bar-chart-3"
@@ -719,26 +476,18 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           <ul class="divide-y divide-white/5 px-5 py-2">
             @for (b of distributionBuckets(); track distKey(b)) {
               <li class="py-3">
-                <div class="flex flex-wrap items-center justify-between gap-3 mb-1.5 text-xs">
+                <div class="flex items-center justify-between gap-3 mb-1.5 text-xs">
                   <span class="font-mono text-gray-200 truncate">{{ distLabel(b) }}</span>
                   <span class="text-gray-500 font-mono tabular-nums shrink-0">
                     {{ bucketCount(b) }}
                     @if (b.cost != null) {
-                      · {{ formatCost(b.cost, b.currency) }}
-                      · {{ costSourceLabel(b.cost_source) }}
-                      @if (b.cost_state === 'partial') { · {{ i18n.t('resources.cost.partial') }} }
-                    } @else {
-                      · {{ b.cost_state === 'mixed_currencies' ? i18n.t('resources.cost.mixed_currencies') : i18n.t('resources.cost.unavailable') }}
+                      · {{ formatCost(b.cost) }}
                     }
                     @if (bucketLatency(b) != null) {
                       · {{ bucketLatency(b) }} ms
                     }
                   </span>
                 </div>
-                @for (evidence of b.evidence ?? []; track evidence.invocation_id) {
-                  <a [navLink]="{ type: 'run', ref: evidence.run_id }" class="inline-block text-xs mr-3 mb-2" style="color:var(--ck-signal-cool);">{{ i18n.t('resources.test.open_run') }} {{ evidence.run_id.slice(0, 8) }}</a>
-                  @if (invocationDetailsEnabled()) { <a [routerLink]="invocationUrl(evidence.run_id, evidence.invocation_id)" class="inline-block text-xs mr-3 mb-2" style="color:var(--ck-signal-cool);">{{ i18n.t('resources.test.open_invocation') }} {{ evidence.invocation_id.slice(0, 8) }}</a> }
-                }
                 <div class="h-1.5 rounded-full bg-white/5 overflow-hidden">
                   <div
                     class="h-full rounded-full bg-cyan-500/60"
@@ -749,12 +498,12 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             }
           </ul>
         }
-      </section>
+        </section>
+      }
     }
 
     <!-- Serving tab -->
-    @if (tab() === 'serving' && showPortalTabs()) {
-      @if (!canConfigure()) { <p class="text-sm mb-4">{{ i18n.t('resources.portal.read_only') }}</p> }
+    @if (tab() === 'serving' && showServingTools()) {
       @if (portalError(); as err) {
         <div class="mb-4 rounded-md bg-amber-500/10 p-3 text-sm text-amber-100 ring-1 ring-amber-400/25">
           {{ err }}
@@ -775,7 +524,6 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           <label class="block min-w-0">
             <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.serving.attach.name') }}</span>
             <input
-              [disabled]="!canConfigure()"
               [(ngModel)]="nodeDraft.name"
               name="nodeName"
               required
@@ -786,7 +534,6 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           <label class="block min-w-0">
             <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.serving.attach.url') }}</span>
             <input
-              [disabled]="!canConfigure()"
               [(ngModel)]="nodeDraft.base_url"
               name="nodeUrl"
               required
@@ -798,7 +545,6 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('resources.serving.attach.token') }}</span>
             <input
               type="password"
-              [disabled]="!canConfigure()"
               [(ngModel)]="nodeDraft.token"
               name="nodeToken"
               autocomplete="new-password"
@@ -809,7 +555,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           <div class="sm:col-span-3">
             <button
               type="submit"
-              [disabled]="!canConfigure() || configBusy() !== null"
+              [disabled]="configBusy() === 'attach-node'"
               class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
             >
               <app-icon name="plus" [size]="14" />
@@ -819,7 +565,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         </form>
       </section>
 
-      @if (servingNodes().length === 0 && !loading() && !portalError()) {
+      @if (servingNodes().length === 0 && !loading()) {
         <app-empty-state
           icon="server"
           [title]="i18n.t('resources.serving.empty.title')"
@@ -844,7 +590,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               <div class="flex items-center gap-2">
                 <button
                   type="button"
-                  (click)="openCreateInstance(node)" [disabled]="!canConfigure()"
+                  (click)="openCreateInstance(node)"
                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 ring-1 ring-cyan-400/30 transition"
                 >
                   <app-icon name="plus" [size]="12" /> {{ i18n.t('resources.serving.create') }}
@@ -852,7 +598,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                 <button
                   type="button"
                   (click)="detachServingNode(node)"
-                  [disabled]="!canConfigure() || configBusy() !== null"
+                  [disabled]="configBusy() === 'detach:' + nodeId(node)"
                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium text-red-300 hover:bg-red-500/10 ring-1 ring-red-400/20 transition disabled:opacity-40"
                 >
                   {{ i18n.t('resources.serving.detach') }}
@@ -910,7 +656,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                         type="button"
                         [title]="i18n.t('resources.serving.instance.start')"
                         (click)="startInstance(node, inst)"
-                        [disabled]="!canConfigure() || lifecycleBusy() !== null"
+                        [disabled]="lifecycleBusy() === inst.id"
                         class="p-1.5 rounded text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40 transition"
                       >
                         <app-icon name="play" [size]="14" />
@@ -919,7 +665,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                         type="button"
                         [title]="i18n.t('resources.serving.instance.stop')"
                         (click)="stopInstance(node, inst)"
-                        [disabled]="!canConfigure() || lifecycleBusy() !== null"
+                        [disabled]="lifecycleBusy() === inst.id"
                         class="p-1.5 rounded text-amber-300 hover:bg-amber-500/10 disabled:opacity-40 transition"
                       >
                         <app-icon name="square" [size]="14" />
@@ -928,7 +674,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                         type="button"
                         [title]="i18n.t('common.delete')"
                         (click)="deleteInstance(node, inst)"
-                        [disabled]="!canConfigure() || lifecycleBusy() !== null"
+                        [disabled]="lifecycleBusy() === inst.id"
                         class="p-1.5 rounded text-red-300 hover:bg-red-500/10 disabled:opacity-40 transition"
                       >
                         <app-icon name="trash-2" [size]="14" />
@@ -1159,7 +905,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
         <div class="flex items-center gap-2 pt-2">
           <button
             type="submit"
-            [disabled]="!canConfigure() || !createDraft.model.trim() || !createPortValid() || lifecycleBusy() === 'create'"
+            [disabled]="!createDraft.model.trim() || !createPortValid() || lifecycleBusy() === 'create'"
             class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
           >
             <app-icon name="plus" [size]="14" /> {{ i18n.t('common.create') }}
@@ -1176,20 +922,14 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
     </app-drawer>
   `,
 })
-export class ResourcesPageComponent implements OnInit, OnDestroy {
+export class ResourcesPageComponent implements OnInit {
   private readonly api = inject(ApiService);
-  private readonly injector = inject(Injector);
-  private readonly testPanel = viewChild<ElementRef<HTMLElement>>('modelTestPanel');
-  private readonly canonical = inject(CanonicalApiService);
   private readonly toast = inject(ToastrService);
   private readonly router = inject(Router);
   private readonly navigation = inject(ZoomContextService);
   private readonly route = inject(ActivatedRoute);
   private readonly workspace = inject(WorkspaceService);
   readonly i18n = inject(I18nService);
-  private readonly workspaceView = new WorkspaceViewContext(this.workspace, () => this.resetWorkspaceState(), () => this.refresh());
-  private pollSubscription: Subscription | null = null;
-  private testGeneration = 0;
 
   readonly APPS = APPS;
   readonly categories = CONNECTOR_CATEGORIES;
@@ -1199,45 +939,14 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   readonly tab = signal<Tab>('models');
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
   readonly modelPortalEnabled = this.workspace.modelPortalEnabled;
-  /** Portal tabs require beta flag; demo-safe mode always wins. */
-  readonly showPortalTabs = computed(
+  /** Core model setup is available to every non-demo workspace. Advanced
+   * serving controls remain behind their runtime feature flag. */
+  readonly showProviderSettings = computed(() => !this.isDemoMode());
+  readonly showServingTools = computed(
     () => this.modelPortalEnabled() && !this.isDemoMode(),
   );
 
   readonly models = signal<ModelInfo[]>([]);
-  readonly modelsError = signal<string | null>(null);
-  readonly routingError = signal<string | null>(null);
-  readonly configError = signal<string | null>(null);
-  readonly distributionError = signal<string | null>(null);
-  readonly portalConfig = signal<PortalConfigResponse | null>(null);
-  readonly canConfigure = computed(() => this.showPortalTabs() && this.portalConfig()?.can_configure === true);
-  readonly modelSearch = signal('');
-  readonly modelUsage = signal<'text_generation' | 'all'>('text_generation');
-  readonly filteredModels = computed(() => this.models().filter((model) =>
-    (this.modelUsage() === 'all' || model.compatibility === 'text_generation')
-    && `${this.modelName(model)} ${model.provider}`.toLowerCase().includes(this.modelSearch().trim().toLowerCase()),
-  ));
-  readonly selectedTestModel = signal<ModelInfo | null>(null);
-  readonly testTargets = signal<ModelTestTarget[]>([]);
-  readonly testTargetsLoading = signal(false);
-  readonly testAllowed = signal(false);
-  readonly testBlockers = signal<string[]>([]);
-  readonly selectedTarget = signal<ModelTestTarget | null>(null);
-  readonly testError = signal<string | null>(null);
-  readonly testRun = signal<Run | null>(null);
-  readonly testRunning = signal(false);
-  testInputs = '{}';
-  testInputMode: 'fields' | 'json' = 'fields';
-  testValues: Record<string, string> = {};
-  readonly testFields = computed(() => valueFieldsFromSchema(this.selectedTarget()?.input_schema));
-  readonly portalUnavailable = signal(false);
-  readonly invocationDetailsEnabled = computed(() => this.workspace.current()?.effective_features?.['skill_invocation_360_projection_v1'] === true);
-  testAcknowledged = false;
-  testProvider = '';
-  testModelName = '';
-  readonly connectionBusy = signal<string | null>(null);
-  readonly connectionResults = signal<Record<string, string>>({});
-  readonly portalInputStyle = 'background:var(--ck-bg-inset); color:var(--ck-fg-1); border:1px solid var(--ck-stroke-soft);';
   readonly loading = signal(false);
   readonly portalError = signal<string | null>(null);
   readonly liveProviders = signal<ModelProvider[]>([]);
@@ -1247,6 +956,7 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   readonly servingNodes = signal<ServingNode[]>([]);
   readonly lifecycleBusy = signal<string | null>(null);
 
+  readonly systemUsage = signal<Record<string, string[]>>({});
 
   readonly active = signal<ConnectorDef | null>(null);
   readonly drawerOpen = signal(false);
@@ -1257,12 +967,17 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   createDraft = { engine: 'ollama', model: '', port: '' as string | number };
 
   readonly configBusy = signal<string | null>(null);
-  readonly routingProviderOptions = computed(() => [...new Set(this.models().filter(selectableTextModel).map((model) => model.provider))]);
-  routingDraft = { provider: '', model: '', fallback: [] as string[] };
-  credentialDrafts: Record<
-    string,
-    { api_key?: string; endpoint?: string; deployment?: string; api_version?: string }
-  > = {};
+  readonly routingProviderOptions = [
+    'openai',
+    'azure_openai',
+    'azure_foundry',
+    'ollama',
+    'openrouter',
+    'anthropic',
+    'gemini',
+  ];
+  routingDraft = { provider: 'openai', model: 'gpt-4o-mini', fallback: 'openai, ollama' };
+  routingCredentialDraft = { api_key: '', endpoint: '', deployment: '', api_version: '' };
   nodeDraft = { name: '', base_url: '', token: '' };
 
   private readonly appsVersion = signal(0);
@@ -1325,14 +1040,16 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
         count: () => (this.isDemoMode() ? 0 : this.models().length),
       },
     ];
-    if (this.showPortalTabs()) {
+    if (this.showProviderSettings()) {
+      items.push({
+        id: 'providers',
+        label: this.i18n.t('resources.tab.providers'),
+        icon: 'cloud',
+        count: () => this.liveProviders().length,
+      });
+    }
+    if (this.showServingTools()) {
       items.push(
-        {
-          id: 'providers',
-          label: this.i18n.t('resources.tab.providers'),
-          icon: 'cloud',
-          count: () => this.liveProviders().length,
-        },
         {
           id: 'serving',
           label: this.i18n.t('resources.tab.serving'),
@@ -1352,75 +1069,21 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
 
   constructor() {
     effect(() => {
-      if (!this.showPortalTabs()) {
-        const t = this.tab();
-        if (t === 'providers' || t === 'serving') {
-          this.portalUnavailable.set(true);
-          this.tab.set('models');
-        }
-      } else {
-        this.portalUnavailable.set(false);
+      const t = this.tab();
+      if ((!this.showProviderSettings() && t === 'providers') || (!this.showServingTools() && t === 'serving')) {
+        this.tab.set('models');
       }
     });
   }
 
   ngOnInit(): void {
     const q = this.route.snapshot.queryParamMap.get('facet')
-      ?? this.route.snapshot.queryParamMap.get('tab');
+      ?? this.route.snapshot.queryParamMap.get('tab')
+      ?? this.route.snapshot.data['defaultFacet'];
     if (q && TAB_IDS.includes(q as Tab)) {
       this.tab.set(q as Tab);
     }
     this.refresh();
-  }
-
-  ngOnDestroy(): void {
-    this.workspaceView.destroy();
-  }
-
-  private resetWorkspaceState(): void {
-    this.portalUnavailable.set(false);
-    this.pollSubscription?.unsubscribe();
-    this.pollSubscription = null;
-    this.testGeneration++;
-    this.models.set([]);
-    this.liveProviders.set([]);
-    this.routing.set(null);
-    this.portalConfig.set(null);
-    this.distribution.set(null);
-    this.servingNodes.set([]);
-    this.selectedTestModel.set(null);
-    this.testTargets.set([]);
-    this.selectedTarget.set(null);
-    this.testRun.set(null);
-    this.testAllowed.set(false);
-    this.testRunning.set(false);
-    this.testTargetsLoading.set(false);
-    this.testBlockers.set([]);
-    this.testError.set(null);
-    this.connectionResults.set({});
-    this.connectionBusy.set(null);
-    this.modelsError.set(null);
-    this.portalError.set(null);
-    this.routingError.set(null);
-    this.configError.set(null);
-    this.distributionError.set(null);
-    this.configBusy.set(null);
-    this.lifecycleBusy.set(null);
-    this.credentialDrafts = {};
-    this.routingDraft = { provider: '', model: '', fallback: [] };
-    this.nodeDraft = { name: '', base_url: '', token: '' };
-    this.testInputs = '{}';
-    this.testValues = {};
-    this.testInputMode = 'fields';
-    this.testAcknowledged = false;
-    this.testProvider = '';
-    this.testModelName = '';
-    this.createOpen.set(false);
-    this.createNode.set(null);
-    this.drawerOpen.set(false);
-    this.active.set(null);
-    this.draftValues = {};
-    this.loading.set(false);
   }
 
   selectTab(id: Tab): void {
@@ -1433,391 +1096,50 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     });
   }
 
-  isSelectableModel(model: ModelInfo): boolean { return selectableTextModel(model); }
-
-  modelStateLabel(model: ModelInfo): string {
-    if (model.configured && model.runtime_available && model.status === 'unreachable') return this.i18n.t('resources.providers.state.unavailable');
-    const state = !model.configured ? 'connection_required'
-      : !model.runtime_available ? 'runtime_unavailable'
-      : model.compatibility !== 'text_generation' ? model.compatibility
-      : 'ready_test';
-    return this.i18n.t(`resources.models.state.${state}`);
-  }
-
-  providerStateLabel(provider: ModelProvider): string {
-    const state = provider.status === 'active' ? 'verified'
-      : provider.status === 'unreachable' ? 'unavailable'
-      : provider.configured ? 'saved' : 'connect';
-    return this.i18n.t(`resources.providers.state.${state}`);
-  }
-
-  providerConnectionUnavailable(provider: string): boolean {
-    return this.liveProviders().some((entry) => entry.key === provider && entry.status === 'unreachable');
-  }
-
-  modelProviderLabel(provider: string): string {
-    return this.liveProviders().find((entry) => entry.key === provider)?.label
-      ?? ({ openai: 'OpenAI', azure_openai: 'Azure OpenAI', ollama: 'Ollama' } as Record<string, string>)[provider] ?? provider.replace(/_/g, ' ');
-  }
-
-  modelsForProvider(provider: string): ModelInfo[] {
-    return this.models().filter((model) => model.provider === provider && selectableTextModel(model));
-  }
-
-  setRoutingProvider(provider: string): void {
-    this.routingDraft = { provider, model: '', fallback: this.routingDraft.fallback.filter((entry) => entry !== provider) };
-  }
-
-  routingModelAvailable(): boolean {
-    return this.modelsForProvider(this.routingDraft.provider).some((model) => this.modelName(model) === this.routingDraft.model);
-  }
-
-  canSaveRouting(): boolean {
-    return this.canConfigure() && !!this.routing() && !this.routingError() && !this.modelsError()
-      && !this.configBusy() && this.routingModelAvailable()
-      && this.routingDraft.fallback.every((provider) => provider !== this.routingDraft.provider && this.routingProviderOptions().includes(provider));
-  }
-
-  toggleFallback(provider: string): void {
-    if (!this.canConfigure()) return;
-    const selected = this.routingDraft.fallback;
-    this.routingDraft = { ...this.routingDraft, fallback: selected.includes(provider)
-      ? selected.filter((entry) => entry !== provider)
-      : [...selected, provider] };
-  }
-
-  moveFallback(index: number, offset: number): void {
-    if (!this.canConfigure()) return;
-    const values = [...this.routingDraft.fallback];
-    const destination = index + offset;
-    if (destination < 0 || destination >= values.length) return;
-    [values[index], values[destination]] = [values[destination], values[index]];
-    this.routingDraft = { ...this.routingDraft, fallback: values };
-  }
-
-  invocationUrl(runId: string, invocationId: string): UrlTree { return this.navigation.objectUrlTree('skill_invocation', invocationId, { runId }); }
-
-  skillsUrl(model: ModelInfo): UrlTree {
-    const tree = this.navigation.surfaceUrlTree('skills');
-    tree.queryParams = { ...tree.queryParams, ...this.skillQuery(model) };
-    return tree;
-  }
-
-  skillQuery(model: ModelInfo): Record<string, string> {
-    return { provider: model.provider, model: this.modelName(model), create: 'llm', modelWorkspace: this.workspace.current()?.id ?? '' };
-  }
-
-  private clearTestSelection(): void {
-    this.testGeneration++;
-    this.pollSubscription?.unsubscribe();
-    this.pollSubscription = null;
-    this.testTargets.set([]);
-    this.selectedTarget.set(null);
-    this.testRun.set(null);
-    this.testError.set(null);
-    this.testBlockers.set([]);
-    this.testAllowed.set(false);
-    this.testRunning.set(false);
-    this.testTargetsLoading.set(false);
-    this.testAcknowledged = false;
-    this.testInputs = '{}';
-    this.testValues = {};
-    this.testInputMode = 'fields';
-  }
-
-  setTestProvider(provider: string): void {
-    if (this.testRunning()) return;
-    this.clearTestSelection();
-    this.testProvider = provider;
-    this.testModelName = '';
-    this.selectedTestModel.set(null);
-  }
-
-  setTestModel(name: string): void {
-    const model = this.modelsForProvider(this.testProvider).find((entry) => this.modelName(entry) === name);
-    if (model) this.selectTestModel(model);
-    else if (!this.testRunning()) { this.clearTestSelection(); this.testModelName = ''; this.selectedTestModel.set(null); }
-  }
-
-  selectTestModel(model: ModelInfo): void {
-    if (!selectableTextModel(model) || this.testRunning()) return;
-    this.clearTestSelection();
-    this.testProvider = model.provider;
-    this.testModelName = this.modelName(model);
-    this.selectedTestModel.set(model);
-    const enteringTest = this.tab() !== 'providers';
-    this.selectTab('providers');
-    if (enteringTest) afterNextRender(() => {
-      const panel = this.testPanel()?.nativeElement;
-      panel?.focus({ preventScroll: true });
-      panel?.scrollIntoView({ block: 'start' });
-    }, { injector: this.injector });
-    const request = this.workspace.captureRequestScope();
-    const generation = this.testGeneration;
-    this.testTargetsLoading.set(true);
-    this.api.get<ModelTestTargetsResponse>('/models/test-targets', { provider: model.provider, model: this.modelName(model) }).subscribe({
-      next: (response) => {
-        if (!this.workspace.isRequestScopeCurrent(request) || generation !== this.testGeneration) return;
-        this.testTargetsLoading.set(false);
-        this.testAllowed.set(response.can_test === true);
-        this.testTargets.set((response.targets ?? []).filter((target) => target.provider === model.provider && target.model === this.modelName(model)));
-        this.testBlockers.set((response.blockers ?? []).map((blocker) => blocker.message));
-      },
-      error: (error) => {
-        if (!this.workspace.isRequestScopeCurrent(request) || generation !== this.testGeneration) return;
-        this.testTargetsLoading.set(false);
-        this.testError.set(this.errorMessage(error, this.i18n.t('resources.test.targets_failed')));
-      },
-    });
-  }
-
-  targetKey(target: ModelTestTarget | null): string { return target ? `${target.system_id}:${target.node_id}` : ''; }
-
-  selectTarget(key: string): void {
-    if (this.testRunning()) return;
-    const target = this.testTargets().find((entry) => this.targetKey(entry) === key) ?? null;
-    this.selectedTarget.set(target);
-    this.testInputs = JSON.stringify(target?.input_defaults ?? {}, null, 2);
-    this.testValues = objectToValues(target?.input_defaults);
-    this.testInputMode = this.testFields().length ? 'fields' : 'json';
-    this.testAcknowledged = false;
-    this.testRun.set(null);
-    this.testError.set(null);
-  }
-
-  canStartTest(): boolean {
-    return this.testAllowed() && !!this.selectedTarget() && this.testAcknowledged && !this.testRunning();
-  }
-
-  startModelTest(): void {
-    const target = this.selectedTarget();
-    if (!target || !this.canStartTest()) return;
-    let input: unknown;
-    try { input = this.testInputMode === 'fields' ? this.testFormInput() : JSON.parse(this.testInputs); } catch { input = null; }
-    if (!input || typeof input !== 'object' || Array.isArray(input)) {
-      this.testError.set(this.i18n.t('resources.test.invalid_input'));
-      return;
-    }
-    const values = input as Record<string, unknown>;
-    if (this.testFields().some((field) => field.required && !(field.name in values))) {
-      this.testError.set(this.i18n.t('resources.test.required_inputs'));
-      return;
-    }
-    const request = this.workspace.captureRequestScope();
-    const generation = this.testGeneration;
-    this.testRunning.set(true);
-    this.testError.set(null);
-    this.testRun.set(null);
-    this.api.post<Run>('/models/test', {
-      system_id: target.system_id, node_id: target.node_id, provider: target.provider, model: target.model,
-      expected_flow_sha256: target.expected_flow_sha256, input_ref: input, acknowledge_real_side_effects: true,
-    }).subscribe({
-      next: (run) => {
-        if (!this.workspace.isRequestScopeCurrent(request) || generation !== this.testGeneration) return;
-        this.testRun.set(run);
-        this.pollSubscription = timer(0, 1000).pipe(
-          take(120),
-          exhaustMap(() => this.canonical.getRun(run.id)),
-          takeWhile((result) => !!result && ['pending', 'running'].includes(result.status), true),
-        ).subscribe({
-          next: (result) => {
-            if (!this.workspace.isRequestScopeCurrent(request) || generation !== this.testGeneration) return;
-            if (result) this.testRun.set({ ...run, ...result });
-            else this.testError.set(this.i18n.t('resources.test.read_failed'));
-          },
-          error: (error) => {
-            if (!this.workspace.isRequestScopeCurrent(request) || generation !== this.testGeneration) return;
-            this.testRunning.set(false);
-            this.testError.set(this.errorMessage(error, this.i18n.t('resources.test.read_failed')));
-          },
-          complete: () => {
-            if (this.workspace.isRequestScopeCurrent(request) && generation === this.testGeneration) this.testRunning.set(false);
-          },
-        });
-      },
-      error: (error) => {
-        if (!this.workspace.isRequestScopeCurrent(request) || generation !== this.testGeneration) return;
-        this.testRunning.set(false);
-        this.testError.set(this.errorMessage(error, this.i18n.t('resources.test.failed')));
-      },
-    });
-  }
-
-  json(value: unknown): string { return JSON.stringify(value, null, 2); }
-
-  private testOutput(): Record<string, unknown> {
-    return this.testRun()?.skill_invocations?.[0]?.output_ref ?? this.testRun()?.output_ref ?? {};
-  }
-
-  testCompletion(): string {
-    const output = this.testOutput();
-    return typeof output['completion'] === 'string' ? output['completion'] : Object.keys(output).length ? this.json(output) : '—';
-  }
-
-  testModelResolution(): ModelResolution | null {
-    const evidence = this.testRun()?.skill_invocations?.[0]?.trace?.['model_execution'];
-    if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)) return null;
-    const model = evidence as Record<string, unknown>;
-    return typeof model['provider'] === 'string' && typeof model['model'] === 'string'
-      ? model as unknown as ModelResolution : null;
-  }
-
-  testReturnedModel(): string { return this.testModelResolution()?.returned_model ?? '—'; }
-
-  testTokens(): string | number {
-    const metrics = this.testRun()?.skill_invocations?.[0]?.metrics;
-    const evidence = metrics?.['token_evidence'] as Record<string, unknown> | undefined;
-    if (evidence?.['measurement_coverage'] === 'partial') return this.i18n.t('resources.test.partial_usage');
-    return evidence?.['measurement_coverage'] === 'complete' && typeof metrics?.['total_tokens'] === 'number'
-      ? metrics['total_tokens'] : '—';
-  }
-
-  testCostLabel(): string {
-    const invocation = this.testRun()?.skill_invocations?.[0];
-    const evidence = invocation?.metrics?.['cost_evidence'] as Record<string, unknown> | undefined;
-    const source = evidence?.['method'] === 'catalog_unit_price' ? 'skill_catalog'
-      : evidence?.['state'] === 'measured' || evidence?.['method'] === 'provider_measurement' ? 'provider' : null;
-    const currency = evidence?.['currency'];
-    return invocation?.cost_measured !== true || invocation.cost == null || !source || typeof currency !== 'string'
-      ? this.i18n.t('resources.cost.unavailable')
-      : `${this.formatCost(invocation.cost, currency)} · ${this.costSourceLabel(source)}`;
-  }
-
-  testProvenance(): unknown {
-    const run = this.testRun();
-    return { run_id: run?.id, execution_surface: run?.execution_surface,
-      flow_sha256: run?.source_flow_sha256 ?? run?.flow_sha256,
-      invocation_id: run?.skill_invocations?.[0]?.id, model_execution: this.testModelResolution() };
-  }
-
-  costSourceLabel(source?: string | null): string {
-    return this.i18n.t(source === 'provider' || source === 'measured' ? 'resources.cost.measured'
-      : source === 'skill_catalog' || source === 'catalog' || source === 'catalog_tariff' ? 'resources.cost.catalog' : 'resources.cost.unspecified');
-  }
-
-  private testFormInput(): Record<string, unknown> {
-    const defaults = { ...this.selectedTarget()?.input_defaults };
-    for (const field of this.testFields()) delete defaults[field.name];
-    return { ...defaults, ...valuesToObject(this.testFields(), Object.fromEntries(Object.entries(this.testValues).map(([key, value]) => [key, String(value ?? '')]))) };
-  }
-
-  setTestInputMode(mode: 'fields' | 'json'): void {
-    if (this.testRunning() || mode === this.testInputMode) return;
-    if (mode === 'json') this.testInputs = this.json(this.testFormInput());
-    else {
-      try {
-        const values = JSON.parse(this.testInputs);
-        if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error();
-        // Keep additional keys when returning from advanced input.
-        this.selectedTarget.update((target) => target ? { ...target, input_defaults: values } : null);
-        this.testValues = objectToValues(values);
-      } catch { this.testError.set(this.i18n.t('resources.test.invalid_input')); return; }
-    }
-    this.testError.set(null);
-    this.testInputMode = mode;
-  }
-
-  configuredUsage(model: ModelInfo) {
-    return (this.routing()?.model_usage ?? []).filter((entry) => entry.provider === model.provider && entry.model === this.modelName(model));
-  }
-
-  private errorMessage(error: unknown, fallback: string): string {
-    const detail = (error as { error?: { detail?: unknown } })?.error?.detail;
-    if (typeof detail === 'string') return detail;
-    if (detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string') return detail.message;
-    return fallback;
-  }
-
-  savedCredential(provider: string) {
-    return this.portalConfig()?.cloud_credentials?.find((entry) => entry.key === provider);
-  }
-
-  testConnection(provider: string): void {
-    if (!this.canConfigure() || this.connectionBusy()) return;
-    const request = this.workspace.captureRequestScope();
-    this.connectionBusy.set(provider);
-    this.api.post<{ provider: ModelProvider }>('/models/providers/' + encodeURIComponent(provider) + '/test', {}).subscribe({
-      next: (response) => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
-        this.connectionBusy.set(null);
-        this.liveProviders.update((providers) => providers.map((entry) => entry.key === provider ? response.provider : entry));
-        const result = response.provider.error || this.providerStateLabel(response.provider);
-        this.connectionResults.update((results) => ({ ...results, [provider]: result }));
-      },
-      error: (error) => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
-        this.connectionBusy.set(null);
-        this.connectionResults.update((results) => ({ ...results, [provider]: this.errorMessage(error, this.i18n.t('resources.providers.test_failed')) }));
-      },
-    });
-  }
-
   refresh(): void {
-    const request = this.workspaceView.beginRequest();
     this.loading.set(true);
-    this.modelsError.set(null);
     this.portalError.set(null);
     this.api.get<{ models: ModelInfo[] } | ModelInfo[]>('/models').subscribe({
       next: (res) => {
-        if (!this.workspaceView.isCurrent(request)) return;
         const list = Array.isArray(res) ? res : res?.models ?? [];
         this.models.set(list);
         this.loading.set(false);
       },
-      error: (error) => {
-        if (!this.workspaceView.isCurrent(request)) return;
+      error: () => {
         this.models.set([]);
-        this.modelsError.set(this.errorMessage(error, this.i18n.t('resources.models.load_failed')));
         this.loading.set(false);
       },
     });
-    if (this.showPortalTabs()) {
+    this.refreshSystemUsage();
+    if (this.showProviderSettings()) {
       this.loadPortalData();
     }
   }
 
   private loadPortalData(): void {
-    const request = this.workspaceView.captureRequest();
     const window = this.distWindow();
-    this.portalError.set(null);
-    this.routingError.set(null);
-    this.configError.set(null);
-    this.distributionError.set(null);
-    this.routing.set(null);
-    this.portalConfig.set(null);
-    this.routingDraft = { provider: '', model: '', fallback: [] };
     forkJoin({
       providers: this.api.get<ProvidersResponse>('/models/providers').pipe(
         catchError((err) => {
-          if (this.workspaceView.isCurrent(request)) this.notePortalError(err, this.i18n.t('resources.tab.providers').toLowerCase());
+          this.notePortalError(err, this.i18n.t('resources.tab.providers').toLowerCase());
           return of({ providers: [] } as ProvidersResponse);
         }),
       ),
       routing: this.api.get<RoutingResponse>('/models/routing').pipe(
-        catchError((error) => {
-          if (this.workspaceView.isCurrent(request)) this.routingError.set(this.errorMessage(error, this.i18n.t('resources.routing.load_failed')));
-          return of(null);
-        }),
+        catchError(() => of(null)),
       ),
-      config: this.api.get<PortalConfigResponse>('/models/config').pipe(catchError((error) => {
-        if (this.workspaceView.isCurrent(request)) this.configError.set(this.errorMessage(error, this.i18n.t('resources.config.load_failed')));
-        return of(null);
-      })),
-      distribution: this.api
-        .get<DistributionResponse>('/models/distribution', { window })
-        .pipe(catchError((error) => {
-          if (this.workspaceView.isCurrent(request)) this.distributionError.set(this.errorMessage(error, this.i18n.t('resources.distribution.load_failed')));
-          return of(null);
-        })),
-      nodes: this.api.get<NodesResponse>('/models/nodes').pipe(
-        catchError((error) => {
-          if (this.workspaceView.isCurrent(request)) this.notePortalError(error, this.i18n.t('resources.tab.serving').toLowerCase());
-          return of({ nodes: [] } as NodesResponse);
-        }),
-      ),
+      distribution: this.showServingTools()
+        ? this.api
+            .get<DistributionResponse>('/models/distribution', { window })
+            .pipe(catchError(() => of(null)))
+        : of(null),
+      nodes: this.showServingTools()
+        ? this.api.get<NodesResponse>('/models/nodes').pipe(
+            catchError(() => of({ nodes: [] } as NodesResponse)),
+          )
+        : of({ nodes: [] } as NodesResponse),
     }).subscribe({
-      next: ({ providers, routing, distribution, nodes, config }) => {
-        if (!this.workspaceView.isCurrent(request)) return;
+      next: ({ providers, routing, distribution, nodes }) => {
         this.liveProviders.set(
           (providers?.providers ?? []).map((p) => ({
             ...p,
@@ -1826,27 +1148,23 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
         );
         this.routing.set(routing);
         this.syncRoutingDraft(routing);
-        this.portalConfig.set(config);
-        this.credentialDrafts = Object.fromEntries((config?.cloud_credentials ?? []).map((entry) => [entry.key, {
-          api_key: '', endpoint: entry.endpoint ?? '', deployment: entry.deployment ?? '', api_version: entry.api_version ?? '',
-        }]));
-        if (this.distWindow() === window) this.distribution.set(distribution);
+        this.distribution.set(distribution);
         this.servingNodes.set(nodes?.nodes ?? []);
       },
     });
   }
 
   private syncRoutingDraft(routing: RoutingResponse | null): void {
-    if (!routing) {
-      this.routingDraft = { provider: '', model: '', fallback: [] };
-      return;
-    }
+    if (!routing) return;
     const primary =
       routing.primary && typeof routing.primary === 'object' ? routing.primary : null;
     this.routingDraft = {
-      provider: (primary?.provider || routing.default_provider || '').toString(),
-      model: (primary?.model || routing.default_model || '').toString(),
-      fallback: [...(routing.fallback_chain ?? [])],
+      provider: (primary?.provider || routing.default_provider || 'openai').toString(),
+      model: (primary?.model || routing.default_model || 'gpt-4o-mini').toString(),
+      fallback: (routing.fallback_chain?.length
+        ? routing.fallback_chain.join(', ')
+        : 'openai, ollama'
+      ).toString(),
     };
   }
 
@@ -1858,18 +1176,28 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     return key === 'azure_openai' || key === 'azure_foundry';
   }
 
-  setCredentialField(
-    provider: string,
-    field: 'api_key' | 'endpoint' | 'deployment' | 'api_version',
-    value: string,
-  ): void {
-    const prev = this.credentialDrafts[provider] || {};
-    this.credentialDrafts = { ...this.credentialDrafts, [provider]: { ...prev, [field]: value } };
+  selectedProviderHasKey(): boolean {
+    return Boolean(
+      this.liveProviders().find((provider) => provider.key === this.routingDraft.provider)
+        ?.api_key_set,
+    );
+  }
+
+  private setupErrorMessage(
+    err: { error?: { detail?: unknown } },
+    fallbackKey: string,
+  ): string {
+    const detail = err?.error?.detail;
+    if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+      const reason = (detail as { reason?: unknown }).reason;
+      if (typeof reason === 'string') {
+        return this.i18n.t(failureCopyKey(reason as ModelReadinessReason));
+      }
+    }
+    return this.i18n.t(fallbackKey);
   }
 
   saveRouting(): void {
-    if (!this.canSaveRouting()) return;
-    const request = this.workspace.captureRequestScope();
     const provider = this.routingDraft.provider.trim();
     const model = this.routingDraft.model.trim();
     if (!provider || !model) {
@@ -1879,121 +1207,82 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
       );
       return;
     }
-    const fallback_chain = [...this.routingDraft.fallback];
+    const fallback_chain = [provider];
+    const credentials = this.routingCredentialDraft;
     this.configBusy.set('routing');
     this.api
-      .put<RoutingResponse>('/models/routing', {
-        default_provider: provider,
-        default_model: model,
+      .put<ModelSetupResponse>('/models/setup', {
+        provider,
+        model,
         fallback_chain,
+        ...(credentials.api_key.trim() ? { api_key: credentials.api_key.trim() } : {}),
+        ...(credentials.endpoint.trim() ? { endpoint: credentials.endpoint.trim() } : {}),
+        ...(credentials.deployment.trim() ? { deployment: credentials.deployment.trim() } : {}),
+        ...(credentials.api_version.trim() ? { api_version: credentials.api_version.trim() } : {}),
       })
       .subscribe({
         next: (res) => {
-          if (!this.workspace.isRequestScopeCurrent(request)) return;
           this.configBusy.set(null);
           this.routing.set({
             ...(this.routing() || {}),
-            ...res,
-            default_provider: res.default_provider || provider,
-            default_model: res.default_model || model,
-            fallback_chain: res.fallback_chain || fallback_chain,
+            ...res.routing,
+            default_provider: res.routing.default_provider || provider,
+            default_model: res.routing.default_model || model,
+            fallback_chain: res.routing.fallback_chain || fallback_chain,
             primary: {
-              provider: res.default_provider || provider,
-              model: res.default_model || model,
+              provider: res.routing.default_provider || provider,
+              model: res.routing.default_model || model,
             },
             source: 'workspace',
           });
           this.syncRoutingDraft(this.routing());
+          this.routingCredentialDraft.api_key = '';
           this.toast.success(
             this.i18n.t('resources.toast.routing.saved'),
             this.i18n.t('resources.toast.routing'),
           );
+          this.finishSetupReturn();
         },
         error: (err) => {
-          if (!this.workspace.isRequestScopeCurrent(request)) return;
           this.configBusy.set(null);
           this.toast.error(
-            this.errorMessage(err, this.i18n.t('resources.toast.routing.save_failed')),
+            this.setupErrorMessage(err, 'resources.toast.routing.save_failed'),
             this.i18n.t('resources.toast.routing'),
           );
         },
       });
   }
 
-  saveCredential(provider: string): void {
-    if (!this.canConfigure() || this.configBusy()) return;
-    const request = this.workspace.captureRequestScope();
-    const draft = this.credentialDrafts[provider] || {};
-    const body: Record<string, unknown> = {};
-    if (draft.api_key?.trim()) body['api_key'] = draft.api_key.trim();
-    if (this.hasEndpointFields(provider)) {
-      if (draft.endpoint?.trim()) body['endpoint'] = draft.endpoint.trim();
-      if (draft.deployment?.trim()) body['deployment'] = draft.deployment.trim();
-      if (draft.api_version?.trim()) body['api_version'] = draft.api_version.trim();
-    }
-    if (!Object.keys(body).length) {
-      this.toast.info(
-        this.i18n.t('resources.toast.credentials.empty'),
-        this.i18n.t('resources.toast.credentials'),
-      );
-      return;
-    }
-    this.configBusy.set('cred:' + provider);
-    this.api.put(`/models/credentials/${encodeURIComponent(provider)}`, body).subscribe({
-      next: () => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
-        this.configBusy.set(null);
-        this.credentialDrafts = {
-          ...this.credentialDrafts,
-          [provider]: { ...draft, api_key: '' },
-        };
-        this.toast.success(
-          this.i18n.t('resources.toast.credentials.saved', { provider }),
-          this.i18n.t('resources.toast.credentials'),
-        );
-        this.refresh();
-      },
-      error: (err) => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
-        this.configBusy.set(null);
-        this.toast.error(
-          this.errorMessage(err, this.i18n.t('resources.toast.credentials.save_failed')),
-          this.i18n.t('resources.toast.credentials'),
-        );
-      },
-    });
-  }
-
   clearCredential(provider: string): void {
-    if (!this.canConfigure() || this.configBusy()) return;
-    const request = this.workspace.captureRequestScope();
     this.configBusy.set('cred:' + provider);
     this.api
       .put(`/models/credentials/${encodeURIComponent(provider)}`, { clear_api_key: true })
       .subscribe({
         next: () => {
-          if (!this.workspace.isRequestScopeCurrent(request)) return;
           this.configBusy.set(null);
           this.toast.success(
             this.i18n.t('resources.toast.credentials.cleared', { provider }),
             this.i18n.t('resources.toast.credentials'),
           );
-          this.refresh();
+          this.loadPortalData();
         },
         error: (err) => {
-          if (!this.workspace.isRequestScopeCurrent(request)) return;
           this.configBusy.set(null);
           this.toast.error(
-            this.errorMessage(err, this.i18n.t('resources.toast.credentials.clear_failed')),
+            err?.error?.detail || this.i18n.t('resources.toast.credentials.clear_failed'),
             this.i18n.t('resources.toast.credentials'),
           );
         },
       });
   }
 
+  private finishSetupReturn(): void {
+    const returnTo = this.route.snapshot.queryParamMap.get('returnTo');
+    if (!returnTo || !returnTo.startsWith('/') || returnTo.startsWith('//')) return;
+    void this.router.navigateByUrl(returnTo);
+  }
+
   attachServingNode(): void {
-    if (!this.canConfigure() || this.configBusy() || this.lifecycleBusy()) return;
-    const request = this.workspace.captureRequestScope();
     const name = this.nodeDraft.name.trim();
     const base_url = this.nodeDraft.base_url.trim();
     if (!name || !base_url) {
@@ -2008,7 +1297,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     this.configBusy.set('attach-node');
     this.api.put('/models/nodes', body).subscribe({
       next: () => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
         this.configBusy.set(null);
         this.nodeDraft = { name: '', base_url: '', token: '' };
         this.toast.success(
@@ -2018,7 +1306,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
         this.loadPortalData();
       },
       error: (err) => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
         this.configBusy.set(null);
         this.toast.error(
           err?.error?.detail || this.i18n.t('resources.toast.serving.attach_failed'),
@@ -2029,14 +1316,11 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   }
 
   detachServingNode(node: ServingNode): void {
-    if (!this.canConfigure() || this.configBusy() || this.lifecycleBusy()) return;
-    const request = this.workspace.captureRequestScope();
     const key = nodeKey(node);
     if (!key) return;
     this.configBusy.set('detach:' + key);
     this.api.delete(`/models/nodes/${encodeURIComponent(key)}`).subscribe({
       next: () => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
         this.configBusy.set(null);
         this.toast.success(
           this.i18n.t('resources.toast.serving.detached'),
@@ -2045,7 +1329,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
         this.loadPortalData();
       },
       error: (err) => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
         this.configBusy.set(null);
         this.toast.error(
           err?.error?.detail || this.i18n.t('resources.toast.serving.detach_failed'),
@@ -2060,29 +1343,58 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
       this.portalError.set(this.i18n.t('resources.portal.forbidden'));
       return;
     }
+    if (err?.status === 404) {
+      // Endpoint not shipped yet — silent empty state.
+      return;
+    }
     const detail = err?.error?.detail;
     if (typeof detail === 'string' && detail) {
       this.portalError.set(detail);
       return;
     }
-    this.portalError.set(this.errorMessage(err, this.i18n.t('resources.portal.load_failed', { label })));
+    this.portalError.set(this.i18n.t('resources.portal.load_failed', { label }));
   }
 
   setDistWindow(w: DistributionWindow): void {
     this.distWindow.set(w);
-    if (!this.showPortalTabs()) return;
-    const request = this.workspaceView.captureRequest();
-    this.distributionError.set(null);
+    if (!this.showServingTools()) return;
     this.api
       .get<DistributionResponse>('/models/distribution', { window: w })
+      .pipe(catchError(() => of(null)))
+      .subscribe((res) => this.distribution.set(res));
+  }
+
+  private refreshSystemUsage(): void {
+    this.api
+      .get<{ systems: Array<{ id: string; name: string; default_model?: string | null }> } | Array<{ id: string; name: string; default_model?: string | null }>>('/systems')
       .subscribe({
-        next: (res) => { if (this.workspaceView.isCurrent(request) && this.distWindow() === w) this.distribution.set(res); },
-        error: (error) => {
-          if (!this.workspaceView.isCurrent(request) || this.distWindow() !== w) return;
-          this.distribution.set(null);
-          this.distributionError.set(this.errorMessage(error, this.i18n.t('resources.distribution.load_failed')));
+        next: (res) => {
+          const systems = Array.isArray(res) ? res : res?.systems ?? [];
+          const idx: Record<string, string[]> = {};
+          for (const s of systems) {
+            if (!s.default_model) continue;
+            if (!idx[s.default_model]) idx[s.default_model] = [];
+            idx[s.default_model].push(s.name);
+          }
+          this.systemUsage.set(idx);
         },
+        error: () => this.systemUsage.set({}),
       });
+  }
+
+  usageCount(m: ModelInfo): number {
+    const idx = this.systemUsage();
+    const byQualified = idx[this.modelKey(m)] ?? [];
+    const byPlain = idx[this.modelName(m)] ?? [];
+    return byQualified.length + byPlain.length;
+  }
+
+  usageLabel(m: ModelInfo): string {
+    const n = this.usageCount(m);
+    if (n === 0) return '';
+    return n === 1
+      ? this.i18n.t('resources.models.usage.one')
+      : this.i18n.t('resources.models.usage.many', { count: n });
   }
 
   /** Static catalog entries are translated at render time by stable id, with a
@@ -2221,7 +1533,11 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   }
 
   modelName(m: ModelInfo): string {
-    return catalogModelName(m);
+    return (
+      (typeof m.id === 'string' && m.id) ||
+      (typeof m.name === 'string' && m.name) ||
+      JSON.stringify(m)
+    );
   }
 
   modelKey(m: ModelInfo): string {
@@ -2265,9 +1581,9 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     return Math.max(4, Math.round((distCount(b) / this.maxDistCount()) * 100));
   }
 
-  formatCost(cost: number, currency?: string | null): string {
-    const formatted = formatSkillCost(cost, currency ?? null);
-    return formatted === '—' ? this.i18n.t('resources.cost.unavailable') : formatted;
+  formatCost(cost: number): string {
+    if (cost < 0.01) return `$${cost.toFixed(4)}`;
+    return `$${cost.toFixed(2)}`;
   }
 
   nodeId(node: ServingNode): string {
@@ -2283,7 +1599,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   }
 
   openCreateInstance(node: ServingNode): void {
-    if (!this.canConfigure()) return;
     this.createNode.set(node);
     this.createDraft = { engine: 'ollama', model: '', port: 11434 };
     this.createOpen.set(true);
@@ -2320,8 +1635,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   }
 
   submitCreateInstance(): void {
-    if (!this.canConfigure() || this.configBusy() || this.lifecycleBusy()) return;
-    const request = this.workspace.captureRequestScope();
     const node = this.createNode();
     const key = node ? nodeKey(node) : '';
     const model = this.createDraft.model.trim();
@@ -2338,7 +1651,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     this.lifecycleBusy.set('create');
     this.api.post(`/models/nodes/${encodeURIComponent(key)}/instances`, body).subscribe({
       next: () => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
         this.lifecycleBusy.set(null);
         this.toast.success(
           this.i18n.t('resources.toast.instance.created'),
@@ -2348,7 +1660,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
         this.loadPortalData();
       },
       error: (err) => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
         this.lifecycleBusy.set(null);
         this.toast.error(
           err?.error?.detail || this.i18n.t('resources.toast.instance.create_failed'),
@@ -2367,8 +1678,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   }
 
   deleteInstance(node: ServingNode, inst: ServingInstance): void {
-    if (!this.canConfigure() || this.configBusy() || this.lifecycleBusy()) return;
-    const request = this.workspace.captureRequestScope();
     const key = nodeKey(node);
     if (!key) return;
     this.lifecycleBusy.set(inst.id);
@@ -2376,7 +1685,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
       .delete(`/models/nodes/${encodeURIComponent(key)}/instances/${encodeURIComponent(inst.id)}`)
       .subscribe({
         next: () => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
           this.lifecycleBusy.set(null);
           this.toast.success(
             this.i18n.t('resources.toast.instance.deleted'),
@@ -2385,7 +1693,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
           this.loadPortalData();
         },
         error: (err) => {
-        if (!this.workspace.isRequestScopeCurrent(request)) return;
           this.lifecycleBusy.set(null);
           this.toast.error(
             err?.error?.detail || this.i18n.t('resources.toast.instance.delete_failed'),
@@ -2396,8 +1703,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   }
 
   private lifecycleAction(node: ServingNode, inst: ServingInstance, action: 'start' | 'stop'): void {
-    if (!this.canConfigure() || this.lifecycleBusy() || this.configBusy()) return;
-    const request = this.workspace.captureRequestScope();
     const key = nodeKey(node);
     if (!key) return;
     this.lifecycleBusy.set(inst.id);
@@ -2408,7 +1713,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
       )
       .subscribe({
         next: () => {
-          if (!this.workspace.isRequestScopeCurrent(request)) return;
           this.lifecycleBusy.set(null);
           this.toast.success(
             this.i18n.t(
@@ -2421,7 +1725,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
           this.loadPortalData();
         },
         error: (err) => {
-          if (!this.workspace.isRequestScopeCurrent(request)) return;
           this.lifecycleBusy.set(null);
           this.toast.error(
             err?.error?.detail ||

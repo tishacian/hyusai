@@ -340,7 +340,7 @@ test('Lot 6 orphan leaves are catalogued', () => {
   );
   assert.equal(
     navigationSurfaceUrl('model-portal'),
-    '/resources?facet=providers',
+    '/settings',
   );
   assert.equal(navigationSurfaceUrl('work'), '/work');
 });

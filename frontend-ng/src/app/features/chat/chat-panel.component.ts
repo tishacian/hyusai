@@ -975,6 +975,7 @@ const STEP_ICONS: Record<string, string> = {
                 [error]="msg.failure"
                 [partialAnswer]="msg.content"
                 (retry)="retryFailedTurn(msg)"
+                (configure)="openModelSetup(msg)"
               />
             </div>
           } @else if (msg.kind === 'correction_ack') {
@@ -2067,6 +2068,7 @@ const STEP_ICONS: Record<string, string> = {
           [readiness]="modelReadiness()"
           [loading]="modelReadinessLoading()"
           (retry)="refreshModelReadiness()"
+          (configure)="openModelSetup()"
         />
       }
 
@@ -3982,6 +3984,7 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly ttsPaused = signal(false);
 
   private initialPromptApplied = false;
+  private modelSetupResumeApplied = false;
   private autoVoiceLoopStarted = false;
 
   constructor() {
@@ -4045,6 +4048,10 @@ export class ChatPanelComponent implements AfterViewInit {
       if (!workspaceSlug || workspaceSlug === this.loadedReadinessSlug) return;
       this.loadedReadinessSlug = workspaceSlug;
       queueMicrotask(() => this.loadModelReadiness());
+    });
+    effect(() => {
+      if (!this.simpleMode() || this.modelReadiness()?.status !== 'ready') return;
+      this.resumeAfterModelSetup();
     });
     this.settings.refresh();
     // Refresh the IAM matrix so the inline expert-correction CTA can gate on
@@ -4397,6 +4404,46 @@ export class ChatPanelComponent implements AfterViewInit {
   refreshModelReadiness(): void {
     this.loadedReadinessSlug = this.workspace.current()?.slug || null;
     this.loadModelReadiness();
+  }
+
+  openModelSetup(failed?: ChatMessage): void {
+    const workspaceSlug = this.workspace.currentSlug();
+    const query = (failed?.failedQuery || this.userInput || '').trim();
+    try {
+      window.sessionStorage.setItem(
+        'agentium:model-setup-return',
+        JSON.stringify({ workspaceSlug, query, autoRetry: Boolean(failed) }),
+      );
+    } catch {
+      // Setup remains reachable even when browser storage is unavailable.
+    }
+    const returnTo = this.router.url || '/chat?mode=quick';
+    const setupUrl = this.router.parseUrl(this.navigation.surfaceUrl('model-portal'));
+    setupUrl.queryParams = { ...setupUrl.queryParams, returnTo };
+    void this.router.navigateByUrl(setupUrl);
+  }
+
+  private resumeAfterModelSetup(): void {
+    if (this.modelSetupResumeApplied) return;
+    let pending: { workspaceSlug?: string; query?: string; autoRetry?: boolean } | null = null;
+    try {
+      const raw = window.sessionStorage.getItem('agentium:model-setup-return');
+      pending = raw ? JSON.parse(raw) : null;
+    } catch {
+      pending = null;
+    }
+    if (!pending || pending.workspaceSlug !== this.workspace.currentSlug()) return;
+    this.modelSetupResumeApplied = true;
+    try {
+      window.sessionStorage.removeItem('agentium:model-setup-return');
+    } catch {
+      // The in-memory resume still works for this navigation.
+    }
+    const query = String(pending.query || '').trim();
+    if (!query) return;
+    this.userInput = query;
+    this.cdr.markForCheck();
+    if (pending.autoRetry && !this.streaming()) queueMicrotask(() => this.send());
   }
 
   /**

@@ -194,7 +194,16 @@ export const routes: Routes = [
       },
       {
         path: 'settings',
-        redirectTo: 'presets',
+        data: { defaultFacet: 'providers' },
+        loadComponent: () =>
+          import('./features/resources/resources-page.component').then(
+            (m) => m.ResourcesPageComponent,
+          ),
+        pathMatch: 'full',
+      },
+      {
+        path: 'settings/models',
+        redirectTo: 'settings',
         pathMatch: 'full',
       },
       {

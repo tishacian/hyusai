@@ -7,13 +7,15 @@ serving-node attach).
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
 import copy
+from types import SimpleNamespace
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
@@ -114,6 +116,16 @@ class CredentialUpdateBody(BaseModel):
     deployment: Optional[str] = Field(default=None, max_length=256)
 
 
+class ModelSetupBody(BaseModel):
+    provider: str = Field(..., min_length=1, max_length=80)
+    model: str = Field(..., min_length=1, max_length=256)
+    fallback_chain: Optional[List[str]] = Field(default=None, max_length=10)
+    api_key: Optional[str] = Field(default=None, max_length=4096)
+    endpoint: Optional[str] = Field(default=None, max_length=512)
+    api_version: Optional[str] = Field(default=None, max_length=64)
+    deployment: Optional[str] = Field(default=None, max_length=256)
+
+
 class ServingNodeUpsertBody(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
     base_url: str = Field(..., min_length=1, max_length=512)
@@ -126,8 +138,9 @@ async def list_model_providers(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
-    nodes = await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
+    nodes = {"nodes": []}
+    if feature_enabled(workspace, FEATURE_FLAG, csv_fallback="agentium-showcase"):
+        nodes = await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
     providers = await providers_service.list_providers(
         include_local_serving=True,
         workspace=workspace, node_snapshots=nodes.get("nodes", []),
@@ -141,9 +154,10 @@ async def get_model_readiness(
     user: User = Depends(get_current_user),
 ):
     """Return readiness for the workspace's active provider/model only."""
-    _require_enabled(workspace)
     routing = ws_config.get_routing(workspace)
-    if str(routing["default_provider"]).startswith("serving_"):
+    if str(routing["default_provider"]).startswith("serving_") and feature_enabled(
+        workspace, FEATURE_FLAG, csv_fallback="agentium-showcase"
+    ):
         await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
     return await providers_service.get_readiness(workspace=workspace)
 
@@ -154,8 +168,9 @@ async def get_model_routing(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
-    nodes = await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
+    nodes = {"nodes": []}
+    if feature_enabled(workspace, FEATURE_FLAG, csv_fallback="agentium-showcase"):
+        nodes = await serving_nodes_service.list_nodes(sync_registry=True, workspace=workspace)
     local_serving = providers_service.scoped_serving_providers(nodes.get("nodes", []))
     provider_catalog = await providers_service.list_providers(include_local_serving=False, workspace=workspace)
     ws_routing = ws_config.get_routing(workspace)
@@ -228,19 +243,97 @@ async def put_model_routing(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
+    result = await validate_and_save_model_setup(
+        ModelSetupBody(
+            provider=body.default_provider,
+            model=body.default_model,
+            fallback_chain=body.fallback_chain,
+        ),
+        workspace=workspace,
+        user=user,
+        db=db,
+    )
+    return result["routing"]
+
+
+@router.put("/setup")
+async def validate_and_save_model_setup(
+    body: ModelSetupBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Verify a provider/model selection before replacing working settings."""
     _require_workspace_admin(db, user=user, workspace=workspace)
+    provider = body.provider.strip()
+    model = body.model.strip()
+    candidate = SimpleNamespace(
+        id=workspace.id,
+        slug=workspace.slug,
+        name=workspace.name,
+        settings=copy.deepcopy(workspace.settings or {}),
+    )
+    noop_db = SimpleNamespace(
+        add=lambda *_args: None,
+        commit=lambda: None,
+        refresh=lambda *_args: None,
+    )
     try:
-        config = ws_config.set_routing(
-            db,
-            workspace,
-            default_provider=body.default_provider,
-            default_model=body.default_model,
+        if provider in ws_config.CLOUD_PROVIDERS and any(
+            value is not None
+            for value in (body.api_key, body.endpoint, body.api_version, body.deployment)
+        ):
+            ws_config.set_cloud_credential(
+                noop_db,
+                candidate,
+                provider,
+                api_key=body.api_key,
+                endpoint=body.endpoint,
+                api_version=body.api_version,
+                deployment=body.deployment,
+            )
+        ws_config.set_routing(
+            noop_db,
+            candidate,
+            default_provider=provider,
+            default_model=model,
             fallback_chain=body.fallback_chain,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)}) from exc
-    return config["routing"]
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "MODEL_PORTAL_CONFIG_INVALID", "message": str(exc)},
+        ) from exc
+
+    providers_service.clear_health_cache()
+    readiness = await providers_service.get_readiness(workspace=candidate)
+    if readiness.get("status") != "ready":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "reason": readiness.get("reason") or "generation_failed",
+                "message": readiness.get("message") or "The model setup could not be verified.",
+                "retryable": bool(readiness.get("retryable")),
+            },
+        )
+
+    workspace.settings = copy.deepcopy(candidate.settings)
+    flag_modified(workspace, "settings")
+    db.add(workspace)
+    db.commit()
+    db.refresh(workspace)
+    return {
+        "readiness": readiness,
+        "routing": ws_config.get_routing(workspace),
+        "provider": next(
+            (
+                item
+                for item in ws_config.get_cloud_credentials_public(workspace)
+                if item["key"] == provider
+            ),
+            {"key": provider, "api_key_set": False},
+        ),
+    }
 
 
 @router.get("/config")
@@ -249,7 +342,6 @@ async def get_portal_config(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
     blockers = _test_blockers(db, user=user, workspace=workspace)
     return {
         **ws_config.get_public_config(workspace),
@@ -268,8 +360,35 @@ async def put_provider_credential(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    _require_enabled(workspace)
     _require_workspace_admin(db, user=user, workspace=workspace)
+    if not body.clear_api_key:
+        routing = ws_config.get_routing(workspace)
+        if routing["default_provider"] != provider:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "MODEL_PORTAL_PROVIDER_NOT_SELECTED",
+                    "message": "Choose the provider and model together in Model settings so the connection can be verified.",
+                },
+            )
+        setup = await validate_and_save_model_setup(
+            ModelSetupBody(
+                provider=provider,
+                model=routing["default_model"],
+                fallback_chain=routing["fallback_chain"],
+                api_key=body.api_key,
+                endpoint=body.endpoint,
+                api_version=body.api_version,
+                deployment=body.deployment,
+            ),
+            workspace=workspace,
+            user=user,
+            db=db,
+        )
+        return {
+            "cloud_credentials": ws_config.get_cloud_credentials_public(workspace),
+            "provider": setup["provider"],
+        }
     try:
         config = ws_config.set_cloud_credential(
             db,
