@@ -173,6 +173,16 @@ test('the authenticated root redirects to the canonical Quick Ask home', () => {
   assert.match(source, /path:\s*'',\s*pathMatch:\s*'full',\s*redirectTo:\s*\(\)\s*=>\s*new DefaultUrlSerializer\(\)\.parse\(ASK_HOME_ROUTE\)/s);
 });
 
+test('retired product routes preserve deep links through canonical redirects', () => {
+  const source = readFileSync(APP_ROUTES, 'utf8');
+  assert.match(source, /path:\s*'settings\/legacy',[\s\S]*?redirectTo:\s*'settings'/);
+  assert.match(source, /path:\s*'tasks',[\s\S]*?redirectTo:\s*'runs'/);
+  assert.match(source, /path:\s*'agents',[\s\S]*?redirectTo:\s*'systems'/);
+  assert.match(source, /path:\s*'traces',[\s\S]*?redirectTo:\s*'runs'/);
+  assert.match(source, /path:\s*'traces\/:runId',[\s\S]*?redirectTo:\s*'runs\/:runId'/);
+  assert.match(source, /path:\s*'playground',[\s\S]*?ASK_HOME_ROUTE/);
+});
+
 test('every surface and leaf route is absolute', () => {
   const relative = [
     ...AGENTIUM_SURFACE_ROUTES.map((surface) => surface.route),

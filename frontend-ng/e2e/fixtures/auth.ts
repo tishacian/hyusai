@@ -42,9 +42,9 @@ export async function loginAsAlice(page: Page): Promise<void> {
   }, { ...DEFAULT_ALICE, workspaceSlug: DEFAULT_WORKSPACE_SLUG });
   expect(login.ok, `login failed: ${JSON.stringify(login)}`).toBe(true);
 
-  await page.goto('/hypervisor');
+  await page.goto('/chat?mode=quick');
 
-  await expect(page.locator('body')).toContainText(/Hypervisor|Steering|Chat/, {
+  await expect(page.locator('body')).toContainText(/Ask|Chat|Demander/, {
     timeout: 15_000,
   });
 }

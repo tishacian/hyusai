@@ -11,10 +11,10 @@ import { expectInvalidLogin, loginAsAlice } from '../fixtures/auth';
  * - `alice@papai.ai` is scoped to a workspace visible in the sidebar.
  */
 test.describe('E2.01 — Auth', () => {
-  test('redirects to Keycloak and lands on Hypervisor', async ({ page }) => {
+  test('redirects to sign-in and lands on Quick Ask', async ({ page }) => {
     await loginAsAlice(page);
 
-    await expect(page).toHaveURL(/\/(hypervisor|$)/);
+    await expect(page).toHaveURL(/\/chat\?mode=quick/);
     await expect(page.locator('body')).toContainText(/Hypervisor|Balance Sheet|Portfolio/);
   });
 

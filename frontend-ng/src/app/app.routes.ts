@@ -208,13 +208,33 @@ export const routes: Routes = [
       },
       {
         path: 'settings/legacy',
-        loadChildren: () =>
-          import('./features/settings/settings.routes').then((m) => m.settingsRoutes),
+        redirectTo: 'settings',
+        pathMatch: 'full',
       },
       {
         path: 'tasks',
-        loadChildren: () =>
-          import('./features/tasks/tasks.routes').then((m) => m.tasksRoutes),
+        redirectTo: 'runs',
+        pathMatch: 'full',
+      },
+      {
+        path: 'agents',
+        redirectTo: 'systems',
+        pathMatch: 'full',
+      },
+      {
+        path: 'traces',
+        redirectTo: 'runs',
+        pathMatch: 'full',
+      },
+      {
+        path: 'traces/:runId',
+        redirectTo: 'runs/:runId',
+        pathMatch: 'full',
+      },
+      {
+        path: 'playground',
+        redirectTo: () => new DefaultUrlSerializer().parse(ASK_HOME_ROUTE),
+        pathMatch: 'full',
       },
       {
         path: 'resources',

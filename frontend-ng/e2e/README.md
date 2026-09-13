@@ -5,6 +5,7 @@ Playwright scaffolding covering the 4 critical flows from
 
 | # | Flow | File |
 |---|------|------|
+| 00 | Clean-workspace first use: model → document → cited answer → retry, EN + FR | `tests/00-first-use-golden-path.spec.ts` |
 | 01 | Auth Keycloak (login / reload / invalid creds) | `tests/01-auth-keycloak.spec.ts` |
 | 02 | Chat drop-and-ask → citation chip → sources panel | `tests/02-chat-drop-and-ask.spec.ts` |
 | 03 | HITL pause → Approve → resume | `tests/03-hitl-approve.spec.ts` |
@@ -45,6 +46,28 @@ E2E_BASE_URL=http://localhost:4200 npm run test:e2e
 - **PDFs (flow 02) :** generated dynamically at test runtime.
 - **Systems (flows 03/04) :** generated dynamically through the
   authenticated API and cleaned up at the end of each spec.
+
+## First-use release gate
+
+The golden path is opt-in because it validates and persists a real provider in
+the selected workspace. Run it only against an isolated clean workspace:
+
+```bash
+E2E_GOLDEN_PATH=1 \
+E2E_GOLDEN_PROVIDER=ollama \
+E2E_GOLDEN_MODEL=your-installed-model \
+E2E_USERNAME=your-test-user \
+E2E_PASSWORD=your-test-password \
+E2E_WORKSPACE_SLUG=your-isolated-workspace \
+E2E_BASE_URL=http://localhost:4200 \
+npx playwright test e2e/tests/00-first-use-golden-path.spec.ts --project=chromium
+```
+
+Cloud providers also require `E2E_GOLDEN_API_KEY`. Azure-compatible setups can
+provide `E2E_GOLDEN_ENDPOINT` and `E2E_GOLDEN_DEPLOYMENT`. The test principal
+must already belong to the isolated workspace. The test runs the same journey
+in English and French and fails when the first cited answer takes
+longer than `E2E_GOLDEN_MAX_FIRST_ANSWER_MS` (45 seconds by default).
 
 ## Current status
 
