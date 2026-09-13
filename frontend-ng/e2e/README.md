@@ -210,6 +210,25 @@ their respective `stage` or `finalize` write. Source and successful local
 compilation are only static evidence; behavior promotion requires execution on
 the attested deployed SHA.
 
+### Core product accessibility gate
+
+`tests/00-core-product-accessibility.spec.ts` covers the supported first-use
+surfaces—Ask, Settings, Knowledge, Build, and Runs—without relying on retired
+routes. For each surface it runs the shared real-browser matrix in French and
+English, light and dark themes, and desktop, 456 px, and 320 px viewports. The
+gate checks WCAG 2.0/2.1/2.2 A/AA with axe, reduced-motion behavior, horizontal
+reflow, and captures visual evidence.
+
+Run it only against an isolated workspace with an existing test principal:
+
+```bash
+E2E_CORE_ACCESSIBILITY=1 \
+E2E_USERNAME='your-test-user' \
+E2E_PASSWORD='your-test-password' \
+E2E_WORKSPACE_SLUG='your-isolated-workspace' \
+npx playwright test e2e/tests/00-core-product-accessibility.spec.ts
+```
+
 ### Experience Studio lifecycle canary
 
 `tests/17-experience-studio-canary.spec.ts` discovers an enabled workspace and

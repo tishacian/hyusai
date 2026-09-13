@@ -13,7 +13,7 @@ interface MatrixOptions {
   testInfo: TestInfo;
   path: string;
   readySelector: string;
-  surface: 'studio' | 'work';
+  surface: 'studio' | 'work' | 'ask' | 'settings' | 'knowledge' | 'build' | 'runs';
 }
 
 interface MatrixEntry {
