@@ -4,6 +4,8 @@ Plan source: `docs/agentium-simplification-audit-2026-09-11.md`
 
 This ledger records the product-wide implementation queue. Each slice is reviewed, tested, and committed independently. The existing user-owned `frontend-ng/proxy.conf.json` change is excluded from every slice.
 
+**Overall release status: not complete.** The planned product changes are implemented, but the original release rules require the clean-workspace golden path to pass before the simplification phase can be declared complete. P0.6 and the authenticated P2.1 browser matrix remain pending because the current environment does not provide the documented isolated test principal, clean workspace, and live test provider.
+
 | Order | Slice | Owner | Status | Evidence |
 | --- | --- | --- | --- | --- |
 | 1 | P0.1 + P0.3: Ask default entry and four-item primary navigation | Claude, reviewed and landed by Codex | Complete | 17 focused tests; i18n, nav-link, UI-chrome, and Angular compiler gates pass |
@@ -12,7 +14,7 @@ This ledger records the product-wide implementation queue. Each slice is reviewe
 | 4 | P0.2 + P1.1: first-run model setup and one model settings surface | Codex | Complete | Settings owns one guided provider/model form; the API validates credentials and live model availability before one atomic save; failed questions return and retry automatically; safe technical details stay collapsed; 68 backend and 57 focused frontend tests pass |
 | 5 | P1.2 + P1.3: progressive Knowledge and Build flows | Codex | Complete | Knowledge now defaults to upload → processing/recovery → Ask, with collections/search/capture behind Advanced; Build defaults to desired result + knowledge, selects only a runnable capability automatically, reveals technical controls on demand, and fails closed when none is runnable; 38 focused tests and all frontend/compiler/compliance guards pass |
 | 6 | P0.6 + P1.4 + P1.5: golden path, deployed Work consolidation, and legacy redirects/docs | Codex | In progress | Work remains the deployed-experience launcher; Tasks now resolve inside Runs; Apps and Missions were removed from user navigation; legacy settings/agents/traces/playground routes redirect canonically; the root README now describes Agentium and its supported journey. The EN/FR live golden-path gate compiles and launches with system Chrome, but the current local database lacks the documented E2E test principal, so behavioral execution stopped at a 401 before product state changed. |
-| 7 | P2: accessibility, performance, activation telemetry, and visual cleanup | Codex | Complete (live matrix pending credentials) | The five supported first-use surfaces share an opt-in EN/FR × light/dark × desktop/456/320 real-browser gate for WCAG AA, reduced motion, reflow, and visual evidence. **P2.2 performance, P2.3 activation telemetry, and P2.4 core visual cleanup are implemented.** Static/compiler/source gates pass; authenticated matrix execution still requires the documented isolated-workspace test principal. |
+| 7 | P2: accessibility, performance, activation telemetry, and visual cleanup | Codex | Implementation complete; release gate pending | The five supported first-use surfaces share an opt-in EN/FR × light/dark × desktop/456/320 real-browser gate for WCAG AA, reduced motion, reflow, and visual evidence. **P2.2 performance, P2.3 activation telemetry, and P2.4 core visual cleanup are implemented.** Static/compiler/source gates pass; authenticated matrix execution still requires the documented isolated-workspace test principal. |
 
 ## P2.2 performance and perceived speed
 
