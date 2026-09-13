@@ -99,6 +99,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     id: 'systems',
     label: 'Systems',
     route: '/systems',
+    routeAliases: ['/agents'],
     lens: 'build',
     object: 'System',
     scope: 'workspace',
@@ -243,6 +244,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     id: 'chat',
     label: 'Chat Workbench',
     route: '/chat',
+    routeAliases: ['/playground'],
     lens: 'operate',
     object: 'Workbench',
     scope: 'workspace',
@@ -292,6 +294,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     id: 'runs',
     label: 'Runs',
     route: '/runs',
+    routeAliases: ['/tasks', '/traces', '/traces/:runId'],
     lens: 'operate',
     object: 'Run',
     scope: 'workspace',
@@ -935,7 +938,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'operate',
     label: 'Operate',
-    hint: 'Run Systems · runtime, runs, missions',
+    hint: 'Run Systems · runtime and evidence',
     glyph: 'telemetry',
     primarySurfaceId: 'runs',
     primaryRoute: agentiumSurfaceRoute('runs'),
@@ -944,7 +947,6 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       section('runs', 'Runs', 'ledger', 'runs', 'surface'),
       section('observability', 'Observability', 'telemetry', 'observability', 'surface'),
       section('intelligence', 'Intelligence', 'pulse', 'intelligence', 'surface'),
-      section('missions', 'Missions', 'play', 'tasks', 'surface'),
     ],
   },
   {
@@ -965,7 +967,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'govern',
     label: 'Govern',
-    hint: 'Control · audit, apps, resources, presets',
+    hint: 'Control · audit, settings and diagnostics',
     glyph: 'shield',
     primarySurfaceId: 'governance',
     primaryRoute: agentiumSurfaceRoute('governance'),
@@ -974,7 +976,6 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       section('audit', 'Governance', 'shield', 'governance', 'surface'),
       // `/workspace` is the registry-owned entry alias resolved to the active slug.
       { ...section('workspace', 'Workspace settings', 'sliders', 'workspace-admin', 'surface'), route: '/workspace' },
-      section('apps', 'Apps', 'bolt', 'apps', 'app'),
       section('resources', 'Resources', 'orbit', 'resources', 'surface'),
       section('connectors', 'Connectors', 'layers', 'connectors', 'connector'),
       section('presets', 'Presets', 'sliders', 'presets', 'preset'),

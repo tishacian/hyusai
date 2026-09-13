@@ -118,7 +118,7 @@ test('clicking the active mini-rail scope is a strict no-op', () => {
   assert.equal(stopped, true);
 });
 
-test('an unflagged workspace keeps the historical Operate section set', () => {
+test('Operate keeps tasks inside Runs instead of exposing a separate inbox', () => {
   const injector = Injector.create({
     providers: [
       MiniRailComponent,
@@ -151,7 +151,7 @@ test('an unflagged workspace keeps the historical Operate section set', () => {
   });
   assert.deepEqual(
     injector.get(MiniRailComponent).visibleSections().map((section) => section.key),
-    ['runs', 'observability', 'intelligence', 'missions'],
+    ['runs', 'observability', 'intelligence'],
   );
 });
 
