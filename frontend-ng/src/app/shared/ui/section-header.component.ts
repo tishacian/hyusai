@@ -23,8 +23,8 @@ import { IconComponent } from './icon.component';
         }
         <h1 class="text-2xl md:text-[28px] font-medium tracking-tight leading-tight text-white flex items-center gap-3">
           @if (icon) {
-            <span class="ck-tone-info inline-flex items-center justify-center w-8 h-8 rounded-md">
-              <app-icon [name]="icon" [size]="20" />
+            <span class="ck-accent inline-flex items-center justify-center">
+              <app-icon [name]="icon" [size]="18" />
             </span>
           }
           {{ title }}

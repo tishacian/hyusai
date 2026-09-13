@@ -2165,7 +2165,7 @@ const STEP_ICONS: Record<string, string> = {
       height: 100%;
       min-height: 0;
       width: 100%;
-      background: rgba(3, 8, 16, 0.18);
+      background: var(--ck-bg-base);
     }
     .chat-history-shell.chat-history-embed {
       display: block;
@@ -2180,10 +2180,8 @@ const STEP_ICONS: Record<string, string> = {
       min-width: 220px;
       max-width: 280px;
       min-height: 0;
-      border-right: 1px solid rgba(255, 255, 255, 0.06);
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.010)),
-        rgba(2, 7, 14, 0.72);
+      border-right: 1px solid var(--ck-stroke-2);
+      background: var(--ck-bg-panel);
     }
     .chat-history-head {
       display: flex;
@@ -2191,7 +2189,7 @@ const STEP_ICONS: Record<string, string> = {
       justify-content: space-between;
       gap: 10px;
       padding: 12px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid var(--ck-stroke-2);
     }
     .chat-history-kicker {
       color: rgba(125, 211, 252, 0.88);
@@ -2460,10 +2458,8 @@ const STEP_ICONS: Record<string, string> = {
       justify-content: space-between;
       gap: 10px;
       padding: 10px 14px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.010)),
-        rgba(3, 8, 16, 0.40);
+      border-bottom: 1px solid var(--ck-stroke-2);
+      background: var(--ck-bg-panel);
     }
     .chat-control-main {
       display: flex;
