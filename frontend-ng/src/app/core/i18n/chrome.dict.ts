@@ -165,6 +165,10 @@ export const CHROME_FR = {
   'auth.signin.links_aria': 'Actions du compte',
   'auth.signin.sovereign_aria': 'Mention souveraine',
   'auth.signin.error.credentials': 'Identifiants invalides',
+  'auth.signin.error.unavailable':
+    'Agentium est temporairement indisponible. Votre mot de passe n\u2019a pas été refusé. Réessayez dans un instant.',
+  'auth.signin.error.unexpected':
+    'La connexion n\u2019a pas pu aboutir. Réessayez.',
   'auth.signin.error.nav':
     'Connexion réussie, mais la navigation n\u2019a pas abouti. Réessayez depuis le sélecteur de workspace.',
   'auth.signin.error.workspaces':
@@ -973,6 +977,10 @@ export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
   'auth.signin.links_aria': 'Account actions',
   'auth.signin.sovereign_aria': 'Sovereignty notice',
   'auth.signin.error.credentials': 'Invalid credentials',
+  'auth.signin.error.unavailable':
+    'Agentium is temporarily unavailable. Your password was not rejected. Please try again in a moment.',
+  'auth.signin.error.unexpected':
+    'Sign-in could not be completed. Please try again.',
   'auth.signin.error.nav':
     'Signed in, but navigation could not complete. Please retry from the workspace switcher.',
   'auth.signin.error.workspaces':
