@@ -98,6 +98,8 @@ map the prose to candidate artifacts. Where the text describes an unbuilt concep
 
 - `docs/skills-runtime.md` — canonical slug → module mapping with four-state status (`bound | stub | unbound | catalog_only`).
 - `docs/deck-product-review.md` — Marp slide deck that narrates the same model for the product team.
+- `docs/agentium-hypervisor-decision-strategy.md` — C-level / métier briefing: Hypervisor, decision chain, industrialization, adoption curve.
+- `docs/deck-agentium-decision-adoption.md` — Marp deck for that briefing.
 - `CHANGELOG.md` — per-wave delivery log (Wave A through Wave F).
 
 ---
