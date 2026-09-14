@@ -1,7 +1,7 @@
 """SharePoint sync → RAG ingest wiring (Vague E / E4.1).
 
 Revision ID: 013_sp_ingest_columns
-Revises: 012_chat_runs_nullable_sys
+Revises: 012a_sp_sync_jobs
 Create Date: 2026-04-25
 
 Why: E4.1 closes the gap between "SharePoint sync materialises files on
@@ -20,14 +20,15 @@ sync now pipes each downloaded file through
 All additive, nullable or defaulted. No data migration needed on
 existing jobs (they simply display ``0 / 0 / NULL``).
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision = "013_sp_ingest_columns"
-down_revision = "012_chat_runs_nullable_sys"
+down_revision = "012a_sp_sync_jobs"
 branch_labels = None
 depends_on = None
 

@@ -8,6 +8,7 @@
     "build": "ng build",
     "build:prod": "ng build -c production",
     "check:performance": "ng build -c production --stats-json && node scripts/check-core-performance.mjs",
+    "check:core-release": "node scripts/run-core-release-gates.mjs",
     "check:ui-chrome": "node scripts/check-ui-chrome.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:nav-links": "node scripts/check-nav-links.mjs --fail-closed",

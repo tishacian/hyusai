@@ -274,7 +274,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               <app-icon name="git-branch" [size]="16" class="text-cyan-400" />
               {{ i18n.t('resources.providers.routing.title') }}
             </h3>
-            <p class="text-[11px] text-gray-500 mt-1">
+            <p class="text-[11px] mt-1" style="color:var(--ck-fg-4);">
               {{ i18n.t('resources.providers.routing.description') }}
               @if (routing()?.source) {
                 <span class="font-mono text-gray-400"> · {{ i18n.t('resources.providers.routing.source', { value: routing()?.source || '' }) }}</span>
@@ -350,12 +350,12 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             <button
               type="submit"
               [disabled]="configBusy() === 'routing'"
-              class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
+              class="ck-cta inline-flex items-center gap-1.5 px-4 py-2 rounded disabled:opacity-40 text-sm font-medium transition"
             >
               <app-icon name="save" [size]="14" />
               {{ configBusy() === 'routing' ? i18n.t('resources.providers.routing.saving') : i18n.t('resources.providers.routing.save') }}
             </button>
-            <span class="text-[11px] text-gray-500">{{ i18n.t('resources.providers.routing.validation_hint') }}</span>
+            <span class="text-[11px]" style="color:var(--ck-fg-4);">{{ i18n.t('resources.providers.routing.validation_hint') }}</span>
           </div>
         </form>
       </section>
@@ -372,7 +372,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                 </span>
                 <div class="min-w-0">
                   <h2 class="text-sm font-semibold text-white truncate">{{ providerTitle(p) }}</h2>
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">
+                  <p class="ck-mono text-[10px] uppercase tracking-wider" style="color:var(--ck-fg-4);">
                     {{ p.key }}
                     @if (p.latency_ms != null) {
                       · {{ p.latency_ms }} ms
@@ -384,7 +384,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                 </div>
               </div>
               <span
-                class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded ring-1"
+                class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded"
                 [ngClass]="providerStatusClass(p.status)"
               >
                 {{ p.status }}
@@ -393,19 +393,19 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
 
             <div class="flex flex-wrap items-center gap-1.5">
               @if (p.kind) {
+                <!-- Local serving stays the one accented chip — it is the
+                     sovereign option this page exists to surface. Cloud drops
+                     to neutral rather than to a second hue: indigo-300 had no
+                     light value, and the word already names the kind. -->
                 <span
-                  class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded ring-1"
-                  [ngClass]="
-                    p.kind === 'local'
-                      ? 'bg-cyan-500/10 text-cyan-300 ring-cyan-500/20'
-                      : 'bg-indigo-500/10 text-indigo-300 ring-indigo-500/20'
-                  "
+                  class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded"
+                  [ngClass]="p.kind === 'local' ? 'ck-tone-info' : 'ck-tone-neutral'"
                 >
                   {{ p.kind }}
                 </span>
               }
               @if (p.api_key_set) {
-                <span class="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+                <span class="ck-tone-ok inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded">
                   {{ i18n.t('resources.providers.key_set') }}
                 </span>
               }
@@ -417,7 +417,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                 </span>
               }
               @if (p.models.length > 8) {
-                <span class="text-[10px] text-gray-500 font-mono">+{{ p.models.length - 8 }}</span>
+                <span class="text-[10px] font-mono" style="color:var(--ck-fg-4);">+{{ p.models.length - 8 }}</span>
               }
             </div>
 
@@ -561,7 +561,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             <button
               type="submit"
               [disabled]="configBusy() === 'attach-node'"
-              class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
+              class="ck-cta inline-flex items-center gap-1.5 px-4 py-2 rounded disabled:opacity-40 text-sm font-medium transition"
             >
               <app-icon name="plus" [size]="14" />
               {{ configBusy() === 'attach-node' ? i18n.t('resources.serving.attach.busy') : i18n.t('resources.serving.attach.submit') }}
@@ -831,7 +831,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
             <div class="flex items-center gap-2 pt-2">
               <button
                 type="submit"
-                class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 text-white text-sm font-medium transition"
+                class="ck-cta inline-flex items-center gap-1.5 px-4 py-2 rounded text-sm font-medium transition"
               >
                 <app-icon name="save" [size]="14" /> {{ i18n.t('common.save') }}
               </button>
@@ -911,7 +911,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
           <button
             type="submit"
             [disabled]="!createDraft.model.trim() || !createPortValid() || lifecycleBusy() === 'create'"
-            class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white text-sm font-medium transition"
+            class="ck-cta inline-flex items-center gap-1.5 px-4 py-2 rounded disabled:opacity-40 text-sm font-medium transition"
           >
             <app-icon name="plus" [size]="14" /> {{ i18n.t('common.create') }}
           </button>
@@ -1597,16 +1597,23 @@ export class ResourcesPageComponent implements OnInit {
     return providerLabel(p);
   }
 
+  /**
+   * The cockpit status trios, not the `bg-emerald-500/10 text-emerald-300`
+   * literals they replace: those pale `-300` foregrounds were picked against a
+   * dark panel and never got a light value, so every provider badge failed AA
+   * on paper. Each tone keeps its meaning — reachable, configured, down,
+   * merely known.
+   */
   providerStatusClass(status: string): string {
     switch (status) {
       case 'active':
-        return 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20';
+        return 'ck-tone-ok';
       case 'configured':
-        return 'bg-cyan-500/10 text-cyan-300 ring-cyan-500/20';
+        return 'ck-tone-info';
       case 'unreachable':
-        return 'bg-red-500/10 text-red-300 ring-red-500/20';
+        return 'ck-tone-neg';
       default:
-        return 'bg-white/5 text-gray-400 ring-white/10';
+        return 'ck-tone-neutral';
     }
   }
 

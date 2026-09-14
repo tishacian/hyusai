@@ -47,21 +47,45 @@ E2E_BASE_URL=http://localhost:4200 npm run test:e2e
 - **Systems (flows 03/04) :** generated dynamically through the
   authenticated API and cleaned up at the end of each spec.
 
-## First-use release gate
+## Core product release gates
 
-The golden path is opt-in because it validates and persists a real provider in
-the selected workspace. Run it only against an isolated clean workspace:
+`npm run check:core-release` is the single supported way to run the two core
+product browser release gates. It runs
+`tests/00-first-use-golden-path.spec.ts` first, then
+`tests/00-core-product-accessibility.spec.ts`, and stops at the first failure
+with that gate's exit code. Use `-- --golden-only` or `-- --accessibility-only`
+for one gate; the two flags are mutually exclusive.
 
 ```bash
-E2E_GOLDEN_PATH=1 \
-E2E_GOLDEN_PROVIDER=ollama \
-E2E_GOLDEN_MODEL=your-installed-model \
+E2E_BASE_URL=http://localhost:4200 \
 E2E_USERNAME=your-test-user \
 E2E_PASSWORD=your-test-password \
 E2E_WORKSPACE_SLUG=your-isolated-workspace \
-E2E_BASE_URL=http://localhost:4200 \
-npx playwright test e2e/tests/00-first-use-golden-path.spec.ts --project=chromium
+E2E_GOLDEN_PROVIDER=ollama \
+E2E_GOLDEN_MODEL=your-installed-model \
+npm run check:core-release
 ```
+
+Safety contract:
+
+- **Fail-closed configuration.** All four common variables are required, and
+  the golden path additionally requires `E2E_GOLDEN_PROVIDER` and
+  `E2E_GOLDEN_MODEL`. The release command never falls back to the fixture demo
+  credentials or workspace; a missing value stops it with exit code 2 before
+  any browser starts.
+- **Loopback by default.** Only `localhost`, `127.0.0.1`, and `::1` over
+  http/https are accepted. These gates write into the selected workspace, so a
+  remote target requires the explicit `E2E_RELEASE_GATE_ALLOW_REMOTE=1` opt-in.
+- **Isolated workspace.** `E2E_WORKSPACE_SLUG` must name a workspace you are
+  willing to mutate: the golden path validates and persists a real provider in
+  it.
+- **Separated evidence.** Each gate writes its own `output/`, `blob/`,
+  `report/`, and `junit.xml` under `e2e/results/core-release/<gate>/`
+  (override the root with `E2E_CORE_RELEASE_ARTIFACT_DIR`). The runner only
+  creates directories inside that root and deletes nothing.
+- **No secrets in the log.** It prints the target, workspace slug, gate and
+  spec names, provider/model where relevant, elapsed time, and the result;
+  password- and key-shaped values are redacted.
 
 Cloud providers also require `E2E_GOLDEN_API_KEY`. Azure-compatible setups can
 provide `E2E_GOLDEN_ENDPOINT` and `E2E_GOLDEN_DEPLOYMENT`. The test principal
@@ -231,14 +255,16 @@ English, light and dark themes, and desktop, 456 px, and 320 px viewports. The
 gate checks WCAG 2.0/2.1/2.2 A/AA with axe, reduced-motion behavior, horizontal
 reflow, and captures visual evidence.
 
-Run it only against an isolated workspace with an existing test principal:
+Run it only against an isolated workspace with an existing test principal,
+through the same release runner and under the same safety contract as
+[Core product release gates](#core-product-release-gates):
 
 ```bash
-E2E_CORE_ACCESSIBILITY=1 \
+E2E_BASE_URL=http://localhost:4200 \
 E2E_USERNAME='your-test-user' \
 E2E_PASSWORD='your-test-password' \
 E2E_WORKSPACE_SLUG='your-isolated-workspace' \
-npx playwright test e2e/tests/00-core-product-accessibility.spec.ts
+npm run check:core-release -- --accessibility-only
 ```
 
 ### Experience Studio lifecycle canary

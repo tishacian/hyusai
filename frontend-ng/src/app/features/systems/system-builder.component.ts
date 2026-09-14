@@ -902,11 +902,14 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'neutral' | 'warn'> = {
                   {{ section.title }}
                 </span>
                 @if (!isSectionValid(section.key)) {
+                  <!-- A bare 10 px "FIX" word is a ~20x12 px pointer target.
+                       The label keeps its size; the button grows a hit area
+                       around it to clear the 24x24 minimum. -->
                   <button
                     type="button"
                     (click)="expandSection(section.key)"
-                    class="ml-auto ck-mono text-[10px]"
-                    style="color:var(--ck-signal-warn); letter-spacing:0.08em; text-transform:uppercase;"
+                    class="ml-auto ck-mono text-[10px] inline-flex items-center justify-center"
+                    style="color:var(--ck-signal-warn); letter-spacing:0.08em; text-transform:uppercase; min-width:24px; min-height:24px; padding:0 6px;"
                   >
                     FIX
                   </button>

@@ -188,6 +188,132 @@ def _cited_source_indices(text: str) -> set[int]:
     return {int(match) for match in _CITATION_RE.findall(text or "")}
 
 
+# An identifier is a literal the user typed verbatim because it names one exact
+# thing: an order number, a document reference, a part code, a run marker. It is
+# recognised structurally — long enough to be improbable, and mixing letters and
+# digits so that ordinary words, dates and page numbers never qualify.
+_EXACT_IDENTIFIER_CANDIDATE_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9])?")
+_MIN_EXACT_IDENTIFIER_LENGTH = 6
+_MAX_EXACT_IDENTIFIERS = 4
+_EXACT_REFERENCE_MAX_OUTPUT_TOKENS = 256
+
+
+def _exact_query_identifiers(query: str) -> list[str]:
+    """Literal identifiers a query names, in order, deduplicated.
+
+    Dense retrieval cannot tell two near-identical documents apart when the only
+    difference between them is such an identifier: the embedding of a random
+    reference carries no meaning.  Everything downstream that needs to prefer
+    *the* named evidence over a semantically identical neighbour keys on this.
+    """
+    identifiers: list[str] = []
+    seen: set[str] = set()
+    for token in _EXACT_IDENTIFIER_CANDIDATE_RE.findall(query or ""):
+        if len(token) < _MIN_EXACT_IDENTIFIER_LENGTH:
+            continue
+        if not any(char.isdigit() for char in token):
+            continue
+        if not any(char.isalpha() for char in token):
+            continue
+        folded = token.casefold()
+        if folded in seen:
+            continue
+        seen.add(folded)
+        identifiers.append(token)
+        if len(identifiers) >= _MAX_EXACT_IDENTIFIERS:
+            break
+    return identifiers
+
+
+def _contains_exact_identifier(text: str, identifiers: list[str]) -> bool:
+    haystack = str(text or "").casefold()
+    return any(identifier.casefold() in haystack for identifier in identifiers)
+
+
+def _pin_exact_identifier_evidence(
+    chunks: list[Any],
+    scores: list[Any],
+    metadatas: list[Any],
+    identifiers: list[str],
+) -> tuple[list[Any], list[Any], list[Any], int]:
+    """Rank retrieved evidence that literally contains the named identifier first.
+
+    Pure reordering of evidence retrieval already returned — nothing is added,
+    dropped or rewritten.  It only resolves the one case dense similarity cannot:
+    several passages are equally *about* the question and exactly one of them is
+    *the* one the question names.  A no-op when every passage matches or none
+    does, so an ordinary question keeps its relevance ordering byte-for-byte.
+    """
+    if not identifiers or not chunks:
+        return chunks, scores, metadatas, 0
+    scores = list(scores or [])
+    metadatas = list(metadatas or [])
+    matched: list[int] = []
+    others: list[int] = []
+    for index, chunk in enumerate(chunks):
+        meta = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
+        evidence = " ".join(
+            [
+                str(chunk or ""),
+                str(meta.get("filename") or ""),
+                str(meta.get("title") or ""),
+                str(meta.get("document_title") or ""),
+            ]
+        )
+        (matched if _contains_exact_identifier(evidence, identifiers) else others).append(index)
+    if not matched or not others:
+        return chunks, scores, metadatas, len(matched)
+    order = matched + others
+    return (
+        [chunks[i] for i in order],
+        [scores[i] if i < len(scores) else 0.0 for i in order],
+        [metadatas[i] if i < len(metadatas) else {} for i in order],
+        len(matched),
+    )
+
+
+def _exact_identifier_context_note(identifiers: list[str]) -> str:
+    """Tell the model which literal the numbered context was ranked on.
+
+    Small local models otherwise paraphrase whichever near-identical passage
+    they saw first — which, on a workspace that already holds last run's
+    documents, is routinely the wrong one.
+    """
+    if not identifiers:
+        return ""
+    quoted = ", ".join(f'"{identifier}"' for identifier in identifiers)
+    return (
+        f"The question names the exact reference {quoted}. The numbered sources below are "
+        "ordered so that the passages containing it come first; ground the answer on those "
+        "and cite them. Do not answer from a source that does not contain it. "
+        "Answer in no more than three concise sentences."
+    )
+
+
+def _exact_reference_output_budget(
+    requested_tokens: int,
+    *,
+    identifiers: list[str],
+    wants_more_detail: bool,
+) -> int:
+    """Keep literal-reference lookups inside the interactive latency budget.
+
+    A part number, order code, or document reference asks for a bounded lookup,
+    not a long-form synthesis. Small local models can otherwise consume the
+    generic 2k-token fast profile while repeating the same evidence, leaving a
+    sourced answer visibly unfinished. Explicit requests for more detail retain
+    the normal adaptive budget.
+    """
+    bounded = max(1, int(requested_tokens))
+    if identifiers and not wants_more_detail:
+        return min(bounded, _EXACT_REFERENCE_MAX_OUTPUT_TOKENS)
+    return bounded
+
+
 def _fold_for_policy(text: str) -> str:
     folded = unicodedata.normalize("NFKD", text or "")
     return "".join(ch for ch in folded if not unicodedata.combining(ch)).lower()
@@ -221,7 +347,9 @@ def _strip_andritz_contact_boilerplate(text: str, *, allow_contact_answer: bool 
 class _AndritzContactBoilerplateStreamFilter:
     """Hold a small response tail so copied contact footers never flash in chat."""
 
-    def __init__(self, *, enabled: bool = True, tail_chars: int = _ANDRITZ_CONTACT_STREAM_TAIL_CHARS):
+    def __init__(
+        self, *, enabled: bool = True, tail_chars: int = _ANDRITZ_CONTACT_STREAM_TAIL_CHARS
+    ):
         self.enabled = enabled
         self.tail_chars = tail_chars
         self._tail = ""
@@ -247,6 +375,7 @@ class _AndritzContactBoilerplateStreamFilter:
         clean_tail = _strip_andritz_contact_boilerplate(self._tail)
         self._tail = ""
         return clean_tail
+
 
 # Generic/placeholder document titles that carry no information for an end
 # user. When the extracted title matches one of these we fall back to the
@@ -429,7 +558,11 @@ def _select_citation_entries(
     citable_raw: list[dict[str, Any]] = []
     advisory: list[dict[str, Any]] = []
     for index, chunk in enumerate(chunks or []):
-        meta = dict(metadatas[index]) if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        meta = (
+            dict(metadatas[index])
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
         try:
             score = float(scores[index]) if index < len(scores) else 0.0
         except (TypeError, ValueError):
@@ -685,18 +818,29 @@ def _retrieval_synthesis_brief(
     points: list[str] = []
     metadatas = metadatas or []
     for index, chunk in enumerate(chunks):
-        meta = dict(metadatas[index]) if index < len(metadatas) and isinstance(metadatas[index], Mapping) else {}
+        meta = (
+            dict(metadatas[index])
+            if index < len(metadatas) and isinstance(metadatas[index], Mapping)
+            else {}
+        )
         title = _display_title(meta)
         docs.add(title)
         collection = str(meta.get("collection") or meta.get("collection_name") or "").strip()
         if collection:
             collections.add(collection)
-        kind = str(meta.get("source_type") or meta.get("document_type") or meta.get("semantic_type") or "document")
+        kind = str(
+            meta.get("source_type")
+            or meta.get("document_type")
+            or meta.get("semantic_type")
+            or "document"
+        )
         kinds[kind] = kinds.get(kind, 0) + 1
         text = " ".join(str(chunk or "").split())
         if text and len(points) < max_points:
             points.append(f"- {title}: {text[:360]}")
-    kind_line = ", ".join(f"{key}: {value}" for key, value in sorted(kinds.items(), key=lambda kv: (-kv[1], kv[0])))
+    kind_line = ", ".join(
+        f"{key}: {value}" for key, value in sorted(kinds.items(), key=lambda kv: (-kv[1], kv[0]))
+    )
     lines = [
         f"Coverage: {len(chunks)} retrieved chunk(s), {len(docs)} distinct source title(s)"
         + (f", collections: {', '.join(sorted(collections))}" if collections else "")
@@ -706,6 +850,7 @@ def _retrieval_synthesis_brief(
         *points,
     ]
     return "\n".join(lines)
+
 
 SYSTEM_PROMPT = """You are an intelligent assistant with access to a curated knowledge base.
 
@@ -726,6 +871,105 @@ BALANCED_GROUNDING_APPENDIX = """Grounding policy for this turn:
 - Keep a concise advisory tone and do not open with a source-finding preamble."""
 
 
+_CITATION_REPAIR_STOPWORDS = {
+    "about",
+    "avec",
+    "cette",
+    "dans",
+    "des",
+    "does",
+    "from",
+    "have",
+    "indique",
+    "les",
+    "pour",
+    "say",
+    "source",
+    "that",
+    "the",
+    "this",
+    "une",
+    "what",
+    "with",
+}
+
+
+def _source_evidence_text(source: dict[str, Any]) -> str:
+    return " ".join(str(source.get(key) or "") for key in ("title", "filename", "snippet"))
+
+
+def _attach_citation(text: str, index: int) -> str:
+    """Append ``[index]`` to the answer's final sentence."""
+    marker = f"[{index}]"
+    repaired = re.sub(r"([.!?])\s*$", rf" {marker}\1", text)
+    return repaired if repaired != text else f"{text} {marker}"
+
+
+def _ensure_grounded_citation(
+    answer: str,
+    sources: list[dict[str, Any]],
+    *,
+    is_followup: bool,
+    has_citable_context: bool,
+    query: str = "",
+) -> tuple[str, bool]:
+    """Repair a missing citation only when one passage unambiguously supports it.
+
+    Two deterministic cases, both fail-closed:
+
+    - the answer and exactly one displayed source carry the same literal
+      identifier the question named — the evidence is then identified, not
+      guessed, even when several near-identical documents were retrieved;
+    - there is a single displayed source and the answer shares at least three
+      meaningful words with it.
+
+    Anything else (several plausible sources, weak overlap, a follow-up turn,
+    no citable retrieval) keeps the uncited answer, so no citation is ever
+    attached to text it does not support.
+    """
+    text = str(answer or "").strip()
+    if (
+        not text
+        or is_followup
+        or not has_citable_context
+        or not sources
+        or _cited_source_indices(text)
+    ):
+        return text, False
+
+    identifiers = [
+        identifier
+        for identifier in _exact_query_identifiers(query)
+        if _contains_exact_identifier(text, [identifier])
+    ]
+    if identifiers:
+        matches = [
+            index
+            for index, source in enumerate(sources)
+            if _contains_exact_identifier(_source_evidence_text(source), identifiers)
+        ]
+        if len(matches) == 1:
+            return _attach_citation(text, matches[0] + 1), True
+        # Several sources carry the identifier (or none does): which one the
+        # answer used is genuinely unknown, so stay uncited.
+        if matches:
+            return text, False
+
+    if len(sources) != 1:
+        return text, False
+
+    def meaningful_words(value: str) -> set[str]:
+        return {
+            word
+            for word in re.findall(r"[^\W_]{3,}", value.casefold(), flags=re.UNICODE)
+            if word not in _CITATION_REPAIR_STOPWORDS
+        }
+
+    if len(meaningful_words(text) & meaningful_words(_source_evidence_text(sources[0]))) < 3:
+        return text, False
+    return _attach_citation(text, 1), True
+
+
 def _grounding_policy_from_request(request: dict[str, Any]) -> dict[str, Any]:
     policy = request.get("grounding_policy")
     if isinstance(policy, dict):
@@ -733,10 +977,14 @@ def _grounding_policy_from_request(request: dict[str, Any]) -> dict[str, Any]:
         return {
             **policy,
             "mode": "balanced" if mode == "balanced" else "strict",
-            "allow_foundational_fallback": bool(policy.get("allow_foundational_fallback") and mode == "balanced"),
+            "allow_foundational_fallback": bool(
+                policy.get("allow_foundational_fallback") and mode == "balanced"
+            ),
         }
     return {
-        "requested_mode": "strict" if str(request.get("grounding_mode") or "").lower() == "strict" else None,
+        "requested_mode": "strict"
+        if str(request.get("grounding_mode") or "").lower() == "strict"
+        else None,
         "mode": "strict",
         "allow_foundational_fallback": False,
         "source_requirement": "workspace_required",
@@ -808,7 +1056,9 @@ If the context is not relevant or missing, say so clearly rather than guessing."
     policy_body = "\n".join(policy_parts)
     policy_instructions = f"\n\n{policy_body}" if policy_body else ""
 
-    summary_block = f"\n\nRetrieved content synthesis brief:\n{retrieval_summary}" if retrieval_summary else ""
+    summary_block = (
+        f"\n\nRetrieved content synthesis brief:\n{retrieval_summary}" if retrieval_summary else ""
+    )
     answer_policy_block = f"\n\n{answer_policy_prompt}" if answer_policy_prompt else ""
 
     # Source conflict / ambiguity posture (3 cases). The generic doc↔doc conflict
@@ -822,7 +1072,7 @@ If the context is not relevant or missing, say so clearly rather than guessing."
     # prompt (non-regression).
     answer_shaping_lines = [
         "Answer-shaping instructions:",
-        "- Start with the direct factual answer or synthesis; do not open with discovery phrases such as \"I found\" or \"the documents indicate\".",
+        '- Start with the direct factual answer or synthesis; do not open with discovery phrases such as "I found" or "the documents indicate".',
         "- Treat the Knowledge base context for this turn as authoritative over conversation history. If an earlier assistant answer conflicts with the current context, ignore the stale answer completely and use only the current context for that fact.",
         "- Include useful evidence/citations after the answer when workspace sources exist.",
         "- For broad questions, synthesize by theme instead of listing every retrieved excerpt; use 3 to 5 key points only when useful.",
@@ -929,8 +1179,8 @@ class OmniRAGAgent(BaseAgent):
         ``<slug>__``, giving the same isolation the dropzone upload path
         already uses.
         """
-        from app.services.rag.document_service import DocumentService
         from app.services.rag.context import get_retrieval_profile
+        from app.services.rag.document_service import DocumentService
 
         request = request or {}
         workspace_slug = request.get("workspace_slug")
@@ -974,7 +1224,9 @@ class OmniRAGAgent(BaseAgent):
         temperature = request.get("temperature", 0.3)
         custom_system_prompt = request.get("system_prompt")
         grounding_policy = _grounding_policy_from_request(request)
-        system_prompt = _system_prompt_with_grounding(custom_system_prompt or SYSTEM_PROMPT, grounding_policy)
+        system_prompt = _system_prompt_with_grounding(
+            custom_system_prompt or SYSTEM_PROMPT, grounding_policy
+        )
         pipeline_start = time.time()
 
         # Conversation memory: recent turns (incl. the previous assistant
@@ -1111,7 +1363,9 @@ class OmniRAGAgent(BaseAgent):
         if is_multi_collection:
             mode_reason = f"Knowledge Scope {profile.get('knowledge_scope') or 'workspace_default'} across {len(collections)} collections"
         else:
-            mode_reason = "CorpusPlanner will infer system scope and dense/sparse policy before retrieval."
+            mode_reason = (
+                "CorpusPlanner will infer system scope and dense/sparse policy before retrieval."
+            )
         budget_line = (
             f"candidate_pool_k: {profile.get('candidate_pool_k')} · "
             f"synthesis_k: {profile.get('synthesis_k')} · "
@@ -1173,7 +1427,7 @@ class OmniRAGAgent(BaseAgent):
                 retriever_name,
                 retriever_title,
                 "Searching knowledge base",
-                f"Planner pending — {mode_reason}\n{method_line}\nQuery: \"{profile['query'][:80]}…\"",
+                f'Planner pending — {mode_reason}\n{method_line}\nQuery: "{profile["query"][:80]}…"',
             )
             yield retrieval_event(
                 "started",
@@ -1363,7 +1617,9 @@ class OmniRAGAgent(BaseAgent):
                     "grounding_mode": grounding_policy.get("mode"),
                     "grounding_policy": grounding_policy,
                 },
-                message=f"Retrieved {n_chunks} chunks" if n_chunks else "No retrieval context found",
+                message=f"Retrieved {n_chunks} chunks"
+                if n_chunks
+                else "No retrieval context found",
                 rag_context=retrieval_context,
             )
 
@@ -1402,7 +1658,9 @@ class OmniRAGAgent(BaseAgent):
             ("chah_", "hah_", "multi_")
         )
         try:
-            threshold = max(0.0, min(1.0, float(getattr(settings, "rag_similarity_threshold", 0.1) or 0.1)))
+            threshold = max(
+                0.0, min(1.0, float(getattr(settings, "rag_similarity_threshold", 0.1) or 0.1))
+            )
         except (TypeError, ValueError):
             threshold = 0.1
         if preserve_retrieval_order:
@@ -1418,7 +1676,8 @@ class OmniRAGAgent(BaseAgent):
             triples = [
                 (c, s, m)
                 for c, s, m in triples
-                if s >= threshold or str(m.get("source_type") or m.get("type") or "") == "knowledge_guide"
+                if s >= threshold
+                or str(m.get("source_type") or m.get("type") or "") == "knowledge_guide"
             ]
             if not preserve_retrieval_order:
                 if _discovery_intent:
@@ -1440,7 +1699,35 @@ class OmniRAGAgent(BaseAgent):
         else:
             before = after = 0
 
+        # Exact-reference pinning. When the question names a literal identifier,
+        # semantic similarity alone cannot separate the document that carries it
+        # from a near-identical neighbour — on a workspace that already holds an
+        # earlier version of the same report, that is how a stale document ends
+        # up answering for the one the user just named. Reordering happens on
+        # retrieved evidence only.
+        exact_identifiers = [] if is_followup else _exact_query_identifiers(str(query or ""))
+        (
+            filtered_chunks,
+            filtered_scores,
+            filtered_metadatas,
+            exact_identifier_matches,
+        ) = _pin_exact_identifier_evidence(
+            filtered_chunks,
+            filtered_scores,
+            filtered_metadatas,
+            exact_identifiers,
+        )
+        exact_pinning_applied = bool(exact_identifiers and exact_identifier_matches)
+
         await asyncio.sleep(0.02)
+        filter_detail = (
+            f"Kept {after}/{before} chunks · Threshold: {threshold:.2f} · Sorted by relevance"
+        )
+        if exact_pinning_applied:
+            filter_detail = (
+                f"{filter_detail} · {exact_identifier_matches} passage(s) pinned on "
+                f"{', '.join(exact_identifiers)}"
+            )
         yield self._step(
             sid,
             "completed",
@@ -1448,7 +1735,7 @@ class OmniRAGAgent(BaseAgent):
             "ContextFilter",
             "text-embedding-3-small",
             "Context filtered",
-            f"Kept {after}/{before} chunks · Threshold: {threshold:.2f} · Sorted by relevance",
+            filter_detail,
             duration=self._ms_since(step_start),
         )
 
@@ -1475,7 +1762,11 @@ class OmniRAGAgent(BaseAgent):
             filtered_scores,
             filtered_metadatas,
             allow_foundational_fallback=bool(grounding_policy.get("allow_foundational_fallback")),
-            source_display_k=int(retrieval_context.get("source_display_k") or (retrieval_context.get("metrics") or {}).get("source_display_k") or _MAX_CITABLE_SOURCES),
+            source_display_k=int(
+                retrieval_context.get("source_display_k")
+                or (retrieval_context.get("metrics") or {}).get("source_display_k")
+                or _MAX_CITABLE_SOURCES
+            ),
             query=str(query or ""),
         )
         retrieval_summary = _retrieval_synthesis_brief(filtered_chunks, filtered_metadatas)
@@ -1492,6 +1783,11 @@ class OmniRAGAgent(BaseAgent):
         if project_inventory_block:
             context_text = f"{project_inventory_block}\n\n{context_text}"
             has_citable_context = True
+
+        # Name the literal the ordering was built on, so the model grounds on the
+        # pinned passages instead of the first plausible-looking neighbour.
+        if exact_pinning_applied:
+            context_text = f"{_exact_identifier_context_note(exact_identifiers)}\n\n{context_text}"
 
         # Aggregate docmeta TF-IDF keywords across the top chunks so the LLM
         # can anchor on document topics even when the user's query is fuzzy
@@ -1525,9 +1821,7 @@ class OmniRAGAgent(BaseAgent):
         # so the answer profile treats it as reference truth without narrating a
         # contradiction. OFF leaves has_expert_fiche False -> prompt unchanged.
         has_expert_fiche = bool(settings.rag_expert_fiche_pin_enabled) and any(
-            _is_expert_fiche_meta(meta)
-            for meta in filtered_metadatas
-            if isinstance(meta, Mapping)
+            _is_expert_fiche_meta(meta) for meta in filtered_metadatas if isinstance(meta, Mapping)
         )
 
         if is_followup:
@@ -1536,7 +1830,9 @@ class OmniRAGAgent(BaseAgent):
                 wants_more_detail=wants_more_detail,
             )
         else:
-            from app.services.industrial_answer_profile import answer_policy_prompt as _answer_policy_prompt
+            from app.services.industrial_answer_profile import (
+                answer_policy_prompt as _answer_policy_prompt,
+            )
 
             user_prompt = _build_rag_user_prompt(
                 query=query,
@@ -1544,11 +1840,15 @@ class OmniRAGAgent(BaseAgent):
                 keyword_hint=keyword_hint,
                 grounding_policy=grounding_policy,
                 has_retrieved_context=has_citable_context,
-                retrieval_policy_prompt=str((retrieval_context.get("retrieval_policy") or {}).get("prompt") or ""),
+                retrieval_policy_prompt=str(
+                    (retrieval_context.get("retrieval_policy") or {}).get("prompt") or ""
+                ),
                 retrieval_constraints=retrieval_context.get("retrieval_constraints") or {},
                 retrieval_summary=retrieval_summary,
                 answer_policy_prompt=_answer_policy_prompt(
-                    answer_policy=request.get("answer_policy") if isinstance(request.get("answer_policy"), dict) else None,
+                    answer_policy=request.get("answer_policy")
+                    if isinstance(request.get("answer_policy"), dict)
+                    else None,
                     profile_decision=request.get("answer_profile_decision")
                     if isinstance(request.get("answer_profile_decision"), dict)
                     else None,
@@ -1614,6 +1914,17 @@ class OmniRAGAgent(BaseAgent):
             )
         else:
             max_output_tokens = 4000 if wants_more_detail else 2000
+        max_output_tokens = _exact_reference_output_budget(
+            max_output_tokens,
+            identifiers=exact_identifiers,
+            wants_more_detail=wants_more_detail,
+        )
+        if exact_identifiers and not wants_more_detail:
+            logger.info(
+                "Exact-reference answer budget applied",
+                identifiers_count=len(exact_identifiers),
+                max_output_tokens=max_output_tokens,
+            )
         sequence = 0
         accumulated = ""
         stream_filter = _AndritzContactBoilerplateStreamFilter(
@@ -1702,6 +2013,21 @@ class OmniRAGAgent(BaseAgent):
             }
             logger.warning("rag_agent: empty generation — emitted non-empty fallback")
 
+        accumulated, citation_repaired = _ensure_grounded_citation(
+            accumulated,
+            sources,
+            is_followup=is_followup,
+            has_citable_context=has_citable_context,
+            query=str(query or ""),
+        )
+        if citation_repaired:
+            yield {
+                "chunk_type": "answer_replace",
+                "content": accumulated,
+                "is_final": False,
+                "sequence": sequence + 1,
+            }
+
         final_sources = self._gate_sources(
             sources,
             accumulated,
@@ -1738,7 +2064,9 @@ class OmniRAGAgent(BaseAgent):
             if not isinstance(stage_timings, dict):
                 stage_timings = {}
             stage_timings["llm_ms"] = llm_duration_ms
-            retrieval_total_ms = retrieval_metrics.get("duration_ms") or stage_timings.get("retrieval_ms")
+            retrieval_total_ms = retrieval_metrics.get("duration_ms") or stage_timings.get(
+                "retrieval_ms"
+            )
             if retrieval_total_ms is not None:
                 try:
                     stage_timings["total_ms"] = int(retrieval_total_ms) + int(llm_duration_ms)

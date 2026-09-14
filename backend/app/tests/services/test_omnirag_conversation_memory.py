@@ -10,6 +10,7 @@ These guard the live Andritz demo fixes for the dominant end-user complaint
   3. recent conversation turns (incl. the previous assistant answer) are passed
      into the LLM generation messages so the model can expand/continue.
 """
+
 from __future__ import annotations
 
 import httpx
@@ -18,15 +19,18 @@ from app.agents.procurement_agent import (
     OmniRAGAgent,
     _cited_source_indices,
     _conversation_history,
+    _ensure_grounded_citation,
     _is_meta_followup,
     _previous_assistant_answer,
     _trimmed_history_for_prompt,
 )
 
-
 _HISTORY = [
     {"role": "user", "content": "Quels documents de convoyeur sont indexés pour ARA200 ?"},
-    {"role": "assistant", "content": "Les documents indexés pour l'ARA200 incluent le manuel des pièces."},
+    {
+        "role": "assistant",
+        "content": "Les documents indexés pour l'ARA200 incluent le manuel des pièces.",
+    },
 ]
 
 
@@ -157,28 +161,64 @@ def test_cited_source_indices():
     assert _cited_source_indices("aucune citation ici") == set()
 
 
+def test_single_source_citation_is_repaired_for_strongly_grounded_answer():
+    answer, repaired = _ensure_grounded_citation(
+        "The golden path opens a cited source and recovers from a retryable failure.",
+        [
+            {
+                "title": "Agentium first-use evidence",
+                "snippet": "The golden path opens a cited source and recovers from a retryable failure.",
+            }
+        ],
+        is_followup=False,
+        has_citable_context=True,
+    )
+
+    assert answer.endswith(" [1].")
+    assert repaired is True
+
+
+def test_single_source_citation_repair_stays_fail_closed_for_weak_overlap():
+    original = "There is not enough information to answer safely."
+    answer, repaired = _ensure_grounded_citation(
+        original,
+        [{"title": "Pump manual", "snippet": "Nominal pump pressure is 40 bar."}],
+        is_followup=False,
+        has_citable_context=True,
+    )
+
+    assert answer == original
+    assert repaired is False
+
+
 def _sources(n: int):
     return [{"id": f"chunk-{i}", "title": f"doc {i}"} for i in range(n)]
 
 
 def test_gate_sources_suppressed_for_followup():
-    assert OmniRAGAgent._gate_sources(
-        _sources(3),
-        "réponse plus longue [1][2]",
-        is_followup=True,
-        has_citable_context=True,
-        discovery_intent=False,
-    ) == []
+    assert (
+        OmniRAGAgent._gate_sources(
+            _sources(3),
+            "réponse plus longue [1][2]",
+            is_followup=True,
+            has_citable_context=True,
+            discovery_intent=False,
+        )
+        == []
+    )
 
 
 def test_gate_sources_suppressed_without_citable_context():
-    assert OmniRAGAgent._gate_sources(
-        _sources(3),
-        "answer [1]",
-        is_followup=False,
-        has_citable_context=False,
-        discovery_intent=False,
-    ) == []
+    assert (
+        OmniRAGAgent._gate_sources(
+            _sources(3),
+            "answer [1]",
+            is_followup=False,
+            has_citable_context=False,
+            discovery_intent=False,
+        )
+        == []
+    )
 
 
 def test_gate_sources_kept_when_model_cited():
@@ -270,7 +310,7 @@ async def test_generation_connection_failure_emits_safe_structured_error(monkeyp
 # ── stream_complete passes conversation history to the model ───────────────
 async def test_stream_complete_inserts_history_between_system_and_user(monkeypatch):
     from app.llm import llm as llm_module
-    from app.llm.models import StreamingResponse, StreamChoice
+    from app.llm.models import StreamChoice, StreamingResponse
 
     captured: dict = {}
 

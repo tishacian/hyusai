@@ -60,6 +60,7 @@ import { I18nService, type Locale } from '@app/core/i18n.service';
 import {
   NavLinkDirective,
   RuntimeStatusBadgeComponent,
+  ScrollFocusableDirective,
   ThinkingOrbComponent,
   type CkOrbState,
 } from '@app/shared/cockpit';
@@ -505,6 +506,13 @@ const DEFAULT_METRIC_SPEC: MetricSpec = {
   fair: 0.4,
 };
 
+/**
+ * Upper bound on how long the composer may stay inert waiting for the session
+ * list / conversation detail. A hung request must degrade to a usable composer,
+ * never to a chat the user is locked out of.
+ */
+const CONVERSATION_RESTORE_WATCHDOG_MS = 8000;
+
 const STEP_ICONS: Record<string, string> = {
   query_received: 'log-in',
   query_rewrite: 'wand-2',
@@ -529,6 +537,7 @@ const STEP_ICONS: Record<string, string> = {
     NavLinkDirective,
     IconComponent,
     RuntimeStatusBadgeComponent,
+    ScrollFocusableDirective,
     ThinkingOrbComponent,
     VoiceControlsComponent,
     DocumentPreviewComponent,
@@ -549,7 +558,7 @@ const STEP_ICONS: Record<string, string> = {
             type="button"
             class="chat-history-new"
             [title]="i18n.t('chat.history.new')"
-            [disabled]="creatingChatSession"
+            [disabled]="creatingChatSession() || conversationRestoring()"
             (click)="createNewChat()"
           >
             <app-icon name="plus" [size]="14" />
@@ -902,6 +911,7 @@ const STEP_ICONS: Record<string, string> = {
       <!-- Messages -->
       <div
         #messagesScroller
+        ckScrollFocusable
         class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-5"
         [class.vigie-messages]="executiveMode()"
       >
@@ -964,7 +974,8 @@ const STEP_ICONS: Record<string, string> = {
           @if (msg.role === 'user') {
             <div class="flex justify-end">
               <div
-                class="ck-chat-user-bubble max-w-[80%] bg-cyan-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap shadow-sm"
+                class="ck-chat-user-bubble max-w-[80%] rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap shadow-sm"
+                style="background:var(--ck-cta-bg); color:var(--ck-cta-fg);"
                 [class.vigie-user-bubble]="executiveMode()"
               >
                 {{ msg.content }}
@@ -1185,6 +1196,7 @@ const STEP_ICONS: Record<string, string> = {
                   } @else if (isValidCitationForSources(sources, tok.n)) {
                     <button
                       type="button"
+                      data-cite-chip
                       class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono font-semibold bg-cyan-500/15 text-cyan-500 dark:text-cyan-300 hover:bg-cyan-500/30 hover:text-cyan-200 transition ring-1 ring-cyan-500/30 cursor-pointer"
                       [title]="citationTooltipForSources(sources, tok.n)"
                       (click)="gotoSourceTarget(msg, tok.n, sourceHostId || msg.id, openDirectSources !== false)"
@@ -2123,12 +2135,12 @@ const STEP_ICONS: Record<string, string> = {
           rows="1"
           class="ck-chat-input flex-1 resize-none px-4 py-2.5 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-400 text-sm max-h-32"
           [placeholder]="inputPlaceholder()"
-          [disabled]="streaming()"
+          [disabled]="streaming() || !conversationReady()"
           (keydown)="onKey($event)"
         ></textarea>
         <button
           type="submit"
-          [disabled]="streaming() || !userInput.trim()"
+          [disabled]="streaming() || !conversationReady() || !userInput.trim()"
           class="ck-chat-send px-4 py-2.5 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white rounded-xl transition text-sm font-medium flex items-center gap-1.5"
           [class.vigie-send-button]="executiveMode()"
         >
@@ -2298,7 +2310,7 @@ const STEP_ICONS: Record<string, string> = {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      color: rgba(148, 163, 184, 0.70);
+      color: var(--ck-fg-3);
       font-size: 10px;
     }
     .chat-history-actions {
@@ -3409,9 +3421,23 @@ export class ChatPanelComponent implements AfterViewInit {
   private chatWorkspaceSubscriptions = new Subscription();
   private readonly chatPollingTimers = new Set<ReturnType<typeof setTimeout>>();
   private chatDestroyed = false;
-  creatingChatSession = false;
+  readonly creatingChatSession = signal(false);
   readonly chatSessions = signal<ChatSessionSummary[]>([]);
   readonly chatSessionsLoading = signal(false);
+  /**
+   * True while the panel is still deciding *which* conversation is on screen:
+   * the initial session list + restore, an explicit conversation switch, or a
+   * session creation. The composer is a live conversation control, so it stays
+   * inert for that window — otherwise a question can be submitted into a thread
+   * that the restore is about to replace, and the turn is lost with it.
+   */
+  readonly conversationRestoring = signal(false);
+  /** The composer may only be driven once the conversation on screen is final. */
+  readonly conversationReady = computed(
+    () => !this.conversationRestoring() && !this.creatingChatSession(),
+  );
+  private conversationRestoreWatchdog: ReturnType<typeof setTimeout> | null = null;
+  private conversationRestoreEpoch = 0;
   readonly activeChatSessionId = signal<string | null>(null);
   readonly chatSessionSearch = signal('');
   readonly filteredChatSessions = computed(() => {
@@ -3726,6 +3752,10 @@ export class ChatPanelComponent implements AfterViewInit {
     return this.i18n.t('chat.ask.subtitle_default');
   });
   readonly inputPlaceholder = computed(() => {
+    // Readiness wins over every scope-specific hint: while the conversation is
+    // still being restored the composer is inert, and the placeholder has to
+    // say why instead of inviting a question that cannot be sent.
+    if (!this.conversationReady()) return this.i18n.t('chat.ask.placeholder_restoring');
     const configured = this.workspaceChatConfig().placeholder;
     if (configured) return configured;
     if (this.isDemoMode()) return this.i18n.t('chat.ask.placeholder');
@@ -4109,9 +4139,71 @@ export class ChatPanelComponent implements AfterViewInit {
     el.scrollTo({ top: el.scrollHeight, behavior });
   }
 
+  /**
+   * Hold the composer until the conversation on screen is the final one.
+   *
+   * The watchdog is the escape hatch: a hung session request must degrade to a
+   * usable composer rather than lock the user out of their own chat.
+   */
+  private beginConversationRestore(): number {
+    // A destroyed panel has no composer to gate and no callback left to end the
+    // window, so it must not arm one.
+    if (this.chatDestroyed) return this.conversationRestoreEpoch;
+    const epoch = ++this.conversationRestoreEpoch;
+    this.conversationRestoring.set(true);
+    if (this.conversationRestoreWatchdog !== null) {
+      clearTimeout(this.conversationRestoreWatchdog);
+      this.chatPollingTimers.delete(this.conversationRestoreWatchdog);
+    }
+    this.conversationRestoreWatchdog = setTimeout(() => {
+      if (epoch !== this.conversationRestoreEpoch) return;
+      this.conversationRestoreWatchdog = null;
+      // Invalidate the request that timed out. Its eventual response may still
+      // refresh the history list, but it can no longer replace the conversation
+      // after the composer has been handed back.
+      this.conversationRestoreEpoch += 1;
+      this.conversationRestoring.set(false);
+    }, CONVERSATION_RESTORE_WATCHDOG_MS);
+    this.chatPollingTimers.add(this.conversationRestoreWatchdog);
+    return epoch;
+  }
+
+  private endConversationRestore(epoch?: number): void {
+    if (epoch !== undefined && epoch !== this.conversationRestoreEpoch) return;
+    if (this.conversationRestoreWatchdog !== null) {
+      clearTimeout(this.conversationRestoreWatchdog);
+      this.chatPollingTimers.delete(this.conversationRestoreWatchdog);
+      this.conversationRestoreWatchdog = null;
+    }
+    this.conversationRestoring.set(false);
+  }
+
+  /**
+   * True when this panel already shows a conversation the user started or
+   * opened after `baselineSessionId` was captured.
+   *
+   * An automatic restore that lands after that point must be dropped: replacing
+   * the message list would delete the turn the user is in (the question bubble
+   * disappears while its answer keeps streaming into someone else's thread).
+   */
+  private ownsLiveConversation(baselineSessionId: string | null): boolean {
+    return (
+      this.streaming()
+      || this.messages().length > 0
+      || this.activeChatSessionId() !== baselineSessionId
+    );
+  }
+
   loadChatSessions(selectId?: string | null): void {
+    if (this.chatDestroyed) return;
     const scope = this.workspace.captureRequestScope();
     const generation = this.chatWorkspaceGeneration;
+    // An explicit `selectId` follows a conversation this panel already owns
+    // (the session the last turn created), so it never changes what is on
+    // screen and must not disable the composer after an answer lands.
+    const restoring = !selectId;
+    const baselineSessionId = this.activeChatSessionId();
+    const restoreEpoch = restoring ? this.beginConversationRestore() : null;
     this.chatSessionsLoading.set(true);
     const subscription = this.api.get<{ sessions?: ChatSessionSummary[] }>(
       '/sessions?status=active&limit=80',
@@ -4123,30 +4215,42 @@ export class ChatPanelComponent implements AfterViewInit {
         const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
         this.chatSessions.set(sessions);
         this.chatSessionsLoading.set(false);
+        if (restoreEpoch !== null && restoreEpoch !== this.conversationRestoreEpoch) return;
+        if (restoring && this.ownsLiveConversation(baselineSessionId)) {
+          // The user got ahead of this response. The history list is still
+          // worth showing; the restore itself is abandoned.
+          this.endConversationRestore(restoreEpoch ?? undefined);
+          return;
+        }
         const stored = this.loadSelectedSessionId(scope.workspaceSlug);
         // A fresh-session panel never resumes an old conversation on its own;
         // it only follows the session it just created (selectId after send()).
         const target = selectId || this.resumeSessionId() || (this.freshSession() ? null : stored);
         const exists = target && sessions.some((session) => session.id === target);
+        // `openChatSession` owns the rest of the restore window: the composer
+        // stays inert until the conversation's own messages are on screen.
         if (exists && target) {
-          this.openChatSession(target);
+          this.openChatSession(target, restoreEpoch ?? undefined);
         } else if (!this.freshSession() && !this.activeChatSessionId() && sessions.length > 0) {
-          this.openChatSession(sessions[0].id);
+          this.openChatSession(sessions[0].id, restoreEpoch ?? undefined);
+        } else if (restoring) {
+          this.endConversationRestore(restoreEpoch ?? undefined);
         }
       },
       error: () => {
         if (!this.isChatContinuationCurrent(scope, generation)) return;
         this.chatSessionsLoading.set(false);
+        if (restoring) this.endConversationRestore(restoreEpoch ?? undefined);
       },
     });
     this.chatWorkspaceSubscriptions.add(subscription);
   }
 
   createNewChat(): void {
-    if (this.creatingChatSession) return;
+    if (this.creatingChatSession() || this.conversationRestoring()) return;
     const scope = this.workspace.captureRequestScope();
     const generation = this.chatWorkspaceGeneration;
-    this.creatingChatSession = true;
+    this.creatingChatSession.set(true);
     const subscription = this.api.post<ChatSessionSummary>(
       '/sessions',
       { context: this.currentChatSessionContext() },
@@ -4154,7 +4258,7 @@ export class ChatPanelComponent implements AfterViewInit {
     ).subscribe({
       next: (session) => {
         if (!this.isChatContinuationCurrent(scope, generation)) return;
-        this.creatingChatSession = false;
+        this.creatingChatSession.set(false);
         this.chatSessionId = session.id;
         this.chatSessionSignature = this.currentChatSessionSignature();
         this.activeChatSessionId.set(session.id);
@@ -4168,17 +4272,26 @@ export class ChatPanelComponent implements AfterViewInit {
       },
       error: () => {
         if (!this.isChatContinuationCurrent(scope, generation)) return;
-        this.creatingChatSession = false;
+        this.creatingChatSession.set(false);
         this.toast.error(this.i18n.t('chat.toast.create_failed'), this.i18n.t('chat.title'));
       },
     });
     this.chatWorkspaceSubscriptions.add(subscription);
   }
 
-  openChatSession(sessionId: string): void {
-    if (!sessionId || this.activeChatSessionId() === sessionId) return;
+  openChatSession(sessionId: string, inheritedRestoreEpoch?: number): void {
+    if (!sessionId || this.activeChatSessionId() === sessionId) {
+      if (inheritedRestoreEpoch !== undefined) {
+        this.endConversationRestore(inheritedRestoreEpoch);
+      }
+      return;
+    }
     const scope = this.workspace.captureRequestScope();
     const generation = this.chatWorkspaceGeneration;
+    // Switching conversations replaces the whole message list, so the composer
+    // is inert until the target thread is the one actually on screen.
+    const restoreEpoch = inheritedRestoreEpoch ?? this.beginConversationRestore();
+    if (restoreEpoch !== this.conversationRestoreEpoch) return;
     const subscription = this.api.get<ChatSessionDetail>(
       `/sessions/${encodeURIComponent(sessionId)}?include_messages=true&include_jobs=true`,
       undefined,
@@ -4186,6 +4299,7 @@ export class ChatPanelComponent implements AfterViewInit {
     ).subscribe({
       next: (detail) => {
         if (!this.isChatContinuationCurrent(scope, generation)) return;
+        if (restoreEpoch !== this.conversationRestoreEpoch) return;
         this.chatSessionId = detail.id;
         this.chatSessionSignature = this.currentChatSessionSignature();
         this.activeChatSessionId.set(detail.id);
@@ -4216,10 +4330,12 @@ export class ChatPanelComponent implements AfterViewInit {
             this.startDeepRetrievalPolling(msg.id, jobId, pollUrl || null);
           }
         }
+        this.endConversationRestore(restoreEpoch);
         this.focusComposer();
       },
       error: () => {
         if (!this.isChatContinuationCurrent(scope, generation)) return;
+        this.endConversationRestore(restoreEpoch);
         this.toast.error(this.i18n.t('chat.toast.load_failed'), this.i18n.t('chat.title'));
       },
     });
@@ -4340,7 +4456,9 @@ export class ChatPanelComponent implements AfterViewInit {
     this.activeHitlMessagePolls.clear();
     this.chatSessionId = null;
     this.chatSessionSignature = null;
-    this.creatingChatSession = false;
+    this.creatingChatSession.set(false);
+    this.conversationRestoreEpoch += 1;
+    this.endConversationRestore();
     this.chatSessions.set([]);
     this.chatSessionsLoading.set(false);
     this.activeChatSessionId.set(null);
@@ -4374,6 +4492,10 @@ export class ChatPanelComponent implements AfterViewInit {
     this.chatWorkspaceSubscriptions = new Subscription();
     for (const timer of this.chatPollingTimers) clearTimeout(timer);
     this.chatPollingTimers.clear();
+    // The restore watchdog lives in the same timer set; forget the handle too,
+    // or the next restore would see one still armed and never re-arm it.
+    this.conversationRestoreWatchdog = null;
+    this.conversationRestoreEpoch += 1;
   }
 
   /**
@@ -6597,7 +6719,7 @@ export class ChatPanelComponent implements AfterViewInit {
 
   send(): void {
     const text = this.userInput.trim();
-    if (!text || this.streaming() || this.creatingChatSession) return;
+    if (!text || this.streaming() || !this.conversationReady()) return;
 
     const nextSignature = this.currentChatSessionSignature();
     if (this.chatSessionSignature !== nextSignature) {
@@ -6607,7 +6729,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (!this.chatSessionId) {
       const scope = this.workspace.captureRequestScope();
       const generation = this.chatWorkspaceGeneration;
-      this.creatingChatSession = true;
+      this.creatingChatSession.set(true);
       const subscription = this.api
         .post<ChatSessionSummary>(
           '/sessions',
@@ -6621,12 +6743,12 @@ export class ChatPanelComponent implements AfterViewInit {
             this.activeChatSessionId.set(session.id);
             this.storeSelectedSessionId(session.id, scope.workspaceSlug);
             this.chatSessions.update((sessions) => [session, ...sessions.filter((item) => item.id !== session.id)]);
-            this.creatingChatSession = false;
+            this.creatingChatSession.set(false);
             this.send();
           },
           error: () => {
             if (!this.isChatContinuationCurrent(scope, generation)) return;
-            this.creatingChatSession = false;
+            this.creatingChatSession.set(false);
             this.toast.error(this.i18n.t('chat.toast.create_failed'), this.i18n.t('chat.title'));
           },
         });
@@ -6760,6 +6882,13 @@ export class ChatPanelComponent implements AfterViewInit {
             buffer += chunk.content;
             this.streamBuffer.set(buffer);
             if (this.ttsEnabled()) this.maybeFlushSentences(buffer);
+          } else if (chunk.chunk_type === 'answer_replace' && typeof chunk.content === 'string') {
+            // The backend applies its response-policy guard after generation.
+            // Replace the streamed draft when that guard removes prompt echoes
+            // or other internal mechanics so the completed bubble matches the
+            // canonical, persisted answer.
+            buffer = chunk.content;
+            this.streamBuffer.set(buffer);
           } else if (chunk.chunk_type === 'decision_step' && chunk.decision_step) {
             const step = chunk.decision_step as DecisionStep;
             reasoning = upsertStep(reasoning, step);
