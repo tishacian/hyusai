@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.iam.roles import is_admin_template
+from app.core.logging import get_logger
 from app.db.base import get_db
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
@@ -34,6 +35,7 @@ from app.services.systems.bootstrap import ensure_workspace_chat_system_default
 from app.services.table_intelligence import TableQueryEngine
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 class KnowledgeScopePayload(BaseModel):
@@ -274,8 +276,18 @@ def patch_knowledge_scopes(
     db.refresh(workspace)
     # The always-on chat System folds its manifest's retrieval_defaults on
     # every turn; refresh it here so a scope edit (top_k, mode) is the budget
-    # actually used instead of a stale snapshot from the last seed run.
-    ensure_workspace_chat_system_default(db, workspace.id)
+    # actually used instead of a stale snapshot from the last seed run. Scope
+    # persistence is authoritative, though: an unavailable optional skill in a
+    # legacy/seeded System must not turn the already-committed settings save
+    # into a misleading 500 response.
+    try:
+        ensure_workspace_chat_system_default(db, workspace.id)
+    except Exception:  # noqa: BLE001 - committed scope save; refresh is best-effort.
+        db.rollback()
+        logger.exception(
+            "knowledge_scopes.chat_system_refresh_failed",
+            workspace_id=workspace.id,
+        )
     return _serialize_scopes(workspace=workspace, db=db)
 
 
