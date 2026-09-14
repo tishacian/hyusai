@@ -12,6 +12,23 @@ The source plan is `docs/agentium-simplification-audit-2026-09-11.md`. The
 implementation evidence is tracked in
 `docs/agentium-simplification-implementation-progress.md`.
 
+> ## Start here: the recommended concrete demo
+>
+> **[`docs/agentium-pump-incident-demo-runbook.md`](agentium-pump-incident-demo-runbook.md)**
+> is the recommended demonstration to run in front of an evaluator, and the
+> runnable demo kit that backs it is
+> **[`demo-assets/pump-incident-demo/`](../demo-assets/pump-incident-demo/README.md)**.
+>
+> That runbook supersedes the generic script in section 4 of this guide for any
+> real session. It ships the source documents to upload, exact click-by-click
+> navigation, the exact prompts, the expected answer facts with the source that
+> must support each one, pass/fail checks, a failure and recovery drill, reset and
+> troubleshooting instructions, a capability coverage matrix, a modeled ROI with
+> visible formulas, and an evaluator scorecard.
+>
+> Section 4 below remains useful as the shortest possible product tour when you
+> have no prepared corpus. Use the runbook whenever you can prepare.
+
 ## 1. Is the entire simplification plan finished?
 
 **Yes for the planned P0–P2 simplification scope.** The implementation and the
@@ -89,7 +106,10 @@ Prepare these before presenting:
 - A test user that belongs to a dedicated demo workspace.
 - One working LLM provider. Ollama is convenient for a private local demo; a
   cloud provider needs a demo-only API key.
-- One small, non-confidential PDF, DOCX, TXT, or Markdown document.
+- One small, non-confidential PDF, DOCX, TXT, or Markdown document. The
+  recommended set is the prepared corpus in
+  [`demo-assets/pump-incident-demo/upload/`](../demo-assets/pump-incident-demo/README.md),
+  which is synthetic by construction and already covers PDF, Markdown and CSV.
 - An empty or disposable workspace so the setup and recovery story is visible.
 
 Do not use production credentials or a customer workspace in a public demo.
@@ -136,7 +156,15 @@ Before the audience joins:
 If any check fails, do not improvise claims. Show the recovery state or switch
 to a previously validated workspace.
 
-## 4. Recommended 15-minute product demo
+## 4. Generic 15-minute product tour
+
+> **Prefer the concrete demo.** For a prepared session, run
+> [`docs/agentium-pump-incident-demo-runbook.md`](agentium-pump-incident-demo-runbook.md)
+> with the kit in
+> [`demo-assets/pump-incident-demo/`](../demo-assets/pump-incident-demo/README.md).
+> This section is the fallback tour for when you have no prepared corpus, for
+> example an impromptu walkthrough on an unfamiliar machine.
+
 
 ### Act 1 — Start with a useful action (1 minute)
 
@@ -379,7 +407,9 @@ Priority order:
 
 ## 9. Demo scorecard
 
-Use this after every rehearsal or customer session.
+Use this after every rehearsal or customer session. For a prepared session, the
+longer before/after evaluator scorecard is in section 12 of
+[`docs/agentium-pump-incident-demo-runbook.md`](agentium-pump-incident-demo-runbook.md).
 
 | Check | Target | Result |
 | --- | --- | --- |

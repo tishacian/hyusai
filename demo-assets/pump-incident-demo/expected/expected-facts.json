@@ -1,0 +1,411 @@
+{
+  "kit": "Agentium pump-incident demo kit",
+  "kit_version": "1.0",
+  "data_notice": "Every company, person, site, identifier, price and date in this kit is synthetic and was invented for an Agentium product demonstration. No customer or confidential data is present.",
+  "scenario": {
+    "summary": "A field-service team at Nordvane Fluid Systems SA must decide how to restore boiler feed-water pump NVX-PUMP-7742 at Helioforge Paper Mill after P1 incident NVX-INC-4821, without breaching service-level policy SLA-PLATINUM-04.",
+    "why_multi_source": "No single uploaded document contains the decision. The measurement is in the incident brief, the restart rule and repair requirements are in the procedure PDF, the deadline and penalty are in the service-level policy, the part availability is in the inventory CSV, and the approval rule for the temporary measure is in the French service note."
+  },
+  "upload_order": [
+    {
+      "step": 1,
+      "batch": "core",
+      "path": "upload/01-incident-brief-NVX-INC-4821.md",
+      "extension": ".md",
+      "role": "Incident facts and on-site measurements"
+    },
+    {
+      "step": 2,
+      "batch": "core",
+      "path": "upload/02-safety-procedure-PROC-SAFE-118.pdf",
+      "extension": ".pdf",
+      "role": "Safety and maintenance procedure. Generated text-layer PDF used for the visual citation and source preview."
+    },
+    {
+      "step": 3,
+      "batch": "core",
+      "path": "upload/03-service-level-policy-SLA-PLATINUM-04.md",
+      "extension": ".md",
+      "role": "Response, restoration and service-credit commitments"
+    },
+    {
+      "step": 4,
+      "batch": "core",
+      "path": "upload/04-spare-parts-inventory-NVX-2026-03.csv",
+      "extension": ".csv",
+      "role": "Structured spare-parts stock and transfer lead times"
+    },
+    {
+      "step": 5,
+      "batch": "core",
+      "path": "upload/06-unrelated-fleet-vehicle-policy-POL-FLEET-22.md",
+      "extension": ".md",
+      "role": "Deliberately unrelated control document. It must never support an answer about NVX-INC-4821."
+    },
+    {
+      "step": 6,
+      "batch": "french",
+      "path": "upload/05-note-de-service-NOTE-SVC-77.md",
+      "extension": ".md",
+      "role": "French-language service note. Uploaded before the EN/FR act."
+    }
+  ],
+  "identifiers": [
+    {
+      "id": "NVX-INC-4821",
+      "meaning": "The P1 incident being resolved. Deliberately named in only one uploaded file so exact-reference retrieval is unambiguous.",
+      "primary_source": "upload/01-incident-brief-NVX-INC-4821.md",
+      "also_appears_in": []
+    },
+    {
+      "id": "NVX-PUMP-7742",
+      "meaning": "The failed boiler feed-water pump",
+      "primary_source": "upload/01-incident-brief-NVX-INC-4821.md",
+      "also_appears_in": [
+        "upload/04-spare-parts-inventory-NVX-2026-03.csv"
+      ]
+    },
+    {
+      "id": "SITE-AUR-02",
+      "meaning": "Site Aurelia North, where the incident is open",
+      "primary_source": "upload/01-incident-brief-NVX-INC-4821.md",
+      "also_appears_in": [
+        "upload/04-spare-parts-inventory-NVX-2026-03.csv"
+      ]
+    },
+    {
+      "id": "PROC-SAFE-118",
+      "meaning": "Safety and maintenance procedure for seal replacement",
+      "primary_source": "upload/02-safety-procedure-PROC-SAFE-118.pdf",
+      "also_appears_in": [
+        "upload/04-spare-parts-inventory-NVX-2026-03.csv",
+        "upload/05-note-de-service-NOTE-SVC-77.md"
+      ]
+    },
+    {
+      "id": "SLA-PLATINUM-04",
+      "meaning": "Platinum rotating-equipment service level policy",
+      "primary_source": "upload/03-service-level-policy-SLA-PLATINUM-04.md",
+      "also_appears_in": [
+        "upload/01-incident-brief-NVX-INC-4821.md",
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf",
+        "upload/05-note-de-service-NOTE-SVC-77.md"
+      ]
+    },
+    {
+      "id": "SEAL-KIT-3309",
+      "meaning": "The mandatory spare part for the permanent repair",
+      "primary_source": "upload/04-spare-parts-inventory-NVX-2026-03.csv",
+      "also_appears_in": [
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf"
+      ]
+    },
+    {
+      "id": "HUB-LYS",
+      "meaning": "Lysande regional hub, the only location holding SEAL-KIT-3309",
+      "primary_source": "upload/04-spare-parts-inventory-NVX-2026-03.csv",
+      "also_appears_in": []
+    },
+    {
+      "id": "DEPOT-AUR",
+      "meaning": "Aurelia North local depot, which has zero SEAL-KIT-3309 on hand",
+      "primary_source": "upload/04-spare-parts-inventory-NVX-2026-03.csv",
+      "also_appears_in": []
+    },
+    {
+      "id": "WORKAROUND-GP-02",
+      "meaning": "The approved temporary gland-packing measure",
+      "primary_source": "upload/02-safety-procedure-PROC-SAFE-118.pdf",
+      "also_appears_in": [
+        "upload/04-spare-parts-inventory-NVX-2026-03.csv",
+        "upload/05-note-de-service-NOTE-SVC-77.md"
+      ]
+    },
+    {
+      "id": "NOTE-SVC-77",
+      "meaning": "French service note defining approval authority and logging delay",
+      "primary_source": "upload/05-note-de-service-NOTE-SVC-77.md",
+      "also_appears_in": []
+    },
+    {
+      "id": "GBX-5501",
+      "meaning": "Conveyor gearbox spare. Scoping decoy: plentiful at the local depot but irrelevant to a pump incident.",
+      "primary_source": "upload/04-spare-parts-inventory-NVX-2026-03.csv",
+      "also_appears_in": []
+    },
+    {
+      "id": "POL-FLEET-22",
+      "meaning": "Unrelated fleet vehicle policy. Scoping control document.",
+      "primary_source": "upload/06-unrelated-fleet-vehicle-policy-POL-FLEET-22.md",
+      "also_appears_in": []
+    }
+  ],
+  "expected_facts": [
+    {
+      "id": "F1",
+      "statement": "The measured drive-end vibration on NVX-PUMP-7742 is 11.4 mm/s RMS.",
+      "supporting_sources": [
+        "upload/01-incident-brief-NVX-INC-4821.md"
+      ],
+      "evidence": {
+        "upload/01-incident-brief-NVX-INC-4821.md": [
+          "11.4 mm/s RMS"
+        ]
+      }
+    },
+    {
+      "id": "F2",
+      "statement": "Above 7.1 mm/s RMS a restart is prohibited until the mechanical repair is complete, so NVX-PUMP-7742 must not be restarted as it is.",
+      "supporting_sources": [
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf"
+      ],
+      "evidence": {
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf": [
+          "Above 7.1 mm/s RMS",
+          "Restart prohibited, mechanical repair required first"
+        ]
+      }
+    },
+    {
+      "id": "F3",
+      "statement": "The permanent repair needs spare part SEAL-KIT-3309, two certified technicians and 5.5 hours from lockout to handover.",
+      "supporting_sources": [
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf"
+      ],
+      "evidence": {
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf": [
+          "SEAL-KIT-3309",
+          "Certified technicians required",
+          "5.5 hours from lockout to handover"
+        ]
+      }
+    },
+    {
+      "id": "F4",
+      "statement": "SEAL-KIT-3309 has zero on hand at DEPOT-AUR and three units at HUB-LYS, six hours transfer to SITE-AUR-02.",
+      "supporting_sources": [
+        "upload/04-spare-parts-inventory-NVX-2026-03.csv"
+      ],
+      "evidence": {
+        "upload/04-spare-parts-inventory-NVX-2026-03.csv": [
+          "SEAL-KIT-3309,Mechanical seal kit 65 mm balanced cartridge,centrifugal_pump,NVX-PUMP-7742,DEPOT-AUR,Aurelia North local depot,0,",
+          "SEAL-KIT-3309,Mechanical seal kit 65 mm balanced cartridge,centrifugal_pump,NVX-PUMP-7742,HUB-LYS,Lysande regional hub,3,",
+          "Van transfer to SITE-AUR-02 takes 6 hours"
+        ]
+      }
+    },
+    {
+      "id": "F5",
+      "statement": "NVX-INC-4821 was opened at 2026-03-02 07:10 UTC and SLA-PLATINUM-04 requires full P1 restoration within 24 hours of the incident being opened, that is by 2026-03-03 07:10 UTC.",
+      "supporting_sources": [
+        "upload/01-incident-brief-NVX-INC-4821.md",
+        "upload/03-service-level-policy-SLA-PLATINUM-04.md"
+      ],
+      "evidence": {
+        "upload/01-incident-brief-NVX-INC-4821.md": [
+          "2026-03-02 07:10 UTC"
+        ],
+        "upload/03-service-level-policy-SLA-PLATINUM-04.md": [
+          "Within 24 hours of the incident being opened"
+        ]
+      }
+    },
+    {
+      "id": "F6",
+      "statement": "Missing the P1 restoration commitment costs EUR 6,500 for each started 12-hour block, capped at EUR 39,000 per incident.",
+      "supporting_sources": [
+        "upload/03-service-level-policy-SLA-PLATINUM-04.md"
+      ],
+      "evidence": {
+        "upload/03-service-level-policy-SLA-PLATINUM-04.md": [
+          "EUR 6,500 for each started 12-hour block",
+          "capped at EUR 39,000 per incident"
+        ]
+      }
+    },
+    {
+      "id": "F7",
+      "statement": "WORKAROUND-GP-02 may run for at most 48 hours at 60 percent of nominal flow and needs a level 3 reliability engineer's approval.",
+      "supporting_sources": [
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf"
+      ],
+      "evidence": {
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf": [
+          "48 hours",
+          "60 percent of nominal flow",
+          "Nordvane reliability engineer, level 3"
+        ]
+      }
+    },
+    {
+      "id": "F8",
+      "statement": "A temporary measure does not stop the SLA-PLATINUM-04 restoration clock.",
+      "supporting_sources": [
+        "upload/03-service-level-policy-SLA-PLATINUM-04.md",
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf"
+      ],
+      "evidence": {
+        "upload/03-service-level-policy-SLA-PLATINUM-04.md": [
+          "does **not** stop the restoration clock"
+        ],
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf": [
+          "WORKAROUND-GP-02 is not a repair"
+        ]
+      }
+    },
+    {
+      "id": "F9",
+      "statement": "For the Aurelia region the designated level 3 reliability engineer is Yara Oduya, and the approval must be recorded in the intervention log within 30 minutes.",
+      "supporting_sources": [
+        "upload/05-note-de-service-NOTE-SVC-77.md"
+      ],
+      "evidence": {
+        "upload/05-note-de-service-NOTE-SVC-77.md": [
+          "Yara Oduya",
+          "30 minutes"
+        ]
+      }
+    },
+    {
+      "id": "F10",
+      "statement": "GBX-5501 is a conveyor gearbox spare and is not relevant to a pump incident, even though six units sit at the local depot.",
+      "supporting_sources": [
+        "upload/04-spare-parts-inventory-NVX-2026-03.csv"
+      ],
+      "evidence": {
+        "upload/04-spare-parts-inventory-NVX-2026-03.csv": [
+          "GBX-5501,Conveyor gearbox ratio 1:31 helical,conveyor_drive,NVX-CONV-3120,DEPOT-AUR,Aurelia North local depot,6,",
+          "Conveyor line spare, unrelated to any pump incident"
+        ]
+      }
+    }
+  ],
+  "corpus_must_not_contain": {
+    "reason": "Prompt P4 asks for warranty information on purpose. The corpus must contain no warranty or OEM contact information, so a correct system abstains instead of inventing an answer.",
+    "terms": [
+      "warranty",
+      "warranties",
+      "garantie",
+      "OEM contact",
+      "manufacturer contact"
+    ]
+  },
+  "prompts": [
+    {
+      "id": "P1",
+      "act": "Grounded decision",
+      "locale": "en",
+      "prompt": "For incident NVX-INC-4821 on pump NVX-PUMP-7742, can the pump be restarted now, which spare part is required, where is that part in stock, and by when must the repair be finished under SLA-PLATINUM-04?",
+      "expects_facts": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6"
+      ],
+      "must_cite_any_of": [
+        "upload/01-incident-brief-NVX-INC-4821.md",
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf",
+        "upload/03-service-level-policy-SLA-PLATINUM-04.md",
+        "upload/04-spare-parts-inventory-NVX-2026-03.csv"
+      ],
+      "must_not_cite": [
+        "upload/06-unrelated-fleet-vehicle-policy-POL-FLEET-22.md"
+      ],
+      "behaviour": "Answers with a restart refusal, the part, the stock location and the deadline, each attached to a citation."
+    },
+    {
+      "id": "P2",
+      "act": "Follow-up in the same conversation",
+      "locale": "en",
+      "prompt": "If that part cannot arrive before the deadline, which temporary measure is allowed, what are its limits, and does it stop the restoration clock?",
+      "expects_facts": [
+        "F7",
+        "F8"
+      ],
+      "must_cite_any_of": [
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf",
+        "upload/03-service-level-policy-SLA-PLATINUM-04.md"
+      ],
+      "must_not_cite": [
+        "upload/06-unrelated-fleet-vehicle-policy-POL-FLEET-22.md"
+      ],
+      "behaviour": "Resolves 'that part' from the previous turn without the identifier being repeated."
+    },
+    {
+      "id": "P3",
+      "act": "Exact-reference retrieval and scoping",
+      "locale": "en",
+      "prompt": "Show the inventory line for SEAL-KIT-3309 and the inventory line for GBX-5501. Which of the two is relevant to NVX-INC-4821, and why?",
+      "expects_facts": [
+        "F4",
+        "F10"
+      ],
+      "must_cite_any_of": [
+        "upload/04-spare-parts-inventory-NVX-2026-03.csv"
+      ],
+      "must_not_cite": [
+        "upload/06-unrelated-fleet-vehicle-policy-POL-FLEET-22.md"
+      ],
+      "behaviour": "Retrieves both exact part identifiers and rules GBX-5501 out as a conveyor part."
+    },
+    {
+      "id": "P4",
+      "act": "Unsupported question, safe abstention",
+      "locale": "en",
+      "prompt": "What is the remaining manufacturer warranty period on NVX-PUMP-7742, and who is the warranty contact at the pump manufacturer?",
+      "expects_facts": [],
+      "must_cite_any_of": [],
+      "must_not_cite": [],
+      "behaviour": "States that the uploaded sources do not contain warranty information instead of producing a figure or a contact name."
+    },
+    {
+      "id": "P5",
+      "act": "French answer over the same workspace",
+      "locale": "fr",
+      "prompt": "Pour l'incident NVX-INC-4821, qui doit approuver la mesure temporaire WORKAROUND-GP-02 et dans quel délai l'approbation doit-elle être consignée ?",
+      "expects_facts": [
+        "F9",
+        "F7"
+      ],
+      "must_cite_any_of": [
+        "upload/05-note-de-service-NOTE-SVC-77.md",
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf"
+      ],
+      "must_not_cite": [
+        "upload/06-unrelated-fleet-vehicle-policy-POL-FLEET-22.md"
+      ],
+      "behaviour": "Answers in French, citing the French note and the English procedure."
+    },
+    {
+      "id": "P6",
+      "act": "Recovery after a forced model connection failure",
+      "locale": "en",
+      "prompt": "Repeat the restoration plan for NVX-INC-4821 as a numbered checklist a technician can follow on site.",
+      "expects_facts": [
+        "F2",
+        "F3",
+        "F4",
+        "F5"
+      ],
+      "must_cite_any_of": [
+        "upload/01-incident-brief-NVX-INC-4821.md",
+        "upload/02-safety-procedure-PROC-SAFE-118.pdf",
+        "upload/03-service-level-policy-SLA-PLATINUM-04.md",
+        "upload/04-spare-parts-inventory-NVX-2026-03.csv"
+      ],
+      "must_not_cite": [
+        "upload/06-unrelated-fleet-vehicle-policy-POL-FLEET-22.md"
+      ],
+      "behaviour": "Fails safely first, keeps the typed question, then returns a cited answer after Try again."
+    }
+  ],
+  "system_build": {
+    "name": "Field Service Incident Advisor",
+    "objective": "Answer field-service questions about open pump incidents using only the Nordvane incident briefs, safety procedures, service-level policies and spare-parts inventory in this workspace, and always cite the source.",
+    "knowledge_collection": "documents"
+  },
+  "roi_source": "roi/roi-assumptions.json",
+  "roi_report": "roi/roi-model.md"
+}
