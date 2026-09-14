@@ -54,12 +54,14 @@ class ActivationTelemetryStub {
 
 class HttpStub {
   readonly uploads: Array<Subject<UploadResult>> = [];
+  readonly posts: Array<{ url: string; body: unknown }> = [];
 
   get() {
     return of({ collections: [], items: [], vector_db_type: 'qdrant' });
   }
 
-  post(_url: string, _body: unknown) {
+  post(url: string, body: unknown) {
+    this.posts.push({ url, body });
     const request = new Subject<UploadResult>();
     this.uploads.push(request);
     return request.asObservable();
@@ -69,6 +71,7 @@ class HttpStub {
 function makeHarness() {
   const http = new HttpStub();
   const activation = new ActivationTelemetryStub();
+  const errorMessages: string[] = [];
   const injector = Injector.create({
     providers: [
       KnowledgeBaseComponent,
@@ -76,13 +79,17 @@ function makeHarness() {
       { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
       {
         provide: ToastrService,
-        useValue: { success: () => undefined, warning: () => undefined, error: () => undefined },
+        useValue: {
+          success: () => undefined,
+          warning: () => undefined,
+          error: (message: string) => errorMessages.push(message),
+        },
       },
       { provide: ProductTelemetryService, useValue: activation },
     ],
   });
   const component = injector.get(KnowledgeBaseComponent);
-  return { injector, component, http, activation };
+  return { injector, component, http, activation, errorMessages };
 }
 
 function upload(component: KnowledgeBaseComponent): void {
@@ -95,6 +102,24 @@ function upload(component: KnowledgeBaseComponent): void {
     },
   } as unknown as FileList);
 }
+
+test('collection creation sends a canonical body and renders structured errors safely', () => {
+  const { injector, component, http, errorMessages } = makeHarness();
+  try {
+    component.newCollectionDraftValue = 'pump-incident-demo';
+    component.createCollection();
+
+    assert.deepEqual(http.posts[0], {
+      url: '/api/v1/documents/collections',
+      body: { name: 'pump-incident-demo' },
+    });
+
+    http.uploads[0].error({ error: { detail: [{ msg: 'Field required' }] } });
+    assert.deepEqual(errorMessages, ['Field required']);
+  } finally {
+    injector.destroy();
+  }
+});
 
 test('an indexed batch records knowledge added exactly once', () => {
   const { injector, component, http, activation } = makeHarness();

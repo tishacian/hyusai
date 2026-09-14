@@ -7,6 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { apiErrorMessage } from '@app/core/api-error-message';
 import { I18nService } from '@app/core/i18n.service';
 import { ProductTelemetryService } from '@app/core/product-telemetry.service';
 import { HttpClient } from '@angular/common/http';
@@ -969,7 +970,7 @@ export class KnowledgeBaseComponent implements OnInit {
           this.collections.set([]);
           this.vectorDbType.set('');
           this.collectionsError.set(
-            err?.error?.detail || this.i18n.t('knowledge.collections.error.description'),
+            apiErrorMessage(err, this.i18n.t('knowledge.collections.error.description')),
           );
           this.loadingCollections.set(false);
         },
@@ -1092,8 +1093,8 @@ export class KnowledgeBaseComponent implements OnInit {
     this.creating.set(true);
     this.http
       .post<{ status: string }>(
-        `${this.base}/collections?collection_name=${encodeURIComponent(name)}`,
-        {},
+        `${this.base}/collections`,
+        { name },
       )
       .subscribe({
         next: () => {
@@ -1108,7 +1109,7 @@ export class KnowledgeBaseComponent implements OnInit {
         },
         error: (err) => {
           this.toast.error(
-            err?.error?.detail || this.i18n.t('knowledge.toast.create_failed'),
+            apiErrorMessage(err, this.i18n.t('knowledge.toast.create_failed')),
             this.i18n.t('knowledge.title'),
           );
           this.creating.set(false);
@@ -1153,7 +1154,7 @@ export class KnowledgeBaseComponent implements OnInit {
         },
         error: (err) => {
           this.toast.error(
-            err?.error?.detail || this.i18n.t('knowledge.toast.delete_failed'),
+            apiErrorMessage(err, this.i18n.t('knowledge.toast.delete_failed')),
             this.i18n.t('knowledge.title'),
           );
           this.deleteCollectionTarget.set(null);
@@ -1197,7 +1198,7 @@ export class KnowledgeBaseComponent implements OnInit {
           this.browseOffset.set(safeOffset);
           this.browseHasMore.set(false);
           this.browseError.set(
-            err?.error?.detail || this.i18n.t('knowledge.browse.error.description'),
+            apiErrorMessage(err, this.i18n.t('knowledge.browse.error.description')),
           );
           this.browseLoading.set(false);
         },
@@ -1223,7 +1224,7 @@ export class KnowledgeBaseComponent implements OnInit {
           this.previewLoading.set(false);
         },
         error: (err) => {
-          this.previewError.set(err?.error?.detail ?? this.i18n.t('knowledge.preview.error'));
+          this.previewError.set(apiErrorMessage(err, this.i18n.t('knowledge.preview.error')));
           this.previewLoading.set(false);
         },
       });
@@ -1253,7 +1254,7 @@ export class KnowledgeBaseComponent implements OnInit {
         },
         error: (err) => {
           this.toast.error(
-            err?.error?.detail || this.i18n.t('knowledge.toast.delete_failed'),
+            apiErrorMessage(err, this.i18n.t('knowledge.toast.delete_failed')),
             this.i18n.t('knowledge.title'),
           );
           this.deleteDocTarget.set(null);
@@ -1311,7 +1312,10 @@ export class KnowledgeBaseComponent implements OnInit {
           this.searching.set(false);
         },
         error: (err) => {
-          const message = err?.error?.detail || this.i18n.t('knowledge.search.error.description');
+          const message = apiErrorMessage(
+            err,
+            this.i18n.t('knowledge.search.error.description'),
+          );
           this.searchResults.set([]);
           this.searchError.set(message);
           this.toast.error(message, this.i18n.t('knowledge.title'));
