@@ -287,6 +287,34 @@ test('ChatKnowledge cancels the A write chain before a late response can continu
   assert.equal(workspace.resetterCount(), 0);
 });
 
+test('ChatKnowledge serializes the canonical voice pack in workspace defaults', () => {
+  const { injector, component, api, workspace } = createHarness();
+  try {
+    component.saveAll();
+    api.scopeWrites[0].next({ status: 'ok' });
+
+    const voiceLoop = workspace.settingsCalls[0].settings['voice_loop'] as Record<string, unknown>;
+    assert.deepEqual(voiceLoop['command_packs'], ['global_voice_v1']);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('ChatKnowledge renders structured workspace validation errors as readable text', () => {
+  const { injector, component, api, workspace } = createHarness();
+  try {
+    component.saveAll();
+    api.scopeWrites[0].next({ status: 'ok' });
+    workspace.settingsWrites[0].error({
+      error: { detail: [{ msg: 'Value error, Unknown action pack: generic' }] },
+    });
+
+    assert.equal(component.error(), 'Unknown action pack: generic');
+  } finally {
+    injector.destroy();
+  }
+});
+
 test('ChatKnowledge pins and cancels post-save reloads so late A reads cannot repopulate B', () => {
   const { injector, component, api, workspace, successMessages } = createHarness();
   const i18n = injector.get(I18nService);

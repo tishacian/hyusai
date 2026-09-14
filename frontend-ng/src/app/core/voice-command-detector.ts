@@ -31,7 +31,12 @@ export function detectVoiceCommand(
   const hasTrigger = !!triggerWord && (commandText === triggerWord || commandText.startsWith(`${triggerWord} `));
   if (hasTrigger) commandText = commandText.slice(triggerWord.length).trim();
 
-  const genericCommandsEnabled = voiceCommandPackEnabled(settings, ['generic', 'fr_basic', 'workspace']);
+  const genericCommandsEnabled = voiceCommandPackEnabled(settings, [
+    'global_voice_v1',
+    'generic',
+    'fr_basic',
+    'workspace',
+  ]);
   if (isNaturalStopCommand(commandText, settings.stop_phrases, genericCommandsEnabled, hasTrigger)) return 'stop';
   if (!genericCommandsEnabled) return null;
 
