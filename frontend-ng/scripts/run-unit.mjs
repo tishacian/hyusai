@@ -83,6 +83,7 @@ const pureSpecs = [
   'src/app/features/governance/experience-governance.models.spec.ts',
   'src/app/features/governance/workspace-app-lifecycle.models.spec.ts',
   'src/app/features/auth/signin-experience.spec.ts',
+  'src/app/features/auth/signin-error.spec.ts',
   'src/app/features/mission-room/mission-room.extension.spec.ts',
   'src/app/features/resources/resources.catalog.spec.ts',
   'src/app/features/resources/model-plane-reliability.spec.ts',

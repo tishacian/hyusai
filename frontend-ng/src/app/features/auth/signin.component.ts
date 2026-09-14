@@ -26,6 +26,7 @@ import {
   resolveSigninExperience,
   type SigninExperiencePresentation,
 } from './signin-experience';
+import { signinErrorKey } from './signin-error';
 
 function isMfa(r: LoginResponse): r is MfaChallengeResponse {
   return (r as MfaChallengeResponse).mfa_required === true;
@@ -620,7 +621,7 @@ export class SigninComponent implements OnDestroy {
         },
         error: (err) => {
           this.loading.set(false);
-          this.error.set(err.error?.detail || this.i18n.t('auth.signin.error.credentials'));
+          this.error.set(this.i18n.t(signinErrorKey(err)));
         },
       });
   }
