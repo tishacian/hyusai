@@ -158,8 +158,14 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                 </span>
               </span>
               <div class="t-picker-wrap">
+                <!-- The visible label is a span, and it swallows an info dot
+                     that carries no text, so aria-labelledby would name the
+                     control after a decoration. It is also display:none in the
+                     narrow simple-shell layout, where the control stays. The
+                     translated label is therefore attached directly. -->
                 <select
                   class="t-picker"
+                  [attr.aria-label]="i18n.t('chat.workspace.context_label')"
                   [ngModel]="selectedSystemId()"
                   (ngModelChange)="onSystemChange($event)"
                 >

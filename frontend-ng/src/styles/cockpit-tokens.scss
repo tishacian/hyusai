@@ -189,31 +189,41 @@ html:not(.dark),
   --ck-fg-1:        #0a0c10;
   --ck-fg-2:        #2a2f36;
   --ck-fg-3:        #5c6370;
-  --ck-fg-4:        #656b78;   /* AA: >=4.5:1 on light panels (secondary/caption text) */
+  /* AA: >=4.5:1 on light panels AND on the `--ck-tint-faint` washes that sit
+     on top of them (chat header rail, drop sidebar, chips). The previous
+     #656b78 cleared the panel and missed the wash by a hair — 4.3:1 — which
+     is where every caption in the Ask shell lives. */
+  --ck-fg-4:        #5f6674;
   --ck-fg-5:        #868d99;   /* faint tier: >=3:1 on panel surfaces */
 
-  --ck-signal-pos:    #0e9f6e;
-  --ck-signal-neg:    #d93a52;
-  --ck-signal-warn:   #c27803;
-  --ck-signal-cool:   #0e7490;
+  /* The signal tones are text as often as they are a dot or a rule, and on
+     paper that text has to clear 4.5:1 on the darkest surface it lands on
+     (`--ck-bg-inset`, and the 10–12 % status washes below). The mid-tone
+     emerald / amber / cyan / rose of the first light pass only cleared ~3:1,
+     so title-bar readouts, builder gates and status chips were failing AA
+     while looking "bright enough". Each one is darkened to the same target. */
+  --ck-signal-pos:    #04704f;
+  --ck-signal-neg:    #b82840;
+  --ck-signal-warn:   #8f5100;
+  --ck-signal-cool:   #0c6780;
   --ck-signal-violet: #7c3aed;
   --ck-signal-ice:    #0c4a6e;
 
   /* Status trios on paper: the tint stays at the same weight, the foreground
      drops to the dark-saturated tone so text keeps AA on a light pill. */
-  --ck-status-ok-fg:     #0e9f6e;
+  --ck-status-ok-fg:     #04704f;
   --ck-status-ok-bg:     rgba(14, 159, 110, 0.10);
   --ck-status-ok-line:   rgba(14, 159, 110, 0.28);
 
-  --ck-status-warn-fg:   #a35c00;
+  --ck-status-warn-fg:   #8f5100;
   --ck-status-warn-bg:   rgba(194, 120, 3, 0.12);
   --ck-status-warn-line: rgba(194, 120, 3, 0.30);
 
-  --ck-status-neg-fg:    #c22a41;
+  --ck-status-neg-fg:    #b82840;
   --ck-status-neg-bg:    rgba(217, 58, 82, 0.10);
   --ck-status-neg-line:  rgba(217, 58, 82, 0.28);
 
-  --ck-status-info-fg:   #0e7490;
+  --ck-status-info-fg:   #0c6780;
   --ck-status-info-bg:   rgba(14, 116, 144, 0.10);
   --ck-status-info-line: rgba(14, 116, 144, 0.28);
 

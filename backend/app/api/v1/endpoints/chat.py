@@ -7,12 +7,13 @@ decision: chat is not a second-class surface, its traffic is the main
 driver of Impact + quality metrics, so it must participate in the
 same Run ledger as explicit ``/runs/launch`` triggers.
 """
+
 import asyncio
 import json
 import re
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, Literal, Mapping, Optional
+from typing import Any, Literal, Mapping, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -146,7 +147,7 @@ class ChatRequest(BaseModel):
     # ``agent_id: this.systemId()`` from chat-panel.component.ts;
     # can be NULL for workspace-wide chats (Run is still created).
     agent_id: Optional[str] = None
-    agent_preferences: Optional[Dict[str, Any]] = None
+    agent_preferences: Optional[dict[str, Any]] = None
     stream: bool = True
     include_reasoning: bool = True
     include_sources: bool = True
@@ -159,7 +160,7 @@ class ChatRequest(BaseModel):
     latency_profile: Optional[Literal["fast", "balanced", "deep"]] = None
     retrieval_profile: Optional[str] = None
     deep_retrieval: Optional[bool] = None
-    retrieval_filters: Optional[Dict[str, Any]] = None
+    retrieval_filters: Optional[dict[str, Any]] = None
     similarity_threshold: Optional[float] = None
     system_prompt: Optional[str] = None
     # RAG mode: auto | naive | hybrid | hah | chah — see docs/rag-rd-papai-mapping.md
@@ -188,13 +189,13 @@ class ChatRequest(BaseModel):
     # Workspace chat source policy (reject_cross_project_sources, ...). Folded
     # server-side from the always-on chat System; clients never need to set it
     # and setting it only tightens retrieval filtering.
-    source_policy: Optional[Dict[str, Any]] = None
+    source_policy: Optional[dict[str, Any]] = None
     # Workspace/System-owned answer policy. Folded server-side from Flow Builder
     # and used to shape user-facing generation without changing the /chat input
     # contract expected by clients.
-    answer_policy: Optional[Dict[str, Any]] = None
+    answer_policy: Optional[dict[str, Any]] = None
     answer_profile: Optional[str] = None
-    answer_profile_decision: Optional[Dict[str, Any]] = None
+    answer_profile_decision: Optional[dict[str, Any]] = None
     # Answer grounding policy requested by chat-first surfaces. ``balanced`` is
     # intentionally scoped by backend policy and may be downgraded to ``strict``
     # for workspace facts, documents, actions, or sensitive/current claims.
@@ -275,7 +276,7 @@ def _response_language_instruction(language: str) -> str:
 
 
 def _apply_response_language_contract(
-    request_dict: Dict[str, Any],
+    request_dict: dict[str, Any],
     language: Literal["fr", "en"],
 ) -> None:
     request_dict["response_language"] = language
@@ -337,11 +338,11 @@ def _resolve_system_id(
     return row[0] if row else workspace_chat_system_id(db, workspace_id)
 
 
-def _as_dict(value: Any) -> Dict[str, Any]:
+def _as_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
-def _chat_flow_node(flow: Dict[str, Any], node_id: str) -> Dict[str, Any]:
+def _chat_flow_node(flow: dict[str, Any], node_id: str) -> dict[str, Any]:
     nodes = flow.get("nodes")
     if not isinstance(nodes, list):
         return {}
@@ -562,7 +563,7 @@ def _chat_session_belongs_to_scope(
     return bool(row)
 
 
-def _chat_context_signature(payload: Dict[str, Any]) -> str:
+def _chat_context_signature(payload: dict[str, Any]) -> str:
     return "|".join(
         str(part)
         for part in (
@@ -615,7 +616,7 @@ def _ensure_chat_session(
     *,
     workspace: Workspace,
     user: User,
-    request_payload: Dict[str, Any],
+    request_payload: dict[str, Any],
 ) -> ChatSession:
     candidate = request_payload.get("session_id")
     if candidate:
@@ -738,7 +739,7 @@ def _resolve_chat_context(
 
 
 def _apply_context_to_chat_request(
-    request_dict: Dict[str, Any],
+    request_dict: dict[str, Any],
     context: Optional[Context],
 ) -> None:
     """Fold a selected Context into the orchestrator request payload.
@@ -778,8 +779,7 @@ def _apply_context_to_chat_request(
         # retrieval saw an empty filter and mixed in unrelated documents.
         constraints = context.business_constraints or {}
         is_drop_and_ask = (
-            isinstance(constraints, dict)
-            and constraints.get("source") == "drop_and_ask"
+            isinstance(constraints, dict) and constraints.get("source") == "drop_and_ask"
         )
         if (
             is_drop_and_ask
@@ -807,7 +807,7 @@ def _int_budget(value: Any, default: int) -> int:
     return max(1, parsed)
 
 
-def _apply_retrieval_budget_policy(request_dict: Dict[str, Any]) -> None:
+def _apply_retrieval_budget_policy(request_dict: dict[str, Any]) -> None:
     """Clamp retrieval fan-out before any orchestrator sees the request."""
     agent_preferences = (
         request_dict.get("agent_preferences")
@@ -962,7 +962,7 @@ def _persist_trivial_bypass_turn(
 
 def _trivial_bypass_completion_payload(
     run_id: Optional[str], bypass: TrivialBypass
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     bypass_metrics = _trivial_bypass_metadata(bypass)
     return {
         "run_id": run_id,
@@ -1008,7 +1008,7 @@ def _persist_chat_run(
     duration_ms: Optional[float],
     trigger: str = "chat",
     schedule: bool = True,
-    extra_output: Optional[Dict[str, Any]] = None,
+    extra_output: Optional[dict[str, Any]] = None,
 ) -> Optional[str]:
     """Persist a canonical Run for a completed chat turn + kick off eval.
 
@@ -1127,10 +1127,10 @@ def _error_chunk(
     content: str,
     *,
     recoverable: bool = False,
-    details: Optional[Dict[str, Any]] = None,
+    details: Optional[dict[str, Any]] = None,
     is_final: bool = True,
-    error: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    error: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     return {
         "chunk_type": "error",
         "code": code,
@@ -1148,14 +1148,16 @@ def _error_chunk(
 
 
 def _collect_chat_chunk(
-    chunk: Dict[str, Any],
+    chunk: dict[str, Any],
     *,
     full_content: list[str],
-    decision_steps: list[Dict[str, Any]],
-    state: Dict[str, Any],
+    decision_steps: list[dict[str, Any]],
+    state: dict[str, Any],
 ) -> None:
     if chunk.get("chunk_type") == "text":
         full_content.append(chunk.get("content", ""))
+    elif chunk.get("chunk_type") == "answer_replace":
+        full_content[:] = [chunk.get("content", "")]
     if chunk.get("reasoning_trace"):
         state["reasoning_trace"] = chunk.get("reasoning_trace")
     if chunk.get("sources"):
@@ -1189,12 +1191,12 @@ def _collect_chat_chunk(
             decision_steps.append(decision_step)
 
 
-def _retrieval_metrics(state: Dict[str, Any]) -> Dict[str, Any]:
+def _retrieval_metrics(state: dict[str, Any]) -> dict[str, Any]:
     metrics = state.get("retrieval_metrics")
     return metrics if isinstance(metrics, dict) else {}
 
 
-def _retrieval_latency_profile(state: Dict[str, Any]) -> Optional[str]:
+def _retrieval_latency_profile(state: dict[str, Any]) -> Optional[str]:
     metrics = _retrieval_metrics(state)
     for source in (state, metrics):
         value = source.get("latency_profile") if isinstance(source, dict) else None
@@ -1206,7 +1208,7 @@ def _retrieval_latency_profile(state: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _retrieval_observability(state: Dict[str, Any]) -> Dict[str, Any]:
+def _retrieval_observability(state: dict[str, Any]) -> dict[str, Any]:
     """Flatten key RAG diagnostics onto message/run payloads.
 
     ``retrieval_metrics`` remains the full raw trace. This compact snapshot is
@@ -1214,7 +1216,7 @@ def _retrieval_observability(state: Dict[str, Any]) -> Dict[str, Any]:
     can filter on operational signals without knowing the nested shape.
     """
     metrics = _retrieval_metrics(state)
-    snapshot: Dict[str, Any] = {}
+    snapshot: dict[str, Any] = {}
     for key in _RETRIEVAL_OBSERVABILITY_KEYS:
         value = state.get(key)
         if value is None:
@@ -1230,7 +1232,7 @@ def _retrieval_observability(state: Dict[str, Any]) -> Dict[str, Any]:
     return snapshot
 
 
-def _retrieval_fallback_reason(state: Dict[str, Any]) -> Optional[Any]:
+def _retrieval_fallback_reason(state: dict[str, Any]) -> Optional[Any]:
     fallback = state.get("retrieval_fallback")
     if isinstance(fallback, str) and fallback:
         return fallback
@@ -1238,7 +1240,7 @@ def _retrieval_fallback_reason(state: Dict[str, Any]) -> Optional[Any]:
     return reason if reason else None
 
 
-def _dense_fast_degraded_reply(state: Dict[str, Any]) -> Optional[str]:
+def _dense_fast_degraded_reply(state: dict[str, Any]) -> Optional[str]:
     metrics = _retrieval_metrics(state)
     dense_policy = str(state.get("dense_policy") or metrics.get("dense_policy") or "")
     fallback_reason = str(_retrieval_fallback_reason(state) or "")
@@ -1273,7 +1275,7 @@ def _dense_fast_degraded_reply(state: Dict[str, Any]) -> Optional[str]:
     return " ".join(parts)
 
 
-def _retrieval_has_grounded_context(state: Dict[str, Any]) -> Optional[bool]:
+def _retrieval_has_grounded_context(state: dict[str, Any]) -> Optional[bool]:
     """Tri-state evidence check from the retrieval chunk telemetry.
 
     Returns None when the retrieval chunk carries no usable signal — the
@@ -1295,8 +1297,8 @@ def _retrieval_has_grounded_context(state: Dict[str, Any]) -> Optional[bool]:
 
 
 def _grounding_degraded_reply(
-    state: Dict[str, Any],
-    grounding_policy: Optional[Dict[str, Any]],
+    state: dict[str, Any],
+    grounding_policy: Optional[dict[str, Any]],
     *,
     response_language: Optional[str] = None,
     is_meta_followup: bool = False,
@@ -1317,10 +1319,7 @@ def _grounding_degraded_reply(
     if _retrieval_has_grounded_context(state) is not False:
         return None
     disclaimer = str(policy.get("fallback_disclaimer") or "").strip()
-    if (
-        (response_language or "fr") == "en"
-        and disclaimer == DEFAULT_FALLBACK_DISCLAIMER
-    ):
+    if (response_language or "fr") == "en" and disclaimer == DEFAULT_FALLBACK_DISCLAIMER:
         disclaimer = "I could not find usable sources in the selected scope; I will not answer without documentary evidence."
     if not disclaimer:
         disclaimer = (
@@ -1337,8 +1336,8 @@ def _grounding_degraded_reply(
 def _deep_refinement_preview_text(
     *,
     content: str,
-    state: Dict[str, Any],
-    grounding_policy: Optional[Dict[str, Any]],
+    state: dict[str, Any],
+    grounding_policy: Optional[dict[str, Any]],
 ) -> str:
     if state.get("grounding_state") != "no_grounded_context":
         return content
@@ -1384,7 +1383,7 @@ def _sanitize_workspace_collection_filters(
     *,
     workspace_id: str,
     retrieval_filters: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if not isinstance(retrieval_filters, dict):
         return {}
 
@@ -1422,7 +1421,7 @@ def _sanitize_workspace_collection_filters(
     return sanitized
 
 
-def _inferred_scope_filters(state: Dict[str, Any]) -> Dict[str, Any]:
+def _inferred_scope_filters(state: dict[str, Any]) -> dict[str, Any]:
     scope = state.get("retrieval_scope")
     if not isinstance(scope, dict):
         metrics_scope = _retrieval_metrics(state).get("retrieval_scope")
@@ -1430,7 +1429,7 @@ def _inferred_scope_filters(state: Dict[str, Any]) -> Dict[str, Any]:
     raw_filters = scope.get("filters") if isinstance(scope, dict) else {}
     if not isinstance(raw_filters, dict):
         return {}
-    filters: Dict[str, Any] = {}
+    filters: dict[str, Any] = {}
     for key, value in raw_filters.items():
         if key not in _SYSTEM_RETRIEVAL_FILTER_KEYS:
             continue
@@ -1441,9 +1440,9 @@ def _inferred_scope_filters(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _merge_inferred_retrieval_filters(
-    request_dict: Dict[str, Any],
-    state: Dict[str, Any],
-) -> tuple[Dict[str, Any], list[str]]:
+    request_dict: dict[str, Any],
+    state: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
     inferred = _inferred_scope_filters(state)
     if not inferred:
         return {}, []
@@ -1463,7 +1462,7 @@ def _merge_inferred_retrieval_filters(
     return merged, forwarded
 
 
-def _should_queue_auto_deep_retrieval(request_dict: Dict[str, Any], state: Dict[str, Any]) -> bool:
+def _should_queue_auto_deep_retrieval(request_dict: dict[str, Any], state: dict[str, Any]) -> bool:
     if not settings.rag_auto_deep_retrieval_enabled:
         return False
     if request_dict.get("deep_retrieval") or request_dict.get("latency_profile") == "deep":
@@ -1519,7 +1518,7 @@ def _compact_job_text(value: Any, *, max_chars: int = 1200) -> str:
     return text[: max(0, max_chars - 3)].rstrip() + "..."
 
 
-def _compact_job_sources(sources: Any, *, limit: int = 8) -> list[Dict[str, Any]]:
+def _compact_job_sources(sources: Any, *, limit: int = 8) -> list[dict[str, Any]]:
     if not isinstance(sources, list):
         return []
     allowed = (
@@ -1559,11 +1558,11 @@ def _compact_job_sources(sources: Any, *, limit: int = 8) -> list[Dict[str, Any]
         "section",
         "section_title",
     }
-    compact: list[Dict[str, Any]] = []
+    compact: list[dict[str, Any]] = []
     for raw in sources[: max(0, limit)]:
         if not isinstance(raw, dict):
             continue
-        item: Dict[str, Any] = {}
+        item: dict[str, Any] = {}
         for key in allowed:
             value = raw.get(key)
             if value is None:
@@ -1588,12 +1587,12 @@ def _queue_auto_deep_retrieval_job(
     db: Session,
     workspace: Workspace,
     user: Optional[User],
-    request_dict: Dict[str, Any],
-    state: Dict[str, Any],
+    request_dict: dict[str, Any],
+    state: dict[str, Any],
     partial_answer: Optional[str] = None,
     partial_sources: Any = None,
     parent_message_id: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     if not _should_queue_auto_deep_retrieval(request_dict, state):
         return None
 
@@ -1648,7 +1647,7 @@ def _queue_auto_deep_retrieval_job(
         db.flush()
         message_id = placeholder.id
     compact_sources = _compact_job_sources(partial_sources)
-    partial_result: Dict[str, Any] = {}
+    partial_result: dict[str, Any] = {}
     if partial_answer and partial_answer.strip():
         answer_preview = " ".join(partial_answer.split())
         partial_result["answer_preview"] = (
@@ -1725,7 +1724,7 @@ def _vigie_executive_quick_reply(
     query: str,
     *,
     assistant_profile: Optional[str],
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     """Return a generic data-driven fallback reply for vigie_executive prompts.
 
     This is intentionally a **safety net only**. Business-specific narratives
@@ -1926,7 +1925,7 @@ async def _maybe_agentic_chat_completion(
     workspace: Workspace,
     request: "ChatRequest",
     query: str,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     """Dispatch a niche chat turn through the seeded agentic DAG System.
 
     Returns a ``/chat`` completion payload on success, or ``None`` to signal
@@ -2311,7 +2310,7 @@ def _apply_agentic_classic_fallback_scope(
     return collection
 
 
-def _previous_answered_turn(db: Session, *, session_id: str) -> Optional[Dict[str, Any]]:
+def _previous_answered_turn(db: Session, *, session_id: str) -> Optional[dict[str, Any]]:
     """Last answered turn of the session an expert correction can attach to.
 
     Correction acknowledgements are skipped: they acquit a fiche, they are not
@@ -2351,7 +2350,7 @@ async def _consume_expert_teaching_turn(
     user: User,
     request: ChatRequest,
     query: str,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     """Capture an expert teaching turn as a fiche instead of a new query.
 
     An expert who answers the assistant ("Pour ta connaissance, sur un J1 on
@@ -3026,15 +3025,15 @@ async def chat_completion(
         if not execution_decision.is_agentic or agentic_fallback_metadata:
             _apply_agentic_classic_fallback_scope(request_dict, execution_decision)
         if request.assistant_profile in {"vigie_executive", "octave_executive"}:
-            request_dict.setdefault("context", {})[
-                "workspace_calendar"
-            ] = calendar_context_for_chat(db, workspace)
+            request_dict.setdefault("context", {})["workspace_calendar"] = (
+                calendar_context_for_chat(db, workspace)
+            )
             request_dict.setdefault("context", {})["workspace_actions"] = action_context_for_chat(
                 db, workspace
             )
-            request_dict.setdefault("context", {})[
-                "workspace_visual_observations"
-            ] = visual_context_for_chat(db, workspace)
+            request_dict.setdefault("context", {})["workspace_visual_observations"] = (
+                visual_context_for_chat(db, workspace)
+            )
         grounding_policy = resolve_grounding_policy(
             query=validated_query,
             workspace=workspace,
@@ -3080,7 +3079,7 @@ async def chat_completion(
         import time
 
         pipeline_start_time = None
-        chunk_state: Dict[str, Any] = {
+        chunk_state: dict[str, Any] = {
             "reasoning_trace": None,
             "sources": None,
             "rag_context": None,
@@ -4588,7 +4587,7 @@ async def chat_stream(
             all_chunks = []
             decision_steps = []  # Collect all decision pipeline steps
             pipeline_start_time = None
-            chunk_state: Dict[str, Any] = {
+            chunk_state: dict[str, Any] = {
                 "reasoning_trace": None,
                 "sources": None,
                 "rag_context": None,
@@ -4840,6 +4839,18 @@ async def chat_stream(
                     else None,
                 )
                 full_content[:] = [sanitized_content]
+                if sanitized_content != raw_stream_content:
+                    # Streaming is optimistic; the policy guard runs with the
+                    # complete answer.  Reconcile the client with the canonical
+                    # persisted text when prompt echoes or internal diagnostics
+                    # were removed.
+                    yield _sse_data(
+                        {
+                            "chunk_type": "answer_replace",
+                            "content": sanitized_content,
+                            "is_final": False,
+                        }
+                    )
                 chunk_state["answer_profile"] = request_dict.get("answer_profile")
                 chunk_state["answer_profile_decision"] = request_dict.get("answer_profile_decision")
                 chunk_state["answer_policy_applied"] = bool(request_dict.get("answer_policy"))

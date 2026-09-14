@@ -13,6 +13,14 @@ whose run or Skill is gone stay NULL — a NULL is the truth about them.
 
 Revision ID: 099_data_plane_attached
 Revises: 098_ml_predictions
+
+Cross-dialect note (2026-09-13): the three columns were added with a bare
+``op.add_column(..., sa.ForeignKey(...))``. The foreign keys were already
+named — the downgrade drops them by name — but the operation still resolves
+to an ALTER TABLE ... ADD CONSTRAINT, which SQLite does not have, so a clean
+bootstrap stopped here. Both directions now go through ``batch_alter_table``:
+unchanged ALTERs on PostgreSQL, copy-and-move on SQLite, same constraint
+names either way.
 """
 
 from __future__ import annotations
@@ -28,49 +36,49 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "tabular_datasets",
-        sa.Column(
-            "system_id",
-            sa.String(36),
-            sa.ForeignKey(
-                "systems.id",
-                ondelete="SET NULL",
-                name="fk_tabular_datasets_system_id_systems",
+    with op.batch_alter_table("tabular_datasets") as batch:
+        batch.add_column(
+            sa.Column(
+                "system_id",
+                sa.String(36),
+                sa.ForeignKey(
+                    "systems.id",
+                    ondelete="SET NULL",
+                    name="fk_tabular_datasets_system_id_systems",
+                ),
+                nullable=True,
             ),
-            nullable=True,
-        ),
-    )
+        )
     op.create_index("ix_tabular_datasets_system_id", "tabular_datasets", ["system_id"])
 
-    op.add_column(
-        "ml_models",
-        sa.Column(
-            "system_id",
-            sa.String(36),
-            sa.ForeignKey(
-                "systems.id",
-                ondelete="SET NULL",
-                name="fk_ml_models_system_id_systems",
+    # One batch for both ml_models columns: on SQLite each batch is a table
+    # copy, and there is no reason to pay for two.
+    with op.batch_alter_table("ml_models") as batch:
+        batch.add_column(
+            sa.Column(
+                "system_id",
+                sa.String(36),
+                sa.ForeignKey(
+                    "systems.id",
+                    ondelete="SET NULL",
+                    name="fk_ml_models_system_id_systems",
+                ),
+                nullable=True,
             ),
-            nullable=True,
-        ),
-    )
+        )
+        batch.add_column(
+            sa.Column(
+                "published_skill_id",
+                sa.String(36),
+                sa.ForeignKey(
+                    "skills.id",
+                    ondelete="SET NULL",
+                    name="fk_ml_models_published_skill_id_skills",
+                ),
+                nullable=True,
+            ),
+        )
     op.create_index("ix_ml_models_system_id", "ml_models", ["system_id"])
-
-    op.add_column(
-        "ml_models",
-        sa.Column(
-            "published_skill_id",
-            sa.String(36),
-            sa.ForeignKey(
-                "skills.id",
-                ondelete="SET NULL",
-                name="fk_ml_models_published_skill_id_skills",
-            ),
-            nullable=True,
-        ),
-    )
     op.create_index("ix_ml_models_published_skill_id", "ml_models", ["published_skill_id"])
 
     # Backfill from what the rows already said, through the run and the slug.
@@ -104,15 +112,14 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_ml_models_published_skill_id", table_name="ml_models")
-    op.drop_constraint(
-        "fk_ml_models_published_skill_id_skills", "ml_models", type_="foreignkey"
-    )
-    op.drop_column("ml_models", "published_skill_id")
     op.drop_index("ix_ml_models_system_id", table_name="ml_models")
-    op.drop_constraint("fk_ml_models_system_id_systems", "ml_models", type_="foreignkey")
-    op.drop_column("ml_models", "system_id")
+    with op.batch_alter_table("ml_models") as batch:
+        batch.drop_constraint("fk_ml_models_published_skill_id_skills", type_="foreignkey")
+        batch.drop_column("published_skill_id")
+        batch.drop_constraint("fk_ml_models_system_id_systems", type_="foreignkey")
+        batch.drop_column("system_id")
+
     op.drop_index("ix_tabular_datasets_system_id", table_name="tabular_datasets")
-    op.drop_constraint(
-        "fk_tabular_datasets_system_id_systems", "tabular_datasets", type_="foreignkey"
-    )
-    op.drop_column("tabular_datasets", "system_id")
+    with op.batch_alter_table("tabular_datasets") as batch:
+        batch.drop_constraint("fk_tabular_datasets_system_id_systems", type_="foreignkey")
+        batch.drop_column("system_id")

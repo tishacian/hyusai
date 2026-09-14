@@ -28,6 +28,7 @@ const pureSpecs = [
   'src/app/features/observability/observability-labels.spec.ts',
   'src/app/features/observability/observability-chart.vm.spec.ts',
   'scripts/check-core-performance.spec.ts',
+  'scripts/run-core-release-gates.spec.mjs',
   'src/app/features/orchestration/flow/agent-loop-inspector.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-foblex.adapter.spec.ts',
   'src/app/features/orchestration/flow/flow-preconnect.spec.ts',

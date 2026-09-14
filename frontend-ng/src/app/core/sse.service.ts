@@ -11,7 +11,7 @@ import { WorkspaceFetchService } from './workspace-fetch.service';
  * to `decision_step`, `sources`, `reasoning_trace`, etc.
  */
 export interface SseChunk {
-  chunk_type?: 'text' | 'decision_step' | 'error' | 'eval_pending' | string;
+  chunk_type?: 'text' | 'answer_replace' | 'decision_step' | 'error' | 'eval_pending' | string;
   content?: string;
   decision_step?: unknown;
   sources?: unknown;

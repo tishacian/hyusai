@@ -177,8 +177,13 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
           ><button type="button" class="ck-btn-soft" (click)="statusFilter.set('all'); clearOrigin()">{{i18n.t('experience.adoption.clear')}}</button>
  <a [navLink]="{leaf:'help-guide',params:{guideId:'runs'}}">{{i18n.t('experience.adoption.help')}}</a></app-empty-state>
         } @else {
+          <!-- text-gray-500 is a dark-theme literal: it is remapped on paper
+               by the light-mode polish in styles.scss but keeps its 3.9:1 on
+               the cockpit's own panels. The column heads carry the caption
+               tier instead, which is themed on both sides. -->
           <div
-            class="px-5 py-2 text-[10px] uppercase tracking-wider text-gray-500 font-semibold grid grid-cols-12 gap-3 border-b border-white/5"
+            class="px-5 py-2 text-[10px] uppercase tracking-wider font-semibold grid grid-cols-12 gap-3"
+            style="color:var(--ck-fg-4); border-bottom:1px solid var(--ck-stroke-2);"
           >
             <div class="col-span-4">{{ i18n.t('runs.list.column.identity') }}</div>
             <div class="col-span-2">{{ i18n.t('runs.list.column.status') }}</div>
@@ -195,50 +200,46 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
                   class="w-full px-5 py-3 grid grid-cols-12 gap-3 items-center text-left text-sm bg-transparent border-0 hover:bg-white/[0.02] cursor-pointer transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-cyan-400"
                 >
                 <div class="col-span-4 min-w-0">
-                  <div class="font-mono text-xs text-white truncate">{{ r.id }}</div>
+                  <div class="font-mono text-xs truncate" style="color:var(--ck-fg-1);">{{ r.id }}</div>
                   @if (r.system_id) {
-                    <div class="font-mono text-[10px] text-gray-500 truncate">
+                    <div class="font-mono text-[10px] truncate" style="color:var(--ck-fg-4);">
                       sys · {{ r.system_id }}
                     </div>
                   }
                 </div>
                 <div class="col-span-2">
+                  <!-- The status trios carry a light value; the
+                       bg-emerald-500/10 + text-emerald-300 triplet they replace
+                       only ever had a dark one, so the chip read as pale mint
+                       on paper. -->
                   <span
-                    class="text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded border"
-                    [class.bg-emerald-500\\/10]="r.status === 'completed'"
-                    [class.text-emerald-300]="r.status === 'completed'"
-                    [class.border-emerald-500\\/30]="r.status === 'completed'"
-                    [class.bg-red-500\\/10]="r.status === 'failed'"
-                    [class.text-red-300]="r.status === 'failed'"
-                    [class.border-red-500\\/30]="r.status === 'failed'"
-                    [class.bg-cyan-500\\/10]="r.status === 'running'"
-                    [class.text-cyan-300]="r.status === 'running'"
-                    [class.border-cyan-500\\/30]="r.status === 'running'"
-                    [class.bg-white\\/5]="r.status === 'pending' || r.status === 'cancelled'"
-                    [class.text-gray-300]="r.status === 'pending' || r.status === 'cancelled'"
-                    [class.border-white\\/10]="r.status === 'pending' || r.status === 'cancelled'"
+                    class="text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded"
+                    [class.ck-tone-ok]="r.status === 'completed'"
+                    [class.ck-tone-neg]="r.status === 'failed'"
+                    [class.ck-tone-info]="r.status === 'running'"
+                    [class.ck-tone-neutral]="r.status === 'pending' || r.status === 'cancelled'"
                   >
                     {{ statusLabel(r.status) }}
                   </span>
                 </div>
-                <div class="col-span-2 text-xs text-gray-400 font-mono">
+                <div class="col-span-2 text-xs font-mono" style="color:var(--ck-fg-3);">
                   {{ formatTime(r.started_at) }}
                 </div>
-                <div class="col-span-1 text-right text-xs text-gray-300 font-mono tabular-nums">
+                <div class="col-span-1 text-right text-xs font-mono tabular-nums" style="color:var(--ck-fg-2);">
                   @if (r.duration_ms != null) {
                     {{ (r.duration_ms).toFixed(0) }}ms
                   }
                 </div>
                 <div class="col-span-2 text-right text-xs font-mono">
                   @if (r.outcome?.decision) {
-                    <span class="text-emerald-400">{{ r.outcome!.decision }}</span>
+                    <span style="color:var(--ck-signal-pos);">{{ r.outcome!.decision }}</span>
                   } @else if (r.outcome?.confidence != null) {
-                    <span class="text-gray-300">{{ ((r.outcome!.confidence ?? 0) * 100).toFixed(0) }}%</span>
+                    <span style="color:var(--ck-fg-2);">{{ ((r.outcome!.confidence ?? 0) * 100).toFixed(0) }}%</span>
                   } @else {
-                    <span class="text-gray-600">—</span>
+                    <span style="color:var(--ck-fg-4);">—</span>
                   }
                 </div>
-                <div class="col-span-1 text-right text-xs text-gray-300 font-mono tabular-nums">
+                <div class="col-span-1 text-right text-xs font-mono tabular-nums" style="color:var(--ck-fg-2);">
                   @if (r.outcome?.cost_internal != null) {
                     \${{ (r.outcome!.cost_internal ?? 0).toFixed(3) }}
                   }

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
-import { KbdComponent, LiveDotComponent } from '@app/shared/cockpit';
+import { KbdComponent, LiveDotComponent, ScrollFocusableDirective } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 
@@ -15,9 +15,10 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
   selector: 'app-command-bar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [KbdComponent, LiveDotComponent],
+  imports: [KbdComponent, LiveDotComponent, ScrollFocusableDirective],
   template: `
     <footer
+      ckScrollFocusable
       [style.position]="'relative'"
       [style.zIndex]="35"
       [style.height.px]="28"
@@ -64,12 +65,14 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
         [style.cursor]="'help'"
       ><ck-kbd>⌘Z</ck-kbd>{{ i18n.t('nav.footer.zoom') }}</span>
       <span class="ck-hairline-v" [style.height.px]="14"></span>
+      <!-- The build stamp is 9 px body text, not a large-text or UI-component
+           case, so it owes the full 4.5:1 and cannot sit on the faint tier. -->
       <span
         class="ck-mono"
         [style.fontSize.px]="9"
         [style.letterSpacing]="'0.14em'"
         [style.textTransform]="'uppercase'"
-        [style.color]="'var(--ck-fg-5)'"
+        [style.color]="'var(--ck-fg-4)'"
       >v0.4.0 · build 1</span>
     </footer>
   `,

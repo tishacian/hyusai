@@ -112,6 +112,14 @@ class WorkspaceStub {
 }
 
 class ApiStub {
+  /**
+   * Session-list requests are answered synchronously by default (most tests do
+   * not care about the restore window). `deferSessionList` turns them into
+   * subjects the test drives, which is the only way to observe the panel
+   * *while* the initial conversation restore is still unresolved.
+   */
+  deferSessionList = false;
+  readonly sessionLists: Array<Subject<Record<string, unknown>>> = [];
   readonly sessionCreates: Array<Subject<Record<string, unknown>>> = [];
   readonly sessionCreateOptions: unknown[] = [];
   readonly sessionDetails: Array<Subject<Record<string, unknown>>> = [];
@@ -130,7 +138,12 @@ class ApiStub {
       this.readinessOptions.push(options);
       return request.asObservable();
     }
-    if (path.startsWith('/sessions?')) return of({ sessions: [] });
+    if (path.startsWith('/sessions?')) {
+      if (!this.deferSessionList) return of({ sessions: [] });
+      const request = new Subject<Record<string, unknown>>();
+      this.sessionLists.push(request);
+      return request.asObservable();
+    }
     if (path.startsWith('/sessions/')) {
       const request = new Subject<Record<string, unknown>>();
       this.sessionDetails.push(request);
@@ -216,9 +229,12 @@ function setInput<T>(inputSignal: unknown, value: T): void {
   signalSetFn(node as never, value);
 }
 
-function makeHarness(options?: { can?: boolean }) {
+function makeHarness(options?: { can?: boolean; deferSessionList?: boolean }) {
   const workspace = new WorkspaceStub();
   const api = new ApiStub();
+  // Set before the component is constructed: the initial restore is issued
+  // from the constructor's microtask.
+  api.deferSessionList = options?.deferSessionList ?? false;
   const sse = new SseStub();
   const canonical = new CanonicalStub();
   const warnings: unknown[][] = [];
@@ -710,6 +726,28 @@ test('a structured provider error becomes a failure message, not warning text', 
   }
 });
 
+test('a canonical answer replacement removes the streamed draft before completion', () => {
+  const harness = makeHarness();
+  const { injector, component } = harness;
+  try {
+    const stream = startTurn(harness, 'What does the evidence say?');
+
+    stream.next({
+      chunk_type: 'text',
+      content: 'Useful answer. Grounding instructions: hidden prompt text',
+    });
+    stream.next({
+      chunk_type: 'answer_replace',
+      content: 'Useful answer [1].',
+    });
+    stream.next({ type: 'done' });
+
+    assert.equal(component.messages()[1].content, 'Useful answer [1].');
+  } finally {
+    injector.destroy();
+  }
+});
+
 test('a legacy error chunk falls back to neutral copy carrying no backend text', () => {
   const harness = makeHarness();
   const { injector, component } = harness;
@@ -1068,6 +1106,214 @@ test('opening a resolvable source records it; an unresolvable one records nothin
 
     assert.deepEqual(activation.milestones(), ['source_opened']);
     assert.equal(JSON.stringify(activation.calls).includes('contrat-confidentiel'), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+/**
+ * Conversation-restore readiness contract.
+ *
+ * The panel decides asynchronously *which* conversation is on screen: it lists
+ * the workspace sessions, then loads the stored one. Until that settles the
+ * message list can still be replaced wholesale, so a question submitted in that
+ * window is silently discarded together with its bubble — which is exactly how
+ * a French run ended up acting on the English run's conversation. The composer
+ * is therefore inert for the whole restore window, and an automatic restore
+ * that lands late must never replace a conversation the user already owns.
+ */
+test('the composer is inert until the initial restore has produced a conversation', async () => {
+  const { injector, component, api } = makeHarness({ deferSessionList: true });
+  try {
+    // The restored thread focuses the composer, which touches `window`.
+    (component as unknown as { focusComposer(): void }).focusComposer = () => undefined;
+    await Promise.resolve();
+    assert.equal(api.sessionLists.length, 1, 'the panel lists sessions on start');
+    assert.equal(component.conversationRestoring(), true);
+    assert.equal(component.conversationReady(), false, 'no composer before the list answers');
+
+    api.sessionLists[0].next({ sessions: [{ id: 'session-restored', title: 'Yesterday' }] });
+    await Promise.resolve();
+    assert.equal(
+      component.conversationReady(),
+      false,
+      'the list alone does not settle it — the conversation detail is still loading',
+    );
+    assert.equal(api.sessionDetails.length, 1);
+
+    api.sessionDetails[0].next({
+      id: 'session-restored',
+      messages: [{ id: 'm1', role: 'assistant', content: 'restored' }],
+      jobs: [],
+    });
+    await Promise.resolve();
+    assert.equal(component.conversationReady(), true, 'the composer opens with the restored thread');
+    assert.equal(component.activeChatSessionId(), 'session-restored');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('an empty workspace settles the restore immediately instead of locking the composer', async () => {
+  const { injector, component, api } = makeHarness({ deferSessionList: true });
+  try {
+    await Promise.resolve();
+    api.sessionLists[0].next({ sessions: [] });
+    await Promise.resolve();
+    assert.equal(component.conversationReady(), true);
+    assert.equal(api.sessionDetails.length, 0);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a failing session list hands the composer back rather than stranding it', async () => {
+  const { injector, component, api } = makeHarness({ deferSessionList: true });
+  try {
+    await Promise.resolve();
+    api.sessionLists[0].error(new Error('offline'));
+    await Promise.resolve();
+    assert.equal(component.conversationReady(), true);
+    assert.equal(component.chatSessionsLoading(), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a failing conversation detail hands the composer back rather than stranding it', async () => {
+  const { injector, component, api } = makeHarness({ deferSessionList: true });
+  try {
+    await Promise.resolve();
+    api.sessionLists[0].next({ sessions: [{ id: 'session-restored' }] });
+    await Promise.resolve();
+    api.sessionDetails[0].error(new Error('offline'));
+    await Promise.resolve();
+    assert.equal(component.conversationReady(), true);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a restore that never answers releases the composer and ignores its late response', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { injector, component, api } = makeHarness({ deferSessionList: true });
+  try {
+    await Promise.resolve();
+    assert.equal(component.conversationReady(), false);
+    t.mock.timers.tick(8000);
+    assert.equal(
+      component.conversationReady(),
+      true,
+      'a hung session request degrades to a usable composer, never to a locked one',
+    );
+    api.sessionLists[0].next({ sessions: [{ id: 'session-too-late' }] });
+    await Promise.resolve();
+    assert.equal(api.sessionDetails.length, 0, 'the timed-out restore cannot replace later work');
+  } finally {
+    injector.destroy();
+    t.mock.timers.reset();
+  }
+});
+
+test('a send attempted during the restore window is refused instead of being lost', async () => {
+  const { injector, component, api, sse } = makeHarness({ deferSessionList: true });
+  try {
+    await Promise.resolve();
+    component.userInput = 'In evidence AGX-FR-1, what does the first-use path do?';
+    component.send();
+
+    assert.deepEqual(component.messages(), [], 'no orphan turn is created');
+    assert.equal(sse.streams.length, 0, 'no stream is opened into a transient conversation');
+    assert.equal(api.sessionCreates.length, 0, 'no session is created either');
+    assert.equal(component.userInput, 'In evidence AGX-FR-1, what does the first-use path do?');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a late automatic restore cannot replace the conversation the user started', async () => {
+  const { injector, component, api } = makeHarness({ deferSessionList: true });
+  try {
+    await Promise.resolve();
+    // The turn this run owns: the stream created its own session and the
+    // question bubble is already on screen.
+    component.activeChatSessionId.set('session-new');
+    component.messages.set([{ id: 'own-turn', role: 'user', content: 'AGX-FR-1 question' }]);
+
+    // The session list issued at start-up finally answers, and the stored
+    // selection still points at the previous run's conversation.
+    api.sessionLists[0].next({
+      sessions: [
+        { id: 'session-new', title: 'AGX-FR-1 question' },
+        { id: 'session-previous-run', title: 'AGX-EN-9 question' },
+      ],
+    });
+    await Promise.resolve();
+
+    assert.equal(api.sessionDetails.length, 0, 'no conversation is loaded over the live one');
+    assert.equal(component.activeChatSessionId(), 'session-new');
+    assert.deepEqual(
+      component.messages().map((message) => message.id),
+      ['own-turn'],
+      'the turn the user is in survives the late restore',
+    );
+    assert.equal(component.conversationReady(), true, 'and the composer is handed back');
+    assert.equal(component.chatSessions().length, 2, 'the history list is still refreshed');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('a restore that lands while a turn is streaming is abandoned too', async () => {
+  const { injector, component, api } = makeHarness({ deferSessionList: true });
+  try {
+    await Promise.resolve();
+    component.streaming.set(true);
+
+    api.sessionLists[0].next({ sessions: [{ id: 'session-previous-run' }] });
+    await Promise.resolve();
+
+    assert.equal(api.sessionDetails.length, 0);
+    assert.equal(component.activeChatSessionId(), null);
+  } finally {
+    component.streaming.set(false);
+    injector.destroy();
+  }
+});
+
+test('following the session a finished turn created never re-locks the composer', async () => {
+  const { injector, component, api } = makeHarness({ deferSessionList: true });
+  try {
+    await Promise.resolve();
+    api.sessionLists[0].next({ sessions: [] });
+    await Promise.resolve();
+    assert.equal(component.conversationReady(), true);
+
+    // This is the post-stream refresh: it follows a session this panel already
+    // owns, so it must not take the composer away after an answer landed.
+    component.activeChatSessionId.set('session-just-created');
+    component.loadChatSessions('session-just-created');
+    assert.equal(component.conversationReady(), true);
+    assert.equal(component.conversationRestoring(), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('switching workspaces re-arms the restore instead of leaving a stale one pending', async () => {
+  const { injector, component, api, workspace } = makeHarness({ deferSessionList: true });
+  try {
+    await Promise.resolve();
+    assert.equal(component.conversationReady(), false);
+
+    workspace.switchWorkspace();
+    await Promise.resolve();
+
+    assert.equal(api.sessionLists.length, 2, 'the new workspace lists its own sessions');
+    assert.equal(component.conversationReady(), false, 'B is restoring now, not A');
+    api.sessionLists[1].next({ sessions: [] });
+    await Promise.resolve();
+    assert.equal(component.conversationReady(), true);
   } finally {
     injector.destroy();
   }

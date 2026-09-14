@@ -27,6 +27,7 @@ export {
   type CkObjectKpiTone,
 } from './object-header.component';
 export { NavLinkDirective } from './nav-link.directive';
+export { ScrollFocusableDirective } from './scroll-focusable.directive';
 export { CkBackLinkComponent } from './back-link.component';
 export {
   CkPanelComponent,

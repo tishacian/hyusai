@@ -4,6 +4,7 @@ This module keeps answer-shaping policy separate from retrieval routing. It is
 generic enough for industrial workspaces, while Andritz can instantiate it via
 the workspace chat flow definition.
 """
+
 from __future__ import annotations
 
 import re
@@ -119,7 +120,7 @@ DEFAULT_INDUSTRIAL_ANSWER_POLICY: dict[str, Any] = {
         "Answer only the user question.",
         "Use documentary context as the only source for workspace/project/equipment facts.",
         "Consolidate multi-document facts into one coherent answer and remove duplicates.",
-        "Start with the factual answer, not with phrases such as \"I found\" or \"the sources indicate\".",
+        'Start with the factual answer, not with phrases such as "I found" or "the sources indicate".',
         "Prefer concise paragraphs for direct answers; use lists only for inventories, comparisons or explicitly list-shaped requests.",
         "Never invent a value, part number, equipment reference or project relationship.",
     ],
@@ -183,7 +184,7 @@ DEFAULT_NEUTRAL_ANSWER_POLICY: dict[str, Any] = {
         "Answer only the user question.",
         "Use documentary context as the only source for workspace-specific facts.",
         "Consolidate multi-document facts into one coherent answer and remove duplicates.",
-        "Start with the factual answer, not with phrases such as \"I found\" or \"the sources indicate\".",
+        'Start with the factual answer, not with phrases such as "I found" or "the sources indicate".',
         "Prefer concise paragraphs for direct answers; use lists only for inventories, comparisons or explicitly list-shaped requests.",
         "Never invent a value, reference or identifier.",
     ],
@@ -295,7 +296,9 @@ _ABSENCE_RE = re.compile(
     r"(je\s+n['’]ai\s+(?:pas|aucune)|aucune\s+(?:information|donn[ée]e)|no\s+(?:information|data|source))",
     re.IGNORECASE,
 )
-_FACT_AFTER_ABSENCE_RE = re.compile(r"\b(est de|utilise|comprend|inclut|is|uses|includes)\b", re.IGNORECASE)
+_FACT_AFTER_ABSENCE_RE = re.compile(
+    r"\b(est de|utilise|comprend|inclut|is|uses|includes)\b", re.IGNORECASE
+)
 _DOCUMENTALIST_FIRST_SENTENCE_RE = re.compile(
     r"^\s*j['’]ai\s+trouv[ée]?\s+(?:cette|ces|des|les?)?\s*information[s]?"
     r"(?:\s+[^.:\n]{0,140})?[.:]\s*",
@@ -410,40 +413,58 @@ def answer_policy_prompt(
 ) -> str:
     policy = dict(answer_policy or industrial_answer_policy())
     profiles = policy.get("profiles") if isinstance(policy.get("profiles"), Mapping) else {}
-    profile_key = str((profile_decision or {}).get("profile") or policy.get("default_answer_profile") or "precise_fact")
+    profile_key = str(
+        (profile_decision or {}).get("profile")
+        or policy.get("default_answer_profile")
+        or "precise_fact"
+    )
     profile = profiles.get(profile_key) if isinstance(profiles, Mapping) else {}
     profile_instructions = profile.get("instructions") if isinstance(profile, Mapping) else None
     if not isinstance(profile_instructions, list):
-        profile_instructions = DEFAULT_INDUSTRIAL_ANSWER_PROFILES.get(profile_key, {}).get("instructions", [])
+        profile_instructions = DEFAULT_INDUSTRIAL_ANSWER_PROFILES.get(profile_key, {}).get(
+            "instructions", []
+        )
     principles = policy.get("principles") if isinstance(policy.get("principles"), list) else []
     forbidden = policy.get("forbidden_internal_terms")
-    forbidden_terms = ", ".join(str(term) for term in forbidden[:16]) if isinstance(forbidden, list) else ""
-    heading = "Politique de réponse industrielle" if language == "fr" else "Industrial answer policy"
+    forbidden_terms = (
+        ", ".join(str(term) for term in forbidden[:16]) if isinstance(forbidden, list) else ""
+    )
+    heading = (
+        "Politique de réponse industrielle" if language == "fr" else "Industrial answer policy"
+    )
     lines = [f"{heading}:"]
     for item in principles:
         lines.append(f"- {item}")
     lines.extend(
         [
-            "- Start with the answer itself; avoid documentary preambles such as \"I found\", \"the sources say\" or \"the documents mention\" unless provenance is the user's question.",
+            '- Start with the answer itself; avoid documentary preambles such as "I found", "the sources say" or "the documents mention" unless provenance is the user\'s question.',
             "- Do not turn factual answers into source-by-source lists; synthesize the answer first and keep evidence secondary.",
             # Source conflict / ambiguity (case 1): documents disagree on the asked
             # fact. The model must answer AND surface the disagreement instead of
             # silently picking one value or listing both flatly.
-            "- When the sources give conflicting values for the same asked fact or configuration, do not silently pick one and do not list them flatly: lead with the most precise value, then explicitly flag the disagreement and name each conflicting value with its source (e.g. \"≈ X selon [1], mais [2] indique Y pour la même configuration — à vérifier\").",
+            '- When the sources give conflicting values for the same asked fact or configuration, do not silently pick one and do not list them flatly: lead with the most precise value, then explicitly flag the disagreement and name each conflicting value with its source (e.g. "≈ X selon [1], mais [2] indique Y pour la même configuration — à vérifier").',
             "- Never mention internal mechanics such as document counts, chunk counts, relevance scores, vector search, databases, LLM/RAG engines, confidence rates or retrieval methods.",
             "- Never say no exploitable information is available and then continue with factual project/equipment claims.",
             "- Keep citations as numeric source ids when sources exist; do not expose raw retrieval diagnostics in the answer text.",
         ]
     )
     if forbidden_terms:
-        lines.append(f"- Forbidden internal vocabulary in the user-facing answer includes: {forbidden_terms}.")
+        lines.append(
+            f"- Forbidden internal vocabulary in the user-facing answer includes: {forbidden_terms}."
+        )
     if profile_instructions:
-        lines.append(f"Answer profile: {profile_key} ({(profile_decision or {}).get('reason') or 'default'}).")
+        lines.append(
+            f"Answer profile: {profile_key} ({(profile_decision or {}).get('reason') or 'default'})."
+        )
         for item in profile_instructions:
             lines.append(f"- {item}")
     if profile_key == "transversal_inventory":
-        lines.append("- This is an exhaustive inventory question: if evidence is insufficient, say which information is documented and what remains unavailable; do not call a partial sample exhaustive.")
-        lines.append("- When the context includes a consolidated project inventory block (\"Inventaire projets consolidé … couverture exhaustive\"), treat that list as the complete, authoritative coverage of the indexed corpus: present the full deduplicated set of projects it contains (you may group or order by the associated documentation volume given in parentheses) and never claim the information is unavailable or that the list is partial when that block is present.")
+        lines.append(
+            "- This is an exhaustive inventory question: if evidence is insufficient, say which information is documented and what remains unavailable; do not call a partial sample exhaustive."
+        )
+        lines.append(
+            '- When the context includes a consolidated project inventory block ("Inventaire projets consolidé … couverture exhaustive"), treat that list as the complete, authoritative coverage of the indexed corpus: present the full deduplicated set of projects it contains (you may group or order by the associated documentation volume given in parentheses) and never claim the information is unavailable or that the list is partial when that block is present.'
+        )
     return "\n".join(lines)
 
 
@@ -462,6 +483,28 @@ def apply_answer_policy_to_text(
     policy = answer_policy or industrial_answer_policy()
     forbidden = policy.get("forbidden_internal_terms")
     violations: list[str] = []
+
+    # Very small local models can echo the hidden prompt after first producing
+    # a useful answer.  Keep the explicit final answer when present; otherwise
+    # retain the prose before the first internal section.  Requiring multiple
+    # prompt markers prevents a legitimate user-facing sentence beginning with
+    # a word such as "Coverage" from being truncated.
+    prompt_marker_re = re.compile(
+        r"(?im)^(?:Retrieved content synthesis brief|Coverage|Retrieved source types|"
+        r"Representative content|Grounding instructions|Industrial answer policy|"
+        r"Answer-shaping instructions|Answer profile)\s*:",
+    )
+    prompt_markers = list(prompt_marker_re.finditer(out))
+    factual_answer_matches = list(re.finditer(r"(?im)^Factual answer\s*:\s*", out))
+    if len(prompt_markers) >= 2:
+        replacement = ""
+        if factual_answer_matches:
+            replacement = out[factual_answer_matches[-1].end() :].strip()
+        if not replacement:
+            replacement = out[: prompt_markers[0].start()].strip()
+        if replacement:
+            out = replacement
+            violations.append("prompt_echo")
     if _WORKSPACE_JARGON_RE.search(out):
         violations.append("platform_jargon_workspace")
         out = _WORKSPACE_JARGON_RE.sub(lambda m: m.group(1), out)

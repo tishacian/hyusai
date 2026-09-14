@@ -4,6 +4,7 @@
 uploads when the per-workspace ``chat_document_upload`` flag is off (default on),
 while leaving Knowledge Base uploads (no ``source``) untouched.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -16,6 +17,8 @@ from app.core.config import settings
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.knowledge_collections import original_key
+from app.services.object_store import get_object_store
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -106,8 +109,10 @@ def test_knowledge_base_upload_never_blocked_by_flag(db_session, monkeypatch):
     assert response.status_code == 200
 
 
-def test_sync_chat_drop_upload_records_collection_inventory(db_session, monkeypatch):
+def test_sync_chat_drop_upload_records_collection_inventory(db_session, monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "document_ingest_async_enabled", False)
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
 
     class FakeDocumentService:
         def __init__(self, *args, **kwargs):
@@ -143,13 +148,21 @@ def test_sync_chat_drop_upload_records_collection_inventory(db_session, monkeypa
     )
 
     assert response.status_code == 200
-    collection = db_session.query(KnowledgeCollection).filter_by(
-        workspace_id=workspace.id,
-        slug="documents",
-    ).one()
-    source = db_session.query(KnowledgeCollectionSource).filter_by(
-        collection_id=collection.id,
-    ).one()
+    collection = (
+        db_session.query(KnowledgeCollection)
+        .filter_by(
+            workspace_id=workspace.id,
+            slug="documents",
+        )
+        .one()
+    )
+    source = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter_by(
+            collection_id=collection.id,
+        )
+        .one()
+    )
     assert collection.status == "ready"
     assert collection.document_names == ["policy.md"]
     assert collection.document_count == 1
@@ -159,3 +172,6 @@ def test_sync_chat_drop_upload_records_collection_inventory(db_session, monkeypa
     assert source.chunk_count == 3
     assert source.origin == "chat_drop_and_ask"
     assert source.source_metadata["document_id"] == "doc-policy"
+    assert (
+        get_object_store().read_bytes(original_key(collection, "policy.md")) == b"# Leave\n25 days"
+    )

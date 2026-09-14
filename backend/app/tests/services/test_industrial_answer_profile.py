@@ -9,7 +9,9 @@ from app.services.rag.corpus_planner import classify_intent
 
 
 def test_resolve_transversal_inventory_requires_exhaustive_retrieval():
-    decision = resolve_answer_profile("Quels projets utilisent une pompe Uraca ?", industrial_answer_policy())
+    decision = resolve_answer_profile(
+        "Quels projets utilisent une pompe Uraca ?", industrial_answer_policy()
+    )
 
     assert decision.profile == "transversal_inventory"
     assert decision.requires_exhaustive_retrieval is True
@@ -50,7 +52,10 @@ def test_resolve_broad_knowledge_request_as_project_summary():
     ):
         assert resolve_answer_profile(query, policy).profile == "project_summary", query
     # A single factual question on the same project stays precise_fact.
-    assert resolve_answer_profile("quelle pompe est utilisée dans ce projet ?", policy).profile == "precise_fact"
+    assert (
+        resolve_answer_profile("quelle pompe est utilisée dans ce projet ?", policy).profile
+        == "precise_fact"
+    )
 
 
 def test_resolve_equipment_list_as_transversal_inventory():
@@ -180,6 +185,27 @@ def test_answer_policy_removes_internal_mechanics_terms():
     assert "La largeur est de 3 600 mm." in cleaned
     assert any(item.startswith("internal_term:") for item in violations)
     assert "documentalist_preamble" in violations
+
+
+def test_answer_policy_removes_small_model_prompt_echo():
+    cleaned, violations = apply_answer_policy_to_text(
+        "The golden path opens a cited source and recovers from a retryable failure.\n"
+        "Coverage: 1 retrieved chunk, 1 distinct source.\n"
+        "Retrieved source types: pdf: 1.\n"
+        "Grounding instructions:\nUse the context above.\n"
+        "Industrial answer policy:\n- Answer only the user question.\n"
+        "Answer profile: precise_fact (default).\n"
+        "Factual answer:\n"
+        "The golden path opens a cited source and recovers from a retryable failure [1].",
+        answer_policy=industrial_answer_policy(),
+        profile_decision={"profile": "precise_fact"},
+    )
+
+    assert (
+        cleaned == "The golden path opens a cited source and recovers from a retryable failure [1]."
+    )
+    assert "prompt_echo" in violations
+    assert "Grounding instructions" not in cleaned
 
 
 def test_answer_policy_strips_documentalist_preamble():

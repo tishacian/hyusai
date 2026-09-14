@@ -151,6 +151,7 @@ export const CHAT_FR = {
     'Interroger les documents de session et {source}…',
   'chat.ask.placeholder_scope': 'Poser une question sourcée à partir de {source}…',
   'chat.ask.placeholder_default': 'Posez une question au workspace…',
+  'chat.ask.placeholder_restoring': 'Ouverture de la conversation…',
   // --- Live progress while an answer is being composed ---------------
   'chat.progress.composing': 'Rédaction de la réponse…',
   'chat.progress.passages_found': '{count} passages trouvés · analyse en cours…',
@@ -833,6 +834,7 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   'chat.ask.placeholder_session_combine': 'Ask across session documents and {source}…',
   'chat.ask.placeholder_scope': 'Ask a sourced question using {source}…',
   'chat.ask.placeholder_default': 'Ask a workspace question…',
+  'chat.ask.placeholder_restoring': 'Opening the conversation…',
   // --- Live progress while an answer is being composed ---------------
   'chat.progress.composing': 'Writing the answer…',
   'chat.progress.passages_found': '{count} passages found · analysing…',

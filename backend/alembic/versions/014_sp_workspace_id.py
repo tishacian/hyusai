@@ -20,16 +20,28 @@ Caught during E4.1 smoke on the VM (2026-04-24). Fix:
 - Keep the column nullable permanently to match the model declaration
   (``ForeignKey("workspaces.id"), nullable=True, index=True``).
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision = "014_sp_workspace_id"
 down_revision = "013_sp_ingest_columns"
 branch_labels = None
 depends_on = None
+
+
+# The FK has to be named explicitly. On PostgreSQL ``batch_alter_table``
+# passes straight through to ``ALTER TABLE ... ADD COLUMN`` and the server
+# names the constraint itself, which is why this shipped and ran fine on
+# the VM. SQLite has no such ALTER, so batch mode copies the table into a
+# new one and replays its constraints — and an unnamed FK there fails with
+# ``ValueError: Constraint must have a name``. Naming it makes the same
+# revision runnable on both backends; it does not change the shape of the
+# relationship the model declares.
+FK_NAME = "fk_sharepoint_sync_jobs_workspace_id"
 
 
 def _column_exists(bind, table: str, column: str) -> bool:
@@ -49,7 +61,7 @@ def upgrade() -> None:
             sa.Column(
                 "workspace_id",
                 sa.String(length=36),
-                sa.ForeignKey("workspaces.id"),
+                sa.ForeignKey("workspaces.id", name=FK_NAME),
                 nullable=True,
             )
         )

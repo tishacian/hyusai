@@ -4,7 +4,7 @@ Plan source: `docs/agentium-simplification-audit-2026-09-11.md`
 
 This ledger records the product-wide implementation queue. Each slice is reviewed, tested, and committed independently. The existing user-owned `frontend-ng/proxy.conf.json` change is excluded from every slice.
 
-**Overall release status: not complete.** The planned product changes are implemented, but the original release rules require the clean-workspace golden path to pass before the simplification phase can be declared complete. P0.6 and the authenticated P2.1 browser matrix remain pending because the current environment does not provide the documented isolated test principal, clean workspace, and live test provider.
+**Overall simplification status: complete for the planned P0–P2 scope.** All 15 P0–P2 work items are implemented and their release gates pass. P3 remains intentionally deferred: strategic, marketplace, certification, outcome-economics, and broad catalog surfaces stay hidden until they have real data, complete action loops, tests, and user evidence.
 
 | Order | Slice | Owner | Status | Evidence |
 | --- | --- | --- | --- | --- |
@@ -13,17 +13,17 @@ This ledger records the product-wide implementation queue. Each slice is reviewe
 | 3 | P0.5: fail closed for catalog-only, stub, and unbound runtimes | Codex | Complete | Apps API and UI expose wired entries only; publication, run ingress, and System Builder block non-bound Skills; 67 backend and 3 focused frontend tests pass |
 | 4 | P0.2 + P1.1: first-run model setup and one model settings surface | Codex | Complete | Settings owns one guided provider/model form; the API validates credentials and live model availability before one atomic save; failed questions return and retry automatically; safe technical details stay collapsed; 68 backend and 57 focused frontend tests pass |
 | 5 | P1.2 + P1.3: progressive Knowledge and Build flows | Codex | Complete | Knowledge now defaults to upload → processing/recovery → Ask, with collections/search/capture behind Advanced; Build defaults to desired result + knowledge, selects only a runnable capability automatically, reveals technical controls on demand, and fails closed when none is runnable; 38 focused tests and all frontend/compiler/compliance guards pass |
-| 6 | P0.6 + P1.4 + P1.5: golden path, deployed Work consolidation, and legacy redirects/docs | Codex | In progress | Work remains the deployed-experience launcher; Tasks now resolve inside Runs; Apps and Missions were removed from user navigation; legacy settings/agents/traces/playground routes redirect canonically; the root README now describes Agentium and its supported journey. The EN/FR live golden-path gate compiles and launches with system Chrome, but the current local database lacks the documented E2E test principal, so behavioral execution stopped at a 401 before product state changed. |
-| 7 | P2: accessibility, performance, activation telemetry, and visual cleanup | Codex | Implementation complete; release gate pending | The five supported first-use surfaces share an opt-in EN/FR × light/dark × desktop/456/320 real-browser gate for WCAG AA, reduced motion, reflow, and visual evidence. **P2.2 performance, P2.3 activation telemetry, and P2.4 core visual cleanup are implemented.** Static/compiler/source gates pass; authenticated matrix execution still requires the documented isolated-workspace test principal. |
+| 6 | P0.6 + P1.4 + P1.5: golden path, deployed Work consolidation, and legacy redirects/docs | Codex + delegated Claude Opus, reviewed by Codex | Complete | Work remains the deployed-experience launcher; Tasks resolve inside Runs; Apps and Missions are absent from user navigation; legacy settings/agents/traces/playground routes redirect canonically; the root README describes Agentium. The real EN/FR journey passes model setup → unique upload → cited answer → rendered PDF evidence → forced connection failure → cited retry, including repeated runs against a populated store. |
+| 7 | P2: accessibility, performance, activation telemetry, and visual cleanup | Codex + delegated Claude Opus, reviewed by Codex | Complete | The authenticated real-browser matrix passes on Ask, Settings, Knowledge, Build, and Runs across EN/FR, light/dark, reduced motion, desktop, 456 px, and 320 px. Production performance, activation telemetry, and Cockpit visual/contrast contracts also pass. |
 
 ## P2.2 performance and perceived speed
 
-- The optimized initial bundle is 854,344 bytes raw (205,310 bytes estimated transfer), down from 1.88 MB, and passes the unchanged 1 MB production error budget. The complete 7,480-key translation catalogue loads after the shell and Ask copy; chart registration loads only with a chart-bearing lazy surface.
+- The optimized initial bundle is 854,312 bytes raw, down from 1.88 MB, and passes the unchanged 1 MB production error budget. The complete 7,481-key translation catalogue loads after the shell and Ask copy; chart registration loads only with a chart-bearing lazy surface.
 - `npm run check:performance` builds production with esbuild statistics and fails closed if the initial graph exceeds 1,000,000 bytes, Chart.js or the complete catalogue becomes eager, or Ask, Settings, Knowledge, Build, or Runs stops being route-lazy or exceeds its explicit route-entry budget.
 - Heavy Knowledge capture remains behind the explicit lazy `/knowledge/capture` route and each capture implementation remains deferred inside its router.
 - The opt-in EN/FR golden path now records privacy-safe timings for sign-in to usable Ask, provider readiness, question to first cited answer, and citation to visible source preview. The artifact contains locale and millisecond measurements only.
 
-Evidence: successful optimized production build; deterministic bundle gate and focused unit contracts pass; the live timing gate compiles and lists both locale runs. Behavioral timings still require the isolated-workspace principal noted in P0.6.
+Evidence: the optimized production build and deterministic bundle gate pass at 854,312 initial bytes. The live EN/FR journey passes the configured readiness, first cited answer, and source-preview budgets and retains privacy-safe timing artifacts.
 
 ## P2.4 core visual cleanup
 
@@ -33,7 +33,7 @@ Evidence: successful optimized production build; deterministic bundle gate and f
 - Build removes selected-card glow and decorative violet, reduces accordion icon tiles, and presents the simple-mode explanation as inline guidance rather than another nested card.
 - Ask uses solid Cockpit surfaces for history and controls, and its context selector fits a 320 px screen. Runs actions wrap and its filters flex instead of overflowing narrow layouts.
 
-Evidence: source-level visual regression contract plus the complete 1,517-test frontend unit suite, compiler, i18n, navigation, UI-chrome, and compliance gates. The preceding P2.2 slice passed the production performance gate at 854,344 initial bytes; a fresh rebuild after these visual-only lazy-route changes is currently blocked by a local Node/esbuild 0.28 process crash. The opt-in browser matrix remains the behavioral evidence path when credentials are available.
+Evidence: source-level visual regression contract plus the complete 1,545-test frontend unit suite, i18n, navigation, UI-chrome, and compliance gates. The production performance gate passes at 854,312 initial bytes, and the authenticated browser matrix passes all five core surfaces.
 
 ## P2.3 activation telemetry
 
@@ -67,3 +67,15 @@ Evidence: 92 focused frontend tests (`product-telemetry`, `chat-panel`, `chat-wo
 - Do not make catalog presence imply runtime readiness.
 - Run focused tests plus navigation, i18n, UI-chrome, and Angular compiler gates where relevant.
 - Do not include unrelated user changes in commits.
+
+## Final release evidence — 2026-09-14
+
+- `npm run check:core-release`: **pass** — 2/2 EN/FR golden journeys and 5/5 core accessibility surfaces.
+- Repeated standalone golden-path execution: **pass twice consecutively** (4/4 locale runs) on an already populated workspace before the consolidated release run.
+- `npm run test:unit`: **1,545/1,545 pass**.
+- `npm run check:performance`: **pass**, initial bundle 854,312 bytes.
+- `npm run check:i18n` and `npm run check:ui-chrome`: **pass**.
+- Clean SQLite Alembic bootstrap/round-trip plus SharePoint migration contracts: **44/44 pass**.
+- Grounding, citation, conversation-memory, upload, and answer-policy suites: **92/92 pass** in the focused release run; the exact-reference subset was re-run after the latency hardening and passed **63/63**.
+- The broad TypeScript check still reports pre-existing typing debt across legacy test files outside this release slice; no changed P0–P2 production file appears in the filtered error output, and Angular's production compiler/build passes.
+- The user-owned `frontend-ng/proxy.conf.json` change remains deliberately excluded from Agentium work.
