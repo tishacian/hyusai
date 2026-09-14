@@ -11,7 +11,7 @@ import base64
 import json
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -45,7 +45,7 @@ class EncryptionNotConfigured(RuntimeError):
     """Fernet master key missing or invalid."""
 
 
-def _portal_blob(workspace: "Workspace") -> Dict[str, Any]:
+def _portal_blob(workspace: "Workspace") -> dict[str, Any]:
     settings = workspace.settings if isinstance(workspace.settings, Mapping) else {}
     raw = settings.get(SETTINGS_KEY)
     return dict(raw) if isinstance(raw, Mapping) else {}
@@ -123,7 +123,7 @@ def decrypt_secret(blob: str) -> str:
     return fernet.decrypt(ciphertext.encode("ascii")).decode("utf-8")
 
 
-def _persist(db: DBSession, workspace: "Workspace", portal: Dict[str, Any]) -> Dict[str, Any]:
+def _persist(db: DBSession, workspace: "Workspace", portal: dict[str, Any]) -> dict[str, Any]:
     settings = dict(workspace.settings or {})
     settings[SETTINGS_KEY] = portal
     workspace.settings = settings
@@ -141,7 +141,7 @@ def _persist(db: DBSession, workspace: "Workspace", portal: Dict[str, Any]) -> D
 # ---------------------------------------------------------------------------
 
 
-def get_routing(workspace: "Workspace") -> Dict[str, Any]:
+def get_routing(workspace: "Workspace") -> dict[str, Any]:
     from app.core.config import settings
 
     blob = _portal_blob(workspace)
@@ -163,18 +163,16 @@ def get_routing(workspace: "Workspace") -> Dict[str, Any]:
     }
 
 
-def get_cloud_credentials_public(workspace: "Workspace") -> List[Dict[str, Any]]:
+def get_cloud_credentials_public(workspace: "Workspace") -> list[dict[str, Any]]:
     """Credential status without secrets (write-only keys)."""
     blob = _portal_blob(workspace)
     stored = (
-        blob.get("cloud_credentials")
-        if isinstance(blob.get("cloud_credentials"), Mapping)
-        else {}
+        blob.get("cloud_credentials") if isinstance(blob.get("cloud_credentials"), Mapping) else {}
     )
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for key in CLOUD_PROVIDERS:
         entry = stored.get(key) if isinstance(stored.get(key), Mapping) else {}
-        meta: Dict[str, Any] = {"key": key, "api_key_set": bool(entry.get("api_key_encrypted"))}
+        meta: dict[str, Any] = {"key": key, "api_key_set": bool(entry.get("api_key_encrypted"))}
         if key in _ENDPOINT_PROVIDERS:
             for field in _AZURE_META:
                 if entry.get(field):
@@ -186,9 +184,7 @@ def get_cloud_credentials_public(workspace: "Workspace") -> List[Dict[str, Any]]
 def get_decrypted_api_key(workspace: "Workspace", provider: str) -> Optional[str]:
     blob = _portal_blob(workspace)
     stored = (
-        blob.get("cloud_credentials")
-        if isinstance(blob.get("cloud_credentials"), Mapping)
-        else {}
+        blob.get("cloud_credentials") if isinstance(blob.get("cloud_credentials"), Mapping) else {}
     )
     entry = stored.get(provider) if isinstance(stored.get(provider), Mapping) else {}
     enc = entry.get("api_key_encrypted")
@@ -201,33 +197,65 @@ def get_decrypted_api_key(workspace: "Workspace", provider: str) -> Optional[str
         return None
 
 
-def get_provider_meta(workspace: "Workspace", provider: str = "azure_openai") -> Dict[str, str]:
+def get_provider_meta(workspace: "Workspace", provider: str = "azure_openai") -> dict[str, str]:
     """Non-secret endpoint metadata (endpoint / api_version / deployment)."""
     blob = _portal_blob(workspace)
     stored = (
-        blob.get("cloud_credentials")
-        if isinstance(blob.get("cloud_credentials"), Mapping)
-        else {}
+        blob.get("cloud_credentials") if isinstance(blob.get("cloud_credentials"), Mapping) else {}
     )
     entry = stored.get(provider) if isinstance(stored.get(provider), Mapping) else {}
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     for field in _AZURE_META:
         if entry.get(field):
             out[field] = str(entry[field])
     return out
 
 
-def get_azure_meta(workspace: "Workspace") -> Dict[str, str]:
+def get_runtime_provider_config(workspace_id: Optional[str], provider: str) -> dict[str, str]:
+    """Resolve one workspace's private provider configuration for execution.
+
+    The public model portal deliberately returns only credential status. Runtime
+    callers use this short-lived lookup instead of copying API keys into chat or
+    Run payloads, where secrets could be persisted in the execution ledger.
+    """
+
+    workspace_ref = str(workspace_id or "").strip()
+    provider_key = str(provider or "").strip()
+    if not workspace_ref or provider_key not in CLOUD_PROVIDERS:
+        return {}
+
+    # Local imports keep the configuration helpers usable in migrations and
+    # focused tests that do not initialise the application database.
+    from app.db.base import SessionLocal
+    from app.models.workspace import Workspace
+
+    db = SessionLocal()
+    try:
+        workspace = db.query(Workspace).filter(Workspace.id == workspace_ref).one_or_none()
+        if workspace is None:
+            return {}
+        resolved: dict[str, str] = {}
+        api_key = get_decrypted_api_key(workspace, provider_key)
+        if api_key:
+            resolved["api_key"] = api_key
+        if provider_key in _ENDPOINT_PROVIDERS:
+            resolved.update(get_provider_meta(workspace, provider_key))
+        return resolved
+    finally:
+        db.close()
+
+
+def get_azure_meta(workspace: "Workspace") -> dict[str, str]:
     return get_provider_meta(workspace, "azure_openai")
 
 
-def list_serving_node_configs(workspace: "Workspace") -> List[Dict[str, Any]]:
+def list_serving_node_configs(workspace: "Workspace") -> list[dict[str, Any]]:
     """Decrypted serving-node configs from workspace (not env)."""
     blob = _portal_blob(workspace)
     raw = blob.get("serving_nodes")
     if not isinstance(raw, list):
         return []
-    nodes: List[Dict[str, Any]] = []
+    nodes: list[dict[str, Any]] = []
     for item in raw:
         if not isinstance(item, Mapping):
             continue
@@ -246,12 +274,12 @@ def list_serving_node_configs(workspace: "Workspace") -> List[Dict[str, Any]]:
     return nodes
 
 
-def list_serving_nodes_public(workspace: "Workspace") -> List[Dict[str, Any]]:
+def list_serving_nodes_public(workspace: "Workspace") -> list[dict[str, Any]]:
     blob = _portal_blob(workspace)
     raw = blob.get("serving_nodes")
     if not isinstance(raw, list):
         return []
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for item in raw:
         if not isinstance(item, Mapping):
             continue
@@ -268,7 +296,7 @@ def list_serving_nodes_public(workspace: "Workspace") -> List[Dict[str, Any]]:
     return out
 
 
-def get_public_config(workspace: "Workspace") -> Dict[str, Any]:
+def get_public_config(workspace: "Workspace") -> dict[str, Any]:
     return {
         "routing": get_routing(workspace),
         "cloud_credentials": get_cloud_credentials_public(workspace),
@@ -287,8 +315,8 @@ def set_routing(
     *,
     default_provider: str,
     default_model: str,
-    fallback_chain: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    fallback_chain: Optional[list[str]] = None,
+) -> dict[str, Any]:
     provider = (default_provider or "").strip()
     model = (default_model or "").strip()
     if not provider or not model:
@@ -328,7 +356,7 @@ def set_cloud_credential(
     endpoint: Optional[str] = None,
     api_version: Optional[str] = None,
     deployment: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     key = (provider or "").strip()
     if key not in CLOUD_PROVIDERS:
         raise ValueError(f"Unsupported provider {provider!r}")
@@ -368,7 +396,7 @@ def upsert_serving_node(
     name: str,
     base_url: str,
     token: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     node_name = (name or "").strip()
     url = (base_url or "").strip().rstrip("/")
     if not node_name or not url:
@@ -378,7 +406,7 @@ def upsert_serving_node(
     if not isinstance(nodes, list):
         nodes = []
     updated = False
-    new_nodes: List[Dict[str, Any]] = []
+    new_nodes: list[dict[str, Any]] = []
     for item in nodes:
         if not isinstance(item, Mapping):
             continue
@@ -407,7 +435,7 @@ def delete_serving_node(
     db: DBSession,
     workspace: "Workspace",
     name: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     node_name = (name or "").strip()
     if not node_name:
         raise ValueError("name is required")

@@ -4,6 +4,7 @@ Full execution streaming pipeline with real-time SSE decision_step events.
 """
 
 import asyncio
+import hashlib
 import re
 import time
 import unicodedata
@@ -1154,16 +1155,39 @@ class OmniRAGAgent(BaseAgent):
         self.status = "active"
         logger.info("Procurement agent initialized")
 
-    def _get_llm(self, provider: str | None = None):
+    def _get_llm(
+        self,
+        provider: str | None = None,
+        *,
+        workspace_id: str | None = None,
+    ):
         provider_name = str(provider or settings.default_provider or "openai").strip().lower()
-        if provider_name not in self._llms:
+        runtime: dict[str, str] = {}
+        if workspace_id:
+            from app.services.model_plane.workspace_config import get_runtime_provider_config
+
+            runtime = get_runtime_provider_config(workspace_id, provider_name)
+        api_key = runtime.get("api_key")
+        if not api_key and provider_name == "openai":
+            api_key = settings.openai_api_key
+        provider_options: dict[str, Any] = {}
+        if provider_name == "anthropic" and runtime.get("api_key"):
+            # Workspace model setup is the official Anthropic integration;
+            # isolate it from process-level proxy overrides used by other CLIs.
+            from app.llm.providers.anthropic_provider import AnthropicProvider
+
+            provider_options["base_url"] = AnthropicProvider.DEFAULT_BASE_URL
+        credential_revision = hashlib.sha256((api_key or "").encode("utf-8")).hexdigest()[:12]
+        cache_key = f"{workspace_id or 'global'}\x00{provider_name}\x00{credential_revision}"
+        if cache_key not in self._llms:
             from app.llm.llm import LLM
 
-            self._llms[provider_name] = LLM(
+            self._llms[cache_key] = LLM(
                 provider=provider_name,
-                api_key=settings.openai_api_key if provider_name == "openai" else None,
+                api_key=api_key,
+                **provider_options,
             )
-        return self._llms[provider_name]
+        return self._llms[cache_key]
 
     def _get_document_service(self, request: dict[str, Any] | None = None):
         """Return a DocumentService scoped to the request's workspace.
@@ -1931,7 +1955,10 @@ class OmniRAGAgent(BaseAgent):
             enabled=not _query_requests_contact_info(query)
         )
         try:
-            llm = self._get_llm(provider_name)
+            llm = self._get_llm(
+                provider_name,
+                workspace_id=request.get("workspace_id"),
+            )
             async for chunk_text in llm.stream_complete(
                 prompt=user_prompt,
                 model=model_name,

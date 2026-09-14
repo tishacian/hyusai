@@ -1,4 +1,5 @@
 """Production adapter between the chat surface and a governed Agentic DAG."""
+
 from __future__ import annotations
 
 import asyncio
@@ -224,10 +225,7 @@ def create_agentic_chat_run(
     if system is None:
         raise ValueError("agentic executor System is required")
     workspace = (
-        db.query(Workspace)
-        .filter(Workspace.id == workspace_id)
-        .populate_existing()
-        .one_or_none()
+        db.query(Workspace).filter(Workspace.id == workspace_id).populate_existing().one_or_none()
     )
     if workspace is None:
         raise ValueError("chat workspace is required")
@@ -248,6 +246,7 @@ def create_agentic_chat_run(
             "grounding_mode",
             "grounding_policy",
             "system_prompt",
+            "default_model",
         )
         if request_context.get(key) is not None
     }

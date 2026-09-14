@@ -10,10 +10,12 @@ import httpx
 import pytest
 
 from app.models.run import Run, SkillInvocation
+from app.models.workspace import Workspace
 from app.services.model_plane import distribution as distribution_mod
 from app.services.model_plane import providers as providers_mod
 from app.services.model_plane import registration as registration_mod
 from app.services.model_plane import serving_nodes as serving_nodes_mod
+from app.services.model_plane import workspace_config as workspace_config_mod
 from app.services.model_plane.errors import classify_provider_error
 from app.services.model_router import ModelRouter
 
@@ -263,7 +265,13 @@ def test_normalize_gpu_from_portal_shape():
 
 def test_normalize_instance_engine_alias():
     inst = serving_nodes_mod.normalize_instance(
-        {"id": "i1", "provider": "ollama", "model": "llama3.2:3b", "status": "running", "port": 11434}
+        {
+            "id": "i1",
+            "provider": "ollama",
+            "model": "llama3.2:3b",
+            "status": "running",
+            "port": 11434,
+        }
     )
     assert inst["provider"] == "ollama"
     assert inst["engine"] == "ollama"
@@ -330,6 +338,7 @@ async def test_list_providers_active_from_probe(monkeypatch):
         "_health_anthropic",
         "_health_gemini",
     ):
+
         async def _available():
             return {"status": "available", "latency_ms": None, "models": [], "error": None}
 
@@ -515,3 +524,85 @@ def test_build_llm_uses_vllm_factory(monkeypatch):
     registration_mod.build_llm(provider_meta=meta)
     assert captured["provider"] == "vllm"
     assert captured["base_url"] == "http://127.0.0.1:8000/v1"
+
+
+def test_model_router_uses_workspace_anthropic_credential(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        workspace_config_mod,
+        "get_runtime_provider_config",
+        lambda workspace_id, provider: (
+            {"api_key": "sk-ant-workspace"}
+            if workspace_id == "ws-anthropic" and provider == "anthropic"
+            else {}
+        ),
+    )
+
+    router = ModelRouter(workspace_id="ws-anthropic")
+
+    assert "anthropic" in router.clients
+    assert router.clients["anthropic"].api_key == "sk-ant-workspace"
+    assert router.clients["anthropic"].base_url == router.clients["anthropic"].DEFAULT_BASE_URL
+
+
+def test_runtime_provider_config_reads_secret_without_exposing_it_publicly(db_session):
+    workspace = Workspace(
+        id="ws-runtime-secret",
+        name="Runtime Secret",
+        slug="runtime-secret",
+        settings={},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    workspace_config_mod.set_cloud_credential(
+        db_session,
+        workspace,
+        "anthropic",
+        api_key="sk-ant-runtime",
+    )
+
+    runtime = workspace_config_mod.get_runtime_provider_config(workspace.id, "anthropic")
+    public = workspace_config_mod.get_cloud_credentials_public(workspace)
+
+    assert runtime == {"api_key": "sk-ant-runtime"}
+    assert next(row for row in public if row["key"] == "anthropic") == {
+        "key": "anthropic",
+        "api_key_set": True,
+    }
+    assert "sk-ant-runtime" not in str(public)
+
+
+def test_omnirag_uses_workspace_key_and_refreshes_after_rotation(monkeypatch):
+    from app.agents.procurement_agent import OmniRAGAgent
+
+    current_key = {"value": "sk-ant-first"}
+    created: list[tuple[str, str | None, str | None]] = []
+
+    class FakeLLM:
+        def __init__(self, provider, api_key=None, base_url=None, **_kwargs):
+            created.append((provider, api_key, base_url))
+
+    monkeypatch.setattr("app.llm.llm.LLM", FakeLLM)
+    monkeypatch.setattr(
+        workspace_config_mod,
+        "get_runtime_provider_config",
+        lambda workspace_id, provider: (
+            {"api_key": current_key["value"]}
+            if workspace_id == "ws-anthropic" and provider == "anthropic"
+            else {}
+        ),
+    )
+    agent = OmniRAGAgent()
+
+    first = agent._get_llm("anthropic", workspace_id="ws-anthropic")
+    again = agent._get_llm("anthropic", workspace_id="ws-anthropic")
+    current_key["value"] = "sk-ant-rotated"
+    rotated = agent._get_llm("anthropic", workspace_id="ws-anthropic")
+
+    assert first is again
+    assert rotated is not first
+    assert created == [
+        ("anthropic", "sk-ant-first", "https://api.anthropic.com"),
+        ("anthropic", "sk-ant-rotated", "https://api.anthropic.com"),
+    ]

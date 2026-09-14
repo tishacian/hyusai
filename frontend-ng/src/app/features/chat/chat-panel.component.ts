@@ -3536,7 +3536,7 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly chatRuntimeLabel = computed(() =>
     this.isDemoMode()
       ? this.i18n.t('chat.controls.runtime_managed')
-      : this.settings.settings().defaultModel || '—',
+      : this.modelReadiness()?.model || this.settings.settings().defaultModel || '—',
   );
   readonly traceOpen = signal(false);
 
@@ -4518,6 +4518,9 @@ export class ChatPanelComponent implements AfterViewInit {
           if (!this.isChatContinuationCurrent(scope, generation)) return;
           this.modelReadiness.set(readiness ?? null);
           this.modelReadinessLoading.set(false);
+          if (readiness?.provider && readiness?.model) {
+            this.settings.adoptValidatedModelSelection(readiness.provider, readiness.model);
+          }
           // A returning user never re-runs setup, so the validated save is not
           // the only way to reach model readiness. This probe is authoritative
           // for the current workspace and says the configured model answers.

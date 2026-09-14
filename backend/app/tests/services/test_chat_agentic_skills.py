@@ -7,6 +7,7 @@ provider client) and ``response_eval_v1`` with a fake ``ResponseEvaluator``
 so the tests assert the FROZEN output shapes (docs/chat-agentic-thinking-spec
 §7) plus the planner's JSON-parse fallback — without any network/model call.
 """
+
 from __future__ import annotations
 
 import time
@@ -63,12 +64,18 @@ class _FakeEvaluator:
 # Pure helper: provider-neutral model resolution
 # ---------------------------------------------------------------------------
 def test_resolve_model_preferences_is_provider_neutral():
-    assert wrappers._resolve_model_preferences("gpt-4o-mini") == {"provider": "openai", "model": "gpt-4o-mini"}
+    assert wrappers._resolve_model_preferences("gpt-4o-mini") == {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+    }
     assert wrappers._resolve_model_preferences("ollama:deepseek-r1:14b") == {
         "provider": "ollama",
         "model": "deepseek-r1:14b",
     }
-    assert wrappers._resolve_model_preferences("openai/gpt-4o") == {"provider": "openai", "model": "gpt-4o"}
+    assert wrappers._resolve_model_preferences("openai/gpt-4o") == {
+        "provider": "openai",
+        "model": "gpt-4o",
+    }
     # Azure is OpenAI-compatible -> collapses to the openai client.
     assert wrappers._resolve_model_preferences("azure:gpt-4o-mini")["provider"] == "openai"
 
@@ -95,6 +102,37 @@ async def test_route_llm_complete_reuses_resolved_client_within_skill_context(mo
     assert await wrappers._route_llm_complete("first", "gpt-4o-mini", ctx) == "first"
     assert await wrappers._route_llm_complete("second", "gpt-4o-mini", ctx) == "second"
     assert calls == {"router": 1, "resolve": 1, "generate": 2}
+
+
+@pytest.mark.asyncio
+async def test_route_llm_complete_scopes_provider_client_to_workspace(monkeypatch):
+    captured = {}
+
+    class FakeClient:
+        async def generate(self, model, prompt):
+            return {"content": prompt}
+
+    class FakeRouter:
+        def __init__(self, *, workspace_id=None):
+            captured["workspace_id"] = workspace_id
+
+        async def get_client(self, preferences):
+            captured["preferences"] = preferences
+            return FakeClient()
+
+    monkeypatch.setattr("app.services.model_router.ModelRouter", FakeRouter)
+
+    result = await wrappers._route_llm_complete(
+        "workspace prompt",
+        "anthropic:claude-opus-5",
+        {"workspace_id": "ws-opus"},
+    )
+
+    assert result == "workspace prompt"
+    assert captured == {
+        "workspace_id": "ws-opus",
+        "preferences": {"provider": "anthropic", "model": "claude-opus-5"},
+    }
 
 
 @pytest.mark.asyncio
@@ -128,7 +166,9 @@ async def test_route_llm_complete_translates_generation_bounds_for_ollama(monkey
 
 
 def test_lenient_json_tolerates_fences_and_prose():
-    parsed = wrappers._loads_lenient_json('Voici le plan:\n```json\n{"action": "answer",}\n```\nmerci')
+    parsed = wrappers._loads_lenient_json(
+        'Voici le plan:\n```json\n{"action": "answer",}\n```\nmerci'
+    )
     assert parsed == {"action": "answer"}
     assert wrappers._loads_lenient_json("pas de json ici") is None
 
@@ -155,8 +195,16 @@ async def test_plan_emits_frozen_contract(monkeypatch):
     assert recorded["preferences"] == {"provider": "openai", "model": "gpt-4o-mini"}
 
     assert set(out) == {
-        "action", "mode", "answer_profile", "scope_hint", "clarifying_question",
-        "oos_reason", "lang_target", "confidence", "retrieval", "sub_queries",
+        "action",
+        "mode",
+        "answer_profile",
+        "scope_hint",
+        "clarifying_question",
+        "oos_reason",
+        "lang_target",
+        "confidence",
+        "retrieval",
+        "sub_queries",
     }
     # sub_queries port is always present (Phase 4 multi-hop); a list, empty
     # unless the profile is comparison/multi_hop/transversal.
@@ -166,8 +214,13 @@ async def test_plan_emits_frozen_contract(monkeypatch):
     assert out["scope_hint"] == "ACJ100"
     assert out["confidence"] == 0.82
     assert set(out["retrieval"]) == {
-        "latency_profile", "retrieval_profile", "top_k", "synthesis_k",
-        "candidate_pool_k", "rag_pipeline_mode", "deep_retrieval",
+        "latency_profile",
+        "retrieval_profile",
+        "top_k",
+        "synthesis_k",
+        "candidate_pool_k",
+        "rag_pipeline_mode",
+        "deep_retrieval",
     }
     assert out["retrieval"]["deep_retrieval"] is True
     assert out["retrieval"]["top_k"] == 12
@@ -245,9 +298,7 @@ async def test_plan_shortcuts_simple_single_project_lookup_without_llm(
     """
 
     async def _unexpected_model_call(*args, **kwargs):
-        raise AssertionError(
-            "the deterministic single-project lane must not call the planner LLM"
-        )
+        raise AssertionError("the deterministic single-project lane must not call the planner LLM")
 
     monkeypatch.setattr(wrappers, "_route_llm_complete", _unexpected_model_call)
 
@@ -405,6 +456,7 @@ async def test_self_correct_escalate_deep_re_retrieves_and_grounds(monkeypatch):
 async def test_self_correct_escalate_deep_abstains_when_retrieval_empty(monkeypatch):
     """If the deep re-retrieval still finds nothing, abstain honestly — never
     fabricate (this is the regression the audit C2 flagged)."""
+
     async def fake_search_empty(payload, ctx=None):
         return {"results": []}
 
@@ -433,7 +485,10 @@ async def test_self_correct_escalate_deep_abstains_when_retrieval_empty(monkeypa
 async def test_self_correct_declare_partial_transforms_draft(monkeypatch):
     """Mid-quality verdict -> declare_partial: a bounded transform of the
     EXISTING draft (frozen shape, citations carried over)."""
-    _install_fake_router(monkeypatch, '{"answer":"Reponse partielle, limites declarees.","action_taken":"declare_partial"}')
+    _install_fake_router(
+        monkeypatch,
+        '{"answer":"Reponse partielle, limites declarees.","action_taken":"declare_partial"}',
+    )
 
     citations = [{"source_id": "src-1"}]
     out = await wrappers._chat_self_correct_v1(
@@ -466,9 +521,7 @@ def test_pick_self_correct_action_ignores_embedding_halluc():
     assert wrappers._pick_self_correct_action("balanced", 40.0, 0.0) == "escalate_deep"
     # An abstaining draft escalates regardless of composite (try deeper recall).
     assert (
-        wrappers._pick_self_correct_action(
-            "balanced", 90.0, 0.0, draft_is_abstention=True
-        )
+        wrappers._pick_self_correct_action("balanced", 90.0, 0.0, draft_is_abstention=True)
         == "escalate_deep"
     )
 
@@ -481,7 +534,9 @@ async def test_self_correct_escalate_deep_merges_original_context(monkeypatch):
 
     async def fake_search(payload, ctx=None):
         # Deep re-retrieval returns DIFFERENT chunks (no carrier).
-        return {"results": [{"content": "Generic AKK200 overview, high-speed line.", "metadata": {}}]}
+        return {
+            "results": [{"content": "Generic AKK200 overview, high-speed line.", "metadata": {}}]
+        }
 
     async def fake_generate(payload, ctx=None):
         seen_context["contents"] = [c.get("content") for c in payload.get("context") or []]
@@ -495,7 +550,10 @@ async def test_self_correct_escalate_deep_merges_original_context(monkeypatch):
             "draft_answer": "Le contexte ne contient pas la largeur.",  # abstention -> escalate
             "query": "largeur AKK200 ?",
             "context": [
-                {"content": "Arbeitsbreite 0,3 m, Produktionsgeschwindigkeit 10 bis 20 m/min.", "metadata": {}}
+                {
+                    "content": "Arbeitsbreite 0,3 m, Produktionsgeschwindigkeit 10 bis 20 m/min.",
+                    "metadata": {},
+                }
             ],
             "mode": "balanced",
             "composite": 80.0,
@@ -513,6 +571,7 @@ async def test_self_correct_escalate_deep_merges_original_context(monkeypatch):
 async def test_self_correct_never_downgrades_grounded_draft(monkeypatch):
     """If the deep re-ground abstains but we already had a substantive grounded
     draft, keep the draft (never replace an answer with an abstention)."""
+
     async def fake_search(payload, ctx=None):
         return {"results": [{"content": "noise", "metadata": {}}]}
 
@@ -575,7 +634,10 @@ async def test_rag_answer_consumes_join_context_without_re_retrieval(monkeypatch
         {
             "query": "largeur AKK200 ?",
             "context": [
-                {"content": "Working width 0.3 m.", "metadata": {"chunk_id": "c0", "document_filename": "AKK200.pdf"}},
+                {
+                    "content": "Working width 0.3 m.",
+                    "metadata": {"chunk_id": "c0", "document_filename": "AKK200.pdf"},
+                },
             ],
             "lang_target": "fr",
         },
@@ -811,10 +873,7 @@ def test_inventory_synthesis_keeps_all_evidence_and_bounds_expansions():
 
 
 def test_inventory_synthesis_preserves_full_context_without_evidence_floor():
-    passages = [
-        {"content": f"canonical {index}", "metadata": {}}
-        for index in range(14)
-    ]
+    passages = [{"content": f"canonical {index}", "metadata": {}} for index in range(14)]
 
     assert (
         wrappers._select_inventory_synthesis_passages(
@@ -827,13 +886,8 @@ def test_inventory_synthesis_preserves_full_context_without_evidence_floor():
 
 
 def test_inventory_synthesis_uses_query_shape_not_planner_profile():
-    evidence = [
-        {"content": "inventory evidence", "metadata": {"inventory_evidence": True}}
-    ]
-    regular = [
-        {"content": f"regular {index}", "metadata": {}}
-        for index in range(14)
-    ]
+    evidence = [{"content": "inventory evidence", "metadata": {"inventory_evidence": True}}]
+    regular = [{"content": f"regular {index}", "metadata": {}} for index in range(14)]
 
     selected = wrappers._select_inventory_synthesis_passages(
         "quelles sont les pompes du projet ABC100 ?",
@@ -1078,9 +1132,7 @@ def test_inventory_coverage_caps_server_validated_additions_at_eight():
         draft,
         {
             "status": "missing",
-            "additions": [
-                {"evidence_ref": "E1", "label": label} for label in labels
-            ],
+            "additions": [{"evidence_ref": "E1", "label": label} for label in labels],
         },
         evidence_by_ref={
             "E1": {
@@ -1275,9 +1327,7 @@ def test_inventory_coverage_review_requires_category_local_to_label_and_handles_
         parsed,
         evidence_by_ref={
             "E1": {
-                "content": (
-                    "Pompe P-10. Le moteur MOTOR-Z9 alimente un convoyeur. Pompe P-20."
-                ),
+                "content": ("Pompe P-10. Le moteur MOTOR-Z9 alimente un convoyeur. Pompe P-20."),
                 "metadata": {
                     "inventory_evidence": True,
                     "project_code": "ABC100",
@@ -1520,7 +1570,11 @@ async def test_semantic_search_resolves_slug_and_forwards_budgets(monkeypatch):
             "chunks": ["Working width 0.3 m."],
             "scores": [0.9],
             "metadatas": [{"chunk_id": "c0"}],
-            "metrics": {"raw_chunks_retrieved": 1, "document_chunks_retrieved": 1, "stage_timings": {"embedding_ms": 12}},
+            "metrics": {
+                "raw_chunks_retrieved": 1,
+                "document_chunks_retrieved": 1,
+                "stage_timings": {"embedding_ms": 12},
+            },
         }
 
     monkeypatch.setattr("app.services.rag.context.retrieve_rag_context", _fake_retrieve)
@@ -1538,7 +1592,7 @@ async def test_semantic_search_resolves_slug_and_forwards_budgets(monkeypatch):
     )
 
     req = captured["request"]
-    assert req["workspace_slug"] == "andritz"          # tenant slug wired (root cause fix)
+    assert req["workspace_slug"] == "andritz"  # tenant slug wired (root cause fix)
     assert req["query"] == "AKK200 width"
     assert req["top_k"] == 6
     assert req["latency_profile"] == "balanced"
@@ -1547,7 +1601,7 @@ async def test_semantic_search_resolves_slug_and_forwards_budgets(monkeypatch):
     assert req["synthesis_k"] == 16
     assert req["candidate_pool_k"] == 40
     assert out["results"][0]["content"] == "Working width 0.3 m."
-    assert out["raw_chunks_retrieved"] == 1            # observable grounding proof
+    assert out["raw_chunks_retrieved"] == 1  # observable grounding proof
 
 
 @pytest.mark.asyncio
@@ -1656,11 +1710,15 @@ async def test_semantic_search_arms_inventory_facet_for_project_question(monkeyp
 # ---------------------------------------------------------------------------
 def test_coerce_plan_demotes_clarify_when_project_code_present():
     out = wrappers._coerce_plan(
-        {"action": "clarify", "scope_hint": "perimetre de recherche", "clarifying_question": "Quel projet ?"},
+        {
+            "action": "clarify",
+            "scope_hint": "perimetre de recherche",
+            "clarifying_question": "Quel projet ?",
+        },
         "Quelle est la largeur de travail de l'AKK200 ?",
     )
-    assert out["action"] == "answer"          # project code -> answerable
-    assert out["scope_hint"] == ""            # schema placeholder dropped
+    assert out["action"] == "answer"  # project code -> answerable
+    assert out["scope_hint"] == ""  # schema placeholder dropped
 
 
 def test_coerce_plan_demotes_clarify_on_placeholder_question():
@@ -1668,13 +1726,13 @@ def test_coerce_plan_demotes_clarify_on_placeholder_question():
         {"action": "clarify", "clarifying_question": "perimetre de recherche"},
         "Donne moi les informations",
     )
-    assert out["action"] == "answer"          # placeholder question -> dropped -> answer
+    assert out["action"] == "answer"  # placeholder question -> dropped -> answer
 
 
 def test_coerce_plan_preserves_genuine_clarify():
     out = wrappers._coerce_plan(
         {"action": "clarify", "clarifying_question": "Quel equipement vous interesse ?"},
-        "infos",                               # 1 word, no anchor -> genuinely ambiguous
+        "infos",  # 1 word, no anchor -> genuinely ambiguous
     )
     assert out["action"] == "clarify"
     assert out["clarifying_question"] == "Quel equipement vous interesse ?"
@@ -1698,7 +1756,7 @@ def test_coerce_plan_demotes_reject_oos_on_known_entity_german():
         {"action": "reject_oos", "oos_reason": "hors perimetre"},
         "Wozu dient das Qualiscan QMS-12 System und wie funktioniert es?",
     )
-    assert out["action"] == "answer"          # known entity -> never OOS
+    assert out["action"] == "answer"  # known entity -> never OOS
     assert out["oos_reason"] == ""
 
 
@@ -1789,10 +1847,19 @@ def test_coerce_plan_keeps_reject_oos_when_truly_out_of_corpus():
 def test_coerce_plan_routes_inventory_to_deep():
     # Planner under-routed this to balanced; the gate must force deep.
     out = wrappers._coerce_plan(
-        {"action": "answer", "mode": "balanced",
-         "retrieval": {"latency_profile": "balanced", "retrieval_profile": "chat",
-                       "top_k": 8, "synthesis_k": 16, "candidate_pool_k": 40,
-                       "rag_pipeline_mode": "chah", "deep_retrieval": False}},
+        {
+            "action": "answer",
+            "mode": "balanced",
+            "retrieval": {
+                "latency_profile": "balanced",
+                "retrieval_profile": "chat",
+                "top_k": 8,
+                "synthesis_k": 16,
+                "candidate_pool_k": 40,
+                "rag_pipeline_mode": "chah",
+                "deep_retrieval": False,
+            },
+        },
         "Quels projets utilisent une pompe URACA ?",
     )
     assert out["mode"] == "deep"
@@ -1847,7 +1914,13 @@ def test_coerce_plan_emits_balanced_budget_triple_by_default():
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_response_eval_emits_frozen_contract(monkeypatch):
-    metrics = {"relevance": 0.8, "factuality": 0.7, "coherence": 0.9, "hhem": 0.25, "adv_hhem": 0.12}
+    metrics = {
+        "relevance": 0.8,
+        "factuality": 0.7,
+        "coherence": 0.9,
+        "hhem": 0.25,
+        "adv_hhem": 0.12,
+    }
     monkeypatch.setattr(
         "app.services.metrics.evaluator.ResponseEvaluator",
         lambda: _FakeEvaluator(metrics),
@@ -1867,7 +1940,14 @@ async def test_response_eval_emits_frozen_contract(monkeypatch):
         {},
     )
 
-    assert set(out) == {"composite", "hallucination_rate", "context_count", "hhem", "factuality", "coherence"}
+    assert set(out) == {
+        "composite",
+        "hallucination_rate",
+        "context_count",
+        "hhem",
+        "factuality",
+        "coherence",
+    }
     # composite = mean(relevance, factuality, coherence) * 100
     assert out["composite"] == pytest.approx((0.8 + 0.7 + 0.9) / 3 * 100, abs=0.01)
     # hallucination_rate = 1 - factuality
@@ -1884,7 +1964,9 @@ async def test_response_eval_emits_frozen_contract(monkeypatch):
 async def test_response_eval_empty_metrics_route_weak(monkeypatch):
     monkeypatch.setattr(
         "app.services.metrics.evaluator.ResponseEvaluator",
-        lambda: _FakeEvaluator({"relevance": 0.0, "factuality": 0.0, "coherence": 0.0, "hhem": 0.0, "adv_hhem": 0.0}),
+        lambda: _FakeEvaluator(
+            {"relevance": 0.0, "factuality": 0.0, "coherence": 0.0, "hhem": 0.0, "adv_hhem": 0.0}
+        ),
     )
 
     out = await wrappers._response_eval_v1({"answer": "", "query": "q", "context_chunks": []}, {})
@@ -1909,7 +1991,14 @@ def test_skills_are_registered_and_seeded():
     correct_out = by_slug["chat_self_correct_v1"]["output_schema"]["properties"]
     assert {"answer", "citations", "action_taken"} <= set(correct_out)
     eval_out = by_slug["response_eval_v1"]["output_schema"]["properties"]
-    assert {"composite", "hallucination_rate", "context_count", "hhem", "factuality", "coherence"} == set(eval_out)
+    assert {
+        "composite",
+        "hallucination_rate",
+        "context_count",
+        "hhem",
+        "factuality",
+        "coherence",
+    } == set(eval_out)
 
     # Grounding-fix I/O contract: generate accepts a pre-retrieved context array,
     # self_correct accepts the scope/lang/profile hints its escalate_deep needs.

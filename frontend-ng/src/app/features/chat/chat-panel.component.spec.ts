@@ -283,6 +283,7 @@ function makeHarness(options?: { can?: boolean; deferSessionList?: boolean }) {
         provide: SettingsService,
         useValue: {
           refresh: () => undefined,
+          adoptValidatedModelSelection: () => undefined,
           settings: () => ({
             temperature: 0.1,
             maxTokens: 256,
