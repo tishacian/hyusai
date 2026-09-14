@@ -361,6 +361,13 @@ C-level and business briefing (observe / consume / monitor / decide), plus
 the Marp deck used to present it:
 
 - [`agentium-hypervisor-decision-strategy.md`](./agentium-hypervisor-decision-strategy.md)
-- [`deck-agentium-decision-adoption.md`](./deck-agentium-decision-adoption.md)
+  (FR) / [`agentium-hypervisor-decision-strategy.en.md`](./agentium-hypervisor-decision-strategy.en.md) (EN)
+- Word: [`agentium-hypervisor-decision-strategy.fr.docx`](./agentium-hypervisor-decision-strategy.fr.docx),
+  [`agentium-hypervisor-decision-strategy.en.docx`](./agentium-hypervisor-decision-strategy.en.docx)
+- Deck: [`deck-agentium-decision-adoption.md`](./deck-agentium-decision-adoption.md) (FR),
+  [`deck-agentium-decision-adoption.en.md`](./deck-agentium-decision-adoption.en.md) (EN)
+- PowerPoint: [`deck-agentium-decision-adoption.fr.pptx`](./deck-agentium-decision-adoption.fr.pptx),
+  [`deck-agentium-decision-adoption.en.pptx`](./deck-agentium-decision-adoption.en.pptx)
+- Rebuild: `python3 docs/render/build_hypervisor_decision_pack.py`
 
 It does not replace this reference or the adoption acceptance contract.

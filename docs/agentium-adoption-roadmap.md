@@ -8,8 +8,12 @@ base SHA is not an identifier for the changed code.
 
 Executive briefing of the Hypervisor, the decision chain and the learning
 curve (C-level / métier):
-[`agentium-hypervisor-decision-strategy.md`](./agentium-hypervisor-decision-strategy.md),
-deck [`deck-agentium-decision-adoption.md`](./deck-agentium-decision-adoption.md).
+[`agentium-hypervisor-decision-strategy.md`](./agentium-hypervisor-decision-strategy.md)
+(FR) / [`agentium-hypervisor-decision-strategy.en.md`](./agentium-hypervisor-decision-strategy.en.md)
+(EN), decks
+[`deck-agentium-decision-adoption.md`](./deck-agentium-decision-adoption.md) /
+[`deck-agentium-decision-adoption.en.md`](./deck-agentium-decision-adoption.en.md),
+Office twins `.fr.docx` / `.en.docx` / `.fr.pptx` / `.en.pptx`.
 This file remains the implementation and acceptance contract.
 
 This implements the adoption roadmap using the existing navigation resolver,
