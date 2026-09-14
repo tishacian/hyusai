@@ -125,7 +125,9 @@ def test_knowledge_guide_collection_lifecycle_is_versioned_and_audited(db_sessio
     assert [item["version"] for item in all_versions] == [1, 2]
     assert [item["is_current"] for item in all_versions] == [False, True]
 
-    events = [row.event_type for row in db_session.query(AuditLog).order_by(AuditLog.timestamp).all()]
+    events = [
+        row.event_type for row in db_session.query(AuditLog).order_by(AuditLog.timestamp).all()
+    ]
     assert "knowledge.guide.created" in events
     assert "knowledge.guide.updated" in events
 
@@ -282,7 +284,9 @@ def test_patch_knowledge_scopes_rejects_invalid_scope_without_mutation(db_sessio
     def fail_if_system_refresh_runs(*args, **kwargs):
         raise AssertionError("invalid scopes must not refresh chat system defaults")
 
-    monkeypatch.setattr(knowledge, "ensure_workspace_chat_system_default", fail_if_system_refresh_runs)
+    monkeypatch.setattr(
+        knowledge, "ensure_workspace_chat_system_default", fail_if_system_refresh_runs
+    )
 
     response = client.patch(
         "/knowledge/scopes",
@@ -302,6 +306,38 @@ def test_patch_knowledge_scopes_rejects_invalid_scope_without_mutation(db_sessio
     assert response.json()["detail"] == "Invalid knowledge scope"
     db_session.refresh(workspace)
     assert (workspace.settings or {}).get("knowledge_scopes") == original_scopes
+
+
+def test_patch_knowledge_scopes_succeeds_when_chat_system_refresh_fails(db_session, monkeypatch):
+    workspace, admin_user, _collection = _seed_workspace(db_session)
+    client = _client(db_session, workspace, admin_user)
+
+    def fail_chat_system_refresh(*args, **kwargs):
+        raise RuntimeError("seeded chat System references an unavailable skill")
+
+    monkeypatch.setattr(knowledge, "ensure_workspace_chat_system_default", fail_chat_system_refresh)
+
+    response = client.patch(
+        "/knowledge/scopes",
+        json={
+            "scopes": [
+                {
+                    "key": "workspace_default",
+                    "label": "Default context",
+                    "collection_slugs": ["excel-pilot"],
+                    "default_mode": "hybrid",
+                    "top_k": 12,
+                    "is_default": True,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["default"] == "workspace_default"
+    assert response.json()["scopes"][0]["collection_slugs"] == ["excel-pilot"]
+    db_session.refresh(workspace)
+    assert (workspace.settings or {})["knowledge_scopes"][0]["top_k"] == 12
 
 
 def test_table_query_endpoint_returns_cell_evidence(db_session):
@@ -332,7 +368,10 @@ def test_table_query_endpoint_returns_cell_evidence(db_session):
 
     response = client.post(
         "/knowledge/table-query",
-        json={"collection_or_scope": "excel_pilot", "question": "Quelle est la valeur du label B ?"},
+        json={
+            "collection_or_scope": "excel_pilot",
+            "question": "Quelle est la valeur du label B ?",
+        },
     )
 
     assert response.status_code == 200
