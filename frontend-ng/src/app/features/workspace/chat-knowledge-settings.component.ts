@@ -12,6 +12,7 @@ import {
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
 import { I18nService } from '@app/core/i18n.service';
+import { apiErrorMessage } from '@app/core/api-error-message';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
 
@@ -1184,7 +1185,12 @@ interface AssistantProfileDraft {
               <div class="grid gap-4 mt-4 lg:grid-cols-2">
                 <label class="block">
                   <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.command_packs') }}</span>
-                  <input class="ag-field font-mono" [(ngModel)]="voiceLoopDraft.command_packs_text" [disabled]="!canEdit()" placeholder="generic, fr_basic" />
+                  <input
+                    class="ag-field font-mono"
+                    [(ngModel)]="voiceLoopDraft.command_packs_text"
+                    [disabled]="!canEdit()"
+                    placeholder="global_voice_v1"
+                  />
                 </label>
                 <label class="block">
                   <span class="field-label">{{ i18n.t('workspace.chat_sources.voice.stop_phrases') }}</span>
@@ -2434,7 +2440,9 @@ export class ChatKnowledgeSettingsComponent {
         error: (err) => {
           if (!this.isGuideCurrent(scope, generation, operation)) return;
           this.guideSaving.set(false);
-          this.error.set(err?.error?.detail || this.i18n.t('workspace.chat_sources.error.guide_save'));
+          this.error.set(
+            apiErrorMessage(err, this.i18n.t('workspace.chat_sources.error.guide_save')),
+          );
           this.finishGuide(operation, generation);
         },
       }),
@@ -2653,7 +2661,9 @@ export class ChatKnowledgeSettingsComponent {
               error: (err) => {
                 if (!this.isSaveCurrent(scope, generation, request)) return;
                 this.saving.set(false);
-                this.error.set(err?.error?.detail || this.i18n.t('workspace.chat_sources.error.settings_save'));
+                this.error.set(
+                  apiErrorMessage(err, this.i18n.t('workspace.chat_sources.error.settings_save')),
+                );
                 this.finishSave(request, generation);
               },
             }),
@@ -2662,7 +2672,9 @@ export class ChatKnowledgeSettingsComponent {
         error: (err) => {
           if (!this.isSaveCurrent(scope, generation, request)) return;
           this.saving.set(false);
-          this.error.set(err?.error?.detail || this.i18n.t('workspace.chat_sources.error.scopes_save'));
+          this.error.set(
+            apiErrorMessage(err, this.i18n.t('workspace.chat_sources.error.scopes_save')),
+          );
           this.finishSave(request, generation);
         },
       }),
@@ -2790,7 +2802,9 @@ export class ChatKnowledgeSettingsComponent {
         error: (err) => {
           if (!this.isGuideCurrent(scope, generation, operation)) return;
           this.guideSaving.set(false);
-          this.error.set(err?.error?.detail || this.i18n.t('workspace.chat_sources.error.guide_update'));
+          this.error.set(
+            apiErrorMessage(err, this.i18n.t('workspace.chat_sources.error.guide_update')),
+          );
           this.finishGuide(operation, generation);
         },
       }),
@@ -3106,7 +3120,7 @@ export class ChatKnowledgeSettingsComponent {
       barge_in: config['barge_in'] !== false,
       commands_enabled: config['commands_enabled'] !== false,
       trigger_word: this.str(config['trigger_word']),
-      command_packs_text: this.listToCsv(config['command_packs']) || 'generic, fr_basic',
+      command_packs_text: this.listToCsv(config['command_packs']) || 'global_voice_v1',
       stop_phrases_text: this.listToCsv(config['stop_phrases']) || "on peut s'arrêter là, ça suffit, fin de session",
       silence_ms: this.num(config['silence_ms'], 1200),
       dictation_silence_ms: this.num(config['dictation_silence_ms'], 2000),
@@ -3148,7 +3162,7 @@ export class ChatKnowledgeSettingsComponent {
       barge_in: true,
       commands_enabled: true,
       trigger_word: '',
-      command_packs_text: 'generic, fr_basic',
+      command_packs_text: 'global_voice_v1',
       stop_phrases_text: "on peut s'arrêter là, ça suffit, fin de session",
       silence_ms: 1200,
       dictation_silence_ms: 2000,

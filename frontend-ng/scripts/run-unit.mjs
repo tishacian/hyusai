@@ -61,6 +61,8 @@ const pureSpecs = [
   'src/app/core/platform-brand.spec.ts',
   'src/app/core/brand-appearance.spec.ts',
   'src/app/core/workspace-locale.spec.ts',
+  'src/app/core/api-error-message.spec.ts',
+  'src/app/core/voice-command-detector.spec.ts',
   'src/app/shared/cockpit/thinking-orb/thinking-orb.spec.ts',
   'src/app/shared/cockpit/cockpit-contrast.spec.ts',
   'src/app/shared/cockpit/core-visual-simplification.spec.ts',
