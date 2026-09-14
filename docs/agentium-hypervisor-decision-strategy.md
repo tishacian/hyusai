@@ -10,6 +10,10 @@
 > [`agentium-adoption-roadmap.md`](./agentium-adoption-roadmap.md) — aujourd’hui
 > **implémentée, opt-in, non acceptée**.
 >
+> User stories (format papAI, objets Agentium) :
+> [`agentium-hypervisor-user-stories.md`](./agentium-hypervisor-user-stories.md),
+> MVP COMEX [`agentium-hypervisor-mvp-comex.md`](./agentium-hypervisor-mvp-comex.md).
+>
 > Deck de présentation :
 > [`deck-agentium-decision-adoption.md`](./deck-agentium-decision-adoption.md).
 >
