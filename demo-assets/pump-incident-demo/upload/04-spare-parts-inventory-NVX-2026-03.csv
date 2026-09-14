@@ -1,0 +1,11 @@
+part_id,part_name,asset_class,compatible_asset,stock_location,location_name,on_hand_quantity,unit_cost_eur,transfer_lead_time_hours_to_SITE_AUR_02,supplier_lead_time_days,notes
+SEAL-KIT-3309,Mechanical seal kit 65 mm balanced cartridge,centrifugal_pump,NVX-PUMP-7742,DEPOT-AUR,Aurelia North local depot,0,1840,0,21,Zero on hand at the local depot since 2026-02-19
+SEAL-KIT-3309,Mechanical seal kit 65 mm balanced cartridge,centrifugal_pump,NVX-PUMP-7742,HUB-LYS,Lysande regional hub,3,1840,6,21,Van transfer to SITE-AUR-02 takes 6 hours
+BRG-2214,Angular contact bearing pair 7314 BECBM,centrifugal_pump,NVX-PUMP-7742,DEPOT-AUR,Aurelia North local depot,4,410,0,14,Replace only if the inspection in PROC-SAFE-118 fails
+GSK-1180,Casing gasket set drive end,centrifugal_pump,NVX-PUMP-7742,DEPOT-AUR,Aurelia North local depot,9,95,0,7,Always replaced with a seal kit
+IMP-8850,Closed impeller 250 mm duplex stainless,centrifugal_pump,NVX-PUMP-7742,HUB-LYS,Lysande regional hub,1,7250,6,45,"Long-lead item, overhaul only"
+GLAND-PK-0440,Graphite gland packing 14 mm section,centrifugal_pump,NVX-PUMP-7742,DEPOT-AUR,Aurelia North local depot,12,63,0,5,Consumable used by the temporary measure WORKAROUND-GP-02
+COUP-3320,Flexible coupling element size 90,centrifugal_pump,NVX-PUMP-7742,DEPOT-AUR,Aurelia North local depot,2,520,0,18,Inspect during any seal replacement
+SEAL-KIT-3315,Mechanical seal kit 80 mm balanced cartridge,centrifugal_pump,NVX-PUMP-7810,DEPOT-AUR,Aurelia North local depot,5,2110,0,21,Does not fit NVX-PUMP-7742
+GBX-5501,Conveyor gearbox ratio 1:31 helical,conveyor_drive,NVX-CONV-3120,DEPOT-AUR,Aurelia North local depot,6,3180,0,30,"Conveyor line spare, unrelated to any pump incident"
+BELT-7742,Conveyor belt 800 mm EP400,conveyor_drive,NVX-CONV-3120,DEPOT-AUR,Aurelia North local depot,3,1290,0,25,Part number resembles a pump asset tag but belongs to the conveyor line
