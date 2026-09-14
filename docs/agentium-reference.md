@@ -360,6 +360,11 @@ the deployed SHA. Pilot/Live mutations stay a separate explicit canary mode.
 C-level and business briefing (observe / consume / monitor / decide), plus
 the Marp deck used to present it:
 
+- User stories (papAI format → Agentium objects):
+  [`agentium-hypervisor-user-stories.md`](./agentium-hypervisor-user-stories.md) /
+  [`agentium-hypervisor-user-stories.en.md`](./agentium-hypervisor-user-stories.en.md)
+  and COMEX MVP [`agentium-hypervisor-mvp-comex.md`](./agentium-hypervisor-mvp-comex.md) /
+  [`agentium-hypervisor-mvp-comex.en.md`](./agentium-hypervisor-mvp-comex.en.md)
 - [`agentium-hypervisor-decision-strategy.md`](./agentium-hypervisor-decision-strategy.md)
   (FR) / [`agentium-hypervisor-decision-strategy.en.md`](./agentium-hypervisor-decision-strategy.en.md) (EN)
 - Word: [`agentium-hypervisor-decision-strategy.fr.docx`](./agentium-hypervisor-decision-strategy.fr.docx),

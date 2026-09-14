@@ -3,14 +3,10 @@
 
     python3 docs/render/build_hypervisor_decision_pack.py
 
-Reads:
+Reads the decision briefing, the adoption deck, the Hypervisor user
+stories and the COMEX MVP note (FR + EN).
 
-    docs/agentium-hypervisor-decision-strategy.md
-    docs/agentium-hypervisor-decision-strategy.en.md
-    docs/deck-agentium-decision-adoption.md
-    docs/deck-agentium-decision-adoption.en.md
-
-Writes the four Office files next to those notes (not under docs/render/out,
+Writes Office twins next to those notes (not under docs/render/out,
 which is gitignored).
 """
 
@@ -468,6 +464,37 @@ def main() -> int:
             return 1
         written.append(build_docx(brief_md, brief_docx, title=title, lang=lang))
         written.append(build_pptx(deck_md, deck_pptx, kicker=kicker, footer=footer))
+    extra_docx = [
+        (
+            "fr",
+            DOCS / "agentium-hypervisor-user-stories.md",
+            DOCS / "agentium-hypervisor-user-stories.fr.docx",
+            "User stories : Hyperviseur Agentium",
+        ),
+        (
+            "en",
+            DOCS / "agentium-hypervisor-user-stories.en.md",
+            DOCS / "agentium-hypervisor-user-stories.en.docx",
+            "User stories: Agentium Hypervisor",
+        ),
+        (
+            "fr",
+            DOCS / "agentium-hypervisor-mvp-comex.md",
+            DOCS / "agentium-hypervisor-mvp-comex.fr.docx",
+            "Hyperviseur Agentium, MVP COMEX",
+        ),
+        (
+            "en",
+            DOCS / "agentium-hypervisor-mvp-comex.en.md",
+            DOCS / "agentium-hypervisor-mvp-comex.en.docx",
+            "Agentium Hypervisor, COMEX MVP",
+        ),
+    ]
+    for lang, src, dest, title in extra_docx:
+        if not src.exists():
+            print(f"missing {src}", file=sys.stderr)
+            return 1
+        written.append(build_docx(src, dest, title=title, lang=lang))
     for path in written:
         print(f"{path}  ({path.stat().st_size} bytes)")
     return 0
