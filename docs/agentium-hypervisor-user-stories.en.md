@@ -1,504 +1,550 @@
 # User stories: Agentium Hypervisor
 
-> Same format as the papAI specs (`USER_STORY_HYPERVISOR`,
-> `MVP_HYPERVISOR_COMEX`): macro-story, epics, `As a / I want / so that`,
-> acceptance criteria, data, priorities.
+> This note carries the Hypervisor specification. It keeps papAI’s shape
+> (`As a / I want / so that`, acceptance, priorities) and Agentium’s
+> words, **readable without already knowing the product**.
 >
-> The objects changed. **Suite / Workflow / App / AI Service** become
-> **System / Capability / Experience / Run / Decision**. The Hypervisor is
-> no longer “a papAI App”: it is the **portfolio ledger** (`/hypervisor`,
-> **Impact** rail when adoption is on).
+> How to read: §0 and the glossary are enough for a COMEX. The epics are
+> the product contract. *Technical note* lines are for the team that
+> implements — skip them.
 >
-> Status: **Shipped** (on `demo/agentic`) · **Partial** · **Specified**
-> (contract, not yet the behaviour).
+> Status: **Delivered** (already in the product) · **Partial** (exists,
+> still to complete) · **Specified** (written, not built yet).
 >
-> Normative: [`mental-model.md`](./mental-model.md),
-> [`agentium-reference.md`](./agentium-reference.md),
-> [`agentium-hypervisor-decision-strategy.en.md`](./agentium-hypervisor-decision-strategy.en.md).
-> COMEX MVP: [`agentium-hypervisor-mvp-comex.en.md`](./agentium-hypervisor-mvp-comex.en.md).
-> FR: [`agentium-hypervisor-user-stories.md`](./agentium-hypervisor-user-stories.md).
->
+> Short COMEX view: [`agentium-hypervisor-mvp-comex.en.md`](./agentium-hypervisor-mvp-comex.en.md).
+> Background note: [`agentium-hypervisor-decision-strategy.en.md`](./agentium-hypervisor-decision-strategy.en.md).
+> French: [`agentium-hypervisor-user-stories.md`](./agentium-hypervisor-user-stories.md).
 > Word: [`agentium-hypervisor-user-stories.en.docx`](./agentium-hypervisor-user-stories.en.docx).
 
 ---
 
-## 0. Macro user story
+## Glossary — ten words
 
-As an executive or decision-maker, I want to steer the Agentium **System**
-portfolio from the Hypervisor: observe what ran and on what evidence
-(measured / declared / missing), consume published applications in
-**Work**, monitor **Runs** without confusing them with business success,
-and decide — record a **signal** in the Hypervisor, sign a **human gate**
-in a Studio, or enact a bounded policy via **Steer**
-(`Simulate → Approve → Act → Measure`) — so that AI is industrialized as
-a management object, **without inventing a zero** and **without the model
-signing in my place**.
+| Word | Plain meaning |
+|---|---|
+| **Portfolio** | All of the organisation’s AI systems, in one workspace. |
+| **System** | An industrialized AI system: a business objective, rules, a way to run. Not a chat window. |
+| **Run** | One traced execution: what happened, optional cost, which sources. A **completed** Run is neither a validated answer nor money gained. |
+| **Work** | The business-application space. People do the job there, without engine jargon. |
+| **Studio** | The screen of a published application: follow the execution and approve when asked. |
+| **Cockpit** | Where people build, follow, improve and administer Systems. |
+| **Hypervisor** (also called **Impact**) | The portfolio ledger: what ran, what it cost, what is declared as value, what is missing, what is waiting for a signature. |
+| **Decision** | A proposal waiting for a human: accept or reject. In the Hypervisor this **records an opinion**. It does not change the System by itself. |
+| **Steer** (Pilot) | The screen of one System where, if it is open, you can simulate then apply a rule change, then measure. |
+| **Value base** | A signed convention (“a result of this kind is worth X hours or Y €”). It is a **declaration**, not an accounting measurement. |
+
+Three qualities of a number — never mix them:
+
+- **Measured** — observed on real executions (cost, number of Runs…).
+- **Declared** — hypothesis or convention (value base, estimate).
+- **Missing** — we do not have the data. **That is not a zero.**
+
+Words to avoid on screen: Desk, Board, workflow, pipeline, job. Say
+**Flow**, **Run**, **human approval**.
+
+---
+
+## 0. The story in one sentence
+
+As an executive, I want to see at a glance what our AI systems actually
+did, have the business use the applications, follow executions without
+taking them for business success, and decide myself — give an opinion in
+the Hypervisor, approve in an application, or (if it is open) apply a
+rule change on **one** System — so we steer AI like the rest of the
+company, **without an invented number** and **without letting the model
+sign in my place**.
 
 ---
 
 ## 1. Overview
 
-### 1.1 Problem
+### 1.1 The problem
 
-Without the Agentium Hypervisor, the executive committee has no ledger of
-what Systems actually returned. Teams have no governed channel to raise
-evidence (Run, value base, decision). AI governance falls back to informal
-exchanges, or to chrome “ROI” that invents a zero.
+Without a ledger, the COMEX does not know what AI actually produced.
+Teams have no official path to raise evidence. People fall back on
+email, meetings, or a displayed “ROI” that fabricates €0 where nothing
+was measured.
 
-papAI framed this as a **top-down / bottom-up** flow between decision-makers
-and builders, via Suites and Workflows. Agentium keeps the flow on other
-objects: the **bottom** is Runs and published Experiences; the **top** is
-operational objectives, Decisions and the value loop.
+### 1.2 What the Hypervisor gives
 
-### 1.2 Value proposition
-
-| Capability | Agentium meaning |
+| You can… | In practice |
 |---|---|
-| Ledger | Consolidate Runs, measured cost, declared value, `not_measured` / `not_configured` |
-| Top-down objectives | Bounded operational objective on a System (`operational_objective`) |
-| Bottom-up | Runs, value bases, Work Experiences, review queue |
-| Decisions | `proposed → accepted \| rejected` ; enactment **outside** the Hypervisor |
-| Value loop | Steer: `Outcome → Decision → Simulate → Approve → Act → Measure` |
-| Companion | First-class conversation, same rights, the model does not sign |
-| Governance | IAM, audit, Membrane; never “prompt only” |
+| Read the ledger | See executions, measured costs, declared value, and what is missing |
+| Set a heading | Put a simple operational objective on a System (volume, delay, approvals, cost) |
+| Raise the field | Published applications and each execution leave a trace |
+| Decide | Accept or reject what is waiting for a signature — **recorded opinion**, not an automatic change |
+| Apply a change | Only from the pilot screen of **one** System: simulate, approve, apply, measure |
+| Talk to the portfolio | A conversation companion, with the same rights as the screen; it does not sign |
+| Control | Who sees, who decides, who applies; everything is logged |
 
-### 1.3 Personas
+### 1.3 Who does what
 
-| Persona | Agentium role | Surface |
+| Persona | Job | Where |
 |---|---|---|
-| Executive (Sarah) | Observe the portfolio, sign signals, allocate | `/hypervisor` |
-| Steward (Mehdi) | Bound and enact via Steer | `/systems/:id?lens=steer` |
-| Builder (Alex) | Compose and publish a System / Experience | `/create`, `/systems/new` |
-| Business (Claire) | Consume, cite, sign a gate | `/work`, Studio |
-| Governance (Nadia) | Audit, access | `/governance/audit`, `/governance/access` |
+| Executive | See the portfolio, sign opinions, arbitrate | Hypervisor |
+| Pilot | Bound a System, apply a rule change if it is open | The System’s pilot screen |
+| Designer | Build and publish a System or an application | Cockpit, create |
+| Business user | Use the application, open sources, approve if asked | Work, Studio |
+| Compliance | Check who did what | Audit log, access |
 
-`Work ↔ Cockpit` is an RBAC link, not a theme. Do not say Desk, Board,
-workflow, pipeline, job, HITL (say **Flow**, **Run**, **human approval**).
+Work and Cockpit are not two visual themes: you move from one to the
+other by **rights**, not by a “mode” button.
 
-### 1.4 Gating — flags, not a PRO edition
+### 1.4 What turns on or off
 
-Agentium has no Standard / PRO pair. Scope is workspace flags:
+Agentium has no “Standard / PRO” edition. Capabilities open per
+workspace:
 
-| Flag | Effect |
+| Switch (internal name) | What you see |
 |---|---|
-| `experience_v1` | Work / Experiences |
-| `adoption_experience_v1` | Business entry, Impact rail, guides, companion — **off** by default, **not accepted** |
-| `hypervisor_v2` | Ledger (else v1 value balance sheet) |
-| `value_loop_v1` + System canary | Enactment Simulate → Measure |
+| Business applications | Work and published applications |
+| Adoption path | Business home, “Impact” menu, guides, companion — **off by default**, not yet user-validated |
+| Ledger v2 | New reading (measured / declared); otherwise the older value balance sheet |
+| Value loop | On **one** chosen System: simulate then apply a change |
 
-### 1.5 papAI → Agentium map
+### 1.5 If you come from papAI
 
-| papAI | Agentium | Do not copy as-is |
+| We used to say | We say now | Do not still promise |
 |---|---|---|
-| Suite / Workflow | System bound to a Capability | “Suite KPI” |
-| Hypervisor App | Cockpit surface `/hypervisor` | “first system App on NextJS” |
-| € target | `operational_objective` (5 metrics) + **declared** value base | chrome ROI = financial truth |
-| Directive + ack | Decision + Studio gate + value loop | papAI-style ack workflow |
-| Proposal / Alert / Insight | Decision (`recommendation`, `review_required`, `value_loop`) | Six form types |
-| Strategic agent + action tools | Companion (`inspect_system`, `compare_runs`, `read_operational_metrics`) | `send_directive()` from chat |
-| AI Service health | Diagnostics + Runs — **technical** health | “Healthy” = business success |
-| 4-step KPI pipeline | Experience publication + evaluation + Run | Custom Metric Python from the Hypervisor |
-| PRO banner | Workspace flags | Paid Standard/PRO edition |
+| Suite, Workflow | System, bound to a physical business capability | “Suite KPI” |
+| Hypervisor App | Hypervisor / Impact page in the Cockpit | “first system App” |
+| Euro target | Operational objective (5 indicators) + **declared** value base | The big number on screen = financial truth |
+| Directive to discharge | Decision + approval in the application +, if open, a rule change | papAI discharge circuit |
+| Proposal / alert / insight | One decision (recommendation, review, value scenario) | Six distinct forms |
+| Strategic agent that acts | Companion that **reads** and explains | Send a directive from chat |
+| AI Service health | **Technical** health of executions | “Green” = business success |
+| 4-step KPI pipeline | Publish an application + run + trace | Create a technical metric from the Hypervisor |
+| PRO banner | Workspace switches | Paid edition |
 
 ---
 
-## 2. Epic 1 — Ledger (aggregation)
+## 2. Epic 1 — Read the ledger
 
 ### US-AHYP-100: See what the portfolio returned
 
 **Status: Partial** · **P0**
 
-As an executive, I want to see, on the chosen period, what the portfolio
-executed and on what evidence, so that I can judge impact without taking
-an invented zero as a measurement.
+As an executive, I want to see, on the chosen period, what actually ran
+and on what evidence, so I can judge impact **without taking a gap for a
+zero**.
 
 Acceptance:
 
-- [ ] `/hypervisor` shows Runs, outcomes, cost and value with an explicit
-      fact-state: `available` · `not_measured` · `not_configured` ·
-      `restricted` · `unavailable`
-- [ ] Missing data is **not** rendered as €0 / 0 h
-- [ ] v1: “net value” hero is labelled a **capability ROI model**
-      (estimated − cost), not a financial attestation
-- [ ] v2 (`hypervisor_v2`): legend *ink = measured · teal = declared*;
-      Understand → Detail → Decide
-- [ ] Breakdown by System / Capability is clickable
-- [ ] Displayed ROI is **suppressed** when cost is near zero, and capped
+- [ ] The Hypervisor shows executions, results, cost and value, each with
+      a clear state: available, not measured, not configured, restricted,
+      unavailable
+- [ ] Missing data does **not** appear as €0 or 0 h
+- [ ] Older view: the big “net value” figure is announced as an
+      **estimate model** (declared value minus cost), not an audited
+      account
+- [ ] Newer view: legend *ink = measured · teal = declared*; you
+      understand, detail, decide
+- [ ] You can click a row to open the System or its executions
+- [ ] An “ROI” does not appear when cost is near zero
 
-Data: `GET /hypervisor/balance-sheet`, `GET /hypervisor/series`,
-`GET /hypervisor/value-bases`.
+*Technical note:* Hypervisor page; shared fact-states; v2 behind the
+Ledger switch.
 
-### US-AHYP-101: Choose the observation period
+### US-AHYP-101: Choose the period
 
-**Status: Shipped** · **P0**
+**Status: Delivered** · **P0**
 
-As an executive, I want to choose the window (30d, 90d, WTD / MTD / QTD
-by version) so that I can compare without changing object.
-
-Acceptance:
-
-- [ ] Selector in `/hypervisor` chrome
-- [ ] All blocks recompute
-- [ ] v2: Direction = 90d / hours; Operations = 30d / runs;
-      Compliance = 90d / runs
-
-### US-AHYP-102: Read value bases
-
-**Status: Shipped** · **P0**
-
-As an executive, I want to see which Capabilities have a signed, dated,
-versioned value base, so that I know what is declared versus native units
-(runs, hours).
+As an executive, I want to choose 30 days, 90 days or an equivalent
+period, so I can compare without changing the subject.
 
 Acceptance:
 
-- [ ] `GET /hypervisor/value-bases` lists bases (`declared` | `measured` |
-      `none`)
-- [ ] Without a base: native unit, no fabricated euro
-- [ ] A declared base is **not** a Lot 8 measurement
+- [ ] The choice is visible at the top of the Hypervisor
+- [ ] The whole screen recalculates (figures, list, decisions, charts)
+- [ ] Newer view: Direction = 90 days / hours; Operations = 30 days /
+      executions; Compliance = 90 days / executions
 
-### US-AHYP-103: Keep v1 and v2 stories distinct
+### US-AHYP-102: See value bases
 
-**Status: Shipped** · **P1**
+**Status: Delivered** · **P0**
 
-As a steward, I want `hypervisor_v2` to pick the component so that we do
-not promise the portfolio value-loop banner on the Ledger.
+As an executive, I want to know which capabilities have a signed, dated,
+versioned value convention, so I can separate what is **declared** from
+what exists only as a count of executions or hours.
 
 Acceptance:
 
-- [ ] Flag absent / false → v1 (balance sheet + `GET /hypervisor/value-loop`)
-- [ ] Flag true → v2 (no value-loop aggregate)
-- [ ] v1 shows *A simulation is not a measurement* on the aggregate
+- [ ] The list of bases is visible, with a status: declared, measured, or
+      none
+- [ ] Without a base: stay on a simple unit (executions, hours), no
+      invented euro
+- [ ] A declared base is **not** a proven saving
+
+### US-AHYP-103: Do not tell the same story on both views
+
+**Status: Delivered** · **P1**
+
+As a pilot, I want the older and newer views to stay honest, so we do
+not promise a “value-loop summary” where it is not shown.
+
+Acceptance:
+
+- [ ] Without the newer view: balance sheet + portfolio summary, with the
+      line *A simulation is not a measurement*
+- [ ] With the newer view: ledger; not that summary
 
 ---
 
-## 3. Epic 2 — Top-down objectives
+## 3. Epic 2 — Set a heading (objectives)
 
-### US-AHYP-200: Set an operational objective on a System
+### US-AHYP-200: Set an operational objective
 
-**Status: Shipped** · **P0**
+**Status: Delivered** · **P0**
 
-As an executive or owner, I want a bounded operational objective on a
-System (metric, target, 1–90 day window, owner, comparison reference) so
-that I set a heading **without claiming economic ROI**.
+As an executive or owner, I want to put a simple objective on a System
+(indicator, target, 1 to 90 days, owner, comparison point), so I can set
+a heading **without talking about euros saved**.
 
 Acceptance:
 
-- [ ] Allowed metrics only: `completed_volume` · `mean_duration_ms` ·
-      `human_waits` · `human_validation_rate` · `measured_cost_usd`
-- [ ] Write is System-admin guarded
-- [ ] Impact / System overview shows the objective and *Not measured* /
-      *Economic impact not attested here* when needed
-- [ ] This is **not** the papAI € Target, nor O5 (hours / money saved)
+- [ ] Only five indicators: volume of completed executions, average
+      duration, human waits, human-approval rate, measured cost
+- [ ] Only an authorized owner can write it
+- [ ] The screen shows it, and says *Not measured* or *Economic impact
+      not attested here* when that is the case
+- [ ] This is **not** a financial target, nor “hours / money saved”
 
-Data: `System.settings.operational_objective`.
-
-### US-AHYP-201: See progress toward the objective
+### US-AHYP-201: See whether we hold the objective
 
 **Status: Partial** · **P0**
 
-As an executive, I want the gap between the operational measure and the
-target so that I know if the System is inside the window.
+As an executive, I want to see the gap between actual and target, so I
+know whether the System is on track.
 
 Acceptance:
 
-- [ ] Observed vs target, native unit
-- [ ] A measured zero (true 0 runs) ≠ `not_measured`
-- [ ] No economic “On track” badge derived from a completed Run
+- [ ] Actual vs target, in the indicator’s unit
+- [ ] “Zero executions measured” is not the same as “we do not have the
+      data”
+- [ ] No economic “on time” badge just because a Run completed
 
-### US-AHYP-202: Edit or remove the objective
+### US-AHYP-202: Change or remove the objective
 
-**Status: Shipped** · **P1**
+**Status: Delivered** · **P1**
 
-As an owner, I want to change the target, the window or remove the
-objective. Audit keeps the write.
+As an owner, I want to change the target, the dates, or remove the
+objective. The log keeps the trace.
 
-### US-AHYP-203: See Systems with neither objective nor base
+### US-AHYP-203: See Systems with no heading and no convention
 
 **Status: Partial** · **P1**
 
-As an executive, I want Systems that lack both an operational objective
-and a value base, so that I chase owners instead of showing a “€0”
-portfolio.
+As an executive, I want to see Systems that have neither an objective
+nor a value base, so I can chase owners rather than display a portfolio
+“at €0”.
 
 ---
 
-## 4. Epic 3 — Decisions (portfolio signal)
+## 4. Epic 3 — Decide (opinion in the Hypervisor)
 
 ### US-AHYP-300: See what is waiting for a signature
 
-**Status: Shipped** · **P0**
+**Status: Delivered** · **P0**
 
-As an executive, I want the `proposed` `Decision` feed so that I know what
-is waiting for a human.
-
-Acceptance:
-
-- [ ] `GET /hypervisor/decisions` paginated, filterable
-- [ ] Card: title, rationale, **estimated** impact, target, dates
-- [ ] v2 copy: *What is waiting for a signature*
-- [ ] Observed `kind`: `recommendation`, `review_required`, `value_loop`
-
-### US-AHYP-301: Accept or reject — signal only
-
-**Status: Shipped** · **P0**
-
-As an executive, I want to accept or reject a proposed Decision so that a
-traced **decision signal** is recorded.
+As an executive, I want the list of what is proposed and not yet
+decided, so I know where I must take a stand.
 
 Acceptance:
 
-- [ ] accept: `proposed → accepted` ; reject: `proposed → rejected`
-- [ ] Human provenance when the UI requires it
-- [ ] A `scenario_id` Decision **refuses** this path
-- [ ] UI does **not** offer portfolio “Apply”
-- [ ] `POST .../apply` returns **409** `LEGACY_DECISION_ACTUATOR_DISABLED`
+- [ ] Filterable queue: recommendations, reviews, value scenarios
+- [ ] Each card: title, why, **estimated** impact, object concerned,
+      dates
+- [ ] If the queue is empty: *the portfolio is not waiting for a
+      signature*
 
-Line: *Validating here records a signal. Changing a System goes through Steer.*
+### US-AHYP-301: Accept or reject — an opinion, not a switch
 
-### US-AHYP-302: Scan recommendations
+**Status: Delivered** · **P0**
 
-**Status: Shipped** · **P1**
-
-As an executive, I want SCAN
-(`POST /hypervisor/recommendations/generate`) so that the feed is fed
-without treating recos as measurements.
-
-### US-AHYP-303: Sign a gate in Work / Studio
-
-**Status: Shipped** · **P0**
-
-As a business user or operational decision-maker, I want to accept or
-reject a gate on a published application so that execution waits for a
-human.
+As an executive, I want to accept or reject a proposal, so that an
+**opinion** is recorded and traceable.
 
 Acceptance:
 
-- [ ] The model **cannot** accept (`POST /assistant/decisions` needs the
-      UI action and observed id; stale → refuse)
-- [ ] `/steering/review-queue` for evaluation reviews
-- [ ] Audit: human provenance
+- [ ] Accepted or rejected, with the person and the time when the screen
+      requires it
+- [ ] A rule-change scenario is **not** decided here: go to the System’s
+      pilot screen
+- [ ] The screen does **not** offer “Apply to the whole portfolio”
+- [ ] Trying to apply from the Hypervisor is **refused** (on purpose)
+
+Line to say: *Validating here records an opinion. Changing a System is
+done from its pilot screen.*
+
+### US-AHYP-302: Ask for a recommendation analysis
+
+**Status: Delivered** · **P1**
+
+As an executive, I want to launch an analysis and see the
+recommendations, so I can feed the queue **without taking them for
+measured numbers**.
+
+### US-AHYP-303: Approve in the business application
+
+**Status: Delivered** · **P0**
+
+As a business user, I want to accept or reject an approval request in
+the application, so the execution waits for a human.
+
+Acceptance:
+
+- [ ] The model **cannot** click in my place
+- [ ] A request that is too old is refused
+- [ ] A review queue exists for quality controls
+- [ ] The log records who signed
 
 ---
 
-## 5. Epic 4 — Enactment (value loop)
+## 5. Epic 4 — Apply a change (one System at a time)
 
-### US-AHYP-400: Enact via Steer, not the Hypervisor
+### US-AHYP-400: Change a rule from the pilot screen, not from the ledger
 
-**Status: Shipped (canary)** · **P0**
+**Status: Delivered (limited trial)** · **P0**
 
-As a steward, I want
-`Outcome → Decision → Simulate → Approve → Act → Measure` on **one**
-System so that a policy changes in a bounded, evidenced way.
+As a pilot, I want, on **one** System: start from a result, propose,
+**simulate**, get approval, **apply**, then **measure** — so I can change
+a rule in a limited, proven way.
 
 Acceptance:
 
-- [ ] Gate: `features.value_loop_v1` **and** System activation
-- [ ] Surface: `/systems/:id?lens=steer` — not `/hypervisor`
-- [ ] Single actuator: `control_policy.guardrails.patch.v1` + Membrane
-      `enforce`; else `not_configured`
-- [ ] Baseline = `runtime_auto` Run; seed / operator **refused**
-- [ ] `simulation_is_measurement: false`
-- [ ] Measurement closes only on an observed post-action Run
+- [ ] Open only if the “value loop” switch is on **and** this System is
+      chosen for the trial
+- [ ] Done on the System’s pilot screen, **not** in the Hypervisor
+- [ ] One change type for now (policy guardrails), and only if security
+      allows it; otherwise: *not configured*
+- [ ] The starting reference is a real execution recorded by the
+      server — not an example, not a hand-typed figure
+- [ ] *A simulation is not a measurement*
+- [ ] We close only if an execution **after** the change has been
+      observed
 
-### US-AHYP-401: Read the portfolio aggregate without calling it a measurement
+### US-AHYP-401: Read a portfolio summary without claiming victory
 
-**Status: Shipped (v1 only)** · **P1**
+**Status: Delivered (older view only)** · **P1**
 
-As an executive, I want v1 observed Δ, risks and scenarios so that I drill
-to the System — not to say “the portfolio simulated, therefore we gained”.
+As an executive, I want to see, on the older view, the observed gap,
+risks and scenarios, so I can open the right System — **not** to say
+“we simulated, therefore we gained”.
 
 ---
 
-## 6. Epic 5 — Bottom-up (Work, Runs, Knowledge)
+## 6. Epic 5 — Raise the field
 
-### US-AHYP-500: Publish a consumable Experience
+### US-AHYP-500: Publish a business application
 
-**Status: Shipped** · **P0**
+**Status: Delivered** · **P0**
 
-As a builder, I want to publish an Experience bound to a System version so
-that the business consumes `/work/:slug` without engine jargon.
-
-### US-AHYP-501: Raise evidence (Run)
-
-**Status: Shipped** · **P0**
-
-As a business user or builder, I want an execution to produce a Run so
-that the Hypervisor has something to aggregate.
+As a designer, I want to publish an application bound to a frozen
+version of a System, so the business works in Work, without opening the
+engine.
 
 Acceptance:
 
-- [ ] Deep link `/runs/:id`
-- [ ] *Completed ≠ validated answer ≠ economic gain*
-- [ ] Diagnostics stay behind a “technical health” disclosure
+- [ ] Draft → published version (we do not rewrite it) → in service
+      (pilot or live)
+- [ ] The business enters through Work, not through the System’s
+      technical sheet
 
-### US-AHYP-502: Declare a value base
+### US-AHYP-501: Leave evidence on every execution
 
-**Status: Shipped** · **P1**
+**Status: Delivered** · **P0**
 
-As a steward, I want to declare a base (`value_per_unit`,
-`hours_per_unit`, author, `declared`) so that the Ledger can convert
-outcomes **without inventing a measurement**.
+As a business user or designer, I want an execution to leave a trace
+(optional cost, sources, history), so the ledger has something to talk
+about.
+
+Acceptance:
+
+- [ ] You can open the trace from Work, the companion or the Hypervisor
+- [ ] *Completed ≠ validated answer ≠ money gained*
+- [ ] Throughput and latency stay in a “technical health” drawer
+
+### US-AHYP-502: Declare a value convention
+
+**Status: Delivered** · **P1**
+
+As a pilot, I want to declare “a result of this kind is worth X hours or
+Y €”, with my name, so the ledger converts **without inventing a
+measurement**.
 
 ### US-AHYP-503: See silent Systems
 
 **Status: Partial** · **P1**
 
-As an executive, I want absence of recent Runs as a gap, not as zero
-performance.
+As an executive, I want the absence of recent executions to appear as a
+**gap**, not as a beautiful zero performance.
 
 ---
 
-## 7. Epic 6 — Companion (ex “strategic agent”)
+## 7. Epic 6 — Talk to the portfolio (companion)
 
-### US-AHYP-600: Query the portfolio in natural language
+### US-AHYP-600: Ask a question in English (or French)
 
 **Status: Partial** · **P1**
 
-As an executive or business user, I want a question scoped to authorized
-Systems so that I inspect without browsing — **with the same rights as the
-UI**.
+As an executive or business user, I want to query the Systems I am
+allowed to see, so I can understand without clicking everywhere — **with
+the same rights as on the screen**.
 
 Acceptance:
 
-- [ ] Work + Cockpit companion; 0–10 `system_ids`; empty scope = discovery
-- [ ] Read tools: `inspect_system`, `compare_runs`,
-      `read_operational_metrics`
-- [ ] Launch / approval = canonical services
-- [ ] papAI `send_directive` / `forecast_value` are **out of contract**
+- [ ] The companion is there in Work and in the Cockpit
+- [ ] I pick up to ten Systems; if I pick none, we explore, we launch
+      nothing
+- [ ] It can inspect a System, compare executions, read operational
+      indicators
+- [ ] It uses the same rules as the on-screen buttons
+- [ ] When a System has run: sources and evidence visible
+- [ ] Guides exist: start, sources, Systems, executions, value
 
 ### US-AHYP-601: Stop the model from signing
 
-**Status: Shipped** · **P0**
+**Status: Delivered** · **P0**
 
-As governance, I want no model turn to accept a gate.
+As compliance, I want no conversation turn to accept an approval in
+place of a human.
 
-### US-AHYP-602: Warn about scope
+### US-AHYP-602: See the perimeter before talking
 
 **Status: Partial** · **P1**
 
-As an executive, I want to see scope (Systems, workspace, tools on or off)
-so that I do not believe in an omniscient agent.
+As an executive, I want to see *what* the companion can reach (Systems,
+workspace, read-only or not), so I do not take it for an oracle.
+Sending a directive or inventing a forecast from chat: **out of
+contract**.
 
 ---
 
-## 8. Epic 7 — Attention and trends
+## 8. Epic 7 — What needs attention
 
-### US-AHYP-700: See what needs attention
+### US-AHYP-700: One attention queue
 
 **Status: Partial** · **P1**
 
-As an executive, I want `proposed` decisions, out-of-window objectives,
-`not_configured` Systems, value-loop risks — not a papAI “AI Service Down”
-taken as business failure.
+As an executive, I want in one place: pending opinions, late
+objectives, Systems without a convention, risks on a rule change — so I
+can react. A technical “down” light is **not** a business failure.
 
-### US-AHYP-701: Read a trend without projection = measurement
+### US-AHYP-701: An honest trend
 
 **Status: Partial** · **P2**
 
-As an executive, I want v2 series. Portfolio what-if is **not shipped**
-(`POST /hypervisor/what-if` → `not_configured`). papAI dashed “future
-month” bars stay **out of contract** without provenance.
+As an executive, I want to see day-by-day evolution. A “future month”
+projection or a “what if we moved the lever” on the whole portfolio
+**is not delivered**. Until we have evidence, we do not draw a dotted
+bar.
 
-### US-AHYP-702: Export a COMEX report
+### US-AHYP-702: Export a COMEX pack
 
 **Status: Specified** · **P2**
 
-As an executive, I want a period export (PDF / CSV) with the
-measured/declared/missing disclaimer. **Not shipped.**
+As an executive, I want an export of the period (PDF or spreadsheet):
+register, bases, decisions, and the measured / declared / missing
+mention. **Not built yet.**
 
 ---
 
-## 9. Epic 8 — Governance
+## 9. Epic 8 — Who may, and the trace
 
-### US-AHYP-800: Control who observes, decides, enacts
+### US-AHYP-800: Separate see, decide, apply
 
-**Status: Shipped** · **P0**
+**Status: Delivered** · **P0**
 
-As an admin, I want to separate Hypervisor read · accept/reject ·
-objective write · Steer Act · Work publish. Workspace mode changes
-**density**, not IAM.
+As an administrator, I want distinct rights: read the Hypervisor,
+accept or reject, write an objective, apply a change, publish an
+application. The workspace “mode” (build, use, steer) changes **screen
+density**, not rights.
 
-### US-AHYP-801: Trace
+### US-AHYP-801: Trace everything
 
-**Status: Shipped** · **P0**
+**Status: Delivered** · **P0**
 
-As governance, I want `/governance/audit` to hold accept/reject, human
-gates, adoption progress (metadata only), objective writes, value-loop
-steps.
+As compliance, I want in the log: opinions, human approvals, objective
+writes, steps of a rule change. Each line: who, what, on what, when.
+(Help-path progress: metadata only, not the content of questions.)
 
-### US-AHYP-802: Isolate Mission Room
+### US-AHYP-802: Do not confuse with Mission Room
 
-**Status: Shipped** · **P0**
+**Status: Delivered** · **P0**
 
-As product, I want `/hypervisor/mission-room/*` to remain a **workspace
-application**, not the ledger.
-
----
-
-## 10. Epic 9 — Honesty and adoption
-
-### US-AHYP-900: Refuse the invented zero
-
-**Status: Shipped** · **P0**
-
-As product, I want chrome and API to refuse a substitute financial total.
-O5 remains an **acceptance hole**.
-
-### US-AHYP-901: Enter through Work
-
-**Status: Shipped (flag off)** · **P1**
-
-As a business user, I want a first verifiable result (NorthForge, 4 steps,
-10 minutes unaided — **unmeasured target**) without opening Cockpit.
-`adoption_experience_v1` off by default; 10 sessions **not run**.
+As product, I want an immersive briefing room (government / city demos)
+to stay a **workspace application**, so we do not sell it as the
+ledger.
 
 ---
 
-## 11. Out of scope
+## 10. Epic 9 — Honesty and first use
 
-- Portfolio enactment (“Apply” on `/hypervisor`)
-- What-if / live levers / < 300 ms impact preview
-- papAI directives (types, escalation, Broadcast)
-- Custom Metric pipeline from the Hypervisor
-- Standard / PRO gating
-- LLMOps “AI Service” as a business-health object
-- Cross-workspace sharing
-- KPI favourites (papAI US-HYP-802)
+### US-AHYP-900: Forbid the invented zero
+
+**Status: Delivered** · **P0**
+
+As product, I want no substitute financial total to appear in the
+screen chrome. “Hours or euros saved” is **not** yet a number we can
+defend.
+
+### US-AHYP-901: Start with a business task
+
+**Status: Delivered (path off by default)** · **P1**
+
+As a business user, I want a first verifiable result (guided example,
+four steps, alone, in ten minutes — **target not yet measured**) without
+opening the Cockpit. The welcome path is **not** on everywhere; user
+tests have **not** happened yet.
+
+---
+
+## 11. We do not promise
+
+- Applying a change from the Hypervisor
+- A live “what if” lever on the whole portfolio
+- papAI directives (urgent / strategic, reminder, escalation)
+- Creating a technical metric from the Hypervisor
+- A Standard / PRO edition
+- A COMEX export (written, not built)
+- Attested hours or euros saved
+- Sharing across workspaces
 - Mission Room = Hypervisor
 
 ---
 
 ## 12. Recap
 
+**P0** indispensable in a COMEX session · **P1** desirable · **P2** later.
+
 | ID | Epic | Title | P | Status |
 |---|---|---|---|---|
 | US-AHYP-100 | Ledger | See what the portfolio returned | P0 | Partial |
-| US-AHYP-101 | Ledger | Choose the period | P0 | Shipped |
-| US-AHYP-102 | Ledger | Read value bases | P0 | Shipped |
-| US-AHYP-103 | Ledger | Distinguish v1 / v2 | P1 | Shipped |
-| US-AHYP-200 | Objectives | Set an operational objective | P0 | Shipped |
-| US-AHYP-201 | Objectives | See progress | P0 | Partial |
-| US-AHYP-202 | Objectives | Edit / remove | P1 | Shipped |
-| US-AHYP-203 | Objectives | Systems with no objective or base | P1 | Partial |
-| US-AHYP-300 | Decisions | Signature feed | P0 | Shipped |
-| US-AHYP-301 | Decisions | Accept / reject = signal | P0 | Shipped |
-| US-AHYP-302 | Decisions | SCAN recommendations | P1 | Shipped |
-| US-AHYP-303 | Decisions | Work / Studio gate | P0 | Shipped |
-| US-AHYP-400 | Enactment | Steer Simulate → Measure | P0 | Shipped (canary) |
-| US-AHYP-401 | Enactment | v1 aggregate ≠ measurement | P1 | Shipped |
-| US-AHYP-500 | Bottom-up | Publish an Experience | P0 | Shipped |
-| US-AHYP-501 | Bottom-up | Run evidence | P0 | Shipped |
-| US-AHYP-502 | Bottom-up | Declare a base | P1 | Shipped |
-| US-AHYP-503 | Bottom-up | Silent Systems | P1 | Partial |
-| US-AHYP-600 | Companion | Scoped question | P1 | Partial |
-| US-AHYP-601 | Companion | Model does not sign | P0 | Shipped |
-| US-AHYP-602 | Companion | Warn about scope | P1 | Partial |
-| US-AHYP-700 | Attention | Attention feed | P1 | Partial |
-| US-AHYP-701 | Attention | Trend without fake projection | P2 | Partial |
-| US-AHYP-702 | Attention | COMEX report export | P2 | Specified |
-| US-AHYP-800 | Governance | IAM observe / decide / enact | P0 | Shipped |
-| US-AHYP-801 | Governance | Audit | P0 | Shipped |
-| US-AHYP-802 | Governance | Isolated Mission Room | P0 | Shipped |
-| US-AHYP-900 | Honesty | No invented zero | P0 | Shipped |
-| US-AHYP-901 | Adoption | Work entry | P1 | Shipped (flag off) |
+| US-AHYP-101 | Ledger | Choose the period | P0 | Delivered |
+| US-AHYP-102 | Ledger | See value bases | P0 | Delivered |
+| US-AHYP-103 | Ledger | Two views, two honest stories | P1 | Delivered |
+| US-AHYP-200 | Objectives | Set an operational objective | P0 | Delivered |
+| US-AHYP-201 | Objectives | See whether we hold the objective | P0 | Partial |
+| US-AHYP-202 | Objectives | Change or remove | P1 | Delivered |
+| US-AHYP-203 | Objectives | Systems with no heading or convention | P1 | Partial |
+| US-AHYP-300 | Decisions | See what is waiting for a signature | P0 | Delivered |
+| US-AHYP-301 | Decisions | Accept or reject (opinion) | P0 | Delivered |
+| US-AHYP-302 | Decisions | Ask for recommendations | P1 | Delivered |
+| US-AHYP-303 | Decisions | Approve in the application | P0 | Delivered |
+| US-AHYP-400 | Change | Simulate then measure on one System | P0 | Delivered (limited trial) |
+| US-AHYP-401 | Change | Read the summary without claiming victory | P1 | Delivered |
+| US-AHYP-500 | Field | Publish an application | P0 | Delivered |
+| US-AHYP-501 | Field | Leave execution evidence | P0 | Delivered |
+| US-AHYP-502 | Field | Declare a value convention | P1 | Delivered |
+| US-AHYP-503 | Field | See silent Systems | P1 | Partial |
+| US-AHYP-600 | Companion | Ask a question | P1 | Partial |
+| US-AHYP-601 | Companion | The model does not sign | P0 | Delivered |
+| US-AHYP-602 | Companion | See the perimeter | P1 | Partial |
+| US-AHYP-700 | Attention | One attention queue | P1 | Partial |
+| US-AHYP-701 | Attention | An honest trend | P2 | Partial |
+| US-AHYP-702 | Attention | COMEX pack export | P2 | Specified |
+| US-AHYP-800 | Rights | Separate see / decide / apply | P0 | Delivered |
+| US-AHYP-801 | Rights | Trace everything | P0 | Delivered |
+| US-AHYP-802 | Rights | Mission Room is not the ledger | P0 | Delivered |
+| US-AHYP-900 | Honesty | No invented zero | P0 | Delivered |
+| US-AHYP-901 | First use | Start with a business task | P1 | Delivered (off by default) |

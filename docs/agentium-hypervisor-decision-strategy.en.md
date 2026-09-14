@@ -19,6 +19,33 @@
 > French twins: [`agentium-hypervisor-decision-strategy.md`](./agentium-hypervisor-decision-strategy.md),
 > [`agentium-hypervisor-decision-strategy.fr.docx`](./agentium-hypervisor-decision-strategy.fr.docx),
 > [`deck-agentium-decision-adoption.fr.pptx`](./deck-agentium-decision-adoption.fr.pptx).
+>
+> User stories: [`agentium-hypervisor-user-stories.en.md`](./agentium-hypervisor-user-stories.en.md).
+> COMEX MVP: [`agentium-hypervisor-mvp-comex.en.md`](./agentium-hypervisor-mvp-comex.en.md).
+
+How to read: the glossary and §§1–3 are enough for a COMEX. Routes,
+switches and API excerpts are notes for whoever prepares a demo or
+implements — skip them.
+
+---
+
+## 0. Ten words
+
+| Word | Plain meaning |
+|---|---|
+| **System** | An industrialized AI system: a business objective, rules, a way to run. Not a chat. |
+| **Run** | One traced execution. Completed ≠ validated answer ≠ money gained. |
+| **Work** | Where the business does the work, in a published application. |
+| **Studio** | The screen of that application: follow, and approve when asked. |
+| **Cockpit** | Where people build, follow, improve and administer Systems. |
+| **Hypervisor / Impact** | The portfolio **ledger**: what already ran. Not the live operations room. |
+| **Decision** | A human opinion (accept / reject). In the Hypervisor this **records** the opinion. It does not apply the change. |
+| **Steer** (Pilot) | The screen of **one** System where, if it is open, you can simulate then apply a change, then measure. |
+| **Value base** | A signed convention (“this kind of result is worth X hours or Y €”). It is **declared**, not accounting. |
+| **Measured / declared / missing** | Three qualities of a number. Missing **is not** a zero. |
+
+Words to avoid on screen: Desk, Board, workflow, pipeline, job, “HITL”.
+Say **Flow**, **Run**, **human approval**.
 
 ---
 
@@ -57,7 +84,7 @@ System → Run → Evaluation → Decision → Action
 | **Run** | One traceable execution (cost, latency, context, provenance). |
 | **Evaluation** | Score and dimensions — quality is not a feeling. |
 | **Decision** | Human or machine proposal: review, recommendation, value scenario. |
-| **Action** | Accept, reject, replay, promote a canonical answer, or governed enactment. |
+| **Action** | Accept, reject, replay, promote a reference answer, or apply a bounded change. |
 
 The Hypervisor is the **portfolio view** of this chain. It is not the place
 where someone “presses a magic button” to change the runtime.
@@ -69,19 +96,19 @@ where someone “presses a magic button” to change the runtime.
 Four verbs, four contracts. Mixing them is the main demo failure in front
 of an executive committee.
 
-| Verb | Question | Surface | What the person leaves with |
+| Verb | Question | Where | What the person leaves with |
 |---|---|---|---|
-| **Observe** | What did the portfolio return? On what evidence? | `/hypervisor` (rail **Impact** when the adoption experience is on) | A ledger: measured / declared / missing. No invented zero. |
-| **Consume** | Which task must I finish now? | `/work`, `/work/:slug`, Studio (e.g. `/work/pr-to-po`) | A verifiable result, citations, a human gate if policy requires it. |
-| **Monitor** | What is running, waiting, drifting? | `/runs`, `/observability`, `/steering/review-queue`, Diagnostics | Execution health and queues — explicitly **not** business success. |
-| **Decide** | What is waiting for a signature, and where is it enacted? | `/hypervisor` feed (signal) · Work/Studio gates · **Steer** value loop | A `Decision` state + an audit. The model cannot sign in their place. |
+| **Observe** | What did the portfolio return? On what evidence? | Hypervisor / Impact | A ledger: measured / declared / missing. No invented zero. |
+| **Consume** | Which task must I finish now? | Work, Studio (the published application) | A verifiable result, opened sources, a **human approval** if the rule requires it. |
+| **Monitor** | What is running, waiting, drifting? | Executions, review queue, Diagnostics | Execution health and queues — explicitly **not** business success. |
+| **Decide** | What is waiting for a signature, and where does the change apply? | Hypervisor queue (opinion) · approval in the application · **Steer** (apply) | A recorded opinion + a trace. The model cannot sign in their place. |
 
-`Work ↔ Cockpit` is an **RBAC** link, not a theme toggle. Identifiers,
-audit and deep links are shared.
+You move from Work to Cockpit by **rights**, not by a “mode” button.
+Identifiers, the log and deep links are shared.
 
-Words banned on screen and in a brief: **Desk**, **Board**,
-**workflow** / **pipeline** (say **Flow**), **job** (say **Run**),
-**HITL** as a label (say **human approval**).
+*Technical note:* Hypervisor = `/hypervisor` (the menu may say **Impact**
+when the welcome path is on). Work = `/work`. Review queue =
+`/steering/review-queue`.
 
 ---
 
@@ -93,31 +120,32 @@ The Hypervisor is the **AI portfolio ledger**: what Systems executed, what
 it cost, what is declared as value, what is missing, and **what is waiting
 for a signature**.
 
-Single route: `/hypervisor`. The component (v1 or v2) depends on the
-workspace flag `settings.features.hypervisor_v2`. Absent or `false` → v1.
+Two possible readings of the same page: a **value balance sheet** (older
+view) or a **ledger** (newer view). The menu may say **Impact**. Renaming
+the tab **does not** establish an economic result.
 
-With the adoption experience, the Cockpit rail relabels this zone
-**Impact**. The navigation id stays `hypervisor`. Renaming the tab **does
-not** establish an economic outcome.
+*Technical note:* single route `/hypervisor`. The newer view turns on with
+the workspace switch `hypervisor_v2`.
 
-### 3.2 Two readings, one `Decision` object
+### 3.2 Two readings, one opinion to sign
 
-| | **v1 — Value balance sheet** | **v2 — Ledger** (flag `hypervisor_v2`) |
+| | **Older view — Value balance sheet** | **Newer view — Ledger** |
 |---|---|---|
-| UI promise | “Net value generated” — cost, estimated value, ROI, signals, SCAN recommendations | “What the portfolio returned” — ink = measured, teal = declared |
-| Strata | Hero + KPI + capabilities + signals + recos + decisions | **Understand → Detail → Decide** |
-| Views | One page, WTD/MTD/QTD/30d/90d | Direction (hours, 90d) · Operations (runs, 30d) · Compliance (runs, 90d) |
-| Portfolio value loop | Yes — read-only aggregate (`GET /hypervisor/value-loop`) | No — v2 is an instrumented ledger, not the same dashboard |
+| On-screen promise | “Net value generated” — cost, estimated value, ROI, signals, recommendations | “What the portfolio returned” — ink = measured, teal = declared |
+| How you read | One page of figures + signals + decisions | **Understand → Detail → Decide** |
+| Windows | One page, period of choice (week / month / 30d / 90d) | Direction (hours, 90d) · Operations (executions, 30d) · Compliance (executions, 90d) |
+| Value-loop summary | Yes — a read-only aggregate | No — the ledger is not the same dashboard |
 | Decide | Accept / Reject | Accept / Reject |
 
-Both versions **accept and reject** a proposed `Decision`. Neither
-**enacts** a policy change via “Apply”: the API returns
-`LEGACY_DECISION_ACTUATOR_DISABLED` and points to a System value loop.
-That is intentional, not a demo bug.
+Both views **record an opinion** (accept / reject). Neither **applies** a
+rule change via “Apply”: that is refused on purpose, and the screen
+points to one System’s pilot screen. That is not a demo bug.
 
-Line to say: *“Validating here records a decision signal. Changing a
-System’s behaviour goes through Steer: Simulate → Approve → Act →
-Measure.”*
+Line to say: *“Validating here records an opinion. Changing a System
+goes through its pilot screen: Simulate → Approve → Apply → Measure.”*
+
+*Technical note:* the old apply path returns an explicit refusal
+(`LEGACY_DECISION_ACTUATOR_DISABLED`).
 
 ### 3.3 What the C-level should read (and should not)
 
@@ -143,10 +171,9 @@ Measure.”*
 
 ### 3.4 Mission Room is not the Hypervisor
 
-`/hypervisor/mission-room/*` is an immersive **workspace application**
-(Sentinel-CI, Octocity, or the generic provider). Ministerial briefing,
-map, watch, cabinet arbitration. Same URL prefix, **different contract**.
-Do not present it as the portfolio ledger.
+**Mission Room** is an immersive **workspace application** (government /
+city-style briefing). Same address family as the Hypervisor, **different
+contract**. Do not present it as the portfolio ledger.
 
 ---
 
@@ -155,49 +182,51 @@ Do not present it as the portfolio ledger.
 Three planes. Do not collapse them.
 
 ```text
-Portfolio             System                    Application
-/hypervisor           /systems/:id?lens=steer   /work/:slug  (Studio)
-accept / reject       Simulate → Approve        human gate
-= signal              → Act → Measure           = required
-                      = bounded enactment       approval
+Portfolio                    One System                   The application
+Hypervisor / Impact          Pilot screen (Steer)         Studio
+accept / reject              Simulate → Approve           human approval
+= an opinion                 → Apply → Measure            = required
+                             = bounded change
 ```
 
-### 4.1 Portfolio signal
+### 4.1 An opinion on the portfolio
 
-`POST /hypervisor/decisions/{id}/accept|reject` moves
-`proposed → accepted | rejected`. A `kind=review_required` may feed
-evaluation feedback. A `scenario_id` (value loop) **refuses** this path:
-it must go through the value orchestrator.
+Accepting or rejecting in the Hypervisor moves the proposal to *accepted*
+or *rejected*. That sometimes feeds a quality review. A **rule-change**
+scenario refuses this path: it must go through the System’s pilot screen.
 
-### 4.2 Enactment — value loop (Lot 8)
+*Technical note:* `POST /hypervisor/decisions/{id}/accept|reject`.
 
-Contract: `Outcome → Decision → Simulate → Approve → Act → Measure`.
+### 4.2 Apply a change — value loop
 
-- Owned by a **System**, in Steer — not by the portfolio.
-- Gate: `features.value_loop_v1` **and** System activation (canary
-  `settings.experience.value_loop_canary = "v1"` during rollout).
-- First actuator, deliberately bounded:
-  `control_policy.guardrails.patch.v1`, only if the System declares it and
-  Membrane v2 in `enforce` allows it. Otherwise: `not_configured`.
-- Baseline = a completed Run with server provenance `runtime_auto`. A
-  seed, a canary or an operator value is **refused** as baseline.
-- `simulation_is_measurement: false` everywhere. A measurement closes the
-  scenario only on a really observed post-action Run.
+Visible contract: **Result → Decision → Simulate → Approve → Apply →
+Measure**.
+
+- On **one** System, in Steer — not on the whole portfolio.
+- Open only if the “value loop” switch is on **and** this System is
+  chosen for the trial.
+- First allowed change, deliberately narrow: a guardrail adjustment, only
+  if the System declares it and execution control allows it. Otherwise:
+  *not configured*.
+- The starting point is a real execution recorded by the server. An
+  example, a trial or a hand-typed figure is **refused**.
+- *A simulation is not a measurement.* We close only if an execution
+  **after** the change has been observed.
 - Detail: [`agentium-lot8-value-loop.md`](./agentium-lot8-value-loop.md).
 
-`/steering` (legacy page) still CRUDs policies. The “levers / what-if”
-preview is **off**. `POST /hypervisor/what-if` and
-`POST /control-plane/simulate` return `not_configured` and point to
-`/systems/{id}/value-loop`. Do not promise a universal impact preview
-(< 300 ms): it is **planned**, the component is not wired.
+The older policy screen still exists. The “levers / what if” preview is
+**off**. Do not promise a live universal impact preview: it is
+**planned**, not wired.
 
-### 4.3 Human approval in Work
+*Technical note:* switches `value_loop_v1` + System canary; actuator
+`control_policy.guardrails.patch.v1`; what-if `not_configured`.
 
-In a published application (Studio), a gate is an **explicit human
-decision**. The model cannot accept in the person’s place
-(`POST /assistant/decisions` requires the UI action and the observed id).
-`/steering/review-queue` handles evaluation reviews. These acts carry
-human provenance in the audit.
+### 4.3 Human approval in the application
+
+In a published application (Studio), an approval request is an **explicit
+human decision**. The model cannot click in the person’s place. A review
+queue handles quality controls. These acts carry human provenance in the
+log.
 
 ---
 
@@ -208,11 +237,11 @@ It is holding **five disciplines** on the same `System` object.
 
 | Discipline | What the executive committee gets | Where to see it |
 |---|---|---|
-| **Alignment** | Each System serves a Capability, not an orphan prompt | `/capabilities`, `/systems`, Work |
-| **Publication** | What the business consumes is an **Experience** bound to a published version | `/create/apps` → `/work/:slug` |
-| **Evidence** | Every answer has a Run, optional cost, context, lineage | `/runs/:id`, conversation “Action evidence” |
-| **Governance** | Policies, IAM, audit, Membrane — never “prompt only” | `/governance/audit`, `/governance/access` |
-| **Allocation** | We fund, tighten or stop **on evidence** | `/hypervisor` + the System value loop |
+| **Alignment** | Each System serves a business capability, not an orphan prompt | Capabilities, Systems, Work |
+| **Publication** | What the business uses is an **application** bound to a published version | Create an app → Work |
+| **Evidence** | Every answer has an execution, optional cost, context, lineage | Execution sheet, conversation “Action evidence” |
+| **Governance** | Rules, access rights, log, execution control — never “prompt only” | Audit, access |
+| **Allocation** | We fund, tighten or stop **on evidence** | Hypervisor + the System’s pilot screen |
 
 Strategic consequences:
 
@@ -220,14 +249,15 @@ Strategic consequences:
    can say *how many Systems have a value base*, *which ones only have
    runs*, *which ones are waiting for a signature*.
 2. **Conversation is not a parallel channel.** It reuses the same
-   contracts, permissions and gates. It can start an authorized action; it
+   rules, rights and approvals. It can start an authorized action; it
    cannot invent a right.
-3. **Economics is not a chrome badge.** The five **operational objective**
-   metrics (adoption) are not attested ROI. The value loop owns economic
-   measurements. The “hours / money saved” gap (O5) remains a documented
-   **acceptance hole**.
-4. **Autonomy risk is bounded.** One actuator, a Membrane in enforce, a
-   human on the gates. We industrialize control as much as execution.
+3. **Economics is not a decorative badge.** The five **operational
+   objective** indicators are not attested ROI. The value loop owns
+   economic measurements. “Hours / money saved” remains a **gap**: we
+   have not proven it yet.
+4. **Autonomy risk is bounded.** One allowed change type, execution
+   control, a human on approvals. We industrialize control as much as
+   execution.
 
 Target maturity (mental model §37), **without automatic adaptive UX**
 today:
@@ -248,15 +278,15 @@ balance sheet that is only Runs.
 
 | Item | State |
 |---|---|
-| Adoption experience | Code shipped behind `settings.features.adoption_experience_v1` (**off** by default) |
-| Work / Experiences | `experience_v1` — Work/runtime contract; “integrated” ≠ production-accepted |
-| EN/FR guides | `/help/{start,sources,systems,runs,value}` |
-| NorthForge path | `/work/getting-started` — 4 steps, Showcase + notices collection required |
-| Conversation companion | Work + Cockpit overlay, scope-bound, the model does not sign |
-| Operational objectives | 5 bounded metrics on the System — not ROI |
+| Business welcome path | Code shipped, **off by default** — not yet user-validated |
+| Work / applications | The business can work in a published application; “integrated” ≠ production-accepted |
+| EN/FR guides | Start, sources, Systems, executions, value |
+| Guided example (NorthForge) | Four steps, on the showcase workspace, example collection required |
+| Conversation companion | Present in Work and Cockpit, same perimeter as the screen, the model does not sign |
+| Operational objectives | 5 bounded indicators on the System — not ROI |
 | Usability sessions | **Not run** (target: 5 business + 5 developers) |
 | NorthForge bar | 4/5 business users finish **unaided in 10 minutes** — not measured |
-| Flag retirement | Sponsor sequence (pilot → default → remove) — **not signed** |
+| Default / retirement | Sponsor sequence (trial → default → remove) — **not signed** |
 
 Adoption is **not a permanent edition**. It is a rollout control. Line to
 hold: *“the business path exists; it is not yet the default for every
@@ -266,26 +296,26 @@ workspace; we do not yet have the acceptance sheet.”*
 
 | Layer | Values | What it changes | What it does not |
 |---|---|---|---|
-| **IAM role** | Workspace rights | What the person *may* do | — |
-| **Workspace mode** | `builder` / `operator` / `executive` (+ provisioned `demo`, `portfolio`) | Cockpit density, home, economic/technical disclosure | Rights |
-| **Member preference** (adoption) | Build / Use / Steer value | Tone of `<ck-help>` guides | Mode, role, entitlements |
+| **Access rights** | Rights in the workspace | What the person *may* do | — |
+| **Workspace mode** | Build / Operate / Direct (+ demo, portfolio) | Screen density, home, what is said in economic or technical terms | Rights |
+| **Member preference** (welcome) | Build / Use / Steer value | Tone of the guides | Mode, role, rights |
 
-`demo` mode hides providers and models (presentation-safe). `portfolio` is
-persisted and intentionally absent from the UI selector.
+Demo mode hides providers and models (presentation-safe). Portfolio mode
+exists behind the scenes, intentionally absent from the selector.
 
 Story personas (product deck) — useful for a narrative, **not** accounts:
 
-| Persona | Entry | Job |
+| Persona | Enters through | Job |
 |---|---|---|
-| Sarah — CAIO | `/hypervisor` | Arbitrate the portfolio |
-| Mehdi — Steward | `/steering` then a System’s Steer | Envelope and policies |
-| Alex — Builder | `/create`, `/systems/new` | Compose a System |
-| Claire — Analyst | Work first; Cockpit `/runs` to drill | Consume and trace |
-| Léo — Curator | `/knowledge` | Prepare sources |
-| Nadia — Governance | `/governance/audit` | Compliance |
+| Sarah — AI lead | Hypervisor / Impact | Arbitrate the portfolio |
+| Mehdi — pilot | Pilot one System | Bound the rules |
+| Alex — designer | Create | Compose a System |
+| Claire — business | Work first; Cockpit only to drill an execution | Use and trace |
+| Léo — curator | Knowledge | Prepare sources |
+| Nadia — compliance | Audit log | Control |
 
-Claire does not “live” in `/systems/:id`. Business users consume in
-**Work**. Cockpit chat is the operator path.
+Claire does not “live” in a System’s technical sheet. The business works
+in **Work**. Cockpit chat is the operator path.
 
 ### 6.3 Learning curve
 
@@ -299,9 +329,9 @@ Three **declared** stages, not yet an automatic coach (§38 planned).
 
 | Profile | First 15 minutes | First week |
 |---|---|---|
-| **C-level observer** | `/work` → one published app → `/hypervisor` (Impact) → read measured/declared/missing → `/help/value` | 30d/90d review, value-base coverage, pending decisions, one audit pass. **No** “hours saved €” without a Lot 8 baseline. |
-| **Business consumer** | `/work` → question → open the citation → (optional) NorthForge. Persona **Use**. | Daily Work; `/steering/review-queue` if assigned; Run deep link only to drill. *Completed ≠ validated answer.* |
-| **Decision-maker** | A Studio gate **or** a Hypervisor decision (signal) **before** opening Steer | Inbox: gates + review + Impact feed. One `Simulate → Measure` scenario only if `value_loop_v1` is active on **this** System. |
+| **C-level observer** | Work → one published application → Impact → read measured / declared / missing → value help | 30d / 90d review, value-convention coverage, pending opinions, one audit pass. **No** “hours saved €” without a measurement after a change. |
+| **Business user** | Work → question → open the source → (optional) guided example. Preference **Use**. | Daily Work; review queue if assigned; open an execution only to drill. *Completed ≠ validated answer.* |
+| **Decision-maker** | An approval in the application **or** a Hypervisor opinion **before** opening the pilot screen | Inbox: approvals + review + Impact queue. One *Simulate → Measure* scenario only if the value loop is open on **this** System. |
 
 Business acceptance target (unmeasured): first verifiable result
 **alone, in ten minutes**, on the NorthForge example.
@@ -325,7 +355,7 @@ session; the internal run already exceeded the 120-minute budget.
 
 - “Everyone is autonomous on day one” — not measured.
 - “NorthForge certifies” — visited steps certify nothing.
-- “The adoption flag = mature product” — the flag is a tap.
+- “The welcome path = mature product” — it is a tap, off by default.
 - “Impact = ROI” — the rename does not establish the outcome.
 
 ---
@@ -336,8 +366,8 @@ session; the internal run already exceeded the 120-minute budget.
 |---|---|
 | *Missing data is not a zero.* | Show or narrate €0 / 0 h where the state is `not_measured` / `not_configured`. |
 | *A simulation is not a measurement.* | “We simulated, therefore we gained.” |
-| *Accepting in the Hypervisor records a signal.* | “The Hypervisor applies the policy by itself.” |
-| *The value loop lives on a System, behind a flag.* | “Every workspace closes the loop.” |
+| *Accepting in the Hypervisor records an opinion.* | “The Hypervisor applies the rule by itself.” |
+| *The value loop lives on a System, if it is open.* | “Every workspace closes the loop.” |
 | *Portfolio what-if is retired.* | “Move the lever, ROI updates live.” |
 | *Mission Room is a workspace app.* | “Mission Room = the ledger.” |
 | *Adoption is opt-in; sessions not run.* | “Adoption is user-validated.” |
@@ -353,13 +383,13 @@ Shared fact-states: `available` · `not_measured` · `not_configured` ·
 Hard-reload (Cmd+Shift+R) before speaking. A stale tab yields bare 422s
 and “this tab was opened before an update”.
 
-1. **Work** — a published application, a question, a citation. *Consume.*
-2. **Run** — deep link. *Monitor: this is the evidence, not the gain.*
-3. **Hypervisor / Impact** — measured/declared legend, one pending
-   decision. *Observe, then decide (signal).*
-4. **System Steer** (only if `value_loop_v1` is actually on) — *Simulate
+1. **Work** — a published application, a question, an opened source. *Consume.*
+2. **One execution** — the deep link. *Monitor: this is the evidence, not the gain.*
+3. **Hypervisor / Impact** — measured / declared legend, one pending
+   decision. *Observe, then give an opinion.*
+4. **Pilot one System** (only if the value loop is really open) — *Simulate
    is not measure.* Otherwise stop and say so.
-5. **`/help/value`** — close on observed cost / declared value / attested
+5. **Value help** — close on observed cost / declared value / attested
    impact.
 
 For a NAWA client, the PR→PO Studio

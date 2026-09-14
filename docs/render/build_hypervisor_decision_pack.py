@@ -481,13 +481,13 @@ def main() -> int:
             "fr",
             DOCS / "agentium-hypervisor-mvp-comex.md",
             DOCS / "agentium-hypervisor-mvp-comex.fr.docx",
-            "Hyperviseur Agentium, MVP COMEX",
+            "Hyperviseur Agentium — MVP COMEX",
         ),
         (
             "en",
             DOCS / "agentium-hypervisor-mvp-comex.en.md",
             DOCS / "agentium-hypervisor-mvp-comex.en.docx",
-            "Agentium Hypervisor, COMEX MVP",
+            "Agentium Hypervisor — COMEX MVP",
         ),
     ]
     for lang, src, dest, title in extra_docx:

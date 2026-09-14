@@ -26,6 +26,30 @@
 > [`agentium-hypervisor-decision-strategy.en.docx`](./agentium-hypervisor-decision-strategy.en.docx),
 > [`deck-agentium-decision-adoption.en.pptx`](./deck-agentium-decision-adoption.en.pptx).
 
+Comment lire : le glossaire et les §1–3 suffisent pour un COMEX. Les
+routes, interrupteurs et extraits d’API sont des notes pour qui prépare
+une démo ou implémente — on peut les sauter.
+
+---
+
+## 0. Dix mots
+
+| Mot | Sens courant |
+|---|---|
+| **System** | Un système d’IA industrialisé : un objectif métier, des règles, une façon de s’exécuter. Pas un chat. |
+| **Run** | Une exécution tracée. Terminé ≠ réponse validée ≠ argent gagné. |
+| **Work** | Là où le métier fait le travail, dans une application publiée. |
+| **Studio** | L’écran de cette application : suivre, et approuver quand on le demande. |
+| **Cockpit** | Là où l’on construit, suit, améliore et administre les Systems. |
+| **Hyperviseur / Impact** | Le **grand livre** du portefeuille : ce qui a déjà tourné. Ce n’est pas la salle d’opération. |
+| **Décision** | Un avis humain (accepter / refuser). Dans l’Hyperviseur, cela **enregistre** l’avis. Cela n’applique pas le changement. |
+| **Steer** (Piloter) | L’écran d’**un** System où l’on peut, si c’est ouvert, simuler puis appliquer un changement, puis mesurer. |
+| **Base de valeur** | Une convention signée (« ce type de résultat vaut X heures ou Y € »). C’est **déclaré**, pas comptable. |
+| **Mesuré / déclaré / absent** | Trois qualités d’un chiffre. Absent **n’est pas** un zéro. |
+
+Mots à éviter à l’écran : Desk, Board, workflow, pipeline, job, « HITL ».
+On dit **Flow**, **Run**, **approbation humaine**.
+
 ---
 
 ## 1. Ce qu’Agentium change dans la décision d’entreprise
@@ -64,7 +88,7 @@ System → Run → Evaluation → Decision → Action
 | **Run** | Une exécution traçable (coût, latence, contexte, provenance). |
 | **Evaluation** | Score et dimensions — la qualité n’est pas un ressenti. |
 | **Decision** | Proposition humaine ou machine : revue, recommandation, scénario de valeur. |
-| **Action** | Acceptation, rejet, replay, promotion d’une réponse canonique, ou enactment gouverné. |
+| **Action** | Accepter, refuser, rejouer, promouvoir une réponse de référence, ou appliquer un changement encadré. |
 
 L’Hyperviseur est la **vue portefeuille** de cette chaîne. Il n’est pas
 l’endroit où l’on « appuie sur un bouton magique » pour changer le runtime.
@@ -76,19 +100,20 @@ l’endroit où l’on « appuie sur un bouton magique » pour changer le runtim
 Quatre verbes, quatre contrats. Les mélanger est la principale erreur de
 démo auprès d’un COMEX.
 
-| Verbe | Question | Surface | Ce que la personne emporte |
+| Verbe | Question | Où | Ce que la personne emporte |
 |---|---|---|---|
-| **Observer** | Qu’est-ce que le portefeuille a rendu ? Sur quelle preuve ? | `/hypervisor` (rail **Impact** si l’expérience d’adoption est active) | Un registre : mesuré / déclaré / absent. Pas un zéro inventé. |
-| **Consommer** | Quelle tâche dois-je finir maintenant ? | `/work`, `/work/:slug`, Studio (ex. `/work/pr-to-po`) | Un résultat vérifiable, des citations, un gate humain si la politique l’exige. |
-| **Monitorer** | Qu’est-ce qui tourne, attend, dérive ? | `/runs`, `/observability`, `/steering/review-queue`, Diagnostics | Santé d’exécution et files d’attente — explicitement **pas** le succès métier. |
-| **Décider** | Qu’est-ce qui attend une signature, et où ça s’enacte ? | Feed `/hypervisor` (signal) · gates Work/Studio · boucle de valeur **Steer** | Un état de `Decision` + un audit. Le modèle ne peut pas signer à sa place. |
+| **Observer** | Qu’est-ce que le portefeuille a rendu ? Sur quelle preuve ? | Hyperviseur / Impact | Un registre : mesuré / déclaré / absent. Pas un zéro inventé. |
+| **Consommer** | Quelle tâche dois-je finir maintenant ? | Work, Studio (l’application publiée) | Un résultat vérifiable, des sources ouvertes, une **approbation humaine** si la règle l’exige. |
+| **Monitorer** | Qu’est-ce qui tourne, attend, dérive ? | Exécutions, file de revue, Diagnostics | Santé d’exécution et files d’attente — explicitement **pas** le succès métier. |
+| **Décider** | Qu’est-ce qui attend une signature, et où le changement s’applique ? | File de l’Hyperviseur (avis) · approbation dans l’application · **Steer** (appliquer) | Un avis enregistré + une trace. Le modèle ne peut pas signer à sa place. |
 
-`Work ↔ Cockpit` est un lien **RBAC**, pas un interrupteur de thème. Les
-identifiants, l’audit et les deep links sont partagés.
+On passe de Work au Cockpit selon les **droits**, pas selon un bouton
+« mode ». Les identifiants, le journal et les liens profonds sont
+partagés.
 
-Mots interdits à l’écran et dans un brief : **Desk**, **Board**,
-**workflow** / **pipeline** (dire **Flow**), **job** (dire **Run**),
-**HITL** comme libellé (dire **approbation humaine**).
+*Côté technique :* Hyperviseur = `/hypervisor` (le menu peut dire
+**Impact** si le parcours d’accueil est allumé). Work = `/work`. File de
+revue = `/steering/review-queue`.
 
 ---
 
@@ -100,31 +125,34 @@ L’Hyperviseur est le **grand livre du portefeuille IA** : ce que les Systems
 ont exécuté, ce que cela a coûté, ce qui est déclaré comme valeur, ce qui
 manque, et **ce qui attend une signature**.
 
-Route unique : `/hypervisor`. Le composant (v1 ou v2) dépend du flag
-workspace `settings.features.hypervisor_v2`. Absent ou `false` → v1.
+Deux lectures possibles de la même page : un **bilan de valeur** (ancienne
+vue) ou un **grand livre** (nouvelle vue). Le menu peut dire **Impact**.
+Changer le nom de l’onglet **n’établit pas** un résultat économique.
 
-Avec l’expérience d’adoption, le rail Cockpit relabelle cette zone
-**Impact** (FR). L’identifiant de navigation reste `hypervisor`. Renommer
-l’onglet **n’établit pas** un outcome économique.
+*Côté technique :* route unique `/hypervisor`. La nouvelle vue s’allume
+avec l’interrupteur d’espace `hypervisor_v2`.
 
-### 3.2 Deux lectures, un même objet `Decision`
+### 3.2 Deux lectures, un même avis à signer
 
-| | **v1 — Bilan de valeur** | **v2 — Grand Livre** (flag `hypervisor_v2`) |
+| | **Ancienne vue — Bilan de valeur** | **Nouvelle vue — Grand livre** |
 |---|---|---|
-| Promesse UI | « Valeur nette générée » — coût, valeur estimée, ROI, signaux, recommandations SCAN | « Ce que le portefeuille a rendu » — encre = mesuré, teal = déclaré |
-| Strates | Hero + KPI + capacités + signaux + reco + décisions | **Comprendre → Détailler → Décider** |
-| Vues | Une page, période WTD/MTD/QTD/30j/90j | Direction (heures, 90j) · Operations (runs, 30j) · Conformité (runs, 90j) |
-| Boucle de valeur portefeuille | Oui — agrégat en lecture (`GET /hypervisor/value-loop`) | Non — le v2 est un registre instrumenté, pas le même tableau de bord |
-| Décider | Accepter / Rejeter | Accepter / Rejeter |
+| Promesse à l’écran | « Valeur nette générée » — coût, valeur estimée, ROI, signaux, recommandations | « Ce que le portefeuille a rendu » — encre = mesuré, teal = déclaré |
+| Comment on lit | Une page de chiffres + signaux + décisions | **Comprendre → Détailler → Décider** |
+| Fenêtres | Une page, période au choix (semaine / mois / 30 j / 90 j) | Direction (heures, 90 j) · Opérations (exécutions, 30 j) · Conformité (exécutions, 90 j) |
+| Résumé de boucle de valeur | Oui — un agrégat en lecture seule | Non — le grand livre n’est pas le même tableau |
+| Décider | Accepter / Refuser | Accepter / Refuser |
 
-Les deux versions **acceptent et rejettent** une `Decision` proposée. Aucune
-des deux **n’enacte** un changement de policy via « Appliquer » : l’API
-répond `LEGACY_DECISION_ACTUATOR_DISABLED` et renvoie vers la boucle de
-valeur d’un System. C’est volontaire, pas un bug de démo.
+Les deux vues **enregistrent un avis** (accepter / refuser). Aucune des
+deux **n’applique** un changement de règle via « Appliquer » : c’est
+refusé volontairement, et l’écran renvoie vers le pilotage d’un System.
+Ce n’est pas un bug de démo.
 
-Phrase à dire : *« Valider ici enregistre un signal de décision. Modifier le
-comportement d’un System passe par Steer : Simuler → Approuver → Agir →
+Phrase à dire : *« Valider ici enregistre un avis. Modifier un System
+passe par son écran de pilotage : Simuler → Approuver → Appliquer →
 Mesurer. »*
+
+*Côté technique :* l’ancien chemin d’application répond un refus explicite
+(`LEGACY_DECISION_ACTUATOR_DISABLED`).
 
 ### 3.3 Ce que le C-level doit lire (et ce qu’il ne doit pas)
 
@@ -151,10 +179,9 @@ Mesurer. »*
 
 ### 3.4 Mission Room n’est pas l’Hyperviseur
 
-`/hypervisor/mission-room/*` est une **application de workspace** immersive
-(Sentinel-CI, Octocity, ou provider générique). Briefing ministériel, carte,
-veille, arbitrages de cabinet. Même préfixe d’URL, **autre contrat**. Ne pas
-les présenter comme le grand livre du portefeuille.
+**Mission Room** est une **application d’espace** immersive (briefing type
+gouvernement / ville). Même famille d’adresse que l’Hyperviseur, **autre
+contrat**. Ne pas la présenter comme le grand livre du portefeuille.
 
 ---
 
@@ -163,49 +190,53 @@ les présenter comme le grand livre du portefeuille.
 Trois plans, à ne pas fusionner.
 
 ```text
-Portefeuille          System                    Application
-/hypervisor           /systems/:id?lens=steer   /work/:slug  (Studio)
-accept / reject       Simulate → Approve        gate humain
-= signal              → Act → Measure           = approbation
-                      = enactment borné         requise
+Portefeuille                 Un System                    L’application
+Hyperviseur / Impact         Écran de pilotage (Steer)    Studio
+accepter / refuser           Simuler → Approuver          approbation humaine
+= un avis                    → Appliquer → Mesurer        = obligatoire
+                             = changement borné
 ```
 
-### 4.1 Signal portefeuille
+### 4.1 Un avis sur le portefeuille
 
-`POST /hypervisor/decisions/{id}/accept|reject` fait passer
-`proposed → accepted | rejected`. Un `kind=review_required` peut nourrir le
-feedback d’évaluation. Un `scenario_id` (boucle de valeur) **refuse** ce
-chemin : il doit passer par l’orchestrateur de valeur.
+Accepter ou refuser dans l’Hyperviseur fait passer la proposition à
+*acceptée* ou *refusée*. Cela nourrit parfois une revue qualité. Un
+scénario de **changement de règle** refuse ce chemin : il doit passer par
+le pilotage du System.
 
-### 4.2 Enactment — boucle de valeur (Lot 8)
+*Côté technique :* `POST /hypervisor/decisions/{id}/accept|reject`.
 
-Contrat : `Outcome → Decision → Simulate → Approve → Act → Measure`.
+### 4.2 Appliquer un changement — boucle de valeur
 
-- Porte par **System**, dans Steer — pas par le portefeuille.
-- Gate : `features.value_loop_v1` **et** activation du System (canari
-  `settings.experience.value_loop_canary = "v1"` pendant le déploiement).
-- Premier actionneur, volontairement borné :
-  `control_policy.guardrails.patch.v1`, seulement si le System le déclare et
-  si la Membrane v2 en `enforce` l’autorise. Sinon : `not_configured`.
-- Baseline = Run terminé à provenance serveur `runtime_auto`. Un seed, un
-  canari ou une valeur opérateur est **refusé** comme baseline.
-- `simulation_is_measurement: false` partout. Une mesure ne clôt le
-  scénario que sur un Run post-action réellement observé.
+Contrat visible : **Résultat → Décision → Simuler → Approuver → Appliquer
+→ Mesurer**.
+
+- Sur **un** System, dans Steer — pas sur tout le portefeuille.
+- Ouvert seulement si l’interrupteur « boucle de valeur » est allumé **et**
+  que ce System est choisi pour l’essai.
+- Premier changement autorisé, volontairement étroit : un ajustement de
+  garde-fous, seulement si le System le déclare et si le contrôle
+  d’exécution l’autorise. Sinon : *non configuré*.
+- Le point de départ est une vraie exécution enregistrée par le serveur.
+  Un exemple, un essai ou un chiffre saisi à la main est **refusé**.
+- *Une simulation n’est pas une mesure.* On ne clôt que si une exécution
+  **après** le changement a été observée.
 - Détail : [`agentium-lot8-value-loop.md`](./agentium-lot8-value-loop.md).
 
-`/steering` (page historique) garde le CRUD de politiques. L’aperçu
-« leviers / what-if » y est **éteint**. `POST /hypervisor/what-if` et
-`POST /control-plane/simulate` répondent `not_configured` et pointent vers
-`/systems/{id}/value-loop`. Ne pas promettre un impact preview universel
-(< 300 ms) : c’est **planifié**, le composant n’est pas branché.
+L’ancien écran de politiques existe encore. L’aperçu « leviers / et si »
+y est **éteint**. Ne pas promettre un aperçu d’impact universel en direct :
+c’est **planifié**, pas branché.
 
-### 4.3 Approbation humaine dans Work
+*Côté technique :* interrupteurs `value_loop_v1` + canari System ;
+actionneur `control_policy.guardrails.patch.v1` ; what-if
+`not_configured`.
 
-Dans une application publiée (Studio), un gate est une **décision humaine
-explicite**. Le modèle ne peut pas accepter à la place de la personne
-(`POST /assistant/decisions` exige l’action UI et l’id observé). La file
-`/steering/review-queue` traite les revues d’évaluation. Ces actes ont une
-provenance humaine dans l’audit.
+### 4.3 Approbation humaine dans l’application
+
+Dans une application publiée (Studio), une demande d’approbation est une
+**décision humaine explicite**. Le modèle ne peut pas cliquer à la place
+de la personne. Une file de revue traite les contrôles qualité. Ces actes
+ont une provenance humaine dans le journal.
 
 ---
 
@@ -216,11 +247,11 @@ C’est faire tenir **cinq disciplines** sur le même objet `System`.
 
 | Discipline | Ce que le COMEX obtient | Où le voir |
 |---|---|---|
-| **Alignement** | Chaque System sert une Capability, pas un prompt orphelin | `/capabilities`, `/systems`, Work |
-| **Publication** | Ce que le métier consomme est une **Experience** liée à une version publiée | `/create/apps` → `/work/:slug` |
-| **Preuve** | Chaque réponse a un Run, un coût éventuel, un contexte, une lignée | `/runs/:id`, conversation « Preuves de l’action » |
-| **Gouvernance** | Politiques, IAM, audit, Membrane — jamais « prompt only » | `/governance/audit`, `/governance/access` |
-| **Allocation** | On arbitrage ce qu’on finance, ce qu’on resserre, ce qu’on arrête, **sur preuve** | `/hypervisor` + boucle de valeur du System |
+| **Alignement** | Chaque System sert une capacité métier, pas un prompt orphelin | Capacités, Systems, Work |
+| **Publication** | Ce que le métier utilise est une **application** liée à une version publiée | Créer une app → Work |
+| **Preuve** | Chaque réponse a une exécution, un coût éventuel, un contexte, une lignée | Fiche d’exécution, conversation « Preuves de l’action » |
+| **Gouvernance** | Règles, droits d’accès, journal, contrôle d’exécution — jamais « prompt only » | Audit, accès |
+| **Allocation** | On arbitre ce qu’on finance, ce qu’on resserre, ce qu’on arrête, **sur preuve** | Hyperviseur + pilotage du System |
 
 Conséquence stratégique :
 
@@ -228,15 +259,15 @@ Conséquence stratégique :
    PoC. On peut dire *combien de Systems ont une base de valeur*, *lesquels
    n’ont que des runs*, *lesquels attendent une signature*.
 2. **La conversation n’est pas un canal parallèle.** Elle réutilise les
-   mêmes contrats, permissions et gates. Elle peut lancer une action
+   mêmes règles, droits et approbations. Elle peut lancer une action
    autorisée ; elle ne crée pas un droit.
-3. **L’économie n’est pas un badge chrome.** Les cinq métriques
-   d’**objectif opérationnel** (adoption) ne sont pas un ROI attesté. La
-   boucle de valeur porte les mesures économiques. L’écart « heures / argent
-   économisés » (O5) reste un **trou d’acceptation** documenté.
-4. **Le risque d’autonomie est borné.** Un actionneur unique, une Membrane
-   en enforce, un humain sur les gates. On industrialise le contrôle autant
-   que l’exécution.
+3. **L’économie n’est pas un badge décoratif.** Les cinq indicateurs
+   d’**objectif opérationnel** ne sont pas un ROI attesté. La boucle de
+   valeur porte les mesures économiques. « Heures / argent économisés »
+   reste un **trou** : on ne l’a pas encore prouvé.
+4. **Le risque d’autonomie est borné.** Un seul type de changement
+   autorisé, un contrôle d’exécution, un humain sur les approbations. On
+   industrialise le contrôle autant que l’exécution.
 
 La maturité visée (mental model §37), **sans UX adaptative automatique**
 aujourd’hui :
@@ -257,15 +288,15 @@ encore de Runs, et on ne vend pas un bilan s’il n’y a que des Runs.
 
 | Élément | État |
 |---|---|
-| Expérience d’adoption | Code livré derrière `settings.features.adoption_experience_v1` (**off** par défaut) |
-| Work / Experiences | `experience_v1` — contrat Work/runtime ; « intégré » ≠ accepté en production |
-| Guides EN/FR | `/help/{start,sources,systems,runs,value}` |
-| Parcours NorthForge | `/work/getting-started` — 4 étapes, Showcase + collection notices requise |
-| Compagnon de conversation | Overlay Work + Cockpit, scope bound, le modèle ne signe pas |
-| Objectifs opérationnels | 5 métriques bornées sur le System — pas un ROI |
+| Parcours d’accueil métier | Code livré, **éteint par défaut** — pas encore validé auprès des utilisateurs |
+| Work / applications | Le métier peut travailler dans une application publiée ; « intégré » ≠ accepté en production |
+| Guides EN/FR | Démarrer, sources, Systems, exécutions, valeur |
+| Exemple guidé (NorthForge) | Quatre étapes, sur l’espace de démonstration, collection d’exemples requise |
+| Compagnon de conversation | Présent dans Work et le Cockpit, même périmètre que l’écran, le modèle ne signe pas |
+| Objectifs opérationnels | 5 indicateurs bornés sur le System — pas un ROI |
 | Sessions d’utilisabilité | **Non tenues** (cible : 5 métier + 5 développeurs) |
 | Seuil NorthForge | 4/5 métier finissent **seuls en 10 minutes** — non mesuré |
-| Retrait du flag | Séquence sponsor (pilote → défaut → retrait) — **non signée** |
+| Passage en défaut / retrait | Séquence sponsor (essai → défaut → retrait) — **non signée** |
 
 L’adoption n’est **pas une édition permanente**. C’est un contrôle de
 déploiement. Le récit à tenir : *« le chemin métier existe ; il n’est pas
@@ -276,27 +307,27 @@ feuille d’acceptation. »*
 
 | Couche | Valeurs | Ce qu’elle change | Ce qu’elle ne change pas |
 |---|---|---|---|
-| **Rôle IAM** | Droits workspace | Ce que la personne *peut* faire | — |
-| **Mode workspace** | `builder` / `operator` / `executive` (+ `demo`, `portfolio` provisionnés) | Densité Cockpit, home, divulgation éco/technique | Les droits |
-| **Préférence membre** (adoption) | Construction / Utilisation / Pilotage de la valeur | Ton des guides `<ck-help>` | Mode, rôle, entitlements |
+| **Droits d’accès** | Droits dans l’espace | Ce que la personne *peut* faire | — |
+| **Mode de l’espace** | Construire / Opérer / Diriger (+ démo, portefeuille) | Densité de l’écran, accueil, ce qui est dit en économique ou technique | Les droits |
+| **Préférence membre** (accueil) | Construction / Utilisation / Pilotage de la valeur | Ton des guides | Mode, rôle, droits |
 
-Le mode `demo` masque fournisseurs et modèles (présentation sûre).
-`portfolio` est persisté, volontairement absent du sélecteur UI.
+Le mode démo masque fournisseurs et modèles (présentation sûre). Le mode
+portefeuille existe en coulisse, volontairement absent du sélecteur.
 
 Personas de récit (deck produit) — utiles pour une histoire, **pas** des
 comptes :
 
-| Persona | Entrée | Job |
+| Persona | Entre par | Job |
 |---|---|---|
-| Sarah — CAIO | `/hypervisor` | Arbitrer le portefeuille |
-| Mehdi — Steward | `/steering` puis Steer d’un System | Enveloppe et politiques |
-| Alex — Builder | `/create`, `/systems/new` | Composer un System |
-| Claire — Analyste | Work d’abord ; Cockpit `/runs` en forage | Consommer et tracer |
-| Léo — Curateur | `/knowledge` | Préparer les sources |
-| Nadia — Gouvernance | `/governance/audit` | Conformité |
+| Sarah — direction IA | Hyperviseur / Impact | Arbitrer le portefeuille |
+| Mehdi — pilote | Pilotage d’un System | Encadrer les règles |
+| Alex — concepteur | Créer | Composer un System |
+| Claire — métier | Work d’abord ; Cockpit seulement pour forer une exécution | Utiliser et tracer |
+| Léo — curateur | Connaissances | Préparer les sources |
+| Nadia — conformité | Journal d’audit | Contrôler |
 
-Claire ne « vit » pas dans `/systems/:id`. Le métier consomme dans
-**Work**. Le chat Cockpit est le chemin opérateur.
+Claire ne « vit » pas dans la fiche technique d’un System. Le métier
+travaille dans **Work**. Le chat du Cockpit est le chemin opérateur.
 
 ### 6.3 Courbe d’apprentissage
 
@@ -310,9 +341,9 @@ Trois paliers **déclarés**, pas encore un coach automatique (§38 planifié).
 
 | Profil | Premiers 15 minutes | Première semaine |
 |---|---|---|
-| **C-level observateur** | `/work` → une app publiée → `/hypervisor` (Impact) → lire mesuré/déclaré/absent → `/help/value` | Revue 30j/90j, couverture des bases de valeur, décisions en attente, un passage audit. **Pas** d’« heures économisées € » sans baseline Lot 8. |
-| **Métier consommateur** | `/work` → question → ouvrir la citation → (optionnel) NorthForge. Persona **Utilisation**. | Quotidien Work ; file `/steering/review-queue` si assigné ; deep link Run seulement pour forer. *Terminé ≠ réponse validée.* |
-| **Décideur** | Un gate Studio **ou** une décision Hyperviseur (signal) **avant** d’ouvrir Steer | Inbox : gates + revue + feed Impact. Un scénario `Simuler → Mesurer` seulement si `value_loop_v1` est actif sur **ce** System. |
+| **C-level observateur** | Work → une application publiée → Impact → lire mesuré / déclaré / absent → aide valeur | Revue 30 j / 90 j, couverture des conventions de valeur, avis en attente, un passage audit. **Pas** d’« heures économisées € » sans une mesure après changement. |
+| **Métier** | Work → question → ouvrir la source → (optionnel) exemple guidé. Préférence **Utilisation**. | Quotidien Work ; file de revue si on lui a assigné ; ouvrir une exécution seulement pour forer. *Terminé ≠ réponse validée.* |
+| **Décideur** | Une approbation dans l’application **ou** un avis Hyperviseur **avant** d’ouvrir le pilotage | Boîte : approbations + revue + file Impact. Un scénario *Simuler → Mesurer* seulement si la boucle de valeur est ouverte sur **ce** System. |
 
 Cible d’acceptation métier (non mesurée) : premier résultat vérifiable
 **seul, en dix minutes**, sur l’exemple NorthForge.
@@ -337,7 +368,7 @@ session ; le run interne a déjà dépassé le budget 120 min.
 
 - « Tout le monde est autonome le premier jour » — non mesuré.
 - « NorthForge certifie » — les étapes visitées ne certifient rien.
-- « Le flag adoption = produit mature » — le flag est un robinet.
+- « Le parcours d’accueil = produit mature » — c’est un robinet, éteint par défaut.
 - « Impact = ROI » — le renommage n’établit pas l’outcome.
 
 ---
@@ -348,8 +379,8 @@ session ; le run interne a déjà dépassé le budget 120 min.
 |---|---|
 | *Une donnée absente n’est pas un zéro.* | Afficher ou raconter un 0 € / 0 h là où l’état est `not_measured` / `not_configured`. |
 | *Une simulation n’est pas une mesure.* | « On a simulé, donc on a gagné. » |
-| *Accepter dans l’Hyperviseur enregistre un signal.* | « L’Hyperviseur applique tout seul la policy. » |
-| *La boucle de valeur vit sur un System, derrière un flag.* | « Tous les workspaces ferment la boucle. » |
+| *Accepter dans l’Hyperviseur enregistre un avis.* | « L’Hyperviseur applique tout seul la règle. » |
+| *La boucle de valeur vit sur un System, si elle est ouverte.* | « Tous les espaces ferment la boucle. » |
 | *Le what-if portefeuille est retiré.* | « Bougez le levier, le ROI se met à jour en live. » |
 | *Mission Room est une app de workspace.* | « Mission Room = le grand livre. » |
 | *Adoption opt-in, sessions non tenues.* | « L’adoption est validée par les utilisateurs. » |
@@ -365,13 +396,13 @@ session ; le run interne a déjà dépassé le budget 120 min.
 Hard-reload (Cmd+Shift+R) avant toute parole. Un onglet périmé produit des
 422 nues et un message « cet onglet a été ouvert avant une mise à jour ».
 
-1. **Work** — une application publiée, une question, une citation. *Consommer.*
-2. **Run** — deep link. *Monitorer : voici la preuve, pas le gain.*
-3. **Hyperviseur / Impact** — légende mesuré/déclaré, une décision en
-   attente. *Observer, puis décider (signal).*
-4. **Steer d’un System** (seulement si `value_loop_v1` est réellement
-   actif) — *Simuler n’est pas mesurer.* Sinon, s’arrêter et le dire.
-5. **`/help/value`** — refermer sur la distinction coût observé / valeur
+1. **Work** — une application publiée, une question, une source ouverte. *Consommer.*
+2. **Une exécution** — le lien profond. *Monitorer : voici la preuve, pas le gain.*
+3. **Hyperviseur / Impact** — légende mesuré / déclaré, une décision en
+   attente. *Observer, puis donner un avis.*
+4. **Pilotage d’un System** (seulement si la boucle de valeur est vraiment
+   ouverte) — *Simuler n’est pas mesurer.* Sinon, s’arrêter et le dire.
+5. **Aide valeur** — refermer sur la distinction coût observé / valeur
    déclarée / impact attesté.
 
 Pour un client NAWA, le Studio PR→PO (`/work/pr-to-po?workspace=nawa&lang=en`)

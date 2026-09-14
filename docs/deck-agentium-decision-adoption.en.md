@@ -71,10 +71,10 @@ Do not say: Desk, Board, workflow, pipeline, job, HITL.
 
 | | Question | Where |
 |---|---|---|
-| **Observe** | What did the portfolio return, on what evidence? | `/hypervisor` |
-| **Consume** | Which task must I finish? | `/work` · Studio |
-| **Monitor** | What is running, waiting, drifting? | `/runs` · review queue · Diagnostics |
-| **Decide** | What is waiting for a signature — and where does it apply? | Impact feed · Work gates · **Steer** |
+| **Observe** | What did the portfolio return, on what evidence? | Hypervisor / Impact |
+| **Consume** | Which task must I finish? | Work · Studio |
+| **Monitor** | What is running, waiting, drifting? | Executions · review queue · Diagnostics |
+| **Decide** | What is waiting for a signature — and where does it apply? | Impact queue · approval in the app · **Steer** |
 
 Mixing the four is the main demo failure.
 
@@ -82,10 +82,10 @@ Mixing the four is the main demo failure.
 
 ## Industrialize = five disciplines
 
-1. **Alignment** — a System serves a Capability, not an orphan prompt.
-2. **Publication** — the business consumes a **versioned** Experience.
-3. **Evidence** — every answer has a Run (cost, context, lineage).
-4. **Governance** — policies, IAM, audit. Never “prompt only”.
+1. **Alignment** — a System serves a business capability, not an orphan prompt.
+2. **Publication** — the business uses a **versioned** application.
+3. **Evidence** — every answer has an execution (cost, context, lineage).
+4. **Governance** — rules, access rights, log. Never “prompt only”.
 5. **Allocation** — we fund, tighten or stop **on evidence**.
 
 ```text
@@ -103,23 +103,22 @@ Build → Run → Measure → Optimize → Allocate
 What ran. What it cost. What is **declared** as value.
 What is **missing**. What is **waiting for a signature**.
 
-Route: `/hypervisor`
-Adoption rail: **Impact** — the name does not establish the outcome.
+The menu may say **Impact** — the name does not establish an economic result.
 
 ---
 
-## Two readings, one Decision object
+## Two readings, one opinion to sign
 
-| v1 Value balance sheet | v2 Ledger (`hypervisor_v2`) |
+| Older view — Value balance sheet | Newer view — Ledger |
 |---|---|
-| Estimated net value, ROI, SCAN | *What the portfolio returned* |
-| + value-loop aggregate | Understand → Detail → Decide |
+| Estimated net value, ROI, signals | *What the portfolio returned* |
+| + value-loop summary | Understand → Detail → Decide |
 | | Direction · Operations · Compliance |
 
-Both: **Accept / Reject = signal**.
-Neither: **Apply a policy**.
+Both: **Accept / Reject = an opinion**.
+Neither: **Apply a rule change**.
 
-> *“Validating here records a decision. Changing a System goes through Steer.”*
+> *“Validating here records an opinion. Changing a System goes through its pilot screen.”*
 
 ---
 
@@ -142,15 +141,15 @@ They **never** replace the business objective.
 ## Where a decision becomes an action
 
 ```text
-Portfolio                    System                      Application
-/hypervisor                  Steer                       Studio
-accept / reject              Simulate → Approve          human gate
-signal                       → Act → Measure             approval
-                             bounded enactment           required
+Portfolio                    One System                  The application
+Hypervisor / Impact          Pilot (Steer)               Studio
+accept / reject              Simulate → Approve          human approval
+= an opinion                 → Apply → Measure           required
+                             bounded change
 ```
 
-First actuator: a *guardrails* patch, if the System declares it
-and the Membrane allows it. Otherwise: **not configured**.
+First allowed change: a guardrail adjustment, if the System declares it
+and execution control allows it. Otherwise: **not configured**.
 
 **A simulation is not a measurement.**
 
@@ -158,28 +157,28 @@ and the Membrane allows it. Otherwise: **not configured**.
 
 ## What we do not promise
 
-- The Hypervisor does not apply a policy by itself.
-- Portfolio what-if / live levers are **retired**.
-- Mission Room (`/hypervisor/mission-room`) is a **workspace app**, not the ledger.
+- The Hypervisor does not apply a rule by itself.
+- Portfolio “what if” / live levers are **retired**.
+- Mission Room is a **workspace application**, not the ledger.
 - The repository compliance table is not a customer attestation.
-- “Hours or euros saved” without a Lot 8 baseline = acceptance hole (O5).
+- “Hours or euros saved” without a measurement after a change = a gap, not a KPI.
 
 ---
 
 ## Learning curve
 
 ```text
-1. Finish a task                Work / Studio
-2. Bind the result to a Run     Citation · /runs · companion
-3. Bind the Run to a decision   Impact · gates · Steer
+1. Finish a task                      Work / Studio
+2. Bind the result to an execution    Opened source · companion
+3. Bind the execution to a decision   Impact · approval · Steer
 ```
 
 Three layers — do not conflate them:
 
 | Layer | Changes |
 |---|---|
-| **IAM** | What I *may* |
-| **Workspace mode** | Screen density (`builder` / `operator` / `executive`) |
+| **Access rights** | What I *may* |
+| **Workspace mode** | Screen density (build / operate / direct) |
 | **Member preference** | Guide tone — not rights |
 
 ---
@@ -189,7 +188,7 @@ Three layers — do not conflate them:
 1. One **Work** application — see that the business has a door.
 2. **Impact** — read the legend, not the largest number.
 3. One pending **decision** — *what is waiting for a signature*.
-4. **`/help/value`** — observed cost / declared value / attested impact.
+4. **Value help** — observed cost / declared value / attested impact.
 
 **Week 1:** 30d/90d review, base coverage, decision queue, one audit pass.
 
@@ -199,10 +198,10 @@ Do not expect a “€ saved” total in the chrome.
 
 ## Business user — 15 minutes
 
-1. `/work` — look for the application, not the System.
-2. Ask the business question. **Open the citation.**
-3. (Optional) NorthForge: `/work/getting-started` — four steps, fictional example.
-4. If a gate appears: **Accept / Reject** — not the model.
+1. **Work** — look for the application, not the System.
+2. Ask the business question. **Open the source.**
+3. (Optional) Guided example — four steps, fictional case.
+4. If an approval appears: **Accept / Reject** — not the model.
 
 *Completed ≠ validated answer.*
 
@@ -212,13 +211,13 @@ Acceptance target (not yet measured): **alone, in ten minutes**, a verifiable re
 
 ## Decision-maker — 15 minutes
 
-1. A **Studio** gate or the review queue — read before signing.
-2. The **Impact** feed — signal, not enactment.
-3. If — and only if — the value loop is active on **this** System:
-   **Simulate → Approve → Act → Measure**.
+1. A **Studio** approval or the review queue — read before signing.
+2. The **Impact** queue — an opinion, not an application.
+3. If — and only if — the value loop is open on **this** System:
+   **Simulate → Approve → Apply → Measure**.
 
-The model cannot accept a gate.
-A stale decision is refused.
+The model cannot accept in your place.
+A decision that is too old is refused.
 
 ---
 
@@ -226,7 +225,7 @@ A stale decision is refused.
 
 | | |
 |---|---|
-| Work business path + FR/EN guides | **Shipped**, flag `adoption_experience_v1` **off** |
+| Work business path + FR/EN guides | **Shipped**, welcome path **off** by default |
 | Conversation companion | **Shipped** — does not sign |
 | Operational objectives (5 metrics) | **Shipped** — this is not ROI |
 | NorthForge 4 steps | **Shipped** on Showcase |
@@ -243,7 +242,7 @@ Say: *the path exists; it is not yet the default; we do not yet have the accepta
 |---|---|---|
 | **Sarah** CAIO | Impact | Allocate |
 | **Claire** business | Work | Consume |
-| **Mehdi** steward | Steer | Bound |
+| **Mehdi** pilot | Steer | Bound |
 | **Alex** builder | Create | Compose |
 | **Nadia** governance | Audit | Control |
 
@@ -259,8 +258,8 @@ Hard-reload before speaking.
 1. **Work** — a question, a citation. *Consume.*
 2. **Run** — the evidence. *Monitor.*
 3. **Impact** — legend + one pending signature. *Observe / decide.*
-4. **Steer** — only if the value flag is really on. Otherwise say so.
-5. **`/help/value`** — close on honesty.
+4. **Steer** — only if the value loop is really open. Otherwise say so.
+5. **Value help** — close on honesty.
 
 NAWA PR→PO: operator playbook, not UI improvisation.
 

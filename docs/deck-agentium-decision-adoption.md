@@ -71,10 +71,10 @@ Ne pas dire : Desk, Board, workflow, pipeline, job, HITL.
 
 | | Question | Où |
 |---|---|---|
-| **Observer** | Qu’a rendu le portefeuille, sur quelle preuve ? | `/hypervisor` |
-| **Consommer** | Quelle tâche dois-je finir ? | `/work` · Studio |
-| **Monitorer** | Qu’est-ce qui tourne, attend, dérive ? | `/runs` · file de revue · Diagnostics |
-| **Décider** | Qu’est-ce qui attend une signature — et où ça s’applique ? | Feed Impact · gates Work · **Steer** |
+| **Observer** | Qu’a rendu le portefeuille, sur quelle preuve ? | Hyperviseur / Impact |
+| **Consommer** | Quelle tâche dois-je finir ? | Work · Studio |
+| **Monitorer** | Qu’est-ce qui tourne, attend, dérive ? | Exécutions · file de revue · Diagnostics |
+| **Décider** | Qu’est-ce qui attend une signature — et où ça s’applique ? | File Impact · approbation dans l’app · **Steer** |
 
 Mélanger les quatre est la principale erreur de démo.
 
@@ -82,10 +82,10 @@ Mélanger les quatre est la principale erreur de démo.
 
 ## Industrialiser = cinq disciplines
 
-1. **Alignement** — un System sert une Capability, pas un prompt orphelin.
-2. **Publication** — le métier consomme une Experience **versionnée**.
-3. **Preuve** — chaque réponse a un Run (coût, contexte, lignée).
-4. **Gouvernance** — politiques, IAM, audit. Jamais « prompt only ».
+1. **Alignement** — un System sert une capacité métier, pas un prompt orphelin.
+2. **Publication** — le métier utilise une application **versionnée**.
+3. **Preuve** — chaque réponse a une exécution (coût, contexte, lignée).
+4. **Gouvernance** — règles, droits d’accès, journal. Jamais « prompt only ».
 5. **Allocation** — on finance, on resserre, on arrête **sur preuve**.
 
 ```text
@@ -103,23 +103,22 @@ Construire → Exécuter → Mesurer → Optimiser → Allouer
 Ce qui a été exécuté. Ce que cela a coûté. Ce qui est **déclaré** comme valeur.
 Ce qui **manque**. Ce qui **attend une signature**.
 
-Route : `/hypervisor`
-Rail adoption : **Impact** — le nom n’établit pas l’outcome.
+Le menu peut dire **Impact** — le nom n’établit pas un résultat économique.
 
 ---
 
-## Deux lectures, un même objet Decision
+## Deux lectures, un même avis à signer
 
-| v1 Bilan de valeur | v2 Grand Livre (`hypervisor_v2`) |
+| Ancienne vue — Bilan de valeur | Nouvelle vue — Grand livre |
 |---|---|
-| Valeur nette estimée, ROI, SCAN | *Ce que le portefeuille a rendu* |
-| + agrégat de boucle de valeur | Comprendre → Détailler → Décider |
-| | Direction · Operations · Conformité |
+| Valeur nette estimée, ROI, signaux | *Ce que le portefeuille a rendu* |
+| + résumé de boucle de valeur | Comprendre → Détailler → Décider |
+| | Direction · Opérations · Conformité |
 
-Les deux : **Accepter / Rejeter = signal**.
-Aucun des deux : **Appliquer une policy**.
+Les deux : **Accepter / Refuser = un avis**.
+Aucun des deux : **Appliquer un changement de règle**.
 
-> *« Valider ici enregistre une décision. Modifier un System passe par Steer. »*
+> *« Valider ici enregistre un avis. Modifier un System passe par son écran de pilotage. »*
 
 ---
 
@@ -142,15 +141,15 @@ Ils ne remplacent **jamais** l’objectif métier.
 ## Où la décision devient une action
 
 ```text
-Portefeuille                 System                      Application
-/hypervisor                  Steer                       Studio
-accept / reject              Simuler → Approuver         gate humain
-signal                       → Agir → Mesurer            approbation
-                             enactment borné             requise
+Portefeuille                 Un System                   L’application
+Hyperviseur / Impact         Pilotage (Steer)            Studio
+accepter / refuser           Simuler → Approuver         approbation humaine
+= un avis                    → Appliquer → Mesurer       obligatoire
+                             changement borné
 ```
 
-Premier actionneur : un patch de *guardrails*, si le System le déclare
-et si la Membrane l’autorise. Sinon : **non configuré**.
+Premier changement autorisé : un ajustement de garde-fous, si le System
+le déclare et si le contrôle d’exécution l’autorise. Sinon : **non configuré**.
 
 **Une simulation n’est pas une mesure.**
 
@@ -158,28 +157,28 @@ et si la Membrane l’autorise. Sinon : **non configuré**.
 
 ## Ce qu’on ne promet pas
 
-- L’Hyperviseur n’applique pas tout seul une policy.
-- Le what-if portefeuille / leviers live est **retiré**.
-- Mission Room (`/hypervisor/mission-room`) est une **app de workspace**, pas le grand livre.
+- L’Hyperviseur n’applique pas tout seul une règle.
+- Le « et si » / leviers en direct sur tout le portefeuille est **retiré**.
+- Mission Room est une **application d’espace**, pas le grand livre.
 - Le tableau de conformité du dépôt n’est pas une attestation client.
-- « Heures ou euros économisés » sans baseline Lot 8 = trou d’acceptation (O5).
+- « Heures ou euros économisés » sans mesure après changement = un trou, pas un KPI.
 
 ---
 
 ## Courbe d’apprentissage
 
 ```text
-1. Finir une tâche              Work / Studio
-2. Relier le résultat à un Run  Citation · /runs · compagnon
-3. Relier le Run à une décision Impact · gates · Steer
+1. Finir une tâche                    Work / Studio
+2. Relier le résultat à une exécution Source ouverte · compagnon
+3. Relier l’exécution à une décision  Impact · approbation · Steer
 ```
 
 Trois couches — ne pas les confondre :
 
 | Couche | Change |
 |---|---|
-| **IAM** | Ce que je *peux* |
-| **Mode workspace** | Densité de l’écran (`builder` / `operator` / `executive`) |
+| **Droits d’accès** | Ce que je *peux* |
+| **Mode de l’espace** | Densité de l’écran (construire / opérer / diriger) |
 | **Préférence membre** | Ton des guides — pas les droits |
 
 ---
@@ -189,7 +188,7 @@ Trois couches — ne pas les confondre :
 1. Une application **Work** — voir que le métier a une porte.
 2. **Impact** — lire la légende, pas le plus grand chiffre.
 3. Une **décision** en attente — *ce qui attend une signature*.
-4. **`/help/value`** — coût observé / valeur déclarée / impact attesté.
+4. **Aide valeur** — coût observé / valeur déclarée / impact attesté.
 
 **Semaine 1 :** revue 30j/90j, couverture des bases, file de décisions, un passage audit.
 
@@ -199,10 +198,10 @@ Ne pas attendre un total « € économisés » sur le chrome.
 
 ## Métier — 15 minutes
 
-1. `/work` — chercher l’application, pas le System.
-2. Poser la question métier. **Ouvrir la citation.**
-3. (Optionnel) NorthForge : `/work/getting-started` — quatre étapes, exemple fictif.
-4. Si un gate apparaît : **Accepter / Refuser** — pas le modèle.
+1. **Work** — chercher l’application, pas le System.
+2. Poser la question métier. **Ouvrir la source.**
+3. (Optionnel) Exemple guidé — quatre étapes, cas fictif.
+4. Si une approbation apparaît : **Accepter / Refuser** — pas le modèle.
 
 *Terminé ≠ réponse validée.*
 
@@ -212,13 +211,13 @@ Cible d’acceptation (pas encore mesurée) : **seul, en dix minutes**, un résu
 
 ## Décideur — 15 minutes
 
-1. Un gate **Studio** ou la file de revue — lire avant de signer.
-2. Le feed **Impact** — signal, pas enactment.
-3. Si — et seulement si — la boucle de valeur est active sur **ce** System :
-   **Simuler → Approuver → Agir → Mesurer**.
+1. Une approbation **Studio** ou la file de revue — lire avant de signer.
+2. La file **Impact** — un avis, pas une application.
+3. Si — et seulement si — la boucle de valeur est ouverte sur **ce** System :
+   **Simuler → Approuver → Appliquer → Mesurer**.
 
-Le modèle ne peut pas accepter un gate.
-Une décision périmée est refusée.
+Le modèle ne peut pas accepter à votre place.
+Une décision trop vieille est refusée.
 
 ---
 
@@ -226,7 +225,7 @@ Une décision périmée est refusée.
 
 | | |
 |---|---|
-| Chemin métier Work + guides FR/EN | **Livré**, flag `adoption_experience_v1` **off** |
+| Chemin métier Work + guides FR/EN | **Livré**, parcours d’accueil **éteint** par défaut |
 | Compagnon de conversation | **Livré** — ne signe pas |
 | Objectifs opérationnels (5 métriques) | **Livré** — ce n’est pas un ROI |
 | NorthForge 4 étapes | **Livré** sur Showcase |
@@ -243,7 +242,7 @@ Dire : *le chemin existe ; ce n’est pas encore le défaut ; nous n’avons pas
 |---|---|---|
 | **Sarah** CAIO | Impact | Allouer |
 | **Claire** métier | Work | Consommer |
-| **Mehdi** steward | Steer | Encadrer |
+| **Mehdi** pilote | Steer | Encadrer |
 | **Alex** builder | Créer | Composer |
 | **Nadia** gouvernance | Audit | Contrôler |
 
@@ -259,8 +258,8 @@ Hard-reload avant de parler.
 1. **Work** — une question, une citation. *Consommer.*
 2. **Run** — la preuve. *Monitorer.*
 3. **Impact** — légende + une signature en attente. *Observer / décider.*
-4. **Steer** — seulement si le flag valeur est vraiment on. Sinon, le dire.
-5. **`/help/value`** — refermer sur l’honnêteté.
+4. **Steer** — seulement si la boucle de valeur est vraiment ouverte. Sinon, le dire.
+5. **Aide valeur** — refermer sur l’honnêteté.
 
 NAWA PR→PO : playbook opérateur, pas l’improvisation UI.
 
