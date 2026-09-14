@@ -294,6 +294,48 @@ def test_chat_stream_domain_greeting_does_not_bypass(db_session, monkeypatch):
     assert orchestrator.last_request["query"] == "Bonjour, retrouve la SPL AKK200"
 
 
+def test_chat_stream_uses_validated_workspace_model_instead_of_client_cache(
+    db_session, monkeypatch
+):
+    workspace = Workspace(
+        id="ws-workspace-model",
+        name="Workspace Model",
+        slug="workspace-model",
+        settings={
+            "llm_portal": {
+                "routing": {
+                    "default_provider": "anthropic",
+                    "default_model": "claude-opus-5",
+                    "fallback_chain": ["anthropic"],
+                }
+            }
+        },
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    orchestrator = CapturingOrchestrator()
+
+    response = _client(db_session, workspace, orchestrator, monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "Use the configured workspace model",
+            "agent_preferences": {
+                "model_preferences": {
+                    "provider": "ollama",
+                    "model": "stale-browser-model",
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert orchestrator.last_request["agent_preferences"]["model_preferences"] == {
+        "provider": "anthropic",
+        "model": "claude-opus-5",
+    }
+    assert orchestrator.last_request["default_model"] == "anthropic:claude-opus-5"
+
+
 def test_chat_stream_emits_stable_retrieval_eval_and_persists_run(db_session, monkeypatch):
     workspace = Workspace(id="ws-chat", name="Chat", slug="chat")
     db_session.add(workspace)
@@ -369,9 +411,7 @@ def test_chat_stream_uses_selected_context_collection(db_session, monkeypatch):
     assert run.output_ref["context_id"] == "ctx-context-chat"
 
 
-def test_chat_stream_scopes_drop_and_ask_replace_context_to_attached_files(
-    db_session, monkeypatch
-):
+def test_chat_stream_scopes_drop_and_ask_replace_context_to_attached_files(db_session, monkeypatch):
     workspace = Workspace(id="ws-drop-chat", name="Drop Chat", slug="drop-chat")
     db_session.add(workspace)
     db_session.add(
@@ -405,9 +445,7 @@ def test_chat_stream_scopes_drop_and_ask_replace_context_to_attached_files(
     }
 
 
-def test_chat_stream_restores_tagged_context_from_resumed_session(
-    db_session, monkeypatch
-):
+def test_chat_stream_restores_tagged_context_from_resumed_session(db_session, monkeypatch):
     workspace = Workspace(
         id="ws-resumed-drop-chat",
         name="Resumed Drop Chat",
@@ -1120,8 +1158,7 @@ def test_chat_stream_stopped_provider_is_structured_compatible_and_redacted(
     assert event["error"] == {
         "code": "provider_unreachable",
         "message": (
-            "The configured model provider is unreachable. "
-            "Check that it is running and try again."
+            "The configured model provider is unreachable. Check that it is running and try again."
         ),
         "retryable": True,
     }

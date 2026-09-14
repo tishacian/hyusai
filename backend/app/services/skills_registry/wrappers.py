@@ -149,8 +149,7 @@ def _record_provider_usage_contract(
                     continue
                 reported_payload = (
                     {"total_tokens": call.get("reported_total")}
-                    if call.get("reported") is True
-                    and call.get("reported_total") is not None
+                    if call.get("reported") is True and call.get("reported_total") is not None
                     else None
                 )
                 record_provider_usage(
@@ -1268,9 +1267,7 @@ async def _calendar_read_v1(
             db.close()
 
 
-def _hana_rows_as_context(
-    columns: list[Any], rows: list[Any]
-) -> list[dict[str, Any]]:
+def _hana_rows_as_context(columns: list[Any], rows: list[Any]) -> list[dict[str, Any]]:
     """Format HANA result rows as llm_rag_answer_v1-compatible passages."""
     col_names = [str(c) for c in (columns or [])]
     passages: list[dict[str, Any]] = []
@@ -1346,9 +1343,7 @@ async def _rpa_dispatch_v1(
             config,
             job_key=str(payload.get("job_key") or ""),
             input_payload=input_payload,
-            callback_url=(
-                str(payload["callback_url"]) if payload.get("callback_url") else None
-            ),
+            callback_url=(str(payload["callback_url"]) if payload.get("callback_url") else None),
             timeout_s=float(timeout_s) if timeout_s is not None else 30.0,
             poll_interval_s=float(poll_interval_s) if poll_interval_s is not None else 0.5,
         )
@@ -1415,9 +1410,7 @@ def _mcp_write(
         if not mcp_service.is_workspace_enabled(workspace):
             raise ValueError("mcp_unconfigured: MCP connector is not enabled for this workspace")
         unsealed = mcp_write.workspace_write_unsealed(workspace)
-        server = (
-            mcp_service.resolve_server(workspace, server_id) if unsealed and attended else None
-        )
+        server = mcp_service.resolve_server(workspace, server_id) if unsealed and attended else None
         blocked = payload.get("disabled_tools")
         if commit:
             out = mcp_write.create_and_commit_po(
@@ -1560,9 +1553,7 @@ async def _mcp_call_v1(
     )
 
 
-def _named_mcp_server(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]], server_id: str
-):
+def _named_mcp_server(payload: dict[str, Any], ctx: Optional[dict[str, Any]], server_id: str):
     from app.services.connectors.mcp import service as mcp_service
 
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1831,16 +1822,23 @@ async def _sap_create_po_v1(
     pr = payload.get("pr") if isinstance(payload.get("pr"), dict) else {}
     proposed = payload.get("proposed_po") if isinstance(payload.get("proposed_po"), dict) else {}
     pr_id = str(payload.get("pr_id") or pr.get("pr_id") or pr.get("PurchaseRequisition") or "")
-    item = str(
-        payload.get("PurchaseRequisitionItem") or pr.get("PurchaseRequisitionItem") or ""
-    ).strip() or DEFAULT_PR_ITEM
-    pr_type = str(
-        payload.get("pr_type")
-        or pr.get("PurchaseRequisitionType")
-        or pr.get("pr_type")
-        or proposed.get("pr_type")
-        or ""
-    ).strip().upper()
+    item = (
+        str(
+            payload.get("PurchaseRequisitionItem") or pr.get("PurchaseRequisitionItem") or ""
+        ).strip()
+        or DEFAULT_PR_ITEM
+    )
+    pr_type = (
+        str(
+            payload.get("pr_type")
+            or pr.get("PurchaseRequisitionType")
+            or pr.get("pr_type")
+            or proposed.get("pr_type")
+            or ""
+        )
+        .strip()
+        .upper()
+    )
     if pr_type == "ZNPR":
         # ZNPR → ZLPO through the BAPI trio. Create then commit in one gate
         # call; a blocked or failed step rolls back and the envelope says so.
@@ -1871,9 +1869,7 @@ async def _sap_create_po_v1(
                     payment_terms=str(
                         payload.get("payment_terms") or proposed.get("payment_terms") or ""
                     ),
-                    incoterms=str(
-                        payload.get("incoterms") or proposed.get("incoterms") or "DDP"
-                    ),
+                    incoterms=str(payload.get("incoterms") or proposed.get("incoterms") or "DDP"),
                 ),
                 sealed_block=SAP_CREATE_BLOCK,
                 commit=True,
@@ -1954,11 +1950,7 @@ async def _await_managed_execution(
 
     def _cancel() -> None:
         with SessionLocal() as db:
-            row = (
-                db.query(RecipeExecution)
-                .filter(RecipeExecution.id == execution_id)
-                .first()
-            )
+            row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
             if row is not None:
                 recipe_exec.request_cancel(db, row)
 
@@ -1966,11 +1958,7 @@ async def _await_managed_execution(
         while True:
             await asyncio.sleep(1.0)
             with SessionLocal() as db:
-                row = (
-                    db.query(RecipeExecution)
-                    .filter(RecipeExecution.id == execution_id)
-                    .first()
-                )
+                row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
                 if row is None:
                     raise RuntimeError("recipe_execution_missing")
                 if row.status in RECIPE_EXECUTION_TERMINAL_STATUSES:
@@ -1990,9 +1978,7 @@ async def _await_managed_execution(
         raise
 
 
-def _recipe_source_envelopes(
-    workspace_id: str, declared: Any
-) -> dict[str, dict[str, Any]]:
+def _recipe_source_envelopes(workspace_id: str, declared: Any) -> dict[str, dict[str, Any]]:
     """Read the tables a recipe node pinned, keyed by the author's view name.
 
     The recipe plane is a sandbox with no database and no object store, so a
@@ -2104,9 +2090,7 @@ async def _python_recipe_v1(
     if isinstance(sources, list) and sources:
         try:
             inputs.update(
-                await asyncio.to_thread(
-                    _recipe_source_envelopes, str(workspace_id), sources
-                )
+                await asyncio.to_thread(_recipe_source_envelopes, str(workspace_id), sources)
             )
         except TabularError as exc:
             raise ValueError(f"{exc.code}: {exc.message}") from exc
@@ -2303,11 +2287,7 @@ async def _polars_transform_v1(
     if already_settled:
         # Eager mode (dev/tests) settled the row inside the dispatch call.
         with SessionLocal() as db:
-            row = (
-                db.query(RecipeExecution)
-                .filter(RecipeExecution.id == execution_id)
-                .first()
-            )
+            row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
             status, output, error, stderr_tail = (
                 row.status,
                 row.output_json if isinstance(row.output_json, dict) else None,
@@ -2319,10 +2299,7 @@ async def _polars_transform_v1(
         # queue buffer. The worker enforces its own hard limits; this outer
         # deadline only protects the walker from a stuck plane.
         deadline = (
-            time_mod.monotonic()
-            + timeout_s
-            + float(app_settings.recipe_env_build_timeout_s)
-            + 30.0
+            time_mod.monotonic() + timeout_s + float(app_settings.recipe_env_build_timeout_s) + 30.0
         )
         status, output, error, stderr_tail = await _await_managed_execution(
             execution_id, deadline=deadline
@@ -2397,11 +2374,7 @@ async def _dbt_transform_v1(
     if already_settled:
         # Eager mode (dev/tests) settled the row inside the dispatch call.
         with SessionLocal() as db:
-            row = (
-                db.query(RecipeExecution)
-                .filter(RecipeExecution.id == execution_id)
-                .first()
-            )
+            row = db.query(RecipeExecution).filter(RecipeExecution.id == execution_id).first()
             status, output, error, stderr_tail = (
                 row.status,
                 row.output_json if isinstance(row.output_json, dict) else None,
@@ -2412,10 +2385,7 @@ async def _dbt_transform_v1(
         # A dbt project pays a compile pass before its first model runs, so the
         # outer budget is the node timeout plus a first-run env build allowance.
         deadline = (
-            time_mod.monotonic()
-            + timeout_s
-            + float(app_settings.recipe_env_build_timeout_s)
-            + 30.0
+            time_mod.monotonic() + timeout_s + float(app_settings.recipe_env_build_timeout_s) + 30.0
         )
         status, output, error, stderr_tail = await _await_managed_execution(
             execution_id, deadline=deadline
@@ -2471,8 +2441,7 @@ async def _ml_train_sklearn_v1(
     dataset_ref = _pinned_dataset_ref(train) or _first_dataset_ref(inputs)
     if dataset_ref is None:
         raise ValueError(
-            "ML_NO_DATASET: connect a dataset upstream or pin one on the node "
-            "before training"
+            "ML_NO_DATASET: connect a dataset upstream or pin one on the node before training"
         )
 
     def _submit() -> str:
@@ -2538,9 +2507,7 @@ async def _ml_train_sklearn_v1(
     raise RuntimeError(f"ml_train_{status}: {(error or '').strip()}"[:480])
 
 
-def _predict_spec(
-    payload: dict[str, Any], ctx: dict[str, Any]
-) -> tuple[dict[str, Any], str]:
+def _predict_spec(payload: dict[str, Any], ctx: dict[str, Any]) -> tuple[dict[str, Any], str]:
     """The model reference and workspace both serving skills run under.
 
     The model, the version pin and the output name always come from
@@ -2671,9 +2638,7 @@ async def _ml_batch_score_v1(
     def _run() -> dict[str, Any]:
         with SessionLocal() as db:
             model = _resolve_model(db, spec, workspace_id)
-            dataset = resolve_dataset_ref(
-                db, workspace_id=workspace_id, ref=dataset_ref
-            )
+            dataset = resolve_dataset_ref(db, workspace_id=workspace_id, ref=dataset_ref)
             return score_dataset(
                 db,
                 model=model,
@@ -4228,16 +4193,12 @@ async def _audit_log_v1(
         raise ValueError("audit_log_v1 details must be an object")
     workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
     if not workspace_id:
-        raise ValueError(
-            "audit_log_v1 cannot record an event with no workspace to attribute it to"
-        )
+        raise ValueError("audit_log_v1 cannot record an event with no workspace to attribute it to")
 
     event_id = emit_audit_event(
         workspace_id=str(workspace_id),
         event_type=event_type,
-        actor=str(
-            payload.get("actor") or ctx.get("actor") or ctx.get("user_id") or "system"
-        ),
+        actor=str(payload.get("actor") or ctx.get("actor") or ctx.get("user_id") or "system"),
         details=details or {},
         trace_id=ctx.get("run_id"),
         agent_id=ctx.get("system_id"),
@@ -4521,9 +4482,7 @@ def _authoritative_query_project_codes(
         return set()
     workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
     contract = (
-        ctx.get("retrieval_contract")
-        if isinstance(ctx.get("retrieval_contract"), dict)
-        else {}
+        ctx.get("retrieval_contract") if isinstance(ctx.get("retrieval_contract"), dict) else {}
     )
     collection_ref = (
         contract.get("collection")
@@ -4543,9 +4502,7 @@ def _authoritative_query_project_codes(
 
         db = SessionLocal()
         try:
-            project_value = KnowledgeCollectionSource.source_metadata[
-                "project_code"
-            ].as_string()
+            project_value = KnowledgeCollectionSource.source_metadata["project_code"].as_string()
             rows = (
                 db.query(project_value)
                 .join(
@@ -4559,9 +4516,7 @@ def _authoritative_query_project_codes(
                         | (KnowledgeCollection.id == str(collection_ref))
                     ),
                     KnowledgeCollection.status == "ready",
-                    KnowledgeCollectionSource.status.in_(
-                        ("ready", "indexed", "deduplicated")
-                    ),
+                    KnowledgeCollectionSource.status.in_(("ready", "indexed", "deduplicated")),
                     project_value.in_(sorted(candidates)),
                 )
                 .distinct()
@@ -4672,9 +4627,7 @@ def _resolve_model_preferences(model: Optional[str]) -> dict[str, Any]:
             head, tail = raw.split(sep, 1)
             head_l = head.lower()
             # serving_<node>_<id> keys from model_plane local registration
-            if (
-                head_l in _KNOWN_PROVIDERS or head_l.startswith("serving_")
-            ) and tail.strip():
+            if (head_l in _KNOWN_PROVIDERS or head_l.startswith("serving_")) and tail.strip():
                 provider = "openai" if head_l == "azure" else head_l
                 return {"provider": provider, "model": tail.strip()}
     low = raw.lower()
@@ -4721,7 +4674,8 @@ async def _route_llm_complete(
     cache_key = f"{prefs.get('provider')}\x00{prefs.get('model')}"
     client = client_cache.get(cache_key)
     if client is None:
-        router = ModelRouter()
+        workspace_id = ctx.get("workspace_id")
+        router = ModelRouter(workspace_id=workspace_id) if workspace_id else ModelRouter()
         client = await router.get_client(prefs)
         # Skill context is an ephemeral shallow copy and is never persisted;
         # reusing the just-validated client avoids a second remote health probe
@@ -4952,9 +4906,7 @@ def _bounded_inventory_evidence_excerpt(content: str, limit: int) -> str:
     for position, char in enumerate(prefix):
         if char in "\n\r\f;|":
             boundary = position + 1
-        elif char in ".!?" and (
-            position + 1 == len(content) or content[position + 1].isspace()
-        ):
+        elif char in ".!?" and (position + 1 == len(content) or content[position + 1].isspace()):
             boundary = position + 1
     return prefix[:boundary].rstrip() if boundary > 0 else ""
 
@@ -5055,9 +5007,7 @@ def _normalized_inventory_span(value: Any) -> str:
 
 def _normalized_inventory_lines(value: Any) -> str:
     """Normalize intra-line spacing while preserving source record boundaries."""
-    return "\n".join(
-        " ".join(line.casefold().split()) for line in str(value or "").splitlines()
-    )
+    return "\n".join(" ".join(line.casefold().split()) for line in str(value or "").splitlines())
 
 
 def _inventory_term_stems(value: Any) -> set[str]:
@@ -5202,10 +5152,7 @@ def _validated_inventory_coverage_additions(
         if metadata.get("inventory_evidence") is not True:
             rejected.append("non_inventory_evidence")
             continue
-        if (
-            str(metadata.get("project_code") or "").strip().upper()
-            != expected_project_code
-        ):
+        if str(metadata.get("project_code") or "").strip().upper() != expected_project_code:
             rejected.append("project_mismatch")
             continue
         source_label = _inventory_exact_source_label(label, source_record)
@@ -5229,9 +5176,7 @@ def _validated_inventory_coverage_additions(
         # hard-coded equipment taxonomy. Semantic membership deliberately
         # remains the generic reviewer's task.
         category_contexts = [
-            context
-            for context in local_contexts
-            if category_stems & _inventory_term_stems(context)
+            context for context in local_contexts if category_stems & _inventory_term_stems(context)
         ]
         label_stems = _inventory_term_stems(source_label)
         if not category_contexts:
@@ -5513,8 +5458,7 @@ def _build_grounded_answer_prompt(
         )
         passage_limit = 8000 if is_authoritative_inventory else 4000
         blocks.append(
-            f"[{index}] ({source_header})\n"
-            f"{str(passage.get('content') or '')[:passage_limit]}"
+            f"[{index}] ({source_header})\n{str(passage.get('content') or '')[:passage_limit]}"
         )
     context_text = "\n\n".join(blocks)
     return (
@@ -5686,6 +5630,8 @@ _COMPLEX_PROJECT_QUERY_RE = re.compile(
     r"\ben\s+profondeur\b|\bdeep\s+(?:analysis|dive)\b|\b[ée]tape\s+par\s+[ée]tape\b",
     re.IGNORECASE,
 )
+
+
 def _grounded_profile_contract(query: str, answer_profile: str | None) -> str:
     """Return narrow synthesis rules for explicitly list-shaped equipment asks.
 
@@ -5814,9 +5760,7 @@ def _deterministic_single_project_plan(
         # perfectly valid requested category and must not veto it.
         project_code = inventory_intent.project_code
     else:
-        project_codes = set(
-            extract_query_project_codes(query, known_codes=known_project_codes)
-        )
+        project_codes = set(extract_query_project_codes(query, known_codes=known_project_codes))
         if (
             len(project_codes) != 1
             or _COMPLEX_PROJECT_QUERY_RE.search(query)
@@ -5835,9 +5779,7 @@ def _deterministic_single_project_plan(
         return None
 
     mode = "balanced"
-    retrieval = (
-        dict(_SINGLE_PROJECT_INVENTORY_RETRIEVAL) if equipment_inventory else None
-    )
+    retrieval = dict(_SINGLE_PROJECT_INVENTORY_RETRIEVAL) if equipment_inventory else None
     plan_payload: dict[str, Any] = {
         "action": "answer",
         "mode": mode,
@@ -6403,9 +6345,7 @@ async def _response_eval_v1(
 # ---------------------------------------------------------------------------
 # Line-item reconciliation suite (spreadsheet/invoice extract, reconcile, report)
 # ---------------------------------------------------------------------------
-def _file_reference_payload(
-    payload: dict[str, Any], ctx: dict[str, Any]
-) -> dict[str, Any]:
+def _file_reference_payload(payload: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     """Backfill file references from the run input when the node has no binding.
 
     The ingress payload (``deposit.promoted`` event, manual run, cron) carries

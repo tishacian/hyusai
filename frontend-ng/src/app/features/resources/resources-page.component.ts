@@ -16,6 +16,7 @@ import { catchError } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { ProductTelemetryService } from '@app/core/product-telemetry.service';
+import { SettingsService } from '@app/core/settings.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SectionHeaderComponent } from '@app/shared/ui/section-header.component';
@@ -950,6 +951,7 @@ export class ResourcesPageComponent implements OnInit {
   private readonly navigation = inject(ZoomContextService);
   private readonly route = inject(ActivatedRoute);
   private readonly workspace = inject(WorkspaceService);
+  private readonly settings = inject(SettingsService);
   private readonly productTelemetry = inject(ProductTelemetryService);
   readonly i18n = inject(I18nService);
 
@@ -1268,6 +1270,10 @@ export class ResourcesPageComponent implements OnInit {
             source: 'workspace',
           });
           this.syncRoutingDraft(this.routing());
+          this.settings.adoptValidatedModelSelection(
+            res.routing.default_provider || provider,
+            res.routing.default_model || model,
+          );
           this.routingCredentialDraft.api_key = '';
           this.toast.success(
             this.i18n.t('resources.toast.routing.saved'),

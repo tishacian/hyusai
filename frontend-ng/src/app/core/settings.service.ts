@@ -109,6 +109,24 @@ export class SettingsService {
     this.api.post('/settings', { settings: patch }).subscribe({ error: () => {} });
   }
 
+  /**
+   * Mirror the model portal's validated workspace selection into the local UI
+   * cache. The portal remains the persistence authority; this method performs
+   * no second write that could leave two settings surfaces out of sync.
+   */
+  adoptValidatedModelSelection(provider: string, model: string): void {
+    const nextProvider = provider.trim();
+    const nextModel = model.trim();
+    if (!nextProvider || !nextModel) return;
+    const next = {
+      ...this._settings(),
+      defaultProvider: nextProvider,
+      defaultModel: nextModel,
+    };
+    this._settings.set(next);
+    this.writeLocal(next);
+  }
+
   private readLocal(slug = this.workspace.currentSlug()): AppSettings {
     const cached = readWorkspaceLocalJson<AppSettings>({
       storage: localStorage,

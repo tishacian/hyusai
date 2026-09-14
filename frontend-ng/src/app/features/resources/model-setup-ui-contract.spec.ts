@@ -9,6 +9,8 @@ const source = (path: string): string => readFileSync(join(process.cwd(), path),
 const resourcesSource = source('src/app/features/resources/resources-page.component.ts');
 const routesSource = source('src/app/app.routes.ts');
 const recoverySource = source('src/app/features/chat/chat-reliability.component.ts');
+const chatSource = source('src/app/features/chat/chat-panel.component.ts');
+const settingsSource = source('src/app/core/settings.service.ts');
 
 test('one guided form validates routing and credentials through the atomic setup endpoint', () => {
   assert.ok(resourcesSource.includes(".put<ModelSetupResponse>('/models/setup'"));
@@ -40,6 +42,23 @@ test('model readiness is reported from the validated save, never from the form',
   // The failing save arms the recovery instead of claiming one.
   assert.match(resourcesSource, /error: \(err\) => \{[\s\S]{0,300}?this\.setupRecoveryPending = true;/);
   assert.equal(resourcesSource.includes('product.activation'), false);
+});
+
+test('validated workspace model selection becomes the visible chat runtime', () => {
+  assert.match(
+    resourcesSource,
+    /next: \(res\) => \{[\s\S]{0,1400}?adoptValidatedModelSelection\([\s\S]{0,200}?res\.routing\.default_provider[\s\S]{0,200}?res\.routing\.default_model/,
+  );
+  assert.match(
+    chatSource,
+    /readiness\?\.provider && readiness\?\.model[\s\S]{0,180}?adoptValidatedModelSelection\(readiness\.provider, readiness\.model\)/,
+  );
+  assert.match(
+    chatSource,
+    /this\.modelReadiness\(\)\?\.model \|\| this\.settings\.settings\(\)\.defaultModel/,
+  );
+  assert.match(settingsSource, /adoptValidatedModelSelection\(provider: string, model: string\)/);
+  assert.match(settingsSource, /performs\s*\n\s*\* no second write/);
 });
 
 test('chat recovery preserves the question and exposes only compact safe diagnostics', () => {

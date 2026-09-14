@@ -84,6 +84,7 @@ from app.services.mission_room import (
     present_payload_for_workspace,
     source_index,
 )
+from app.services.model_plane import workspace_config as model_workspace_config
 from app.services.model_plane.errors import classify_provider_error
 from app.services.rag.decision_trace import build_trivial_retrieval_decision_trace
 from app.services.run_outcome_provenance import record_runtime_auto_outcome
@@ -797,6 +798,31 @@ def _apply_context_to_chat_request(
                 retrieval_filters = dict(request_dict.get("retrieval_filters") or {})
                 retrieval_filters["document_filename"] = filenames
                 request_dict["retrieval_filters"] = retrieval_filters
+
+
+def _apply_workspace_model_selection(
+    request_dict: dict[str, Any], workspace: Workspace
+) -> dict[str, str]:
+    """Make the validated workspace model route authoritative for execution.
+
+    Frontend settings are useful cached display state, but they must not be
+    allowed to override the provider/model pair that the model setup endpoint
+    validated and saved for this workspace.
+    """
+
+    routing = model_workspace_config.get_routing(workspace)
+    provider = str(routing["default_provider"])
+    model = str(routing["default_model"])
+    preferences = dict(request_dict.get("agent_preferences") or {})
+    preferences["model_preferences"] = {
+        "provider": provider,
+        "model": model,
+    }
+    request_dict["agent_preferences"] = preferences
+    # Agentic skills accept the provider-qualified form and resolve the private
+    # workspace credential separately at runtime. No secret enters this payload.
+    request_dict["default_model"] = f"{provider}:{model}"
+    return {"provider": provider, "model": model}
 
 
 def _int_budget(value: Any, default: int) -> int:
@@ -2151,6 +2177,7 @@ def _agentic_request_context(
     context["surface_system_id"] = workspace_chat_system_id(db, workspace.id)
     context["grounding_policy"] = grounding_policy
     context["grounding_mode"] = grounding_policy.get("mode")
+    _apply_workspace_model_selection(context, workspace)
     return context
 
 
@@ -3019,6 +3046,7 @@ async def chat_completion(
         request_dict["query"] = validated_query
         request_dict["workspace_slug"] = workspace.slug
         request_dict["workspace_id"] = workspace.id
+        _apply_workspace_model_selection(request_dict, workspace)
         request_dict["ui_locale"] = request.ui_locale
         _apply_response_language_contract(request_dict, response_language)
         _apply_context_to_chat_request(request_dict, chat_context)
@@ -3408,6 +3436,7 @@ async def create_deep_retrieval_job(
     request_dict["query"] = validated_query
     request_dict["workspace_slug"] = workspace.slug
     request_dict["workspace_id"] = workspace.id
+    _apply_workspace_model_selection(request_dict, workspace)
     request_dict["latency_profile"] = "deep"
     request_dict["deep_retrieval"] = True
     request_dict["ui_locale"] = request.ui_locale
@@ -3549,6 +3578,7 @@ async def preview_retrieval_plan(
     request_dict["query"] = validated_query
     request_dict["workspace_slug"] = workspace.slug
     request_dict["workspace_id"] = workspace.id
+    _apply_workspace_model_selection(request_dict, workspace)
     request_dict["retrieval_filters"] = _sanitize_workspace_collection_filters(
         db,
         workspace_id=workspace.id,
@@ -3689,6 +3719,7 @@ async def chat_stream(
             request_dict = request.model_dump()
             request_dict["workspace_slug"] = workspace.slug
             request_dict["workspace_id"] = workspace.id
+            _apply_workspace_model_selection(request_dict, workspace)
             _apply_context_to_chat_request(request_dict, chat_context)
             if request.rag_mode_override:
                 request_dict["rag_pipeline_mode"] = request.rag_mode_override
