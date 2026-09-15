@@ -51,6 +51,55 @@ export function parseRunnerPayload(raw: string): ParsedRunnerPayload {
   return { ok: true, value: parsed as Record<string, unknown> };
 }
 
+/** Prefer the first Skill's effective input contract when the compatibility
+ * runtime does not encode that contract in its broad visual ingress. */
+export function runnerInputSchema(ingress: FlowRunnerIngress | null): Record<string, unknown> {
+  return ingress?.runtime_input_schema ?? ingress?.input_schema ?? {};
+}
+
+function placeholderFor(schema: unknown): unknown {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return null;
+  const type = (schema as Record<string, unknown>)['type'];
+  if (type === 'string') return '';
+  if (type === 'integer' || type === 'number') return 0;
+  if (type === 'boolean') return false;
+  if (type === 'array') return [];
+  if (type === 'object') return {};
+  return null;
+}
+
+/** Build a useful editor payload from required JSON-Schema properties. */
+export function runnerPayloadTemplate(schema: Record<string, unknown>): string {
+  const required = Array.isArray(schema['required'])
+    ? schema['required'].filter((field): field is string => typeof field === 'string')
+    : [];
+  const properties = schema['properties'];
+  const definitions =
+    properties && typeof properties === 'object' && !Array.isArray(properties)
+      ? properties as Record<string, unknown>
+      : {};
+  const payload = Object.fromEntries(
+    required.map((field) => [field, placeholderFor(definitions[field])]),
+  );
+  return JSON.stringify(payload, null, 2);
+}
+
+/** Lightweight feedback before the authoritative backend schema gate. */
+export function runnerPayloadValidationMessage(
+  payload: Record<string, unknown>,
+  schema: Record<string, unknown>,
+): string | null {
+  const required = Array.isArray(schema['required'])
+    ? schema['required'].filter((field): field is string => typeof field === 'string')
+    : [];
+  const missing = required.filter((field) => {
+    const value = payload[field];
+    return !(field in payload) || value == null || (typeof value === 'string' && !value.trim());
+  });
+  if (!missing.length) return null;
+  return `Complete required input: ${missing.join(', ')}.`;
+}
+
 export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
   return runs.some((run) =>
     ['pending', 'running', 'hitl_pending', 'debug_pending', 'waiting_subflows'].includes(
@@ -190,7 +239,8 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
               <span class="runner-label mb-2">Published manual ingress</span>
               <select
                 class="runner-input px-3 py-2"
-                [(ngModel)]="selectedIngressId"
+                [ngModel]="selectedIngressId"
+                (ngModelChange)="selectIngress($event)"
                 [disabled]="loading() || sessionLoading() || creatingSession() || submitting() || stalePublishedEvidence()"
                 data-testid="runner-ingress-select"
               >
@@ -202,8 +252,11 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
 
             @if (selectedIngress(); as ingress) {
               <div>
-                <span class="runner-label mb-2">Input contract</span>
-                <pre class="runner-input max-h-44 overflow-auto p-3 text-[11px]">{{ formatJson(ingress.input_schema || {}) }}</pre>
+                <span class="runner-label mb-2">Required run input</span>
+                @if (ingress.runtime_input_skill; as skill) {
+                  <p class="runner-muted mb-2 text-xs">First step: {{ skill.name }}</p>
+                }
+                <pre class="runner-input max-h-44 overflow-auto p-3 text-[11px]">{{ formatJson(inputSchema()) }}</pre>
               </div>
             } @else {
               <p class="ck-tone-warn rounded p-3 text-sm">
@@ -212,7 +265,7 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
             }
 
             <label>
-              <span class="runner-label mb-2">JSON input</span>
+              <span class="runner-label mb-2">Run input (JSON)</span>
               <textarea
                 class="runner-input min-h-56 resize-y p-3"
                 [(ngModel)]="inputJson"
@@ -225,6 +278,10 @@ export function runnerHasLiveRuns(runs: readonly FlowRunnerRun[]): boolean {
             @if (inputError()) {
               <p class="text-sm" [style.color]="'var(--ck-status-neg-fg)'" role="alert" data-testid="runner-input-error">
                 {{ inputError() }}
+              </p>
+            } @else if (inputReadinessMessage(); as message) {
+              <p class="runner-muted text-sm" role="status" data-testid="runner-input-guidance">
+                {{ message }}
               </p>
             }
             <button
@@ -317,7 +374,7 @@ export class FlowRunnerComponent implements OnInit, OnDestroy {
   readonly stalePublishedEvidence = signal(false);
 
   selectedIngressId = '';
-  inputJson = '{\n  "query": ""\n}';
+  inputJson = '{}';
 
   ngOnInit(): void {
     if (!this.systemId) {
@@ -341,6 +398,22 @@ export class FlowRunnerComponent implements OnInit, OnDestroy {
     );
   }
 
+  inputSchema(): Record<string, unknown> {
+    return runnerInputSchema(this.selectedIngress());
+  }
+
+  inputReadinessMessage(): string | null {
+    const parsed = parseRunnerPayload(this.inputJson);
+    if (!parsed.ok) return parsed.message;
+    return runnerPayloadValidationMessage(parsed.value, this.inputSchema());
+  }
+
+  selectIngress(ingressId: string): void {
+    this.selectedIngressId = ingressId;
+    this.inputJson = runnerPayloadTemplate(this.inputSchema());
+    this.inputError.set(null);
+  }
+
   canExecute(): boolean {
     const session = this.activeSession();
     return Boolean(
@@ -355,6 +428,7 @@ export class FlowRunnerComponent implements OnInit, OnDestroy {
       && !this.submitting()
       && !this.stalePublishedEvidence()
       && !this.pageError()
+      && !this.inputReadinessMessage()
     );
   }
 
@@ -431,12 +505,18 @@ export class FlowRunnerComponent implements OnInit, OnDestroy {
   execute(): void {
     const session = this.activeSession();
     const flow = this.published();
-    if (!this.canExecute() || !session || !flow || !this.selectedIngress()) return;
+    if (!session || !flow || !this.selectedIngress()) return;
     const parsed = parseRunnerPayload(this.inputJson);
     if (!parsed.ok) {
       this.inputError.set(parsed.message);
       return;
     }
+    const validationMessage = runnerPayloadValidationMessage(parsed.value, this.inputSchema());
+    if (validationMessage) {
+      this.inputError.set(validationMessage);
+      return;
+    }
+    if (!this.canExecute()) return;
     this.inputError.set(null);
     this.submitting.set(true);
     this.runRequest?.unsubscribe();
@@ -594,7 +674,7 @@ export class FlowRunnerComponent implements OnInit, OnDestroy {
 
   private alignIngress(flow: FlowRunnerPublished): void {
     if (!flow.ingresses.some((ingress) => ingress.ingress_id === this.selectedIngressId)) {
-      this.selectedIngressId = flow.ingresses[0]?.ingress_id ?? '';
+      this.selectIngress(flow.ingresses[0]?.ingress_id ?? '');
     }
   }
 
