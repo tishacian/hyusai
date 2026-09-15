@@ -6231,3 +6231,98 @@ normal pour que le checkout carakai égale le SHA live. Live
 - Pipeline GitLab : premier passage du job `agentium-frontend-quality`
   à observer ; il bloque désormais la production GitLab.
 - Rétention d'images : 58 Go libres pour un préflight à 40 Go.
+
+## 15 septembre 2026 — coûts des Skills, `ef6ed0ad58b8`
+
+Déployé à la demande du sponsor : « déploie le correctif de coûts ».
+Commit applicatif `ef6ed0ad58b8a6b1049435d250e51a7e6252c6c9`, poussé sur
+`demo/agentic` depuis un worktree isolé. Cinq fichiers frontend seulement ;
+les travaux documentaires en cours dans le checkout principal sont exclus.
+
+La fiche Skill et le registre distinguent le coût observé du tarif catalogue.
+Une absence de mesure affiche « Non mesuré » / « Not measured » ; un tarif nul
+affiche `$0.00` et un montant positif sous la précision disponible, `< $0.0001`.
+La devise catalogue est respectée. L'agrégat observé conserve la convention USD
+existante, sans conversion ni changement de contrat backend.
+
+### Validation locale
+
+- `check:i18n` : 7 559 clés ; `check:nav-links`, `check:ui-chrome` : OK.
+- 1 414 tests réussis, 150/150 specs, aucun échec ni skip. Le lancement global
+  avait échoué avant les tests faute d'espace temporaire local ; les 150 specs
+  ont ensuite été couvertes exhaustivement par 30 lots avec le filtre existant.
+- Build production isolé : OK, 888,47 kB. Le paquet local partagé Lucide avait
+  perdu `icons/lucide-icons.d.ts`. La version verrouillée 0.577.0 a été extraite
+  du cache npm dans le worktree isolé, SHA512 conforme au lockfile, sans modifier
+  les dépendances partagées. Le build VM utilise également `npm ci` et réussit.
+- Gitleaks sur l'index : OK ; contrat de conformité statique : 19/22 ;
+  `git diff --check` : OK. Aucun changement backend, aucune migration.
+- Avertissements de build préexistants : NG8107, budgets initial/CSS et CommonJS.
+- Logs locaux : `/tmp/agentium-cost-release-gates/`, avec manifeste des specs,
+  résultats par lot et preuve d'intégrité de la dépendance restaurée.
+- Le passage du job GitLab au SHA exact n'a pas pu être établi : seul le remote
+  Bitbucket est configuré. Cette preuve CI reste absente ; les succès locaux
+  et les canaris ne sont pas présentés comme un pipeline GitLab réussi.
+
+### Bascule et preuves
+
+Worktree VM avancé par `fetch origin demo/agentic` puis `merge --ff-only FETCH_HEAD`,
+propre au SHA applicatif. Images construites sur `omnirag-demo` entre 07:46 et
+07:56 UTC ; bascule par `storage-check` puis `up`, de 07:56:26 à 07:56:37 UTC.
+
+| Image | ID OCI |
+|---|---|
+| `agentium-backend:ef6ed0ad58b8` | `sha256:8ef8f1f6332045285bad0fe622a6c018723e5126d20a8bff81c0b1dc90ec447f` |
+| `agentium-worker:ef6ed0ad58b8` | `sha256:9e953748c933ffddae583d97a061ed924b9540ebd0afe4e931436caa3dc37171` |
+| `agentium-frontend:ef6ed0ad58b8` | `sha256:de26937e0f78e36d1b1baf84a0eb0972e55806856b6bbb3f308f4e6cb767cb24` |
+
+Les cinq services applicatifs utilisent ces images ; backend et frontend sont
+`healthy`. La requête immédiate pendant le redémarrage a reçu 502, puis
+`build-info` a confirmé le SHA complet avec `revision_verified: true` ; `/` = 200.
+Aucun traceback après démarrage sur backend, worker, maintenance, beat ou frontend.
+Alembic reste `103_human_confirmation`. Les services d'infrastructure sont restés
+en fonctionnement. Espace racine : 54 Go avant, 52 Go après construction.
+
+Preuves VM :
+`/srv/agentium-data/skill-cost-deployments/2026-09-15-ef6ed0ad58b8/`
+(`build.log`, `storage-check.log`, `deploy.log`, horodatages et relevés disque).
+
+Contrôle navigateur authentifié sur Showcase, après rechargement : la fiche
+`demo_pih_spark089_summary` affiche **Observed cost — Not measured**. Le registre
+montre séparément son prix catalogue `$0.00`, les tarifs EUR et le tarif
+`Voice Realtime Speak` sous la forme `< $0.0001`.
+
+[Avant](../evidence/skill-cost-2026-09-15/skill-before.png) ·
+[Après](../evidence/skill-cost-2026-09-15/skill-after.png).
+
+### Canaris carakai : comparaison avant/après
+
+Le runner protégé a été aligné au SHA applicatif par bundle Git incrémental,
+vérification des prérequis et du checksum, puis contrôle de HEAD et du marqueur.
+SHA256 du bundle :
+`5dc4c9dd31bdd1c257e1d2d3f97e37d1b808a064c92e9b4213f12d8677791aed`.
+Les dépendances gelées du runner ont été conservées.
+
+Le script canonique complet (`11`, `12`, `16`, `17`, `20`) donne **7 passed,
+2 failed, 2 skipped**, avant comme après. Les tests en échec et leurs signatures
+sont identiques :
+
+- **16** : aucune Experience Pilot/In-service disponible sur Showcase (`0`).
+- **17** : contraste insuffisant du bouton actif et de `.xp-tag-warn`, dans les
+  six variantes FR/EN × thème clair × desktop/456/320 ; échec avant publication.
+- **11**, les cinq contrôles **12** et **20** passent. Les deux tests ignorés
+  sont les contrats locaux mockés, désactivés dans cette exécution.
+
+La suite complète reste donc rouge sur ces deux défauts préexistants ; aucune
+nouvelle régression n'est détectée par cette comparaison. Aucune erreur de
+restauration des settings n'a été signalée. Les preuves runner portent le SHA
+release exact.
+
+| Exécution | Log privé sur carakai | Artefacts |
+|---|---|---|
+| Baseline `769563d4` | `/tmp/agentium-cost-baseline.RvxurM/canaries.log` | `/tmp/iteration-canaries-20260915T074000Z.kVe896` |
+| Release `ef6ed0ad` | `/tmp/agentium-cost-release-canaries.bNxItd/canaries.log` | `/tmp/iteration-canaries-20260915T075801Z.lXafjE` |
+
+Rollback applicatif : `AGENTIUM_IMAGE_TAG=769563d41f0a` puis le `up` versionné.
+Le tag flottant `demo-agentic` n'a pas été déplacé ; aucune restauration de base
+ni modification des données client ne fait partie de ce rollback.
