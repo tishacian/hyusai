@@ -245,6 +245,29 @@ def get_runtime_provider_config(workspace_id: Optional[str], provider: str) -> d
         db.close()
 
 
+def get_runtime_routing(workspace_id: Optional[str]) -> dict[str, Any]:
+    """Resolve the authoritative model route for one workspace at runtime.
+
+    Run-engine Skills only carry the workspace id in their ephemeral context.
+    This helper gives those callers the same server-owned provider/model pair
+    used by Chat without copying credentials or mutable settings into a Run.
+    """
+
+    workspace_ref = str(workspace_id or "").strip()
+    if not workspace_ref:
+        return {}
+
+    from app.db.base import SessionLocal
+    from app.models.workspace import Workspace
+
+    db = SessionLocal()
+    try:
+        workspace = db.query(Workspace).filter(Workspace.id == workspace_ref).one_or_none()
+        return get_routing(workspace) if workspace is not None else {}
+    finally:
+        db.close()
+
+
 def get_azure_meta(workspace: "Workspace") -> dict[str, str]:
     return get_provider_meta(workspace, "azure_openai")
 

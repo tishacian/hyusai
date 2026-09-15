@@ -311,13 +311,49 @@ async def test_claim_audit_carries_real_judge_usage(monkeypatch: pytest.MonkeyPa
     assert output["usage"]["measurement_source"] == "provider_reported"
 
 
+async def test_eval_radar_accepts_structured_citations_as_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict = {}
+
+    class FakeJudge:
+        async def evaluate(self, **kwargs):
+            observed.update(kwargs)
+            return {
+                "scores": {dimension: 90 for dimension in DIMENSIONS},
+                "composite_score": 90.0,
+                "hallucination_rate": 0.0,
+                "drift_rate": 0.0,
+                "overall_note": "grounded",
+                "claim_audit": {
+                    "supported": 1,
+                    "unsupported": 0,
+                    "claims": [{"claim": "safe", "supported": True}],
+                },
+            }
+
+    monkeypatch.setattr(
+        "app.services.evaluation.judge.get_judge_service",
+        lambda: FakeJudge(),
+    )
+    citations = [{"text": "Restart is prohibited above 7.1 mm/s RMS."}]
+
+    await wrappers._eval_radar_v1(
+        {"query": "Can it restart?", "answer": "No.", "citations": citations},
+        {"workspace_id": "workspace-1"},
+    )
+
+    assert observed["context_chunks"] == citations
+    assert observed["workspace_id"] == "workspace-1"
+
+
 async def test_claim_audit_does_not_invent_missing_judge_usage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     completion = json.dumps(
         {
             "scores": {dimension: 90 for dimension in DIMENSIONS},
-            "claims": [],
+            "claims": [{"claim": "No risk was found", "supported": False}],
             "question_type": "simple",
             "overall_note": "no usage returned",
         }
@@ -328,9 +364,10 @@ async def test_claim_audit_does_not_invent_missing_judge_usage(
 
     assert "usage" not in output
     assert output["provider_usage"]["measurement_coverage"] == "unavailable"
-    assert collect_valve_usage(
-        [{"output_ref": output, "metrics": {}}]
-    ).token_coverage is MeasurementCoverage.UNAVAILABLE
+    assert (
+        collect_valve_usage([{"output_ref": output, "metrics": {}}]).token_coverage
+        is MeasurementCoverage.UNAVAILABLE
+    )
 
 
 async def test_semantic_search_propagates_reported_retrieval_usage(
