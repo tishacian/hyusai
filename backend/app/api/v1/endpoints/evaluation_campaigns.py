@@ -179,7 +179,7 @@ def generate_cases(body: GenerationBody, workspace: Workspace = Depends(get_curr
     from app.services.model_plane.execution import resolve_model_execution
     from app.services.workspace_jobs import create_workspace_job, serialize_job
     from app.models.system import System
-    db.query(System).filter_by(id=body.system_id, workspace_id=workspace.id).with_for_update().one()
+    db.query(System).filter_by(id=body.system_id, workspace_id=workspace.id).with_for_update(of=System).one()
     request_sha = service.digest(body.model_dump())
     existing = db.query(WorkspaceJob).filter(WorkspaceJob.workspace_id == workspace.id,
         WorkspaceJob.created_by_user_id == user.id, WorkspaceJob.kind == "evaluation_generation",

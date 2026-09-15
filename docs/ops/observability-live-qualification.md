@@ -37,6 +37,8 @@ sudo python3 scripts/qualification/observability_live.py --qualify \
 
 The five cycles each run the baseline, evaluate it, apply the same reviewed bounded template change to the dedicated draft and compare three identical cases through canonical Runs. Only the dedicated QA draft is reset between cycles. Applied proposals retain their historical revisions. Finally, a new holdout Run and evaluation are preserved, and saved-proposal discovery is checked through the API.
 
+A partial native evaluation remains partial in the report: missing dimensions do not pass. The correction/comparison journey may continue from its available evidence; candidate acceptance covers only the stored case assertions, not omitted controls.
+
 Every unavailable evaluator, stopped worker, unsupported provider, schema refusal, timeout, failed assertion or corpus drift stops qualification and remains in the report. A completed campaign with zero results cannot pass. Improvements and unchanged results are counted separately. Contains-based assertions check exact quantities, citation tokens and the agreed absence phrase; they are limited controls, not a comprehensive assessment of the answer.
 
 ## Manual interface acceptance

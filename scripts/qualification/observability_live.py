@@ -144,9 +144,11 @@ def draft_run(client, system_id, input_ref):
 
 
 def evaluate(client, run):
-    client.call(f'/evaluation/by-run/{run["id"]}/score', {"idempotency_key": "obs-qa-" + run["id"]})
+    current = client.call(f'/evaluation/by-run/{run["id"]}')
+    if current.get("status") not in {"queued", "running", "completed", "partial"}:
+        client.call(f'/evaluation/by-run/{run["id"]}/score', {"idempotency_key": "obs-qa-" + run["id"]})
     result = client.poll(f'/evaluation/by-run/{run["id"]}')
-    if result.get("status") != "completed" or not result.get("evaluation_id"):
+    if result.get("status") not in {"completed", "partial"} or not result.get("evaluation_id"):
         raise RuntimeError(f'Evaluation of {run["id"]} is {result.get("status")}: {result.get("reason")}; no substitute score accepted')
     return result
 
