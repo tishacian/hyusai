@@ -22,6 +22,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { formatSkillCost, observedSkillCost } from './skill-cost';
 
 /**
  * `SkillViewComponent` — detail page for a single Skill.
@@ -153,10 +154,11 @@ export class SkillViewComponent implements OnInit, OnDestroy {
 
   readonly kpis = computed<CkObjectKpi[]>(() => {
     const s = this.skill();
+    const cost = observedSkillCost(s?.metrics);
     return [
       { label: 'Type', value: s?.type ?? '—' },
       { label: 'Runtime', value: (s?.runtime_status ?? 'unknown') as string, tone: this.runtimeTone(s?.runtime_status) },
-      { label: 'Cost', value: this.formatPrice(s?.pricing?.unit_price), tone: 'neutral', hint: 'Per-invocation cost.' },
+      { label: this.i18n.t('skills.cost.observed'), value: cost == null ? this.i18n.t('skills.cost.not_measured') : formatSkillCost(cost), tone: 'neutral', hint: this.i18n.t('skills.cost.observed.hint') },
       { label: 'Cert', value: (s?.certification_level ?? '—') as string, tone: 'neutral' },
     ];
   });
@@ -246,13 +248,6 @@ export class SkillViewComponent implements OnInit, OnDestroy {
       case 'catalog_only': return 'neutral';
       default: return 'neutral';
     }
-  }
-
-  private formatPrice(v: number | null | undefined): string {
-    if (v == null) return '—';
-    if (v < 0.01) return `$${v.toFixed(4)}`;
-    if (v < 1) return `$${v.toFixed(3)}`;
-    return `$${v.toFixed(2)}`;
   }
 }
 

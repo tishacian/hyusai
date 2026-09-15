@@ -24,6 +24,7 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 import { provenanceLineParams } from '@app/features/models/models.vm';
 import { BrdImportComponent } from './brd-import.component';
+import { formatSkillCost, observedSkillCost } from './skill-cost';
 import {
   NewSkillDialogComponent,
   backendMessage,
@@ -170,7 +171,7 @@ interface SkillsScope {
               <span>{{ i18n.t('skills.list.column.type') }}</span>
               <span style="text-align:right;">{{ i18n.t('skills.list.column.calls') }}</span>
               <span style="text-align:right;">{{ i18n.t('skills.list.column.latency') }}</span>
-              <span style="text-align:right;">{{ i18n.t('skills.list.column.cost') }}</span>
+              <span style="text-align:right;">{{ i18n.t('skills.cost.observed') }}</span>
               <span style="text-align:right;">{{ i18n.t('skills.list.column.success') }}</span>
               <span style="text-align:right;">{{ i18n.t('skills.list.column.price') }}</span>
             </div>
@@ -226,13 +227,13 @@ interface SkillsScope {
                   {{ formatLatency(sk.metrics?.avg_latency_ms) }}
                 </span>
                 <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-2); text-align:right;">
-                  {{ formatPrice(sk.metrics?.total_cost) }}
+                  {{ formatObservedCost(sk.metrics) }}
                 </span>
                 <span class="ck-mono ck-tnum" style="font-size:11px; text-align:right;" [style.color]="successColor(sk.metrics?.success_rate)">
                   {{ formatPct(sk.metrics?.success_rate) }}
                 </span>
-                <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1); text-align:right;">
-                  {{ formatPrice(sk.pricing?.unit_price) }}
+                <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1); text-align:right;" [title]="i18n.t('skills.cost.catalog.hint')">
+                  {{ formatPrice(sk.pricing?.unit_price, sk.pricing?.currency ?? null) }}
                 </span>
               </div>
             }
@@ -348,8 +349,8 @@ interface SkillsScope {
                     <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1);">{{ formatLatency(sk.metrics?.avg_latency_ms) }}</span>
                   </div>
                   <div class="flex items-center justify-between">
-                    <span class="ck-mono" [style]="rowLabelStyle">{{ i18n.t('skills.list.column.cost') }}</span>
-                    <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1);">{{ formatPrice(sk.metrics?.total_cost) }}</span>
+                    <span class="ck-mono" [style]="rowLabelStyle">{{ i18n.t('skills.cost.observed') }}</span>
+                    <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1);">{{ formatObservedCost(sk.metrics) }}</span>
                   </div>
                   <div class="flex items-center justify-between">
                     <span class="ck-mono" [style]="rowLabelStyle">{{ i18n.t('skills.detail.provider') }}</span>
@@ -840,12 +841,11 @@ export class SkillsComponent implements OnInit, OnDestroy {
     return `${(v * 100).toFixed(1)}%`;
   }
 
-  formatPrice(v: number | null | undefined): string {
-    if (v == null) return '—';
-    if (v < 0.01) return `$${v.toFixed(4)}`;
-    if (v < 1) return `$${v.toFixed(3)}`;
-    if (v < 100) return `$${v.toFixed(2)}`;
-    return `$${Math.round(v)}`;
+  readonly formatPrice = formatSkillCost;
+
+  formatObservedCost(metrics: Skill['metrics']): string {
+    const cost = observedSkillCost(metrics);
+    return cost == null ? this.i18n.t('skills.cost.not_measured') : formatSkillCost(cost);
   }
 
   formatJson(v: Record<string, unknown> | undefined): string {

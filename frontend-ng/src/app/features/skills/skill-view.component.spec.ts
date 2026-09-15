@@ -14,6 +14,37 @@ import {
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
 import { SkillViewComponent } from './skill-view.component';
+import { formatSkillCost, observedSkillCost } from './skill-cost';
+
+test('Skill costs distinguish missing, zero and positive amounts below display precision', () => {
+  for (const value of [null, undefined, NaN, Infinity, -0.01]) {
+    assert.equal(formatSkillCost(value), '—');
+  }
+  assert.equal(formatSkillCost(0), '$0.00');
+  assert.equal(formatSkillCost(-0), '$0.00');
+  assert.equal(formatSkillCost(Number.MIN_VALUE), '< $0.0001');
+  assert.equal(formatSkillCost(0.000001), '< $0.0001');
+  assert.equal(formatSkillCost(0.000099), '< $0.0001');
+  assert.equal(formatSkillCost(0.0001), '$0.0001');
+  assert.equal(formatSkillCost(0.0008), '$0.0008');
+  assert.equal(formatSkillCost(0.012), '$0.012');
+  assert.equal(formatSkillCost(125.25), '$125.25');
+  assert.equal(formatSkillCost(0.000001, 'EUR'), '< €0.0001');
+  assert.equal(formatSkillCost(2, 'EUR'), '€2.00');
+  assert.equal(formatSkillCost(2, null), '—');
+  assert.equal(formatSkillCost(2, 'invalid'), '—');
+  assert.equal(formatSkillCost(2, 42 as unknown as string), '—');
+});
+
+test('Observed Skill costs never substitute a catalog price or unmeasured default', () => {
+  assert.equal(observedSkillCost(undefined), null);
+  assert.equal(observedSkillCost({}), null);
+  assert.equal(observedSkillCost({ calls: 0, total_cost: 0 }), null);
+  assert.equal(observedSkillCost({ calls: 1, total_cost: 0, cost_state: 'not_measured' }), null);
+  assert.equal(observedSkillCost({ calls: 1, total_cost: null }), null);
+  assert.equal(observedSkillCost({ calls: 1, total_cost: 0, cost_state: 'available' }), 0);
+  assert.equal(observedSkillCost({ calls: 1, total_cost: 0.000001 }), 0.000001);
+});
 
 class WorkspaceStub {
   private slug = 'workspace-a';
@@ -80,8 +111,15 @@ test('Skill view purges A synchronously and only accepts the B reload', async ()
   });
   const view = injector.get(SkillViewComponent);
   view.ngOnInit();
-  reads[0].next({ id: 'skill-a', slug: 'shared-skill', name: 'Skill A' });
+  const skill = { id: 'skill-a', slug: 'shared-skill', name: 'Skill A', pricing: { unit: 'per_call', unit_price: 0, currency: 'USD' } };
+  reads[0].next(skill);
   assert.equal(view.skill()?.name, 'Skill A');
+  const observedCost = () => view.kpis().find(kpi => kpi.label === 'skills.cost.observed')?.value;
+  assert.equal(observedCost(), 'skills.cost.not_measured', 'a default zero tariff is not an observed invocation cost');
+  reads[0].next({ ...skill, metrics: { calls: 1, total_cost: 0 } });
+  assert.equal(observedCost(), '$0.00');
+  reads[0].next({ ...skill, metrics: { calls: 1, total_cost: 0.000001 } });
+  assert.equal(observedCost(), '< $0.0001');
   view.activeTab.set('spec');
   view.specPanelOpen.set(true);
 
