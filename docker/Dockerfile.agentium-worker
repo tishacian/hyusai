@@ -18,13 +18,13 @@ ARG PIP_INDEX_URL
 RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
 
 COPY backend/requirements.txt /tmp/requirements/
-COPY backend/requirements_giskard.txt /tmp/requirements/
 RUN pip install --no-cache-dir \
     --index-url=${PIP_INDEX_URL} \
     -r /tmp/requirements/requirements.txt
 
 # Offline RAGET only. Its disposable subprocesses do not share tenant globals.
 # Keep the API image and normal ingestion workers free of this optional SDK.
+COPY backend/requirements_giskard.txt /tmp/requirements/
 ARG INSTALL_GISKARD_RAGET=false
 RUN if [ "$INSTALL_GISKARD_RAGET" = "true" ]; then \
       pip install --no-cache-dir --index-url=${PIP_INDEX_URL} \
@@ -53,6 +53,11 @@ RUN groupadd --gid "$USER_GID" "$USERNAME" \
 WORKDIR /app
 
 COPY --chown=$USERNAME:$USERNAME . .
+
+# Qualify actual SDK objects offline; pip metadata alone misses Arrow API drift.
+RUN if [ "$INSTALL_GISKARD_RAGET" = "true" ]; then \
+      pip check && PYTHONPATH=/app/backend python backend/scripts/qualify_giskard_raget.py; \
+    fi
 
 RUN chmod +x ./run_celery.sh \
     && mkdir -p /data/object_store /data/recipe_envs /app/vector_store \

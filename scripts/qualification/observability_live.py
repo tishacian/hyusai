@@ -178,7 +178,7 @@ def main():
     parser.add_argument("--username-file", default="/root/.attestation-username")
     parser.add_argument("--password-file", default="/root/.attestation-password")
     parser.add_argument("--report", type=Path, required=True)
-    parser.add_argument("--model", default="gpt-4o-mini")
+    parser.add_argument("--model", help="Optional explicitly requested model override; default follows workspace routing")
     parser.add_argument("--reviewed-template-sha256")
     parser.add_argument("--holdout-question")
     args = parser.parse_args()
@@ -192,6 +192,10 @@ def main():
     try:
         client = Client(args.base, args.username_file, args.password_file)
         bundle = source_bundle(client)
+        resolution_query = {"provider": "workspace"}
+        if args.model:
+            resolution_query["model"] = args.model
+        report["model_resolution_preview"] = client.call("/models/resolve?" + urllib.parse.urlencode(resolution_query))
         if not args.prepare and not args.qualify:
             report.update({"source_bundle": bundle, "status": "read_only_preflight", "planned_cases": cases(bundle)})
             save(args.report, report)
@@ -207,7 +211,7 @@ def main():
                 "input_schema": {"type": "object", "properties": {k: {"type": "string"} for k in ["question", "document_text"]},
                     "required": ["question", "document_text"], "additionalProperties": False},
                 "output_schema": {"type": "object", "properties": {"completion": {"type": "string"}}, "required": ["completion"], "additionalProperties": True},
-                "executor": {"kind": "prompt_template", "params": {"provider": "openai", "model": args.model, "template": BASELINE}}})
+                "executor": {"kind": "prompt_template", "params": {"provider": "workspace", **({"model": args.model} if args.model else {}), "template": BASELINE}}})
             report["skill_id"], report["skill_slug"] = skill["id"], skill["slug"]
             report["baseline_flow"] = flow(skill["slug"])
             save(args.report, report)
