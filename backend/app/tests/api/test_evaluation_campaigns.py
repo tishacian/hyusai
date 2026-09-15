@@ -179,8 +179,20 @@ def test_generation_is_idempotent_and_never_persists_credentials(db_session, mon
     http = client(db_session, workspace, user, monkeypatch)
     monkeypatch.setattr("app.services.model_plane.execution.resolve_model_execution", lambda *args, **kwargs: SimpleNamespace(provider="openai", model="gpt-4o-mini", _api_key="secret-only-in-memory"))
     payload = {"system_id": system.id, "collection_ids": [collection.id], "request_key": "generation-one"}
-    first = http.post('/evaluation/generations', json=payload)
+    # SQLite ignores locks: compile the actual endpoint query for PostgreSQL.
+    from sqlalchemy import event
+    from sqlalchemy.dialects import postgresql
+    locks = []
+    def capture_lock(state):
+        if state.is_select and getattr(state.statement, "_for_update_arg", None) is not None:
+            locks.append(str(state.statement.compile(dialect=postgresql.dialect())))
+    event.listen(db_session, "do_orm_execute", capture_lock)
+    try:
+        first = http.post('/evaluation/generations', json=payload)
+    finally:
+        event.remove(db_session, "do_orm_execute", capture_lock)
     assert first.status_code == 201, first.text
+    assert any("FOR UPDATE OF systems" in sql for sql in locks)
     second = http.post('/evaluation/generations', json=payload)
     assert second.json()["id"] == first.json()["id"]
     assert db_session.query(WorkspaceJob).filter_by(kind="evaluation_generation").count() == 1

@@ -56,7 +56,7 @@ def main():
                 return json.load(response)
         except HTTPError as exc:
             # Do not print arbitrary vendor/server payloads or credentials.
-            raise SystemExit(f"API {request.method} {path}: HTTP {exc.code}; inspect the authorized UI") from None
+            raise SystemExit(f"API {request.get_method()} {path}: HTTP {exc.code}; inspect the authorized UI") from None
         except (URLError, TimeoutError):
             raise SystemExit("Network result uncertain. Reuse this state file; do not generate a new request key.") from None
 
