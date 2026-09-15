@@ -12,18 +12,21 @@
 
 :root,
 [data-brand-scope][data-theme="dark"] {
-  /* ---- SURFACES (deep cockpit blacks) ---- */
-  --ck-bg-void:      #05070a;
-  --ck-bg-base:      #07090c;
-  --ck-bg-panel:     #0c1014;
-  --ck-bg-panel-hi:  #11161c;
-  --ck-bg-inset:     #0a0d11;
-  --ck-bg-code:      #050709;
+  /* ---- SURFACES (lifted blue-charcoal) ----
+     Dark mode is designed for sustained use in mixed office light. The
+     surfaces remain unmistakably dark, but each layer now has enough
+     luminance separation to keep the workspace from collapsing into black. */
+  --ck-bg-void:      oklch(0.179 0.016 248.7);
+  --ck-bg-base:      oklch(0.206 0.019 252.1);
+  --ck-bg-panel:     oklch(0.243 0.024 248.8);
+  --ck-bg-panel-hi:  oklch(0.279 0.029 246.9);
+  --ck-bg-inset:     oklch(0.201 0.020 248.9);
+  --ck-bg-code:      oklch(0.174 0.016 248.7);
 
   /* ---- STROKES ---- */
-  --ck-stroke-1:     rgba(255, 255, 255, 0.04);
-  --ck-stroke-2:     rgba(255, 255, 255, 0.08);
-  --ck-stroke-3:     rgba(255, 255, 255, 0.14);
+  --ck-stroke-1:     rgba(232, 237, 242, 0.06);
+  --ck-stroke-2:     rgba(232, 237, 242, 0.11);
+  --ck-stroke-3:     rgba(232, 237, 242, 0.18);
   --ck-stroke-hot:   rgba(125, 211, 252, 0.32);
   /* Alias kept because a dozen call sites already reference it; without a
      definition the whole `border:` declaration was invalid and no border
@@ -31,15 +34,15 @@
   --ck-stroke-soft:  var(--ck-stroke-2);
 
   /* ---- TEXT ---- */
-  --ck-fg-1:         #f2f5f8;
-  --ck-fg-2:         #c8cdd4;
-  --ck-fg-3:         #8891a0;
-  --ck-fg-4:         #7b8391;   /* AA: >=4.5:1 on dark panels (secondary/caption text) */
-  --ck-fg-5:         #606874;   /* faint tier: >=3:1 (large/bold text, UI elements, borders) */
+  --ck-fg-1:         oklch(0.944 0.009 247.9);
+  --ck-fg-2:         oklch(0.847 0.017 250.9);
+  --ck-fg-3:         oklch(0.718 0.024 254.4);
+  --ck-fg-4:         oklch(0.662 0.026 254.0); /* AA on the brightest dark surface */
+  --ck-fg-5:         oklch(0.573 0.025 256.8); /* >=3:1 for large text and UI elements */
 
   /* ---- SIGNALS (semantic palette) ---- */
   --ck-signal-pos:    #34d399;
-  --ck-signal-neg:    #ef5a6f;
+  --ck-signal-neg:    oklch(0.698 0.167 14.4);
   --ck-signal-warn:   #f5b84a;
   --ck-signal-cool:   #7dd3fc;
   --ck-signal-violet: #a78bfa;
@@ -60,7 +63,7 @@
   --ck-status-warn-bg:      rgba(245, 184, 74, 0.10);
   --ck-status-warn-line:    rgba(245, 184, 74, 0.25);
 
-  --ck-status-neg-fg:       #ef5a6f;
+  --ck-status-neg-fg:       oklch(0.698 0.167 14.4);
   --ck-status-neg-bg:       rgba(239, 90, 111, 0.10);
   --ck-status-neg-line:     rgba(239, 90, 111, 0.25);
 
@@ -95,9 +98,9 @@
      in the `[data-theme="light"]` block below so panels don't read as
      "punched out" on warm paper. Consumers MUST use var(--ck-shadow-*)
      rather than inlining `rgba(0,0,0,0.5)` so the theme travels. */
-  --ck-shadow-panel:   0 20px 60px rgba(0, 0, 0, 0.50);
-  --ck-shadow-popover: 0 18px 40px rgba(0, 0, 0, 0.45);
-  --ck-shadow-card:    0 6px 18px rgba(0, 0, 0, 0.35);
+  --ck-shadow-panel:   0 20px 60px rgba(2, 8, 14, 0.38);
+  --ck-shadow-popover: 0 18px 40px rgba(2, 8, 14, 0.34);
+  --ck-shadow-card:    0 6px 18px rgba(2, 8, 14, 0.26);
   /* Scrim beneath overlays (panels, modals, palette). */
   --ck-scrim:          rgba(0, 0, 0, 0.45);
   /* Blocking modals (publish, run input) sit above the whole builder, so they
@@ -113,8 +116,8 @@
   /* Subtle tint for faintly-accented surfaces (neutral soft tag bg,
      hover washes, empty-state wells). Dark theme uses a white wash;
      light theme swaps to a black wash below. */
-  --ck-tint-faint: rgba(255, 255, 255, 0.04);
-  --ck-tint-soft:  rgba(255, 255, 255, 0.06);
+  --ck-tint-faint: rgba(232, 237, 242, 0.045);
+  --ck-tint-soft:  rgba(232, 237, 242, 0.075);
 
   /* ---- TYPE STACKS ---- */
   --ck-font-sans: "Inter Tight", "Inter", -apple-system, "Helvetica Neue", system-ui, sans-serif;

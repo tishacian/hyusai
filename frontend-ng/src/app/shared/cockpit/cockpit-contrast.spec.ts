@@ -38,10 +38,38 @@ function token(block: string, name: string): string {
   return alias ? token(block, alias) : value;
 }
 
-function channels(hex: string): [number, number, number] {
-  assert.match(hex, /^#[0-9a-f]{6}$/i);
-  return [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16)) as
-    [number, number, number];
+function channels(color: string): [number, number, number] {
+  if (/^#[0-9a-f]{6}$/i.test(color)) {
+    return [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16)) as
+      [number, number, number];
+  }
+
+  const parsed = color.match(/^oklch\(([\d.]+)\s+([\d.]+)\s+([\d.]+)\)$/i);
+  assert.ok(parsed, `unsupported colour: ${color}`);
+  const lightness = Number.parseFloat(parsed[1]);
+  const chroma = Number.parseFloat(parsed[2]);
+  const hue = Number.parseFloat(parsed[3]) * Math.PI / 180;
+  const a = chroma * Math.cos(hue);
+  const b = chroma * Math.sin(hue);
+
+  const lRoot = lightness + 0.3963377774 * a + 0.2158037573 * b;
+  const mRoot = lightness - 0.1055613458 * a - 0.0638541728 * b;
+  const sRoot = lightness - 0.0894841775 * a - 1.2914855480 * b;
+  const l = lRoot ** 3;
+  const m = mRoot ** 3;
+  const s = sRoot ** 3;
+  const linear = [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+  ];
+  return linear.map((value) => {
+    const clipped = Math.max(0, Math.min(1, value));
+    const srgb = clipped <= 0.0031308
+      ? 12.92 * clipped
+      : 1.055 * clipped ** (1 / 2.4) - 0.055;
+    return srgb * 255;
+  }) as [number, number, number];
 }
 
 function luminance(hex: string): number {
@@ -80,6 +108,20 @@ test('primary CTA text meets WCAG AA in dark and light themes', () => {
   for (const block of [dark, light]) {
     assert.ok(contrast(token(block, '--ck-cta-fg'), token(block, '--ck-cta-bg')) >= 4.5);
   }
+});
+
+test('dark surfaces stay lifted and preserve a clear depth ladder', () => {
+  const voidLevel = luminance(token(dark, '--ck-bg-void'));
+  const baseLevel = luminance(token(dark, '--ck-bg-base'));
+  const panelLevel = luminance(token(dark, '--ck-bg-panel'));
+  const raisedLevel = luminance(token(dark, '--ck-bg-panel-hi'));
+  const insetLevel = luminance(token(dark, '--ck-bg-inset'));
+
+  assert.ok(voidLevel >= 0.005, 'the darkest product surface slipped back toward black');
+  assert.ok(baseLevel > voidLevel, 'the canvas must lift above the outer void');
+  assert.ok(panelLevel > baseLevel, 'panels must separate from the canvas');
+  assert.ok(raisedLevel > panelLevel, 'raised surfaces must remain the brightest dark layer');
+  assert.ok(insetLevel > voidLevel && insetLevel < panelLevel, 'insets must read as recessed, not black');
 });
 
 test('secondary text meets WCAG AA on cockpit panels', () => {
