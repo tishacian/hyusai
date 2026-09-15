@@ -4,6 +4,7 @@ The planner is deliberately lightweight and deterministic. It turns the user's
 plain question into an internal retrieval scope without asking the user to pick
 filters first.
 """
+
 from __future__ import annotations
 
 import re
@@ -98,6 +99,11 @@ _DOCUMENT_DISCOVERY_RE = re.compile(
 )
 _TABLE_VALUE_LOOKUP_RE = re.compile(
     r"\b(que\s+vaut|valeur|value|label|table|feuille|sheet|cellule|cell|ligne|row|colonne|column)\b",
+    re.IGNORECASE,
+)
+_QUESTION_FACET_RE = re.compile(
+    r"\b(?:can|could|should|whether|which|what|where|when|who|how|"
+    r"peut|peux|pouvez|doit|quel|quelle|quels|quelles|quoi|où|quand|qui|comment)\b",
     re.IGNORECASE,
 )
 _EXTENSION_ALIASES = {
@@ -254,9 +260,7 @@ def is_catalogue_query(query: str) -> bool:
         return True
     if re.search(r"\b(?:types?|formats?|extensions?)\b", text, re.IGNORECASE):
         return bool(_CATALOGUE_OBJECT_RE.search(text))
-    if re.search(
-        r"\b(?:disposes?-?tu|as[-\s]?tu|available)\b", text, re.IGNORECASE
-    ):
+    if re.search(r"\b(?:disposes?-?tu|as[-\s]?tu|available)\b", text, re.IGNORECASE):
         return bool(_CATALOGUE_OBJECT_RE.search(text))
     return False
 
@@ -359,6 +363,12 @@ def _request_filters(request: Mapping[str, Any] | None) -> dict[str, Any]:
         if value is not None:
             out[key] = value
     return out
+
+
+def _is_cross_document_question(query: str) -> bool:
+    """True when one turn asks several independently answerable facts."""
+    facets = {match.group(0).casefold() for match in _QUESTION_FACET_RE.finditer(query or "")}
+    return len(facets) >= 3
 
 
 # Above these per-collection sizes, loading and Python-scanning the full source
@@ -1147,8 +1157,7 @@ def _infer_ledger_document_scope(
     # the exact-match guardrail. In that case fall through to the precise
     # document_filename allowlist below instead.
     indexed_project_codes = {
-        _compact_text(_source_metadata(row).get("project_code")).upper()
-        for *_unused, row in ranked
+        _compact_text(_source_metadata(row).get("project_code")).upper() for *_unused, row in ranked
     }
     indexed_project_codes.discard("")
     scoped_codes = [code for code in project_codes if code in indexed_project_codes]
@@ -1953,6 +1962,20 @@ def plan_corpus(
         confidence = max(confidence, ledger_confidence)
         reason = ledger_reason
     filters = {**inferred_filters, **explicit_filters}
+    if (
+        not explicit_filters
+        and not dense
+        and "document_filename" in filters
+        and _is_cross_document_question(query)
+    ):
+        # A multi-part question commonly joins an incident, a procedure, stock
+        # and a policy. Filename scoring tends to lock onto the incident brief
+        # because it repeats the question's identifiers, making every sibling
+        # source unreachable. Small collections are safe to search openly.
+        filters.pop("document_filename", None)
+        ledger_filters = {}
+        confidence = min(confidence, 0.6)
+        reason = "Multi-part question kept the small collection open for cross-document retrieval."
     # Fact-scope inference scopes retrieval to the documents whose facts carry
     # the query's discriminating terms (GIN pg_trgm indexes, migration 045).
     # Crucially it only admits documents that have *extracted facts* matching the

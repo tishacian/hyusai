@@ -197,6 +197,7 @@ _EXACT_IDENTIFIER_CANDIDATE_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Z
 _MIN_EXACT_IDENTIFIER_LENGTH = 6
 _MAX_EXACT_IDENTIFIERS = 4
 _EXACT_REFERENCE_MAX_OUTPUT_TOKENS = 256
+_MULTI_REFERENCE_MAX_OUTPUT_TOKENS = 1536
 
 
 def _exact_query_identifiers(query: str) -> list[str]:
@@ -311,7 +312,18 @@ def _exact_reference_output_budget(
     """
     bounded = max(1, int(requested_tokens))
     if identifiers and not wants_more_detail:
-        return min(bounded, _EXACT_REFERENCE_MAX_OUTPUT_TOKENS)
+        # One literal reference is normally a short lookup.  A question that
+        # names several references is a cross-document synthesis, though: the
+        # output must have room to resolve each named object instead of being
+        # cut off after the first fact.  Scale the compact budget per unique
+        # identifier while preserving the caller's adaptive upper bound.
+        reference_count = len({identifier.casefold() for identifier in identifiers if identifier})
+        reference_budget = (
+            _EXACT_REFERENCE_MAX_OUTPUT_TOKENS
+            if reference_count <= 1
+            else _MULTI_REFERENCE_MAX_OUTPUT_TOKENS
+        )
+        return min(bounded, reference_budget)
     return bounded
 
 

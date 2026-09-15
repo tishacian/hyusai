@@ -63,6 +63,17 @@ def test_exact_reference_lookup_has_a_bounded_interactive_answer_budget():
     )
 
 
+def test_multi_reference_lookup_scales_the_compact_answer_budget():
+    assert (
+        _exact_reference_output_budget(
+            2048,
+            identifiers=["NVX-INC-4821", "NVX-PUMP-7742", "SLA-PLATINUM-04"],
+            wants_more_detail=False,
+        )
+        == 1536
+    )
+
+
 def test_exact_reference_budget_preserves_explicit_detail_and_normal_questions():
     assert (
         _exact_reference_output_budget(

@@ -15,7 +15,7 @@ import inspect
 import re
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -69,6 +69,8 @@ def _record_sparse_timeout(collection: str, *, wait_timeout: float, backend: str
 
 def _record_sparse_recovery(collection: str) -> None:
     _SPARSE_TIMEOUT_STREAKS.pop(collection, None)
+
+
 _SPREADSHEET_LABEL_TRIGGERS_RE = re.compile(
     r"\b("
     r"diam[eè]tre|diameter|label|labell?is[ée]e?|lettre|letter|strip|strips|"
@@ -219,7 +221,9 @@ def _deadline_at(deadline_seconds: float | None) -> float | None:
     return time.perf_counter() + deadline
 
 
-def _remaining_deadline(deadline_at: float | None, fallback_seconds: float | None = None) -> float | None:
+def _remaining_deadline(
+    deadline_at: float | None, fallback_seconds: float | None = None
+) -> float | None:
     if deadline_at is None:
         return fallback_seconds
     return max(deadline_at - time.perf_counter(), 0.001)
@@ -243,8 +247,8 @@ async def _cancel_pending_tasks(pending: set[asyncio.Task[Any]], *, label: str) 
 class RetrievalPipelineResult:
     """Unified contract for ``retrieve_for_mode``."""
 
-    chunks: List[str]
-    scores: List[float]
+    chunks: list[str]
+    scores: list[float]
     pipeline: Literal[
         "naive",
         "hybrid",
@@ -259,7 +263,7 @@ class RetrievalPipelineResult:
     # caller can build real citations (document title, page, docmeta keywords)
     # instead of the legacy "Policy chunk N" placeholder. ``default_factory``
     # keeps back-compat for callers that only read chunks/scores.
-    metadatas: List[dict] = field(default_factory=list)
+    metadatas: list[dict] = field(default_factory=list)
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
@@ -295,7 +299,11 @@ class TableQueryPlanner:
         if query_hints and q:
             variants.append(f"{q}\n\nKnowledge guide hints:\n{str(query_hints)[:900]}")
         wants_comparison = bool(
-            re.search(r"\b(tous|toutes|global|globalement|plusieurs|different|diff[ée]rent|compare)\b", q, re.IGNORECASE)
+            re.search(
+                r"\b(tous|toutes|global|globalement|plusieurs|different|diff[ée]rent|compare)\b",
+                q,
+                re.IGNORECASE,
+            )
         )
         return TableQueryPlan(
             is_table_query=bool(
@@ -367,7 +375,11 @@ def _sparse_diagnostics_from_metas(metas: list[dict[str, Any]]) -> dict[str, Any
     for meta in metas or []:
         if not isinstance(meta, dict):
             continue
-        if meta.get("sparse_backend") or meta.get("sparse_status") or meta.get("sparse_fallback_reason"):
+        if (
+            meta.get("sparse_backend")
+            or meta.get("sparse_status")
+            or meta.get("sparse_fallback_reason")
+        ):
             payload = {
                 "sparse_backend": meta.get("sparse_backend"),
                 "sparse_status": meta.get("sparse_status"),
@@ -377,7 +389,12 @@ def _sparse_diagnostics_from_metas(metas: list[dict[str, Any]]) -> dict[str, Any
                 payload["sparse_fusion"] = meta.get("sparse_fusion")
             if meta.get("sparse_fallback_reason"):
                 payload["sparse_fallback_reason"] = meta.get("sparse_fallback_reason")
-            for key in ("dense_elapsed_ms", "sparse_elapsed_ms", "retrieval_elapsed_ms", "retrieval_deadline_seconds"):
+            for key in (
+                "dense_elapsed_ms",
+                "sparse_elapsed_ms",
+                "retrieval_elapsed_ms",
+                "retrieval_deadline_seconds",
+            ):
                 if meta.get(key) is not None:
                     payload[key] = meta.get(key)
             for key in (
@@ -501,10 +518,10 @@ def _prepend_exact_metadata_candidates(
 
 
 def _merge_rrf(
-    result_lists: List[List[dict[str, Any]]],
+    result_lists: list[list[dict[str, Any]]],
     top_k: int,
-    weights: List[float] | None = None,
-) -> List[dict[str, Any]]:
+    weights: list[float] | None = None,
+) -> list[dict[str, Any]]:
     """Simple RRF merge across multiple ranked lists (same idea as hybrid fusion).
 
     ``weights`` (one per list, e.g. ``[dense, sparse]``) scales each list's
@@ -515,9 +532,7 @@ def _merge_rrf(
     best_row: dict[str, dict[str, Any]] = {}
     for list_idx, results in enumerate(result_lists):
         weight = (
-            float(weights[list_idx])
-            if weights is not None and list_idx < len(weights)
-            else 1.0
+            float(weights[list_idx]) if weights is not None and list_idx < len(weights) else 1.0
         )
         for rank, r in enumerate(results):
             content, _ = _result_content_score(r)
@@ -540,7 +555,7 @@ def _merge_rrf(
                 best_row[key]["metadata"] = r.get("metadata") or best_row[key]["metadata"]
 
     ordered = sorted(agg.keys(), key=lambda k: agg[k], reverse=True)[:top_k]
-    out: List[dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for key in ordered:
         row = best_row[key].copy()
         row["combined_score"] = agg[key]
@@ -549,7 +564,7 @@ def _merge_rrf(
     return out
 
 
-def _results_to_chunks_scores(results: List[dict[str, Any]]) -> tuple[list[str], list[float]]:
+def _results_to_chunks_scores(results: list[dict[str, Any]]) -> tuple[list[str], list[float]]:
     chunks: list[str] = []
     scores: list[float] = []
     for r in results:
@@ -561,7 +576,7 @@ def _results_to_chunks_scores(results: List[dict[str, Any]]) -> tuple[list[str],
 
 
 def _results_to_chunks_scores_metas(
-    results: List[dict[str, Any]],
+    results: list[dict[str, Any]],
     *,
     dedup: bool = True,
 ) -> tuple[list[str], list[float], list[dict]]:
@@ -699,7 +714,9 @@ async def _search_documents(
         )
         sparse_collection = getattr(doc_svc, "collection_name", "documents")
         if sparse_backend_name == "qdrant_sparse":
-            sparse_collection = getattr(getattr(doc_svc, "vector_db", None), "collection_name", sparse_collection)
+            sparse_collection = getattr(
+                getattr(doc_svc, "vector_db", None), "collection_name", sparse_collection
+            )
         sparse_task = (
             asyncio.create_task(
                 _timed_sparse_search(
@@ -952,7 +969,9 @@ async def retrieve_hah_like(
         )
     pass2 = rerank_results_with_policy(pass2, q, retrieval_policy)
 
-    merged = _merge_rrf([pass1, pass2] if pass2 else [pass1], top_k=max(top_k, top_k + len(exact_metadata_rows)))
+    merged = _merge_rrf(
+        [pass1, pass2] if pass2 else [pass1], top_k=max(top_k, top_k + len(exact_metadata_rows))
+    )
     merged = _prepend_exact_metadata_candidates(exact_metadata_rows, merged)[:top_k]
     chunks, scores, metas = _results_to_chunks_scores_metas(merged)
     diagnostics = {
@@ -971,7 +990,9 @@ async def retrieve_hah_like(
     )
     if diagnostics:
         detail = f"{detail}; sparse={diagnostics.get('sparse_status')}:{diagnostics.get('sparse_backend')}"
-    logger.info("HAH-like retrieval complete", pass1=len(pass1), pass2=len(pass2), merged=len(chunks))
+    logger.info(
+        "HAH-like retrieval complete", pass1=len(pass1), pass2=len(pass2), merged=len(chunks)
+    )
     return RetrievalPipelineResult(
         chunks=chunks,
         scores=scores,
@@ -992,8 +1013,41 @@ def _query_variants(
     q = question.strip()
     variants = [q]
     signals = analyze_query(q, retrieval_policy.lexical_config if retrieval_policy else None)
+    # Multi-part operational questions need one retrieval lane per evidence
+    # family. Repeating all clauses in every variant lets an incident brief
+    # dominate RRF while the inventory and SLA documents never enter the pool.
+    # Keep the original query first, then place the highest-value facet lanes
+    # before generic identifier/guide variants so the normal three-variant fast
+    # budget still covers the cross-document answer.
+    identifier_prefix = " ".join(
+        dict.fromkeys(re.findall(r"\b[A-Z0-9]+(?:-[A-Z0-9]+)+\b", q, flags=re.IGNORECASE))
+    )
+    lowered = q.casefold()
+    if re.search(
+        r"\b(?:spare|part|stock|inventory|warehouse|depot|pi[eè]ce|stockage|entrep[oô]t)\b", lowered
+    ):
+        variants.append(
+            f"{identifier_prefix} required spare part stock inventory warehouse depot location quantity on hand".strip()
+        )
+    if re.search(
+        r"\b(?:sla|deadline|due|finish|finished|service level|d[eé]lai|[ée]ch[eé]ance)\b", lowered
+    ):
+        variants.append(
+            (
+                f"{identifier_prefix} SLA service level response and restoration commitments "
+                "full restoration within hours of incident opened deadline"
+            ).strip()
+        )
+    if re.search(
+        r"\b(?:restart|restarted|operate|operation|red[eé]marr|remise en service)\b", lowered
+    ):
+        variants.append(
+            f"{identifier_prefix} restart prohibited safety procedure vibration leak threshold".strip()
+        )
     for exact_term in signals.exact_terms[1:4]:
-        alternate_forms = [form for form in identifier_variants(exact_term) if form and form != exact_term]
+        alternate_forms = [
+            form for form in identifier_variants(exact_term) if form and form != exact_term
+        ]
         for form in alternate_forms[:3]:
             if form not in q:
                 variants.append(f"{q} {form}")
@@ -1519,7 +1573,9 @@ async def _exact_table_fact_candidates(
 
     for sheet in plan.sheet_names[:3]:
         if not plan.labels:
-            if not await collect(semantic_type="spreadsheet_row", sheet_name=sheet, query=query[:80]):
+            if not await collect(
+                semantic_type="spreadsheet_row", sheet_name=sheet, query=query[:80]
+            ):
                 return finalize_payloads()
 
     return finalize_payloads()
@@ -1598,7 +1654,14 @@ def _prioritise_exact_project_reference_matches(
         compact = _compact_reference_text(haystack).upper()
         exact_matches = sum(1 for ref in refs if ref in compact)
         has_exact = has_exact or exact_matches > 0
-        ranked.append((exact_matches, float(row.get("combined_score") or row.get("score") or 0.0), -index, row))
+        ranked.append(
+            (
+                exact_matches,
+                float(row.get("combined_score") or row.get("score") or 0.0),
+                -index,
+                row,
+            )
+        )
     if not has_exact:
         return results
     ranked.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
@@ -1639,7 +1702,9 @@ def _prepend_exact_table_candidates(
         content, _ = _result_content_score(row)
         if not content:
             continue
-        key = str((row.get("metadata") or {}).get("chunk_id") or row.get("id") or _content_key(content))
+        key = str(
+            (row.get("metadata") or {}).get("chunk_id") or row.get("id") or _content_key(content)
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -1714,7 +1779,9 @@ async def retrieve_chah_like(
     # in context.py passes top_k≈40) digs deeper per variant so specific annex /
     # operating-manual docs reach the pool; for any normal top_k (< 30) this is the
     # exact original ``min(12, top_k + 7)`` cap, so non-discovery is unchanged.
-    per_variant_k = min(top_k if top_k >= 30 else min(12, top_k + 7), max(1, int(max_candidates or 80)))
+    per_variant_k = min(
+        top_k if top_k >= 30 else min(12, top_k + 7), max(1, int(max_candidates or 80))
+    )
     remaining_seconds = _remaining_deadline(deadline_at, deadline_seconds)
     tasks = [
         asyncio.create_task(
@@ -1732,10 +1799,14 @@ async def retrieve_chah_like(
         for v in variants
         if deadline_at is None or float(remaining_seconds or 0.0) > 0.001
     ]
-    done, pending = await asyncio.wait(
-        tasks,
-        timeout=max(0.001, float(remaining_seconds or 4.0)),
-    ) if tasks else (set(), set())
+    done, pending = (
+        await asyncio.wait(
+            tasks,
+            timeout=max(0.001, float(remaining_seconds or 4.0)),
+        )
+        if tasks
+        else (set(), set())
+    )
     await _cancel_pending_tasks(pending, label="chah_variants")
     lists = []
     for task in tasks:
@@ -1862,7 +1933,9 @@ async def retrieve_for_mode(
             use_hybrid=use_hybrid,
             allow_legacy_hybrid=allow_legacy_hybrid,
             deadline_seconds=deadline_seconds,
-            search_params=_search_params_for_profile(retrieval_profile, latency_profile=latency_profile),
+            search_params=_search_params_for_profile(
+                retrieval_profile, latency_profile=latency_profile
+            ),
         )
     if hah_chah_enabled and m in ("chah", "c-hah", "c_hah", "hahcomposite", "hah_composite"):
         return await retrieve_chah_like(
@@ -1877,7 +1950,9 @@ async def retrieve_for_mode(
             deadline_seconds=deadline_seconds,
             max_variants=max_variants,
             max_candidates=max_candidates,
-            search_params=_search_params_for_profile(retrieval_profile, latency_profile=latency_profile),
+            search_params=_search_params_for_profile(
+                retrieval_profile, latency_profile=latency_profile
+            ),
             extra_variants=extra_variants,
         )
 
@@ -1917,7 +1992,9 @@ async def retrieve_for_mode(
         use_hybrid=use_hybrid,
         allow_legacy_hybrid=allow_legacy_hybrid,
         deadline_seconds=_remaining_deadline(deadline_at, deadline_seconds),
-        search_params=_search_params_for_profile(retrieval_profile, latency_profile=latency_profile),
+        search_params=_search_params_for_profile(
+            retrieval_profile, latency_profile=latency_profile
+        ),
     )
     results = rerank_results_with_policy(results, query, retrieval_policy)
     results = _prioritise_exact_project_reference_matches(results, query)

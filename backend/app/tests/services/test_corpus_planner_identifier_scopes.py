@@ -56,6 +56,53 @@ def test_source_lookup_terms_keep_identifiers_and_drop_generic_or_measurement_no
     assert _source_lookup_terms(["10000"], "10000 rpm") == {"10000"}
 
 
+def test_multi_part_incident_question_keeps_small_collection_open(db_session):
+    workspace = Workspace(
+        id="ws-multi-part-incident",
+        name="Multi-part incident",
+        slug="multi-part-incident",
+    )
+    db_session.add(workspace)
+    db_session.flush()
+    collection = create_collection(db_session, workspace=workspace, name="Incident kit")
+    for filename in (
+        "01-incident-brief-NVX-INC-4821.md",
+        "02-safety-procedure-PROC-SAFE-118.pdf",
+        "03-service-level-policy-SLA-PLATINUM-04.md",
+        "04-spare-parts-inventory-NVX-2026-03.csv",
+    ):
+        upsert_collection_source(
+            db_session,
+            collection=collection,
+            filename=filename,
+            status="ready",
+            chunk_count=8,
+        )
+    collection.status = "ready"
+    collection.document_count = 4
+    collection.chunk_count = 32
+    db_session.commit()
+
+    plan = plan_corpus(
+        db=db_session,
+        profile={
+            "collection": collection.slug,
+            "collections": [collection.slug],
+            "workspace_id": workspace.id,
+            "latency_profile": "fast",
+            "rag_mode": "chah",
+        },
+        query=(
+            "For incident NVX-INC-4821 on pump NVX-PUMP-7742, can the pump be "
+            "restarted now, which spare part is required, where is it in stock, "
+            "and when must the repair finish under SLA-PLATINUM-04?"
+        ),
+    )
+
+    assert "document_filename" not in plan.filters
+    assert "cross-document" in plan.scope_reason
+
+
 def test_large_corpus_keeps_document_identifiers_separate_from_project_identity(db_session):
     workspace = Workspace(
         id="ws-identifier-scope",
@@ -78,8 +125,7 @@ def test_large_corpus_keeps_document_identifiers_separate_from_project_identity(
             db_session,
             collection=collection,
             filename=(
-                f"A__legacy_{index:03d}__561000000xx001_"
-                "Operator_manual_notice_operation.pdf"
+                f"A__legacy_{index:03d}__561000000xx001_Operator_manual_notice_operation.pdf"
             ),
             status="ready",
             chunk_count=1,
@@ -104,8 +150,7 @@ def test_large_corpus_keeps_document_identifiers_separate_from_project_identity(
         )
 
     ttn_filename = (
-        "needlepunch__61035__TTN17829J_Operation_and_maintenance_manual_"
-        "Needle_Punch_A50R.pdf"
+        "needlepunch__61035__TTN17829J_Operation_and_maintenance_manual_Needle_Punch_A50R.pdf"
     )
     v_filename = "needlepunch__61035__V10234_variant.pdf"
     numeric_part_filename = "needlepunch__61035__notice_part_12345.pdf"
@@ -140,8 +185,7 @@ def test_large_corpus_keeps_document_identifiers_separate_from_project_identity(
     assert unseen_project_plan.filters == {"project_code": "61001"}
     assert "document_filename" not in unseen_project_plan.filters
     assert not any(
-        filename in str(unseen_project_plan.filters)
-        for filename in false_61001_filenames
+        filename in str(unseen_project_plan.filters) for filename in false_61001_filenames
     )
 
     numeric_summary_plan = plan_corpus(
