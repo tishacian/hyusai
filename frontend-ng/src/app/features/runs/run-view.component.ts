@@ -33,6 +33,8 @@ import {
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/workspace-view-context';
+import { recordedModelExecution } from '@app/core/model-catalog';
+import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
 
 @Component({
   selector: 'app-run-view',
@@ -51,6 +53,7 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
     CkTabsComponent,
     CkTabComponent,
     ObjectPerspectiveComponent,
+    ModelExecutionComponent,
   ],
   template: `
     @if (projectionEnabled()) {
@@ -82,12 +85,12 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
         </ck-tab>
         <ck-tab id="invocations" [label]="i18n.t('runs.detail.tab.invocations')">
           <ck-object-perspective [objectLabel]="i18n.t('runs.detail.object_label')" [lens]="activeLens()" facet="invocations" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
-          @if (skillInvocationProjectionEnabled() && skillInvocations().length > 0) {
+          @if (skillInvocations().length > 0) {
             <section class="ck-surface rounded-md p-4 mt-4" data-testid="run-skill-invocation-links">
               <h3 class="text-xs font-semibold text-white mb-3">{{ i18n.t('runs.detail.invocations.title') }}</h3>
               <div class="flex flex-col gap-2">
                 @for (inv of skillInvocations(); track inv.id || $index) {
-                  @if (inv.id) {
+                  @if (inv.id && skillInvocationProjectionEnabled()) {
                     <a
                       [navLink]="{ type: 'skill_invocation', ref: inv.id }"
                       class="flex items-center justify-between gap-3 rounded px-3 py-2 bg-white/[0.03] hover:bg-white/[0.07] ring-1 ring-white/10 text-xs"
@@ -95,6 +98,11 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                       <span class="font-mono text-cyan-200">{{ inv.skill_slug || inv.skill_id || inv.id }}</span>
                       <span class="text-gray-400">{{ statusLabel(inv.status || 'unknown') }}</span>
                     </a>
+                  } @else {
+                    <p class="text-xs m-0 px-3 py-2">{{ inv.skill_slug || inv.skill_id || inv.id }} · {{ statusLabel(inv.status || 'unknown') }}</p>
+                  }
+                  @if (modelExecution(inv); as model) {
+                    <div class="p-3"><app-model-execution [resolution]="model" /></div>
                   }
                 }
               </div>
@@ -392,6 +400,9 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
                         {{ inv.error }}
                       </div>
                     }
+                    @if (modelExecution(inv); as model) {
+                      <div class="mt-3"><app-model-execution [resolution]="model" /></div>
+                    }
                     @if (hasInvocationDetails(inv)) {
                       <details class="mt-2 rounded border border-white/5 bg-black/20">
                         <summary class="cursor-pointer px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-400 font-mono">
@@ -513,6 +524,7 @@ export class RunViewComponent implements OnInit, OnDestroy {
   readonly skillInvocations = computed<SkillInvocation[]>(
     () => this.run()?.skill_invocations ?? [],
   );
+  readonly modelExecution = recordedModelExecution;
   readonly checkpoints = computed<Array<Record<string, unknown>>>(
     () => this.run()?.checkpoints ?? [],
   );

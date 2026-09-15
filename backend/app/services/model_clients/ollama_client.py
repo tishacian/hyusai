@@ -172,6 +172,9 @@ class OllamaClient:
                                 "content": chunk.get("response", ""),
                                 "done": chunk.get("done", False),
                                 "model": chunk.get("model", model),
+                                **({"prompt_eval_count": chunk["prompt_eval_count"],
+                                    "eval_count": chunk["eval_count"]}
+                                   if "prompt_eval_count" in chunk and "eval_count" in chunk else {}),
                             }
                         except json.JSONDecodeError:
                             logger.warning(

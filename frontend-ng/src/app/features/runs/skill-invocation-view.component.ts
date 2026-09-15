@@ -34,6 +34,8 @@ import {
 import { CkTabComponent, CkTabsComponent } from '@app/shared/cockpit/tabs.component';
 import { ObjectPerspectiveComponent } from '@app/shared/cockpit/object-perspective.component';
 import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
+import { recordedModelExecution } from '@app/core/model-catalog';
+import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
 
 @Component({
   selector: 'app-skill-invocation-view',
@@ -45,6 +47,7 @@ import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-persp
     CkTabsComponent,
     CkTabComponent,
     ObjectPerspectiveComponent,
+    ModelExecutionComponent,
   ],
   template: `
     <ck-object-header
@@ -64,6 +67,10 @@ import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-persp
         }
       </div>
     </ck-object-header>
+
+    @if (modelExecution(); as model) {
+      <section class="ck-surface rounded-md p-4 mb-4"><app-model-execution [resolution]="model" /></section>
+    }
 
     @if (!projectionEnabled()) {
       <div class="ck-surface rounded-md p-6 text-center text-sm text-gray-400" data-testid="skill-invocation-projection-disabled">
@@ -121,6 +128,7 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
   readonly runId = signal('');
   readonly invocationId = signal('');
   readonly invocation = signal<SkillInvocation | null>(null);
+  readonly modelExecution = computed(() => this.invocation() ? recordedModelExecution(this.invocation()!) : null);
   readonly perspectives = signal<Partial<Record<ObjectLens, ObjectPerspectiveResponse>>>({});
   readonly loading = signal(false);
   readonly error = signal(false);

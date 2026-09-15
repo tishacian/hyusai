@@ -48,6 +48,9 @@ _PLACEHOLDER_RE = re.compile(r"\{([a-z][a-z0-9_]{0,63})\}")
 _PROMPT_PROVIDERS = {
     "ollama": "ollama_llm_v1",
     "azure": "azure_llm_v1",
+    "openai": "openai_llm_v1",
+    "azure_openai": "azure_openai_llm_v1",
+    "workspace": "workspace_llm_v1",
 }
 
 
@@ -152,10 +155,12 @@ def _bind_prompt_template(params: Mapping[str, Any]) -> SkillCallable:
         payload: dict[str, Any], ctx: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         request = {"prompt": _render_template(template, payload)}
-        # The model stays a run-time value so the membrane's ``allowed_models``
-        # keeps governing it: it is evaluated from the node input before any
-        # binding happens, and a model frozen here would never reach that gate.
+        # The engine resolves input > binding > System > workspace before its
+        # membrane gate. Keep input schemas untouched: an author-pinned model
+        # is execution configuration, not an extra user input.
         model = payload.get("model")
+        if not isinstance(model, str) or not model.strip():
+            model = params.get("model")
         if isinstance(model, str) and model.strip():
             request["model"] = model.strip()
         return await inner(request, ctx)
@@ -187,6 +192,7 @@ VERIFIED_EXECUTORS: dict[str, VerifiedExecutor] = {
             "required": ["provider", "template"],
             "properties": {
                 "provider": {"enum": sorted(_PROMPT_PROVIDERS)},
+                "model": {"type": "string", "minLength": 1, "maxLength": 256},
                 "template": {
                     "type": "string",
                     "minLength": 1,

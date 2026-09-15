@@ -642,7 +642,7 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
         control = _load_control_policy(db, system)
         adaptive = _load_adaptive_policy(db, system)
 
-        run_gate = _evaluate_run_capability(control, system)
+        run_gate = _evaluate_run_capability(control, system, db=db, run=run)
         if not run_gate.allowed:
             _record_capability_block(
                 db,
@@ -843,7 +843,7 @@ async def resume_run_dag(
         control = _load_control_policy(db, system)
         adaptive = _load_adaptive_policy(db, system)
 
-        run_gate = _evaluate_run_capability(control, system)
+        run_gate = _evaluate_run_capability(control, system, db=db, run=run)
         if not run_gate.allowed:
             _record_capability_block(
                 db,
@@ -1675,7 +1675,7 @@ async def resume_run_dag_debug(
         control = _load_control_policy(db, system)
         adaptive = _load_adaptive_policy(db, system)
 
-        run_gate = _evaluate_run_capability(control, system)
+        run_gate = _evaluate_run_capability(control, system, db=db, run=run)
         if not run_gate.allowed:
             _record_capability_block(
                 db,

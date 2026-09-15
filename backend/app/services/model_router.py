@@ -1,4 +1,4 @@
-"""Model router for intelligent model selection and fallback"""
+"""Model connections; explicit providers never silently fall back."""
 from typing import Dict, Any, Optional, List
 import os
 from app.core.logging import get_logger
@@ -12,7 +12,8 @@ logger = get_logger(__name__)
 class ModelRouter:
     """Routes requests to appropriate model providers with fallback"""
     
-    def __init__(self):
+    def __init__(self, workspace=None):
+        self.workspace = workspace
         self.clients: Dict[str, ModelClient] = {}
         self.fallback_chain: List[str] = ["ollama"]  # Default fallback order
         self.logger = get_logger(__name__)
@@ -81,42 +82,30 @@ class ModelRouter:
         self, 
         preferences: Optional[Dict[str, Any]] = None
     ) -> ModelClient:
-        """Get appropriate model client based on preferences"""
-        if not preferences:
-            preferences = {
-                "provider": "ollama",
-                "model": settings.ollama_default_model
-            }
-        
-        provider = preferences.get("provider", "ollama")
-        model_name = preferences.get("model", settings.ollama_default_model)
-        
-        # Try primary provider
-        if provider in self.clients:
-            client = self.clients[provider]
-            if await self._check_client_health(client, model_name):
-                self.logger.info("Using primary provider", provider=provider, model=model_name)
-                return client
-        
-        # Try fallback providers
-        for fallback_provider in self.fallback_chain:
-            if fallback_provider == provider:
-                continue  # Skip if already tried
-            
-            if fallback_provider in self.clients:
-                client = self.clients[fallback_provider]
-                if await self._check_client_health(client, model_name):
-                    self.logger.info(
-                        "Using fallback provider", 
-                        fallback=fallback_provider, 
-                        original=provider,
-                        model=model_name
-                    )
-                    return client
-        
-        # If no client available, raise error
-        raise RuntimeError(f"No available model clients. Tried: {provider} and fallbacks: {self.fallback_chain}")
-    
+        """Return the exact selected connection; completion owns fallback attempts.
+
+        A raw client cannot swap provider safely: its caller still holds the
+        original model name. Workspace-routed Skills use complete_model, which
+        resolves/checks each provider/model pair and records every attempt.
+        """
+        from app.services.model_plane.execution import build_model_client, resolve_model_execution
+
+        preferences = preferences or {}
+        provider = preferences.get("provider")
+        if provider in {None, "workspace", "openai", "azure_openai", "azure", "ollama", "anthropic"}:
+            execution = resolve_model_execution(
+                self.workspace, provider=provider, model=preferences.get("model"),
+            )
+            client = build_model_client(execution)
+            client.model_execution = execution
+            return client
+        if self.workspace is not None:
+            raise RuntimeError("This provider has no workspace-scoped text runtime.")
+        client = self.clients.get(provider)
+        if client is not None and await self._check_client_health(client, preferences.get("model", "")):
+            return client
+        raise RuntimeError(f"The selected provider is unavailable: {provider}")
+
     async def _check_client_health(
         self, 
         client: ModelClient, 

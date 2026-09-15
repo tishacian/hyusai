@@ -8,7 +8,7 @@ import {
   signal,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { Subscription, distinctUntilChanged, map } from 'rxjs';
+import { Subscription, catchError, combineLatest, distinctUntilChanged, map, of, startWith } from 'rxjs';
 import { CkBackLinkComponent } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
@@ -16,13 +16,15 @@ import {
 } from '@app/shared/cockpit/object-header.component';
 import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.component';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
-import { CanonicalApiService, type Skill } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type Skill, type SkillExecutorCatalog } from '@app/core/canonical-api.service';
 import { LensService } from '@app/core/lens';
 import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
-import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/workspace-view-context';
 import { formatSkillCost, observedSkillCost } from './skill-cost';
+import { NewSkillDialogComponent, type SkillUpdateResult } from './new-skill-dialog.component';
+import { SkillExecutionComponent } from './skill-execution.component';
 
 /**
  * `SkillViewComponent` — detail page for a single Skill.
@@ -43,6 +45,8 @@ import { formatSkillCost, observedSkillCost } from './skill-cost';
     CkTabsComponent,
     CkTabComponent,
     CkPanelComponent,
+    NewSkillDialogComponent,
+    SkillExecutionComponent,
   ],
   template: `
     <ck-object-header
@@ -61,6 +65,13 @@ import { formatSkillCost, observedSkillCost } from './skill-cost';
       </button>
     </ck-object-header>
 
+    @if (authoredNotice()) {
+      <p role="status" class="text-sm mb-3" style="color:var(--ck-fg-2);">{{ authoredNotice() }}</p>
+    }
+    @if (editingError()) {
+      <p role="alert" class="text-sm mb-3" style="color:var(--ck-neg);">{{ editingError() }}</p>
+    }
+
     <ck-tabs
       [active]="activeTab()"
       (activeChange)="onTabChange($event)"
@@ -78,6 +89,20 @@ import { formatSkillCost, observedSkillCost } from './skill-cost';
           <p class="text-[11px]" style="color:var(--ck-fg-4);">
             Lens: <span class="font-mono" style="color:var(--ck-signal-cool);">{{ lens() }}</span>
           </p>
+        </section>
+        <section class="ck-surface t-elevated rounded-md p-5 mt-3">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <h3 class="text-sm font-semibold" style="color:var(--ck-fg-1);">{{ i18n.t('skills.execution.title') }}</h3>
+            @if (canEdit()) {
+              <button
+                type="button"
+                class="ck-btn-quiet px-3 py-2 rounded text-sm font-medium"
+                [disabled]="editingLoading()"
+                (click)="openEditing()"
+              >{{ i18n.t('skills.execution.edit') }}</button>
+            }
+          </div>
+          <app-skill-execution [executor]="skill()?.executor" [systemId]="navigation.systemId() || undefined" />
         </section>
       </ck-tab>
 
@@ -113,6 +138,18 @@ import { formatSkillCost, observedSkillCost } from './skill-cost';
     >
       <pre class="font-mono text-[11px] whitespace-pre-wrap m-0" style="color:var(--ck-fg-2);">{{ specPreview() }}</pre>
     </ck-panel>
+
+    @if (dialogCatalog(); as catalog) {
+      <app-new-skill-dialog
+        [catalog]="catalog"
+        [registryTargets]="registryTargets()"
+        [systemId]="navigation.systemId() || undefined"
+        [skill]="editingSkill()"
+        initialStep="runtime"
+        (updated)="onUpdated($event)"
+        (dismissed)="closeDialog()"
+      />
+    }
   `,
 })
 export class SkillViewComponent implements OnInit, OnDestroy {
@@ -134,6 +171,8 @@ export class SkillViewComponent implements OnInit, OnDestroy {
   readonly lensService = inject(LensService);
   private routeSubscription: Subscription | null = null;
   private requestSubscription: Subscription | null = null;
+  private editSubscription: Subscription | null = null;
+  private editingRequest: WorkspaceViewRequest | null = null;
   private readonly workspaceView = new WorkspaceViewContext(
     this.workspace,
     () => this.resetWorkspaceState(),
@@ -144,6 +183,18 @@ export class SkillViewComponent implements OnInit, OnDestroy {
   readonly skill = signal<Skill | null>(null);
   readonly activeTab = signal<SkillTabId>('overview');
   readonly specPanelOpen = signal(false);
+  readonly executors = signal<SkillExecutorCatalog | null>(null);
+  readonly editingSkill = signal<Skill | null>(null);
+  readonly registryTargets = signal<Skill[]>([]);
+  readonly editingLoading = signal(false);
+  readonly editingError = signal<string | null>(null);
+  readonly authoredNotice = signal<string | null>(null);
+  readonly canEdit = computed(() =>
+    this.executors()?.editable === true && this.skill()?.workspace_scope === 'workspace',
+  );
+  readonly dialogCatalog = computed(() =>
+    this.canEdit() && this.editingSkill() ? this.executors() : null,
+  );
 
   readonly lens = this.lensService.lens;
 
@@ -170,6 +221,7 @@ export class SkillViewComponent implements OnInit, OnDestroy {
       inputs: s.input_schema,
       outputs: s.output_schema,
       execution: s.execution,
+      executor: s.executor,
       pricing: s.pricing,
     } as const;
     return JSON.stringify(spec, null, 2);
@@ -204,7 +256,63 @@ export class SkillViewComponent implements OnInit, OnDestroy {
     });
   }
 
+  openEditing(): void {
+    const skill = this.skill();
+    const catalog = this.executors();
+    if (!skill || !catalog || !this.canEdit() || this.editingLoading()) return;
+    this.closeDialog();
+    this.authoredNotice.set(null);
+    this.editingError.set(null);
+    this.editingLoading.set(true);
+    const request = this.workspaceView.captureRequest();
+    this.editingRequest = request;
+    const targets = catalog.executors.some((executor) => executor.kind === 'registry_call')
+      ? this.canonical.listSkills({ propagateErrors: true })
+      : of([] as Skill[]);
+    const subscription = targets.subscribe({
+      next: (skills) => {
+        if (this.editingRequest !== request || !this.workspaceView.isCurrent(request) || !this.canEdit()) return;
+        this.registryTargets.set(skills.filter((row) => (
+          !row.slug.startsWith('ws.')
+          && row.runtime_status !== 'unbound'
+          && row.runtime_status !== 'catalog_only'
+        )));
+        this.editingLoading.set(false);
+        this.editingSkill.set(skill);
+      },
+      error: () => {
+        if (this.editingRequest !== request || !this.workspaceView.isCurrent(request)) return;
+        this.closeDialog();
+        this.editingError.set(this.i18n.t('skills.execution.load_error'));
+      },
+    });
+    this.editSubscription = subscription.closed ? null : subscription;
+  }
+
+  closeDialog(): void {
+    this.editSubscription?.unsubscribe();
+    this.editSubscription = null;
+    this.editingRequest = null;
+    this.editingSkill.set(null);
+    this.registryTargets.set([]);
+    this.editingLoading.set(false);
+  }
+
+  onUpdated(result: SkillUpdateResult): void {
+    if (!this.editingRequest || !this.workspaceView.isCurrent(this.editingRequest)
+      || !this.canEdit() || this.editingSkill()?.slug !== result.skill.slug) return;
+    this.closeDialog();
+    this.skill.set(result.skill);
+    const notice = this.i18n.t('skills.notice.updated', { slug: result.skill.slug });
+    this.authoredNotice.set(result.publishedIn.length
+      ? notice + ' ' + this.i18n.t('skills.notice.published_bindings', { names: result.publishedIn.join(', ') })
+      : notice);
+    this.reloadCurrentSkill();
+  }
+
   private reloadCurrentSkill(): void {
+    this.requestSubscription?.unsubscribe();
+    this.requestSubscription = null;
     const skillId = this.skillId || this.route.snapshot.paramMap.get('skillId') || '';
     if (!skillId) {
       this.skill.set(null);
@@ -212,14 +320,21 @@ export class SkillViewComponent implements OnInit, OnDestroy {
     }
     this.skillId = skillId;
     const request = this.workspaceView.beginRequest();
-    const subscription = this.canonical.getSkill(skillId).subscribe({
-      next: (skill) => {
+    const subscription = combineLatest({
+      skill: this.canonical.getSkill(skillId),
+      executors: this.canonical.getSkillExecutors().pipe(catchError(() => of(null)), startWith(null)),
+    }).subscribe({
+      next: ({ skill, executors }) => {
         if (!this.workspaceView.isCurrent(request) || skillId !== this.skillId) return;
         this.skill.set(skill);
+        this.executors.set(executors);
+        if (!this.canEdit()) this.closeDialog();
       },
       error: () => {
         if (!this.workspaceView.isCurrent(request) || skillId !== this.skillId) return;
         this.skill.set(null);
+        this.executors.set(null);
+        this.closeDialog();
       },
     });
     this.requestSubscription = subscription.closed ? null : subscription;
@@ -230,12 +345,14 @@ export class SkillViewComponent implements OnInit, OnDestroy {
     this.requestSubscription = null;
     this.workspaceView.invalidate();
     this.skill.set(null);
+    this.executors.set(null);
+    this.closeDialog();
+    this.editingError.set(null);
+    this.authoredNotice.set(null);
   }
 
   private resetWorkspaceState(): void {
-    this.requestSubscription?.unsubscribe();
-    this.requestSubscription = null;
-    this.skill.set(null);
+    this.resetSkillResult();
     this.activeTab.set('overview');
     this.specPanelOpen.set(false);
   }

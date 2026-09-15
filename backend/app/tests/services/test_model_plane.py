@@ -230,6 +230,8 @@ def test_distribution_aggregation(db_session):
                 started_at=now - timedelta(days=1),
                 latency_ms=100.0,
                 cost=0.02,
+                cost_measured=True,
+                metrics={"cost_evidence": {"state": "calculated", "method": "catalog_unit_price", "currency": "USD"}},
                 trace={"effective_model": "openai:gpt-5"},
             ),
             SkillInvocation(
@@ -239,6 +241,8 @@ def test_distribution_aggregation(db_session):
                 started_at=now - timedelta(days=2),
                 latency_ms=200.0,
                 cost=0.01,
+                cost_measured=True,
+                metrics={"cost_evidence": {"state": "calculated", "method": "catalog_unit_price", "currency": "USD"}},
                 trace={"effective_model": "openai:gpt-5"},
             ),
             SkillInvocation(

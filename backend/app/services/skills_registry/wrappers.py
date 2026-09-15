@@ -4257,69 +4257,49 @@ async def _audit_log_v1(
     }
 
 
-async def _ollama_llm_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
-) -> dict[str, Any]:
-    from app.services.model_clients.ollama_client import OllamaClient
-
-    client = OllamaClient()
-    model = _model_name(payload.get("model")) or "deepseek-r1:14b"
-    result = await client.generate(model=model, prompt=payload["prompt"])
-    return {
-        "completion": result.get("response") or result.get("content", ""),
-        "model": model,
-    }
+async def _ollama_llm_v1(payload, ctx=None):
+    return await _configured_llm_call("ollama", payload, ctx)
 
 
-async def _azure_llm_v1(
-    payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
-) -> dict[str, Any]:
-    # Azure OpenAI is OpenAI-compatible — reuse the OpenAI client.
-    from app.services.model_clients.openai_client import OpenAIClient
+async def _azure_llm_v1(payload, ctx=None):
+    # Historical label: frozen bindings retain public OpenAI and environment
+    # credentials. New Azure bindings must explicitly say azure_openai.
+    return await _configured_llm_call("azure", payload, ctx)
 
-    client = OpenAIClient()
-    if not client.api_key:
-        return {
-            "completion": "",
-            "status": "degraded",
-            "warning": "openai_key_unavailable",
-        }
 
-    ctx = ctx or {}
-    token_sink = ctx.get("token_sink")
-    model = _model_name(payload.get("model")) or "gpt-4o-mini"
-    prompt = payload["prompt"]
+async def _configured_llm_call(provider, payload, ctx=None):
+    from app.services.model_plane.execution import ModelExecution, complete_model, resolve_model_execution
 
-    # Stream token-by-token when the run engine provided a sink (Vague D
-    # / D2). Every delta is pushed to the live SSE bus so the cockpit's
-    # Execution terminal can render a typewriter effect; we also
-    # accumulate the final text so the non-streaming contract
-    # (`completion` field) keeps working for replay.
-    if callable(token_sink):
-        try:
-            parts: list[str] = []
-            async for chunk in client.stream(model=model, prompt=prompt):
-                delta = chunk.get("delta") or ""
-                if delta:
-                    parts.append(delta)
-                    token_sink(delta)
-            return {
-                "completion": "".join(parts),
-                "model": model,
-                "streamed": True,
-            }
-        except Exception as exc:  # noqa: BLE001 — fall back to non-streaming
-            logger.warning(
-                "azure_llm_v1: streaming failed, falling back",
-                error=str(exc),
-            )
+    ctx = ctx if ctx is not None else {}
+    execution = ctx.get("_model_execution")
+    if not isinstance(execution, ModelExecution):
+        execution = resolve_model_execution(
+            ctx.get("_model_workspace"), provider=provider,
+            model=_model_name(payload.get("model")),
+            legacy_defaults=provider in {"azure", "ollama"},
+            model_source="legacy_default" if provider == "ollama" else "input",
+        )
+    output = await complete_model(execution, payload["prompt"], ctx, stream=provider != "ollama")
+    output.pop("model_execution", None)  # Canonical trace, never a new business-output property.
+    if provider == "ollama":
+        return {"completion": output["completion"], "model": execution.model}
+    if provider == "azure":
+        if output.get("streamed"):
+            return {"completion": output["completion"], "model": execution.model, "streamed": True}
+        return {"completion": output["completion"], "model": output["model"], "usage": ctx.get("_model_response_usage", {})}
+    return output
 
-    result = await client.generate(model=model, prompt=prompt)
-    return {
-        "completion": result.get("content", ""),
-        "model": result.get("model"),
-        "usage": result.get("usage", {}),
-    }
+
+async def _openai_llm_v1(payload, ctx=None):
+    return await _configured_llm_call("openai", payload, ctx)
+
+
+async def _azure_openai_llm_v1(payload, ctx=None):
+    return await _configured_llm_call("azure_openai", payload, ctx)
+
+
+async def _workspace_llm_v1(payload, ctx=None):
+    return await _configured_llm_call("workspace", payload, ctx)
 
 
 async def _chain_naive_v1(
@@ -4380,6 +4360,7 @@ async def _chain_mixed_hah_v1(
 # artifact, so downstream ``inputs_map`` VariableRefs resolve.
 # ---------------------------------------------------------------------------
 _KNOWN_PROVIDERS = {
+    "azure_openai",
     "ollama",
     "openai",
     "azure",
@@ -4710,7 +4691,22 @@ async def _route_llm_complete(
     """
     from app.services.model_router import ModelRouter
 
-    prefs = _resolve_model_preferences(model or (ctx or {}).get("default_model"))
+    chosen = model or (ctx or {}).get("default_model")
+    prefs = _resolve_model_preferences(chosen)
+    if (ctx or {}).get("_model_workspace") is not None:
+        from app.services.model_plane.execution import ModelExecutionError, complete_model, resolve_model_execution
+
+        if prefs["provider"] not in {"openai", "azure_openai", "ollama", "anthropic"}:
+            raise ModelExecutionError("This provider has no workspace-scoped text runtime. Choose a supported provider.")
+
+        # Only the server supplies this workspace object and the policy guard.
+        execution = resolve_model_execution(
+            ctx["_model_workspace"], provider=prefs["provider"] if chosen else "workspace",
+            model=prefs["model"] if chosen else None,
+            model_source="input" if model else "system",
+        )
+        output = await complete_model(execution, prompt, ctx, generation_options=generation_options, stream=False)
+        return str(output["completion"]).strip()
     cache_owner = ctx if isinstance(ctx, dict) else {}
     client_cache = cache_owner.get("_resolved_model_client_cache")
     if not isinstance(client_cache, dict):
@@ -6792,6 +6788,9 @@ _REGISTRY: dict[str, tuple[SkillCallable, Optional[str], str]] = {
     "audit_log_v1": (_audit_log_v1, None, "bound"),
     "ollama_llm_v1": (_ollama_llm_v1, "app.services.model_clients.ollama_client", "bound"),
     "azure_llm_v1": (_azure_llm_v1, "app.services.model_clients.openai_client", "bound"),
+    "openai_llm_v1": (_openai_llm_v1, "app.services.model_clients.openai_client", "bound"),
+    "azure_openai_llm_v1": (_azure_openai_llm_v1, "app.services.model_clients.azure_openai_client", "bound"),
+    "workspace_llm_v1": (_workspace_llm_v1, "app.services.model_plane.execution", "bound"),
     "chain_naive_v1": (_chain_naive_v1, "app.services.rag.chains.naive", "bound"),
     "chain_hybrid_v1": (_chain_hybrid_v1, "app.services.rag.chains.hybrid", "bound"),
     "chain_mixed_hah_v1": (_chain_mixed_hah_v1, "app.services.rag.chains.mixed_hah", "bound"),

@@ -27,6 +27,7 @@ import {
   input,
   output,
   signal,
+  untracked,
 } from '@angular/core';
 import { A11yModule } from '@angular/cdk/a11y';
 import { NavLinkDirective } from '@app/shared/cockpit';
@@ -34,7 +35,10 @@ import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
 import { HelpTooltipComponent } from '@app/shared/cockpit/help-tooltip.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { I18nService } from '@app/core/i18n.service';
-import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
+import { CanonicalApiService, type Skill } from '@app/core/canonical-api.service';
+import { SkillExecutionComponent } from '@app/features/skills/skill-execution.component';
+import type { Subscription } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import type {
   CanonicalFlowNode,
@@ -172,6 +176,37 @@ export function buildRetrievalDocumentOptions(
   return [...options.values()];
 }
 
+interface SkillExecutionLookup {
+  nodeId: string;
+  slug: string;
+  systemId: string | null;
+  scope: WorkspaceRequestScope;
+  executor: Skill['executor'];
+}
+
+/** A published binding belongs to this exact node and Skill, never just a slug
+ * elsewhere in the graph. Its read-only preview is distinct from the draft. */
+export function publishedNodeExecutor(
+  node: CanonicalFlowNode | null,
+  contract: Record<string, unknown> | null,
+): Skill['executor'] {
+  if (!node) return null;
+  const nodes = contract?.['nodes'];
+  if (!nodes || typeof nodes !== 'object' || Array.isArray(nodes)) return null;
+  const binding = (nodes as Record<string, unknown>)[node.id];
+  if (!binding || typeof binding !== 'object' || Array.isArray(binding)) return null;
+  const row = binding as Record<string, unknown>;
+  const config = (node.config ?? {}) as Record<string, unknown>;
+  if (!config['skill_slug'] || row['skill_slug'] !== config['skill_slug']) return null;
+  if (config['skill_id'] && row['skill_id'] !== config['skill_id']) return null;
+  const executor = row['executor'];
+  if (!executor || typeof executor !== 'object' || Array.isArray(executor)) return null;
+  const value = executor as Record<string, unknown>;
+  if (typeof value['kind'] !== 'string' || !value['kind']) return null;
+  if (value['params'] != null && (typeof value['params'] !== 'object' || Array.isArray(value['params']))) return null;
+  return executor as Skill['executor'];
+}
+
 @Component({
   selector: 'app-flow-inspector',
   standalone: true,
@@ -183,6 +218,7 @@ export function buildRetrievalDocumentOptions(
     HelpTooltipComponent,
     EmptyStateComponent,
     ManifestFieldsComponent,
+    SkillExecutionComponent,
     FlowTriggerControlsComponent,
     FlowTriggersPanelComponent,
     FlowIngressEditorComponent,
@@ -262,6 +298,27 @@ export function buildRetrievalDocumentOptions(
               ></textarea>
             </label>
           </section>
+
+          @if (selectedSkillSlug(); as slug) {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">{{ i18n.t('skills.execution.current') }}</span>
+              @if (currentSkillDefinition(); as definition) {
+                <app-skill-execution [executor]="definition.executor" [systemId]="systemId() || undefined" />
+              } @else {
+                <p class="ck-flow-hint" role="status">{{ i18n.t('common.loading') }}</p>
+              }
+              <a class="ck-flow-mini-action" [navLink]="{ type: 'skill', ref: slug, facet: 'overview' }">
+                {{ i18n.t('skills.execution.open_definition') }}
+              </a>
+            </section>
+            @if (publishedSkillExecutor(); as executor) {
+              <details class="ck-flow-section ck-flow-fold">
+                <summary class="ck-flow-fold__summary">{{ i18n.t('skills.execution.published') }}</summary>
+                <p class="ck-flow-hint">{{ i18n.t('skills.execution.published_hint') }}</p>
+                <app-skill-execution [executor]="executor" [showResolution]="false" />
+              </details>
+            }
+          }
 
           @if ((n.kind ?? 'task') === 'agent_loop') {
             <section class="ck-flow-section ck-flow-agent-loop">
@@ -1080,6 +1137,7 @@ export class FlowInspectorComponent {
   readonly i18n = inject(I18nService);
   private readonly workspace = inject(WorkspaceService);
   private readonly api = inject(ApiService);
+  private readonly canonical = inject(CanonicalApiService);
   /** Optional: present whenever the inspector renders inside the builder shell. */
   private readonly persistence = inject(FlowPersistenceService, { optional: true });
   /** Optional: the builder provides it; the summary then shows the live env. */
@@ -1106,6 +1164,22 @@ export class FlowInspectorComponent {
 
   /** Deterministic, single-frame selection straight from the store. */
   readonly node = this.store.selectedNode;
+
+  readonly selectedSkillSlug = computed(() => {
+    const node = this.node();
+    return node ? this.skillSlug(node) : '';
+  });
+  private readonly skillDefinition = signal<SkillExecutionLookup | null>(null);
+  readonly currentSkillDefinition = computed(() => {
+    const definition = this.skillDefinition();
+    return definition && this.skillLookupIsCurrent(definition) ? definition : null;
+  });
+  readonly publishedSkillExecutor = computed(() => {
+    const persistence = this.persistence;
+    if (!persistence || !this.systemId() || persistence.systemId() !== this.systemId()
+      || !persistence.hydrationReady()) return null;
+    return publishedNodeExecutor(this.node(), persistence.publishedExecutionContract());
+  });
 
   /** Surfaced so the inspector shows the unsaved/dirty state (Save lives in
    *  the toolbar, owned elsewhere — this is a read-only indicator). */
@@ -1169,6 +1243,16 @@ export class FlowInspectorComponent {
   readonly openTrainWorkshop = output<void>();
 
   constructor() {
+    effect((onCleanup) => {
+      const nodeId = this.store.selectedNodeId();
+      const slug = this.selectedSkillSlug();
+      const systemId = this.systemId();
+      this.workspace.contextEpoch();
+      this.skillDefinition.set(null);
+      if (!nodeId || !slug) return;
+      const request = untracked(() => this.loadSkillExecution(nodeId, slug, systemId));
+      onCleanup(() => request.unsubscribe());
+    });
     effect(() => {
       const selectedId = this.store.selectedNodeId();
       if (selectedId === this.lastRetrievalScopeNodeId) return;
@@ -1216,6 +1300,21 @@ export class FlowInspectorComponent {
         next: (body) => this.mcpServers.set(body.servers || []),
         error: () => this.mcpServers.set([]),
       });
+    });
+  }
+
+  private skillLookupIsCurrent(lookup: Omit<SkillExecutionLookup, 'executor'>): boolean {
+    const node = this.node();
+    return node?.id === lookup.nodeId && this.skillSlug(node) === lookup.slug
+      && this.systemId() === lookup.systemId && this.workspace.isRequestScopeCurrent(lookup.scope);
+  }
+
+  private loadSkillExecution(nodeId: string, slug: string, systemId: string | null): Subscription {
+    const lookup = { nodeId, slug, systemId, scope: this.workspace.captureRequestScope() };
+    return this.canonical.getSkill(slug).subscribe((skill) => {
+      if (this.skillLookupIsCurrent(lookup)) {
+        this.skillDefinition.set({ ...lookup, executor: skill?.executor ?? null });
+      }
     });
   }
 

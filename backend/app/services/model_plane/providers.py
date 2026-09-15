@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 import os
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -10,7 +12,7 @@ import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.services.model_plane.registration import list_routable_providers
+from app.services.model_plane.registration import list_routable_providers, provider_key
 
 if TYPE_CHECKING:
     from app.models.workspace import Workspace
@@ -21,7 +23,9 @@ HEALTH_TTL_SECONDS = 60.0
 _HEALTH_TIMEOUT = 5.0
 
 # key -> (expires_at, payload)
-_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_cache: Dict[tuple[str, str], Tuple[float, Dict[str, Any]]] = {}
+_cache_workspace: ContextVar[str] = ContextVar("model_probe_workspace", default="global")
+RUNTIME_PROVIDERS = frozenset({"openai", "azure_openai", "ollama"})
 
 
 def _env(*names: str) -> bool:
@@ -43,7 +47,7 @@ def _workspace_keys(workspace: Optional["Workspace"]) -> Dict[str, str]:
 
 
 def _cache_get(key: str) -> Optional[Dict[str, Any]]:
-    entry = _cache.get(key)
+    entry = _cache.get((_cache_workspace.get(), key))
     if not entry:
         return None
     expires_at, payload = entry
@@ -53,11 +57,17 @@ def _cache_get(key: str) -> Optional[Dict[str, Any]]:
 
 
 def _cache_set(key: str, payload: Dict[str, Any]) -> None:
-    _cache[key] = (time.monotonic() + HEALTH_TTL_SECONDS, dict(payload))
+    _cache[(_cache_workspace.get(), key)] = (time.monotonic() + HEALTH_TTL_SECONDS, dict(payload))
 
 
-def clear_health_cache() -> None:
-    _cache.clear()
+def clear_health_cache(*, workspace: Optional["Workspace"] = None) -> None:
+    if workspace is None:
+        _cache.clear()
+        return
+    scope = f"workspace:{workspace.id}"
+    for key in list(_cache):
+        if key[0] == scope:
+            del _cache[key]
 
 
 async def _probe(
@@ -93,7 +103,7 @@ async def _probe(
             "status": "unreachable",
             "latency_ms": latency_ms,
             "models": [],
-            "error": str(exc),
+            "error": f"{type(exc).__name__}: provider request failed",
         }
 
 
@@ -111,7 +121,7 @@ def _extract_models(response: httpx.Response) -> List[str]:
                 mid = item.get("id") or item.get("name")
                 if mid:
                     ids.append(str(mid))
-        return ids[:50]
+        return ids[:500]
 
     # Ollama: {"models":[{"name":...}, ...]}
     if isinstance(data, dict) and isinstance(data.get("models"), list):
@@ -120,8 +130,8 @@ def _extract_models(response: httpx.Response) -> List[str]:
             if isinstance(item, dict):
                 name = item.get("name") or item.get("model")
                 if name:
-                    names.append(str(name))
-        return names[:50]
+                    names.append(str(name).removeprefix("models/"))
+        return names[:500]
 
     # Gemini: {"models":[{"name":"models/gemini-..."}, ...]}
     if isinstance(data, dict) and "models" in data and isinstance(data["models"], list):
@@ -129,7 +139,7 @@ def _extract_models(response: httpx.Response) -> List[str]:
         for item in data["models"]:
             if isinstance(item, dict) and item.get("name"):
                 names.append(str(item["name"]).removeprefix("models/"))
-        return names[:50]
+        return names[:500]
 
     # Azure AI Model Inference /info: {"model_name": "...", ...}
     if isinstance(data, dict) and data.get("model_name"):
@@ -409,18 +419,99 @@ def _base_catalog(
     ]
 
 
+def model_compatibility(provider: str, model: str) -> str:
+    """Conservative name-based classification, never an inference attestation."""
+    name = model.lower().strip()
+    if any(part in name for part in (
+        "embedding", "embed-", "nomic-embed", "bge-", "e5-", "rerank",
+        "whisper", "transcrib", "tts", "dall-e", "image", "moderation", "realtime", "audio", "sora",
+    )):
+        return "other"
+    if name.startswith(("gpt-", "chatgpt-", "o1", "o3", "o4", "claude-", "gemini-")):
+        return "text_generation"
+    if provider == "ollama" and any(part in name for part in ("llama", "qwen", "mistral", "gemma", "deepseek", "phi", "command-r")):
+        return "text_generation"
+    return "unknown"
+
+
 async def list_providers(
+    *, include_local_serving: bool = True, workspace: Optional["Workspace"] = None,
+    provider_key: str | None = None,
+    node_snapshots: list[dict[str, Any]] | None = None,
+) -> List[Dict[str, Any]]:
+    # A probe result may contain account-specific model IDs. ContextVar keeps
+    # concurrent requests and global/env probes in separate cache namespaces.
+    scope = f"workspace:{workspace.id}" if workspace is not None else "global"
+    token = _cache_workspace.set(scope)
+    try:
+        return await _list_providers(include_local_serving=include_local_serving, workspace=workspace, provider_key=provider_key, node_snapshots=node_snapshots)
+    finally:
+        _cache_workspace.reset(token)
+
+
+def scoped_serving_providers(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Public projection from this request's snapshots, never the global registry."""
+    rows = []
+    for node in nodes:
+        if node.get("status") not in ("active", "configured"):
+            continue
+        for instance in node.get("instances") or []:
+            if not isinstance(instance, dict) or instance.get("status") != "running" or not instance.get("id"):
+                continue
+            model = str(instance.get("model") or "")
+            node_name = str(node.get("name") or "")
+            rows.append({
+                "key": provider_key(node_name, str(instance["id"])),
+                "label": instance.get("name") or model or instance["id"],
+                "kind": "local", "runtime": instance.get("provider") or instance.get("engine"),
+                "node": node_name, "instance_id": instance["id"], "model": model,
+                "models": [model] if model else [], "status": "active",
+                "runtime_available": False, "notes": "Serving instance on " + node_name,
+            })
+    return rows
+
+
+async def list_models(*, workspace: "Workspace") -> List[Dict[str, Any]]:
+    rows = await list_providers(workspace=workspace)
+    return [
+        {
+            "id": f"{provider['key']}:{model}", "name": model, "model": model,
+            "provider": provider["key"], "status": provider["status"],
+            "configured": provider.get("configured", False),
+            "discovered": provider.get("models_source") == "provider_catalog",
+            "runtime_available": provider.get("runtime_available", False),
+            "compatibility": model_compatibility(provider["key"], model),
+            "compatibility_source": "name_heuristic",
+            "credential_source": provider.get("credential_source"),
+            "generation_verified": False,
+        }
+        for provider in rows for model in dict.fromkeys(provider.get("models") or [])
+    ]
+
+
+async def _list_providers(
     *,
     include_local_serving: bool = True,
     workspace: Optional["Workspace"] = None,
+    provider_key: str | None = None,
+    node_snapshots: list[dict[str, Any]] | None = None,
 ) -> List[Dict[str, Any]]:
     """Return live provider statuses + real model lists where available."""
     ws_keys = _workspace_keys(workspace)
+    from app.services.model_plane import workspace_config as ws_cfg
+    stored = {row["key"]: row for row in ws_cfg.get_cloud_credentials_public(workspace)} if workspace is not None else {}
     providers: List[Dict[str, Any]] = []
     for entry in _base_catalog(workspace=workspace, ws_keys=ws_keys):
+        if provider_key is not None and entry["key"] != provider_key:
+            continue
         health_fn = entry["health"]
+        unreadable_key = stored.get(entry["key"], {}).get("api_key_set") and not ws_keys.get(entry["key"])
+        if unreadable_key:
+            entry = {**entry, "configured": True, "api_key_set": True, "credential_source": "workspace"}
         if entry["configured"]:
-            health = await health_fn()
+            health = ({"status": "unreachable", "models": [], "latency_ms": None,
+                       "error": "Workspace credential cannot be read; reconnect this provider."}
+                      if unreadable_key else await health_fn())
             status = health["status"]
             # Credentials present but probe not yet conclusive → configured.
             if status == "available":
@@ -445,11 +536,23 @@ async def list_providers(
                 "error": error,
                 "api_key_set": entry.get("api_key_set"),
                 "credential_source": entry.get("credential_source"),
+                "configured": entry["configured"],
+                "runtime_available": entry["key"] in RUNTIME_PROVIDERS,
+                "models_source": "provider_catalog" if entry["configured"] and health.get("models") and status == "active" else "configured_default",
+                "models_truncated": len(models) >= 500,
+                "generation_verified": False,
             }
         )
 
     if include_local_serving:
-        for local in list_routable_providers():
+        if workspace is not None:
+            if node_snapshots is None:
+                from app.services.model_plane import serving_nodes
+                node_snapshots = (await serving_nodes.list_nodes(workspace=workspace, sync_registry=False))["nodes"]
+            local_rows = scoped_serving_providers(node_snapshots)
+        else:
+            local_rows = list_routable_providers()
+        for local in local_rows:
             providers.append(
                 {
                     "key": local["key"],
@@ -463,6 +566,10 @@ async def list_providers(
                     "runtime": local.get("runtime"),
                     "node": local.get("node"),
                     "openai_base_url": local.get("openai_base_url"),
+                    "configured": True,
+                    "runtime_available": False,
+                    "models_source": "serving_configuration",
+                    "generation_verified": False,
                 }
             )
     return providers

@@ -112,6 +112,8 @@ const pureSpecs = [
 // Store specs: exercised through a REAL Angular Injector (ngrx signalStore +
 // JIT). No `@angular/core` alias; the spec imports `@angular/compiler` itself.
 const storeSpecs = [
+  'src/app/shared/cockpit/nav-link.directive.spec.ts',
+  'src/app/features/resources/resources-page.component.spec.ts',
   'src/app/features/chat/assistant-pilot.service.spec.ts',
   'src/app/features/experience/runtime/renderer-registry.spec.ts',
   'src/app/features/experience/runtime/chart-block.spec.ts',

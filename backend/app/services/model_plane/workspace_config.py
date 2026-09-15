@@ -149,7 +149,7 @@ def get_routing(workspace: "Workspace") -> Dict[str, Any]:
     provider = str(routing.get("default_provider") or settings.default_provider or "openai")
     model = str(routing.get("default_model") or settings.default_model or "gpt-5")
     chain_raw = routing.get("fallback_chain")
-    if isinstance(chain_raw, list) and chain_raw:
+    if isinstance(chain_raw, list):
         chain = [str(x) for x in chain_raw if str(x).strip()]
     else:
         chain = [provider]
@@ -293,7 +293,20 @@ def set_routing(
     model = (default_model or "").strip()
     if not provider or not model:
         raise ValueError("default_provider and default_model are required")
-    chain = [str(x).strip() for x in (fallback_chain or []) if str(x).strip()]
+    from app.services.model_plane.providers import RUNTIME_PROVIDERS, model_compatibility
+
+    if provider not in RUNTIME_PROVIDERS:
+        raise ValueError("This provider is not supported by the workspace text generation runtime")
+    from app.services.model_plane.execution import resolve_model_execution
+    resolved = resolve_model_execution(workspace, provider=provider, model=model)
+    model = resolved.model
+    if model_compatibility(provider, model) == "other":
+        raise ValueError("Choose a text generation model, not an embedding, image or audio model")
+    chain = list(dict.fromkeys(str(x).strip() for x in (fallback_chain or []) if str(x).strip()))
+    if any(item not in RUNTIME_PROVIDERS for item in chain):
+        raise ValueError("The fallback chain contains an unsupported text generation provider")
+    if len(chain) > len(RUNTIME_PROVIDERS):
+        raise ValueError("The fallback chain is too long")
     if provider not in chain:
         chain = [provider, *chain]
     portal = _portal_blob(workspace)

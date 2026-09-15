@@ -226,16 +226,15 @@ async def test_a_missing_placeholder_fails_rather_than_sending_a_hole(recorded):
 
 
 @pytest.mark.asyncio
-async def test_the_model_stays_a_run_value_so_the_membrane_still_governs_it(recorded):
-    """``allowed_models`` is evaluated from the node input before any binding
-    happens, so a model frozen in the executor would never reach that gate."""
+async def test_an_input_model_overrides_the_executor_pin(recorded):
+    """The engine resolves both values before checking the effective model."""
 
-    assert "model" not in VERIFIED_EXECUTORS["prompt_template"].params_schema["properties"]
+    assert "model" in VERIFIED_EXECUTORS["prompt_template"].params_schema["properties"]
 
     call = bind_executor(
         {
             "kind": "prompt_template",
-            "params": {"provider": "ollama", "template": "Hi {name}."},
+            "params": {"provider": "ollama", "model": "qwen3:8b", "template": "Hi {name}."},
         }
     )
     await call({"name": "Sam", "model": "mistral:7b"}, {})

@@ -156,6 +156,309 @@ function assertOrdered(events: readonly string[], expected: readonly string[]): 
 
 test.use({ serviceWorkers: 'block', video: 'off' });
 
+for (const editable of [true, false]) {
+  test(`Skill execution settings — ${editable ? 'edit and reload preserve provider and prompt' : 'read-only catalog hides editing'}`, async ({ page }, testInfo) => {
+    test.skip(
+      !localOnly(testInfo),
+      'This mocked authoring contract is local-only; set E2E_BASE_URL=http://localhost:4200.',
+    );
+
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    const slug = `ws.${WORKSPACE_ID}.summary_contract`;
+    const initialPrompt = 'Summarise {document_text}. Cite the supplied excerpt IDs.';
+    const editedPrompt = 'Summarise {document_text}. Cite excerpt IDs and report missing facts.';
+    let executor = {
+      kind: 'prompt_template',
+      params: { provider: 'azure', template: initialPrompt },
+    };
+    let skillReads = 0;
+    let catalogReads = 0;
+    const patches: JsonRecord[] = [];
+    const unexpectedRequests: string[] = [];
+    const inputSchema = {
+      type: 'object',
+      properties: { document_text: { type: 'string' } },
+      required: ['document_text'],
+      additionalProperties: false,
+    };
+    const outputSchema = {
+      type: 'object',
+      properties: { completion: { type: 'string' } },
+      required: ['completion'],
+    };
+    const publishedPrompt = 'Summarise {document_text}. Preserve the original wording.';
+    const skillFlow = {
+      source: 'flow', schema_version: 3, io_mode: 'strict',
+      nodes: [
+        {
+          id: 'source.excerpts', type: 'source', kind: 'source', label: 'Transaction excerpts',
+          position: { x: 80, y: 180 }, inputs: [],
+          outputs: [{ name: 'document_text', schema: 'string' }],
+          config: { ingress: { kind: 'manual' }, input_schema: inputSchema },
+        },
+        {
+          id: 'summary', type: 'skill', kind: 'task', label: 'Document summary contract',
+          position: { x: 380, y: 180 }, runtime_ref: `skill:${slug}`,
+          inputs: [{ name: 'document_text', schema: 'string' }],
+          outputs: [{ name: 'completion', schema: 'string' }],
+          config: {
+            skill_id: 'skill-summary-contract', skill_slug: slug,
+            inputs_map: { document_text: { node_id: 'source.excerpts', path: ['document_text'] } },
+          },
+        },
+        {
+          id: 'output.summary', type: 'sink', kind: 'sink', label: 'Factual summary',
+          position: { x: 680, y: 180 }, inputs: [{ name: 'completion', schema: 'string' }], outputs: [],
+          config: { inputs_map: { completion: { node_id: 'summary', path: ['completion'] } }, output_schema: outputSchema },
+        },
+      ],
+      edges: [
+        { from: 'source.excerpts', to: 'summary', kind: 'data', from_port: 'document_text', to_port: 'document_text' },
+        { from: 'summary', to: 'output.summary', kind: 'data', from_port: 'completion', to_port: 'completion' },
+      ],
+    };
+    const system = {
+      id: SYSTEM_ID, workspace_id: WORKSPACE_ID, name: 'Summary execution contract', status: 'active',
+      objective: 'Inspect current and published summary settings.',
+      skill_ids: ['skill-summary-contract'], flow_definition: skillFlow, flow_sha256: INITIAL_HASH,
+    };
+    const skill = () => ({
+      id: 'skill-summary-contract',
+      slug,
+      version: '1',
+      name: 'Document summary contract',
+      description: 'Summarise synthetic excerpts for a human reviewer.',
+      type: 'llm',
+      category: 'LLM',
+      input_schema: inputSchema,
+      output_schema: outputSchema,
+      execution: { mode: 'sync', timeout_ms: 30000 },
+      pricing: {},
+      metrics: {},
+      certification_level: 'basic',
+      is_seeded: false,
+      workspace_scope: 'workspace',
+      runtime_status: 'bound',
+      // Workspace authoring stores the provider inside the executor; the
+      // top-level catalog field is deliberately null, as on the real API.
+      provider: null,
+      executor: clone(executor),
+    });
+
+    await page.route('**/*', async (route) => {
+      const host = new URL(route.request().url()).hostname;
+      if (host === 'localhost' || host === '127.0.0.1') return route.fallback();
+      return route.abort('blockedbyclient');
+    });
+    await page.route('**/api/v1/**', async (route) => {
+      const request = route.request();
+      const path = decodeURIComponent(new URL(request.url()).pathname.replace(/^\/api\/v1/, ''));
+      const method = request.method();
+      if (path === '/auth/validate' && method === 'POST') {
+        return json(route, { valid: true, user_id: 'user-flow-contract', email: 'flow.contract@example.test', role: 'admin' });
+      }
+      if (path === '/auth/workspaces' && method === 'GET') return json(route, [workspace]);
+      if (path === '/auth/me' && method === 'GET') {
+        return json(route, {
+          id: 'user-flow-contract', username: 'flow.contract', email: 'flow.contract@example.test',
+          role: 'admin', is_active: true, mfa_enabled: false, workspaces: [workspace],
+        });
+      }
+      if (path === '/help-content' && method === 'GET') {
+        return json(route, { version: 'local', personas: [], languages: [], items: [] });
+      }
+      if (path === '/audit' && method === 'POST') return json(route, { id: 'audit-local-only' }, 201);
+      if (path === '/telemetry/live' && method === 'GET') {
+        return json(route, { throughput_rpm: null, latency_ms: null, yield_pct: null, runs_count: 0 });
+      }
+      if (path === '/models' && method === 'GET') {
+        return json(route, { models: ['openai', 'ollama'].map((provider) => ({
+          id: `${provider}:test-model`, model: 'test-model', name: 'test-model', provider,
+          configured: true, discovered: true, runtime_available: true, compatibility: 'text_generation', status: 'active',
+        })) });
+      }
+      if (path === '/models/resolve' && method === 'GET') {
+        const provider = new URL(request.url()).searchParams.get('provider');
+        return json(route, {
+          provider: provider === 'azure' ? 'openai' : provider, model: provider === 'azure' ? 'gpt-4o-mini' : 'test-model',
+          credential_source: 'env', model_source: provider === 'azure' ? 'legacy_default' : 'global', fallback: false,
+          ...(provider === 'azure' ? { legacy_provider: 'azure' } : {}),
+        });
+      }
+      if (path === '/skills/executors' && method === 'GET') {
+        catalogReads += 1;
+        return json(route, {
+          editable,
+          categories: ['LLM'],
+          executors: [{
+            kind: 'prompt_template',
+            summary: 'Send a fixed prompt template to a verified model provider.',
+            params_schema: {
+              type: 'object', additionalProperties: false, required: ['provider', 'template'],
+              properties: {
+                provider: { enum: ['azure', 'openai', 'azure_openai', 'ollama', 'workspace'] },
+                model: { type: 'string', maxLength: 256 },
+                template: { type: 'string', minLength: 1, maxLength: 8000 },
+              },
+            },
+          }],
+        });
+      }
+      if (path === '/skills' && method === 'GET') return json(route, { skills: [skill()] });
+      if (path === `/skills/${slug}` && method === 'GET') {
+        skillReads += 1;
+        return json(route, skill());
+      }
+      if (path === `/skills/${slug}` && method === 'PATCH') {
+        if (!editable) return json(route, { detail: { code: 'WORKSPACE_PERMISSION_DENIED' } }, 403);
+        expect(request.headers()['authorization']).toBe(TOKEN);
+        expect(request.headers()['x-workspace-slug']).toBe(WORKSPACE_SLUG);
+        const body = requestBody(request);
+        patches.push(clone(body));
+        expect(body['executor']).toEqual({ kind: 'prompt_template', params: { provider: 'ollama', template: editedPrompt } });
+        expect(body['input_schema']).toEqual(inputSchema);
+        expect(body['output_schema']).toEqual(outputSchema);
+        executor = clone(body['executor'] as typeof executor);
+        return json(route, { ...skill(), published_bindings: [] });
+      }
+      if (path === `/systems/${SYSTEM_ID}` && method === 'GET') return json(route, system);
+      if (path === `/systems/${SYSTEM_ID}/flow-state` && method === 'GET') {
+        return json(route, {
+          system_id: SYSTEM_ID, status: 'active',
+          draft: {
+            revision: 3, flow_sha256: INITIAL_HASH, flow_definition: skillFlow,
+            base_published_version_id: PUBLISHED_VERSION_ID,
+          },
+          published: {
+            version_id: PUBLISHED_VERSION_ID, version_number: 2, flow_sha256: INITIAL_HASH,
+            flow_definition: skillFlow, execution_contract_ready: true,
+            execution_contract: {
+              schema_version: 1, contract_sha256: '3'.repeat(64), runtime_mode: 'dag_strict',
+              nodes: {
+                summary: {
+                  skill_id: 'skill-summary-contract', skill_slug: slug, skill_version: '1',
+                  input_schema: inputSchema, output_schema: outputSchema,
+                  executor: { kind: 'prompt_template', params: { provider: 'azure', template: publishedPrompt } },
+                },
+              },
+            },
+          },
+        });
+      }
+      if (path === `/systems/${SYSTEM_ID}/flow-manifest` && method === 'GET') {
+        return json(route, {
+          system_id: SYSTEM_ID, system_name: system.name, flow_sha256: INITIAL_HASH,
+          schema_version: 3, source: 'flow_definition', runtime_mode: 'dag_strict', operational_sync: true,
+          unit_catalog: [],
+          summary: { nodes: 3, edges: 2, operational_units: 1, runtime_refs: 1, skill_units: 1, editable_parameters: 0 },
+        });
+      }
+      if (path === `/systems/${SYSTEM_ID}/validate-flow` && method === 'POST') {
+        return json(route, {
+          flow_sha256: INITIAL_HASH, analyzer_version: 'local-playwright-contract-v1',
+          runtime_mode: 'dag_strict', valid: true, issues: [],
+        });
+      }
+      if (method === 'GET' && ['/capabilities', '/systems', '/runs'].includes(path)) {
+        return json(route, { [path.slice(1)]: [] });
+      }
+      unexpectedRequests.push(`${method} ${path}`);
+      return json(route, { detail: `Unhandled local mock endpoint: ${method} ${path}` }, 501);
+    });
+    await page.addInitScript(({ token, workspaceSlug }) => {
+      localStorage.setItem('agentium_token', token);
+      localStorage.setItem('agentium_workspace_slug', workspaceSlug);
+      localStorage.setItem('agentium_locale', 'en');
+    }, { token: TOKEN, workspaceSlug: WORKSPACE_SLUG });
+
+    await page.goto(`/skills/${slug}`);
+    await expect(page.getByRole('heading', { name: 'Document summary contract', exact: true })).toBeVisible();
+    const settings = page.locator('app-skill-execution').first();
+    await expect(settings).toContainText('Model provider');
+    await expect(settings).toContainText('azure');
+    await expect(settings).toContainText('Public OpenAI');
+    await expect(settings.getByRole('link', { name: /View connections and test/ })).toHaveAttribute('target', '_blank');
+    await expect(settings).toContainText('Prompt');
+    await expect(settings).toContainText(initialPrompt);
+    await expect.poll(() => catalogReads).toBeGreaterThan(0);
+    const edit = page.getByRole('button', { name: 'Edit execution', exact: true });
+    if (!editable) {
+      await expect(edit).toHaveCount(0);
+      await page.goto(`/skills?create=llm&provider=openai&model=test-model&modelWorkspace=${WORKSPACE_ID}`);
+      await expect(page.getByRole('heading', { name: 'Skill registry', exact: true })).toBeVisible();
+      await expect(page.getByRole('dialog', { name: 'New skill', exact: true })).toHaveCount(0);
+      expect(patches).toHaveLength(0);
+      expect(unexpectedRequests).toEqual([]);
+      return;
+    }
+
+    await expect(edit).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('skill-execution-detail.png'), fullPage: true });
+    await edit.click();
+    const dialog = page.getByRole('dialog', { name: 'Edit skill', exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('tab', { name: /Execution/ })).toHaveAttribute('aria-selected', 'true');
+    const provider = dialog.getByRole('combobox', { name: 'Model provider', exact: true });
+    const prompt = dialog.getByRole('textbox', { name: /^Prompt/ });
+    await expect(provider).toHaveValue('azure');
+    await expect(prompt).toHaveValue(initialPrompt);
+    await page.screenshot({ path: testInfo.outputPath('skill-execution-editor.png'), fullPage: true });
+    await provider.selectOption('ollama');
+    await prompt.fill(editedPrompt);
+    await dialog.getByRole('tab', { name: /Review/ }).click();
+    await dialog.getByRole('tab', { name: /Execution/ }).click();
+    await expect(provider).toHaveValue('ollama');
+    await expect(prompt).toHaveValue(editedPrompt);
+    await dialog.getByRole('tab', { name: /Review/ }).click();
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    expect(patches).toHaveLength(1);
+    await expect(settings).toContainText('ollama');
+    await expect(settings).toContainText(editedPrompt);
+
+    const readsBeforeReload = skillReads;
+    await page.reload();
+    await expect.poll(() => skillReads).toBeGreaterThan(readsBeforeReload);
+    await expect(settings).toContainText('ollama');
+    await expect(settings).toContainText(editedPrompt);
+    await edit.click();
+    await expect(provider).toHaveValue('ollama');
+    await expect(prompt).toHaveValue(editedPrompt);
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    await page.goto(`/systems/${SYSTEM_ID}/flow`);
+    await expect(page.getByRole('heading', { name: system.name })).toBeVisible();
+    await page.locator('app-flow-node').filter({ hasText: 'Document summary contract' }).click();
+    const inspector = page.locator('app-flow-inspector');
+    const current = inspector.locator('section').filter({ hasText: 'Current Skill definition' });
+    await expect(current.locator('app-skill-execution')).toContainText('ollama');
+    await expect(current.locator('app-skill-execution')).toContainText(editedPrompt);
+    await expect(current).not.toContainText(publishedPrompt);
+    await page.screenshot({ path: testInfo.outputPath('skill-flow-current.png'), fullPage: true });
+    const published = inspector.locator('details').filter({ hasText: 'Published version configuration' });
+    await expect(published.locator('app-skill-execution')).toBeHidden();
+    await published.locator('summary').click();
+    await expect(published.locator('app-skill-execution')).toContainText('azure');
+    await expect(published.locator('app-skill-execution')).toContainText(publishedPrompt);
+    await expect(published).not.toContainText(editedPrompt);
+    const definitionLink = current.getByRole('link', { name: 'Open current definition', exact: true });
+    const destination = new URL(await definitionLink.getAttribute('href') ?? '', page.url());
+    expect(decodeURIComponent(destination.pathname)).toBe(`/skills/${slug}`);
+    expect(destination.searchParams.get('facet')).toBe('overview');
+    await page.screenshot({ path: testInfo.outputPath('skill-flow-execution.png'), fullPage: true });
+    await page.goto(`/skills?create=llm&provider=openai&model=test-model&modelWorkspace=${WORKSPACE_ID}`);
+    const modelDraft = page.getByRole('dialog', { name: 'New skill', exact: true });
+    await expect(modelDraft).toBeVisible();
+    await modelDraft.getByRole('tab', { name: /Execution/ }).click();
+    await expect(modelDraft.getByRole('combobox', { name: 'Model provider', exact: true })).toHaveValue('openai');
+    await expect(modelDraft.getByRole('combobox', { name: /^Model ·/ })).toHaveValue('test-model');
+    await expect(modelDraft.getByRole('textbox', { name: /^Prompt/ })).toHaveValue('{question}');
+    await modelDraft.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect(patches).toHaveLength(1);
+    expect(unexpectedRequests).toEqual([]);
+  });
+}
+
 test('clone → edit → validate → save → input → execute → result → restore draft', async ({ page }, testInfo) => {
   test.skip(
     !localOnly(testInfo),
