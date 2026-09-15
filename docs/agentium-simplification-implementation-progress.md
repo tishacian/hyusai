@@ -4,7 +4,22 @@ Plan source: `docs/agentium-simplification-audit-2026-09-11.md`
 
 This ledger records the product-wide implementation queue. Each slice is reviewed, tested, and committed independently. The existing user-owned `frontend-ng/proxy.conf.json` change is excluded from every slice.
 
-**Overall simplification status: complete for the planned P0–P2 scope.** All 15 P0–P2 work items are implemented and their release gates pass. P3 remains intentionally deferred: strategic, marketplace, certification, outcome-economics, and broad catalog surfaces stay hidden until they have real data, complete action loops, tests, and user evidence.
+**Overall simplification status: reopened after the 2026-09-15 live-product audit.** The original 15 P0–P2 items remain delivered, but the live audit found a second class of truth and coherence defects that the earlier route-level release gates did not cover. Most importantly, a System could show workspace-wide request metrics as its own, label itself Ready from status alone, and default a field-service Q&A objective to the runnable but semantically wrong Answer Quality Audit capability. The product is not complete until the queue below is closed with real-browser evidence.
+
+## 2026-09-15 corrective implementation queue
+
+| Priority | Slice | Status | Evidence / remaining work |
+| --- | --- | --- | --- |
+| P0 | Canonical System Overview | Implemented, verification in progress | New `/systems/{id}/overview` read model scopes readiness, publication, Runs, latency, and quality to one System; missing evidence stays `not_measured`; frontend removes false Yield and status-only Ready claims. Backend contracts 11/11, focused frontend contracts 11/11, production Angular build pass. |
+| P0 | Correct simple-Builder semantics | Implemented, verification in progress | Simple Build selects only the bound `intelligent_qa` contract, never the first runnable catalog row; switching to Flow persists `draft`; commercial tier labels and enterprise-tier copy removed. Existing Systems are not silently rewritten. |
+| P0 | Prove create → publish → run → inspect | In progress | Recreate or explicitly rebind the pump demo System, run the real Operator Runner, verify Overview/Runs/Invocations/Payloads against the published version, and capture browser evidence. |
+| P0 | Runtime failure recovery | Planned | Replace generic FAILED/unsupported outcomes with a task-level explanation, preserve input, and route the operator to the exact Builder/model/knowledge fix. |
+| P1 | Remove dead default surfaces | Planned | Delete the legacy Overview dashboard code after one compatibility window; eliminate remaining global metric calls and canary-only System 360 chrome from the default product profile. |
+| P1 | Core navigation and route inventory | Planned | Hide duplicate, demo, and incomplete routes from default navigation; keep only Ask, Knowledge, Build, Runs, Settings, and contextual advanced links. |
+| P1 | Catalog and seed reduction | Planned | Keep commercial fields out of normal APIs/UI and move demo/client-specific Capabilities and Systems to opt-in fixture packs. |
+| P2 | Responsive, accessibility, and EN/FR proof | Planned | Re-run the authenticated desktop/mobile/light/dark matrix for the corrected System flow, including keyboard and screen-reader names. |
+
+Claude delegation note: two Opus-medium dispatches were attempted through the installed `claude-delegate` relay. The local authenticated Team session currently resolves `opus` to `claude-opus-5`, which the provider rejects before the first token with a model-not-found/access error. No Claude-authored code is claimed in this corrective queue; Codex continued the P0 slice rather than substituting another model silently.
 
 | Order | Slice | Owner | Status | Evidence |
 | --- | --- | --- | --- | --- |

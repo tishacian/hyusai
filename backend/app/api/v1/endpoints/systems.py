@@ -75,6 +75,7 @@ from app.services.system_catalog_bindings import (
     resolve_persisted_system_catalog_bindings,
     resolve_system_catalog_bindings,
 )
+from app.services.system_overview import build_system_overview
 from app.services.system_perspective import build_system_perspective
 from app.services.systems import dispatch_readiness, flow_ingress, flow_publication
 from app.services.systems.flow_manifest import serialize_flow_manifest
@@ -1199,6 +1200,38 @@ async def get_system_perspective(
         user=user,
         system=system,
         lens=lens,
+        window=window,
+    )
+
+
+@router.get("/{system_id}/overview")
+async def get_system_overview(
+    system_id: str,
+    window: Literal["7d", "30d", "90d"] = "30d",
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Return the default, System-scoped operational summary.
+
+    This endpoint is intentionally ungated by the legacy System 360 canary.
+    It is the canonical default view and never mixes workspace/process metrics
+    into one System's state.
+    """
+
+    system = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .first()
+    )
+    if system is None:
+        raise HTTPException(404, "System not found")
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    return build_system_overview(
+        db,
+        workspace=workspace,
+        user=user,
+        system=system,
         window=window,
     )
 

@@ -47,7 +47,7 @@ import {
   readAppToggles,
   writeAppToggles,
 } from '../resources/resources.catalog';
-import { firstRunnableCapability } from './system-builder-progressive';
+import { defaultGroundedQaCapability } from './system-builder-progressive';
 
 type CanvasSectionKey =
   | 'objective'
@@ -123,12 +123,6 @@ function normalizeModels(raw: Array<Record<string, unknown>>): ModelOpt[] {
   }
   return out;
 }
-
-const TIER_TONE: Record<string, 'pos' | 'cool' | 'neutral' | 'warn'> = {
-  universal: 'pos',
-  industry: 'neutral',
-  client: 'cool',
-};
 
 @Component({
   selector: 'app-system-builder',
@@ -365,12 +359,11 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'neutral' | 'warn'> = {
                   >
                     <div class="flex items-start justify-between gap-3 mb-2">
                       <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2 mb-1">
-                          <ck-tag [tone]="tierTone(cap.tier)" variant="soft">{{ cap.tier || 'UNIV' }}</ck-tag>
-                          @if (cap.industry) {
+                        @if (cap.industry) {
+                          <div class="flex items-center gap-2 mb-1">
                             <ck-tag tone="neutral" variant="outline">{{ cap.industry }}</ck-tag>
-                          }
-                        </div>
+                          </div>
+                        }
                         <div class="text-sm font-medium text-white truncate">{{ cap.name }}</div>
                       </div>
                       @if (selectedCapabilityId() === cap.id) {
@@ -772,7 +765,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'neutral' | 'warn'> = {
                 <div class="flex-1">
                   <div class="text-sm text-white font-medium">Audit every run</div>
                   <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
-                    Emit a typed audit event per run (required for enterprise tier).
+                    Keep a typed execution trail for review and incident recovery.
                   </div>
                 </div>
               </label>
@@ -804,7 +797,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'neutral' | 'warn'> = {
                 <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:6px;">CAPABILITY</div>
                 <div class="text-sm font-medium text-white">{{ selectedCapability()?.name || '—' }}</div>
                 <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-3); margin-top:4px;">
-                  {{ selectedCapability()?.tier || '—' }} · {{ bundledSkills().length }} skills bundled
+                  {{ bundledSkills().length }} skills bundled
                 </div>
               </div>
               <div class="ck-surface rounded" style="padding:14px 16px;">
@@ -1129,7 +1122,7 @@ export class SystemBuilderComponent implements OnInit {
         const requested = requestedCapabilityId
           ? caps.find((capability) => capability.id === requestedCapabilityId)
           : undefined;
-        const defaultCapability = requested || firstRunnableCapability(caps, skills);
+        const defaultCapability = requested || defaultGroundedQaCapability(caps, skills);
         if (defaultCapability) {
           this.selectCapability(defaultCapability, !!requested);
         } else {
@@ -1369,6 +1362,9 @@ export class SystemBuilderComponent implements OnInit {
     };
     const body: Partial<System> = this.systemBodyFromDraft({
       flow_definition: merged as unknown as Record<string, unknown>,
+      // Opening Flow Builder persists work-in-progress. It must not turn the
+      // System live or imply that the graph has passed publication gates.
+      status: 'draft',
     });
     const sid = this.editingSystemId();
     const op$ = sid
@@ -1548,7 +1544,7 @@ export class SystemBuilderComponent implements OnInit {
       },
       {
         label: 'Capability',
-        value: cap?.tier ? cap.tier.toUpperCase() : '—',
+        value: cap ? 'SELECTED' : '—',
         tone: cap ? 'cool' : 'neutral',
         hint: cap?.name ?? 'Pick the capability this system will produce.',
       },
@@ -1661,7 +1657,4 @@ export class SystemBuilderComponent implements OnInit {
     });
   }
 
-  tierTone(tier: string | undefined): 'pos' | 'cool' | 'neutral' | 'warn' {
-    return TIER_TONE[tier || 'universal'] ?? 'pos';
-  }
 }

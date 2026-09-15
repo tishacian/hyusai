@@ -78,7 +78,7 @@ test('selecting a capability refreshes its summary and bundled skills', () => {
     'skill-retrieve',
     'skill-answer',
   ]);
-  assert.equal(builder.headerKpis()[1]?.value, 'UNIVERSAL');
+  assert.equal(builder.headerKpis()[1]?.value, 'SELECTED');
   assert.equal(builder.headerKpis()[2]?.value, '2');
 });
 
