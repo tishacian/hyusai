@@ -32,6 +32,36 @@ class FakeDocumentService:
         ][:top_k]
 
 
+def test_collection_fusion_dedupes_before_applying_pool_limit():
+    shared = "The incident brief repeats the operational question."
+    inventory = "SEAL-KIT-3309 is in stock at HUB-LYS."
+    chunks, _scores, _metadatas = rag_context._fuse_collection_results(
+        [
+            {
+                "collection": "documents",
+                "chunks": [shared, inventory],
+                "scores": [0.9, 0.7],
+                "metadatas": [
+                    {"document_id": "documents-incident"},
+                    {"document_id": "documents-inventory"},
+                ],
+            },
+            {
+                "collection": "test",
+                "chunks": [shared, inventory],
+                "scores": [0.8, 0.6],
+                "metadatas": [
+                    {"document_id": "test-incident"},
+                    {"document_id": "test-inventory"},
+                ],
+            },
+        ],
+        limit=2,
+    )
+
+    assert chunks == [shared, inventory]
+
+
 class RecordingDenseService:
     def __init__(self, count: int = 150):
         self.count = count
@@ -161,7 +191,10 @@ class FakeSpreadsheetProtocolFirstService:
                     "Row 4: A4=trials N° | J4=3B | K4=3C Row 100: A100=I51 | B100=Strip"
                 ),
                 "score": 0.98,
-                "metadata": {"document_id": "protocol", "document_filename": "GEOTEX-SPL-Y25.05.22-PIL.xlsx"},
+                "metadata": {
+                    "document_id": "protocol",
+                    "document_filename": "GEOTEX-SPL-Y25.05.22-PIL.xlsx",
+                },
             },
             {
                 "content": (
@@ -439,7 +472,11 @@ async def test_retrieve_rag_context_skips_similarity_threshold_for_rrf(monkeypat
 async def test_oracle_fast_standard_scope_prefers_native_qdrant_hybrid(monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_qdrant_sparse_enabled", True)
     monkeypatch.setattr(rag_context.settings, "rag_sparse_backend", "auto")
-    monkeypatch.setattr(rag_context, "plan_corpus", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("planner skipped")))
+    monkeypatch.setattr(
+        rag_context,
+        "plan_corpus",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("planner skipped")),
+    )
     captured = {}
 
     async def _fake_retrieve(doc_svc, query, mode, **kwargs):  # noqa: ARG001
@@ -447,7 +484,13 @@ async def test_oracle_fast_standard_scope_prefers_native_qdrant_hybrid(monkeypat
         return SimpleNamespace(
             chunks=["hybrid qdrant chunk"],
             scores=[0.031],
-            metadatas=[{"document_filename": "manual.md", "sparse_backend": "qdrant_sparse", "sparse_status": "ok"}],
+            metadatas=[
+                {
+                    "document_filename": "manual.md",
+                    "sparse_backend": "qdrant_sparse",
+                    "sparse_status": "ok",
+                }
+            ],
             pipeline="hybrid",
             label="hybrid_rrf",
             reason="native qdrant hybrid",
@@ -651,8 +694,12 @@ def test_source_lookup_questions_are_not_inventory_queries():
     )
 
 
-async def test_retrieve_rag_context_catalogue_applies_internal_scope_filters(db_session, monkeypatch):
-    workspace = Workspace(id="ws-data-catalogue-scope", name="Scoped Catalogue", slug="scoped-catalogue")
+async def test_retrieve_rag_context_catalogue_applies_internal_scope_filters(
+    db_session, monkeypatch
+):
+    workspace = Workspace(
+        id="ws-data-catalogue-scope", name="Scoped Catalogue", slug="scoped-catalogue"
+    )
     db_session.add(workspace)
     db_session.commit()
     collection = create_collection(db_session, workspace=workspace, name="Scoped SPL")
@@ -721,12 +768,20 @@ def test_corpus_planner_uses_normalized_source_kind_aliases(db_session):
 
     html_plan = plan_corpus(
         db=db_session,
-        profile={"collection": collection.slug, "collections": [collection.slug], "workspace_id": workspace.id},
+        profile={
+            "collection": collection.slug,
+            "collections": [collection.slug],
+            "workspace_id": workspace.id,
+        },
         query="Cherche dans les fichiers html",
     )
     excel_plan = plan_corpus(
         db=db_session,
-        profile={"collection": collection.slug, "collections": [collection.slug], "workspace_id": workspace.id},
+        profile={
+            "collection": collection.slug,
+            "collections": [collection.slug],
+            "workspace_id": workspace.id,
+        },
         query="Cherche dans les fichiers excel",
     )
 
@@ -736,7 +791,9 @@ def test_corpus_planner_uses_normalized_source_kind_aliases(db_session):
 
 
 def test_corpus_planner_accepts_system_scope_filter_fields(db_session):
-    workspace = Workspace(id="ws-planner-system-filters", name="Planner Filters", slug="planner-filters")
+    workspace = Workspace(
+        id="ws-planner-system-filters", name="Planner Filters", slug="planner-filters"
+    )
     db_session.add(workspace)
     db_session.commit()
     collection = create_collection(db_session, workspace=workspace, name="Planner Filters SPL")
@@ -751,7 +808,11 @@ def test_corpus_planner_accepts_system_scope_filter_fields(db_session):
 
     plan = plan_corpus(
         db=db_session,
-        profile={"collection": collection.slug, "collections": [collection.slug], "workspace_id": workspace.id},
+        profile={
+            "collection": collection.slug,
+            "collections": [collection.slug],
+            "workspace_id": workspace.id,
+        },
         query="Explique la procédure",
         request={
             "retrieval_filters": {
@@ -775,8 +836,18 @@ def test_catalogue_query_accepts_docs_abbreviation():
     assert is_catalogue_query("combien de docs as tu ?")
     assert is_catalogue_query("quels types de docs as-tu ?")
     assert not is_catalogue_query("quelle source contient Filtering cartridge LM 300 ?")
-    assert classify_intent("Dans les fichiers NON-WOVENS France, que vaut le label B dans la table Def strips ?") == "content_search"
-    assert classify_intent("Dans le projet AKK200, quelle source contient Filtering cartridge LM 300 ?") == "source_lookup"
+    assert (
+        classify_intent(
+            "Dans les fichiers NON-WOVENS France, que vaut le label B dans la table Def strips ?"
+        )
+        == "content_search"
+    )
+    assert (
+        classify_intent(
+            "Dans le projet AKK200, quelle source contient Filtering cartridge LM 300 ?"
+        )
+        == "source_lookup"
+    )
 
 
 def test_content_quantity_with_a_citation_request_is_not_catalogue():
@@ -819,11 +890,15 @@ def test_explicit_project_catalogue_requests_remain_catalogue():
 
 
 def test_table_value_lookup_scopes_to_spreadsheets_without_payload_kind_filter(db_session):
-    workspace = Workspace(id="ws-planner-table-spreadsheet", name="Planner Tables", slug="planner-tables")
+    workspace = Workspace(
+        id="ws-planner-table-spreadsheet", name="Planner Tables", slug="planner-tables"
+    )
     db_session.add(workspace)
     db_session.commit()
     manuals_collection = create_collection(db_session, workspace=workspace, name="Manuals")
-    spreadsheet_collection = create_collection(db_session, workspace=workspace, name="NON-WOVENS France Excel")
+    spreadsheet_collection = create_collection(
+        db_session, workspace=workspace, name="NON-WOVENS France Excel"
+    )
     upsert_collection_source(
         db_session,
         collection=manuals_collection,
@@ -859,7 +934,9 @@ def test_table_value_lookup_scopes_to_spreadsheets_without_payload_kind_filter(d
 def test_ledger_source_scope_drops_legacy_payload_status_filter(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
-    workspace = Workspace(id="ws-planner-ledger-status", name="Planner Ledger Status", slug="planner-ledger-status")
+    workspace = Workspace(
+        id="ws-planner-ledger-status", name="Planner Ledger Status", slug="planner-ledger-status"
+    )
     db_session.add(workspace)
     db_session.commit()
     collection = create_collection(db_session, workspace=workspace, name="Dense SPL")
@@ -892,13 +969,20 @@ def test_ledger_source_scope_drops_legacy_payload_status_filter(db_session, monk
     assert plan.dense_policy == "fast_scoped_dense"
     assert "status" not in plan.filters
     assert "document_filename" in plan.filters
-    assert "ARA200__fichiers__users manual__section 3__conveyor.html" in plan.filters["document_filename"]
+    assert (
+        "ARA200__fichiers__users manual__section 3__conveyor.html"
+        in plan.filters["document_filename"]
+    )
 
 
-def test_scoped_dense_naive_uses_single_pass_hybrid_unless_dense_only_requested(db_session, monkeypatch):
+def test_scoped_dense_naive_uses_single_pass_hybrid_unless_dense_only_requested(
+    db_session, monkeypatch
+):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
-    workspace = Workspace(id="ws-planner-oracle-hybrid", name="Planner Oracle Hybrid", slug="planner-oracle-hybrid")
+    workspace = Workspace(
+        id="ws-planner-oracle-hybrid", name="Planner Oracle Hybrid", slug="planner-oracle-hybrid"
+    )
     db_session.add(workspace)
     db_session.commit()
     collection = create_collection(db_session, workspace=workspace, name="Dense SPL")
@@ -944,18 +1028,28 @@ def test_scoped_dense_naive_uses_single_pass_hybrid_unless_dense_only_requested(
 def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
-    workspace = Workspace(id="ws-planner-golden-spl", name="Planner Golden SPL", slug="planner-golden")
+    workspace = Workspace(
+        id="ws-planner-golden-spl", name="Planner Golden SPL", slug="planner-golden"
+    )
     db_session.add(workspace)
     db_session.commit()
     spl_collection = create_collection(db_session, workspace=workspace, name="Dense SPL")
     bba_collection = create_collection(db_session, workspace=workspace, name="Manuals BBA120")
-    injector_collection = create_collection(db_session, workspace=workspace, name="Injectors DCI110 ACO")
+    injector_collection = create_collection(
+        db_session, workspace=workspace, name="Injectors DCI110 ACO"
+    )
     for collection, filename in (
         (spl_collection, "spare part list ACO150.pdf"),
         (spl_collection, "ACO150__fichiers__menu__index.html"),
         (spl_collection, "ACO150__fichiers__pictures__fond.jpg"),
-        (spl_collection, "AKK200__English version__files__section_IV__Hydroentanglement-unit__sub-section_6__Spare Parts List AKK200_Ind A.pdf"),
-        (spl_collection, "AKK200__English version__files__section_IV__Hydroentanglement-unit__sub-section_4__Filtration_maintenance.html"),
+        (
+            spl_collection,
+            "AKK200__English version__files__section_IV__Hydroentanglement-unit__sub-section_6__Spare Parts List AKK200_Ind A.pdf",
+        ),
+        (
+            spl_collection,
+            "AKK200__English version__files__section_IV__Hydroentanglement-unit__sub-section_4__Filtration_maintenance.html",
+        ),
         (bba_collection, "Spare Parts List_BBA120.pdf"),
         (bba_collection, "Etachrom B.PDF"),
         (injector_collection, "IN 07 A- EXH injector cartridge cleaning.pdf"),
@@ -1020,7 +1114,9 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
     assert "ACO150__fichiers__pictures__fond.jpg" not in aco_plan.filters["document_filename"]
     assert "Spare Parts List_BBA120.pdf" in bba_plan.filters["document_filename"]
     assert "Etachrom B.PDF" in etachrom_plan.filters["document_filename"]
-    assert "IN 07 A- EXH injector cartridge cleaning.pdf" in injector_plan.filters["document_filename"]
+    assert (
+        "IN 07 A- EXH injector cartridge cleaning.pdf" in injector_plan.filters["document_filename"]
+    )
     assert "DCI 110__PERFO-TE-OM-10-5 EN-C.pdf" in dci_plan.filters["document_filename"]
     assert (
         "AKK200__English version__files__section_IV__Hydroentanglement-unit__sub-section_6__Spare Parts List AKK200_Ind A.pdf"
@@ -1047,7 +1143,9 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
     assert "spare part list ACO150.pdf" in narrow_plan.filters["document_filename"]
     assert "ACO150__fichiers__menu__index.html" not in narrow_plan.filters["document_filename"]
 
-    legacy_collection = create_collection(db_session, workspace=workspace, name="Legacy Document Names")
+    legacy_collection = create_collection(
+        db_session, workspace=workspace, name="Legacy Document Names"
+    )
     legacy_collection.document_names = ["Legacy Spare Parts List ACO999.pdf"]
     legacy_collection.document_count = 1
     legacy_collection.chunk_count = 150
@@ -1079,7 +1177,9 @@ def test_large_collection_balanced_scopes_project_code_from_document_names(db_se
     """
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
-    workspace = Workspace(id="ws-planner-large-docnames", name="Planner Large DocNames", slug="planner-large-docnames")
+    workspace = Workspace(
+        id="ws-planner-large-docnames", name="Planner Large DocNames", slug="planner-large-docnames"
+    )
     db_session.add(workspace)
     db_session.commit()
     collection = create_collection(db_session, workspace=workspace, name="Dense SPL DocNames")
@@ -1184,7 +1284,9 @@ def test_balanced_fact_scope_soft_boost_on_large_collections(db_session, monkeyp
     """
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
-    workspace = Workspace(id="ws-fact-scope-bound", name="Fact Scope Bound", slug="fact-scope-bound")
+    workspace = Workspace(
+        id="ws-fact-scope-bound", name="Fact Scope Bound", slug="fact-scope-bound"
+    )
     db_session.add(workspace)
     db_session.commit()
 
@@ -1422,7 +1524,9 @@ async def test_dense_collection_balanced_unscoped_runs_real_bounded_dense(
     # supersedes the old "uses_coarse_inventory_without_global_search" assertion.
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
-    workspace = Workspace(id="ws-dense-balanced-policy", name="Dense Balanced", slug="dense-balanced")
+    workspace = Workspace(
+        id="ws-dense-balanced-policy", name="Dense Balanced", slug="dense-balanced"
+    )
     db_session.add(workspace)
     db_session.commit()
     collection = create_collection(db_session, workspace=workspace, name="Dense Balanced SPL")
@@ -1535,8 +1639,7 @@ async def test_dense_collection_balanced_large_runs_scoped_soft_fact_scope(
     # metric records that the collection was scoped.
     assert svc.calls
     assert all(
-        (call["filters"] or {}).get("document_filename") == [fact_filename]
-        for call in svc.calls
+        (call["filters"] or {}).get("document_filename") == [fact_filename] for call in svc.calls
     )
     assert result["metrics"]["soft_scope_boost"]["applied"] is True
     assert collection.slug in result["metrics"]["soft_scope_boost"]["scoped_collections"]
@@ -1557,7 +1660,9 @@ class RecallFloorAnswerService:
         return self.count
 
     async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid=None):
-        self.calls.append({"query": query, "top_k": top_k, "filters": filters, "use_hybrid": use_hybrid})
+        self.calls.append(
+            {"query": query, "top_k": top_k, "filters": filters, "use_hybrid": use_hybrid}
+        )
         if filters and (filters or {}).get("document_filename"):
             return [
                 {
@@ -1779,7 +1884,9 @@ async def test_recall_floor_pass_embeds_raw_query_without_guide_hint(monkeypatch
         captured["use_hybrid"] = kwargs.get("use_hybrid")
         captured["query_hints"] = kwargs.get("query_hints")
         captured["filters"] = kwargs.get("filters")
-        return SimpleNamespace(chunks=[], scores=[], metadatas=[], pipeline="naive", label="recall_floor", detail={})
+        return SimpleNamespace(
+            chunks=[], scores=[], metadatas=[], pipeline="naive", label="recall_floor", detail={}
+        )
 
     monkeypatch.setattr(rag_context, "retrieve_for_mode", fake_retrieve_for_mode)
 
@@ -1801,7 +1908,9 @@ async def test_recall_floor_pass_embeds_raw_query_without_guide_hint(monkeypatch
     assert captured["mode"] == "naive"
 
 
-async def test_dense_planner_uses_collection_totals_when_source_ledger_is_partial(db_session, monkeypatch):
+async def test_dense_planner_uses_collection_totals_when_source_ledger_is_partial(
+    db_session, monkeypatch
+):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
     workspace = Workspace(id="ws-dense-partial-ledger", name="Dense Partial", slug="dense-partial")
@@ -1840,7 +1949,9 @@ async def test_dense_planner_uses_collection_totals_when_source_ledger_is_partia
     assert svc.calls
 
 
-async def test_dense_collection_quick_ask_uses_fact_scoped_document_filter(db_session, monkeypatch, tmp_path):
+async def test_dense_collection_quick_ask_uses_fact_scoped_document_filter(
+    db_session, monkeypatch, tmp_path
+):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
@@ -1904,7 +2015,9 @@ async def test_dense_collection_quick_ask_uses_fact_scoped_document_filter(db_se
     assert svc.calls
     assert svc.calls[0]["use_hybrid"] is False
     assert svc.calls[0]["filters"] == {"document_filename": ["A__ACJ100__start_procedure.html"]}
-    assert result["retrieval_scope"]["filters"] == {"document_filename": ["A__ACJ100__start_procedure.html"]}
+    assert result["retrieval_scope"]["filters"] == {
+        "document_filename": ["A__ACJ100__start_procedure.html"]
+    }
     assert result["retrieval_plan"]["guardrails"]["user_scope_required"] is False
     assert result["retrieval_plan"]["layers"]["facts"]["enabled"] is True
     assert result["retrieval_plan"]["layers"]["dense_qdrant"]["enabled"] is True
@@ -1920,7 +2033,9 @@ async def test_dense_collection_balanced_scoped_chah_uses_external_sparse_not_le
 ):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
-    workspace = Workspace(id="ws-dense-balanced-facts", name="Dense Balanced Facts", slug="dense-balanced-facts")
+    workspace = Workspace(
+        id="ws-dense-balanced-facts", name="Dense Balanced Facts", slug="dense-balanced-facts"
+    )
     db_session.add(workspace)
     db_session.commit()
     collection = create_collection(db_session, workspace=workspace, name="Dense Balanced Facts SPL")
@@ -1995,7 +2110,9 @@ async def test_dense_collection_balanced_scoped_chah_uses_external_sparse_not_le
     assert result["retrieval_plan"]["guardrails"]["user_scope_required"] is False
 
 
-async def test_dense_deep_chah_uses_summary_scope_without_legacy_hybrid(db_session, monkeypatch, tmp_path):
+async def test_dense_deep_chah_uses_summary_scope_without_legacy_hybrid(
+    db_session, monkeypatch, tmp_path
+):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
@@ -2069,7 +2186,9 @@ async def test_dense_deep_without_system_scope_returns_coarse_inventory_not_glob
 ):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
-    workspace = Workspace(id="ws-dense-deep-unscoped", name="Dense Deep Unscoped", slug="dense-deep-unscoped")
+    workspace = Workspace(
+        id="ws-dense-deep-unscoped", name="Dense Deep Unscoped", slug="dense-deep-unscoped"
+    )
     db_session.add(workspace)
     db_session.commit()
     collection = create_collection(db_session, workspace=workspace, name="Dense Deep Unscoped SPL")
@@ -2144,8 +2263,13 @@ async def test_deep_scope_miss_recovery_retries_without_doc_filters(db_session, 
         # vector store, so retrieval finds nothing.
         if "document_filename" in filters:
             return SimpleNamespace(
-                chunks=[], scores=[], metadatas=[],
-                pipeline="chah_backend", label="C-HAH", reason="empty", detail="",
+                chunks=[],
+                scores=[],
+                metadatas=[],
+                pipeline="chah_backend",
+                label="C-HAH",
+                reason="empty",
+                detail="",
                 diagnostics={"sparse_backend": "disabled", "sparse_status": "disabled"},
             )
         # Relaxed retry over the collection returns real passages.
@@ -2153,7 +2277,10 @@ async def test_deep_scope_miss_recovery_retries_without_doc_filters(db_session, 
             chunks=["pompe centrifuge Etachrom B passage"],
             scores=[0.81],
             metadatas=[{"document_filename": "H__HYD100__pompe.pdf"}],
-            pipeline="chah_backend", label="C-HAH", reason="recovered", detail="",
+            pipeline="chah_backend",
+            label="C-HAH",
+            reason="recovered",
+            detail="",
             diagnostics={"sparse_backend": "disabled", "sparse_status": "disabled"},
         )
 
@@ -2241,7 +2368,9 @@ async def test_retrieve_rag_context_cache_skips_unknown_corpus_version(monkeypat
     assert second["metrics"]["retrieval_context_cache_skipped_reason"] == "corpus_version_unknown"
 
 
-async def test_retrieve_rag_context_cache_invalidates_on_collection_version(db_session, monkeypatch):
+async def test_retrieve_rag_context_cache_invalidates_on_collection_version(
+    db_session, monkeypatch
+):
     rag_context._RETRIEVAL_CONTEXT_CACHE.clear()
     monkeypatch.setattr(rag_context.settings, "rag_context_cache_enabled", True)
     monkeypatch.setattr(rag_context.settings, "rag_context_cache_ttl_seconds", 90)
@@ -2296,7 +2425,9 @@ async def test_retrieve_rag_context_cache_separates_latency_budgets(monkeypatch)
     }
 
     fast = await retrieve_rag_context({**base_request, "latency_profile": "fast"}, doc_svc=svc)
-    balanced = await retrieve_rag_context({**base_request, "latency_profile": "balanced"}, doc_svc=svc)
+    balanced = await retrieve_rag_context(
+        {**base_request, "latency_profile": "balanced"}, doc_svc=svc
+    )
 
     assert len(svc.calls) == 2
     assert fast["latency_budget"]["profile"] == "fast"
@@ -2561,6 +2692,7 @@ async def test_retrieve_rag_context_exposes_multi_collection_metadata(monkeypatc
         "_document_service_for_profile",
         lambda _profile, collection: SimpleNamespace(collection_name=collection),
     )
+
     async def _fake_resolve_retrieval_mode(*_args, **_kwargs):
         return True, "hybrid", "test"
 
@@ -2782,6 +2914,7 @@ async def test_expert_fiche_compat_overlay_survives_derived_membrane_allowlist(m
             "top_k": 5,
         },
     )
+
     # Planner is a passthrough here: the ONLY collection-narrowing gate under
     # test is the authoritative membrane inbound allowlist (which excludes the
     # fiche). Proves the post-planner union restores it after that filter too.
@@ -2942,7 +3075,9 @@ def test_discovery_pool_top_k_helper():
 
 
 async def test_discovery_widens_pool_then_truncates_single_collection(monkeypatch):
-    monkeypatch.setattr(rag_context, "_effective_guides_for_profile", lambda _p: [_DISCOVERY_POLICY_GUIDE])
+    monkeypatch.setattr(
+        rag_context, "_effective_guides_for_profile", lambda _p: [_DISCOVERY_POLICY_GUIDE]
+    )
     captured: dict = {}
 
     async def _fake_resolve(*_a, **_k):
@@ -2954,8 +3089,13 @@ async def test_discovery_widens_pool_then_truncates_single_collection(monkeypatc
         captured["top_k"] = top_k
         chunks, scores, metas = _ara200_pool(top_k, conveyor_index=2)
         return SimpleNamespace(
-            chunks=chunks, scores=scores, metadatas=metas,
-            pipeline="chah_backend", label="t", reason="r", detail="d",
+            chunks=chunks,
+            scores=scores,
+            metadatas=metas,
+            pipeline="chah_backend",
+            label="t",
+            reason="r",
+            detail="d",
         )
 
     monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
@@ -2980,7 +3120,9 @@ async def test_discovery_widens_pool_then_truncates_single_collection(monkeypatc
 
 
 async def test_non_discovery_pool_size_and_absence_unchanged(monkeypatch):
-    monkeypatch.setattr(rag_context, "_effective_guides_for_profile", lambda _p: [_DISCOVERY_POLICY_GUIDE])
+    monkeypatch.setattr(
+        rag_context, "_effective_guides_for_profile", lambda _p: [_DISCOVERY_POLICY_GUIDE]
+    )
     captured: dict = {}
 
     async def _fake_resolve(*_a, **_k):
@@ -2992,8 +3134,13 @@ async def test_non_discovery_pool_size_and_absence_unchanged(monkeypatch):
         captured["top_k"] = top_k
         chunks, scores, metas = _ara200_pool(top_k)
         return SimpleNamespace(
-            chunks=chunks, scores=scores, metadatas=metas,
-            pipeline="chah_backend", label="t", reason="r", detail="d",
+            chunks=chunks,
+            scores=scores,
+            metadatas=metas,
+            pipeline="chah_backend",
+            label="t",
+            reason="r",
+            detail="d",
         )
 
     monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
@@ -3039,7 +3186,9 @@ async def test_multi_collection_discovery_widens_and_surfaces_preferred(monkeypa
             "top_k": 6,
         },
     )
-    monkeypatch.setattr(rag_context, "_effective_guides_for_profile", lambda _p: [_DISCOVERY_POLICY_GUIDE])
+    monkeypatch.setattr(
+        rag_context, "_effective_guides_for_profile", lambda _p: [_DISCOVERY_POLICY_GUIDE]
+    )
     monkeypatch.setattr(
         rag_context,
         "_document_service_for_profile",
@@ -3057,8 +3206,13 @@ async def test_multi_collection_discovery_widens_and_surfaces_preferred(monkeypa
         captured_top_ks.append(top_k)
         chunks, scores, metas = _ara200_pool(top_k, conveyor_index=10)
         return SimpleNamespace(
-            chunks=chunks, scores=scores, metadatas=metas,
-            pipeline="chah_backend", label="t", reason="r", detail="d",
+            chunks=chunks,
+            scores=scores,
+            metadatas=metas,
+            pipeline="chah_backend",
+            label="t",
+            reason="r",
+            detail="d",
         )
 
     monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
@@ -3191,7 +3345,10 @@ async def test_multi_collection_balanced_scoped_uses_planner_sparse_decisions(
     assert all(item["allow_legacy_hybrid"] is False for item in captured)
     assert all(item["max_variants"] == 3 for item in captured)
     assert all(item["max_candidates"] <= 80 for item in captured)
-    assert all(item["filters"] == {"document_filename": ["A__ACJ100__start_procedure_a.html"]} for item in captured)
+    assert all(
+        item["filters"] == {"document_filename": ["A__ACJ100__start_procedure_a.html"]}
+        for item in captured
+    )
     assert result["retrieval_plan"]["layers"]["sparse"]["enabled"] is True
     assert result["retrieval_plan"]["layers"]["hah_chah"]["enabled"] is True
 
@@ -3221,9 +3378,7 @@ def test_rag_retrieve_context_task_delegates_to_service(monkeypatch):
     module_names = ("app.workers.celery_app", "app.workers.tasks")
     package_attrs = ("celery_app", "tasks")
     saved_modules = {name: sys.modules.get(name, missing) for name in module_names}
-    saved_attrs = {
-        name: getattr(workers_package, name, missing) for name in package_attrs
-    }
+    saved_attrs = {name: getattr(workers_package, name, missing) for name in package_attrs}
     for name in module_names:
         sys.modules.pop(name, None)
     for name in package_attrs:
@@ -3404,7 +3559,9 @@ def test_retrieval_profile_defaults_to_fast_and_clamps_untrusted_budget(monkeypa
 
 
 def test_retrieval_profile_oracle_fast_forces_bounded_single_pass(monkeypatch):
-    monkeypatch.setattr(rag_context, "get_resolved_settings", lambda **kwargs: {"ragVectorDBType": "qdrant"})
+    monkeypatch.setattr(
+        rag_context, "get_resolved_settings", lambda **kwargs: {"ragVectorDBType": "qdrant"}
+    )
 
     profile = get_retrieval_profile(
         {
@@ -3429,7 +3586,9 @@ def test_retrieval_profile_oracle_fast_forces_bounded_single_pass(monkeypatch):
 
 
 def test_retrieval_profile_oracle_live_fast_is_tightly_bounded(monkeypatch):
-    monkeypatch.setattr(rag_context, "get_resolved_settings", lambda **kwargs: {"ragVectorDBType": "qdrant"})
+    monkeypatch.setattr(
+        rag_context, "get_resolved_settings", lambda **kwargs: {"ragVectorDBType": "qdrant"}
+    )
 
     profile = get_retrieval_profile(
         {
@@ -3453,8 +3612,12 @@ def test_retrieval_profile_oracle_live_fast_is_tightly_bounded(monkeypatch):
     assert profile["latency_budget"]["allow_cross_encoder"] is False
 
 
-def test_retrieval_profile_oracle_grounded_async_keeps_quality_budget_without_cross_encoder(monkeypatch):
-    monkeypatch.setattr(rag_context, "get_resolved_settings", lambda **kwargs: {"ragVectorDBType": "qdrant"})
+def test_retrieval_profile_oracle_grounded_async_keeps_quality_budget_without_cross_encoder(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        rag_context, "get_resolved_settings", lambda **kwargs: {"ragVectorDBType": "qdrant"}
+    )
 
     profile = get_retrieval_profile(
         {
@@ -3813,9 +3976,7 @@ def test_inventory_evidence_coverage_survives_compression_without_growing_budget
     assert "Centrifugal pump model Z-9" in " ".join(chunks)
     assert sum(bool(meta.get("inventory_evidence")) for meta in metadatas) == 2
     assert all(
-        meta.get("collection") == "notices"
-        for meta in metadatas
-        if meta.get("inventory_evidence")
+        meta.get("collection") == "notices" for meta in metadatas if meta.get("inventory_evidence")
     )
     assert diag == {"admission_cap": 2, "inserted": 1, "replaced": 1}
     assert metadatas[0]["source_family"] == "spare_parts_list"

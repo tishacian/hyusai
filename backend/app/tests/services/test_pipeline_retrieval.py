@@ -91,7 +91,10 @@ def test_policy_rerank_prefers_evidence_complete_parent_over_raw_score():
     )
 
     assert out[0]["metadata"]["document_filename"] == "parts.pdf"
-    assert out[0]["metadata"]["retrieval_evidence_coverage"] > out[1]["metadata"]["retrieval_evidence_coverage"]
+    assert (
+        out[0]["metadata"]["retrieval_evidence_coverage"]
+        > out[1]["metadata"]["retrieval_evidence_coverage"]
+    )
 
 
 def test_prioritise_exact_project_reference_matches_before_near_codes():
@@ -289,9 +292,7 @@ class SparseOkBackend:
     name = "opensearch"
 
     async def search(self, *args, **kwargs):  # noqa: ARG002
-        return [
-            _mk_result("sparse opensearch evidence long enough for rrf merge", 1.2, 10)
-        ]
+        return [_mk_result("sparse opensearch evidence long enough for rrf merge", 1.2, 10)]
 
 
 class OpenSearchUnconfiguredBackend:
@@ -347,7 +348,9 @@ class QdrantServerHybridVectorDb:
     def __init__(self):
         self.calls = []
 
-    async def search_hybrid(self, query_vector, query_text, top_k=10, filters=None, search_params=None):
+    async def search_hybrid(
+        self, query_vector, query_text, top_k=10, filters=None, search_params=None
+    ):
         self.calls.append((query_vector, query_text, top_k, filters, search_params))
         return [
             {
@@ -456,6 +459,21 @@ def test_query_variants_short_query():
     assert _query_variants("hello") == ["hello"]
 
 
+def test_multi_part_incident_variants_prioritise_inventory_and_sla_facets():
+    question = (
+        "For incident NVX-INC-4821 on pump NVX-PUMP-7742, can it be restarted, "
+        "which spare part is required, where is it in stock, and when is it due "
+        "under SLA-PLATINUM-04?"
+    )
+
+    variants = _query_variants(question)
+
+    assert variants[0] == question
+    assert "stock inventory warehouse" in variants[1]
+    assert "SLA service level response and restoration commitments" in variants[2]
+    assert "NVX-PUMP-7742" in variants[1]
+
+
 def test_query_variants_long_splits():
     long_q = "word " * 20
     v = _query_variants(long_q)
@@ -494,7 +512,9 @@ def test_query_variants_add_configured_knowledge_guide_policy_aliases():
         aliases=(("capteurs", ("sensor", "proximity switch", "XS1", "ZCT")),),
     )
 
-    variants = _query_variants("Quels capteurs sont documentes dans AKK200 ?", retrieval_policy=policy)
+    variants = _query_variants(
+        "Quels capteurs sont documentes dans AKK200 ?", retrieval_policy=policy
+    )
 
     assert any("AKK200" == variant or variant.endswith(" AKK200") for variant in variants)
     assert any("proximity switch" in variant for variant in variants)
@@ -617,7 +637,7 @@ async def test_retrieve_for_mode_prepends_exact_table_payload_before_noisy_searc
     )
 
     assert out.chunks[0].startswith("Spreadsheet cell fact")
-    assert "sheet=\"Def strips\"" in out.chunks[0]
+    assert 'sheet="Def strips"' in out.chunks[0]
     assert "B = 85" in out.chunks[0]
     assert out.metadatas[0]["cell_ref"] == "B2"
     assert "exact_table_hits=" in out.detail
@@ -896,7 +916,9 @@ async def test_retrieve_chah_like_uses_policy_variants_and_rerank():
 
     doc.search = AsyncMock(side_effect=_search)
 
-    out = await retrieve_chah_like(doc, "Quels capteurs dans AKK200 ?", top_k=3, retrieval_policy=policy)
+    out = await retrieve_chah_like(
+        doc, "Quels capteurs dans AKK200 ?", top_k=3, retrieval_policy=policy
+    )
     queries = [call.args[0] for call in doc.search.await_args_list]
 
     assert any("proximity switch" in query for query in queries)
@@ -1022,7 +1044,9 @@ def _neutral_fusion_weights(monkeypatch):
     monkeypatch.setattr(
         pipeline_retrieval,
         "resolve_fusion_weights",
-        lambda query, **kwargs: FusionWeights(dense=0.5, sparse=0.5, method="rrf", reason="base_weights"),
+        lambda query, **kwargs: FusionWeights(
+            dense=0.5, sparse=0.5, method="rrf", reason="base_weights"
+        ),
     )
 
 

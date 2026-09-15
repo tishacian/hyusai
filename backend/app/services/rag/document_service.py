@@ -1,9 +1,10 @@
 """Document ingestion and indexing service"""
+
 import asyncio
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from weakref import WeakValueDictionary
 
 from app.services.document_parser.factory import DocumentParserFactory
@@ -40,9 +41,9 @@ logger = get_logger(__name__)
 
 
 _RESERVED_CHUNK_METADATA_KEYS = {"content", "start_char", "end_char", "chunk_index", "page"}
-_SOURCE_REPLACEMENT_LOCKS: WeakValueDictionary[
-    tuple[int, str, str, str, str], asyncio.Lock
-] = WeakValueDictionary()
+_SOURCE_REPLACEMENT_LOCKS: WeakValueDictionary[tuple[int, str, str, str, str], asyncio.Lock] = (
+    WeakValueDictionary()
+)
 
 
 def _stable_document_id(
@@ -64,7 +65,7 @@ def _stable_document_id(
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"omnirag://document/{source_key}"))
 
 
-def _chunk_extra_metadata(chunk: Dict) -> Dict:
+def _chunk_extra_metadata(chunk: dict) -> dict:
     return {
         key: value
         for key, value in chunk.items()
@@ -72,8 +73,10 @@ def _chunk_extra_metadata(chunk: Dict) -> Dict:
     }
 
 
-def _document_extra_metadata(file_path: str, parsed_filename: str | None, kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    metadata: Dict[str, Any] = {}
+def _document_extra_metadata(
+    file_path: str, parsed_filename: str | None, kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
     by_name = kwargs.get("document_metadata_by_name")
     candidates = [Path(file_path).name]
     if parsed_filename:
@@ -82,7 +85,9 @@ def _document_extra_metadata(file_path: str, parsed_filename: str | None, kwargs
         for candidate in candidates:
             named = by_name.get(candidate)
             if isinstance(named, dict):
-                metadata.update({str(key): value for key, value in named.items() if value is not None})
+                metadata.update(
+                    {str(key): value for key, value in named.items() if value is not None}
+                )
                 break
 
     direct = kwargs.get("document_metadata")
@@ -94,13 +99,16 @@ def _document_extra_metadata(file_path: str, parsed_filename: str | None, kwargs
     metadata.setdefault("collection_slug", kwargs.get("collection_slug"))
     metadata.setdefault("collection", kwargs.get("collection_slug"))
     metadata.setdefault("document_filename", filename or None)
-    metadata.setdefault("source_kind", source_kind_for(filename, metadata.get("mime_type") or metadata.get("content_type")))
+    metadata.setdefault(
+        "source_kind",
+        source_kind_for(filename, metadata.get("mime_type") or metadata.get("content_type")),
+    )
     metadata.setdefault("extension", suffix)
     metadata.setdefault("status", "ready")
     return {str(key): value for key, value in metadata.items() if value is not None and value != ""}
 
 
-def _persist_table_facts_if_configured(parsed_doc, kwargs: Dict) -> int:
+def _persist_table_facts_if_configured(parsed_doc, kwargs: dict) -> int:
     """Persist structured table facts when ingestion knows its workspace ledger.
 
     DocumentService is also used for ad-hoc/session docs, which do not belong
@@ -122,7 +130,10 @@ def _persist_table_facts_if_configured(parsed_doc, kwargs: Dict) -> int:
             workspace = db.query(Workspace).filter(Workspace.id == str(workspace_id)).first()
             collection = (
                 db.query(KnowledgeCollection)
-                .filter(KnowledgeCollection.id == str(collection_id), KnowledgeCollection.workspace_id == str(workspace_id))
+                .filter(
+                    KnowledgeCollection.id == str(collection_id),
+                    KnowledgeCollection.workspace_id == str(workspace_id),
+                )
                 .first()
             )
             if not workspace or not collection:
@@ -138,11 +149,15 @@ def _persist_table_facts_if_configured(parsed_doc, kwargs: Dict) -> int:
         finally:
             db.close()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not persist table facts", filename=getattr(parsed_doc, "filename", None), error=str(exc))
+        logger.warning(
+            "Could not persist table facts",
+            filename=getattr(parsed_doc, "filename", None),
+            error=str(exc),
+        )
         return 0
 
 
-def _persist_document_facts_if_configured(parsed_doc, kwargs: Dict) -> int:
+def _persist_document_facts_if_configured(parsed_doc, kwargs: dict) -> int:
     """Persist generic document facts when ingestion knows its workspace ledger."""
     workspace_id = kwargs.get("workspace_id")
     collection_id = kwargs.get("collection_id")
@@ -159,7 +174,10 @@ def _persist_document_facts_if_configured(parsed_doc, kwargs: Dict) -> int:
             workspace = db.query(Workspace).filter(Workspace.id == str(workspace_id)).first()
             collection = (
                 db.query(KnowledgeCollection)
-                .filter(KnowledgeCollection.id == str(collection_id), KnowledgeCollection.workspace_id == str(workspace_id))
+                .filter(
+                    KnowledgeCollection.id == str(collection_id),
+                    KnowledgeCollection.workspace_id == str(workspace_id),
+                )
                 .first()
             )
             if not workspace or not collection:
@@ -175,11 +193,15 @@ def _persist_document_facts_if_configured(parsed_doc, kwargs: Dict) -> int:
         finally:
             db.close()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not persist document facts", filename=getattr(parsed_doc, "filename", None), error=str(exc))
+        logger.warning(
+            "Could not persist document facts",
+            filename=getattr(parsed_doc, "filename", None),
+            error=str(exc),
+        )
         return 0
 
 
-def _kwargs_with_ocr_config(kwargs: Dict) -> Dict:
+def _kwargs_with_ocr_config(kwargs: dict) -> dict:
     if kwargs.get("ocr_config"):
         return kwargs
     try:
@@ -188,7 +210,9 @@ def _kwargs_with_ocr_config(kwargs: Dict) -> Dict:
         out = dict(kwargs)
         out["ocr_config"] = resolve_ocr_config_for_workspace(
             workspace_id=out.get("workspace_id"),
-            overrides=out.get("document_ocr") if isinstance(out.get("document_ocr"), dict) else None,
+            overrides=out.get("document_ocr")
+            if isinstance(out.get("document_ocr"), dict)
+            else None,
         )
         return out
     except Exception as exc:  # noqa: BLE001
@@ -227,11 +251,13 @@ class DocumentService:
         self.use_reranker = use_reranker
         self.use_cache = use_cache
         self.cache = get_cache() if use_cache else None
-        self.cache_namespace = f"{self.workspace_slug or 'global'}:{self.vector_db_type}:{self.collection_name}"
+        self.cache_namespace = (
+            f"{self.workspace_slug or 'global'}:{self.vector_db_type}:{self.collection_name}"
+        )
 
         # Initialize BM25 retriever
         self.bm25_retriever = BM25Retriever()
-        self._documents_cache: List[str] = []  # Cache for BM25
+        self._documents_cache: list[str] = []  # Cache for BM25
 
         # Initialize ensemble retriever (will be set up when documents are loaded)
         self.ensemble_retriever: Optional[EnsembleRetriever] = None
@@ -277,8 +303,8 @@ class DocumentService:
         *,
         filename: str,
         vectors,
-        metadatas: List[Dict],
-        chunk_ids: List[str],
+        metadatas: list[dict],
+        chunk_ids: list[str],
     ) -> None:
         """Replace every indexed version of ``filename`` with the new chunks.
 
@@ -290,16 +316,12 @@ class DocumentService:
         async with self._source_replacement_lock(filename):
             filters = {"document_filename": normalize_source_name(filename)}
             delete_by_metadata = getattr(self.vector_db, "delete_by_metadata", None)
-            deleted = (
-                await delete_by_metadata(filters)
-                if callable(delete_by_metadata)
-                else False
-            )
+            deleted = await delete_by_metadata(filters) if callable(delete_by_metadata) else False
             if not deleted:
                 # Compatibility path for custom/legacy vector backends that do
                 # not implement filtered deletion.
                 offset = 0
-                old_chunk_ids: List[str] = []
+                old_chunk_ids: list[str] = []
                 list_payloads = getattr(self.vector_db, "list_payloads", None)
                 if callable(list_payloads):
                     while True:
@@ -332,7 +354,7 @@ class DocumentService:
         self.ensemble_retriever = None
         self.contextual_retriever = None
 
-    async def ingest_document(self, file_path: str, **kwargs) -> Dict:
+    async def ingest_document(self, file_path: str, **kwargs) -> dict:
         """Ingest a single document"""
         tracer = get_tracer()
         trace = tracer.start_trace("ingest", {"file_path": file_path})
@@ -340,24 +362,25 @@ class DocumentService:
         try:
             # Get chunking settings from app settings if not provided
             from app.services.document_parser.chunker import ChunkingMethod
+
             # DocumentService doesn't have direct workspace_id — fall back to
             # the process-wide singleton. Callers that do have a workspace
             # context should pass chunking_method / chunk_size / chunk_overlap
             # explicitly via kwargs (see documents.py endpoints).
             app_settings = get_resolved_settings()
 
-            if 'chunking_method' not in kwargs:
+            if "chunking_method" not in kwargs:
                 chunking_method_str = app_settings.get("ragChunkingMethod", "recursive_character")
                 try:
-                    kwargs['chunking_method'] = ChunkingMethod(chunking_method_str)
+                    kwargs["chunking_method"] = ChunkingMethod(chunking_method_str)
                 except ValueError:
-                    kwargs['chunking_method'] = ChunkingMethod.RECURSIVE_CHARACTER
+                    kwargs["chunking_method"] = ChunkingMethod.RECURSIVE_CHARACTER
 
-            if 'chunk_size' not in kwargs:
-                kwargs['chunk_size'] = app_settings.get("ragChunkSize", 1000)
+            if "chunk_size" not in kwargs:
+                kwargs["chunk_size"] = app_settings.get("ragChunkSize", 1000)
 
-            if 'chunk_overlap' not in kwargs:
-                kwargs['chunk_overlap'] = app_settings.get("ragChunkOverlap", 200)
+            if "chunk_overlap" not in kwargs:
+                kwargs["chunk_overlap"] = app_settings.get("ragChunkOverlap", 200)
 
             # Step 1: Parse document
             parse_step = tracer.add_step(trace.id, TraceStepType.DOCUMENT_PARSE)
@@ -375,12 +398,18 @@ class DocumentService:
 
                 ensure_document_artifacts(parsed_doc)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Could not enrich document artifacts", filename=getattr(parsed_doc, "filename", None), error=str(exc))
-            parse_step.complete({
-                "filename": parsed_doc.filename,
-                "document_type": parsed_doc.document_type.value,
-                "chunks_count": len(parsed_doc.chunks),
-            })
+                logger.warning(
+                    "Could not enrich document artifacts",
+                    filename=getattr(parsed_doc, "filename", None),
+                    error=str(exc),
+                )
+            parse_step.complete(
+                {
+                    "filename": parsed_doc.filename,
+                    "document_type": parsed_doc.document_type.value,
+                    "chunks_count": len(parsed_doc.chunks),
+                }
+            )
 
             logger.info(f"Parsed document: {parsed_doc.filename} ({len(parsed_doc.chunks)} chunks)")
 
@@ -412,15 +441,26 @@ class DocumentService:
                 }
 
             # Step 2: Generate embeddings
-            embedding_step = tracer.add_step(trace.id, TraceStepType.EMBEDDING, {
-                "chunk_count": len(chunk_texts),
-            })
+            embedding_step = tracer.add_step(
+                trace.id,
+                TraceStepType.EMBEDDING,
+                {
+                    "chunk_count": len(chunk_texts),
+                },
+            )
             embeddings = await self.embedder.embed_batch(chunk_texts)
             import numpy as np
-            embedding_dim = embeddings.shape[1] if isinstance(embeddings, np.ndarray) and len(embeddings) > 0 else 0
-            embedding_step.complete({
-                "embedding_dimension": embedding_dim,
-            })
+
+            embedding_dim = (
+                embeddings.shape[1]
+                if isinstance(embeddings, np.ndarray) and len(embeddings) > 0
+                else 0
+            )
+            embedding_step.complete(
+                {
+                    "embedding_dimension": embedding_dim,
+                }
+            )
 
             # Step 3: Prepare metadata
             chunking_step = tracer.add_step(trace.id, TraceStepType.CHUNKING)
@@ -428,24 +468,26 @@ class DocumentService:
             chunk_ids = []
 
             for i, chunk in enumerate(parsed_doc.chunks):
-                chunk_metadatas.append({
-                    "document_id": parsed_doc.id,
-                    "document_filename": parsed_doc.filename,
-                    "chunk_index": i,
-                    "content": chunk["content"],
-                    "start_char": chunk.get("start_char", 0),
-                    "end_char": chunk.get("end_char", len(chunk["content"])),
-                    "page": chunk.get("page"),
-                    "document_type": parsed_doc.document_type.value,
-                    **_chunk_extra_metadata(chunk),
-                    **{k: v for k, v in parsed_doc.metadata.items() if v is not None},
-                    # docmeta-sourced fields last so they override any
-                    # parser-supplied value for the same key (e.g. PDF
-                    # title surfaced from embedded metadata rather than
-                    # derived from filename heuristics).
-                    **document_meta,
-                    **extra_document_meta,
-                })
+                chunk_metadatas.append(
+                    {
+                        "document_id": parsed_doc.id,
+                        "document_filename": parsed_doc.filename,
+                        "chunk_index": i,
+                        "content": chunk["content"],
+                        "start_char": chunk.get("start_char", 0),
+                        "end_char": chunk.get("end_char", len(chunk["content"])),
+                        "page": chunk.get("page"),
+                        "document_type": parsed_doc.document_type.value,
+                        **_chunk_extra_metadata(chunk),
+                        **{k: v for k, v in parsed_doc.metadata.items() if v is not None},
+                        # docmeta-sourced fields last so they override any
+                        # parser-supplied value for the same key (e.g. PDF
+                        # title surfaced from embedded metadata rather than
+                        # derived from filename heuristics).
+                        **document_meta,
+                        **extra_document_meta,
+                    }
+                )
                 chunk_ids.append(f"{parsed_doc.id}_chunk_{i}")
 
             chunking_step.complete({"chunks_prepared": len(chunk_ids)})
@@ -453,6 +495,7 @@ class DocumentService:
             # Step 4: Index in vector database
             indexing_step = tracer.add_step(trace.id, TraceStepType.INDEXING)
             import numpy as np
+
             embeddings_array = np.array(embeddings)
 
             await self.vector_db.create_index(self.embedding_dimension)
@@ -479,11 +522,13 @@ class DocumentService:
 
             logger.info(f"Indexed {len(chunk_ids)} chunks from {parsed_doc.filename}")
 
-            trace.complete({
-                "status": "success",
-                "chunks_processed": len(parsed_doc.chunks),
-                "document_id": parsed_doc.id,
-            })
+            trace.complete(
+                {
+                    "status": "success",
+                    "chunks_processed": len(parsed_doc.chunks),
+                    "document_id": parsed_doc.id,
+                }
+            )
 
             return {
                 "document_id": parsed_doc.id,
@@ -505,7 +550,7 @@ class DocumentService:
                 "trace_id": trace.id,
             }
 
-    async def ingest_documents_batch(self, file_paths: List[str], **kwargs) -> Dict:
+    async def ingest_documents_batch(self, file_paths: list[str], **kwargs) -> dict:
         """
         Ingest multiple documents in parallel.
         Each document is processed asynchronously: parse -> chunk -> embed -> index
@@ -513,7 +558,9 @@ class DocumentService:
         max_concurrency = kwargs.pop("max_concurrency", None)
         parsed_documents_by_path = kwargs.pop("parsed_documents_by_path", None)
         try:
-            max_concurrency = int(max_concurrency) if max_concurrency is not None else len(file_paths)
+            max_concurrency = (
+                int(max_concurrency) if max_concurrency is not None else len(file_paths)
+            )
         except (TypeError, ValueError):
             max_concurrency = len(file_paths)
         max_concurrency = max(1, min(max_concurrency, max(1, len(file_paths))))
@@ -524,19 +571,23 @@ class DocumentService:
         batch_settings = get_resolved_settings()
         keyword_language = batch_settings.get("ragKeywordLanguage") or "english"
 
-        async def process_single_document(file_path: str) -> Dict:
+        async def process_single_document(file_path: str) -> dict:
             """Process a single document through the full pipeline"""
             try:
                 # Step 1: Parse document (async)
                 parsed_doc = None
                 if isinstance(parsed_documents_by_path, dict):
-                    parsed_doc = parsed_documents_by_path.get(file_path) or parsed_documents_by_path.get(Path(file_path).name)
+                    parsed_doc = parsed_documents_by_path.get(
+                        file_path
+                    ) or parsed_documents_by_path.get(Path(file_path).name)
                 if parsed_doc is None:
                     parser = DocumentParserFactory.get_parser(file_path)
                     parse_kwargs = _kwargs_with_ocr_config(kwargs)
                     parsed_doc = await parser.parse(file_path, **parse_kwargs)
                 else:
-                    logger.info(f"Using pre-parsed document: {getattr(parsed_doc, 'filename', Path(file_path).name)}")
+                    logger.info(
+                        f"Using pre-parsed document: {getattr(parsed_doc, 'filename', Path(file_path).name)}"
+                    )
                 parsed_doc.id = _stable_document_id(
                     workspace_slug=self.workspace_slug,
                     collection_name=self.collection_name,
@@ -548,7 +599,11 @@ class DocumentService:
 
                     ensure_document_artifacts(parsed_doc)
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("Could not enrich document artifacts", filename=getattr(parsed_doc, "filename", None), error=str(exc))
+                    logger.warning(
+                        "Could not enrich document artifacts",
+                        filename=getattr(parsed_doc, "filename", None),
+                        error=str(exc),
+                    )
 
                 if not parsed_doc.chunks:
                     return {
@@ -568,7 +623,9 @@ class DocumentService:
                     extract_keywords_language=keyword_language,
                     count_tokens=True,
                 )
-                extra_document_meta = _document_extra_metadata(file_path, parsed_doc.filename, kwargs)
+                extra_document_meta = _document_extra_metadata(
+                    file_path, parsed_doc.filename, kwargs
+                )
 
                 # Step 2: Generate embeddings for chunks (async batch)
                 indexable_chunks = [
@@ -589,24 +646,27 @@ class DocumentService:
                 chunk_metadatas = []
                 chunk_ids = []
                 for i, chunk in enumerate(indexable_chunks):
-                    chunk_metadatas.append({
-                        "document_id": parsed_doc.id,
-                        "document_filename": parsed_doc.filename,
-                        "chunk_index": i,
-                        "content": chunk["content"],
-                        "start_char": chunk.get("start_char", 0),
-                        "end_char": chunk.get("end_char", len(chunk["content"])),
-                        "page": chunk.get("page"),
-                        "document_type": parsed_doc.document_type.value,
-                        **_chunk_extra_metadata(chunk),
-                        **{k: v for k, v in parsed_doc.metadata.items() if v is not None},
-                        **document_meta,
-                        **extra_document_meta,
-                    })
+                    chunk_metadatas.append(
+                        {
+                            "document_id": parsed_doc.id,
+                            "document_filename": parsed_doc.filename,
+                            "chunk_index": i,
+                            "content": chunk["content"],
+                            "start_char": chunk.get("start_char", 0),
+                            "end_char": chunk.get("end_char", len(chunk["content"])),
+                            "page": chunk.get("page"),
+                            "document_type": parsed_doc.document_type.value,
+                            **_chunk_extra_metadata(chunk),
+                            **{k: v for k, v in parsed_doc.metadata.items() if v is not None},
+                            **document_meta,
+                            **extra_document_meta,
+                        }
+                    )
                     chunk_ids.append(f"{parsed_doc.id}_chunk_{i}")
 
                 # Step 4: Index in vector database (async)
                 import numpy as np
+
                 embeddings_array = np.array(embeddings)
                 await self.vector_db.create_index(self.embedding_dimension)
                 await self._replace_source_vectors(
@@ -622,9 +682,9 @@ class DocumentService:
                 if self.use_hybrid and self.allow_runtime_bm25:
                     self._documents_cache.extend(chunk_texts)
                     # Store document IDs and metadatas for BM25 fitting
-                    if not hasattr(self, '_document_ids_cache'):
+                    if not hasattr(self, "_document_ids_cache"):
                         self._document_ids_cache = []
-                    if not hasattr(self, '_document_metadatas_cache'):
+                    if not hasattr(self, "_document_metadatas_cache"):
                         self._document_metadatas_cache = []
                     self._document_ids_cache.extend(chunk_ids)
                     self._document_metadatas_cache.extend(chunk_metadatas)
@@ -652,7 +712,7 @@ class DocumentService:
         # modest VMs when hundreds of documents all create/upsert at once.
         semaphore = asyncio.Semaphore(max_concurrency)
 
-        async def process_with_limit(path: str) -> Dict:
+        async def process_with_limit(path: str) -> dict:
             async with semaphore:
                 return await process_single_document(path)
 
@@ -664,25 +724,35 @@ class DocumentService:
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.error(f"Exception processing {file_paths[i]}: {result}", exc_info=True)
-                processed_results.append({
-                    "document_id": file_paths[i],
-                    "status": "error",
-                    "error": str(result),
-                })
+                processed_results.append(
+                    {
+                        "document_id": file_paths[i],
+                        "status": "error",
+                        "error": str(result),
+                    }
+                )
             else:
                 processed_results.append(result)
 
         # Rebuild BM25 index after all documents are processed
         if self.use_hybrid and self.allow_runtime_bm25 and self._documents_cache:
             try:
-                document_ids = getattr(self, '_document_ids_cache', [f"doc_{i}" for i in range(len(self._documents_cache))])
-                document_metadatas = getattr(self, '_document_metadatas_cache', [{}] * len(self._documents_cache))
+                document_ids = getattr(
+                    self,
+                    "_document_ids_cache",
+                    [f"doc_{i}" for i in range(len(self._documents_cache))],
+                )
+                document_metadatas = getattr(
+                    self, "_document_metadatas_cache", [{}] * len(self._documents_cache)
+                )
                 # Ensure lists are same length
-                min_len = min(len(self._documents_cache), len(document_ids), len(document_metadatas))
+                min_len = min(
+                    len(self._documents_cache), len(document_ids), len(document_metadatas)
+                )
                 self.bm25_retriever.fit(
                     self._documents_cache[:min_len],
                     document_ids[:min_len],
-                    document_metadatas[:min_len]
+                    document_metadatas[:min_len],
                 )
                 # Reset ensemble retriever to rebuild with new documents
                 self.ensemble_retriever = None
@@ -691,7 +761,9 @@ class DocumentService:
             except Exception as e:
                 logger.warning(f"Could not rebuild BM25 index: {e}")
 
-        successful = sum(1 for r in processed_results if isinstance(r, dict) and r.get("status") == "success")
+        successful = sum(
+            1 for r in processed_results if isinstance(r, dict) and r.get("status") == "success"
+        )
         failed = len(processed_results) - successful
 
         return {
@@ -705,11 +777,11 @@ class DocumentService:
         self,
         query: str,
         top_k: int = 10,
-        filters: Optional[Dict] = None,
+        filters: Optional[dict] = None,
         use_hybrid: Optional[bool] = None,
         use_cache: Optional[bool] = None,
-        search_params: Optional[Dict] = None,
-    ) -> List[Dict]:
+        search_params: Optional[dict] = None,
+    ) -> list[dict]:
         """Search documents by query"""
         use_hybrid = use_hybrid if use_hybrid is not None else self.use_hybrid
         use_cache = use_cache if use_cache is not None else self.use_cache
@@ -719,7 +791,49 @@ class DocumentService:
         if use_hybrid:
             count: int | None = None
             disable_reason: str | None = None
-            if not self.allow_runtime_bm25:
+            embedder_is_degraded = False
+            is_degraded = getattr(self.embedder, "is_degraded", None)
+            if callable(is_degraded):
+                try:
+                    embedder_is_degraded = bool(is_degraded())
+                except Exception:  # noqa: BLE001 - diagnostics cannot break retrieval.
+                    embedder_is_degraded = False
+
+            if not self.allow_runtime_bm25 and embedder_is_degraded:
+                # Hash pseudo-embeddings carry no semantic meaning. For a
+                # bounded local collection, use a lightweight lexical scan
+                # instead of entering the heavier shared hybrid/reranker path;
+                # C-HAH can call search concurrently for several variants.
+                try:
+                    count = await self.get_document_count()
+                except Exception as exc:  # noqa: BLE001
+                    disable_reason = "degraded_embedding_count_unavailable"
+                    logger.warning(
+                        "Lexical fallback unavailable because vector count is unknown",
+                        collection=self.collection_name,
+                        error=str(exc),
+                    )
+                if count is not None and 0 < count <= 10_000:
+                    lexical_results = await self._bounded_lexical_fallback(
+                        query,
+                        top_k=top_k,
+                        filters=filters,
+                    )
+                    if lexical_results:
+                        logger.warning(
+                            "Degraded embeddings detected; using bounded lexical fallback",
+                            collection=self.collection_name,
+                            count=count,
+                            results=len(lexical_results),
+                        )
+                        return lexical_results
+                    logger.warning(
+                        "Bounded lexical fallback found no candidates; using vector fallback",
+                        collection=self.collection_name,
+                        count=count,
+                    )
+                disable_reason = disable_reason or "degraded_embedding_vector_fallback"
+            elif not self.allow_runtime_bm25:
                 disable_reason = "runtime_bm25_disabled"
             else:
                 try:
@@ -732,7 +846,11 @@ class DocumentService:
                         collection=self.collection_name,
                         error=str(exc),
                     )
-            if self.allow_runtime_bm25 and count is not None and count > int(settings.rag_dense_chunk_threshold):
+            if (
+                self.allow_runtime_bm25
+                and count is not None
+                and count > int(settings.rag_dense_chunk_threshold)
+            ):
                 disable_reason = "dense_collection"
             if disable_reason:
                 logger.warning(
@@ -759,7 +877,9 @@ class DocumentService:
                 return cached_results
 
         tracer = get_tracer()
-        trace = tracer.start_trace("search", {"query": query[:100], "top_k": top_k, "hybrid": use_hybrid})
+        trace = tracer.start_trace(
+            "search", {"query": query[:100], "top_k": top_k, "hybrid": use_hybrid}
+        )
 
         try:
             # Step 1: Generate query embedding
@@ -768,10 +888,15 @@ class DocumentService:
             query_embedding = await self.embedder.embed(query)
             embed_duration_ms = int((time.time() - embed_started) * 1000)
             import numpy as np
-            embedding_dim = len(query_embedding) if isinstance(query_embedding, np.ndarray) else query_embedding.shape[0] if hasattr(query_embedding, 'shape') else 0
-            embedder_info = (
-                self.embedder.describe() if hasattr(self.embedder, "describe") else {}
+
+            embedding_dim = (
+                len(query_embedding)
+                if isinstance(query_embedding, np.ndarray)
+                else query_embedding.shape[0]
+                if hasattr(query_embedding, "shape")
+                else 0
             )
+            embedder_info = self.embedder.describe() if hasattr(self.embedder, "describe") else {}
             query_embedding_step.complete(
                 {
                     "embedding_dimension": embedding_dim,
@@ -780,16 +905,20 @@ class DocumentService:
                 }
             )
 
-            async def _vector_search(embedding: np.ndarray, k: int) -> List[Dict]:
+            async def _vector_search(embedding: np.ndarray, k: int) -> list[dict]:
                 try:
-                    return await self.vector_db.search(embedding, k, filters, search_params=search_params)
+                    return await self.vector_db.search(
+                        embedding, k, filters, search_params=search_params
+                    )
                 except TypeError as exc:
                     if "search_params" not in str(exc):
                         raise
                     return await self.vector_db.search(embedding, k, filters)
 
             # Step 2: Perform search using advanced ensemble retrieval
-            search_step = tracer.add_step(trace.id, TraceStepType.VECTOR_SEARCH, {"top_k": top_k, "hybrid": use_hybrid})
+            search_step = tracer.add_step(
+                trace.id, TraceStepType.VECTOR_SEARCH, {"top_k": top_k, "hybrid": use_hybrid}
+            )
 
             if use_hybrid:
                 # Load documents for BM25 if cache is empty
@@ -803,36 +932,52 @@ class DocumentService:
 
                             def _get_all():
                                 # Handle ChromaDB, FAISS, and Qdrant
-                                if hasattr(self.vector_db, 'collection'):
+                                if hasattr(self.vector_db, "collection"):
                                     # ChromaDB
-                                    return self.vector_db.collection.get(ids=all_ids[:bm25_warmup_cap], include=['metadatas'])
-                                elif hasattr(self.vector_db, 'metadatas'):
+                                    return self.vector_db.collection.get(
+                                        ids=all_ids[:bm25_warmup_cap], include=["metadatas"]
+                                    )
+                                elif hasattr(self.vector_db, "metadatas"):
                                     # FAISS - get metadatas directly
                                     metadatas = []
                                     for vec_id in all_ids[:bm25_warmup_cap]:
                                         if vec_id in self.vector_db.metadatas:
                                             metadatas.append(self.vector_db.metadatas[vec_id])
-                                    return {'metadatas': metadatas}
-                                elif hasattr(self.vector_db, 'get_metadatas_for_chunk_ids'):
-                                    metadatas = self.vector_db.get_metadatas_for_chunk_ids(all_ids[:bm25_warmup_cap])
-                                    return {'metadatas': metadatas}
+                                    return {"metadatas": metadatas}
+                                elif hasattr(self.vector_db, "get_metadatas_for_chunk_ids"):
+                                    metadatas = self.vector_db.get_metadatas_for_chunk_ids(
+                                        all_ids[:bm25_warmup_cap]
+                                    )
+                                    return {"metadatas": metadatas}
                                 return None
 
                             all_data = await loop.run_in_executor(None, _get_all)
-                            if all_data and 'metadatas' in all_data:
-                                self._documents_cache = [m.get("content", "") for m in all_data['metadatas'] if m.get("content")]
+                            if all_data and "metadatas" in all_data:
+                                self._documents_cache = [
+                                    m.get("content", "")
+                                    for m in all_data["metadatas"]
+                                    if m.get("content")
+                                ]
                                 if self._documents_cache:
                                     # Fit BM25 retriever (IDs and metadatas optional when loading from DB)
-                                    document_ids = all_ids[:len(self._documents_cache)]
-                                    document_metadatas = all_data['metadatas'][:len(self._documents_cache)]
-                                    self.bm25_retriever.fit(self._documents_cache, document_ids, document_metadatas)
+                                    document_ids = all_ids[: len(self._documents_cache)]
+                                    document_metadatas = all_data["metadatas"][
+                                        : len(self._documents_cache)
+                                    ]
+                                    self.bm25_retriever.fit(
+                                        self._documents_cache, document_ids, document_metadatas
+                                    )
 
                                     # Create dense search function wrapper
-                                    async def dense_search_fn(query_embedding: np.ndarray, k: int) -> List[Dict]:
+                                    async def dense_search_fn(
+                                        query_embedding: np.ndarray, k: int
+                                    ) -> list[dict]:
                                         """Dense search function for ensemble retriever"""
                                         # query_embedding is already a numpy array
                                         if len(query_embedding.shape) == 2:
-                                            query_embedding = query_embedding[0]  # Take first row if 2D
+                                            query_embedding = query_embedding[
+                                                0
+                                            ]  # Take first row if 2D
                                         return await _vector_search(query_embedding, k)
 
                                     ensemble_config = EnsembleConfig(
@@ -863,11 +1008,18 @@ class DocumentService:
                                             config=contextual_config,
                                         )
 
-                                    logger.info(f"Loaded {len(self._documents_cache)} documents for advanced hybrid indexing (BM25 + Dense + Reranking) from collection '{self.collection_name}' ({self.vector_db_type})")
+                                    logger.info(
+                                        f"Loaded {len(self._documents_cache)} documents for advanced hybrid indexing (BM25 + Dense + Reranking) from collection '{self.collection_name}' ({self.vector_db_type})"
+                                    )
                             elif all_ids:
-                                logger.warning(f"Could not extract content from {len(all_ids)} documents for BM25 indexing")
+                                logger.warning(
+                                    f"Could not extract content from {len(all_ids)} documents for BM25 indexing"
+                                )
                     except Exception as e:
-                        logger.warning(f"Could not load documents for BM25 from collection '{self.collection_name}' ({self.vector_db_type}): {e}", exc_info=True)
+                        logger.warning(
+                            f"Could not load documents for BM25 from collection '{self.collection_name}' ({self.vector_db_type}): {e}",
+                            exc_info=True,
+                        )
 
                 # Use advanced retrieval if available
                 if self.ensemble_retriever:
@@ -884,7 +1036,9 @@ class DocumentService:
                     # Use ensemble retriever to get fused results
                     if allow_cross_encoder and self.contextual_retriever:
                         # Use contextual compression retriever (ensemble + reranking)
-                        passages, scores = await self.contextual_retriever.retrieve_and_compress(query, top_k)
+                        passages, scores = await self.contextual_retriever.retrieve_and_compress(
+                            query, top_k
+                        )
                     else:
                         # Use ensemble retriever (BM25 + Dense fusion)
                         passages, scores = await self.ensemble_retriever.retrieve(query, top_k)
@@ -916,44 +1070,59 @@ class DocumentService:
 
                         if vector_result:
                             # Use original content from vector DB result (not cleaned passage)
-                            original_content = vector_result.get("content") or vector_result.get("metadata", {}).get("content", "")
+                            original_content = vector_result.get("content") or vector_result.get(
+                                "metadata", {}
+                            ).get("content", "")
                             # Use original content if available, otherwise use passage
                             final_content = original_content if original_content else passage
 
                             # Use metadata from vector DB result
                             metadata = vector_result.get("metadata", {})
-                            formatted_results.append({
-                                "id": vector_result.get("id", f"retrieved_{len(formatted_results)}"),
-                                "content": final_content,
-                                "score": float(score),
-                                "metadata": metadata,
-                                "vector_score": vector_result.get("score", 0.0),
-                                "bm25_score": 0.0,  # Will be updated if available
-                                "combined_score": float(score),
-                            })
+                            formatted_results.append(
+                                {
+                                    "id": vector_result.get(
+                                        "id", f"retrieved_{len(formatted_results)}"
+                                    ),
+                                    "content": final_content,
+                                    "score": float(score),
+                                    "metadata": metadata,
+                                    "vector_score": vector_result.get("score", 0.0),
+                                    "bm25_score": 0.0,  # Will be updated if available
+                                    "combined_score": float(score),
+                                }
+                            )
                         else:
                             # Fallback: create result from passage only (if it's good quality)
-                            formatted_results.append({
-                                "id": f"retrieved_{len(formatted_results)}",
-                                "content": passage,
-                                "score": float(score),
-                                "metadata": {},
-                                "vector_score": float(score),
-                                "bm25_score": 0.0,
-                                "combined_score": float(score),
-                            })
+                            formatted_results.append(
+                                {
+                                    "id": f"retrieved_{len(formatted_results)}",
+                                    "content": passage,
+                                    "score": float(score),
+                                    "metadata": {},
+                                    "vector_score": float(score),
+                                    "bm25_score": 0.0,
+                                    "combined_score": float(score),
+                                }
+                            )
 
                     # If we have ensemble retriever, try to get individual scores
-                    if hasattr(self.ensemble_retriever, '_get_bm25_scores') and hasattr(self.ensemble_retriever, '_get_dense_scores'):
+                    if hasattr(self.ensemble_retriever, "_get_bm25_scores") and hasattr(
+                        self.ensemble_retriever, "_get_dense_scores"
+                    ):
                         try:
                             # Get BM25 and dense scores separately to preserve individual scores
                             candidate_k = top_k * 2
-                            bm25_task = asyncio.create_task(self.ensemble_retriever._get_bm25_scores(query, candidate_k))
-                            dense_task = asyncio.create_task(self.ensemble_retriever._get_dense_scores(query, candidate_k))
-
-                            (bm25_passages, bm25_scores_dict, _), (dense_passages, dense_scores_dict, _) = await asyncio.gather(
-                                bm25_task, dense_task
+                            bm25_task = asyncio.create_task(
+                                self.ensemble_retriever._get_bm25_scores(query, candidate_k)
                             )
+                            dense_task = asyncio.create_task(
+                                self.ensemble_retriever._get_dense_scores(query, candidate_k)
+                            )
+
+                            (
+                                (bm25_passages, bm25_scores_dict, _),
+                                (dense_passages, dense_scores_dict, _),
+                            ) = await asyncio.gather(bm25_task, dense_task)
 
                             # Update formatted results with individual scores
                             for result in formatted_results:
@@ -968,7 +1137,9 @@ class DocumentService:
                     results = formatted_results
                 else:
                     # Fallback to vector search if advanced retrieval not available
-                    logger.warning(f"Advanced retrieval not available for collection '{self.collection_name}' ({self.vector_db_type}), falling back to vector-only search")
+                    logger.warning(
+                        f"Advanced retrieval not available for collection '{self.collection_name}' ({self.vector_db_type}), falling back to vector-only search"
+                    )
                     results = await _vector_search(query_embedding, top_k)
             else:
                 # Vector search only
@@ -981,16 +1152,18 @@ class DocumentService:
                 # Extract content - check both direct content and metadata
                 content = r.get("content") or metadata.get("content", "")
 
-                formatted_results.append({
-                    "id": r.get("id", ""),
-                    "score": r.get("score", 0.0),
-                    "content": content,  # Add content directly to result
-                    "metadata": metadata,
-                    # Preserve any additional scores if present
-                    "vector_score": r.get("vector_score", r.get("score", 0.0)),
-                    "bm25_score": r.get("bm25_score", 0.0),
-                    "combined_score": r.get("combined_score", r.get("score", 0.0)),
-                })
+                formatted_results.append(
+                    {
+                        "id": r.get("id", ""),
+                        "score": r.get("score", 0.0),
+                        "content": content,  # Add content directly to result
+                        "metadata": metadata,
+                        # Preserve any additional scores if present
+                        "vector_score": r.get("vector_score", r.get("score", 0.0)),
+                        "bm25_score": r.get("bm25_score", 0.0),
+                        "combined_score": r.get("combined_score", r.get("score", 0.0)),
+                    }
+                )
 
             search_step.complete({"results_count": len(formatted_results)})
 
@@ -1014,6 +1187,61 @@ class DocumentService:
             trace.complete({"status": "error", "error": str(e)})
             raise
 
+    async def _bounded_lexical_fallback(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        filters: Optional[dict] = None,
+    ) -> list[dict]:
+        """Search a small local payload set when embeddings are non-semantic."""
+        all_ids_getter = getattr(self.vector_db, "get_all_ids", None)
+        metadatas = getattr(self.vector_db, "metadatas", None)
+        if not callable(all_ids_getter) or not isinstance(metadatas, dict):
+            return []
+
+        all_ids = list(await all_ids_getter())[:10_000]
+
+        def matches(metadata: dict) -> bool:
+            for key, expected in (filters or {}).items():
+                actual = metadata.get(key)
+                if isinstance(expected, (list, tuple, set)):
+                    if actual not in expected:
+                        return False
+                elif actual != expected:
+                    return False
+            return True
+
+        rows = [
+            (chunk_id, dict(metadatas.get(chunk_id) or {}))
+            for chunk_id in all_ids
+            if matches(dict(metadatas.get(chunk_id) or {}))
+            and str((metadatas.get(chunk_id) or {}).get("content") or "").strip()
+        ]
+        if not rows:
+            return []
+
+        documents = [str(metadata["content"]) for _, metadata in rows]
+        retriever = BM25Retriever()
+        retriever.fit(
+            documents,
+            [chunk_id for chunk_id, _ in rows],
+            [metadata for _, metadata in rows],
+        )
+        ranked = [row for row in retriever.search(query, max(1, top_k)) if row["score"] > 0]
+        return [
+            {
+                "id": rows[row["index"]][0],
+                "score": float(row["score"]),
+                "content": row["content"],
+                "metadata": rows[row["index"]][1],
+                "vector_score": 0.0,
+                "bm25_score": float(row["score"]),
+                "combined_score": float(row["score"]),
+            }
+            for row in ranked
+        ]
+
     async def get_document_count(self) -> int:
         """Get total number of indexed documents"""
         return await self.vector_db.get_count()
@@ -1022,9 +1250,9 @@ class DocumentService:
         self,
         query: str,
         top_k: int = 10,
-        filters: Optional[Dict] = None,
+        filters: Optional[dict] = None,
         lexical_config: Optional[object] = None,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Search exact metadata candidates when the backing store supports it."""
         searcher = getattr(self.vector_db, "search_exact_metadata", None)
         if not callable(searcher):
@@ -1041,11 +1269,11 @@ class DocumentService:
 
     async def parent_contexts_for_hits(
         self,
-        metadatas: List[Dict],
+        metadatas: list[dict],
         *,
         max_parents: int = 3,
         max_chars: int = 2500,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Expand ranked child hits to coarser document/section context."""
         expander = getattr(self.vector_db, "parent_contexts_for_hits", None)
         if not callable(expander):
@@ -1055,7 +1283,7 @@ class DocumentService:
         except TypeError:
             return await expander(metadatas)
 
-    async def list_documents(self) -> List[Dict]:
+    async def list_documents(self) -> list[dict]:
         """List all documents in the collection"""
         documents = await self.vector_db.list_documents()
         normalized_documents = []
@@ -1081,12 +1309,12 @@ class DocumentService:
         row_label: Optional[str] = None,
         column_header: Optional[str] = None,
         query: Optional[str] = None,
-        payload_filters: Optional[Dict[str, Any]] = None,
+        payload_filters: Optional[dict[str, Any]] = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """List spreadsheet-oriented payloads for diagnostics and UI browsing."""
-        filters: Dict[str, Any] = {}
+        filters: dict[str, Any] = {}
         if payload_filters:
             for key in (
                 "document_id",
@@ -1142,7 +1370,7 @@ class DocumentService:
         )
         q = (query or "").strip().lower()
         sheet = (sheet_name or "").strip().lower()
-        out: List[Dict] = []
+        out: list[dict] = []
         for payload in payloads:
             stype = str(payload.get("semantic_type") or "")
             if stype and not stype.startswith(semantic_prefixes):
@@ -1151,9 +1379,16 @@ class DocumentService:
                 continue
             if sheet and str(payload.get("sheet_name") or "").lower() != sheet:
                 continue
-            if row_label and str(payload.get("row_label") or "").strip().lower() != row_label.strip().lower():
+            if (
+                row_label
+                and str(payload.get("row_label") or "").strip().lower() != row_label.strip().lower()
+            ):
                 continue
-            if column_header and str(payload.get("column_header") or "").strip().lower() != column_header.strip().lower():
+            if (
+                column_header
+                and str(payload.get("column_header") or "").strip().lower()
+                != column_header.strip().lower()
+            ):
                 continue
             searchable = " ".join(
                 str(payload.get(key) or "")
@@ -1176,7 +1411,7 @@ class DocumentService:
                 break
         return out
 
-    async def get_document_metadata(self, document_id: str) -> Dict:
+    async def get_document_metadata(self, document_id: str) -> dict:
         """Return docmeta-enriched metadata for a single document.
 
         Thin wrapper over ``vector_db.get_document_metadata`` that strips
@@ -1224,7 +1459,7 @@ class DocumentService:
             logger.error(f"Error deleting document {document_id}: {e}")
             return False
 
-    async def delete_by_metadata(self, filters: Dict[str, Any]) -> bool:
+    async def delete_by_metadata(self, filters: dict[str, Any]) -> bool:
         """Delete only chunks matching exact source metadata when supported."""
         try:
             deleted = await self.vector_db.delete_by_metadata(filters)

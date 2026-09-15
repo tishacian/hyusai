@@ -1,12 +1,15 @@
 """Tests for RAG service"""
-import pytest
-import asyncio
-import tempfile
+
 import os
+import tempfile
+
 import numpy as np
+import pytest
+
 from app.services.rag.document_service import DocumentService, _document_extra_metadata
-from app.services.vector_db.faiss_db import FAISSVectorDB
+from app.services.retrieval.bm25_retriever import BM25Retriever
 from app.services.vector_db.factory import VectorDBFactory
+from app.services.vector_db.faiss_db import FAISSVectorDB
 
 
 class FakeVectorDB:
@@ -84,7 +87,7 @@ It involves training algorithms on data to make predictions.
 Deep learning uses neural networks with multiple layers.
 Natural language processing helps computers understand human language."""
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         f.write(content)
         temp_path = f.name
 
@@ -322,6 +325,68 @@ async def test_hybrid_search_does_not_runtime_bm25_without_explicit_opt_in():
 
     assert results[0]["content"] == "vector-only evidence"
     assert results[0]["bm25_score"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_degraded_embeddings_enable_bounded_runtime_bm25_fallback():
+    class DegradedEmbedder:
+        def is_degraded(self):
+            return True
+
+        async def embed(self, query):  # noqa: ARG002
+            return np.array([1.0, 0.0])
+
+    class SmallVectorDb:
+        metadatas = {
+            "chunk-1": {"content": "generic incident summary"},
+            "chunk-2": {"content": "SEAL-KIT-3309 is stocked at HUB-LYS"},
+        }
+
+        async def get_count(self):
+            return 2
+
+        async def get_all_ids(self):
+            return list(self.metadatas)
+
+        async def search(self, query_embedding, top_k: int = 10, filters=None):  # noqa: ARG002
+            return [
+                {
+                    "id": "chunk-1",
+                    "score": 0.9,
+                    "metadata": self.metadatas["chunk-1"],
+                    "content": self.metadatas["chunk-1"]["content"],
+                },
+                {
+                    "id": "chunk-2",
+                    "score": 0.1,
+                    "metadata": self.metadatas["chunk-2"],
+                    "content": self.metadatas["chunk-2"]["content"],
+                },
+            ][:top_k]
+
+    service = object.__new__(DocumentService)
+    service.collection_name = "small-local-demo"
+    service.vector_db_type = "faiss"
+    service.workspace_slug = "personal-test"
+    service.vector_db = SmallVectorDb()
+    service.embedder = DegradedEmbedder()
+    service.use_hybrid = True
+    service.allow_runtime_bm25 = False
+    service.use_cache = False
+    service.cache = None
+    service.cache_namespace = "test"
+    service._documents_cache = []
+    service.bm25_retriever = BM25Retriever()
+    service.ensemble_retriever = None
+    service.contextual_retriever = None
+    service.use_reranker = False
+    service.reranker = None
+
+    results = await service.search("Where is SEAL-KIT-3309 stocked?", top_k=2, use_hybrid=True)
+
+    assert service.ensemble_retriever is None
+    assert results[0]["content"] == "SEAL-KIT-3309 is stocked at HUB-LYS"
+    assert results[0]["bm25_score"] > 0.0
 
 
 @pytest.mark.asyncio
