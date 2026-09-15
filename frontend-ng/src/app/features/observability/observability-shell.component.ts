@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
@@ -30,6 +31,8 @@ interface Tab {
       [style.paddingTop.px]="18"
     >
       <div
+        role="navigation"
+        [attr.aria-label]="i18n.t('nav.observability')"
         [style.display]="'inline-flex'"
         [style.alignItems]="'center'"
         [style.gap.px]="2"
@@ -58,7 +61,7 @@ interface Tab {
             [style.transition]="'background 120ms var(--ck-ease-out), color 120ms'"
           >
             <ck-glyph [name]="t.glyph" [size]="12" />
-            {{ t.label }}
+            {{ i18n.t(t.label) }}
           </a>
         }
       </div>
@@ -68,6 +71,7 @@ interface Tab {
   `,
 })
 export class ObservabilityShellComponent {
+  readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -81,10 +85,10 @@ export class ObservabilityShellComponent {
   readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
 
   readonly tabs: Tab[] = [
-    { label: 'Operations',  glyph: 'telemetry', route: '/observability',             exact: true },
-    { label: 'Quality',     glyph: 'pulse',     route: '/observability/quality' },
-    { label: 'Performance', glyph: 'telemetry', route: '/observability/performance' },
-    { label: 'Runs',        glyph: 'ledger',    route: '/runs' },
+    { label: 'observability.tabs.operations',  glyph: 'telemetry', route: '/observability',             exact: true },
+    { label: 'observability.charts.page_title',     glyph: 'pulse',     route: '/observability/quality' },
+    { label: 'observability.tabs.performance', glyph: 'telemetry', route: '/observability/performance' },
+    { label: 'nav.runs',        glyph: 'ledger',    route: '/runs' },
   ];
 
   isActive(t: Tab): boolean {
