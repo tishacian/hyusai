@@ -48,6 +48,10 @@ export const SKILLS_FR = {
   'skills.list.column.cost': 'Coût',
   'skills.list.column.success': 'Succès',
   'skills.list.column.price': 'Prix unitaire',
+  'skills.cost.observed': 'Coût observé',
+  'skills.cost.not_measured': 'Non mesuré',
+  'skills.cost.observed.hint': 'Somme des coûts renseignés pour les invocations accessibles ; la couverture peut être partielle. Le prix catalogue est distinct.',
+  'skills.cost.catalog.hint': 'Tarif catalogue par unité, distinct du coût observé. Un tarif nul ne prouve pas une exécution gratuite.',
   'skills.list.open': 'Ouvrir',
   'skills.list.open.hint': 'Ouvrir le détail de la skill',
   'skills.provenance.hint':
@@ -301,6 +305,10 @@ export const SKILLS_EN: Record<keyof typeof SKILLS_FR, string> = {
   'skills.list.column.cost': 'Cost',
   'skills.list.column.success': 'Success',
   'skills.list.column.price': 'Unit price',
+  'skills.cost.observed': 'Observed cost',
+  'skills.cost.not_measured': 'Not measured',
+  'skills.cost.observed.hint': 'Sum of reported costs for accessible invocations; coverage may be partial. The catalog price is separate.',
+  'skills.cost.catalog.hint': 'Catalog unit price, separate from observed cost. A zero price does not establish that execution is free.',
   'skills.list.open': 'Open',
   'skills.list.open.hint': 'Open the skill detail',
   'skills.provenance.hint':
