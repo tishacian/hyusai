@@ -857,6 +857,11 @@ export interface FlowRunnerIngress {
   kind: 'manual';
   input_schema?: Record<string, unknown>;
   input_schema_sha256?: string;
+  /** Effective first-Skill contract for sequential compatibility Flows. */
+  runtime_input_schema?: Record<string, unknown>;
+  runtime_input_schema_sha256?: string;
+  required_input_fields?: string[];
+  runtime_input_skill?: { id: string; slug: string; name: string };
 }
 
 export interface FlowRunnerSession {

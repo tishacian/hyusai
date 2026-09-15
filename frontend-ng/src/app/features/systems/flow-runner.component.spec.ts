@@ -23,6 +23,9 @@ import {
   FlowRunnerComponent,
   parseRunnerPayload,
   runnerHasLiveRuns,
+  runnerInputSchema,
+  runnerPayloadTemplate,
+  runnerPayloadValidationMessage,
 } from './flow-runner.component';
 import { systemsRoutes } from './systems.routes';
 
@@ -148,6 +151,64 @@ test('Runner JSON parser rejects malformed, null, arrays and primitives without 
     ok: true,
     value: { query: 'reset' },
   });
+});
+
+test('sequential Runner exposes and templates the first Skill input contract', () => {
+  const ingress = {
+    ingress_id: 'manual.input',
+    kind: 'manual' as const,
+    input_schema: { type: 'object', properties: { goal: { type: 'string' } } },
+    runtime_input_schema: {
+      type: 'object',
+      required: ['answer'],
+      properties: { answer: { type: 'string' } },
+    },
+  };
+
+  assert.deepEqual(runnerInputSchema(ingress), ingress.runtime_input_schema);
+  assert.equal(runnerPayloadTemplate(runnerInputSchema(ingress)), '{\n  "answer": ""\n}');
+  assert.equal(
+    runnerPayloadValidationMessage({ answer: '   ' }, runnerInputSchema(ingress)),
+    'Complete required input: answer.',
+  );
+  assert.equal(
+    runnerPayloadValidationMessage({ answer: 'Supported response' }, runnerInputSchema(ingress)),
+    null,
+  );
+});
+
+test('required sequential input blocks execution before an HTTP request', () => {
+  let requests = 0;
+  const component = componentWith({
+    createFlowRunnerRun: () => {
+      requests += 1;
+      return of(run());
+    },
+  });
+  component.loading.set(false);
+  component.published.set({
+    ...published,
+    runtime_mode: 'sequential_legacy',
+    ingresses: [{
+      ...published.ingresses[0],
+      runtime_input_schema: {
+        type: 'object',
+        required: ['answer'],
+        properties: { answer: { type: 'string' } },
+      },
+    }],
+  });
+  component.activeSession.set(session);
+  component.selectedSessionId.set(session.id);
+  component.selectedIngressId = 'manual.input';
+  component.inputJson = '{"answer":""}';
+
+  assert.equal(component.canExecute(), false);
+  component.execute();
+
+  assert.equal(requests, 0);
+  assert.equal(component.inputError(), 'Complete required input: answer.');
+  component.ngOnDestroy();
 });
 
 test('Systems routing exposes the Runner before the generic System detail route', () => {

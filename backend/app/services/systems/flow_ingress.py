@@ -9,10 +9,13 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
 from sqlalchemy.orm import Session as DBSession
 
 from app.models.run import Run
 from app.models.system import System
+from app.services.flow_contracts import canonical_sha256
 from app.services.run_engine.debug_contract import (
     DebugContractError,
     normalize_input_debug,
@@ -20,6 +23,10 @@ from app.services.run_engine.debug_contract import (
 from app.services.run_engine.run_contracts import (
     RuntimeContractError,
     validate_ingress_payload,
+)
+from app.services.system_catalog_bindings import (
+    SystemCatalogBindingError,
+    resolve_persisted_system_catalog_bindings,
 )
 from app.services.systems import flow_publication
 
@@ -95,6 +102,141 @@ def _published_evidence(
     return system, version, flow, flow_sha256, contract
 
 
+def sequential_runtime_input_contract(
+    db: DBSession,
+    *,
+    system: System,
+    workspace: Any,
+    runtime_mode: str,
+) -> dict[str, Any] | None:
+    """Describe the payload consumed by the first legacy sequential Skill.
+
+    A legacy sequential Flow walks the System's ordered Skill binding rather
+    than task nodes in the visual graph.  Its published ingress schema can
+    therefore be intentionally broad while the first Skill still requires a
+    concrete field such as ``answer``.  Surface that effective boundary to
+    operators and enforce it before a Run row exists.
+    """
+
+    if runtime_mode != "sequential_legacy":
+        return None
+    try:
+        bindings = resolve_persisted_system_catalog_bindings(
+            db,
+            workspace=workspace,
+            system=system,
+        )
+    except SystemCatalogBindingError as exc:
+        raise FlowIngressError(
+            code=exc.code.upper(),
+            message=str(exc),
+            status_code=422,
+            details={"field": exc.field},
+        ) from exc
+    if not bindings.skills:
+        return None
+    skill = bindings.skills[0]
+    if not isinstance(skill.input_schema, Mapping):
+        raise FlowIngressError(
+            code="RUN_INPUT_CONTRACT_INVALID",
+            message="The first Skill has an invalid input contract and cannot be run.",
+            status_code=422,
+            details={"runtime_input_skill": {"id": skill.id, "slug": skill.slug}},
+        )
+    schema = copy.deepcopy(dict(skill.input_schema))
+    if not schema:
+        return None
+    try:
+        Draft202012Validator.check_schema(schema)
+    except SchemaError as exc:
+        raise FlowIngressError(
+            code="RUN_INPUT_CONTRACT_INVALID",
+            message="The first Skill has an invalid input contract and cannot be run.",
+            status_code=422,
+            details={"runtime_input_skill": {"id": skill.id, "slug": skill.slug}},
+        ) from exc
+    required = schema.get("required")
+    required_fields = (
+        [str(item) for item in required if isinstance(item, str) and item]
+        if isinstance(required, list)
+        else []
+    )
+    return {
+        "schema": schema,
+        "schema_sha256": canonical_sha256(schema),
+        "required_fields": required_fields,
+        "skill": {
+            "id": skill.id,
+            "slug": skill.slug,
+            "name": skill.name,
+        },
+    }
+
+
+def validate_sequential_runtime_input(
+    db: DBSession,
+    *,
+    system: System,
+    workspace: Any,
+    runtime_mode: str,
+    payload: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Reject an unusable first-Skill payload without creating a Run."""
+
+    runtime_contract = sequential_runtime_input_contract(
+        db,
+        system=system,
+        workspace=workspace,
+        runtime_mode=runtime_mode,
+    )
+    if runtime_contract is None:
+        return None
+    schema = runtime_contract["schema"]
+    required_fields = runtime_contract["required_fields"]
+    candidate = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"_debug", "_ingress", "execution"}
+    }
+    missing_fields = [
+        field
+        for field in required_fields
+        if field not in candidate
+        or candidate[field] is None
+        or (isinstance(candidate[field], str) and not candidate[field].strip())
+    ]
+    details = {
+        "required_fields": required_fields,
+        "missing_fields": missing_fields,
+        "runtime_input_schema": copy.deepcopy(schema),
+        "runtime_input_skill": copy.deepcopy(runtime_contract["skill"]),
+    }
+    if missing_fields:
+        fields = ", ".join(f"\u201c{field}\u201d" for field in missing_fields)
+        noun = "input" if len(missing_fields) == 1 else "inputs"
+        raise FlowIngressError(
+            code="RUN_INPUT_REQUIRED",
+            message=f"Complete the required {noun} {fields} before starting this Run.",
+            status_code=422,
+            details=details,
+        )
+
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(candidate),
+        key=lambda error: [str(item) for item in error.absolute_path],
+    )
+    if errors:
+        error = errors[0]
+        path = "/" + "/".join(str(item) for item in error.absolute_path)
+        raise FlowIngressError(
+            code="RUN_INPUT_INVALID",
+            message="The Run input does not match the first Skill's required contract.",
+            status_code=422,
+            details={**details, "path": path or "/"},
+        )
+    return runtime_contract
+
+
 def list_published_ingresses(
     db: DBSession,
     *,
@@ -114,6 +256,18 @@ def list_published_ingresses(
         if isinstance(raw, list)
         else []
     )
+    runtime_input = sequential_runtime_input_contract(
+        db,
+        system=system,
+        workspace=workspace,
+        runtime_mode=str(contract.get("runtime_mode") or ""),
+    )
+    if runtime_input is not None:
+        for ingress in ingresses:
+            ingress["runtime_input_schema"] = copy.deepcopy(runtime_input["schema"])
+            ingress["runtime_input_schema_sha256"] = runtime_input["schema_sha256"]
+            ingress["required_input_fields"] = list(runtime_input["required_fields"])
+            ingress["runtime_input_skill"] = copy.deepcopy(runtime_input["skill"])
     outputs = contract.get("outputs")
     output_schema = None
     if (
@@ -327,6 +481,13 @@ def create_published_ingress_run(
                 "kind": kind,
             },
         ) from exc
+    validate_sequential_runtime_input(
+        db,
+        system=system,
+        workspace=workspace,
+        runtime_mode=runtime_mode,
+        payload=accepted_payload,
+    )
 
     # Both namespaces are server-owned.  Adapter metadata is deliberately
     # restricted to non-secret evidence supplied by the trusted caller.

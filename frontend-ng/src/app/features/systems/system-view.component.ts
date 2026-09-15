@@ -15,6 +15,7 @@ import {
 import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.component';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { ApiService } from '@app/core/api.service';
+import { apiErrorMessage } from '@app/core/api-error-message';
 import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
 import { NewsLabComponent } from '@app/features/intelligence/news-lab.component';
 import { I18nService } from '@app/core/i18n.service';
@@ -160,7 +161,7 @@ interface ContextConfigRow {
           <app-icon name="play-circle" [size]="14" /> Operator Runner
         </a>
       }
-      @if (!isExpertKnowledgeCapture()) {
+      @if (!isExpertKnowledgeCapture() && !flowPublicationEnabled()) {
         <button
           actions
           type="button"
@@ -573,7 +574,11 @@ interface ContextConfigRow {
               </div>
               <p class="text-sm text-white mb-1">This system has not produced any outcome.</p>
               <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">
-                Click <span class="text-white">Run now</span> above to trigger a canonical run.
+                @if (flowPublicationEnabled()) {
+                  Open <span class="text-white">Operator Runner</span> above, complete the required input, then execute the published Flow.
+                } @else {
+                  Click <span class="text-white">Run now</span> above to trigger a canonical run.
+                }
               </p>
             </div>
           } @else {
@@ -1829,10 +1834,13 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           if (this.requestIsCurrent(request, systemId)) this.loadRuns(request, systemId);
         }, 3500);
       },
-      error: () => {
+      error: (error: unknown) => {
         if (!this.requestIsCurrent(request, systemId)) return;
         this.triggering.set(false);
-        this.toast.warning('Could not reach the run engine', 'Run not triggered');
+        this.toast.warning(
+          apiErrorMessage(error, 'Could not reach the run engine'),
+          'Run not triggered',
+        );
       },
     });
     this.viewSubscriptions.add(subscription);

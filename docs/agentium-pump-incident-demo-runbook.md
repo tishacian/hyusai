@@ -482,12 +482,11 @@ and its history instead of forcing an execution.
 
 **Navigate**
 
-1. On the System view, click **Run now** if the control is available and the System
-   has a bound runnable capability.
-   *Optional:* **Operator Runner** opens the published-Flow runner at
-   `/systems/<id>/run`; its **Execute published Flow** control stays disabled unless
-   the System is active, an ingress is selected, and the published evidence is
-   current.
+1. On a published System, click **Operator Runner**. Agentium opens
+   `/systems/<id>/run`, shows the effective first-step input contract and prepares
+   the required JSON fields. Fill every required value; **Execute published Flow**
+   becomes available only when the System, ingress, published evidence, session and
+   input are ready. A legacy zero-input System may show **Run now** instead.
 2. Click **Runs** in the left rail (`/runs`).
 3. If needed, filter with **All statuses**.
 4. Click the newest row to open the Run.
@@ -507,6 +506,7 @@ and its history instead of forcing an execution.
 | --- | --- |
 | The Runs list shows real executions with status and duration | The list is decorative or empty when a run just happened |
 | A Run opens and its detail reflects the runtime | Detail is missing or contradicts the list |
+| Missing required input is explained before execution and creates no Run | An empty payload is queued and later appears as a failed decision |
 
 ---
 
@@ -847,7 +847,8 @@ ACT 5  2m   P2 follow-up. P3 exact reference + decoy. P4 must refuse.
 ACT 6  2m   Upload 05 > Account > Language FR > Nouveau chat > P5 > French answer.
 ACT 7  2m   Break the provider > P6 > read the error > restore > Try again.
 ACT 8  3m   Build > New system > objective + knowledge > CREATE SYSTEM.
-ACT 9  2m   Runs > newest run > Overview > Invocations. (Optional: Run now.)
+ACT 9  2m   Operator Runner > complete required input > Execute > newest Run >
+            Overview > Invocations. Legacy zero-input Systems may use Run now.
 
 ROI         Annual EUR 63 921 · Cost EUR 44 560 · Net EUR 19 361 ·
             43.45 % · payback 8.37 months  — MODELED, not measured.

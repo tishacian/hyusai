@@ -1790,6 +1790,17 @@ async def trigger_run(
             db.rollback()
             raise HTTPException(exc.status_code, detail=exc.payload()) from exc
     else:
+        try:
+            flow_ingress.validate_sequential_runtime_input(
+                db,
+                system=s,
+                workspace=workspace,
+                runtime_mode=execution_resolution.runtime_mode,
+                payload=body.input_ref,
+            )
+        except flow_ingress.FlowIngressError as exc:
+            db.rollback()
+            raise HTTPException(exc.status_code, detail=exc.payload()) from exc
         input_ref = copy.deepcopy(body.input_ref)
         input_ref.pop("_ingress", None)
         raw_execution = input_ref.get("execution")
