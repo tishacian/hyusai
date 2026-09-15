@@ -14,7 +14,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgClass } from '@angular/common';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink, type UrlTree } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { Subscription, forkJoin, of, timer } from 'rxjs';
 import { catchError, exhaustMap, take, takeWhile } from 'rxjs/operators';
@@ -285,7 +285,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
                 <span class="text-xs" style="color:var(--ck-fg-3);">{{ modelStateLabel(m) }}</span>
                 @if (showPortalTabs() && isSelectableModel(m)) {
                   <button class="ck-btn-quiet px-3 py-2 text-xs" (click)="selectTestModel(m)">{{ i18n.t('resources.test.choose') }}</button>
-                  <a [routerLink]="skillsUrl()" [queryParams]="skillQuery(m)" class="ck-btn-quiet px-3 py-2 text-xs">{{ i18n.t('resources.models.use_skill') }}</a>
+                  <a [routerLink]="skillsUrl(m)" class="ck-btn-quiet px-3 py-2 text-xs">{{ i18n.t('resources.models.use_skill') }}</a>
                 }
                 @if (configuredUsage(m).length) {
                   <div class="w-full text-xs" style="color:var(--ck-fg-3);">{{ i18n.t('resources.models.configured_systems') }}
@@ -611,7 +611,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
               @if (!testTargetsLoading() && !testTargets().length && !testError()) {
                 <p class="text-sm" style="color:var(--ck-fg-2);">{{ i18n.t('resources.test.no_target') }}</p>
               }
-              <a [routerLink]="skillsUrl()" [queryParams]="skillQuery(model)" class="ck-btn-quiet inline-flex px-3 py-2 text-sm">{{ i18n.t('resources.models.use_skill') }}</a>
+              <a [routerLink]="skillsUrl(model)" class="ck-btn-quiet inline-flex px-3 py-2 text-sm">{{ i18n.t('resources.models.use_skill') }}</a>
             }
             @if (testTargets().length) {
               <label class="block text-xs">{{ i18n.t('resources.test.target') }}
@@ -1495,9 +1495,13 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     this.routingDraft = { ...this.routingDraft, fallback: values };
   }
 
-  invocationUrl(runId: string, invocationId: string): string { return this.navigation.objectUrl('skill_invocation', invocationId, { runId }); }
+  invocationUrl(runId: string, invocationId: string): UrlTree { return this.navigation.objectUrlTree('skill_invocation', invocationId, { runId }); }
 
-  skillsUrl(): string { return this.navigation.surfaceUrl('skills'); }
+  skillsUrl(model: ModelInfo): UrlTree {
+    const tree = this.navigation.surfaceUrlTree('skills');
+    tree.queryParams = { ...tree.queryParams, ...this.skillQuery(model) };
+    return tree;
+  }
 
   skillQuery(model: ModelInfo): Record<string, string> {
     return { provider: model.provider, model: this.modelName(model), create: 'llm', modelWorkspace: this.workspace.current()?.id ?? '' };
