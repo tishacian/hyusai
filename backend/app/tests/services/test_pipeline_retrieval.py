@@ -18,6 +18,7 @@ from app.services.rag.pipeline_retrieval import (
     _query_project_references,
     _query_variants,
     _search_documents,
+    prioritise_temporary_measure_evidence_aligned,
     retrieve_chah_like,
     retrieve_for_mode,
     retrieve_hah_like,
@@ -472,6 +473,80 @@ def test_multi_part_incident_variants_prioritise_inventory_and_sla_facets():
     assert "stock inventory warehouse" in variants[1]
     assert "SLA service level response and restoration commitments" in variants[2]
     assert "NVX-PUMP-7742" in variants[1]
+
+
+def test_temporary_measure_followup_prioritises_procedure_and_sla_over_inventory():
+    question = (
+        "If that part cannot arrive before the deadline, which temporary measure is allowed, "
+        "what are its limits, and does it stop the restoration clock? "
+        "| Previous user context: | INC4821 | KIT3309"
+    )
+
+    variants = _query_variants(question)
+
+    assert variants[0] == question
+    assert "temporary measure workaround reduced-duty operation" in variants[1]
+    assert "maximum duration duty approval authority" in variants[1]
+    assert "restoration clock permanent repair" in variants[1]
+    assert "INC4821" not in variants[1]
+    assert "KIT3309" not in variants[1]
+    assert "SLA service level response and restoration commitments" in variants[2]
+    assert "INC4821" not in variants[2]
+    assert "KIT3309" not in variants[2]
+    assert not any("stock inventory warehouse" in variant for variant in variants[:3])
+
+
+@pytest.mark.asyncio
+async def test_temporary_measure_facets_survive_incident_context_crowding():
+    incident = _mk_result(
+        "Incident NVX-INC-4821 accepts a temporary reduced-duty arrangement.", 0.9, 1
+    )
+    procedure = _mk_result(
+        "WORKAROUND-GP-02 maximum continuous duration 48 hours, maximum duty 60 percent, "
+        "level 3 approval and 7.1 mm/s RMS vibration ceiling.",
+        0.8,
+        2,
+    )
+    sla = _mk_result(
+        "A temporary reduced-duty arrangement does not stop the restoration clock; "
+        "permanent repair remains due.",
+        0.7,
+        3,
+    )
+    doc = MagicMock()
+
+    async def _search(query: str, **_kwargs):
+        if query.startswith("temporary measure workaround"):
+            return [procedure, sla, incident]
+        if query.startswith("SLA service level"):
+            return [sla, incident]
+        return [
+            incident,
+            _mk_result("NVX-INC-4821 incident measurement details and operator notes.", 0.85, 4),
+            _mk_result("NVX-INC-4821 incident status and customer constraints.", 0.8, 5),
+        ]
+
+    doc.search = AsyncMock(side_effect=_search)
+    question = (
+        "If that part cannot arrive before the deadline, which temporary measure is allowed, "
+        "what are its limits, and does it stop the restoration clock? "
+        "| Previous user context: | INC4821 | KIT3309"
+    )
+
+    result = await retrieve_chah_like(doc, question, top_k=3, max_variants=3)
+
+    assert any("WORKAROUND-GP-02" in chunk for chunk in result.chunks)
+    assert any("does not stop the restoration clock" in chunk for chunk in result.chunks)
+
+    chunks, _scores, _metadatas = prioritise_temporary_measure_evidence_aligned(
+        [incident["content"], procedure["content"], sla["content"]],
+        [0.9, 0.8, 0.7],
+        [{}, {}, {}],
+        question=question,
+    )
+
+    assert chunks[0].startswith("WORKAROUND-GP-02")
+    assert "does not stop the restoration clock" in chunks[1]
 
 
 def test_query_variants_long_splits():

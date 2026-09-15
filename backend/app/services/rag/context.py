@@ -48,7 +48,10 @@ from app.services.rag.knowledge_scopes import (
 )
 from app.services.rag.lexical_retrieval import analyze_query, lexical_match_details
 from app.services.rag.mode_selector import resolve_retrieval_mode
-from app.services.rag.pipeline_retrieval import retrieve_for_mode
+from app.services.rag.pipeline_retrieval import (
+    prioritise_temporary_measure_evidence_aligned,
+    retrieve_for_mode,
+)
 from app.services.rag.project_inventory import (
     build_project_inventory,
     query_targets_projects,
@@ -3771,6 +3774,12 @@ async def _retrieve_rag_context(
         latency_profile=profile.get("latency_profile"),
         limit=synthesis_k,
     )
+    chunks, scores, metadatas = prioritise_temporary_measure_evidence_aligned(
+        chunks,
+        scores,
+        metadatas,
+        question=retrieval_query,
+    )
     # The wide candidate pool exists to improve recall before policy rerank /
     # dedupe. Only the synthesis budget is sent to the LLM; with cross-encoder
     # scores available, the low-quality tail is cut below synthesis_k.
@@ -4376,6 +4385,12 @@ async def _retrieve_multi_collection_context(
         query=retrieval_query,
         latency_profile=profile.get("latency_profile"),
         limit=synthesis_k,
+    )
+    chunks, scores, metadatas = prioritise_temporary_measure_evidence_aligned(
+        chunks,
+        scores,
+        metadatas,
+        question=retrieval_query,
     )
     # The wide fused pool only existed to feed policy rerank / dedupe; trim
     # to the synthesis budget before prompt assembly, cutting the low-quality
