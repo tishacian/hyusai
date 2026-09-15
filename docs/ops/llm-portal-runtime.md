@@ -75,7 +75,11 @@ The browser cases run the production frontend on loopback with synthetic API fix
 
 Reproduce browser checks with `E2E_BASE_URL=http://127.0.0.1:4287` and the existing Playwright Chromium project: `e2e/tests/22-model-portal-contract.spec.ts`, plus `e2e/tests/16-flow-builder-authoring-contract.spec.ts --grep 'Skill execution settings'`. The local frontend must serve the current production build; these cases refuse an external target.
 
-Prepared for integration into `demo/agentic` and release through the normal immutable-image process. The deployed SHA, live canaries and rollback address are recorded in [the deployment journal](agentium-safe-vm-deployment.md).
+Deployed from `demo/agentic` at `30db8c07cc1087ac2f321fba63da103e1157d044` on 15 September 2026 through the immutable-image process. The final navigation correction also passed all 1,445 frontend tests, the three guards, production build and five Portal browser cases. Those cases now check that Govern context remains a query parameter in both Skill and invocation links.
+
+Authenticated live verification confirmed OpenAI access, the Skill editor, Flow settings and the model-to-Skill handoff. Replaying the synthetic PIH example created Run `eceec12a-21f9-4a44-a5c1-3497df25ca28` with a sourced response and recorded OpenAI execution evidence (228 provider-reported tokens). Azure OpenAI remains unconfigured and Ollama unavailable in Showcase. The Portal generation test remains gated by the workspace's Workbench setting; the live replay used the existing Run action. No provider configuration or published Flow was changed during verification.
+
+The image identities, live canaries, captures and rollback address are recorded in [the deployment journal](agentium-safe-vm-deployment.md#15-septembre-2026--llm-portal-et-réglages-dexécution).
 
 ## Browser captures
 

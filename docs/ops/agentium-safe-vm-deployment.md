@@ -6326,3 +6326,165 @@ release exact.
 Rollback applicatif : `AGENTIUM_IMAGE_TAG=769563d41f0a` puis le `up` versionné.
 Le tag flottant `demo-agentic` n'a pas été déplacé ; aucune restauration de base
 ni modification des données client ne fait partie de ce rollback.
+
+## 15 septembre 2026 — LLM Portal et réglages d'exécution
+
+Release demandée par le sponsor : « déploie, donc dans demo/agentic ».
+Le commit `b3a50bacb1f61f6dd7792a6ed788ec3ff6998ea7` réunit le catalogue
+de modèles, les connexions OpenAI/Azure OpenAI, la résolution des paramètres
+des Skills et la provenance des appels dans les Runs. Le binding historique
+`azure` conserve son comportement public OpenAI et l'interface l'indique.
+Les détails sont dans [LLM Portal and Skill execution](llm-portal-runtime.md).
+
+Aucune migration, dépendance ou activation de flag. Les configurations et
+versions publiées des clients sont conservées. Le checkout documentaire
+principal n'a pas été inclus dans les commits de release.
+
+### Portes locales
+
+- `check:i18n` : 7 671 clés FR/EN ; `check:nav-links` et `check:ui-chrome` : PASS.
+- 1 443 tests frontend et 294 tests backend dans 17 fichiers : PASS.
+- Sept cas Chromium locaux sur le frontend de production : PASS. Ils utilisent
+  des fixtures ; les essais réels ci-dessous sont rapportés séparément.
+- Build production, gitleaks sur l'index, `git diff --check` et conformité
+  statique 19/22 : PASS. Avertissements de budgets, CommonJS, optional chaining
+  et dépréciations backend préexistants.
+- Preuve du job GitLab `agentium-frontend-quality` au SHA exact : **indisponible**.
+  Seul le remote Bitbucket est configuré ; les portes locales et carakai ne
+  sont pas présentés comme une exécution réussie de cette CI.
+
+### Première bascule — `b3a50bacb1f6`
+
+Commit poussé sur `demo/agentic`, puis `fetch` et `merge --ff-only FETCH_HEAD`
+dans le worktree VM propre. Build sur `omnirag-demo` de **11:00:35 à 11:09:54 UTC** ;
+`storage-check` PASS, `up` de **11:10:27 à 11:10:36 UTC**.
+
+| Image | ID OCI |
+|---|---|
+| `agentium-backend:b3a50bacb1f6` | `sha256:b1ea57ac2963a2c7f9c7f67278a9cca4634f7973a0eab8117c1c685a647a023a` |
+| `agentium-worker:b3a50bacb1f6` | `sha256:93b30cb8e45f1cd0bcd6e8d0d962c64af01ba0b1ea0a80d3df8f8bb1e62a0475` |
+| `agentium-frontend:b3a50bacb1f6` | `sha256:6ee762dd842c5c72e98358fa29a0121822ebef5a151615ee9395e9c0c8fdfb5d` |
+
+Backend et frontend `healthy`, `/` = 200, SHA vérifié via `build-info`.
+Deux réponses 502 pendant le redémarrage, puis succès. Les huit conteneurs
+d'infrastructure gardent leurs identifiants ; Alembic reste
+`103_human_confirmation`. Aucun traceback/exception dans les logs des cinq
+services applicatifs après démarrage. Racine : 52 Go libres avant, 51 Go après.
+Preuves privées VM :
+`/srv/agentium-data/llm-portal-deployments/2026-09-15-b3a50bacb1f6/`.
+
+Carakai a été aligné par bundle incrémental vérifié, SHA256
+`3e3425506b8361b72eceee9806992ddd1b00f2012dfbda7513a53c7f12ef637b`.
+HEAD, marqueur et helper de source concordants ; dépendances gelées conservées.
+
+| Exécution | Résultat | Log privé / artefacts carakai |
+|---|---|---|
+| Baseline `ef6ed0ad`, 10:59:38–11:01:13 UTC | 7 passed / 2 failed / 2 skipped | `/tmp/agentium-llm-baseline.W3zBoh/canaries.log` ; `/tmp/iteration-canaries-20260915T105938Z.CF3JKy/` |
+| Release `b3a50bac`, 11:11:52–11:13:28 UTC | 7 passed / 2 failed / 2 skipped | `/tmp/agentium-llm-release-canaries.45tRDA/canaries.log` ; `/tmp/iteration-canaries-20260915T111152Z.2Hz92m/` |
+
+Les deux échecs restent ceux des specs **16** (aucune Experience déployée sur
+Showcase) et **17** (contraste `.is-on` / `.xp-tag-warn`, six variantes).
+Les specs **11**, les cinq contrôles **12** et **20** passent. La restauration
+Hypervisor est attestée par le test ; les brouillons Studio baseline/post ont
+été vérifiés absents dans le workspace utilisé. Les bindings auxiliaires ne
+sont pas individuellement attestés par ce contrôle.
+
+### Vérification Chrome authentifiée et correction du lien
+
+Après rechargement de Showcase :
+
+- Le catalogue montre 142 entrées découvertes ; cela ne certifie pas 142
+  générations possibles. La connexion OpenAI est vérifiée par le bouton dédié.
+- Azure OpenAI est explicitement à configurer ; Ollama est indisponible.
+  Aucune clé, métadonnée Azure ou règle de routing n'a été modifiée.
+- Provider, modèle et prompt de la Skill PIH sont visibles dans la fiche,
+  l'éditeur et le nœud Flow. L'éditeur a été fermé sans enregistrement ;
+  le Flow reste Draft r2 / Published v1.
+- Le test de génération du Portal explique que le Workbench n'est pas activé
+  dans Showcase. Il n'a pas contourné cette porte ni lancé de génération.
+- Le rejeu explicite du cas synthétique PIH par le runner existant a créé le Run
+  [`eceec12a-21f9-4a44-a5c1-3497df25ca28`](https://agentium.papai.ai/runs/eceec12a-21f9-4a44-a5c1-3497df25ca28),
+  terminé en environ 3,7 s. L'invocation indique OpenAI,
+  `gpt-4o-mini-2024-07-18`, 142 tokens d'entrée et 86 de sortie. La réponse
+  reprend les titres et grades G5 → G6, la date du 1 novembre 2026,
+  l'absence de salaire et l'approbation en attente, avec `[S1][S2]`.
+  `trace.model_execution` et le SHA runtime `b3a50bac…` sont présents.
+  Le coût nul vient du tarif catalogue, pas d'une facture fournisseur.
+
+Le clic réel **Use in a Skill** depuis Administrer a découvert un défaut :
+une URL contenant `?lens=govern` était encodée comme un chemin par `RouterLink`,
+et la route inconnue renvoyait à Work. Le même risque existait sur le nouveau
+lien d'invocation. Correctif `30db8c07cc1087ac2f321fba63da103e1157d044` :
+les trois liens utilisent les `UrlTree` du resolver existant, en conservant
+le contexte et les paramètres du modèle.
+
+Portes du correctif : **1 445 tests frontend**, les trois guards, build
+production et **cinq cas Chromium du Portal** PASS. Les assertions navigateur
+contrôlent désormais le chemin et les paramètres de contexte, en plus du
+modèle. Aucun nouveau changement backend ; les 294 tests de la première
+validation couvrent le backend inchangé.
+
+Captures réelles sur `b3a50bac` :
+[Providers](../evidence/llm-portal-live-2026-09-15/providers.png),
+[Skill](../evidence/llm-portal-live-2026-09-15/skill-execution.png),
+[éditeur](../evidence/llm-portal-live-2026-09-15/skill-editor.png),
+[Flow](../evidence/llm-portal-live-2026-09-15/flow-skill-settings.png),
+[Run et invocation](../evidence/llm-portal-live-2026-09-15/run-evidence.png).
+
+### Bascule finale — `30db8c07cc10`
+
+SHA applicatif final : **`30db8c07cc1087ac2f321fba63da103e1157d044`**.
+Les trois images ont été reconstruites sur la VM de **11:18:14 à 11:27:59 UTC**.
+Après une réinitialisation de la session d'outils locale, les logs de build et
+les trois images ont été revérifiés ; l'horodatage de fin provient de la
+dernière écriture du log frontend. La bascule a eu lieu de **11:29:25 à
+11:29:34 UTC**, par `storage-check` puis `up`.
+
+| Image | ID OCI |
+|---|---|
+| `agentium-backend:30db8c07cc10` | `sha256:e8ee6127711abd4c8291b45ffbb48a9d6ce430bfab55585ec215df81914a04fe` |
+| `agentium-worker:30db8c07cc10` | `sha256:c4fed4ff79a2f08df555b9468357bf6314a26e25ff526f70f33b3460e433ba78` |
+| `agentium-frontend:30db8c07cc10` | `sha256:5b43cea0b43332f5bef54758c7abb3c5a0c13f7b0e5dede5d1bc5060cc87f9c2` |
+
+À **11:30:24 UTC** : backend/frontend `healthy`, `/` = 200, SHA backend
+exact et `revision_verified: true`. Les huit conteneurs d'infrastructure sont
+inchangés et Alembic reste `103_human_confirmation`. Aucun traceback/exception
+dans les logs des cinq services applicatifs contrôlés après la bascule.
+Racine : **49 Go libres**, volume de données : **260 Go libres**.
+Preuves privées VM :
+`/srv/agentium-data/llm-portal-deployments/2026-09-15-30db8c07cc10/`.
+
+Le clic réel sur **Use in a Skill**, dans Chrome authentifié sur Showcase,
+ouvre maintenant `/skills?lens=govern&provider=openai&model=gpt-4o-mini&create=llm…`.
+Le formulaire montre OpenAI et `gpt-4o-mini` présélectionnés dans Execution.
+Le brouillon a été fermé sans création de Skill. Captures :
+[catalogue final](../evidence/llm-portal-live-2026-09-15/catalog.png) et
+[passage vers la Skill](../evidence/llm-portal-live-2026-09-15/model-to-skill.png).
+
+Le runner carakai est aligné sur ce SHA par bundle incrémental b3 → 30db,
+SHA256 `239e3653a2ef2048e683458ddc9328994a83a39a241a445b948fb50a8246a918`.
+HEAD, marqueur et helper de source vérifiés ; dépendances figées conservées.
+
+Canaries finaux du **15 septembre, 11:31:35–11:33:12 UTC** : **7 passed,
+2 failed, 2 skipped**. Les signatures d'échec sont identiques à `b3a50bac`
+et à la baseline `ef6ed0ad` : specs 16 et 17 uniquement, décrites ci-dessus.
+La suite complète reste rouge sur ces deux défauts préexistants ; cette
+comparaison ne détecte aucune nouvelle régression.
+
+Les preuves backend **et** frontend portent le SHA final exact, vérifié avant
+et après la suite. La lecture authentifiée après canaries confirme les settings
+Showcase inchangés (hash identique), l'absence du draft Studio
+`QA E2E Experience mu2leffv` et l'absence de nouvelles Experiences ou liaisons
+dans le workspace Studio utilisé.
+
+Preuves privées carakai :
+`/tmp/agentium-llm-final-canaries.tE7E8k/`
+(`canaries.log`, `comparison.json`, `restoration-check.json`,
+`build-info-before.json`, `build-info-after.json`). Artefacts :
+`/tmp/iteration-canaries-20260915T113136Z.QshiTM/`.
+
+Rollback de l'ensemble de la release LLM :
+`AGENTIUM_IMAGE_TAG=ef6ed0ad58b8` puis le `up` versionné. Les images `b3a50bacb1f6`
+restent également disponibles, avec le défaut de lien décrit ci-dessus.
+Le tag flottant `demo-agentic` n'a pas été déplacé. Pas de downgrade ni de
+restauration de base ; les Runs créés depuis le déploiement sont conservés.
