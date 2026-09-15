@@ -199,3 +199,25 @@ async def test_review_queue_scope_and_count_are_applied_before_page_limit(db_ses
         await evaluation.review_queue(status="proposed", component=None, limit=1, workspace=workspace,
             user=admin, db=db_session, system_id=run.system_id, since="366d")
     assert error.value.status_code == 422
+
+
+def test_chat_evaluation_reads_full_recorded_context_with_provenance():
+    from types import SimpleNamespace
+    run = SimpleNamespace(input_ref={"query": "pressure?"}, output_ref={
+        "sources": [{"snippet": "Short preview"}],
+        "rag_context": {"chunks": ["700 bar continuous; relief valve opens at 735 bar."],
+            "metadatas": [{"document_id": "doc", "collection": "notices",
+                "document_filename": "manual.md", "chunk_id": "doc-0"}]}})
+    evidence = auto_eval._context_evidence(run, [])
+    assert evidence == [{"text": "700 bar continuous; relief valve opens at 735 bar.",
+        "invocation_id": None, "document_id": "doc", "collection": "notices",
+        "filename": "manual.md", "chunk_id": "doc-0"}]
+
+
+def test_unaligned_historic_context_does_not_invent_document_association():
+    from types import SimpleNamespace
+    run = SimpleNamespace(input_ref={}, output_ref={"rag_context": {
+        "chunks": ["first", "second"], "metadatas": [{"document_id": "unknown-match"}]}})
+    evidence = auto_eval._context_evidence(run, [])
+    assert [row["text"] for row in evidence] == ["first", "second"]
+    assert all("document_id" not in row for row in evidence)

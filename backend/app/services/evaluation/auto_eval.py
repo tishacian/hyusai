@@ -67,19 +67,33 @@ def _first_string(d: Optional[Dict[str, Any]], keys: tuple[str, ...]) -> Optiona
 
 
 def _context_evidence(run: Run, invocations: List[SkillInvocation]) -> List[dict]:
-    for payload, invocation_id in [(run.input_ref or {}, None), *[(payload or {}, i.id) for i in invocations for payload in (i.input_ref, i.output_ref)]]:
+    for payload, invocation_id in [(run.input_ref or {}, None), (run.output_ref or {}, None), *[(payload or {}, i.id) for i in invocations for payload in (i.input_ref, i.output_ref)]]:
+        # Chat persists the actual synthesis context here, separately from its
+        # shortened display sources. Use the recorded context, never re-retrieve.
+        if isinstance(payload.get("rag_context"), dict) and isinstance(payload["rag_context"].get("chunks"), list) and payload["rag_context"]["chunks"]:
+            payload = payload["rag_context"]
         for key in _CONTEXT_KEYS:
             values = payload.get(key)
             if not isinstance(values, list):
                 continue
+            metadata = payload.get("metadatas")
+            aligned = isinstance(metadata, list) and len(metadata) == len(values)
             rows = []
-            for chunk in values:
+            for index, chunk in enumerate(values):
+                if isinstance(chunk, str) and aligned and isinstance(metadata[index], dict):
+                    chunk = {"text": chunk, "metadata": metadata[index]}
                 text = chunk if isinstance(chunk, str) else (chunk.get("text") or chunk.get("content") or chunk.get("snippet")) if isinstance(chunk, dict) else None
                 if not isinstance(text, str) or not text.strip():
                     continue
                 ref = {k: chunk[k] for k in ("document_id", "document_ref", "source_id", "collection_id", "collection", "page", "chunk_id", "filename") if k in chunk} if isinstance(chunk, dict) else {}
                 if isinstance(chunk, dict) and isinstance(chunk.get("metadata"), dict):
                     ref = {**{k: v for k, v in chunk["metadata"].items() if k in ("document_id", "source_id", "collection_id", "collection", "page", "filename")}, **ref}
+                if isinstance(chunk, dict) and isinstance(chunk.get("metadata"), dict):
+                    meta = chunk["metadata"]
+                    if "filename" not in ref and meta.get("document_filename"):
+                        ref["filename"] = meta["document_filename"]
+                    if "chunk_id" not in ref and meta.get("chunk_id"):
+                        ref["chunk_id"] = meta["chunk_id"]
                 rows.append({"text": text, "invocation_id": invocation_id, **ref})
             if rows:
                 return rows
