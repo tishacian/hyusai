@@ -338,6 +338,39 @@ test('voice oracle timeline only uses registered Lucide icons', () => {
   }
 });
 
+test('a citation focuses one source until the user asks to see all evidence', () => {
+  const { injector, component } = makeHarness();
+  try {
+    component.focusSource('answer-1', 3);
+
+    assert.equal(component.focusedSourceIndex('answer-1'), 3);
+    assert.equal(component.isSourceVisible('answer-1', 2), false);
+    assert.equal(component.isSourceVisible('answer-1', 3), true);
+    assert.equal(component.isSourceFocused('answer-1', 3), true);
+
+    component.showAllSources('answer-1');
+
+    assert.equal(component.focusedSourceIndex('answer-1'), null);
+    assert.equal(component.isSourceVisible('answer-1', 2), true);
+    assert.equal(component.isSourceVisible('answer-1', 3), true);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('opening the sources panel manually clears a previous citation focus', () => {
+  const { injector, component } = makeHarness();
+  try {
+    component.focusSource('answer-1', 7);
+    component.toggleSources('answer-1');
+
+    assert.equal(component.isSourcesOpen('answer-1'), true);
+    assert.equal(component.focusedSourceIndex('answer-1'), null);
+  } finally {
+    injector.destroy();
+  }
+});
+
 test('a late session create from A cannot select, store or render the A session in B', async () => {
   const { injector, component, workspace, api } = makeHarness();
   try {

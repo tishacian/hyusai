@@ -294,6 +294,7 @@ export const CHAT_FR = {
   // --- Citations ------------------------------------------------------
   'chat.citation.unavailable': 'Source [{n}] citée par le modèle mais indisponible',
   'chat.citation.missing': 'Source [{n}] — indisponible',
+  'chat.citation.open_aria': 'Afficher la source {n} : {title}',
   'chat.citations.missing_intro': 'Le modèle a fait référence à',
   'chat.citations.missing_none':
     'mais aucune source de recherche n’a été retournée pour cette réponse.',
@@ -303,6 +304,8 @@ export const CHAT_FR = {
     'mais une seule source a été retournée ; ces citations sont probablement hallucinées.',
   // --- Sources panel ---------------------------------------------------
   'chat.sources.toggle': 'Sources · {count}',
+  'chat.sources.focused': 'Source {index} sur {count}',
+  'chat.sources.show_all': 'Afficher les {count} sources',
   'chat.sources.cited_aria': 'Source citée',
   'chat.sources.uncited_aria': 'Trouvée mais non citée dans la réponse',
   'chat.sources.uncited': 'non citée',
@@ -972,6 +975,7 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   // --- Citations ------------------------------------------------------
   'chat.citation.unavailable': 'Source [{n}] referenced by the model but not available',
   'chat.citation.missing': 'Source [{n}] — not available',
+  'chat.citation.open_aria': 'View source {n}: {title}',
   'chat.citations.missing_intro': 'The model referenced',
   'chat.citations.missing_none': 'but no retrieval source was returned for this answer.',
   'chat.citations.missing_partial':
@@ -980,6 +984,8 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
     'but only 1 source was returned, so these citations are likely hallucinated.',
   // --- Sources panel ---------------------------------------------------
   'chat.sources.toggle': 'Sources · {count}',
+  'chat.sources.focused': 'Source {index} of {count}',
+  'chat.sources.show_all': 'Show all {count} sources',
   'chat.sources.cited_aria': 'Cited source',
   'chat.sources.uncited_aria': 'Retrieved but not cited in answer',
   'chat.sources.uncited': 'not cited',
