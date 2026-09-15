@@ -977,8 +977,11 @@ async def _eval_radar_v1(
         system_prompt=payload.get("system_prompt", ""),
         context_chunks=payload.get("context_chunks"),
         turn_number=payload.get("turn_number", 1),
+        workspace=(ctx or {}).get("_model_workspace"),
+        model_context=ctx,
     )
     output = {
+        "status": evaluation.get("status"),
         "axes": evaluation.get("scores", {}),
         "overall": evaluation.get("composite_score"),
         "hallucination_rate": evaluation.get("hallucination_rate"),
@@ -1004,13 +1007,16 @@ async def _claim_audit_v1(
         system_prompt=payload.get("system_prompt", ""),
         context_chunks=payload.get("citations"),
         turn_number=payload.get("turn_number", 1),
+        workspace=(ctx or {}).get("_model_workspace"),
+        model_context=ctx,
     )
     audit = evaluation.get("claim_audit") or {}
     claims = audit.get("claims", [])
     supported = audit.get("supported", 0)
-    total = max(1, len(claims))
-    verdict = "supported" if supported / total >= 0.8 else "partial" if supported else "unsupported"
+    total = len(claims)
+    verdict = "indeterminate" if not total or evaluation.get("status") == "failed" else "supported" if supported / total >= 0.8 else "partial" if supported else "unsupported"
     output = {
+        "status": evaluation.get("status"),
         "claims": claims,
         "verdict": verdict,
         "supported": supported,

@@ -282,7 +282,12 @@ def test_mutating_flag_matches_the_tools_that_actually_reach_the_run_engine() ->
             for reachable in _reachable_functions(functions, tool.handler.__name__)
             for call, _lineno in _calls(functions[reachable])
         }
-        assert bool(reached & RUN_ENGINE_ENTRYPOINTS) is tool.mutating, name
+        # Proposals persist a reviewable artifact but cannot reach execution.
+        persisted_artifact = bool(reached & {"create_proposal"})
+        assert bool(reached & RUN_ENGINE_ENTRYPOINTS or persisted_artifact) is tool.mutating, name
+        if persisted_artifact:
+            assert not reached & RUN_ENGINE_ENTRYPOINTS, name
+            assert "apply_proposal" not in reached, name
 
 
 def test_the_tool_module_never_delegates_to_the_http_layer() -> None:

@@ -23,6 +23,8 @@ from app.api.v1.endpoints import (
     datasets,
     documents,
     evaluation,
+    evaluation_campaigns,
+    evaluation_corrections,
     flow_diffs,
     flow_ingresses,
     flow_publication,
@@ -99,7 +101,9 @@ api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(voice.router, prefix="/voice", tags=["voice"])
 api_router.include_router(livekit.router, prefix="/livekit", tags=["livekit"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
+api_router.include_router(evaluation_corrections.router, prefix="/evaluation/corrections", tags=["evaluation"])
 api_router.include_router(evaluation.router, prefix="/evaluation", tags=["evaluation"])
+api_router.include_router(evaluation_campaigns.router, prefix="/evaluation", tags=["evaluation"])
 api_router.include_router(observability.router, prefix="/observability", tags=["observability"])
 api_router.include_router(intelligence.router, prefix="/intelligence", tags=["intelligence"])
 api_router.include_router(sharepoint.router, prefix="/sharepoint", tags=["sharepoint"])

@@ -205,6 +205,7 @@ interface ChatMessage {
   // Canonical Run id for this turn — lets the auto-QA polling loop attach its
   // verdict to the right bubble once the judge finishes.
   runId?: string | null;
+  evaluationStatus?: string;
   // Calm, end-user-facing auto-QA verdict. Present only when the reply
   // breached workspace thresholds. ``reasons`` holds the raw internal metric
   // names and is surfaced ONLY in operator mode.
@@ -215,9 +216,9 @@ interface ChatMessage {
     runId: string;
   } | null;
   evaluation?: {
-    composite_score: number;
+    composite_score: number | null;
     scores: Record<string, number>;
-    hallucination_rate: number;
+    hallucination_rate: number | null;
     claim_audit?: { claims?: Array<{ text: string; verdict: string; score: number }> };
   } | null;
 }
@@ -1422,20 +1423,23 @@ const STEP_ICONS: Record<string, string> = {
                       {{ msg.promptType }}
                     </span>
                   }
+                  @if (msg.evaluationStatus) {
+                    <span>{{i18n.t('runs.investigation.status.' + msg.evaluationStatus)}}</span>
+                  }
                   @if (msg.evaluation) {
                     <span class="font-mono text-emerald-500 dark:text-emerald-400">
-                      · {{ msg.evaluation.composite_score.toFixed(1) }}/100
+                      · {{ (msg.evaluation.composite_score?.toFixed(1) ?? '—') }}/100
                     </span>
                   }
                   <a
-                    [navLink]="{ surface: 'runs' }"
+                    [navLink]="msg.runId ? { type: 'run', ref: msg.runId } : { surface: 'runs' }"
                     class="ml-auto text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
                   >
                     <app-icon name="git-commit" [size]="11" />
                     {{ i18n.t('chat.summary.runs_link') }}
                   </a>
                   <a
-                    [navLink]="{ surface: 'observability' }"
+                    [navLink]="msg.runId ? { type: 'run', ref: msg.runId } : { surface: 'observability' }"
                     class="text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
                   >
                     <app-icon name="activity" [size]="11" />
@@ -1702,7 +1706,7 @@ const STEP_ICONS: Record<string, string> = {
                 }
                 @if (!isDemoMode() && msg.evaluation) {
                   <span class="ml-auto font-mono text-[10px] text-emerald-400"
-                    >{{ i18n.t('chat.audit.score', { value: msg.evaluation.composite_score.toFixed(1) }) }}</span
+                    >{{ i18n.t('chat.audit.score', { value: (msg.evaluation.composite_score?.toFixed(1) ?? '—') }) }}</span
                   >
                 }
               </div>
@@ -6906,10 +6910,11 @@ export class ChatPanelComponent implements AfterViewInit {
         next: (res) => {
           if (!this.isChatContinuationCurrent(scope, generation)) return;
           if (!res) return; // network hiccup — stop quietly
-          if (res.status === 'pending') {
+          if (['pending', 'queued', 'running'].includes(res.status)) {
             this.scheduleChatPoll(tick, 1500, scope, generation);
             return;
           }
+          this.messages.update(messages => messages.map(message => message.runId === runId ? {...message, evaluationStatus: res.status} : message));
           if (res.status === 'skipped') return;
           if (res.status === 'completed' && res.breach) {
             this.showBreachToast(res);
@@ -7154,7 +7159,7 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   private showBreachToast(res: {
-    composite_score?: number;
+    composite_score?: number | null;
     reasons?: Array<{ metric: string }>;
     decision_id?: string | null;
     run_id: string;

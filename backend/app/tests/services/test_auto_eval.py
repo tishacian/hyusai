@@ -260,7 +260,7 @@ def test_evaluate_run_disabled_is_noop(db_session, monkeypatch):
     result = asyncio.run(
         auto_eval.evaluate_run_async(run.id)
     )
-    assert result is None
+    assert result["status"] == "skipped"
 
     row = (
         db_session.query(EvaluationScore)
@@ -269,7 +269,8 @@ def test_evaluate_run_disabled_is_noop(db_session, monkeypatch):
     )
     assert row is None
     refreshed = db_session.query(Run).filter(Run.id == run.id).first()
-    assert refreshed.evaluation_scores is None
+    db_session.refresh(refreshed)
+    assert refreshed.evaluation_scores["reason"] == "preset_disabled"
 
 
 def test_evaluate_run_passes_through_judge_no_breach(db_session, monkeypatch):
@@ -330,19 +331,6 @@ def test_evaluate_run_files_review_decision_on_breach(db_session, monkeypatch):
         lambda: stub,
     )
 
-    async def _suggestion(**kwargs):
-        return {
-            "action_type": "rerun_with_overrides",
-            "title": "Retry with grounding",
-            "overrides": {"rag_pipeline_mode": "hybrid"},
-            "source": "test",
-        }
-
-    monkeypatch.setattr(
-        "app.services.evaluation.auto_eval.generate_active_suggestion",
-        _suggestion,
-    )
-
     override = dict(DEFAULT_EVAL_CONFIG)
     override["enabled"] = True
 
@@ -369,7 +357,7 @@ def test_evaluate_run_files_review_decision_on_breach(db_session, monkeypatch):
     assert decision.workspace_id == refreshed.workspace_id
     assert "reasons" in decision.rationale
     assert decision.rationale["composite_score"] == 40.0
-    assert decision.rationale["active_suggestion"]["action_type"] == "rerun_with_overrides"
+    assert decision.rationale["active_suggestion"] == {}
 
 
 def test_evaluate_run_skips_non_completed(db_session, monkeypatch):
@@ -428,8 +416,9 @@ def test_evaluate_run_swallows_judge_exception(db_session, monkeypatch):
     result = asyncio.run(
         auto_eval.evaluate_run_async(run.id, preset_override={"enabled": True})
     )
-    assert result is None
+    assert result["status"] == "failed"
 
     refreshed = db_session.query(Run).filter(Run.id == run.id).first()
     # No scores written (we fail before persisting)
-    assert refreshed.evaluation_scores is None
+    db_session.refresh(refreshed)
+    assert refreshed.evaluation_scores["reason"] == "judge_unavailable"

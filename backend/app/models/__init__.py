@@ -106,3 +106,6 @@ __all__ = [
     "WorkspaceAppInstallation", "WorkspaceAppOperation",
     "WorkspaceAppLifecycleStepReceipt",
 ]
+
+from app.models.evaluation_correction import EvaluationCorrection
+from app.models.evaluation_campaign import EvaluationSuite, EvaluationCampaign

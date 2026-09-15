@@ -741,6 +741,9 @@ def compile_execution_contract(
         if not node_id:
             continue
         config = node.get("config") if isinstance(node.get("config"), Mapping) else {}
+        if "prompt_template_override" in config:
+            if not (binding.skill_id or binding.skill_slug):
+                raise FlowContractError(code="node_override_unsupported", message="Template overrides require an authored Skill.", path=f"nodes/{node_id}/config/prompt_template_override")
         kind = _ingress_kind(node)
         if kind:
             if node_id in inbound_node_ids:
@@ -853,8 +856,16 @@ def compile_execution_contract(
             # published node that resolved it live would change behaviour on an
             # edit to the catalog with no new version. Freeze the binding; the
             # edit reaches production only through the next Publish.
+            if "prompt_template_override" in config and (
+                not isinstance(skill.executor, Mapping) or skill.workspace_id != workspace_id
+            ):
+                raise FlowContractError(code="node_override_unsupported", message="Template overrides require a workspace-owned authored Skill.", path=f"nodes/{node_id}/config/prompt_template_override")
             if isinstance(skill.executor, Mapping):
-                frozen_executor = copy.deepcopy(dict(skill.executor))
+                from app.services.flow_node_overrides import override_executor
+                try:
+                    frozen_executor = override_executor(dict(skill.executor), config)
+                except ValueError as exc:
+                    raise FlowContractError(code="node_override_invalid", message=str(exc), path=f"nodes/{node_id}/config/prompt_template_override") from exc
                 node_contracts[node_id].update(
                     {
                         "executor": frozen_executor,

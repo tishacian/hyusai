@@ -1,0 +1,66 @@
+[
+  {
+    "name": "quality",
+    "theme": "light",
+    "locale": "fr",
+    "url": "http://127.0.0.1:4205/observability/quality",
+    "errors": [],
+    "fixture": true
+  },
+  {
+    "name": "investigation",
+    "theme": "light",
+    "locale": "fr",
+    "url": "http://127.0.0.1:4205/runs/run-9?claim=0",
+    "errors": [],
+    "fixture": true
+  },
+  {
+    "name": "quality",
+    "theme": "light",
+    "locale": "en",
+    "url": "http://127.0.0.1:4205/observability/quality",
+    "errors": [],
+    "fixture": true
+  },
+  {
+    "name": "investigation",
+    "theme": "light",
+    "locale": "en",
+    "url": "http://127.0.0.1:4205/runs/run-9?claim=0",
+    "errors": [],
+    "fixture": true
+  },
+  {
+    "name": "quality",
+    "theme": "dark",
+    "locale": "fr",
+    "url": "http://127.0.0.1:4205/observability/quality",
+    "errors": [],
+    "fixture": true
+  },
+  {
+    "name": "investigation",
+    "theme": "dark",
+    "locale": "fr",
+    "url": "http://127.0.0.1:4205/runs/run-9?claim=0",
+    "errors": [],
+    "fixture": true
+  },
+  {
+    "name": "quality",
+    "theme": "dark",
+    "locale": "en",
+    "url": "http://127.0.0.1:4205/observability/quality",
+    "errors": [],
+    "fixture": true
+  },
+  {
+    "name": "investigation",
+    "theme": "dark",
+    "locale": "en",
+    "url": "http://127.0.0.1:4205/runs/run-9?claim=0",
+    "errors": [],
+    "fixture": true
+  }
+]

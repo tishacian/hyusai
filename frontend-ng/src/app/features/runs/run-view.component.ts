@@ -34,6 +34,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/workspace-view-context';
 import { recordedModelExecution } from '@app/core/model-catalog';
+import { RunInvestigationComponent } from './run-investigation.component';
 import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
 
 @Component({
@@ -54,8 +55,10 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
     CkTabComponent,
     ObjectPerspectiveComponent,
     ModelExecutionComponent,
+    RunInvestigationComponent,
   ],
   template: `
+
     @if (projectionEnabled()) {
       <ck-object-header
         [eyebrow]="objectEyebrow(i18n.t('runs.detail.eyebrow'))"
@@ -78,6 +81,7 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
           </button>
         </div>
       </ck-object-header>
+    @if (run(); as currentRun) { <app-run-investigation [run]="currentRun" /> }
 
       <ck-tabs [active]="activePerspectiveTab()" (activeChange)="onPerspectiveTabChange($event)" [ariaLabel]="i18n.t('runs.detail.facets_aria')">
         <ck-tab id="overview" [label]="i18n.t('runs.detail.tab.overview')">
@@ -171,6 +175,7 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
           [description]="i18n.t('runs.detail.not_found.description')"
         />
       } @else {
+        <app-run-investigation [run]="run()!" />
         <!-- Canonical Outcome card — value / cost / confidence / efficiency + decision. -->
         <div class="mb-6">
           <ck-run-outcome-card [run]="run()!" />

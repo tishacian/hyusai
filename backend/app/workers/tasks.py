@@ -944,3 +944,21 @@ def scheduler_tick_task() -> dict:
     from app.services.run_engine.scheduler import scheduler_tick
 
     return scheduler_tick()
+
+
+@celery_app.task(name="agentium.run_evaluation", acks_late=True, reject_on_worker_lost=True)
+def run_evaluation(job_id: str) -> dict:
+    from app.services.evaluation.lifecycle import run_evaluation_job
+    return run_evaluation_job(job_id)
+
+
+@celery_app.task(name="agentium.evaluation_campaign", acks_late=True, reject_on_worker_lost=True)
+def evaluation_campaign(job_id: str) -> dict:
+    from app.services.evaluation.campaigns import run_campaign_job
+    return run_campaign_job(job_id)
+
+
+@celery_app.task(name="agentium.evaluation_generation", acks_late=True, reject_on_worker_lost=True)
+def evaluation_generation(job_id: str) -> dict:
+    from app.services.evaluation.campaigns import run_generation_job
+    return run_generation_job(job_id)
