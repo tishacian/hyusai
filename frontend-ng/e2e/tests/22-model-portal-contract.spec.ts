@@ -51,7 +51,7 @@ async function setup(page: Page, options: { admin?: boolean; routingError?: bool
 }
 
 test('provider-aware catalogue, saved Azure metadata, explicit connection check and Skill link', async ({ page }, info) => {
-  const h = await setup(page); await page.setViewportSize({ width: 1440, height: 1000 }); await page.goto('/resources');
+  const h = await setup(page); await page.setViewportSize({ width: 1440, height: 1000 }); await page.goto('/resources?lens=govern');
   const app = page.locator('app-resources-page'); await expect(app.getByText('gpt-mini', { exact: true }).first()).toBeVisible();
   await expect(app.getByText('embed-only', { exact: true })).toHaveCount(0);
   await expect(app.getByText('Configured in Systems:')).toBeVisible();
@@ -59,8 +59,12 @@ test('provider-aware catalogue, saved Azure metadata, explicit connection check 
   const row = app.locator('li').filter({ hasText: 'gpt-mini' }).first();
   const skill = row.getByRole('link', { name: 'Use in a Skill', exact: true });
   await expect(skill).toHaveAttribute('href', /provider=openai/); await expect(skill).toHaveAttribute('href', /model=gpt-mini/); await expect(skill).toHaveAttribute('href', /modelWorkspace=workspace-portal/);
+  const skillUrl = new URL((await skill.getAttribute('href'))!, page.url());
+  expect(skillUrl.pathname).toBe('/skills'); expect(skillUrl.searchParams.get('lens')).toBe('govern');
   await page.screenshot({ path: info.outputPath('catalog-desktop.png'), fullPage: true });
   await row.getByRole('button', { name: 'Test in a System', exact: true }).click();
+  const invocationUrl = new URL((await app.getByRole('link', { name: 'Open invocation inv-port' }).getAttribute('href'))!, page.url());
+  expect(invocationUrl.pathname).toBe('/runs/run-portal/invocations/inv-portal'); expect(invocationUrl.searchParams.get('lens')).toBe('govern');
   const routing = app.locator('section').filter({ has: page.getByRole('heading', { name: 'Workspace routing', exact: true }) });
   const selects = routing.getByRole('combobox'); await expect(selects.nth(0)).toHaveValue('openai'); await expect(selects.nth(1)).toHaveValue('gpt-mini');
   await selects.nth(0).selectOption('ollama'); await expect(selects.nth(1)).toHaveValue('');
@@ -111,6 +115,7 @@ test('no matching test node offers a Skill entry without privileged generation',
   await page.locator('app-resources-page li').filter({ hasText: 'gpt-mini' }).first().getByRole('button', { name: 'Test in a System' }).click();
   const panel = page.locator('#model-system-test'); await expect(panel.getByText(/No compatible node/)).toBeVisible();
   await expect(panel.getByRole('link', { name: 'Use in a Skill' })).toHaveAttribute('href', /create=llm/);
+  expect(new URL((await panel.getByRole('link', { name: 'Use in a Skill' }).getAttribute('href'))!, page.url()).pathname).toBe('/skills');
   await expect(panel.getByRole('button', { name: 'Run test' })).toHaveCount(0); expect(h.calls.some((c) => c.path === '/models/test')).toBe(false);
 });
 

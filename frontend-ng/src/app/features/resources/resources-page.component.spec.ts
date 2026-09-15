@@ -2,7 +2,7 @@ import '@angular/compiler';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Injector, ɵAfterRenderManager, ɵChangeDetectionScheduler, ɵEffectScheduler } from '@angular/core';
-import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
+import { ActivatedRoute, DefaultUrlSerializer, Router, convertToParamMap } from '@angular/router';
 import { of, Subject, throwError } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
@@ -34,7 +34,9 @@ class WorkspaceStub {
     this.resetters.forEach((reset) => reset(t)); this.epoch++;
   }
 }
-function harness() {
+function harness(skillsSurfaceUrl = '/skills') {
+  const serializer = new DefaultUrlSerializer();
+  const contextQuery = skillsSurfaceUrl.includes('?') ? skillsSurfaceUrl.slice(skillsSurfaceUrl.indexOf('?')) : '';
   const workspace = new WorkspaceStub();
   const calls: Array<{ method: string; path: string; body?: unknown }> = [];
   const responses = new Map<string, unknown>([
@@ -58,7 +60,10 @@ function harness() {
     { provide: WorkspaceService, useValue: workspace }, { provide: I18nService, useValue: { t: (key: string) => EN_DICT[key as keyof typeof EN_DICT] ?? key } },
     { provide: ToastrService, useValue: { success() {}, error() {}, info() {} } }, { provide: Router, useValue: { navigate: async () => true } },
     { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({}) } } },
-    { provide: ZoomContextService, useValue: { surfaceUrl: () => '/skills', objectUrl: (_t: string, id: string, opts: { runId: string }) => `/runs/${opts.runId}/invocations/${id}` } },
+    { provide: ZoomContextService, useValue: {
+      surfaceUrlTree: () => serializer.parse(skillsSurfaceUrl),
+      objectUrlTree: (_t: string, id: string, opts: { runId: string }) => serializer.parse(`/runs/${opts.runId}/invocations/${id}${contextQuery}`),
+    } },
     { provide: ɵAfterRenderManager, useValue: { impl: { register() {}, unregister() {} } } },
     { provide: ɵChangeDetectionScheduler, useValue: { notify() {}, runningTick: false } },
     { provide: ɵEffectScheduler, useValue: { add() {}, schedule() {}, flush() {}, remove() {} } },
@@ -202,5 +207,27 @@ test('a slow canonical Run read is allowed to finish without polling cancellatio
     await new Promise((resolve) => setTimeout(resolve, 1100)); assert.equal(reads, 1);
     slow.next({ id: 'run-1', status: 'completed' }); slow.complete();
     assert.equal(h.component.testRun()?.status, 'completed'); assert.equal(h.component.testRunning(), false);
+  } finally { h.close(); }
+});
+
+
+test('Skill creation keeps Govern context and model parameters in the query, not the route path', () => {
+  const h = harness('/skills?lens=govern&capabilityId=cap-a'); try {
+    const tree = h.component.skillsUrl(openai);
+    const url = new URL(new DefaultUrlSerializer().serialize(tree), 'https://agentium.test');
+    assert.equal(url.pathname, '/skills');
+    assert.deepEqual(Object.fromEntries(url.searchParams), {
+      lens: 'govern', capabilityId: 'cap-a', provider: 'openai', model: 'gpt-mini',
+      create: 'llm', modelWorkspace: 'workspace-1',
+    });
+  } finally { h.close(); }
+});
+
+test('invocation evidence links preserve Govern as a query parameter', () => {
+  const h = harness('/skills?lens=govern'); try {
+    const tree = h.component.invocationUrl('run-1', 'invocation-1');
+    const url = new URL(new DefaultUrlSerializer().serialize(tree), 'https://agentium.test');
+    assert.equal(url.pathname, '/runs/run-1/invocations/invocation-1');
+    assert.equal(url.searchParams.get('lens'), 'govern');
   } finally { h.close(); }
 });
