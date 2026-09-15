@@ -160,6 +160,22 @@ function upload(component: ChatWorkspaceComponent, files: FileList): void {
   (component as unknown as { uploadFiles(value: FileList): void }).uploadFiles(files);
 }
 
+test('session documents can be collapsed and expanded in the full workspace', () => {
+  const { injector, component } = makeHarness();
+  try {
+    assert.equal(component.inline(), false);
+    assert.equal(component.dropOpen(), true);
+
+    component.toggleSessionDocs();
+    assert.equal(component.dropOpen(), false);
+
+    component.toggleSessionDocs();
+    assert.equal(component.dropOpen(), true);
+  } finally {
+    injector.destroy();
+  }
+});
+
 test('a late upload response from A cannot start an ephemeral context in B', async () => {
   const { injector, component, workspace, http, canonical } = makeHarness();
   try {

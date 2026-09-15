@@ -196,7 +196,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       <div class="t-body">
         <!-- Drop-and-ask sidebar -->
         @if (chatUploadEnabled() && (!executiveAssistant() || startMode() === 'drop' || sessionDocs().length > 0)) {
-        <aside class="t-sidebar" [class.t-sidebar-collapsed]="!dropOpen() && inline()">
+        <aside class="t-sidebar" [class.t-sidebar-collapsed]="!dropOpen()">
           <div class="t-sidebar-head">
             <span class="ck-mono t-sidebar-eyebrow">
               {{ i18n.t('chat.workspace.session_docs') }}
@@ -207,19 +207,22 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                 <app-icon name="info" [size]="10" />
               </span>
             </span>
-            @if (inline()) {
-              <button
-                type="button"
-                class="t-mini-btn"
-                (click)="dropOpen.set(!dropOpen())"
-                [title]="dropOpen() ? i18n.t('chat.workspace.dropzone_collapse') : i18n.t('chat.workspace.dropzone_expand')"
-              >
-                <app-icon [name]="dropOpen() ? 'chevron-up' : 'chevron-down'" [size]="12" />
-              </button>
-            }
+            <button
+              type="button"
+              class="t-mini-btn"
+              (click)="toggleSessionDocs()"
+              [attr.aria-expanded]="dropOpen()"
+              [attr.aria-label]="dropOpen() ? i18n.t('chat.workspace.dropzone_collapse') : i18n.t('chat.workspace.dropzone_expand')"
+              [title]="dropOpen() ? i18n.t('chat.workspace.dropzone_collapse') : i18n.t('chat.workspace.dropzone_expand')"
+            >
+              <app-icon
+                [name]="inline() ? (dropOpen() ? 'chevron-up' : 'chevron-down') : (dropOpen() ? 'chevron-left' : 'chevron-right')"
+                [size]="13"
+              />
+            </button>
           </div>
 
-          @if (dropOpen() || !inline()) {
+          @if (dropOpen()) {
             <!-- Dropzone -->
             <div
               class="t-dropzone"
@@ -566,6 +569,18 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       overflow-y: auto;
       background: var(--ck-tint-faint);
     }
+    .t-sidebar.t-sidebar-collapsed {
+      width: 48px;
+      flex-basis: 48px;
+      padding: 12px 9px;
+      overflow: hidden;
+    }
+    .t-sidebar-collapsed .t-sidebar-head {
+      justify-content: center;
+    }
+    .t-sidebar-collapsed .t-sidebar-eyebrow {
+      display: none;
+    }
     /* In inline (overlay) mode the sidebar stacks above the chat. */
     .t-inline .t-body {
       flex-direction: column;
@@ -584,9 +599,18 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       gap: 8px;
       overflow-y: auto;
     }
-    .t-inline .t-sidebar-collapsed {
+    .t-inline .t-sidebar.t-sidebar-collapsed {
+      width: 100%;
+      flex: 0 0 auto;
       padding: 6px 12px;
       max-height: none;
+      overflow: visible;
+    }
+    .t-inline .t-sidebar-collapsed .t-sidebar-head {
+      justify-content: space-between;
+    }
+    .t-inline .t-sidebar-collapsed .t-sidebar-eyebrow {
+      display: inline-flex;
     }
     /* Guarantee the chat pane always keeps a viable slice of the panel
        even when session docs expand, so the input bar stays reachable. */
@@ -607,12 +631,25 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
     .t-mini-btn {
       background: transparent;
       border: 1px solid var(--ck-stroke-2);
-      border-radius: 3px;
+      border-radius: 6px;
       color: var(--ck-fg-3);
-      padding: 2px 4px;
+      width: 28px;
+      height: 28px;
+      padding: 0;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
+      justify-content: center;
+      transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+    }
+    .t-mini-btn:hover {
+      color: var(--ck-fg-1);
+      border-color: var(--ck-stroke-hot);
+      background: var(--ck-tint-soft);
+    }
+    .t-mini-btn:focus-visible {
+      outline: 2px solid var(--ck-signal-cool);
+      outline-offset: 2px;
     }
     .t-dropzone {
       position: relative;
@@ -1029,6 +1066,10 @@ export class ChatWorkspaceComponent implements OnInit {
       this.dropOpen.set(false);
     }
     this.loadSystems();
+  }
+
+  toggleSessionDocs(): void {
+    this.dropOpen.update((open) => !open);
   }
 
   private loadSystems(): void {
