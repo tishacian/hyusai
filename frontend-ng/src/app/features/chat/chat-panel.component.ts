@@ -1198,6 +1198,8 @@ const STEP_ICONS: Record<string, string> = {
                       type="button"
                       data-cite-chip
                       class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono font-semibold bg-cyan-500/15 text-cyan-500 dark:text-cyan-300 hover:bg-cyan-500/30 hover:text-cyan-200 transition ring-1 ring-cyan-500/30 cursor-pointer"
+                      [attr.aria-label]="citationAriaLabelForSources(sources, tok.n)"
+                      [attr.aria-pressed]="isSourceFocused(sourceHostId || msg.id, tok.n)"
                       [title]="citationTooltipForSources(sources, tok.n)"
                       (click)="gotoSourceTarget(msg, tok.n, sourceHostId || msg.id, openDirectSources !== false)"
                     >
@@ -1323,6 +1325,8 @@ const STEP_ICONS: Record<string, string> = {
                   <button
                     type="button"
                     class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-gray-500 hover:text-gray-300 font-semibold"
+                    [attr.aria-expanded]="isSourcesOpen(msg.id)"
+                    [attr.aria-controls]="sourceListDomId(msg.id)"
                     (click)="toggleSources(msg.id)"
                   >
                     <app-icon
@@ -1333,74 +1337,97 @@ const STEP_ICONS: Record<string, string> = {
                     {{ i18n.t('chat.sources.toggle', { count: msg.sources.length }) }}
                   </button>
                   @if (isSourcesOpen(msg.id)) {
-                    <ol class="space-y-1.5 pl-1">
-                      @for (src of msg.sources; track $index; let i = $index) {
-                        <li
-                          [id]="sourceDomId(msg.id, i + 1)"
-                          [class]="isSourceCited(msg, i + 1)
-                            ? 'rounded-md px-3 py-2 text-[12px] transition-all bg-cyan-500/10 ring-1 ring-cyan-500/25'
-                            : 'rounded-md px-3 py-2 text-[12px] transition-all bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5 opacity-70'"
-                          [attr.aria-label]="isSourceCited(msg, i + 1) ? i18n.t('chat.sources.cited_aria') : i18n.t('chat.sources.uncited_aria')"
+                    @if (focusedSourceIndex(msg.id); as focusedIndex) {
+                      <div
+                        class="flex flex-wrap items-center gap-x-2 gap-y-1 pl-1 text-[11px] text-gray-500"
+                        aria-live="polite"
+                      >
+                        <span class="font-medium text-cyan-500 dark:text-cyan-300">
+                          {{ i18n.t('chat.sources.focused', { index: focusedIndex, count: msg.sources.length }) }}
+                        </span>
+                        <span class="h-3 w-px bg-gray-300 dark:bg-white/10" aria-hidden="true"></span>
+                        <button
+                          type="button"
+                          class="rounded px-1 py-0.5 font-medium text-gray-600 underline decoration-gray-400/60 underline-offset-2 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/60 dark:text-gray-400 dark:hover:text-gray-100"
+                          (click)="showAllSources(msg.id)"
                         >
-                          <div class="flex items-center gap-2 mb-0.5">
-                            <span
-                              [class]="isSourceCited(msg, i + 1)
-                                ? 'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-cyan-500/25 text-cyan-400'
-                                : 'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-white/5 text-gray-400'"
-                            >
-                              {{ i + 1 }}
-                            </span>
-                            @if (!isSourceCited(msg, i + 1)) {
+                          {{ i18n.t('chat.sources.show_all', { count: msg.sources.length }) }}
+                        </button>
+                      </div>
+                    }
+                    <ol [id]="sourceListDomId(msg.id)" class="space-y-1.5 pl-1">
+                      @for (src of msg.sources; track $index; let i = $index) {
+                        @if (isSourceVisible(msg.id, i + 1)) {
+                          <li
+                            [id]="sourceDomId(msg.id, i + 1)"
+                            [class]="isSourceCited(msg, i + 1)
+                              ? 'rounded-md px-3 py-2 text-[12px] transition-all bg-cyan-500/10 ring-1 ring-cyan-500/25'
+                              : 'rounded-md px-3 py-2 text-[12px] transition-all bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5 opacity-70'"
+                            [attr.aria-current]="isSourceFocused(msg.id, i + 1) ? 'true' : null"
+                            [attr.aria-label]="isSourceCited(msg, i + 1) ? i18n.t('chat.sources.cited_aria') : i18n.t('chat.sources.uncited_aria')"
+                          >
+                            <div class="flex items-center gap-2 mb-0.5">
                               <span
-                                class="text-[9px] uppercase tracking-wider text-gray-500 font-mono shrink-0"
-                                [title]="i18n.t('chat.sources.uncited_hint')"
+                                [class]="isSourceCited(msg, i + 1)
+                                  ? 'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-cyan-500/25 text-cyan-400'
+                                  : 'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-white/5 text-gray-400'"
                               >
-                                {{ i18n.t('chat.sources.uncited') }}
+                                {{ i + 1 }}
+                              </span>
+                              @if (!isSourceCited(msg, i + 1)) {
+                                <span
+                                  class="text-[9px] uppercase tracking-wider text-gray-500 font-mono shrink-0"
+                                  [title]="i18n.t('chat.sources.uncited_hint')"
+                                >
+                                  {{ i18n.t('chat.sources.uncited') }}
+                                </span>
+                              }
+                              <span class="font-medium text-gray-900 dark:text-white truncate">
+                                {{ sourceTitle(src) }}
+                              </span>
+                              @if (sourceLocator(src); as loc) {
+                                <span
+                                  class="font-mono text-[10px] text-cyan-400/80 shrink min-w-0 max-w-[14rem] truncate"
+                                  [title]="loc.tooltip"
+                                >
+                                  · {{ loc.label }}
+                                </span>
+                              }
+                              @if (sourceCollection(src); as col) {
+                                <span
+                                  class="text-[9px] uppercase tracking-wider text-gray-500 font-mono shrink-0"
+                                >
+                                  {{ col }}
+                                </span>
+                              }
+                              @if (src.score != null) {
+                                <span
+                                  class="ml-auto font-mono text-[10px] text-emerald-500 dark:text-emerald-400 shrink-0"
+                                >
+                                  {{ scoreDisplay(src.score) }}
+                                </span>
+                              }
+                              @if (canPreviewSource(src)) {
+                                <button
+                                  type="button"
+                                  class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-cyan-300 hover:bg-white/5 transition"
+                                  [class.ml-auto]="src.score == null"
+                                  [title]="i18n.t('chat.sources.preview')"
+                                  (click)="previewSource(src); $event.stopPropagation()"
+                                >
+                                  <app-icon name="eye" [size]="12" />
+                                </button>
+                              }
+                            </div>
+                            @if (sourceSnippet(src); as snippet) {
+                              <span
+                                class="block text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-3"
+                              >
+                                {{ snippet }}
                               </span>
                             }
-                            <span class="font-medium text-gray-900 dark:text-white truncate">
-                              {{ sourceTitle(src) }}
-                            </span>
-                            @if (sourceLocator(src); as loc) {
-                              <span
-                                class="font-mono text-[10px] text-cyan-400/80 shrink min-w-0 max-w-[14rem] truncate"
-                                [title]="loc.tooltip"
-                              >
-                                · {{ loc.label }}
-                              </span>
-                            }
-                            @if (sourceCollection(src); as col) {
-                              <span
-                                class="text-[9px] uppercase tracking-wider text-gray-500 font-mono shrink-0"
-                              >
-                                {{ col }}
-                              </span>
-                            }
-                            @if (src.score != null) {
-                              <span
-                                class="ml-auto font-mono text-[10px] text-emerald-500 dark:text-emerald-400 shrink-0"
-                              >
-                                {{ scoreDisplay(src.score) }}
-                              </span>
-                            }
-                            @if (canPreviewSource(src)) {
-                              <button
-                                type="button"
-                                class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-cyan-300 hover:bg-white/5 transition"
-                                [class.ml-auto]="src.score == null"
-                                [title]="i18n.t('chat.sources.preview')"
-                                (click)="previewSource(src); $event.stopPropagation()"
-                              >
-                                <app-icon name="eye" [size]="12" />
-                              </button>
-                            }
-                          </div>
-                          @if (sourceSnippet(src); as snippet) {
-                            <p class="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-3">
-                              {{ snippet }}
-                            </p>
-                          }
-                        </li>
+                          </li>
+                        }
                       }
                     </ol>
                   }
@@ -3975,6 +4002,7 @@ export class ChatPanelComponent implements AfterViewInit {
 
   private readonly openTrails = signal<Set<string>>(new Set());
   private readonly openSources = signal<Set<string>>(new Set());
+  private readonly focusedSources = signal<Map<string, number>>(new Map());
 
   // Source document preview (reuses the shared Knowledge/SFTP viewer drawer).
   readonly sourcePreviewOpen = signal(false);
@@ -4464,6 +4492,8 @@ export class ChatPanelComponent implements AfterViewInit {
     this.activeChatSessionId.set(null);
     this.chatSessionSearch.set('');
     this.messages.set([]);
+    this.openSources.set(new Set());
+    this.focusedSources.set(new Map());
     this.streaming.set(false);
     this.streamBuffer.set('');
     this.liveSteps.set([]);
@@ -5059,6 +5089,37 @@ export class ChatPanelComponent implements AfterViewInit {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     this.openSources.set(next);
+    this.showAllSources(id);
+  }
+
+  sourceListDomId(sourceHostId: string): string {
+    return `msg-${sourceHostId}-sources`;
+  }
+
+  focusedSourceIndex(sourceHostId: string): number | null {
+    return this.focusedSources().get(sourceHostId) ?? null;
+  }
+
+  isSourceFocused(sourceHostId: string, index1Based: number): boolean {
+    return this.focusedSourceIndex(sourceHostId) === index1Based;
+  }
+
+  isSourceVisible(sourceHostId: string, index1Based: number): boolean {
+    const focused = this.focusedSourceIndex(sourceHostId);
+    return focused === null || focused === index1Based;
+  }
+
+  focusSource(sourceHostId: string, index1Based: number): void {
+    const next = new Map(this.focusedSources());
+    next.set(sourceHostId, index1Based);
+    this.focusedSources.set(next);
+  }
+
+  showAllSources(sourceHostId: string): void {
+    if (!this.focusedSources().has(sourceHostId)) return;
+    const next = new Map(this.focusedSources());
+    next.delete(sourceHostId);
+    this.focusedSources.set(next);
   }
 
   // ─── Evaluation step expand/render helpers ──────────────────────────
@@ -5523,10 +5584,17 @@ export class ChatPanelComponent implements AfterViewInit {
     return loc ? `${title} · ${loc.label}` : title;
   }
 
+  citationAriaLabelForSources(sources: Source[] | undefined | null, n: number): string {
+    return this.i18n.t('chat.citation.open_aria', {
+      n,
+      title: this.citationTooltipForSources(sources, n),
+    });
+  }
+
   /**
-   * Open the sources panel for this message and scroll the clicked
-   * citation target into view with a brief highlight ring. Defensive:
-   * no-op if the citation index is out of bounds.
+   * Open the sources panel in a focused evidence state and scroll the clicked
+   * citation into view. The full retrieval list remains one explicit action
+   * away, so a citation click never floods the answer with unrelated rows.
    */
   gotoSource(msg: ChatMessage, n: number): void {
     this.gotoSourceTarget(msg, n, msg.id, true);
@@ -5538,7 +5606,14 @@ export class ChatPanelComponent implements AfterViewInit {
       : msg.sources;
     if (!this.isValidCitationForSources(sources, n)) return;
     this.adoptionInteraction.emit({step:'source'});
-    if (openDirectSources && !this.isSourcesOpen(msg.id)) this.toggleSources(msg.id);
+    if (openDirectSources) {
+      this.focusSource(sourceHostId, n);
+      if (!this.isSourcesOpen(msg.id)) {
+        const next = new Set(this.openSources());
+        next.add(msg.id);
+        this.openSources.set(next);
+      }
+    }
     setTimeout(() => {
       const el = document.getElementById(this.sourceDomId(sourceHostId, n));
       if (!el) return;
