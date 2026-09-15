@@ -494,6 +494,7 @@ async def test_an_llm_node_downstream_of_a_scoring_node_still_calls_a_model(monk
     The run failed at the last node with an error that pointed at the prompt.
     """
 
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-test-key")
     calls: list[dict] = []
 
     class _Client:
@@ -537,6 +538,7 @@ async def test_an_llm_node_downstream_of_a_scoring_node_still_calls_a_model(monk
 async def test_a_configured_model_name_is_still_honoured(monkeypatch):
     """The guard drops objects, not choices: a named model still reaches the client."""
 
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-test-key")
     calls: list[dict] = []
 
     class _Client:

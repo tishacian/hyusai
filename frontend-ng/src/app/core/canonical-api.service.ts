@@ -3,6 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Observable, catchError, map, of, throwError } from 'rxjs';
 import { ApiService } from './api.service';
 import type { ObjectLens } from './navigation.catalog';
+import type { ModelCatalogEntry, ModelResolution } from './model-catalog';
 import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
 
 /** Canonical mental-model types — kept flat and permissive so the UI can
@@ -217,6 +218,7 @@ export interface SkillInvocation {
   status?: 'completed' | 'failed' | 'pending' | 'running' | 'cancelled';
   latency_ms?: number;
   cost?: number;
+  cost_measured?: boolean;
   input_ref?: Record<string, unknown>;
   output_ref?: Record<string, unknown>;
   metrics?: Record<string, unknown>;
@@ -1576,6 +1578,20 @@ export class CanonicalApiService {
    * infer a permission from an empty fallback. */
   getSkillExecutors(): Observable<SkillExecutorCatalog> {
     return this.api.get<SkillExecutorCatalog>('/skills/executors');
+  }
+
+  listModelCatalog(): Observable<ModelCatalogEntry[]> {
+    return this.api.get<ModelCatalogEntry[] | { models: ModelCatalogEntry[] }>('/models').pipe(
+      map((response) => this.unwrap<ModelCatalogEntry>(response, 'models')),
+    );
+  }
+
+  resolveModel(provider: string, model?: string, systemId?: string): Observable<ModelResolution> {
+    return this.api.get<ModelResolution>('/models/resolve', {
+      provider,
+      ...(model ? { model } : {}),
+      ...(systemId ? { system_id: systemId } : {}),
+    });
   }
 
   /** Authoring mutations never swallow their error: the backend's refusal names

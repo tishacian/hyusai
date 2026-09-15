@@ -2,7 +2,7 @@ import '@angular/compiler';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Injector } from '@angular/core';
-import { firstValueFrom, throwError } from 'rxjs';
+import { firstValueFrom, of, throwError } from 'rxjs';
 import { ApiService } from './api.service';
 import { CanonicalApiService } from './canonical-api.service';
 
@@ -65,4 +65,18 @@ test('listSystems preserves fallback compatibility but can fail closed for Studi
     firstValueFrom(systemsServiceFor(error).listSystems({ propagateErrors: true })),
     error,
   );
+});
+
+test('the shared model catalogue propagates failures and resolves with the explicit System context', async () => {
+  const calls: Array<[string, unknown]> = [];
+  const offline = new Error('catalogue unavailable');
+  const api = Injector.create({ providers: [CanonicalApiService, {
+    provide: ApiService, useValue: { get: (path: string, params?: unknown) => {
+      calls.push([path, params]);
+      return path === '/models' ? throwError(() => offline) : of({ provider: 'openai', model: 'gpt-example' });
+    } },
+  }] }).get(CanonicalApiService);
+  await assert.rejects(firstValueFrom(api.listModelCatalog()), offline);
+  await firstValueFrom(api.resolveModel('openai', 'gpt-example', 'system-a'));
+  assert.deepEqual(calls[1], ['/models/resolve', { provider: 'openai', model: 'gpt-example', system_id: 'system-a' }]);
 });

@@ -21,6 +21,7 @@ import {
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { NewSkillDialogComponent } from './new-skill-dialog.component';
 import { SkillsComponent } from './skills.component';
+import { type ModelCatalogEntry, recordedModelExecution } from '@app/core/model-catalog';
 
 const CATALOG: SkillExecutorCatalog = {
   editable: true,
@@ -93,6 +94,13 @@ class ApiStub {
   readonly created: SkillDraft[] = [];
   readonly patched: Array<[string, unknown]> = [];
   readonly responses: Array<Subject<Skill>> = [];
+  readonly modelReads: Array<Subject<ModelCatalogEntry[]>> = [];
+
+  listModelCatalog() {
+    const response = new Subject<ModelCatalogEntry[]>();
+    this.modelReads.push(response);
+    return response;
+  }
 
   createSkill(body: SkillDraft) {
     this.created.push(body);
@@ -111,18 +119,20 @@ class ApiStub {
 
 function dialog() {
   const api = new ApiStub();
+  const workspace = new WorkspaceStub();
   const injector = Injector.create({
     providers: [
       NewSkillDialogComponent,
       { provide: CanonicalApiService, useValue: api },
       { provide: I18nService, useValue: i18n },
+      { provide: WorkspaceService, useValue: workspace },
     ],
   });
   const view = injector.get(NewSkillDialogComponent);
   view.catalog = CATALOG;
   view.registryTargets = [AUDIT_LOG];
   view.capabilities = [TRIAGE];
-  return { view, api };
+  return { view, api, workspace };
 }
 
 function fillIdentity(view: NewSkillDialogComponent): void {
@@ -471,6 +481,7 @@ function registry(options: {
   pages?: Skill[][];
   capabilities?: Capability[];
   deletion?: unknown;
+  params?: Record<string, string>;
 }) {
   const pages = options.pages ?? [[AUDIT_LOG]];
   let call = 0;
@@ -491,7 +502,7 @@ function registry(options: {
         : of({ deleted: slug });
     },
   };
-  const params = new BehaviorSubject(convertToParamMap({}));
+  const params = new BehaviorSubject(convertToParamMap(options.params ?? {}));
   const workspace = new WorkspaceStub();
   const injector = Injector.create({
     providers: [
@@ -542,6 +553,90 @@ test('the New skill affordance appears only when the server grants skill.admin',
   denied.view.openImport();
   assert.equal(denied.view.importing(), false);
   denied.view.ngOnDestroy();
+});
+
+const TEXT_MODEL: ModelCatalogEntry = {
+  id: 'openai:gpt-example', provider: 'openai', model: 'gpt-example', name: 'gpt-example',
+  status: 'active', configured: true, discovered: true, runtime_available: true,
+  compatibility: 'text_generation', credential_source: 'workspace',
+};
+
+const MODEL_CATALOG: SkillExecutorCatalog = {
+  ...CATALOG,
+  executors: CATALOG.executors.map((entry) => entry.kind !== 'prompt_template' ? entry : {
+    ...entry, params_schema: { ...entry.params_schema, properties: {
+      ...entry.params_schema.properties,
+      provider: { enum: ['azure', 'openai', 'azure_openai', 'ollama', 'workspace'] },
+      model: { type: 'string', maxLength: 256 },
+    } },
+  }),
+};
+
+test('a Portal model seeds an executable prompt Skill, preserves its model and clears it on provider change', () => {
+  const { view, api } = dialog();
+  view.catalog = MODEL_CATALOG;
+  view.seed = { provider: 'openai', model: 'gpt-example', name: 'Summarise' };
+  view.localName.set('summarise');
+  assert.equal(view.param('provider'), 'openai');
+  assert.equal(view.param('model'), 'gpt-example');
+  assert.equal(view.param('template'), '{question}');
+  assert.deepEqual(view.outputSchema()?.['required'], ['completion']);
+  view.submit();
+  assert.deepEqual(api.created[0].executor.params, { provider: 'openai', template: '{question}', model: 'gpt-example' });
+  view.setParam('provider', 'azure_openai');
+  assert.equal(view.param('model'), '', 'a model from one provider cannot silently carry to another');
+});
+
+test('the Skill picker excludes non-generative and unconfigured models, and ignores stale workspace responses', () => {
+  const { view, api, workspace } = dialog();
+  view.catalog = MODEL_CATALOG;
+  view.selectKind('prompt_template');
+  view.setParam('provider', 'openai');
+  view.ngOnInit();
+  api.modelReads[0].next([
+    TEXT_MODEL,
+    { ...TEXT_MODEL, id: 'openai:embedding', model: 'embedding', compatibility: 'other' },
+    { ...TEXT_MODEL, id: 'openai:disabled', model: 'disabled', configured: false },
+  ]);
+  assert.deepEqual(view.providerModels().map((entry) => entry.model), ['gpt-example']);
+  view.loadModels();
+  workspace.switchWorkspace();
+  api.modelReads[1].next([{ ...TEXT_MODEL, model: 'must-not-appear-in-B' }]);
+  assert.equal(view.models().some((entry) => entry.model === 'must-not-appear-in-B'), false);
+  view.ngOnDestroy();
+});
+
+test('Portal authoring entry requires the current workspace and server authoring right', () => {
+  const params = { create: 'llm', provider: 'openai', model: 'gpt-example', modelWorkspace: 'ws-nawa' };
+  const own = registry({ executors: MODEL_CATALOG, params });
+  own.view.ngOnInit();
+  assert.equal(own.view.authoring(), true);
+  assert.deepEqual(own.view.draftSeed(), { provider: 'openai', model: 'gpt-example' });
+  own.view.closeDialog();
+  own.workspace.switchWorkspace();
+  assert.equal(own.view.authoring(), false);
+  own.view.ngOnDestroy();
+  for (const configuration of [
+    { executors: { ...MODEL_CATALOG, editable: false }, params },
+    { executors: MODEL_CATALOG, params: { ...params, modelWorkspace: 'ws-another' } },
+  ]) {
+    const denied = registry(configuration);
+    denied.view.ngOnInit();
+    assert.equal(denied.view.authoring(), false);
+    denied.view.ngOnDestroy();
+  }
+});
+
+test('Run model summaries use recorded resolution and never infer a provider from an arbitrary model name', () => {
+  assert.equal(recordedModelExecution({ output_ref: { model: 'gpt-example' } }), null);
+  assert.equal(recordedModelExecution({ trace: { model_resolution: { provider: 'openai', model: 'gpt-example' } } }), null);
+  assert.deepEqual(recordedModelExecution({ trace: { model_execution: {
+    provider: 'openai', model: 'gpt-example', returned_model: 'gpt-example-version',
+    credential_source: 'env', model_source: 'legacy_default', legacy_provider: 'azure', fallback: false,
+  } } }), {
+    provider: 'openai', model: 'gpt-example', returned_model: 'gpt-example-version',
+    credential_source: 'env', model_source: 'legacy_default', legacy_provider: 'azure', fallback: false,
+  });
 });
 
 test('an unknown authoring right fails closed rather than assuming an admin', () => {

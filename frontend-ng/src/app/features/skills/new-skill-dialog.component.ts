@@ -32,12 +32,15 @@ import {
   EventEmitter,
   HostListener,
   Input,
+  OnDestroy,
+  OnInit,
   Output,
   computed,
   inject,
   signal,
 } from '@angular/core';
 import { A11yModule } from '@angular/cdk/a11y';
+import { Subscription } from 'rxjs';
 import {
   CanonicalApiService,
   type Capability,
@@ -48,7 +51,10 @@ import {
 } from '@app/core/canonical-api.service';
 import type { I18nKey } from '@app/core/i18n.dict';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { catalogModelName, selectableTextModel, type ModelCatalogEntry } from '@app/core/model-catalog';
 import { GlyphComponent, HelpTooltipComponent } from '@app/shared/cockpit';
+import { SkillExecutionComponent } from './skill-execution.component';
 import { SchemaBuilderComponent } from '@app/shared/schema-builder/schema-builder.component';
 import {
   type ValueField,
@@ -62,7 +68,7 @@ export interface ExecutorParamField {
   key: string;
   label: string;
   required: boolean;
-  control: 'select' | 'registry_target' | 'preset_inputs' | 'json' | 'long_text' | 'text';
+  control: 'select' | 'model' | 'registry_target' | 'preset_inputs' | 'json' | 'long_text' | 'text';
   options: string[];
   maxLength: number | null;
 }
@@ -79,6 +85,8 @@ export interface SkillDraftSeed {
   name?: string;
   description?: string;
   category?: string | null;
+  provider?: string;
+  model?: string;
 }
 
 const STEPS = ['intent', 'contract', 'runtime', 'review'] as const;
@@ -91,7 +99,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
   selector: 'app-new-skill-dialog',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [A11yModule, GlyphComponent, HelpTooltipComponent, SchemaBuilderComponent],
+  imports: [A11yModule, GlyphComponent, HelpTooltipComponent, SchemaBuilderComponent, SkillExecutionComponent],
   template: `
     <div class="fixed inset-0 z-50 flex items-start justify-center p-6 overflow-auto">
       <div class="absolute inset-0" style="background:var(--ck-scrim);" (click)="dismiss()"></div>
@@ -237,7 +245,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                 <select [value]="category()" (change)="category.set(value($event))" class="ck-mono" [style]="inputStyle">
                   <option value="">{{ i18n.t('skills.field.category.none') }}</option>
                   @for (option of catalog.categories; track option) {
-                    <option [value]="option">{{ option }}</option>
+                    <option [value]="option" [selected]="category() === option">{{ option }}</option>
                   }
                 </select>
                 <span class="ck-mono" [style]="noteStyle">{{ i18n.t('skills.field.category.hint') }}</span>
@@ -255,7 +263,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                   >
                     <option value="">{{ i18n.t('skills.field.capability.none') }}</option>
                     @for (option of capabilities; track option.id) {
-                      <option [value]="option.id">{{ option.name }}</option>
+                      <option [value]="option.id" [selected]="capabilityId() === option.id">{{ option.name }}</option>
                     }
                   </select>
                   <span class="ck-mono" [style]="noteStyle">{{ i18n.t('skills.field.capability.hint') }}</span>
@@ -331,8 +339,19 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                           [style]="inputStyle"
                         >
                           <option value="">{{ i18n.t('skills.runtime.choose') }}</option>
-                          @for (option of field.options; track option) {
-                            <option [value]="option">{{ option }}</option>
+                          @for (option of fieldOptions(field); track option) {
+                            <option [value]="option" [disabled]="providerDisabled(field, option)" [selected]="param(field.key) === option">{{ optionLabel(field, option) }}</option>
+                          }
+                        </select>
+                      }
+                      @case ('model') {
+                        <select [value]="param(field.key)" (change)="setParam(field.key, value($event))" [style]="inputStyle">
+                          <option value="" [selected]="!param(field.key)">{{ i18n.t('skills.models.inherit') }}</option>
+                          @if (param(field.key) && !modelListed(param(field.key))) {
+                            <option [value]="param(field.key)" selected>{{ param(field.key) }} · {{ i18n.t('skills.models.saved') }}</option>
+                          }
+                          @for (model of providerModels(); track model.id) {
+                            <option [value]="modelName(model)" [selected]="param(field.key) === modelName(model)">{{ modelName(model) }}</option>
                           }
                         </select>
                       }
@@ -345,7 +364,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                         >
                           <option value="">{{ i18n.t('skills.runtime.target.choose') }}</option>
                           @for (target of registryTargets; track target.id) {
-                            <option [value]="target.slug">{{ target.name }} · {{ target.slug }}</option>
+                            <option [value]="target.slug" [selected]="param(field.key) === target.slug">{{ target.name }} · {{ target.slug }}</option>
                           }
                         </select>
                       }
@@ -379,7 +398,7 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                                   >
                                     <option value=""></option>
                                     @for (option of entry.options; track option) {
-                                      <option [value]="option">{{ option }}</option>
+                                      <option [value]="option" [selected]="presetValue(entry.name) === option">{{ option }}</option>
                                     }
                                   </select>
                                 } @else {
@@ -452,6 +471,14 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
                 }
               </div>
             }
+            @if (executorKind() === 'prompt_template') {
+              <div class="mt-3 flex flex-wrap gap-2 items-center text-xs">
+                @if (modelsLoading()) { <span role="status">{{ i18n.t('common.loading') }}</span> }
+                @if (modelsError(); as error) { <span role="alert">{{ error }}</span> }
+                <button type="button" (click)="loadModels()" [disabled]="modelsLoading()" [style]="ghostStyle">{{ i18n.t('skills.models.refresh') }}</button>
+              </div>
+              <app-skill-execution [executor]="executionPreview()" [systemId]="systemId" [summaryOnly]="true" />
+            }
           }
 
           @case ('review') {
@@ -517,8 +544,9 @@ export type SkillPreset = 'scratch' | 'llm' | 'wrapper';
     </div>
   `,
 })
-export class NewSkillDialogComponent {
+export class NewSkillDialogComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
+  private readonly workspace = inject(WorkspaceService);
   readonly i18n = inject(I18nService);
 
   @Input({ required: true }) catalog!: SkillExecutorCatalog;
@@ -530,6 +558,12 @@ export class NewSkillDialogComponent {
   @Input() registryTargets: Skill[] = [];
   /** Capabilities this workspace may make carry the new Skill. */
   @Input() capabilities: Capability[] = [];
+  @Input() systemId?: string;
+
+  /** A detail-page edit can start at execution without changing the create journey. */
+  @Input() set initialStep(value: AuthoringStep) {
+    this.step.set(value);
+  }
 
   /** Set to edit an existing Skill; the screens are the same, the slug is not. */
   @Input() set skill(value: Skill | null) {
@@ -544,6 +578,10 @@ export class NewSkillDialogComponent {
     if (value.name) this.name.set(value.name);
     if (value.description) this.description.set(value.description);
     if (value.category) this.category.set(value.category);
+    if (value.provider && value.model) {
+      this.applyPreset('llm');
+      this.params.set({ ...this.params(), provider: value.provider, model: value.model });
+    }
   }
 
   @Output() readonly created = new EventEmitter<Skill>();
@@ -569,6 +607,18 @@ export class NewSkillDialogComponent {
   readonly presetTab = signal<'form' | 'json'>('form');
   readonly submitting = signal(false);
   readonly error = signal<string | null>(null);
+  readonly models = signal<ModelCatalogEntry[]>([]);
+  readonly modelsLoading = signal(false);
+  readonly modelsError = signal<string | null>(null);
+  private modelsSubscription: Subscription | null = null;
+  private modelRequest = 0;
+  private readonly unregisterModels = this.workspace.registerContextReset(() => {
+    this.modelRequest += 1;
+    this.modelsSubscription?.unsubscribe();
+    this.models.set([]);
+    this.modelsError.set(null);
+    this.modelsLoading.set(false);
+  });
   private readonly existing = signal<Skill | null>(null);
   private readonly previousFocus = typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
     ? document.activeElement
@@ -598,6 +648,71 @@ export class NewSkillDialogComponent {
 
   readonly editing = computed(() => this.existing() !== null);
   readonly stepIndex = computed(() => STEPS.indexOf(this.step()));
+  readonly modelName = catalogModelName;
+  readonly providerModels = computed(() => this.models().filter((entry) =>
+    entry.provider === (this.param('provider') === 'azure' ? 'openai' : this.param('provider'))
+      && selectableTextModel(entry),
+  ));
+  readonly executionPreview = computed<Skill['executor']>(() => ({
+    kind: this.executorKind(),
+    params: { provider: this.param('provider'), ...(this.param('model') ? { model: this.param('model') } : {}) },
+  }), { equal: (a, b) => a?.kind === b?.kind && a?.params?.['provider'] === b?.params?.['provider'] && a?.params?.['model'] === b?.params?.['model'] });
+
+  ngOnInit(): void { this.loadModels(); }
+
+  ngOnDestroy(): void {
+    this.modelRequest += 1;
+    this.modelsSubscription?.unsubscribe();
+    this.unregisterModels();
+  }
+
+  loadModels(): void {
+    this.modelsSubscription?.unsubscribe();
+    const request = ++this.modelRequest;
+    const scope = this.workspace.captureRequestScope();
+    this.modelsLoading.set(true);
+    this.modelsError.set(null);
+    this.modelsSubscription = this.canonical.listModelCatalog().subscribe({
+      next: (models) => {
+        if (request !== this.modelRequest || !this.workspace.isRequestScopeCurrent(scope)) return;
+        this.models.set(models);
+        this.modelsLoading.set(false);
+      },
+      error: (failure) => {
+        if (request !== this.modelRequest || !this.workspace.isRequestScopeCurrent(scope)) return;
+        this.models.set([]);
+        this.modelsLoading.set(false);
+        this.modelsError.set(backendMessage(failure, this.i18n.t('skills.models.load_error')));
+      },
+    });
+  }
+
+  fieldOptions(field: ExecutorParamField): string[] {
+    return field.key === 'provider' && this.executorKind() === 'prompt_template'
+      ? field.options.filter((value) => value !== 'azure' || this.param('provider') === 'azure')
+      : field.options;
+  }
+
+  providerDisabled(field: ExecutorParamField, option: string): boolean {
+    if (field.key !== 'provider' || this.executorKind() !== 'prompt_template'
+      || option === this.param('provider') || option === 'workspace') return false;
+    return !this.models().some((entry) => entry.provider === option && selectableTextModel(entry));
+  }
+
+  optionLabel(field: ExecutorParamField, option: string): string {
+    if (field.key !== 'provider') return option;
+    if (option === 'azure') return this.i18n.t('skills.models.legacy_azure');
+    if (option === 'workspace') return this.i18n.t('skills.models.workspace');
+    const rows = this.models().filter((entry) => entry.provider === option);
+    if (rows.length && rows.every((entry) => entry.status === 'unreachable')) {
+      return `${option} · ${this.i18n.t('skills.models.connection_unreachable')}`;
+    }
+    return option + (this.providerDisabled(field, option) ? ` · ${this.i18n.t('skills.models.unavailable')}` : '');
+  }
+
+  modelListed(model: string): boolean {
+    return this.providerModels().some((entry) => catalogModelName(entry) === model);
+  }
 
   tabStyle(active: boolean): string {
     return (
@@ -682,6 +797,7 @@ export class NewSkillDialogComponent {
     }
     if (id === 'llm') {
       this.selectKind('prompt_template');
+      this.setParam('template', '{question}');
       this.type.set('llm');
       this.category.set(this.knownCategory('LLM'));
       this.inputSchema.set({
@@ -691,8 +807,8 @@ export class NewSkillDialogComponent {
       });
       this.outputSchema.set({
         type: 'object',
-        properties: { answer: { type: 'string' } },
-        required: ['answer'],
+        properties: { completion: { type: 'string' } },
+        required: ['completion'],
       });
       return;
     }
@@ -735,7 +851,11 @@ export class NewSkillDialogComponent {
   }
 
   setParam(key: string, raw: string): void {
-    this.params.update((current) => ({ ...current, [key]: raw }));
+    this.params.update((current) => ({
+      ...current,
+      ...(key === 'provider' && raw !== current['provider'] ? { model: '' } : {}),
+      [key]: raw,
+    }));
   }
 
   selectKind(kind: string): void {
@@ -1019,6 +1139,7 @@ function controlFor(
   key: string,
   spec: { type?: string; enum?: string[]; maxLength?: number },
 ): ExecutorParamField['control'] {
+  if (key === 'model') return 'model';
   if (spec.enum?.length) return 'select';
   // The preset inputs of a wrapped skill: the target contract is already
   // known, so the values are a form rather than an object to write.

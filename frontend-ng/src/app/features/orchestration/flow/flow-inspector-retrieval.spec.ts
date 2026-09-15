@@ -1,10 +1,14 @@
 import '@angular/compiler';
+import { signal } from '@angular/core';
+import { Subject } from 'rxjs';
+import type { Skill } from '@app/core/canonical-api.service';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { FLOW_EN } from '@app/core/i18n/flow.dict';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import {
   FlowInspectorComponent,
+  publishedNodeExecutor,
   buildCollectionOptions,
   buildRetrievalDocumentOptions,
 } from './flow-inspector.component';
@@ -219,4 +223,66 @@ test('Retrieval picker rejects client scopes beyond the server bounds', () => {
   assert.deepEqual(patches, []);
   assert.match(errors[0] ?? '', /at most 32 collections/i);
   assert.match(errors[1] ?? '', /at most 1000 documents/i);
+});
+
+
+test('published Skill execution preview matches the exact node and Skill without changing the draft', () => {
+  const executor = { kind: 'prompt_template', params: { provider: 'ollama', template: 'Published {question}' } };
+  const node = retrievalNode({ skill_id: 'skill-1' });
+  const before = JSON.stringify(node);
+  const contract = { nodes: { [node.id]: { skill_slug: 'semantic_search_v1', skill_id: 'skill-1', executor } } };
+  assert.deepEqual(publishedNodeExecutor(node, contract), executor);
+  assert.equal(JSON.stringify(node), before);
+  assert.equal(publishedNodeExecutor({ ...node, id: 'different-node' }, contract), null);
+  assert.equal(publishedNodeExecutor(retrievalNode({ skill_slug: 'another-skill' }), contract), null);
+  assert.equal(publishedNodeExecutor(retrievalNode({ skill_id: 'recreated-skill' }), contract), null);
+  assert.equal(publishedNodeExecutor(node, null), null);
+  assert.equal(publishedNodeExecutor(node, { nodes: { [node.id]: { skill_slug: 'semantic_search_v1', skill_id: 'skill-1' } } }), null);
+  assert.equal(publishedNodeExecutor(node, { nodes: { [node.id]: { skill_slug: 'semantic_search_v1', skill_id: 'skill-1', executor: { kind: 'prompt_template', params: [] } } } }), null);
+});
+
+test('current Skill lookup remains read-only and distinguishes missing configuration from a pending response', () => {
+  const inspector = prototypeInspector() as any;
+  const node = retrievalNode();
+  const before = JSON.stringify(node);
+  const response = new Subject<Skill | null>();
+  const scope = { workspaceSlug: 'showcase', workspaceId: 'ws-1', epoch: 1 };
+  inspector.node = signal(node);
+  inspector.systemId = signal('system-1');
+  inspector.skillDefinition = signal(null);
+  inspector.workspace = { captureRequestScope: () => scope, isRequestScopeCurrent: () => true };
+  inspector.canonical = { getSkill: (slug: string) => { assert.equal(slug, 'semantic_search_v1'); return response; } };
+  const request = inspector.loadSkillExecution(node.id, 'semantic_search_v1', 'system-1');
+  assert.equal(inspector.skillDefinition(), null, 'pending requests show loading');
+  response.next({ id: 'skill-1', slug: 'semantic_search_v1', name: 'Skill', executor: { kind: 'prompt_template', params: { provider: 'azure', template: 'Current {question}' } } });
+  assert.equal(inspector.skillDefinition().executor.params.provider, 'azure');
+  assert.equal(JSON.stringify(node), before, 'reading an executor cannot dirty or rewrite node.config');
+  response.next(null);
+  assert.equal(inspector.skillDefinition().executor, null, 'unavailable responses finish loading and show the shared unavailable state');
+  request.unsubscribe();
+});
+
+test('Skill lookups reject stale node, Skill, System and workspace responses', () => {
+  for (const transition of ['node', 'skill', 'system', 'workspace']) {
+    const inspector = prototypeInspector() as any;
+    const node = retrievalNode();
+    const response = new Subject<Skill | null>();
+    let epoch = 1;
+    inspector.node = signal(node);
+    inspector.systemId = signal('system-1');
+    inspector.skillDefinition = signal(null);
+    inspector.workspace = {
+      captureRequestScope: () => ({ workspaceSlug: 'showcase', workspaceId: 'ws-1', epoch }),
+      isRequestScopeCurrent: (scope: { epoch: number }) => scope.epoch === epoch,
+    };
+    inspector.canonical = { getSkill: () => response };
+    const request = inspector.loadSkillExecution(node.id, 'semantic_search_v1', 'system-1');
+    if (transition === 'node') inspector.node.set({ ...node, id: 'different-node' });
+    if (transition === 'skill') inspector.node.set(retrievalNode({ skill_slug: 'another-skill' }));
+    if (transition === 'system') inspector.systemId.set('system-2');
+    if (transition === 'workspace') epoch = 2;
+    response.next({ id: 'skill-1', slug: 'semantic_search_v1', name: 'Skill', executor: { kind: 'prompt_template', params: { template: 'Stale' } } });
+    assert.equal(inspector.skillDefinition(), null, `${transition} change fences the old response`);
+    request.unsubscribe();
+  }
 });

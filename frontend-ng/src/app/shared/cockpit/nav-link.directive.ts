@@ -32,8 +32,10 @@ export class NavLinkDirective {
   readonly href = computed(() => this.navigation.resolveLink(this.navLink()).url);
 
   onClick(event: MouseEvent): void {
+    const anchor = event.currentTarget as HTMLAnchorElement | null;
     if (
       event.defaultPrevented
+      || (anchor?.target && anchor.target !== '_self')
       || event.button !== 0
       || event.metaKey
       || event.ctrlKey

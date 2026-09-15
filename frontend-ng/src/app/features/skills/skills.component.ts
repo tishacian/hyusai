@@ -366,6 +366,7 @@ interface SkillsScope {
           <app-new-skill-dialog
             [catalog]="catalog"
             [registryTargets]="registryTargets()"
+            [systemId]="navigation.systemId() || undefined"
             [capabilities]="claimableCapabilities()"
             [skill]="editingSkill()"
             [seed]="draftSeed()"
@@ -389,6 +390,9 @@ export class SkillsComponent implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
   protected readonly navigation = inject(ZoomContextService);
   private routeSubscription: Subscription | null = null;
+  private modelRouteSubscription: Subscription | null = null;
+  private pendingModelSeed: { provider: string; model: string; workspaceId: string } | null = null;
+  private consumedModelSeed = '';
   private contextRefreshSubscription: Subscription | null = null;
   private requestSubscription: Subscription | null = null;
   private currentScope: SkillsScope = { capabilityId: null, systemId: null, runId: null };
@@ -525,6 +529,15 @@ export class SkillsComponent implements OnInit, OnDestroy {
       this.resetResults();
       this.loadScope(scope);
     });
+    this.modelRouteSubscription = this.route.queryParamMap.subscribe((params) => {
+      const provider = params.get('provider');
+      const model = params.get('model');
+      const workspaceId = params.get('modelWorkspace');
+      this.pendingModelSeed = params.get('create') === 'llm' && provider && model && workspaceId
+        && provider.length <= 80 && model.length <= 256
+        ? { provider, model, workspaceId } : null;
+      this.openModelDraft();
+    });
     this.contextRefreshSubscription = this.workspace.contextRefresh$.subscribe(() => {
       const params = this.route.snapshot.queryParamMap;
       const next = this.effectiveScope(
@@ -540,6 +553,7 @@ export class SkillsComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.modelRouteSubscription?.unsubscribe();
     this.routeSubscription?.unsubscribe();
     this.routeSubscription = null;
     this.contextRefreshSubscription?.unsubscribe();
@@ -589,6 +603,7 @@ export class SkillsComponent implements OnInit, OnDestroy {
         : null);
       this.pendingSelection = null;
       this.loading.set(false);
+      this.openModelDraft();
       },
       error: () => {
         if (!this.workspaceView.isCurrent(request) || !this.sameScope(scope, this.currentScope)) return;
@@ -675,6 +690,21 @@ export class SkillsComponent implements OnInit, OnDestroy {
     this.lifecycleError.set(null);
     this.editingSkill.set(null);
     this.authoring.set(true);
+  }
+
+  private openModelDraft(): void {
+    const seed = this.pendingModelSeed;
+    if (!seed || this.loading() || !this.canAuthor()) return;
+    const source = `${seed.workspaceId}:${seed.provider}:${seed.model}`;
+    if (source === this.consumedModelSeed) return;
+    const descriptor = this.executors()?.executors.find((entry) => entry.kind === 'prompt_template');
+    const providers = descriptor?.params_schema.properties?.['provider']?.enum ?? [];
+    if (seed.workspaceId !== this.workspace.captureRequestScope().workspaceId
+      || seed.provider === 'azure' || !providers.includes(seed.provider)
+      || !descriptor?.params_schema.properties?.['model']) return;
+    this.consumedModelSeed = source;
+    this.openAuthoring();
+    this.draftSeed.set({ provider: seed.provider, model: seed.model });
   }
 
   openEditing(skill: Skill): void {

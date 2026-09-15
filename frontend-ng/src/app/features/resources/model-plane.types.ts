@@ -13,10 +13,16 @@ export interface ModelProvider {
   error?: string | null;
   api_key_set?: boolean;
   credential_source?: 'workspace' | 'env' | string | null;
+  configured?: boolean;
+  runtime_available?: boolean;
+  endpoint?: string | null;
+  deployment?: string | null;
+  api_version?: string | null;
 }
 
 export interface ProvidersResponse {
   providers?: ModelProvider[];
+  can_configure?: boolean;
 }
 
 export interface RoutingPrimary {
@@ -33,6 +39,7 @@ export interface RoutingResponse {
   default_provider?: string | null;
   default_model?: string | null;
   source?: 'workspace' | 'global' | string | null;
+  model_usage?: Array<{ system_id: string; system_name: string; node_id: string; provider: string; model: string; source: string }>;
   systems?: Array<{
     id?: string;
     name?: string;
@@ -58,6 +65,8 @@ export interface PortalConfigResponse {
   routing?: RoutingResponse;
   cloud_credentials?: CredentialStatus[];
   serving_nodes?: AttachedServingNode[];
+  can_configure?: boolean;
+  runtime_providers?: string[];
 }
 
 export type DistributionWindow = '7d' | '30d';
@@ -69,10 +78,16 @@ export interface DistributionBucket {
   /** Backend uses ``invocations``; tolerate legacy ``count``. */
   count?: number;
   invocations?: number;
-  cost?: number;
+  cost?: number | null;
+  currency?: string | null;
   latency_ms?: number | null;
   avg_latency_ms?: number | null;
   share?: number;
+  cost_source?: string | null;
+  cost_state?: string | null;
+  run_ids?: string[];
+  invocation_ids?: string[];
+  evidence?: Array<{ run_id: string; invocation_id: string }>;
 }
 
 export interface DistributionResponse {

@@ -18,6 +18,11 @@ class OpenAIClient(ModelClient):
         
         if not self.api_key:
             self.logger.warning("OpenAI API key not provided")
+
+    def _sdk_client(self):
+        from openai import AsyncOpenAI
+
+        return AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
     
     async def generate(
         self, 
@@ -30,8 +35,7 @@ class OpenAIClient(ModelClient):
             raise RuntimeError("OpenAI API key not configured")
         
         try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+            client = self._sdk_client()
             
             response = await client.chat.completions.create(
                 model=model,
@@ -42,11 +46,11 @@ class OpenAIClient(ModelClient):
             return {
                 "content": response.choices[0].message.content,
                 "model": response.model,
-                "usage": {
+                **({"usage": {
                     "prompt_tokens": response.usage.prompt_tokens,
                     "completion_tokens": response.usage.completion_tokens,
                     "total_tokens": response.usage.total_tokens
-                }
+                }} if response.usage is not None else {})
             }
         except ImportError:
             raise RuntimeError("OpenAI package not installed. Install with: pip install openai")
@@ -65,9 +69,9 @@ class OpenAIClient(ModelClient):
             raise RuntimeError("OpenAI API key not configured")
         
         try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+            client = self._sdk_client()
             
+            kwargs.setdefault("stream_options", {"include_usage": True})
             stream = await client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
@@ -77,6 +81,18 @@ class OpenAIClient(ModelClient):
             
             sequence = 0
             async for chunk in stream:
+                usage = getattr(chunk, "usage", None)
+                if usage is not None:
+                    yield {
+                        "usage": {
+                            "prompt_tokens": usage.prompt_tokens,
+                            "completion_tokens": usage.completion_tokens,
+                            "total_tokens": usage.total_tokens,
+                        },
+                        "model": getattr(chunk, "model", model),
+                    }
+                if not chunk.choices:
+                    continue
                 sequence += 1
                 delta = chunk.choices[0].delta.content or ""
                 yield {
@@ -113,8 +129,7 @@ class OpenAIClient(ModelClient):
             raise RuntimeError("OpenAI API key not configured")
 
         try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+            client = self._sdk_client()
 
             request: dict[str, Any] = {"model": model, "messages": messages, **kwargs}
             if tools:
@@ -164,11 +179,9 @@ class OpenAIClient(ModelClient):
             return False
         
         try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+            client = self._sdk_client()
             # Simple health check - list models
             await client.models.list()
             return True
         except Exception:
             return False
-
