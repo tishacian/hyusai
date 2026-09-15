@@ -1408,17 +1408,23 @@ export interface ActiveSuggestion {
 }
 
 export interface EvaluationTrendBucket {
+  observed_composite_count?: number;
+  observed_hallucination_count?: number;
+  threshold_coverage?: number;
+  breaches?: number;
+  incomplete?: number;
   bucket: string;
   count: number;
-  avg_composite: number;
-  avg_hallucination: number;
+  avg_composite: number | null;
+  avg_hallucination: number | null;
 }
 
 export interface EvaluationTrendResponse {
   since: string;
   group_by: 'day' | 'capability' | 'system';
-  thresholds: { composite_min: number; hallucination_max: number };
-  totals: { runs_evaluated: number; breaches: number; breach_rate: number };
+  thresholds: { composite_min: number; hallucination_max: number } | null;
+  threshold_basis?: string;
+  totals: { runs_evaluated: number; breaches: number; breach_rate: number | null; threshold_coverage?: number; incomplete?: number };
   series: EvaluationTrendBucket[];
 }
 
@@ -1427,9 +1433,9 @@ export interface EvaluationComponentHealthItem {
   label: string;
   evaluated: number;
   breaches: number;
-  breach_rate: number;
-  avg_composite: number;
-  avg_hallucination: number;
+  breach_rate: number | null;
+  avg_composite: number | null;
+  avg_hallucination: number | null;
   question_types: Record<string, { count: number; breaches: number }>;
 }
 
@@ -1500,7 +1506,7 @@ export interface RunReplayListResponse {
 }
 
 export interface EvaluationByRunResponse {
-  status: 'pending' | 'skipped' | 'completed';
+  status: 'pending' | 'queued' | 'running' | 'skipped' | 'completed' | 'partial' | 'failed' | 'unavailable' | 'historical';
   run_id: string;
   breach?: boolean;
   composite_score?: number;
@@ -2602,12 +2608,16 @@ export class CanonicalApiService {
     params: {
       status?: 'proposed' | 'accepted' | 'rejected' | 'applied' | 'all';
       component?: string;
+      system_id?: string;
+      since?: string;
       limit?: number;
     } = {},
   ): Observable<EvaluationReviewQueueResponse | null> {
     const q: Record<string, string> = {};
     if (params.status) q['status'] = params.status;
     if (params.component) q['component'] = params.component;
+    if (params.system_id) q['system_id'] = params.system_id;
+    if (params.since) q['since'] = params.since;
     if (params.limit != null) q['limit'] = String(params.limit);
     return this.api
       .get<EvaluationReviewQueueResponse>('/evaluation/review-queue', q)
@@ -2642,10 +2652,11 @@ export class CanonicalApiService {
   }
 
   getEvaluationTrend(
-    params: { since?: string; group_by?: 'day' | 'capability' | 'system' } = {},
+    params: { system_id?: string; since?: string; group_by?: 'day' | 'capability' | 'system' } = {},
   ): Observable<EvaluationTrendResponse | null> {
     const q: Record<string, string> = {};
     if (params.since) q['since'] = params.since;
+    if (params.system_id) q['system_id'] = params.system_id;
     if (params.group_by) q['group_by'] = params.group_by;
     return this.api
       .get<EvaluationTrendResponse>('/evaluation/trend', q)
@@ -2653,10 +2664,11 @@ export class CanonicalApiService {
   }
 
   getEvaluationComponentHealth(
-    params: { since?: string } = {},
+    params: { since?: string; system_id?: string } = {},
   ): Observable<EvaluationComponentHealthResponse | null> {
     const q: Record<string, string> = {};
     if (params.since) q['since'] = params.since;
+    if (params.system_id) q['system_id'] = params.system_id;
     return this.api
       .get<EvaluationComponentHealthResponse>('/evaluation/component-health', q)
       .pipe(catchError(() => of(null)));

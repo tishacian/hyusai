@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, type ParamMap } from '@angular/router';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { map } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
@@ -462,6 +462,9 @@ export class SteeringReviewQueueComponent implements OnInit {
   readonly pendingId = signal<string | null>(null);
   readonly status = signal<'proposed' | 'accepted' | 'rejected' | 'all'>('proposed');
   readonly componentFilter = signal<string | null>(null);
+  readonly systemFilter = signal<string | null>(null);
+  readonly sinceFilter = signal<string | null>(null);
+  private requestGeneration = 0;
 
   // E1.5.2 — replay-with-override modal state. Kept in the component
   // (not a separate service) because the modal is tightly coupled to
@@ -498,16 +501,8 @@ export class SteeringReviewQueueComponent implements OnInit {
       .subscribe((id) => this.focusedDecisionId.set(id));
 
     this.route.queryParamMap
-      .pipe(
-        map((p) => p.get('component')),
-        takeUntilDestroyed(),
-      )
-      .subscribe((component) => {
-        const normalized = component?.trim().toLowerCase().replace(/[-\s]/g, '_') || null;
-        if (this.componentFilter() === normalized) return;
-        this.componentFilter.set(normalized);
-        this.refresh();
-      });
+      .pipe(takeUntilDestroyed())
+      .subscribe((params) => this.setScopeFromQuery(params));
 
     // When either the focus id changes or the queue items load,
     // scroll the matching row into view (if any). We run this in
@@ -525,24 +520,41 @@ export class SteeringReviewQueueComponent implements OnInit {
     });
   }
 
+  private setScopeFromQuery(params: ParamMap): void {
+    const component = params.get('component')?.trim().toLowerCase().replace(/[-\s]/g, '_') || null;
+    const system = params.get('system_id')?.trim() || null;
+    const since = params.get('since')?.trim() || null;
+    if (this.componentFilter() === component && this.systemFilter() === system && this.sinceFilter() === since) return;
+    this.componentFilter.set(component);
+    this.systemFilter.set(system);
+    this.sinceFilter.set(since);
+    this.items.set([]);
+    this.refresh();
+  }
+
   ngOnInit(): void {
     this.refresh();
   }
 
   refresh(): void {
+    const request = ++this.requestGeneration;
     this.loading.set(true);
     this.canonical
       .getEvaluationReviewQueue({
         status: this.status(),
         component: this.componentFilter() ?? undefined,
+        system_id: this.systemFilter() ?? undefined,
+        since: this.sinceFilter() ?? undefined,
         limit: 100,
       })
       .subscribe({
         next: (response: EvaluationReviewQueueResponse | null) => {
+          if (request !== this.requestGeneration) return;
           this.items.set(response?.items ?? []);
           this.loading.set(false);
         },
         error: () => {
+          if (request !== this.requestGeneration) return;
           this.items.set([]);
           this.loading.set(false);
         },

@@ -6,7 +6,7 @@ for runs that completed successfully. Contract:
 - Loads the effective :class:`EvaluationPreset` for the run's triplet
   (system > capability > workspace > built-in defaults).
 - If ``enabled`` is False or ``sample_rate`` excludes the run, returns
-  a no-op summary — the hook is cheap and always safe to call.
+  a persisted skipped state.
 - Otherwise, extracts ``(query, response, context_chunks)`` from the
   run's ``input_ref`` / ``output_ref`` / invocation trail, invokes
   :class:`~app.services.evaluation.judge.JudgeService`, persists a row
@@ -43,7 +43,6 @@ from app.services.evaluation.rag_components import (
     infer_failed_components,
     normalize_question_type,
 )
-from app.services.evaluation.suggestion_service import generate_active_suggestion
 from app.services.evaluation_preset_service import get_evaluation_preset_service
 
 logger = get_logger(__name__)
@@ -67,53 +66,28 @@ def _first_string(d: Optional[Dict[str, Any]], keys: tuple[str, ...]) -> Optiona
     return None
 
 
+def _context_evidence(run: Run, invocations: List[SkillInvocation]) -> List[dict]:
+    for payload, invocation_id in [(run.input_ref or {}, None), *[(payload or {}, i.id) for i in invocations for payload in (i.input_ref, i.output_ref)]]:
+        for key in _CONTEXT_KEYS:
+            values = payload.get(key)
+            if not isinstance(values, list):
+                continue
+            rows = []
+            for chunk in values:
+                text = chunk if isinstance(chunk, str) else (chunk.get("text") or chunk.get("content") or chunk.get("snippet")) if isinstance(chunk, dict) else None
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                ref = {k: chunk[k] for k in ("document_id", "document_ref", "source_id", "collection_id", "collection", "page", "chunk_id", "filename") if k in chunk} if isinstance(chunk, dict) else {}
+                if isinstance(chunk, dict) and isinstance(chunk.get("metadata"), dict):
+                    ref = {**{k: v for k, v in chunk["metadata"].items() if k in ("document_id", "source_id", "collection_id", "collection", "page", "filename")}, **ref}
+                rows.append({"text": text, "invocation_id": invocation_id, **ref})
+            if rows:
+                return rows
+    return []
+
+
 def _extract_context(run: Run, invocations: List[SkillInvocation]) -> List[str]:
-    """Best-effort collection of context chunks to ground the judge on.
-
-    Checks the run's input_ref first (user may have passed context
-    explicitly), then walks invocations looking for RAG-style outputs
-    that exposed ``chunks`` / ``sources`` in their output_ref. Returns
-    at most 8 chunks, each trimmed to 1000 chars so we stay within the
-    judge's prompt budget.
-    """
-    collected: List[str] = []
-    input_ref = run.input_ref or {}
-    for key in _CONTEXT_KEYS:
-        val = input_ref.get(key)
-        if isinstance(val, list):
-            for chunk in val:
-                if isinstance(chunk, str):
-                    collected.append(chunk)
-                elif isinstance(chunk, dict):
-                    text = chunk.get("text") or chunk.get("content") or chunk.get("snippet")
-                    if isinstance(text, str):
-                        collected.append(text)
-            if collected:
-                break
-
-    if not collected:
-        for inv in invocations:
-            out = inv.output_ref or {}
-            for key in _CONTEXT_KEYS:
-                val = out.get(key)
-                if isinstance(val, list):
-                    for chunk in val:
-                        if isinstance(chunk, str):
-                            collected.append(chunk)
-                        elif isinstance(chunk, dict):
-                            text = (
-                                chunk.get("text")
-                                or chunk.get("content")
-                                or chunk.get("snippet")
-                            )
-                            if isinstance(text, str):
-                                collected.append(text)
-                    if collected:
-                        break
-            if collected:
-                break
-
-    return [c[:1000] for c in collected[:8] if c and c.strip()]
+    return [r["text"] for r in _context_evidence(run, invocations)[:8]]
 
 
 def _check_thresholds(
@@ -130,7 +104,7 @@ def _check_thresholds(
     """
     reasons: List[Dict[str, Any]] = []
     composite_min = float(config.get("composite_min", 0.0))
-    if composite_score < composite_min:
+    if composite_score is not None and composite_score < composite_min:
         reasons.append(
             {
                 "metric": "composite_score",
@@ -141,7 +115,7 @@ def _check_thresholds(
         )
 
     hallucination_max = float(config.get("hallucination_max", 1.0))
-    if hallucination_rate > hallucination_max:
+    if hallucination_rate is not None and hallucination_rate > hallucination_max:
         reasons.append(
             {
                 "metric": "hallucination_rate",
@@ -173,11 +147,13 @@ async def evaluate_run_async(
     run_id: str,
     *,
     preset_override: Optional[Dict[str, Any]] = None,
+    invocation_id: Optional[str] = None,
+    job_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Evaluate a completed run, persist the result, trigger review if needed.
 
-    Always returns — swallows every exception. Caller just fires and
-    forgets (typically via ``asyncio.create_task``).
+    Runs on the durable WorkspaceJob worker. Judge failures are persisted
+    independently of the already finished business Run.
 
     ``preset_override`` is for tests: bypass the preset resolver and
     use the given config directly.
@@ -214,13 +190,18 @@ async def evaluate_run_async(
                 system_id=run.system_id,
             )
 
+        def finish_state(status, reason):
+            run.evaluation_scores = {"job_id": job_id, "status": status, "reason": reason, "preset": config, "evaluated_at": datetime.utcnow().isoformat()}
+            db.commit()
+            return run.evaluation_scores
+
         if not config.get("enabled"):
             logger.debug(
                 "auto_eval: disabled for scope",
                 run_id=run_id,
                 workspace_id=run.workspace_id,
             )
-            return None
+            return finish_state("skipped", "preset_disabled")
 
         sample_rate = float(config.get("sample_rate", 1.0))
         if sample_rate < 1.0 and random.random() > sample_rate:
@@ -229,7 +210,7 @@ async def evaluate_run_async(
                 run_id=run_id,
                 sample_rate=sample_rate,
             )
-            return None
+            return finish_state("skipped", "sampling_excluded")
 
         invocations = (
             db.query(SkillInvocation)
@@ -238,8 +219,13 @@ async def evaluate_run_async(
             .all()
         )
 
-        query = _first_string(run.input_ref, _QUERY_KEYS) or ""
-        response = _first_string(run.output_ref, _RESPONSE_KEYS) or ""
+        if invocation_id:
+            invocations = [i for i in invocations if i.id == invocation_id]
+            if not invocations:
+                return finish_state("failed", "invocation_unavailable")
+
+        query = (_first_string(invocations[0].input_ref, _QUERY_KEYS) if invocation_id else None) or _first_string(run.input_ref, _QUERY_KEYS) or ""
+        response = _first_string(invocations[0].output_ref if invocation_id else run.output_ref, _RESPONSE_KEYS) or ""
         if not response and invocations:
             # Fall back on the terminal skill's output_ref text (common
             # shape: {"answer": "..."} or {"text": "..."}).
@@ -253,7 +239,7 @@ async def evaluate_run_async(
                 has_query=bool(query),
                 has_response=bool(response),
             )
-            return None
+            return finish_state("skipped", "output_not_evaluable")
 
         context_chunks = _extract_context(run, invocations)
 
@@ -265,6 +251,12 @@ async def evaluate_run_async(
                 or ""
             )
 
+        run.evaluation_scores = {"status": "running", "job_id": job_id, "preset": config, "started_at": datetime.utcnow().isoformat()}
+        db.commit()
+        from app.models.workspace import Workspace
+        workspace = db.query(Workspace).filter(Workspace.id == run.workspace_id).first()
+        from app.services.evaluation.lifecycle import evaluation_model_context
+        model_context = evaluation_model_context(db, run, system, invocations)
         judge = get_judge_service()
         try:
             result = await judge.evaluate(
@@ -275,6 +267,8 @@ async def evaluate_run_async(
                 turn_number=1,
                 session_id=run_id,
                 agent_id=run.system_id,
+                workspace=workspace,
+                model_context=model_context,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception(
@@ -282,11 +276,20 @@ async def evaluate_run_async(
                 run_id=run_id,
                 error=str(exc),
             )
-            return None
+            return finish_state("failed", "judge_unavailable")
 
+        metadata = dict(result.get("metadata") or {})
+        evidence = _context_evidence(run, invocations)
+        metadata["excerpts"] = [
+            {**{k: v for k, v in evidence[index].items() if k != "text"}, **excerpt}
+            for index, excerpt in enumerate(metadata.get("excerpts") or []) if index < len(evidence)
+        ]
+        metadata["context_count_available"] = len(evidence)
+        metadata["context_truncated"] = len(evidence) > len(metadata["excerpts"]) or any(e.get("truncated") for e in metadata["excerpts"])
+        result["metadata"] = metadata
         scores: Dict[str, float] = result.get("scores") or {}
-        composite_score = float(result.get("composite_score") or 0.0)
-        hallucination_rate = float(result.get("hallucination_rate") or 0.0)
+        composite_score = result.get("composite_score")
+        hallucination_rate = result.get("hallucination_rate")
 
         threshold_outcome = _check_thresholds(
             scores=scores,
@@ -300,8 +303,8 @@ async def evaluate_run_async(
         failed_components = infer_failed_components(
             question_type=question_type,
             scores=scores,
-            composite_score=composite_score,
-            hallucination_rate=hallucination_rate,
+            composite_score=composite_score if composite_score is not None else 100,
+            hallucination_rate=hallucination_rate or 0,
             threshold_breach=threshold_outcome["breach"],
         )
         topic = result.get("topic") if isinstance(result.get("topic"), str) else None
@@ -317,16 +320,27 @@ async def evaluate_run_async(
             scores=scores,
             composite_score=composite_score,
             hallucination_rate=hallucination_rate,
-            drift_rate=float(result.get("drift_rate") or 0.0),
+            drift_rate=result.get("drift_rate"),
             question_type=question_type,
             failed_components=failed_components,
             topic=topic[:200] if topic else None,
             claim_audit=result.get("claim_audit") or {},
+            metadata_={**(result.get("metadata") or {}), "status": result.get("status", "completed"), "reason": result.get("reason"), "preset": config, "invocation_id": invocation_id, "threshold_outcome": threshold_outcome},
             created_at=datetime.utcnow(),
         )
         db.add(eval_row)
+        db.flush()
+        from sqlalchemy import update
+        db.execute(update(EvaluationScore).where(EvaluationScore.id == eval_row.id).values(
+            composite_score=composite_score, hallucination_rate=hallucination_rate,
+            drift_rate=result.get("drift_rate")))
 
         run.evaluation_scores = {
+            "job_id": job_id,
+            "status": result.get("status", "completed"),
+            "reason": result.get("reason"),
+            "metadata": eval_row.metadata_,
+            "claim_audit": eval_row.claim_audit,
             "composite_score": composite_score,
             "hallucination_rate": hallucination_rate,
             "scores": scores,
@@ -338,20 +352,11 @@ async def evaluate_run_async(
             "evaluation_id": eval_row.id,
             "evaluated_at": eval_row.created_at.isoformat(),
         }
-        db.commit()
-
-        if threshold_outcome["breach"]:
-            active_suggestion = await generate_active_suggestion(
-                run=run,
-                query=query,
-                response=response,
-                scores=scores,
-                composite_score=composite_score,
-                hallucination_rate=hallucination_rate,
-                question_type=question_type,
-                failed_components=failed_components,
-                reasons=threshold_outcome["reasons"],
-            )
+        if threshold_outcome["breach"] and composite_score is not None and hallucination_rate is not None:
+            # Corrections are requested from the inspected evidence and reviewed
+            # against a draft. Do not generate legacy executable rerun/answer
+            # suggestions as a side effect of scoring.
+            active_suggestion = {}
             _file_review_decision(
                 db,
                 run=run,
@@ -365,6 +370,7 @@ async def evaluate_run_async(
                 active_suggestion=active_suggestion,
             )
 
+        db.commit()
         logger.info(
             "auto_eval: done",
             run_id=run_id,
@@ -486,39 +492,15 @@ def _suggest_action(reasons: List[Dict[str, Any]]) -> str:
 
 
 def schedule_eval(run_id: str) -> None:
-    """Fire-and-forget scheduler used by ``_finalize_run``.
-
-    Creates an asyncio task on the running loop (the engine walkers
-    already run inside one); if no loop is active — e.g. a sync test
-    harness directly invoking ``_finalize_run`` — we spin a one-shot
-    loop via :func:`asyncio.run` on a worker thread so we don't block
-    the caller.
-
-    This is intentionally symmetric with
-    :func:`app.services.run_engine.engine.schedule_run`: same safe-from-
-    sync-context pattern, same no-raise contract.
-    """
+    """Persist auto evaluation before dispatching to the durable worker."""
+    from app.services.evaluation.lifecycle import enqueue_run_evaluation
+    db = SessionLocal()
     try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    coro = evaluate_run_async(run_id)
-    if loop and loop.is_running():
-        loop.create_task(coro)
-        return
-
-    # Sync caller — offload to a thread so we don't block.
-    import threading
-
-    def _runner() -> None:
-        try:
-            asyncio.run(coro)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "auto_eval: background runner failed",
-                run_id=run_id,
-                error=str(exc),
-            )
-
-    threading.Thread(target=_runner, name=f"auto_eval-{run_id}", daemon=True).start()
+        run = db.query(Run).filter(Run.id == run_id).first()
+        if run:
+            enqueue_run_evaluation(db, run, user=None, idempotency_key="auto")
+    except Exception:
+        db.rollback()
+        logger.exception("auto_eval dispatch failed", run_id=run_id)
+    finally:
+        db.close()

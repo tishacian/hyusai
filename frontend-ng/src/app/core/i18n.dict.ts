@@ -19,6 +19,7 @@
  * templates, and banned synonyms from the UI lexicon.
  */
 
+import { OBSERVABILITY_EN, OBSERVABILITY_FR } from './i18n/observability.dict';
 import { CAPTURE_EN, CAPTURE_FR } from './i18n/capture.dict';
 import { CHAT_EN, CHAT_FR } from './i18n/chat.dict';
 import { CHROME_EN, CHROME_FR } from './i18n/chrome.dict';
@@ -47,6 +48,7 @@ import { TASKS_EN, TASKS_FR } from './i18n/tasks.dict';
  * the wrong module, which is how the split survives 1500 keys.
  */
 export const I18N_DOMAINS = {
+  observability: {prefixes:['observability'],fr:OBSERVABILITY_FR,en:OBSERVABILITY_EN},
   common: { prefixes: ['common', 'state'], fr: COMMON_FR, en: COMMON_EN },
   chrome: {
     prefixes: ['titlebar', 'nav', 'account', 'auth', 'palette', 'workspace'],
@@ -89,6 +91,7 @@ export type I18nDomain = keyof typeof I18N_DOMAINS;
 
 /** French dictionary — the hard fallback locale (see {@link I18nService}). */
 export const FR_DICT = {
+  ...OBSERVABILITY_FR,
   ...COMMON_FR,
   ...CHROME_FR,
   ...CAPTURE_FR,
@@ -116,6 +119,7 @@ export type I18nKey = keyof typeof FR_DICT;
 
 /** English dictionary — same keys as {@link FR_DICT}, enforced per domain. */
 export const EN_DICT: Record<I18nKey, string> = {
+  ...OBSERVABILITY_EN,
   ...COMMON_EN,
   ...CHROME_EN,
   ...CAPTURE_EN,

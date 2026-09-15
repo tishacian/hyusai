@@ -147,7 +147,7 @@ async def test_provider_neutral_ollama_return_shape(monkeypatch):
 # ---------------------------------------------------------------------------
 # Resilience
 # ---------------------------------------------------------------------------
-async def test_error_fallback_returns_default_scores(monkeypatch):
+async def test_error_remains_unavailable(monkeypatch):
     class _BrokenRouter:
         def __init__(self, *args, **kwargs):
             pass
@@ -159,10 +159,11 @@ async def test_error_fallback_returns_default_scores(monkeypatch):
 
     result = await JudgeService().evaluate(query="q", response="r", context_chunks=["c"])
 
-    assert result["scores"] == {d: 75 for d in DIMENSIONS}
-    assert result["composite_score"] == 75.0
-    assert result["hallucination_rate"] == 0.0
-    assert "default scores" in result["overall_note"]
+    assert result["scores"] == {}
+    assert result["status"] == "failed"
+    assert result["composite_score"] is None
+    assert result["hallucination_rate"] is None
+    assert result["reason"] == "judge_response_unavailable"
 
 
 async def test_ollama_fallback_uses_local_default_model(monkeypatch):
@@ -210,8 +211,9 @@ async def test_malformed_completion_falls_back(monkeypatch):
 
     result = await JudgeService().evaluate(query="q", response="r", context_chunks=["c"])
 
-    assert result["scores"] == {d: 75 for d in DIMENSIONS}
-    assert "default scores" in result["overall_note"]
+    assert result["scores"] == {}
+    assert result["status"] == "failed"
+    assert result["reason"] == "judge_response_unavailable"
 
 
 # ---------------------------------------------------------------------------

@@ -189,6 +189,21 @@ def set_workspace_job_task_id(db: DBSession, job_id: str, task_id: str) -> None:
 
 def dispatch_workspace_job(db: DBSession, workspace: Workspace, job: WorkspaceJob, *, allow_inline_fallback: bool = True) -> str | None:
     """Dispatch a product-facing WorkspaceJob and persist its task id in input_ref."""
+    if job.kind in {"run_evaluation", "evaluation_campaign", "evaluation_generation", "evaluation_raget"}:
+        from app.workers.tasks import run_evaluation, evaluation_campaign, evaluation_generation
+        from app.core.config import settings
+        task = {"run_evaluation": run_evaluation, "evaluation_campaign": evaluation_campaign, "evaluation_generation": evaluation_generation, "evaluation_raget": evaluation_generation}[job.kind]
+        try:
+            if settings.worker_eager_mode:
+                set_workspace_job_task_id(db, job.id, f"eager:{job.id}")
+                db.commit()
+                task.run(job.id)
+                return f"eager:{job.id}"
+            result = task.apply_async(args=(job.id,), queue=settings.celery_task_default_queue)
+            set_workspace_job_task_id(db, job.id, result.id)
+            return result.id
+        except Exception:
+            return None
     if job.kind not in {"rag_deep_retrieval", "sftp_reconciliation"}:
         raise ValueError(f"Unsupported workspace job kind: {job.kind}")
     from app.core.config import settings

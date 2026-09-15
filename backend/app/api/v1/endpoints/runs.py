@@ -1355,7 +1355,7 @@ def _sse_format(event: str, payload: Dict[str, Any]) -> str:
 
 
 async def _run_event_stream(
-    run_id: str, request: Request, workspace_id: Optional[str]
+    run_id: str, request: Request, workspace_id: Optional[str], user_id: Optional[str] = None
 ) -> AsyncIterator[str]:
     """Yield SSE frames for a single Run.
 
@@ -1370,6 +1370,7 @@ async def _run_event_stream(
     """
     subscriber = event_bus.subscribe(run_id)
     replayed_ts: set[str] = set()
+    persisted_cursor = 0
     try:
         db = SessionLocal()
         try:
@@ -1393,6 +1394,7 @@ async def _run_event_stream(
                     public_cp["result_held"] = True
                 yield _sse_format(public_cp.get("kind", "checkpoint"), public_cp)
 
+            persisted_cursor = len(checkpoints)
             yield _sse_format(
                 "snapshot",
                 {
@@ -1425,7 +1427,7 @@ async def _run_event_stream(
             if consumer_task is None:
                 consumer_task = asyncio.create_task(subscriber.next_event())
             done, _ = await asyncio.wait(
-                {consumer_task}, timeout=15.0, return_when=asyncio.FIRST_COMPLETED
+                {consumer_task}, timeout=1.0, return_when=asyncio.FIRST_COMPLETED
             )
             if consumer_task in done:
                 event = consumer_task.result()
@@ -1438,6 +1440,8 @@ async def _run_event_stream(
                     # This event landed during replay and is already on
                     # the wire via the checkpoint replay loop.
                     continue
+                if isinstance(ts, str):
+                    replayed_ts.add(ts)
                 yield _sse_format(event.get("kind", "event"), event)
                 if event.get("kind") in ("run_end", "hitl_pause", "debug_pause", "subflow_wait"):
                     break
@@ -1450,7 +1454,29 @@ async def _run_event_stream(
                 #      walker that doesn't publish events).
                 db = SessionLocal()
                 try:
-                    status = db.query(Run.status).filter(Run.id == run_id).scalar()
+                    current = db.query(Run).filter(Run.id == run_id, Run.workspace_id == workspace_id).first()
+                    if current is None:
+                        return
+                    if user_id:
+                        current_user = db.query(User).filter(User.id == user_id).first()
+                        current_workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+                        if current_user is None or current_workspace is None or not readable_runs(db, runs=[current], user=current_user, workspace=current_workspace):
+                            yield _sse_format("close", {"reason": "access_unavailable"})
+                            return
+                    status = current.status
+                    checkpoints = list(current.checkpoints or [])
+                    for cp in checkpoints[persisted_cursor:]:
+                        ts = cp.get("t")
+                        if isinstance(ts, str) and ts in replayed_ts:
+                            continue
+                        if isinstance(ts, str):
+                            replayed_ts.add(ts)
+                        public_cp = cp
+                        if status == "hitl_pending" and cp.get("kind") == "hitl_pause" and cp.get("membrane_egress") is True:
+                            public_cp = {key: value for key, value in cp.items() if key != "state"}
+                            public_cp["result_held"] = True
+                        yield _sse_format(public_cp.get("kind", "checkpoint"), public_cp)
+                    persisted_cursor = len(checkpoints)
                 finally:
                     db.close()
                 if status in _TERMINAL_STATUSES or status in (
@@ -1505,7 +1531,7 @@ async def stream_run(
         resource_attrs=_run_read_attrs(run),
     )
     return StreamingResponse(
-        _run_event_stream(run_id, request, workspace.id if workspace else None),
+        _run_event_stream(run_id, request, workspace.id if workspace else None, user.id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -1794,7 +1820,7 @@ async def list_run_replays(
             {
                 **_row(r, db=db),
                 "replay_overrides": r.replay_overrides or {},
-                "evaluation_scores": r.evaluation_scores,
+                "evaluation_scores": {k: v for k, v in (r.evaluation_scores or {}).items() if k not in {"metadata", "claim_audit"}},
             }
             for r in children
         ],

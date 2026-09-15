@@ -22,6 +22,9 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { CorrectionReviewComponent } from '@app/features/runs/correction-review.component';
+import { ApiService } from '@app/core/api.service';
 import { DOCUMENT } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
@@ -30,6 +33,7 @@ import { ToastrService } from 'ngx-toastr';
 import {
   CanonicalApiService,
   type System,
+  type Run,
 } from '@app/core/canonical-api.service';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -120,6 +124,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     FlowMlService,
   ],
   imports: [
+    CorrectionReviewComponent,
     NavLinkDirective,
     CkBackLinkComponent,
     IconComponent,
@@ -167,6 +172,20 @@ const PUBLICATION_HYDRATION_CODES = new Set([
         </h1>
       </header>
 
+      @if (referenceRunId()) {
+        <details class="flow-builder__correction-context" open>
+          <summary>{{ i18n.t('runs.correction.reference_run') }} · {{ referenceRunId() }}</summary>
+          @if (referenceError()) { <p role="alert">{{ referenceError() }}</p> }
+          @if (referenceRun(); as reference) {
+            <a [navLink]="{type:'run',ref:reference.id}">{{ i18n.t('runs.correction.back_to_evidence') }}</a>
+            @if (referenceEvaluationId(); as evaluationId) {
+              <app-correction-review [run]="reference" [evaluationId]="evaluationId"
+                [proposalId]="referenceCorrectionId()" [applicationAllowed]="!store.dirty() && persistence.saveState() === 'saved'"
+                (applied)="onReferenceCorrectionApplied()" />
+            }
+          }
+        </details>
+      }
       <app-flow-toolbar
         class="flow-builder__toolbar"
         [nodeCount]="store.nodeCount()"
@@ -553,6 +572,14 @@ export class FlowBuilderComponent {
   protected readonly workbench = inject(FlowWorkbenchService);
   readonly i18n = inject(I18nService);
   private readonly canonical = inject(CanonicalApiService);
+  private readonly referenceApi = inject(ApiService);
+  protected readonly referenceRunId = signal<string | null>(null);
+  protected readonly referenceCorrectionId = signal<string | null>(null);
+  protected readonly referenceNodeId = signal<string | null>(null);
+  protected readonly referenceRun = signal<Run | null>(null);
+  protected readonly referenceEvaluationId = signal<string | null>(null);
+  protected readonly referenceError = signal('');
+  private selectedReferenceNode: string | null = null;
   private readonly catalog = inject(FlowCatalogService);
   private readonly route = inject(ActivatedRoute);
   private readonly toastr = inject(ToastrService);
@@ -727,6 +754,16 @@ export class FlowBuilderComponent {
       this.route.snapshot.paramMap.get('systemId') ||
       this.route.snapshot.queryParamMap.get('systemId');
     this.systemId.set(sid);
+    // Context navigation never hydrates a graph. It reads the referenced Run
+    // separately, then selects a node only after normal draft hydration.
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(params => {
+      this.referenceRunId.set(params.get('reference_run'));
+      this.referenceCorrectionId.set(params.get('correction'));
+      this.referenceNodeId.set(params.get('node'));
+      this.selectedReferenceNode = null;
+      this.loadReferenceContext();
+    });
+    effect(() => this.selectReferenceNode());
 
     // Bind the run orchestrator to the route's System (or scratchpad) so the
     // projected controls / terminal / nodes all gate + execute consistently.
@@ -748,6 +785,44 @@ export class FlowBuilderComponent {
       this.persistence.hydrateScratch();
       this.loadState.set('ready');
     }
+  }
+
+  protected selectReferenceNode(): void {
+    const node = this.referenceNodeId();
+    if (this.loadState() !== 'ready' || !this.referenceRun() || !node || this.selectedReferenceNode === node) return;
+    const exists = this.store.nodes().some(candidate => candidate.id === node);
+    untracked(() => {
+      this.selectedReferenceNode = node;
+      if (exists) this.store.setSelection(node);
+      else this.referenceError.set(this.i18n.t('runs.correction.node_missing'));
+    });
+  }
+
+  private loadReferenceContext(): void {
+    const id = this.referenceRunId(); const systemId = this.systemId();
+    this.referenceRun.set(null); this.referenceEvaluationId.set(null); this.referenceError.set('');
+    if (!id || !systemId) return;
+    const scope = this.workspace.captureRequestScope();
+    this.canonical.getRun(id).pipe(takeUntilDestroyed(this.destroyRef), switchMap(run => {
+      if (!this.workspace.isRequestScopeCurrent(scope) || this.referenceRunId() !== id) return of(null);
+      if (!run || run.system_id !== systemId) return throwError(() => new Error('reference_run_unavailable'));
+      return this.referenceApi.get<{evaluation_id?:string}>(`/evaluation/by-run/${encodeURIComponent(id)}`).pipe(map(evaluation => ({run,evaluation})));
+    })).subscribe({next: result => {
+      if (!result || !this.workspace.isRequestScopeCurrent(scope) || this.referenceRunId() !== id) return;
+      this.referenceRun.set(result.run); this.referenceEvaluationId.set(result.evaluation.evaluation_id || null);
+      if (!result.evaluation.evaluation_id) this.referenceError.set(this.i18n.t('runs.correction.evaluation_missing'));
+    },error:()=>{if(this.workspace.isRequestScopeCurrent(scope) && this.referenceRunId() === id)this.referenceError.set(this.i18n.t('runs.correction.reference_unavailable'));}});
+  }
+
+  protected onReferenceCorrectionApplied(): void {
+    // An edit made while the request was in flight must never be overwritten.
+    if (this.store.dirty() || this.persistence.saveState() !== 'saved') {
+      this.referenceError.set(this.i18n.t('runs.correction.keep_unsaved'));
+      return;
+    }
+    const id = this.systemId(); if (!id) return;
+    this.selectedReferenceNode = null;
+    this.hydrateFromSystem(id);
   }
 
   /** A rollback response is the new authoritative baseline. */

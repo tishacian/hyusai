@@ -605,3 +605,15 @@
     transform: translateX(0);
   }
 }
+
+.flow-builder__correction-context {
+  flex: 0 1 auto;
+  max-height: 42vh;
+  overflow: auto;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--ck-bg-panel);
+  summary { cursor: pointer; padding: 4px; }
+  summary:focus-visible { outline: 2px solid var(--ck-signal-cool); }
+}

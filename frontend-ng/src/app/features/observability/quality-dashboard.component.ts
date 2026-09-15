@@ -3,20 +3,24 @@ import {
   Component,
   NgZone,
   OnInit,
+  OnDestroy,
+  effect,
+  untracked,
   computed,
   inject,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { FormsModule } from '@angular/forms';
+import { Subject, takeUntil } from 'rxjs';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { I18nService } from '@app/core/i18n.service';
+import { QualityEvidenceChartsComponent } from './quality-evidence-charts.component';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
-import {
-  readWorkspaceEvalContext,
-  type LastEvalContext,
-} from '@app/core/evaluation-context.storage';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
 import {
   CanonicalApiService,
@@ -39,11 +43,14 @@ interface DimensionsResponse {
 
 interface EvaluationRow {
   id: string;
+  run_id?: string | null;
+  status?: string;
+  threshold_breach?: boolean | null;
   scores?: Record<string, number>;
-  composite_score?: number;
-  hallucination_rate?: number;
-  drift_rate?: number;
-  claim_audit?: { claims?: Array<{ text: string; verdict: string; score: number }> };
+  composite_score?: number | null;
+  hallucination_rate?: number | null;
+  drift_rate?: number | null;
+  claim_audit?: { claims?: Array<{ text?: string; claim?: string; verdict?: string }> };
   created_at?: string | null;
 }
 
@@ -66,8 +73,10 @@ const PALETTE = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     NavLinkDirective,
+    FormsModule,
     RouterLink,
     BaseChartDirective,
+    QualityEvidenceChartsComponent,
     IconComponent,
     StatReadoutComponent,
     EmptyStateComponent,
@@ -77,9 +86,8 @@ const PALETTE = {
   ],
   template: `
     <ck-page-frame
-      eyebrow="Measure · Observability"
-      title="Quality"
-      description="Multi-dimensional quality scores, claim audits and trust signals — live from the evaluation engine."
+      [eyebrow]="i18n.t('observability.charts.context')"
+      [title]="i18n.t('observability.charts.page_title')"
     >
       <div actions [style.display]="'inline-flex'" [style.gap.px]="6">
         <button
@@ -102,13 +110,13 @@ const PALETTE = {
           [style.cursor]="'pointer'"
         >
           <ck-glyph name="orbit" [size]="12" />
-          Refresh
+          {{i18n.t('observability.charts.refresh')}}
         </button>
         <button
           type="button"
           (click)="runEvaluation()"
           [disabled]="running() || !canRunEvaluation()"
-          [title]="canRunEvaluation() ? 'Score the last chat exchange' : 'Send a message in the chat first'"
+          [title]="i18n.t('runs.investigation.title')"
           class="ck-mono"
           [style.display]="'inline-flex'"
           [style.alignItems]="'center'"
@@ -126,9 +134,16 @@ const PALETTE = {
           [style.cursor]="canRunEvaluation() && !running() ? 'pointer' : 'not-allowed'"
         >
           <ck-glyph [name]="running() ? 'orbit' : 'play'" [size]="12" />
-          {{ running() ? 'Scoring…' : 'Run evaluation' }}
+          {{ i18n.t('runs.investigation.title') }}
         </button>
       </div>
+
+    <div class="flex gap-4 flex-wrap items-end my-4">
+     <label>{{i18n.t('observability.charts.system')}}<select class="ck-surface p-2 block" [ngModel]="systemFilter()" (ngModelChange)="setScope($event,period())"><option value="">{{i18n.t('observability.charts.all_systems')}}</option>@for(system of systems();track system.id){<option [value]="system.id">{{system.name}}</option>}</select></label>
+     <label>{{i18n.t('observability.charts.period')}}<select class="ck-surface p-2 block" [ngModel]="period()" (ngModelChange)="setScope(systemFilter(),$event)"><option value="7d">{{i18n.t('observability.charts.week')}}</option><option value="30d">{{i18n.t('observability.charts.month')}}</option></select></label>
+    </div>
+    @if(loadError()){<p role="alert">{{i18n.t('observability.charts.load_error')}}</p>}
+    <app-quality-evidence-charts [rows]="history()" />
 
     <!-- Vague E / E1 — Threshold monitoring strip (7d aggregate).
          Sits above the per-run tiles because "are we drifting over time?"
@@ -145,7 +160,7 @@ const PALETTE = {
           <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="6" [style.marginBottom.px]="4">
             <ck-glyph name="pulse" [size]="12" />
             <span class="ck-mono" [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'">
-              Threshold monitoring · 7d
+              Threshold monitoring · {{ period() }}
             </span>
           </div>
           <div [style.display]="'flex'" [style.alignItems]="'baseline'" [style.gap.px]="10">
@@ -178,14 +193,13 @@ const PALETTE = {
             </ck-tag>
           </div>
           <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="2">
-            Thresholds: composite ≥ {{ t.thresholds.composite_min }},
-            unsupported claims ≤ {{ (t.thresholds.hallucination_max * 100).toFixed(0) }}%
+            {{ i18n.t('runs.investigation.method') }}: {{ t.totals.threshold_coverage ?? 0 }} / {{ t.totals.runs_evaluated }}
           </div>
         </div>
 
         <div>
           <div [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'" [style.marginBottom.px]="6">
-            Daily breach count
+            Daily evaluation count
           </div>
           @if (trendBars().length > 0) {
             <div [style.display]="'flex'" [style.alignItems]="'flex-end'" [style.gap.px]="3" [style.height.px]="28">
@@ -209,7 +223,7 @@ const PALETTE = {
         </div>
 
         <a
-          [navLink]="{ surface: 'review-queue' }"
+          [routerLink]="reviewQueueHref" [queryParams]="{system_id: systemFilter() || null, since: period()}"
           class="ck-mono"
           [style.display]="'inline-flex'"
           [style.alignItems]="'center'"
@@ -252,7 +266,7 @@ const PALETTE = {
             <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="6">
               <ck-glyph name="pulse" [size]="12" />
               <span class="ck-mono" [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'">
-                RAG component health · Giskard taxonomy · 7d
+                RAG component health · Giskard taxonomy · {{ period() }}
               </span>
             </div>
             <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="3">
@@ -268,7 +282,7 @@ const PALETTE = {
           @for (item of componentHealthItems(); track item.component) {
             <a
               [routerLink]="reviewQueueHref"
-              [queryParams]="{ component: item.component }"
+              [queryParams]="{ component: item.component, system_id: systemFilter() || null, since: period() }"
               [style.display]="'block'"
               [style.textDecoration]="'none'"
               [style.padding.px]="12"
@@ -294,7 +308,7 @@ const PALETTE = {
                 </span>
               </div>
               <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="4">
-                Avg {{ item.avg_composite.toFixed(1) }}/100 · unsupported claims {{ (item.avg_hallucination * 100).toFixed(1) }}%
+                Avg {{ (item.avg_composite?.toFixed(1) ?? '—') }}/100 · unsupported claims {{ (item.avg_hallucination == null ? '—' : (item.avg_hallucination * 100).toFixed(1)) }}%
               </div>
             </a>
           }
@@ -344,6 +358,7 @@ const PALETTE = {
       />
     </div>
 
+    <details class="mb-6"><summary class="cursor-pointer py-3">{{i18n.t('observability.charts.details')}}</summary>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
       <!-- Radar chart -->
       <section class="ck-surface t-elevated rounded-md p-5">
@@ -414,6 +429,15 @@ const PALETTE = {
       </section>
     </div>
 
+    </details>
+    <section class="ck-surface t-elevated rounded-md p-5 mb-4">
+      <h3>{{ i18n.t('runs.investigation.title') }}</h3>
+      @for (row of history(); track row.id) {
+        @if (row.run_id) {
+          <p><a [navLink]="{type: 'run', ref: row.run_id}">{{ row.created_at }} · {{ i18n.t('runs.investigation.status.' + (row.status || 'historical')) }}</a></p>
+        }
+      }
+    </section>
     <!-- Claim audit -->
     <section class="ck-surface t-elevated rounded-md overflow-hidden">
       <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
@@ -443,7 +467,7 @@ const PALETTE = {
                 [class.bg-red-400]="claim.verdict === 'unsupported'"
               ></div>
               <div class="flex-1 min-w-0">
-                <div class="text-white">{{ claim.text }}</div>
+                <div class="text-white">{{ claim.text || claim.claim }}</div>
                 <div class="text-[11px] text-gray-500 mt-0.5 flex items-center gap-2 flex-wrap">
                   <span
                     class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded capitalize"
@@ -456,7 +480,7 @@ const PALETTE = {
                   >
                     {{ claim.verdict }}
                   </span>
-                  <span>Confidence {{ claim.score }}%</span>
+
                 </div>
               </div>
             </li>
@@ -467,7 +491,16 @@ const PALETTE = {
     </ck-page-frame>
   `,
 })
-export class QualityDashboardComponent implements OnInit {
+export class QualityDashboardComponent implements OnInit, OnDestroy {
+  readonly i18n = inject(I18nService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly cancel = new Subject<void>();
+  readonly systemFilter = signal(this.route.snapshot.queryParamMap.get('system_id') || '');
+  readonly period = signal(this.route.snapshot.queryParamMap.get('since') === '30d' ? '30d' : '7d');
+  readonly systems = signal<Array<{id:string;name:string}>>([]);
+  readonly loadError = signal(false);
+  private readonly navigation = inject(ZoomContextService);
   private readonly api = inject(ApiService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
@@ -502,17 +535,17 @@ export class QualityDashboardComponent implements OnInit {
     return typeof r === 'number' ? (r * 100).toFixed(1) : '—';
   });
   readonly trendAvgComposite = computed<string>(() => {
-    const buckets = this.trend()?.series ?? [];
+    const buckets = (this.trend()?.series ?? []).filter(b => b.avg_composite != null);
     if (!buckets.length) return '—';
-    const weighted = buckets.reduce((acc, b) => acc + (b.avg_composite ?? 0) * (b.count ?? 0), 0);
-    const total = buckets.reduce((acc, b) => acc + (b.count ?? 0), 0);
+    const weighted = buckets.reduce((acc, b) => acc + (b.avg_composite ?? 0) * (b.observed_composite_count ?? 0), 0);
+    const total = buckets.reduce((acc, b) => acc + (b.observed_composite_count ?? 0), 0);
     return total > 0 ? (weighted / total).toFixed(1) : '—';
   });
   readonly unsupportedClaimsAverage = computed<number | null>(() => {
-    const buckets = this.trend()?.series ?? [];
+    const buckets = (this.trend()?.series ?? []).filter(b => b.avg_hallucination != null);
     if (buckets.length) {
-      const weighted = buckets.reduce((acc, b) => acc + (b.avg_hallucination ?? 0) * (b.count ?? 0), 0);
-      const total = buckets.reduce((acc, b) => acc + (b.count ?? 0), 0);
+      const weighted = buckets.reduce((acc, b) => acc + (b.avg_hallucination ?? 0) * (b.observed_hallucination_count ?? 0), 0);
+      const total = buckets.reduce((acc, b) => acc + (b.observed_hallucination_count ?? 0), 0);
       if (total > 0) return weighted / total;
     }
     const rows = this.history().filter((row) => typeof row.hallucination_rate === 'number');
@@ -520,7 +553,8 @@ export class QualityDashboardComponent implements OnInit {
     return rows.reduce((acc, row) => acc + (row.hallucination_rate ?? 0), 0) / rows.length;
   });
   readonly trendHealthTone = computed<'pos' | 'warn' | 'neg'>(() => {
-    const rate = this.trend()?.totals.breach_rate ?? 0;
+    const rate = this.trend()?.totals.breach_rate;
+    if (rate == null) return 'warn';
     if (rate === 0) return 'pos';
     if (rate < 0.1) return 'warn';
     return 'neg';
@@ -541,9 +575,7 @@ export class QualityDashboardComponent implements OnInit {
     const safe = maxCount > 0 ? maxCount : 1;
     return series.map((b) => {
       const ratio = (b.count ?? 0) / safe;
-      const isBreach =
-        (typeof b.avg_composite === 'number' && b.avg_composite < compositeThreshold)
-        || (typeof b.avg_hallucination === 'number' && b.avg_hallucination > unsupportedThreshold);
+      const isBreach = (b.breaches ?? 0) > 0;
       return {
         bucket: b.bucket,
         count: b.count ?? 0,
@@ -555,11 +587,11 @@ export class QualityDashboardComponent implements OnInit {
 
   readonly componentHealthItems = computed(() =>
     (this.componentHealth()?.components ?? []).map((item) => {
-      const rate = item.breach_rate ?? 0;
+      const rate = item.breach_rate;
       return {
         ...item,
-        rateLabel: `${(rate * 100).toFixed(1)}%`,
-        tone: (rate === 0 ? 'pos' : rate < 0.2 ? 'warn' : 'neg') as
+        rateLabel: rate == null ? '—' : `${(rate * 100).toFixed(1)}%`,
+        tone: (rate == null ? 'warn' : rate === 0 ? 'pos' : rate < 0.2 ? 'warn' : 'neg') as
           | 'pos'
           | 'warn'
           | 'neg',
@@ -571,6 +603,7 @@ export class QualityDashboardComponent implements OnInit {
   );
   readonly componentHealthTone = computed<'pos' | 'warn' | 'neg'>(() => {
     const total = this.componentHealthBreaches();
+    if (!this.componentHealthItems().some(item => item.evaluated > 0)) return 'warn';
     if (total === 0) return 'pos';
     const evaluated = this.componentHealthItems().reduce(
       (acc, item) => acc + (item.evaluated ?? 0),
@@ -595,8 +628,8 @@ export class QualityDashboardComponent implements OnInit {
 
   readonly unsupportedClaimsHint = computed(() => {
     const latest = this.latest()?.hallucination_rate;
-    if (typeof latest !== 'number') return '7d weighted average from claim audits';
-    return `7d weighted average · latest run ${(latest * 100).toFixed(1)}%`;
+    if (typeof latest !== 'number') return `${this.period()} weighted average from claim audits`;
+    return `${this.period()} weighted average · latest run ${(latest * 100).toFixed(1)}%`;
   });
 
   readonly driftDisplay = computed(() => {
@@ -607,22 +640,24 @@ export class QualityDashboardComponent implements OnInit {
   readonly compositeTrend = computed<'up' | 'down' | null>(() => {
     const hist = this.history();
     if (hist.length < 2) return null;
-    const a = hist[0].composite_score ?? 0;
-    const b = hist[1].composite_score ?? 0;
+    const a = hist[0].composite_score;
+    const b = hist[1].composite_score;
+    if (a == null || b == null) return null;
     return a >= b ? 'up' : 'down';
   });
 
   readonly compositeDelta = computed(() => {
     const hist = this.history();
     if (hist.length < 2) return '';
-    const a = hist[0].composite_score ?? 0;
-    const b = hist[1].composite_score ?? 0;
+    const a = hist[0].composite_score;
+    const b = hist[1].composite_score;
+    if (a == null || b == null) return '';
     const d = a - b;
     return `${d >= 0 ? '+' : ''}${d.toFixed(1)}`;
   });
 
   readonly unsupportedClaimsTrend = computed<'up' | 'down' | null>(() => {
-    const buckets = (this.trend()?.series ?? []).filter((b) => (b.count ?? 0) > 0);
+    const buckets = (this.trend()?.series ?? []).filter((b) => (b.count ?? 0) > 0 && b.avg_hallucination != null);
     if (buckets.length >= 2) {
       const current = buckets[buckets.length - 1].avg_hallucination ?? 0;
       const previous = buckets[buckets.length - 2].avg_hallucination ?? 0;
@@ -630,16 +665,18 @@ export class QualityDashboardComponent implements OnInit {
     }
     const hist = this.history();
     if (hist.length < 2) return null;
-    const current = hist[0].hallucination_rate ?? 0;
-    const previous = hist[1].hallucination_rate ?? 0;
+    const current = hist[0].hallucination_rate;
+    const previous = hist[1].hallucination_rate;
+    if (current == null || previous == null) return null;
     return current <= previous ? 'down' : 'up';
   });
 
   readonly driftTrend = computed<'up' | 'down' | null>(() => {
     const hist = this.history();
     if (hist.length < 2) return null;
-    const a = hist[0].drift_rate ?? 0;
-    const b = hist[1].drift_rate ?? 0;
+    const a = hist[0].drift_rate;
+    const b = hist[1].drift_rate;
+    if (a == null || b == null) return null;
     return a <= b ? 'up' : 'down';
   });
 
@@ -648,19 +685,19 @@ export class QualityDashboardComponent implements OnInit {
   /** Sparkline series — oldest first. */
   readonly compositeSeries = computed<number[]>(() => {
     const reversed = [...this.history()].reverse();
-    return reversed.map((e) => e.composite_score ?? 0).filter((v) => Number.isFinite(v));
+    return reversed.map((e) => e.composite_score).filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
   });
   readonly unsupportedClaimsSeries = computed<number[]>(() => {
     const trendSeries = this.trend()?.series ?? [];
     if (trendSeries.length >= 2) {
-      return trendSeries.map((e) => (e.avg_hallucination ?? 0) * 100);
+      return trendSeries.filter(e => e.avg_hallucination != null).map((e) => e.avg_hallucination! * 100);
     }
     const reversed = [...this.history()].reverse();
-    return reversed.map((e) => (e.hallucination_rate ?? 0) * 100);
+    return reversed.filter(e => e.hallucination_rate != null).map((e) => e.hallucination_rate! * 100);
   });
   readonly driftSeries = computed<number[]>(() => {
     const reversed = [...this.history()].reverse();
-    return reversed.map((e) => (e.drift_rate ?? 0) * 100);
+    return reversed.filter(e => e.drift_rate != null).map((e) => e.drift_rate! * 100);
   });
   readonly evaluationsSeries = computed<number[]>(() => {
     const n = Math.min(this.history().length, 20);
@@ -668,7 +705,7 @@ export class QualityDashboardComponent implements OnInit {
     return Array.from({ length: n }, (_, i) => i + 1);
   });
 
-  readonly canRunEvaluation = computed(() => !!this.readLastContext());
+  readonly canRunEvaluation = computed(() => !!this.latest()?.run_id);
 
   readonly radarData = computed<ChartData<'radar'>>(() => {
     const latest = this.latest();
@@ -676,7 +713,7 @@ export class QualityDashboardComponent implements OnInit {
     const keys = this.dimensionKeys();
     const labels = keys.map((k) => this.dimensions()[k] ?? k);
     const current = keys.map((k) => scaleTo100(scores[k]));
-    const target = keys.map(() => 85);
+
     return {
       labels,
       datasets: [
@@ -689,15 +726,7 @@ export class QualityDashboardComponent implements OnInit {
           pointRadius: 3,
           borderWidth: 2,
         },
-        {
-          label: 'Target',
-          data: target,
-          backgroundColor: PALETTE.target.fill,
-          borderColor: PALETTE.target.stroke,
-          borderDash: [4, 4],
-          pointRadius: 0,
-          borderWidth: 1.5,
-        },
+
       ],
     };
   });
@@ -712,7 +741,7 @@ export class QualityDashboardComponent implements OnInit {
       datasets: [
         {
           label: 'Composite score',
-          data: reversed.map((e) => e.composite_score ?? 0),
+          data: reversed.map((e) => e.composite_score ?? null),
           borderColor: PALETTE.current.stroke,
           backgroundColor: 'rgba(0, 188, 212, 0.15)',
           fill: true,
@@ -722,7 +751,7 @@ export class QualityDashboardComponent implements OnInit {
         },
         {
           label: 'Unsupported claims (%)',
-          data: reversed.map((e) => (e.hallucination_rate ?? 0) * 100),
+          data: reversed.map((e) => e.hallucination_rate == null ? null : e.hallucination_rate * 100),
           borderColor: '#ef4444',
           backgroundColor: 'rgba(239,68,68,0.08)',
           tension: 0.35,
@@ -772,8 +801,18 @@ export class QualityDashboardComponent implements OnInit {
     },
   };
 
+  constructor() {
+    effect(() => {
+      this.workspace.current()?.id; this.systemFilter(); this.period();
+      untracked(() => this.refresh());
+    });
+  }
+  setScope(systemId:string,since:string):void {
+    this.systemFilter.set(systemId);this.period.set(since==='30d'?'30d':'7d');
+    void this.router.navigate([],{relativeTo:this.route,queryParams:{system_id:systemId||null,since:this.period()},queryParamsHandling:'merge',replaceUrl:true});
+  }
+  ngOnDestroy():void { this.cancel.next();this.cancel.complete(); }
   ngOnInit(): void {
-    this.refresh();
     this.zone.runOutsideAngular(() => {
       const schedule = (window as any).requestIdleCallback ?? window.setTimeout;
       schedule(() => {
@@ -783,80 +822,52 @@ export class QualityDashboardComponent implements OnInit {
   }
 
   refresh(): void {
-    this.loading.set(true);
-    this.api.get<DimensionsResponse>('/evaluation/dimensions').subscribe({
+    this.cancel.next();this.loading.set(true);this.loadError.set(false);
+    this.latest.set(null);this.history.set([]);this.trend.set(null);this.componentHealth.set(null);this.systems.set([]);
+    const scope = {since:this.period(), ...(this.systemFilter()?{system_id:this.systemFilter()}: {})};
+    this.canonical.listSystems().pipe(takeUntil(this.cancel)).subscribe(rows=>this.systems.set(rows));
+    this.api.get<DimensionsResponse>('/evaluation/dimensions').pipe(takeUntil(this.cancel)).subscribe({
       next: (res) => {
         this.dimensions.set(res?.dimensions ?? {});
       },
       error: () => {},
     });
-    this.api.get<LatestResponse>('/evaluation/latest').subscribe({
+    this.api.get<LatestResponse>('/evaluation/latest',scope).pipe(takeUntil(this.cancel)).subscribe({
       next: (res) => this.latest.set(res?.evaluation ?? null),
       error: () => this.latest.set(null),
     });
-    this.api.get<HistoryResponse>('/evaluation/history', { limit: '20' }).subscribe({
+    this.api.get<HistoryResponse>('/evaluation/history', { limit: '20',...scope }).pipe(takeUntil(this.cancel)).subscribe({
       next: (res) => {
         this.history.set(res?.evaluations ?? []);
         this.loading.set(false);
       },
       error: () => {
-        this.history.set([]);
+        this.history.set([]);this.loadError.set(true);
         this.loading.set(false);
       },
     });
     // Vague E / E1 — aggregate trend + review queue count
-    this.canonical.getEvaluationTrend({ since: '7d', group_by: 'day' }).subscribe({
+    this.canonical.getEvaluationTrend({ ...scope, group_by: 'day' }).pipe(takeUntil(this.cancel)).subscribe({
       next: (res) => this.trend.set(res),
       error: () => this.trend.set(null),
     });
-    this.canonical.getEvaluationComponentHealth({ since: '7d' }).subscribe({
+    this.canonical.getEvaluationComponentHealth(scope).pipe(takeUntil(this.cancel)).subscribe({
       next: (res) => this.componentHealth.set(res),
       error: () => this.componentHealth.set(null),
     });
-    this.canonical.getEvaluationReviewQueue({ status: 'proposed', limit: 200 }).subscribe({
+    this.canonical.getEvaluationReviewQueue({ ...scope, status: 'proposed', limit: 200 }).pipe(takeUntil(this.cancel)).subscribe({
       next: (res) => this.reviewQueueCount.set(res?.count ?? 0),
       error: () => this.reviewQueueCount.set(0),
     });
   }
 
   runEvaluation(): void {
-    const ctx = this.readLastContext();
-    if (!ctx) {
-      this.toast.warning('Send a message in the chat first', 'Evaluation');
-      return;
-    }
-    this.running.set(true);
-    this.api.post<EvaluationRow>('/evaluation/score', ctx).subscribe({
-      next: (res) => {
-        this.latest.set(res);
-        this.history.update((h) => [res, ...h].slice(0, 20));
-        this.running.set(false);
-        this.toast.success(
-          `Composite ${Number(res?.composite_score ?? 0).toFixed(1)}/100`,
-          'Evaluation complete',
-        );
-      },
-      error: (err) => {
-        this.running.set(false);
-        this.toast.error(err?.error?.detail ?? 'Evaluation failed', 'Evaluation');
-      },
-    });
-  }
-
-  private readLastContext(): LastEvalContext | null {
-    return readWorkspaceEvalContext(
-      localStorage,
-      this.workspace.currentSlug(),
-      this.workspace.workspaces().map((workspace) => workspace.slug),
-    );
+    const runId = this.latest()?.run_id;
+    if (runId) void this.router.navigateByUrl(this.navigation.objectUrlTree('run', runId));
   }
 }
 
-/** Backend scores come on a 0-5 (or 0-10) scale depending on dimension — normalize to 0-100. */
-function scaleTo100(v: unknown): number {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return 0;
-  if (v <= 1) return Math.round(v * 100);
-  if (v <= 5) return Math.round((v / 5) * 100);
-  if (v <= 10) return Math.round((v / 10) * 100);
-  return Math.min(100, Math.round(v));
+/** Judge dimensions already use a 0–100 scale; missing stays missing. */
+function scaleTo100(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null;
 }
