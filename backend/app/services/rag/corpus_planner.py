@@ -102,7 +102,7 @@ _TABLE_VALUE_LOOKUP_RE = re.compile(
     re.IGNORECASE,
 )
 _QUESTION_FACET_RE = re.compile(
-    r"\b(?:can|could|should|whether|which|what|where|when|who|how|"
+    r"\b(?:can|could|should|whether|which|what|where|when|who|how|do|does|"
     r"peut|peux|pouvez|doit|quel|quelle|quels|quelles|quoi|où|quand|qui|comment)\b",
     re.IGNORECASE,
 )

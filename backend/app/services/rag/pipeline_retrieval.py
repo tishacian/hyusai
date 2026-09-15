@@ -1020,10 +1020,24 @@ def _query_variants(
     # before generic identifier/guide variants so the normal three-variant fast
     # budget still covers the cross-document answer.
     identifier_prefix = " ".join(
-        dict.fromkeys(re.findall(r"\b[A-Z0-9]+(?:-[A-Z0-9]+)+\b", q, flags=re.IGNORECASE))
+        dict.fromkeys(
+            [
+                *re.findall(r"\b[A-Z0-9]+(?:-[A-Z0-9]+)+\b", q, flags=re.IGNORECASE),
+                *_query_exact_references(q),
+            ]
+        )
     )
     lowered = q.casefold()
-    if re.search(
+    temporary_measure_followup = _is_temporary_measure_query(q)
+    if temporary_measure_followup:
+        variants.append(
+            (
+                "temporary measure workaround reduced-duty operation "
+                "permitted limits maximum duration duty approval authority vibration ceiling "
+                "leak rate seal kit in transit restoration clock permanent repair"
+            ).strip()
+        )
+    if not temporary_measure_followup and re.search(
         r"\b(?:spare|part|stock|inventory|warehouse|depot|pi[eè]ce|stockage|entrep[oô]t)\b", lowered
     ):
         variants.append(
@@ -1032,9 +1046,10 @@ def _query_variants(
     if re.search(
         r"\b(?:sla|deadline|due|finish|finished|service level|d[eé]lai|[ée]ch[eé]ance)\b", lowered
     ):
+        sla_identifier_prefix = "" if temporary_measure_followup else identifier_prefix
         variants.append(
             (
-                f"{identifier_prefix} SLA service level response and restoration commitments "
+                f"{sla_identifier_prefix} SLA service level response and restoration commitments "
                 "full restoration within hours of incident opened deadline"
             ).strip()
         )
@@ -1690,6 +1705,84 @@ def _prioritise_spreadsheet_label_matches(
     return [row for _, _, row in ranked]
 
 
+def _is_temporary_measure_query(question: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:temporary|interim|provisional|workaround|reduced[- ]duty|"
+            r"restoration clock|mesure temporaire|provisoire|solution temporaire)\b",
+            str(question or "").casefold(),
+        )
+    )
+
+
+def _prioritise_temporary_measure_evidence(
+    results: list[dict[str, Any]],
+    question: str,
+) -> list[dict[str, Any]]:
+    """Keep operating limits and clock rules ahead of generic incident context."""
+
+    if not results or not _is_temporary_measure_query(question):
+        return results
+
+    operating_markers = (
+        "maximum continuous duration",
+        "maximum duration",
+        "maximum duty",
+        "approval authority",
+        "vibration ceiling",
+        "permitted leak rate",
+        "seal kit is already confirmed in transit",
+    )
+    clock_markers = (
+        "restoration clock",
+        "does not stop",
+        "permanent repair",
+        "restoration commitment",
+    )
+
+    def _marker_score(row: dict[str, Any], markers: tuple[str, ...]) -> tuple[int, float]:
+        content, score = _result_content_score(row)
+        folded = content.casefold()
+        return sum(marker in folded for marker in markers), score
+
+    preferred: list[dict[str, Any]] = []
+    operating = max(results, key=lambda row: _marker_score(row, operating_markers))
+    if _marker_score(operating, operating_markers)[0] >= 2:
+        preferred.append(operating)
+
+    remaining = [row for row in results if row is not operating]
+    if remaining:
+        clock = max(remaining, key=lambda row: _marker_score(row, clock_markers))
+        if _marker_score(clock, clock_markers)[0] >= 2:
+            preferred.append(clock)
+
+    if not preferred:
+        return results
+    preferred_ids = {id(row) for row in preferred}
+    return [*preferred, *(row for row in results if id(row) not in preferred_ids)]
+
+
+def prioritise_temporary_measure_evidence_aligned(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    *,
+    question: str,
+) -> tuple[list[str], list[float], list[dict[str, Any]]]:
+    """Apply temporary-measure evidence ordering to aligned context arrays."""
+
+    rows = [
+        {
+            "content": chunk,
+            "combined_score": scores[index] if index < len(scores) else 0.0,
+            "metadata": metadatas[index] if index < len(metadatas) else {},
+        }
+        for index, chunk in enumerate(chunks)
+    ]
+    ranked = _prioritise_temporary_measure_evidence(rows, question)
+    return _results_to_chunks_scores_metas(ranked, dedup=False)
+
+
 def _prepend_exact_table_candidates(
     exact_rows: list[dict[str, Any]],
     ranked_rows: list[dict[str, Any]],
@@ -1825,6 +1918,7 @@ async def retrieve_chah_like(
         _prioritise_exact_project_reference_matches(_merge_rrf(list(lists), top_k=candidate_k), q),
         q,
     )
+    merged = _prioritise_temporary_measure_evidence(merged, q)
     merged = _prepend_exact_metadata_candidates(exact_metadata_rows, merged)
     merged = _prepend_exact_table_candidates(exact_rows, merged)[:top_k]
     chunks, scores, metas = _results_to_chunks_scores_metas(merged)

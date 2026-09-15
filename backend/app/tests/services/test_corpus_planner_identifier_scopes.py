@@ -102,6 +102,25 @@ def test_multi_part_incident_question_keeps_small_collection_open(db_session):
     assert "document_filename" not in plan.filters
     assert "cross-document" in plan.scope_reason
 
+    followup_plan = plan_corpus(
+        db=db_session,
+        profile={
+            "collection": collection.slug,
+            "collections": [collection.slug],
+            "workspace_id": workspace.id,
+            "latency_profile": "fast",
+            "rag_mode": "chah",
+        },
+        query=(
+            "If that part cannot arrive before the deadline, which temporary measure is allowed, "
+            "what are its limits, and does it stop the restoration clock? "
+            "| Previous user context: | INC4821 | KIT3309"
+        ),
+    )
+
+    assert "document_filename" not in followup_plan.filters
+    assert "cross-document" in followup_plan.scope_reason
+
 
 def test_large_corpus_keeps_document_identifiers_separate_from_project_identity(db_session):
     workspace = Workspace(
