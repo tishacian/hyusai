@@ -1175,7 +1175,9 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     if (typeof effective === 'boolean') return effective;
     const settings = asRecord(current?.settings) ?? {};
     const features = asRecord(settings['features']) ?? {};
-    return features['flow_publication_v1'] === true;
+    // Match the backend rollout contract: publication is on unless a
+    // workspace explicitly stores false. Missing is not an opt-out.
+    return features['flow_publication_v1'] !== false;
   });
 
   readonly systemDefaults = signal<{
