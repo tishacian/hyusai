@@ -41,11 +41,11 @@ export default {
         },
         surface: {
           light: '#f8fafc',
-          dark: '#0a0e1a',
+          dark: 'oklch(0.205 0.020 248.8)',
           'card-light': '#ffffff',
-          'card-dark': '#111827',
-          'raised-dark': '#1a1f2e',
-          'muted-dark': '#0f1420',
+          'card-dark': 'oklch(0.243 0.024 248.8)',
+          'raised-dark': 'oklch(0.275 0.028 248.9)',
+          'muted-dark': 'oklch(0.222 0.022 248.9)',
         },
       },
       fontFamily: {
