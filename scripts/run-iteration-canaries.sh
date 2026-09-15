@@ -105,6 +105,7 @@ cd "$SOURCE_ROOT/frontend-ng"
   e2e/tests/16-experience-work-canary.spec.ts \
   e2e/tests/17-experience-studio-canary.spec.ts \
   e2e/tests/20-hypervisor-v2-canary.spec.ts \
+  e2e/tests/23-observability-evidence-canary.spec.ts \
   --project=chromium \
   --reporter=list \
   --output="$E2E_PLAYWRIGHT_OUTPUT_DIR"

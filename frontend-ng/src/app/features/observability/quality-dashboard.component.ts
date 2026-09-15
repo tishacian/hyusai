@@ -14,6 +14,7 @@ import { FormsModule } from '@angular/forms';
 import { Subject, takeUntil } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
+import { observabilityText, observabilityNumber } from './observability-labels';
 import { QualityEvidenceChartsComponent } from './quality-evidence-charts.component';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
@@ -160,7 +161,7 @@ const PALETTE = {
           <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="6" [style.marginBottom.px]="4">
             <ck-glyph name="pulse" [size]="12" />
             <span class="ck-mono" [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'">
-              Threshold monitoring · {{ period() }}
+              {{i18n.t('observability.quality.thresholds')}} · {{periodLabel()}}
             </span>
           </div>
           <div [style.display]="'flex'" [style.alignItems]="'baseline'" [style.gap.px]="10">
@@ -168,17 +169,17 @@ const PALETTE = {
               {{ trendRuns() }}
             </span>
             <span [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'">
-              runs evaluated
+              {{i18n.t('observability.quality.evaluated')}}
             </span>
           </div>
           <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="2">
-            Avg composite {{ trendAvgComposite() }} / 100
+            {{i18n.t('observability.quality.average')}} {{trendAvgComposite()}} / 100
           </div>
         </div>
 
         <div>
           <div [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'" [style.marginBottom.px]="4">
-            Breaches
+            {{i18n.t('observability.quality.breaches')}}
           </div>
           <div [style.display]="'flex'" [style.alignItems]="'baseline'" [style.gap.px]="10">
             <span
@@ -189,7 +190,7 @@ const PALETTE = {
               {{ trendBreaches() }}
             </span>
             <ck-tag [tone]="trendHealthTone()" variant="soft">
-              {{ trendBreachRate() }}% of runs
+              {{i18n.t('observability.quality.rate', {rate:trendBreachRate()})}}
             </ck-tag>
           </div>
           <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="2">
@@ -199,13 +200,13 @@ const PALETTE = {
 
         <div>
           <div [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'" [style.marginBottom.px]="6">
-            Daily evaluation count
+            {{i18n.t('observability.quality.daily')}}
           </div>
           @if (trendBars().length > 0) {
             <div [style.display]="'flex'" [style.alignItems]="'flex-end'" [style.gap.px]="3" [style.height.px]="28">
               @for (bar of trendBars(); track bar.bucket) {
                 <div
-                  [title]="bar.bucket + ' — ' + bar.count + ' run(s)'"
+                  [title]="i18n.t('observability.quality.bucket',{date:date(bar.bucket),count:bar.count})"
                   [style.flex]="'1 1 0'"
                   [style.minHeight.px]="2"
                   [style.height.px]="bar.heightPx"
@@ -217,7 +218,7 @@ const PALETTE = {
             </div>
           } @else {
             <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-4)'" [style.fontStyle]="'italic'">
-              No runs evaluated in the window.
+              No {{i18n.t('observability.quality.evaluated')}} in the window.
             </div>
           }
         </div>
@@ -239,10 +240,10 @@ const PALETTE = {
           [style.letterSpacing]="'0.08em'"
           [style.textTransform]="'uppercase'"
           [style.textDecoration]="'none'"
-          [title]="reviewQueueCount() + ' proposed decisions awaiting review'"
+          [title]="i18n.t('observability.quality.review_count',{count:reviewQueueCount()})"
         >
           <ck-glyph name="crosshair" [size]="14" />
-          Review queue
+          {{i18n.t('observability.quality.review_queue')}}
           @if (reviewQueueCount() > 0) {
             <span
               [style.background]="'rgba(0,0,0,0.25)'"
@@ -266,15 +267,15 @@ const PALETTE = {
             <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="6">
               <ck-glyph name="pulse" [size]="12" />
               <span class="ck-mono" [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'">
-                RAG component health · Giskard taxonomy · {{ period() }}
+                {{i18n.t('observability.quality.components')}} · {{periodLabel()}}
               </span>
             </div>
             <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="3">
-              Failed evals are attributed to Generator / Retriever / Rewriter / Router / Knowledge Base from question type + breach shape.
+              {{i18n.t('observability.quality.attribution')}}
             </div>
           </div>
           <ck-tag [tone]="componentHealthTone()" variant="soft">
-            {{ componentHealthBreaches() }} breached attributions
+            {{i18n.t('observability.quality.attributions',{count:componentHealthBreaches()})}}
           </ck-tag>
         </div>
 
@@ -289,11 +290,11 @@ const PALETTE = {
               [style.borderRadius.px]="5"
               [style.border]="'1px solid var(--ck-stroke-2)'"
               [style.background]="'var(--ck-bg-inset)'"
-              [title]="'Open review queue filtered on ' + item.label"
+              [title]="i18n.t('observability.quality.component_link',{component:code('component',item.component)})"
             >
               <div [style.display]="'flex'" [style.justifyContent]="'space-between'" [style.alignItems]="'center'" [style.gap.px]="8">
                 <span class="ck-mono" [style.fontSize.px]="10" [style.letterSpacing]="'0.08em'" [style.textTransform]="'uppercase'" [style.color]="'var(--ck-fg-3)'">
-                  {{ item.label }}
+                  {{code('component',item.component)}}
                 </span>
                 <ck-tag [tone]="item.tone" variant="soft">
                   {{ item.rateLabel }}
@@ -304,11 +305,11 @@ const PALETTE = {
                   {{ item.breaches }}
                 </span>
                 <span [style.fontSize.px]="11" [style.color]="'var(--ck-fg-4)'">
-                  / {{ item.evaluated }} applicable evals
+                  {{i18n.t('observability.quality.applicable',{count:item.evaluated})}}
                 </span>
               </div>
               <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="4">
-                Avg {{ (item.avg_composite?.toFixed(1) ?? '—') }}/100 · unsupported claims {{ (item.avg_hallucination == null ? '—' : (item.avg_hallucination * 100).toFixed(1)) }}%
+                {{i18n.t('observability.quality.component_summary',{score:number(item.avg_composite,1),rate:number(item.avg_hallucination == null ? null : item.avg_hallucination*100,1)})}}
               </div>
             </a>
           }
@@ -318,7 +319,7 @@ const PALETTE = {
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
       <ck-stat-readout variant="tile"
-        label="Composite score"
+        [label]="i18n.t('observability.quality.composite')"
         [value]="compositeDisplay()"
         unit="/100"
         icon="target"
@@ -329,14 +330,14 @@ const PALETTE = {
         sparklineTone="positive"
       />
       <ck-stat-readout variant="tile"
-        label="Evaluations run"
+        [label]="i18n.t('observability.quality.count')"
         [value]="history().length.toString()"
         icon="history"
         [sparkline]="evaluationsSeries()"
         sparklineTone="neutral"
       />
       <ck-stat-readout variant="tile"
-        label="Unsupported claims"
+        [label]="i18n.t('observability.quality.unsupported')"
         [value]="unsupportedClaimsDisplay()"
         unit="%"
         icon="alert-triangle"
@@ -347,7 +348,7 @@ const PALETTE = {
         [hint]="unsupportedClaimsHint()"
       />
       <ck-stat-readout variant="tile"
-        label="Drift rate"
+        [label]="i18n.t('observability.quality.drift')"
         [value]="driftDisplay()"
         unit="%"
         icon="waves"
@@ -365,10 +366,10 @@ const PALETTE = {
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
             <app-icon name="radar" [size]="16" class="text-cyan-400" />
-            Quality radar · {{ dimensionLabels().length }} dimensions
+            {{i18n.t('observability.quality.radar',{count:dimensionLabels().length})}}
           </h3>
           <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
-            {{ latest() ? 'Latest run' : 'No data' }}
+            {{i18n.t(latest() ? 'observability.quality.latest' : 'observability.quality.no_data')}}
           </span>
         </div>
         <div class="h-80">
@@ -384,8 +385,8 @@ const PALETTE = {
               <app-empty-state
                 size="sm"
                 icon="radar"
-                title="No evaluation yet"
-                description="Chat with a system, then run an evaluation to populate this radar."
+                [title]="i18n.t('observability.quality.no_evaluation')"
+                [description]="i18n.t('observability.quality.start_evaluation')"
               />
             </div>
           } @else {
@@ -399,10 +400,10 @@ const PALETTE = {
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
             <app-icon name="history" [size]="16" class="text-cyan-400" />
-            Score history
+            {{i18n.t('observability.quality.history')}}
           </h3>
           <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
-            Last {{ history().length }}
+            {{i18n.t('observability.quality.last_count',{count:history().length})}}
           </span>
         </div>
         <div class="h-80">
@@ -418,8 +419,8 @@ const PALETTE = {
               <app-empty-state
                 size="sm"
                 icon="line-chart"
-                title="No history yet"
-                description="Evaluations accumulate here as you score responses."
+                [title]="i18n.t('observability.quality.no_history')"
+                [description]="i18n.t('observability.quality.history_hint')"
               />
             </div>
           } @else {
@@ -434,7 +435,7 @@ const PALETTE = {
       <h3>{{ i18n.t('runs.investigation.title') }}</h3>
       @for (row of history(); track row.id) {
         @if (row.run_id) {
-          <p><a [navLink]="{type: 'run', ref: row.run_id}">{{ row.created_at }} · {{ i18n.t('runs.investigation.status.' + (row.status || 'historical')) }}</a></p>
+          <p><a [navLink]="{type: 'run', ref: row.run_id}">{{date(row.created_at)}} · {{code('status',row.status || 'historical')}}</a></p>
         }
       }
     </section>
@@ -443,18 +444,18 @@ const PALETTE = {
       <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
           <app-icon name="shield-check" [size]="16" class="text-cyan-400" />
-          Claim audit
+          {{i18n.t('observability.quality.claim_audit')}}
         </h3>
         <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
-          {{ claims().length }} claims
+          {{i18n.t('observability.quality.claim_count',{count:claims().length})}}
         </span>
       </div>
       @if (claims().length === 0) {
         <app-empty-state
           size="sm"
           icon="shield-check"
-          title="No claims audited yet"
-          description="Run an evaluation to see per-claim grounding."
+          [title]="i18n.t('observability.quality.no_claims')"
+          [description]="i18n.t('observability.quality.claims_hint')"
         />
       } @else {
         <ul class="divide-y divide-white/5">
@@ -478,7 +479,7 @@ const PALETTE = {
                     [class.bg-red-500\\/10]="claim.verdict === 'unsupported'"
                     [class.text-red-400]="claim.verdict === 'unsupported'"
                   >
-                    {{ claim.verdict }}
+                    {{code('verdict',claim.verdict)}}
                   </span>
 
                 </div>
@@ -493,6 +494,10 @@ const PALETTE = {
 })
 export class QualityDashboardComponent implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
+  code(category: string, value: unknown): string { return observabilityText(this.i18n, category, value); }
+  number(value: number | null | undefined, digits=0): string { return observabilityNumber(value, this.i18n.locale(), digits); }
+  date(value: string | null | undefined): string { const d=new Date(value || ''); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(this.i18n.locale()); }
+  periodLabel(): string { return this.i18n.t(this.period()==='30d'?'observability.charts.month':'observability.charts.week'); }
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly cancel = new Subject<void>();
@@ -532,14 +537,14 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
   );
   readonly trendBreachRate = computed<string>(() => {
     const r = this.trend()?.totals.breach_rate;
-    return typeof r === 'number' ? (r * 100).toFixed(1) : '—';
+    return typeof r === 'number' ? this.number(r * 100,1) : '—';
   });
   readonly trendAvgComposite = computed<string>(() => {
     const buckets = (this.trend()?.series ?? []).filter(b => b.avg_composite != null);
     if (!buckets.length) return '—';
     const weighted = buckets.reduce((acc, b) => acc + (b.avg_composite ?? 0) * (b.observed_composite_count ?? 0), 0);
     const total = buckets.reduce((acc, b) => acc + (b.observed_composite_count ?? 0), 0);
-    return total > 0 ? (weighted / total).toFixed(1) : '—';
+    return total > 0 ? this.number(weighted / total,1) : '—';
   });
   readonly unsupportedClaimsAverage = computed<number | null>(() => {
     const buckets = (this.trend()?.series ?? []).filter(b => b.avg_hallucination != null);
@@ -590,7 +595,7 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
       const rate = item.breach_rate;
       return {
         ...item,
-        rateLabel: rate == null ? '—' : `${(rate * 100).toFixed(1)}%`,
+        rateLabel: rate == null ? '—' : `${this.number(rate * 100,1)} %`,
         tone: (rate == null ? 'warn' : rate === 0 ? 'pos' : rate < 0.2 ? 'warn' : 'neg') as
           | 'pos'
           | 'warn'
@@ -613,28 +618,28 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
     return rate < 0.1 ? 'warn' : 'neg';
   });
 
-  readonly dimensionLabels = computed(() => Object.values(this.dimensions()));
+  readonly dimensionLabels = computed(() => Object.keys(this.dimensions()).map(key=>this.code('dimension',key)));
   readonly dimensionKeys = computed(() => Object.keys(this.dimensions()));
 
   readonly compositeDisplay = computed(() => {
     const v = this.latest()?.composite_score;
-    return typeof v === 'number' ? v.toFixed(1) : '—';
+    return typeof v === 'number' ? this.number(v,1) : '—';
   });
 
   readonly unsupportedClaimsDisplay = computed(() => {
     const v = this.unsupportedClaimsAverage();
-    return typeof v === 'number' ? (v * 100).toFixed(1) : '—';
+    return typeof v === 'number' ? this.number(v*100,1) : '—';
   });
 
   readonly unsupportedClaimsHint = computed(() => {
     const latest = this.latest()?.hallucination_rate;
-    if (typeof latest !== 'number') return `${this.period()} weighted average from claim audits`;
-    return `${this.period()} weighted average · latest run ${(latest * 100).toFixed(1)}%`;
+    if (typeof latest !== 'number') return this.i18n.t('observability.quality.average_hint',{period:this.periodLabel()});
+    return this.i18n.t('observability.quality.latest_hint',{period:this.periodLabel(),rate:this.number(latest*100,1)});
   });
 
   readonly driftDisplay = computed(() => {
     const v = this.latest()?.drift_rate;
-    return typeof v === 'number' ? (v * 100).toFixed(1) : '—';
+    return typeof v === 'number' ? this.number(v*100,1) : '—';
   });
 
   readonly compositeTrend = computed<'up' | 'down' | null>(() => {
@@ -653,7 +658,7 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
     const b = hist[1].composite_score;
     if (a == null || b == null) return '';
     const d = a - b;
-    return `${d >= 0 ? '+' : ''}${d.toFixed(1)}`;
+    return `${d >= 0 ? '+' : ''}${this.number(d,1)}`;
   });
 
   readonly unsupportedClaimsTrend = computed<'up' | 'down' | null>(() => {
@@ -711,14 +716,14 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
     const latest = this.latest();
     const scores = latest?.scores ?? {};
     const keys = this.dimensionKeys();
-    const labels = keys.map((k) => this.dimensions()[k] ?? k);
+    const labels = keys.map((k) => this.code('dimension',k));
     const current = keys.map((k) => scaleTo100(scores[k]));
 
     return {
       labels,
       datasets: [
         {
-          label: 'Current',
+          label: this.i18n.t('observability.quality.current'),
           data: current,
           backgroundColor: PALETTE.current.fill,
           borderColor: PALETTE.current.stroke,
@@ -734,13 +739,13 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
   readonly historyData = computed<ChartData<'line'>>(() => {
     const reversed = [...this.history()].reverse();
     const labels = reversed.map((e) =>
-      e.created_at ? new Date(e.created_at).toLocaleDateString() : '—',
+      e.created_at ? new Date(e.created_at).toLocaleDateString(this.i18n.locale()) : '—',
     );
     return {
       labels,
       datasets: [
         {
-          label: 'Composite score',
+          label: this.i18n.t('observability.quality.composite'),
           data: reversed.map((e) => e.composite_score ?? null),
           borderColor: PALETTE.current.stroke,
           backgroundColor: 'rgba(0, 188, 212, 0.15)',
@@ -750,7 +755,7 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
           borderWidth: 2,
         },
         {
-          label: 'Unsupported claims (%)',
+          label: this.i18n.t('observability.quality.unsupported') + ' (%)',
           data: reversed.map((e) => e.hallucination_rate == null ? null : e.hallucination_rate * 100),
           borderColor: '#ef4444',
           backgroundColor: 'rgba(239,68,68,0.08)',
