@@ -534,6 +534,65 @@ export interface System {
   updated_at?: string;
 }
 
+export type SystemOverviewReadinessState =
+  | 'ready'
+  | 'needs_setup'
+  | 'blocked'
+  | 'paused'
+  | 'retired';
+
+export interface SystemOverview {
+  window: '7d' | '30d' | '90d';
+  since: string;
+  generated_at: string;
+  system: {
+    id: string;
+    name: string;
+    objective: string;
+    status: SystemStatus;
+  };
+  readiness: {
+    state: SystemOverviewReadinessState;
+    label: string;
+    can_run: boolean;
+    blockers: Array<{
+      code: string;
+      message: string;
+      action: { label: string; href: string };
+    }>;
+    primary_action: { label: string; href: string };
+  };
+  publication: {
+    state: 'published' | 'missing';
+    version_id: string | null;
+    version_number: number | null;
+    published_at: string | null;
+    flow_sha256: string | null;
+  };
+  runs: {
+    total: number;
+    completed: number;
+    failed: number;
+    active: number;
+    success_rate: number | null;
+    avg_latency_ms: number | null;
+    latest: {
+      id: string;
+      status: string;
+      started_at: string | null;
+      duration_ms: number | null;
+      error: string | null;
+    } | null;
+  };
+  quality: {
+    state: 'available' | 'not_measured';
+    score: number | null;
+    hallucination_rate: number | null;
+    measured_at: string | null;
+    sample_count: number;
+  };
+}
+
 export interface FlowManifestField {
   key: string;
   source: string;
@@ -1714,6 +1773,15 @@ export class CanonicalApiService {
    * ``getSystem``, transport and HTTP errors propagate to the subscriber. */
   getSystemStrict(id: string): Observable<System> {
     return this.api.get<System>(`/systems/${id}`);
+  }
+
+  /** System-scoped operational facts for the default Overview. Errors remain
+   * visible so the surface cannot fall back to unrelated workspace metrics. */
+  getSystemOverview(
+    id: string,
+    window: '7d' | '30d' | '90d' = '30d',
+  ): Observable<SystemOverview> {
+    return this.api.get<SystemOverview>(`/systems/${encodeURIComponent(id)}/overview`, { window });
   }
 
   getSystemValueLoop(id: string): Observable<SystemValueLoop> {

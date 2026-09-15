@@ -132,6 +132,7 @@ const storeSpecs = [
   'src/app/features/experience/runtime/chart-block.spec.ts',
   'src/app/core/canonical-api-skills.spec.ts',
   'src/app/core/canonical-api-versions.spec.ts',
+  'src/app/core/canonical-api-system-overview.spec.ts',
   'src/app/core/api.service.spec.ts',
   'src/app/store/auth.store.spec.ts',
   'src/app/core/auth.interceptor.spec.ts',
