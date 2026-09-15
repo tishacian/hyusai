@@ -6,3 +6,10 @@
 -r requirements.txt
 # RAGET is the 2.x API. Version 3 removes giskard.rag and requires Python 3.12.
 giskard[llm]>=2.15,<3
+
+# Older datasets releases still import removed pyarrow.PyExtensionType.
+# Qualified with pyarrow 25.0.1; keep the DataOps Arrow version untouched.
+datasets==5.0.1
+
+# datasets 5.0.1 caps fsspec at 2026.6; keep its S3 peer coherent.
+s3fs==2026.6.0

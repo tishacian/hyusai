@@ -2,7 +2,7 @@
 
 The script `scripts/qualification/observability_live.py` exercises real model calls, Runs, evaluations, reviewed draft corrections and persisted comparisons in **agentium-showcase**. It creates only dedicated `OBS QA` assets. It never modifies an existing PIH, Andritz, NAWA or Workspace Chat System, a shared Skill, a client application, workspace permissions or model configuration.
 
-This is **agent-assisted technical QA**, separate from human acceptance, a HITL decision and the five-person usability study. The script does not publish its candidate or claim business savings.
+This is **agent-assisted technical QA**, separate from human acceptance, a HITL decision and the five-person usability study. The script does not publish its candidate or claim business savings. Model execution follows the configured workspace route (`provider: workspace`); `/models/resolve` is preserved as a preview, and each real invocation remains authoritative for the model actually used. An explicit `--model` override is optional and recorded.
 
 ## Actual reference corpus
 
