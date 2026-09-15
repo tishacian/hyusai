@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, input, si
 import { timer, switchMap, takeWhile } from 'rxjs';
 import { JsonPipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
+import { observabilityText } from '../observability/observability-labels';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -21,11 +22,11 @@ export interface RunEvaluation { evaluation_id?: string; status: string; reason?
   <header><h2 id="investigation-title">{{ i18n.t('runs.investigation.title') }}</h2>
    <button type="button" (click)="evaluate()" [disabled]="busy() || run().status !== 'completed'">{{ i18n.t('runs.investigation.evaluate') }}</button>
   </header>
-  <div class="states"><span>{{ i18n.t('runs.investigation.execution') }}: {{ i18n.t('runs.status.' + run().status) }}</span>
-   <span>{{ i18n.t('runs.investigation.evaluation') }}: {{ i18n.t('runs.investigation.status.' + (evaluation()?.status || 'unavailable')) }}</span>
+  <div class="states"><span>{{ i18n.t('runs.investigation.execution') }}: {{code('status',run().status)}}</span>
+   <span>{{ i18n.t('runs.investigation.evaluation') }}: {{code('status',evaluation()?.status || 'unavailable')}}</span>
    <span>{{ i18n.t('runs.investigation.human_separate') }}</span></div>
   @if (error()) { <p role="alert">{{ error() }}</p> }
-  @if (evaluation()?.reason) { <p class="reserve">{{ evaluation()?.reason }}</p> }
+  @if (evaluation()?.reason) { <p class="reserve">{{code('reason',evaluation()?.reason)}}</p><details><summary>{{i18n.t('observability.quality.technical')}}</summary><code>{{evaluation()?.reason}}</code></details> }
   <div class="evidence-columns">
    <div><h3>{{ i18n.t('runs.investigation.answer') }}</h3>
     <p class="answer">@if(responseParts();as parts){ {{parts.before}}<mark>{{parts.selected}}</mark>{{parts.after}} } @else { {{ response() || i18n.t('runs.investigation.no_answer') }} }</p>
@@ -33,17 +34,17 @@ export interface RunEvaluation { evaluation_id?: string; status: string; reason?
     <h3>{{ i18n.t('runs.investigation.claims') }}</h3>
     @for (claim of claims(); track $index) {
      <button type="button" class="claim" [class.selected]="selected() === $index" [attr.aria-pressed]="selected() === $index" (click)="selectClaim($index)">
-      <span>{{ claim.text || claim.claim }}</span><strong>{{ i18n.t('runs.investigation.verdict.' + claim.verdict) }}</strong>
+      <span>{{ claim.text || claim.claim }}</span><strong>{{code('verdict',claim.verdict)}}</strong>
      </button>
     } @empty { <p>{{ i18n.t('runs.investigation.no_claims') }}</p> }
    </div>
    <aside><h3>{{ i18n.t('runs.investigation.evidence') }}</h3>
     @for (excerpt of selectedExcerpts(); track excerpt.id) {
-     <article class="excerpt"><strong>{{ excerpt.document_ref || i18n.t('runs.investigation.excerpt') }} @if (excerpt.page) { · {{ excerpt.page }} }</strong><blockquote>{{ excerpt.availability === 'source_unavailable' ? i18n.t('observability.charts.source_unavailable') : excerpt.text }}</blockquote>@if(excerpt.truncated){<p>{{i18n.t('runs.investigation.truncated')}}</p>}
+     <article class="excerpt"><strong>{{ excerpt.document_ref || i18n.t('runs.investigation.excerpt') }} @if (excerpt.page) { · {{i18n.t('observability.quality.page',{page:excerpt.page})}} }</strong><blockquote>{{ excerpt.availability === 'source_unavailable' ? i18n.t('observability.charts.source_unavailable') : excerpt.text }}</blockquote>@if(excerpt.truncated){<p>{{i18n.t('runs.investigation.truncated')}}</p>}
       @if (excerpt.invocation_id) { <p>{{ i18n.t('runs.investigation.invocation') }}: <a [navLink]="{type: 'skill_invocation', ref: excerpt.invocation_id}">{{ excerpt.invocation_id }}</a></p> }
      </article>
     } @empty { <p>{{ i18n.t('runs.investigation.no_evidence') }}</p> }
-    <details><summary>{{ i18n.t('runs.investigation.method') }}</summary><pre>{{ evaluation()?.metadata | json }}</pre></details>
+    <details><summary>{{ i18n.t('runs.investigation.method') }}</summary><p>{{code('method',evaluation()?.metadata?.method)}}</p><pre>{{ evaluation()?.metadata | json }}</pre></details>
    </aside>
   </div>
  <app-run-waterfall [run]="run()" />
@@ -54,6 +55,7 @@ export interface RunEvaluation { evaluation_id?: string; status: string; reason?
  styles: [`:host{display:block;margin:24px 0}.investigation{padding:24px;background:var(--ck-bg-panel);color:var(--ck-fg-1);border:1px solid var(--ck-stroke-2);border-radius:6px}header,.states{display:flex;gap:20px;align-items:center;flex-wrap:wrap}header{justify-content:space-between}h2{font-size:24px;font-weight:600}h3{font-size:16px;font-weight:600;margin:20px 0 12px}.states{font-size:13px;padding:16px 0;border-bottom:1px solid var(--ck-stroke-2)}.evidence-columns{display:grid;grid-template-columns:1fr 1fr;gap:32px}.answer,blockquote{white-space:pre-wrap;line-height:1.7;overflow-wrap:anywhere}.claim{display:flex;flex-direction:column;gap:10px;width:100%;text-align:left;margin:12px 0}.claim.selected{border-color:var(--ck-signal-cool);background:var(--ck-status-info-bg)}button{border:1px solid var(--ck-stroke-3);padding:12px 16px;border-radius:6px;color:inherit;background:transparent}button:disabled{opacity:.5}button:focus-visible,summary:focus-visible{outline:2px solid var(--ck-signal-cool);outline-offset:3px}.excerpt{padding:20px;background:var(--ck-bg-panel-hi);border-left:3px solid var(--ck-signal-cool)}mark{background:var(--ck-status-warn-bg);color:inherit}a{color:var(--ck-signal-cool)}.reserve{color:var(--ck-signal-warn)}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}details{margin-top:24px}@media(max-width:800px){.evidence-columns{grid-template-columns:1fr}.investigation{padding:16px}}`]
 })
 export class RunInvestigationComponent {
+ code(category:string,value:unknown):string{return observabilityText(this.i18n,category,value);}
  readonly run = input.required<Run>();
  readonly i18n = inject(I18nService);
  private readonly api = inject(ApiService);

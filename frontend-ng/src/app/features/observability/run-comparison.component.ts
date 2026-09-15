@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
 import { formatSkillCost } from '../skills/skill-cost';
+import { observabilityText, observabilityNumber } from './observability-labels';
 import { FormsModule } from '@angular/forms';
 import { JsonPipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -23,15 +24,15 @@ interface CollectionOption {id:string;name:string;status:string;}
  @if(!suites().length){<p>{{i18n.t('runs.comparison.no_suite')}}</p>}
  <details><summary>{{i18n.t('runs.generation.title')}}</summary>
   <p>{{i18n.t('runs.generation.scope')}}</p>
-  <label>{{i18n.t('runs.generation.collection')}}<select [(ngModel)]="collectionId" [disabled]="generationBusy()"> <option value="">{{i18n.t('runs.generation.choose')}}</option>@for(collection of collections();track collection.id){<option [value]="collection.id" [disabled]="collection.status !== 'ready'">{{collection.name}} · {{collection.status}}</option>}</select></label>
+  <label>{{i18n.t('runs.generation.collection')}}<select [(ngModel)]="collectionId" [disabled]="generationBusy()"> <option value="">{{i18n.t('runs.generation.choose')}}</option>@for(collection of collections();track collection.id){<option [value]="collection.id" [disabled]="collection.status !== 'ready'">{{collection.name}} · {{code('status',collection.status)}}</option>}</select></label>
   @if(!collections().length){<p>{{i18n.t('runs.generation.no_collection')}}</p>}
   <button type="button" (click)="generate()" [disabled]="generationBusy() || !collectionId">{{i18n.t('runs.generation.generate')}}</button>
-  @if(generation();as job){<p aria-live="polite">{{job.status}} · {{job.stage}}</p><progress [value]="job.progress" max="100"></progress>
-   @if(job.error){<p role="alert">{{job.error}}</p>}
+  @if(generation();as job){<p aria-live="polite">{{code('status',job.status)}} · {{code('stage',job.stage)}}</p><progress [value]="job.progress" max="100" [attr.aria-label]="code('stage',job.stage)"></progress>
+   @if(job.error){<p role="alert">{{code('reason',job.error)}}</p><details><summary>{{i18n.t('observability.quality.technical')}}</summary><pre>{{job.error}}</pre></details>}
    @if(job.result?.cases?.length){<h3>{{i18n.t('runs.generation.proposed')}}</h3>@for(test of job.result?.cases;track $index){<article><strong>{{test.question}}</strong><p>{{test.reference_answer}}</p><details><summary>{{i18n.t('runs.generation.reference')}}</summary><p>{{test.reference_context}}</p></details></article>}
     <button type="button" (click)="reviewGenerated()">{{i18n.t('runs.generation.review')}}</button>
    }
-   @if(job.result){<details><summary>{{i18n.t('runs.generation.method')}}</summary><p>{{job.result.method}} {{job.result.version}}</p><pre>{{job.result.models | json}}</pre><pre>{{job.result.coverage | json}}</pre><pre>{{job.result.usage | json}}</pre></details>}
+   @if(job.result){<details><summary>{{i18n.t('runs.generation.method')}}</summary><p>{{code('method',job.result.method)}} {{job.result.version}}</p><pre>{{job.result.models | json}}</pre><pre>{{job.result.coverage | json}}</pre><pre>{{job.result.usage | json}}</pre></details>}
   }
  </details>
  <details><summary>{{i18n.t('runs.comparison.create_suite')}}</summary>
@@ -43,17 +44,17 @@ interface CollectionOption {id:string;name:string;status:string;}
   <button type="button" (click)="saveSuite()" [disabled]="busy() || !reviewed || !suiteName">{{i18n.t('runs.comparison.save')}}</button>
  </details>
  @if(campaign();as comparison){
-  <h3>{{i18n.t('runs.comparison.status')}}: {{comparison.status}}</h3>
-  <p>{{comparison.method}} · {{comparison.snapshot.comparability}}</p>
-  @for(limitation of comparison.snapshot.limitations;track $index){<p>{{limitation}}</p>}
+  <h3>{{i18n.t('runs.comparison.status')}}: {{code('status',comparison.status)}}</h3>
+  <p>{{code('method',comparison.method)}} · {{code('comparability',comparison.snapshot.comparability)}}</p>
+  @for(limitation of comparison.snapshot.limitations;track $index){<p>{{code('limitation',limitation)}}</p><details><summary>{{i18n.t('observability.quality.technical')}}</summary><pre>{{limitation | json}}</pre></details>}
   @for(test of comparison.results;track test.case_id){
-   <article><h3>{{test.case_id}} · {{i18n.t('runs.comparison.change.' + test.change)}}</h3>
+   <article><h3>{{test.case_id}} · {{code('change',test.change)}}</h3>
     <div class="columns">
      @for(side of [test.baseline,test.candidate];track $index){
       <div><strong>{{i18n.t($index === 0 ? 'runs.comparison.baseline' : 'runs.comparison.candidate')}}</strong>
-       <p>{{side.status}} · {{side.verdict}}</p><pre>{{side.output_ref | json}}</pre>
+       <p>{{code('status',side.status)}} · {{code('verdict',side.verdict)}}</p><pre>{{side.output_ref | json}}</pre>
        @if(side.run_id){<a [navLink]="{type:'run',ref:side.run_id}">{{i18n.t('runs.comparison.proof')}}</a>}
-       <details><summary>{{i18n.t('runs.comparison.assertions')}}</summary><pre>{{side.assertions | json}}</pre><p>{{i18n.t('runs.comparison.cost')}}: {{cost(side.execution_cost)}} · {{side.duration_ms ?? '—'}} ms</p></details>
+       <details><summary>{{i18n.t('runs.comparison.assertions')}}</summary><pre>{{side.assertions | json}}</pre><p>{{i18n.t('runs.comparison.cost')}}: {{cost(side.execution_cost)}} · {{i18n.t('observability.quality.milliseconds',{value:number(side.duration_ms)})}}</p></details>
       </div>
      }
     </div>
@@ -61,13 +62,15 @@ interface CollectionOption {id:string;name:string;status:string;}
   }
   <a [navLink]="{leaf:'system-flow',ref:systemId()}">{{i18n.t('runs.comparison.publication')}}</a>
   @if(comparison.status === 'completed'){<button type="button" (click)="evaluateRaget()" [disabled]="ragetBusy()">{{i18n.t('runs.generation.evaluate')}}</button>}
-  @if(raget();as report){<p aria-live="polite">{{report.status}} · {{report.stage}}</p>@if(report.error){<p role="alert">{{report.error}}</p>}@if(report.result?.sides){<details open><summary>{{i18n.t('runs.generation.report')}}</summary><pre>{{report.result?.sides | json}}</pre></details>}}
+  @if(raget();as report){<p aria-live="polite">{{code('status',report.status)}} · {{code('stage',report.stage)}}</p>@if(report.error){<p role="alert">{{code('reason',report.error)}}</p><details><summary>{{i18n.t('observability.quality.technical')}}</summary><pre>{{report.error}}</pre></details>}@if(report.result?.sides){<details open><summary>{{i18n.t('runs.generation.report')}}</summary><pre>{{report.result?.sides | json}}</pre></details>}}
  }
  </section>`,
  styles:[`.comparison{padding:24px;border-top:1px solid var(--ck-stroke-2);color:var(--ck-fg-1)}h2{font-size:24px;font-weight:600}h3{font-size:18px;margin:20px 0}p{margin:12px 0;line-height:1.6}.controls{display:flex;align-items:end;gap:16px;flex-wrap:wrap}label{display:block;margin:12px 0}select,input,textarea,button{background:var(--ck-bg-panel);color:inherit;border:1px solid var(--ck-stroke-3);padding:10px;border-radius:6px}textarea{display:block;width:100%;font-family:monospace}select{display:block;min-width:240px}button:disabled{opacity:.5}.columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}.columns>div{min-width:0;padding:20px;background:var(--ck-bg-panel-hi)}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{color:var(--ck-signal-cool);text-decoration:underline}details{margin:16px 0}article{border-top:1px solid var(--ck-stroke-2);margin-top:24px}@media(max-width:800px){.columns{grid-template-columns:1fr}}`]
 })
 export class RunComparisonComponent {
- readonly cost = formatSkillCost;
+ code(category:string,value:unknown):string{return observabilityText(this.i18n,category,value);}
+ number(value:number|null|undefined,digits=0):string{return observabilityNumber(value,this.i18n.locale(),digits);}
+ cost(value:number|null|undefined):string{return formatSkillCost(value,'USD',this.i18n.locale());}
  readonly systemId=input.required<string>();readonly baselineRunId=input.required<string>();readonly draftRevision=input<number|null>(null);
  readonly i18n=inject(I18nService);private readonly api=inject(ApiService);private readonly workspace=inject(WorkspaceService);private readonly router=inject(Router);private readonly route=inject(ActivatedRoute);
  readonly suites=signal<Suite[]>([]);readonly campaign=signal<Campaign|null>(null);readonly campaignId=signal('');readonly error=signal('');readonly busy=signal(false);

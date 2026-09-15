@@ -9,7 +9,7 @@ function fixture() {
  const response = new Subject<any>(); const calls: any[]=[]; const emitted: any[]=[];
  const instance = Object.create(CorrectionReviewComponent.prototype) as any;
  const p={id:'proposal-1',status:'proposed',proposal_sha256:'a'.repeat(64),applied_revision:null,proposal:{run_id:'run-1',system_id:'system-1',expected_draft_revision:3}};
- Object.assign(instance,{applicationAllowed:()=>true,proposal:signal(p),reviewed:signal(false),busy:signal(false),error:signal(''),run:()=>({id:'run-1'}),
+ Object.assign(instance,{applicationAllowed:()=>true,proposal:signal(p),reviewed:signal(false),busy:signal(false),error:signal(''),errorDetail:signal(''),run:()=>({id:'run-1'}),
   workspace:{captureRequestScope:()=>({workspaceId:'w',epoch:1}),isRequestScopeCurrent:()=>true},destroyRef:{onDestroy:()=>()=>{}},
   api:{post:(path:string,body:any)=>{calls.push({path,body});return response;}},applied:{emit:(value:any)=>emitted.push(value)},
   i18n:{t:(key:string)=>key}});

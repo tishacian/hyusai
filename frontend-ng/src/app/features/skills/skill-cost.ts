@@ -2,12 +2,13 @@
 export function formatSkillCost(
   value: number | null | undefined,
   currency: string | null | undefined = 'USD',
+  locale = 'en-US',
 ): string {
   const code = typeof currency === 'string' ? currency.trim().toUpperCase() : null;
   if (value == null || !Number.isFinite(value) || value < 0 || !code || !/^[A-Z]{3}$/.test(code)) return '—';
   const belowPrecision = value > 0 && value < 0.0001;
   const digits = value === 0 || value >= 1 ? 2 : value < 0.01 ? 4 : 3;
-  const amount = new Intl.NumberFormat('en-US', {
+  const amount = new Intl.NumberFormat(locale, {
     style: 'currency', currency: code,
     minimumFractionDigits: digits, maximumFractionDigits: digits,
   }).format(belowPrecision ? 0.0001 : value === 0 ? 0 : value);

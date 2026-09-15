@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { observabilityText } from '../observability/observability-labels';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
@@ -33,7 +34,7 @@ interface AssistantProposalResponse { answer: string; tool_calls?: Array<{ name:
    </select><button type="button" (click)="inspect()" [disabled]="busy() || !nodeId() || !evaluationId()">{{ i18n.t('runs.correction.inspect') }}</button></div>
    @if (!nodes().length) { <p>{{ i18n.t('runs.correction.no_nodes') }}</p> }
   }
-  @if (error()) { <p role="alert" class="error">{{ error() }}</p> }
+  @if (error()) { <p role="alert" class="error">{{ error() }}</p>@if(errorDetail()){<details><summary>{{i18n.t('observability.quality.technical')}}</summary><pre>{{errorDetail()}}</pre></details>} }
   @if (context(); as ctx) {
    @if (!proposal()) {
     <p>{{ i18n.t('runs.correction.revision') }} {{ ctx.expected_draft_revision }} · {{ ctx.node_id }}</p>
@@ -82,7 +83,7 @@ export class CorrectionReviewComponent {
  readonly nodeId = signal(''); readonly context = signal<CorrectionContext | null>(null);
  readonly previousProposals = signal<CorrectionProposal[]>([]);
  readonly proposal = signal<CorrectionProposal | null>(null); readonly reviewed = signal(false);
- readonly busy = signal(false); readonly error = signal(''); readonly assistantAnswer = signal('');
+ readonly errorDetail = signal(''); readonly busy = signal(false); readonly error = signal(''); readonly assistantAnswer = signal('');
  readonly template = signal(''); readonly rationale = signal('');
  readonly nodes = computed(() => {
   const nodes = new Map<string, string>();
@@ -94,7 +95,7 @@ export class CorrectionReviewComponent {
   effect(onCleanup => {
    const runId = this.run().id; this.workspace.current(); const workspaceId = this.workspace.captureRequestScope();
    const proposalId = this.proposalId() || this.route.snapshot.queryParamMap.get('correction');
-   this.context.set(null); this.proposal.set(null); this.error.set(''); this.reviewed.set(false); this.busy.set(false); this.nodeId.set(''); this.previousProposals.set([]);
+   this.context.set(null); this.proposal.set(null); this.error.set(''); this.errorDetail.set(''); this.reviewed.set(false); this.busy.set(false); this.nodeId.set(''); this.previousProposals.set([]);
    if (!proposalId) {
     const sub = this.api.get<{corrections:CorrectionProposal[]}>('/evaluation/corrections', {run_id:runId}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
      next: result => { if (this.isCurrent(runId, workspaceId)) this.previousProposals.set(result.corrections.filter(p => p.proposal.run_id === runId && p.proposal.system_id === this.run().system_id)); },
@@ -109,19 +110,19 @@ export class CorrectionReviewComponent {
  }
  selectSavedProposal(p: CorrectionProposal): void {
   if (this.busy() || p.proposal.run_id !== this.run().id || p.proposal.system_id !== this.run().system_id) return;
-  this.nodeId.set(p.proposal.node_id); this.context.set(null); this.error.set(''); this.showProposal(p);
+  this.nodeId.set(p.proposal.node_id); this.context.set(null); this.error.set(''); this.errorDetail.set(''); this.showProposal(p);
  }
  private isCurrent(runId: string, workspaceId: WorkspaceRequestScope): boolean { return this.run().id === runId && this.workspace.isRequestScopeCurrent(workspaceId); }
- private fail(e: {error?: {detail?: string | {message?: string}}}): void { const detail = e?.error?.detail; this.error.set(typeof detail === 'string' ? detail : detail?.message || this.i18n.t('runs.correction.failed')); this.busy.set(false); }
- chooseNode(id: string): void { this.nodeId.set(id); this.context.set(null); this.error.set(''); this.assistantAnswer.set(''); }
+ private fail(e: {error?: {detail?: string | {message?: string}}}): void { const detail = e?.error?.detail; const raw = typeof detail === 'string' ? detail : detail?.message || ''; this.errorDetail.set(raw); this.error.set(raw ? observabilityText(this.i18n,'reason',raw) : this.i18n.t('runs.correction.failed')); this.busy.set(false); }
+ chooseNode(id: string): void { this.nodeId.set(id); this.context.set(null); this.error.set(''); this.errorDetail.set(''); this.assistantAnswer.set(''); }
  inspect(): void {
   if (this.busy()) return;
-  const runId = this.run().id, workspaceId = this.workspace.captureRequestScope(), node = this.nodeId(); this.busy.set(true); this.error.set('');
+  const runId = this.run().id, workspaceId = this.workspace.captureRequestScope(), node = this.nodeId(); this.busy.set(true); this.error.set(''); this.errorDetail.set('');
   this.api.get<CorrectionContext>('/evaluation/corrections/context', {run_id:runId,node_id:node,evaluation_id:this.evaluationId()}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next: c => { if (!this.isCurrent(runId, workspaceId)) return; this.context.set(c); this.template.set(c.template); this.rationale.set(''); this.busy.set(false); }, error:e => {if(this.isCurrent(runId, workspaceId)) this.fail(e);}});
  }
  suggest(): void {
   const ctx = this.context(); if (!ctx || this.busy()) return;
-  const runId = this.run().id, workspaceId = this.workspace.captureRequestScope(); this.busy.set(true); this.error.set('');
+  const runId = this.run().id, workspaceId = this.workspace.captureRequestScope(); this.busy.set(true); this.error.set(''); this.errorDetail.set('');
   this.api.post<AssistantProposalResponse>('/assistant/turns', {surface:'pilot',system_ids:[ctx.system_id],request_id:crypto.randomUUID(),
    text:`Inspect correction context for Run ${ctx.run_id}, node ${ctx.node_id}, evaluation ${ctx.evaluation_id}. Propose a template correction based on its evidence with propose_correction, preserving placeholders and not inserting the reference answer. Store a proposal only; never apply it. Reply in ${this.i18n.locale()}.`,
    session_context:{correction:{run_id:ctx.run_id,node_id:ctx.node_id,evaluation_id:ctx.evaluation_id}}}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next: result => {
@@ -131,12 +132,12 @@ export class CorrectionReviewComponent {
    },error:e=>{if(this.isCurrent(runId, workspaceId)) this.fail(e);}});
  }
  prepare(): void {
-  const ctx = this.context(); if (!ctx || this.busy()) return; const workspaceId = this.workspace.captureRequestScope(); this.busy.set(true); this.error.set('');
+  const ctx = this.context(); if (!ctx || this.busy()) return; const workspaceId = this.workspace.captureRequestScope(); this.busy.set(true); this.error.set(''); this.errorDetail.set('');
   this.api.post<CorrectionProposal>('/evaluation/corrections', {run_id:ctx.run_id,node_id:ctx.node_id,evaluation_id:ctx.evaluation_id,expected_draft_revision:ctx.expected_draft_revision,replacement_template:this.template(),rationale:this.rationale(),idempotency_key:crypto.randomUUID()}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next:p=>{if(this.isCurrent(ctx.run_id, workspaceId)) this.showProposal(p);},error:e=>{if(this.isCurrent(ctx.run_id,workspaceId))this.fail(e);}});
  }
  private showProposal(p: CorrectionProposal): void { this.proposal.set(p); this.reviewed.set(false); this.busy.set(false); void this.router.navigate([], {relativeTo:this.route,queryParams:{correction:p.id},queryParamsHandling:'merge',replaceUrl:true}); }
  apply(): void {
-  const p = this.proposal(); if (!p || !this.reviewed() || this.busy() || !this.applicationAllowed() || p.status === 'applied') return; const runId=this.run().id,workspaceId=this.workspace.captureRequestScope();this.busy.set(true);this.error.set('');
+  const p = this.proposal(); if (!p || !this.reviewed() || this.busy() || !this.applicationAllowed() || p.status === 'applied') return; const runId=this.run().id,workspaceId=this.workspace.captureRequestScope();this.busy.set(true);this.error.set(''); this.errorDetail.set('');
   this.api.post<CorrectionProposal>(`/evaluation/corrections/${encodeURIComponent(p.id)}/apply`,{expected_draft_revision:p.proposal.expected_draft_revision,reviewed_proposal_sha256:p.proposal_sha256}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next:r=>{if(!this.isCurrent(runId,workspaceId))return;this.proposal.set(r);this.busy.set(false);if(r.applied_revision)this.applied.emit({proposalId:r.id,revision:r.applied_revision});},error:e=>{if(this.isCurrent(runId,workspaceId))this.fail(e);}});
  }
  openDraft(): void {
@@ -146,5 +147,5 @@ export class CorrectionReviewComponent {
   url.queryParams = {...url.queryParams,correction:p.id,reference_run:this.run().id,node:p.proposal.node_id};
   void this.router.navigateByUrl(url);
  }
- resetProposal(): void { this.proposal.set(null);this.reviewed.set(false);this.error.set('');void this.router.navigate([],{relativeTo:this.route,queryParams:{correction:null},queryParamsHandling:'merge',replaceUrl:true});if(this.nodeId())this.inspect(); }
+ resetProposal(): void { this.proposal.set(null);this.reviewed.set(false);this.error.set(''); this.errorDetail.set('');void this.router.navigate([],{relativeTo:this.route,queryParams:{correction:null},queryParamsHandling:'merge',replaceUrl:true});if(this.nodeId())this.inspect(); }
 }
