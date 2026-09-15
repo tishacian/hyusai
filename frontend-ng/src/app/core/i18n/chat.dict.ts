@@ -624,8 +624,8 @@ export const CHAT_FR = {
   'chat.workspace.session_docs': 'Documents de session',
   'chat.workspace.session_docs_hint':
     'Déposez des documents ici pour créer un contexte de chat temporaire. Dans les contrôles du chat, choisissez si ces documents remplacent ou complètent les sources du workspace.',
-  'chat.workspace.dropzone_collapse': 'Replier la zone de dépôt',
-  'chat.workspace.dropzone_expand': 'Déplier la zone de dépôt',
+  'chat.workspace.dropzone_collapse': 'Replier les documents de session',
+  'chat.workspace.dropzone_expand': 'Déplier les documents de session',
   'chat.workspace.drop_files': 'Déposez des fichiers',
   'chat.workspace.or_click': 'ou cliquez',
   'chat.workspace.indexing': 'Indexation',
@@ -1292,8 +1292,8 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   'chat.workspace.session_docs': 'Session docs',
   'chat.workspace.session_docs_hint':
     'Drop documents here to create a temporary chat context. In the chat controls, choose whether these docs replace or complement workspace sources.',
-  'chat.workspace.dropzone_collapse': 'Collapse dropzone',
-  'chat.workspace.dropzone_expand': 'Expand dropzone',
+  'chat.workspace.dropzone_collapse': 'Collapse session documents',
+  'chat.workspace.dropzone_expand': 'Expand session documents',
   'chat.workspace.drop_files': 'Drop files',
   'chat.workspace.or_click': 'or click',
   'chat.workspace.indexing': 'Indexing',
