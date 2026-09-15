@@ -1,4 +1,6 @@
 export const OBSERVABILITY_FR = {
+"observability.tabs.operations":"Opérations",
+"observability.tabs.performance":"Performance",
 "observability.codes.dimension.unknown":"Dimension non renseignée",
 "observability.codes.reason.access_denied":"Cette action n’est pas autorisée avec vos droits actuels.",
 "observability.codes.reason.review_required":"Relisez la proposition actuelle avant de l’appliquer au draft.",
@@ -179,6 +181,8 @@ export const OBSERVABILITY_FR = {
 "observability.charts.empty":"Les graphiques apparaîtront avec les premières évaluations accessibles.",
 } as const;
 export const OBSERVABILITY_EN: Record<keyof typeof OBSERVABILITY_FR,string> = {
+"observability.tabs.operations":"Operations",
+"observability.tabs.performance":"Performance",
 "observability.codes.dimension.unknown":"Dimension unavailable",
 "observability.quality.thresholds":"Threshold monitoring",
 "observability.quality.evaluated":"evaluations",
