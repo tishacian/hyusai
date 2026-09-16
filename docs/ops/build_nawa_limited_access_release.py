@@ -286,16 +286,13 @@ def build() -> Path:
 
     body(
         doc,
-        "Nawa is the white-label of Agentium. From 7 October 2026 it will be "
-        "available for a limited client assessment in a controlled, versioned "
-        "environment. The assessment is for the intended end users — data "
-        "scientists and AI engineers — so they can operate the product "
-        "unattended across the declared functional envelope. Nawa does not "
-        "receive a parallel feature set. Every Agentium capability included in "
-        "the release is inherited by Nawa by transitivity, under the same "
-        "contracts. This protects production systems, proprietary assets and "
-        "unrelated environments, and it gives both parties a stable and "
-        "reproducible basis for review.",
+        "Nawa will be available for a limited client assessment from 7 October "
+        "2026. The review will use a controlled, versioned environment so that "
+        "the intended end users — data scientists and AI engineers — can operate "
+        "Nawa unattended across the declared functional envelope. This approach "
+        "gives both parties a stable and reproducible basis for technical review "
+        "while protecting production systems, proprietary assets and unrelated "
+        "environments.",
         size=11,
     )
 
@@ -305,13 +302,13 @@ def build() -> Path:
         "The objective is not a single representative agent and not a guided "
         "replay of one System. The 7 October baseline is reached when a data "
         "scientist or AI engineer can use Nawa in complete autonomy across the "
-        "Agentium functional scope included in the release: Work, Create / "
-        "Studio, Systems, Flows, Runs, Decisions, Data & Models, evaluation, "
-        "identity and audit.",
+        "functional scope included in the release: Work, Create / Studio, "
+        "Systems, Flows, Runs, Decisions, Data & Models, evaluation, identity "
+        "and audit.",
     )
     body(
         doc,
-        "The release brings those existing product families into one consistent "
+        "The release brings those existing Nawa capabilities into one consistent "
         "configuration. It does not expand the agreed functional scope. It does "
         "not open Marketplace listing, cluster portability or factory-scale "
         "rollout.",
@@ -324,18 +321,20 @@ def build() -> Path:
         [
             (
                 "Moving product baseline",
-                "Agentium is still aligning the families that Nawa will inherit. "
-                "Observations made now may not correspond to the released configuration.",
+                "Nawa remains within its normal consolidation cycle. Observations "
+                "made against the current environment may not correspond to the "
+                "released configuration.",
             ),
             (
                 "Incomplete autonomy context",
                 "End users would still need a guided session. Findings would describe "
-                "a presenter-led path, not unattended use of the envelope.",
+                "a presenter-led path, not unattended use of the product.",
             ),
             (
-                "Incomplete inheritance",
-                "A capability that is not yet consistently enforced on Agentium is "
-                "not yet a Nawa capability, even if a seeded example exists.",
+                "Incomplete product consistency",
+                "A capability that is not yet consistently available across Nawa is "
+                "not yet part of the assessment baseline, even if a single example "
+                "exists.",
             ),
             (
                 "Limited reproducibility",
@@ -358,23 +357,21 @@ def build() -> Path:
         size=10,
     )
 
-    h1(doc, "Product roadmap — Agentium capabilities inherited by Nawa")
+    h1(doc, "Nawa product roadmap")
     body(
         doc,
-        "The roadmap below is the Agentium product plan for 16 September–7 October "
-        "2026. Each row is a generic platform capability. Nawa receives it by "
-        "transitivity when that capability is in the controlled release. It is "
-        "not a Nawa-only build and it is not scoped to one System.",
+        "The roadmap below is the Nawa product plan for 16 September–7 October "
+        "2026. Each row is a platform capability. It is not scoped to one System.",
         keep=True,
     )
     table(
         doc,
-        ("Agentium capability", "Inherited Nawa outcome"),
+        ("Nawa capability", "What the release makes operable"),
         [
             (
                 "Work",
-                "Published Experiences are launched from Work. The operator does not "
-                "need a presenter URL.",
+                "Published applications are launched from Work. The operator does not "
+                "need a prepared bookmark.",
             ),
             (
                 "Create / Studio",
@@ -384,7 +381,7 @@ def build() -> Path:
             (
                 "System / Flow",
                 "The published Flow is the executable contract. Drafts are not "
-                "selectable; versions do not float in silence.",
+                "selectable; versions do not change in silence.",
             ),
             (
                 "Run",
@@ -404,12 +401,12 @@ def build() -> Path:
             (
                 "Model routing",
                 "Routing and fallback are workspace policy, applied to every "
-                "in-envelope System.",
+                "System in the release.",
             ),
             (
                 "Data & Models",
                 "Dataset → model version → evaluation → published Skill is a product "
-                "loop, not a seeded demo only.",
+                "loop, not a seeded example only.",
             ),
             (
                 "Evaluation and observability",
@@ -419,62 +416,63 @@ def build() -> Path:
             (
                 "Identity, mandates and approvals",
                 "Identity, permitted actions and the approval path are the same "
-                "contracts on every inherited System.",
+                "contracts on every System in the release.",
             ),
             (
                 "Audit and operational telemetry",
                 "Execution events, traces and operating signals belong to the Run "
-                "ledger.",
+                "record.",
             ),
             (
-                "Impact / Hypervisor",
+                "Impact",
                 "Displayed measures are measured, declared or missing. Missing is not "
                 "shown as zero. Unattested financial totals are not the baseline.",
             ),
             (
                 "Deployment artefacts",
-                "The handover pack matches the versioned Compose configuration of the "
-                "release. Kubernetes / Marketplace packaging is outside this envelope.",
+                "The handover pack matches the versioned configuration of the "
+                "release. Marketplace and cluster packaging are outside this envelope.",
             ),
         ],
         col0_dxa=3200,
     )
     callout(
         doc,
-        "Release principle: one Agentium product envelope, inherited by Nawa, "
-        "operable without a guided session.",
+        "Release principle: one Nawa product envelope, operable without a "
+        "guided session.",
     )
 
     h1(doc, "Weekly product sequence — 16 September to 7 October 2026")
     body(
         doc,
         "The following activities consolidate, standardise and consistently enforce "
-        "existing Agentium capabilities so that Nawa can inherit them. They do not "
-        "introduce additional functional scope.",
+        "existing Nawa capabilities. They do not introduce additional functional "
+        "scope.",
         keep=True,
     )
     table(
         doc,
-        ("Week", "Agentium product work (inherited by Nawa)"),
+        ("Week", "Nawa product work"),
         [
             (
                 "16–21 September — Envelope",
                 "Freeze the 7 October capability map. Apply the honesty contract "
                 "(measured / declared / missing / sealed) across Work, Create, "
-                "Systems, Runs, Decisions and Impact. Align lexicon and navigation "
-                "so the same families are discoverable without a presenter.",
+                "Systems, Runs, Decisions and Impact. Align navigation so the same "
+                "families are discoverable without a guided session.",
             ),
             (
                 "22–28 September — Operate",
-                "Make the generic operate loop autonomous: launch an Experience, "
-                "execute its System, open the Run evidence from the Work result, "
-                "record a Decision. Align evaluation evidence with that Run. Any "
-                "in-envelope System must follow this loop, not only a hero path.",
+                "Make the operate loop autonomous: launch an application, execute "
+                "its System, open the Run evidence from the Work result, record a "
+                "Decision. Align evaluation evidence with that Run. Any System in "
+                "the release must follow this loop, not only a single prepared "
+                "example.",
             ),
             (
                 "29 September–5 October — Build and Data & Models",
-                "Make the generic build loop autonomous: bind a published System in "
-                "Studio, pass ready-check, cut an immutable Release, deploy Pilot or "
+                "Make the build loop autonomous: bind a published System in Studio, "
+                "pass ready-check, cut an immutable Release, deploy Pilot or "
                 "In-service. Make the data loop autonomous: dataset, model version, "
                 "evaluation, published Skill, model-routing policy.",
             ),
@@ -482,8 +480,8 @@ def build() -> Path:
                 "6–7 October — Autonomy cut",
                 "Unattended dry-run of the declared envelope by data-scientist / "
                 "AI-engineer profiles. Open limited access only for the families that "
-                "passed. A family that still requires Datategy is labelled as such or "
-                "left out of the envelope.",
+                "passed. A family that still requires a guided session is labelled "
+                "as such or left out of the envelope.",
             ),
         ],
         col0_dxa=3400,
@@ -493,9 +491,9 @@ def build() -> Path:
     body(
         doc,
         "The following activities concern consolidation, standardisation and "
-        "consistent enforcement of existing Agentium capabilities. They are part of "
+        "consistent enforcement of existing Nawa capabilities. They are part of "
         "establishing the controlled release baseline and do not introduce "
-        "additional functional scope. Nawa inherits the result by transitivity.",
+        "additional functional scope.",
         keep=True,
     )
     table(
@@ -503,9 +501,9 @@ def build() -> Path:
         ("Consolidation area", "Release activity"),
         [
             (
-                "Work and Experience runtime",
-                "Consolidate the launcher, certified renderer pin and deployment "
-                "records so published Experiences are operable from Work.",
+                "Work and application runtime",
+                "Consolidate the launcher and deployment records so published "
+                "applications are operable from Work.",
             ),
             (
                 "Create / Studio and System binding",
@@ -528,7 +526,7 @@ def build() -> Path:
             (
                 "Model routing policies",
                 "Apply the supported routing and fallback policies as workspace "
-                "policy, not per demo.",
+                "policy, not per example.",
             ),
             (
                 "Data & Models",
@@ -548,7 +546,7 @@ def build() -> Path:
             (
                 "Audit and operational telemetry",
                 "Consolidate execution events, traces and operating signals for the "
-                "inherited Systems.",
+                "Systems in the release.",
             ),
             (
                 "Governance records",
@@ -568,7 +566,7 @@ def build() -> Path:
     body(
         doc,
         "The session is designed so that a data scientist or AI engineer can "
-        "operate the inherited Agentium families together, rather than watching "
+        "operate the Nawa capabilities together, rather than watching "
         "multiple disconnected demonstrations. The walkthrough is not limited to "
         "one System.",
         keep=True,
@@ -579,8 +577,8 @@ def build() -> Path:
         [
             (
                 "Work",
-                "Launch of a published Experience chosen by the operator, not only a "
-                "presenter bookmark.",
+                "Launch of a published application chosen by the operator, not only a "
+                "prepared bookmark.",
             ),
             (
                 "System / Flow configuration",
@@ -650,8 +648,8 @@ def build() -> Path:
     h1(doc, "Outside the 7 October envelope")
     body(
         doc,
-        "These items remain Agentium product work. They are not inherited by Nawa "
-        "in this limited access release.",
+        "These items remain later Nawa product work. They are not part of this "
+        "limited access release.",
         keep=True,
     )
     table(
@@ -664,9 +662,9 @@ def build() -> Path:
                 "the current environment.",
             ),
             (
-                "Kubernetes / Helm portability",
-                "The reference environment is the versioned Compose configuration. "
-                "Cluster packaging is a later product increment.",
+                "Cluster portability",
+                "The reference environment is the versioned configuration of this "
+                "release. Cluster packaging is a later product increment.",
             ),
             (
                 "Unsealed external writes",
@@ -674,14 +672,14 @@ def build() -> Path:
                 "not implied by a Decision.",
             ),
             (
-                "Hypervisor as attested financial ROI",
+                "Impact as attested financial return",
                 "Impact may show measured, declared or missing values. It does not "
                 "certify economic totals.",
             ),
             (
                 "Adoption journey for business users",
                 "The 7 October end users are data scientists and AI engineers. "
-                "Business-user adoption chrome is a separate acceptance.",
+                "Business-user onboarding is a separate acceptance.",
             ),
             (
                 "Factory-scale agent count",
@@ -694,7 +692,7 @@ def build() -> Path:
     h1(doc, "Limited environment")
     bullet(
         doc,
-        "The declared Agentium envelope on the Nawa workspace, in an isolated "
+        "The declared Nawa product envelope, in an isolated "
         "assessment environment.",
     )
     bullet(doc, "Controlled test scenarios and non-production data.")
@@ -722,7 +720,7 @@ def build() -> Path:
 
     doc.core_properties.title = "Nawa Limited Access Release"
     doc.core_properties.subject = (
-        "Agentium product envelope inherited by Nawa — 7 October 2026"
+        "Nawa limited access release — 7 October 2026"
     )
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
