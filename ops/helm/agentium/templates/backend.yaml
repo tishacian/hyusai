@@ -1,0 +1,80 @@
+{{- if .Values.backend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentium-backend
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  replicas: {{ .Values.replicaCount.backend }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: backend
+    spec:
+      {{- include "agentium.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: backend
+          image: {{ .Values.image.backend | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.backend.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentium.fullname" . }}-config
+            - secretRef:
+                name: {{ include "agentium.secretName" . }}
+          env:
+            - name: AGENTIUM_BACKEND_WORKERS
+              value: {{ .Values.backend.workers | quote }}
+            {{- with .Values.backend.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: object-store
+              mountPath: /data/object_store
+            - name: secure-deposit
+              mountPath: /data/secure_deposit
+            - name: faiss
+              mountPath: /data/faiss_db
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 10
+      volumes:
+        - name: object-store
+          emptyDir: {}
+        - name: secure-deposit
+          emptyDir: {}
+        - name: faiss
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentium-backend
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: backend
+  ports:
+    - name: http
+      port: {{ .Values.backend.port }}
+      targetPort: http
+{{- end }}

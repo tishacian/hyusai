@@ -1,0 +1,21 @@
+---
+- name: Ensure the Agentium namespace exists
+  ansible.builtin.command: kubectl get ns {{ agentium_namespace }}
+  register: ns
+  changed_when: false
+  failed_when: false
+
+- name: Create the Agentium namespace
+  ansible.builtin.command: kubectl create ns {{ agentium_namespace }}
+  when: ns.rc != 0
+
+- name: Helm upgrade --install Agentium
+  ansible.builtin.command: >
+    helm upgrade --install {{ agentium_release }}
+    {{ agentium_chart_path }}
+    --namespace {{ agentium_namespace }}
+    --values {{ agentium_values_file }}
+    {% if agentium_extra_values_file %}--values {{ agentium_extra_values_file }}{% endif %}
+    --wait --timeout 15m
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf

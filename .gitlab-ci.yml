@@ -315,3 +315,21 @@ agentium-lot6-system360-production:
       when: manual
       allow_failure: false
     - when: never
+
+# Render-only. Does not deploy and is not a release GO.
+agentium-k8s-scaffold:
+  stage: test
+  image: alpine/helm:3.16.4
+  needs: []
+  interruptible: true
+  script:
+    - helm lint ops/helm/agentium
+    - helm template agentium ops/helm/agentium --namespace agentium >/tmp/agentium.yaml
+    - grep -q 'name: agentium-backend' /tmp/agentium.yaml
+    - grep -q 'kind: Ingress' /tmp/agentium.yaml
+  rules:
+    - changes:
+        - ops/**/*
+        - docs/ops/agentium-kubernetes.md
+      when: on_success
+    - when: never
