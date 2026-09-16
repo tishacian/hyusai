@@ -809,3 +809,27 @@ def test_a_control_envelope_output_schema_cannot_be_authored(db_session, node_ki
 
     assert rejected.value.code == "node_output_schema_not_overridable"
     assert rejected.value.path == "nodes/task/config/output_schema"
+
+
+def test_agent_loop_compiled_contract_can_be_read_after_publication(db_session):
+    planner = Skill(
+        id="loop-planner-contract", workspace_id=None, slug="decide_next_v1",
+        version="1", name="Planner", input_schema={"type": "object"},
+        output_schema={"type": "object"}, execution={},
+    )
+    db_session.add(planner)
+    db_session.commit()
+    contract = compile_execution_contract(
+        db_session, workspace_id="workspace-contract", runtime_mode="dag_overlay",
+        flow={"nodes": [{"id": "investigate", "kind": "agent_loop", "config": {
+            "skill_slug": planner.slug, "skill_allowlist": ["read_notices", "read_history"],
+        }}], "edges": []},
+    )
+    assert validate_execution_contract(contract) == contract
+    assert contract["nodes"]["investigate"]["skill_allowlist"] == ["read_notices", "read_history"]
+    for invalid in (None, "read_notices", [], [""], [3], [" padded "], ["tool"] * 9):
+        contract["nodes"]["investigate"]["skill_allowlist"] = invalid
+        _rehash_execution_contract(contract)
+        with pytest.raises(FlowContractError) as exc:
+            validate_execution_contract(contract)
+        assert exc.value.path == "/nodes/investigate/skill_allowlist"

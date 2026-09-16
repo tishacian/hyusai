@@ -669,3 +669,14 @@ PIH answers examined 6/4/11 quotes and found 0/0/5 missing, respectively. Eviden
 This is a separate diagnostic: historical suite criteria, Run statuses and human
 decisions were not changed. New code is not deployed. Runtime quality gates,
 reviewable test revisions and a fresh successful generated suite remain open.
+
+
+### AgentLoop published-contract reader — 16 September
+
+The compiler already persists `skill_allowlist` on AgentLoop nodes, but the
+published-version reader rejected that field as unknown. The reader now accepts
+and validates this existing bounded list without changing historical digests.
+A compiler-to-reader regression checks two tools and malformed list shapes.
+38 contract tests and 48 publication/backfill tests pass. This correction is
+local, not yet deployed. It does not freeze tool executors or qualify AgentLoop
+comparison replay; those remain required R1 work.
