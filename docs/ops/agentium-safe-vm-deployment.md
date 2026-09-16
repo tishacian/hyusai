@@ -6672,3 +6672,12 @@ Carakai: 10 passed / 2 intentional local-contract skips, artifacts
 unqualified because the available Agentium tabs are signed out.
 Rollback tag: `7951e698cb04`; no database restore.
 Evidence: [observed-decision release](../evidence/hitl-observed-decision-2026-09-16/README.md).
+
+### 2026-09-16 — generated BRD review contracts
+
+Deployed `f6b73cff68da87be6f93e4598326105ea57f1d96` from demo/agentic.
+Three immutable images built on omnirag-demo; optional Giskard SDK retained.
+Storage gate passed, no migration. Exact public SHA verified, backend healthy,
+homepage 200, startup exceptions zero. Carakai: 10 passed, 2 intended skips.
+Rollback tag: `89f8e09aa820`. Authenticated manual acceptance remains open.
+Evidence: [BRD review contract release](../evidence/brd-review-contract-2026-09-16/README.md).
