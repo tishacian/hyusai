@@ -50,6 +50,8 @@ export E2E_DEPLOYMENT_ID="$RUN_ID"
 export E2E_EVIDENCE_CLASS=acceptance
 export E2E_EXPECTED_SHA="$SHA"
 export E2E_EXPERIENCE_CANARY=1
+# The explicitly selected synthetic Showcase retains immutable test releases.
+export E2E_EXPERIENCE_ALLOW_RETAINED=1
 export E2E_EXPERIENCE_EVIDENCE="$WORK/experience.json"
 export E2E_FORMAL_RELEASE_ELIGIBLE=false
 export E2E_LOT6_CANARY=1
