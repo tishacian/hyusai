@@ -424,6 +424,32 @@ def test_brd_generation_is_durable_idempotent_and_validated(db_session, tmp_path
     assert sum(attempt["usage"]["total_tokens"] for attempt in attempts) == 20
     assert db_session.query(Skill).count() == 0
 
+    json_attempts = []
+    async def repair_json(*args, **kwargs):
+        json_attempts.append(kwargs.get("feedback"))
+        if len(json_attempts) == 1:
+            raise brd_generation.BrdGenerationOutputError("invalid_proposal_json", {"usage": {"total_tokens": 7}})
+        assert "valid JSON object" in kwargs["feedback"]["issues"]
+        return await generate(*args, **kwargs)
+    monkeypatch.setattr(brd_generation, "generate_material", repair_json)
+    json_job = client.post(path, json={**request, "request_key": "json-repair"}).json()["id"]
+    assert brd_generation.run_generation_job(json_job)["status"] == "completed"
+    assert len(json_attempts) == 2
+    repaired = db_session.query(BrdProposal).filter_by(request_key=json_job).one()
+    assert repaired.proposal["generation"]["attempts"][0]["usage"]["total_tokens"] == 7
+
+    invalid_json_calls = []
+    async def invalid_json(*args, **kwargs):
+        invalid_json_calls.append(True)
+        raise brd_generation.BrdGenerationOutputError("invalid_proposal_json", {"usage": {"total_tokens": 3}})
+    monkeypatch.setattr(brd_generation, "generate_material", invalid_json)
+    invalid_json_job = client.post(path, json={**request, "request_key": "json-exhausted"}).json()["id"]
+    assert brd_generation.run_generation_job(invalid_json_job)["status"] == "failed"
+    assert len(invalid_json_calls) == 3
+    failed_attempts = db_session.get(WorkspaceJob, invalid_json_job).result["generation_attempts"]
+    assert len(failed_attempts) == 3
+    assert sum(attempt["usage"]["total_tokens"] for attempt in failed_attempts) == 9
+
     duplicate_attempts = []
     async def duplicate_templates(*args, **kwargs):
         material, generation = await generate(*args, **kwargs)

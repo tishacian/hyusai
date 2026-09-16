@@ -254,6 +254,7 @@ async def generate_material(document, request, *, workspace, catalog, proposal_s
     context = {"_model_workspace": workspace}
     options = {"max_tokens": 10000}
     if execution.provider in {"openai", "azure_openai"}:
+        options["response_format"] = {"type": "json_object"}
         from app.llm.providers.openai_provider import OpenAIProvider
         if any(execution.model == prefix or execution.model.startswith(prefix + "-")
                for prefix in OpenAIProvider.THINKING_MODELS):
@@ -353,8 +354,19 @@ def run_generation_job(job_id):
                         return {"status": job.status}
                     catalog = authorized_catalog(db, workspace, user, request.skill_slugs)
                     generation = None
-                    material, generation = asyncio.run(generate_material(document, request,
-                        workspace=workspace, catalog=catalog, proposal_schema=BrdProposalBody.model_json_schema(), feedback=feedback))
+                    try:
+                        material, generation = asyncio.run(generate_material(document, request,
+                            workspace=workspace, catalog=catalog, proposal_schema=BrdProposalBody.model_json_schema(), feedback=feedback))
+                    except BrdGenerationOutputError as exc:
+                        attempts.append({"attempt": attempt + 1, **exc.evidence, "reason": str(exc)})
+                        job.result = {"generation_attempts": attempts}
+                        db.commit()
+                        if str(exc) not in {"invalid_proposal_json", "invalid_proposal_object", "empty_proposal_output"} or attempt == 2:
+                            raise
+                        feedback = {"issues": str(exc) + ": return one complete valid JSON object satisfying the schema"}
+                        job.stage = "correcting"
+                        db.commit()
+                        continue
                     attempts.append({"attempt": attempt + 1, **generation})
                     job.result = {"generation_attempts": attempts}
                     job.stage = "validating"
