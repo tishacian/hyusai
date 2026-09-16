@@ -1,9 +1,14 @@
 Agentium {{ .Chart.Version }} rendered for release {{ .Release.Name }}.
 
 Ingress host: {{ .Values.ingress.host }}
-  /     → agentium-frontend
-  /api  → agentium-backend
-  /kc   → agentium-kc
+  /health/live → agentium-backend
+  /            → agentium-frontend
+  /api         → agentium-backend
+  /kc          → agentium-kc
+  hidden-path  → 404 (ingress-nginx snippet; see docs/ops/ingress-proxy-contract.md)
+
+Secret: {{ include "agentium.secretName" . }}
+  (createSecret={{ .Values.createSecret }})
 
 This chart is the Compose equivalent, not a running cluster. Image tags
 must be digest- or SHA-addressed before any shared environment.
