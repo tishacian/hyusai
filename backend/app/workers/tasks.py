@@ -962,3 +962,9 @@ def evaluation_campaign(job_id: str) -> dict:
 def evaluation_generation(job_id: str) -> dict:
     from app.services.evaluation.campaigns import run_generation_job
     return run_generation_job(job_id)
+
+
+@celery_app.task(name="agentium.brd_generation", acks_late=True, reject_on_worker_lost=True)
+def brd_generation(job_id: str) -> dict:
+    from app.services.skills_registry.brd_generation import run_generation_job
+    return run_generation_job(job_id)

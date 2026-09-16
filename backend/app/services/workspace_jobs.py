@@ -189,10 +189,10 @@ def set_workspace_job_task_id(db: DBSession, job_id: str, task_id: str) -> None:
 
 def dispatch_workspace_job(db: DBSession, workspace: Workspace, job: WorkspaceJob, *, allow_inline_fallback: bool = True) -> str | None:
     """Dispatch a product-facing WorkspaceJob and persist its task id in input_ref."""
-    if job.kind in {"run_evaluation", "evaluation_campaign", "evaluation_generation", "evaluation_raget"}:
-        from app.workers.tasks import run_evaluation, evaluation_campaign, evaluation_generation
+    if job.kind in {"run_evaluation", "evaluation_campaign", "evaluation_generation", "evaluation_raget", "brd_generation"}:
+        from app.workers.tasks import run_evaluation, evaluation_campaign, evaluation_generation, brd_generation
         from app.core.config import settings
-        task = {"run_evaluation": run_evaluation, "evaluation_campaign": evaluation_campaign, "evaluation_generation": evaluation_generation, "evaluation_raget": evaluation_generation}[job.kind]
+        task = {"run_evaluation": run_evaluation, "evaluation_campaign": evaluation_campaign, "evaluation_generation": evaluation_generation, "evaluation_raget": evaluation_generation, "brd_generation": brd_generation}[job.kind]
         try:
             if settings.worker_eager_mode:
                 set_workspace_job_task_id(db, job.id, f"eager:{job.id}")

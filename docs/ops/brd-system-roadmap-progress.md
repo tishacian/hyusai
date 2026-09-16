@@ -317,3 +317,32 @@ Validation: 97 BRD, Skill-authoring, System safety, publication and evaluation A
 tests passed. The expanded eight-test BRD API file then also passed with a real
 prompt-template Skill resolved into the compiled draft and a second System left
 unchanged. No live model call, generation UI or release is claimed by these tests.
+
+### R1 — worker-backed proposal generation
+
+The retained-BRD API now enqueues `brd_generation` through WorkspaceJob and the
+existing Celery dispatcher. Requests are serialized on their document and reused
+by request key; changed content conflicts. The worker rechecks authoring/catalog
+access, calls canonical workspace model routing with a bounded output and timeout,
+then validates the generated proposal before storing it. Generated Skills are
+restricted to workspace prompt executors, node kinds are bounded, and referenced
+Skills must be selected catalog entries or proposed aliases. No tool is invoked
+by the generator and no generated proposal is automatically applied.
+
+The two family instructions cover documentary synthesis and intervention
+preparation. These are generation instructions, not proof that the resulting
+PIH/NorthForge Systems satisfy acceptance. Live generation, mapping inspection,
+HITL behaviour and the different-tool NorthForge cases remain to qualify.
+
+Worker errors remain failures without partial-JSON salvage. Completed replay
+avoids another model call; an interrupted in-flight attempt requires an explicit
+new attempt rather than blindly redispatching a provider call. Polling marks
+stale jobs failed. Public model/usage evidence accompanies a successful proposal;
+failed-provider cost accounting is not complete. The generic jobs API cannot forge
+or transition BRD-generation jobs and rechecks authoring rights before exposing
+these jobs after role changes.
+
+Validation: 38 generator/import/evaluation API tests passed, using provider stubs
+(no live supplier qualification). Tests cover request replay/conflict, invalid
+catalog references, strict JSON, bounded source handling, revoked reads and generic
+job mutation refusal. Runtime image and UI remain unchanged.

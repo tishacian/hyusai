@@ -55,6 +55,19 @@ def _user_session_ids(db: DBSession, user: User, workspace: Workspace) -> list[s
 
 
 def _can_access_job(db: DBSession, job: WorkspaceJob, user: User, workspace: Workspace) -> bool:
+    if job.kind == "brd_generation":
+        from app.models.brd_document import BrdDocument
+        from app.services.skills_registry.brd_generation import authorized_catalog
+        if job.created_by_user_id != user.id:
+            return False
+        document = db.query(BrdDocument).filter_by(id=(job.input_ref or {}).get("document_id"), workspace_id=workspace.id).first()
+        if document is None:
+            return False
+        try:
+            authorized_catalog(db, workspace, user, (job.input_ref.get("request") or {}).get("skill_slugs", []))
+        except HTTPException:
+            return False
+        return True
     if _is_workspace_admin(db, user, workspace):
         return True
     if job.created_by_user_id == user.id:
@@ -116,7 +129,7 @@ async def jobs_list(
         created_by_user_id=None if admin else user.id,
         limit=limit,
     )
-    return {"jobs": [serialize_job(row) for row in rows]}
+    return {"jobs": [serialize_job(row) for row in rows if row.kind != "brd_generation" or _can_access_job(db, row, user, workspace)]}
 
 
 @router.post("/")
@@ -126,6 +139,8 @@ async def jobs_create(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    if body.kind == "brd_generation":
+        raise HTTPException(403, "Use the BRD generation endpoint")
     job = create_workspace_job(
         db,
         workspace,
@@ -169,6 +184,8 @@ async def jobs_transition(
         job = get_workspace_job(db, workspace, job_id)
         if not _can_access_job(db, job, user, workspace):
             raise LookupError("workspace_job_not_found")
+        if job.kind == "brd_generation":
+            raise HTTPException(403, "BRD generation state is managed by its worker")
         transition_job(
             db,
             workspace,
