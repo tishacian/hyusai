@@ -6,15 +6,19 @@
   [release evidence](../evidence/brd-review-contract-2026-09-16/README.md).
 - **R0 remains open:** the adoption sessions and current authenticated manual
   acceptance are not complete. There is no remote CI; the documented local,
-  VM and carakai gates apply, as confirmed by the release owner.
+  VM and carakai gates apply, as confirmed by the release owner. The remaining
+  actions are isolated in the [R0 closure checklist](agentium-r0-closure.md).
 - **R1 remains open:** BRD proposals, drafts, provenance, generated cases and
-  frozen authored tool contracts are implemented. One five-case NorthForge suite
-  passed, but a repeat paused unnecessarily for missing evidence. Reordering the
-  planner prompt did not resolve it and was reverted before deployment.
-  [NorthForge results](../evidence/northforge-brd-2026-09-16/README.md).
-- The recorded real-provider NorthForge executions use an isolated local engine;
+  frozen authored tool contracts are implemented. Six canonical production
+  Golden Runs were created on f6b73cff: five reached explicit review; the refusal
+  case failed before synthesis because its prompt exceeded the limit. The
+  retained approval oracle also used the wrong canonical status. These are
+  corrected in the [next candidate](../evidence/brd-durable-tools-2026-09-16/README.md),
+  with durable initial dispatch. No live human decision has been submitted and
+  no generated application published.
+- Earlier isolated-engine results remain [historical evidence](../evidence/northforge-brd-2026-09-16/README.md);
   they do not establish production publication, human review or second-user use.
-- R2/R3/R5/R6 are not complete; R4 has numerical preparation only. DataOps
+- R2/R3/R5/R6 are not complete; R4 now has numerical and review preparation. DataOps
   preparation follows the R1 foundation; generalization waits for R2 contracts.
 
 The dated entries below preserve earlier states and findings; this summary and
