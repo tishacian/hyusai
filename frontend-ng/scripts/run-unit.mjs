@@ -172,6 +172,7 @@ const storeSpecs = [
   'src/app/features/workspace/chat-knowledge-settings.component.spec.ts',
   'src/app/features/workspace/workspace-entitlements.component.spec.ts',
   'src/app/features/knowledge/knowledge-capture.component.spec.ts',
+  'src/app/features/knowledge/ingestion-status.component.spec.ts',
   'src/app/features/nawa/nawa-assistant.component.spec.ts',
   'src/app/features/knowledge/capture-fil/capture-engine.spec.ts',
   'src/app/features/knowledge/capture-fil/capture-templates.spec.ts',

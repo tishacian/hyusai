@@ -6,6 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { IngestionStatusComponent } from './ingestion-status.component';
 import { I18nService } from '@app/core/i18n.service';
 import { HttpClient } from '@angular/common/http';
 import { SlicePipe } from '@angular/common';
@@ -246,6 +247,7 @@ type KbTabId =
     CkTabComponent,
     DocumentPreviewComponent,
     EmbeddingMapComponent,
+    IngestionStatusComponent,
   ],
   template: `
     <ck-object-header
@@ -282,7 +284,7 @@ type KbTabId =
       <ck-back-link />
     </ck-object-header>
 
-    @if (!loading() && docCount() === 0 && chunkCount() === 0) {
+    @if (!loading() && ['created', 'ready'].includes(collectionStatus()) && docCount() === 0 && chunkCount() === 0) {
       <div class="mb-4 rounded-md border px-4 py-3 text-sm ck-warn" style="border-color:rgba(245, 184, 74, 0.25); background:rgba(245, 184, 74, 0.10);">
         {{ i18n.t('capture.kb.collection_empty') }}
       </div>
@@ -292,6 +294,8 @@ type KbTabId =
         {{ i18n.t('capture.kb.no_system_binding') }}
       </div>
     }
+
+    <div class="mb-4"><app-ingestion-status [collectionId]="kbId" /></div>
 
     <ck-tabs
       [active]="activeTab()"
@@ -469,6 +473,13 @@ type KbTabId =
           <div class="ck-surface rounded-md p-5 text-center ck-fg-3 text-sm">
             <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
             Loading sources…
+          </div>
+        } @else if (sourceLoadError()) {
+          <div role="alert" class="ck-surface rounded-md p-5 space-y-3">
+            <p class="ck-warn text-sm">{{ i18n.t('capture.ingest.sources_error') }}</p>
+            <button type="button" class="ck-btn-soft rounded px-3 py-2 text-sm" (click)="loadSources(sourceOffset())">
+              {{ i18n.t('capture.ingest.refresh') }}
+            </button>
           </div>
         } @else if (sources().length === 0) {
           <app-empty-state
@@ -1703,6 +1714,7 @@ export class KnowledgeViewComponent implements OnInit {
 
   readonly loading = signal(true);
   readonly loadingSources = signal(true);
+  readonly sourceLoadError = signal(false);
   readonly loadingBindings = signal(true);
   readonly loadingTableFacts = signal(false);
   readonly loadingDocumentFacts = signal(false);
@@ -2253,12 +2265,15 @@ export class KnowledgeViewComponent implements OnInit {
     if (!this.kbId) return;
     const safeOffset = Math.max(0, offset);
     this.loadingSources.set(true);
+    this.sourceLoadError.set(false);
     this.http
       .get<InventoryPayload>(
         this.sourceInventoryUrl(safeOffset),
       )
-      .pipe(catchError(() => of<InventoryPayload>({ sources: [] })))
-      .subscribe((payload) => this.applyInventoryPage(payload, safeOffset));
+      .subscribe({
+        next: (payload) => this.applyInventoryPage(payload, safeOffset),
+        error: () => { this.sourceLoadError.set(true); this.loadingSources.set(false); },
+      });
   }
 
   private applyInventoryPage(payload: InventoryPayload, requestedOffset: number): void {

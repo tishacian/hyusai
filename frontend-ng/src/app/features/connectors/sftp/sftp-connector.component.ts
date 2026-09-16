@@ -1,3 +1,4 @@
+import { IngestionStatusComponent } from '../../knowledge/ingestion-status.component';
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
@@ -294,7 +295,7 @@ const BULK_PROMOTE_LIMIT = 25;
 @Component({
   selector: 'app-sftp-connector',
   standalone: true,
-  imports: [CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, DrawerComponent, IconComponent, SectionHeaderComponent],
+  imports: [IngestionStatusComponent, CommonModule, FormsModule, NavLinkDirective, CkBackLinkComponent, DrawerComponent, IconComponent, SectionHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-section-header
@@ -752,6 +753,7 @@ const BULK_PROMOTE_LIMIT = 25;
                   </div>
                 </div>
               }
+              <div class="mt-4"><app-ingestion-status [collectionId]="targetCollectionSlug()" /></div>
               <ul class="mt-4 max-h-72 space-y-2 overflow-auto">
                 @for (job of knowledgeJobs().slice(0, 6); track job.id) {
                   <li class="rounded bg-black/20 p-3 ring-1 ring-white/10">

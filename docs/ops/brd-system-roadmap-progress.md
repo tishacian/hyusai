@@ -39,6 +39,19 @@ Base: `origin/demo/agentic` at `9494149ad1ade0dc9da713588590d1ec01a9d2da`.
 Implementation branch: `codex/brd-system-roadmap`.
 Scope: [accepted roadmap](../agentium-delivery-roadmap.md).
 
+## Next candidate — recoverable ingestion
+
+Knowledge and SFTP now share persisted ingestion status and explicit admin retry.
+The existing worker/job/deposit binding is reused; failures and attempt history
+survive completion. Stale, superseded, unauthorized and governed-campaign retries
+are refused. A broker outage remains visible and recoverable. Source inventory
+failures no longer become empty collections. FR/EN, narrow/dark presentation,
+107 backend tests and 1,486 unique frontend tests are qualified locally.
+
+[Implementation and captures](../evidence/ingestion-recovery-2026-09-16/README.md).
+Not deployed in this entry. Real broker/worker qualification and the remaining
+R2 capture/retrieval acceptance are still open.
+
 ## Deployed 6f8f8169 — verifiable spreadsheet citations
 
 R2.1 preparation now opens the cited worksheet and cell window in the existing
