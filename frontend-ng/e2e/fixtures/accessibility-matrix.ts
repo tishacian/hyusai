@@ -131,6 +131,7 @@ export async function runAccessibilityMatrix({
         }));
         const tag = `${surface}-${locale}-${theme}-${viewport.label}`;
         const screenshot = await page.screenshot({
+          path: testInfo.outputPath(`${tag}.png`),
           animations: 'disabled',
           caret: 'hide',
           fullPage: true,
