@@ -14,7 +14,6 @@ import {
   MicroBarComponent,
   NavLinkDirective,
   PageFrameComponent,
-  RuntimeStatusBadgeComponent,
   StatReadoutComponent,
   TagComponent,
 } from '@app/shared/cockpit';
@@ -25,16 +24,13 @@ import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
 import { provenanceLineParams } from '@app/features/models/models.vm';
 import { BrdImportComponent } from './brd-import.component';
+import { formatSkillCost, observedSkillCost } from './skill-cost';
 import {
   NewSkillDialogComponent,
   backendMessage,
   type SkillDraftSeed,
   type SkillUpdateResult,
 } from './new-skill-dialog.component';
-
-/** The catalog filters on runtime readiness: what a Skill can actually do now,
- * not a label someone assigned it. */
-type RuntimeFilter = 'all' | 'bound' | 'stub' | 'unbound';
 
 interface SkillsScope {
   readonly capabilityId: string | null;
@@ -54,7 +50,6 @@ interface SkillsScope {
     StatReadoutComponent,
     MicroBarComponent,
     TagComponent,
-    RuntimeStatusBadgeComponent,
     RouterLink,
     NavLinkDirective,
     BrdImportComponent,
@@ -70,26 +65,9 @@ interface SkillsScope {
       <div class="flex flex-col gap-6">
         <!-- Filter bar -->
         <div class="flex items-center justify-between flex-wrap gap-4">
-          <div class="flex items-center gap-1 ck-surface rounded-md" style="padding:4px;">
-            @for (r of runtimeFilters; track r) {
-              <button
-                type="button"
-                (click)="runtime.set(r)"
-                class="ck-mono"
-                style="padding:6px 12px; border-radius:4px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase;"
-                [style.background]="runtime() === r ? 'var(--ck-bg-inset)' : 'transparent'"
-                [style.color]="runtime() === r ? 'var(--ck-fg-1)' : 'var(--ck-fg-4)'"
-                [style.boxShadow]="runtime() === r ? 'inset 0 0 0 1px var(--ck-stroke-strong)' : 'none'"
-              >
-                {{ runtimeFilterLabel(r) }}
-                @if (runtime() === r) {
-                  <span class="ck-tnum" style="margin-left:6px; color:var(--ck-fg-3);">
-                    {{ filtered().length }}
-                  </span>
-                }
-              </button>
-            }
-          </div>
+          <span class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
+            {{ filtered().length }} {{ i18n.t('skills.list.total.skills') }}
+          </span>
           <div class="flex items-center gap-2">
             <ck-kbd>⌘F</ck-kbd>
             <input
@@ -167,22 +145,21 @@ interface SkillsScope {
             <!-- header -->
             <div
               class="ck-mono"
-              style="display:grid; grid-template-columns: 110px 2fr 1fr 100px 110px 110px; gap:12px; padding:12px 16px; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); background:var(--ck-bg-inset); border-bottom:1px solid var(--ck-stroke-soft);"
+              style="display:grid; grid-template-columns: 2fr 1fr 100px 110px 110px 110px; gap:12px; padding:12px 16px; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); background:var(--ck-bg-inset); border-bottom:1px solid var(--ck-stroke-soft);"
             >
-              <span>{{ i18n.t('skills.list.column.status') }}</span>
               <span>{{ i18n.t('skills.list.column.skill') }}</span>
               <span>{{ i18n.t('skills.list.column.type') }}</span>
               <span style="text-align:right;">{{ i18n.t('skills.list.column.calls') }}</span>
               <span style="text-align:right;">{{ i18n.t('skills.list.column.latency') }}</span>
+              <span style="text-align:right;">{{ i18n.t('skills.cost.observed') }}</span>
               <span style="text-align:right;">{{ i18n.t('skills.list.column.success') }}</span>
             </div>
             @for (sk of filtered(); track sk.id) {
               <div
                 (click)="select(sk)"
-                style="display:grid; grid-template-columns: 110px 2fr 1fr 100px 110px 110px; gap:12px; padding:12px 16px; align-items:center; cursor:pointer; border-bottom:1px solid var(--ck-hair); transition: background 120ms ease;"
+                style="display:grid; grid-template-columns: 2fr 1fr 100px 110px 110px 110px; gap:12px; padding:12px 16px; align-items:center; cursor:pointer; border-bottom:1px solid var(--ck-hair); transition: background 120ms ease;"
                 [style.background]="selected()?.id === sk.id ? 'var(--ck-bg-inset)' : 'transparent'"
               >
-                <ck-runtime-status [status]="sk.runtime_status" />
                 <div class="min-w-0">
                   <div class="flex items-center gap-2">
                     <span class="text-sm font-medium truncate" style="color:var(--ck-fg-1);">{{ sk.name }}</span>
@@ -225,6 +202,9 @@ interface SkillsScope {
                 <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-2); text-align:right;">
                   {{ formatLatency(sk.metrics?.avg_latency_ms) }}
                 </span>
+                <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-2); text-align:right;">
+                  {{ formatObservedCost(sk.metrics) }}
+                </span>
                 <span class="ck-mono ck-tnum" style="font-size:11px; text-align:right;" [style.color]="successColor(sk.metrics?.success_rate)">
                   {{ formatPct(sk.metrics?.success_rate) }}
                 </span>
@@ -239,7 +219,6 @@ interface SkillsScope {
             <div class="flex items-start justify-between gap-4 mb-4">
               <div>
                 <div class="flex items-center gap-2 mb-2">
-                  <ck-runtime-status [status]="sk.runtime_status" />
                   <ck-tag tone="cool" variant="outline">{{ sk.type || 'generic' }}</ck-tag>
                   <ck-tag tone="violet" variant="outline">{{ sk.version || 'v1' }}</ck-tag>
                 </div>
@@ -340,6 +319,10 @@ interface SkillsScope {
                     <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1);">{{ formatLatency(sk.metrics?.avg_latency_ms) }}</span>
                   </div>
                   <div class="flex items-center justify-between">
+                    <span class="ck-mono" [style]="rowLabelStyle">{{ i18n.t('skills.cost.observed') }}</span>
+                    <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-1);">{{ formatObservedCost(sk.metrics) }}</span>
+                  </div>
+                  <div class="flex items-center justify-between">
                     <span class="ck-mono" [style]="rowLabelStyle">{{ i18n.t('skills.detail.provider') }}</span>
                     <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-2);">{{ sk.provider || 'omnirag' }}</span>
                   </div>
@@ -353,6 +336,7 @@ interface SkillsScope {
           <app-new-skill-dialog
             [catalog]="catalog"
             [registryTargets]="registryTargets()"
+            [systemId]="navigation.systemId() || undefined"
             [capabilities]="claimableCapabilities()"
             [skill]="editingSkill()"
             [seed]="draftSeed()"
@@ -376,6 +360,9 @@ export class SkillsComponent implements OnInit, OnDestroy {
   readonly i18n = inject(I18nService);
   protected readonly navigation = inject(ZoomContextService);
   private routeSubscription: Subscription | null = null;
+  private modelRouteSubscription: Subscription | null = null;
+  private pendingModelSeed: { provider: string; model: string; workspaceId: string } | null = null;
+  private consumedModelSeed = '';
   private contextRefreshSubscription: Subscription | null = null;
   private requestSubscription: Subscription | null = null;
   private currentScope: SkillsScope = { capabilityId: null, systemId: null, runId: null };
@@ -385,11 +372,9 @@ export class SkillsComponent implements OnInit, OnDestroy {
     () => this.reloadCurrentScope(),
   );
 
-  readonly runtimeFilters: RuntimeFilter[] = ['all', 'bound', 'stub', 'unbound'];
 
   readonly skills = signal<Skill[]>([]);
   readonly loading = signal(true);
-  readonly runtime = signal<RuntimeFilter>('all');
   readonly query = signal('');
   readonly selected = signal<Skill | null>(null);
   /**
@@ -454,10 +439,8 @@ export class SkillsComponent implements OnInit, OnDestroy {
   );
 
   readonly filtered = computed(() => {
-    const r = this.runtime();
     const q = this.query().trim().toLowerCase();
     return this.skills().filter((s) => {
-      if (r !== 'all' && s.runtime_status !== r) return false;
       if (!q) return true;
       return (
         s.name.toLowerCase().includes(q) ||
@@ -512,6 +495,15 @@ export class SkillsComponent implements OnInit, OnDestroy {
       this.resetResults();
       this.loadScope(scope);
     });
+    this.modelRouteSubscription = this.route.queryParamMap.subscribe((params) => {
+      const provider = params.get('provider');
+      const model = params.get('model');
+      const workspaceId = params.get('modelWorkspace');
+      this.pendingModelSeed = params.get('create') === 'llm' && provider && model && workspaceId
+        && provider.length <= 80 && model.length <= 256
+        ? { provider, model, workspaceId } : null;
+      this.openModelDraft();
+    });
     this.contextRefreshSubscription = this.workspace.contextRefresh$.subscribe(() => {
       const params = this.route.snapshot.queryParamMap;
       const next = this.effectiveScope(
@@ -527,6 +519,7 @@ export class SkillsComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.modelRouteSubscription?.unsubscribe();
     this.routeSubscription?.unsubscribe();
     this.routeSubscription = null;
     this.contextRefreshSubscription?.unsubscribe();
@@ -576,6 +569,8 @@ export class SkillsComponent implements OnInit, OnDestroy {
         : null);
       this.pendingSelection = null;
       this.loading.set(false);
+      this.openModelDraft();
+      if (this.canAuthor() && this.route.snapshot.queryParamMap.get('brd_document')) this.importing.set(true);
       },
       error: () => {
         if (!this.workspaceView.isCurrent(request) || !this.sameScope(scope, this.currentScope)) return;
@@ -662,6 +657,21 @@ export class SkillsComponent implements OnInit, OnDestroy {
     this.lifecycleError.set(null);
     this.editingSkill.set(null);
     this.authoring.set(true);
+  }
+
+  private openModelDraft(): void {
+    const seed = this.pendingModelSeed;
+    if (!seed || this.loading() || !this.canAuthor()) return;
+    const source = `${seed.workspaceId}:${seed.provider}:${seed.model}`;
+    if (source === this.consumedModelSeed) return;
+    const descriptor = this.executors()?.executors.find((entry) => entry.kind === 'prompt_template');
+    const providers = descriptor?.params_schema.properties?.['provider']?.enum ?? [];
+    if (seed.workspaceId !== this.workspace.captureRequestScope().workspaceId
+      || seed.provider === 'azure' || !providers.includes(seed.provider)
+      || !descriptor?.params_schema.properties?.['model']) return;
+    this.consumedModelSeed = source;
+    this.openAuthoring();
+    this.draftSeed.set({ provider: seed.provider, model: seed.model });
   }
 
   openEditing(skill: Skill): void {
@@ -764,15 +774,6 @@ export class SkillsComponent implements OnInit, OnDestroy {
     ];
   }
 
-  /** The runtime status comes from the API, so the key is built from it and
-   * falls back to the raw value for a status added later. */
-  runtimeFilterLabel(status: RuntimeFilter): string {
-    if (status === 'all') return this.i18n.t('skills.list.filter.all');
-    const key = `skills.runtime.status.${status}` as I18nKey;
-    const label = this.i18n.t(key);
-    return label === key ? status : label;
-  }
-
   /**
    * The model behind a published Skill, as one sentence — or nothing.
    *
@@ -820,6 +821,11 @@ export class SkillsComponent implements OnInit, OnDestroy {
   formatPct(v: number | undefined): string {
     if (v == null) return '—';
     return `${(v * 100).toFixed(1)}%`;
+  }
+
+  formatObservedCost(metrics: Skill['metrics']): string {
+    const cost = observedSkillCost(metrics);
+    return cost == null ? this.i18n.t('skills.cost.not_measured') : formatSkillCost(cost);
   }
 
   formatJson(v: Record<string, unknown> | undefined): string {
