@@ -1,0 +1,67 @@
+{
+  "collection_id": "65a11774-08b9-4c3b-bc86-f5fd33a76b61",
+  "collection_slug": "qa-capture-fd92",
+  "collection_name": "qa-capture-fd92",
+  "status": "created",
+  "source_count": 0,
+  "sources_total": 0,
+  "document_count": 0,
+  "chunk_count": 0,
+  "by_kind": {},
+  "by_extension": {},
+  "by_status": {},
+  "top_sources": [],
+  "chunk_buckets": {
+    "0": {
+      "sources": 0,
+      "chunks": 0
+    },
+    "1-5": {
+      "sources": 0,
+      "chunks": 0
+    },
+    "6-50": {
+      "sources": 0,
+      "chunks": 0
+    },
+    "51-200": {
+      "sources": 0,
+      "chunks": 0
+    },
+    "201-1000": {
+      "sources": 0,
+      "chunks": 0
+    },
+    ">1000": {
+      "sources": 0,
+      "chunks": 0
+    }
+  },
+  "chunk_percentiles": {
+    "p50": 0,
+    "p90": 0,
+    "p95": 0,
+    "p99": 0
+  },
+  "zero_chunk_sources": 0,
+  "error_sources": 0,
+  "heavy_sources": 0,
+  "source_filters": {
+    "q": "",
+    "source_kind": "",
+    "extension": "",
+    "status": "",
+    "project_code": "",
+    "archive_name": "",
+    "document_id": [],
+    "document_filename": [],
+    "language": "",
+    "sort": "filename",
+    "sort_dir": "asc"
+  },
+  "sources": [],
+  "sources_offset": 0,
+  "sources_limit": null,
+  "sources_returned": 0,
+  "sources_has_more": false
+}

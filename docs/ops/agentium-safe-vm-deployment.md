@@ -6823,3 +6823,23 @@ selected Context. Failed Run retained; no invented user acceptance or voice proo
 The original failed proposal and retained R1 decisions remain untouched.
 NAWA and activation defaults unchanged. Rollback `4771d53ae2a0`, preserving writes.
 [Evidence](../evidence/release-fd9238fa-2026-09-17/README.md).
+
+
+### 2026-09-17 — selected Capture collection survives chat defaults (f9bb4294)
+
+Deployed pushed `demo/agentic` SHA `f9bb429438119e2d9a2a5e90aa28fae51807a964`,
+three immutable VM images. 292 backend and 1,493 frontend tests; translation,
+navigation/chrome and production gates passed. Idle consumers, storage, exact
+public SHA, healthy services and homepage verified. Zero startup exceptions.
+Carakai **10 passed, 2 intentional skips**,
+`/tmp/iteration-canaries-20260916T235343Z.CW3Zmt`.
+No migration; worker retains Giskard and passes its offline/dependency checks.
+
+A new conversation asks the same question against the same published Capture,
+without regenerating, reviewing or publishing it again. Completed Run
+`985090d3-6b9e-48f9-a7a7-044c516a0a22` returns 6 bar and cites the actual retained
+source. The old failed Run is preserved. The canonical collection inventory
+still reports zero; ledger synchronization remains to correct. This is one
+technical text qualification, not voice, repetition or human acceptance.
+NAWA theme and activation defaults unchanged. Rollback `fd9238fa6e4a`.
+[Evidence](../evidence/release-f9bb4294-2026-09-17/README.md).
