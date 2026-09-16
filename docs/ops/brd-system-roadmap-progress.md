@@ -2,20 +2,22 @@
 
 ## Current delivery status — 16 September 2026
 
-- **Live application: `f6b73cff` on `demo/agentic`.** See the
-  [release evidence](../evidence/brd-review-contract-2026-09-16/README.md).
+- **Live application: `cd8f23f2` on `demo/agentic`.** See the
+  [release evidence](../evidence/brd-durable-tools-2026-09-16/README.md):
+  333 targeted backend tests, 1,467 frontend tests, build/health and 10 canaries
+  passed; 2 expected canary exclusions.
 - **R0 remains open:** the adoption sessions and current authenticated manual
   acceptance are not complete. There is no remote CI; the documented local,
   VM and carakai gates apply, as confirmed by the release owner. The remaining
   actions are isolated in the [R0 closure checklist](agentium-r0-closure.md).
 - **R1 remains open:** BRD proposals, drafts, provenance, generated cases and
-  frozen authored tool contracts are implemented. Six canonical production
-  Golden Runs were created on f6b73cff: five reached explicit review; the refusal
-  case failed before synthesis because its prompt exceeded the limit. The
-  retained approval oracle also used the wrong canonical status. These are
-  corrected in the [next candidate](../evidence/brd-durable-tools-2026-09-16/README.md),
-  with durable initial dispatch. No live human decision has been submitted and
-  no generated application published.
+  frozen authored tool contracts and durable Golden dispatch are deployed.
+  The new NorthForge batch produces five briefings, including the previously
+  failing refusal; all await explicit review. The missing-equipment case instead
+  pauses at the planner before retrieval. All official verdicts remain pending.
+  Identical submission returns the same six Runs. The missing-information pause,
+  a brittle refusal-word assertion and absent suite corpus manifest remain open.
+  No live human decision has been submitted and no generated application published.
 - Earlier isolated-engine results remain [historical evidence](../evidence/northforge-brd-2026-09-16/README.md);
   they do not establish production publication, human review or second-user use.
 - R2/R3/R5/R6 are not complete; R4 now has numerical and review preparation. DataOps

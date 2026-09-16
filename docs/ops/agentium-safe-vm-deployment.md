@@ -6681,3 +6681,15 @@ Storage gate passed, no migration. Exact public SHA verified, backend healthy,
 homepage 200, startup exceptions zero. Carakai: 10 passed, 2 intended skips.
 Rollback tag: `89f8e09aa820`. Authenticated manual acceptance remains open.
 Evidence: [BRD review contract release](../evidence/brd-review-contract-2026-09-16/README.md).
+
+### 2026-09-16 — durable Golden dispatch and frozen AgentLoop tools
+
+Deployed `cd8f23f27af68b54022e281df4930eed4c02573b` from demo/agentic.
+Three immutable VM-built images, Giskard SDK 2.19.2 offline check, storage gate,
+exact runtime SHA, healthy services, homepage 200 and zero startup exceptions.
+Carakai: 10 passed, 2 intentional exclusions. No migrations or Showcase reseed.
+Rollback tag: `f6b73cff68da`; no database restoration.
+Six canonical Golden Runs use one durable dispatch each; identical POST replay
+returns their original IDs. Five reach final review, one pauses at the planner.
+No human decision or application publication was performed. Authenticated manual
+acceptance remains open. [Evidence](../evidence/brd-durable-tools-2026-09-16/README.md).

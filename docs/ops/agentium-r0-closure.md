@@ -5,7 +5,7 @@
 **R0 reste ouvert.** Les gates techniques sont documentés ; la recette manuelle
 authentifiée sur le SHA courant et les dix sessions de baseline restent à faire.
 Dernier runtime attesté dans les preuves consultées :
-`f6b73cff68da87be6f93e4598326105ea57f1d96` sur `demo/agentic`.
+`cd8f23f27af68b54022e281df4930eed4c02573b` sur `demo/agentic`.
 Ce document audite les preuves conservées ; il ne constitue pas une nouvelle
 vérification en direct.
 
@@ -17,10 +17,10 @@ historiques ; le [statut courant](brd-system-roadmap-progress.md) fait référen
 
 | Critère R0 | Preuve conservée | État |
 |---|---|---|
-| Gates locaux, build VM, stockage, santé et identité du runtime | [Release f6b73cff](../evidence/brd-review-contract-2026-09-16/README.md) : 23 tests backend concernés, 1 467 tests frontend, i18n/liens/chrome/build réussis ; trois images immuables ; [build-info exact et santé](../evidence/brd-review-contract-2026-09-16/vm-health.log) | Prouvé pour ce SHA |
-| Canaries requis, dont Work, Studio et accès au Run | [Log carakai f6b73cff](../evidence/brd-review-contract-2026-09-16/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour ce SHA |
+| Gates locaux, build VM, stockage, santé et identité du runtime | [Release cd8f23f2](../evidence/brd-durable-tools-2026-09-16/README.md) : 333 tests backend concernés, 1 467 tests frontend, i18n/liens/chrome/build réussis ; trois images immuables ; [build-info exact et santé](../evidence/brd-durable-tools-2026-09-16/vm-health.log) | Prouvé pour ce SHA |
+| Canaries requis, dont Work, Studio et accès au Run | [Log carakai cd8f23f2](../evidence/brd-durable-tools-2026-09-16/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour ce SHA |
 | Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Consigné ; disponibilité actuelle à constater pendant le smoke |
-| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Prouvé historiquement ; ces exécutions ne sont pas attribuées à f6b73cff |
+| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Prouvé historiquement ; ces exécutions ne sont pas attribuées à cd8f23f2 |
 | Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | À actualiser sur le SHA retenu pour la clôture |
 | Baseline métier/développeur | [Fiche et consignes](agentium-r0-acceptance.md#baseline-avec-les-participants--à-exécuter) ; aucune session renseignée | 0/5 métier, 0/5 développeur |
 | Décision du responsable | Aucune décision de clôture enregistrée | En attente des éléments précédents |
