@@ -7,6 +7,25 @@ include:
       python-req-enabled: false
       python-tests-enabled: false
       sonar-python-version: "3.12"
+  - local: .gitlab/ci/agentium-k8s.yml
+
+# Keep template stages and insert the k8s path after test, before the VM deploy.
+stages:
+  - .pre
+  - lint
+  - quality
+  - security
+  - sonarqube
+  - build
+  - test
+  - ops_validate
+  - ops_plan
+  - ops_apply
+  - ops_images
+  - ops_deploy
+  - deploy
+  - publish
+  - .post
 # These checks apply to every pipeline, including client branches. A product
 # flag must never disable vocabulary, navigation or UI regression gates.
 agentium-frontend-quality:
@@ -316,20 +335,5 @@ agentium-lot6-system360-production:
       allow_failure: false
     - when: never
 
-# Render-only. Does not deploy and is not a release GO.
-agentium-k8s-scaffold:
-  stage: test
-  image: alpine/helm:3.16.4
-  needs: []
-  interruptible: true
-  script:
-    - helm lint ops/helm/agentium
-    - helm template agentium ops/helm/agentium --namespace agentium >/tmp/agentium.yaml
-    - grep -q 'name: agentium-backend' /tmp/agentium.yaml
-    - grep -q 'kind: Ingress' /tmp/agentium.yaml
-  rules:
-    - changes:
-        - ops/**/*
-        - docs/ops/agentium-kubernetes.md
-      when: on_success
-    - when: never
+# Kubernetes lab jobs live in .gitlab/ci/agentium-k8s.yml. They do not
+# replace agentium-lot6-system360-production.
