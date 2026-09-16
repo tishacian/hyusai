@@ -378,6 +378,8 @@ async def create_golden_preview_runs(
             if suite is not None:
                 checkpoint["suite_id"] = suite.id
                 checkpoint["suite_revision"] = suite.revision
+                checkpoint["brd_proposal_id"] = (suite.provenance or {}).get("brd_proposal_id")
+                checkpoint["brd_proposal_sha256"] = (suite.provenance or {}).get("brd_proposal_sha256")
                 checkpoint["assertions"] = copy.deepcopy(case.get("assertions", []))
             if "expected" in case:
                 checkpoint["expected"] = copy.deepcopy(case["expected"])

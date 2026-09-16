@@ -101,3 +101,18 @@ test('reopening a completed BRD job restores its batch without executing again',
   assert.equal(component.testRuns()[0].id, 'existing');
   component.ngOnDestroy();
 });
+
+
+test('requirement links only use test evidence from this exact BRD proposal', () => {
+  const {component} = setup({});
+  component.proposal.set(proposal);
+  const evidence = {brd_proposal_id: proposal.id, brd_proposal_sha256: proposal.sha256,
+    suite_id: 'suite', suite_revision: 1, case_id: 'normal', batch_id: 'batch', verdict: 'passed', assertions: []};
+  component.testRuns.set([
+    {id: 'matching', system_id: 'system', status: 'completed', test_result: evidence},
+    {id: 'other', system_id: 'system', status: 'completed', test_result: {...evidence, brd_proposal_sha256: 'other'}},
+  ]);
+  assert.deepEqual(component.requirementRuns(['normal']).map(run => run.id), ['matching']);
+  assert.deepEqual(component.requirementRuns(['uncovered']), []);
+  component.ngOnDestroy();
+});
