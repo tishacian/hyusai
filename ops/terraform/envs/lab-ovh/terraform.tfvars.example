@@ -1,0 +1,10 @@
+service_name       = "0123456789abcdef0123456789abcdef"
+cluster_name       = "agentium-lab-ovh"
+region             = "GRA11"
+kubernetes_version = "1.31"
+flavor_name        = "b3-8"
+desired_nodes      = 3
+min_nodes          = 3
+max_nodes          = 3
+ingress_class      = "nginx"
+storage_class      = "csi-cinder-high-speed"

@@ -1,18 +1,18 @@
 resource "openstack_blockstorage_volume_v3" "postgres" {
-  name = "${var.name}-pg"
-  size = var.volume_size_gb.postgres
+  name              = "${var.name}-pg"
+  size              = var.volume_size_gb.postgres
   availability_zone = local.az
 }
 
 resource "openstack_blockstorage_volume_v3" "minio" {
-  name = "${var.name}-minio"
-  size = var.volume_size_gb.minio
+  name              = "${var.name}-minio"
+  size              = var.volume_size_gb.minio
   availability_zone = local.az
 }
 
 resource "openstack_blockstorage_volume_v3" "qdrant" {
-  name = "${var.name}-qdrant"
-  size = var.volume_size_gb.qdrant
+  name              = "${var.name}-qdrant"
+  size              = var.volume_size_gb.qdrant
   availability_zone = local.az
 }
 
