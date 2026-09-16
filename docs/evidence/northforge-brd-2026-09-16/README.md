@@ -89,3 +89,12 @@ in the isolated local database. No production System was created.
 Generation validation now rejects fictitious AgentLoop output envelopes before application.
 The opt-in runtime recorder now distinguishes a planner clarification from the explicit
 Flow review and collects all case failures. Twelve generation tests pass.
+
+## JSON generation reliability
+
+Generation 6 returned malformed JSON and was refused without extracting a potentially
+misleading substring. This exposed that syntax failures bypassed the three-attempt repair
+budget. They now use that same budget; oversized output remains an immediate refusal.
+OpenAI/Azure requests use JSON-object response format. A repaired syntax failure and three
+consecutive syntax failures both retain all reported provider usage. Twenty-one focused
+service/API tests pass. No runtime success is inferred from these tests.

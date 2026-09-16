@@ -13,8 +13,8 @@ from pathlib import Path
 from app.tests.api.test_workspace_skill_brd_import import _seed, _client
 from app.core.config import settings
 
-def remote_completion(prompt, evidence, token_limit):
-    program = "PROMPT = " + repr(prompt) + "\nTOKEN_LIMIT = " + str(token_limit) + "\n" + """
+def remote_completion(prompt, evidence, token_limit, *, json_output=False):
+    program = "PROMPT = " + repr(prompt) + "\nTOKEN_LIMIT = " + str(token_limit) + "\nJSON_OUTPUT = " + repr(json_output) + "\n" + """
 import asyncio,json
 from app.db.base import SessionLocal
 from app.models.workspace import Workspace
@@ -22,7 +22,7 @@ from app.services.model_plane.execution import resolve_model_execution,complete_
 with SessionLocal() as db:
     ws=db.query(Workspace).filter_by(slug='agentium-showcase').one()
     execution=resolve_model_execution(ws,provider='workspace')
-    out=asyncio.run(complete_model(execution,PROMPT,{'_model_workspace':ws},generation_options={'max_completion_tokens':TOKEN_LIMIT,'reasoning_effort':'low'},stream=False))
+    out=asyncio.run(complete_model(execution,PROMPT,{'_model_workspace':ws},generation_options={'max_completion_tokens':TOKEN_LIMIT,'reasoning_effort':'low',**({'response_format':{'type':'json_object'}} if JSON_OUTPUT else {})},stream=False))
     out["model_execution"] = execution.public()
     print(json.dumps(out,default=str))
 """
@@ -152,7 +152,7 @@ def test_live_generation_worker(db_session, tmp_path, monkeypatch):
             assert recorded_outputs, "Recorded provider outputs exhausted; no implicit live retry"
             (evidence/'replay-source.txt').write_text(replay_path)
             return recorded_outputs.pop(0)
-        return remote_completion(prompt, evidence, 10000)
+        return remote_completion(prompt, evidence, 10000, json_output=True)
     monkeypatch.setattr(service, "complete_model", complete)
     workspace, user = _seed(db_session)
     client = _client(db_session, workspace, user)
