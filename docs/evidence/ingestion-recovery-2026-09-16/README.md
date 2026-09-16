@@ -62,3 +62,17 @@ concurrency, real broker redelivery, VM images/canaries, live OCR/Excel retrieva
 and voice → publication → new-conversation citation still require qualification.
 R0 human sessions and authenticated manual acceptance remain open; this increment
 does not close R0, R1 or R2.
+
+## Deployment preparation — runtime unchanged
+
+Implementation `c651db4f` is pushed on `demo/agentic`. Its first VM backend build
+failed with a missing Docker content digest while old untagged-image cleanup was
+still running. No application container was switched. Production remains
+`6f8f8169`; no real recovery qualification is claimed yet.
+
+The fresh resolver selected newer Python packages than the qualified runtime.
+The next candidate therefore adds explicit API/worker constraints from that
+runtime (211 / 253 installed package versions); both source environments pass
+`pip check`. Two additional tests verify exact version coverage and compatibility
+with the direct requirements, CPU Torch and optional Giskard declarations.
+Actual fresh-image installation and runtime checks are still required.
