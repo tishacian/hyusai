@@ -534,3 +534,15 @@ cases. Existing ad-hoc Golden Runs remain compatible.
 The API regression verifies initial execution and retained criteria. UI controls,
 server verdict retrieval and duplicate-request protection for this existing batch
 endpoint remain unfinished; this increment alone is not the complete R1 journey.
+
+
+### Initial suite verdicts in canonical Runs — 16 September
+
+Run serialization now includes an optional `test_result` for server-owned suite
+Runs. Verdicts use the assertions frozen in the Golden Run checkpoint: pending
+while running or awaiting a human, unevaluated after failure/cancellation or with
+no assertions, and evaluated only on a completed output. The response retains
+suite revision, case and batch identity. No parallel result journal is introduced.
+Fifty workbench/campaign tests passed; the serializer regression also checks the
+retained suite identity and final verdict. Frontend display and idempotent batch
+submission remain to connect before release.

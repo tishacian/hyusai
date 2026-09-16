@@ -201,6 +201,7 @@ def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
         and measurement_provenance.get("source") == "runtime_auto"
         and baseline_exclusion is None
     )
+    from app.services.evaluation.campaigns import suite_run_result
     checkpoints = []
     for checkpoint in list(r.checkpoints or []):
         if (
@@ -248,6 +249,7 @@ def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
         "retries": r.retries,
         "error": r.error,
         "checkpoints": checkpoints,
+        "test_result": suite_run_result(r),
         "waiting_subflows": r.waiting_subflows or {},
         "result_held": membrane_held,
         # Additive, secret-free integrity evidence used by the protected Lot 7

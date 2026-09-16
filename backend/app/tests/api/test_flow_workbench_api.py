@@ -874,3 +874,26 @@ def test_golden_runs_use_reviewed_suite_without_baseline(db_session, monkeypatch
     assert checkpoint["suite_revision"] == 1
     assert checkpoint["assertions"] == assertions
     assert "expected" not in checkpoint  # No invented whole-output oracle.
+    assert runs_endpoint._row(runs[0], db=db_session)["test_result"]["verdict"] == "pending"
+    runs[0].status, runs[0].output_ref = "completed", {"completion": "source"}
+    result = runs_endpoint._row(runs[0], db=db_session)["test_result"]
+    assert result["verdict"] == "passed"
+    assert result["suite_id"] == suite.id
+
+
+def test_suite_run_verdict_uses_frozen_server_criteria():
+    from types import SimpleNamespace
+    from app.services.evaluation.campaigns import suite_run_result
+    run = SimpleNamespace(execution_surface="golden_preview", status="hitl_pending",
+        output_ref={"answer": "unreviewed"}, checkpoints=[{"kind": "golden_case_queued",
+        "suite_id": "suite", "suite_revision": 2, "batch_id": "batch", "case_id": "case",
+        "assertions": [{"id": "fact", "path": ["answer"], "operator": "equals", "value": "source"}]}])
+    assert suite_run_result(run)["verdict"] == "pending"
+    run.status = "completed"
+    assert suite_run_result(run)["verdict"] == "failed"
+    run.output_ref = {"answer": "source"}
+    assert suite_run_result(run)["verdict"] == "passed"
+    run.checkpoints[0]["assertions"] = []
+    assert suite_run_result(run)["verdict"] == "unevaluated"
+    run.execution_surface = "production"
+    assert suite_run_result(run) is None

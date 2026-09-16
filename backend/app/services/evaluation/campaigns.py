@@ -125,6 +125,22 @@ def assertion_results(output: Any, assertions: list[dict]) -> dict:
     return {"verdict": "passed" if all(item["passed"] for item in result) else "failed", "assertions": result}
 
 
+def suite_run_result(run: Run) -> dict | None:
+    """Evaluate only the criteria frozen by server-owned Golden Runs."""
+    if run.execution_surface != "golden_preview":
+        return None
+    checkpoint = next((cp for cp in run.checkpoints or []
+        if cp.get("kind") == "golden_case_queued" and cp.get("suite_id")), None)
+    if checkpoint is None:
+        return None
+    verdict = (assertion_results(run.output_ref, checkpoint.get("assertions", []))
+        if run.status == "completed" else {"verdict": "unevaluated"
+        if run.status in {"failed", "cancelled"} else "pending", "assertions": []})
+    return {"suite_id": checkpoint["suite_id"], "suite_revision": checkpoint["suite_revision"],
+        "case_id": checkpoint["case_id"], "batch_id": checkpoint["batch_id"],
+        "method": "server_assertions", **verdict}
+
+
 def execution_cost_evidence(db, run: Run) -> dict:
     from app.services.run_engine.engine import _valve_invocation_ledger
     from app.services.membrane.enforcement import collect_valve_usage
