@@ -1,0 +1,4 @@
+/agentium-backend agentium-backend:7532d4491a23 7532d4491a239d0e2285303cb12447ceac7419c2
+/agentium-worker-cpu agentium-worker:7532d4491a23 7532d4491a239d0e2285303cb12447ceac7419c2
+/agentium-worker-recipes agentium-worker:7532d4491a23 7532d4491a239d0e2285303cb12447ceac7419c2
+/agentium-frontend agentium-frontend:7532d4491a23 7532d4491a239d0e2285303cb12447ceac7419c2

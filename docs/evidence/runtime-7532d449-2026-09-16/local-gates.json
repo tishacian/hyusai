@@ -1,0 +1,17 @@
+{
+  "sha": "7532d4491a239d0e2285303cb12447ceac7419c2",
+  "frontend": {
+    "unit_passed": 1460,
+    "spec_files": 157,
+    "mode": "40 batches after local disk exhaustion",
+    "i18n": "passed, 7947 keys",
+    "navigation": "passed",
+    "ui_chrome": "passed",
+    "production_build": "passed"
+  },
+  "backend": {
+    "passed": 216,
+    "duration_seconds": 249.21
+  },
+  "ci_attestation": "unavailable; local checks are not an independent GitLab attestation"
+}

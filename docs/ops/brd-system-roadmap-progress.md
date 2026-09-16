@@ -210,3 +210,12 @@ change. No production deployment or R0 acceptance closure is claimed.
 Final follow-up: 86 engine/membrane/outcome/provenance tests passed after
 separating declared ROI projection from approval. The 54 storage tests and
 43 runtime-environment tests passed; no frontend files changed in this slice.
+
+### Deployment of the runtime follow-up
+
+**7532d449 is live on demo/agentic.** Both concurrent pairs passed, including a
+graceful recipe-worker restart; five sequential Runs and idempotent replays
+passed. Iteration canaries: 10 passed, two intentional local-contract skips.
+New Runs show no inferred approval or confidence. [Release evidence](../evidence/runtime-7532d449-2026-09-16/README.md).
+Abrupt worker loss, real-provider Giskard and human adoption acceptance remain
+outside this completed deployment qualification.

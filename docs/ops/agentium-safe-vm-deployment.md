@@ -6570,3 +6570,29 @@ Showcase test release; its focused Studio rerun passed against unchanged 196164e
 R0 is not closed: worker concurrency, failed-check/outcome clarity, semantic
 evaluation and human trials retain their stated limitations. No independent
 CI or signed promotion attestation is claimed.
+
+### 2026-09-16 — dedicated recipe consumer and truthful Run completion
+
+Runtime **7532d4491a239d0e2285303cb12447ceac7419c2**, pushed on `demo/agentic`,
+built on `omnirag-demo` with immutable tag `7532d4491a23`. All three images
+built; worker retains `INSTALL_GISKARD_RAGET=true`, Giskard 2.19.2, pip check
+and offline SDK qualification. No migration; previous tag `196164eb5b80`.
+
+The new `agentium-worker-recipes` consumes `recipes`, independently of `cpu`,
+with the same worker image, protected binds and beat disabled. Storage checks
+passed before and after switching. Backend/frontend public build-info matches.
+
+Local gates: 1,460 frontend tests and 216 backend tests passed, plus all three
+frontend guards and production build. Full frontend invocation hit local disk
+exhaustion; all 157 specs passed in 40 batches after cleanup. Independent GitLab
+CI attestation unavailable. Exact-source iteration canaries: **10 passed,
+2 intentional local-fixture skips**. Two concurrent pairs passed (one during a
+graceful recipe-worker restart), then five sequential Runs passed. Replays
+returned the original Run IDs; new outcomes did not manufacture approval or
+confidence. The live screenshot was reviewed from fresh Chromium on carakai;
+native browser control timed out. This is not human adoption acceptance.
+
+[Evidence, exact Run IDs and limits](../evidence/runtime-7532d449-2026-09-16/README.md).
+Build logs: `/srv/agentium-data/runtime-deployments/2026-09-16-7532d4491a23/`.
+Drain recipe jobs before rolling back/removing their consumer. No historical
+outcome rewrite, adoption-default switch or customer theme change.
