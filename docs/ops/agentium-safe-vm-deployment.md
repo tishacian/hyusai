@@ -6605,3 +6605,23 @@ Deployed `f63f1eaf7e023e7ea5c428995c44ca0a3ad202ff` from pushed `demo/agentic`. 
 Public build-info matches; frontend/backend healthy; dedicated CPU and recipe workers running. Carakai canaries: 10 passed, two expected local-contract skips. [Release evidence](../evidence/brd-release-candidate-2026-09-16/deployment.md). Full manual BRD UI and end-to-end R1 acceptance remain open.
 
 Previous runtime was `7532d4491a239d0e2285303cb12447ceac7419c2`. It is not an unconditional rollback target: new BRD-origin execution contracts need compatible readers. Fix forward or disable affected authoring/execution while preserving compatible readers; do not restore the database over new writes. No customer flag default or NAWA theme change.
+
+
+### 2026-09-16 — R1 generation and evidence corrective release
+
+Deployed `7ab88007328c5e3a2cf5eaf6663e7d9c00eec927` from pushed `demo/agentic`.
+All three immutable images built on omnirag-demo; optional Giskard SDK preserved
+in the worker. No migration or database restore. Storage checks passed. Public
+build-info verifies the exact revision; homepage 200, backend/frontend healthy,
+all six application containers use tag `7ab88007328c`, no backend startup
+traceback or exception.
+
+Carakai iteration canaries: **10 passed, 2 intentional local-fixture skips**
+(2.1 minutes), including Work, Studio, Hypervisor and exact-Run observability.
+[Evidence and image digests](../evidence/brd-r1-correction-release-2026-09-16/README.md).
+Hard-reloaded Chrome reaches sign-in; authenticated manual smoke remains pending.
+No adoption-default or NAWA theme change. This does not close R1 or R0 human acceptance.
+
+Previous runtime: `f63f1eaf7e023e7ea5c428995c44ca0a3ad202ff`. After new suites
+store `quotes_in_source`, retain compatible assertion readers or fix forward;
+the old tag is not an unconditional rollback target. Never restore over new writes.
