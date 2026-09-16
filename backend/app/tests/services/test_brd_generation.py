@@ -26,8 +26,10 @@ async def test_generation_routes_through_workspace_and_refuses_partial_json(monk
     assert material["request_key"] == "actual"
     assert evidence["model_execution"]["model"] == "configured"
     assert evidence["usage"]["usage"]["total_tokens"] == 12
-    with pytest.raises(json.JSONDecodeError):
+    with pytest.raises(service.BrdGenerationOutputError) as failure:
         await service.generate_material(document, request, workspace=object(), catalog=[], proposal_schema={})
+    assert str(failure.value) == "invalid_proposal_json"
+    assert failure.value.evidence["usage"]["usage"]["total_tokens"] == 12
 
 
 def test_generation_never_silently_truncates_source():

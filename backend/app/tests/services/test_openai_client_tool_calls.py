@@ -138,3 +138,31 @@ async def test_a_missing_api_key_fails_before_any_network_call():
 
     with pytest.raises(RuntimeError, match="API key"):
         await client.complete_with_tools("gpt-test", [{"role": "user", "content": "hi"}])
+
+
+@pytest.mark.parametrize("method", ["generate", "complete_with_tools"])
+@pytest.mark.parametrize("model", ["gpt-5", "gpt-5-mini-2025-08-07", "o3-mini"])
+async def test_reasoning_models_use_completion_token_budget(monkeypatch, method, model):
+    sink = _install(monkeypatch, _response(content="ok"))
+    client = OpenAIClient(api_key="test-key")
+    payload = "hello" if method == "generate" else [{"role": "user", "content": "hello"}]
+    await getattr(client, method)(model, payload, max_tokens=10000)
+    assert sink["request"]["max_completion_tokens"] == 10000
+    assert "max_tokens" not in sink["request"]
+
+
+def test_explicit_completion_budget_wins_and_legacy_models_keep_their_limit():
+    assert OpenAIClient._chat_options("gpt-5", {"max_tokens": 10000, "max_completion_tokens": 500}) == {"max_completion_tokens": 500}
+    assert OpenAIClient._chat_options("gpt-4o", {"max_tokens": 500}) == {"max_tokens": 500}
+
+
+async def test_streaming_reasoning_model_uses_same_token_budget(monkeypatch):
+    async def chunks():
+        yield SimpleNamespace(choices=[SimpleNamespace(
+            delta=SimpleNamespace(content="ok"), finish_reason="stop")], usage=None)
+    sink = _install(monkeypatch, chunks())
+    result = [chunk async for chunk in OpenAIClient(api_key="test-key").stream(
+        "gpt-5", "hello", max_tokens=10000)]
+    assert result[0]["content"] == "ok"
+    assert sink["request"]["max_completion_tokens"] == 10000
+    assert "max_tokens" not in sink["request"]

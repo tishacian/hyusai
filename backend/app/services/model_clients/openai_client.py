@@ -24,6 +24,17 @@ class OpenAIClient(ModelClient):
 
         return AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
     
+    @staticmethod
+    def _chat_options(model: str, options: dict[str, Any]) -> dict[str, Any]:
+        from app.llm.providers.openai_provider import OpenAIProvider
+
+        result = dict(options)
+        if any(model == prefix or model.startswith(prefix + "-") for prefix in OpenAIProvider.THINKING_MODELS):
+            limit = result.pop("max_tokens", None)
+            if limit is not None:
+                result.setdefault("max_completion_tokens", limit)
+        return result
+
     async def generate(
         self, 
         model: str, 
@@ -40,7 +51,7 @@ class OpenAIClient(ModelClient):
             response = await client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
-                **kwargs
+                **self._chat_options(model, kwargs)
             )
             
             return {
@@ -76,7 +87,7 @@ class OpenAIClient(ModelClient):
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 stream=True,
-                **kwargs
+                **self._chat_options(model, kwargs)
             )
             
             sequence = 0
@@ -131,7 +142,7 @@ class OpenAIClient(ModelClient):
         try:
             client = self._sdk_client()
 
-            request: dict[str, Any] = {"model": model, "messages": messages, **kwargs}
+            request: dict[str, Any] = {"model": model, "messages": messages, **self._chat_options(model, kwargs)}
             if tools:
                 request["tools"] = tools
                 request["tool_choice"] = tool_choice

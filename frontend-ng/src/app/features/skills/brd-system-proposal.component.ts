@@ -204,6 +204,7 @@ export class BrdSystemProposalComponent implements OnInit, OnDestroy {
     if (!source) return '';
     const siblings = this.document.provenance?.filter(p => p.section === source.section) ?? [];
     const index = siblings.indexOf(source);
+    if (source.section === 'business outcomes') return this.document.outcomes[index]?.outcome ?? '';
     if (source.section === 'functional requirements') return this.document.requirements[index]?.requirement ?? '';
     if (source.section === 'decisions') return this.document.decisions[index]?.decision ?? '';
     const kind = source.section === 'prohibitions' ? 'prohibition' : 'rule';
