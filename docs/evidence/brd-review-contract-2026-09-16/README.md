@@ -41,3 +41,18 @@ Reviewed and applied via the canonical API to new draft System
 existing System changed, no application published. Six requirements remain
 explicitly uncovered because their mappings have no cases; they are not
 claimed validated. Golden Runs and human acceptance remain to execute.
+
+## First canonical Golden batch (in progress)
+
+Batch `8498846c-832c-4d8f-8ad1-c31b754a2757`, six Runs, suite
+`984d3c08-0340-4ffd-b90d-ef0ab6802116`, draft revision 2. Each Run retains
+the proposal digest and suite assertions. First two Runs reached HITL:
+- `9ba95dea-544f-4d41-b6b6-965eb2006412`: notices tool, 700 bar continuous
+  and 735 bar relief clearly distinguished, source document/chunk cited.
+- `c9389385-5a63-45fb-a7cd-d226489af2fb`: history tool, NF-04 30 planned
+  and 55 actual minutes, history source cited.
+
+Their test verdicts remain pending; no reviewer decision was submitted.
+The other four cases are not yet qualified. The API schedules this batch
+through sequential FastAPI BackgroundTasks calling schedule_run; this is
+not evidence of durable worker dispatch or restart recovery.
