@@ -680,3 +680,25 @@ A compiler-to-reader regression checks two tools and malformed list shapes.
 38 contract tests and 48 publication/backfill tests pass. This correction is
 local, not yet deployed. It does not freeze tool executors or qualify AgentLoop
 comparison replay; those remain required R1 work.
+
+
+### Freeze AgentLoop tool definitions — 16 September
+
+Newly compiled AgentLoops retain a bounded tool sub-contract using the existing
+compiler and validator: exact allowlist, Skill identity, input/output schemas and
+authored executor. Dispatch selects the frozen executor by invoked slug rather
+than accidentally reusing the planner binding, enforces the tool schemas, and
+links the invocation trace to the tool-contract digest. Publication binding
+warnings include authored tools, so an edit is reported as awaiting republish.
+
+146 targeted tests pass across contracts, authored-Skill freezing, AgentLoop,
+BRD generation/import/application and publication/backfill. Regressions prove
+that catalogue edits do not change the retained template, invalid input is
+refused before the tool call, and invalid output fails the invocation.
+
+Not deployed. Historical contracts are unchanged and lack these frozen tools;
+they retain their historical resolution limits. Comparisons must not claim
+reproducibility for them. Frozen native code still belongs to the release image;
+this freezes authored configuration, not provider determinism or corpus content.
+Live NorthForge qualification, comparison enablement and R1 acceptance remain open.
+Any deployment of this additive contract requires compatible readers on rollback.

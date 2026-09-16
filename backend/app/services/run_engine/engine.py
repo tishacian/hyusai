@@ -867,7 +867,7 @@ def _snapshot_run_flow(
         )
 
 
-def _frozen_node_executor(run: Run, node_id: Optional[str]) -> Optional[Dict[str, Any]]:
+def _frozen_node_executor(run: Run, node_id: Optional[str], slug: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """The authored runtime this node's contract pinned, if it pinned one.
 
     Absent for seeded Skills, and absent from contracts compiled before authored
@@ -880,6 +880,16 @@ def _frozen_node_executor(run: Run, node_id: Optional[str]) -> Optional[Dict[str
     contract = run.execution_contract if isinstance(run.execution_contract, dict) else None
     nodes = contract.get("nodes") if contract is not None else None
     node = nodes.get(node_id) if isinstance(nodes, dict) else None
+    if isinstance(node, dict) and slug is not None and node.get("skill_slug") != slug:
+        tools = node.get("tool_contract")
+        if isinstance(tools, dict):
+            node = (tools.get("nodes") or {}).get(slug)
+            if not isinstance(node, dict):
+                raise ValueError("execution_contract:agent_loop_tool_not_frozen")
+        else:
+            # Historical AgentLoops did not freeze tools. Never bind their
+            # planner executor to a different Skill dispatched by that node.
+            return None
     executor = node.get("executor") if isinstance(node, dict) else None
     return executor if isinstance(executor, dict) else None
 
@@ -930,7 +940,10 @@ async def _execute_task_node(
         if resolved_input is not None
         else _build_skill_input(slug, run.input_ref or {}, last_output, ctx)
     )
-    frozen_executor = _frozen_node_executor(run, node_id)
+    frozen_executor = _frozen_node_executor(run, node_id, slug)
+    frozen_node = (run.execution_contract or {}).get("nodes", {}).get(node_id) or {}
+    frozen_tools = (frozen_node.get("tool_contract") or {}).get("nodes", {})
+    frozen_tool = frozen_tools.get(slug)
     executor_binding = frozen_executor
     if executor_binding is None and slug.startswith("ws."):
         authored_row = db.query(Skill).filter(
@@ -1041,6 +1054,8 @@ async def _execute_task_node(
         input_ref=skill_input,
         trace={
             **({"node_id": node_id} if node_id else {}),
+            **({"tool_contract_sha256": frozen_node["tool_contract"]["contract_sha256"]}
+               if frozen_tool is not None else {}),
             **({"membrane_attempt_kind": attempt_kind} if attempt_kind else {}),
             **({"membrane_attempt_index": attempt_index} if attempt_index is not None else {}),
             **({"model_resolution": model_execution.public()} if model_execution else {"effective_model": model}),
@@ -1115,7 +1130,14 @@ async def _execute_task_node(
             frozen_executor=frozen_executor,
         )
         fn = resolve_skill(slug) if authored is None else authored
+        if frozen_tool is not None:
+            from app.services.flow_contracts import validate_payload
+            validate_payload(invocation.input_ref, frozen_tool["input_schema"],
+                             code="tool_input_schema_violation", subject="AgentLoop tool input")
         output = await fn(invocation.input_ref, skill_ctx)
+        if frozen_tool is not None:
+            validate_payload(output, frozen_tool["output_schema"],
+                             code="tool_output_schema_violation", subject="AgentLoop tool output")
         # A Skill output is arbitrary JSON.  Falsy values (``False``, ``0``
         # and ``""``) are valid contract outputs and must not be rewritten to
         # an empty object before the DAG validates or publishes them.

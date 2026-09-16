@@ -106,9 +106,15 @@ def published_skill_bindings(
             continue
         frozen_digests: dict[str, Any] = {}
         for node_id, node in nodes.items():
-            if not isinstance(node, Mapping) or node.get("skill_slug") != skill.slug:
+            if not isinstance(node, Mapping):
                 continue
-            frozen_digests[str(node_id)] = node.get("skill_definition_sha256")
+            if node.get("skill_slug") == skill.slug:
+                frozen_digests[str(node_id)] = node.get("skill_definition_sha256")
+            tools = node.get("tool_contract")
+            tool_nodes = tools.get("nodes", {}) if isinstance(tools, Mapping) else {}
+            tool = tool_nodes.get(skill.slug)
+            if isinstance(tool, Mapping):
+                frozen_digests[str(node_id)] = tool.get("skill_definition_sha256")
         if not frozen_digests:
             continue
         # A node frozen before authored runtimes were captured carries no digest
