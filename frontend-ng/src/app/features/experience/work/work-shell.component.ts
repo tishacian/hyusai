@@ -131,6 +131,7 @@ const POLL_MS = 8000;
       <section
         #workMain
         class="xp-work-main"
+        role="main"
         tabindex="-1"
         aria-labelledby="work-app-title"
         [attr.aria-busy]="state() === 'loading'"

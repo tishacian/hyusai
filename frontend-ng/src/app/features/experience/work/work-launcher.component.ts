@@ -49,7 +49,7 @@ import {
         </label>
       @if (adoption.enabled()) { <button type="button" class="xp-work-btn" (click)="companion.open({ pilot: true })">{{ i18n.t('experience.adoption.companion') }}</button> }
 </header>
-      <section class="xp-work-main xp-work-home" aria-labelledby="work-launcher-title">
+      <section class="xp-work-main xp-work-home" role="main" aria-labelledby="work-launcher-title">
         <div class="xp-work-intro">
           <div>
             <p class="xp-work-eyebrow">{{ i18n.t('experience.work.title') }}</p>
