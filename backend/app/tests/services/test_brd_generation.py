@@ -214,4 +214,11 @@ def test_intervention_template_must_actually_receive_retrieved_evidence():
     with pytest.raises(ValueError, match="must include"):
         service.validate_intervention_planner(body, ["decide_next_v1"])
     skill.executor["params"]["template"] += " Evidence: {observations}"
+    with pytest.raises(ValueError, match="original operator question"):
+        service.validate_intervention_planner(body, ["decide_next_v1"])
+    body.flow_definition["nodes"][-1]["config"]["inputs_map"]["objective"] = {
+        "node_id": "source", "path": ["question"], "required": True}
+    with pytest.raises(ValueError, match="original operator question"):
+        service.validate_intervention_planner(body, ["decide_next_v1"])
+    skill.executor["params"]["template"] += " Request: {objective}"
     service.validate_intervention_planner(body, ["decide_next_v1"])
