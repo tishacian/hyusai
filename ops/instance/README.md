@@ -1,15 +1,17 @@
-# `ops/instance` — OpenStack with Terraform
+# `ops/instance` — Nova + kubeadm fallback
 
-Mirrors `papAI/OPS/instance`: this directory is the only place that creates
-networks, security groups, volumes and VMs for an Agentium Kubernetes lab.
+Optional. The GitLab path uses `ops/terraform/envs/lab-ovh` (OVH MKS) or
+`envs/lab-aks`. This directory still creates networks, security groups,
+volumes and VMs when someone explicitly wants kubeadm.
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars   # not committed
 terraform init
 terraform plan
-# terraform apply   # explicit GO only
+# terraform apply   # explicit GO only; not a CI job
 terraform output -raw ansible_inventory > ../ansible/inventories/lab/terraform_inventory.yml
 ```
 
-v0.1 is kubeadm on Nova VMs, not Magnum. A managed Kubernetes API can replace
-`nodes.tf` later without changing the Helm chart.
+Then `provision-cluster.yml`. `deploy-agentium.yml` still expects
+`KUBECONFIG`, not `/etc/kubernetes/admin.conf`.
+
