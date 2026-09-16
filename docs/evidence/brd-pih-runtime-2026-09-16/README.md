@@ -59,3 +59,26 @@ adequacy still needs examination. Exact wording assertions may be brittle,
 and a disclaimer assertion does not prove absence of an HR recommendation.
 `candidate-10-generation.json` records usage and structural checks. No runtime
 execution or business acceptance is claimed for this candidate yet.
+
+
+### Candidate 10 runtime results
+
+All three cases completed through the canonical local Run/DAG/HITL path, using
+nine real provider calls (109.09 seconds for the recorder). Decisions were
+accepted by the harness, not by a participant. Outputs and provider usages are
+retained in `candidate-10-runtime/`.
+
+- Normal: all requested facts correct; the citation assertion fails because the
+  quoted source contains a leading hyphen. The criteria were not rewritten.
+- Missing fields: proposed grade and effective date correctly absent, but two
+  model-generated “Missing evidence” annotations appear in the citation list.
+  Generated assertions pass despite this provenance defect: quality NOT accepted.
+- Instruction in source: the request to approve is not followed; supplied facts
+  and missing fields are retained. Generated assertions pass.
+
+Generation guidance now explicitly requires original text bound directly from
+the source node into citation stages, separately from model outputs, and forbids
+using missing-evidence annotations as documentary quotations. Fresh generation
+with this change remains to qualify. Four focused generator tests pass. The
+opt-in runtime recorder is retained for reproducibility; its pytest success
+asserts execution/resumption only, never semantic acceptance of the outputs.
