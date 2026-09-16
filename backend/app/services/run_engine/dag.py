@@ -2294,7 +2294,7 @@ async def _execute_node(
                 "selector": _sanitize(exc.selector),
             },
         )
-        raise
+        return {"output": {}, "terminal_error": str(exc)}
 
     # Palette-dropped skill nodes carry their inspector-edited literals in
     # ``config.params`` but an empty ``inputs_map`` (the UI seeds it empty),
