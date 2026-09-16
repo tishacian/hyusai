@@ -1,0 +1,19 @@
+
+Running 12 tests using 1 worker
+
+  ✓   1 [chromium] › e2e/tests/11-system360-canary.spec.ts:381:7 › Lot 6 — authenticated System 360 canary › four honest projections preserve one System and deployed revision (17.6s)
+  ✓   2 [chromium] › e2e/tests/12-protected-runner-canaries.spec.ts:813:7 › Release A — protected runner content-free canaries › business application routes and Client360 dry-run (32.7s)
+  ✓   3 [chromium] › e2e/tests/12-protected-runner-canaries.spec.ts:862:9 › Release A — protected runner content-free canaries › sentinel branding and action packs stay isolated (3.7s)
+  ✓   4 [chromium] › e2e/tests/12-protected-runner-canaries.spec.ts:862:9 › Release A — protected runner content-free canaries › octocity branding and action packs stay isolated (1.6s)
+  ✓   5 [chromium] › e2e/tests/12-protected-runner-canaries.spec.ts:880:7 › Release A — protected runner content-free canaries › authenticated LiveKit config exposes state without a token (892ms)
+  ✓   6 [chromium] › e2e/tests/12-protected-runner-canaries.spec.ts:895:7 › Release A — protected runner content-free canaries › microphone is not granted while Capture remains accessible (1.9s)
+  ✓   7 [chromium] › e2e/tests/16-experience-work-canary.spec.ts:52:7 › US-8 — Experience /work canary › opens the launcher or a deployed app without cockpit chrome (15.3s)
+  -   8 [chromium] › e2e/tests/16-experience-work-canary.spec.ts:137:7 › Adoption local contract › keeps a non-modal companion through navigation and serves bilingual guides
+  -   9 [chromium] › e2e/tests/16-experience-work-canary.spec.ts:217:7 › White labelling local contract › edits workspace identity, persists it and renders an application from its release
+  ✓  10 [chromium] › e2e/tests/17-experience-studio-canary.spec.ts:288:7 › US-8 — Experience Studio lifecycle canary › creates, saves, checks and releases a real application from scratch (31.5s)
+  ✓  11 [chromium] › e2e/tests/20-hypervisor-v2-canary.spec.ts:266:7 › Hypervisor V2 — instrumented ledger canary › flag off keeps V1; flag on serves the tonal ledger, facets, honesty (11.1s)
+  ✓  12 [chromium] › e2e/tests/23-observability-evidence-canary.spec.ts:6:5 › evaluation and chart inspection retain the exact Run (8.8s)
+
+  2 skipped
+  10 passed (2.1m)
+iteration canaries passed for 4771d53ae2a057b3e6b0590a7b3b4ce8d9068166 — artifacts: /tmp/iteration-canaries-20260916T231458Z.8L39zo
