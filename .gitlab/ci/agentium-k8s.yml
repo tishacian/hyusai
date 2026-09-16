@@ -1,0 +1,197 @@
+# Managed Kubernetes path (OVH MKS lab). Does not replace
+# agentium-lot6-system360-production (SSH → Compose VM).
+#
+# Stages: ops_validate → ops_plan → ops_apply → ops_images → ops_deploy
+# First lab apply stays manual. Smoke failure is red; it does not roll back
+# the VM.
+
+.ops-k8s-rules-ops-tree: &ops-k8s-rules-ops-tree
+  - changes:
+      - ops/**/*
+      - docs/ops/agentium-kubernetes.md
+      - .gitlab/ci/agentium-k8s.yml
+      - .gitlab-ci.yml
+    when: on_success
+  - if: '$CI_COMMIT_BRANCH == "demo/agentic"'
+    when: on_success
+  - when: never
+
+.ops-k8s-rules-lab-ovh-auto: &ops-k8s-rules-lab-ovh-auto
+  - if: '$CI_COMMIT_BRANCH == "demo/agentic" && $OVH_APPLICATION_KEY && $OS_PROJECT_ID'
+    when: on_success
+  - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $OVH_APPLICATION_KEY && $OS_PROJECT_ID'
+    changes:
+      - ops/**/*
+      - .gitlab/ci/agentium-k8s.yml
+    when: on_success
+  - when: never
+
+.ops-k8s-rules-lab-ovh-manual: &ops-k8s-rules-lab-ovh-manual
+  - if: '$CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $OVH_APPLICATION_KEY && $OS_PROJECT_ID'
+    when: manual
+    allow_failure: false
+  - when: never
+
+agentium-k8s-validate:
+  stage: ops_validate
+  image: debian:bookworm-slim
+  needs: []
+  interruptible: true
+  variables:
+    TF_IN_AUTOMATION: "true"
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends ca-certificates curl unzip python3 ansible
+    - curl -fsSL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz | tar -xz -C /tmp
+    - install /tmp/linux-amd64/helm /usr/local/bin/helm
+    - curl -fsSL -o /tmp/terraform.zip https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_linux_amd64.zip
+    - unzip -o /tmp/terraform.zip -d /usr/local/bin
+  script:
+    - ops/scripts/check-k8s-scaffold.sh
+  rules: *ops-k8s-rules-ops-tree
+
+agentium-k8s-plan-lab-ovh:
+  stage: ops_plan
+  image:
+    name: hashicorp/terraform:1.9.8
+    entrypoint: [""]
+  needs:
+    - job: agentium-k8s-validate
+      optional: true
+  interruptible: true
+  resource_group: agentium-k8s-lab
+  variables:
+    TF_IN_AUTOMATION: "true"
+    TF_VAR_service_name: $OS_PROJECT_ID
+  script:
+    - apk add --no-cache bash
+    - ops/scripts/gitlab-tf-init.sh ops/terraform/envs/lab-ovh agentium-lab-ovh
+    - terraform -chdir=ops/terraform/envs/lab-ovh plan -input=false -out=tfplan
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - ops/terraform/envs/lab-ovh/tfplan
+  rules: *ops-k8s-rules-lab-ovh-auto
+
+agentium-k8s-apply-lab-ovh:
+  stage: ops_apply
+  image:
+    name: hashicorp/terraform:1.9.8
+    entrypoint: [""]
+  needs:
+    - job: agentium-k8s-plan-lab-ovh
+      artifacts: true
+  interruptible: false
+  timeout: 1h
+  resource_group: agentium-k8s-lab
+  variables:
+    TF_IN_AUTOMATION: "true"
+    TF_VAR_service_name: $OS_PROJECT_ID
+  script:
+    - apk add --no-cache bash
+    - ops/scripts/gitlab-tf-init.sh ops/terraform/envs/lab-ovh agentium-lab-ovh
+    - terraform -chdir=ops/terraform/envs/lab-ovh apply -input=false -auto-approve tfplan
+    - umask 077
+    - terraform -chdir=ops/terraform/envs/lab-ovh output -raw kubeconfig > ops/ci-kubeconfig
+    - terraform -chdir=ops/terraform/envs/lab-ovh output -raw ingress_class > ops/ci-ingress-class
+    - terraform -chdir=ops/terraform/envs/lab-ovh output -raw storage_class > ops/ci-storage-class
+    - terraform -chdir=ops/terraform/envs/lab-ovh output -raw cluster_name > ops/ci-cluster-name
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - ops/ci-kubeconfig
+      - ops/ci-ingress-class
+      - ops/ci-storage-class
+      - ops/ci-cluster-name
+  rules: *ops-k8s-rules-lab-ovh-manual
+
+agentium-k8s-images-lab:
+  stage: ops_images
+  image: docker:24
+  services:
+    - docker:24-dind
+  needs:
+    - job: agentium-k8s-apply-lab-ovh
+      optional: true
+      artifacts: false
+  interruptible: false
+  timeout: 2h
+  resource_group: agentium-k8s-lab
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    AGENTIUM_CI_IMAGES_FILE: "$CI_PROJECT_DIR/ops/helm/agentium/values-ci-images.yaml"
+  before_script:
+    - apk add --no-cache bash git
+    - test -n "$AGENTIUM_LAB_REGISTRY"
+    - test -n "$PIP_INDEX_URL"
+    - test -n "$AGENTIUM_LAB_REGISTRY_USER"
+    - HOST="${AGENTIUM_LAB_REGISTRY_HOST:-${AGENTIUM_LAB_REGISTRY%%/*}}"
+    - echo "$AGENTIUM_LAB_REGISTRY_PASSWORD" | docker login -u "$AGENTIUM_LAB_REGISTRY_USER" --password-stdin "$HOST"
+  script:
+    - ops/scripts/build-lab-images.sh
+    - grep -E '@sha256:[0-9a-f]{64}' "$AGENTIUM_CI_IMAGES_FILE"
+    - if grep -q ':local' "$AGENTIUM_CI_IMAGES_FILE"; then echo "digest overlay still has :local" >&2; exit 1; fi
+  artifacts:
+    expire_in: 7 days
+    paths:
+      - ops/helm/agentium/values-ci-images.yaml
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $AGENTIUM_LAB_REGISTRY'
+      when: on_success
+    - when: never
+
+agentium-k8s-deploy-lab:
+  stage: ops_deploy
+  image: debian:bookworm-slim
+  needs:
+    - job: agentium-k8s-images-lab
+      artifacts: true
+    - job: agentium-k8s-apply-lab-ovh
+      optional: true
+      artifacts: true
+  interruptible: false
+  timeout: 30m
+  resource_group: agentium-k8s-lab
+  variables:
+    AGENTIUM_CI_IMAGES_FILE: "$CI_PROJECT_DIR/ops/helm/agentium/values-ci-images.yaml"
+    ANSIBLE_CONFIG: "$CI_PROJECT_DIR/ops/ansible/ansible.cfg"
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y --no-install-recommends ca-certificates curl python3 ansible
+    - curl -fsSL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz | tar -xz -C /tmp
+    - install /tmp/linux-amd64/helm /usr/local/bin/helm
+    - |
+      if [ -n "${AGENTIUM_LAB_KUBECONFIG:-}" ] && [ -f "$AGENTIUM_LAB_KUBECONFIG" ]; then
+        export KUBECONFIG="$AGENTIUM_LAB_KUBECONFIG"
+      elif [ -f "$CI_PROJECT_DIR/ops/ci-kubeconfig" ]; then
+        export KUBECONFIG="$CI_PROJECT_DIR/ops/ci-kubeconfig"
+      else
+        echo "KUBECONFIG missing (apply artifact or AGENTIUM_LAB_KUBECONFIG)" >&2
+        exit 1
+      fi
+      echo "$KUBECONFIG" > /tmp/kubeconfig.path
+  script:
+    - export KUBECONFIG="$(cat /tmp/kubeconfig.path)"
+    - test -s "$KUBECONFIG"
+    - test -s "$AGENTIUM_CI_IMAGES_FILE"
+    - ansible-playbook -i ops/ansible/inventories/ci ops/ansible/playbooks/deploy-agentium.yml
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $AGENTIUM_LAB_REGISTRY'
+      when: on_success
+    - when: never
+
+agentium-k8s-smoke-lab:
+  stage: ops_deploy
+  image: curlimages/curl:8.10.1
+  needs:
+    - job: agentium-k8s-deploy-lab
+  interruptible: false
+  resource_group: agentium-k8s-lab
+  script:
+    - test -n "$AGENTIUM_LAB_INGRESS_URL"
+    - sh ops/scripts/smoke-lab-ingress.sh
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $AGENTIUM_LAB_INGRESS_URL'
+      when: on_success
+    - when: never
