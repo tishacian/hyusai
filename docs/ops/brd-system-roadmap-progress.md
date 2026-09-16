@@ -702,3 +702,21 @@ reproducibility for them. Frozen native code still belongs to the release image;
 this freezes authored configuration, not provider determinism or corpus content.
 Live NorthForge qualification, comparison enablement and R1 acceptance remain open.
 Any deployment of this additive contract requires compatible readers on rollback.
+
+
+### Bind AgentLoop arguments to closed tool contracts — 16 September
+
+The first live-provider NorthForge attempt with frozen schemas exposed that the
+walker passed its whole orchestration envelope (goal, observations, decision and
+objective) into a read tool declaring only `query`. Input enforcement correctly
+rejected it. The attempt was interrupted after the first persisted failed case;
+it is not a successful qualification. Evidence remains at
+`/tmp/brd-northforge-runtime-frozen-21f0cb6d` on the development host.
+
+The common AgentLoop dispatch now binds only declared properties when a frozen
+tool contract explicitly closes additional properties. Missing required arguments
+still fail validation; open schemas retain their existing inputs. Both normal
+actions and approved-write resumptions use this dispatch. 35 runtime/freeze tests
+pass, including a full walker regression proving the tool receives only `query`.
+Fresh live-provider qualification is running in
+`/tmp/brd-northforge-runtime-frozen-arguments`; no successful result is claimed yet.
