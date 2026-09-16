@@ -1,0 +1,47 @@
+{
+  "sha": "fd9238fa6e4aab29f0414cc0f1d2eca835d0b604",
+  "kind": "synthetic technical API test, not a human review or voice test",
+  "publication": {
+    "proposal_id": "c72a0f11-8770-430d-8346-a7c0b083b36d",
+    "open_questions_count": 3,
+    "collection": "qa-capture-fd92",
+    "document_id": "8b2756be-df4c-5984-96d0-e171baddd5f6",
+    "chunks_processed": 1,
+    "status": "success",
+    "category": "technique",
+    "destination": "qa-capture-fd92",
+    "destination_scope": "qa-capture-fd92",
+    "final_title": "QA Capture R2CAP4771",
+    "export_urls": {
+      "pdf_url": "/api/v1/knowledge-capture/proposals/c72a0f11-8770-430d-8346-a7c0b083b36d/export?format=pdf",
+      "docx_url": "/api/v1/knowledge-capture/proposals/c72a0f11-8770-430d-8346-a7c0b083b36d/export?format=docx",
+      "raw_url": "/api/v1/documents/8b2756be-df4c-5984-96d0-e171baddd5f6/raw?collection_name=qa-capture-fd92&filename=capture-fc22df85.md",
+      "download_url": "/api/v1/documents/8b2756be-df4c-5984-96d0-e171baddd5f6/raw?collection_name=qa-capture-fd92&filename=capture-fc22df85.md",
+      "preview_url": "/api/v1/documents/8b2756be-df4c-5984-96d0-e171baddd5f6/rich-preview?collection_name=qa-capture-fd92&filename=capture-fc22df85.md"
+    },
+    "promoted_documents": []
+  },
+  "restored_status": "published",
+  "review": {
+    "status": "accepted",
+    "notes": "AUTOMATED TECHNICAL QA of an isolated synthetic fixture. Not a human user acceptance or operational approval."
+  },
+  "include_unresolved_questions": false,
+  "preview": {
+    "filename": "capture-fc22df85.md",
+    "content_type": "text/markdown",
+    "size_bytes": 485,
+    "download_url": "/api/v1/documents/8b2756be-df4c-5984-96d0-e171baddd5f6/raw?collection_name=qa-capture-fd92&filename=capture-fc22df85.md",
+    "kind": "text",
+    "content": "# QA Capture continuity R2CAP4771\n\nObjectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle.\n\n## Correction de la recette\nLa correction de la recette concerne la recette synthétique R2CAP4771. \n\n- La pression nominale est fixée à 6 bar.\n- Il est important de noter que cette donnée est fictive et sert uniquement à tester la correction avant publication.\n- Aucune intervention réelle n’est autorisée.\n",
+    "truncated": false
+  },
+  "retrieved_passages": [
+    {
+      "id": "8b2756be-df4c-5984-96d0-e171baddd5f6_chunk_0",
+      "content": "# QA Capture continuity R2CAP4771\n\nObjectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle.\n\n Correction de la recette La correction de la recette concerne la recette synthétique R2CAP4771. \n\n- La pression nominale est fixée à 6 bar. - Il est important de noter que cette donnée est fictive et sert uniquement à tester la correction avant publication. - Aucune intervention réelle n’est autorisée.",
+      "document_id": "8b2756be-df4c-5984-96d0-e171baddd5f6",
+      "filename": "capture-fc22df85.md"
+    }
+  ]
+}

@@ -6797,3 +6797,29 @@ This verifies the specific source-format references, not general OCR accuracy,
 Capture's complete journey or human acceptance. R0/R1 remain open; NAWA theme
 and adoption default unchanged. Rollback: **`37056391d6cc`**, preserving writes.
 [Release evidence](../evidence/release-bb467f53-2026-09-17/README.md).
+
+
+### 2026-09-17 — Capture publication continuity (4771d53a)
+
+Pushed `demo/agentic` SHA `4771d53ae2a057b3e6b0590a7b3b4ce8d9068166`,
+three immutable VM images, 162 backend and 1,493 frontend tests. Storage, exact
+public identities and health verified; carakai 10 passed, 2 intentional skips.
+No migration. A real text amendment survives generation, but the report contains
+unrelated inventory; it remains pending review. No publication of that fixture.
+Rollback `bb467f534d40`. [Evidence](../evidence/release-4771d53a-2026-09-17/README.md).
+
+### 2026-09-17 — Capture context and evidence selection (fd9238fa)
+
+Pushed `demo/agentic` SHA `fd9238fa6e4aab29f0414cc0f1d2eca835d0b604`,
+three immutable VM images, 165 backend and 1,493 frontend tests. Idle consumers,
+storage, exact frontend/backend SHA and health verified. Carakai 10 passed,
+2 intentional skips; `/tmp/iteration-canaries-20260916T233432Z.iAprM2`.
+Worker keeps Giskard, with dependency and offline SDK checks. No migration.
+
+Same synthetic text, new session: 8→6 bar amendment, accurate generated report,
+explicitly labelled technical review, publication, source preview and direct
+retrieval pass. Fresh conversation fails: workspace default scope wins over its
+selected Context. Failed Run retained; no invented user acceptance or voice proof.
+The original failed proposal and retained R1 decisions remain untouched.
+NAWA and activation defaults unchanged. Rollback `4771d53ae2a0`, preserving writes.
+[Evidence](../evidence/release-fd9238fa-2026-09-17/README.md).

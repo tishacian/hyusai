@@ -3628,6 +3628,30 @@ def test_retrieval_profile_preserves_raw_query_over_rewrite(monkeypatch):
     assert "COL100" in profile["query"]
 
 
+def test_retrieval_profile_replaces_workspace_scope_with_selected_context(monkeypatch):
+    monkeypatch.setattr(rag_context, "get_resolved_settings", lambda **_: {
+        "ragCollectionName": "workspace-default", "ragVectorDBType": "qdrant",
+    })
+    monkeypatch.setattr(rag_context, "resolve_knowledge_scope", lambda **_: {
+        "key": "default", "collection_slugs": ["workspace-default"],
+    })
+    request = {
+        "query": "Pressure in the published capture?",
+        "knowledge_scope": "default",
+        "context_id": "capture-context",
+        "context_collection": "published-capture",
+        "context_mode": "replace",
+    }
+    profile = get_retrieval_profile(request)
+    assert profile["collections"] == ["published-capture"]
+    assert profile["knowledge_scope"].startswith("context_")
+    assert profile["scope_label"] == "Selected context"
+
+    # Selecting a Context cannot widen an executor's frozen source contract.
+    constrained = get_retrieval_profile({**request, "authoritative_collections": ["system-source"]})
+    assert constrained["collections"] == ["system-source"]
+
+
 def test_retrieval_profile_combines_scope_and_session_context(monkeypatch):
     monkeypatch.setattr(
         rag_context,

@@ -983,7 +983,9 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         context_collection = system_collection_scope
     context_mode = str(request.get("context_mode") or "").strip().lower()
     fallback_collection = context_collection or app_settings.get("ragCollectionName", "documents")
-    if context_collection and not request.get("knowledge_scope"):
+    # Workspace chat defaults may already supply a Knowledge Scope. An explicit
+    # replacement must still select the Context; combine keeps both layers.
+    if context_collection and (context_mode == "replace" or not request.get("knowledge_scope")):
         context_key = str(request.get("context_id") or context_collection)
         scope = fallback_scope(
             context_collection,

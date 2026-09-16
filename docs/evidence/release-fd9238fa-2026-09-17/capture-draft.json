@@ -1,0 +1,57 @@
+{
+  "sha": "fd9238fa6e4aab29f0414cc0f1d2eca835d0b604",
+  "kind": "synthetic technical API test, not a human review or voice test",
+  "session_id": "fc22df85-3c24-48cf-831e-7193d4ad754b",
+  "context_id": null,
+  "proposal_id": "c72a0f11-8770-430d-8346-a7c0b083b36d",
+  "checks": {
+    "unrelated_context_absent": true,
+    "inventory_absent": true,
+    "corrected_value_in_report": true,
+    "old_value_absent_from_report": true,
+    "synthetic_marker_in_report": true,
+    "review_status": "pending_review"
+  },
+  "report_markdown": "# QA Capture continuity R2CAP4771\n\nObjectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle.\n\n## Correction de la recette\nLa correction de la recette concerne la recette synthétique R2CAP4771. \n\n- La pression nominale est fixée à 6 bar.\n- Il est important de noter que cette donnée est fictive et sert uniquement à tester la correction avant publication.\n- Aucune intervention réelle n’est autorisée.\n\n## Questions ouvertes pour reprise\n_Points restés sans réponse à la publication ; à compléter par un expert._\n- Quelle est la procédure à suivre pour tester la correction de la pression nominale avant publication ?\n- Quelles sont les conséquences d'une intervention réelle non autorisée sur la recette ?\n- Y a-t-il des exceptions à la pression nominale de 6 bar dans certaines conditions ?\n",
+  "open_questions": [
+    {
+      "gap_id": "grounded-theme-01-01",
+      "reason": "oracle_grounded",
+      "follow_up": "Quelle est la procédure à suivre pour tester la correction de la pression nominale avant publication ?",
+      "text": "Quelle est la procédure à suivre pour tester la correction de la pression nominale avant publication ?",
+      "topic_id": "theme-01",
+      "subtopic_id": null,
+      "priority": 1.0,
+      "status": "open",
+      "source": "oracle_grounded"
+    },
+    {
+      "gap_id": "grounded-theme-01-02",
+      "reason": "oracle_grounded",
+      "follow_up": "Quelles sont les conséquences d'une intervention réelle non autorisée sur la recette ?",
+      "text": "Quelles sont les conséquences d'une intervention réelle non autorisée sur la recette ?",
+      "topic_id": "theme-01",
+      "subtopic_id": null,
+      "priority": 1.0,
+      "status": "open",
+      "source": "oracle_grounded"
+    },
+    {
+      "gap_id": "grounded-theme-01-03",
+      "reason": "oracle_grounded",
+      "follow_up": "Y a-t-il des exceptions à la pression nominale de 6 bar dans certaines conditions ?",
+      "text": "Y a-t-il des exceptions à la pression nominale de 6 bar dans certaines conditions ?",
+      "topic_id": "theme-01",
+      "subtopic_id": null,
+      "priority": 0.0,
+      "status": "open",
+      "source": "oracle_grounded"
+    }
+  ],
+  "input": {
+    "original": "Recette synthétique R2CAP4771. La pression nominale indiquée dans ce compte rendu est de 8 bar. Cette donnée fictive sert uniquement à tester la correction avant publication.",
+    "amendment": "Recette synthétique R2CAP4771. Correction : la pression nominale est de 6 bar. Cette donnée fictive sert uniquement à tester la correction avant publication. Aucune intervention réelle n’est autorisée."
+  },
+  "event_id": "dc9a325a-441a-4ef5-81cf-a337efac36c8",
+  "amendment_id": "95a1be4a-d945-46f9-81d3-c46e36935fa5"
+}
