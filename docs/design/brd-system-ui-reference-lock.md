@@ -20,3 +20,15 @@ application lifecycle, outside the proposal's creation action.
 Visual verification uses the actual Angular component with controlled fixture
 responses. These images verify layout; they are not live PIH results or proof of
 model generation. See the [capture evidence](../evidence/brd-system-ui-2026-09-16/README.md).
+
+## Source indexing recovery — 16 September
+
+The same Cockpit target governs the compact recovery panel in Knowledge and
+SFTP. Existing `ck-surface`, `ck-fg-*`, `ck-warn` and `ck-btn-soft` tokens own
+color, type and controls; no branding tokens change. The existing SFTP job list
+supplies the operational hierarchy: state, cause, next action, then expandable
+job identity and attempt history. Refero's craft-details focus/native-controls
+rules supply keyboard behavior and a labelled native progress element. FR/EN
+copy distinguishes failure, no job, unavailable status and dispatch pending.
+A completed worker does not claim that every source or campaign has passed its
+checks. This is an extension of the existing product surface, not a redesign.

@@ -1,0 +1,19 @@
+
+> agentium@0.1.0 test:unit
+> node scripts/run-unit.mjs
+
+✔ unknown delivery reuses request identity and double click does not resubmit (5.236208ms)
+✔ stale state is explained and a rejected request can be reviewed again (0.390209ms)
+✔ workspace changes discard late retry responses (0.179959ms)
+✔ non-admin, active, completed and governed ingestions cannot be retried from the panel (0.181084ms)
+✔ every recovery label exists in both languages (0.253041ms)
+✔ timestamps respect the selected locale and naive server timestamps stay UTC (12.5725ms)
+✔ source retrieval failure is not converted to an empty collection (0.183958ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 505.591417

@@ -2345,3 +2345,182 @@ def test_delete_collection_removes_ledger_and_store(
     )
     assert deleted is None
     assert not (tmp_path / "objects" / collection.artifact_prefix).exists()
+
+
+
+def _failed_ingest(db_session):
+    from datetime import datetime
+    ws = Workspace(id="ws-ingest-retry", name="Retry", slug="retry")
+    db_session.add(ws)
+    db_session.commit()
+    _seed_workspace_user(db_session, ws, role="admin", role_template="workspace_admin")
+    collection = create_collection(db_session, workspace=ws, name="Retained sources")
+    collection.status = "error"
+    job = create_worker_job(db_session, workspace_id=ws.id, collection_id=collection.id)
+    job.status, job.error, job.progress = "failed", "Embedding provider unavailable", 100
+    job.started_at = job.completed_at = datetime.utcnow()
+    job.celery_task_id = "failed-task"
+    job.result = {"stage": "embedding", "ingest_options": {"document_ocr": {"scan.pdf": True}}}
+    db_session.commit()
+    return ws, collection, job
+
+
+def _retry_payload(job):
+    from uuid import uuid4
+    return {"request_id": str(uuid4()), "observed_updated_at": job.updated_at.isoformat()}
+
+
+def test_ingest_retry_preserves_failure_and_is_idempotent(db_session, monkeypatch):
+    ws, collection, job = _failed_ingest(db_session)
+    calls = []
+    def dispatch(db, row, *, allow_inline_fallback):
+        assert allow_inline_fallback is False
+        calls.append(row.id)
+        row.celery_task_id = "new-task"
+        return "new-task"
+    monkeypatch.setattr(documents, "dispatch_worker_job", dispatch)
+    payload = _retry_payload(job)
+    client = _client(db_session, ws)
+    response = client.post(f"/documents/jobs/{job.id}/retry", json=payload)
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["id"] == job.id
+    assert body["status"] == "queued" and body["progress"] == 0
+    assert body["error"] is None and body["started_at"] is None and body["completed_at"] is None
+    assert body["result"]["ingest_options"] == {"document_ocr": {"scan.pdf": True}}
+    history = body["result"]["retry_history"]
+    assert len(history) == 1
+    assert history[0]["error"] == "Embedding provider unavailable"
+    assert history[0]["celery_task_id"] == "failed-task"
+    assert history[0]["result"]["stage"] == "embedding"
+    assert history[0]["retried_by"] == "user-1"
+    assert client.post(f"/documents/jobs/{job.id}/retry", json=payload).status_code == 202
+    assert calls == [job.id]
+    # A delayed duplicate must not restart the same attempt after another failure.
+    job.status, job.error = "failed", "Still unavailable"
+    db_session.commit()
+    replay = client.post(f"/documents/jobs/{job.id}/retry", json=payload)
+    assert replay.json()["status"] == "failed"
+    assert calls == [job.id]
+    db_session.refresh(collection)
+    assert collection.status == "queued"
+
+
+def test_ingest_retry_dispatch_outage_remains_recoverable(db_session, monkeypatch):
+    ws, _, job = _failed_ingest(db_session)
+    calls = []
+    def dispatch(db, row, **kwargs):
+        calls.append(row.id)
+        if len(calls) == 1:
+            row.result = {**row.result, "stage": "dispatch_pending", "dispatch_error": "Broker unavailable"}
+        else:
+            row.celery_task_id = "delivered"
+    monkeypatch.setattr(documents, "dispatch_worker_job", dispatch)
+    client = _client(db_session, ws)
+    payload = _retry_payload(job)
+    first = client.post(f"/documents/jobs/{job.id}/retry", json=payload)
+    assert first.json()["stage"] == "dispatch_pending"
+    second = client.post(f"/documents/jobs/{job.id}/retry", json=payload)
+    assert second.json()["celery_task_id"] == "delivered"
+    assert len(second.json()["result"]["retry_history"]) == 1
+    assert len(calls) == 2
+
+
+def test_ingest_retry_rejects_stale_foreign_and_non_admin_requests(db_session, monkeypatch):
+    ws, _, job = _failed_ingest(db_session)
+    monkeypatch.setattr(documents, "dispatch_worker_job", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not dispatch")))
+    client = _client(db_session, ws)
+    payload = _retry_payload(job)
+    stale = {**payload, "observed_updated_at": "2001-01-01T00:00:00"}
+    assert client.post(f"/documents/jobs/{job.id}/retry", json=stale).json()["detail"]["code"] == "INGEST_RETRY_STALE"
+    other = Workspace(id="other-retry", name="Other", slug="other-retry")
+    db_session.add(other)
+    db_session.add(WorkspaceMember(user_id="user-1", workspace_id=other.id, role="admin"))
+    db_session.commit()
+    assert _client(db_session, other).post(f"/documents/jobs/{job.id}/retry", json=payload).status_code == 404
+    member = db_session.query(WorkspaceMember).filter_by(workspace_id=ws.id).one()
+    member.role, member.role_template = "member", "workspace_contributor"
+    db_session.commit()
+    assert client.post(f"/documents/jobs/{job.id}/retry", json=payload).status_code == 403
+    assert job.status == "failed" and job.error == "Embedding provider unavailable"
+
+
+def test_ingest_retry_rejects_terminal_active_and_governed_jobs(db_session, monkeypatch):
+    ws, collection, job = _failed_ingest(db_session)
+    monkeypatch.setattr(documents, "dispatch_worker_job", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not dispatch")))
+    client = _client(db_session, ws)
+    for status in ("completed", "cancelled", "running", "queued"):
+        job.status = status
+        db_session.commit()
+        assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()["detail"]["code"] == "INGEST_RETRY_NOT_FAILED"
+    job.status = "failed"
+    job.result = {"ingest_options": {"mode": "incremental", "source_profile": "needlepunch"}}
+    db_session.commit()
+    assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()["detail"]["code"] == "INGEST_RETRY_CAMPAIGN_REQUIRED"
+    job.result = {"ingest_options": {"mode": "incremental"}}
+    db_session.commit()
+    assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()["detail"]["code"] == "INGEST_RETRY_BASELINE_REQUIRED"
+    job.result = {}
+    newer = create_worker_job(db_session, workspace_id=ws.id, collection_id=collection.id)
+    db_session.commit()
+    assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).json()["detail"]["code"] == "INGEST_RETRY_SUPERSEDED"
+    newer.status = "completed"
+    db_session.commit()
+    assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).status_code == 409
+
+
+def test_ingest_retry_respects_deposit_rejection_and_promotion_permission(db_session, monkeypatch):
+    from fastapi import HTTPException
+    from app.models.secure_deposit import DepositAccessLink, DepositFile
+    ws, _, job = _failed_ingest(db_session)
+    link = DepositAccessLink(workspace_id=ws.id, created_by_user_id="user-1", access_id="retry-link", password_hash="unused")
+    db_session.add(link)
+    db_session.flush()
+    deposit = DepositFile(workspace_id=ws.id, access_link_id=link.id, filename="source.pdf", object_key="retained", sha256="a" * 64, worker_job_id=job.id, status="rejected")
+    db_session.add(deposit)
+    db_session.commit()
+    calls = []
+    monkeypatch.setattr(documents, "enforce_permission", lambda *a, **kw: calls.append(kw))
+    monkeypatch.setattr(documents, "dispatch_worker_job", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not dispatch")))
+    client = _client(db_session, ws)
+    response = client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job))
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "INGEST_RETRY_SOURCE_UNAVAILABLE"
+    assert calls[0]["resource_kind"] == "deposit_file" and calls[0]["action"] == "promote"
+    deposit.status = "received"
+    db_session.commit()
+    def deny(*a, **kw):
+        raise HTTPException(403, "promotion denied")
+    monkeypatch.setattr(documents, "enforce_permission", deny)
+    assert client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job)).status_code == 403
+    assert job.status == "failed"
+    assert deposit.worker_job_id == job.id and deposit.status == "received"
+
+
+def test_ingest_retry_real_dispatch_failure_does_not_execute_inline_or_overwrite_worker(db_session, monkeypatch):
+    import sys
+    from app.services.worker_dispatch import dispatch_worker_job
+    ws, _, job = _failed_ingest(db_session)
+    monkeypatch.setattr(settings, "worker_eager_mode", False)
+    monkeypatch.setattr("app.services.worker_dispatch.run_document_ingest_index", lambda *a: (_ for _ in ()).throw(AssertionError("must not run inline")))
+    def reject(**kwargs):
+        raise ConnectionError("broker unavailable")
+    fake_task = SimpleNamespace(apply_async=reject)
+    tasks = SimpleNamespace(document_ingest_index=fake_task, bm25_rebuild=fake_task, rag_deep_retrieval=fake_task, offline_retrieval_artifact=fake_task)
+    monkeypatch.setitem(sys.modules, "app.workers.tasks", tasks)
+    client = _client(db_session, ws)
+    response = client.post(f"/documents/jobs/{job.id}/retry", json=_retry_payload(job))
+    assert response.status_code == 202
+    assert response.json()["status"] == "queued"
+    assert response.json()["result"]["dispatch_warning"] == "worker_dispatch_unavailable"
+    # Lost broker acknowledgement after a worker finished: preserve its evidence.
+    def completed_before_ack(**kwargs):
+        job.status = "completed"
+        job.result = {**job.result, "stage": "ready", "chunk_count": 12}
+        db_session.commit()
+        raise ConnectionError("ack lost")
+    fake_task.apply_async = completed_before_ack
+    dispatch_worker_job(db_session, job, allow_inline_fallback=False)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert job.result["stage"] == "ready" and job.result["chunk_count"] == 12

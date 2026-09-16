@@ -9,9 +9,11 @@ import subprocess
 import tempfile
 import time
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 from urllib.parse import quote
+from uuid import UUID
 
 import numpy as np
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
@@ -24,6 +26,7 @@ from starlette.background import BackgroundTask
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
 from app.core.iam.roles import is_admin_template
+from app.core.iam.dependencies import enforce_permission
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import get_db
@@ -35,6 +38,7 @@ from app.models.knowledge_collection import (
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.user import User
+from app.models.secure_deposit import DepositFile
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.collection_source_backing import (
     SourceBackingError,
@@ -2678,6 +2682,90 @@ async def get_worker_job(
     if not job:
         raise HTTPException(status_code=404, detail="Worker job not found")
     return serialize_job(job, include_retrieval_context=include_context)
+
+
+class IngestRetryRequest(BaseModel):
+    request_id: UUID
+    observed_updated_at: datetime
+
+
+@router.post("/jobs/{job_id}/retry", status_code=202)
+def retry_document_ingest(
+    job_id: str,
+    payload: IngestRetryRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Reindex retained sources; preserve the deposit binding and failed attempt."""
+    _require_workspace_admin(db, user, workspace)
+    job = db.query(WorkerJob).filter(
+        WorkerJob.id == job_id, WorkerJob.workspace_id == workspace.id,
+    ).with_for_update().first()
+    if not job:
+        raise HTTPException(404, "Worker job not found")
+    if job.kind != "document_ingest_index" or not job.collection_id:
+        raise HTTPException(409, detail={"code": "INGEST_RETRY_UNSUPPORTED"})
+    result = dict(job.result or {})
+    options = dict(result.get("ingest_options") or {})
+    # Governed waves require their runner's baseline/rollback and postflight.
+    if options.get("source_profile") == "needlepunch" or options.get("wave_id"):
+        raise HTTPException(409, detail={"code": "INGEST_RETRY_CAMPAIGN_REQUIRED"})
+    deposits = db.query(DepositFile).filter(
+        DepositFile.workspace_id == workspace.id, DepositFile.worker_job_id == job.id,
+    ).all()
+    if deposits:
+        enforce_permission(db, user=user, workspace=workspace,
+                           resource_kind="deposit_file", action="promote",
+                           resource_attrs={"capability": "secure_deposit"}, audit_prefix="deposit")
+        if any(row.status not in {"received", "promoted"} for row in deposits):
+            raise HTTPException(409, detail={"code": "INGEST_RETRY_SOURCE_UNAVAILABLE"})
+    request_id = str(payload.request_id)
+    replay = result.get("retry_request_id") == request_id
+    pending = job.status == "queued" and result.get("stage") == "dispatch_pending" and not job.celery_task_id
+    if replay and not pending:
+        return serialize_job(job)
+    observed = payload.observed_updated_at
+    if observed.tzinfo:
+        observed = observed.astimezone(timezone.utc).replace(tzinfo=None)
+    if not replay and observed != job.updated_at:
+        raise HTTPException(409, detail={"code": "INGEST_RETRY_STALE"})
+    if job.status != "failed" and not pending:
+        raise HTTPException(409, detail={"code": "INGEST_RETRY_NOT_FAILED"})
+    collection = get_collection_or_404(db, workspace_id=workspace.id, collection_ref=job.collection_id)
+    newer_or_active = db.query(WorkerJob).filter(
+        WorkerJob.collection_id == job.collection_id,
+        WorkerJob.kind == "document_ingest_index", WorkerJob.id != job.id,
+        (WorkerJob.created_at > job.created_at) | WorkerJob.status.in_(["queued", "running"]),
+    ).first()
+    if newer_or_active:
+        raise HTTPException(409, detail={"code": "INGEST_RETRY_SUPERSEDED"})
+    if options.get("mode") == "incremental" and collection.status != "ready":
+        raise HTTPException(409, detail={"code": "INGEST_RETRY_BASELINE_REQUIRED"})
+    if job.status == "failed":
+        history = list(result.get("retry_history") or [])
+        history.append({
+            "error": job.error, "celery_task_id": job.celery_task_id,
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "result": {key: value for key, value in result.items() if key != "retry_history"},
+            "retried_by": user.id, "retried_at": datetime.utcnow().isoformat(),
+        })
+        job.result = {"ingest_options": options, "retry_history": history,
+                      "retry_request_id": request_id, "stage": "dispatch_pending"}
+        job.status, job.progress, job.error = "queued", 0, None
+        job.started_at = job.completed_at = job.celery_task_id = None
+        job.updated_at = datetime.utcnow()
+        if options.get("mode") != "incremental":
+            update_collection_status(db, collection.id, status="queued")
+    else:
+        job.result = {**result, "retry_request_id": request_id}
+    db.commit()
+    # The HTTP process never substitutes for the durable ingestion worker.
+    dispatch_worker_job(db, job, allow_inline_fallback=False)
+    db.commit()
+    db.refresh(job)
+    return serialize_job(job)
 
 
 @router.delete("/collections/{collection_name}")

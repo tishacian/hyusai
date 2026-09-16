@@ -587,6 +587,13 @@ def update_job(
     if error is not None:
         job.error = error
     if result is not None:
+        if job.kind == "document_ingest_index":
+            # Keep attempt provenance on every exit, including duplicate-only waves.
+            result = {
+                **{key: value for key, value in (job.result or {}).items()
+                   if key in {"retry_history", "retry_request_id"}},
+                **result,
+            }
         job.result = result
     if stage is not None:
         merged = dict(job.result or {})

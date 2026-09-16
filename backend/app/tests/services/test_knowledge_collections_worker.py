@@ -176,7 +176,7 @@ def test_incremental_document_inventory_merges_legacy_and_ledger():
     assert indexed_count == 2
 
 
-def test_worker_ingest_indexes_collection_and_writes_ingested_text(
+def test_worker_ingest_recovers_retained_sources_and_writes_ingested_text(
     db_session,
     tmp_path,
     monkeypatch,
@@ -220,6 +220,7 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
             )
 
     list_document_calls: list[bool] = []
+    ingestion_attempts = []
 
     class FakeDocumentService:
         def __init__(self, *args, **kwargs):
@@ -231,6 +232,9 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
             return True
 
         async def ingest_documents_batch(self, paths, **_kwargs):
+            ingestion_attempts.append(True)
+            if len(ingestion_attempts) == 1:
+                raise RuntimeError("provider unavailable")
             assert self.cleared is True
             assert (
                 _kwargs["document_metadata_by_name"]["manual.txt"]["project_code"]
@@ -266,6 +270,29 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
     )
     monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
 
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        run_document_ingest_index(job.id)
+    db_session.expire_all()
+    assert job.status == "failed"
+    assert collection.status == "error"
+    assert get_object_store().read_bytes(original_key(collection, "manual.txt")) == b"hello world"
+
+    from uuid import uuid4
+    from app.api.v1.endpoints import documents
+    from app.models.workspace import WorkspaceMember
+    reviewer = User(id="recovery-admin", username="recovery-admin", email="recovery@example.test")
+    db_session.add(reviewer)
+    db_session.add(WorkspaceMember(user_id=reviewer.id, workspace_id=ws.id, role="admin"))
+    db_session.commit()
+    def dispatch_only(db, row, **kwargs):
+        assert kwargs["allow_inline_fallback"] is False
+        row.celery_task_id = "retry-delivery"
+    monkeypatch.setattr(documents, "dispatch_worker_job", dispatch_only)
+    request_id = uuid4()
+    documents.retry_document_ingest(
+        job.id, documents.IngestRetryRequest(request_id=request_id, observed_updated_at=job.updated_at),
+        workspace=ws, user=reviewer, db=db_session,
+    )
     result = run_document_ingest_index(job.id)
 
     db_session.expire_all()
@@ -287,10 +314,13 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
     assert refreshed_collection.status == "ready"
     assert refreshed_collection.document_count == 1
     assert refreshed_job.status == "completed"
+    assert len(refreshed_job.result["retry_history"]) == 1
+    assert refreshed_job.result["retry_history"][0]["error"] == "provider unavailable"
+    assert refreshed_job.result["retry_request_id"] == str(request_id)
     assert source.source_metadata["project_code"] == "BBA120"
     assert source.source_metadata["source_family"] == "operating_manual"
     assert source.source_metadata["document_id"] is not None
-    assert len(parse_calls) == 1
+    assert len(parse_calls) == 2
     assert list_document_calls == [True]
     assert (
         get_object_store().read_bytes(
