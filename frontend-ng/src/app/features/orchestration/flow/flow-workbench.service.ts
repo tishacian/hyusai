@@ -111,6 +111,7 @@ export interface FlowWorkbenchGoldenSummary {
   pending: number;
   passed: number;
   failed: number;
+  unevaluated: number;
 }
 
 interface OperationContext {
@@ -235,28 +236,6 @@ export function buildFlowWorkbenchChatInput(
   };
 }
 
-/** Deterministic deep-partial comparison for golden expectations.
- *
- * Object expectations may name a subset of keys recursively. Arrays remain
- * exact-length ordered sequences so extra or reordered evidence cannot pass
- * silently. Primitive comparison uses `Object.is`.
- */
-export function matchesGoldenExpected(expected: unknown, actual: unknown): boolean {
-  if (Array.isArray(expected)) {
-    return Array.isArray(actual)
-      && expected.length === actual.length
-      && expected.every((item, index) => matchesGoldenExpected(item, actual[index]));
-  }
-  if (isRecord(expected)) {
-    if (!isRecord(actual)) return false;
-    return Object.entries(expected).every(
-      ([key, value]) => Object.prototype.hasOwnProperty.call(actual, key)
-        && matchesGoldenExpected(value, actual[key]),
-    );
-  }
-  return Object.is(expected, actual);
-}
-
 function runtimeMode(value: unknown): FlowExecutionRuntimeMode | null {
   return typeof value === 'string' && RUNTIME_MODES.has(value as FlowExecutionRuntimeMode)
     ? value as FlowExecutionRuntimeMode
@@ -305,13 +284,15 @@ export class FlowWorkbenchService {
   readonly goldenResults = signal<FlowWorkbenchGoldenResult[]>([]);
   readonly goldenSummary = computed<FlowWorkbenchGoldenSummary>(() => {
     const results = this.goldenResults();
-    const pending = results.filter((item) => !TERMINAL_STATUSES.has(item.run.status)).length;
+    const finished = results.filter((item) => ['completed', 'failed', 'cancelled'].includes(item.run.status));
+    const pending = results.length - finished.length;
     return {
       total: results.length,
       completed: results.length - pending,
       pending,
       passed: results.filter((item) => item.passed === true).length,
       failed: results.filter((item) => item.passed === false).length,
+      unevaluated: finished.filter((item) => item.passed === null).length,
     };
   });
 
@@ -542,18 +523,19 @@ export class FlowWorkbenchService {
           validated,
           FLOW_WORKBENCH_GOLDEN_POLL_POLICY,
         );
-        const expectedProvided = Object.prototype.hasOwnProperty.call(goldenCase, 'expected');
         const output = isRecord(run.output_ref) ? run.output_ref : {};
-        const passed = run.status === 'completed'
-          && (!expectedProvided || matchesGoldenExpected(goldenCase.expected, output));
+        const result = run.test_result;
+        const verdict = result?.case_id === goldenCase.id && result.batch_id === batch.batch_id
+          ? result.verdict : null;
+        const passed = run.status === 'completed' && (verdict === 'passed' || verdict === 'failed')
+          ? verdict === 'passed' : null;
         this.replaceGoldenResult(goldenCase.id, {
           run,
           actual: output,
           passed,
-          error: run.status === 'completed'
-            ? (passed ? null : this.i18n.t('flow.workbench.error.golden_diff'))
-            : run.error
-              || this.i18n.t('flow.workbench.error.run_status', { status: run.status }),
+          error: run.status === 'failed' || run.status === 'cancelled'
+            ? run.error || this.i18n.t('flow.workbench.error.run_status', { status: run.status })
+            : passed === false ? this.i18n.t('flow.workbench.error.golden_diff') : null,
         });
       }
       return this.goldenResults();

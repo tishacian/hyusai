@@ -76,6 +76,22 @@ historical limitations. The missing-equipment pause, refusal assertion,
 authenticated manual acceptance, second-user application use and formative
 sessions are not closed by this deployment. **R0 and R1 remain open.**
 
+## Next grouped candidate — truthful Golden verdicts
+
+The generic Flow workbench now consumes canonical server verdicts. No expected
+result means “not evaluated”; human/debug pauses are waiting states rather than
+failed checks. Results link to their exact Runs. Historical unmarked raw cases
+are not rescored. Local qualification: 68 backend and 1,478 frontend tests,
+FR/EN 8,000 keys, navigation/chrome guards, production build and two rendered
+language/theme/width checks passed. **Not deployed**; runtime remains b4fde677.
+
+The [real NorthForge absence probe](../evidence/golden-verdicts-2026-09-16/README.md)
+reaches final briefing review on b4fde677: it selects history, identifies the
+missing equipment and produces a sourced absence answer. Its two recorded raw
+planner decisions need no normalization. This is one successful preparation,
+not a completed suite or a reliability claim; the earlier six Runs remain
+unchanged. Review, publication and second-user consumption are still outstanding.
+
 ## Implemented in this change
 
 - Studio: selected page and warning pill use the primary foreground on their

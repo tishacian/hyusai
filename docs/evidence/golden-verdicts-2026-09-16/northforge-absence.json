@@ -1,0 +1,111 @@
+{
+  "observed_at": "2026-09-16T19:37:02.446949+00:00",
+  "runtime_revision": "b4fde677a75a7a9f6ab30898882104c37582709b",
+  "run_id": "c511f059-c285-4c6d-9225-ee935b93abe5",
+  "system_id": "ea63cf3a-3c42-47ba-a923-abcd0cb811ba",
+  "status": "hitl_pending",
+  "flow_sha256": "12f9cfa64c92675f3c5336dbb7cbb5d3dc8fbeecb58e44719b1c4aed1575259a",
+  "request_key": "b4fde677-northforge-absence-provenance-1",
+  "technical_probe_not_suite_acceptance": true,
+  "new_runs_created": 1,
+  "human_decisions_submitted": false,
+  "objective": "Which equipment caused the NF-04 delay?",
+  "decision_traces": [
+    {
+      "invocation_id": "5f8c0455-df58-4e2a-a930-d2c1fdf51754",
+      "trace": {
+        "schema_version": 1,
+        "raw": {
+          "next_skill": "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history",
+          "confidence": 0.78,
+          "needs_human": false,
+          "exit": null,
+          "done": false
+        },
+        "confidence_floor": 0.55,
+        "normalization_reasons": [],
+        "effective": {
+          "next_skill": "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history",
+          "confidence": 0.78,
+          "needs_human": false,
+          "exit": null,
+          "done": false
+        }
+      }
+    },
+    {
+      "invocation_id": "706c83bc-35e8-4cdb-b740-dcc70ed9a2c4",
+      "trace": {
+        "schema_version": 1,
+        "raw": {
+          "next_skill": null,
+          "confidence": 0.92,
+          "needs_human": false,
+          "exit": null,
+          "done": true
+        },
+        "confidence_floor": 0.55,
+        "normalization_reasons": [],
+        "effective": {
+          "next_skill": null,
+          "confidence": 0.92,
+          "needs_human": false,
+          "exit": null,
+          "done": true
+        }
+      }
+    }
+  ],
+  "retrieval": {
+    "invocation_id": "736e2c8b-26ff-46be-b298-56e7637facf6",
+    "skill_slug": "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history",
+    "tool_contract_sha256": "4902c7a94a62e3731d84ff9d30cff1705587f27df1314798ff259da31251bc52",
+    "passages": [
+      {
+        "text": "# NorthForge — synthetic intervention history\n\nSource: the fixed Showcase Operational Analysis dataset. These records contain durations only. Equipment, actions performed, causes, technician identities and intervention dates were not supplied. Do not infer those details or associate an order with the PMP-700. For totals or exhaustive comparisons, use the canonical SQL/Polars Flow.\n\n NF-01 Planned duration: 30 minutes. Actual duration: 40 minutes. Cause: not supplied. Equipment: not supplied.\n\n NF-02 Planned duration: 40 minutes. Actual duration: 35 minutes. Cause: not supplied. Equipment: not supplied.\n\n NF-03 Planned duration: 20 minutes. Actual duration: 25 minutes. Cause: not supplied. Equipment: not supplied.\n\n NF-04 Planned duration: 30 minutes. Actual duration: 55 minutes. Cause: not supplied. Equipment: not supplied.",
+        "document_id": "503f8bb1-0d46-54ab-9f9b-d0ac83572de6",
+        "document_filename": "northforge-intervention-history.md",
+        "content_sha256": "478a8791fa7266d38f04e3a0a1051e1f2606bad3197a37232933aef466225943"
+      }
+    ]
+  },
+  "synthesis": {
+    "invocation_id": "f41c92b2-9bc0-4670-b74d-b1d0ec5defb1",
+    "answer": "- NF-04 had a planned duration of 30 minutes and an actual duration of 55 minutes (ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history, 503f8bb1-0d46-54ab-9f9b-d0ac83572de6).\n- The records do not supply equipment or cause information; therefore, the equipment that caused the NF-04 delay is not supplied in the available data (ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history, 503f8bb1-0d46-54ab-9f9b-d0ac83572de6).",
+    "model": "gpt-5-2025-08-07",
+    "usage": {
+      "total_tokens": 2960,
+      "provider_calls": 1,
+      "measurement_source": "provider_reported",
+      "measurement_coverage": "complete",
+      "providers": [
+        "openai"
+      ],
+      "calls": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "total_tokens": 2960,
+          "prompt_tokens": 1378,
+          "completion_tokens": 1582
+        }
+      ],
+      "prompt_tokens": 1378,
+      "completion_tokens": 1582
+    }
+  },
+  "pending_gate": {
+    "node_id": "hitl_review_1",
+    "decision_id": "814ee417-95eb-449d-8b8a-d7a612b05a60",
+    "decision_status": "proposed",
+    "expires_at": "2026-09-19T19:35:56.133377"
+  },
+  "test_result": null,
+  "limitations": [
+    "Single probe, not five consecutive successes",
+    "No approval, rejection, publication or second-user trial",
+    "No suite oracle was provided for this diagnostic probe",
+    "No causal improvement inferred from a different stochastic outcome",
+    "Old six Runs and their criteria unchanged"
+  ]
+}

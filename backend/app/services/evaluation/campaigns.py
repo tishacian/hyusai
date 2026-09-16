@@ -173,14 +173,45 @@ def assertion_results(output: Any, assertions: list[dict]) -> dict:
     return {"verdict": "passed" if all(item["passed"] for item in result) else "failed", "assertions": result}
 
 
+def matches_expected_subset(expected: Any, actual: Any) -> bool:
+    """Object subsets, exact ordered arrays and JSON primitives; bool is not a number."""
+    if isinstance(expected, dict):
+        return isinstance(actual, dict) and all(
+            key in actual and matches_expected_subset(value, actual[key])
+            for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return isinstance(actual, list) and len(expected) == len(actual) and all(
+            matches_expected_subset(left, right) for left, right in zip(expected, actual)
+        )
+    if type(expected) in (int, float) and type(actual) in (int, float):
+        return expected == actual
+    return type(expected) is type(actual) and expected == actual
+
+
 def suite_run_result(run: Run) -> dict | None:
     """Evaluate only the criteria frozen by server-owned Golden Runs."""
     if run.execution_surface != "golden_preview":
         return None
     checkpoint = next((cp for cp in run.checkpoints or []
-        if cp.get("kind") == "golden_case_queued" and cp.get("suite_id")), None)
+        if cp.get("kind") == "golden_case_queued" and (cp.get("suite_id") or
+            cp.get("evaluation_method") in {"expected_subset_v1", "no_oracle_v1"})), None)
     if checkpoint is None:
         return None
+    if not checkpoint.get("suite_id"):
+        # Only new, explicitly marked checkpoints are evaluated. Older previews
+        # could not distinguish an omitted oracle from explicit null.
+        checks = []
+        verdict = "pending"
+        if run.status in {"completed", "failed", "cancelled"}:
+            verdict = "unevaluated"
+            if (run.status == "completed" and checkpoint["evaluation_method"] == "expected_subset_v1"
+                    and "expected" in checkpoint):
+                passed = matches_expected_subset(checkpoint["expected"], run.output_ref)
+                checks = [{"id": "expected", "passed": passed}]
+                verdict = "passed" if passed else "failed"
+        return {"case_id": checkpoint["case_id"], "batch_id": checkpoint["batch_id"],
+                "method": checkpoint["evaluation_method"], "verdict": verdict, "assertions": checks}
     verdict = (assertion_results(run.output_ref, checkpoint.get("assertions", []))
         if run.status == "completed" else {"verdict": "unevaluated"
         if run.status in {"failed", "cancelled"} else "pending", "assertions": []})
