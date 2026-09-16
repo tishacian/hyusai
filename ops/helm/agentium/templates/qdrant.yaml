@@ -69,9 +69,7 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        {{- if .Values.qdrant.persistence.storageClass }}
-        storageClassName: {{ .Values.qdrant.persistence.storageClass | quote }}
-        {{- end }}
+        {{- include "agentium.storageClassName" (list .Values.qdrant.persistence.storageClass .) | nindent 8 }}
         resources:
           requests:
             storage: {{ .Values.qdrant.persistence.size }}

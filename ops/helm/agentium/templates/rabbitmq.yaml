@@ -67,9 +67,7 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        {{- if .Values.rabbitmq.persistence.storageClass }}
-        storageClassName: {{ .Values.rabbitmq.persistence.storageClass | quote }}
-        {{- end }}
+        {{- include "agentium.storageClassName" (list .Values.rabbitmq.persistence.storageClass .) | nindent 8 }}
         resources:
           requests:
             storage: {{ .Values.rabbitmq.persistence.size }}

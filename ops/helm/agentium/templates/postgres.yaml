@@ -64,9 +64,7 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        {{- if .Values.postgres.persistence.storageClass }}
-        storageClassName: {{ .Values.postgres.persistence.storageClass | quote }}
-        {{- end }}
+        {{- include "agentium.storageClassName" (list .Values.postgres.persistence.storageClass .) | nindent 8 }}
         resources:
           requests:
             storage: {{ .Values.postgres.persistence.size }}
