@@ -8,6 +8,8 @@ with a sentence, because the wizard opens either way.
 from __future__ import annotations
 
 import io
+import hashlib
+import zipfile
 
 import pytest
 
@@ -170,3 +172,29 @@ def test_the_shipped_template_parses_without_complaint():
     parsed = parse_business_requirements(template.read_bytes())
 
     assert parsed["problems"] == []
+
+
+def test_import_identifies_exact_document_and_reports_ambiguous_references():
+    data = _document(requirements=[["FR-1", "First", "M", ""], ["FR-1", "Second", "M", ""]])
+    parsed = parse_business_requirements(data)
+    assert parsed["document"] == {"sha256": hashlib.sha256(data).hexdigest(), "size_bytes": len(data)}
+    assert len(parsed["requirements"]) == 2
+    assert any("Duplicate reference FR-1" in p for p in parsed["problems"])
+
+
+def test_missing_descriptions_and_truncation_are_not_silently_complete():
+    data = _document(requirements=[["FR-1", "", "M", ""], ["FR-2", "x" * 2001, "M", ""]])
+    parsed = parse_business_requirements(data)
+    assert any("has no description" in p for p in parsed["problems"])
+    assert any("truncated" in p for p in parsed["problems"])
+    assert len(parsed["requirements"][1]["requirement"]) == 2000
+
+
+def test_expanded_archive_is_bounded_before_word_parsing(monkeypatch):
+    from app.services.skills_registry import brd_import
+    monkeypatch.setattr(brd_import, "_MAX_EXPANDED_BYTES", 1024)
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("word/document.xml", "x" * 2048)
+    with pytest.raises(BrdUnreadableError, match="expanded document"):
+        parse_business_requirements(archive.getvalue())

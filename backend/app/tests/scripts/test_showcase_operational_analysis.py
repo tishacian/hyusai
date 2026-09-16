@@ -12,6 +12,8 @@ from scripts.showcase_operational_analysis import (
 def test_the_published_recipe_calculates_the_fixed_reference():
     result = calculate({})
     assert result["stats"] == EXPECTED
+    assert result["stats"]["largest_overrun_order"] == "NF-04"
+    assert result["stats"]["largest_overrun_minutes"] == 25
     assert (
         check({"stats": result["stats"], "answer": "Explain this delay"})["human_validated"]
         is False
@@ -24,6 +26,8 @@ def test_the_published_recipe_calculates_the_fixed_reference():
 def test_the_reference_check_catches_a_wrong_number_or_absent_answer():
     with pytest.raises(ValueError):
         check({"stats": {**EXPECTED, "overrun_minutes": 34}, "answer": "All good"})
+    with pytest.raises(ValueError):
+        check({"stats": {**EXPECTED, "largest_overrun_order": "NF-01"}, "answer": "All good"})
     with pytest.raises(ValueError):
         check({"stats": EXPECTED, "answer": ""})
     with pytest.raises(ValueError):

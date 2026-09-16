@@ -620,7 +620,7 @@ async def import_business_requirements(
     """
 
     _enforce_catalog_admin(db, user=user, workspace=workspace)
-    data = await file.read()
+    data = await file.read(_MAX_IMPORT_BYTES + 1)
     if len(data) > _MAX_IMPORT_BYTES:
         raise HTTPException(
             413,
