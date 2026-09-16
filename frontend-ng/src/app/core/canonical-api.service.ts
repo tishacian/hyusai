@@ -186,12 +186,38 @@ export interface BrdGuardrail {
  * a sentence, so the wizard opens either way.
  */
 export interface BrdImport {
+  document?: { id?: string; sha256: string; size_bytes: number; filename?: string };
+  provenance?: Array<{ section: string; reference: string; table: number; row: number; reference_generated: boolean }>;
   context: Array<{ label: string; value: string }>;
   outcomes: BrdOutcome[];
   requirements: BrdRequirement[];
   decisions: BrdDecision[];
   guardrails: BrdGuardrail[];
   problems: string[];
+}
+
+export interface BrdProposal {
+  id: string;
+  sha256: string;
+  status: 'proposed' | 'applied';
+  system_id: string | null;
+  proposal: {
+    name: string;
+    objective: string;
+    flow_definition: { nodes: Array<{ id: string; label?: string; kind?: string; type?: string }>; edges: Array<{ from: string; to: string }> };
+    skills: Array<{ local_name: string; name: string; executor: { kind: string; params: Record<string, unknown> } }>;
+    cases: Array<{ id: string; input_ref: Record<string, unknown>; assertions: unknown[] }>;
+    coverage: Array<{ reference: string; table: number; row: number; status: 'proposed' | 'uncovered'; node_ids: string[]; case_ids: string[]; reason: string }>;
+    problems: string[];
+    [key: string]: unknown;
+  };
+}
+
+export interface BrdGenerationJob {
+  id: string;
+  status: 'created' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  error?: string | null;
+  result?: BrdProposal;
 }
 
 export interface Outcome {
@@ -1618,14 +1644,39 @@ export class CanonicalApiService {
   /**
    * Read a Business Requirements document into draft material.
    *
-   * The endpoint parses and returns; it creates nothing. The error is not
-   * swallowed because the import screen has something honest to say about a
-   * document it could not read, and a silent empty list is not it.
+   * Parse-only remains the default. System authoring opts into original-file
+   * retention; no executable object is created by the import itself.
    */
-  importBusinessRequirements(file: File): Observable<BrdImport> {
+  importBusinessRequirements(file: File, retain = false): Observable<BrdImport> {
     const form = new FormData();
     form.append('file', file);
-    return this.api.post<BrdImport>('/skills/import/business-requirements', form);
+    return this.api.post<BrdImport>(`/skills/import/business-requirements${retain ? '?retain=true' : ''}`, form);
+  }
+
+  getBrdDocument(id: string): Observable<BrdImport> {
+    return this.api.get<BrdImport>(`/skills/imports/business-requirements/${encodeURIComponent(id)}`);
+  }
+
+  downloadBrdDocument(id: string): Observable<Blob> {
+    return this.api.getBlob(`/skills/imports/business-requirements/${encodeURIComponent(id)}/original`);
+  }
+
+  generateBrdSystem(id: string, request: { request_key: string; name: string; family: 'document_summary' | 'intervention_preparation'; skill_slugs: string[] }): Observable<BrdGenerationJob> {
+    return this.api.post<BrdGenerationJob>(`/skills/imports/business-requirements/${encodeURIComponent(id)}/generations`, request);
+  }
+
+  getBrdGeneration(id: string, jobId: string): Observable<BrdGenerationJob> {
+    return this.api.get<BrdGenerationJob>(`/skills/imports/business-requirements/${encodeURIComponent(id)}/generations/${encodeURIComponent(jobId)}`);
+  }
+
+  getBrdProposal(id: string, proposalId: string): Observable<BrdProposal> {
+    return this.api.get<BrdProposal>(`/skills/imports/business-requirements/${encodeURIComponent(id)}/proposals/${encodeURIComponent(proposalId)}`);
+  }
+
+  applyBrdProposal(id: string, proposal: BrdProposal): Observable<BrdProposal> {
+    return this.api.post<BrdProposal>(`/skills/imports/business-requirements/${encodeURIComponent(id)}/proposals/${encodeURIComponent(proposal.id)}/apply`, {
+      expected_sha256: proposal.sha256, reviewed: true,
+    });
   }
 
   // ---- Systems -------------------------------------------------------------

@@ -604,6 +604,7 @@ export class SkillsComponent implements OnInit, OnDestroy {
       this.pendingSelection = null;
       this.loading.set(false);
       this.openModelDraft();
+      if (this.canAuthor() && this.route.snapshot.queryParamMap.get('brd_document')) this.importing.set(true);
       },
       error: () => {
         if (!this.workspaceView.isCurrent(request) || !this.sameScope(scope, this.currentScope)) return;
