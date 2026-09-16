@@ -27,3 +27,21 @@ to preserve them. No test oracle or published System was changed to conceal thes
 
 Broader backend gate before this prompt correction: 208 passed, 1 skipped.
 Human acceptance, real tool-choice Runs, refusal and publication remain open.
+
+## Follow-up corrections
+
+- Successful tool observations now retain their actual output and canonical invocation ID,
+  including retrieval passages and metadata. Failed outputs are not treated as source evidence.
+- A runtime test verifies that a per-request objective reaches the read tool as `query`,
+  and that retrieved evidence reaches both the following decision and persisted Run output.
+- The importer retains the five NorthForge acceptance paragraphs with document positions.
+  Previously these paragraphs were absent from the extracted generation input.
+- Generation guidance maps `objective` and `query` from the source and consumes observations,
+  rather than a nonexistent AgentLoop `completion`.
+
+Validation: import/generation/runtime and import API tests: 47 passed, 1 skipped.
+The refined query-binding runtime check also passes (16 runtime tests).
+These are local corrections; the deployed proposal remains unapplied. Historical extraction is not rewritten. Re-uploading identical bytes returns the retained
+document (SHA deduplication), so it does not refresh extraction. Qualification must use a
+reviewed document revision or an explicit re-extraction feature; no silent historical mutation.
+A fresh provider generation and real retrieval execution are still required.
