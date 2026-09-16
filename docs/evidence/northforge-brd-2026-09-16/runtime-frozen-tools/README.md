@@ -19,8 +19,12 @@ The original harness always accepted the final gate, so its rejection assertion
 failure cannot diagnose rejection handling. A follow-up selects only the rejection
 case and explicitly plans a rejected harness decision; assertions and candidate
 are unchanged. It failed before reaching that gate: the synthesis prompt exceeded
-32,000 characters. The real retrieval returned 13 results despite requested top_k=5,
+32,000 characters. The real retrieval returned 13 results with requested top_k=5,
 including large metadata and a 9,627-character document entry. No review occurred.
+The wrapper intentionally fills the balanced lane synthesis_k=16 and candidate_pool_k=40;
+top_k is not a hard cap on the passages passed to synthesis. This is not evidence
+of an ignored retrieval budget. Preserve retrieval recall while correcting the
+prompt evidence representation; do not reduce it to five passages as a workaround.
 
 The input itself is still a generated review instruction, rather than a concrete
 operator question preceding human review. Both generation and evidence presentation
