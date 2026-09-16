@@ -601,3 +601,17 @@ the whole requirement. Historical Runs without these references remain unlinked.
 Fifty campaign/workbench tests and six panel tests pass; the additional serializer
 assertion verifies exact proposal identity round-trips. Updated live visual and
 release qualification remain outstanding.
+
+
+### NorthForge AgentLoop generation contract — 16 September
+
+Intervention proposals now require the selected native `decide_next_v1` planner
+for AgentLoop nodes and the `recommend` privilege tier. A newly authored prompt
+Skill returns completion text and cannot substitute for the structured planner.
+The generator receives the canonical budget/allowlist configuration and guidance
+to preserve the per-case objective. Missing planner selection stays unresolved.
+
+Seventeen generation/import tests pass. This does not qualify the two NorthForge
+read tools or their data, prove dynamic tool selection, or establish that every
+catalog Skill classified by the existing mandate is side-effect-free. Those
+runtime checks remain mandatory before accepting this family.
