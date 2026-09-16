@@ -671,7 +671,7 @@ export class NawaPasswordResetComponent implements OnDestroy {
     if (!run || this.resolving()) return;
     this.resolving.set(true);
     this.errorText.set(null);
-    this.service.resolveHitl(run.id, action).subscribe((acknowledged) => {
+    this.service.resolveHitl(run.id, action, run.hitl?.decision_id).subscribe((acknowledged) => {
       if (acknowledged) return;
       this.resolving.set(false);
       this.errorText.set(

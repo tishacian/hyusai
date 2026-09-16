@@ -52,8 +52,8 @@ export class WorkApiService {
       );
   }
 
-  decide(runId: string, action: 'accept' | 'reject', note: string): Observable<Run | null> {
-    return this.canonical.resolveRunHitl(runId, { action, note });
+  decide(run: Run, action: 'accept' | 'reject', note: string): Observable<Run | null> {
+    return this.canonical.resolveRunHitl(run.id, { action, note, expected_decision_id: run.hitl?.decision_id });
   }
 }
 

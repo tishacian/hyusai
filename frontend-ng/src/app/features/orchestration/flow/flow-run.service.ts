@@ -618,17 +618,8 @@ export class FlowRunService {
     if (!run || run.status !== 'hitl_pending') return;
     if (this.hitlResolving()) return;
     this.hitlResolving.set(true);
-    this.push({
-      tone: action === 'accept' ? 'pos' : 'warn',
-      tag: 'HITL',
-      text: this.i18n.t(
-        action === 'accept'
-          ? 'flow.run.log.approval_accepted'
-          : 'flow.run.log.approval_declined',
-      ),
-    });
     const scope = this.captureWorkspaceScope();
-    this.canonical.resolveRunHitl(run.id, { action }).subscribe({
+    this.canonical.resolveRunHitl(run.id, { action, expected_decision_id: run.hitl?.decision_id }).subscribe({
       next: (updated) => {
         if (!this.isWorkspaceScopeCurrent(scope)) return;
         this.hitlResolving.set(false);
@@ -636,6 +627,15 @@ export class FlowRunService {
           this.push({ tone: 'neg', tag: 'ERR', text: this.i18n.t('flow.run.log.approval_rejected') });
           return;
         }
+        this.push({
+          tone: action === 'accept' ? 'pos' : 'warn',
+          tag: 'HITL',
+          text: this.i18n.t(
+            action === 'accept'
+              ? 'flow.run.log.approval_accepted'
+              : 'flow.run.log.approval_declined',
+          ),
+        });
         this.currentRun.set(updated);
         this.executing.set(true);
         this.status.set('running');

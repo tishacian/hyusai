@@ -20,5 +20,5 @@ The next full suite again paused for planner clarification on the absence case
 after 144.86 seconds. Pressure and duration cases completed. The ordering change
 has therefore not established improved reliability and was reverted before
 deployment. Its targeted passing result above is retained, not generalized.
-The failed case is preserved in full-suite-absence.json; remaining cases were
-still running when this counterexample was recorded.
+The failed case is preserved in full-suite-absence.json; the full suite subsequently ended with four completed cases and this one
+clarification failure. See full-suite-outcomes.json.

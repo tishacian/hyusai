@@ -778,7 +778,7 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
     this.deciding.set(true);
     this.chatBusy.set(true);
     this.workApi
-      .decide(current.id, action, this.i18n.t(`experience.pr_to_po.studio.gate.note_${action}`))
+      .decide(current, action, this.i18n.t(`experience.pr_to_po.studio.gate.note_${action}`))
       .subscribe((decided) => {
         this.deciding.set(false);
         this.chatBusy.set(false);
