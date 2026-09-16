@@ -125,7 +125,7 @@ def test_case_inputs_obey_the_original_ingress_contract():
 
 def test_intervention_requires_native_selected_planner_and_recommend_mandate():
     config = {"decide_skill": "@generated_prompt", "privilege_tier": "recommend"}
-    body = SimpleNamespace(flow_definition={"nodes": [{"id": "source", "kind": "source", "config": {"input_schema": {"type": "object", "properties": {"question": {"type": "string"}}}}}, {"kind": "agent_loop", "config": config}]}, cases=[])
+    body = SimpleNamespace(flow_definition={"nodes": [{"id": "source", "kind": "source", "config": {"input_schema": {"type": "object", "properties": {"question": {"type": "string"}}}}}, {"kind": "agent_loop", "config": config}]}, cases=[], skills=[])
     config["inputs_map"] = {"objective": {"node_id": "source", "path": ["question"], "required": True}}
     with pytest.raises(ValueError, match="structured decision"):
         service.validate_intervention_planner(body, ["decide_next_v1"])
@@ -174,7 +174,7 @@ def test_intervention_rejects_prose_stop_condition_and_answer_leakage():
     case = {"question": "What is the pressure limit?",
             "input_ref": {"question": "What is the pressure limit? Report 700 bar."}}
     body = SimpleNamespace(flow_definition={"nodes": [{"id": "source", "kind": "source", "config": {"input_schema": {"type": "object", "properties": {"question": {"type": "string"}}}}},
-        {"kind": "agent_loop", "config": config}]}, cases=[case])
+        {"kind": "agent_loop", "config": config}]}, cases=[case], skills=[])
     with pytest.raises(ValueError, match="done_when must be a list"):
         service.validate_intervention_planner(body, ["decide_next_v1"])
     config["goal"]["done_when"] = []
@@ -193,8 +193,25 @@ def test_intervention_does_not_invent_an_agent_loop_output_envelope():
             "type": "object", "properties": {"question": {"type": "string"}}}}},
         {"id": "loop", "kind": "agent_loop", "config": config},
         {"id": "synthesis", "kind": "task", "config": {"inputs_map": {"evidence": ref}}}
-    ]}, cases=[])
+    ]}, cases=[], skills=[])
     with pytest.raises(ValueError, match="no output field 'result'"):
         service.validate_intervention_planner(body, ["decide_next_v1"])
     ref["path"] = ["observations"]
+    service.validate_intervention_planner(body, ["decide_next_v1"])
+
+
+def test_intervention_template_must_actually_receive_retrieved_evidence():
+    config = {"decide_skill": "decide_next_v1", "privilege_tier": "recommend",
+              "inputs_map": {"objective": {"node_id": "source", "path": ["question"], "required": True}}}
+    skill = SimpleNamespace(local_name="synthesis", executor={"params": {"template": "Use observations. {text}"}})
+    body = SimpleNamespace(flow_definition={"nodes": [
+        {"id": "source", "kind": "source", "config": {"input_schema": {
+            "type": "object", "properties": {"question": {"type": "string"}}}}},
+        {"id": "loop", "kind": "agent_loop", "config": config},
+        {"id": "synthesis", "kind": "task", "config": {"skill_slug": "@synthesis", "inputs_map": {
+            "observations": {"node_id": "loop", "path": ["observations"], "required": True}}}}
+    ]}, cases=[], skills=[skill])
+    with pytest.raises(ValueError, match="must include"):
+        service.validate_intervention_planner(body, ["decide_next_v1"])
+    skill.executor["params"]["template"] += " Evidence: {observations}"
     service.validate_intervention_planner(body, ["decide_next_v1"])

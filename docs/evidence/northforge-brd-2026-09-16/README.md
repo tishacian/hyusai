@@ -98,3 +98,20 @@ budget. They now use that same budget; oversized output remains an immediate ref
 OpenAI/Azure requests use JSON-object response format. A repaired syntax failure and three
 consecutive syntax failures both retain all reported provider usage. Twenty-one focused
 service/API tests pass. No runtime success is inferred from these tests.
+
+## Two actual tool choices, incomplete answers
+
+Generation 7 passed validation in 104 seconds. Runtime qualification took 125 seconds and
+failed overall. These are isolated local Runs with real provider and Showcase retrieval calls.
+
+- The pressure question selected notices and retrieved the operating manual stating 700 bar.
+- The durations question selected history and retrieved NF-04: 30 planned, 55 actual minutes.
+- Both reached the explicit Flow review, but both synthesized an incorrect absence statement:
+  the generated template mentioned observations without including the `{observations}` placeholder.
+- Absence and mutation cases paused inside the planner, before the final briefing review.
+  No human decision was supplied and no write effect was requested by the harness.
+
+The exact candidate and compact evidence are retained in `runtime-7/`. The missing-placeholder
+case is now refused during generation; merely declaring a template input is insufficient.
+Thirteen generation tests pass. A new generated candidate remains necessary. Do not count
+these Runs as NorthForge acceptance or as five successful repetitions.

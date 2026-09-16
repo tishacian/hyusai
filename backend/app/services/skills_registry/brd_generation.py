@@ -87,6 +87,25 @@ def validate_intervention_planner(body, selected_slugs):
                         raise ValueError(f"AgentLoop {node.get('id')!r} has no output field {path[0]!r}; "
                                          "map observations with path=['observations'], not ['result','observations']. "
                                          "Declaring an output port does not wrap the runtime result.")
+        from string import Formatter
+        proposed = {"@" + skill.local_name: skill for skill in body.skills}
+        evidence_used = False
+        for consumer in body.flow_definition.get("nodes", []):
+            cfg = consumer.get("config") or {}
+            skill = proposed.get(cfg.get("skill_slug"))
+            if skill is None:
+                continue
+            template = skill.executor.get("params", {}).get("template", "")
+            fields = {field for _, field, _, _ in Formatter().parse(template) if field}
+            for name, binding in (cfg.get("inputs_map") or {}).items():
+                if (isinstance(binding, dict) and binding.get("node_id") == node.get("id")
+                        and binding.get("path", []) in ([], ["observations"])):
+                    if name not in fields:
+                        raise ValueError(f"Intervention synthesis template must include {{{name}}}; "
+                                         "declaring or mentioning the evidence input does not send its contents to the model")
+                    evidence_used = True
+        if body.skills and not evidence_used:
+            raise ValueError("Intervention synthesis must consume the AgentLoop observations in its prompt template")
         field = ref["path"][0]
         schema = (sources[ref["node_id"]].get("config") or {}).get("input_schema") or {}
         if schema.get("type") != "object" or (schema.get("properties", {}).get(field) or {}).get("type") != "string":
