@@ -6,15 +6,10 @@ Terraform / Ansible / Helm path.
 
 ## Why this shape
 
-papAI already provisions OpenStack with Terraform (`OPS/instance`) and deploys
-with Ansible + Helm (`OPS/ansible/ansible`). Agentium reuses that split inside
-this repo so the two products can share inventory, SSH, and pipeline habits
-without a second Compose-only ops story.
-
-The papAI OPS trees were not present on the agent that opened this track.
-`ops/instance` and `ops/ansible` are therefore a first-party mirror of that
-layout, not a copy of those roles. Import the papAI modules when the repos
-are available; do not rewrite them here.
+The pipeline shape is the same one papAI uses: Terraform for OpenStack
+(`ops/instance`), Ansible then Helm for deploy (`ops/ansible`,
+`ops/helm/agentium`). The Agentium tree lives in this repo and is enough to
+continue. It does not need a sibling checkout of the papAI OPS repos.
 
 ## Compose → Helm
 
