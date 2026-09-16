@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { FLOW_EN } from '@app/core/i18n/flow.dict';
+import { EXPERIENCE_EN, EXPERIENCE_FR } from '@app/core/i18n/experience.dict';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import { outlineSourceOptions, outlineTargetOptions } from './flow-outline.vm';
 
@@ -120,13 +121,17 @@ test('authoring is the default toolbar surface and operating is one disclosure a
     'flow.toolbar.redo.aria',
     'flow.toolbar.fit.aria',
     'flow.toolbar.save.aria',
-    'flow.toolbar.publish.aria',
     'flow.toolbar.promote.aria',
     'flow.toolbar.operate',
     'flow.toolbar.more.aria',
   ] as const) {
     assertAccessibleName(author, key, `${key} stays on the author bar`);
   }
+  // The same control now reopens the application handoff after publication.
+  assert.match(author, /\[attr\.aria-label\]="i18n\.t\(persistence\.canOpenPublishedHome\(\)\s*\? 'experience\.home\.open\.hint' : 'flow\.toolbar\.publish\.aria'\)"/);
+  assert.ok(FLOW_EN['flow.toolbar.publish.aria'].trim());
+  assert.ok(EXPERIENCE_EN['experience.home.open.hint'].trim());
+  assert.ok(EXPERIENCE_FR['experience.home.open.hint'].trim());
 
   // Nothing was removed: every relocated control keeps its accessible name.
   assert.match(operate, /<ng-content select="\[flowToolbarActions\]" \/>/);

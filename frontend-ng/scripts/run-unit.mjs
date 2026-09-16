@@ -181,6 +181,7 @@ const storeSpecs = [
   'src/app/features/orchestration/flow/flow-workbench-panel.component.spec.ts',
   'src/app/features/orchestration/flow/flow-versions.component.spec.ts',
   'src/app/features/orchestration/flow/flow-persistence.service.spec.ts',
+  'src/app/features/orchestration/flow/flow-publication-panel.component.spec.ts',
   'src/app/features/orchestration/flow/flow-validation.service.spec.ts',
   'src/app/features/orchestration/flow/flow-validation-strip.spec.ts',
   'src/app/features/orchestration/flow/flow-catalog.service.spec.ts',

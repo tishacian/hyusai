@@ -302,7 +302,19 @@ export class FlowPersistenceService {
     }
     return null;
   });
-  readonly canReviewPublication = computed(() => this.publicationBlockReason() === null);
+  /** Reopen the published application's handoff without inventing another
+   * release or requiring validation of an unchanged draft. */
+  readonly canOpenPublishedHome = computed(() =>
+    this.workspace.experienceStudioV1Enabled()
+    && this.publicationMode() && !this.actionsDisabled()
+    && !this.store.dirty() && this.saveState() === 'saved'
+    && this.draftMatchesPublished() && this.publishedContractReady()
+    && this.publishedExecutionContract() !== null
+    && !!this.systemId() && !!this.publishedVersionId(),
+  );
+  readonly canReviewPublication = computed(() =>
+    this.publicationBlockReason() === null || this.canOpenPublishedHome(),
+  );
   readonly canConfirmPublication = computed(() => {
     const diff = this.publishDiff();
     if (
@@ -327,7 +339,7 @@ export class FlowPersistenceService {
   private autosaveBlocked = false;
   private lastRevision = -1;
   private baselineFlow: CanonicalFlow | null = null;
-  private systemStatus: SystemStatus | null = null;
+  readonly systemStatus = signal<SystemStatus | null>(null);
   readonly systemDisplayName = signal<string | null>(null);
   /** One-shot authority, scoped to the exact graph revision the user saw. */
   private replacementIntentRevision: number | null = null;
@@ -379,7 +391,7 @@ export class FlowPersistenceService {
         this.errored.set(false);
         if (
           this.hydrationReady() &&
-          this.systemStatus === 'active' &&
+          this.systemStatus() === 'active' &&
           this.isDestructiveReplacement(this.store.snapshot()) &&
           !this.autosavePaused()
         ) {
@@ -489,7 +501,7 @@ export class FlowPersistenceService {
     // has normalized successfully. A malformed payload must not partially
     // advance the client to a server revision it cannot render.
     this.systemId.set(system.id);
-    this.systemStatus = system.status ?? 'draft';
+    this.systemStatus.set(system.status ?? 'draft');
     this.systemDisplayName.set(system.name);
     this.savedFlowSha256.set(system.flow_sha256 ?? null);
     this.baselineFlow = cloneFlow(this.store.snapshot());
@@ -544,7 +556,7 @@ export class FlowPersistenceService {
     }
 
     this.systemId.set(system.id);
-    this.systemStatus = flowState.status ?? system.status ?? 'draft';
+    this.systemStatus.set(flowState.status ?? system.status ?? 'draft');
     this.systemDisplayName.set(system.name);
     this.publicationMode.set(true);
     this.draftRevision.set(flowState.draft.revision);
@@ -642,7 +654,7 @@ export class FlowPersistenceService {
         flow_write_intent?: 'replace_active_flow';
       }
     | null {
-    if (this.systemStatus !== 'active') {
+    if (this.systemStatus() !== 'active') {
       return this.savedFlowSha256()
         ? { expected_flow_sha256: this.savedFlowSha256()! }
         : {};
@@ -697,7 +709,7 @@ export class FlowPersistenceService {
     }
     if (
       this.systemId() &&
-      this.systemStatus === 'active' &&
+      this.systemStatus() === 'active' &&
       this.isDestructiveReplacement(this.store.snapshot()) &&
       this.replacementIntentRevision !== this.store.revision()
     ) {
@@ -741,17 +753,19 @@ export class FlowPersistenceService {
   openPublicationReview(): void {
     const sid = this.systemId();
     const blocked = this.publicationBlockReason();
-    if (!sid || blocked) {
+    if (!sid || !this.canReviewPublication()) {
       if (blocked) this.toastr.warning(blocked, 'Publish blocked');
       return;
     }
     this.publicationDiffRequest?.unsubscribe();
     this.publishReviewOpen.set(true);
     this.publishDiff.set(null);
-    this.publishDiffState.set('loading');
+    const publishedHome = this.canOpenPublishedHome();
+    this.publishDiffState.set(publishedHome ? 'idle' : 'loading');
     this.publishError.set(null);
-    this.publishSucceeded.set(false);
+    this.publishSucceeded.set(publishedHome);
     this.breakingChangeAcknowledged.set(false);
+    if (publishedHome) return;
     const scope = this.workspace.captureRequestScope();
     const expectedDraftHash = this.savedFlowSha256();
     const expectedPublishedHash = this.publishedFlowSha256();
@@ -852,7 +866,7 @@ export class FlowPersistenceService {
         next: (result) => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.publishing.set(false);
-          this.systemStatus = result.status ?? this.systemStatus;
+          this.systemStatus.set(result.status ?? this.systemStatus());
           this.publishedVersionId.set(result.published.version_id);
           this.publishedVersionNumber.set(result.published.version_number);
           this.publishedFlowSha256.set(result.published.flow_sha256);
@@ -1118,7 +1132,7 @@ export class FlowPersistenceService {
       this.saveServerDraft(sid, trigger);
       return;
     }
-    if (this.systemStatus === 'active' && !this.savedFlowSha256()) {
+    if (this.systemStatus() === 'active' && !this.savedFlowSha256()) {
       this.pauseForReview('conflict');
       this.autosaveBlocked = true;
       this.errored.set(true);
@@ -1154,7 +1168,7 @@ export class FlowPersistenceService {
           if (res.ok) {
             this.baselineFlow = cloneFlow(flow);
             this.savedFlowSha256.set(res.system.flow_sha256 ?? null);
-            this.systemStatus = res.system.status ?? this.systemStatus;
+            this.systemStatus.set(res.system.status ?? this.systemStatus());
             this.systemDisplayName.set(res.system.name ?? this.systemDisplayName());
             const acknowledged = this.store.markSaved(sentRevision);
             this.lastSavedAt.set(Date.now());
@@ -1325,6 +1339,7 @@ export class FlowPersistenceService {
   }
 
   private resetPublicationState(): void {
+    this.systemStatus.set(null);
     this.publicationMode.set(false);
     this.draftRevision.set(null);
     this.draftBasePublishedVersionId.set(null);
@@ -1361,7 +1376,7 @@ export class FlowPersistenceService {
   }
 
   private isDestructiveReplacement(flow: CanonicalFlow): boolean {
-    if (this.systemStatus !== 'active') return false;
+    if (this.systemStatus() !== 'active') return false;
     const baseline = this.baselineFlow;
     if (!baseline) return true;
     if (flow.nodes.length === 0) return true;

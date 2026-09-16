@@ -720,6 +720,10 @@ class SystemUpdateOptions(ActiveFlowWriteOptions):
     when they know the payload is already trusted.
     """
 
+    expected_published_version_id: str | None = Field(
+        default=None, min_length=1, max_length=36,
+        description="Published Flow reviewed before activating this System.",
+    )
     version_message: Optional[str] = Field(
         default=None,
         description="Optional changelog note saved alongside the new version.",
@@ -1366,6 +1370,17 @@ async def update_system(
     _enforce_system_admin(db, user=user, workspace=workspace, system=s)
 
     updates = body.model_dump(exclude_unset=True, mode="json")
+    if (
+        options.expected_published_version_id is not None
+        and options.expected_published_version_id != s.published_flow_version_id
+    ):
+        raise HTTPException(409, detail={
+            "code": "SYSTEM_PUBLISHED_VERSION_MISMATCH",
+            "message": "The published Flow changed. Reload and review it before activating the System.",
+            "system_id": s.id,
+            "expected_published_version_id": options.expected_published_version_id,
+            "current_published_version_id": s.published_flow_version_id,
+        })
     if "settings" in updates:
         incoming = updates["settings"] or {}
         current_objective = (s.settings or {}).get("operational_objective")

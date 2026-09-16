@@ -1782,6 +1782,46 @@ def test_ready_check_certifies_closed_query_and_run_output_bindings(db_session) 
     } <= invalid_codes
 
 
+def test_work_forms_preserve_and_certify_brd_text_length_constraints():
+    import pytest
+
+    from app.services.flow_contracts import FlowContractError, validate_payload
+
+    schema = {
+        "type": "object",
+        "properties": {"query": {"type": "string", "minLength": 2, "maxLength": 3}},
+        "additionalProperties": False,
+    }
+    service = endpoint.experience_service
+    assert service._form_schema_supported(schema)
+    pages = {"pages": [{"components": [{"type": "form", "id": "request", "props": {
+        "bindingKey": "brd.request", "schema": schema,
+    }}]}]}
+    binding = {"brd.request": {"input_schema": schema, "binding": {
+        "input_schema_sha256": canonical_sha256(schema),
+    }}}
+    assert service._binding_contract_issues(pages, binding) == []
+    for query in ("ab", "abc", "😀😀", "😀😀😀"):
+        validate_payload({"query": query}, schema, code="invalid", subject="Request")
+    validate_payload({}, schema, code="invalid", subject="Request")
+    for query in ("", "a", "abcd", "😀", 42):
+        with pytest.raises(FlowContractError):
+            validate_payload({"query": query}, schema, code="invalid", subject="Request")
+    for spec in (
+        {"type": "string", "minLength": -1}, {"type": "string", "maxLength": 1.5},
+        {"type": "string", "minLength": True}, {"type": "string", "maxLength": None},
+        {"type": "string", "minLength": 4, "maxLength": 2},
+        {"type": "number", "minLength": 1},
+        {"type": "string", "format": "binary", "minLength": 1},
+        {"type": "string", "x-file": True, "maxLength": 12},
+        {"type": "string", "maxLength": 2**53},
+    ):
+        assert not service._form_schema_supported({"type": "object", "properties": {"query": spec}})
+    assert service._form_schema_supported({
+        "type": "object", "properties": {"query": {"type": "string", "minLength": 1.0}},
+    })
+
+
 def test_ready_check_blocks_inputs_and_selectors_outside_published_contract(
     db_session, monkeypatch
 ) -> None:
@@ -1809,7 +1849,7 @@ def test_ready_check_blocks_inputs_and_selectors_outside_published_contract(
     assert not endpoint.experience_service._form_schema_supported(
         {
             "type": "object",
-            "properties": {"query": {"type": "string", "minLength": 5}},
+            "properties": {"query": {"type": "string", "pattern": "^REQ-"}},
         }
     )
     assert not endpoint.experience_service._form_schema_supported(

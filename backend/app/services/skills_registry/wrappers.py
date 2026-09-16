@@ -6084,13 +6084,22 @@ async def _decide_next_v1(
         coerce_decide_output,
     )
 
-    ctx = ctx or {}
+    ctx = ctx if ctx is not None else {}
     visible = payload.get("visible_skills") or ctx.get("visible_skills") or []
     floor = payload.get("confidence_floor")
     try:
         confidence_floor = float(floor) if floor is not None else DEFAULT_CONFIDENCE_FLOOR
     except (TypeError, ValueError):
         confidence_floor = DEFAULT_CONFIDENCE_FLOOR
+
+    def normalize(raw, failure=None):
+        evidence = {}
+        output = coerce_decide_output(raw, visible, confidence_floor=confidence_floor, evidence=evidence)
+        if failure:
+            evidence["normalization_reasons"].insert(0, failure)
+        ctx["_agent_loop_decision_evidence"] = evidence
+        return output
+
     prompt = build_decide_prompt(
         goal=payload.get("goal") or ctx.get("goal") or {},
         observations=list(payload.get("observations") or ctx.get("observations") or []),
@@ -6103,11 +6112,11 @@ async def _decide_next_v1(
         completion = await _route_llm_complete(prompt, model, ctx)
     except Exception as exc:  # noqa: BLE001 — fail-closed, never raise into the walker
         logger.warning("decide_next_v1: model call failed, blocking", error=str(exc))
-        return coerce_decide_output({}, visible, confidence_floor=confidence_floor)
+        return normalize({}, "llm_failure")
     parsed = _loads_lenient_json(completion)
     if parsed is None:
-        return coerce_decide_output({}, visible, confidence_floor=confidence_floor)
-    return coerce_decide_output(parsed, visible, confidence_floor=confidence_floor)
+        return normalize({}, "json_parse_failure")
+    return normalize(parsed)
 
 
 async def _skill_search_v1(

@@ -204,16 +204,19 @@ def apply_proposal(db, *, document, proposal_id, expected_sha256, user, workspac
     ), workspace=workspace, user=user, db=db)
     system = db.get(System, created["id"])
     actor = str(getattr(user, "username", None) or user.id)
-    flow_publication.compile_execution_contract(db, flow, workspace, system=system)
+    contract = flow_publication.compile_execution_contract(db, flow, workspace, system=system)
     flow_publication.save_draft(db, system_id=system.id, workspace=workspace,
         flow_definition=flow, expected_revision=1, actor=actor)
     if snapshot["cases"]:
         from app.api.v1.endpoints.evaluation_campaigns import SuiteBody, _create_suite_record
+        from app.services.evaluation.campaigns import contract_collection_ids
         suite = _create_suite_record(SuiteBody(
             system_id=system.id, name="BRD acceptance", cases=snapshot["cases"], reviewed=True,
+            collection_ids=contract_collection_ids(db, workspace_id=workspace.id, contract=contract),
         ), workspace=workspace, user=user, db=db)
         suite.provenance = {**suite.provenance, "brd_document_id": document.id,
-                            "brd_proposal_id": row.id, "brd_proposal_sha256": row.sha256}
+                            "brd_proposal_id": row.id, "brd_proposal_sha256": row.sha256,
+                            "corpus_snapshot": "compiled_v1"}
         system.settings = {**system.settings, "brd_provenance": {**evidence, "suite_id": suite.id}}
     row.system_id = system.id
     row.status = "applied"

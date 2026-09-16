@@ -135,6 +135,31 @@ def test_collection_drift_suppresses_improvement(db_session, monkeypatch):
     assert result["results"][0]["change"] == "not_comparable"
 
 
+@pytest.mark.parametrize("corpus_snapshot", [None, "compiled_v1"])
+def test_text_only_brd_suite_has_no_invented_corpus_limitation(db_session, monkeypatch, corpus_snapshot):
+    from app.models.evaluation_campaign import EvaluationSuite
+
+    http, body, *_ = setup_campaign(db_session, monkeypatch,
+        assertions=[{"id": "pressure", "path": ["pressure"], "operator": "equals", "value": 6}])
+    suite = db_session.get(EvaluationSuite, body["suite_id"])
+    suite.provenance = {"brd_proposal_id": "historical-proposal"}
+    if corpus_snapshot:
+        suite.provenance = {**suite.provenance, "corpus_snapshot": corpus_snapshot}
+    db_session.commit()
+    created = http.post("/evaluation/campaigns", json=body)
+    assert created.status_code == 201, created.text
+    assert created.json()["snapshot"]["comparability"] == "limited"
+    assert not any("no reviewed corpus manifest" in item for item in created.json()["snapshot"]["limitations"])
+    for side, value in (("baseline", 8), ("candidate", 6)):
+        run = db_session.get(Run, created.json()["results"][0][side]["run_id"])
+        run.status, run.output_ref = "completed", {"pressure": value}
+    db_session.commit()
+    result = http.get(f"/evaluation/campaigns/{created.json()['id']}").json()
+    assert result["results"][0]["candidate"]["verdict"] == "passed"
+    assert result["results"][0]["change"] == "improved"
+    assert suite.corpus_manifest == []
+
+
 def test_withdrawn_run_access_hides_campaign_and_listing(db_session, monkeypatch):
     from fastapi import HTTPException
     http, body, *_ = setup_campaign(db_session, monkeypatch)

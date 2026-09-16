@@ -1867,17 +1867,23 @@ export class CanonicalApiService {
     body: Partial<System>,
     opts?: {
       expected_flow_sha256?: string;
+      expected_published_version_id?: string;
       flow_write_intent?: 'replace_active_flow';
+      propagateErrors?: boolean;
     },
   ): Observable<System | null> {
     const params: Record<string, string> = {};
     if (opts?.expected_flow_sha256) {
       params['expected_flow_sha256'] = opts.expected_flow_sha256;
     }
+    if (opts?.expected_published_version_id) {
+      params['expected_published_version_id'] = opts.expected_published_version_id;
+    }
     if (opts?.flow_write_intent) params['flow_write_intent'] = opts.flow_write_intent;
     const qs = new URLSearchParams(params).toString();
     const url = `/systems/${id}${qs ? `?${qs}` : ''}`;
-    return this.api.patch<System>(url, body).pipe(catchError(() => of(null)));
+    return this.api.patch<System>(url, body).pipe(catchError((error: unknown) =>
+      opts?.propagateErrors ? throwError(() => error) : of(null)));
   }
 
   deleteSystem(id: string): Observable<boolean> {

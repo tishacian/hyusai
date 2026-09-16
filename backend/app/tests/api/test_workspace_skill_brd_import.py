@@ -399,6 +399,237 @@ def test_proposal_apply_binds_default_agent_loop_planner(db_session, tmp_path, m
     assert set(contract["nodes"]["investigate"]["tool_contract"]["nodes"]) == {tool.slug}
 
 
+def _pinned_corpus_proposal(db, tmp_path, monkeypatch, *, retrieval=True):
+    from app.core.config import settings
+    from app.models.knowledge_collection import KnowledgeCollection
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path))
+    workspace, user = _seed(db)
+    planner = Skill(slug="decide_next_v1", name="Planner")
+    workspace.settings = {"features": {"flow_workbench_v1": True, "flow_v3_dag_authoritative": True},
+                          "catalog": {"enabled_skills": [planner.slug]}}
+    collections = [KnowledgeCollection(id="collection-" + name, workspace_id=workspace.id, slug=name, name=name,
+        vector_collection_name=name, artifact_prefix=name + "/", status="ready",
+        document_names=[name + ".pdf"], document_count=1, chunk_count=3,
+        embedding_model="test-embedding") for name in ("notices", "history", "unreferenced")]
+    db.add_all([planner, *collections])
+    db.commit()
+    client = _client(db, workspace, user)
+    imported = client.post("/skills/import/business-requirements?retain=true",
+                           files={"file": ("brd.docx", _brd())})
+    assert imported.status_code == 200, imported.text
+    path = f"/skills/imports/business-requirements/{imported.json()['document']['id']}/proposals"
+    flow = {"schema_version": 3, "io_mode": "strict", "nodes": [
+        {"id": "input", "kind": "source"},
+        {"id": "investigate", "kind": "agent_loop", "config": {"max_turns": 2,
+            "skill_allowlist": ["@notices", "@history"], "privilege_tier": "recommend"}},
+        {"id": "result", "kind": "sink"},
+    ], "edges": [{"from": "input", "to": "investigate", "kind": "data"},
+                 {"from": "investigate", "to": "result", "kind": "data"}]}
+    if not retrieval:
+        flow["nodes"] = [flow["nodes"][0], flow["nodes"][2]]
+        flow["edges"] = [{"from": "input", "to": "result", "kind": "data"}]
+    specs = [{"local_name": collection.slug, "name": collection.name,
+        "executor": {"kind": "registry_call", "params": {"skill_slug": "semantic_search_v1",
+            "frozen_input": {"context_collection": collection.slug}}}} for collection in collections]
+    proposed = client.post(path, json={"request_key": "pinned-corpus", "name": "Corpus investigation",
+        "flow_definition": flow, "skills": specs,
+        "cases": [{"id": "case-1", "input_ref": {}, "assertions": []}]})
+    assert proposed.status_code == 200, proposed.text
+    proposal = proposed.json()
+    return client, workspace, user, collections, proposal, path + "/" + proposal["id"] + "/apply"
+
+
+@pytest.mark.parametrize("drift", ["ledger", "candidate_binding", "baseline_binding"])
+def test_brd_suite_freezes_only_compiled_tool_corpus_and_refuses_drift(db_session, tmp_path, monkeypatch, drift):
+    from copy import deepcopy
+    from app.api.v1.endpoints import flow_workbench, evaluation_campaigns
+    from app.models.evaluation_campaign import EvaluationCampaign, EvaluationSuite
+    from app.models.run import Run
+    from app.models.run_dispatch_outbox import RunDispatchOutbox
+    from app.models.system_flow_draft import SystemFlowDraft
+    from app.services.evaluation.campaigns import corpus_manifest
+
+    client, workspace, user, collections, proposal, path = _pinned_corpus_proposal(db_session, tmp_path, monkeypatch)
+    apply_body = {"expected_sha256": proposal["sha256"], "reviewed": True}
+    applied = client.post(path, json=apply_body)
+    assert applied.status_code == 200, applied.text
+    system_id = applied.json()["system_id"]
+    suite = db_session.query(EvaluationSuite).one()
+    expected_manifest = corpus_manifest(db_session, workspace.id, [collection.id for collection in collections[:2]])
+    assert suite.corpus_manifest == expected_manifest
+    assert len(suite.corpus_manifest) == 2  # The unused authored Skill adds no corpus.
+    assert suite.provenance["corpus_snapshot"] == "compiled_v1"
+    assert suite.provenance["brd_proposal_sha256"] == proposal["sha256"]
+    frozen_cases, frozen_manifest = deepcopy(suite.cases), deepcopy(suite.corpus_manifest)
+
+    client.app.include_router(flow_workbench.router, prefix="/systems")
+    client.app.include_router(evaluation_campaigns.router, prefix="/evaluation")
+    monkeypatch.setattr(flow_workbench, "reconcile_dispatch_outbox", lambda: None)
+    draft = db_session.query(SystemFlowDraft).filter_by(system_id=system_id).one()
+    golden_body = {"acknowledge_real_side_effects": True, "flow_definition": draft.flow_definition,
+        "expected_flow_sha256": draft.flow_sha256, "suite_id": suite.id, "request_key": "before-drift"}
+    golden_path = f"/systems/{system_id}/flow-workbench/golden-runs"
+    first = client.post(golden_path, json=golden_body)
+    assert first.status_code == 201, first.text
+    run = db_session.get(Run, first.json()["runs"][0]["id"])
+    run.status = "completed"
+    original_contract = deepcopy(run.execution_contract)
+    if drift == "ledger":
+        collections[1].document_names = ["changed-history.pdf"]
+    else:
+        history_tool = db_session.query(Skill).filter_by(workspace_id=workspace.id, name="history").one()
+        original_executor = deepcopy(history_tool.executor)
+        history_tool.executor = {"kind": "registry_call", "params": {"skill_slug": "semantic_search_v1",
+            "frozen_input": {"context_collection": collections[2].slug}}}
+        db_session.flush()
+        if drift == "baseline_binding":
+            # Model an earlier baseline whose frozen binding differs from the
+            # candidate's current catalog, without executing either comparison.
+            from app.models.system import System
+            from app.services.systems.flow_publication import compile_execution_contract
+            run.execution_contract = compile_execution_contract(db_session, draft.flow_definition,
+                workspace, system=db_session.get(System, system_id))
+            original_contract = deepcopy(run.execution_contract)
+            history_tool.executor = original_executor
+    db_session.commit()
+
+    if drift != "ledger":
+        assert corpus_manifest(db_session, workspace.id,
+            [item["id"] for item in frozen_manifest]) == frozen_manifest
+    if drift != "baseline_binding":
+        rejected = client.post(golden_path, json={**golden_body, "request_key": "after-drift"})
+        assert rejected.status_code == 409, rejected.text
+        assert "corpus changed" in rejected.json()["detail"].lower()
+    comparison = client.post("/evaluation/campaigns", json={"suite_id": suite.id,
+        "baseline_run_id": run.id, "expected_draft_revision": draft.revision, "request_key": "drift-comparison"})
+    assert comparison.status_code == 409, comparison.text
+    assert "corpus changed" in comparison.json()["detail"].lower()
+    assert db_session.query(Run).count() == 1
+    assert db_session.query(RunDispatchOutbox).count() == 1
+    assert db_session.query(EvaluationCampaign).count() == 0
+    # Replaying an applied proposal never backfills or rewrites historical evidence.
+    assert client.post(path, json=apply_body).json() == applied.json()
+    db_session.refresh(suite)
+    db_session.refresh(run)
+    assert suite.cases == frozen_cases and suite.corpus_manifest == frozen_manifest
+    assert run.execution_contract == original_contract
+    assert db_session.query(EvaluationSuite).count() == 1
+
+
+def test_legacy_brd_suite_keeps_missing_manifest_explicit_without_qualifying_agentloop_comparison(db_session, tmp_path, monkeypatch):
+    from app.api.v1.endpoints import flow_workbench, evaluation_campaigns
+    from app.models.evaluation_campaign import EvaluationCampaign, EvaluationSuite
+    from app.models.run import Run
+    from app.models.system_flow_draft import SystemFlowDraft
+    from app.services.evaluation.campaigns import suite_run_result
+
+    client, workspace, user, _, proposal, path = _pinned_corpus_proposal(db_session, tmp_path, monkeypatch)
+    applied = client.post(path, json={"expected_sha256": proposal["sha256"], "reviewed": True})
+    assert applied.status_code == 200, applied.text
+    suite = db_session.query(EvaluationSuite).one()
+    suite.corpus_manifest = []  # Simulate a suite retained before corpus capture.
+    suite.provenance = {key: value for key, value in suite.provenance.items() if key != "corpus_snapshot"}
+    db_session.commit()
+    client.app.include_router(flow_workbench.router, prefix="/systems")
+    client.app.include_router(evaluation_campaigns.router, prefix="/evaluation")
+    monkeypatch.setattr(flow_workbench, "reconcile_dispatch_outbox", lambda: None)
+    draft = db_session.query(SystemFlowDraft).filter_by(system_id=suite.system_id).one()
+    response = client.post(f"/systems/{suite.system_id}/flow-workbench/golden-runs", json={
+        "acknowledge_real_side_effects": True, "flow_definition": draft.flow_definition,
+        "expected_flow_sha256": draft.flow_sha256, "suite_id": suite.id, "request_key": "legacy-corpus"})
+    assert response.status_code == 201, response.text
+    run = db_session.get(Run, response.json()["runs"][0]["id"])
+    assert "unverified" in suite_run_result(run)["corpus_limitations"][0]
+    assert suite.corpus_manifest == []
+    run.status = "completed"
+    db_session.commit()
+    comparison = client.post("/evaluation/campaigns", json={"suite_id": suite.id,
+        "baseline_run_id": run.id, "expected_draft_revision": draft.revision, "request_key": "unsupported-agentloop"})
+    assert comparison.status_code == 422, comparison.text
+    assert "qualified read-only nodes" in comparison.json()["detail"]
+    assert db_session.query(EvaluationCampaign).count() == 0
+    assert db_session.query(Run).count() == 1
+
+
+def test_new_brd_empty_corpus_snapshot_refuses_added_retrieval_pins(db_session, tmp_path, monkeypatch):
+    from copy import deepcopy
+    from app.api.v1.endpoints import flow_workbench, evaluation_campaigns
+    from app.models.evaluation_campaign import EvaluationCampaign, EvaluationSuite
+    from app.models.run import Run
+    from app.models.system import System
+    from app.models.system_flow_draft import SystemFlowDraft
+    from app.services.systems.flow_publication import save_draft
+
+    client, workspace, user, _, proposal, path = _pinned_corpus_proposal(db_session, tmp_path, monkeypatch, retrieval=False)
+    applied = client.post(path, json={"expected_sha256": proposal["sha256"], "reviewed": True})
+    assert applied.status_code == 200, applied.text
+    suite = db_session.query(EvaluationSuite).one()
+    assert suite.corpus_manifest == []
+    assert suite.provenance["corpus_snapshot"] == "compiled_v1"
+    system = db_session.get(System, suite.system_id)
+    draft = db_session.query(SystemFlowDraft).filter_by(system_id=system.id).one()
+    client.app.include_router(flow_workbench.router, prefix="/systems")
+    client.app.include_router(evaluation_campaigns.router, prefix="/evaluation")
+    monkeypatch.setattr(flow_workbench, "reconcile_dispatch_outbox", lambda: None)
+    golden_path = f"/systems/{system.id}/flow-workbench/golden-runs"
+    before = client.post(golden_path, json={"acknowledge_real_side_effects": True,
+        "flow_definition": draft.flow_definition, "expected_flow_sha256": draft.flow_sha256,
+        "suite_id": suite.id, "request_key": "text-only"})
+    assert before.status_code == 201, before.text
+    baseline = db_session.get(Run, before.json()["runs"][0]["id"])
+    baseline.status = "completed"
+    tool = db_session.query(Skill).filter_by(workspace_id=workspace.id, name="history").one()
+    system.skill_ids = [tool.id]
+    changed_flow = deepcopy(draft.flow_definition)
+    changed_flow["nodes"].insert(1, {"id": "search", "kind": "task", "config": {"skill_slug": tool.slug}})
+    changed_flow["edges"] = [{"from": "input", "to": "search", "kind": "data"},
+                             {"from": "search", "to": "result", "kind": "data"}]
+    db_session.flush()
+    save_draft(db_session, system_id=system.id, workspace=workspace, flow_definition=changed_flow,
+        expected_revision=draft.revision, actor=user.id)
+    db_session.commit()
+    db_session.refresh(draft)
+    response = client.post(golden_path, json={"acknowledge_real_side_effects": True,
+        "flow_definition": draft.flow_definition, "expected_flow_sha256": draft.flow_sha256,
+        "suite_id": suite.id, "request_key": "new-pins"})
+    assert response.status_code == 409, response.text
+    assert "BRD execution corpus changed" in response.json()["detail"]
+    comparison = client.post("/evaluation/campaigns", json={"suite_id": suite.id,
+        "baseline_run_id": baseline.id, "expected_draft_revision": draft.revision, "request_key": "new-pins-comparison"})
+    assert comparison.status_code == 409, comparison.text
+    assert "BRD execution corpus changed" in comparison.json()["detail"]
+    assert db_session.query(EvaluationCampaign).count() == 0
+    assert db_session.query(Run).count() == 1
+    assert suite.corpus_manifest == []
+
+
+@pytest.mark.parametrize("unavailable", ["outside_workspace", "absent", "not_ready"])
+def test_brd_pinned_corpus_must_be_ready_in_the_workspace(db_session, tmp_path, monkeypatch, unavailable):
+    from app.models.brd_proposal import BrdProposal
+    from app.models.evaluation_campaign import EvaluationSuite
+    from app.models.system import System
+
+    client, workspace, user, collections, proposal, path = _pinned_corpus_proposal(db_session, tmp_path, monkeypatch)
+    history = collections[1]
+    if unavailable == "outside_workspace":
+        other = Workspace(id="foreign-corpus", slug="foreign-corpus", name="Other")
+        db_session.add(other)
+        history.workspace_id = other.id
+    elif unavailable == "absent":
+        db_session.delete(history)
+    else:
+        history.status = "queued"
+    db_session.commit()
+    response = client.post(path, json={"expected_sha256": proposal["sha256"], "reviewed": True})
+    assert response.status_code == (409 if unavailable == "not_ready" else 404), response.text
+    assert db_session.query(EvaluationSuite).count() == 0
+    assert db_session.query(System).count() == 0
+    assert db_session.query(Skill).filter_by(workspace_id=workspace.id).count() == 0
+    assert db_session.get(BrdProposal, proposal["id"]).status == "proposed"
+
+
 def test_brd_generation_is_durable_idempotent_and_validated(db_session, tmp_path, monkeypatch):
     from app.core.config import settings
     from app.db import base

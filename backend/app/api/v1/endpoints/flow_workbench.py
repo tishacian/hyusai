@@ -337,7 +337,7 @@ async def create_golden_preview_runs(
     if body.suite_id:
         from app.models.evaluation_campaign import EvaluationSuite
         from app.api.v1.endpoints.evaluation_campaigns import authorize_suite
-        from app.services.evaluation.campaigns import corpus_manifest
+        from app.services.evaluation.campaigns import corpus_manifest, validate_brd_corpus_bindings
         suite = authorize_suite(db, db.get(EvaluationSuite, body.suite_id), workspace, user)
         if suite.system_id != system_id:
             raise HTTPException(422, "The suite belongs to a different System")
@@ -384,6 +384,9 @@ async def create_golden_preview_runs(
             ingress_id=body.ingress_id,
             ingress_kind=body.kind,
         )
+        corpus_limitations = validate_brd_corpus_bindings(
+            db, workspace_id=workspace.id, suite=suite, contract=prepared.contract,
+        ) if suite is not None else []
         batch_id = str(uuid4())
         runs: list[Run] = []
         for case in raw_cases:
@@ -398,6 +401,8 @@ async def create_golden_preview_runs(
                 checkpoint["brd_proposal_id"] = (suite.provenance or {}).get("brd_proposal_id")
                 checkpoint["brd_proposal_sha256"] = (suite.provenance or {}).get("brd_proposal_sha256")
                 checkpoint["assertions"] = copy.deepcopy(case.get("assertions", []))
+                if corpus_limitations:
+                    checkpoint["corpus_limitations"] = corpus_limitations
             if "expected" in case:
                 checkpoint["expected"] = copy.deepcopy(case["expected"])
             run = flow_workbench.create_run(

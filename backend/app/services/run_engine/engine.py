@@ -1080,6 +1080,7 @@ async def _execute_task_node(
     skill_ctx.pop("_model_stream_started", None)
     skill_ctx.pop("_provider_usage_v1", None)
     skill_ctx.pop("_model_response_usage", None)
+    skill_ctx.pop("_agent_loop_decision_evidence", None)
 
     def check_model_attempt(execution):
         # A prior dispatch may have spent tokens even when it timed out. Put
@@ -1228,6 +1229,9 @@ async def _execute_task_node(
 
 def _model_runtime_trace(trace, ctx):
     trace = dict(trace or {})
+    decision = ctx.get("_agent_loop_decision_evidence")
+    if isinstance(decision, dict):
+        trace["agent_loop_decision"] = decision
     planned = ctx.get("_model_resolution_evidence")
     if isinstance(planned, dict):
         trace["model_resolution"] = planned

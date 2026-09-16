@@ -7,6 +7,7 @@ mandate view (allowlist ∩ membrane ∩ privilege tier ∩ side-effect class).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from typing import Any, Iterable, Mapping, Optional
 
 from app.services.membrane.enforcement import evaluate_capability
@@ -157,21 +158,60 @@ def coerce_confidence(value: Any) -> float:
     return min(1.0, max(0.0, parsed))
 
 
+def _decision_trace_value(field: str, value: Any, allowed: set[str]) -> Any:
+    """Keep only typed decision values and known identities, never arbitrary text."""
+    if field == "next_skill":
+        if value is None or isinstance(value, str) and len(value) <= 160 and value in allowed:
+            return value
+        reason = "not_visible_skill" if isinstance(value, str) else "invalid_type"
+    elif field == "exit":
+        if value is None or isinstance(value, str) and value in EXIT_VALUES:
+            return value
+        reason = "invalid_exit"
+    elif field in {"needs_human", "done"}:
+        if isinstance(value, bool):
+            return value
+        reason = "invalid_type"
+    else:
+        if type(value) is int and value.bit_length() <= 64 or type(value) is float and math.isfinite(value):
+            return value
+        reason = "invalid_number"
+    value_type = ("null" if value is None else "boolean" if isinstance(value, bool) else
+                  "string" if isinstance(value, str) else "object" if isinstance(value, Mapping) else
+                  "array" if isinstance(value, (list, tuple)) else "number")
+    return {"omitted_type": value_type, "reason": reason}
+
+
 def coerce_decide_output(
     raw: Any,
     visible_skills: Iterable[Mapping[str, Any] | VisibleSkill | str],
     *,
     confidence_floor: float = DEFAULT_CONFIDENCE_FLOOR,
+    evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Fail-closed Decide contract. Safe to call on garbage model output."""
 
     allowed = _visible_slug_set(visible_skills)
     payload = raw if isinstance(raw, Mapping) else {}
+    reasons: list[str] = []
+    fields = ("next_skill", "confidence", "needs_human", "exit", "done")
+    if evidence is not None:
+        evidence.update(schema_version=1,
+                        raw={key: _decision_trace_value(key, payload[key], allowed) for key in fields if key in payload},
+                        confidence_floor=_decision_trace_value("confidence", confidence_floor, allowed),
+                        normalization_reasons=reasons)
+
+    def result(output: dict[str, Any]) -> dict[str, Any]:
+        if evidence is not None:
+            evidence["effective"] = {key: _decision_trace_value(key, output[key], allowed) for key in fields}
+        return output
+
     next_skill = payload.get("next_skill")
     next_slug = str(next_skill).strip() if next_skill not in (None, "") else None
     exit_value = payload.get("exit")
     exit_norm = str(exit_value).strip() if exit_value not in (None, "") else None
     if exit_norm not in EXIT_VALUES:
+        reasons.append("invalid_exit")
         exit_norm = None
     rationale = str(payload.get("rationale") or "")[:MAX_RATIONALE]
     confidence = coerce_confidence(payload.get("confidence"))
@@ -179,9 +219,16 @@ def coerce_decide_output(
     human_prompt = payload.get("human_prompt")
     human_text = str(human_prompt).strip() if isinstance(human_prompt, str) else None
     done = bool(payload.get("done"))
+    if confidence != payload.get("confidence") or type(payload.get("confidence")) not in (int, float):
+        reasons.append("confidence_normalized")
+    if payload.get("needs_human") is True or exit_norm == "ask_human":
+        reasons.append("model_requested_human")
+    elif needs_human:
+        reasons.append("needs_human_coerced")
 
     if next_slug is not None and next_slug not in allowed:
-        return {
+        reasons.append("skill_outside_allowlist")
+        return result({
             "next_skill": None,
             "rationale": rationale or f"Skill {next_slug!r} is outside the allowlist.",
             "confidence": confidence,
@@ -189,7 +236,7 @@ def coerce_decide_output(
             "human_prompt": None,
             "exit": "policy_block",
             "done": False,
-        }
+        })
 
     if confidence < confidence_floor and not needs_human and exit_norm not in {
         "blocked",
@@ -198,13 +245,14 @@ def coerce_decide_output(
         "complete",
     }:
         needs_human = True
+        reasons.append("confidence_below_floor")
 
     if needs_human and not human_text:
         human_text = rationale or "The agent needs a human decision before continuing."
     if needs_human:
         exit_norm = exit_norm or "ask_human"
 
-    return {
+    return result({
         "next_skill": next_slug,
         "rationale": rationale,
         "confidence": confidence,
@@ -212,7 +260,7 @@ def coerce_decide_output(
         "human_prompt": human_text if needs_human else None,
         "exit": exit_norm,
         "done": done,
-    }
+    })
 
 
 def retrieval_evidence_view(output: dict[str, Any]) -> dict[str, Any]:

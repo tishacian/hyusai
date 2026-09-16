@@ -34,6 +34,44 @@ def corpus_manifest(db, workspace_id: str, collection_ids: list[str]) -> list[di
             for row in sorted(rows, key=lambda item: item.id)]
 
 
+def contract_collection_ids(db, *, workspace_id, contract):
+    """Capture only retrieval collections pinned in the compiled executors."""
+    from app.services.knowledge_collections import get_collection_or_404
+
+    collection_ids = set()
+    contracts = [contract]
+    while contracts:
+        for node in contracts.pop()["nodes"].values():
+            if "tool_contract" in node:
+                contracts.append(node["tool_contract"])
+            executor = node.get("executor") or {}
+            params = executor.get("params") or {}
+            if executor.get("kind") != "registry_call" or params.get("skill_slug") != "semantic_search_v1":
+                continue
+            frozen = params.get("frozen_input") or {}
+            references = {str(frozen[key]).strip() for key in
+                          ("collection", "collection_name", "context_collection") if frozen.get(key)}
+            if len(references) > 1:
+                raise HTTPException(422, "Frozen retrieval collection aliases must agree")
+            for reference in references:
+                collection = get_collection_or_404(db, workspace_id=workspace_id, collection_ref=reference)
+                collection_ids.add(collection.id)
+    return sorted(collection_ids)
+
+
+def validate_brd_corpus_bindings(db, *, workspace_id, suite, contract):
+    """BRD manifests describe compiled tools; manual suites may describe case inputs."""
+    provenance = suite.provenance or {}
+    if not provenance.get("brd_proposal_id"):
+        return []
+    compiled_ids = set(contract_collection_ids(db, workspace_id=workspace_id, contract=contract))
+    if not suite.corpus_manifest and provenance.get("corpus_snapshot") != "compiled_v1":
+        return ["The BRD suite has no reviewed corpus manifest; corpus identity and drift are unverified."] if compiled_ids else []
+    if compiled_ids != {item["id"] for item in suite.corpus_manifest}:
+        raise HTTPException(409, "BRD execution corpus changed; create and review a new suite revision")
+    return []
+
+
 def validate_generation_policy(db, *, system_id: str, workspace_id: str, inputs: dict,
                                executing: bool = False):
     """Use current canonical model/source controls also when reading cached reports."""
@@ -150,6 +188,7 @@ def suite_run_result(run: Run) -> dict | None:
         "case_id": checkpoint["case_id"], "batch_id": checkpoint["batch_id"],
         "brd_proposal_id": checkpoint.get("brd_proposal_id"),
         "brd_proposal_sha256": checkpoint.get("brd_proposal_sha256"),
+        **({"corpus_limitations": checkpoint["corpus_limitations"]} if checkpoint.get("corpus_limitations") else {}),
         "method": "server_assertions", **verdict}
 
 
@@ -206,14 +245,20 @@ def create_campaign(db, *, suite: EvaluationSuite, baseline: Run, workspace, use
         flow_sha256=baseline.flow_sha256, source_flow_sha256=baseline.flow_sha256, contract=frozen,
         runtime_reason="evaluation_frozen_baseline", ingress=flow_workbench._select_ingress(frozen,
             ingress_id=body.get("ingress_id"), ingress_kind=body.get("kind")))
+    corpus_limitations = sorted({limitation for prepared in (baseline_prepared, candidate)
+        for limitation in validate_brd_corpus_bindings(db, workspace_id=workspace.id,
+            suite=suite, contract=prepared.contract)})
     for prepared in (baseline_prepared, candidate):
+        # Binding checks do not qualify AgentLoop/registry_call for comparisons;
+        # their existing read-only execution gate still applies here.
         assert_read_only(prepared.flow, prepared.contract)
     campaign = EvaluationCampaign(workspace_id=workspace.id, system_id=suite.system_id, suite_id=suite.id,
         baseline_run_id=baseline.id, request_key=body["request_key"], request_sha256=request_hash,
         created_by_user_id=user.id, snapshot={"suite_revision": suite.revision, "cases": copy.deepcopy(suite.cases),
         "corpus_manifest": current_manifest, "candidate_draft_revision": draft.revision,
         "baseline_contract_sha256": digest(frozen), "candidate_contract_sha256": digest(candidate.contract),
-        "comparability": "limited", "limitations": ["Collection ledger fingerprint; external model revisions and live retrieval are not immutable."]})
+        "comparability": "not_comparable" if corpus_limitations else "limited",
+        "limitations": ["Collection ledger fingerprint; external model revisions and live retrieval are not immutable.", *corpus_limitations]})
     db.add(campaign)
     db.flush()
     results = []
@@ -265,6 +310,7 @@ def refresh_campaign(db, campaign: EvaluationCampaign) -> EvaluationCampaign:
         snapshot["comparability"] = "not_comparable"
         if "Corpus changed or became unavailable during the campaign." not in snapshot["limitations"]:
             snapshot["limitations"].append("Corpus changed or became unavailable during the campaign.")
+    if snapshot["comparability"] == "not_comparable":
         for item in results:
             item["change"] = "not_comparable"
     campaign.snapshot, campaign.results = snapshot, results
