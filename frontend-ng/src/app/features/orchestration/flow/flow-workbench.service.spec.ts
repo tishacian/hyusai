@@ -32,7 +32,6 @@ import {
   FLOW_WORKBENCH_GOLDEN_POLL_POLICY,
   FLOW_WORKBENCH_INTERACTIVE_POLL_POLICY,
   FlowWorkbenchService,
-  matchesGoldenExpected,
 } from './flow-workbench.service';
 import { flowValidationFingerprint } from './flow-validation.service';
 
@@ -324,15 +323,6 @@ function harness(flow = validFlow()) {
   return { api, workspace, store, service, effects };
 }
 
-test('golden matcher is recursive object-partial and array-exact', () => {
-  assert.equal(matchesGoldenExpected(
-    { answer: { text: 'ok' }, citations: [{ id: 1 }] },
-    { answer: { text: 'ok', confidence: 0.9 }, citations: [{ id: 1 }], trace: true },
-  ), true);
-  assert.equal(matchesGoldenExpected({ answer: { text: 'ok' } }, { answer: { text: 'no' } }), false);
-  assert.equal(matchesGoldenExpected([1], [1, 2]), false, 'arrays do not accept hidden extras');
-});
-
 test('chat input follows the selected ingress schema without synthetic aliases', () => {
   const flow = validFlow();
   flow.nodes[0].config = {
@@ -485,7 +475,7 @@ test('isolated node execution keeps source hash evidence and projects its result
   assert.equal(service.nodeResult()?.run.flow_sha256, ISOLATED_SHA);
 });
 
-test('golden batch maps server-owned case ids and scores expected output', async () => {
+test('golden batch uses server verdicts even when the local output would match differently', async () => {
   const { api, service } = harness();
   const first = workbenchRun('golden_preview', 'pending', {
     id: 'golden-1',
@@ -500,8 +490,10 @@ test('golden batch maps server-owned case ids and scores expected output', async
     flow_sha256: SOURCE_SHA,
     runs: [second, first],
   };
-  api.runs.set(first.id, { ...first, status: 'completed', output_ref: { answer: 'yes', extra: true } });
-  api.runs.set(second.id, { ...second, status: 'completed', output_ref: { answer: 'no' } });
+  api.runs.set(first.id, { ...first, status: 'completed', output_ref: { answer: 'yes', extra: true },
+    test_result: { case_id: 'case-pass', batch_id: 'batch-1', verdict: 'passed', assertions: [] } });
+  api.runs.set(second.id, { ...second, status: 'completed', output_ref: { answer: 'yes' },
+    test_result: { case_id: 'case-fail', batch_id: 'batch-1', verdict: 'failed', assertions: [] } });
 
   const results = await service.runGoldenSet([
     { id: 'case-pass', input_ref: { query: 'one' }, expected: { answer: 'yes' } },
@@ -521,6 +513,7 @@ test('golden batch maps server-owned case ids and scores expected output', async
     pending: 0,
     passed: 1,
     failed: 1,
+    unevaluated: 0,
   });
   assert.deepEqual(results?.find((item) => item.caseId === 'case-pass')?.expected, { answer: 'yes' });
   assert.deepEqual(results?.find((item) => item.caseId === 'case-pass')?.actual, {
@@ -566,7 +559,7 @@ test('golden polling follows the server queue instead of polling every case conc
   const results = await pending;
 
   assert.deepEqual(polledIds, [first.id, second.id]);
-  assert.deepEqual(results?.map((item) => item.passed), [true, true]);
+  assert.deepEqual(results?.map((item) => item.passed), [null, null]);
 });
 
 test('sequential legacy validation fails closed before any workbench endpoint', async () => {
@@ -660,4 +653,36 @@ test('workspace reset clears workbench evidence and rejects a late validation', 
   assert.equal(service.systemId(), null);
   assert.deepEqual(service.chatMessages(), []);
   assert.equal(service.error(), null);
+});
+
+
+test('golden workbench separates unevaluated, waiting and execution errors without client scoring', async () => {
+  const { api, service } = harness();
+  const outcomes: Array<{id: string; status: Run['status']; verdict?: string; otherBatch?: boolean}> = [
+    {id: 'no-oracle', status: 'completed', verdict: 'unevaluated'},
+    {id: 'historical', status: 'completed'},
+    {id: 'review', status: 'hitl_pending', verdict: 'pending'},
+    {id: 'debug', status: 'debug_pending', verdict: 'pending'},
+    {id: 'execution-error', status: 'failed', verdict: 'unevaluated'},
+    {id: 'cancelled', status: 'cancelled', verdict: 'unevaluated'},
+    {id: 'wrong-batch', status: 'completed', verdict: 'passed', otherBatch: true},
+  ];
+  api.goldenResult = { batch_id: 'states', flow_sha256: SOURCE_SHA, runs: outcomes.map(item => {
+    const initial = workbenchRun('golden_preview', 'pending', {id: item.id,
+      input_ref: {execution: {golden_case_id: item.id, source_flow_sha256: SOURCE_SHA}}});
+    api.runs.set(item.id, {...initial, status: item.status, output_ref: {answer: 'yes'},
+      test_result: item.verdict ? {case_id: item.id, batch_id: item.otherBatch ? 'other' : 'states',
+        verdict: item.verdict, assertions: []} : null});
+    return initial;
+  })};
+  const results = await service.runGoldenSet(outcomes.map(item => ({id: item.id, input_ref: {}})), true);
+  assert.ok(results);
+  assert.ok(results.every(item => item.passed === null));
+  assert.equal(results.find(item => item.caseId === 'review')?.error, null);
+  assert.equal(results.find(item => item.caseId === 'debug')?.error, null);
+  assert.ok(results.find(item => item.caseId === 'execution-error')?.error);
+  assert.ok(results.find(item => item.caseId === 'cancelled')?.error);
+  assert.deepEqual(service.goldenSummary(), {
+    total: 7, completed: 5, pending: 2, passed: 0, failed: 0, unevaluated: 5,
+  });
 });

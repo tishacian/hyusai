@@ -328,7 +328,7 @@ export interface RunTriggerRequest {
 }
 
 export interface Run {
-  test_result?: { brd_proposal_id?: string | null; brd_proposal_sha256?: string | null; suite_id: string; suite_revision: number; case_id: string; batch_id: string; verdict: string; assertions: Array<{id: string; passed: boolean}> } | null;
+  test_result?: { brd_proposal_id?: string | null; brd_proposal_sha256?: string | null; suite_id?: string; suite_revision?: number; case_id: string; batch_id: string; method?: string; verdict: string; assertions: Array<{id: string; passed: boolean}> } | null;
   id: string;
   system_id: string;
   capability_id?: string | null;

@@ -395,6 +395,10 @@ async def create_golden_preview_runs(
                 "batch_id": batch_id,
                 "case_id": case["id"],
             }
+            if suite is None:
+                checkpoint["evaluation_method"] = (
+                    "expected_subset_v1" if "expected" in case else "no_oracle_v1"
+                )
             if suite is not None:
                 checkpoint["suite_id"] = suite.id
                 checkpoint["suite_revision"] = suite.revision

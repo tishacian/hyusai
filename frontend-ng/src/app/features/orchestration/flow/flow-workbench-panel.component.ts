@@ -9,6 +9,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { I18nService } from '@app/core/i18n.service';
 import type { I18nKey } from '@app/core/i18n.dict';
@@ -16,6 +17,7 @@ import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import {
   FlowWorkbenchService,
   type FlowWorkbenchGoldenCase,
+  type FlowWorkbenchGoldenResult,
 } from './flow-workbench.service';
 import { runtimeModeKey } from './flow-manifest.service';
 import { FlowStore } from './flow.store';
@@ -122,7 +124,7 @@ const DEFAULT_GOLDEN_SET = `[
 @Component({
   selector: 'app-flow-workbench-panel',
   standalone: true,
-  imports: [IconComponent],
+  imports: [IconComponent, NavLinkDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './flow-workbench-panel.component.scss',
   template: `
@@ -313,6 +315,7 @@ const DEFAULT_GOLDEN_SET = `[
                         total: workbench.goldenSummary().total,
                         passed: workbench.goldenSummary().passed,
                         failed: workbench.goldenSummary().failed,
+                        unevaluated: workbench.goldenSummary().unevaluated,
                       })
                     }}</span>
                   }
@@ -322,8 +325,8 @@ const DEFAULT_GOLDEN_SET = `[
                     @for (result of workbench.goldenResults(); track result.caseId) {
                       <article [attr.data-result]="result.passed === null ? 'pending' : result.passed ? 'pass' : 'fail'">
                         <strong>{{ result.caseId }}</strong>
-                        <span>{{ result.run.status }}</span>
-                        <code>{{ result.run.id.slice(0, 8) }}</code>
+                        <span>{{ goldenResultLabel(result) }}</span>
+                        <a [navLink]="{type: 'run', ref: result.run.id}">{{ i18n.t('flow.workbench.golden.open_run') }} · {{ result.run.id.slice(0, 8) }}</a>
                         @if (result.error) { <p>{{ result.error }}</p> }
                         <div class="ck-workbench__golden-evidence">
                           <span>{{ i18n.t('flow.workbench.golden.expected') }}</span>
@@ -352,6 +355,16 @@ const DEFAULT_GOLDEN_SET = `[
   `,
 })
 export class FlowWorkbenchPanelComponent {
+  protected goldenResultLabel(result: FlowWorkbenchGoldenResult): string {
+    if (result.run.status === 'hitl_pending') return this.i18n.t('flow.workbench.golden.human');
+    if (result.run.status === 'debug_pending') return this.i18n.t('flow.workbench.golden.paused');
+    if (result.run.status === 'failed' || result.run.status === 'cancelled') return this.i18n.t('flow.workbench.golden.stopped');
+    if (result.passed === true) return this.i18n.t('flow.workbench.golden.passed');
+    if (result.passed === false) return this.i18n.t('flow.workbench.golden.failed');
+    return this.i18n.t(result.run.status === 'completed'
+      ? 'flow.workbench.golden.unevaluated' : 'flow.workbench.golden.pending');
+  }
+
   protected readonly workbench = inject(FlowWorkbenchService);
   protected readonly store = inject(FlowStore);
   readonly i18n = inject(I18nService);

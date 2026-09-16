@@ -766,6 +766,14 @@ def test_golden_expected_absent_is_distinct_from_explicit_null(
     assert "expected" not in by_case["absent"].checkpoints[0]
     assert "expected" in by_case["explicit-null"].checkpoints[0]
     assert by_case["explicit-null"].checkpoints[0]["expected"] is None
+    from app.services.evaluation.campaigns import suite_run_result
+    assert by_case["absent"].checkpoints[0]["evaluation_method"] == "no_oracle_v1"
+    assert by_case["explicit-null"].checkpoints[0]["evaluation_method"] == "expected_subset_v1"
+    for run in by_case.values():
+        run.status = "completed"
+        run.output_ref = {"answer": "recorded"}
+    assert suite_run_result(by_case["absent"])["verdict"] == "unevaluated"
+    assert suite_run_result(by_case["explicit-null"])["verdict"] == "failed"
 
 
 def test_golden_request_replay_keeps_dispatch_ids_and_distinguishes_oracles(db_session, monkeypatch):
@@ -984,4 +992,31 @@ def test_suite_run_verdict_uses_frozen_server_criteria():
     run.checkpoints[0]["assertions"] = []
     assert suite_run_result(run)["verdict"] == "unevaluated"
     run.execution_surface = "production"
+    assert suite_run_result(run) is None
+
+
+@pytest.mark.parametrize(("expected", "actual", "passed"), [
+    ({"answer": {"text": "ok"}, "citations": [{"id": 1}]},
+     {"answer": {"text": "ok", "extra": True}, "citations": [{"id": 1}], "trace": True}, True),
+    ({"missing": None}, {}, False), ([1], [1, 2], False), ([1, 2], [2, 1], False),
+    ({"ok": True}, {"ok": 1}, False), ({"count": 1}, {"count": 1.0}, True),
+    (None, None, True), (None, {}, False),
+])
+def test_server_golden_expected_subset(expected, actual, passed):
+    from types import SimpleNamespace
+    from app.services.evaluation.campaigns import suite_run_result
+    checkpoint = {"kind": "golden_case_queued", "case_id": "case", "batch_id": "batch",
+                  "evaluation_method": "expected_subset_v1", "expected": expected}
+    run = SimpleNamespace(execution_surface="golden_preview", status="completed",
+                          output_ref=actual, checkpoints=[checkpoint])
+    result = suite_run_result(run)
+    assert result["verdict"] == ("passed" if passed else "failed")
+    assert result["assertions"] == [{"id": "expected", "passed": passed}]
+    for status, verdict in [("running", "pending"), ("hitl_pending", "pending"),
+                            ("debug_pending", "pending"), ("failed", "unevaluated"), ("cancelled", "unevaluated")]:
+        run.status = status
+        assert suite_run_result(run)["verdict"] == verdict
+        assert suite_run_result(run)["assertions"] == []
+    run.status = "completed"
+    del checkpoint["evaluation_method"]
     assert suite_run_result(run) is None
