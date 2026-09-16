@@ -383,3 +383,24 @@ were shimmed onto fixture directories; both PostgreSQL dumps and SQL queries
 were real. The unrelated ML registry settings test was deselected in this
 minimal test environment. This is not a production restore drill or an R1
 release acceptance. The disposable container was removed after testing.
+
+### Immutable BRD execution origin — 16 September
+
+Published execution contracts and draft/published Runs now retain the applied
+BRD document/proposal IDs and SHA-256 digests. These references are resolved from
+workspace-scoped applied proposal rows, never trusted from mutable System
+settings. The retained proposal contains the original requirement mappings;
+its presence does not certify that later edits still satisfy those requirements.
+No historical contract is backfilled.
+
+Validation: 100 backend tests passed across BRD import/application, Flow contract
+validation, publication/backfill and ingress. The added regression creates a
+draft Run and a published Run, changes the mutable System provenance and checks
+that both retain the original origin. A structurally invalid origin with a
+recomputed outer digest is refused.
+
+Deployment constraint: all consumers of execution contracts must ship the new
+optional `brd_origin` reader together. Earlier binaries reject that field, so a
+rollback to a pre-R1 image cannot execute newly published BRD contracts. Retain a
+compatible reader when rolling back the authoring experience; do not rewrite
+published contracts to make an older binary accept them.

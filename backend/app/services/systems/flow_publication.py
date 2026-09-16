@@ -129,6 +129,25 @@ def compile_execution_contract(
             status_code=422,
             details={"path": exc.path} if exc.path else None,
         ) from exc
+    if system is not None:
+        # Resolve the applied proposal from server-owned rows. Mutable System
+        # settings cannot nominate or rewrite the origin of an executed Flow.
+        from app.models.brd_document import BrdDocument
+        from app.models.brd_proposal import BrdProposal
+        origin = (db.query(BrdProposal, BrdDocument)
+            .join(BrdDocument, BrdDocument.id == BrdProposal.document_id)
+            .filter(BrdProposal.system_id == system.id,
+                    BrdProposal.status == "applied",
+                    BrdProposal.workspace_id == system.workspace_id,
+                    BrdDocument.workspace_id == system.workspace_id).one_or_none())
+        if origin is not None:
+            proposal, document = origin
+            contract["brd_origin"] = {
+                "document_id": document.id, "document_sha256": document.sha256,
+                "proposal_id": proposal.id, "proposal_sha256": proposal.sha256,
+            }
+            contract.pop("contract_sha256")
+            contract["contract_sha256"] = flow_contracts.canonical_sha256(contract)
     return copy.deepcopy(contract)
 
 

@@ -254,6 +254,43 @@ def test_reviewed_proposal_applies_once_to_draft_only(db_session, tmp_path, monk
     assert suite.provenance["brd_proposal_sha256"] == proposal["sha256"]
     assert system.settings["brd_provenance"]["suite_id"] == suite.id
 
+    # Draft tests and publication carry server-owned origins, never a mutable
+    # System setting. Later edits cannot relabel an earlier execution.
+    from app.services.systems import flow_publication
+    from app.services.flow_contracts import validate_execution_contract, FlowContractError, canonical_sha256
+    from copy import deepcopy
+    run = flow_publication.create_draft_test_run(db_session, system_id=system.id,
+        workspace=workspace, user_id=user.id, input_ref={},
+        expected_draft_revision=draft.revision, expected_flow_sha256=draft.flow_sha256)
+    version, _, _ = flow_publication.publish_draft(db_session, system_id=system.id,
+        workspace=workspace, expected_draft_revision=draft.revision,
+        expected_published_version_id=system.published_flow_version_id,
+        message="Reviewed BRD draft", breaking_change_intent=None, actor=user.id)
+    expected_origin = {"document_id": document_id,
+        "document_sha256": proposal["proposal"]["document_sha256"],
+        "proposal_id": proposal["id"], "proposal_sha256": proposal["sha256"]}
+    assert run.execution_contract["brd_origin"] == expected_origin
+    assert validate_execution_contract(version.execution_contract)["brd_origin"] == expected_origin
+    system.settings = {"brd_provenance": {"document_id": "forged"}}
+    db_session.flush()
+    assert flow_publication.compile_execution_contract(db_session, flow, workspace,
+        system=system)["brd_origin"] == expected_origin
+    assert run.execution_contract["brd_origin"] == expected_origin
+    from app.services.systems import flow_ingress
+    system.status = "active"
+    db_session.flush()
+    published_run = flow_ingress.create_published_ingress_run(db_session,
+        system_id=system.id, workspace=workspace, ingress_id="input", kind="manual",
+        payload={}, initiated_by_user_id=user.id)
+    assert published_run.execution_contract["brd_origin"] == expected_origin
+    assert published_run.published_flow_version_id == version.id
+    tampered = deepcopy(version.execution_contract)
+    tampered["brd_origin"]["document_id"] = "forged"
+    tampered.pop("contract_sha256")
+    tampered["contract_sha256"] = canonical_sha256(tampered)
+    with pytest.raises(FlowContractError):
+        validate_execution_contract(tampered)
+
     # Failure after an authored Skill has been inserted must roll it back.
     bad_flow = {"schema_version": 3, "nodes": [
         {"id": "input", "type": "source", "kind": "source"},
