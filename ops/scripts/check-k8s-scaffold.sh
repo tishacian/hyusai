@@ -11,18 +11,96 @@ command -v helm >/dev/null || fail "helm is required"
 command -v terraform >/dev/null || fail "terraform is required"
 command -v ansible-playbook >/dev/null || fail "ansible-playbook is required"
 
-helm lint ops/helm/agentium
-helm template agentium ops/helm/agentium --namespace agentium > /tmp/agentium-helm.yaml
+assert_no_local_images() {
+  local file="$1"
+  if grep -E '^[[:space:]]+(frontend|backend|worker):[[:space:]].*:(local|latest)[[:space:]]*$' "$file"; then
+    fail "$file must not pin :local or :latest"
+  fi
+}
+
+assert_no_passwords() {
+  local file="$1"
+  if grep -Ei 'password|change-me|secret_key' "$file"; then
+    fail "$file must not contain secret material"
+  fi
+}
+
+helm lint "$ROOT/ops/helm/agentium"
+
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  > /tmp/agentium-helm.yaml
 grep -q 'name: agentium-backend' /tmp/agentium-helm.yaml || fail "backend missing from helm template"
 grep -q 'name: agentium-frontend' /tmp/agentium-helm.yaml || fail "frontend missing from helm template"
 grep -q 'name: agentium-worker' /tmp/agentium-helm.yaml || fail "worker missing from helm template"
 grep -q 'kind: Ingress' /tmp/agentium-helm.yaml || fail "ingress missing from helm template"
+grep -q 'path: /health/live' /tmp/agentium-helm.yaml || fail "ingress /health/live missing"
+grep -q 'wait-postgres' /tmp/agentium-helm.yaml || fail "migrate must wait for Postgres"
+grep -q 'post-install' /tmp/agentium-helm.yaml || fail "migrate hook must be post-install, not pre-upgrade"
+grep -q 'server-snippet' /tmp/agentium-helm.yaml || fail "hidden-path ingress snippet missing"
 
-terraform -chdir=ops/instance init -backend=false -input=false >/tmp/tf-init.log
-terraform -chdir=ops/instance validate
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  -f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
+  > /tmp/agentium-helm-lab-ovh.yaml
+grep -q 'name: agentium-lab' /tmp/agentium-helm-lab-ovh.yaml || fail "lab-ovh must use existingSecret agentium-lab"
+if grep -q '^kind: Secret$' /tmp/agentium-helm-lab-ovh.yaml; then
+  fail "lab-ovh must not create a Secret"
+fi
+grep -q 'storageClassName: "csi-cinder-high-speed"' /tmp/agentium-helm-lab-ovh.yaml \
+  || fail "lab-ovh must set OVH CSI storage class"
+grep -q 'ingressClassName: "nginx"' /tmp/agentium-helm-lab-ovh.yaml || fail "lab-ovh ingress class"
+assert_no_local_images "$ROOT/ops/helm/agentium/values-lab-ovh.yaml"
+assert_no_passwords "$ROOT/ops/helm/agentium/values-lab-ovh.yaml"
+
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  -f "$ROOT/ops/helm/agentium/values-lab-aks.yaml" \
+  > /tmp/agentium-helm-lab-aks.yaml
+grep -q 'name: agentium-lab' /tmp/agentium-helm-lab-aks.yaml || fail "lab-aks must use existingSecret"
+if grep -q '^kind: Secret$' /tmp/agentium-helm-lab-aks.yaml; then
+  fail "lab-aks must not create a Secret"
+fi
+grep -q 'storageClassName: "managed-csi"' /tmp/agentium-helm-lab-aks.yaml \
+  || fail "lab-aks must set Azure CSI storage class"
+assert_no_local_images "$ROOT/ops/helm/agentium/values-lab-aks.yaml"
+assert_no_passwords "$ROOT/ops/helm/agentium/values-lab-aks.yaml"
+
+terraform fmt -check -recursive "$ROOT/ops/terraform" "$ROOT/ops/instance"
+
+validate_tf() {
+  local dir="$1"
+  terraform -chdir="$dir" init -backend=false -input=false >/tmp/tf-init.log
+  terraform -chdir="$dir" validate
+}
+
+validate_tf "$ROOT/ops/terraform/modules/cluster-ovh-mks"
+validate_tf "$ROOT/ops/terraform/modules/cluster-aks"
+validate_tf "$ROOT/ops/terraform/envs/lab-ovh"
+validate_tf "$ROOT/ops/terraform/envs/lab-aks"
+validate_tf "$ROOT/ops/instance"
+
+DIGEST_A="$(printf 'a%.0s' {1..64})"
+DIGEST_B="$(printf 'b%.0s' {1..64})"
+DIGEST_C="$(printf 'c%.0s' {1..64})"
+cat > /tmp/values-ci-images.yaml <<EOF
+image:
+  pullPolicy: IfNotPresent
+  frontend: registry.example/agentium-frontend@sha256:${DIGEST_A}
+  backend: registry.example/agentium-backend@sha256:${DIGEST_B}
+  worker: registry.example/agentium-worker@sha256:${DIGEST_C}
+EOF
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  -f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
+  -f /tmp/values-ci-images.yaml \
+  > /tmp/agentium-helm-ci.yaml
+grep -q "agentium-frontend@sha256:${DIGEST_A}" /tmp/agentium-helm-ci.yaml \
+  || fail "CI digest overlay must win over :local"
+if grep -q 'agentium-frontend:local' /tmp/agentium-helm-ci.yaml; then
+  fail "CI overlay left a :local frontend image"
+fi
+grep -q 'name: agentium-lab' /tmp/agentium-helm-ci.yaml || fail "CI render must keep existingSecret"
 
 export ANSIBLE_CONFIG="$ROOT/ops/ansible/ansible.cfg"
 ansible-playbook --syntax-check "$ROOT/ops/ansible/playbooks/provision-cluster.yml"
-ansible-playbook --syntax-check "$ROOT/ops/ansible/playbooks/deploy-agentium.yml"
+ansible-playbook --syntax-check -i "$ROOT/ops/ansible/inventories/ci" \
+  "$ROOT/ops/ansible/playbooks/deploy-agentium.yml"
 
 printf 'ops scaffold ok\n'

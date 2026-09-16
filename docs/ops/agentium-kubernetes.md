@@ -1,15 +1,20 @@
 # Agentium Kubernetes track
 
-Status: scaffold on `cursor/agentium-kubernetes-3892`. The demo VM remains
+Status: IaC + CI on `cursor/agentium-kubernetes-3892`. The demo VM remains
 Docker Compose. This document is the map from that Compose stack to the
-Terraform / Ansible / Helm path.
+managed-cluster path (OVH MKS first, AKS twin).
 
 ## Why this shape
 
-The pipeline shape is the same one papAI uses: Terraform for OpenStack
-(`ops/instance`), Ansible then Helm for deploy (`ops/ansible`,
-`ops/helm/agentium`). The Agentium tree lives in this repo and is enough to
-continue. It does not need a sibling checkout of the papAI OPS repos.
+Terraform provides a portable cluster contract. Ansible only deploys the
+Helm chart. The Agentium tree lives in this repo; it does not need a
+sibling checkout of papAI OPS. `ops/instance` (Nova + kubeadm) is an
+optional fallback and is not the GitLab path.
+
+```
+validate → terraform plan → terraform apply (manual lab)
+        → docker build/push digest → ansible helm → smoke
+```
 
 ## Compose → Helm
 
@@ -19,7 +24,7 @@ continue. It does not need a sibling checkout of the papAI OPS repos.
 | `agentium-backend` | Deployment + Service `agentium-backend` | on |
 | `agentium-worker-cpu` | Deployment `agentium-worker` | on, embedded beat |
 | `agentium-p4-maintenance` | Deployment `agentium-p4-maintenance` | on |
-| `agentium-migrate` | Job `agentium-migrate` | on (pre-install/pre-upgrade hook) |
+| `agentium-migrate` | Job `agentium-migrate` | on (`post-install,post-upgrade`, waits for Postgres) |
 | `agentium-rabbitmq` | StatefulSet + Service | on |
 | `agentium-pg` | StatefulSet + Service | on (lab). Turn off when using an external DB |
 | `agentium-minio` | StatefulSet + Service | on |
@@ -35,9 +40,31 @@ be rewritten for the first cut.
 
 Ingress paths copy `deploy/nginx/agentium-container-frontend.conf`:
 
+- `/health/live` → backend `:8000` (smoke; not the SPA)
 - `/` → frontend `:8080`
 - `/api` → backend `:8000`
 - `/kc` → Keycloak `:8080`
+- hidden-path regex (`/.env`, `/.git`, `/assets/.secret`) → `404`, same
+  contract as `docs/ops/ingress-proxy-contract.md`. `/kc/` and
+  `/.well-known/acme-challenge/` stay reachable.
+
+Lab/prod values set `createSecret: false` and `existingSecret`. Placeholders
+in `values.yaml` exist only so `helm template` works locally.
+
+## GitLab
+
+Jobs live in `.gitlab/ci/agentium-k8s.yml` under `resource_group`
+`agentium-k8s-lab`. They do not share the VM `agentium-production` group
+and they do not SSH to `omnirag-demo`.
+
+Protected variables for the first lab apply: `OVH_ENDPOINT`,
+`OVH_APPLICATION_KEY`, `OVH_APPLICATION_SECRET`, `OVH_CONSUMER_KEY`,
+`OS_PROJECT_ID`, plus registry (`AGENTIUM_LAB_REGISTRY`,
+`AGENTIUM_LAB_REGISTRY_USER`, `AGENTIUM_LAB_REGISTRY_PASSWORD`,
+`PIP_INDEX_URL`) and `AGENTIUM_LAB_INGRESS_URL` for smoke.
+
+`terraform apply` is manual on protected `demo/agentic` until that lab has
+an explicit GO.
 
 ## Honesty
 
