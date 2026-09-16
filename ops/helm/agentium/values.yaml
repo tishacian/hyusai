@@ -1,10 +1,15 @@
-# Image tags stay SHA- or digest-addressed. The Compose registry overlay
-# (docker/compose.agentium.registry.yml) is the same contract.
+# :local is for `helm template` only. Lab/prod overlays and the CI artifact
+# values-ci-images.yaml must use @sha256: or a SHA12 tag, same contract as
+# docker/compose.agentium.registry.yml.
 image:
   pullPolicy: IfNotPresent
   frontend: agentium-frontend:local
   backend: agentium-backend:local
   worker: agentium-worker:local
+
+# Provider CSI class from Terraform (`storage_class`). Empty keeps the
+# cluster default. Per-service persistence.storageClass wins when set.
+storageClass: ""
 
 imagePullSecrets: []
 
@@ -36,7 +41,9 @@ p4Maintenance:
 
 migrate:
   enabled: true
-  hook: pre-upgrade
+  # post-install so the Secret and Postgres STS exist before the Job runs.
+  hook: post-install,post-upgrade
+  waitForPostgres: true
 
 rabbitmq:
   enabled: true
@@ -82,10 +89,20 @@ ingress:
   enabled: true
   className: nginx
   host: agentium.example
+  hiddenPathGuard: true
+  annotations: {}
   tls: []
   # tls:
   #   - secretName: agentium-tls
   #     hosts: [agentium.example]
+
+# Compose profiles. Stay off until the chart grows matching templates.
+livekit:
+  enabled: false
+sftp:
+  enabled: false
+beat:
+  enabled: false
 
 # Application env that is not secret. Secrets go in existingSecret or
 # the generated Secret when createSecret is true.
@@ -93,6 +110,8 @@ config:
   AGENTIUM_DISABLE_DOTENV: "1"
   STARTUP_RECONCILIATION: enabled
 
+# true only for local `helm template`. Lab/prod set existingSecret and
+# createSecret: false so no password is committed for a real env.
 createSecret: true
 # When createSecret is true these placeholders are rendered. Replace them
 # before any shared environment; they are not production values.

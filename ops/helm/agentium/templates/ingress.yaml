@@ -9,6 +9,15 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- if .Values.ingress.hiddenPathGuard }}
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location ~ ^(?!/kc/)(?!/\.well-known/acme-challenge/)(?:.*/)?\. {
+        return 404;
+      }
+    {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className | quote }}
   {{- if .Values.ingress.tls }}
@@ -19,6 +28,13 @@ spec:
     - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
+          - path: /health/live
+            pathType: Exact
+            backend:
+              service:
+                name: agentium-backend
+                port:
+                  name: http
           - path: /api
             pathType: Prefix
             backend:

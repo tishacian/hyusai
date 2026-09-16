@@ -1,0 +1,38 @@
+# AKS lab twin. Same chart, Azure CSI + Application Routing (or nginx).
+# Images come from values-ci-images.yaml. Deploy with values.yaml + this
+# file + that overlay.
+createSecret: false
+existingSecret: agentium-lab
+
+storageClass: managed-csi
+
+image:
+  pullPolicy: Always
+
+ingress:
+  enabled: true
+  className: webapprouting.kubernetes.azure.com
+  host: lab-agentium.example
+  # Hidden-path snippet is ingress-nginx. Install nginx on AKS to enforce it;
+  # Application Routing ignores the annotation.
+  hiddenPathGuard: true
+
+postgres:
+  persistence:
+    storageClass: managed-csi
+minio:
+  persistence:
+    storageClass: managed-csi
+qdrant:
+  persistence:
+    storageClass: managed-csi
+rabbitmq:
+  persistence:
+    storageClass: managed-csi
+
+livekit:
+  enabled: false
+sftp:
+  enabled: false
+beat:
+  enabled: false

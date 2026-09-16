@@ -69,9 +69,7 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        {{- if .Values.minio.persistence.storageClass }}
-        storageClassName: {{ .Values.minio.persistence.storageClass | quote }}
-        {{- end }}
+        {{- include "agentium.storageClassName" (list .Values.minio.persistence.storageClass .) | nindent 8 }}
         resources:
           requests:
             storage: {{ .Values.minio.persistence.size }}
