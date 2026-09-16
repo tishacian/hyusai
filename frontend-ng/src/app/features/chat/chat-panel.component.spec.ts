@@ -420,3 +420,30 @@ test('a HITL poll from a conversation left behind cannot mutate the active conve
     injector.destroy();
   }
 });
+
+
+test('spreadsheet citations preserve the sheet and cell range in the source preview request', () => {
+  const { injector, component } = makeHarness();
+  try {
+    component.previewSource({
+      document_id: 'history', collection: 'workbook', filename: 'history.xlsx',
+      metadata: { sheet_name: 'Interventions & notes', cell_range: 'N830:O831' },
+    });
+    const url = new URL(component.sourcePreviewUrl()!, 'https://example.test');
+    assert.equal(url.searchParams.get('sheet_name'), 'Interventions & notes');
+    assert.equal(url.searchParams.get('cell_range'), 'N830:O831');
+    assert.equal(component.sourcePreviewOpen(), true);
+    component.previewSource({ document_id: 'history', collection: 'workbook', cell_range: 'N830' });
+    // Preserve incomplete provenance so the server refuses it, rather than opening sheet 1.
+    assert.equal(new URL(component.sourcePreviewUrl()!, 'https://example.test').searchParams.get('cell_range'), 'N830');
+    component.closeSourcePreview();
+    component.previewSource({ document_id: 'manual', collection: 'workbook', filename: 'manual.pdf', page: 2 });
+    assert.equal(component.sourcePreviewUrl()!.includes('cell_range'), false);
+    assert.equal(component.sourcePreviewPage(), 2);
+    component.previewSource({ document_id: 'scan', metadata: { collection_name: 'manuals', page_number: '12' } });
+    assert.equal(component.sourcePreviewPage(), 12);
+    assert.equal(component.sourceLocator({ metadata: { page_number: '12' } })?.label, 'chat.source.locator_page');
+    component.previewSource({ document_id: 'scan', collection: 'manuals', page: '12oops' });
+    assert.equal(component.sourcePreviewPage(), null);
+  } finally { injector.destroy(); }
+});

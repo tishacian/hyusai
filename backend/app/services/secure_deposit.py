@@ -312,24 +312,49 @@ def _cell_preview(value: Any) -> str:
     return str(value)[:240]
 
 
-def _spreadsheet_preview(path: Path) -> dict[str, Any]:
+def _spreadsheet_preview(
+    path: Path, *, sheet_name: str | None = None, cell_range: str | None = None,
+) -> dict[str, Any]:
     from openpyxl import load_workbook
+    from openpyxl.utils.cell import get_column_letter, range_boundaries
+
+    bounds = None
+    if cell_range:
+        if not sheet_name or not re.fullmatch(r"[A-Za-z]{1,3}[1-9][0-9]{0,6}(?::[A-Za-z]{1,3}[1-9][0-9]{0,6})?", cell_range):
+            raise HTTPException(status_code=422, detail="A cell range requires a sheet and valid cell coordinates")
+        bounds = range_boundaries(cell_range.upper())
+        c1, r1, c2, r2 = bounds
+        if not (1 <= c1 <= c2 <= 16384 and 1 <= r1 <= r2 <= 1048576):
+            raise HTTPException(status_code=422, detail="Cell range is outside spreadsheet limits")
 
     workbook = load_workbook(path, read_only=True, data_only=True)
     try:
-        sheet = workbook[workbook.sheetnames[0]]
-        rows: list[list[str]] = []
-        max_rows = 40
-        max_cols = 12
-        for row_index, row in enumerate(sheet.iter_rows(values_only=True), start=1):
-            if row_index > max_rows:
-                break
-            rows.append([_cell_preview(value) for value in row[:max_cols]])
+        if sheet_name is not None and sheet_name not in workbook.sheetnames:
+            raise HTTPException(status_code=404, detail="Referenced worksheet not found")
+        sheet = workbook[sheet_name if sheet_name is not None else workbook.sheetnames[0]]
+        max_row, max_col = sheet.max_row or 1, sheet.max_column or 1
+        if bounds and (bounds[2] > max_col or bounds[3] > max_row):
+            raise HTTPException(status_code=404, detail="Referenced cells are outside the source worksheet")
+        row_start = max(1, bounds[1] - 2) if bounds else 1
+        col_start = max(1, bounds[0] - 2) if bounds else 1
+        row_end, col_end = min(max_row, row_start + 39), min(max_col, col_start + 11)
+        rows = [
+            [_cell_preview(value) for value in row]
+            for row in sheet.iter_rows(min_row=row_start, max_row=row_end,
+                                       min_col=col_start, max_col=col_end, values_only=True)
+        ]
         return {
             "kind": "spreadsheet",
             "sheet_name": sheet.title,
             "rows": rows,
-            "truncated": bool((sheet.max_row or 0) > max_rows or (sheet.max_column or 0) > max_cols),
+            "row_start": row_start,
+            "column_start": col_start,
+            "columns": [get_column_letter(col) for col in range(col_start, col_end + 1)],
+            "cell_range": cell_range.upper() if cell_range else None,
+            "selection": ({"row_start": bounds[1], "row_end": bounds[3],
+                           "column_start": bounds[0], "column_end": bounds[2]} if bounds else None),
+            "selection_truncated": bool(bounds and (bounds[3] > row_end or bounds[2] > col_end)),
+            "truncated": row_start > 1 or col_start > 1 or row_end < max_row or col_end < max_col,
         }
     finally:
         workbook.close()
@@ -388,6 +413,8 @@ def build_file_preview(
     media_type: str,
     size_bytes: int,
     download_url: str,
+    sheet_name: str | None = None,
+    cell_range: str | None = None,
 ) -> dict[str, Any]:
     """Render an inline preview payload for a local file.
 
@@ -405,7 +432,7 @@ def build_file_preview(
     }
 
     if ext in _SPREADSHEET_EXTENSIONS and size <= _STRUCTURED_PREVIEW_MAX_BYTES:
-        return {**base, **_spreadsheet_preview(path)}
+        return {**base, **_spreadsheet_preview(path, sheet_name=sheet_name, cell_range=cell_range)}
 
     if ext in _DOCX_EXTENSIONS and size <= _DOCX_PREVIEW_MAX_BYTES:
         return {**base, **_docx_preview(path)}

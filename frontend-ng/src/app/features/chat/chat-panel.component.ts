@@ -5359,6 +5359,7 @@ export class ChatPanelComponent implements AfterViewInit {
       (src.collection as string | undefined) ||
       (src.collection_name as string | undefined) ||
       ((src.metadata as any)?.collection as string | undefined) ||
+      ((src.metadata as any)?.collection_name as string | undefined) ||
       ''
     );
   }
@@ -5389,7 +5390,7 @@ export class ChatPanelComponent implements AfterViewInit {
         tooltip: this.i18n.t('chat.source.locator_sheet', { label: parts.join(' · ') }),
       };
     }
-    const page = (src.page as number | string | undefined) ?? (meta['page'] as number | string | undefined);
+    const page = this.sourcePageNumber(src);
     if (page !== undefined && page !== null && `${page}`.trim() !== '') {
       return {
         label: this.i18n.t('chat.source.locator_page', { page }),
@@ -5447,8 +5448,8 @@ export class ChatPanelComponent implements AfterViewInit {
       (meta['page'] as number | string | undefined) ??
       (meta['page_number'] as number | string | undefined);
     if (raw === undefined || raw === null || `${raw}`.trim() === '') return null;
-    const value = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-    return Number.isFinite(value) && value > 0 ? value : null;
+    const value = typeof raw === 'number' ? raw : Number(raw);
+    return Number.isInteger(value) && value > 0 ? value : null;
   }
 
   /** A source is previewable when we can resolve a document id + collection. */
@@ -5468,6 +5469,13 @@ export class ChatPanelComponent implements AfterViewInit {
       `${this.api.base}/documents/${encodeURIComponent(documentId)}/rich-preview` +
       `?collection_name=${encodeURIComponent(collection)}`;
     if (filename) url += `&filename=${encodeURIComponent(filename)}`;
+    const meta = (src.metadata ?? {}) as Record<string, unknown>;
+    const sheet = src['sheet_name'] ?? meta['sheet_name'];
+    const cells = src['cell_range'] ?? meta['cell_range'] ?? src['cell_ref'] ?? meta['cell_ref'];
+    if (typeof sheet === 'string' && sheet) {
+      url += `&sheet_name=${encodeURIComponent(sheet)}`;
+    }
+    if (typeof cells === 'string' && cells) url += `&cell_range=${encodeURIComponent(cells)}`;
     this.sourcePreviewTitle.set(this.sourceTitle(src));
     this.sourcePreviewUrl.set(url);
     this.sourcePreviewPage.set(this.sourcePageNumber(src));

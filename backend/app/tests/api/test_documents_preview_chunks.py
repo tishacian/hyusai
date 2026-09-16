@@ -608,3 +608,61 @@ def test_serve_document_raw_streams_bytes(db_session, tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert resp.content == b"raw-bytes"
     assert "inline" in resp.headers.get("content-disposition", "")
+
+
+def test_spreadsheet_preview_opens_cited_sheet_and_cells(db_session, tmp_path, monkeypatch):
+    from openpyxl import Workbook
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-cells", name="Cells", slug="cells")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Workbook")
+    db_session.commit()
+    book = Workbook()
+    book.active["A1"] = "Unrelated cover page"
+    sheet = book.create_sheet("Interventions & notes")
+    sheet["N830"] = "NF-04"
+    sheet["O830"] = 55
+    sheet["N831"] = "NF-05"
+    sheet["O831"] = 0
+    data = io.BytesIO()
+    book.save(data)
+    book.close()
+    get_object_store().write_bytes(original_key(collection, "history.xlsx"), data.getvalue())
+    _patch_doc_service(monkeypatch, FakeVectorDB([], [{"document_id": "history", "filename": "history.xlsx"}]))
+    client = _client(db_session, ws)
+    params = {"collection_name": collection.slug, "sheet_name": "Interventions & notes", "cell_range": "N830:O831"}
+    response = client.get("/documents/history/rich-preview", params=params)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sheet_name"] == "Interventions & notes"
+    assert body["row_start"] == 828
+    assert body["column_start"] == 12
+    assert body["columns"] == ["L", "M", "N", "O"]
+    assert body["rows"][2][2:] == ["NF-04", "55"]
+    assert body["rows"][3][2:] == ["NF-05", "0"]
+    assert body["selection"] == {"row_start": 830, "row_end": 831, "column_start": 14, "column_end": 15}
+    assert body["truncated"] is True
+    assert body["selection_truncated"] is False
+
+    # Missing, malformed and stale provenance must never silently open sheet 1.
+    for changes, status in [
+        ({"sheet_name": "Removed sheet"}, 404),
+        ({"cell_range": "N832"}, 404),
+        ({"cell_range": "O831:N830"}, 422),
+        ({"cell_range": "XFE1"}, 422),
+        ({"cell_range": "A1048577"}, 422),
+        ({"cell_range": "A:A"}, 422),
+        ({"cell_range": "=HYPERLINK(1)"}, 422),
+        ({"sheet_name": ""}, 422),
+    ]:
+        assert client.get("/documents/history/rich-preview", params={**params, **changes}).status_code == status
+    assert client.get("/documents/history/rich-preview", params={"collection_name": collection.slug, "cell_range": "A1"}).status_code == 422
+    large = client.get("/documents/history/rich-preview", params={**params, "cell_range": "A1:O831"}).json()
+    assert large["selection_truncated"] is True
+    assert len(large["rows"]) == 40
+    assert len(large["rows"][0]) == 12
+    untargeted = client.get("/documents/history/rich-preview", params={"collection_name": collection.slug}).json()
+    assert untargeted["rows"] == [["Unrelated cover page"]]
