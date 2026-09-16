@@ -12,3 +12,13 @@ def test_history_uses_the_existing_orders_and_keeps_unknowns_explicit():
         assert f"Actual duration: {row['actual_minutes']} minutes." in section
         assert "Cause: not supplied. Equipment: not supplied." in section
     assert REFERENCE_CASES[0]["resource"] != REFERENCE_CASES[1]["resource"]
+
+
+def test_tools_use_distinct_frozen_native_retrieval_resources():
+    from scripts.showcase_intervention import retrieval_tool_specs
+    from app.services.skills_registry.executors import validate_executor_binding
+    specs = retrieval_tool_specs('notices', 'history')
+    assert [spec['executor']['params']['frozen_input']['context_collection'] for spec in specs] == ['notices', 'history']
+    for spec in specs:
+        validate_executor_binding(spec['executor'])
+        assert spec['input_schema']['additionalProperties'] is False

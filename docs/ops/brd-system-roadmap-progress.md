@@ -635,3 +635,19 @@ A real scoped search returns NF-04 with 30 planned and 55 actual minutes and its
 source identity. Evidence: `docs/evidence/northforge-intervention-2026-09-16/ingestion-and-search.json`.
 The dedicated collection is now available for the second read tool. Native
 AgentLoop tool choice and the BRD-generated System are still unqualified.
+
+
+### Resource-bound NorthForge read tools — 16 September
+
+Authored registry calls to semantic_search_v1 with a frozen collection now pass
+an authoritative retrieval contract to the native wrapper. Conflicting frozen
+aliases, a different System collection, or an excluding authoritative scope are
+refused. Empty results cannot trigger workspace-wide fallback. Existing System
+controls and caller context are preserved; no new retrieval engine is added.
+
+The NorthForge seed helper defines distinct notice/history Skills using this
+binding. Thirty-two executor/wrapper tests passed; after adding scope-exclusion
+checks, twenty executor tests and two seed tests pass. One test runs the native
+semantic-search wrapper with only its retrieval boundary replaced and proves a
+single collection-scoped call on no results. Actual tool installation and live
+AgentLoop selection await deployment of the guard; they are not yet qualified.
