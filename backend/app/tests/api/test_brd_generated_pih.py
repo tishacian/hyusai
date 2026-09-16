@@ -50,6 +50,8 @@ async def test_generated_pih_proposal_executes_and_resumes(db_session, tmp_path,
             workspace=workspace, user_id=user.id, input_ref=case["input_ref"],
             expected_draft_revision=draft.revision, expected_flow_sha256=draft.flow_sha256)
         assert run.execution_contract["brd_origin"]["proposal_id"] == proposal["id"]
+        from app.services.evaluation.campaigns import assert_read_only
+        assert_read_only(run.flow_snapshot, run.execution_contract)
         assert run.status == "pending"  # ingress validation, not model execution
 
         db_session.commit()

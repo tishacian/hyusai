@@ -504,3 +504,19 @@ stages relied on model copies and are now rejected before proposal retention.
 The existing bounded correction loop receives the diagnostic. Fourteen focused
 tests pass. This proves availability of the original input, not faithful citation
 by the model; actual output review remains mandatory.
+
+
+### Comparison with explicit human review — 16 September
+
+Read-only comparisons now admit native HITL nodes while retaining the executor
+allowlist and rejecting write effects. Pending sides remain unevaluated and
+expose their checkpoint decision ID alongside the canonical Run ID. Refreshing
+a campaign never changes a decision or resumes a Run. Once the canonical Run
+finishes, the existing server assertions evaluate its output.
+
+Validation: 28 campaign API tests and four PIH execution/resumption tests pass.
+The latter verify the actual compiled documentary contract passes the read-only
+check, alongside accepted/rejected and stale/pending-decision behavior. The API
+refresh test uses persisted status transitions; it is not a real participant
+session. Initial draft suite execution without a completed baseline and the
+frontend review/navigation remain outstanding R1 work.

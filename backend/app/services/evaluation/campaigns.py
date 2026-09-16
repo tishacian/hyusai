@@ -82,7 +82,7 @@ def freeze_generation_models(db, workspace, system_id: str, inputs: dict) -> Non
 def assert_read_only(flow: dict, contract: dict) -> None:
     """Fail closed for unqualified exectors, even if a node declares effect=read."""
     safe_builtins = {"llm_rag_answer_v1", "semantic_search_v1", "claim_audit_v1", "audit_log_v1"}
-    safe_nodes = {"source", "sink", "skill", "task", "transform", "condition", "join"}
+    safe_nodes = {"source", "sink", "skill", "task", "transform", "condition", "join", "hitl"}
     for node in flow.get("nodes", []):
         kind = node.get("kind") or node.get("type")
         config = node.get("config") or {}
@@ -220,7 +220,9 @@ def refresh_campaign(db, campaign: EvaluationCampaign) -> EvaluationCampaign:
             item[side] = {"run_id": run.id, "status": run.status, **verdict,
                 "output_ref": copy.deepcopy(run.output_ref), "duration_ms": run.duration_ms,
                 **execution_cost_evidence(db, run), "evaluation_cost": None, "test_generation_cost": None,
-                "flow_sha256": run.flow_sha256}
+                "flow_sha256": run.flow_sha256,
+                "awaiting_decision_id": next((cp.get("decision_id") for cp in reversed(run.checkpoints or [])
+                    if cp.get("kind") == "hitl_pause"), None) if run.status == "hitl_pending" else None}
             finished += run.status in {"completed", "failed", "cancelled"}
         before, after = item["baseline"]["verdict"], item["candidate"]["verdict"]
         item["change"] = ("pending" if "pending" in (before, after) else "unevaluated" if "unevaluated" in (before, after)
