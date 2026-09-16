@@ -885,6 +885,11 @@ def test_golden_runs_use_reviewed_suite_without_baseline(db_session, monkeypatch
     assert replay.json()["batch_id"] == response.json()["batch_id"]
     assert replay.json()["runs"][0]["id"] == runs[0].id
     assert dispatches == [runs[0].id]
+    http.app.include_router(runs_endpoint.router, prefix="/runs")
+    recovered = http.get("/runs", params={"system_id": system.id, "golden_batch_id": replay.json()["batch_id"]})
+    assert recovered.status_code == 200, recovered.text
+    assert [row["id"] for row in recovered.json()["runs"]] == [runs[0].id]
+    assert http.get("/runs", params={"system_id": system.id, "golden_batch_id": "other"}).json()["runs"] == []
     assert db_session.query(Run).filter_by(system_id=system.id).count() == 1
     changed = {**body, "flow_definition": _flow("changed-request")}
     assert http.post(url, json=changed).status_code == 409

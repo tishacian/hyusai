@@ -9,12 +9,12 @@ import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { BrdSystemProposalComponent } from './brd-system-proposal.component';
 
-function setup(api: Record<string, unknown>) {
+function setup(api: Record<string, unknown>, params: Record<string, string> = {}) {
   let current = true;
   const injector = Injector.create({ providers: [
     { provide: CanonicalApiService, useValue: api },
     { provide: I18nService, useValue: { t: (key: string) => key } },
-    { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({}) } } },
+    { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(params) } } },
     { provide: Router, useValue: { navigate: async () => true } },
     { provide: WorkspaceService, useValue: { captureRequestScope: () => ({}), isRequestScopeCurrent: () => current } },
     { provide: BrdSystemProposalComponent, useFactory: () => new BrdSystemProposalComponent() },
@@ -82,5 +82,22 @@ test('uncertain suite execution retries keep the same frozen request and workspa
   assert.equal(hydrations, 1);
   leave(); component.testCases();
   assert.equal(sent.length, 2);
+  component.ngOnDestroy();
+});
+
+
+test('reopening a completed BRD job restores its batch without executing again', async () => {
+  const queries: unknown[] = [];
+  const {component} = setup({
+    listSkills: () => of([]),
+    getBrdGeneration: () => of({status: 'completed', result: {id: 'proposal'}}),
+    getBrdProposal: () => of({...proposal, system_id: 'system', status: 'applied'}),
+    listRuns: (query: unknown) => { queries.push(query); return of([{id: 'existing', status: 'hitl_pending'}]); },
+    triggerSystemFlowWorkbenchGoldenRuns: () => { throw new Error('must not execute'); },
+  }, {brd_job: 'job', brd_batch: 'batch'});
+  component.ngOnInit();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(queries, [{system_id: 'system', golden_batch_id: 'batch'}]);
+  assert.equal(component.testRuns()[0].id, 'existing');
   component.ngOnDestroy();
 });

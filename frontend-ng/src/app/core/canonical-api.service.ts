@@ -328,7 +328,7 @@ export interface RunTriggerRequest {
 }
 
 export interface Run {
-  test_result?: { suite_id: string; suite_revision: number; case_id: string; verdict: string; assertions: Array<{id: string; passed: boolean}> } | null;
+  test_result?: { suite_id: string; suite_revision: number; case_id: string; batch_id: string; verdict: string; assertions: Array<{id: string; passed: boolean}> } | null;
   id: string;
   system_id: string;
   capability_id?: string | null;
@@ -2257,12 +2257,14 @@ export class CanonicalApiService {
   }
 
   listRuns(params?: {
+    golden_batch_id?: string;
     system_id?: string;
     capability_id?: string;
     origin?: string;
     status?: string;
   }): Observable<Run[]> {
     const p: Record<string, string> = {};
+    if (params?.golden_batch_id) p['golden_batch_id'] = params.golden_batch_id;
     if (params?.system_id) p['system_id'] = params.system_id;
     if (params?.capability_id) p['capability_id'] = params.capability_id;
     if (params?.origin) p['origin'] = params.origin;
