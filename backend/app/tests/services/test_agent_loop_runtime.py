@@ -533,3 +533,43 @@ def test_join_merge_is_deterministic():
     assert merge_fanout_payloads([left, right]) == merge_fanout_payloads([left, right])
     assert merge_fanout_payloads([left, right])["nested"]["a"] == 1
     assert merge_fanout_payloads([left, right])["nested"]["b"] == 2
+
+
+@pytest.mark.asyncio
+async def test_retrieval_evidence_reaches_next_decision_and_persisted_output(db_session, monkeypatch):
+    evidence = {"results": [{"content": "Continuous pressure: 700 bar.",
+                            "metadata": {"document_id": "notice-700", "page": 2}}]}
+    seen = []
+
+    async def decide(inp, ctx):
+        if inp["observations"]:
+            seen.extend(inp["observations"])
+            return {"confidence": 1, "done": True, "exit": "complete"}
+        return {"next_skill": "semantic_search_v1", "confidence": 1}
+
+    async def retrieve(inp, ctx):
+        assert inp["query"] == "What is the PMP-700 continuous pressure limit?"
+        assert inp["goal"]["objective"] == inp["query"]
+        return evidence
+
+    _install(monkeypatch, {"decide_next_v1": decide, "semantic_search_v1": retrieve})
+    flow = json.loads(json.dumps(LOOP_FLOW))
+    config = flow["nodes"][1]["config"]
+    config.update(skill_allowlist=["semantic_search_v1"], privilege_tier="recommend")
+    config["goal"] = {"done_when": []}
+    config["inputs_map"] = {
+        name: {"node_id": "source.request", "path": ["request"], "required": True}
+        for name in ("objective", "query")
+    }
+    system = _mk_system(db_session, flow, ["decide_next_v1", "semantic_search_v1"])
+    run = _mk_run(db_session, system, request="What is the PMP-700 continuous pressure limit?")
+    await execute_run_dag(run.id)
+    run = _reload(db_session, run)
+    assert run.status == "completed"
+    observation = run.output_ref["observations"][0]
+    assert observation["output"] == evidence
+    assert seen[0] == observation
+    invocation = db_session.get(SkillInvocation, observation["invocation_id"])
+    assert invocation.run_id == run.id
+    assert invocation.skill_slug == "semantic_search_v1"
+    assert invocation.output_ref == observation["output"]

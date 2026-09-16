@@ -223,3 +223,16 @@ def test_second_requirements_table_is_reported_instead_of_silently_discarded():
     assert any("Multiple functional requirements tables" in p for p in parsed["problems"])
     assert len(parsed["requirements"]) == 1
     assert all(p["table"] != 7 for p in parsed["provenance"])
+
+
+def test_northforge_acceptance_cases_are_retained_with_source_positions():
+    from pathlib import Path
+    from app.services.skills_registry.brd_import import parse_business_requirements
+    data = (Path(__file__).parents[1] / "fixtures/brd/northforge-intervention.docx").read_bytes()
+    parsed = parse_business_requirements(data)
+    cases = parsed["acceptance_cases"]
+    assert len(cases) == 5
+    assert "700 bar" in cases[0]["text"]
+    assert "30 and 55 minutes" in cases[1]["text"]
+    assert "Refuse mutations" in cases[3]["text"]
+    assert all(case["paragraph"] > 0 for case in cases)

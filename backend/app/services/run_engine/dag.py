@@ -3206,6 +3206,20 @@ async def _run_agent_loop(
             state.total_cost += invocation.cost or 0.0
         return invocation
 
+    def _observation(invocation, *, turn: int, slug: str, summary: str = ""):
+        ok = invocation is not None and invocation.status == "completed"
+        output = invocation.output_ref if ok and isinstance(invocation.output_ref, dict) else None
+        return {
+            "turn": turn, "skill": slug, "ok": ok,
+            "summary": summary or str((output or {}).get("summary")
+                                      or (output or {}).get("completion")
+                                      or (output or {}).get("status") or ""),
+            "invocation_id": str(invocation.id) if invocation is not None else None,
+            # Preserve the actual tool evidence, including retrieval results and metadata.
+            # A failed invocation is not a successful source observation.
+            "output": output,
+        }
+
     def _persist_resume(next_turn: int, extra: Optional[Dict[str, Any]] = None) -> None:
         loops[node.id] = {
             "observations": observations,
@@ -3236,12 +3250,8 @@ async def _run_agent_loop(
             )
             ok = bool(invocation is not None and invocation.status == "completed")
             observations.append(
-                {
-                    "turn": max(start_turn - 1, 1),
-                    "skill": pending_write,
-                    "ok": ok,
-                    "summary": "human_approved_write" if ok else "write_failed",
-                }
+                _observation(invocation, turn=max(start_turn - 1, 1), slug=pending_write,
+                             summary="human_approved_write" if ok else "write_failed")
             )
             pending_write = None
             _persist_resume(start_turn)
@@ -3395,18 +3405,7 @@ async def _run_agent_loop(
             turn=turn,
             kind="agent_loop_act",
         )
-        ok = bool(invocation is not None and invocation.status == "completed")
-        summary = ""
-        if invocation is not None and isinstance(invocation.output_ref, dict):
-            summary = str(
-                invocation.output_ref.get("summary")
-                or invocation.output_ref.get("completion")
-                or invocation.output_ref.get("status")
-                or ""
-            )
-        observations.append(
-            {"turn": turn, "skill": next_skill, "ok": ok, "summary": summary}
-        )
+        observations.append(_observation(invocation, turn=turn, slug=str(next_skill)))
         if evaluate_done_when(
             goal.get("done_when") or [],
             observations=observations,

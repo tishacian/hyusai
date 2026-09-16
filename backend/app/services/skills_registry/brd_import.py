@@ -125,6 +125,7 @@ def parse_business_requirements(data: bytes) -> dict[str, Any]:
         "document": {"sha256": hashlib.sha256(data).hexdigest(), "size_bytes": len(data)},
         "provenance": provenance,
         "context": _context(document),
+        "acceptance_cases": _acceptance_cases(document),
         "outcomes": outcomes,
         "requirements": requirements,
         "decisions": decisions,
@@ -236,3 +237,19 @@ def _context(document: Any) -> list[dict[str, str]]:
             continue
         entries.append({"label": " ".join(label.split()), "value": cleaned})
     return entries
+
+
+def _acceptance_cases(document: Any) -> list[dict[str, Any]]:
+    """Retain supplied acceptance paragraphs as source data, not passing assertions."""
+    cases = []
+    inside = False
+    for index, paragraph in enumerate(document.paragraphs, 1):
+        text = " ".join((paragraph.text or "").split())
+        style = getattr(paragraph.style, "name", "") or ""
+        if style.startswith("Heading"):
+            heading = re.sub(r"^[\d.\s]+", "", text).casefold()
+            inside = heading in {"acceptance cases", "cas de recette", "cas d’acceptation", "cas d'acceptation"}
+            continue
+        if inside and text:
+            cases.append({"paragraph": index, "text": text})
+    return cases
