@@ -1,0 +1,25 @@
+{
+  "collection_id": "55421492-532a-448f-8b64-92960a780422",
+  "collection_slug": "qa-ingest-retry-c399f2be",
+  "source_restored": true,
+  "job": {
+    "id": "62601299-b603-4c6f-ba34-bfc07667cff6",
+    "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+    "collection_id": "55421492-532a-448f-8b64-92960a780422",
+    "kind": "document_ingest_index",
+    "celery_task_id": "8f4c5cc9-b091-483f-b2a0-c92b3ad751e9",
+    "status": "failed",
+    "progress": 100,
+    "error": "agentium-artifacts/workspaces/e2ed9e40-5fa6-4e32-8948-3e1220134fd3/knowledge-collections/55421492-532a-448f-8b64-92960a780422/original/synthetic-recovery-checkpoint.txt",
+    "stage": "copy_originals",
+    "result": {
+      "stage": "copy_originals",
+      "qualification": "c399f2be-retained-source-recovery"
+    },
+    "poll_url": "/documents/jobs/62601299-b603-4c6f-ba34-bfc07667cff6",
+    "created_at": "2026-09-16T21:48:46.576040",
+    "started_at": "2026-09-16T21:48:47.128495",
+    "completed_at": "2026-09-16T21:48:50.172577",
+    "updated_at": "2026-09-16T21:48:50.172577"
+  }
+}

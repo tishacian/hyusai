@@ -1,7 +1,8 @@
 # Source indexing recovery — 16 September 2026
 
-Status: implemented and locally qualified; not deployed in this evidence record.
-Current public runtime before this candidate: `6f8f8169`.
+Status: deployed in `c399f2be`. [Runtime, canaries and real recovery evidence](../release-c399f2be-2026-09-16/README.md).
+The local checks and captures below retain their original scope; they are not
+production UI screenshots.
 
 ## Behavior
 
@@ -63,16 +64,17 @@ and voice → publication → new-conversation citation still require qualificat
 R0 human sessions and authenticated manual acceptance remain open; this increment
 does not close R0, R1 or R2.
 
-## Deployment preparation — runtime unchanged
+## Historical first build attempt — no runtime switch
 
 Implementation `c651db4f` is pushed on `demo/agentic`. Its first VM backend build
 failed with a missing Docker content digest while old untagged-image cleanup was
-still running. No application container was switched. Production remains
-`6f8f8169`; no real recovery qualification is claimed yet.
+still running. No application container was switched; production stayed on
+`6f8f8169` at that point. The later c399 release and real recovery are linked above.
 
 The fresh resolver selected newer Python packages than the qualified runtime.
 The next candidate therefore adds explicit API/worker constraints from that
 runtime (211 / 253 installed package versions); both source environments pass
 `pip check`. Two additional tests verify exact version coverage and compatibility
 with the direct requirements, CPU Torch and optional Giskard declarations.
-Actual fresh-image installation and runtime checks are still required.
+The subsequent fresh-image installation and runtime checks are recorded in the
+c399 release evidence; they were not available during this first attempt.

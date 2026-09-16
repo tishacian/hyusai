@@ -6717,3 +6717,43 @@ establish the new Work constraints. Authenticated manual smoke, new handoff
 screenshots/video, second-user application consumption and human baseline remain
 open. No NAWA theme or adoption-default change. R0/R1 are not closed.
 [Release evidence](../evidence/brd-work-publication-2026-09-16/README.md).
+
+### 2026-09-16 — spreadsheet citation cells and Golden verdicts
+
+Deployed `6f8f81696db0a736c2facfa32e97976d4d55db09` from `demo/agentic`.
+Three VM-built immutable images, worker offline Giskard qualification, storage
+checks, exact public identities and healthy services passed. No migration.
+Carakai: 10 passed, 2 intentional skips, artifacts
+`/tmp/iteration-canaries-20260916T202721Z.BF559u`.
+Three retained real Golden previews establish passed, failed and unevaluated
+verdicts with identical-request replay. Manual/human acceptance remained open.
+Rollback: `b4fde677a75a`. [Evidence](../evidence/release-6f8f8169-2026-09-16/README.md).
+
+### 2026-09-16 — recoverable source indexing and constrained image builds
+
+Deployed pushed `demo/agentic` SHA
+`c399f2bec1ca9c984afa00ca7a3400d01a86d4cf`, immutable tag `c399f2bec1ca`.
+Three images built on omnirag-demo; worker Giskard 2.19.2 offline qualification
+and pip checks passed. Fresh backend packages match the previous 211 versions;
+worker retains 250 versions and drops three previously orphaned HTTP packages.
+Storage checks passed before/after; no migration. Six application services
+switched, infrastructure unchanged, backend/frontend healthy, exact public SHA,
+homepage 200 and no backend startup exception matches. Initial 502 probes cleared
+during startup without another restart.
+
+Carakai: **10 passed, 2 intentional local-contract skips**, 2.1 minutes; artifacts
+`/tmp/iteration-canaries-20260916T214834Z.jYmVjX`.
+Dedicated synthetic collection `qa-ingest-retry-c399f2be`: missing-original
+failure → original restored → explicit retry of job
+`62601299-b603-4c6f-ba34-bfc07667cff6` → real worker completion in 22.8 seconds
+→ exact passage retrieved. Prior error persists; same-request replay creates no
+new attempt. No human review or generated BRD application publication occurred.
+
+The preceding c651 image build failed during overlapping old dangling-image
+cleanup; it never switched the runtime. Cleanup completed and all retained
+rollback images were started successfully before this build. Full build and
+maintenance logs: `/srv/agentium-data/roadmap-deployments/2026-09-16-c399f2bec1ca/`.
+Manual smoke, live UI capture, R0 human sessions and complete R1/R2 acceptance
+remain open. No NAWA theme or adoption-default change.
+Rollback: **`6f8f81696db0`**, preserving all current writes.
+[Release and recovery evidence](../evidence/release-c399f2be-2026-09-16/README.md).

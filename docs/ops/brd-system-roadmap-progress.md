@@ -2,12 +2,18 @@
 
 ## Current delivery status — 16 September 2026
 
-- **Live application: `6f8f8169` on `demo/agentic`.** The
-  [release evidence](../evidence/release-6f8f8169-2026-09-16/README.md) records
-  131 scoped backend tests, 1,479 frontend tests plus the final focused rerun,
+- **Live application: `c399f2be` on `demo/agentic`.** The
+  [release evidence](../evidence/release-c399f2be-2026-09-16/README.md) records
+  107 recovery tests plus 2 dependency tests, 1,486 unique frontend tests covered,
   three VM-built images, exact frontend/backend public SHA and healthy services.
-  Carakai: **10 passed, 2 intentional local-contract skips**.
-- This grouped release opens spreadsheet citations at the original cells and
+  Carakai: **10 passed, 2 intentional local-contract skips**. A real synthetic
+  ingestion failed on a missing original, then completed through explicit retry;
+  search returned its exact passage, and request replay created no second attempt.
+- The new release adds persisted indexing/retry status to Knowledge and SFTP,
+  preserving original errors and access controls. Python dependency constraints
+  prevent incidental version upgrades during fresh builds. Authenticated manual
+  smoke is still open.
+- The previous `6f8f8169` release opens spreadsheet citations at the original cells and
   reports authoritative Golden verdicts. Three real previews verify passed,
   intentionally failed and unevaluated outcomes; replay returns the same Runs.
   The earlier explicit Work publication handoff, text constraints, corpus
@@ -39,7 +45,7 @@ Base: `origin/demo/agentic` at `9494149ad1ade0dc9da713588590d1ec01a9d2da`.
 Implementation branch: `codex/brd-system-roadmap`.
 Scope: [accepted roadmap](../agentium-delivery-roadmap.md).
 
-## Next candidate — recoverable ingestion
+## Deployed c399f2be — recoverable ingestion
 
 Knowledge and SFTP now share persisted ingestion status and explicit admin retry.
 The existing worker/job/deposit binding is reused; failures and attempt history
@@ -49,8 +55,10 @@ failures no longer become empty collections. FR/EN, narrow/dark presentation,
 107 backend tests and 1,486 unique frontend tests are qualified locally.
 
 [Implementation and captures](../evidence/ingestion-recovery-2026-09-16/README.md).
-Not deployed in this entry. Real broker/worker qualification and the remaining
-R2 capture/retrieval acceptance are still open.
+[Live release and recovery proof](../evidence/release-c399f2be-2026-09-16/README.md)
+confirm one real broker/worker attempt after source restoration, retained failure
+history, retrieval and duplicate-request replay. Live UI acceptance, OCR/Excel,
+worker interruption and the remaining R2 Capture path are still open.
 
 ## Deployed 6f8f8169 — verifiable spreadsheet citations
 
