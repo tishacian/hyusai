@@ -601,16 +601,14 @@ def _resolve_capture_context(
     *,
     workspace_id: str,
     context_id: Optional[str],
+    system_id: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[Context]]:
-    if context_id:
-        ctx = _load_context(db, workspace_id, context_id)
-        return context_id, ctx
-    ctx = (
-        db.query(Context)
-        .filter(Context.workspace_id == workspace_id)
-        .order_by(Context.updated_at.desc())
-        .first()
-    )
+    from app.services.context_bindings import validate_context_id, validate_system_id
+
+    system = validate_system_id(db, workspace_id=workspace_id, system_id=system_id)
+    selected_id = context_id or (system.context_id if system else None)
+    ctx = validate_context_id(db, workspace_id=workspace_id, context_id=selected_id)
+    # A recent context may belong to another task; recency is not a source selection.
     return (ctx.id if ctx else None), ctx
 
 
@@ -6652,6 +6650,7 @@ def create_capture_plan(
         db,
         workspace_id=workspace_id,
         context_id=context_id,
+        system_id=system_id,
     )
     snapshot = _context_snapshot(ctx)
     clean_objective = (objective or "").strip() or (
@@ -8276,7 +8275,7 @@ def _filter_retrieval_by_min_score(
     scores: List[float],
     min_score: float,
 ) -> Tuple[List[str], List[Dict[str, Any]], List[float]]:
-    """Drop retrieval hits below ``min_score`` before attaching them to reports.
+    """Exclude retrieval diagnostics and low-relevance hits from reports.
 
     The threshold is applied to a NORMALIZED per-chunk relevance score in [0, 1]
     (cross-encoder sigmoid score if present, else the dense cosine
@@ -8285,8 +8284,6 @@ def _filter_retrieval_by_min_score(
     it on the tiny client-weighted fusion score is exactly the regression this
     guards against.
     """
-    if min_score <= 0:
-        return list(chunks or []), list(metadatas or []), list(scores or [])
     kept_chunks: List[str] = []
     kept_meta: List[Dict[str, Any]] = []
     kept_scores: List[float] = []
@@ -8296,8 +8293,13 @@ def _filter_retrieval_by_min_score(
             if index < len(metadatas) and isinstance(metadatas[index], dict)
             else {}
         )
+        # Corpus counts and retrieval diagnostics are not documentary evidence or
+        # domain vocabulary. They must never become facts in an expert's report.
+        if any(metadata.get(key) in ("collection_inventory", "dense_coarse_guardrail")
+               for key in ("source_type", "semantic_type")):
+            continue
         normalized = _normalized_relevance_score(metadata)
-        if normalized is not None and normalized < min_score:
+        if min_score > 0 and normalized is not None and normalized < min_score:
             continue
         kept_chunks.append(str(chunk))
         kept_meta.append(metadata)

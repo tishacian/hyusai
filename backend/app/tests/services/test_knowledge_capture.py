@@ -6646,3 +6646,37 @@ def test_serialized_publication_repairs_source_scope_without_rewriting_history()
     assert publication["export_urls"]["preview_url"] == publication["export_urls"]["raw_url"].replace("/raw?", "/rich-preview?")
     assert publication["export_urls"]["pdf_url"] == stored["publication"]["export_urls"]["pdf_url"]
     assert proposal.proposal == stored
+
+
+def test_capture_context_uses_explicit_or_system_binding_never_recent_context(db_session):
+    from app.services.knowledge_capture import _resolve_capture_context
+    from app.services.context_bindings import ContextBindingError
+
+    workspace = Workspace(id="ws-capture-context-choice", slug="capture-context-choice", name="Capture QA")
+    other = Workspace(id="ws-capture-context-other", slug="capture-context-other", name="Other")
+    selected = Context(id="ctx-capture-selected", workspace_id=workspace.id, name="Selected")
+    unrelated = Context(id="ctx-capture-unrelated", workspace_id=workspace.id, name="Unrelated recent work")
+    foreign = Context(id="ctx-capture-foreign", workspace_id=other.id, name="Foreign")
+    system = System(id="sys-capture-selected", workspace_id=workspace.id, name="Capture", context_id=selected.id)
+    db_session.add_all([workspace, other, selected, unrelated, foreign, system])
+    db_session.commit()
+    assert _resolve_capture_context(db_session, workspace_id=workspace.id, context_id=None) == (None, None)
+    assert _resolve_capture_context(db_session, workspace_id=workspace.id, context_id=None,
+                                    system_id=system.id) == (selected.id, selected)
+    assert _resolve_capture_context(db_session, workspace_id=workspace.id, context_id=unrelated.id,
+                                    system_id=system.id) == (unrelated.id, unrelated)
+    with pytest.raises(ContextBindingError):
+        _resolve_capture_context(db_session, workspace_id=workspace.id, context_id=foreign.id)
+    with pytest.raises(ContextBindingError):
+        _resolve_capture_context(db_session, workspace_id=other.id, context_id=None, system_id=system.id)
+
+
+@pytest.mark.parametrize("threshold", [0, 0.5])
+def test_capture_report_excludes_inventory_and_guardrail_from_documentary_evidence(threshold):
+    from app.services.knowledge_capture import _filter_retrieval_by_min_score
+
+    chunks = ["Inventory: one source", "No scoped search ran", "Retained source passage"]
+    metadata = [{"source_type": "collection_inventory"}, {"semantic_type": "dense_coarse_guardrail"},
+                {"document_id": "doc-1", "document_filename": "manual.md"}]
+    assert _filter_retrieval_by_min_score(chunks, metadata, [1.0, 1.0, 0.012], threshold) == (
+        [chunks[2]], [metadata[2]], [0.012])
