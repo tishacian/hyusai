@@ -93,13 +93,22 @@ move it during the release.
 ```bash
 cd /srv/agentium-data/worktrees/demo-agentic
 for svc in backend worker frontend; do
+  extra_args=()
+  if [ "$svc" = worker ]; then
+    extra_args+=(--build-arg INSTALL_GISKARD_RAGET=true)
+  fi
   sudo docker build -f docker/Dockerfile.agentium-$svc \
     --build-arg AGENTIUM_IMAGE_REVISION=<sha40> \
     --build-arg PIP_INDEX_URL=https://pypi.org/simple \
     --build-arg USER_UID=1000 --build-arg USER_GID=1000 \
-    -t agentium-$svc:<sha12> .
+    "${extra_args[@]}" -t agentium-$svc:<sha12> .
 done
 ```
+
+The demo worker currently includes the optional Giskard SDK. Preserve
+`--build-arg INSTALL_GISKARD_RAGET=true` on its build (the Dockerfile default
+is false). This also runs `pip check` and the offline SDK qualification; it
+does not establish a live provider campaign.
 
 Build all three even for a frontend-only change: the single tag drives the
 whole stack at switch time.
@@ -183,7 +192,8 @@ sudo env AGENTIUM_IMAGE_TAG=<sha12> "$DEPLOY" up
 ```
 
 `up` recreates exactly `agentium-backend`, `agentium-worker-cpu`,
-`agentium-frontend`, `agentium-p4-maintenance`, `agentium-beat` — with
+`agentium-worker-recipes`, `agentium-frontend`, `agentium-p4-maintenance`,
+`agentium-beat` — with
 `--no-build --pull never`, so the images from §4 must exist at the tag.
 Infrastructure containers (pg, Keycloak, Qdrant, MinIO, RabbitMQ, SFTP,
 LiveKit) are never touched by this path.
