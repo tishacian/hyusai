@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.brd_proposal import BrdProposal
 from app.services.flow_contracts import canonical_sha256
+from app.services.flow_skill_binding import resolve_flow_skill_binding
 
 
 def coverage(extraction, mappings, *, node_ids, case_ids):
@@ -183,6 +184,9 @@ def apply_proposal(db, *, document, proposal_id, expected_sha256, user, workspac
             return slug
         return value
     flow = resolve(flow)
+    for node in flow.get("nodes", []):
+        if node.get("kind") == "agent_loop":
+            referenced.add(resolve_flow_skill_binding(node).skill_slug)
     skill_ids = []
     for slug in sorted(referenced):
         skill = db.query(Skill).filter_by(slug=slug).first()

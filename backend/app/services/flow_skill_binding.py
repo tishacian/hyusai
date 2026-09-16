@@ -42,8 +42,9 @@ def resolve_flow_skill_binding(node: Mapping[str, Any]) -> FlowSkillBinding:
     Supported slug locations are ``config.skill_slug``,
     ``config.skill.slug``, ``data.bound_skill_slug`` and
     ``data.skill_slug``.  Multiple representations are allowed only when they
-    name the same slug.  A Skill id is never executable by itself because the
-    runtime dispatch key is the slug.
+    name the same slug. AgentLoop also accepts ``config.decide_skill`` and
+    defaults to ``decide_next_v1``, matching its runtime. A Skill id is never
+    executable by itself because the runtime dispatch key is the slug.
     """
 
     raw_config = node.get("config")
@@ -53,11 +54,13 @@ def resolve_flow_skill_binding(node: Mapping[str, Any]) -> FlowSkillBinding:
     raw_nested_skill = config.get("skill")
     nested_skill = raw_nested_skill if isinstance(raw_nested_skill, Mapping) else {}
 
+    is_agent_loop = node.get("kind") == "agent_loop"
     skill_id = _identity(config.get("skill_id"))
     slug_candidates = {
         slug
         for slug in (
             _identity(config.get("skill_slug")),
+            _identity(config.get("decide_skill")) if is_agent_loop else None,
             _identity(nested_skill.get("slug")),
             _identity(data.get("bound_skill_slug")),
             _identity(data.get("skill_slug")),
@@ -70,7 +73,7 @@ def resolve_flow_skill_binding(node: Mapping[str, Any]) -> FlowSkillBinding:
             message="Skill slug representations disagree for this Flow node.",
         )
 
-    skill_slug = next(iter(slug_candidates), None)
+    skill_slug = next(iter(slug_candidates), "decide_next_v1" if is_agent_loop else None)
     if skill_id is not None and skill_slug is None:
         raise FlowSkillBindingError(
             code="skill_slug_required",

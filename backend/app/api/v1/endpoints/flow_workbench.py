@@ -21,6 +21,11 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.run_engine import schedule_run
 from app.services.run_engine.debug_contract import DebugContractError, normalize_input_debug
+from app.services.run_engine.dispatch_outbox import (
+    TRIGGER_RUN,
+    enqueue_dispatch,
+    reconcile_dispatch_outbox,
+)
 from app.services.systems import flow_workbench
 
 router = APIRouter()
@@ -340,7 +345,11 @@ async def create_golden_preview_runs(
             raise HTTPException(409, "Corpus changed; review a new suite revision")
         raw_cases = copy.deepcopy(suite.cases)
     from app.services.flow_contracts import canonical_sha256
-    request_sha256 = canonical_sha256(body.model_dump())
+    legacy_request_sha256 = canonical_sha256(body.model_dump())
+    request_sha256 = canonical_sha256({
+        **body.model_dump(),
+        **({"cases": raw_cases} if body.cases is not None else {}),
+    })
     try:
         if body.request_key:
             # Serialize submissions for this System using the existing row lock.
@@ -351,9 +360,17 @@ async def create_golden_preview_runs(
                 Run.input_ref["execution"]["golden_request_key"].as_string() == body.request_key,
             ).order_by(Run.started_at, Run.id).all()
             if previous:
-                if any(run.input_ref["execution"].get("golden_request_sha256") != request_sha256 for run in previous):
-                    raise HTTPException(409, "Request key already used for another test batch")
+                for run in previous:
+                    execution = run.input_ref["execution"]
+                    expected_sha256 = (
+                        request_sha256 if execution.get("initial_dispatch_plane") == "celery"
+                        else legacy_request_sha256
+                    )
+                    if execution.get("golden_request_sha256") != expected_sha256:
+                        raise HTTPException(409, "Request key already used for another test batch")
                 execution = previous[0].input_ref["execution"]
+                db.commit()  # Release the request's System lock before replying.
+                background_tasks.add_task(reconcile_dispatch_outbox)
                 return {"batch_id": execution["golden_batch_id"],
                     "flow_sha256": execution["source_flow_sha256"],
                     "runs": [_run_payload(run) for run in previous]}
@@ -393,13 +410,24 @@ async def create_golden_preview_runs(
                 metadata={
                     "golden_batch_id": batch_id,
                     "golden_case_id": case["id"],
-                    **({"golden_request_key": body.request_key,
-                        "golden_request_sha256": request_sha256} if body.request_key else {}),
+                    "initial_dispatch_plane": "celery",
+                    "golden_request_sha256": request_sha256,
+                    **({"golden_request_key": body.request_key} if body.request_key else {}),
                     "real_side_effects_acknowledged": (
                         body.acknowledge_real_side_effects
                     ),
                 },
                 checkpoints=[checkpoint],
+            )
+            # This server-owned claim opts only newly created Golden Runs into
+            # worker recovery. Historical API-background Runs stay untouched.
+            run.trigger_dedup_key = f"golden:{batch_id}:{run.id}"
+            enqueue_dispatch(
+                db,
+                event_type=TRIGGER_RUN,
+                workspace_id=workspace.id,
+                run_id=run.id,
+                source_id=run.trigger_dedup_key,
             )
             runs.append(run)
         db.commit()
@@ -407,8 +435,12 @@ async def create_golden_preview_runs(
             db.refresh(run)
     except flow_workbench.FlowWorkbenchError as exc:
         _raise_workbench(db, exc)
-    for run in runs:
-        background_tasks.add_task(schedule_run, run.id)
+    except Exception:
+        db.rollback()
+        raise
+    # This fast path only publishes identifier-only tasks; maintenance owns
+    # retries if the API exits or the broker is temporarily unavailable.
+    background_tasks.add_task(reconcile_dispatch_outbox)
     return {
         "batch_id": batch_id,
         "flow_sha256": prepared.source_flow_sha256,

@@ -13,6 +13,7 @@ from app.api.v1.endpoints import flow_workbench as endpoint
 from app.api.v1.endpoints import runs as runs_endpoint
 from app.models.audit import AuditLog
 from app.models.run import Run
+from app.models.run_dispatch_outbox import RunDispatchOutbox
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.system_flow_draft import SystemFlowDraft
@@ -130,6 +131,7 @@ def _client(
             dispatches.append(run_id)
 
     monkeypatch.setattr(endpoint, "schedule_run", _schedule_run)
+    monkeypatch.setattr(endpoint, "reconcile_dispatch_outbox", lambda: None)
     return TestClient(app)
 
 
@@ -284,13 +286,16 @@ def test_admin_and_owner_can_execute_all_workbench_surfaces(
 
     runs = db_session.query(Run).filter_by(system_id=system.id).all()
     assert len(runs) == 3
-    assert len(dispatches) == 3
+    assert len(dispatches) == 2
     assert {run.execution_surface for run in runs} == {
         "builder_preview",
         "node_preview",
         "golden_preview",
     }
-    assert set(dispatches) == {run.id for run in runs}
+    assert set(dispatches) == {run.id for run in runs if run.execution_surface != "golden_preview"}
+    event = db_session.query(RunDispatchOutbox).one()
+    assert event.run_id == next(run.id for run in runs if run.execution_surface == "golden_preview")
+    assert event.event_type == "trigger_run"
 
 
 def test_all_workbench_surfaces_require_explicit_real_side_effect_ack(
@@ -712,6 +717,10 @@ def test_golden_batch_is_bounded_and_persists_one_run_per_case(
     assert {run.checkpoints[0]["expected"]["ok"] for run in runs} == {True, False}
     assert all(run.flow_version_id is None for run in runs)
     assert all(run.published_flow_version_id is None for run in runs)
+    events = db_session.query(RunDispatchOutbox).all()
+    assert {event.run_id for event in events} == {run.id for run in runs}
+    assert all(event.event_type == "trigger_run" and event.state == "pending" for event in events)
+    assert all(run.trigger_dedup_key == f"golden:{payload['batch_id']}:{run.id}" for run in runs)
 
     too_many = client.post(
         f"/systems/{system.id}/flow-workbench/golden-runs",
@@ -757,6 +766,68 @@ def test_golden_expected_absent_is_distinct_from_explicit_null(
     assert "expected" not in by_case["absent"].checkpoints[0]
     assert "expected" in by_case["explicit-null"].checkpoints[0]
     assert by_case["explicit-null"].checkpoints[0]["expected"] is None
+
+
+def test_golden_request_replay_keeps_dispatch_ids_and_distinguishes_oracles(db_session, monkeypatch):
+    workspace, user, system, _ = _seed(db_session)
+    dispatches = []
+    client = _client(db_session, workspace, user, monkeypatch, dispatches)
+    flow = _flow("idempotent-golden")
+    body = {
+        "acknowledge_real_side_effects": True,
+        "flow_definition": flow,
+        "expected_flow_sha256": canonical_flow_sha256(flow),
+        "request_key": "same-batch",
+        "cases": [{"id": "first", "input_ref": {"case": "A"}}],
+    }
+    url = f"/systems/{system.id}/flow-workbench/golden-runs"
+    first = client.post(url, json=body)
+    assert first.status_code == 201, first.text
+    event = db_session.query(RunDispatchOutbox).one()
+    dispatch_id, task_id = event.id, event.task_id
+
+    replay = client.post(url, json=body)
+    assert replay.status_code == 201, replay.text
+    assert replay.json() == first.json()
+    assert db_session.query(Run).count() == 1
+    event = db_session.query(RunDispatchOutbox).one()
+    assert (event.id, event.task_id) == (dispatch_id, task_id)
+    assert dispatches == []
+
+    # Null is an explicit oracle, so changing its presence changes the request.
+    body["cases"][0]["expected"] = None
+    assert client.post(url, json=body).status_code == 409
+    assert db_session.query(Run).count() == 1
+    assert db_session.query(RunDispatchOutbox).count() == 1
+
+
+def test_golden_dispatch_failure_rolls_back_the_entire_batch(db_session, monkeypatch):
+    workspace, user, system, _ = _seed(db_session)
+    client = _client(db_session, workspace, user, monkeypatch)
+    flow = _flow("atomic-golden")
+    original_enqueue = endpoint.enqueue_dispatch
+    calls = []
+
+    def fail_second_dispatch(db, **kwargs):
+        calls.append(kwargs["run_id"])
+        if len(calls) == 2:
+            raise RuntimeError("outbox unavailable")
+        return original_enqueue(db, **kwargs)
+
+    monkeypatch.setattr(endpoint, "enqueue_dispatch", fail_second_dispatch)
+    with pytest.raises(RuntimeError, match="outbox unavailable"):
+        client.post(f"/systems/{system.id}/flow-workbench/golden-runs", json={
+            "acknowledge_real_side_effects": True,
+            "flow_definition": flow,
+            "expected_flow_sha256": canonical_flow_sha256(flow),
+            "cases": [
+                {"id": "first", "input_ref": {"case": "A"}},
+                {"id": "second", "input_ref": {"case": "B"}},
+            ],
+        })
+    assert len(calls) == 2
+    assert db_session.query(Run).count() == 0
+    assert db_session.query(RunDispatchOutbox).count() == 0
 
 
 def test_workbench_runs_are_visible_only_to_owner_or_admin_and_not_baselines(
@@ -886,7 +957,8 @@ def test_golden_runs_use_reviewed_suite_without_baseline(db_session, monkeypatch
     assert replay.status_code == 201, replay.text
     assert replay.json()["batch_id"] == response.json()["batch_id"]
     assert replay.json()["runs"][0]["id"] == runs[0].id
-    assert dispatches == [runs[0].id]
+    assert dispatches == []  # Golden execution belongs to Celery, never the API.
+    assert db_session.query(RunDispatchOutbox).filter_by(run_id=runs[0].id).count() == 1
     http.app.include_router(runs_endpoint.router, prefix="/runs")
     recovered = http.get("/runs", params={"system_id": system.id, "golden_batch_id": replay.json()["batch_id"]})
     assert recovered.status_code == 200, recovered.text

@@ -811,7 +811,10 @@ def test_a_control_envelope_output_schema_cannot_be_authored(db_session, node_ki
     assert rejected.value.path == "nodes/task/config/output_schema"
 
 
-def test_agent_loop_compiled_contract_can_be_read_after_publication(db_session):
+@pytest.mark.parametrize("planner_config", [
+    {"skill_slug": "decide_next_v1"}, {"decide_skill": "decide_next_v1"}, {},
+])
+def test_agent_loop_compiled_contract_can_be_read_after_publication(db_session, planner_config):
     planner = Skill(
         id="loop-planner-contract", workspace_id=None, slug="decide_next_v1",
         version="1", name="Planner", input_schema={"type": "object"},
@@ -825,14 +828,26 @@ def test_agent_loop_compiled_contract_can_be_read_after_publication(db_session):
     contract = compile_execution_contract(
         db_session, workspace_id="workspace-contract", runtime_mode="dag_overlay",
         flow={"nodes": [{"id": "investigate", "kind": "agent_loop", "config": {
-            "skill_slug": planner.slug, "skill_allowlist": ["read_notices", "read_history"],
+            **planner_config, "skill_allowlist": ["read_notices", "read_history"],
         }}], "edges": []},
     )
     assert validate_execution_contract(contract) == contract
     assert contract["nodes"]["investigate"]["skill_allowlist"] == ["read_notices", "read_history"]
+    assert set(contract["nodes"]["investigate"]["tool_contract"]["nodes"]) == {"read_notices", "read_history"}
     for invalid in (None, "read_notices", [], [""], [3], [" padded "], ["tool"] * 9):
         contract["nodes"]["investigate"]["skill_allowlist"] = invalid
         _rehash_execution_contract(contract)
         with pytest.raises(FlowContractError) as exc:
             validate_execution_contract(contract)
         assert exc.value.path == "/nodes/investigate/skill_allowlist"
+
+
+def test_agent_loop_planner_alias_cannot_conflict_with_frozen_skill():
+    from app.services.flow_skill_binding import resolve_flow_skill_binding, FlowSkillBindingError
+    from app.services.run_engine.dag import DagGraph
+    node = {"id": "investigate", "kind": "agent_loop", "config": {
+        "decide_skill": "actual_planner", "skill_slug": "different_planner"}}
+    with pytest.raises(FlowSkillBindingError, match="disagree"):
+        resolve_flow_skill_binding(node)
+    with pytest.raises(FlowSkillBindingError, match="disagree"):
+        DagGraph.from_flow_definition({"nodes": [node], "edges": []})
