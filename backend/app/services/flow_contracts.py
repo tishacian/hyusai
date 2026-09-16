@@ -434,12 +434,24 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
             base_node_keys
             | (adapter_node_keys if has_adapter else set())
             | (authored_node_keys if has_executor else set())
+            | ({"skill_allowlist"} if "skill_allowlist" in node else set())
         )
         if node_keys != expected_keys:
             raise _execution_contract_error(
                 message="The execution contract node has missing or unknown fields.",
                 path=path,
             )
+        if "skill_allowlist" in node:
+            allowlist = node["skill_allowlist"]
+            if (
+                not isinstance(allowlist, list)
+                or not 1 <= len(allowlist) <= 8
+                or any(not isinstance(item, str) or not item.strip() or item != item.strip() for item in allowlist)
+            ):
+                raise _execution_contract_error(
+                    message="An AgentLoop tool allowlist must contain one to eight Skill slugs.",
+                    path=f"{path}/skill_allowlist",
+                )
         if has_executor:
             _validate_frozen_executor(node, path=path)
         for field in ("skill_id", "skill_slug", "skill_version"):
