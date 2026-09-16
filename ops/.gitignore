@@ -4,6 +4,7 @@
 **/*.tfstate.*
 **/*.tfvars
 !*.tfvars.example
+**/*.tfplan
 crash.log
 override.tf
 override.tf.json
@@ -13,3 +14,11 @@ override.tf.json
 # Ansible
 *.retry
 inventories/*/terraform_inventory.yml
+
+# CI artifacts
+**/values-ci-images.yaml
+**/ci-kubeconfig
+**/ci-ingress-class
+**/ci-storage-class
+**/ci-cluster-name
+

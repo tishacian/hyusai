@@ -1,0 +1,11 @@
+resource_group_name    = "rg-agentium-lab-aks"
+location               = "westeurope"
+cluster_name           = "agentium-lab-aks"
+dns_prefix             = "agentium-lab-aks"
+node_count             = 3
+vm_size                = "Standard_D4s_v5"
+create_acr             = true
+acr_name               = "agentiumlabacr"
+ingress_class          = "webapprouting.kubernetes.azure.com"
+storage_class          = "managed-csi"
+enable_web_app_routing = true
