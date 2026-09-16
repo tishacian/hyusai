@@ -6625,3 +6625,23 @@ No adoption-default or NAWA theme change. This does not close R1 or R0 human acc
 Previous runtime: `f63f1eaf7e023e7ea5c428995c44ca0a3ad202ff`. After new suites
 store `quotes_in_source`, retain compatible assertion readers or fix forward;
 the old tag is not an unconditional rollback target. Never restore over new writes.
+
+
+### 2026-09-16 — freeze AgentLoop tools with published contracts
+
+Deployed `d5a02f49ae9c1083a1689fcc96743306b9b2d40d` from pushed demo/agentic.
+Three immutable images built on omnirag-demo, Giskard SDK and offline qualification
+preserved in worker. No migration; storage checks passed. All application
+containers use d5a02f49ae9c; backend/frontend healthy, homepage 200, exact public
+revision verified, no startup traceback/exception.
+
+Local gates: 1,466 frontend tests, 147 scoped backend tests, i18n/nav/chrome and
+production build pass. Carakai canaries: 10 passed, 2 intentional local-fixture
+skips (2.2 minutes). [Evidence](../evidence/brd-tool-freeze-release-2026-09-16/README.md).
+Authenticated manual Chrome smoke awaits reconnection. NorthForge BRD acceptance
+is not closed: absence/refusal planner behavior and human-review scenarios remain
+unqualified. No default activation or NAWA theme change.
+
+Previous runtime: 7ab88007328c5e3a2cf5eaf6663e7d9c00eec927. New tool_contract
+fields require compatible readers once persisted; prefer fix-forward rather than
+unconditional rollback to an older reader. Never restore over new database writes.
