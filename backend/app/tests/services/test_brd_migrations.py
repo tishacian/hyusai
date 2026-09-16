@@ -1,5 +1,6 @@
 """Exercise additive BRD migrations and their replay constraints."""
 import importlib.util
+import os
 from pathlib import Path
 
 from alembic.migration import MigrationContext
@@ -9,7 +10,11 @@ import sqlalchemy as sa
 
 
 def test_brd_migrations_upgrade_constraints_and_downgrade():
-    engine = sa.create_engine("sqlite://")
+    url = os.environ.get("BRD_MIGRATION_DATABASE_URL", "sqlite://")
+    parsed = sa.engine.make_url(url)
+    if parsed.get_backend_name() != "sqlite" and parsed.database != "brd_qualification":
+        raise ValueError("Migration qualification requires the disposable brd_qualification database")
+    engine = sa.create_engine(url)
     with engine.begin() as connection:
         for table in ("workspaces", "users", "systems"):
             connection.exec_driver_sql(f"CREATE TABLE {table} (id VARCHAR(36) PRIMARY KEY)")
