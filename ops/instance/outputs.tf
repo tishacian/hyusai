@@ -37,10 +37,10 @@ output "ansible_inventory" {
           hosts = {
             for n in openstack_compute_instance_v2.worker :
             n.name => {
-              ansible_host = n.access_ip_v4
-              ansible_user = "ubuntu"
+              ansible_host            = n.access_ip_v4
+              ansible_user            = "ubuntu"
               ansible_ssh_common_args = "-o ProxyJump=ubuntu@${openstack_networking_floatingip_v2.control_plane[0].address}"
-              private_ip = n.access_ip_v4
+              private_ip              = n.access_ip_v4
             }
           }
         }
