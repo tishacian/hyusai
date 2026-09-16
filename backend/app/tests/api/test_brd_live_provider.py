@@ -125,16 +125,47 @@ def test_live_generation_worker(db_session, tmp_path, monkeypatch):
     monkeypatch.setattr(workspace_jobs, "dispatch_workspace_job", lambda *a, **k: "local-qualification")
     monkeypatch.setattr(service, "resolve_model_execution", lambda *a, **k:
         ModelExecution(provider="openai", model="remote-workspace-resolved", credential_source="workspace", model_source="workspace"))
+    replay_path = os.environ.get("BRD_GENERATION_REPLAY")
+    recorded_outputs = ([json.loads(line)["output"] for line in Path(replay_path).read_text().splitlines()]
+                        if replay_path else [])
     async def complete(execution, prompt, context, **options):
+        with (evidence/"generation-prompts.jsonl").open("a") as stream:
+            stream.write(json.dumps({"prompt": prompt}) + "\n")
+        if replay_path:
+            assert recorded_outputs, "Recorded provider outputs exhausted; no implicit live retry"
+            (evidence/'replay-source.txt').write_text(replay_path)
+            return recorded_outputs.pop(0)
         return remote_completion(prompt, evidence, 10000)
     monkeypatch.setattr(service, "complete_model", complete)
     workspace, user = _seed(db_session)
     client = _client(db_session, workspace, user)
-    source = Path(__file__).resolve().parents[1] / "fixtures/brd/pih-spark089.docx"
-    document = client.post('/skills/import/business-requirements?retain=true',
-        files={'file': ('pih.docx', source.read_bytes())}).json()['document']['id']
+    family = os.environ.get("BRD_LIVE_FAMILY", "document_summary")
+    assert family in {"document_summary", "intervention_preparation"}
+    slugs = []
+    fixture = "pih-spark089.docx"
+    if family == "intervention_preparation":
+        from app.models.skill import Skill
+        from app.services.skills_registry.seed import SEED_SKILLS
+        from scripts.showcase_intervention import retrieval_tool_specs
+        planner = next(row for row in SEED_SKILLS if row["slug"] == "decide_next_v1")
+        workspace.settings = {"catalog": {"enabled_skills": ["decide_next_v1"]}}
+        db_session.add(Skill(**planner, is_seeded="Y"))
+        db_session.commit()
+        slugs.append("decide_next_v1")
+        for spec in retrieval_tool_specs("agentium-showcase-notices", "agentium-showcase-intervention-history"):
+            response = client.post('/skills', json=spec)
+            assert response.status_code == 200, response.text
+            slugs.append(response.json()["slug"])
+        fixture = "northforge-intervention.docx"
+    source = Path(__file__).resolve().parents[1] / "fixtures/brd" / fixture
+    imported = client.post('/skills/import/business-requirements?retain=true',
+        files={'file': (fixture, source.read_bytes())})
+    assert imported.status_code == 200, imported.text
+    (evidence/'import.json').write_text(json.dumps(imported.json(), indent=2))
+    document = imported.json()['document']['id']
     job = client.post(f'/skills/imports/business-requirements/{document}/generations',
-        json={'request_key': 'live-worker', 'family': 'document_summary', 'name': 'PIH live worker'})
+        json={'request_key': 'live-worker', 'family': family, 'name': family + ' live worker',
+              'skill_slugs': slugs})
     assert job.status_code == 200, job.text
     result = service.run_generation_job(job.json()['id'])
     db_session.expire_all()

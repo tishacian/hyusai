@@ -45,3 +45,23 @@ These are local corrections; the deployed proposal remains unapplied. Historical
 document (SHA deduplication), so it does not refresh extraction. Qualification must use a
 reviewed document revision or an explicit re-extraction feature; no silent historical mutation.
 A fresh provider generation and real retrieval execution are still required.
+
+## Real-provider generation after evidence fixes
+
+The first new candidate (69 seconds) used the correct source figures and a single ingress,
+but was rejected on review: its test inputs contained expected answers and its `done_when`
+was prose rather than a list. The retained candidate and provider usage are in `provider-attempts/`.
+The next response exposed a dictionary/model mismatch in the new validator; it was fixed,
+and replaying the unchanged provider response confirmed that question/input mismatch is rejected.
+Replay is validation evidence, not another provider execution.
+
+Server validation now checks the per-case objective binding, a single request ingress,
+a list-valued stop condition and identical question/input text. This last check does not
+prove semantic absence of answer leakage; human review is still required.
+
+The shared prompt executor no longer silently truncates each input to 4,000 characters.
+It preserves the input or refuses a rendered prompt exceeding the existing 32,000-character
+limit. A source citation after character 4,000 and explicit oversize rejection are tested.
+
+Scoped backend validation after these corrections: 73 passed, 1 skipped.
+No generated candidate in this section has been applied or published to Showcase.

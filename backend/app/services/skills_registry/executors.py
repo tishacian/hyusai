@@ -36,7 +36,6 @@ from app.services.skills_registry.binding import (
 )
 
 MAX_TEMPLATE_CHARS = 8_000
-MAX_PLACEHOLDER_CHARS = 4_000
 MAX_PROMPT_CHARS = 32_000
 
 _PLACEHOLDER_RE = re.compile(r"\{([a-z][a-z0-9_]{0,63})\}")
@@ -146,7 +145,7 @@ def _render_template(template: str, payload: Mapping[str, Any]) -> str:
             return ""
         value = payload[name]
         rendered = value if isinstance(value, str) else str(value)
-        return rendered[:MAX_PLACEHOLDER_CHARS]
+        return rendered
 
     prompt = _PLACEHOLDER_RE.sub(_substitute, template)
     if missing:

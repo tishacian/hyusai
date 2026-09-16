@@ -364,3 +364,12 @@ async def test_pinned_search_native_wrapper_never_retries_at_workspace_scope(mon
     assert requests[0]["authoritative_collections"] == ["history"]
     assert "knowledge_scope" not in requests[0]
     assert result["results"] == []
+
+
+def test_prompt_evidence_is_preserved_or_explicitly_rejected_never_truncated():
+    from app.services.skills_registry.executors import _render_template, MAX_PROMPT_CHARS
+    source = "x" * 4500 + "Source: notice-700 page 2; 700 bar."
+    assert _render_template("Evidence: {source}", {"source": source}) == "Evidence: " + source
+    with pytest.raises(SkillBindingError) as error:
+        _render_template("Evidence: {source}", {"source": "x" * MAX_PROMPT_CHARS})
+    assert error.value.code == "prompt_too_large"

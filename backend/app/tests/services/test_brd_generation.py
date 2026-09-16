@@ -125,7 +125,8 @@ def test_case_inputs_obey_the_original_ingress_contract():
 
 def test_intervention_requires_native_selected_planner_and_recommend_mandate():
     config = {"decide_skill": "@generated_prompt", "privilege_tier": "recommend"}
-    body = SimpleNamespace(flow_definition={"nodes": [{"kind": "agent_loop", "config": config}]})
+    body = SimpleNamespace(flow_definition={"nodes": [{"id": "source", "kind": "source"}, {"kind": "agent_loop", "config": config}]}, cases=[])
+    config["inputs_map"] = {"objective": {"node_id": "source", "path": ["question"], "required": True}}
     with pytest.raises(ValueError, match="structured decision"):
         service.validate_intervention_planner(body, ["decide_next_v1"])
     config["decide_skill"] = "decide_next_v1"
@@ -164,3 +165,20 @@ def test_generation_keeps_documentary_rules_out_of_intervention_family():
     assert "config.inputs_map.objective" in prompts["intervention_preparation"]
     assert "no completion field" in prompts["intervention_preparation"]
     assert "Never invent replacement equipment" in prompts["intervention_preparation"]
+
+
+def test_intervention_rejects_prose_stop_condition_and_answer_leakage():
+    config = {"decide_skill": "decide_next_v1", "privilege_tier": "recommend",
+              "goal": {"done_when": "enough evidence"},
+              "inputs_map": {"objective": {"node_id": "source", "path": ["question"], "required": True}}}
+    case = {"question": "What is the pressure limit?",
+            "input_ref": {"question": "What is the pressure limit? Report 700 bar."}}
+    body = SimpleNamespace(flow_definition={"nodes": [{"id": "source", "kind": "source"},
+        {"kind": "agent_loop", "config": config}]}, cases=[case])
+    with pytest.raises(ValueError, match="done_when must be a list"):
+        service.validate_intervention_planner(body, ["decide_next_v1"])
+    config["goal"]["done_when"] = []
+    with pytest.raises(ValueError, match="question only"):
+        service.validate_intervention_planner(body, ["decide_next_v1"])
+    case["input_ref"]["question"] = case["question"]
+    service.validate_intervention_planner(body, ["decide_next_v1"])

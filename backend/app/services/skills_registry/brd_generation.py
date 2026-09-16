@@ -67,6 +67,21 @@ def validate_intervention_planner(body, selected_slugs):
                              "a prompt_template returns completion text, not a structured decision")
         if config.get("privilege_tier") != "recommend":
             raise ValueError("Intervention investigation must use privilege_tier=recommend")
+        goal = config.get("goal") or {}
+        if not isinstance(goal, dict) or goal.get("objective"):
+            raise ValueError("Intervention goal.objective must be absent; bind the per-case objective through inputs_map")
+        if not isinstance(goal.get("done_when", []), list):
+            raise ValueError("AgentLoop done_when must be a list of observed checks, not a prose sentence; use [] for planner completion")
+        sources = {row.get("id"): row for row in body.flow_definition.get("nodes", []) if row.get("kind") == "source"}
+        if len(sources) != 1:
+            raise ValueError("Intervention requires one operator-request source; documents come from authorized tools")
+        ref = (config.get("inputs_map") or {}).get("objective")
+        if not isinstance(ref, dict) or ref.get("node_id") not in sources or ref.get("required") is not True or len(ref.get("path", [])) != 1:
+            raise ValueError("Bind objective directly to the operator-request source with required=true")
+        field = ref["path"][0]
+        for case in body.cases:
+            if not case.get("question") or (case.get("input_ref") or {}).get(field) != case["question"]:
+                raise ValueError("Intervention case input objective must equal its question only; keep expected answers and reviewer instructions in assertions/reference_answer")
 
 
 _DOCUMENTARY_INSTRUCTIONS = (
@@ -121,10 +136,16 @@ _FAMILY_INSTRUCTIONS = {
         "AgentLoop output has goal, observations, exit, turns, privilege_tier and visible_skills; "
         "it has no completion field. Each tool observation contains invocation_id, ok, "
         "summary and output (the actual successful tool output, null on failure). "
-        "Map observations into the synthesis Skill as an array input; retrieved passages "
+        "Map observations into the synthesis Skill as an array input, not a string. "
+        "A whole AgentLoop output is an object and must use an object input schema; "
+        "the runtime does not JSON-stringify mappings. Retrieved passages "
         "are in observations[].output.results with their original metadata. "
         "Preserve acceptance questions and reference facts provided by the BRD. "
-        "Never invent replacement equipment, records, units or oracle values. "
+        "Never invent replacement equipment, records, units or oracle values. Each case "
+        "input objective must equal its question verbatim, containing only the operator "
+        "request, never expected facts or instructions to pass the test. Put expected "
+        "facts only in assertions/reference_answer. Set goal.done_when=[] for planner "
+        "completion; never put prose in done_when. "
         "If the native planner was "
         "not selected, leave this dependency unresolved rather than inventing a planner. "
         "Do not invent connections, collections, credentials or "

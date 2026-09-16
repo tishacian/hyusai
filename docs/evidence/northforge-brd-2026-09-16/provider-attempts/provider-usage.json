@@ -1,0 +1,86 @@
+[
+  {
+    "attempt": 2,
+    "seconds": 66.87703404099739,
+    "model_execution": {
+      "provider": "openai",
+      "model": "gpt-5",
+      "credential_source": "env",
+      "model_source": "global",
+      "fallback": false,
+      "requested_provider": "workspace",
+      "fallback_plan": [
+        {
+          "provider": "ollama",
+          "model": "qwen3:8b",
+          "credential_source": "none",
+          "model_source": "global",
+          "fallback": false,
+          "requested_provider": "ollama"
+        }
+      ]
+    },
+    "usage": {
+      "total_tokens": 10062,
+      "provider_calls": 1,
+      "measurement_source": "provider_reported",
+      "measurement_coverage": "complete",
+      "providers": [
+        "openai"
+      ],
+      "calls": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "total_tokens": 10062,
+          "prompt_tokens": 4263,
+          "completion_tokens": 5799
+        }
+      ],
+      "prompt_tokens": 4263,
+      "completion_tokens": 5799
+    }
+  },
+  {
+    "attempt": 3,
+    "seconds": 76.01041387498844,
+    "model_execution": {
+      "provider": "openai",
+      "model": "gpt-5",
+      "credential_source": "env",
+      "model_source": "global",
+      "fallback": false,
+      "requested_provider": "workspace",
+      "fallback_plan": [
+        {
+          "provider": "ollama",
+          "model": "qwen3:8b",
+          "credential_source": "none",
+          "model_source": "global",
+          "fallback": false,
+          "requested_provider": "ollama"
+        }
+      ]
+    },
+    "usage": {
+      "total_tokens": 11907,
+      "provider_calls": 1,
+      "measurement_source": "provider_reported",
+      "measurement_coverage": "complete",
+      "providers": [
+        "openai"
+      ],
+      "calls": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "total_tokens": 11907,
+          "prompt_tokens": 4344,
+          "completion_tokens": 7563
+        }
+      ],
+      "prompt_tokens": 4344,
+      "completion_tokens": 7563
+    }
+  }
+]
