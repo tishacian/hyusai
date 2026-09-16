@@ -77,7 +77,10 @@ def validate_intervention_planner(body, selected_slugs):
             raise ValueError("Intervention requires one operator-request source; documents come from authorized tools")
         ref = (config.get("inputs_map") or {}).get("objective")
         if not isinstance(ref, dict) or ref.get("node_id") not in sources or ref.get("required") is not True or len(ref.get("path", [])) != 1:
-            raise ValueError("Bind objective directly to the operator-request source with required=true")
+            raise ValueError(f"AgentLoop {node.get('id')!r}: bind objective at config.inputs_map.objective "
+                             "directly to the operator-request source with required=true. "
+                             "Move any node-level inputs_map into config.inputs_map; "
+                             "node.inputs_map and config_inputs_map are not executed.")
         output_fields = {"goal", "observations", "exit", "turns", "privilege_tier", "visible_skills"}
         for consumer in body.flow_definition.get("nodes", []):
             for value in ((consumer.get("config") or {}).get("inputs_map") or {}).values():

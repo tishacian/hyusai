@@ -133,6 +133,11 @@ def test_intervention_requires_native_selected_planner_and_recommend_mandate():
     with pytest.raises(ValueError, match="selected native"):
         service.validate_intervention_planner(body, [])
     service.validate_intervention_planner(body, ["decide_next_v1"])
+    node = body.flow_definition["nodes"][-1]
+    node["inputs_map"] = config.pop("inputs_map")
+    with pytest.raises(ValueError, match="Move any node-level inputs_map into config.inputs_map"):
+        service.validate_intervention_planner(body, ["decide_next_v1"])
+    config["inputs_map"] = node.pop("inputs_map")
     config["privilege_tier"] = "act_with_approval"
     with pytest.raises(ValueError, match="privilege_tier=recommend"):
         service.validate_intervention_planner(body, ["decide_next_v1"])
