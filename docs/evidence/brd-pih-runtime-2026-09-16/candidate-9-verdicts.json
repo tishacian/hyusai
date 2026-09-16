@@ -1,0 +1,45 @@
+{
+  "verdict": "failed",
+  "assertions": [
+    {
+      "id": "a1-output-exists",
+      "passed": false,
+      "path_found": false
+    },
+    {
+      "id": "a2-has-current-title",
+      "passed": false,
+      "path_found": false
+    },
+    {
+      "id": "a3-has-proposed-title",
+      "passed": false,
+      "path_found": false
+    },
+    {
+      "id": "a4-has-effective-date",
+      "passed": false,
+      "path_found": false
+    },
+    {
+      "id": "a5-no-hr-decision-approve",
+      "passed": false,
+      "path_found": false
+    },
+    {
+      "id": "a6-no-hr-decision-reject",
+      "passed": false,
+      "path_found": false
+    },
+    {
+      "id": "a7-no-hr-decision-recommend",
+      "passed": false,
+      "path_found": false
+    },
+    {
+      "id": "a8-missing-info-none-or-empty-coverage",
+      "passed": false,
+      "path_found": false
+    }
+  ]
+}

@@ -1,0 +1,134 @@
+[
+  {
+    "attempt": 8,
+    "seconds": 37.85643085744232,
+    "model_execution": {
+      "provider": "openai",
+      "model": "gpt-5",
+      "credential_source": "env",
+      "model_source": "global",
+      "fallback": false,
+      "requested_provider": "workspace",
+      "fallback_plan": [
+        {
+          "provider": "ollama",
+          "model": "qwen3:8b",
+          "credential_source": "none",
+          "model_source": "global",
+          "fallback": false,
+          "requested_provider": "ollama"
+        }
+      ],
+      "attempts": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "credential_source": "env",
+          "model_source": "global",
+          "fallback": false,
+          "requested_provider": "workspace",
+          "fallback_plan": [
+            {
+              "provider": "ollama",
+              "model": "qwen3:8b",
+              "credential_source": "none",
+              "model_source": "global",
+              "fallback": false,
+              "requested_provider": "ollama"
+            }
+          ],
+          "dispatch_started": true,
+          "status": "completed"
+        }
+      ],
+      "dispatch_started": true,
+      "returned_model": "gpt-5-2025-08-07"
+    },
+    "usage": {
+      "total_tokens": 7736,
+      "provider_calls": 1,
+      "measurement_source": "provider_reported",
+      "measurement_coverage": "complete",
+      "providers": [
+        "openai"
+      ],
+      "calls": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "total_tokens": 7736,
+          "prompt_tokens": 2917,
+          "completion_tokens": 4819
+        }
+      ],
+      "prompt_tokens": 2917,
+      "completion_tokens": 4819
+    }
+  },
+  {
+    "attempt": 9,
+    "seconds": 67.43803806323558,
+    "model_execution": {
+      "provider": "openai",
+      "model": "gpt-5",
+      "credential_source": "env",
+      "model_source": "global",
+      "fallback": false,
+      "requested_provider": "workspace",
+      "fallback_plan": [
+        {
+          "provider": "ollama",
+          "model": "qwen3:8b",
+          "credential_source": "none",
+          "model_source": "global",
+          "fallback": false,
+          "requested_provider": "ollama"
+        }
+      ],
+      "attempts": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "credential_source": "env",
+          "model_source": "global",
+          "fallback": false,
+          "requested_provider": "workspace",
+          "fallback_plan": [
+            {
+              "provider": "ollama",
+              "model": "qwen3:8b",
+              "credential_source": "none",
+              "model_source": "global",
+              "fallback": false,
+              "requested_provider": "ollama"
+            }
+          ],
+          "dispatch_started": true,
+          "status": "completed"
+        }
+      ],
+      "dispatch_started": true,
+      "returned_model": "gpt-5-2025-08-07"
+    },
+    "usage": {
+      "total_tokens": 11296,
+      "provider_calls": 1,
+      "measurement_source": "provider_reported",
+      "measurement_coverage": "complete",
+      "providers": [
+        "openai"
+      ],
+      "calls": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "total_tokens": 11296,
+          "prompt_tokens": 3090,
+          "completion_tokens": 8206
+        }
+      ],
+      "prompt_tokens": 3090,
+      "completion_tokens": 8206
+    }
+  }
+]

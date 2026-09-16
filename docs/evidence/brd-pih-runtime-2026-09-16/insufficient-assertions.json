@@ -1,0 +1,15 @@
+{
+  "verdict": "passed",
+  "assertions": [
+    {
+      "id": "exists-draft",
+      "passed": true,
+      "path_found": true
+    },
+    {
+      "id": "no-hr-decision",
+      "passed": true,
+      "path_found": true
+    }
+  ]
+}
