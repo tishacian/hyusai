@@ -36,3 +36,11 @@ contains only the intervention-history collection, with no fallback reason.
 `ingestion-and-search.json` retains the upload, worker and retrieval evidence.
 This qualifies ingestion and direct retrieval, not yet AgentLoop tool selection.
 No application image or client configuration was changed.
+
+## Read tools installed
+
+After f63f1eaf deployed the pinned-collection guard, the canonical Skills API
+created `northforge_notices` and `northforge_history` in the Showcase workspace.
+Each uses the existing semantic_search_v1 wrapper with its own frozen collection.
+The retained API responses are in `tools.json`. No AgentLoop execution or
+successful tool-selection claim follows from creation alone.
