@@ -476,3 +476,19 @@ paths were wrong and semantic prohibitions were inadequately represented by
 lexical exclusions. These are retained as failures, not rewritten to pass.
 Evidence: `docs/evidence/brd-pih-runtime-2026-09-16/README.md`. No production
 publication or human-user acceptance is claimed.
+
+
+### Generated test output paths — 16 September
+
+Proposal validation now rejects assertion/answer paths outside the declared
+single-sink result fields before retaining the proposal. Both manual submission
+and the generation worker use this check; the existing bounded repair loop
+receives the diagnostic. The provider failure `nodes/sink/completion` is covered
+by an API regression asserting that no proposal is written, followed by a valid
+`completion` submission. Seventeen focused generation/import/runtime tests pass.
+This validates path structure only: semantic test adequacy, nested paths and
+complex output contracts still require review and actual execution.
+
+Scheduling follows the user's confirmed dependencies: DataOps preparation after
+the stable R1 foundation, generalization after validated R2 contracts. Release
+acceptance criteria for R0–R6 remain unchanged.

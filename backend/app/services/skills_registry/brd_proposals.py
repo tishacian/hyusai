@@ -38,6 +38,30 @@ def coverage(extraction, mappings, *, node_ids, case_ids):
     return result
 
 
+def validate_case_output_paths(flow, cases):
+    """BRD tests must address declared result fields, never a trace envelope.
+
+    Only inspect a single explicitly shaped sink. Complex/undeclared output
+    contracts still need execution and review; this is not an oracle.
+    """
+    sinks = [node for node in flow.get("nodes", []) if node.get("kind") == "sink"]
+    if len(sinks) != 1:
+        return
+    schema = (sinks[0].get("config") or {}).get("output_schema") or {}
+    properties = schema.get("properties") if isinstance(schema, dict) else None
+    if not isinstance(properties, dict) or not properties:
+        return
+    for case in cases:
+        paths = [case.answer_path, *(item.path for item in case.assertions)]
+        for path in paths:
+            if path and path[0] not in properties:
+                raise HTTPException(422, {
+                    "code": "brd_case_output_path_invalid", "case_id": case.id,
+                    "path": path, "declared_output_fields": sorted(properties),
+                    "message": "Test paths are relative to the sink result. Declare the output field before testing it; do not prefix with nodes or the sink ID.",
+                })
+
+
 def retain_proposal(db, *, document, user, request_key, proposal):
     snapshot = {**deepcopy(proposal), "document_id": document.id, "document_sha256": document.sha256}
     digest = canonical_sha256(snapshot)
