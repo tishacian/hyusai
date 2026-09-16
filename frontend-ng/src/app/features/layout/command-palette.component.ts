@@ -241,6 +241,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     { id: 'view.chat', label: this.i18n.t('palette.view.chat'), hint: this.i18n.t('palette.view.chat.hint'), tone: 'pos', kind: 'view', route: agentiumSurfaceRoute('chat'), keywords: 'chat ask question playground session test' },
     { id: 'view.observability', label: this.i18n.t('palette.view.observability'), hint: this.i18n.t('palette.view.observability.hint'), tone: 'warn', kind: 'view', route: agentiumSurfaceRoute('observability'), keywords: 'observability quality performance metrics' },
     { id: 'view.runs', label: this.i18n.t('palette.view.runs'), hint: this.i18n.t('palette.view.runs.hint'), tone: 'warn', kind: 'view', route: agentiumSurfaceRoute('runs'), keywords: 'runs traces executions logs history' },
+    { id: 'view.settings', label: this.i18n.t('palette.view.settings'), hint: this.i18n.t('palette.view.settings.hint'), tone: 'cool', kind: 'view', route: agentiumSurfaceRoute('model-portal'), keywords: 'settings model provider connection setup' },
     { id: 'action.new-system', label: this.i18n.t('palette.action.new_system'), hint: this.i18n.t('palette.action.new_system.hint'), tone: 'pos', kind: 'action', route: `${agentiumSurfaceRoute('systems')}/new`, keywords: 'create new build wizard' },
     ];
     if (this.workspace.experienceStudioV1Enabled()) {
@@ -325,8 +326,8 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     const caps: CommandItem[] = this.capabilities().map((c) => ({
       id: `cap.${c.id}`,
       label: c.name,
-      hint: `${(c.tier || 'UNIVERSAL').toUpperCase()} · ${c.skill_ids?.length || 0} skills`,
-      tone: (c.tier === 'client' ? 'cool' : c.tier === 'industry' ? 'violet' : 'pos') as Tone,
+      hint: this.i18n.t('palette.capability.skills', { count: c.skill_ids?.length || 0 }),
+      tone: 'cool' as Tone,
       kind: 'capability',
       route: this.navigation.objectUrl('capability', c.id),
       workspaceEpoch,
@@ -368,7 +369,15 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     }));
 
     const all = [...this.chatCommands, ...this.viewCommands, ...caps, ...sys, ...runs, ...sks];
-    if (!q) return all.slice(0, 40);
+    if (!q) {
+      const buildCommand = this.workspace.experienceStudioV1Enabled()
+        ? 'view.create'
+        : 'view.systems';
+      const defaultIds = ['chat.ask', 'view.knowledge', buildCommand, 'view.runs', 'view.settings'];
+      return defaultIds
+        .map((id) => all.find((command) => command.id === id))
+        .filter((command): command is CommandItem => command !== undefined);
+    }
     return all
       .filter(
         (c) =>
