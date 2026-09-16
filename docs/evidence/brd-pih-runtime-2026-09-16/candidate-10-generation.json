@@ -1,0 +1,30 @@
+{
+  "seconds": 69.01063061412424,
+  "model": "gpt-5-2025-08-07",
+  "usage": {
+    "total_tokens": 10171,
+    "provider_calls": 1,
+    "measurement_source": "provider_reported",
+    "measurement_coverage": "complete",
+    "providers": [
+      "openai"
+    ],
+    "calls": [
+      {
+        "provider": "openai",
+        "model": "gpt-5",
+        "total_tokens": 10171,
+        "prompt_tokens": 3143,
+        "completion_tokens": 7028
+      }
+    ],
+    "prompt_tokens": 3143,
+    "completion_tokens": 7028
+  },
+  "validation": {
+    "proposal_schema": "passed",
+    "dag": "passed",
+    "declared_output_paths": "passed"
+  },
+  "runtime": "not_run"
+}
