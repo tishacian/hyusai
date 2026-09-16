@@ -37,3 +37,18 @@ The proposal is retained unchanged and has not been applied or published.
 Next correction: validate the generated human-decision test contract before
 accepting a proposal, using the existing proposal validation/repair path.
 Other case assertions are lexical checks, not semantic acceptance.
+
+### Generated review contract guard (local, not deployed)
+
+Generation now rejects a HITL candidate unless a required string sink field
+maps directly to that node's decision_status, and cases linked to the node
+assert both approved and rejected with equals. The existing bounded repair
+loop receives the validation error. This adds no automatic human decision.
+The regression test starts from the exact live proposal above and verifies
+missing mapping, absent rejection/approval, unrelated cases, and a forged
+model-derived verdict. Service suite: 14 passed; BRD API suite: 9 passed.
+
+This structural guard does not detect every natural-language procedure used
+as a business question, prove retry behaviour, or establish a human trial.
+The generated candidate and actual Runs still require those checks. Existing
+retained proposals and manually authored proposals are not rewritten.

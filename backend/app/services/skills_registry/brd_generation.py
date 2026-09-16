@@ -132,6 +132,37 @@ def validate_intervention_planner(body, selected_slugs):
                                  "Keep expected answers and reviewer instructions in assertions/reference_answer")
 
 
+def validate_generated_review_tests(body):
+    """A generated HITL test must inspect its real verdict, never model prose."""
+    nodes = body.flow_definition.get("nodes", [])
+    for review in (node for node in nodes if node.get("kind") == "hitl"):
+        fields = set()
+        for sink in (node for node in nodes if node.get("kind") == "sink"):
+            config = sink.get("config") or {}
+            schema = config.get("output_schema") or {}
+            for name, ref in (config.get("inputs_map") or {}).items():
+                if (isinstance(ref, dict) and ref.get("node_id") == review["id"]
+                        and ref.get("path") == ["decision_status"] and ref.get("required") is True
+                        and name in schema.get("required", [])
+                        and (schema.get("properties", {}).get(name) or {}).get("type") == "string"):
+                    fields.add(name)
+        if not fields:
+            raise ValueError(f"HITL {review['id']}: expose its decision_status directly as a required "
+                             "string in the sink schema and inputs_map; model text is not a decision")
+        linked_cases = {case_id for mapping in body.mappings if review["id"] in mapping.node_ids
+                        for case_id in mapping.case_ids}
+        verdicts = {assertion.get("value") for case in body.cases if case.get("id") in linked_cases
+                    for assertion in case.get("assertions", [])
+                    if assertion.get("operator") == "equals"
+                    and assertion.get("path") in [[name] for name in fields]
+                    and isinstance(assertion.get("value"), str)}
+        if not {"approved", "rejected"}.issubset(verdicts):
+            raise ValueError(f"HITL {review['id']}: linked cases must assert both approved and rejected "
+                             "decision_status with equals on the mapped sink field. Reuse a concrete "
+                             "business question; keep the human procedure in reference_answer. "
+                             "A draft-exists assertion cannot establish approval, rejection or retry")
+
+
 _DOCUMENTARY_INSTRUCTIONS = (
         "Extraction must copy supplied facts; passage selection must preserve exact supporting "
         "quotes and mark missing evidence; synthesis must use those facts and quotes. "
@@ -278,7 +309,9 @@ def generation_prompt(document, request, *, catalog, proposal_schema, feedback=N
         "human action, not a question for the model. For these cases reuse a concrete operator "
         "question already present in the BRD as question/input_ref, so the system first prepares "
         "the deliverable. Describe the required reviewer action in reference_answer and assert "
-        "its final decision_status; the Run must wait for that explicit human action. Never "
+        "its final decision_status; the Run must wait for that explicit human action. Include "
+        "separate cases for approved and rejected using equals assertions, linked through mappings "
+        "to the HITL node. Expose its decision_status directly as a required string sink field. Never "
         "send 'review and approve/reject' as the operator objective or infer a decision from text. "
         "Its output contains approved, rejected and decision_status, NOT the upstream completion. "
         "The sink must map draft text directly from the synthesis task, which remains an ancestor "
@@ -446,6 +479,7 @@ def run_generation_job(job_id):
                             validate_document_source_bindings(body)
                         if request.family == "intervention_preparation":
                             validate_intervention_planner(body, request.skill_slugs)
+                        validate_generated_review_tests(body)
                         # Validate all referenced catalog tools independently of model instructions.
                         allowed = set(request.skill_slugs) | {"@" + skill.local_name for skill in body.skills}
                         def check(value, key=None):
