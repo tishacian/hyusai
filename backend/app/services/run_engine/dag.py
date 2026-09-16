@@ -3218,13 +3218,24 @@ async def _run_agent_loop(
     def _observation(invocation, *, turn: int, slug: str, summary: str = ""):
         ok = invocation is not None and invocation.status == "completed"
         output = invocation.output_ref if ok and isinstance(invocation.output_ref, dict) else None
+        frozen_node = (run.execution_contract or {}).get("nodes", {}).get(node.id) or {}
+        tool = (frozen_node.get("tool_contract") or {}).get("nodes", {}).get(slug) or {}
+        executor = tool.get("executor") or {}
+        is_retrieval = slug == "semantic_search_v1" or (
+            executor.get("kind") == "registry_call"
+            and (executor.get("params") or {}).get("skill_slug") == "semantic_search_v1"
+        )
+        if output is not None and is_retrieval:
+            from .agent_loop import retrieval_evidence_view
+            output = retrieval_evidence_view(output)
         return {
             "turn": turn, "skill": slug, "ok": ok,
             "summary": summary or str((output or {}).get("summary")
                                       or (output or {}).get("completion")
                                       or (output or {}).get("status") or ""),
             "invocation_id": str(invocation.id) if invocation is not None else None,
-            # Preserve the actual tool evidence, including retrieval results and metadata.
+            # Retrieval observations retain all passages with an explicit evidence
+            # view; the linked invocation preserves the complete raw tool output.
             # A failed invocation is not a successful source observation.
             "output": output,
         }

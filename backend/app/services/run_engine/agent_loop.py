@@ -215,6 +215,49 @@ def coerce_decide_output(
     }
 
 
+def retrieval_evidence_view(output: dict[str, Any]) -> dict[str, Any]:
+    """Keep every retrieved passage and source reference, omit search diagnostics.
+
+    The invocation retains the full output. This explicit observation view does
+    not select, shorten or summarize passages. Unknown source metadata survives.
+    """
+    results = output.get("results")
+    if not isinstance(results, list) or any(not isinstance(row, dict) for row in results):
+        return output
+    preserved_retrieval_keys = {
+        "retrieval_role", "retrieval_evidence_coverage", "retrieval_evidence_terms_missing",
+        "retrieval_exact_match_missing",
+    }
+    statistic_keys = {
+        "document_word_count", "document_character_count", "document_line_count",
+        "document_paragraph_count", "document_token_count", "document_extracted_keywords",
+        "document_has_front_matter", "file_size",
+    }
+    rows = []
+    for row in results:
+        metadata = row.get("metadata")
+        if isinstance(metadata, dict):
+            metadata = {
+                key: value for key, value in metadata.items()
+                if key != "content" and key not in statistic_keys and (
+                    key in preserved_retrieval_keys
+                    or not key.startswith(("retrieval_", "sparse_", "dense_", "fusion_", "qdrant_"))
+                )
+            }
+            rows.append({**row, "metadata": metadata})
+        else:
+            rows.append(dict(row))
+    return {
+        **{key: value for key, value in output.items() if key != "retrieval_decision_trace"},
+        "results": rows,
+        "evidence_view": {
+            "version": 1, "passages_retained": len(rows), "passages_omitted": 0,
+            "passage_text_changed": False,
+            "omitted": "search diagnostics, document statistics and metadata.content; full output remains in the linked invocation",
+        },
+    }
+
+
 def build_decide_prompt(
     *,
     goal: Mapping[str, Any],

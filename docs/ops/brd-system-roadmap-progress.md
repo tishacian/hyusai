@@ -720,3 +720,21 @@ actions and approved-write resumptions use this dispatch. 35 runtime/freeze test
 pass, including a full walker regression proving the tool receives only `query`.
 Fresh live-provider qualification is running in
 `/tmp/brd-northforge-runtime-frozen-arguments`; no successful result is claimed yet.
+
+
+### AgentLoop retrieval evidence view — 16 September
+
+Retrieval observations now carry an explicit evidence view for native semantic
+search and frozen authored bindings to it. All result rows and passage text remain
+unchanged; source references, unknown source metadata, scope, advisory-role and
+coverage warnings remain. Search diagnostics, document statistics and the separate
+metadata.content copy stay available in the original linked SkillInvocation, but
+are omitted from the model-facing observation. No passage selection or source-text
+truncation is introduced, and the 32,000-character prompt limit is unchanged.
+
+36 runtime/freeze tests pass, including original-ledger preservation and source
+positions. Rendering the previously failed real rejection input with its unchanged
+generated template now produces 27,982 characters and preserves all 13 passages.
+This is a render check, not proof of an improved model answer. A targeted live
+provider retry is running at /tmp/brd-northforge-rejection-evidence-view; no result
+is asserted yet. Not deployed; public runtime remains d5a02f49.
