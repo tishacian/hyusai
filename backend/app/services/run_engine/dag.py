@@ -3189,6 +3189,15 @@ async def _run_agent_loop(
     start_ms = state.accumulated_ms
 
     async def _invoke(slug: str, payload: Dict[str, Any], *, turn: int, kind: str):
+        frozen_node = (run.execution_contract or {}).get("nodes", {}).get(node.id) or {}
+        tool = (frozen_node.get("tool_contract") or {}).get("nodes", {}).get(slug)
+        if tool is not None and kind == "agent_loop_act":
+            schema = tool["input_schema"]
+            if schema.get("additionalProperties") is False:
+                # The loop owns this envelope, not the caller. Bind only the
+                # tool's declared arguments; keep goal/observations in the loop.
+                properties = schema.get("properties") or {}
+                payload = {key: value for key, value in payload.items() if key in properties}
         invocation = await _execute_task_node(
             db,
             run,

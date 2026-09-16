@@ -573,3 +573,30 @@ async def test_retrieval_evidence_reaches_next_decision_and_persisted_output(db_
     assert invocation.run_id == run.id
     assert invocation.skill_slug == "semantic_search_v1"
     assert invocation.output_ref == observation["output"]
+
+
+@pytest.mark.asyncio
+async def test_frozen_tool_receives_declared_arguments_without_loop_envelope(db_session, monkeypatch):
+    async def decide(inp, ctx):
+        return {"next_skill": "azure_llm_v1", "confidence": 0.9, "done": False}
+    seen = []
+    async def tool(inp, ctx):
+        seen.append(inp)
+        return {"completion": "read"}
+    _install(monkeypatch, {"decide_next_v1": decide, "azure_llm_v1": tool})
+    flow = json.loads(json.dumps(LOOP_FLOW))
+    flow["nodes"][1]["config"]["skill_allowlist"] = ["azure_llm_v1"]
+    flow["nodes"][1]["config"]["privilege_tier"] = "recommend"
+    flow["nodes"][1]["config"]["goal"]["done_when"] = ["azure_llm_v1"]
+    system = _mk_system(db_session, flow, ["decide_next_v1", "azure_llm_v1"])
+    row = db_session.query(Skill).filter_by(slug="azure_llm_v1").one()
+    row.input_schema = {"type": "object", "properties": {"query": {"type": "string"}},
+                        "required": ["query"], "additionalProperties": False}
+    db_session.commit()
+    run = _mk_run(db_session, system, query="operating limit")
+    run.execution_contract = compile_execution_contract(db_session, flow=flow,
+        workspace_id=None, runtime_mode="dag_overlay")
+    db_session.commit()
+    result = await execute_run_dag(run.id)
+    assert result["status"] == "completed"
+    assert seen == [{"query": "operating limit"}]
