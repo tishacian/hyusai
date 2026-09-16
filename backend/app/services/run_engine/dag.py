@@ -3095,9 +3095,7 @@ async def _run_agent_loop(
     goal.setdefault("done_when", list(config.get("done_when") or goal.get("done_when") or []))
     goal.setdefault("status", "active")
     allowlist = list(config.get("skill_allowlist") or merged.get("skill_allowlist") or [])
-    decide_slug = (
-        config.get("decide_skill") or node.skill_slug or DECIDE_SKILL
-    )
+    decide_slug = node.skill_slug or DECIDE_SKILL
     try:
         floor = float(config.get("confidence_floor") if config.get("confidence_floor") is not None else DEFAULT_CONFIDENCE_FLOOR)
     except (TypeError, ValueError):

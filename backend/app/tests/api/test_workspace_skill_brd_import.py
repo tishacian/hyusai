@@ -348,6 +348,57 @@ def test_reviewed_proposal_applies_once_to_draft_only(db_session, tmp_path, monk
     assert db_session.query(SystemFlowDraft).filter_by(system_id=system.id).one().revision == 2
 
 
+def test_proposal_apply_binds_default_agent_loop_planner(db_session, tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.models.system import System
+    from app.models.system_flow_draft import SystemFlowDraft
+    from app.services.systems import flow_publication
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path))
+    workspace, user = _seed(db_session)
+    planner = Skill(slug="decide_next_v1", name="Planner")
+    tool = Skill(slug="semantic_search_v1", name="Search")
+    workspace.settings = {"features": {"flow_workbench_v1": True},
+                          "catalog": {"enabled_skills": [planner.slug, tool.slug]}}
+    db_session.add_all([planner, tool])
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+    imported = client.post("/skills/import/business-requirements?retain=true",
+                           files={"file": ("brd.docx", _brd())})
+    assert imported.status_code == 200, imported.text
+    document_id = imported.json()["document"]["id"]
+    path = f"/skills/imports/business-requirements/{document_id}/proposals"
+    flow = {"schema_version": 3, "nodes": [
+        {"id": "input", "kind": "source"},
+        {"id": "investigate", "kind": "agent_loop", "config": {
+            "max_turns": 2, "skill_allowlist": [tool.slug], "privilege_tier": "recommend"}},
+        {"id": "result", "kind": "sink"},
+    ], "edges": [{"from": "input", "to": "investigate", "kind": "data"},
+                 {"from": "investigate", "to": "result", "kind": "data"}]}
+    proposed = client.post(path, json={"request_key": "implicit-planner", "name": "Investigation",
+        "flow_definition": flow, "cases": [{"id": "case-1", "input_ref": {}, "assertions": []}],
+        "mappings": [{"table": 1, "row": 2, "node_ids": ["investigate"], "case_ids": ["case-1"]}]})
+    assert proposed.status_code == 200, proposed.text
+    proposal = proposed.json()
+
+    applied = client.post(path + "/" + proposal["id"] + "/apply",
+                          json={"expected_sha256": proposal["sha256"], "reviewed": True})
+
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["status"] == "applied"
+    system = db_session.get(System, applied.json()["system_id"])
+    assert set(system.skill_ids) == {planner.id, tool.id}
+    draft = db_session.query(SystemFlowDraft).filter_by(system_id=system.id).one()
+    assert draft.flow_definition == flow
+    assert applied.json()["proposal"] == proposal["proposal"]
+    assert system.settings["brd_provenance"]["coverage"] == proposal["proposal"]["coverage"]
+    assert system.settings["brd_provenance"]["proposal_sha256"] == proposal["sha256"]
+    contract = flow_publication.compile_execution_contract(db_session, flow, workspace, system=system)
+    assert contract["nodes"]["investigate"]["skill_slug"] == planner.slug
+    assert set(contract["nodes"]["investigate"]["tool_contract"]["nodes"]) == {tool.slug}
+
+
 def test_brd_generation_is_durable_idempotent_and_validated(db_session, tmp_path, monkeypatch):
     from app.core.config import settings
     from app.db import base

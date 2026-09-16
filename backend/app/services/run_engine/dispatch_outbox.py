@@ -67,6 +67,28 @@ def durable_initial_dispatch_source(run: Run) -> str | None:
     """Return the server-owned claim that authorises initial Run recovery."""
     if run.trigger == "webhook" and run.trigger_dedup_key:
         return str(run.trigger_dedup_key)
+    if run.trigger == "golden_preview":
+        execution = (run.input_ref or {}).get("execution")
+        if not isinstance(execution, dict):
+            return None
+        batch_id = execution.get("golden_batch_id")
+        case_id = execution.get("golden_case_id")
+        request_sha256 = execution.get("golden_request_sha256")
+        source = f"golden:{batch_id}:{run.id}"
+        if (
+            run.execution_surface != "golden_preview"
+            or execution.get("execution_surface") != "golden_preview"
+            or execution.get("initial_dispatch_plane") != "celery"
+            or execution.get("real_side_effects_acknowledged") is not True
+            or not isinstance(batch_id, str) or not batch_id.strip()
+            or not isinstance(case_id, str) or not case_id.strip()
+            or not isinstance(request_sha256, str)
+            or len(request_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in request_sha256)
+            or run.trigger_dedup_key != source
+        ):
+            return None
+        return source
     claim = str(run.experience_idempotency_key or "")
     source = str(run.trigger_dedup_key or "")
     ingress = (run.input_ref or {}).get("_ingress")
@@ -821,6 +843,13 @@ def repair_dispatch_gaps(
                     Run.trigger_dedup_key.isnot(None),
                     Run.input_ref["_ingress"]["adapter"]["surface"].as_string()
                     == "experience",
+                ),
+                and_(
+                    Run.trigger == "golden_preview",
+                    Run.execution_surface == "golden_preview",
+                    Run.trigger_dedup_key.isnot(None),
+                    Run.input_ref["execution"]["initial_dispatch_plane"].as_string()
+                    == "celery",
                 ),
             ),
             Run.status.in_(("pending", "running")),

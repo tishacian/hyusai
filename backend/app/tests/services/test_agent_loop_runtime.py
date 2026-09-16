@@ -580,6 +580,73 @@ async def test_retrieval_evidence_reaches_next_decision_and_persisted_output(db_
 
 
 @pytest.mark.asyncio
+async def test_decide_skill_freezes_authored_retrieval_and_preserves_evidence(db_session, monkeypatch):
+    from app.models.workspace import Workspace
+
+    workspace = Workspace(id=str(uuid.uuid4()), slug="loop-evidence", name="Evidence", settings={})
+    db_session.add(workspace)
+    db_session.commit()
+    slug = f"ws.{workspace.id}.read_notices"
+    passage = "Continuous pressure: 700 bar. " * 100
+    evidence = {"results": [{"content": passage, "metadata": {
+        "document_id": "notice-700", "page": 2, "content": passage,
+    }}], "retrieval_decision_trace": {"diagnostics": "verbose " * 1000}}
+    seen = []
+
+    async def decide(inp, ctx):
+        if inp["observations"]:
+            seen.extend(inp["observations"])
+            return {"confidence": 1, "done": True, "exit": "complete"}
+        return {"next_skill": slug, "confidence": 1}
+
+    async def retrieve(inp, ctx):
+        assert inp == {"query": "pressure limit", "context_collection": "notices"}
+        assert ctx["retrieval_contract"]["collection"] == "notices"
+        return evidence
+
+    _install(monkeypatch, {"decide_next_v1": decide})
+    entry = wrappers._REGISTRY["semantic_search_v1"]
+    monkeypatch.setitem(wrappers._REGISTRY, "semantic_search_v1", (retrieve, entry[1], entry[2]))
+    flow = json.loads(json.dumps(LOOP_FLOW))
+    config = flow["nodes"][1]["config"]
+    config.pop("skill_slug", None)
+    config.update(decide_skill=" decide_next_v1 ", skill_allowlist=[slug], privilege_tier="recommend")
+    config["goal"] = {"done_when": []}
+    system = _mk_system(db_session, flow, ["decide_next_v1", slug])
+    system.workspace_id = workspace.id
+    skill = db_session.query(Skill).filter_by(slug=slug).one()
+    skill.workspace_id = workspace.id
+    skill.input_schema = {"type": "object", "properties": {"query": {"type": "string"}},
+                          "required": ["query"], "additionalProperties": False}
+    skill.executor = {"kind": "registry_call", "params": {"skill_slug": "semantic_search_v1",
+                      "frozen_input": {"context_collection": "notices"}}}
+    db_session.commit()
+    run = _mk_run(db_session, system, query="pressure limit")
+    run.workspace_id = workspace.id
+    run.execution_contract = compile_execution_contract(
+        db_session, flow=flow, workspace_id=workspace.id, runtime_mode="dag_overlay")
+    # An edit to the catalogue must not change this Run's tool or its scope.
+    skill.executor = {"kind": "registry_call", "params": {"skill_slug": "semantic_search_v1",
+                      "frozen_input": {"context_collection": "other"}}}
+    db_session.commit()
+
+    result = await execute_run_dag(run.id)
+
+    assert result["status"] == "completed"
+    run = _reload(db_session, run)
+    observation = run.output_ref["observations"][0]
+    assert seen == [observation]
+    assert observation["output"]["results"] == [{"content": passage, "metadata": {
+        "document_id": "notice-700", "page": 2,
+    }}]
+    assert observation["output"]["evidence_view"]["passages_omitted"] == 0
+    assert "retrieval_decision_trace" not in observation["output"]
+    invocation = db_session.get(SkillInvocation, observation["invocation_id"])
+    assert invocation.skill_slug == slug
+    assert invocation.output_ref == evidence
+
+
+@pytest.mark.asyncio
 async def test_frozen_tool_receives_declared_arguments_without_loop_envelope(db_session, monkeypatch):
     async def decide(inp, ctx):
         return {"next_skill": "azure_llm_v1", "confidence": 0.9, "done": False}

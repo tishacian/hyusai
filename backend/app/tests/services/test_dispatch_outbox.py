@@ -1,4 +1,6 @@
 """Transactional and delivery contracts for the P4 Run dispatch outbox."""
+import copy
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Barrier
@@ -22,10 +24,12 @@ from app.services.run_engine.dispatch_outbox import (
     ObsoleteDispatch,
     PermanentDispatchError,
     claim_dispatch_batch,
+    durable_initial_dispatch_source,
     enqueue_dispatch,
     mark_dispatch_published,
     mark_dispatch_retry,
     publish_claimed_dispatch,
+    reconcile_dispatch_outbox,
     repair_dispatch_gaps,
 )
 
@@ -330,6 +334,108 @@ def test_repair_recovers_pending_trigger_run_without_outbox(db_session):
         run.trigger_dedup_key,
         "pending",
     )
+
+
+def _attest_golden_run(run):
+    batch_id = str(uuid4())
+    run.trigger = run.execution_surface = "golden_preview"
+    run.trigger_dedup_key = f"golden:{batch_id}:{run.id}"
+    run.input_ref = {"secret": "never-enter-rabbitmq", "execution": {
+        "execution_surface": "golden_preview",
+        "initial_dispatch_plane": "celery",
+        "real_side_effects_acknowledged": True,
+        "golden_batch_id": batch_id,
+        "golden_case_id": "case-a",
+        "golden_request_sha256": "a" * 64,
+    }}
+
+
+@pytest.mark.parametrize("status", ["pending", "running"])
+def test_golden_recovery_retries_broker_failure_without_adopting_legacy_runs(db_session, monkeypatch, status):
+    workspace, run = _workspace_and_run(db_session, status=status)
+    _attest_golden_run(run)
+    legacy = Run(id=str(uuid4()), workspace_id=workspace.id, status="running",
+        trigger="golden_preview", execution_surface="golden_preview",
+        input_ref=copy.deepcopy(run.input_ref))
+    db_session.add(legacy)
+    db_session.commit()
+    assert durable_initial_dispatch_source(legacy) is None
+
+    def fail_publish(*_args, **_kwargs):
+        raise OSError("broker unavailable")
+
+    monkeypatch.setattr("app.workers.celery_app.celery_app.send_task", fail_publish)
+    recovered = reconcile_dispatch_outbox()
+    assert recovered["repaired"][TRIGGER_RUN] == 1
+    assert recovered["retried"] == 1
+    db_session.expire_all()
+    event = db_session.query(RunDispatchOutbox).one()
+    assert event.run_id == run.id
+    assert event.state == "pending"
+    task_id = event.task_id
+    event.available_at = datetime.utcnow() - timedelta(seconds=1)
+    db_session.commit()
+    published = []
+
+    def publish(name, *, args, kwargs, **options):
+        from types import SimpleNamespace
+        published.append((name, args, kwargs, options))
+        return SimpleNamespace(id=options["task_id"])
+
+    monkeypatch.setattr("app.workers.celery_app.celery_app.send_task", publish)
+    assert reconcile_dispatch_outbox()["published"] == 1
+    assert reconcile_dispatch_outbox()["claimed"] == 0
+    assert published == [("agentium.trigger_run", [run.id], {}, {"task_id": task_id})]
+    db_session.expire_all()
+    assert db_session.query(RunDispatchOutbox).one().state == "published"
+    assert legacy.status == "running"
+
+
+def test_golden_claim_rejects_mismatched_source_and_caller_only_evidence(db_session):
+    _, run = _workspace_and_run(db_session)
+    _attest_golden_run(run)
+    source = run.trigger_dedup_key
+    assert durable_initial_dispatch_source(run) == source
+    run.trigger_dedup_key = source + "forged"
+    assert durable_initial_dispatch_source(run) is None
+    run.trigger_dedup_key = source
+    run.execution_surface = "builder_preview"
+    assert durable_initial_dispatch_source(run) is None
+    run.execution_surface = "golden_preview"
+    run.input_ref["execution"]["initial_dispatch_plane"] = "background"
+    assert durable_initial_dispatch_source(run) is None
+
+
+def test_golden_worker_reuses_initial_execution_lease_and_ignores_completed_redelivery(db_session, monkeypatch):
+    from app.core.config import settings
+    from app.services.run_engine import engine, subflow_orchestration
+    from app.workers.tasks import trigger_run
+
+    _, run = _workspace_and_run(db_session)
+    _attest_golden_run(run)
+    db_session.commit()
+    leases, executed = [], []
+
+    @contextmanager
+    def claimed(kind, run_id):
+        leases.append((kind, run_id))
+        yield True
+
+    def execute(run_id):
+        executed.append(run_id)
+        with SessionLocal() as db:
+            db.get(Run, run_id).status = "completed"
+            db.commit()
+
+    # Exercise the real worker entry point with an isolated DB and mocked
+    # PostgreSQL lock; production lock semantics are covered by the P4 gate.
+    monkeypatch.setattr(settings, "database_url", "postgresql://test-only")
+    monkeypatch.setattr(subflow_orchestration, "postgres_coordination_lease", claimed)
+    monkeypatch.setattr(engine, "schedule_run", execute)
+    assert trigger_run.run(run.id)["status"] == "scheduled"
+    assert trigger_run.run(run.id)["status"] == "completed"
+    assert executed == [run.id]
+    assert leases == [("trigger-run", run.id), ("trigger-run", run.id)]
 
 
 @pytest.mark.parametrize("status", ["pending", "running"])
