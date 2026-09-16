@@ -725,6 +725,10 @@ async def get_skill_invocation_perspective(
 
 
 class HitlResolve(BaseModel):
+    expected_decision_id: Optional[str] = Field(
+        default=None, min_length=1,
+        description="Decision observed by the caller; mismatches are refused. Optional for legacy clients.",
+    )
     action: Literal["accept", "reject"]
     actor: Optional[str] = Field(
         default=None,
@@ -916,6 +920,8 @@ async def resolve_run_hitl(
     decision_id = pending_cp.get("decision_id")
     if not decision_id:
         raise HTTPException(500, "HITL checkpoint is missing its decision_id")
+    if body.expected_decision_id is not None and body.expected_decision_id != str(decision_id):
+        raise HTTPException(409, "Run is no longer awaiting the observed HITL decision")
     # Serialize accept/reject on the canonical Decision row. ``populate_existing``
     # is required because the identity map may already hold the unlocked object
     # loaded while rendering the Run.

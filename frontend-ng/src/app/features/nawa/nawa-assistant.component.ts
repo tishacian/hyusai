@@ -115,6 +115,7 @@ interface PreviewState {
 /** A run started from this screen or by the engine, followed until it settles. */
 interface RunState {
   runId: string;
+  decisionId?: string;
   messages: NawaMessage[];
   gateOpen: boolean;
   settled: boolean;
@@ -1022,7 +1023,7 @@ export class NawaAssistantComponent implements OnDestroy {
   protected decide(run: RunState, action: 'accept' | 'reject'): void {
     if (this.resolving()) return;
     this.resolving.set(true);
-    this.itsd.resolveHitl(run.runId, action).subscribe((acknowledged) => {
+    this.itsd.resolveHitl(run.runId, action, run.decisionId).subscribe((acknowledged) => {
       if (!acknowledged) this.resolving.set(false);
     });
   }
@@ -1051,6 +1052,7 @@ export class NawaAssistantComponent implements OnDestroy {
     this.patch(index, {
       messages,
       gateOpen: run.status === 'hitl_pending',
+      decisionId: run.hitl?.decision_id,
       settled,
     });
     if (run.status !== 'hitl_pending') this.resolving.set(false);

@@ -2398,8 +2398,9 @@ export class CanonicalApiService {
    */
   resolveRunHitl(
     runId: string,
-    body: { action: 'accept' | 'reject'; actor?: string; note?: string },
+    body: { action: 'accept' | 'reject'; expected_decision_id: string | undefined; actor?: string; note?: string },
   ): Observable<Run | null> {
+    if (!body.expected_decision_id) return of(null);
     return this.api
       .post<Run>(`/runs/${runId}/hitl`, body)
       .pipe(catchError(() => of(null)));

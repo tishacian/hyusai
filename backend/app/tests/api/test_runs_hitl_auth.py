@@ -216,6 +216,7 @@ def test_ordinary_hitl_owner_uses_authenticated_actor_not_body(db_session, monke
             "action": "accept",
             "actor": "spoofed-admin@example.invalid",
             "note": "reviewed",
+            "expected_decision_id": decision.id,
         },
     )
 
@@ -225,6 +226,22 @@ def test_ordinary_hitl_owner_uses_authenticated_actor_not_body(db_session, monke
     assert decision.approved_by == initiator.email
     assert decision.approved_by != "spoofed-admin@example.invalid"
     assert decision.notes == "reviewed"
+
+
+@pytest.mark.parametrize("action", ["accept", "reject"])
+def test_hitl_refuses_a_decision_from_an_old_screen(db_session, monkeypatch, action):
+    workspace, initiator, _other, _membership, _system, run, decision = _seed_pending_run(db_session)
+    resumed = []
+    monkeypatch.setattr(runs, "_resume_wrapper", lambda *args: resumed.append(args))
+    response = _client(db_session, workspace, initiator).post(
+        f"/runs/{run.id}/hitl",
+        json={"action": action, "expected_decision_id": "previous-gate"},
+    )
+    assert response.status_code == 409
+    db_session.refresh(decision)
+    assert decision.status == "proposed"
+    assert decision.approved_by is None
+    assert resumed == []
 
 
 def test_hitl_run_approve_shadow_preserves_legacy_and_enforce_uses_candidate(

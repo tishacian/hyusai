@@ -101,7 +101,7 @@ class MockApi {
     };
   }> = [];
   stepRunCalls: Array<{ action: string; breakpoints?: string[] }> = [];
-  resolveHitlCalls: Array<{ action: string }> = [];
+  resolveHitlCalls: Array<{ action: string; expected_decision_id?: string }> = [];
   getRunCalls = 0;
 
   triggerResult: Run | null = mkRun('running');
@@ -520,7 +520,7 @@ test('HITL: pause → accept resolves and restarts the stream', () => {
   const { svc, store, api, stream } = makeHarness();
   store.load(validFlow());
   svc.bindSystem('sys-1');
-  api.getRunResult = mkRun('hitl_pending', { hitl: { node_id: 'gate', prompt: 'Approve?' } });
+  api.getRunResult = mkRun('hitl_pending', { hitl: { node_id: 'gate', prompt: 'Approve?', decision_id: 'observed-gate' } });
 
   svc.executeOnBackend();
   stream.emit({ event: 'hitl_pause', data: { node_id: 'gate' } });
@@ -532,8 +532,25 @@ test('HITL: pause → accept resolves and restarts the stream', () => {
   svc.resolveHitl('accept');
   assert.equal(api.resolveHitlCalls.length, 1);
   assert.equal(api.resolveHitlCalls[0].action, 'accept');
+  assert.equal(api.resolveHitlCalls[0].expected_decision_id, 'observed-gate');
   assert.equal(svc.status(), 'running', 'resume puts the run back to running');
   assert.equal(svc.hitlResolving(), false);
+});
+
+test('HITL: a refused decision does not log an approval or resume', () => {
+  const { svc, store, api, stream } = makeHarness();
+  store.load(validFlow());
+  svc.bindSystem('sys-1');
+  api.getRunResult = mkRun('hitl_pending', { hitl: { decision_id: 'old-gate' } });
+  svc.executeOnBackend();
+  stream.emit({ event: 'hitl_pause', data: { node_id: 'gate' } });
+  const before = svc.log().length;
+  api.resolveResult = null;
+  svc.resolveHitl('accept');
+  assert.equal(svc.status(), 'paused');
+  assert.equal(svc.hitlResolving(), false);
+  assert.ok(svc.log().slice(before).some(entry => entry.tag === 'ERR'));
+  assert.ok(!svc.log().slice(before).some(entry => entry.tag === 'HITL'));
 });
 
 test('HITL: reject is forwarded; ignored when no pending gate', () => {

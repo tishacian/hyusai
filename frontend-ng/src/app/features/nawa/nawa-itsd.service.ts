@@ -148,8 +148,8 @@ export class NawaItsdService {
    * point of doing it here is that a service desk supervisor never has to enter
    * the platform's own screens to unblock a ticket.
    */
-  resolveHitl(runId: string, action: 'accept' | 'reject', note?: string): Observable<Run | null> {
-    return this.canonical.resolveRunHitl(runId, { action, note });
+  resolveHitl(runId: string, action: 'accept' | 'reject', decisionId: string | undefined, note?: string): Observable<Run | null> {
+    return this.canonical.resolveRunHitl(runId, { action, note, expected_decision_id: decisionId });
   }
 
   /** Recent runs of the System — feeds the replay/history strip. */

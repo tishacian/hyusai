@@ -370,7 +370,7 @@ export class WorkShellComponent {
     const title = run.hitl?.decision_title || run.hitl?.prompt || this.i18n.t('experience.work.validations.item');
     this.decisionBusy.update((current) => new Set([...current, run.id]));
     this.decisionError.set(false);
-    this.api.decide(run.id, action, note).subscribe((updated) => {
+    this.api.decide(run, action, note).subscribe((updated) => {
       this.decisionBusy.update((current) => {
         const next = new Set(current);
         next.delete(run.id);

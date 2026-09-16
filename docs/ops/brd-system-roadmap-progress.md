@@ -1,5 +1,25 @@
 # BRD → System roadmap — implementation evidence
 
+## Current delivery status — 16 September 2026
+
+- **Live application: `7951e698` on `demo/agentic`.** See the
+  [release evidence](../evidence/brd-evidence-release-2026-09-16/README.md).
+- **R0 remains open:** the adoption sessions and current authenticated manual
+  acceptance are not complete. There is no remote CI; the documented local,
+  VM and carakai gates apply, as confirmed by the release owner.
+- **R1 remains open:** BRD proposals, drafts, provenance, generated cases and
+  frozen authored tool contracts are implemented. One five-case NorthForge suite
+  passed, but a repeat paused unnecessarily for missing evidence. Reordering the
+  planner prompt did not resolve it and was reverted before deployment.
+  [NorthForge results](../evidence/northforge-brd-2026-09-16/README.md).
+- The recorded real-provider NorthForge executions use an isolated local engine;
+  they do not establish production publication, human review or second-user use.
+- R2/R3/R5/R6 are not complete; R4 has numerical preparation only. DataOps
+  preparation follows the R1 foundation; generalization waits for R2 contracts.
+
+The dated entries below preserve earlier states and findings; this summary and
+linked evidence supersede their historical deployment and completion statements.
+
 Base: `origin/demo/agentic` at `9494149ad1ade0dc9da713588590d1ec01a9d2da`.
 Implementation branch: `codex/brd-system-roadmap`.
 Scope: [accepted roadmap](../agentium-delivery-roadmap.md).
@@ -759,3 +779,20 @@ this contract. This preserves the question even when refusal produces no tool
 observations. Twenty-two generation/import tests pass. The unchanged rejected
 candidate and limits are retained in evidence/northforge-brd-2026-09-16/generation-11.
 A fresh generation is being qualified; no deployment or successful Run is claimed.
+
+### Bind human decisions to the observed gate
+
+The Run HITL route now accepts `expected_decision_id` and refuses a mismatch
+before resolving any decision. Work, Flow and NAWA submit the displayed decision
+reference; the shared frontend client refuses to send without it. NAWA branding
+is unchanged. The Flow terminal reports acceptance/rejection only after the
+server acknowledges it, so a stale refusal cannot appear as an approval.
+
+The backend field remains optional for compatibility with existing external
+clients: callers omitting it retain their previous behavior. This is not a claim
+that unmodified external clients are protected from stale-screen submissions.
+
+Validation: 24 HITL API tests (including both stale actions and matching ID),
+1,467 frontend tests, i18n/navigation/chrome guards pass. Production build and
+release qualification must be recorded before claiming deployment. The manual
+human-acceptance sessions remain outstanding.
