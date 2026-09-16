@@ -130,3 +130,28 @@ are unchanged. Runtime and generation/API regression tests: 38 passed.
 The opt-in runtime recorder now resumes only the explicit Flow review in an isolated database,
 labels that action `harness_acceptance_not_human`, and checks the original proposed assertions
 against the canonical result. It never automatically approves a planner clarification.
+
+## Candidate 10 — three documentary cases pass
+
+Generation completed in 57 seconds without repair. The unchanged draft was applied locally;
+real provider and Showcase retrieval calls exercised the canonical engine. The explicit Flow
+review was accepted by the isolated test harness, not by a human participant.
+
+- Pressure: 700 bar, distinguished from the 735 bar relief threshold, operating manual cited.
+- History: NF-04 planned 30 and actual 55 minutes, history document and chunk cited.
+- Absence: equipment and cause correctly reported as not supplied; no inferred equipment.
+
+The proposed assertions pass for these three canonical outputs. Overall qualification still
+fails: the mutation request pauses for planner clarification, and the generated manual-review
+case wrongly asks the system to decide approval itself. Its broad retrieval exceeds the
+32,000-character prompt limit and fails explicitly. It is not a successful rejection test.
+
+The actual R1 human review acceptance procedure remains mandatory. A generated test question
+cannot stand in for a human rejecting a prepared draft. No source criteria or old results were
+changed to turn this attempt green. See `runtime-10/` for candidate and outcomes.
+
+Comparison qualification is separate: the existing comparison guard rejects AgentLoops.
+The compiler currently freezes their allowlist but not each authored tool executor; tool
+snapshot immutability must be addressed before claiming repeatable baseline/candidate replay.
+The local runtime harness uses an isolated catalog containing only the two pinned read tools
+and verifies recommend privilege and that allowlist; it does not qualify comparison replay.
