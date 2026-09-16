@@ -269,3 +269,25 @@ Not deployed. Before R1 release: qualify the migration, include retained BRD
 objects in backup/restore verification, connect the authoring UI, and complete
 proposal → reviewed draft → tests → publication. The extraction alone is not a
 requirement-coverage verdict, and retained documents are not published Systems.
+
+### R1 — immutable proposal snapshots and explicit coverage
+
+A retained BRD can now receive a server-validated proposal containing a Flow,
+proposed authored Skills, evaluation cases and mappings to original table/row
+positions. Existing DAG, executor, JSON-schema and evaluation-case validators
+are reused. Missing mappings stay uncovered; mapped entries stay proposed and
+not-run. No mapping or submitted historical Run creates a passed assertion.
+Execution readiness remains explicitly unvalidated until canonical application
+and compilation. This endpoint stores proposals supplied by an author; it is not
+yet the automatic generator.
+
+Snapshots are immutable. Reusing an author/workspace request key returns the
+same snapshot, or conflicts if its content changed. A revised proposal uses a
+new key. The endpoint creates neither Skills nor Systems and never publishes.
+Migration 107 adds the proposal record; no production migration was executed.
+
+Validation: 19 tests passed, one missing-template skip, covering imports,
+retention, proposal replay/conflict, unknown mappings, uncovered requirements,
+and executable SQLite upgrade/constraint/downgrade checks for migrations 106/107.
+PostgreSQL migration qualification, object backup coverage, generation, explicit
+application, UI and live acceptance remain to complete before release.

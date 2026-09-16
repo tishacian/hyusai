@@ -163,3 +163,48 @@ def test_retained_original_missing_or_modified_is_not_presented_as_evidence(db_s
     assert client.get(path).json()["detail"]["code"] == "brd_original_integrity_error"
     original.unlink()
     assert client.get(path).status_code == 410
+
+
+def test_proposal_preserves_uncovered_requirements_and_never_creates_system(db_session, tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.models.system import System
+    from app.models.brd_proposal import BrdProposal
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path))
+    workspace, user = _seed(db_session)
+    client = _client(db_session, workspace, user)
+    document_id = client.post("/skills/import/business-requirements?retain=true",
+                             files={"file": ("brd.docx", _brd())}).json()["document"]["id"]
+    path = f"/skills/imports/business-requirements/{document_id}/proposals"
+    body = {
+        "request_key": "first-proposal", "name": "Ticket draft",
+        "flow_definition": {"schema_version": 3, "nodes": [
+            {"id": "input", "type": "source", "kind": "source"},
+            {"id": "result", "type": "sink", "kind": "sink"},
+        ], "edges": [{"from": "input", "to": "result", "kind": "data"}]},
+    }
+    response = client.post(path, json=body)
+    assert response.status_code == 200, response.text
+    first = response.json()
+    assert first["proposal"]["coverage"][0]["status"] == "uncovered"
+    assert first["proposal"]["coverage"][0]["test_verdict"] == "not_run"
+    assert first["proposal"]["execution_readiness"] == "not_validated"
+    assert client.post(path, json=body).json()["id"] == first["id"]
+    assert client.get(path + "/" + first["id"]).json() == first
+    assert db_session.query(BrdProposal).count() == 1
+    assert db_session.query(System).count() == 0
+    assert db_session.query(Skill).count() == 0
+    assert client.post(path, json={**body, "name": "Changed"}).status_code == 409
+
+    mapped = {**body, "request_key": "second-proposal", "mappings": [
+        {"table": 1, "row": 2, "node_ids": ["result"], "case_ids": ["t1"]}],
+        "cases": [{"id": "t1", "input_ref": {}, "assertions": []}]}
+    second = client.post(path, json=mapped)
+    assert second.status_code == 200, second.text
+    assert second.json()["proposal"]["coverage"][0]["status"] == "proposed"
+    assert second.json()["proposal"]["coverage"][0]["test_verdict"] == "not_run"
+    mapped["mappings"][0]["node_ids"] = ["invented"]
+    assert client.post(path, json=mapped).status_code == 422
+    mapped["mappings"][0]["node_ids"] = ["result"]
+    mapped["mappings"][0]["row"] = 99
+    assert client.post(path, json=mapped).status_code == 422
