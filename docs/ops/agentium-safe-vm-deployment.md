@@ -6693,3 +6693,27 @@ Six canonical Golden Runs use one durable dispatch each; identical POST replay
 returns their original IDs. Five reach final review, one pauses at the planner.
 No human decision or application publication was performed. Authenticated manual
 acceptance remains open. [Evidence](../evidence/brd-durable-tools-2026-09-16/README.md).
+
+
+### 2026-09-16 — BRD publication handoff and evaluation provenance
+
+Deployed `b4fde677a75a7a9f6ab30898882104c37582709b` from pushed `demo/agentic`.
+Three immutable images built on omnirag-demo; Giskard 2.19.2 offline SDK and pip
+checks passed in the worker. Storage gates passed before and after switching.
+No migration or infrastructure change. All six application containers use the
+new tag, backend/frontend healthy, public revision verified, homepage 200 and
+startup exceptions zero. A transient 502 during backend startup cleared.
+
+Local gates: 286 backend tests; all 1,478 frontend tests covered and passing after
+a focused assertion rerun; i18n 7,992 keys, nav, chrome and production build passed.
+Carakai: **10 passed, 2 intentional skips** in 2.0 minutes; artifacts
+`/tmp/iteration-canaries-20260916T192836Z.FOTU1G`.
+Read-only verification resolves the two collection bindings in existing NorthForge
+contracts and reports their historical suite's missing corpus manifest. No new
+Golden Run or human decision was produced by this check.
+
+Previous images: `cd8f23f27af6`. Preserve recent writes; an older renderer does not
+establish the new Work constraints. Authenticated manual smoke, new handoff
+screenshots/video, second-user application consumption and human baseline remain
+open. No NAWA theme or adoption-default change. R0/R1 are not closed.
+[Release evidence](../evidence/brd-work-publication-2026-09-16/README.md).

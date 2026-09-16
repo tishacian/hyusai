@@ -4,10 +4,11 @@
 
 **R0 reste ouvert.** Les gates techniques sont documentés ; la recette manuelle
 authentifiée sur le SHA courant et les dix sessions de baseline restent à faire.
-Dernier runtime attesté dans les preuves consultées :
-`cd8f23f27af68b54022e281df4930eed4c02573b` sur `demo/agentic`.
-Ce document audite les preuves conservées ; il ne constitue pas une nouvelle
-vérification en direct.
+Dernier runtime attesté : `b4fde677a75a7a9f6ab30898882104c37582709b`
+sur `demo/agentic`. Bascule, identité publique et santé vérifiées ; canaries :
+**10 réussis, 2 exclusions prévues**. Voir les
+[preuves de qualification](../evidence/brd-work-publication-2026-09-16/README.md).
+Ce document référence les vérifications consignées ; il ne vaut pas recette humaine.
 
 Périmètre : [sortie R0 de la roadmap](../agentium-delivery-roadmap.md),
 [processus de release](../agentium-release-process.md) et
@@ -17,13 +18,22 @@ historiques ; le [statut courant](brd-system-roadmap-progress.md) fait référen
 
 | Critère R0 | Preuve conservée | État |
 |---|---|---|
-| Gates locaux, build VM, stockage, santé et identité du runtime | [Release cd8f23f2](../evidence/brd-durable-tools-2026-09-16/README.md) : 333 tests backend concernés, 1 467 tests frontend, i18n/liens/chrome/build réussis ; trois images immuables ; [build-info exact et santé](../evidence/brd-durable-tools-2026-09-16/vm-health.log) | Prouvé pour ce SHA |
-| Canaries requis, dont Work, Studio et accès au Run | [Log carakai cd8f23f2](../evidence/brd-durable-tools-2026-09-16/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour ce SHA |
+| Gates locaux du candidat b4fde677 | [Qualification locale](../evidence/brd-work-publication-2026-09-16/README.md) : 286 tests backend ; 1 478 tests frontend couverts et réussis après rerun ciblé (1 462 initialement réussis, fichier de 16 tests réussi après correction de l'assertion d'accessibilité) ; i18n 7 992 clés, liens fail-closed, chrome et build réussis | Prouvé localement pour ce candidat |
+| Build VM, stockage, santé et identité du runtime | [Release b4fde677](../evidence/brd-work-publication-2026-09-16/README.md) : trois images immuables ; [build-info exact et santé](../evidence/brd-work-publication-2026-09-16/runtime-check.log) | Prouvé pour b4fde677 |
+| Canaries requis, dont Work, Studio et accès au Run | [Log carakai b4fde677](../evidence/brd-work-publication-2026-09-16/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour b4fde677 |
 | Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Consigné ; disponibilité actuelle à constater pendant le smoke |
-| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Prouvé historiquement ; ces exécutions ne sont pas attribuées à cd8f23f2 |
+| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Prouvé historiquement ; ces exécutions ne sont pas attribuées à b4fde677 |
 | Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | À actualiser sur le SHA retenu pour la clôture |
 | Baseline métier/développeur | [Fiche et consignes](agentium-r0-acceptance.md#baseline-avec-les-participants--à-exécuter) ; aucune session renseignée | 0/5 métier, 0/5 développeur |
 | Décision du responsable | Aucune décision de clôture enregistrée | En attente des éléments précédents |
+
+La release ajoute le parcours Flow → activation explicite de la version revue
+→ brouillon d'application, réouvrable après fermeture ou rechargement ; les
+contraintes de longueur Work ; les manifestes de corpus des nouvelles suites
+BRD et leurs gardes de dérive ; la provenance des décisions natives du planner,
+sans modifier ses seuils. Ces acquis sont qualifiés localement dans la preuve
+liée ci-dessus. Ils ne constituent ni une recette manuelle actuelle ni des
+sessions d'adoption et n'ajoutent aucun critère de sortie à R0.
 
 ## Actions restantes
 

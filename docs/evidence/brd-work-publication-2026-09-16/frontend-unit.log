@@ -1,0 +1,27 @@
+chunked unit run: 160 specs in 20 batches of 8
+batch 1   specs 7    pass 69    fail 0   exit 0
+batch 2   specs 7    pass 97    fail 0   exit 0
+batch 3   specs 7    pass 93    fail 0   exit 0
+batch 4   specs 7    pass 51    fail 0   exit 0
+batch 5   specs 7    pass 29    fail 0   exit 0
+batch 6   specs 7    pass 78    fail 0   exit 0
+batch 7   specs 7    pass 126   fail 0   exit 0
+batch 8   specs 7    pass 39    fail 0   exit 0
+batch 9   specs 7    pass 33    fail 0   exit 0
+batch 10  specs 7    pass 71    fail 0   exit 0
+batch 11  specs 7    pass 183   fail 0   exit 0
+batch 12  specs 7    pass 68    fail 0   exit 0
+batch 13  specs 7    pass 50    fail 1   exit 1
+not ok 6 - authoring is the default toolbar surface and operating is one disclosure away
+  error: 'flow.toolbar.publish.aria stays on the author bar keeps an accessible name'
+# fail 1
+batch 14  specs 7    pass 91    fail 0   exit 0
+batch 15  specs 7    pass 110   fail 0   exit 0
+batch 16  specs 7    pass 86    fail 0   exit 0
+batch 17  specs 7    pass 53    fail 0   exit 0
+batch 18  specs 7    pass 64    fail 0   exit 0
+batch 19  specs 7    pass 44    fail 0   exit 0
+batch 20  specs 7    pass 42    fail 0   exit 0
+----------------------------------------
+TOTAL pass=1477 fail=1
+failed batches: 13

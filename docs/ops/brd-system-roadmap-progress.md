@@ -2,10 +2,14 @@
 
 ## Current delivery status — 16 September 2026
 
-- **Live application: `cd8f23f2` on `demo/agentic`.** See the
-  [release evidence](../evidence/brd-durable-tools-2026-09-16/README.md):
-  333 targeted backend tests, 1,467 frontend tests, build/health and 10 canaries
-  passed; 2 expected canary exclusions.
+- **Live application: `b4fde677` on `demo/agentic`.** The
+  [release evidence](../evidence/brd-work-publication-2026-09-16/README.md) records
+  286 targeted backend tests, all 1,478 frontend tests covered and passing after
+  the focused rerun, three VM-built images, exact public SHA and healthy services.
+  Carakai: **10 passed, 2 intentional local-contract skips**.
+- This release connects the published Flow to explicit System activation and an
+  application draft, preserves Work text constraints, captures compiled collection
+  manifests and retains native planner decision provenance.
 - **R0 remains open:** the adoption sessions and current authenticated manual
   acceptance are not complete. There is no remote CI; the documented local,
   VM and carakai gates apply, as confirmed by the release owner. The remaining
@@ -15,8 +19,10 @@
   The new NorthForge batch produces five briefings, including the previously
   failing refusal; all await explicit review. The missing-equipment case instead
   pauses at the planner before retrieval. All official verdicts remain pending.
-  Identical submission returns the same six Runs. The missing-information pause,
-  a brittle refusal-word assertion and absent suite corpus manifest remain open.
+  Identical submission returns the same six Runs. The missing-information pause
+  and brittle refusal-word assertion remain open. The historical suite still has
+  no corpus manifest; b4fde677 captures and checks manifests for new BRD suites
+  without rewriting historical evidence.
   No live human decision has been submitted and no generated application published.
 - Earlier isolated-engine results remain [historical evidence](../evidence/northforge-brd-2026-09-16/README.md);
   they do not establish production publication, human review or second-user use.
@@ -29,6 +35,46 @@ linked evidence supersede their historical deployment and completion statements.
 Base: `origin/demo/agentic` at `9494149ad1ade0dc9da713588590d1ec01a9d2da`.
 Implementation branch: `codex/brd-system-roadmap`.
 Scope: [accepted roadmap](../agentium-delivery-roadmap.md).
+
+## Deployed b4fde677 — Work handoff and evaluation evidence
+
+`b4fde677a75a7a9f6ab30898882104c37582709b` is deployed from pushed
+`demo/agentic`. **Runtime verified; 10 canaries passed, 2 intentional skips.**
+The [release evidence](../evidence/brd-work-publication-2026-09-16/README.md)
+owns the runtime qualification record.
+
+- **Flow → explicit activation → application draft.** The Application toolbar
+  action reopens the published System handoff after closing or reloading. Activation
+  checks the reviewed published-version ID under the System row lock and rejects
+  a concurrent publication before mutation. Audience selection, release and
+  deployment continue through Studio; publishing does not activate the System.
+- **Work text constraints.** Forms preserve and enforce `minLength`/`maxLength`
+  with Unicode code-point counting, omitted optional values and explicitly allowed
+  empty strings. FR/EN hints are associated with the fields. The frozen 0.1 renderer
+  remains unchanged.
+- **BRD suite corpus manifests.** New suites snapshot collection ledgers from
+  compiled authored semantic-search executors, including AgentLoop tools. Golden
+  and comparison preparation reject binding changes or ledger drift. An explicit
+  empty snapshot differs from a missing historical manifest. These checks do not
+  qualify AgentLoop/`registry_call` comparison execution or freeze live retrieval.
+- **Native planner decision provenance.** The canonical invocation trace records
+  typed raw decision fields, the applied confidence floor, normalization reasons
+  and the effective decision. Invalid text becomes type markers; prompts,
+  completions and rationales are excluded. Decisions and thresholds are unchanged.
+
+| Local gate | Recorded result |
+|---|---|
+| Targeted backend suite | 286 passed |
+| Complete frontend coverage | 1,478 tests covered and passing after a focused rerun: 1,462 passed initially; the corrected accessibility assertion's full 16-test file passed on rerun |
+| FR/EN | Passed, 7,992 keys |
+| Navigation / shared UI chrome | Passed; navigation fail-closed |
+| Production frontend build | Passed; existing budget/CommonJS warnings |
+
+These results and the post-switch verification are linked in the release evidence. No migration, new flag or dependency is introduced.
+The six existing NorthForge Runs retain their pending human decisions and
+historical limitations. The missing-equipment pause, refusal assertion,
+authenticated manual acceptance, second-user application use and formative
+sessions are not closed by this deployment. **R0 and R1 remain open.**
 
 ## Implemented in this change
 
