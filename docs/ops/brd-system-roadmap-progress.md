@@ -748,3 +748,14 @@ concrete BRD operator question, retain the external reviewer action in the case
 reference and expected status, and wait at the real HITL gate. Thirteen generation
 tests pass. A new proposal must be generated and reviewed before claiming this
 prompt guidance changes model behavior; historical cases are not rewritten.
+
+
+### Preserve the operator question through intervention synthesis — 16 September
+
+Generation 11 was rejected on inspection: its synthesis consumed observations
+without the original operator question. The common validator now requires a
+required direct source binding used by a template placeholder; guidance matches
+this contract. This preserves the question even when refusal produces no tool
+observations. Twenty-two generation/import tests pass. The unchanged rejected
+candidate and limits are retained in evidence/northforge-brd-2026-09-16/generation-11.
+A fresh generation is being qualified; no deployment or successful Run is claimed.

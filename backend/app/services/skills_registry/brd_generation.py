@@ -104,6 +104,17 @@ def validate_intervention_planner(body, selected_slugs):
                         raise ValueError(f"Intervention synthesis template must include {{{name}}}; "
                                          "declaring or mentioning the evidence input does not send its contents to the model")
                     evidence_used = True
+                    request_used = any(
+                        input_name in fields and isinstance(request_ref, dict)
+                        and request_ref.get("node_id") == ref["node_id"]
+                        and request_ref.get("path") == ref["path"]
+                        and request_ref.get("required") is True
+                        for input_name, request_ref in (cfg.get("inputs_map") or {}).items()
+                    )
+                    if not request_used:
+                        raise ValueError("Intervention synthesis must bind the original operator question "
+                                         "directly from its source to a template placeholder with required=true; "
+                                         "observations may be empty on a policy refusal")
         if body.skills and not evidence_used:
             raise ValueError("Intervention synthesis must consume the AgentLoop observations in its prompt template")
         field = ref["path"][0]
@@ -182,7 +193,10 @@ _FAMILY_INSTRUCTIONS = {
         "This is an ARRAY of named port objects, never a JSON Schema object or a result wrapper. "
         "A synthesis consuming observations uses an array input_schema property named observations, "
         "inputs_map.observations={node_id:loop_id,path:[observations],required:true}, and a literal "
-        "{observations} placeholder in its prompt. Its output port is "
+        "{observations} placeholder in its prompt. Also declare a string objective input, "
+        "bind inputs_map.objective directly to the same original operator source field with "
+        "required=true, and include {objective} in the synthesis template. The request must "
+        "remain available even when a policy refusal yields empty observations. Its output port is "
         "[{name:completion,schema:string,required:true}]. "
         "Preserve acceptance questions and reference facts provided by the BRD. "
         "Never invent replacement equipment, records, units or oracle values. Each case "
