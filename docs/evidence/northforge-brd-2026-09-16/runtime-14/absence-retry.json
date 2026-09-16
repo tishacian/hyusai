@@ -1,0 +1,41 @@
+{
+  "case": {
+    "id": "case_absence_cause",
+    "input_ref": {
+      "objective": "ask which equipment caused the NF-04 delay."
+    },
+    "assertions": [
+      {
+        "id": "states_absence",
+        "path": [
+          "draft"
+        ],
+        "operator": "contains",
+        "value": "not supplied"
+      }
+    ],
+    "reference_run_id": null,
+    "question": "ask which equipment caused the NF-04 delay.",
+    "reference_answer": "States that equipment and cause are not supplied by the authorized sources.",
+    "reference_context": null,
+    "answer_path": [
+      "draft"
+    ]
+  },
+  "status": "hitl_pending",
+  "seconds": 11.661018165992573,
+  "review": "not_performed",
+  "decision_node": "agent_loop",
+  "output": {},
+  "planner_decisions": [
+    {
+      "next_skill": "ws.ws-brd.northforge_history",
+      "rationale": "Start by verifying whether NF-04 shows a delay in the intervention history (planned vs actual durations). Although equipment/causes are absent, confirming a delay establishes the event before checking notices for any related equipment issues.",
+      "confidence": 0.41,
+      "needs_human": true,
+      "human_prompt": "Start by verifying whether NF-04 shows a delay in the intervention history (planned vs actual durations). Although equipment/causes are absent, confirming a delay establishes the event before checking notices for any related equipment issues.",
+      "exit": "ask_human",
+      "done": false
+    }
+  ]
+}

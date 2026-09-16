@@ -17,3 +17,9 @@ absence report; neither confidence threshold nor required checks are relaxed.
 18 runtime regressions pass. A targeted actual-provider retry is still required.
 The recorder now checks exact requested review status independently of generated
 assertions. R1 remains open; no new production deployment.
+
+Targeted retry on the unchanged candidate after prompt clarification still pauses:
+the model chooses history at confidence .41, below the existing floor, before
+retrieval. Duration 21.21s. No threshold was lowered and no result was fabricated.
+This does not qualify absence handling. The corrective release may carry tested
+contract/evidence improvements independently of R1 acceptance.
