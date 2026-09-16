@@ -662,6 +662,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
     requested_file_names: list[str] = []
     indexed_document_ids: list[str] = []
     doc_service: DocumentService | None = None
+    source_failure: dict | None = None
     try:
         existing_job = db.query(WorkerJob).filter(WorkerJob.id == job_id).first()
         if existing_job and existing_job.status in ("completed", "failed", "cancelled"):
@@ -763,6 +764,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             prefix = store.key(collection.artifact_prefix, "original")
             file_names = [Path(k).name for k in store.list_keys(prefix)]
         if not file_names:
+            source_failure = {"code": "originals_missing"}
             raise ValueError(
                 f"No original documents found for collection {collection.id}"
             )
@@ -783,12 +785,22 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             legacy_name = manifest_entry.get("legacy_document_name")
 
             def copy_legacy_source(destination: Path) -> None:
-                store.copy_to_local(
-                    resolve_original_key(
-                        collection, name, legacy_name=legacy_name, store=store
-                    ),
-                    destination,
+                nonlocal source_failure
+                key = resolve_original_key(
+                    collection, name, legacy_name=legacy_name, store=store
                 )
+                try:
+                    store.copy_to_local(key, destination)
+                except FileNotFoundError:
+                    # A missing temporary destination must not be diagnosed as
+                    # a missing original. A failed presence check is inconclusive.
+                    try:
+                        missing = not store.exists(key)
+                    except Exception:
+                        missing = False
+                    if missing:
+                        source_failure = {"code": "original_source_missing", "filename": name}
+                    raise
 
             copy_or_materialize_collection_source(
                 db,
@@ -1301,7 +1313,8 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             _mark_linked_deposit_files_failed(
                 db, job_id=job.id, workspace_id=job.workspace_id, error=str(exc)
             )
-        update_job(db, job_id, status="failed", progress=100, error=str(exc))
+        failure_result = {**(job.result or {}), "source_failure": source_failure} if job and source_failure else None
+        update_job(db, job_id, status="failed", progress=100, error=str(exc), result=failure_result)
         db.commit()
         raise
     finally:

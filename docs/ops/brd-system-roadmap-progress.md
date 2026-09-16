@@ -47,6 +47,11 @@ Scope: [accepted roadmap](../agentium-delivery-roadmap.md).
 
 ## Deployed c399f2be — recoverable ingestion
 
+The next [missing-original refinement](../evidence/ingestion-diagnostics-2026-09-16/README.md)
+adds a confirmed source diagnosis and FR/EN restoration guidance, retaining raw
+errors in details and historical attempts. 75 backend / 1,487 frontend tests and
+local visual checks pass. Not yet deployed; no historical error is rewritten.
+
 Knowledge and SFTP now share persisted ingestion status and explicit admin retry.
 The existing worker/job/deposit binding is reused; failures and attempt history
 survive completion. Stale, superseded, unauthorized and governed-campaign retries

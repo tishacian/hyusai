@@ -14,6 +14,7 @@ export interface IngestionJob {
   updated_at: string;
   celery_task_id?: string | null;
   result?: {
+    source_failure?: { code?: string; filename?: string };
     dispatch_error?: string;
     ingest_options?: { source_profile?: string; wave_id?: string };
     retry_history?: Array<{ error?: string; completed_at?: string }>;
@@ -45,7 +46,10 @@ export interface IngestionJob {
           <progress class="w-full" max="100" [value]="current.progress" [attr.aria-label]="i18n.t('capture.ingest.progress')"></progress>
         }
         @if (current.error || dispatchPending(current)) {
-          <p class="ck-warn text-sm break-words">{{ current.error || current.result?.dispatch_error || i18n.t('capture.ingest.dispatch_pending') }}</p>
+          <p class="ck-warn text-sm break-words">{{ failureLabel(current) }}</p>
+        }
+        @if (missingOriginal(current) && !governed(current)) {
+          <p class="ck-fg-2 text-sm">{{ i18n.t('capture.ingest.restore_original') }}</p>
         }
         @if (current.status === 'failed' || dispatchPending(current)) {
           @if (governed(current)) {
@@ -53,7 +57,7 @@ export interface IngestionJob {
           } @else if (!workspace.isAdmin()) {
             <p class="ck-fg-2 text-sm">{{ i18n.t('capture.ingest.admin_required') }}</p>
           } @else {
-            <p class="ck-fg-2 text-sm">{{ i18n.t('capture.ingest.retry_hint') }}</p>
+            @if (!missingOriginal(current)) { <p class="ck-fg-2 text-sm">{{ i18n.t('capture.ingest.retry_hint') }}</p> }
             <button type="button" class="ck-btn-soft rounded px-3 py-2 text-sm" [disabled]="busy()" (click)="retry()">
               {{ i18n.t(busy() ? 'capture.ingest.retrying' : 'capture.ingest.retry') }}
             </button>
@@ -63,6 +67,7 @@ export interface IngestionJob {
           <summary class="cursor-pointer py-1">{{ i18n.t('capture.ingest.details') }}</summary>
           <p class="mt-2 font-mono text-xs break-all">{{ current.id }}</p>
           <p class="mt-1 break-words">{{ current.stage }}</p>
+          @if (missingOriginal(current)) { <p class="mt-1 break-words">{{ current.error }}</p> }
           @for (attempt of current.result?.retry_history || []; track $index) {
             <div class="mt-3 border-t pt-2" style="border-color:var(--ck-stroke)">
               <p>{{ i18n.t('capture.ingest.previous_attempt', { number: $index + 1 }) }} · {{ dateLabel(attempt.completed_at) }}</p>
@@ -130,6 +135,18 @@ export class IngestionStatusComponent {
   }
   governed(job: IngestionJob): boolean {
     return job.result?.ingest_options?.source_profile === 'needlepunch' || !!job.result?.ingest_options?.wave_id;
+  }
+  missingOriginal(job: IngestionJob): boolean {
+    return job.status === 'failed' && ['original_source_missing', 'originals_missing'].includes(job.result?.source_failure?.code || '');
+  }
+  failureLabel(job: IngestionJob): string {
+    if (this.missingOriginal(job)) {
+      const failure = job.result!.source_failure!;
+      return failure.code === 'original_source_missing' && failure.filename
+        ? this.i18n.t('capture.ingest.original_missing', { filename: failure.filename })
+        : this.i18n.t('capture.ingest.originals_missing');
+    }
+    return job.error || job.result?.dispatch_error || this.i18n.t('capture.ingest.dispatch_pending');
   }
   statusLabel(job: IngestionJob): string {
     const state = this.dispatchPending(job) ? 'dispatch_pending' : job.status;
