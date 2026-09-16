@@ -265,8 +265,18 @@ async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
     for slug, fn in [('workspace_llm_v1', model_response), ('semantic_search_v1', retrieve)]:
         entry = wrappers._REGISTRY[slug]
         monkeypatch.setitem(wrappers._REGISTRY, slug, (fn, entry[1], entry[2]))
+    review_decisions = json.loads(os.environ.get('BRD_REVIEW_DECISIONS', '{}'))
+    assert isinstance(review_decisions, dict)
+    assert set(review_decisions) <= {case['id'] for case in material['cases']}
+    assert all(value in {'accepted', 'rejected'} for value in review_decisions.values())
+    (evidence/'harness-review-plan.json').write_text(json.dumps(review_decisions, indent=2))
+    selected_cases = set(filter(None, os.environ.get('BRD_CASE_IDS', '').split(',')))
+    assert selected_cases <= {case['id'] for case in material['cases']}
+    (evidence/'selected-cases.json').write_text(json.dumps(sorted(selected_cases) if selected_cases else [case['id'] for case in material['cases']]))
     failures = []
     for case in material['cases']:
+        if selected_cases and case['id'] not in selected_cases:
+            continue
         case_started = time.monotonic()
         run = create_draft_test_run(db_session, system_id=draft.system_id, workspace=workspace,
             user_id=user.id, input_ref=case['input_ref'], expected_draft_revision=draft.revision,
@@ -288,11 +298,12 @@ async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
             from app.services.run_engine.dag import resume_run_dag
             from app.services.evaluation.campaigns import assertion_results
             # Isolated engine test, not user acceptance: never approve a planner request.
-            decision.status = 'accepted'
+            selected_decision = review_decisions.get(case['id'], 'accepted')
+            decision.status = selected_decision
             db_session.commit()
             resumed = await resume_run_dag(run.id, decision_id=decision.id)
             db_session.expire_all()
-            record.update(review='harness_acceptance_not_human', resumed=resumed,
+            record.update(review='harness_'+selected_decision+'_not_human', resumed=resumed,
                           output=run.output_ref, status=run.status,
                           assertions=assertion_results(run.output_ref, case['assertions']))
             if resumed['status'] != 'completed' or record['assertions']['verdict'] != 'passed':
