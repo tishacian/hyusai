@@ -459,3 +459,20 @@ three-attempt exhaustion, retained usage, single dispatch on outage, oversized
 feedback, idempotence and the PIH runtime fixtures. Full live-provider automatic
 repair remains NOT RUN. This loop handles canonical pre-application validation;
 it is not an automatic execution/quality certification of generated drafts.
+
+### Live PIH content check — 16 September
+
+The previously retained executable fixture failed business quality with real
+LLM responses: its three copied generic templates drifted into an HR
+recommendation offer and unsupported examples. Its generated lexical assertions
+passed nonetheless. This explicitly invalidates any inference from engine tests
+to business correctness.
+
+Generation now asks for distinct stage-specific requirements/guardrails and
+preserved original passages; duplicate templates feed the bounded repair loop.
+A fresh candidate produced a correct sourced normal-case summary through three
+real model calls and a local canonical Run/HITL cycle. Its proposed assertion
+paths were wrong and semantic prohibitions were inadequately represented by
+lexical exclusions. These are retained as failures, not rewritten to pass.
+Evidence: `docs/evidence/brd-pih-runtime-2026-09-16/README.md`. No production
+publication or human-user acceptance is claimed.

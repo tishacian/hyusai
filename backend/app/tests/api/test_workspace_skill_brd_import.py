@@ -405,6 +405,23 @@ def test_brd_generation_is_durable_idempotent_and_validated(db_session, tmp_path
     assert sum(attempt["usage"]["total_tokens"] for attempt in attempts) == 20
     assert db_session.query(Skill).count() == 0
 
+    duplicate_attempts = []
+    async def duplicate_templates(*args, **kwargs):
+        material, generation = await generate(*args, **kwargs)
+        duplicate_attempts.append(kwargs.get("feedback"))
+        if kwargs.get("feedback") is None:
+            material["skills"] = [{"local_name": name, "name": name,
+                "executor": {"kind": "prompt_template", "params": {
+                    "provider": "workspace", "template": "Summarize {text}"}}}
+                for name in ("extract", "select", "synthesize")]
+        else:
+            assert "distinct task-specific template" in kwargs["feedback"]["issues"]
+        return material, generation
+    monkeypatch.setattr(brd_generation, "generate_material", duplicate_templates)
+    duplicate_job = client.post(path, json={**request, "request_key": "gen-duplicates"}).json()["id"]
+    assert brd_generation.run_generation_job(duplicate_job)["status"] == "completed"
+    assert len(duplicate_attempts) == 2
+
     outages = []
     async def outage(*args, **kwargs):
         outages.append(True)
