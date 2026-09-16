@@ -22,8 +22,19 @@ from app.services.model_plane.execution import resolve_model_execution,complete_
 with SessionLocal() as db:
     ws=db.query(Workspace).filter_by(slug='agentium-showcase').one()
     execution=resolve_model_execution(ws,provider='workspace')
-    out=asyncio.run(complete_model(execution,PROMPT,{'_model_workspace':ws},generation_options={'max_completion_tokens':TOKEN_LIMIT,'reasoning_effort':'low',**({'response_format':{'type':'json_object'}} if JSON_OUTPUT else {})},stream=False))
+    # Generation follows brd_generation; runtime leaves provider defaults intact.
+    options = None
+    if JSON_OUTPUT:
+        options = {'max_tokens': TOKEN_LIMIT}
+        if execution.provider in {'openai', 'azure_openai'}:
+            options['response_format'] = {'type': 'json_object'}
+            from app.llm.providers.openai_provider import OpenAIProvider
+            if any(execution.model == prefix or execution.model.startswith(prefix + '-')
+                   for prefix in OpenAIProvider.THINKING_MODELS):
+                options['reasoning_effort'] = 'low'
+    out=asyncio.run(complete_model(execution,PROMPT,{'_model_workspace':ws},generation_options=options,stream=False))
     out["model_execution"] = execution.public()
+    out["qualification_generation_options"] = options
     print(json.dumps(out,default=str))
 """
     started=time.monotonic()
