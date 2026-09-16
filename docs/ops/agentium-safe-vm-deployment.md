@@ -6596,3 +6596,12 @@ native browser control timed out. This is not human adoption acceptance.
 Build logs: `/srv/agentium-data/runtime-deployments/2026-09-16-7532d4491a23/`.
 Drain recipe jobs before rolling back/removing their consumer. No historical
 outcome rewrite, adoption-default switch or customer theme change.
+
+
+### 2026-09-16 — R1 incremental BRD authoring release
+
+Deployed `f63f1eaf7e023e7ea5c428995c44ca0a3ad202ff` from pushed `demo/agentic`. Backend, worker (including optional Giskard SDK) and frontend images built on omnirag-demo with immutable tag `f63f1eaf7e02`. Database migrated from 105 to 107 after paired checksummed backup `/srv/agentium-data/brd-system-deployments/2026-09-16-f63f1eaf7e02` reached `.ready`.
+
+Public build-info matches; frontend/backend healthy; dedicated CPU and recipe workers running. Carakai canaries: 10 passed, two expected local-contract skips. [Release evidence](../evidence/brd-release-candidate-2026-09-16/deployment.md). Full manual BRD UI and end-to-end R1 acceptance remain open.
+
+Previous runtime was `7532d4491a239d0e2285303cb12447ceac7419c2`. It is not an unconditional rollback target: new BRD-origin execution contracts need compatible readers. Fix forward or disable affected authoring/execution while preserving compatible readers; do not restore the database over new writes. No customer flag default or NAWA theme change.
