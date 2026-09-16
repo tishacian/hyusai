@@ -1,0 +1,126 @@
+[
+  {
+    "id": "bf04a807-eab0-4acd-8026-f7e25c0eda56",
+    "slug": "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_notices",
+    "version": "1",
+    "name": "NorthForge operating notices",
+    "description": "Read operating limits and maintenance procedures from synthetic NorthForge notices; not completed intervention records.",
+    "type": "generic",
+    "category": null,
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "results"
+      ],
+      "additionalProperties": true
+    },
+    "execution": {
+      "mode": "sync",
+      "timeout_ms": 30000,
+      "retryable": true,
+      "idempotent": true
+    },
+    "pricing": {
+      "unit": "per_call",
+      "unit_price": 0.0,
+      "currency": "USD"
+    },
+    "certification_level": "basic",
+    "is_seeded": false,
+    "provider": null,
+    "metrics": {},
+    "runtime_status": "bound",
+    "workspace_scope": "workspace",
+    "executor": {
+      "kind": "registry_call",
+      "params": {
+        "skill_slug": "semantic_search_v1",
+        "frozen_input": {
+          "context_collection": "agentium-showcase-notices",
+          "top_k": 5,
+          "latency_profile": "balanced"
+        }
+      }
+    }
+  },
+  {
+    "id": "65497416-026d-4dce-a8fc-8b6c7733b57d",
+    "slug": "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history",
+    "version": "1",
+    "name": "NorthForge intervention history",
+    "description": "Read recorded planned/actual durations for NF-01 to NF-04. Equipment and causes are absent; this is not an operating manual.",
+    "type": "generic",
+    "category": null,
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "results"
+      ],
+      "additionalProperties": true
+    },
+    "execution": {
+      "mode": "sync",
+      "timeout_ms": 30000,
+      "retryable": true,
+      "idempotent": true
+    },
+    "pricing": {
+      "unit": "per_call",
+      "unit_price": 0.0,
+      "currency": "USD"
+    },
+    "certification_level": "basic",
+    "is_seeded": false,
+    "provider": null,
+    "metrics": {},
+    "runtime_status": "bound",
+    "workspace_scope": "workspace",
+    "executor": {
+      "kind": "registry_call",
+      "params": {
+        "skill_slug": "semantic_search_v1",
+        "frozen_input": {
+          "context_collection": "agentium-showcase-intervention-history",
+          "top_k": 5,
+          "latency_profile": "balanced"
+        }
+      }
+    }
+  }
+]
