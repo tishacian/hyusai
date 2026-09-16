@@ -17,8 +17,9 @@ RUN apt-get update \
 ARG PIP_INDEX_URL
 RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
 
-COPY backend/requirements.txt /tmp/requirements/
+COPY backend/requirements.txt backend/constraints-demo-worker.txt /tmp/requirements/
 RUN pip install --no-cache-dir \
+    --constraint=/tmp/requirements/constraints-demo-worker.txt \
     --index-url=${PIP_INDEX_URL} \
     -r /tmp/requirements/requirements.txt
 
@@ -30,10 +31,13 @@ RUN pip install --no-cache-dir \
 # backend image for why its absence broke deserialising a model. Batch scoring
 # loads artifacts in this process too, so it needs the same environment.
 RUN pip install --no-cache-dir torch torchvision \
+        --constraint=/tmp/requirements/constraints-demo-worker.txt \
         --index-url=https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir \
+        --constraint=/tmp/requirements/constraints-demo-worker.txt \
         --index-url=${PIP_INDEX_URL} \
-        "transformers>=4.41.0"
+        "transformers>=4.41.0" \
+    && pip check
 
 # Install after CPU torch: Giskard must reuse it, not pull CUDA from PyPI.
 # Offline RAGET only. Its disposable subprocesses do not share tenant globals.
@@ -42,6 +46,7 @@ COPY backend/requirements_giskard.txt /tmp/requirements/
 ARG INSTALL_GISKARD_RAGET=false
 RUN if [ "$INSTALL_GISKARD_RAGET" = "true" ]; then \
       pip install --no-cache-dir --index-url=${PIP_INDEX_URL} \
+        --constraint=/tmp/requirements/constraints-demo-worker.txt \
         -r /tmp/requirements/requirements_giskard.txt; \
     fi
 

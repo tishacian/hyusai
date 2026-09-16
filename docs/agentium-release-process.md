@@ -116,6 +116,22 @@ does not establish a live provider campaign.
 Build all three even for a frontend-only change: the single tag drives the
 whole stack at switch time.
 
+The API and worker Dockerfiles apply separate `backend/constraints-demo-*.txt`
+files to every Python install, including CPU PyTorch and optional Giskard.
+These constraints were captured from the qualified `6f8f8169` runtime; changing
+requirements must include review of compatible constraints and actual image
+qualification. They freeze Python package versions, not OS packages or the
+mutable base-image tags. The historical Poetry lock is not used by these images.
+Do not set a runtime-wide `PIP_CONSTRAINT`: recipe environments retain their own
+contracts. The frontend revision is injected after `npm ci`, preserving the
+lockfile cache while still writing the candidate's exact public build identity.
+
+Never run image/cache pruning concurrently with a build. The 16 September fresh
+build lost a Docker content digest during overlapping cleanup and stopped before
+switching the runtime. Complete cleanup, verify the retained images, then build.
+Pruning is not part of the normal deploy command; preserve tagged rollback images
+and all volumes. Record any capacity maintenance in the release evidence.
+
 ## 5. Migrations — only if the slice contains one
 
 If `backend/alembic/versions/` gained a file, take a checksummed dump first,

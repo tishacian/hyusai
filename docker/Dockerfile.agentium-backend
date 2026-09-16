@@ -17,8 +17,9 @@ RUN apt-get update \
         tesseract-ocr-fra \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt /tmp/requirements/
+COPY backend/requirements.txt backend/constraints-demo-backend.txt /tmp/requirements/
 RUN pip install --no-cache-dir \
+    --constraint=/tmp/requirements/constraints-demo-backend.txt \
     --index-url=${PIP_INDEX_URL} \
     -r /tmp/requirements/requirements.txt
 
@@ -37,10 +38,13 @@ RUN pip install --no-cache-dir \
 # does, and without torchvision that walk raised ModuleNotFoundError and no
 # model could be deserialised for /predict.
 RUN pip install --no-cache-dir torch torchvision \
+        --constraint=/tmp/requirements/constraints-demo-backend.txt \
         --index-url=https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir \
+        --constraint=/tmp/requirements/constraints-demo-backend.txt \
         --index-url=${PIP_INDEX_URL} \
-        "transformers>=4.41.0"
+        "transformers>=4.41.0" \
+    && pip check
 
 ARG USERNAME=agentium
 ARG USER_UID=1000
