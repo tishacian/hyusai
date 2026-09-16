@@ -2,18 +2,18 @@ Name: httpx2
 Version: 2.12.0
 Summary: The next generation HTTP client.
 Home-page: https://github.com/pydantic/httpx2
-Author: 
+Author:
 Author-email: Tom Christie <tom@tomchristie.com>
 License-Expression: BSD-3-Clause
 Location: /usr/local/lib/python3.12/site-packages
 Requires: anyio, httpcore2, idna, truststore, typing-extensions
-Required-by: 
+Required-by:
 ---
 Name: httpcore2
 Version: 2.12.0
 Summary: A minimal low-level HTTP client.
 Home-page: https://github.com/pydantic/httpx2
-Author: 
+Author:
 Author-email: Tom Christie <tom@tomchristie.com>
 License-Expression: BSD-3-Clause
 Location: /usr/local/lib/python3.12/site-packages
@@ -23,10 +23,10 @@ Required-by: httpx2
 Name: truststore
 Version: 0.10.4
 Summary: Verify certificates using native system trust stores
-Home-page: 
-Author: 
+Home-page:
+Author:
 Author-email: Seth Michael Larson <sethmichaellarson@gmail.com>, David Glick <david@glicksoftware.com>
 License-Expression: MIT
 Location: /usr/local/lib/python3.12/site-packages
-Requires: 
+Requires:
 Required-by: httpcore2, httpx2
