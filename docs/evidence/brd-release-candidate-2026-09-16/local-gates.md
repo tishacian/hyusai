@@ -11,7 +11,8 @@ Code candidate: fe0f34fe (subsequent migration-test harness and evidence only).
 - Migrations 106/107: upgrade, unique constraints, nested-transaction violations
   and downgrade passed on an isolated PostgreSQL 16 database in 4.22 seconds.
   The disposable database was named brd_qualification and was not production.
-- Production build: in progress when this record was started; result pending.
+- Production build: passed; existing CSS budget and CommonJS warnings remain.
+- Disposable PostgreSQL container and SSH tunnel removed after qualification.
 
 These gates do not close R1. Five full live repetitions, complete PIH/NorthForge
 acceptance, worker recovery, second-user publication and formative user sessions
