@@ -35,6 +35,23 @@ with SessionLocal() as db:
     return output
 
 
+def northforge_catalog(db_session, workspace, client):
+    from app.models.skill import Skill
+    from app.services.skills_registry.seed import SEED_SKILLS
+    from scripts.showcase_intervention import retrieval_tool_specs
+    planner = next(row for row in SEED_SKILLS if row["slug"] == "decide_next_v1")
+    workspace.settings = {"catalog": {"enabled_skills": ["decide_next_v1"]},
+                          "features": {"flow_workbench_v1": True, "flow_v3_dag_authoritative": True}}
+    db_session.add(Skill(**planner, is_seeded="Y"))
+    db_session.commit()
+    slugs = ["decide_next_v1"]
+    for spec in retrieval_tool_specs("agentium-showcase-notices", "agentium-showcase-intervention-history"):
+        response = client.post('/skills', json=spec)
+        assert response.status_code == 200, response.text
+        slugs.append(response.json()["slug"])
+    return slugs
+
+
 @pytest.mark.skipif(not os.environ.get("BRD_LIVE_EVIDENCE_DIR"), reason="Opt-in real provider qualification")
 @pytest.mark.asyncio
 async def test_live_pih_candidate(db_session, tmp_path, monkeypatch):
@@ -144,18 +161,7 @@ def test_live_generation_worker(db_session, tmp_path, monkeypatch):
     slugs = []
     fixture = "pih-spark089.docx"
     if family == "intervention_preparation":
-        from app.models.skill import Skill
-        from app.services.skills_registry.seed import SEED_SKILLS
-        from scripts.showcase_intervention import retrieval_tool_specs
-        planner = next(row for row in SEED_SKILLS if row["slug"] == "decide_next_v1")
-        workspace.settings = {"catalog": {"enabled_skills": ["decide_next_v1"]}}
-        db_session.add(Skill(**planner, is_seeded="Y"))
-        db_session.commit()
-        slugs.append("decide_next_v1")
-        for spec in retrieval_tool_specs("agentium-showcase-notices", "agentium-showcase-intervention-history"):
-            response = client.post('/skills', json=spec)
-            assert response.status_code == 200, response.text
-            slugs.append(response.json()["slug"])
+        slugs = northforge_catalog(db_session, workspace, client)
         fixture = "northforge-intervention.docx"
     source = Path(__file__).resolve().parents[1] / "fixtures/brd" / fixture
     imported = client.post('/skills/import/business-requirements?retain=true',
@@ -176,3 +182,92 @@ def test_live_generation_worker(db_session, tmp_path, monkeypatch):
     material = {key: proposal[key] for key in ('name', 'objective', 'flow_definition', 'skills', 'cases', 'mappings')}
     material['request_key'] = 'live-worker-runtime'
     (evidence/'candidate.json').write_text(json.dumps(material,indent=2))
+
+
+def remote_retrieval(payload, evidence):
+    collection = payload.get('context_collection')
+    assert collection in {'agentium-showcase-notices', 'agentium-showcase-intervention-history'}
+    request = {'query': payload['query'], 'context_collection': collection, 'top_k': 5,
+               'latency_profile': 'balanced'}
+    program = 'REQUEST = ' + repr(request) + '\n' + """
+import asyncio,json
+from app.db.base import SessionLocal
+from app.models.workspace import Workspace
+from app.services.skills_registry.executors import bind_executor
+with SessionLocal() as db:
+    ws=db.query(Workspace).filter_by(slug='agentium-showcase').one()
+    tool=bind_executor({'kind':'registry_call','params':{'skill_slug':'semantic_search_v1',
+        'frozen_input':{'context_collection':REQUEST['context_collection'],'top_k':5,'latency_profile':'balanced'}}})
+    out=asyncio.run(tool(REQUEST,{'workspace_id':ws.id,'workspace_slug':ws.slug,'_model_workspace':ws}))
+    print(json.dumps(out,default=str))
+"""
+    started = time.monotonic()
+    call = subprocess.run(['ssh', 'omnirag-demo', 'docker exec -i agentium-backend python'],
+                          input=program, text=True, capture_output=True, timeout=180, check=True)
+    output = json.loads(call.stdout.splitlines()[-1])
+    with (evidence/'retrieval-calls.jsonl').open('a') as stream:
+        stream.write(json.dumps({'request': request, 'output': output,
+                                 'seconds': time.monotonic()-started})+'\n')
+    return output
+
+
+@pytest.mark.skipif(not os.environ.get('BRD_NORTHFORGE_CANDIDATE'), reason='Opt-in live NorthForge tools')
+@pytest.mark.asyncio
+async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
+    from app.models.system_flow_draft import SystemFlowDraft
+    from app.models.run import SkillInvocation
+    from app.services.systems.flow_publication import create_draft_test_run
+    from app.services.run_engine.dag import execute_run_dag
+    from app.services.skills_registry import wrappers
+    evidence = Path(os.environ['BRD_LIVE_EVIDENCE_DIR'])
+    evidence.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(settings, 'object_store_backend', 'local')
+    monkeypatch.setattr(settings, 'object_store_base_path', str(tmp_path))
+    workspace, user = _seed(db_session)
+    client = _client(db_session, workspace, user)
+    northforge_catalog(db_session, workspace, client)
+    source = Path(__file__).parents[1]/'fixtures/brd/northforge-intervention.docx'
+    imported = client.post('/skills/import/business-requirements?retain=true',
+                           files={'file': (source.name, source.read_bytes())})
+    assert imported.status_code == 200, imported.text
+    path = '/skills/imports/business-requirements/'+imported.json()['document']['id']+'/proposals'
+    material = json.loads(Path(os.environ['BRD_NORTHFORGE_CANDIDATE']).read_text())
+    proposal = client.post(path, json=material)
+    assert proposal.status_code == 200, proposal.text
+    proposal = proposal.json()
+    applied = client.post(path+'/'+proposal['id']+'/apply',
+                          json={'expected_sha256': proposal['sha256'], 'reviewed': True})
+    (evidence/'application.json').write_text(json.dumps(applied.json(), indent=2))
+    assert applied.status_code == 200, applied.text
+    draft = db_session.query(SystemFlowDraft).filter_by(system_id=applied.json()['system_id']).one()
+    async def complete(prompt, model, ctx):
+        return remote_completion(prompt, evidence, 4000)['completion']
+    monkeypatch.setattr(wrappers, '_route_llm_complete', complete)
+    async def model_response(payload, ctx=None):
+        return remote_completion(payload['prompt'], evidence, 4000)
+    async def retrieve(payload, ctx=None):
+        return remote_retrieval(payload, evidence)
+    for slug, fn in [('workspace_llm_v1', model_response), ('semantic_search_v1', retrieve)]:
+        entry = wrappers._REGISTRY[slug]
+        monkeypatch.setitem(wrappers._REGISTRY, slug, (fn, entry[1], entry[2]))
+    failures = []
+    for case in material['cases']:
+        run = create_draft_test_run(db_session, system_id=draft.system_id, workspace=workspace,
+            user_id=user.id, input_ref=case['input_ref'], expected_draft_revision=draft.revision,
+            expected_flow_sha256=draft.flow_sha256)
+        db_session.commit()
+        result = await execute_run_dag(run.id)
+        db_session.expire_all()
+        calls = db_session.query(SkillInvocation).filter_by(run_id=run.id).all()
+        record = {'case': case, 'result': result, 'status': run.status, 'output': run.output_ref,
+                  'checkpoints': run.checkpoints, 'review': 'not_performed',
+                  'invocations': [{'id': row.id, 'skill': row.skill_slug, 'status': row.status,
+                                   'input': row.input_ref, 'output': row.output_ref} for row in calls]}
+        from app.models.decision import Decision
+        decision = db_session.get(Decision, result['awaiting_decision']) if result.get('awaiting_decision') else None
+        review_nodes = {node['id'] for node in draft.flow_definition['nodes'] if node.get('kind') == 'hitl'}
+        record['decision_node'] = (decision.rationale or {}).get('node_id') if decision else None
+        (evidence/(case['id']+'.json')).write_text(json.dumps(record, indent=2, default=str))
+        if result['status'] != 'hitl_pending' or record['decision_node'] not in review_nodes:
+            failures.append({'case': case['id'], 'result': result, 'decision_node': record['decision_node']})
+    assert not failures, failures

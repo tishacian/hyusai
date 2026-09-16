@@ -78,6 +78,15 @@ def validate_intervention_planner(body, selected_slugs):
         ref = (config.get("inputs_map") or {}).get("objective")
         if not isinstance(ref, dict) or ref.get("node_id") not in sources or ref.get("required") is not True or len(ref.get("path", [])) != 1:
             raise ValueError("Bind objective directly to the operator-request source with required=true")
+        output_fields = {"goal", "observations", "exit", "turns", "privilege_tier", "visible_skills"}
+        for consumer in body.flow_definition.get("nodes", []):
+            for value in ((consumer.get("config") or {}).get("inputs_map") or {}).values():
+                if isinstance(value, dict) and value.get("node_id") == node.get("id"):
+                    path = value.get("path") or []
+                    if path and path[0] not in output_fields:
+                        raise ValueError(f"AgentLoop {node.get('id')!r} has no output field {path[0]!r}; "
+                                         "map observations with path=['observations'], not ['result','observations']. "
+                                         "Declaring an output port does not wrap the runtime result.")
         field = ref["path"][0]
         schema = (sources[ref["node_id"]].get("config") or {}).get("input_schema") or {}
         if schema.get("type") != "object" or (schema.get("properties", {}).get(field) or {}).get("type") != "string":
@@ -145,7 +154,9 @@ _FAMILY_INSTRUCTIONS = {
         "Map observations into the synthesis Skill as an array input, not a string. "
         "A whole AgentLoop output is an object and must use an object input schema; "
         "the runtime does not JSON-stringify mappings. Retrieved passages "
-        "are in observations[].output.results with their original metadata. "
+        "are in observations[].output.results with their original metadata. Read the loop "
+        "with path=[observations], never [result,observations]: output-port declarations "
+        "do not wrap the runtime result. "
         "Preserve acceptance questions and reference facts provided by the BRD. "
         "Never invent replacement equipment, records, units or oracle values. Each case "
         "input objective must equal its question verbatim, containing only the operator "

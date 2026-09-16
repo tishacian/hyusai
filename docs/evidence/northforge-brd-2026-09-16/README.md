@@ -72,3 +72,20 @@ than `objective`. All attempts were rejected; no System was applied. The validat
 now identifies the exact required source property and received keys, rather than a generic
 question mismatch. Eleven focused validator tests pass after this feedback correction.
 The rejection is evidence of a working guard, not completion of the NorthForge journey.
+
+## First local-engine / real-retrieval execution
+
+Generation 5 completed in 140 seconds after repair; its unedited candidate was applied only
+in the isolated local database. No production System was created.
+
+- Notice case: planner requested human clarification at confidence 0.52, before any retrieval.
+  This is not the final briefing review and does not count as successful investigation.
+- History case: planner selected the history tool. Real Showcase retrieval returned the
+  NF-04 source with planned 30 and actual 55 minutes and its document ID. The invocation
+  and its actual result are preserved in `runtime-5/case-history-durations.json`.
+- Synthesis then failed: generated mapping `result.observations` does not exist. The runtime
+  correctly refused the missing required value. No answer was synthesized or approved.
+
+Generation validation now rejects fictitious AgentLoop output envelopes before application.
+The opt-in runtime recorder now distinguishes a planner clarification from the explicit
+Flow review and collects all case failures. Twelve generation tests pass.

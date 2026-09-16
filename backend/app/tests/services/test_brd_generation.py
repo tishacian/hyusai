@@ -182,3 +182,19 @@ def test_intervention_rejects_prose_stop_condition_and_answer_leakage():
         service.validate_intervention_planner(body, ["decide_next_v1"])
     case["input_ref"]["question"] = case["question"]
     service.validate_intervention_planner(body, ["decide_next_v1"])
+
+
+def test_intervention_does_not_invent_an_agent_loop_output_envelope():
+    config = {"decide_skill": "decide_next_v1", "privilege_tier": "recommend",
+              "inputs_map": {"objective": {"node_id": "source", "path": ["question"], "required": True}}}
+    ref = {"node_id": "loop", "path": ["result", "observations"], "required": True}
+    body = SimpleNamespace(flow_definition={"nodes": [
+        {"id": "source", "kind": "source", "config": {"input_schema": {
+            "type": "object", "properties": {"question": {"type": "string"}}}}},
+        {"id": "loop", "kind": "agent_loop", "config": config},
+        {"id": "synthesis", "kind": "task", "config": {"inputs_map": {"evidence": ref}}}
+    ]}, cases=[])
+    with pytest.raises(ValueError, match="no output field 'result'"):
+        service.validate_intervention_planner(body, ["decide_next_v1"])
+    ref["path"] = ["observations"]
+    service.validate_intervention_planner(body, ["decide_next_v1"])
