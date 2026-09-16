@@ -1,7 +1,7 @@
 {
   "request_key": "r1-live-qualification-5",
   "name": "PIH BRD qualification",
-  "objective": "Design a documentary synthesis flow that ingests manual inputs for a PIH SPARK-089 regrade transaction, extracts supplied facts, selects supporting passages, synthesizes a factual executive summary, includes explicit human review, and produces a final draft for approvers. Preserve and separate extraction from synthesis, mark missing information, include references when supplied, and never recommend or approve HR decisions.",
+  "objective": "Design a documentary synthesis flow that ingests manual inputs for a PIH SPARK-089 regrade transaction, extracts supplied facts, selects supporting passages, synthesizes a factual executive summary, includes explicit human review, and produces a final draft for approvers. Preserve current and proposed titles and grades and effective date; mark missing information; include references when supplied; never recommend or approve HR decisions.",
   "flow_definition": {
     "schema_version": 3,
     "io_mode": "strict",
@@ -91,7 +91,14 @@
         "kind": "hitl",
         "config": {
           "prompt": "Reviewer checklist for SPARK-089: 1) Confirm the summary only states supplied facts (no recommendations). 2) Verify current and proposed job title and grade are present when supplied; clearly marked as missing when absent. 3) Check the effective date, if provided, is preserved. 4) Ensure references/citations to supplied excerpts are included when available. 5) Ensure prohibitions are respected: never approve/reject or recommend an HR decision. Provide comments for any required clarifications."
-        }
+        },
+        "outputs": [
+          {
+            "name": "completion",
+            "schema": "string",
+            "required": true
+          }
+        ]
       },
       {
         "id": "sink_out",
@@ -112,7 +119,7 @@
           },
           "inputs_map": {
             "draft": {
-              "node_id": "task_synthesize",
+              "node_id": "hitl_review",
               "path": [
                 "completion"
               ],
@@ -145,11 +152,6 @@
       },
       {
         "from": "hitl_review",
-        "to": "sink_out",
-        "kind": "data"
-      },
-      {
-        "from": "task_synthesize",
         "to": "sink_out",
         "kind": "data"
       }
@@ -206,7 +208,7 @@
         "properties": {
           "text": {
             "type": "string",
-            "description": "Structured extracted facts to ground passage selection."
+            "description": "Structured extracted facts to anchor supporting passage selection."
           }
         },
         "required": [
@@ -237,7 +239,7 @@
     {
       "local_name": "synthesize_summary",
       "name": "Synthesize factual executive summary",
-      "description": "Produce a factual executive summary for approvers from selected supporting material, clearly marking any missing information and including references when supplied. Never make recommendations or approve transactions.",
+      "description": "Produce a factual executive summary for approvers from selected supporting content, clearly marking any missing information and including references when supplied. Never make recommendations or approve transactions.",
       "type": "generic",
       "category": "LLM",
       "input_schema": {
@@ -245,7 +247,7 @@
         "properties": {
           "text": {
             "type": "string",
-            "description": "Selected passages and structured facts from prior steps."
+            "description": "Selected supporting content to synthesize into a reviewer-ready draft."
           }
         },
         "required": [
@@ -370,32 +372,34 @@
         "case-missing-field",
         "case-instruction-in-source"
       ],
-      "reason": "BO-1 quicker factual review supported by extraction, selection, synthesized draft, explicit human review, and final sink output."
+      "reason": "BO-1 quicker factual review supported by extraction, selection, synthesis, explicit human review, and final sink output."
     },
     {
       "table": 8,
       "row": 2,
       "node_ids": [
         "task_synthesize",
+        "hitl_review",
         "sink_out"
       ],
       "case_ids": [
         "case-normal"
       ],
-      "reason": "FR-1 executive summary produced via synthesis and emitted by sink."
+      "reason": "FR-1 executive summary produced via synthesis and reviewed before output."
     },
     {
       "table": 8,
       "row": 3,
       "node_ids": [
         "task_extract",
-        "task_synthesize"
+        "task_synthesize",
+        "hitl_review"
       ],
       "case_ids": [
         "case-normal",
         "case-missing-field"
       ],
-      "reason": "FR-2 current and proposed titles/grades handled in extraction and preserved in synthesis."
+      "reason": "FR-2 current and proposed titles/grades handled in extraction, preserved in synthesis, and verified in HITL."
     },
     {
       "table": 8,
@@ -403,12 +407,13 @@
       "node_ids": [
         "task_extract",
         "task_select",
-        "task_synthesize"
+        "task_synthesize",
+        "hitl_review"
       ],
       "case_ids": [
         "case-missing-field"
       ],
-      "reason": "FR-3 missing information explicitly marked; selection step supports citations/IDs when supplied."
+      "reason": "FR-3 missing information explicitly marked; selection step proposes supporting passages/IDs; human confirms."
     },
     {
       "table": 12,
@@ -421,7 +426,7 @@
         "case-normal",
         "case-missing-field"
       ],
-      "reason": "D1 completeness checks via extraction and escalation to reviewer in HITL."
+      "reason": "D1 completeness checks via extraction; gaps escalated to reviewer in HITL."
     },
     {
       "table": 14,
@@ -434,7 +439,7 @@
       "case_ids": [
         "case-missing-field"
       ],
-      "reason": "R1 guardrail: absent facts must be marked missing; review verifies adherence."
+      "reason": "R1: mark absent facts as missing; reviewer verifies adherence."
     },
     {
       "table": 15,
@@ -446,7 +451,7 @@
       "case_ids": [
         "case-instruction-in-source"
       ],
-      "reason": "N1 prohibition: never approve/reject or recommend; assertions confirm summary omits approval language."
+      "reason": "N1: never approve/reject or recommend; assertions ensure approval language is not echoed."
     }
   ]
 }

@@ -423,3 +423,19 @@ constraints. Evidence and remaining acceptance limits:
 
 This is not deployed R1 acceptance: runtime execution/HITL/assertions and the
 NorthForge family remain to qualify.
+
+### PIH runtime and human-gate regression — 16 September
+
+Execution of the generated graph exposed incompatible LLM output schemas,
+disconnected HITL and an invalid read from HITL completion. Generation guidance
+now specifies the actual executor metadata and decision-only HITL output. The
+seventh real provider response, guided by validation diagnostics, is retained
+unchanged as the positive fixture; the sixth is the negative fixture.
+
+Four parameterized engine tests cover all three case inputs, accepted/rejected
+review, pending/mismatched decisions, no repeated LLM calls on resume and a
+terminal failure for an invalid reference. LLM responses are controlled in these
+runtime tests. Forty-two existing DAG/variable-pool tests also pass. The runtime
+fix makes a missing strict input at resume end in a recorded failure rather than
+an uncaught exception. Real synthesis quality, automatic repair and five fresh
+successful generations remain open; this is not R1 acceptance.
