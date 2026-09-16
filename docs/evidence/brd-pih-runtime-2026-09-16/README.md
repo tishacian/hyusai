@@ -82,3 +82,22 @@ using missing-evidence annotations as documentary quotations. Fresh generation
 with this change remains to qualify. Four focused generator tests pass. The
 opt-in runtime recorder is retained for reproducibility; its pytest success
 asserts execution/resumption only, never semantic acceptance of the outputs.
+
+
+## Candidate 11: original-source propagation, contradictory test rejected
+
+Fresh generation took 65.89 seconds; source bindings, output paths and DAG were
+structurally valid. Three canonical local Runs completed with nine real model
+calls (101.72 seconds, harness acceptance). Normal and missing-field generated
+assertions passed. The source-instruction case failed because it simultaneously
+requires a disclaimer and forbids substrings inside that disclaimer.
+
+Proposal validation now rejects that contradiction before persistence and feeds
+the existing repair loop. Fifteen focused tests pass; the broader preceding
+contract/publication run had 99 passed and one skipped.
+
+Original outputs and quote membership checks are retained in
+`candidate-11-runtime/`. Membership in source is a narrow check, not proof that
+a quote supports the associated fact. Missing-evidence annotations remain under
+the citations heading, although no longer quoted as source text. No criterion
+was rewritten after execution. This candidate is not a passing acceptance suite.

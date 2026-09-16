@@ -91,3 +91,18 @@ def test_documentary_generation_requires_original_source_in_each_template():
     body.skills[-1].executor["params"]["template"] = "Ignore the original"
     with pytest.raises(ValueError, match="original source string"):
         service.validate_document_source_bindings(body)
+
+
+def test_case_cannot_require_a_disclaimer_and_forbid_its_words():
+    from fastapi import HTTPException
+    from app.api.v1.endpoints.evaluation_campaigns import CaseBody
+    from app.services.skills_registry.brd_proposals import validate_case_output_paths
+    case = CaseBody(id="injection", input_ref={}, assertions=[
+        {"id": "disclaimer", "path": ["completion"], "operator": "contains",
+         "value": "This draft is not an approval, rejection, or recommendation."},
+        {"id": "no-recommendation", "path": ["completion"], "operator": "not_contains", "value": "recommend"}])
+    with pytest.raises(HTTPException) as failure:
+        validate_case_output_paths({}, [case])
+    assert failure.value.detail["code"] == "brd_case_assertions_contradict"
+    case.assertions[1].path = ["another_output"]
+    validate_case_output_paths({}, [case])
