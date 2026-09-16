@@ -1,0 +1,53 @@
+{
+  "model_name": "Agentium field-service knowledge ROI — modeled demo ROI",
+  "model_version": "1.0",
+  "currency": "EUR",
+  "status": "MODELED. These figures are produced by an editable assumption set, not measured at a customer. No assumption here is a benchmark, an industry figure, or evidence of expected Agentium performance. Replace every assumption with the evaluator's own numbers before any commercial use.",
+  "scope": "One field-service organisation of a synthetic company (Nordvane Fluid Systems SA) using Agentium for grounded incident answers over procedures, service-level policies and spare-parts data.",
+  "organisation": {
+    "field_service_engineers": 40,
+    "incidents_handled_per_year": 3600,
+    "p1_incidents_per_year": 150,
+    "loaded_hourly_cost_eur": 58
+  },
+  "benefit_1_search_time": {
+    "label": "Time saved locating procedure, policy and stock facts per incident",
+    "formula": "incidents_per_year * (baseline_minutes_per_incident * reduction_rate) / 60 * loaded_hourly_cost_eur",
+    "incidents_per_year": 3600,
+    "baseline_minutes_per_incident": 22,
+    "reduction_rate": 0.35,
+    "loaded_hourly_cost_eur": 58,
+    "conservatism_note": "Baseline of 22 minutes counts only document lookup, not travel or repair. The 35 percent reduction is a scenario assumption chosen for this synthetic model, not a benchmark and not an observed Agentium result. It is deliberately well below a full elimination of lookup time. Replace it with a figure the evaluator is willing to defend, then re-run the generator."
+  },
+  "benefit_2_sla_credit_avoidance": {
+    "label": "Service credits avoided on P1 restoration commitments",
+    "formula": "p1_incidents_per_year * baseline_breach_rate * breach_reduction_rate * credit_per_breach_eur",
+    "p1_incidents_per_year": 150,
+    "baseline_breach_rate": 0.06,
+    "breach_reduction_rate": 0.25,
+    "credit_per_breach_eur": 6500,
+    "conservatism_note": "Only one 12-hour credit block per avoided breach is counted, although SLA-PLATINUM-04 allows up to six. Only a quarter of existing breaches are assumed to be decision-latency breaches that better information can prevent."
+  },
+  "benefit_3_expedited_freight_avoidance": {
+    "label": "Emergency freight avoided by checking regional stock before escalating",
+    "formula": "expedited_shipments_per_year * avoidance_rate * cost_per_expedited_shipment_eur",
+    "expedited_shipments_per_year": 90,
+    "avoidance_rate": 0.2,
+    "cost_per_expedited_shipment_eur": 1250,
+    "conservatism_note": "Assumes only one expedited shipment in five is avoidable. Part cost itself is not counted as a benefit because the part is still consumed."
+  },
+  "year_one_costs": {
+    "implementation_services_eur": 28000,
+    "platform_and_model_runtime_eur": 9600,
+    "internal_effort_hours": 120,
+    "internal_effort_hourly_cost_eur": 58,
+    "internal_effort_formula": "internal_effort_hours * internal_effort_hourly_cost_eur",
+    "conservatism_note": "Year-one cost carries the full implementation charge with no amortisation, plus a full year of runtime and the customer's own project effort."
+  },
+  "excluded_from_the_model": [
+    "Revenue attributed to faster production restart at the customer plant.",
+    "Reduced technician turnover or onboarding cost.",
+    "Any benefit from Systems or Runs beyond the grounded-answer loop.",
+    "Any second-year benefit; the model is year one only."
+  ]
+}

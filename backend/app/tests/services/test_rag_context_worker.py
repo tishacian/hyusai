@@ -692,6 +692,18 @@ def test_source_lookup_questions_are_not_inventory_queries():
         )
         is False
     )
+    assert (
+        rag_context.is_collection_inventory_query(
+            "Show the inventory line for SEAL-KIT-3309 and the inventory line for GBX-5501."
+        )
+        is False
+    )
+    assert (
+        classify_intent(
+            "Show the inventory line for SEAL-KIT-3309 and the inventory line for GBX-5501."
+        )
+        == "content_search"
+    )
 
 
 async def test_retrieve_rag_context_catalogue_applies_internal_scope_filters(
