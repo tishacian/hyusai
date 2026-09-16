@@ -32,3 +32,10 @@ rules supply keyboard behavior and a labelled native progress element. FR/EN
 copy distinguishes failure, no job, unavailable status and dispatch pending.
 A completed worker does not claim that every source or campaign has passed its
 checks. This is an extension of the existing product surface, not a redesign.
+
+The missing-original refinement follows the same state → cause → action hierarchy
+and Refero `references/copywriting.md` error guidance: name the inaccessible file,
+explain restoration before retry, keep raw storage keys in expandable details.
+The diagnosis is server-owned and confirmed by storage, not guessed from an old
+error string. Governed campaigns keep their own recovery instruction; a reader
+cannot gain a retry control. No palette, layout or token-role change is needed.

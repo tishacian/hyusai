@@ -135,6 +135,48 @@ def test_worker_ingest_claim_is_idempotent_for_duplicate_delivery(
     }
 
 
+@pytest.mark.parametrize("cause", ["empty", "permission", "temporary_destination", "probe_unavailable"])
+def test_original_diagnosis_requires_confirmed_storage_absence(db_session, tmp_path, monkeypatch, cause):
+    from app.services.object_store import ObjectStore
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    ws = _workspace(db_session)
+    collection = create_collection(db_session, workspace=ws, name="Original diagnosis")
+    collection.document_names = [] if cause == "empty" else ["manual.txt"]
+    job = create_worker_job(db_session, workspace_id=ws.id, collection_id=collection.id)
+    if cause != "empty":
+        get_object_store().write_bytes(original_key(collection, "manual.txt"), b"retained")
+    db_session.commit()
+    copy_attempted = False
+    exists = ObjectStore.exists
+
+    def copy_failure(self, key, destination):
+        nonlocal copy_attempted
+        copy_attempted = True
+        if cause == "permission":
+            raise PermissionError("storage access denied")
+        raise FileNotFoundError("temporary destination unavailable")
+
+    def probe(self, key):
+        if copy_attempted and cause == "probe_unavailable":
+            raise ConnectionError("storage probe unavailable")
+        return exists(self, key)
+
+    monkeypatch.setattr(ObjectStore, "copy_to_local", copy_failure)
+    monkeypatch.setattr(ObjectStore, "exists", probe)
+    expected = ValueError if cause == "empty" else PermissionError if cause == "permission" else FileNotFoundError
+    with pytest.raises(expected):
+        run_document_ingest_index(job.id)
+    db_session.expire_all()
+    assert job.status == "failed"
+    if cause == "empty":
+        assert job.result["source_failure"] == {"code": "originals_missing"}
+    else:
+        assert "source_failure" not in job.result
+        assert job.error in {"storage access denied", "temporary destination unavailable"}
+
+
 def test_incremental_document_inventory_merges_legacy_and_ledger():
     collection = SimpleNamespace(
         id="collection-inventory",
@@ -176,10 +218,12 @@ def test_incremental_document_inventory_merges_legacy_and_ledger():
     assert indexed_count == 2
 
 
+@pytest.mark.parametrize("missing_original", [False, True])
 def test_worker_ingest_recovers_retained_sources_and_writes_ingested_text(
     db_session,
     tmp_path,
     monkeypatch,
+    missing_original,
 ):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
@@ -194,9 +238,8 @@ def test_worker_ingest_recovers_retained_sources_and_writes_ingested_text(
         collection_id=collection.id,
         kind="document_ingest_index",
     )
-    get_object_store().write_bytes(
-        original_key(collection, "manual.txt"), b"hello world"
-    )
+    if not missing_original:
+        get_object_store().write_bytes(original_key(collection, "manual.txt"), b"hello world")
     get_object_store().write_text(
         document_manifest_key(collection),
         json.dumps(
@@ -233,7 +276,7 @@ def test_worker_ingest_recovers_retained_sources_and_writes_ingested_text(
 
         async def ingest_documents_batch(self, paths, **_kwargs):
             ingestion_attempts.append(True)
-            if len(ingestion_attempts) == 1:
+            if not missing_original and len(ingestion_attempts) == 1:
                 raise RuntimeError("provider unavailable")
             assert self.cleared is True
             assert (
@@ -270,11 +313,18 @@ def test_worker_ingest_recovers_retained_sources_and_writes_ingested_text(
     )
     monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
 
-    with pytest.raises(RuntimeError, match="provider unavailable"):
+    with pytest.raises(FileNotFoundError if missing_original else RuntimeError):
         run_document_ingest_index(job.id)
     db_session.expire_all()
     assert job.status == "failed"
     assert collection.status == "error"
+    original_error = job.error
+    if missing_original:
+        assert job.result["source_failure"] == {"code": "original_source_missing", "filename": "manual.txt"}
+        get_object_store().write_bytes(original_key(collection, "manual.txt"), b"hello world")
+    else:
+        assert original_error == "provider unavailable"
+        assert "source_failure" not in job.result
     assert get_object_store().read_bytes(original_key(collection, "manual.txt")) == b"hello world"
 
     from uuid import uuid4
@@ -315,12 +365,15 @@ def test_worker_ingest_recovers_retained_sources_and_writes_ingested_text(
     assert refreshed_collection.document_count == 1
     assert refreshed_job.status == "completed"
     assert len(refreshed_job.result["retry_history"]) == 1
-    assert refreshed_job.result["retry_history"][0]["error"] == "provider unavailable"
+    assert refreshed_job.result["retry_history"][0]["error"] == original_error
+    assert "source_failure" not in refreshed_job.result
+    if missing_original:
+        assert refreshed_job.result["retry_history"][0]["result"]["source_failure"]["filename"] == "manual.txt"
     assert refreshed_job.result["retry_request_id"] == str(request_id)
     assert source.source_metadata["project_code"] == "BBA120"
     assert source.source_metadata["source_family"] == "operating_manual"
     assert source.source_metadata["document_id"] is not None
-    assert len(parse_calls) == 2
+    assert len(parse_calls) == (1 if missing_original else 2)
     assert list_document_calls == [True]
     assert (
         get_object_store().read_bytes(

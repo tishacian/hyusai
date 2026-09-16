@@ -18,7 +18,7 @@ function setup() {
     IngestionStatusComponent,
     { provide: HttpClient, useValue: { post(url: string, body: unknown) { const response = new Subject<IngestionJob>(); calls.push({url, body, response}); return response; } } },
     { provide: WorkspaceService, useValue: { current: () => ({id: 'workspace'}), isAdmin, captureRequestScope: () => epoch(), isRequestScopeCurrent: (scope: number) => scope === epoch() } },
-    { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => (CAPTURE_EN as Record<string,string>)[key] || key } },
+    { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string, params: Record<string,unknown> = {}) => Object.entries(params).reduce((text, [name, value]) => text.replace(`{${name}}`, String(value)), (CAPTURE_EN as Record<string,string>)[key] || key) } },
     { provide: ChangeDetectionScheduler, useValue: { notify() {}, runningTick: false } },
     { provide: EffectScheduler, useValue: { add() {}, schedule() {}, flush() {}, remove() {} } },
   ] });
@@ -83,8 +83,21 @@ test('non-admin, active, completed and governed ingestions cannot be retried fro
 
 test('every recovery label exists in both languages', () => {
   const keys = Object.keys(CAPTURE_EN).filter(key => key.startsWith('capture.ingest.'));
-  assert.equal(keys.length, 30);
+  assert.equal(keys.length, 33);
   for (const key of keys) { assert.ok((CAPTURE_FR as Record<string,string>)[key]); assert.ok((CAPTURE_EN as Record<string,string>)[key]); }
+});
+
+test('only a persisted missing-original diagnosis replaces the raw error', () => {
+  const { component, injector } = setup();
+  try {
+    const diagnosed = {...failed, error: 'bucket/private-key', result: {source_failure: {code: 'original_source_missing', filename: 'manual.txt'}}};
+    assert.match(component.failureLabel(diagnosed), /original file “manual.txt”/);
+    assert.doesNotMatch(component.failureLabel(diagnosed), /private-key/);
+    assert.equal(component.missingOriginal({...diagnosed, status: 'completed'}), false);
+    assert.equal(component.failureLabel({...failed, error: 'bucket/private-key'}), 'bucket/private-key');
+    assert.equal(component.failureLabel({...diagnosed, result: {source_failure: {code: 'unknown'}}}), 'bucket/private-key');
+    assert.equal(component.failureLabel({...diagnosed, result: {source_failure: {code: 'originals_missing'}}}), CAPTURE_EN['capture.ingest.originals_missing']);
+  } finally { injector.destroy(); }
 });
 
 
