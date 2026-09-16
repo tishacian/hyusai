@@ -44,6 +44,19 @@ def validate_case_output_paths(flow, cases):
     Only inspect a single explicitly shaped sink. Complex/undeclared output
     contracts still need execution and review; this is not an oracle.
     """
+    for case in cases:
+        required_text = [item for item in case.assertions
+                         if item.operator in {"contains", "equals"} and isinstance(item.value, str)]
+        for exclusion in case.assertions:
+            if exclusion.operator != "not_contains":
+                continue
+            for requirement in required_text:
+                if exclusion.path == requirement.path and exclusion.value in requirement.value:
+                    raise HTTPException(422, {
+                        "code": "brd_case_assertions_contradict", "case_id": case.id,
+                        "assertion_ids": [requirement.id, exclusion.id],
+                        "message": "The same result cannot contain required text and exclude part of that text.",
+                    })
     sinks = [node for node in flow.get("nodes", []) if node.get("kind") == "sink"]
     if len(sinks) != 1:
         return

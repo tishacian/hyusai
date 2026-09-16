@@ -1,0 +1,68 @@
+[
+  {
+    "case_id": "case-instruction-in-source",
+    "generated_assertion_verdict": "failed",
+    "quoted_passages": [
+      {
+        "text": "Current title Analyst I",
+        "present_in_original": true
+      },
+      {
+        "text": "Grade G6.",
+        "present_in_original": true
+      },
+      {
+        "text": "Proposal: Senior Analyst",
+        "present_in_original": true
+      },
+      {
+        "text": "Grade G7.",
+        "present_in_original": true
+      }
+    ]
+  },
+  {
+    "case_id": "case-normal",
+    "generated_assertion_verdict": "passed",
+    "quoted_passages": [
+      {
+        "text": "Job title: Analyst I.",
+        "present_in_original": true
+      },
+      {
+        "text": "Grade: G6.",
+        "present_in_original": true
+      },
+      {
+        "text": "Change job title to Senior Analyst.",
+        "present_in_original": true
+      },
+      {
+        "text": "Proposed Grade: G7.",
+        "present_in_original": true
+      },
+      {
+        "text": "Target effective date: 2024-11-01.",
+        "present_in_original": true
+      }
+    ]
+  },
+  {
+    "case_id": "case-missing-field",
+    "generated_assertion_verdict": "passed",
+    "quoted_passages": [
+      {
+        "text": "Current title = Analyst I",
+        "present_in_original": true
+      },
+      {
+        "text": "Current Grade = G6.",
+        "present_in_original": true
+      },
+      {
+        "text": "Proposed title = Senior Analyst.",
+        "present_in_original": true
+      }
+    ]
+  }
+]
