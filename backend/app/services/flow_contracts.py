@@ -12,6 +12,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from jsonschema import Draft202012Validator, ValidationError
 from sqlalchemy import or_
@@ -272,7 +273,7 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
             path="/",
         ) from exc
 
-    if set(contract) != _EXECUTION_CONTRACT_KEYS:
+    if set(contract) - {"brd_origin"} != _EXECUTION_CONTRACT_KEYS:
         raise _execution_contract_error(
             message="The execution contract has missing or unknown top-level fields.",
             path="/",
@@ -290,6 +291,25 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
             message="The execution contract digest does not match its payload.",
             path="/contract_sha256",
         )
+
+    if "brd_origin" in contract:
+        origin = contract["brd_origin"]
+        fields = {"document_id", "document_sha256", "proposal_id", "proposal_sha256"}
+        valid = isinstance(origin, dict) and set(origin) == fields
+        if valid:
+            try:
+                valid = all(str(UUID(origin[key])) == origin[key]
+                            for key in ("document_id", "proposal_id"))
+                valid = valid and all(isinstance(origin[key], str) and len(origin[key]) == 64
+                    and all(c in "0123456789abcdef" for c in origin[key])
+                    for key in ("document_sha256", "proposal_sha256"))
+            except (ValueError, TypeError, AttributeError):
+                valid = False
+        if not valid:
+            raise _execution_contract_error(
+                message="The BRD origin must contain canonical references and SHA-256 digests.",
+                path="/brd_origin",
+            )
 
     schema_version = contract.get("schema_version")
     if (
