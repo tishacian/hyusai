@@ -129,6 +129,86 @@ async def test_wrapper_garbage_completion_blocks(monkeypatch):
     assert out["needs_human"] is True
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("raw", "reasons", "expected_exit", "expected_human"), [
+    ({"next_skill": "azure_llm_v1", "confidence": 0.54, "needs_human": False,
+      "exit": None, "done": False}, ["confidence_below_floor"], "ask_human", True),
+    ({"next_skill": "azure_llm_v1", "confidence": 0.54, "needs_human": True,
+      "exit": None, "done": False}, ["model_requested_human"], "ask_human", True),
+    ({"next_skill": "rpa_dispatch_v1", "confidence": 0.9, "needs_human": False,
+      "exit": None, "done": False}, ["skill_outside_allowlist"], "policy_block", False),
+    ({"next_skill": "azure_llm_v1", "confidence": 0.55, "needs_human": False,
+      "exit": None, "done": False}, [], None, False),
+])
+async def test_wrapper_records_decision_provenance_without_changing_output(
+    monkeypatch, raw, reasons, expected_exit, expected_human,
+):
+    async def fake_complete(prompt, model, ctx, **kwargs):
+        return json.dumps({**raw, "rationale": "private model rationale", "human_prompt": "private question"})
+
+    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    ctx = {}
+    out = await wrappers._decide_next_v1({"visible_skills": VISIBLE}, ctx)
+
+    evidence = ctx["_agent_loop_decision_evidence"]
+    expected_raw = dict(raw)
+    if raw["next_skill"] == "rpa_dispatch_v1":
+        expected_raw["next_skill"] = {"omitted_type": "string", "reason": "not_visible_skill"}
+    assert evidence["raw"] == expected_raw
+    assert evidence["confidence_floor"] == 0.55
+    assert evidence["normalization_reasons"] == reasons
+    assert evidence["effective"] == {key: out[key] for key in raw}
+    assert out["exit"] == expected_exit
+    assert out["needs_human"] is expected_human
+    assert set(out) == {"next_skill", "rationale", "confidence", "needs_human", "human_prompt", "exit", "done"}
+    assert "private" not in json.dumps(evidence)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["json_parse_failure", "llm_failure"])
+async def test_wrapper_records_failure_origin_without_completion_or_error_text(monkeypatch, failure):
+    async def fake_complete(prompt, model, ctx, **kwargs):
+        if failure == "llm_failure":
+            raise RuntimeError("private provider failure")
+        return "private invalid completion"
+
+    monkeypatch.setattr(wrappers, "_route_llm_complete", fake_complete)
+    ctx = {}
+    out = await wrappers._decide_next_v1({"visible_skills": VISIBLE}, ctx)
+
+    evidence = ctx["_agent_loop_decision_evidence"]
+    assert evidence["raw"] == {}
+    assert evidence["normalization_reasons"] == [failure, "confidence_normalized", "confidence_below_floor"]
+    assert evidence["effective"]["needs_human"] is True
+    assert out == coerce_decide_output({}, VISIBLE)
+    assert "private" not in json.dumps(evidence)
+
+
+def test_decision_provenance_bounds_invalid_values_and_remains_json_serializable():
+    evidence = {}
+    coerce_decide_output({"next_skill": "x" * 1000, "confidence": float("nan"),
+                         "needs_human": {"private": "nested content"}, "done": ["private"],
+                         "exit": "unsupported", "rationale": "private rationale"},
+                        VISIBLE, evidence=evidence)
+    assert evidence["raw"]["next_skill"] == {"omitted_type": "string", "reason": "not_visible_skill"}
+    assert evidence["raw"]["confidence"] == {"omitted_type": "number", "reason": "invalid_number"}
+    assert evidence["raw"]["needs_human"] == {"omitted_type": "object", "reason": "invalid_type"}
+    assert evidence["raw"]["done"] == {"omitted_type": "array", "reason": "invalid_type"}
+    assert "private" not in json.dumps(evidence, allow_nan=False)
+
+
+@pytest.mark.parametrize("field", ["next_skill", "confidence", "needs_human", "exit", "done"])
+def test_decision_provenance_omits_prose_even_in_scalar_fields(field):
+    raw = {"next_skill": "azure_llm_v1", "confidence": 0.9,
+           "needs_human": False, "exit": None, "done": False}
+    raw[field] = "private_provider_content"
+    evidence = {}
+    original = coerce_decide_output(raw, VISIBLE)
+    assert coerce_decide_output(raw, VISIBLE, evidence=evidence) == original
+    assert evidence["raw"][field]["omitted_type"] == "string"
+    assert "private_provider_content" not in json.dumps(evidence, allow_nan=False)
+
+
 def test_overlay_has_no_validator_errors():
     errors = [
         issue.to_dict()

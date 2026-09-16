@@ -65,6 +65,7 @@ class WorkspaceStub {
   private readonly resetters = new Set<(transition: WorkspaceContextTransition) => void>();
 
   readonly currentSlug = () => this.reportedSlug;
+  readonly experienceStudioV1Enabled = signal(true);
   readonly workspaces = () => [
     { slug: 'workspace-a' },
     { slug: 'workspace-b' },
@@ -824,6 +825,39 @@ test('P1 Publish requires rendered diff, release message and breaking acknowledg
     assert.equal(harness.service.publishReviewOpen(), true);
     assert.equal(harness.service.publishSucceeded(), true);
     assert.equal(harness.manifestReloads.count, 1);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('P1 published application handoff reopens after reload or close without publishing again', () => {
+  const harness = makeHarness('system-a');
+  try {
+    harness.service.hydratePublicationState(
+      {id: 'system-a', name: 'System A', status: 'draft'},
+      publicationState(flow('published'), {
+        draftHash: 'sha-published', executionContractSha256: 'contract-published',
+      }),
+    );
+    assert.equal(harness.validation.currentResult(), null);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      assert.equal(harness.service.canOpenPublishedHome(), true);
+      assert.equal(harness.service.canReviewPublication(), true);
+      harness.service.openPublicationReview();
+      assert.equal(harness.service.publishReviewOpen(), true);
+      assert.equal(harness.service.publishSucceeded(), true);
+      assert.equal(harness.service.publishDiffState(), 'idle');
+      assert.equal(harness.service.canConfirmPublication(), false);
+      harness.service.publishDraft('must not publish');
+      assert.equal(harness.canonical.publishCalls.length, 0);
+      harness.service.closePublicationReview();
+    }
+    harness.workspace.experienceStudioV1Enabled.set(false);
+    assert.equal(harness.service.canReviewPublication(), false);
+    harness.workspace.experienceStudioV1Enabled.set(true);
+    harness.service.beginHydration();
+    assert.equal(harness.service.canOpenPublishedHome(), false);
+    assert.equal(harness.service.canReviewPublication(), false);
   } finally {
     harness.cleanup();
   }

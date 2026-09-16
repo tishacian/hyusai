@@ -124,7 +124,7 @@ test('certified no-code forms reject schema shapes the renderer cannot enforce',
   }), false);
   assert.equal(formSchemaSupported({
     type: 'object',
-    properties: { query: { type: 'string', minLength: 5 } },
+    properties: { query: { type: 'string', pattern: '^REQ-' } },
   }), false);
   assert.equal(formSchemaSupported({
     type: 'object',
@@ -377,6 +377,48 @@ test('business results are bounded, nested and humanised without JSON fallback',
     { path: [2], value: 2 },
     { path: ['…'], value: '…' },
   ]);
+});
+
+test('BRD text length constraints are enforced without truncation or UTF-16 counting', () => {
+  const schema = { type: 'object', properties: { query: { type: 'string', minLength: 2, maxLength: 3 } } };
+  assert.equal(formSchemaSupported(schema), true);
+  const fields = fieldsFromSchema(schema);
+  assert.equal(fields[0]?.minLength, 2);
+  assert.equal(fields[0]?.maxLength, 3);
+  for (const query of ['', 'a', 'abcd', '😀', 42]) {
+    assert.deepEqual(validateValues(fields, { query }), { query: 'invalid' });
+  }
+  for (const query of ['ab', 'abc', '😀😀', '😀😀😀']) {
+    assert.deepEqual(validateValues(fields, { query }), {});
+    assert.deepEqual(valuesToPayload(fields, { query }), { query });
+  }
+  assert.deepEqual(validateValues(fields, {}), {});
+  assert.deepEqual(validateValues(fieldsFromSchema({ ...schema, required: ['query'] }), {}), { query: 'required' });
+  const noMinimum = fieldsFromSchema({ type: 'object', properties: { query: { type: 'string', maxLength: 0 } } });
+  assert.deepEqual(validateValues(noMinimum, { query: '' }), {});
+  assert.deepEqual(validateValues(noMinimum, { query: 'a' }), { query: 'invalid' });
+  const requiredEmpty = fieldsFromSchema({
+    type: 'object', required: ['query'], properties: { query: { type: 'string', maxLength: 0 } },
+  });
+  assert.deepEqual(validateValues(requiredEmpty, { query: '' }), {});
+  assert.deepEqual(valuesToPayload(requiredEmpty, { query: '' }), { query: '' });
+  assert.deepEqual(validateValues(requiredEmpty, {}), { query: 'required' });
+  for (const spec of [
+    { type: 'string', enum: ['AA', 'BB'], minLength: 2 },
+    { type: 'string', format: 'date', minLength: 10 },
+  ]) {
+    const optional = fieldsFromSchema({ type: 'object', properties: { query: spec } });
+    assert.deepEqual(validateValues(optional, { query: '' }), {});
+    assert.deepEqual(valuesToPayload(optional, { query: '' }), {});
+  }
+  for (const field of [
+    { type: 'string', minLength: -1 }, { type: 'string', maxLength: 1.5 },
+    { type: 'string', minLength: true }, { type: 'string', maxLength: null },
+    { type: 'string', minLength: 4, maxLength: 2 }, { type: 'number', minLength: 1 },
+    { type: 'string', format: 'binary', minLength: 1 },
+    { type: 'string', 'x-file': true, maxLength: 12 },
+    { type: 'string', maxLength: Number.MAX_SAFE_INTEGER + 1 },
+  ]) assert.equal(formSchemaSupported({ type: 'object', properties: { query: field } }), false);
 });
 
 test('validateValues flags required and invalid numbers, accepts a filled form', () => {

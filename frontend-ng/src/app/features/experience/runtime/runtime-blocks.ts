@@ -1249,6 +1249,9 @@ export class EvidenceBlock {
               @if (field.description) {
                 <p class="xp-rt-hint" [id]="fid(field) + '-desc'">{{ field.description }}</p>
               }
+              @if (lengthHint(field); as hint) {
+                <p class="xp-rt-hint" [id]="fid(field) + '-length'">{{ hint }}</p>
+              }
               @if (field.kind === 'file') {
                 <p class="xp-rt-hint" [id]="fid(field) + '-hint'">{{ i18n.t('experience.runtime.form.file_hint') }}</p>
                 @if (uploading()[field.name]) {
@@ -1405,12 +1408,22 @@ export class FormBlock {
   descIds(field: RuntimeField): string | null {
     const ids: string[] = [];
     if (field.description) ids.push(`${this.fid(field)}-desc`);
+    if (field.minLength !== undefined || field.maxLength !== undefined) ids.push(`${this.fid(field)}-length`);
     if (field.kind === 'file') ids.push(`${this.fid(field)}-hint`);
     if (field.kind === 'file' && (this.uploading()[field.name] || this.fileNames()[field.name])) {
       ids.push(`${this.fid(field)}-upload`);
     }
     if (this.errors()[field.name]) ids.push(`${this.fid(field)}-err`);
     return ids.length > 0 ? ids.join(' ') : null;
+  }
+
+  lengthHint(field: RuntimeField): string {
+    if (field.minLength !== undefined && field.maxLength !== undefined) {
+      return this.i18n.t('experience.runtime.form.length_range', { min: field.minLength, max: field.maxLength });
+    }
+    if (field.minLength !== undefined) return this.i18n.t('experience.runtime.form.min_length', { min: field.minLength });
+    if (field.maxLength !== undefined) return this.i18n.t('experience.runtime.form.max_length', { max: field.maxLength });
+    return '';
   }
 
   strVal(name: string): string {

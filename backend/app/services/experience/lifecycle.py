@@ -2098,7 +2098,7 @@ def _form_schema_supported(schema: Mapping[str, Any]) -> bool:
     unsupported_shape = {"$ref", "oneOf", "anyOf", "allOf", "items", "properties"}
     supported_field_keys = {
         "type", "title", "description", "default", "enum", "format",
-        "contentMediaType", "x-file",
+        "contentMediaType", "x-file", "minLength", "maxLength",
     }
     for raw in properties.values():
         if (
@@ -2110,6 +2110,24 @@ def _form_schema_supported(schema: Mapping[str, Any]) -> bool:
         value_type = raw.get("type", "string")
         if value_type not in {"string", "number", "integer", "boolean"}:
             return False
+        if "minLength" in raw or "maxLength" in raw:
+            if (
+                value_type != "string"
+                or raw.get("format") == "binary"
+                or raw.get("x-file") is True
+                or "contentMediaType" in raw
+            ):
+                return False
+            for key in ("minLength", "maxLength"):
+                if key in raw and not (
+                    isinstance(raw[key], int | float)
+                    and not isinstance(raw[key], bool)
+                    and 0 <= raw[key] <= 2**53 - 1
+                    and int(raw[key]) == raw[key]
+                ):
+                    return False
+            if raw.get("minLength", 0) > raw.get("maxLength", 2**53 - 1):
+                return False
         field_format = raw.get("format")
         if field_format is not None and field_format not in {"date", "binary"}:
             return False

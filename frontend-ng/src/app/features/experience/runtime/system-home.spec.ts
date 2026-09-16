@@ -94,6 +94,21 @@ test('compileSystemHome builds form_result from the manual contract', () => {
   assert.equal(/flow|run|skill/i.test(doc.pages[0]?.title ?? ''), false);
 });
 
+test('BRD text bounds reach the Work form unchanged', () => {
+  const inputSchema = {
+    type: 'object', required: ['query'],
+    properties: { query: { type: 'string', minLength: 1, maxLength: 3500 } },
+    additionalProperties: false,
+  };
+  const contract = { ingresses: [{ kind: 'manual', ingress_id: 'start', input_schema: inputSchema }] };
+  assert.equal(systemHomeBlocker(contract), null);
+  const home = compileSystemHome({
+    systemName: 'NorthForge', bindingKey: 'northforge.start',
+    ingress: firstManualIngress(contract), hasHitl: true, labels: LABELS,
+  });
+  assert.deepEqual(home.pages[0]?.components.find((node) => node.type === 'form')?.props?.['schema'], inputSchema);
+});
+
 test('compileSystemHome adds approval_card when a hitl hint is present', () => {
   const withHitl = compileSystemHome({
     systemName: 'Expenses',

@@ -222,12 +222,16 @@ type PillState = SaveState | 'hold';
             (click)="persistence.openPublicationReview()"
             [disabled]="controlsDisabled() || !persistence.canReviewPublication()"
             [title]="
-              persistence.publicationBlockReason() || i18n.t('flow.toolbar.publish.hint')
+              persistence.canOpenPublishedHome()
+                ? i18n.t('experience.home.open.hint')
+                : persistence.publicationBlockReason() || i18n.t('flow.toolbar.publish.hint')
             "
-            [attr.aria-label]="i18n.t('flow.toolbar.publish.aria')"
+            [attr.aria-label]="i18n.t(persistence.canOpenPublishedHome()
+              ? 'experience.home.open.hint' : 'flow.toolbar.publish.aria')"
           >
             <app-icon name="upload-cloud" [size]="14" />
-            <span>{{ i18n.t('flow.toolbar.publish') }}</span>
+            <span>{{ i18n.t(persistence.canOpenPublishedHome()
+              ? 'experience.home.open' : 'flow.toolbar.publish') }}</span>
           </button>
         }
         @if (!persistence.systemId()) {

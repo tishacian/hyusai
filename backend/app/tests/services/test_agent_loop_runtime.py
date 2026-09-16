@@ -165,6 +165,34 @@ async def test_happy_recommend_only_completes(db_session, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_native_planner_normalization_is_retained_in_invocation_trace(db_session, monkeypatch):
+    raw = {"next_skill": "azure_llm_v1", "confidence": 0.54,
+           "needs_human": False, "exit": None, "done": False}
+
+    async def complete(prompt, model, ctx):
+        return json.dumps({**raw, "rationale": "Read the permitted source"})
+
+    monkeypatch.setattr(wrappers, "_route_llm_complete", complete)
+    _install(monkeypatch, {"decide_next_v1": wrappers._decide_next_v1})
+    flow = json.loads(json.dumps(LOOP_FLOW))
+    flow["nodes"][1]["config"]["skill_allowlist"] = ["azure_llm_v1"]
+    system = _mk_system(db_session, flow, ["decide_next_v1", "azure_llm_v1"])
+    run = _mk_run(db_session, system)
+
+    summary = await execute_run_dag(run.id)
+
+    assert summary["status"] == "hitl_pending"
+    invocation = db_session.query(SkillInvocation).filter_by(run_id=run.id).one()
+    evidence = invocation.trace["agent_loop_decision"]
+    assert evidence["raw"] == raw
+    assert evidence["confidence_floor"] == 0.55
+    assert evidence["normalization_reasons"] == ["confidence_below_floor"]
+    assert evidence["effective"] == {key: invocation.output_ref[key] for key in raw}
+    assert invocation.output_ref["needs_human"] is True
+    assert "agent_loop_decision" not in invocation.output_ref
+
+
+@pytest.mark.asyncio
 async def test_write_requires_hitl_then_accept(db_session, monkeypatch):
     async def decide(inp, ctx):
         return {

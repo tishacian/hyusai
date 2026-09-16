@@ -947,6 +947,45 @@ def test_draft_test_run_requires_and_freezes_explicit_multi_ingress_selection(
     assert run.input_ref["execution"]["ingress_id"] == "webhook"
 
 
+def test_activation_checks_the_reviewed_published_version_without_mutating_a_newer_one(db_session):
+    from app.models.audit import AuditLog
+
+    workspace, user, system = _seed(db_session, status="draft")
+    reviewed = system.published_flow_version_id
+    client = _client(db_session, workspace, user)
+    saved = client.put(f"/systems/{system.id}/flow-draft", json={
+        "expected_revision": 1, "flow_definition": _flow("published-v2"),
+    }).json()
+    published = client.post(f"/systems/{system.id}/flow/publish", json={
+        "expected_draft_revision": saved["revision"],
+        "expected_published_version_id": reviewed,
+        "message": "New publication before activation", "breaking_change_intent": "acknowledged",
+    })
+    assert published.status_code == 200, published.text
+    db_session.refresh(system)
+    current = system.published_flow_version_id
+    assert current != reviewed and system.status == "draft"
+    audits = db_session.query(AuditLog).count()
+    versions = db_session.query(SystemVersion).count()
+    api = _systems_client(db_session, workspace, user)
+    rejected = api.patch(f"/systems/{system.id}", params={"expected_published_version_id": reviewed},
+                         json={"status": "active"})
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["detail"]["code"] == "SYSTEM_PUBLISHED_VERSION_MISMATCH"
+    db_session.refresh(system)
+    assert system.status == "draft" and system.published_flow_version_id == current
+    assert db_session.query(AuditLog).count() == audits
+    assert db_session.query(SystemVersion).count() == versions
+    for _ in range(2):
+        accepted = api.patch(f"/systems/{system.id}", params={"expected_published_version_id": current},
+                             json={"status": "active"})
+        assert accepted.status_code == 200, accepted.text
+        assert accepted.json()["status"] == "active"
+        assert accepted.json()["published_flow_version_id"] == current
+    assert db_session.query(SystemVersion).count() == versions
+    assert db_session.query(AuditLog).count() == audits + 1
+
+
 def test_feature_off_hides_publication_endpoints(db_session) -> None:
     workspace, user, system = _seed(db_session, enabled=False)
     client = _client(db_session, workspace, user)

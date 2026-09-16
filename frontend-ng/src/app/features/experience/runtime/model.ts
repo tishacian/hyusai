@@ -291,6 +291,8 @@ export interface RuntimeField {
   options: readonly string[];
   optionLabels: readonly string[];
   accept: string;
+  minLength?: number;
+  maxLength?: number;
 }
 
 export function humanizeIdentifier(value: string): string {
@@ -413,6 +415,8 @@ export function fieldsFromSchema(schema: unknown, presentation?: unknown): Runti
         return typeof value === 'string' && value.trim() ? value : option;
       }),
       accept: typeof spec['contentMediaType'] === 'string' ? spec['contentMediaType'] : '',
+      minLength: typeof spec['minLength'] === 'number' ? spec['minLength'] : undefined,
+      maxLength: typeof spec['maxLength'] === 'number' ? spec['maxLength'] : undefined,
     });
   }
   return fields;
@@ -438,6 +442,7 @@ export function formSchemaSupported(schema: unknown): boolean {
   const unsupported = ['$ref', 'oneOf', 'anyOf', 'allOf', 'items', 'properties'];
   const supportedFieldKeys = new Set([
     'type', 'title', 'description', 'default', 'enum', 'format', 'contentMediaType', 'x-file',
+    'minLength', 'maxLength',
   ]);
   for (const raw of Object.values(properties)) {
     if (
@@ -447,6 +452,14 @@ export function formSchemaSupported(schema: unknown): boolean {
     ) return false;
     const valueType = raw['type'] ?? 'string';
     if (!['string', 'number', 'integer', 'boolean'].includes(String(valueType))) return false;
+    if ('minLength' in raw || 'maxLength' in raw) {
+      if (valueType !== 'string' || fieldKind(raw, false) === 'file') return false;
+      for (const key of ['minLength', 'maxLength']) {
+        if (key in raw && (typeof raw[key] !== 'number' || !Number.isSafeInteger(raw[key]) || raw[key] < 0)) return false;
+      }
+      if (typeof raw['minLength'] === 'number' && typeof raw['maxLength'] === 'number'
+        && raw['minLength'] > raw['maxLength']) return false;
+    }
     const fieldFormat = raw['format'];
     if (fieldFormat !== undefined && fieldFormat !== 'date' && fieldFormat !== 'binary') return false;
     if ((fieldFormat === 'date' || fieldFormat === 'binary') && valueType !== 'string') return false;
@@ -802,9 +815,23 @@ export function validateValues(
       value === undefined
       || value === null
       || (typeof value === 'string' && value.trim() === '');
-    if (field.required && empty) {
+    const hasLengthConstraint = field.minLength !== undefined || field.maxLength !== undefined;
+    const presentConstrainedText = hasLengthConstraint && field.kind === 'string' && typeof value === 'string';
+    if (field.required && empty && !presentConstrainedText) {
       errors[field.name] = 'required';
       continue;
+    }
+    // Empty optional selections/dates are omitted by valuesToPayload, unlike text.
+    if (empty && field.kind !== 'string') continue;
+    if (hasLengthConstraint) {
+      // JSON Schema counts Unicode code points; native minlength counts UTF-16 units.
+      if (value !== undefined && value !== null) {
+        const length = typeof value === 'string' ? Array.from(value).length : -1;
+        if (length < 0 || length < (field.minLength ?? 0) || length > (field.maxLength ?? Infinity)) {
+          errors[field.name] = 'invalid';
+          continue;
+        }
+      }
     }
     if (empty) continue;
     if (field.kind === 'number' || field.kind === 'integer') {
