@@ -381,6 +381,39 @@ def test_brd_generation_is_durable_idempotent_and_validated(db_session, tmp_path
     assert "generation" in db_session.get(WorkspaceJob, second).result
     assert db_session.query(BrdProposal).count() == 1
 
+    assert len(calls) == 4  # one success plus exactly three refused candidates
+    assert len(db_session.get(WorkspaceJob, second).result["generation_attempts"]) == 3
+
+    repairs = []
+    async def repair(*args, **kwargs):
+        repairs.append(kwargs.get("feedback"))
+        material, generation = await generate(*args, **kwargs)
+        generation["usage"] = {"total_tokens": 10}
+        if kwargs.get("feedback") is None:
+            material["flow_definition"]["edges"] = []
+        else:
+            assert kwargs["feedback"]["issues"]["code"] == "brd_proposal_flow_invalid"
+            assert kwargs["feedback"]["previous_proposal"]["flow_definition"]["edges"] == []
+        return material, generation
+    monkeypatch.setattr(brd_generation, "generate_material", repair)
+    third = client.post(path, json={**request, "request_key": "gen-3"}).json()["id"]
+    assert brd_generation.run_generation_job(third)["status"] == "completed"
+    assert len(repairs) == 2
+    corrected = db_session.query(BrdProposal).filter_by(request_key=third).one()
+    attempts = corrected.proposal["generation"]["attempts"]
+    assert [attempt["attempt"] for attempt in attempts] == [1, 2]
+    assert sum(attempt["usage"]["total_tokens"] for attempt in attempts) == 20
+    assert db_session.query(Skill).count() == 0
+
+    outages = []
+    async def outage(*args, **kwargs):
+        outages.append(True)
+        raise RuntimeError("provider unavailable")
+    monkeypatch.setattr(brd_generation, "generate_material", outage)
+    fourth = client.post(path, json={**request, "request_key": "gen-4"}).json()["id"]
+    assert brd_generation.run_generation_job(fourth)["status"] == "failed"
+    assert len(outages) == 1  # uncertain network calls are not retried as corrections
+
     from app.api.v1.endpoints import workspace_jobs as jobs_api
     client.app.include_router(jobs_api.router, prefix="/workspace-jobs")
     assert client.post("/workspace-jobs/", json={"kind": "brd_generation", "title": "forged"}).status_code == 403
