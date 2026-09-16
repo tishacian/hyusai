@@ -9,6 +9,8 @@ import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { EN_DICT } from '@app/core/i18n.dict';
+import { ProductTelemetryService } from '@app/core/product-telemetry.service';
+import { SettingsService } from '@app/core/settings.service';
 import { WorkspaceService, type WorkspaceRequestScope, type WorkspaceContextTransition } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ResourcesPageComponent } from './resources-page.component';
@@ -50,7 +52,22 @@ function harness(skillsSurfaceUrl = '/skills') {
   const failures = new Set<string>();
   const api = {
     get: (path: string) => { calls.push({ method: 'GET', path }); return pending.get(path) ?? (failures.has(path) ? throwError(() => ({ error: { detail: { message: 'Read failed' } } })) : of(responses.get(path) ?? {})); },
-    put: (path: string, body: unknown) => { calls.push({ method: 'PUT', path, body }); return of({}); },
+    put: (path: string, body: unknown) => {
+      calls.push({ method: 'PUT', path, body });
+      if (path === '/models/setup') {
+        const setup = body as { provider: string; model: string; fallback_chain: string[] };
+        return of({
+          routing: {
+            default_provider: setup.provider,
+            default_model: setup.model,
+            fallback_chain: setup.fallback_chain,
+          },
+          readiness: { ready: true, provider: setup.provider, model: setup.model },
+          provider: { key: setup.provider },
+        });
+      }
+      return of({});
+    },
     post: (path: string, body: unknown) => { calls.push({ method: 'POST', path, body }); return pending.get(path) ?? of({ id: 'run-1', status: 'pending', system_id: 'system-a' }); },
     delete: (path: string) => { calls.push({ method: 'DELETE', path }); return of({}); },
   };
@@ -58,7 +75,9 @@ function harness(skillsSurfaceUrl = '/skills') {
   const injector = Injector.create({ providers: [ResourcesPageComponent,
     { provide: ApiService, useValue: api }, { provide: CanonicalApiService, useValue: canonical },
     { provide: WorkspaceService, useValue: workspace }, { provide: I18nService, useValue: { t: (key: string) => EN_DICT[key as keyof typeof EN_DICT] ?? key } },
-    { provide: ToastrService, useValue: { success() {}, error() {}, info() {} } }, { provide: Router, useValue: { navigate: async () => true } },
+    { provide: ToastrService, useValue: { success() {}, error() {}, info() {} } }, { provide: Router, useValue: { url: '/resources', navigate: async () => true } },
+    { provide: SettingsService, useValue: { adoptValidatedModelSelection() {} } },
+    { provide: ProductTelemetryService, useValue: { recordOnce() {}, recordOccurrence() {} } },
     { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({}) } } },
     { provide: ZoomContextService, useValue: {
       surfaceUrlTree: () => serializer.parse(skillsSurfaceUrl),
@@ -84,7 +103,7 @@ test('routing load failure leaves no invented draft and blocks saving', () => {
 test('permissions fail closed for configuration, credentials, serving and lifecycle', () => {
   const h = harness(); try {
     h.responses.set('/models/config', { can_configure: false }); h.component.refresh();
-    h.component.saveRouting(); h.component.saveCredential('openai'); h.component.clearCredential('openai');
+    h.component.saveRouting(); h.component.clearCredential('openai');
     h.component.testConnection('openai'); h.component.attachServingNode(); h.component.detachServingNode({ key: 'node' });
     h.component.startInstance({ key: 'node' }, { id: 'instance' }); h.component.deleteInstance({ key: 'node' }, { id: 'instance' });
     h.component.openCreateInstance({ key: 'node' }); h.component.submitCreateInstance();
@@ -99,7 +118,7 @@ test('catalog filters provider, task and runtime and preserves explicit empty fa
     assert.deepEqual(h.component.routingDraft.fallback, []); assert.equal(h.component.canSaveRouting(), true);
     h.component.setRoutingProvider('ollama'); assert.equal(h.component.routingDraft.model, ''); assert.equal(h.component.canSaveRouting(), false);
     h.component.routingDraft.model = 'llama'; h.component.toggleFallback('openai'); h.component.saveRouting();
-    assert.deepEqual(h.calls.find((c) => c.method === 'PUT')?.body, { default_provider: 'ollama', default_model: 'llama', fallback_chain: ['openai'] });
+    assert.deepEqual(h.calls.find((c) => c.method === 'PUT')?.body, { provider: 'ollama', model: 'llama', fallback_chain: ['openai'] });
   } finally { h.close(); }
 });
 test('saved Azure metadata pre-fills without exposing or inventing secrets', () => {
