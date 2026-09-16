@@ -150,7 +150,8 @@ def public_evaluation_snapshot(db, snapshot, *, workspace, user, run):
                 available = available and not decision.blocked
         if source_ref:
             query = db.query(KnowledgeCollectionSource).filter(KnowledgeCollectionSource.workspace_id == workspace.id,
-                (KnowledgeCollectionSource.id == str(source_ref)) | (KnowledgeCollectionSource.filename == str(source_ref)))
+                (KnowledgeCollectionSource.id == str(source_ref)) | (KnowledgeCollectionSource.filename == str(source_ref))
+                | (KnowledgeCollectionSource.source_metadata["document_id"].as_string() == str(source_ref)))
             if collection:
                 query = query.filter(KnowledgeCollectionSource.collection_id == collection.id)
             source = query.first()

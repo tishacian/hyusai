@@ -221,3 +221,28 @@ def test_unaligned_historic_context_does_not_invent_document_association():
     evidence = auto_eval._context_evidence(run, [])
     assert [row["text"] for row in evidence] == ["first", "second"]
     assert all("document_id" not in row for row in evidence)
+
+
+def test_document_identifier_resolves_source_ledger_and_rechecks_deletion(db_session):
+    from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
+    run = _seed_minimal_run(db_session)
+    workspace = db_session.get(Workspace, run.workspace_id)
+    user = User(id=str(uuid4()), username=str(uuid4()), role="admin")
+    collection = KnowledgeCollection(id=str(uuid4()), workspace_id=workspace.id, slug="rag-ledger", name="RAG",
+        vector_collection_name="rag-ledger", artifact_prefix="rag-ledger/", status="ready")
+    source = KnowledgeCollectionSource(id=str(uuid4()), workspace_id=workspace.id, collection_id=collection.id,
+        filename="manual.md", normalized_name="manual.md", status="ready", source_metadata={"document_id":"doc-uuid"})
+    db_session.add_all([user, collection, source]); db_session.commit()
+    snapshot = {"metadata":{"excerpts":[{"id":"1", "text":"700 bar", "document_id":"doc-uuid", "collection":collection.slug}]}}
+    visible = lifecycle.public_evaluation_snapshot(db_session, snapshot, workspace=workspace, user=user, run=run)
+    assert visible["metadata"]["excerpts"][0]["availability"] == "available"
+    source.status = "deleted"; db_session.commit()
+    hidden = lifecycle.public_evaluation_snapshot(db_session, snapshot, workspace=workspace, user=user, run=run)
+    assert hidden["metadata"]["excerpts"][0]["text"] is None
+
+
+def test_advisory_retrieval_guide_is_not_documentary_evidence():
+    from types import SimpleNamespace
+    run = SimpleNamespace(input_ref={}, output_ref={"rag_context": {"chunks":["700 bar", "Prefer manual documents"],
+        "metadatas":[{"document_id":"doc"}, {"retrieval_role":"advisory_context"}]}})
+    assert [row["text"] for row in auto_eval._context_evidence(run, [])] == ["700 bar"]

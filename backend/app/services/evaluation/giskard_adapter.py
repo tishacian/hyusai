@@ -92,6 +92,11 @@ def _isolated_main() -> None:
             kwargs["timeout"] = 45
             kwargs["num_retries"] = 0
             if _kind == "completion":
+                from app.llm.providers.openai_provider import OpenAIProvider
+                model_name = expected_model.removeprefix("openai/")
+                if any(model_name == name or model_name.startswith(name + "-") for name in OpenAIProvider.THINKING_MODELS):
+                    # Same provider constraint as canonical OpenAI execution.
+                    kwargs.pop("temperature", None)
                 kwargs["max_tokens"] = min(int(kwargs.get("max_tokens") or 2048), 2048)
                 incoming = litellm.token_counter(model=expected_model, messages=kwargs.get("messages", []))
                 reservation = incoming + kwargs["max_tokens"]

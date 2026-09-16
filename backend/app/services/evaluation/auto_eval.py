@@ -82,6 +82,8 @@ def _context_evidence(run: Run, invocations: List[SkillInvocation]) -> List[dict
             for index, chunk in enumerate(values):
                 if isinstance(chunk, str) and aligned and isinstance(metadata[index], dict):
                     chunk = {"text": chunk, "metadata": metadata[index]}
+                if isinstance(chunk, dict) and isinstance(chunk.get("metadata"), dict) and chunk["metadata"].get("retrieval_role") == "advisory_context":
+                    continue  # A retrieval guide is not documentary evidence.
                 text = chunk if isinstance(chunk, str) else (chunk.get("text") or chunk.get("content") or chunk.get("snippet")) if isinstance(chunk, dict) else None
                 if not isinstance(text, str) or not text.strip():
                     continue

@@ -53,3 +53,30 @@ def test_excessive_budget_rejected_before_subprocess():
     with pytest.raises(ValueError):
         generate_isolated(rows=[], model="gpt-4o-mini", embedding_model="text-embedding-3-small",
             api_key="workspace-key", num_questions=3, language="fr", max_tokens=200_001)
+
+
+@pytest.mark.parametrize("model,temperature", [("gpt-5", None), ("openai/gpt-5-mini", None), ("gpt-4o-mini", 0)])
+def test_raget_respects_canonical_openai_temperature_constraint(monkeypatch, model, temperature):
+    import io
+    import sys
+    from app.services.evaluation import giskard_adapter as adapter
+    calls = []
+    def complete(*args, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(usage=SimpleNamespace(total_tokens=10))
+    llm = SimpleNamespace(completion=complete, embedding=complete,
+        token_counter=lambda **kwargs: 10, completion_cost=lambda **kwargs: 0.01)
+    monkeypatch.setitem(sys.modules, "litellm", llm)
+    monkeypatch.setattr(adapter, "installed_raget_version", lambda: "2.19.2")
+    monkeypatch.setattr(adapter, "configure_giskard_models", lambda **kwargs: None)
+    frame = SimpleNamespace(columns=["id"], to_json=lambda **kwargs: "[]")
+    def generate(*args, **kwargs):
+        llm.completion(messages=[{"role": "user", "content": "Synthetic"}], temperature=0, max_tokens=100)
+        return SimpleNamespace(to_pandas=lambda: frame)
+    monkeypatch.setattr(adapter, "generate_rag_testset", generate)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"model":model, "embedding_model":"text-embedding-3-small",
+        "api_key":"fixture", "max_calls":2, "max_tokens":1000, "rows":[], "num_questions":1, "language":"en"})))
+    adapter._isolated_main()
+    assert calls[0].get("temperature") == temperature
+    assert calls[0]["max_tokens"] == 100
+    assert calls[0]["model"] == model
