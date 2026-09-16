@@ -26,6 +26,6 @@ resolution are unchanged. No frontend implementation, theme or dependency change
 ![English mobile after horizontal scrolling](en-dark-mobile.png)
 
 These are local component captures, not deployed screenshots or user studies.
-Deployment and a read-only recheck of the same retained production retrieval hit
-remain required. Do not re-upload the workbook or choose a narrower search hit
-in order to pass. This does not qualify OCR or the full R2 Capture journey.
+Deployed as `bb467f53`; the [read-only production recheck](../release-bb467f53-2026-09-17/README.md)
+passes against the same retained job, original and rank-1 citation. No re-upload
+or narrower hit was used. This does not qualify the full R2 Capture journey.

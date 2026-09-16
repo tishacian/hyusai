@@ -6775,3 +6775,25 @@ No re-upload, human decision or BRD-generated application publication is claimed
 Manual R0 smoke and human baseline remain open. NAWA and adoption defaults unchanged.
 Rollback: **`c399f2bec1ca`**, without reverting writes.
 [Release evidence](../evidence/release-37056391-2026-09-17/README.md).
+
+### 2026-09-17 — readable retrieved Excel ranges and actual OCR proof
+
+Deployed pushed `demo/agentic` SHA `bb467f534d40b2bfa1faf624b32d726f8e405e4c`,
+tag `bb467f534d40`. Three immutable VM images; worker dependency/offline Giskard
+checks, storage, public frontend/backend identities, health and homepage verified.
+No migration. Zero active/queued recipe/document/workspace jobs and idle consumers
+before switching; infrastructure unchanged. Carakai **10 passed, 2 intentional
+skips**, `/tmp/iteration-canaries-20260916T223355Z.1DEiky`.
+
+The read-only recheck of the retained rank-1 citation A830:O831 now includes N/O
+and their actual values; same job, hit, selection and original checksum. No
+re-upload or replacement of earlier evidence. A separate image-only synthetic
+invoice completes real OCR with Tesseract eng+fra in 23.7 seconds: invoice, amount,
+page and provider evidence survive retrieval; original checksum matches.
+A first authentication refusal occurred before OCR upload; a later login after
+canaries succeeded without changing credentials. Only one OCR job was created.
+
+This verifies the specific source-format references, not general OCR accuracy,
+Capture's complete journey or human acceptance. R0/R1 remain open; NAWA theme
+and adoption default unchanged. Rollback: **`37056391d6cc`**, preserving writes.
+[Release evidence](../evidence/release-bb467f53-2026-09-17/README.md).
