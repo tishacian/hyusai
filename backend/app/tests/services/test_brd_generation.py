@@ -149,3 +149,18 @@ def test_quote_assertion_cannot_replace_original_input_with_model_annotation():
         validate_case_output_paths({}, [case])
     case.assertions[0].value = case.input_ref["text"]
     validate_case_output_paths({}, [case])
+
+
+def test_generation_keeps_documentary_rules_out_of_intervention_family():
+    document = SimpleNamespace(sha256="a" * 64, extraction={"requirements": []})
+    prompts = {}
+    for family in ("document_summary", "intervention_preparation"):
+        request = service.BrdGenerationRequest(request_key="family", family=family, name="Example")
+        prompts[family] = service.generation_prompt(document, request, catalog=[], proposal_schema={})
+    assert "For PIH, forbid HR" in prompts["document_summary"]
+    assert "config.inputs_map.source_text" in prompts["document_summary"]
+    assert "For PIH" not in prompts["intervention_preparation"]
+    assert "config.inputs_map.source_text" not in prompts["intervention_preparation"]
+    assert "config.inputs_map.objective" in prompts["intervention_preparation"]
+    assert "no completion field" in prompts["intervention_preparation"]
+    assert "Never invent replacement equipment" in prompts["intervention_preparation"]
