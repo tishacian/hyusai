@@ -335,9 +335,15 @@ def _spreadsheet_preview(
         max_row, max_col = sheet.max_row or 1, sheet.max_column or 1
         if bounds and (bounds[2] > max_col or bounds[3] > max_row):
             raise HTTPException(status_code=404, detail="Referenced cells are outside the source worksheet")
-        row_start = max(1, bounds[1] - 2) if bounds else 1
-        col_start = max(1, bounds[0] - 2) if bounds else 1
-        row_end, col_end = min(max_row, row_start + 39), min(max_col, col_start + 11)
+        row_start, col_start, column_limit = 1, 1, 12
+        if bounds:
+            width, height = bounds[2] - bounds[0] + 1, bounds[3] - bounds[1] + 1
+            # Prefer the cited cells over context; keep large selections bounded.
+            column_limit = min(40, max(12, width + 2))
+            row_start = max(1, bounds[1] - min(2, max(0, 40 - height)))
+            col_start = max(1, bounds[0] - min(2, max(0, column_limit - width)))
+        row_end = min(max_row, row_start + 39)
+        col_end = min(max_col, col_start + column_limit - 1)
         rows = [
             [_cell_preview(value) for value in row]
             for row in sheet.iter_rows(min_row=row_start, max_row=row_end,

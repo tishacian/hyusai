@@ -647,6 +647,13 @@ def test_spreadsheet_preview_opens_cited_sheet_and_cells(db_session, tmp_path, m
     assert body["truncated"] is True
     assert body["selection_truncated"] is False
 
+    # The real retrieval row chunk cites A:O, not just its populated N:O cells.
+    row_chunk = client.get("/documents/history/rich-preview", params={**params, "cell_range": "A830:O831"}).json()
+    assert row_chunk["column_start"] == 1
+    assert row_chunk["columns"][-1] == "O"
+    assert row_chunk["rows"][2][13:] == ["NF-04", "55"]
+    assert row_chunk["selection_truncated"] is False
+
     # Missing, malformed and stale provenance must never silently open sheet 1.
     for changes, status in [
         ({"sheet_name": "Removed sheet"}, 404),
@@ -663,6 +670,6 @@ def test_spreadsheet_preview_opens_cited_sheet_and_cells(db_session, tmp_path, m
     large = client.get("/documents/history/rich-preview", params={**params, "cell_range": "A1:O831"}).json()
     assert large["selection_truncated"] is True
     assert len(large["rows"]) == 40
-    assert len(large["rows"][0]) == 12
+    assert len(large["rows"][0]) == 15
     untargeted = client.get("/documents/history/rich-preview", params={"collection_name": collection.slug}).json()
     assert untargeted["rows"] == [["Unrelated cover page"]]
