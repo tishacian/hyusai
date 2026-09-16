@@ -31,3 +31,10 @@ A subsequent recorder correction removes forced low reasoning and runtime token
 limits. A targeted absence case then passes with provider defaults; the full
 suite on that configuration is not yet qualified. This test-only correction is
 not included in the deployed SHA and does not change production application code.
+
+Manual Chrome recheck after deployment: the existing Operational Analysis tab
+still showed the historical result 04ecd84f-b593-4821-a229-908cfcb86cad. Following
+its observed Inspect this result link redirected to sign-in for that exact Run.
+This confirms an expired session, not successful authenticated release smoke.
+No credentials were accessed and no manual Run was launched. Reconnection remains
+required; protected canaries above remain the automated UI evidence.
