@@ -650,6 +650,27 @@ async def test_rag_answer_consumes_join_context_without_re_retrieval(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_rag_answer_fails_safely_when_orchestrator_generation_fails(monkeypatch):
+    async def _failed_answer(**kwargs):
+        return {
+            "answer": "",
+            "citations": [],
+            "decision_steps": [],
+            "meta": {
+                "error": {
+                    "code": "credentials_invalid",
+                    "message": "sensitive upstream provider detail",
+                }
+            },
+        }
+
+    monkeypatch.setattr("app.services.rag.rag_service.answer", _failed_answer)
+
+    with pytest.raises(RuntimeError, match="model_generation_failed:credentials_invalid"):
+        await wrappers._llm_rag_answer_v1({"query": "grounded question"}, {})
+
+
+@pytest.mark.asyncio
 async def test_rag_answer_runs_generic_inventory_coverage_on_admitted_context(monkeypatch):
     calls: list[str] = []
     draft = (

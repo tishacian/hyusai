@@ -157,6 +157,17 @@ export const RUNS_FR = {
   'runs.detail.not_found.description':
     "Cette exécution a peut-être été purgée, ou l'identifiant est incorrect.",
   'runs.detail.error.title': "Échec de l'exécution",
+  'runs.detail.recovery.no_answer.title': "Aucune réponse n'a été produite",
+  'runs.detail.recovery.no_answer.credentials':
+    "Le modèle de réponse a refusé ses identifiants. Vérifiez le fournisseur et le modèle dans les Réglages, puis réessayez. Les preuves de recherche ont été conservées, mais elles ne sont pas comptées comme une réponse terminée.",
+  'runs.detail.recovery.no_answer.generic':
+    "L'étape de réponse a échoué. Vérifiez le modèle et la configuration du Système, puis réessayez. Votre entrée d'origine est conservée.",
+  'runs.detail.recovery.generic':
+    "Cette exécution ne s'est pas terminée. Ouvrez la Compétence en échec dans Invocations pour les détails techniques, corrigez la configuration, puis réessayez avec la même entrée.",
+  'runs.detail.recovery.check_model': 'Vérifier le modèle',
+  'runs.detail.recovery.edit_system': 'Modifier le Système',
+  'runs.detail.recovery.retry': 'Réessayer avec la même entrée',
+  'runs.detail.recovery.retrying': 'Nouvelle tentative…',
   'runs.detail.value_source.label': 'Source de la valeur',
   'runs.detail.value_source.auto': 'Auto',
   'runs.detail.value_source.operator': 'Opérateur',
@@ -385,6 +396,17 @@ export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
   'runs.detail.not_found.description':
     'This run may have been purged, or the id is incorrect.',
   'runs.detail.error.title': 'Run failed',
+  'runs.detail.recovery.no_answer.title': 'No answer was produced',
+  'runs.detail.recovery.no_answer.credentials':
+    'The answer model rejected its credentials. Check the provider and model in Settings, then retry. Retrieval evidence was kept, but it was not counted as a completed answer.',
+  'runs.detail.recovery.no_answer.generic':
+    'The answer step failed. Check the model and System setup, then retry. Your original input is preserved.',
+  'runs.detail.recovery.generic':
+    'This Run did not complete. Open the failed Skill in Invocations for technical details, correct the setup, then retry with the same input.',
+  'runs.detail.recovery.check_model': 'Check model setup',
+  'runs.detail.recovery.edit_system': 'Edit System',
+  'runs.detail.recovery.retry': 'Retry with same input',
+  'runs.detail.recovery.retrying': 'Retrying…',
   'runs.detail.value_source.label': 'Value source',
   'runs.detail.value_source.auto': 'Auto',
   'runs.detail.value_source.operator': 'Operator',

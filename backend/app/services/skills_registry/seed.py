@@ -2437,7 +2437,11 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "description": "Answers questions over your knowledge base with citations and a verifiable reasoning trail.",
         "input_unit": "question",
         "output_unit": "answer",
-        "skill_slugs": ["llm_rag_answer_v1", "semantic_search_v1", "claim_audit_v1", "audit_log_v1"],
+        # RAG Answer already owns retrieval, citation synthesis and the
+        # provider call. The old sequential sidecars received incompatible
+        # payloads (search got an answer; claim audit got search results; audit
+        # log got no event type) and failed on otherwise healthy Runs.
+        "skill_slugs": ["llm_rag_answer_v1"],
         "pricing": {"unit": "per_outcome", "unit_price": 0.05, "currency": "USD"},
         "value_per_outcome": 1.20,
         "confidence_threshold": 0.65,

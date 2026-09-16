@@ -563,7 +563,21 @@ def _build_initial_ctx(
         max_runtime_s = 40.0
     max_runtime_s = max(1.0, min(44.0, max_runtime_s))
     run_deadline_monotonic = time.monotonic() + max_runtime_s
-    workspace_slug = db.query(Workspace.slug).filter(Workspace.id == run.workspace_id).scalar()
+    workspace = db.query(Workspace).filter(Workspace.id == run.workspace_id).one_or_none()
+    workspace_slug = workspace.slug if workspace is not None else None
+    default_model = input_ref.get("default_model") or getattr(system, "default_model", None)
+    if not default_model and workspace is not None:
+        # Model Setup is workspace-scoped. Runs must consume the same verified
+        # provider/model pair as Chat; otherwise an unconfigured System silently
+        # falls back to the process-wide provider and can fail with misleading
+        # credential errors even though Setup reports ready.
+        from app.services.model_plane.workspace_config import get_routing
+
+        routing = get_routing(workspace)
+        provider = str(routing.get("default_provider") or "").strip()
+        model = str(routing.get("default_model") or "").strip()
+        if provider and model:
+            default_model = f"{provider}:{model}"
     return {
         "system_id": system.id,
         "capability_id": capability.id if capability else None,
@@ -583,7 +597,9 @@ def _build_initial_ctx(
         # contract on first execution, then preserves that immutable snapshot.
         "retrieval_contract": input_ref.get("retrieval_contract") or {},
         "default_prompt_type": getattr(system, "default_prompt_type", None),
-        "default_model": getattr(system, "default_model", None),
+        # Chat adapters may pin the workspace's validated provider-qualified
+        # selection for this Run. Other run surfaces retain the System default.
+        "default_model": default_model,
         "retrieval_mode_default": getattr(system, "retrieval_mode_default", None),
         # In-process optional stages can reserve enough time for the terminal
         # DAG nodes instead of being cancelled by the outer Agentic membrane.
@@ -1262,6 +1278,56 @@ def _model_runtime_metrics(metrics, ctx):
     return metrics
 
 
+def _required_output_failure(
+    capability: Optional[Capability],
+    invocations: list[SkillInvocation],
+    last_output: Any,
+) -> str | None:
+    """Fail closed when a capability never produced its promised outcome.
+
+    A retrieval or audit sidecar can succeed after the primary answer Skill
+    fails. That is useful diagnostic evidence, but it is not a completed
+    ``output_unit=answer`` outcome and must never make the Run look successful.
+    """
+
+    if getattr(capability, "output_unit", None) != "answer":
+        return None
+    answer_invocations = [
+        invocation
+        for invocation in invocations
+        if "answer" in (invocation.skill_slug or "")
+    ]
+    if (
+        isinstance(last_output, Mapping)
+        and isinstance(last_output.get("answer"), str)
+        and last_output["answer"].strip()
+    ):
+        return None
+    # A graph with no answer-producing invocation owns its sink contract in
+    # the DAG runtime. Do not reinterpret an old/default ``output_unit`` here.
+    if not answer_invocations:
+        return None
+    for invocation in answer_invocations:
+        output = invocation.output_ref
+        if (
+            invocation.status == "completed"
+            and isinstance(output, Mapping)
+            and isinstance(output.get("answer"), str)
+            and output["answer"].strip()
+        ):
+            return None
+    failed_answer = next(
+        (
+            invocation
+            for invocation in answer_invocations
+            if invocation.status == "failed"
+        ),
+        None,
+    )
+    skill = failed_answer.skill_slug if failed_answer is not None else "answer_output"
+    return f"required_output_missing:answer:{skill}"
+
+
 def _finalize_run(
     db: DBSession,
     run: Run,
@@ -1300,6 +1366,11 @@ def _finalize_run(
             },
         }
     failed = [i for i in invocations if i.status == "failed"]
+    required_output_failure = _required_output_failure(
+        capability,
+        invocations,
+        last_output,
+    )
     derived = derive_outcome(
         invocations=invocations,
         capability=capability,
@@ -1314,7 +1385,7 @@ def _finalize_run(
         and isinstance(last_output, dict)
         and last_output.get("_status") == "failed"
     )
-    run.status = "failed" if terminal_failure else "completed"
+    run.status = "failed" if required_output_failure or terminal_failure else "completed"
     if terminal_failure:
         derived.decision = "failed"
         derived.value = 0.0
@@ -1322,16 +1393,26 @@ def _finalize_run(
         run.error = str(last_output.get("_error") or "unhandled_task_failure")[:4000]
     run.completed_at = datetime.utcnow()
     run.duration_ms = duration_ms
-    run.decision = derived.decision
-    run.confidence = derived.confidence
-    run.value_estimated = derived.value
+    run.decision = "blocked" if required_output_failure else derived.decision
+    run.confidence = 0.0 if required_output_failure else derived.confidence
+    run.value_estimated = 0.0 if required_output_failure else derived.value
     run.cost_internal = derived.cost
     run.efficiency = derived.efficiency
     run.value_source = derived.value_source.value
     # Preserve the exact JSON value accepted by the frozen execution
     # contract.  The caller supplies ``{}`` when there is genuinely no
     # terminal value, so truthiness is never a valid absence test here.
-    run.output_ref = last_output
+    if required_output_failure:
+        run.error = required_output_failure
+        run.output_ref = {
+            "error": {
+                "code": "required_output_missing",
+                "message": "The System did not produce its required answer.",
+                "output_unit": "answer",
+            }
+        }
+    else:
+        run.output_ref = last_output
     if control:
         postcheck_blocked = _apply_control_postchecks(db, system, run, control)
         if postcheck_blocked and _safe_membrane(control).enforcement_active:
@@ -1365,9 +1446,9 @@ def _finalize_run(
         "id": run.id,
         "status": run.status,
         "outcome": {
-            "decision": derived.decision,
-            "confidence": derived.confidence,
-            "value_estimated": derived.value,
+            "decision": run.decision,
+            "confidence": run.confidence,
+            "value_estimated": run.value_estimated,
             "cost_internal": derived.cost,
             "efficiency": derived.efficiency,
         },

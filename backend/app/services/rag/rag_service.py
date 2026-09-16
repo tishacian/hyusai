@@ -19,6 +19,37 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+_QUALIFIED_PROVIDERS = {
+    "anthropic",
+    "azure",
+    "azure_foundry",
+    "azure_openai",
+    "gemini",
+    "ollama",
+    "openai",
+    "openrouter",
+}
+
+
+def _normalize_model_route(
+    model: Optional[str], provider: Optional[str]
+) -> tuple[Optional[str], Optional[str]]:
+    """Translate Agentium's provider-qualified model into orchestrator fields."""
+
+    normalized_model = str(model or "").strip() or None
+    normalized_provider = str(provider or "").strip() or None
+    if not normalized_model:
+        return normalized_model, normalized_provider
+    head, separator, tail = normalized_model.partition(":")
+    if separator and tail and (head in _QUALIFIED_PROVIDERS or head.startswith("serving_")):
+        # An explicit provider remains authoritative, but a matching prefix is
+        # still removed so downstream clients receive a real model identifier.
+        if normalized_provider is None:
+            normalized_provider = "openai" if head == "azure" else head
+        if normalized_provider in {head, "openai" if head == "azure" else head}:
+            normalized_model = tail
+    return normalized_model, normalized_provider
+
 
 def _get_orchestrator():
     """Resolve the orchestrator registered by `app.main` at startup."""
@@ -80,6 +111,7 @@ async def answer(
             },
         }
 
+    model, provider = _normalize_model_route(model, provider)
     agent_preferences: Dict[str, Any] = dict(extra_preferences or {})
     if model or provider:
         model_prefs = dict(agent_preferences.get("model_preferences") or {})
@@ -167,6 +199,11 @@ async def answer(
                                 "rag_service.answer: token_sink raised, dropping chunk",
                                 exc_info=True,
                             )
+                if chunk.get("chunk_type") == "error":
+                    meta["error"] = chunk.get("error") or {
+                        "code": "generation_failed",
+                        "message": chunk.get("content") or "Model generation failed.",
+                    }
                 if chunk.get("reasoning_trace"):
                     reasoning_trace = chunk.get("reasoning_trace")
                 if chunk.get("sources"):

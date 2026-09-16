@@ -133,6 +133,84 @@ def _systems_client(db_session, workspace: Workspace, user: User) -> TestClient:
     return TestClient(app)
 
 
+def _form_publish_body(
+    system: System,
+    draft: SystemFlowDraft,
+    *,
+    flow: dict[str, Any],
+    name: str = "Repaired System",
+) -> dict[str, Any]:
+    return {
+        "expected_draft_revision": draft.revision,
+        "expected_published_version_id": system.published_flow_version_id,
+        "message": "Repair capability and publish",
+        "breaking_change_intent": "acknowledged",
+        "flow_definition": flow,
+        "configuration": {
+            "name": name,
+            "objective": "Answer grounded operational questions",
+            "capability_id": None,
+            "skill_ids": [],
+            "context_id": None,
+            "default_prompt_type": None,
+            "default_model": None,
+            "retrieval_mode_default": "auto",
+            "execution_mode": "real_time_decision",
+        },
+    }
+
+
+def test_form_builder_publish_updates_configuration_and_flow_atomically(
+    db_session,
+) -> None:
+    workspace, user, system = _seed(db_session)
+    draft = db_session.query(SystemFlowDraft).filter_by(system_id=system.id).one()
+    previous_version_id = system.published_flow_version_id
+    desired_flow = _flow("repaired-v2")
+
+    response = _client(db_session, workspace, user).post(
+        f"/systems/{system.id}/form-publish",
+        json=_form_publish_body(system, draft, flow=desired_flow),
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    db_session.refresh(system)
+    assert system.name == "Repaired System"
+    assert system.objective == "Answer grounded operational questions"
+    assert system.flow_definition == desired_flow
+    assert system.published_flow_version_id != previous_version_id
+    assert payload["system"]["published_flow_version_id"] == system.published_flow_version_id
+    assert payload["published"]["version_number"] == 2
+
+
+def test_form_builder_publish_rolls_back_configuration_when_flow_is_invalid(
+    db_session,
+) -> None:
+    workspace, user, system = _seed(db_session)
+    draft = db_session.query(SystemFlowDraft).filter_by(system_id=system.id).one()
+    previous_name = system.name
+    previous_version_id = system.published_flow_version_id
+    invalid_flow = {"schema_version": 3, "nodes": "not-a-list", "edges": []}
+
+    response = _client(db_session, workspace, user).post(
+        f"/systems/{system.id}/form-publish",
+        json=_form_publish_body(
+            system,
+            draft,
+            flow=invalid_flow,
+            name="Must roll back",
+        ),
+    )
+
+    assert response.status_code == 422, response.text
+    db_session.expire_all()
+    persisted = db_session.get(System, system.id)
+    assert persisted is not None
+    assert persisted.name == previous_name
+    assert persisted.published_flow_version_id == previous_version_id
+
+
 def test_feature_on_envelope_import_initializes_published_flow_authority(
     db_session,
 ) -> None:

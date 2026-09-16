@@ -9,11 +9,18 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of, type Observable } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { catchError, map } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
-import { CanonicalApiService, type Capability, type Context, type Skill, type System } from '@app/core/canonical-api.service';
+import {
+  CanonicalApiService,
+  type Capability,
+  type Context,
+  type Skill,
+  type System,
+  type SystemFlowState,
+} from '@app/core/canonical-api.service';
 import {
   FlowSerializerService,
   type CanonicalFlow,
@@ -177,10 +184,10 @@ function normalizeModels(raw: Array<Record<string, unknown>>): ModelOpt[] {
           class="ck-mono inline-flex items-center gap-2 px-3 py-2 rounded text-xs font-semibold transition"
           style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:var(--ck-on-signal);"
           [style.opacity]="!allGatesValid() || launching() ? '0.4' : '1'"
-          [title]="allGatesValid() ? (editingSystemId() ? 'Save this system' : 'Create this system') : firstInvalidGateMessage()"
+          [title]="allGatesValid() ? (editingSystemId() ? 'Save and publish this system' : 'Create this system') : firstInvalidGateMessage()"
         >
           <ck-glyph name="bolt" [size]="12" />
-          {{ launching() ? (editingSystemId() ? 'SAVING…' : 'CREATING…') : (editingSystemId() ? 'SAVE SYSTEM' : 'CREATE SYSTEM') }}
+          {{ launching() ? (editingSystemId() ? 'PUBLISHING…' : 'CREATING…') : (editingSystemId() ? 'SAVE & PUBLISH' : 'CREATE SYSTEM') }}
         </button>
       </span>
     </ck-object-header>
@@ -945,6 +952,7 @@ export class SystemBuilderComponent implements OnInit {
    */
   readonly editingSystemId = signal<string | null>(null);
   readonly editingSystem = signal<System | null>(null);
+  readonly editingFlowState = signal<SystemFlowState | null>(null);
   readonly flowExtended = signal(false);
   readonly flowSource = signal<'form' | 'flow'>('form');
   /** Sections frozen in read-only because the Flow builder added custom nodes. */
@@ -1076,10 +1084,12 @@ export class SystemBuilderComponent implements OnInit {
       // Edit mode: round-trip an existing System's flow back into the
       // canvas. Sections authored in Flow with custom nodes will be
       // rendered read-only further down.
-      this.canonical.getSystem(editId).subscribe({
-        next: (sys) => {
-          if (sys) this.hydrateFromSystem(sys);
-        },
+      forkJoin({
+        system: this.canonical.getSystem(editId),
+        flowState: this.canonical.getSystemFlowState(editId).pipe(catchError(() => of(null))),
+      }).subscribe(({ system, flowState }) => {
+        this.editingFlowState.set(flowState);
+        if (system) this.hydrateFromSystem(system);
       });
     } else {
       // Creation mode — no owning System yet; clear the System scope
@@ -1353,6 +1363,15 @@ export class SystemBuilderComponent implements OnInit {
    */
   switchToFlow(): void {
     if (!this.canSwitchToFlow() || this.launching()) return;
+    const sid = this.editingSystemId();
+    if (sid) {
+      this.toast.info(
+        'Flow opens the currently saved graph. Use Save & publish first to apply form changes.',
+        'Opening Flow',
+      );
+      void this.router.navigateByUrl(this.navigation.leafUrl('system-flow', { ref: sid }));
+      return;
+    }
     this.launching.set(true);
     const flow: CanonicalFlow = this.serializer.formToFlow(this.draftAsSerializerInput());
     const existing = (this.editingSystem()?.flow_definition ?? {}) as unknown as CanonicalFlow;
@@ -1366,12 +1385,7 @@ export class SystemBuilderComponent implements OnInit {
       // System live or imply that the graph has passed publication gates.
       status: 'draft',
     });
-    const sid = this.editingSystemId();
-    const op$ = sid
-      ? this.canonical.updateSystem(sid, body, {
-          expected_flow_sha256: this.editingSystem()?.flow_sha256,
-        })
-      : this.canonical.createSystem(body);
+    const op$ = this.canonical.createSystem(body);
     op$.subscribe((sys) => {
       this.launching.set(false);
       if (!sys) {
@@ -1616,10 +1630,39 @@ export class SystemBuilderComponent implements OnInit {
       };
 
       const sid = this.editingSystemId();
-      const op$ = sid
-        ? this.canonical.updateSystem(sid, body, {
-            expected_flow_sha256: this.editingSystem()?.flow_sha256,
-          })
+      const flowState = this.editingFlowState();
+      if (sid && !flowState) {
+        this.launching.set(false);
+        this.toast.error(
+          'The published Flow state could not be loaded. Reload the page before saving.',
+          'Save blocked',
+        );
+        return;
+      }
+      const op$: Observable<System | null> = sid && flowState
+        ? this.canonical.publishSystemForm(sid, {
+            expected_draft_revision: flowState.draft.revision,
+            expected_published_version_id: flowState.published.version_id,
+            message: 'Updated from the simple System Builder',
+            breaking_change_intent: 'acknowledged',
+            flow_definition: mergedFlow as unknown as Record<string, unknown>,
+            configuration: {
+              name: body.name ?? '',
+              objective: body.objective ?? '',
+              capability_id: body.capability_id ?? null,
+              skill_ids: body.skill_ids ?? [],
+              context_id: body.context_id ?? null,
+              default_prompt_type: body.default_prompt_type ?? null,
+              default_model: body.default_model ?? null,
+              retrieval_mode_default: body.retrieval_mode_default ?? null,
+              execution_mode: body.execution_mode ?? 'real_time_decision',
+            },
+          }).pipe(
+            // Keep the existing launch subscriber focused on the resulting
+            // System while preserving the API error channel for a clear toast.
+            map((result) => result.system),
+            catchError(() => of(null)),
+          )
         : this.canonical.createSystem(body);
       op$.subscribe((sys) => {
         this.launching.set(false);
