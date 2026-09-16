@@ -27,10 +27,10 @@ import {
  *
  * The default path is transactional: it creates through the three-step UI,
  * edits and saves in Studio, creates an immutable release, proves that release
- * is absent from Work, then deletes the Experience and its newly-created
- * binding. `E2E_EXPERIENCE_DEPLOY=1` adds a real Pilot deployment and Work
- * render. A deployed Experience cannot be deleted, so that mode also requires
- * `E2E_EXPERIENCE_ALLOW_RETAINED=1` and an attested deployed SHA.
+ * is absent from Work, then verifies that release immutability prevents deletion.
+ * Released test assets are retained: E2E_EXPERIENCE_ALLOW_RETAINED=1 is required.
+ * Unreleased failed drafts are removed. E2E_EXPERIENCE_DEPLOY=1 additionally
+ * exercises Pilot deployment and requires an attested deployed SHA.
  */
 
 interface SystemSummary {
@@ -246,7 +246,7 @@ async function cleanupExperience(
   workspaceSlug: string,
   experienceId: string,
   initialBindings: ReadonlySet<string>,
-): Promise<'deleted' | 'retained_deployed' | 'already_absent'> {
+): Promise<'deleted' | 'retained_deployed' | 'retained_released' | 'already_absent'> {
   const detail = await api<ExperienceDetail>(
     page,
     workspaceSlug,
@@ -257,13 +257,17 @@ async function cleanupExperience(
   if ((detail.body.deployments ?? []).length > 0) return 'retained_deployed';
 
   const newBindings = (detail.body.draft?.binding_keys ?? []).filter((key) => !initialBindings.has(key));
-  const deleted = await api<null>(
+  const deleted = await api<{ detail?: { code?: string } }>(
     page,
     workspaceSlug,
     `/experiences/${encodeURIComponent(experienceId)}`,
     { method: 'DELETE' },
   );
-  expect(deleted.status, 'the undeployed canary Experience must be removable').toBe(204);
+  if (deleted.status === 409) {
+    expect(deleted.body.detail?.code, 'only immutable release protection permits retention').toBe('EXPERIENCE_RELEASED');
+    return 'retained_released';
+  }
+  expect(deleted.status, 'an unreleased canary draft must be removable').toBe(204);
   for (const key of newBindings) {
     const bindingDeleted = await api<null>(
       page,
@@ -285,7 +289,7 @@ test.describe('US-8 — Experience Studio lifecycle canary', () => {
     test.setTimeout(300_000);
     let workspace: WorkspaceSummary | null = null;
     let experienceId: string | null = null;
-    let cleanup: 'pending' | 'deleted' | 'retained_deployed' | 'already_absent' = 'pending';
+    let cleanup: 'pending' | 'deleted' | 'retained_deployed' | 'retained_released' | 'already_absent' = 'pending';
     let initialBindings = new Set<string>();
     let primarySession = false;
 
@@ -298,8 +302,8 @@ test.describe('US-8 — Experience Studio lifecycle canary', () => {
       if (reviewerRequired) {
         expect(reviewerCredentials, 'E2E_EXPERIENCE_REQUIRE_REVIEWER=1 requires reviewer credentials').toBeTruthy();
       }
+      expect(allowRetainedExperience, 'Immutable test releases are retained: set E2E_EXPERIENCE_ALLOW_RETAINED=1').toBe(true);
       if (deployExperience) {
-        expect(allowRetainedExperience, 'Pilot deployment is permanent: set E2E_EXPERIENCE_ALLOW_RETAINED=1').toBe(true);
         expect(expectedSha, 'Pilot deployment requires E2E_EXPECTED_SHA').toMatch(/^[0-9a-f]{40}$/);
       }
       const memberships = await login(page);
@@ -578,7 +582,7 @@ test.describe('US-8 — Experience Studio lifecycle canary', () => {
       }
 
       cleanup = await cleanupExperience(page, workspace!.slug, experienceId, initialBindings);
-      expect(cleanup).toBe(deployed ? 'retained_deployed' : 'deleted');
+      expect(cleanup).toBe(deployed ? 'retained_deployed' : 'retained_released');
 
       const evidence = {
         schema_version: 2,
