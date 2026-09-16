@@ -118,7 +118,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       </ng-template>
       @if (chatOverlay.adoption.enabled()) {
         <details class="tb-diagnostics" data-testid="titlebar-diagnostics">
-          <summary>{{ i18n.t('titlebar.telemetry.details') }}</summary>
+          <summary [attr.aria-label]="i18n.t('titlebar.telemetry.details')"><app-icon class="tb-diagnostics-icon" name="activity" [size]="14" /><span>{{ i18n.t('titlebar.telemetry.details') }}</span></summary>
           <div class="tb-diagnostics-panel">
             <ng-container [ngTemplateOutlet]="technicalReadouts" />
             <p>{{ i18n.t('titlebar.telemetry.note') }}</p>
@@ -551,6 +551,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       max-width: calc(100vw - 16px);
     }
 
+    .tb-diagnostics-icon { display: none; }
     .tb-diagnostics { position: relative; flex: 0 0 auto; font-size: 12px; }
     .tb-diagnostics summary {
       cursor: pointer; border: 1px solid var(--ck-stroke-2);
@@ -608,6 +609,11 @@ const THEME_ICONS: Record<ThemeMode, string> = {
         min-width: 0;
         max-width: none;
       }
+      .tb-icon-action { width: 28px !important; padding: 0 !important; flex: 0 0 28px; }
+      .tb-icon-action > span, .tb-diagnostics summary > span { display: none; }
+      .tb-diagnostics-icon { display: inline-flex; }
+      .tb-diagnostics summary { width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center; list-style: none; }
+      .tb-diagnostics summary::-webkit-details-marker { display: none; }
       .tb-diagnostics-panel { position: fixed; top: 54px; right: 8px; left: 8px; width: auto; }
 
       .tb-user-toggle {
@@ -616,6 +622,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
     }
 
     @media (max-width: 380px) {
+      .tb-brand-copy,
       .tb-brand-copy .tb-brand-line,
       .tb-brand > .tb-brand-line {
         display: none;
