@@ -1,0 +1,242 @@
+[
+  {
+    "run_id": "1370235d-511a-45c8-82c6-23a43d0a7415",
+    "case_id": "case-refusal-mutation",
+    "status": "running",
+    "contract_sha256": "20ed1e3442d5da53629196949e892a56e15d933b3075d85fbdab7837d79ab566",
+    "planner": "decide_next_v1",
+    "tools": {
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-intervention-history",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      },
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_notices": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-notices",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      }
+    },
+    "dispatch": [
+      {
+        "id": "5fb2afe2-0ebf-5be1-8f7b-744ba08ae7ac",
+        "task_id": "53f37f94-1cb1-5062-89a1-0a2b6702402f",
+        "state": "published",
+        "attempts": 1,
+        "last_error": null
+      }
+    ]
+  },
+  {
+    "run_id": "beba4039-ead5-44d6-9ea5-f6a7728cf9b6",
+    "case_id": "case-review-approved",
+    "status": "pending",
+    "contract_sha256": "20ed1e3442d5da53629196949e892a56e15d933b3075d85fbdab7837d79ab566",
+    "planner": "decide_next_v1",
+    "tools": {
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-intervention-history",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      },
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_notices": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-notices",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      }
+    },
+    "dispatch": [
+      {
+        "id": "2611e5eb-c125-5078-85b6-637db2e89cc2",
+        "task_id": "482ca3f6-d695-59bc-8f6a-2f0516783644",
+        "state": "published",
+        "attempts": 1,
+        "last_error": null
+      }
+    ]
+  },
+  {
+    "run_id": "841bb960-5692-4981-8a61-a370a0210d77",
+    "case_id": "case-review-rejected",
+    "status": "pending",
+    "contract_sha256": "20ed1e3442d5da53629196949e892a56e15d933b3075d85fbdab7837d79ab566",
+    "planner": "decide_next_v1",
+    "tools": {
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-intervention-history",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      },
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_notices": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-notices",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      }
+    },
+    "dispatch": [
+      {
+        "id": "8c6573d6-4cbd-5c6e-b7b3-8baf824423bd",
+        "task_id": "bf5a466c-a4b7-5ef3-91d2-2ed229f35937",
+        "state": "published",
+        "attempts": 1,
+        "last_error": null
+      }
+    ]
+  },
+  {
+    "run_id": "40e53546-a6af-40a4-a777-2204e2837d10",
+    "case_id": "case-history-nf04-durations",
+    "status": "hitl_pending",
+    "contract_sha256": "20ed1e3442d5da53629196949e892a56e15d933b3075d85fbdab7837d79ab566",
+    "planner": "decide_next_v1",
+    "tools": {
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-intervention-history",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      },
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_notices": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-notices",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      }
+    },
+    "dispatch": [
+      {
+        "id": "cdfabf70-6f35-5cb0-8579-f4fecf190fee",
+        "task_id": "316a36d0-6e41-5d4d-9a41-6c41d3708fae",
+        "state": "published",
+        "attempts": 1,
+        "last_error": null
+      }
+    ]
+  },
+  {
+    "run_id": "a57c9f78-d805-42e6-91d2-1ac6d27a224a",
+    "case_id": "case-notice-limit",
+    "status": "hitl_pending",
+    "contract_sha256": "20ed1e3442d5da53629196949e892a56e15d933b3075d85fbdab7837d79ab566",
+    "planner": "decide_next_v1",
+    "tools": {
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-intervention-history",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      },
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_notices": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-notices",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      }
+    },
+    "dispatch": [
+      {
+        "id": "b5b439fd-f3e4-5e52-b9db-f5ca4291c269",
+        "task_id": "9d50576c-3d14-512b-8df2-b493d484566c",
+        "state": "published",
+        "attempts": 1,
+        "last_error": null
+      }
+    ]
+  },
+  {
+    "run_id": "e20039af-c54a-4e3e-9f72-294f1374798f",
+    "case_id": "case-absence-cause",
+    "status": "running",
+    "contract_sha256": "20ed1e3442d5da53629196949e892a56e15d933b3075d85fbdab7837d79ab566",
+    "planner": "decide_next_v1",
+    "tools": {
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_history": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-intervention-history",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      },
+      "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.northforge_notices": {
+        "kind": "registry_call",
+        "params": {
+          "skill_slug": "semantic_search_v1",
+          "frozen_input": {
+            "context_collection": "agentium-showcase-notices",
+            "top_k": 5,
+            "latency_profile": "balanced"
+          }
+        }
+      }
+    },
+    "dispatch": [
+      {
+        "id": "bab006d0-775c-5b4c-b2be-4c15170d4d36",
+        "task_id": "77714883-ae86-5361-ba3b-35ec550f1664",
+        "state": "published",
+        "attempts": 1,
+        "last_error": null
+      }
+    ]
+  }
+]

@@ -1,0 +1,26 @@
+storage-check passed: block stores and application binds remain on their protected devices
+storage-check passed: block stores and application binds remain on their protected devices
+ Container agentium-frontend  Recreate
+ Container agentium-beat  Recreate
+ Container agentium-p4-maintenance  Recreate
+ Container agentium-backend  Recreate
+ Container agentium-worker-recipes  Recreate
+ Container agentium-worker-cpu  Recreate
+ Container agentium-frontend  Recreated
+ Container agentium-p4-maintenance  Recreated
+ Container agentium-backend  Recreated
+ Container agentium-beat  Recreated
+ Container agentium-worker-cpu  Recreated
+ Container agentium-worker-recipes  Recreated
+ Container agentium-beat  Starting
+ Container agentium-worker-cpu  Starting
+ Container agentium-p4-maintenance  Starting
+ Container agentium-backend  Starting
+ Container agentium-frontend  Starting
+ Container agentium-worker-recipes  Starting
+ Container agentium-beat  Started
+ Container agentium-worker-recipes  Started
+ Container agentium-frontend  Started
+ Container agentium-p4-maintenance  Started
+ Container agentium-worker-cpu  Started
+ Container agentium-backend  Started
