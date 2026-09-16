@@ -2,8 +2,8 @@
 
 ## Current delivery status — 16 September 2026
 
-- **Live application: `89f8e09a` on `demo/agentic`.** See the
-  [release evidence](../evidence/hitl-observed-decision-2026-09-16/README.md).
+- **Live application: `f6b73cff` on `demo/agentic`.** See the
+  [release evidence](../evidence/brd-review-contract-2026-09-16/README.md).
 - **R0 remains open:** the adoption sessions and current authenticated manual
   acceptance are not complete. There is no remote CI; the documented local,
   VM and carakai gates apply, as confirmed by the release owner.
