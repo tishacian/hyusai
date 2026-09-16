@@ -2,27 +2,30 @@
 
 ## Current delivery status — 16 September 2026
 
-- **Live application: `b4fde677` on `demo/agentic`.** The
-  [release evidence](../evidence/brd-work-publication-2026-09-16/README.md) records
-  286 targeted backend tests, all 1,478 frontend tests covered and passing after
-  the focused rerun, three VM-built images, exact public SHA and healthy services.
+- **Live application: `6f8f8169` on `demo/agentic`.** The
+  [release evidence](../evidence/release-6f8f8169-2026-09-16/README.md) records
+  131 scoped backend tests, 1,479 frontend tests plus the final focused rerun,
+  three VM-built images, exact frontend/backend public SHA and healthy services.
   Carakai: **10 passed, 2 intentional local-contract skips**.
-- This release connects the published Flow to explicit System activation and an
-  application draft, preserves Work text constraints, captures compiled collection
-  manifests and retains native planner decision provenance.
+- This grouped release opens spreadsheet citations at the original cells and
+  reports authoritative Golden verdicts. Three real previews verify passed,
+  intentionally failed and unevaluated outcomes; replay returns the same Runs.
+  The earlier explicit Work publication handoff, text constraints, corpus
+  manifests and native planner provenance remain deployed.
 - **R0 remains open:** the adoption sessions and current authenticated manual
   acceptance are not complete. There is no remote CI; the documented local,
   VM and carakai gates apply, as confirmed by the release owner. The remaining
   actions are isolated in the [R0 closure checklist](agentium-r0-closure.md).
 - **R1 remains open:** BRD proposals, drafts, provenance, generated cases and
   frozen authored tool contracts and durable Golden dispatch are deployed.
-  The new NorthForge batch produces five briefings, including the previously
-  failing refusal; all await explicit review. The missing-equipment case instead
-  pauses at the planner before retrieval. All official verdicts remain pending.
-  Identical submission returns the same six Runs. The missing-information pause
-  and brittle refusal-word assertion remain open. The historical suite still has
-  no corpus manifest; b4fde677 captures and checks manifests for new BRD suites
-  without rewriting historical evidence.
+  The retained six-run NorthForge batch produces five briefings; all await
+  explicit review. Its missing-equipment case pauses at the planner. A later
+  [unchanged-draft probe](../evidence/golden-verdicts-2026-09-16/README.md)
+  retrieves the history, reports absent equipment and reaches final human
+  review. That is one successful preparation, not completion of the suite.
+  All official verdicts remain pending. The brittle refusal-word assertion and
+  historical corpus-manifest limitation remain documented; new BRD suites now
+  snapshot and check their collection manifests without rewriting old evidence.
   No live human decision has been submitted and no generated application published.
 - Earlier isolated-engine results remain [historical evidence](../evidence/northforge-brd-2026-09-16/README.md);
   they do not establish production publication, human review or second-user use.
@@ -36,7 +39,7 @@ Base: `origin/demo/agentic` at `9494149ad1ade0dc9da713588590d1ec01a9d2da`.
 Implementation branch: `codex/brd-system-roadmap`.
 Scope: [accepted roadmap](../agentium-delivery-roadmap.md).
 
-## Next grouped candidate — verifiable spreadsheet citations
+## Deployed 6f8f8169 — verifiable spreadsheet citations
 
 R2.1 preparation now opens the cited worksheet and cell window in the existing
 source preview, with original row/column coordinates and exact selection.
@@ -48,8 +51,9 @@ labels are FR/EN and its surfaces use existing theme tokens.
 [Implementation and visual evidence](../evidence/document-cell-preview-2026-09-16/README.md):
 63 unique backend tests, 1,479 frontend tests plus a final focused rerun, guards,
 production build and local real-component FR/light + EN/dark mobile captures.
-Not deployed. This joins the pending server Golden-verdict correction in the
-next grouped release; R2 ingestion/recovery and live qualification remain open.
+Deployed with the server Golden-verdict correction; see the
+[release and three real Golden cases](../evidence/release-6f8f8169-2026-09-16/README.md).
+R2 ingestion/recovery and live source qualification remain open.
 
 ## Deployed b4fde677 — Work handoff and evaluation evidence
 

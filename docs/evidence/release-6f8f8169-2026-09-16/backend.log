@@ -1,0 +1,3 @@
+Scoped candidate gate: test_documents_preview_chunks.py, test_secure_deposit.py, test_flow_workbench_api.py, test_evaluation_campaigns.py
+131 passed, 1043 warnings in 27.43s
+Warnings: existing UTC/SQLAlchemy deprecations. Full raw output retained locally at /tmp/r2-grouped-backend.log.

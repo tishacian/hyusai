@@ -1,7 +1,8 @@
 # R2.1 — Open the cited spreadsheet cells
 
 16 September 2026. Implementation on `codex/brd-system-roadmap`, after
-`3e29282b`. Not deployed; public runtime remains `b4fde677`.
+`3e29282b`. Subsequently deployed as `6f8f8169`; see the
+[release evidence](../release-6f8f8169-2026-09-16/README.md).
 
 ## User result / résultat utilisateur
 

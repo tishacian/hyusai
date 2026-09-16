@@ -218,10 +218,17 @@ Then the canaries — they run on the **protected runner host** (root, from its
 reviewed source checkout), not on the VM:
 
 ```bash
-scripts/run-iteration-canaries.sh <sha40>
-# runs e2e specs 11 (System360), 12 (protected runner), 16 (Experience Work), 17 (Experience Studio)
+env PATH=/opt/agentium-protected-runner/node-current/bin:$PATH \
+  scripts/run-iteration-canaries.sh <sha40>
+# runs e2e specs 11 (System360), 12 (protected runner), 16 (Work), 17 (Studio),
+# 20 (Hypervisor), 23 (observability evidence)
 # against https://agentium.papai.ai, asserting the deployed SHA
 ```
+
+The root runner uses its pinned `node-current/bin` runtime; sudo's default PATH
+may not include Node. Its reviewed checkout must be at the candidate commit and
+`.agentium-source-sha` must contain that exact full SHA **followed by a newline**.
+Keep the producer's source, lockfile and ownership checks enabled.
 
 Finish with a manual smoke in a **hard-reloaded** browser tab (see §10).
 

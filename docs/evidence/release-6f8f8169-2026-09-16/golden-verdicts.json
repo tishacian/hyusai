@@ -1,0 +1,441 @@
+{
+  "sha": "6f8f81696db0a736c2facfa32e97976d4d55db09",
+  "system_id": "15b05919-c93b-4648-8581-8a41cbe2fae6",
+  "status": "verified",
+  "idempotent_replay_verified": true,
+  "technical_qa_only": true,
+  "human_decisions_submitted": false,
+  "published_or_draft_changed": false,
+  "source_flow_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+  "request_key": "6f8f8169-technical-golden-verdicts-1",
+  "cases_frozen_before_execution": [
+    {
+      "id": "numerical-reference",
+      "input_ref": {},
+      "expected": {
+        "stats": {
+          "orders": 4,
+          "planned_minutes": 120,
+          "actual_minutes": 155,
+          "overrun_minutes": 35,
+          "late_orders": 3,
+          "largest_overrun_order": "NF-04",
+          "largest_overrun_minutes": 25
+        },
+        "human_validated": false
+      }
+    },
+    {
+      "id": "intentional-negative-control",
+      "input_ref": {},
+      "expected": {
+        "stats": {
+          "overrun_minutes": -1
+        }
+      }
+    },
+    {
+      "id": "no-oracle",
+      "input_ref": {}
+    }
+  ],
+  "runs": [
+    {
+      "id": "116f940a-5415-47cf-b112-798ef1638e21",
+      "status": "completed",
+      "duration_ms": 20912.894940935075,
+      "started_at": "2026-09-16T20:25:54.883411",
+      "completed_at": "2026-09-16T20:26:16.389708",
+      "execution_surface": null,
+      "flow_evidence": {
+        "flow_version_id": null,
+        "flow_snapshot_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+        "execution_snapshot_at": "2026-09-16T20:25:55.434126Z",
+        "runtime_revision": "6f8f81696db0a736c2facfa32e97976d4d55db09"
+      },
+      "output_ref": {
+        "stats": {
+          "orders": 4,
+          "planned_minutes": 120,
+          "actual_minutes": 155,
+          "overrun_minutes": 35,
+          "late_orders": 3,
+          "largest_overrun_order": "NF-04",
+          "largest_overrun_minutes": 25
+        },
+        "answer": "Constat chiffr\u00e9\n- Commandes trait\u00e9es: 4 [1]\n- Temps planifi\u00e9 total: 120 min [1]\n- Temps r\u00e9el total: 155 min [1]\n- D\u00e9passement global: 35 min (155 \u2212 120) [1]\n- Commandes en retard: 3 sur 4 [1]\n- Plus grand d\u00e9passement: ordre NF-04, 25 min [1]\n\nAnalyse du retard (\u00e0 partir des seules valeurs fournies)\n- L\u2019ordre NF-04 concentre 25 min sur les 35 min de d\u00e9passement total, soit la cause principale du retard cumul\u00e9 [1]. Le solde du d\u00e9passement (35 \u2212 25 = 10 min) est r\u00e9parti entre les autres retards [1].\n- 3 commandes sur 4 \u00e9tant en retard, la proportion de retards est \u00e9lev\u00e9e (3/4) [1].\n\nProchaine investigation (une seule)\n- Analyser en priorit\u00e9 la chronologie d\u00e9taill\u00e9e de l\u2019ordre NF-04 (25 min de d\u00e9passement) pour identifier l\u2019\u00e9tape ou le segment de temps responsable de l\u2019\u00e9cart par rapport au plan (collecte des temps par phase de l\u2019ordre NF-04) [1].",
+        "numerical_reference_passed": true,
+        "human_validated": false,
+        "economic_impact": null,
+        "showcase_seed": true
+      },
+      "test_result": {
+        "case_id": "numerical-reference",
+        "batch_id": "9eeb4bbc-8f8a-40d9-aa05-c582ec34cef8",
+        "method": "expected_subset_v1",
+        "verdict": "passed",
+        "assertions": [
+          {
+            "id": "expected",
+            "passed": true
+          }
+        ]
+      },
+      "invocations": [
+        {
+          "id": "fa84a220-fe60-4522-b4e2-ff83ebf9c05d",
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "latency_ms": 3108.189112506807,
+          "cost": 0.0,
+          "metrics": {
+            "cost_evidence": {
+              "schema_version": 1,
+              "state": "calculated",
+              "method": "catalog_unit_price",
+              "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+              "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+              "currency": "USD",
+              "unit": "per_execution",
+              "quantity": 1.0
+            }
+          },
+          "execution_evidence": {
+            "resolution": "resolved",
+            "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+          }
+        },
+        {
+          "id": "e10ede28-8cb4-4513-8400-13dff587a36d",
+          "skill_slug": "llm_rag_answer_v1",
+          "status": "completed",
+          "latency_ms": 16552.868678234518,
+          "cost": 0.012,
+          "metrics": {
+            "cost_evidence": {
+              "schema_version": 1,
+              "state": "calculated",
+              "method": "catalog_unit_price",
+              "source": "skill_catalog:e2339094-4c59-43b3-a5d0-334263663d30:pricing",
+              "pricing_sha256": "96449c474e090f20047d146f048f27f77f63e332c615546b264896b7c66dadbc",
+              "currency": "USD",
+              "unit": "per_call",
+              "quantity": 1.0
+            },
+            "total_tokens": 1615,
+            "token_evidence": {
+              "total_tokens": 1615,
+              "provider_calls": 1,
+              "measurement_source": "provider_reported",
+              "measurement_coverage": "complete",
+              "providers": [
+                "openai"
+              ],
+              "calls": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-5",
+                  "total_tokens": 1615,
+                  "prompt_tokens": 328,
+                  "completion_tokens": 1287
+                }
+              ],
+              "prompt_tokens": 328,
+              "completion_tokens": 1287
+            }
+          },
+          "execution_evidence": {
+            "resolution": "resolved",
+            "execution_snapshot_sha256": "b737350d5d0c9e35fbeda8d5cb64331a58fe546b4e3c0b0d653adb18095bdf22"
+          }
+        },
+        {
+          "id": "9bb5924a-47d5-482e-87df-41cfaace02ee",
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "latency_ms": 1021.7419629916549,
+          "cost": 0.0,
+          "metrics": {
+            "cost_evidence": {
+              "schema_version": 1,
+              "state": "calculated",
+              "method": "catalog_unit_price",
+              "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+              "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+              "currency": "USD",
+              "unit": "per_execution",
+              "quantity": 1.0
+            }
+          },
+          "execution_evidence": {
+            "resolution": "resolved",
+            "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+          }
+        }
+      ]
+    },
+    {
+      "id": "89e386e2-9a11-4235-8eb4-ee92a0a1d2e8",
+      "status": "completed",
+      "duration_ms": 20310.23781374097,
+      "started_at": "2026-09-16T20:25:54.908281",
+      "completed_at": "2026-09-16T20:26:16.419346",
+      "execution_surface": null,
+      "flow_evidence": {
+        "flow_version_id": null,
+        "flow_snapshot_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+        "execution_snapshot_at": "2026-09-16T20:25:56.071620Z",
+        "runtime_revision": "6f8f81696db0a736c2facfa32e97976d4d55db09"
+      },
+      "output_ref": {
+        "stats": {
+          "orders": 4,
+          "planned_minutes": 120,
+          "actual_minutes": 155,
+          "overrun_minutes": 35,
+          "late_orders": 3,
+          "largest_overrun_order": "NF-04",
+          "largest_overrun_minutes": 25
+        },
+        "answer": "- Donn\u00e9es de base: exercice synth\u00e9tique NorthForge; pas de donn\u00e9es client ni d\u2019\u00e9conomies v\u00e9rifi\u00e9es [1]. Total de 4 ordres [1]. Planifi\u00e9: 120 min; R\u00e9alis\u00e9: 155 min; D\u00e9passement total: 35 min [1].\n\n- Explication du retard op\u00e9rationnel (\u00e0 partir des chiffres fournis):\n  - D\u00e9passement global de 35 min par rapport au plan de 120 min, soit +29,2% par rapport au plan (35/120) [1].\n  - 3 ordres en retard sur 4, soit un taux de retard de 75% [1].\n  - L\u2019ordre avec le plus fort d\u00e9passement est NF-04, avec 25 min, repr\u00e9sentant ~71,4% du d\u00e9passement total (25/35) [1].\n  - Moyenne planifi\u00e9e par ordre: 30 min (120/4); moyenne r\u00e9elle: 38,75 min (155/4); d\u00e9passement moyen par ordre: 8,75 min (35/4) [1].\n  - En dehors de NF-04, les autres d\u00e9passements cumulent 10 min (35 \u2212 25) [1].\n\n- Interpr\u00e9tation op\u00e9rationnelle:\n  - Le retard est principalement concentr\u00e9 sur un seul ordre (NF-04), qui explique la majeure partie du d\u00e9passement total, tandis qu\u2019un niveau de retard \u00e9lev\u00e9 (3/4 ordres) sugg\u00e8re un \u00e9cart de cadence par rapport au plan sur le lot trait\u00e9 [1].\n\n- Prochaine investigation recommand\u00e9e:\n  - Analyser la chronologie d\u00e9taill\u00e9e de l\u2019ordre NF-04 (journaux d\u2019ex\u00e9cution, horodatages) pour localiser pr\u00e9cis\u00e9ment l\u2019intervalle correspondant aux 25 minutes suppl\u00e9mentaires et identifier l\u2019\u00e9tape qui concentre le d\u00e9rive temporelle [1].",
+        "numerical_reference_passed": true,
+        "human_validated": false,
+        "economic_impact": null,
+        "showcase_seed": true
+      },
+      "test_result": {
+        "case_id": "intentional-negative-control",
+        "batch_id": "9eeb4bbc-8f8a-40d9-aa05-c582ec34cef8",
+        "method": "expected_subset_v1",
+        "verdict": "failed",
+        "assertions": [
+          {
+            "id": "expected",
+            "passed": false
+          }
+        ]
+      },
+      "invocations": [
+        {
+          "id": "3c37149d-c1d8-466f-9cf8-e56c69cef415",
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "latency_ms": 2094.38909124583,
+          "cost": 0.0,
+          "metrics": {
+            "cost_evidence": {
+              "schema_version": 1,
+              "state": "calculated",
+              "method": "catalog_unit_price",
+              "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+              "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+              "currency": "USD",
+              "unit": "per_execution",
+              "quantity": 1.0
+            }
+          },
+          "execution_evidence": {
+            "resolution": "resolved",
+            "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+          }
+        },
+        {
+          "id": "4c0b23d5-a2d0-41fc-9d6a-00748445cb52",
+          "skill_slug": "llm_rag_answer_v1",
+          "status": "completed",
+          "latency_ms": 16986.58078815788,
+          "cost": 0.012,
+          "metrics": {
+            "cost_evidence": {
+              "schema_version": 1,
+              "state": "calculated",
+              "method": "catalog_unit_price",
+              "source": "skill_catalog:e2339094-4c59-43b3-a5d0-334263663d30:pricing",
+              "pricing_sha256": "96449c474e090f20047d146f048f27f77f63e332c615546b264896b7c66dadbc",
+              "currency": "USD",
+              "unit": "per_call",
+              "quantity": 1.0
+            },
+            "total_tokens": 1551,
+            "token_evidence": {
+              "total_tokens": 1551,
+              "provider_calls": 1,
+              "measurement_source": "provider_reported",
+              "measurement_coverage": "complete",
+              "providers": [
+                "openai"
+              ],
+              "calls": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-5",
+                  "total_tokens": 1551,
+                  "prompt_tokens": 328,
+                  "completion_tokens": 1223
+                }
+              ],
+              "prompt_tokens": 328,
+              "completion_tokens": 1223
+            }
+          },
+          "execution_evidence": {
+            "resolution": "resolved",
+            "execution_snapshot_sha256": "b737350d5d0c9e35fbeda8d5cb64331a58fe546b4e3c0b0d653adb18095bdf22"
+          }
+        },
+        {
+          "id": "ef19211d-42f7-4951-865a-94a62194ca16",
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "latency_ms": 1019.5042677223682,
+          "cost": 0.0,
+          "metrics": {
+            "cost_evidence": {
+              "schema_version": 1,
+              "state": "calculated",
+              "method": "catalog_unit_price",
+              "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+              "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+              "currency": "USD",
+              "unit": "per_execution",
+              "quantity": 1.0
+            }
+          },
+          "execution_evidence": {
+            "resolution": "resolved",
+            "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+          }
+        }
+      ]
+    },
+    {
+      "id": "45373f9c-9ac4-434f-af27-4c7144290827",
+      "status": "completed",
+      "duration_ms": 17540.379366837442,
+      "started_at": "2026-09-16T20:25:54.920924",
+      "completed_at": "2026-09-16T20:26:34.239391",
+      "execution_surface": null,
+      "flow_evidence": {
+        "flow_version_id": null,
+        "flow_snapshot_sha256": "f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d",
+        "execution_snapshot_at": "2026-09-16T20:26:16.683651Z",
+        "runtime_revision": "6f8f81696db0a736c2facfa32e97976d4d55db09"
+      },
+      "output_ref": {
+        "stats": {
+          "orders": 4,
+          "planned_minutes": 120,
+          "actual_minutes": 155,
+          "overrun_minutes": 35,
+          "late_orders": 3,
+          "largest_overrun_order": "NF-04",
+          "largest_overrun_minutes": 25
+        },
+        "answer": "Constats chiffr\u00e9s (source [1])\n- Commandes trait\u00e9es: 4 [1]\n- Temps planifi\u00e9 total: 120 min [1]\n- Temps r\u00e9el total: 155 min [1]\n- D\u00e9passement total: +35 min (155 \u2212 120) [1]\n- Commandes en retard: 3 (taux de retard 75 %) [1]\n- Plus grand d\u00e9passement: commande NF-04, +25 min [1]\n\nExplication de l\u2019allongement op\u00e9rationnel\n- L\u2019\u00e9cart global de +35 min provient majoritairement d\u2019une seule commande: NF-04 contribue \u00e0 elle seule \u00e0 +25 min, soit ~71 % du d\u00e9passement total (25/35) [1]. Les autres commandes cumulent le solde d\u2019environ +10 min [1].\n- Le temps moyen par commande est pass\u00e9 de 30,0 min planifi\u00e9es (120/4) \u00e0 38,75 min r\u00e9elles (155/4), soit un surtemps moyen de +8,75 min par commande [1].\n- La ponctualit\u00e9 est d\u00e9grad\u00e9e: 3 commandes sur 4 sont en retard [1].\n\nNote: Exercice synth\u00e9tique, aucune donn\u00e9e client ni \u00e9conomies v\u00e9rifi\u00e9es [1].\n\nProchaine investigation (une seule)\n- Analyser en priorit\u00e9 la commande NF-04: reconstituer le d\u00e9roul\u00e9 temporel planifi\u00e9 vs. r\u00e9el pour isoler l\u2019origine des +25 min (journaux machine, horodatages op\u00e9rateur, phases de r\u00e9glage/ex\u00e9cution/attente) [1].",
+        "numerical_reference_passed": true,
+        "human_validated": false,
+        "economic_impact": null,
+        "showcase_seed": true
+      },
+      "test_result": {
+        "case_id": "no-oracle",
+        "batch_id": "9eeb4bbc-8f8a-40d9-aa05-c582ec34cef8",
+        "method": "no_oracle_v1",
+        "verdict": "unevaluated",
+        "assertions": []
+      },
+      "invocations": [
+        {
+          "id": "dea9ee09-4ec3-4ee5-9779-175e03f6691f",
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "latency_ms": 1021.74311876297,
+          "cost": 0.0,
+          "metrics": {
+            "cost_evidence": {
+              "schema_version": 1,
+              "state": "calculated",
+              "method": "catalog_unit_price",
+              "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+              "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+              "currency": "USD",
+              "unit": "per_execution",
+              "quantity": 1.0
+            }
+          },
+          "execution_evidence": {
+            "resolution": "resolved",
+            "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+          }
+        },
+        {
+          "id": "3f8d4bfa-79d7-40e4-b918-4e4913bb353a",
+          "skill_slug": "llm_rag_answer_v1",
+          "status": "completed",
+          "latency_ms": 15328.391565941274,
+          "cost": 0.012,
+          "metrics": {
+            "cost_evidence": {
+              "schema_version": 1,
+              "state": "calculated",
+              "method": "catalog_unit_price",
+              "source": "skill_catalog:e2339094-4c59-43b3-a5d0-334263663d30:pricing",
+              "pricing_sha256": "96449c474e090f20047d146f048f27f77f63e332c615546b264896b7c66dadbc",
+              "currency": "USD",
+              "unit": "per_call",
+              "quantity": 1.0
+            },
+            "total_tokens": 1880,
+            "token_evidence": {
+              "total_tokens": 1880,
+              "provider_calls": 1,
+              "measurement_source": "provider_reported",
+              "measurement_coverage": "complete",
+              "providers": [
+                "openai"
+              ],
+              "calls": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-5",
+                  "total_tokens": 1880,
+                  "prompt_tokens": 328,
+                  "completion_tokens": 1552
+                }
+              ],
+              "prompt_tokens": 328,
+              "completion_tokens": 1552
+            }
+          },
+          "execution_evidence": {
+            "resolution": "resolved",
+            "execution_snapshot_sha256": "b737350d5d0c9e35fbeda8d5cb64331a58fe546b4e3c0b0d653adb18095bdf22"
+          }
+        },
+        {
+          "id": "9b593307-88c7-4a3f-941b-381c513c1774",
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "latency_ms": 1021.5512542054057,
+          "cost": 0.0,
+          "metrics": {
+            "cost_evidence": {
+              "schema_version": 1,
+              "state": "calculated",
+              "method": "catalog_unit_price",
+              "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+              "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+              "currency": "USD",
+              "unit": "per_execution",
+              "quantity": 1.0
+            }
+          },
+          "execution_evidence": {
+            "resolution": "resolved",
+            "execution_snapshot_sha256": "95d5d4b6a34481abb901f14198b199a4660b5413ca4aa2e3a636d4b600a4b466"
+          }
+        }
+      ]
+    }
+  ]
+}

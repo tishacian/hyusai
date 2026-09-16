@@ -1,7 +1,9 @@
 # Golden verdicts and a real NorthForge absence case
 
-16 September 2026. **Code in this commit is not deployed.** The live application
-remains `b4fde677a75a7a9f6ab30898882104c37582709b` on `demo/agentic`.
+16 September 2026. Initially qualified locally on `3e29282b`; subsequently
+[deployed and checked with three real Golden previews](../release-6f8f8169-2026-09-16/README.md)
+as `6f8f8169` on `demo/agentic`. The NorthForge investigation below was executed
+on the earlier `b4fde677` runtime and retains that attribution.
 
 ## Real-provider investigation
 
@@ -70,6 +72,6 @@ The local JIT fixture sets the panel open on the Golden tab and adapts the signa
 navigation input for JIT; it does not validate production routing or real Runs.
 
 No new engine, permission, flag, dependency, migration or native NAWA theme change.
-VM build, current-SHA canaries and live UI acceptance for this correction remain
-pending. R0 human baseline and R1 approval/publication/second-user acceptance
+VM build, exact-SHA canaries and three real server verdicts are now qualified
+in the release linked above. Live user UI acceptance remains pending. R0 human baseline and R1 approval/publication/second-user acceptance
 remain open.
