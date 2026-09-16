@@ -1,4 +1,3 @@
-import { OperationalObjectiveComponent } from '@app/features/systems/operational-objective.component';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -7,7 +6,7 @@ import { catchError, distinctUntilChanged, map } from 'rxjs/operators';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
-import { NavLinkDirective, RunOutcomeCardComponent, StatReadoutComponent } from '@app/shared/cockpit';
+import { NavLinkDirective, RunOutcomeCardComponent } from '@app/shared/cockpit';
 import {
   CkObjectHeaderComponent,
   type CkObjectKpi,
@@ -16,7 +15,12 @@ import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.compon
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { ApiService } from '@app/core/api.service';
 import { apiErrorMessage } from '@app/core/api-error-message';
-import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
+import {
+  CanonicalApiService,
+  type Run,
+  type System,
+  type SystemOverview,
+} from '@app/core/canonical-api.service';
 import { NewsLabComponent } from '@app/features/intelligence/news-lab.component';
 import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
@@ -33,37 +37,13 @@ import { ToastrService } from 'ngx-toastr';
 import { FlowManifestService } from '@app/features/orchestration/flow/flow-manifest.service';
 import { SystemsStore } from './systems.store';
 import { SystemPerspectiveComponent } from './system-perspective.component';
-import { SystemValueLoopComponent } from './system-value-loop.component';
+import { SystemOverviewComponent } from './system-overview.component';
 import { isFlowBackedSystem, systemFlowProfile } from './system-flow-profile';
 import {
   SYSTEM_OBJECT_LENSES,
-  systemPerspectiveAuthorizesValueLoop,
   type PerspectiveFact,
   type SystemPerspectiveResponse,
 } from './system-perspective.models';
-
-interface MetricsSummary {
-  total_requests?: number;
-  total_errors?: number;
-  error_rate_percent?: number;
-  metrics_count?: number;
-}
-
-interface LatestEvaluation {
-  composite_score?: number;
-  hallucination_rate?: number;
-  claim_audit?: unknown;
-  created_at?: string | null;
-}
-
-interface TraceRow {
-  id?: string;
-  trace_id?: string;
-  duration_ms?: number;
-  agent_id?: string;
-  system_id?: string;
-  operation_type?: string;
-}
 
 type SystemTabId =
   | 'intelligence'
@@ -79,16 +59,6 @@ type SystemTabId =
  * route. Specialist Systems can expose variant-specific labels and stages.
  */
 type SystemVariant = 'intelligence' | 'expert_knowledge_capture' | 'translation_suite' | 'standard';
-
-interface WizardStep {
-  key: 'identity' | 'knowledge' | 'model' | 'guardrails' | 'launch';
-  title: string;
-  description: string;
-  icon: string;
-  cta: string;
-  route: string;
-  done: boolean;
-}
 
 interface PipelineStage {
   key: string;
@@ -126,7 +96,6 @@ interface ContextConfigRow {
     NavLinkDirective,
     ChatPanelComponent,
     IconComponent,
-    StatReadoutComponent,
     StatusPulseComponent,
     RunOutcomeCardComponent,
     CkObjectHeaderComponent,
@@ -135,8 +104,7 @@ interface ContextConfigRow {
     CkPanelComponent,
     NewsLabComponent,
     SystemPerspectiveComponent,
-    SystemValueLoopComponent,
-    OperationalObjectiveComponent,
+    SystemOverviewComponent,
   ],
   template: `
     <ck-object-header
@@ -147,10 +115,10 @@ interface ContextConfigRow {
     >
       <app-status-pulse
         status
-        [tone]="isDraft() ? 'warning' : 'success'"
-        [label]="isDraft() ? 'Draft' : 'Ready'"
+        [tone]="headerStatusTone()"
+        [label]="headerStatusLabel()"
       />
-      @if (flowPublicationEnabled()) {
+      @if (systemOverview()?.readiness?.can_run) {
         <a
           actions
           [navLink]="{ leaf: 'system-run', ref: systemId }"
@@ -226,309 +194,13 @@ interface ContextConfigRow {
       }
 
       <ck-tab id="overview" [label]="i18n.t('systems.view.tab.overview')">
-<app-operational-objective [systemId]="systemId" />
-        @if (system360Enabled()) {
-          <app-system-perspective
-            [lens]="activeObjectLens()"
-            facet="overview"
-            [perspective]="activePerspective()"
-            [loading]="perspectivesLoading()"
-            [error]="perspectivesError()"
-          />
-          @if (activeObjectLens() === 'steer' && valueLoopEnabled()) {
-            <app-system-value-loop
-              [systemId]="systemId"
-              [workspaceKey]="workspaceRequestKey()"
-              [runs]="runs()"
-            />
-          }
-        } @else {
-        @if (isExpertKnowledgeCapture()) {
-          <div class="space-y-5">
-            <section class="ck-surface t-elevated rounded-md p-6">
-              <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-                <div class="max-w-2xl">
-                  <p class="ck-mono ck-accent text-[10px] uppercase tracking-[0.18em]">{{ i18n.t('systems.view.capture.eyebrow') }}</p>
-                  <h2 class="mt-2 text-2xl font-semibold text-white">{{ i18n.t('systems.view.capture.title') }}</h2>
-                  <p class="mt-3 text-sm leading-relaxed text-gray-400">
-                    {{ i18n.t('systems.view.capture.description') }}
-                  </p>
-                </div>
-                <a
-                  [navLink]="{ leaf: 'system-capture-page', ref: systemId }"
-                  class="ck-cta inline-flex shrink-0 items-center justify-center gap-2 rounded px-4 py-3 text-sm font-semibold"
-                >
-                  <app-icon name="mic" [size]="16" /> {{ i18n.t('systems.view.capture.open_sessions') }}
-                </a>
-              </div>
-            </section>
-
-            <section class="grid gap-3 md:grid-cols-4">
-              @for (step of captureSteps(); track step.label) {
-                <div class="rounded border border-white/10 bg-white/[0.03] p-4">
-                  <p class="ck-mono ck-accent text-[10px] uppercase tracking-wider">{{ step.label }}</p>
-                  <p class="mt-2 text-sm text-gray-300">{{ step.description }}</p>
-                </div>
-              }
-            </section>
-          </div>
-        } @else if (flowProfile(); as flow) {
-          <div class="space-y-6">
-            <section
-              class="relative overflow-hidden ck-surface rounded-md p-5"
-              style="background: linear-gradient(135deg, rgba(0,188,212,0.08) 0%, rgba(139,92,246,0.08) 100%); border: 1px solid rgba(0,188,212,0.25);"
-              data-testid="system-flow-overview"
-            >
-              <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none"></div>
-              <div class="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div class="min-w-0">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <app-icon name="workflow" set="phosphor" [size]="18" class="ck-accent" />
-                    <span class="ck-accent text-xs uppercase tracking-wider font-semibold">Executable flow</span>
-                    <span
-                      class="ck-pill"
-                      [ngClass]="flow.publishedVersionId ? 'ck-tone-ok' : 'ck-tone-warn'"
-                    >
-                      {{ flowPublicationLabel() }}
-                    </span>
-                    @if (flow.promotedFromScratchpad) {
-                      <span class="ck-pill ck-tone-neutral">From scratchpad</span>
-                    }
-                  </div>
-                  <p class="mt-3 text-sm leading-relaxed text-gray-400 max-w-2xl">
-                    {{ flowSummaryLine() }}
-                  </p>
-                </div>
-                <a
-                  [navLink]="{ leaf: 'system-flow', ref: systemId }"
-                  class="ck-cta inline-flex shrink-0 items-center gap-2 rounded px-4 py-2.5 text-sm font-semibold"
-                  data-testid="system-flow-open-builder"
-                >
-                  <app-icon name="workflow" [size]="14" /> Open in flow builder
-                </a>
-              </div>
-            </section>
-
-            <section class="ck-surface t-elevated rounded-md p-5">
-              <div class="flex items-center gap-2 mb-3">
-                <app-icon name="play-circle" set="phosphor" [size]="16" class="ck-accent" />
-                <h3 class="text-sm font-semibold text-white">Triggers</h3>
-                <span class="ml-auto text-[11px] text-gray-500">{{ flow.triggers.length }} declared</span>
-              </div>
-              @if (flow.triggers.length === 0) {
-                <p class="text-xs text-gray-400 leading-relaxed">
-                  No entry point is declared on this graph. It runs only when triggered manually
-                  from this page or the flow builder.
-                </p>
-              } @else {
-                <ul class="grid gap-2 md:grid-cols-2">
-                  @for (trigger of flow.triggers; track trigger.nodeId) {
-                    <li class="flex items-center gap-3 rounded border border-white/5 bg-black/20 px-3 py-2.5">
-                      <span class="ck-pill ck-tone-info shrink-0">{{ trigger.kind }}</span>
-                      <span class="text-sm text-white truncate">{{ trigger.label }}</span>
-                      <span class="ml-auto font-mono text-[10px] text-gray-500 truncate">{{ trigger.nodeId }}</span>
-                    </li>
-                  }
-                </ul>
-              }
-            </section>
-
-            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              <ck-stat-readout variant="tile" label="Steps" [value]="flow.nodeCount" icon="layers" />
-              <ck-stat-readout variant="tile" label="Connections" [value]="flow.edgeCount" icon="git-commit" />
-              <ck-stat-readout variant="tile" label="Bound skills" [value]="flow.skillSlugs.length" icon="zap" />
-              <ck-stat-readout variant="tile"
-                label="Runs"
-                [value]="kpiTraces()"
-                icon="git-commit"
-                [interactive]="true"
-                (click)="goto('/runs')"
-              />
-              <ck-stat-readout variant="tile"
-                label="Errors"
-                [value]="kpiErrors()"
-                [trend]="errorsTrend()"
-                icon="alert-triangle"
-                [interactive]="true"
-                (click)="goto('/observability/performance')"
-              />
-              <ck-stat-readout variant="tile"
-                label="Avg latency"
-                [value]="kpiLatency()"
-                unit="ms"
-                icon="gauge"
-                [interactive]="true"
-                (click)="goto('/runs')"
-              />
-            </div>
-            @if (kpisLoading()) {
-              <p class="text-[11px] text-gray-500 -mt-2">Loading metrics…</p>
-            }
-
-            <section class="ck-surface t-elevated rounded-md p-5">
-              <div class="flex items-center gap-2 mb-3">
-                <app-icon name="git-commit" [size]="16" class="ck-accent" />
-                <h3 class="text-sm font-semibold text-white">Latest runs</h3>
-                <button
-                  type="button"
-                  (click)="onTabChange('runs')"
-                  class="ck-accent ml-auto text-[11px]"
-                >
-                  See all
-                </button>
-              </div>
-              @if (runsLoading()) {
-                <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-4);">Loading runs…</p>
-              } @else if (recentRuns().length === 0) {
-                <p class="text-xs text-gray-400">
-                  This flow has not produced any run yet.
-                </p>
-              } @else {
-                <div class="space-y-3">
-                  @for (run of recentRuns(); track run.id) {
-                    <ck-run-outcome-card [run]="run" />
-                  }
-                </div>
-              }
-            </section>
-          </div>
-        } @else {
-        <div class="space-y-6">
-        <!-- OmniRAG banner: each stage links to the matching configuration -->
-        <div
-          class="relative overflow-hidden ck-surface rounded-md p-5"
-          style="background: linear-gradient(135deg, rgba(0,188,212,0.08) 0%, rgba(139,92,246,0.08) 100%); border: 1px solid rgba(0,188,212,0.25);"
-        >
-          <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none"></div>
-          <div class="relative flex items-center gap-3 flex-wrap">
-            <app-icon name="atom" set="phosphor" [size]="18" class="ck-accent" />
-            <span class="ck-accent text-xs uppercase tracking-wider font-semibold">
-              {{ pipelineBannerLabel() }}
-            </span>
-            <div class="flex items-center gap-2 ml-auto text-[11px]">
-              @for (stage of pipelineStages; track stage.key; let last = $last) {
-                <a
-                  [routerLink]="stage.route"
-                  class="ck-btn-quiet inline-flex items-center gap-1.5 px-2 py-1 rounded"
-                  [title]="'Open ' + stage.configureLabel"
-                >
-                  <app-icon [name]="stage.icon" [size]="11" class="ck-accent" />
-                  {{ stage.name }}
-                </a>
-                @if (!last) {
-                  <app-icon name="chevron-right" [size]="12" class="text-gray-600" />
-                }
-              }
-            </div>
-          </div>
-        </div>
-
-        <!-- KPI row — each tile is actionable and routes to observability -->
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <ck-stat-readout variant="tile"
-            label="Requests"
-            [value]="kpiRequests()"
-            hint="since restart"
-            icon="play-circle"
-            [interactive]="true"
-            (click)="goto('/observability/performance')"
-          />
-          <ck-stat-readout variant="tile"
-            label="Errors"
-            [value]="kpiErrors()"
-            [trend]="errorsTrend()"
-            icon="alert-triangle"
-            [interactive]="true"
-            (click)="goto('/observability/performance')"
-          />
-          <ck-stat-readout variant="tile"
-            label="Avg latency"
-            [value]="kpiLatency()"
-            unit="ms"
-            icon="gauge"
-            [interactive]="true"
-            (click)="goto('/runs')"
-          />
-          <ck-stat-readout variant="tile"
-            label="Quality"
-            [value]="kpiQuality()"
-            unit="/100"
-            icon="target"
-            [interactive]="true"
-            (click)="goto('/observability')"
-          />
-          <ck-stat-readout variant="tile"
-            label="Error rate"
-            [value]="kpiErrorRate()"
-            unit="%"
-            [trend]="errorRateTrend()"
-            icon="alert-circle"
-            [interactive]="true"
-            (click)="goto('/observability/performance')"
-          />
-          <ck-stat-readout variant="tile"
-            label="Runs"
-            [value]="kpiTraces()"
-            icon="git-commit"
-            [interactive]="true"
-            (click)="goto('/runs')"
-          />
-        </div>
-        @if (kpisLoading()) {
-          <p class="text-[11px] text-gray-500 -mt-2">Loading metrics…</p>
-        }
-
-        <!-- Setup wizard — each step has an actionable CTA -->
-        <section class="ck-surface t-elevated rounded-md p-6">
-          <div class="flex items-center gap-2 mb-4">
-            <app-icon name="list-checks" set="phosphor" [size]="16" class="ck-accent" />
-            <h3 class="text-base font-semibold text-white">Setup checklist</h3>
-            <span class="ml-auto text-xs text-gray-400">{{ completedSteps() }} / {{ wizard().length }} done</span>
-          </div>
-
-          <div class="w-full h-1.5 rounded-full bg-white/5 overflow-hidden mb-4">
-            <div
-              class="h-full rounded-full transition-all"
-              [style.background]="'var(--ck-cta-bg)'"
-              [style.width.%]="(completedSteps() / wizard().length) * 100"
-            ></div>
-          </div>
-
-          <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            @for (step of wizard(); track step.key; let i = $index) {
-              <li
-                class="flex items-start gap-3 px-4 py-3 rounded-md border"
-                [style.background]="step.done ? 'var(--ck-status-ok-bg)' : 'var(--ck-bg-inset)'"
-                [style.borderColor]="step.done ? 'var(--ck-status-ok-line)' : 'var(--ck-stroke-2)'"
-              >
-                <div
-                  class="w-9 h-9 rounded-md flex items-center justify-center shrink-0"
-                  [ngClass]="step.done ? 'ck-tone-ok' : 'ck-tone-info'"
-                >
-                  <app-icon [name]="step.done ? 'check-circle-2' : step.icon" [size]="16" />
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">Step {{ i + 1 }}</span>
-                    <span class="text-sm font-medium text-white">{{ step.title }}</span>
-                  </div>
-                  <p class="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{{ step.description }}</p>
-                </div>
-                <a
-                  [routerLink]="step.route"
-                  class="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-medium"
-                  [ngClass]="step.done ? 'ck-btn-quiet' : 'ck-cta'"
-                >
-                  <app-icon [name]="step.done ? 'external-link' : 'arrow-right'" [size]="12" />
-                  {{ step.cta }}
-                </a>
-              </li>
-            }
-          </ul>
-        </section>
-        </div>
-        }
-        }
+        <app-system-overview
+          [overview]="systemOverview()"
+          [loading]="systemOverviewLoading()"
+          [error]="systemOverviewError()"
+          (retry)="loadSystemOverview()"
+          (navigate)="goto($event)"
+        />
       </ck-tab>
 
       <ck-tab id="runs" label="Runs">
@@ -592,7 +264,7 @@ interface ContextConfigRow {
         }
       </ck-tab>
 
-      <ck-tab id="design" [label]="i18n.t('systems.view.tab.design')">
+      <ck-tab id="design" label="Design">
         @if (system360Enabled()) {
           <app-system-perspective
             [lens]="activeObjectLens()"
@@ -773,7 +445,7 @@ interface ContextConfigRow {
         }
       </ck-tab>
 
-      <ck-tab id="context" [label]="i18n.t('systems.view.tab.context')">
+      <ck-tab id="context" label="Context">
         @if (system360Enabled()) {
           <app-system-perspective
             [lens]="activeObjectLens()"
@@ -1104,6 +776,9 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   readonly runs = signal<Run[]>([]);
   readonly runsLoading = signal(false);
   readonly triggering = signal(false);
+  readonly systemOverview = signal<SystemOverview | null>(null);
+  readonly systemOverviewLoading = signal(false);
+  readonly systemOverviewError = signal(false);
 
   systemId = '';
   agentName = signal('System');
@@ -1120,6 +795,19 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   readonly isIntelligence = computed(() => this.variant() === 'intelligence');
   readonly isExpertKnowledgeCapture = computed(() => this.variant() === 'expert_knowledge_capture');
   readonly isTranslationSuite = computed(() => this.variant() === 'translation_suite');
+  readonly headerStatusTone = computed<'success' | 'warning' | 'danger' | 'accent'>(() => {
+    switch (this.systemOverview()?.readiness.state) {
+      case 'ready': return 'success';
+      case 'blocked': return 'danger';
+      case 'needs_setup': return 'warning';
+      default: return 'accent';
+    }
+  });
+  readonly headerStatusLabel = computed(() => {
+    if (this.systemOverviewLoading()) return 'Checking';
+    if (this.systemOverviewError()) return 'Unavailable';
+    return this.systemOverview()?.readiness.label ?? 'Unknown';
+  });
   readonly headerEyebrow = computed(() => {
     const type = this.isIntelligence()
       ? 'Systems · Intelligence'
@@ -1148,22 +836,6 @@ export class SystemViewComponent implements OnInit, OnDestroy {
             : 'Configure, run and refine this AI system.',
   );
 
-  /** Banner label above the stage strip — names what the stages belong to. */
-  readonly pipelineBannerLabel = computed(() =>
-    this.isTranslationSuite()
-      ? 'Translation Suite'
-      : this.isExpertKnowledgeCapture()
-        ? this.i18n.t('systems.view.capture.journey')
-        : 'OmniRAG pipeline',
-  );
-
-  /** The four beats of a capture session, shown before the first one starts. */
-  readonly captureSteps = computed(() =>
-    ([1, 2, 3, 4] as const).map((n) => ({
-      label: this.i18n.t(`systems.view.capture.step${n}`),
-      description: this.i18n.t(`systems.view.capture.step${n}.desc`),
-    })),
-  );
   /** Side panels — Settings and Chat live here, never as tabs. */
   readonly settingsPanelOpen = signal(false);
   readonly chatPanelOpen = signal(false);
@@ -1270,8 +942,6 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     ];
     return `${parts.join(' · ')}.`;
   });
-  readonly recentRuns = computed(() => this.runs().slice(0, 3));
-
   readonly perspectives = signal<Partial<Record<ObjectLens, SystemPerspectiveResponse>>>({});
   readonly perspectivesLoading = signal(false);
   readonly perspectivesError = signal(false);
@@ -1290,17 +960,6 @@ export class SystemViewComponent implements OnInit, OnDestroy {
       experience['system_360_canary'] === 'v1'
     );
   });
-  readonly valueLoopEnabled = computed(() => {
-    return this.system360Enabled()
-      && systemPerspectiveAuthorizesValueLoop(
-        this.perspectives().steer,
-        this.systemId,
-        this.systemSnapshot()?.workspace_id,
-      );
-  });
-  readonly workspaceRequestKey = computed(() =>
-    `${this.workspace.contextEpoch()}:${this.workspace.current()?.id || ''}:${this.workspace.currentSlug() || ''}`,
-  );
   readonly activePerspective = computed(
     () => this.perspectives()[this.activeObjectLens()] ?? null,
   );
@@ -1320,40 +979,6 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     return JSON.stringify(p, null, 2);
   });
 
-  private readonly metrics = signal<MetricsSummary | null>(null);
-  private readonly latestEval = signal<LatestEvaluation | null>(null);
-  private readonly traces = signal<TraceRow[]>([]);
-  private readonly hasCollections = signal(false);
-  readonly kpisLoading = signal(false);
-
-  readonly kpiRequests = computed(() => this.metrics()?.total_requests ?? '—');
-  readonly kpiErrors = computed(() => this.metrics()?.total_errors ?? '—');
-  readonly kpiErrorRate = computed(() => {
-    const rate = this.metrics()?.error_rate_percent;
-    return rate == null ? '—' : rate.toFixed(1);
-  });
-  readonly kpiQuality = computed(() => {
-    const s = this.latestEval()?.composite_score;
-    return s == null ? '—' : s.toFixed(1);
-  });
-  readonly kpiTraces = computed(() => this.traces().length || '—');
-  readonly errorRateTrend = computed<'up' | null>(() => {
-    const rate = this.metrics()?.error_rate_percent;
-    return rate != null && rate > 0 ? 'up' : null;
-  });
-  readonly errorsTrend = computed<'up' | null>(() => {
-    const e = this.metrics()?.total_errors ?? 0;
-    return e > 0 ? 'up' : null;
-  });
-  readonly kpiLatency = computed(() => {
-    const rows = this.traces();
-    if (!rows.length) return '—';
-    const vals = rows.map((r) => r.duration_ms ?? 0).filter((v) => v > 0);
-    if (!vals.length) return '—';
-    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-    return Math.round(avg).toString();
-  });
-
   /**
    * Object-level KPIs rendered in the persistent `<ck-object-header>`.
    * Values not yet tracked render as `—` — better to show the slot and admit
@@ -1364,33 +989,47 @@ export class SystemViewComponent implements OnInit, OnDestroy {
    * deltas); for now all lenses share the same KPI set.
    */
   readonly objectKpis = computed<CkObjectKpi[]>(() => {
-    if (this.system360Enabled()) {
-      const header = this.perspectives()['build']?.header;
-      return [
-        { label: 'Status', value: perspectiveHeaderValue(header?.status) },
-        { label: 'Runs', value: perspectiveHeaderValue(header?.run_count) },
-        { label: 'Success', value: perspectiveHeaderValue(header?.success_rate, '%') },
-        { label: 'Last run', value: perspectiveHeaderValue(header?.last_run_at) },
-      ];
-    }
-    const quality = this.latestEval()?.composite_score;
-    const errRate = this.metrics()?.error_rate_percent;
-    const yieldValue =
-      quality != null ? quality.toFixed(0) : errRate != null ? (100 - errRate).toFixed(0) : '—';
+    const overview = this.systemOverview();
+    const success = overview?.runs.success_rate;
     return [
       {
-        label: 'Yield',
-        value: yieldValue === '—' ? '—' : `${yieldValue}%`,
-        tone: yieldValue === '—' ? 'neutral' : 'cool',
-        hint: 'Composite quality score (latest evaluation).',
+        label: 'Status',
+        value: overview?.readiness.label ?? 'Unknown',
+        tone: overview?.readiness.state === 'ready' ? 'pos' : 'neutral',
       },
       {
         label: 'Runs',
-        value: String(this.traces().length || this.runs().length || 0),
+        value: overview ? String(overview.runs.total) : '—',
         tone: 'neutral',
+      },
+      {
+        label: 'Success',
+        value: success == null ? 'Not measured' : `${success}%`,
+        tone: success == null ? 'neutral' : 'cool',
       },
     ];
   });
+
+  loadSystemOverview(): void {
+    const systemId = this.systemId;
+    if (!systemId) return;
+    this.systemOverviewLoading.set(true);
+    this.systemOverviewError.set(false);
+    const subscription = this.canonical.getSystemOverview(systemId).subscribe({
+      next: (overview) => {
+        if (systemId !== this.systemId) return;
+        this.systemOverview.set(overview);
+        this.systemOverviewLoading.set(false);
+      },
+      error: () => {
+        if (systemId !== this.systemId) return;
+        this.systemOverview.set(null);
+        this.systemOverviewLoading.set(false);
+        this.systemOverviewError.set(true);
+      },
+    });
+    this.viewSubscriptions.add(subscription);
+  }
 
   onTabChange(id: string): void {
     this.activeTab.set(id as SystemTabId);
@@ -1401,62 +1040,6 @@ export class SystemViewComponent implements OnInit, OnDestroy {
       replaceUrl: true,
     });
   }
-
-  readonly wizard = computed<WizardStep[]>(() => {
-    const s = this.settings.settings();
-    const hasModel = !!s.defaultModel;
-    const hasPipeline = !!this.settings.ragPipelineMode();
-    const draft = this.isDraft();
-    return [
-      {
-        key: 'identity',
-        title: 'Identity',
-        description: 'Name, description and prompt.',
-        icon: 'tag',
-        cta: 'Review',
-        route: this.navigation.objectUrl('system', this.systemId),
-        done: !!this.agentName() && this.agentName() !== 'System',
-      },
-      {
-        key: 'knowledge',
-        title: 'Knowledge',
-        description: 'Collections the system can retrieve from.',
-        icon: 'database',
-        cta: 'Open Knowledge',
-        route: this.navigation.surfaceUrl('knowledge'),
-        done: this.hasCollections(),
-      },
-      {
-        key: 'model',
-        title: this.isDemoMode() ? 'Runtime' : 'Model',
-        description: this.isDemoMode()
-          ? 'Provider and model details are managed by workspace policy.'
-          : 'Default LLM, temperature, max tokens.',
-        icon: 'cpu',
-        cta: this.isDemoMode() ? 'Review' : 'Configure',
-        route: this.navigation.surfaceUrl('presets'),
-        done: this.isDemoMode() ? true : hasModel,
-      },
-      {
-        key: 'guardrails',
-        title: 'Guardrails',
-        description: 'RAG pipeline mode, similarity threshold, safety filters.',
-        icon: 'shield-check',
-        cta: 'Configure',
-        route: this.navigation.surfaceUrl('presets'),
-        done: hasPipeline,
-      },
-      {
-        key: 'launch',
-        title: 'Launch',
-        description: 'Promote this draft and start serving traffic.',
-        icon: 'rocket',
-        cta: 'Open chat',
-        route: this.navigation.objectUrl('system', this.systemId),
-        done: !draft,
-      },
-    ];
-  });
 
   get pipelineStages(): PipelineStage[] {
     if (this.isTranslationSuite()) {
@@ -1597,8 +1180,6 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     ];
   }
 
-  readonly completedSteps = computed(() => this.wizard().filter((s) => s.done).length);
-
   goto(path: string): void {
     this.router.navigateByUrl(path);
   }
@@ -1678,8 +1259,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   }
 
   private applyRequestedFacet(): void {
-    const requestedFacet = this.route.snapshot.queryParamMap.get('facet');
-    const facet = ({ skills: 'design', flow: 'design', knowledge: 'context' } as Record<string, string>)[requestedFacet || ''] || requestedFacet;
+    const facet = this.route.snapshot.queryParamMap.get('facet');
     const allowed: SystemTabId[] = this.isIntelligence()
       ? ['intelligence', 'overview', 'runs', 'design', 'context']
       : ['overview', 'runs', 'design', 'context'];
@@ -1848,43 +1428,6 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     this.viewSubscriptions.add(subscription);
   }
 
-  private loadKpis(request: WorkspaceViewRequest, systemId: string): void {
-    this.kpisLoading.set(true);
-    const workspaceSlug = request.scope.workspaceSlug;
-    const subscription = forkJoin({
-      metrics: this.api
-        .get<MetricsSummary>('/metrics/summary', undefined, { workspaceSlug })
-        .pipe(catchError(() => of({} as MetricsSummary))),
-      evaluation: this.api
-        .get<{ evaluation: LatestEvaluation | null }>('/evaluation/latest', {
-          agent_id: systemId,
-        }, { workspaceSlug })
-        .pipe(catchError(() => of({ evaluation: null }))),
-      // Canonical `/runs` — legacy `/traces/traces` is deprecated.
-      traces: this.api
-        .get<{ runs: TraceRow[] } | TraceRow[]>('/runs', { system_id: systemId }, { workspaceSlug })
-        .pipe(
-          map((r) => (Array.isArray(r) ? r : r?.runs ?? [])),
-          catchError(() => of([] as TraceRow[])),
-        ),
-      collections: this.api
-        .get<{ collections: string[] }>('/documents/collections', undefined, { workspaceSlug })
-        .pipe(catchError(() => of({ collections: [] as string[] }))),
-    }).subscribe(({ metrics, evaluation, traces, collections }) => {
-      if (!this.requestIsCurrent(request, systemId)) return;
-      this.metrics.set(metrics ?? null);
-      this.latestEval.set(evaluation?.evaluation ?? null);
-      this.traces.set(
-        (traces ?? []).filter((t) =>
-          t.system_id === systemId || t.agent_id === systemId,
-        ),
-      );
-      this.hasCollections.set((collections?.collections?.length ?? 0) > 0);
-      this.kpisLoading.set(false);
-    });
-    this.viewSubscriptions.add(subscription);
-  }
-
   private reloadCurrentSystem(): void {
     const systemId = this.systemId || this.route.snapshot.paramMap.get('systemId') || '';
     if (!systemId) return;
@@ -1908,7 +1451,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     }
 
     this.loadVariantAndApplyFacet(request, systemId);
-    this.loadKpis(request, systemId);
+    this.loadSystemOverview();
     this.loadRuns(request, systemId);
     this.loadContext(request, systemId);
   }
@@ -1954,11 +1497,9 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     this.runs.set([]);
     this.runsLoading.set(false);
     this.triggering.set(false);
-    this.metrics.set(null);
-    this.latestEval.set(null);
-    this.traces.set([]);
-    this.hasCollections.set(false);
-    this.kpisLoading.set(false);
+    this.systemOverview.set(null);
+    this.systemOverviewLoading.set(false);
+    this.systemOverviewError.set(false);
   }
 
   private resetWorkspaceState(): void {
