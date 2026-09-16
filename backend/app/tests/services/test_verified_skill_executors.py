@@ -312,3 +312,55 @@ def test_a_row_whose_binding_stopped_being_verifiable_fails_at_resolution(db_ses
             slug="ws.ws-exec.custom_op",
         )
     assert refused.value.code == "executor_kind_unknown"
+
+
+@pytest.mark.asyncio
+async def test_pinned_search_cannot_widen_or_override_system_scope(monkeypatch):
+    calls = []
+    async def capture(payload, ctx=None):
+        calls.append((payload, ctx))
+        return {"results": []}
+    entry = wrappers._REGISTRY["semantic_search_v1"]
+    monkeypatch.setitem(wrappers._REGISTRY, "semantic_search_v1", (capture, entry[1], entry[2]))
+    executor = {"kind": "registry_call", "params": {"skill_slug": "semantic_search_v1",
+        "frozen_input": {"context_collection": "history"}}}
+    fn = bind_executor(executor)
+    context = {"retrieval_contract": {"source_policy": {"mode": "restricted"}}}
+    await fn({"query": "NF-04", "collection": "other", "knowledge_scope": "workspace"}, context)
+    contract = calls[0][1]["retrieval_contract"]
+    assert contract["collection"] == "history"
+    assert contract["asset_binding"] == "authoritative"
+    assert contract["allow_workspace_fallback"] is False
+    assert contract["empty_bound_collection"] == "abstain"
+    assert contract["source_policy"] == {"mode": "restricted"}
+    assert context == {"retrieval_contract": {"source_policy": {"mode": "restricted"}}}
+    with pytest.raises(SkillBindingError) as error:
+        await fn({"query": "NF-04"}, {"retrieval_contract": {"collection": "notices"}})
+    assert error.value.code == "executor_collection_outside_contract"
+    with pytest.raises(SkillBindingError):
+        await fn({"query": "NF-04", "authoritative_collections": ["notices"]}, {})
+    with pytest.raises(SkillBindingError):
+        await fn({"query": "NF-04"}, {"authoritative_collections": []})
+    assert len(calls) == 1
+    executor["params"]["frozen_input"]["collection"] = "notices"
+    with pytest.raises(SkillBindingError):
+        bind_executor(executor)
+
+
+@pytest.mark.asyncio
+async def test_pinned_search_native_wrapper_never_retries_at_workspace_scope(monkeypatch):
+    from app.services.rag import context
+    requests = []
+    async def retrieve(request):
+        requests.append(request)
+        return {"chunks": [], "scores": [], "metadatas": [], "metrics": {}}
+    monkeypatch.setattr(context, "retrieve_rag_context", retrieve)
+    fn = bind_executor({"kind": "registry_call", "params": {"skill_slug": "semantic_search_v1",
+        "frozen_input": {"context_collection": "history"}}})
+    result = await fn({"query": "missing", "collection": "other", "knowledge_scope": "workspace"},
+                     {"workspace_id": "ws", "workspace_slug": "showcase"})
+    assert len(requests) == 1
+    assert requests[0]["context_collection"] == "history"
+    assert requests[0]["authoritative_collections"] == ["history"]
+    assert "knowledge_scope" not in requests[0]
+    assert result["results"] == []

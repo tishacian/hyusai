@@ -98,12 +98,31 @@ def _bind_registry_call(params: Mapping[str, Any]) -> SkillCallable:
 
     inner = _seeded_callable(params.get("skill_slug"), path="params.skill_slug")
     frozen = dict(params.get("frozen_input") or {})
+    pinned_collection = None
+    if params.get("skill_slug") == "semantic_search_v1":
+        collections = {str(frozen[key]).strip() for key in ("collection", "collection_name", "context_collection") if frozen.get(key)}
+        if len(collections) > 1:
+            raise SkillBindingError(code="executor_collection_conflict", message="Frozen retrieval collection aliases must agree.")
+        pinned_collection = next(iter(collections), None)
 
     async def _run(
         payload: dict[str, Any], ctx: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         # Frozen last: the authored configuration is the contract, so a run must
         # not be able to substitute its own value for a pinned one.
+        if pinned_collection:
+            contract = dict((ctx or {}).get("retrieval_contract") or {})
+            declared = contract.get("collection") or contract.get("primary_collection")
+            scopes = [source.get("authoritative_collections") for source in (payload, ctx or {}, contract)]
+            excluded = any(isinstance(scope, list) and pinned_collection not in scope for scope in scopes)
+            if excluded or (declared and declared != pinned_collection):
+                raise SkillBindingError(code="executor_collection_outside_contract",
+                    message="The pinned retrieval tool conflicts with the System collection contract.")
+            # Preserve narrower System controls and forbid a search widening on
+            # an empty result. The native retriever enforces this contract.
+            contract.update(asset_binding="authoritative", collection=pinned_collection,
+                empty_bound_collection="abstain", allow_workspace_fallback=False)
+            ctx = {**(ctx or {}), "retrieval_contract": contract}
         return await inner({**payload, **frozen}, ctx)
 
     return _run
