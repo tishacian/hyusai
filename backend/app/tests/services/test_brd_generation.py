@@ -227,3 +227,43 @@ def test_intervention_template_must_actually_receive_retrieved_evidence():
         service.validate_intervention_planner(body, ["decide_next_v1"])
     skill.executor["params"]["template"] += " Request: {objective}"
     service.validate_intervention_planner(body, ["decide_next_v1"])
+
+
+def test_generated_review_tests_require_real_mapped_approval_and_rejection():
+    from copy import deepcopy
+    from pathlib import Path
+    from app.api.v1.endpoints.skills import BrdProposalBody
+    artifact = Path(__file__).resolve().parents[4] / 'docs/evidence/northforge-brd-2026-09-16/revision-2/live-generation.json'
+    raw = json.loads(artifact.read_text())['result']['proposal']
+    body = BrdProposalBody.model_validate({
+        key: value for key, value in {**raw, 'request_key': 'review-contract'}.items()
+        if key in BrdProposalBody.model_fields
+    })
+    with pytest.raises(ValueError, match='expose its decision_status'):
+        service.validate_generated_review_tests(body)
+    sink = next(node for node in body.flow_definition['nodes'] if node['kind'] == 'sink')
+    config = sink['config']
+    config['output_schema']['properties']['decision_status'] = {'type': 'string'}
+    config['output_schema']['required'].append('decision_status')
+    config['inputs_map']['decision_status'] = {
+        'node_id': 'review_hitl', 'path': ['decision_status'], 'required': True}
+    with pytest.raises(ValueError, match='both approved and rejected'):
+        service.validate_generated_review_tests(body)
+    review_case = next(case for case in body.cases if case['id'] == 'case-review-reject')
+    review_case['assertions'].append({'id': 'rejected', 'path': ['decision_status'],
+                                      'operator': 'equals', 'value': 'rejected'})
+    with pytest.raises(ValueError, match='both approved and rejected'):
+        service.validate_generated_review_tests(body)
+    approval = deepcopy(review_case)
+    approval['id'] = 'case-review-approve'
+    approval['assertions'][-1]['value'] = 'approved'
+    body.cases.append(approval)
+    with pytest.raises(ValueError, match='both approved and rejected'):
+        service.validate_generated_review_tests(body)
+    for mapping in body.mappings:
+        if 'review_hitl' in mapping.node_ids:
+            mapping.case_ids.append(approval['id'])
+    service.validate_generated_review_tests(body)
+    config['inputs_map']['decision_status']['node_id'] = 'task_synthesis'
+    with pytest.raises(ValueError, match='model text is not a decision'):
+        service.validate_generated_review_tests(body)
