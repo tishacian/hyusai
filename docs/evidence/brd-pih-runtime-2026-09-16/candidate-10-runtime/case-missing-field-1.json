@@ -1,0 +1,38 @@
+{
+  "case_id": "case-missing-field-1",
+  "run_id": "3e51a73d-caca-4194-9da3-0430c95e0c6f",
+  "output": {
+    "completion": "Title: PIH SPARK-089 Regrade Request \u2014 Documentary Summary\n\n1) Key Facts\n- Current title: Data Specialist [evidence: \"Current role: Data Specialist (Grade G6)\"]\n- Current grade: G6 [evidence: \"Current role: Data Specialist (Grade G6)\"]\n- Proposed title: Data Engineer [evidence: \"Proposed role: Data Engineer\"]\n- Proposed grade: Missing: proposed grade [evidence: \"Missing evidence: proposed grade\"]\n- Effective date: Missing: effective date [evidence: \"Missing evidence: effective date\"]\n\n2) Citations (verbatim)\n- \"Current role: Data Specialist (Grade G6)\"\n- \"Proposed role: Data Engineer\"\n- \"Missing evidence: proposed grade\"\n- \"Missing evidence: effective date\"\n\n3) Missing Information\n- Proposed grade\n- Effective date\n\n4) Compliance Note\n- No HR approval, rejection, or recommendation is made."
+  },
+  "assertions": {
+    "verdict": "passed",
+    "assertions": [
+      {
+        "id": "b1-current-grade-present",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "b2-proposed-grade-missing",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "b3-effective-date-missing",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "b4-no-invented-grade",
+        "passed": true,
+        "path_found": true
+      },
+      {
+        "id": "b5-prohibition-explicit",
+        "passed": true,
+        "path_found": true
+      }
+    ]
+  },
+  "review": "harness_acceptance_not_human"
+}
