@@ -22,6 +22,7 @@ from app.models.capability import Capability
 from app.models.brd_document import BrdDocument
 from app.services.object_store import ObjectStore
 from app.services.skills_registry.brd_documents import retain_brd, document_payload
+from app.services.skills_registry.brd_generation import BrdGenerationRequest
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.user import User
@@ -728,6 +729,10 @@ async def save_business_requirements_proposal(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    return _save_business_requirements_proposal(document_id, body, workspace=workspace, user=user, db=db)
+
+
+def _save_business_requirements_proposal(document_id, body, *, workspace, user, db, generation=None):
     import json
     from app.api.v1.endpoints.evaluation_campaigns import CaseBody
     from app.services.chains import dag_validator
@@ -762,6 +767,8 @@ async def save_business_requirements_proposal(
         case_ids={case.id for case in cases})
     payload["problems"] = list(document.extraction.get("problems", []))
     payload["execution_readiness"] = "not_validated"
+    if generation is not None:
+        payload["generation"] = generation
     return proposal_payload(retain_proposal(db, document=document, user=user,
                                            request_key=body.request_key, proposal=payload))
 
@@ -820,6 +827,71 @@ async def apply_business_requirements_proposal(
     except Exception:
         db.rollback()
         raise
+
+
+@router.post("/imports/business-requirements/{document_id}/generations")
+async def generate_business_requirements_proposal(
+    document_id: str,
+    body: BrdGenerationRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.models.workspace_job import WorkspaceJob
+    from app.services.flow_contracts import canonical_sha256
+    from app.services.skills_registry.brd_generation import authorized_catalog
+    from app.services.workspace_jobs import create_workspace_job, dispatch_workspace_job, serialize_job
+    _retained_brd(db, workspace, user, document_id)
+    authorized_catalog(db, workspace, user, body.skill_slugs)
+    # Serialize enqueue requests on the document, including concurrent retries.
+    db.query(BrdDocument).filter_by(id=document_id, workspace_id=workspace.id).with_for_update().one()
+    request = {"document_id": document_id, "request": body.model_dump()}
+    digest = canonical_sha256(request)
+    previous = db.query(WorkspaceJob).filter(
+        WorkspaceJob.workspace_id == workspace.id, WorkspaceJob.created_by_user_id == user.id,
+        WorkspaceJob.kind == "brd_generation",
+        WorkspaceJob.input_ref["document_id"].as_string() == document_id,
+        WorkspaceJob.input_ref["request"]["request_key"].as_string() == body.request_key,
+    ).first()
+    if previous:
+        if previous.input_ref.get("request_sha256") != digest:
+            raise HTTPException(409, "Generation request key already used")
+        return serialize_job(previous)
+    job = create_workspace_job(db, workspace, user, kind="brd_generation", title=body.name,
+        input_ref={**request, "request_sha256": digest}, status="queued")
+    db.commit()
+    task_id = dispatch_workspace_job(db, workspace, job, allow_inline_fallback=False)
+    if task_id is None and job.status in {"created", "queued"}:
+        job.status, job.stage = "failed", "dispatch_unavailable"
+        job.error = "The generation worker is unavailable. No proposal was generated."
+    db.commit()
+    return serialize_job(job)
+
+
+@router.get("/imports/business-requirements/{document_id}/generations/{job_id}")
+async def get_business_requirements_generation(
+    document_id: str,
+    job_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from datetime import datetime
+    from app.models.workspace_job import WorkspaceJob
+    from app.services.skills_registry.brd_generation import authorized_catalog
+    from app.services.workspace_jobs import serialize_job
+    _retained_brd(db, workspace, user, document_id)
+    job = db.query(WorkspaceJob).filter_by(id=job_id, workspace_id=workspace.id,
+        created_by_user_id=user.id, kind="brd_generation").first()
+    if job is None or job.input_ref.get("document_id") != document_id:
+        raise HTTPException(404, "BRD generation not found")
+    authorized_catalog(db, workspace, user, job.input_ref["request"].get("skill_slugs", []))
+    if job.status in {"created", "queued", "running"} and (datetime.utcnow() - job.updated_at).total_seconds() > 600:
+        job.status, job.stage = "failed", "worker_interrupted"
+        job.error = "The generation worker stopped reporting progress. Start a new attempt."
+        job.completed_at = datetime.utcnow()
+        db.commit()
+    return serialize_job(job)
 
 
 @router.get("/{slug}")

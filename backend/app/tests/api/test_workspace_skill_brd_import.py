@@ -290,3 +290,64 @@ def test_reviewed_proposal_applies_once_to_draft_only(db_session, tmp_path, monk
     new_draft = db_session.query(SystemFlowDraft).filter_by(system_id=successful.json()["system_id"]).one()
     assert new_draft.flow_definition["nodes"][1]["config"]["skill_slug"] == authored.slug
     assert db_session.query(SystemFlowDraft).filter_by(system_id=system.id).one().revision == 2
+
+
+def test_brd_generation_is_durable_idempotent_and_validated(db_session, tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.db import base
+    from app.models.workspace_job import WorkspaceJob
+    from app.models.brd_proposal import BrdProposal
+    from app.services import workspace_jobs
+    from app.services.skills_registry import brd_generation
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path))
+    monkeypatch.setattr(workspace_jobs, "dispatch_workspace_job", lambda *a, **k: "task")
+    from contextlib import nullcontext
+    monkeypatch.setattr(base, "SessionLocal", lambda: nullcontext(db_session))
+    workspace, user = _seed(db_session)
+    client = _client(db_session, workspace, user)
+    document_id = client.post("/skills/import/business-requirements?retain=true",
+                             files={"file": ("brd.docx", _brd())}).json()["document"]["id"]
+    path = f"/skills/imports/business-requirements/{document_id}/generations"
+    request = {"request_key": "gen-1", "family": "document_summary", "name": "PIH"}
+    response = client.post(path, json=request)
+    assert response.status_code == 200, response.text
+    job_id = response.json()["id"]
+    assert client.post(path, json=request).json()["id"] == job_id
+    assert client.post(path, json={**request, "name": "changed"}).status_code == 409
+    calls = []
+    async def generate(*args, **kwargs):
+        calls.append(True)
+        return {"request_key": "model-invented", "name": "PIH", "flow_definition": {
+            "schema_version": 3, "nodes": [{"id": "in", "kind": "source", "type": "source"},
+            {"id": "out", "kind": "sink", "type": "sink"}],
+            "edges": [{"from": "in", "to": "out", "kind": "data"}]}}, {"method": "test_stub"}
+    monkeypatch.setattr(brd_generation, "generate_material", generate)
+    assert brd_generation.run_generation_job(job_id)["status"] == "completed"
+    assert brd_generation.run_generation_job(job_id)["status"] == "completed"
+    assert len(calls) == 1
+    proposal = db_session.query(BrdProposal).one()
+    assert proposal.request_key == job_id
+    assert proposal.proposal["generation"]["job_id"] == job_id
+    assert db_session.query(WorkspaceJob).one().result["id"] == proposal.id
+    assert db_session.query(Skill).count() == 0
+
+    async def invalid(*args, **kwargs):
+        material, generation = await generate(*args, **kwargs)
+        material["flow_definition"]["nodes"][0]["config"] = {"skill_slug": "foreign_tool"}
+        return material, generation
+    monkeypatch.setattr(brd_generation, "generate_material", invalid)
+    second = client.post(path, json={**request, "request_key": "gen-2"}).json()["id"]
+    assert brd_generation.run_generation_job(second)["status"] == "failed"
+    assert db_session.query(BrdProposal).count() == 1
+
+    from app.api.v1.endpoints import workspace_jobs as jobs_api
+    client.app.include_router(jobs_api.router, prefix="/workspace-jobs")
+    assert client.post("/workspace-jobs/", json={"kind": "brd_generation", "title": "forged"}).status_code == 403
+    assert client.post(f"/workspace-jobs/{job_id}/transition", json={"status": "completed", "result": {"forged": True}}).status_code == 403
+    assert client.get(f"/workspace-jobs/{job_id}").status_code == 200
+    member = db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).one()
+    member.role_template = "workspace_viewer"
+    db_session.commit()
+    assert client.get(f"/workspace-jobs/{job_id}").status_code == 404
+    assert client.get(path + "/" + job_id).status_code == 403
