@@ -546,3 +546,16 @@ suite revision, case and batch identity. No parallel result journal is introduce
 Fifty workbench/campaign tests passed; the serializer regression also checks the
 retained suite identity and final verdict. Frontend display and idempotent batch
 submission remain to connect before release.
+
+
+### Duplicate suite submission — 16 September
+
+Suite-based Golden Runs now require a request key. The existing System row lock
+serializes submissions; server-owned execution metadata retains the request
+fingerprint. An identical retry returns the same batch and Runs without another
+dispatch; changed content with the same key returns 409. The key is scoped by
+workspace, System and initiating user. Ad-hoc Golden Runs remain compatible.
+
+The API replay test confirms one Run and one dispatch. Twenty-two workbench
+tests pass. Concurrent PostgreSQL submission and interruption between commit and
+dispatch remain to qualify; this does not claim exactly-once external effects.

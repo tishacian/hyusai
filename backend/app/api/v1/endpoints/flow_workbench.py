@@ -111,6 +111,7 @@ class WorkbenchGoldenBody(BaseModel):
     kind: Literal["manual", "chat", "http", "schedule", "event"] | None = None
     cases: list[GoldenCaseBody] | None = Field(default=None, min_length=1, max_length=20)
     suite_id: str | None = Field(default=None, min_length=1, max_length=36)
+    request_key: str | None = Field(default=None, min_length=1, max_length=160)
 
     @field_validator("acknowledge_real_side_effects", mode="before")
     @classmethod
@@ -125,6 +126,8 @@ class WorkbenchGoldenBody(BaseModel):
             raise ValueError("ingress_id and kind must be provided together")
         if (self.cases is None) == (self.suite_id is None):
             raise ValueError("Provide either cases or a reviewed suite_id")
+        if self.suite_id and not self.request_key:
+            raise ValueError("Suite execution requires a request_key")
         case_ids = [case.id for case in (self.cases or [])]
         if len(set(case_ids)) != len(case_ids):
             raise ValueError("golden case ids must be unique")
@@ -336,7 +339,24 @@ async def create_golden_preview_runs(
         if corpus_manifest(db, workspace.id, [item["id"] for item in suite.corpus_manifest]) != suite.corpus_manifest:
             raise HTTPException(409, "Corpus changed; review a new suite revision")
         raw_cases = copy.deepcopy(suite.cases)
+    from app.services.flow_contracts import canonical_sha256
+    request_sha256 = canonical_sha256(body.model_dump())
     try:
+        if body.request_key:
+            # Serialize submissions for this System using the existing row lock.
+            flow_workbench._locked_system(db, system_id=system_id, workspace=workspace)
+            previous = db.query(Run).filter(
+                Run.workspace_id == workspace.id, Run.system_id == system_id,
+                Run.initiated_by_user_id == user.id, Run.execution_surface == "golden_preview",
+                Run.input_ref["execution"]["golden_request_key"].as_string() == body.request_key,
+            ).order_by(Run.started_at, Run.id).all()
+            if previous:
+                if any(run.input_ref["execution"].get("golden_request_sha256") != request_sha256 for run in previous):
+                    raise HTTPException(409, "Request key already used for another test batch")
+                execution = previous[0].input_ref["execution"]
+                return {"batch_id": execution["golden_batch_id"],
+                    "flow_sha256": execution["source_flow_sha256"],
+                    "runs": [_run_payload(run) for run in previous]}
         flow_workbench.validate_golden_cases(raw_cases)
         prepared = flow_workbench.prepare_preview(
             db,
@@ -371,6 +391,8 @@ async def create_golden_preview_runs(
                 metadata={
                     "golden_batch_id": batch_id,
                     "golden_case_id": case["id"],
+                    **({"golden_request_key": body.request_key,
+                        "golden_request_sha256": request_sha256} if body.request_key else {}),
                     "real_side_effects_acknowledged": (
                         body.acknowledge_real_side_effects
                     ),

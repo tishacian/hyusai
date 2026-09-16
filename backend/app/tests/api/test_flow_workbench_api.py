@@ -851,7 +851,8 @@ async def test_workbench_runs_cannot_use_generic_replay_or_rerun(
 def test_golden_runs_use_reviewed_suite_without_baseline(db_session, monkeypatch):
     from app.models.evaluation_campaign import EvaluationSuite
     workspace, user, system, _ = _seed(db_session)
-    http = _client(db_session, workspace, user, monkeypatch)
+    dispatches = []
+    http = _client(db_session, workspace, user, monkeypatch, dispatches)
     assertions = [{"id": "fact", "path": ["completion"], "operator": "contains", "value": "source"}]
     suite = EvaluationSuite(workspace_id=workspace.id, system_id=system.id, name="BRD cases",
         revision=1, created_by_user_id=user.id, cases=[{"id": "first", "input_ref": {"case": "source"},
@@ -860,7 +861,7 @@ def test_golden_runs_use_reviewed_suite_without_baseline(db_session, monkeypatch
     db_session.commit()
     flow = _flow("suite-run")
     body = {"acknowledge_real_side_effects": True, "flow_definition": flow,
-            "expected_flow_sha256": canonical_flow_sha256(flow), "suite_id": suite.id}
+            "expected_flow_sha256": canonical_flow_sha256(flow), "suite_id": suite.id, "request_key": "suite-first"}
     url = f"/systems/{system.id}/flow-workbench/golden-runs"
     assert http.post(url, json={**body, "cases": [{"id": "override", "input_ref": {}}]}).status_code == 422
     response = http.post(url, json=body)
@@ -879,6 +880,14 @@ def test_golden_runs_use_reviewed_suite_without_baseline(db_session, monkeypatch
     result = runs_endpoint._row(runs[0], db=db_session)["test_result"]
     assert result["verdict"] == "passed"
     assert result["suite_id"] == suite.id
+    replay = http.post(url, json=body)
+    assert replay.status_code == 201, replay.text
+    assert replay.json()["batch_id"] == response.json()["batch_id"]
+    assert replay.json()["runs"][0]["id"] == runs[0].id
+    assert dispatches == [runs[0].id]
+    assert db_session.query(Run).filter_by(system_id=system.id).count() == 1
+    changed = {**body, "flow_definition": _flow("changed-request")}
+    assert http.post(url, json=changed).status_code == 409
 
 
 def test_suite_run_verdict_uses_frozen_server_criteria():
