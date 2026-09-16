@@ -294,6 +294,13 @@ def build_decide_prompt(
         "facts that an available read tool can retrieve. If the requested action requires "
         "an unavailable write capability, return exit=policy_block, done=false; do not "
         "request permission to bypass the visible mandate.\n"
+        "For a documentary goal that allows reporting evidence gaps, done=true means "
+        "the investigation is finished, not that every requested fact was found. "
+        "When authorized evidence explicitly lacks a fact and the goal permits an "
+        "absence report, finish with next_skill=null, done=true and explain the gap "
+        "in rationale. Do not ask a human to supply that fact merely to mark the "
+        "investigation complete. This does not satisfy any separate required checks "
+        "or grant permission for actions outside the mandate.\n"
         "Reply with JSON only, no prose:\n"
         '{"next_skill":"<slug or null>","rationale":"...","confidence":0.0,'
         '"needs_human":false,"human_prompt":null,"exit":null,"done":false}\n'
