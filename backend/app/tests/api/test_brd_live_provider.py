@@ -236,13 +236,17 @@ async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
     monkeypatch.setattr(settings, 'object_store_base_path', str(tmp_path))
     workspace, user = _seed(db_session)
     client = _client(db_session, workspace, user)
-    northforge_catalog(db_session, workspace, client)
+    selected_slugs = northforge_catalog(db_session, workspace, client)
     source = Path(__file__).parents[1]/'fixtures/brd/northforge-intervention.docx'
     imported = client.post('/skills/import/business-requirements?retain=true',
                            files={'file': (source.name, source.read_bytes())})
     assert imported.status_code == 200, imported.text
     path = '/skills/imports/business-requirements/'+imported.json()['document']['id']+'/proposals'
     material = json.loads(Path(os.environ['BRD_NORTHFORGE_CANDIDATE']).read_text())
+    for node in material['flow_definition']['nodes']:
+        if node.get('kind') == 'agent_loop':
+            assert node['config']['privilege_tier'] == 'recommend'
+            assert set(node['config']['skill_allowlist']) <= set(selected_slugs) - {'decide_next_v1'}
     proposal = client.post(path, json=material)
     assert proposal.status_code == 200, proposal.text
     proposal = proposal.json()
@@ -263,6 +267,7 @@ async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
         monkeypatch.setitem(wrappers._REGISTRY, slug, (fn, entry[1], entry[2]))
     failures = []
     for case in material['cases']:
+        case_started = time.monotonic()
         run = create_draft_test_run(db_session, system_id=draft.system_id, workspace=workspace,
             user_id=user.id, input_ref=case['input_ref'], expected_draft_revision=draft.revision,
             expected_flow_sha256=draft.flow_sha256)
@@ -273,15 +278,15 @@ async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
         record = {'case': case, 'result': result, 'status': run.status, 'output': run.output_ref,
                   'checkpoints': run.checkpoints, 'review': 'not_performed',
                   'invocations': [{'id': row.id, 'skill': row.skill_slug, 'status': row.status,
-                                   'input': row.input_ref, 'output': row.output_ref} for row in calls]}
+                                   'input': row.input_ref, 'output': row.output_ref,
+                                   'error': row.error, 'trace': row.trace} for row in calls]}
         from app.models.decision import Decision
         decision = db_session.get(Decision, result['awaiting_decision']) if result.get('awaiting_decision') else None
         review_nodes = {node['id'] for node in draft.flow_definition['nodes'] if node.get('kind') == 'hitl'}
         record['decision_node'] = (decision.rationale or {}).get('node_id') if decision else None
         if result['status'] == 'hitl_pending' and record['decision_node'] in review_nodes:
             from app.services.run_engine.dag import resume_run_dag
-            from app.services.evaluation.campaigns import assertion_results, assert_read_only
-            assert_read_only(run.flow_snapshot, run.execution_contract)
+            from app.services.evaluation.campaigns import assertion_results
             # Isolated engine test, not user acceptance: never approve a planner request.
             decision.status = 'accepted'
             db_session.commit()
@@ -294,5 +299,6 @@ async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
                 failures.append({'case': case['id'], 'resumed': resumed, 'assertions': record['assertions']})
         else:
             failures.append({'case': case['id'], 'result': result, 'decision_node': record['decision_node']})
+        record['seconds'] = time.monotonic() - case_started
         (evidence/(case['id']+'.json')).write_text(json.dumps(record, indent=2, default=str))
     assert not failures, failures
