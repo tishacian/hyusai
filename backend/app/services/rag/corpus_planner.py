@@ -98,7 +98,8 @@ _DOCUMENT_DISCOVERY_RE = re.compile(
     re.IGNORECASE,
 )
 _TABLE_VALUE_LOOKUP_RE = re.compile(
-    r"\b(que\s+vaut|valeur|value|label|table|feuille|sheet|cellule|cell|ligne|row|colonne|column)\b",
+    r"\b(que\s+vaut|valeur|value|label|table|feuille|sheet|cellule|cell|ligne|row|colonne|column|"
+    r"inventory\s+line|stock\s+line)\b",
     re.IGNORECASE,
 )
 _QUESTION_FACET_RE = re.compile(

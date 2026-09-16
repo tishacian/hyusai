@@ -1,0 +1,696 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+3 0 obj
+<< /Title (PROC-SAFE-118 Seal replacement on feed-water pumps) /Producer (Agentium demo kit generator) /Creator (demo-assets/pump-incident-demo/tools/generate_assets.py) /CreationDate (D:20260105000000Z) /ModDate (D:20260105000000Z) >>
+endobj
+4 0 obj
+<< /Length 5103 >>
+stream
+BT
+0.00 g
+/F2 17.00 Tf
+1 0 0 1 56.00 761.05 Tm
+(PROC-SAFE-118 Seal replacement on feed-water pumps) Tj
+ET
+q 0.35 g 56.00 751.05 483.00 1.00 re f Q
+BT
+0.00 g
+/F2 12.50 Tf
+1 0 0 1 56.00 716.17 Tm
+(Document control) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 699.67 Tm
+(Synthetic demonstration data. Nordvane Fluid Systems SA is an invented company and this procedure exists) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 686.17 Tm
+(only for an Agentium product demonstration. It is not a real safety document and must never be used on real) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 672.67 Tm
+(equipment.) Tj
+ET
+BT
+0.00 g
+/F2 10.00 Tf
+1 0 0 1 56.00 649.17 Tm
+(Field) Tj
+ET
+BT
+0.00 g
+/F2 10.00 Tf
+1 0 0 1 157.15 649.17 Tm
+(Value) Tj
+ET
+q 0.35 g 56.00 643.38 483.00 0.80 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 629.88 Tm
+(Procedure reference) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 157.15 629.88 Tm
+(PROC-SAFE-118) Tj
+ET
+q 0.82 g 56.00 624.48 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 610.98 Tm
+(Title) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 157.15 610.98 Tm
+(Seal replacement on boiler feed-water centrifugal pumps) Tj
+ET
+q 0.82 g 56.00 605.58 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 592.08 Tm
+(Issued by) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 157.15 592.08 Tm
+(Nordvane Fluid Systems SA, Reliability Engineering) Tj
+ET
+q 0.82 g 56.00 586.68 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 573.18 Tm
+(Version) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 157.15 573.18 Tm
+(6.0, effective 2026-01-05) Tj
+ET
+q 0.82 g 56.00 567.78 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 554.28 Tm
+(Applies to) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 157.15 554.28 Tm
+(NVX-PUMP-7700 series boiler feed-water centrifugal pumps) Tj
+ET
+q 0.82 g 56.00 548.88 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 535.38 Tm
+(Related policy) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 157.15 535.38 Tm
+(SLA-PLATINUM-04) Tj
+ET
+q 0.82 g 56.00 529.98 483.00 0.40 re f Q
+BT
+0.00 g
+/F2 12.50 Tf
+1 0 0 1 56.00 497.10 Tm
+(1. Restart decision rule) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 480.60 Tm
+(The overall vibration velocity at the drive end decides whether a pump may run.) Tj
+ET
+BT
+0.00 g
+/F2 10.00 Tf
+1 0 0 1 56.00 457.10 Tm
+(Overall vibration velocity, drive end) Tj
+ET
+BT
+0.00 g
+/F2 10.00 Tf
+1 0 0 1 234.96 457.10 Tm
+(Decision) Tj
+ET
+q 0.35 g 56.00 451.30 483.00 0.80 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 437.80 Tm
+(Below 4.5 mm/s RMS) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 234.96 437.80 Tm
+(Normal operation) Tj
+ET
+q 0.82 g 56.00 432.40 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 418.90 Tm
+(4.5 to 7.1 mm/s RMS) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 234.96 418.90 Tm
+(Operation allowed, plan an inspection) Tj
+ET
+q 0.82 g 56.00 413.50 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 400.00 Tm
+(Above 7.1 mm/s RMS) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 234.96 400.00 Tm
+(Restart prohibited, mechanical repair required first) Tj
+ET
+q 0.82 g 56.00 394.60 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 375.10 Tm
+(A pump reading above 7.1 mm/s RMS must not be restarted, not even briefly and not even at reduced) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 361.60 Tm
+(speed, until the mechanical repair described in section 3 has been completed and a new vibration reading is) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 348.10 Tm
+(below 7.1 mm/s RMS.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 328.60 Tm
+(A visible seal leak above 0.5 litres per hour requires seal replacement whatever the vibration reading is.) Tj
+ET
+BT
+0.00 g
+/F2 12.50 Tf
+1 0 0 1 56.00 295.73 Tm
+(2. Isolation and lockout) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 279.23 Tm
+(Before any seal work begins:) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 72.00 259.73 Tm
+(Isolate the pump electrically and apply lockout tagout, one padlock per person.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 61.00 259.73 Tm
+(-) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 72.00 244.23 Tm
+(Close and lock the suction and discharge valves.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 61.00 244.23 Tm
+(-) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 72.00 228.73 Tm
+(Depressurise and drain the casing, then verify zero pressure at the vent.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 61.00 228.73 Tm
+(-) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 72.00 213.23 Tm
+(Let the casing cool below 45 degrees Celsius before opening.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 61.00 213.23 Tm
+(-) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 72.00 197.73 Tm
+(Record the isolation in the intervention log with the incident reference.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 61.00 197.73 Tm
+(-) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 176.23 Tm
+(Seal work on a pump that has not been locked out is a stop-work condition.) Tj
+ET
+BT
+0.00 g
+/F2 12.50 Tf
+1 0 0 1 56.00 143.35 Tm
+(3. Permanent seal replacement) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 126.85 Tm
+(The permanent repair is a full cartridge seal replacement.) Tj
+ET
+BT 0.55 g /F1 8.00 Tf 1 0 0 1 56.00 36.00 Tm (PROC-SAFE-118  |  Nordvane Fluid Systems SA  |  synthetic demonstration document  |  Page 1 of 2) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 8 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 6157 >>
+stream
+BT
+0.00 g
+/F2 10.00 Tf
+1 0 0 1 56.00 770.50 Tm
+(Requirement) Tj
+ET
+BT
+0.00 g
+/F2 10.00 Tf
+1 0 0 1 215.50 770.50 Tm
+(Value) Tj
+ET
+q 0.35 g 56.00 764.70 483.00 0.80 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 751.20 Tm
+(Mandatory spare part) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 215.50 751.20 Tm
+(SEAL-KIT-3309) Tj
+ET
+q 0.82 g 56.00 745.80 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 732.30 Tm
+(Spare part always replaced with it) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 215.50 732.30 Tm
+(GSK-1180 casing gasket set) Tj
+ET
+q 0.82 g 56.00 726.90 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 713.40 Tm
+(Conditional spare part) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 215.50 713.40 Tm
+(BRG-2214 bearing pair, only if the inspection in 3.4 fails) Tj
+ET
+q 0.82 g 56.00 708.00 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 694.50 Tm
+(Certified technicians required) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 215.50 694.50 Tm
+(2) Tj
+ET
+q 0.82 g 56.00 689.10 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 675.60 Tm
+(Certification required) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 215.50 675.60 Tm
+(Nordvane rotating-equipment level 2 or above) Tj
+ET
+q 0.82 g 56.00 670.20 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 656.70 Tm
+(Planned duration) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 215.50 656.70 Tm
+(5.5 hours from lockout to handover) Tj
+ET
+q 0.82 g 56.00 651.30 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 637.80 Tm
+(Post-repair acceptance) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 215.50 637.80 Tm
+(Vibration below 7.1 mm/s RMS and leak rate below 0.1 litres per hour) Tj
+ET
+q 0.82 g 56.00 632.40 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 612.90 Tm
+(Step 3.1. Remove the coupling guard and the coupling element, then inspect the coupling element) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 599.40 Tm
+(COUP-3320 for cracking.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 579.90 Tm
+(Step 3.2. Remove the seal gland and withdraw the cartridge seal without rotating the shaft.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 560.40 Tm
+(Step 3.3. Clean the seal chamber and measure the shaft runout. Runout above 0.05 mm requires shaft) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 546.90 Tm
+(correction before the new seal is fitted.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 527.40 Tm
+(Step 3.4. Inspect the bearing pair by hand for roughness and by endplay measurement. Endplay above 0.12) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 513.90 Tm
+(mm fails the inspection and requires BRG-2214.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 494.40 Tm
+(Step 3.5. Fit SEAL-KIT-3309 and the GSK-1180 gasket set, torque the gland evenly to 45 newton metres,) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 480.90 Tm
+(then release the lockout and refill the casing.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 461.40 Tm
+(Step 3.6. Run the pump for 30 minutes and record the acceptance measurements.) Tj
+ET
+BT
+0.00 g
+/F2 12.50 Tf
+1 0 0 1 56.00 428.53 Tm
+(4. Temporary measure WORKAROUND-GP-02) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 412.03 Tm
+(WORKAROUND-GP-02 is a temporary graphite gland packing arrangement that lets a pump carry a reduced) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 398.53 Tm
+(load while a seal kit is in transit. It uses the consumable GLAND-PK-0440.) Tj
+ET
+BT
+0.00 g
+/F2 10.00 Tf
+1 0 0 1 56.00 375.03 Tm
+(Limit) Tj
+ET
+BT
+0.00 g
+/F2 10.00 Tf
+1 0 0 1 210.50 375.03 Tm
+(Value) Tj
+ET
+q 0.35 g 56.00 369.23 483.00 0.80 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 355.73 Tm
+(Maximum continuous duration) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 210.50 355.73 Tm
+(48 hours) Tj
+ET
+q 0.82 g 56.00 350.33 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 336.83 Tm
+(Maximum duty while applied) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 210.50 336.83 Tm
+(60 percent of nominal flow) Tj
+ET
+q 0.82 g 56.00 331.43 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 317.93 Tm
+(Approval authority required) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 210.50 317.93 Tm
+(Nordvane reliability engineer, level 3) Tj
+ET
+q 0.82 g 56.00 312.53 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 299.03 Tm
+(Vibration ceiling while applied) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 210.50 299.03 Tm
+(7.1 mm/s RMS, measured after 30 minutes) Tj
+ET
+q 0.82 g 56.00 293.63 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 280.13 Tm
+(Permitted leak rate while applied) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 210.50 280.13 Tm
+(Up to 3 litres per hour to a bunded drain) Tj
+ET
+q 0.82 g 56.00 274.73 483.00 0.40 re f Q
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 255.23 Tm
+(WORKAROUND-GP-02 is permitted only when all of the following are true:) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 72.00 235.73 Tm
+(The pump has been isolated and locked out as described in section 2.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 61.00 235.73 Tm
+(-) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 72.00 220.23 Tm
+(A level 3 reliability engineer has approved the measure.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 61.00 220.23 Tm
+(-) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 72.00 204.73 Tm
+(The replacement seal kit is already confirmed in transit.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 61.00 204.73 Tm
+(-) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 72.00 189.23 Tm
+(The customer has been informed in writing of the duty limit and the time limit.) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 61.00 189.23 Tm
+(-) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 167.73 Tm
+(WORKAROUND-GP-02 is not a repair. The permanent replacement in section 3 remains due, and applying) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 154.23 Tm
+(the temporary measure does not change any commitment under SLA-PLATINUM-04.) Tj
+ET
+BT
+0.00 g
+/F2 12.50 Tf
+1 0 0 1 56.00 121.35 Tm
+(5. Handover) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 104.85 Tm
+(The intervention log entry closes with the incident reference, the parts consumed, the two acceptance) Tj
+ET
+BT
+0.00 g
+/F1 10.00 Tf
+1 0 0 1 56.00 91.35 Tm
+(measurements, and the names of both certified technicians.) Tj
+ET
+BT 0.55 g /F1 8.00 Tf 1 0 0 1 56.00 36.00 Tm (PROC-SAFE-118  |  Nordvane Fluid Systems SA  |  synthetic demonstration document  |  Page 2 of 2) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 8 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+9 0 obj
+<< /Type /Catalog /Pages 8 0 R >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000112 00000 n 
+0000000214 00000 n 
+0000000465 00000 n 
+0000005620 00000 n 
+0000005756 00000 n 
+0000011965 00000 n 
+0000012101 00000 n 
+0000012164 00000 n 
+trailer
+<< /Size 10 /Root 9 0 R /Info 3 0 R >>
+startxref
+12213
+%%EOF
