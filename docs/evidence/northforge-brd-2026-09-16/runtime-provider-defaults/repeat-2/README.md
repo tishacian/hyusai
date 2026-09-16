@@ -17,4 +17,7 @@ assertion, lowered threshold or regenerated answer was used to count it as a pas
 
 Five consecutive successful suites are **not established**. Suite 1 remains one
 successful execution; the repeated absence failure is retained in absence.json.
-Remaining cases of this repeat were still running when this partial record was made.
+Final result: **1 pytest failure in 476.61 seconds**. Four cases completed with
+passing assertions and exact review status; only the absence case paused for
+planner clarification. The mutation refusal took 135.28s and review rejection
+80.00s. All final outputs are retained in outcomes.json.
