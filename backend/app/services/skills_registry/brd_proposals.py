@@ -57,6 +57,18 @@ def validate_case_output_paths(flow, cases):
                         "assertion_ids": [requirement.id, exclusion.id],
                         "message": "The same result cannot contain required text and exclude part of that text.",
                     })
+    sources = [node for node in flow.get("nodes", []) if node.get("kind") == "source"]
+    if len(sources) == 1:
+        from app.services.flow_contracts import validate_schema_definition, validate_payload, FlowContractError
+        schema = (sources[0].get("config") or {}).get("input_schema")
+        if schema is not None:
+            try:
+                schema = validate_schema_definition(schema, field="input_schema")
+                for case in cases:
+                    validate_payload(case.input_ref, schema, code="brd_case_input_invalid", subject=f"Case {case.id}")
+            except FlowContractError as exc:
+                raise HTTPException(422, {"code": exc.code, "message": str(exc),
+                    "hint": "Case input_ref must satisfy the source input_schema; do not add routing fields."}) from exc
     sinks = [node for node in flow.get("nodes", []) if node.get("kind") == "sink"]
     if len(sinks) != 1:
         return

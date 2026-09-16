@@ -13,6 +13,27 @@ from pathlib import Path
 from app.tests.api.test_workspace_skill_brd_import import _seed, _client
 from app.core.config import settings
 
+def remote_completion(prompt, evidence, token_limit):
+    program = "PROMPT = " + repr(prompt) + "\nTOKEN_LIMIT = " + str(token_limit) + "\n" + """
+import asyncio,json
+from app.db.base import SessionLocal
+from app.models.workspace import Workspace
+from app.services.model_plane.execution import resolve_model_execution,complete_model
+with SessionLocal() as db:
+    ws=db.query(Workspace).filter_by(slug='agentium-showcase').one()
+    execution=resolve_model_execution(ws,provider='workspace')
+    out=asyncio.run(complete_model(execution,PROMPT,{'_model_workspace':ws},generation_options={'max_completion_tokens':TOKEN_LIMIT,'reasoning_effort':'low'},stream=False))
+    out["model_execution"] = execution.public()
+    print(json.dumps(out,default=str))
+"""
+    started=time.monotonic()
+    call=subprocess.run(['ssh','omnirag-demo','docker exec -i agentium-backend python'],
+        input=program,text=True,capture_output=True,timeout=180,check=True)
+    output=json.loads(call.stdout.splitlines()[-1])
+    with (evidence/'provider-calls.jsonl').open('a') as f:
+        f.write(json.dumps({'seconds':time.monotonic()-started,'output':output})+'\n')
+    return output
+
 
 @pytest.mark.skipif(not os.environ.get("BRD_LIVE_EVIDENCE_DIR"), reason="Opt-in real provider qualification")
 @pytest.mark.asyncio
@@ -52,24 +73,7 @@ async def test_live_pih_candidate(db_session, tmp_path, monkeypatch):
         prompts.append(payload["prompt"])
         # Only the provider boundary uses the deployed workspace configuration.
         # Test objects and Runs stay in the isolated local database.
-        program = "PROMPT = " + repr(payload["prompt"]) + "\n" + """
-import asyncio,json
-from app.db.base import SessionLocal
-from app.models.workspace import Workspace
-from app.services.model_plane.execution import resolve_model_execution,complete_model
-with SessionLocal() as db:
-    ws=db.query(Workspace).filter_by(slug='agentium-showcase').one()
-    execution=resolve_model_execution(ws,provider='workspace')
-    out=asyncio.run(complete_model(execution,PROMPT,{'_model_workspace':ws},generation_options={'max_completion_tokens':4000,'reasoning_effort':'low'},stream=False))
-    print(json.dumps(out,default=str))
-"""
-        started=time.monotonic()
-        call=subprocess.run(['ssh','omnirag-demo','docker exec -i agentium-backend python'],
-            input=program,text=True,capture_output=True,timeout=180,check=True)
-        output=json.loads(call.stdout.splitlines()[-1])
-        with (evidence/'provider-calls.jsonl').open('a') as f:
-            f.write(json.dumps({'seconds':time.monotonic()-started,'output':output})+'\n')
-        return output
+        return remote_completion(payload["prompt"], evidence, 4000)
     entry = wrappers._REGISTRY["workspace_llm_v1"]
     monkeypatch.setitem(wrappers._REGISTRY, "workspace_llm_v1", (model_response, entry[1], entry[2]))
     for case in material["cases"]:
@@ -103,3 +107,41 @@ with SessionLocal() as db:
         (evidence/(case["id"]+'.json')).write_text(json.dumps(result,indent=2))
         assert db_session.query(SkillInvocation).filter_by(run_id=run.id).count() == 3
         assert len(prompts) == before + 3
+
+
+@pytest.mark.skipif(not os.environ.get("BRD_LIVE_GENERATION_DIR"), reason="Opt-in real generation worker")
+def test_live_generation_worker(db_session, tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from app.db import base
+    from app.models.workspace_job import WorkspaceJob
+    from app.services import workspace_jobs
+    from app.services.skills_registry import brd_generation as service
+    from app.services.model_plane.execution import ModelExecution
+    evidence = Path(os.environ["BRD_LIVE_GENERATION_DIR"])
+    evidence.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path))
+    monkeypatch.setattr(base, "SessionLocal", lambda: nullcontext(db_session))
+    monkeypatch.setattr(workspace_jobs, "dispatch_workspace_job", lambda *a, **k: "local-qualification")
+    monkeypatch.setattr(service, "resolve_model_execution", lambda *a, **k:
+        ModelExecution(provider="openai", model="remote-workspace-resolved", credential_source="workspace", model_source="workspace"))
+    async def complete(execution, prompt, context, **options):
+        return remote_completion(prompt, evidence, 10000)
+    monkeypatch.setattr(service, "complete_model", complete)
+    workspace, user = _seed(db_session)
+    client = _client(db_session, workspace, user)
+    source = Path(__file__).resolve().parents[1] / "fixtures/brd/pih-spark089.docx"
+    document = client.post('/skills/import/business-requirements?retain=true',
+        files={'file': ('pih.docx', source.read_bytes())}).json()['document']['id']
+    job = client.post(f'/skills/imports/business-requirements/{document}/generations',
+        json={'request_key': 'live-worker', 'family': 'document_summary', 'name': 'PIH live worker'})
+    assert job.status_code == 200, job.text
+    result = service.run_generation_job(job.json()['id'])
+    db_session.expire_all()
+    row = db_session.get(WorkspaceJob, job.json()['id'])
+    (evidence/'job.json').write_text(json.dumps({'status': row.status, 'result': row.result, 'error': row.error},indent=2,default=str))
+    assert result['status'] == 'completed', row.result
+    proposal = row.result['proposal']
+    material = {key: proposal[key] for key in ('name', 'objective', 'flow_definition', 'skills', 'cases', 'mappings')}
+    material['request_key'] = 'live-worker-runtime'
+    (evidence/'candidate.json').write_text(json.dumps(material,indent=2))
