@@ -540,8 +540,10 @@ async def test_retrieval_evidence_reaches_next_decision_and_persisted_output(db_
     evidence = {"results": [{"content": "Continuous pressure: 700 bar.",
                             "metadata": {"document_id": "notice-700", "page": 2}}]}
     seen = []
+    instructions = "Read-only investigation; report evidence gaps without inventing facts."
 
     async def decide(inp, ctx):
+        assert inp["goal"]["instructions"] == instructions
         if inp["observations"]:
             seen.extend(inp["observations"])
             return {"confidence": 1, "done": True, "exit": "complete"}
@@ -556,7 +558,7 @@ async def test_retrieval_evidence_reaches_next_decision_and_persisted_output(db_
     flow = json.loads(json.dumps(LOOP_FLOW))
     config = flow["nodes"][1]["config"]
     config.update(skill_allowlist=["semantic_search_v1"], privilege_tier="recommend")
-    config["goal"] = {"done_when": []}
+    config["goal"] = {"done_when": [], "instructions": instructions}
     config["inputs_map"] = {
         name: {"node_id": "source.request", "path": ["request"], "required": True}
         for name in ("objective", "query")
@@ -566,6 +568,7 @@ async def test_retrieval_evidence_reaches_next_decision_and_persisted_output(db_
     await execute_run_dag(run.id)
     run = _reload(db_session, run)
     assert run.status == "completed"
+    assert run.output_ref["goal"]["instructions"] == instructions
     observation = run.output_ref["observations"][0]
     assert observation["output"]["results"] == evidence["results"]
     assert observation["output"]["evidence_view"]["passages_omitted"] == 0
