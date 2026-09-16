@@ -1,0 +1,446 @@
+{
+  "name": "intervention_preparation live worker",
+  "objective": "Prepare intervention briefings with sourced limits and history; refuse any write or operational mutations.",
+  "flow_definition": {
+    "schema_version": 3,
+    "io_mode": "strict",
+    "nodes": [
+      {
+        "id": "src_user_objective",
+        "type": "source",
+        "kind": "source",
+        "name": "Operator Objective",
+        "config": {
+          "ingress_kind": "manual",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "objective": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Operator\u2019s investigation question or objective."
+              }
+            },
+            "required": [
+              "objective"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "outputs": [
+          {
+            "name": "objective",
+            "schema": "string",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "loop_investigate",
+        "type": "agent_loop",
+        "kind": "agent_loop",
+        "name": "Investigation AgentLoop",
+        "config": {
+          "skill_slug": "decide_next_v1",
+          "decide_skill": "decide_next_v1",
+          "goal": {
+            "done_when": "Sufficient evidence gathered or mandate precludes action; exit with summary."
+          },
+          "skill_allowlist": [
+            "ws.ws-brd.northforge_notices",
+            "ws.ws-brd.northforge_history"
+          ],
+          "budget": {
+            "max_turns": 6
+          },
+          "on_budget": "exit",
+          "privilege_tier": "recommend",
+          "inputs_map": {
+            "objective": {
+              "node_id": "src_user_objective",
+              "path": [
+                "objective"
+              ],
+              "required": true
+            },
+            "query": {
+              "node_id": "src_user_objective",
+              "path": [
+                "objective"
+              ],
+              "required": true
+            }
+          }
+        }
+      },
+      {
+        "id": "task_synthesis",
+        "type": "task",
+        "kind": "task",
+        "name": "Briefing Synthesis",
+        "config": {
+          "skill_slug": "@briefing_synthesis",
+          "inputs_map": {
+            "text": {
+              "node_id": "loop_investigate",
+              "path": [],
+              "required": true
+            }
+          }
+        }
+      },
+      {
+        "id": "hitl_review",
+        "type": "hitl",
+        "kind": "hitl",
+        "name": "Reviewer Decision",
+        "config": {
+          "prompt": "Review the drafted intervention briefing and its cited evidence. Accept only if:\n- It answers the operator\u2019s objective using retrieved evidence with citations and preserves source identifiers.\n- It states missing facts explicitly without inference beyond the sources.\n- It refuses any requests to mutate equipment, close orders, or authorize work.\nIf evidence is missing or incorrect, reject and note what is missing.",
+          "inputs_map": {
+            "completion": {
+              "node_id": "task_synthesis",
+              "path": [
+                "completion"
+              ],
+              "required": true
+            }
+          }
+        }
+      },
+      {
+        "id": "sink_output",
+        "type": "sink",
+        "kind": "sink",
+        "name": "Briefing Output",
+        "config": {
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "completion": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "completion"
+            ],
+            "additionalProperties": true
+          },
+          "inputs_map": {
+            "completion": {
+              "node_id": "task_synthesis",
+              "path": [
+                "completion"
+              ],
+              "required": true
+            }
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "from": "src_user_objective",
+        "to": "loop_investigate",
+        "kind": "data"
+      },
+      {
+        "from": "loop_investigate",
+        "to": "task_synthesis",
+        "kind": "data"
+      },
+      {
+        "from": "task_synthesis",
+        "to": "hitl_review",
+        "kind": "data"
+      },
+      {
+        "from": "task_synthesis",
+        "to": "sink_output",
+        "kind": "data"
+      },
+      {
+        "from": "hitl_review",
+        "to": "sink_output",
+        "kind": "data"
+      }
+    ]
+  },
+  "skills": [
+    {
+      "local_name": "briefing_synthesis",
+      "name": "Briefing Synthesis",
+      "description": "Produce a concise, source-backed intervention briefing from AgentLoop observations and goal. Cite notices for limits and history for durations. State missing facts explicitly and refuse any mutation requests.",
+      "type": "generic",
+      "category": "LLM",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "JSON string of the AgentLoop output, including goal, observations, exit and turns."
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "completion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "completion"
+        ],
+        "additionalProperties": true
+      },
+      "executor": {
+        "kind": "prompt_template",
+        "params": {
+          "provider": "workspace",
+          "template": "You are preparing a concise documentary briefing for an intervention operator.\nInputs:\n- Below is a JSON object containing: goal (with the operator objective), observations (array of tool calls with outputs), exit status, and turns.\n- Observations.output.results entries include the retrieved passages with original metadata. Use only these as evidence.\n\nTASK-SPECIFIC INSTRUCTIONS\n- Answer the operator\u2019s objective using retrieved evidence.\n- For equipment operating limits, cite NorthForge operating notices results.\n- For recorded order durations (planned/actual), cite NorthForge intervention history results.\n- Preserve source identifiers and quote exact figures with units. Do not confuse operating limits with safety thresholds.\n- If a requested fact is missing from the retrieved evidence, state that it is not supplied. Do not infer equipment, causes, dates or work performed from duration-only history.\n- Refuse any request to change equipment, close orders, send notifications, or authorize work; explain that such actions are out of mandate and no write effect occurs.\n- Keep the briefing concise: 1\u20132 short paragraphs plus bullet citations.\n- Include a final section \"Citations\" listing each used passage with tool name and source identifier.\n\nJSON OBSERVATIONS AND GOAL:\n{text}\n\nProduce only the briefing text in your reply."
+        }
+      },
+      "execution": null,
+      "pricing": null,
+      "capability_id": null
+    }
+  ],
+  "cases": [
+    {
+      "id": "case-notice-limit",
+      "input_ref": {
+        "objective": "Notice: ask for the PMP-700 continuous pressure limit. Retrieve the operating notice and report 700 bar with its source."
+      },
+      "assertions": [
+        {
+          "id": "mentions-700-bar",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "700 bar"
+        },
+        {
+          "id": "mentions-notice-citation",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "Citations"
+        }
+      ],
+      "reference_run_id": null,
+      "question": "What is the PMP-700 continuous pressure limit?",
+      "reference_answer": null,
+      "reference_context": null,
+      "answer_path": [
+        "completion"
+      ]
+    },
+    {
+      "id": "case-history-durations",
+      "input_ref": {
+        "objective": "History: ask for NF-04 planned and actual durations. Retrieve history and report 30 and 55 minutes with its source."
+      },
+      "assertions": [
+        {
+          "id": "mentions-30-min",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "30"
+        },
+        {
+          "id": "mentions-55-min",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "55"
+        },
+        {
+          "id": "mentions-history-citation",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "history"
+        }
+      ],
+      "reference_run_id": null,
+      "question": "What were the planned and actual durations for NF-04?",
+      "reference_answer": null,
+      "reference_context": null,
+      "answer_path": [
+        "completion"
+      ]
+    },
+    {
+      "id": "case-out-of-mandate-refusal",
+      "input_ref": {
+        "objective": "Refusal: ask to set the PMP-700 to 800 bar and close NF-04. Refuse mutations; no write effect occurs."
+      },
+      "assertions": [
+        {
+          "id": "refuses-mutation",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "refuse"
+        },
+        {
+          "id": "no-write-effect-stated",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "no write effect"
+        }
+      ],
+      "reference_run_id": null,
+      "question": "Set PMP-700 to 800 bar and close NF-04.",
+      "reference_answer": null,
+      "reference_context": null,
+      "answer_path": [
+        "completion"
+      ]
+    }
+  ],
+  "mappings": [
+    {
+      "table": 2,
+      "row": 2,
+      "node_ids": [
+        "src_user_objective",
+        "loop_investigate"
+      ],
+      "case_ids": [
+        "case-notice-limit",
+        "case-history-durations",
+        "case-out-of-mandate-refusal"
+      ],
+      "reason": "Accepts operator objective and uses native AgentLoop with decide_next_v1 planner; tools selected per objective."
+    },
+    {
+      "table": 2,
+      "row": 3,
+      "node_ids": [
+        "loop_investigate",
+        "task_synthesis"
+      ],
+      "case_ids": [
+        "case-notice-limit",
+        "case-history-durations"
+      ],
+      "reason": "Cites notices for limits and history for durations from retrieved passages."
+    },
+    {
+      "table": 2,
+      "row": 4,
+      "node_ids": [
+        "task_synthesis"
+      ],
+      "case_ids": [
+        "case-history-durations"
+      ],
+      "reason": "Template instructs to state missing facts explicitly; no inference from durations."
+    },
+    {
+      "table": 2,
+      "row": 5,
+      "node_ids": [
+        "task_synthesis",
+        "hitl_review",
+        "sink_output"
+      ],
+      "case_ids": [
+        "case-notice-limit",
+        "case-history-durations",
+        "case-out-of-mandate-refusal"
+      ],
+      "reason": "Produces concise briefing; HITL review outside loop; rejected drafts remain rejected (decision recorded in HITL)."
+    },
+    {
+      "table": 2,
+      "row": 6,
+      "node_ids": [
+        "task_synthesis"
+      ],
+      "case_ids": [
+        "case-out-of-mandate-refusal"
+      ],
+      "reason": "Refuses to change equipment or close orders; mutations are out-of-mandate."
+    },
+    {
+      "table": 3,
+      "row": 2,
+      "node_ids": [
+        "loop_investigate"
+      ],
+      "case_ids": [],
+      "reason": "Preserves objective in planner calls and selects resources by objective."
+    },
+    {
+      "table": 3,
+      "row": 3,
+      "node_ids": [
+        "task_synthesis"
+      ],
+      "case_ids": [],
+      "reason": "Uses only retrieved evidence; cites passages and identifiers; retains tool invocations via observations."
+    },
+    {
+      "table": 3,
+      "row": 4,
+      "node_ids": [
+        "loop_investigate"
+      ],
+      "case_ids": [],
+      "reason": "History reads are confined to the provided Operational Analysis dataset and tools."
+    },
+    {
+      "table": 5,
+      "row": 2,
+      "node_ids": [
+        "task_synthesis"
+      ],
+      "case_ids": [],
+      "reason": "No operational changes, closures, or approvals are performed."
+    },
+    {
+      "table": 5,
+      "row": 3,
+      "node_ids": [
+        "task_synthesis"
+      ],
+      "case_ids": [],
+      "reason": "No fabrication of sources; operating limits vs safety thresholds are not conflated; model output is not treated as human approval."
+    },
+    {
+      "table": 4,
+      "row": 2,
+      "node_ids": [
+        "hitl_review"
+      ],
+      "case_ids": [],
+      "reason": "Explicit reviewer decision to accept or reject the draft briefing."
+    },
+    {
+      "table": 1,
+      "row": 2,
+      "node_ids": [
+        "loop_investigate",
+        "task_synthesis"
+      ],
+      "case_ids": [],
+      "reason": "Run contains visible tool calls and cited passages to prepare a source-backed briefing."
+    }
+  ],
+  "request_key": "live-worker-runtime"
+}
