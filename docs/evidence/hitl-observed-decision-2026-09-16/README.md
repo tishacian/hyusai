@@ -1,6 +1,6 @@
-# Observed HITL decision — release candidate
+# Observed HITL decision — deployed release
 
-Candidate: `89f8e09aa82059b45bddf14e3a4f7bc774cf6294`, pushed on
+Deployed: `89f8e09aa82059b45bddf14e3a4f7bc774cf6294`, pushed on
 `demo/agentic`. Previous live/rollback: `7951e698cb04c6c4791e7e7d7fd620e253402616`.
 No migration or theme change.
 
@@ -16,7 +16,16 @@ Local gates:
 - Production frontend build passed (existing budget/CommonJS warnings).
 - i18n: 7,981 keys; navigation and UI chrome guards passed.
 
-VM build is in progress. Switch, immutable image IDs, health, public SHA and
-carakai results remain to record. Manual authenticated smoke and human trials
+All three immutable images were built on omnirag-demo and the storage gate
+passed. The six application services switched to `89f8e09aa820`; backend and
+frontend became healthy, public build-info matched the complete candidate SHA
+with revision_verified=true, homepage returned 200, and startup exception count
+was zero. The initial readiness probe returned 502 while backend health was
+starting; the subsequent healthy probe passed. No infrastructure service changed.
+Image IDs are retained in vm-switch.log. Carakai canaries: **10 passed, 2 intentional local-contract skips, 2.0 minutes**.
+Artifacts on carakai: `/tmp/iteration-canaries-20260916T162826Z.DLuWBE`.
+The tests assert the exact deployed SHA. The skipped local adoption/branding
+fixtures are not claimed as live acceptance. Chrome inventory still showed
+Agentium sign-in pages; no authenticated manual smoke was completed. Manual authenticated smoke and human trials
 remain open. The independent NorthForge absence-planning failure is not fixed
 by this release; the unsuccessful prompt-order experiment was reverted.

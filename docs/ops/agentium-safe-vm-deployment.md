@@ -6659,3 +6659,16 @@ Artifacts: /tmp/iteration-canaries-20260916T154240Z.iZVK3n.
 Rollback: d5a02f49ae9c, compatible frozen-tool reader. No database restore.
 Manual authenticated smoke and milestone acceptance remain open.
 Evidence: ../evidence/brd-evidence-release-2026-09-16/README.md.
+
+### 2026-09-16 — observed HITL decision (`89f8e09a`)
+
+Source `demo/agentic`: `89f8e09aa82059b45bddf14e3a4f7bc774cf6294`.
+Three images built on omnirag-demo with tag `89f8e09aa820`; worker retains
+optional Giskard SDK qualification. Storage gate passed; no migration.
+Six application services switched, backend/frontend healthy, public build-info
+verified exact SHA, homepage 200 and startup exception count zero.
+Carakai: 10 passed / 2 intentional local-contract skips, artifacts
+`/tmp/iteration-canaries-20260916T162826Z.DLuWBE`. Manual Chrome smoke remains
+unqualified because the available Agentium tabs are signed out.
+Rollback tag: `7951e698cb04`; no database restore.
+Evidence: [observed-decision release](../evidence/hitl-observed-decision-2026-09-16/README.md).
