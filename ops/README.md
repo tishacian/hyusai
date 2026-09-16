@@ -1,52 +1,36 @@
-# Agentium operations — OpenStack → Kubernetes
+# Agentium operations — managed Kubernetes
 
-This tree starts the Compose → Kubernetes passage. It follows the papAI OPS
-split:
-
-| This repo | papAI counterpart | Role |
-|---|---|---|
-| `ops/instance` | `papAI/OPS/instance` | Terraform: OpenStack networks, security groups, volumes, kube nodes |
-| `ops/ansible` | `papAI/OPS/ansible/ansible` | Ansible: cluster bootstrap, then Helm deploy pipelines |
-| `ops/helm/agentium` | application chart | The Agentium stack that Compose runs on `omnirag-demo` |
-
-Compose on the demo VM (`docker/compose.agentium.yml`) stays the live path.
-Nothing here is a deploy GO.
-
-## Pipeline
+Terraform creates a managed cluster. Ansible only runs Helm. The chart is
+the same on OVH MKS and AKS. Compose on the demo VM
+(`docker/compose.agentium.yml`) stays the live path.
 
 ```
-ops/instance  terraform apply
-        ↓  inventory from terraform output
-ops/ansible   playbooks/provision-cluster.yml   (kubeadm)
-        ↓  kubeconfig
-ops/ansible   playbooks/deploy-agentium.yml     (helm upgrade)
+ops/terraform/envs/lab-ovh   terraform apply   (GitLab manual)
+        ↓ kubeconfig, ingress_class, storage_class
+ops/scripts/build-lab-images.sh                 (digest push)
+        ↓ values-ci-images.yaml
+ops/ansible  playbooks/deploy-agentium.yml      (helm upgrade --install)
         ↓
 ops/helm/agentium
+        ↓
+GET /health/live and /healthz via ingress
 ```
 
-Images stay digest- or SHA-tagged, same contract as
-`docker/compose.agentium.registry.yml`. The first cluster still needs a
-registry reachable from the nodes; that is later work, not implied by this
-scaffold.
+`ops/instance` + `provision-cluster.yml` remain the optional Nova + kubeadm
+fallback. GitLab does not apply that path.
 
-## What v0.1 covers
+## Contract
 
-- OpenStack lab: 1 control-plane VM, N workers, Cinder volumes for
-  PostgreSQL / MinIO / Qdrant.
-- Helm resources for the Compose services that are always on in production:
-  frontend, backend, worker, p4-maintenance, RabbitMQ, PostgreSQL, MinIO,
-  Qdrant, Keycloak, migrate Job, ingress (`/`, `/api`, `/kc`).
-- Ansible playbooks that install kubeadm/Helm and upgrade the chart.
-
-## Explicitly later
-
-- LiveKit, SFTP, dedicated Celery beat (Compose profiles).
-- Replacing in-cluster PostgreSQL / MinIO / Qdrant / Keycloak with managed
-  services.
-- Magnum or another OpenStack-managed Kubernetes API.
+Both Terraform modules expose `kubeconfig`, `ingress_class`, `storage_class`,
+`cluster_name`. Helm values per env (`values-lab-ovh.yaml`,
+`values-lab-aks.yaml`) carry the class names. Images in CI are `@sha256:`
+references, never `:local`.
 
 ## Checks
 
 ```bash
 ops/scripts/check-k8s-scaffold.sh
 ```
+
+Apply, image push, and Helm upgrade are GitLab jobs on `demo/agentic`. They
+are not a local GO.
