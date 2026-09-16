@@ -47,3 +47,9 @@ immutable published Flow snapshots, rerun attribution, and separation between
 Experience view/edit/release/deploy permissions. They use isolated test data.
 They do not demonstrate a second person consuming this generated NorthForge
 application, nor browser source navigation. Those acceptance items remain open.
+
+The Work API suite also passed: **24 passed in 3.67 seconds**
+(`python -m pytest app/tests/api/test_work_api.py -q`). It covers deployed release
+snapshots after binding retarget/delete, idempotent requests across redeployment,
+durable dispatch replay, and audience revalidation after access is withdrawn.
+This remains API regression evidence, not the missing second-person acceptance.
