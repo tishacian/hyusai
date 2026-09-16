@@ -173,6 +173,17 @@ def test_live_generation_worker(db_session, tmp_path, monkeypatch):
         json={'request_key': 'live-worker', 'family': family, 'name': family + ' live worker',
               'skill_slugs': slugs})
     assert job.status_code == 200, job.text
+    from app.api.v1.endpoints import skills as skills_api
+    from fastapi import HTTPException
+    save_proposal = skills_api._save_business_requirements_proposal
+    def observed_save(*args, **kwargs):
+        try:
+            return save_proposal(*args, **kwargs)
+        except HTTPException as exc:
+            with (evidence/'validation-errors.jsonl').open('a') as stream:
+                stream.write(json.dumps({'status': exc.status_code, 'detail': exc.detail}, default=str)+'\n')
+            raise
+    monkeypatch.setattr(skills_api, '_save_business_requirements_proposal', observed_save)
     result = service.run_generation_job(job.json()['id'])
     db_session.expire_all()
     row = db_session.get(WorkspaceJob, job.json()['id'])
@@ -267,7 +278,21 @@ async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
         decision = db_session.get(Decision, result['awaiting_decision']) if result.get('awaiting_decision') else None
         review_nodes = {node['id'] for node in draft.flow_definition['nodes'] if node.get('kind') == 'hitl'}
         record['decision_node'] = (decision.rationale or {}).get('node_id') if decision else None
-        (evidence/(case['id']+'.json')).write_text(json.dumps(record, indent=2, default=str))
-        if result['status'] != 'hitl_pending' or record['decision_node'] not in review_nodes:
+        if result['status'] == 'hitl_pending' and record['decision_node'] in review_nodes:
+            from app.services.run_engine.dag import resume_run_dag
+            from app.services.evaluation.campaigns import assertion_results, assert_read_only
+            assert_read_only(run.flow_snapshot, run.execution_contract)
+            # Isolated engine test, not user acceptance: never approve a planner request.
+            decision.status = 'accepted'
+            db_session.commit()
+            resumed = await resume_run_dag(run.id, decision_id=decision.id)
+            db_session.expire_all()
+            record.update(review='harness_acceptance_not_human', resumed=resumed,
+                          output=run.output_ref, status=run.status,
+                          assertions=assertion_results(run.output_ref, case['assertions']))
+            if resumed['status'] != 'completed' or record['assertions']['verdict'] != 'passed':
+                failures.append({'case': case['id'], 'resumed': resumed, 'assertions': record['assertions']})
+        else:
             failures.append({'case': case['id'], 'result': result, 'decision_node': record['decision_node']})
+        (evidence/(case['id']+'.json')).write_text(json.dumps(record, indent=2, default=str))
     assert not failures, failures
