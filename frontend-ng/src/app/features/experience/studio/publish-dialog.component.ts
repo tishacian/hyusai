@@ -322,6 +322,7 @@ export class ExperiencePublishDialogComponent {
   readonly i18n = inject(I18nService);
   private readonly api = inject(StudioApiService);
   private readonly document = inject(DOCUMENT);
+  readonly returnFocus = input<HTMLElement | null>(null);
   readonly experienceId = input.required<string>();
   readonly draft = input.required<StudioDraft>();
   readonly experienceUpdatedAt = input.required<string>();
@@ -740,7 +741,7 @@ export class ExperiencePublishDialogComponent {
 
   close(): void {
     if (this.busy()) return;
-    const target = this.previousFocus;
+    const target = this.returnFocus() ?? this.previousFocus;
     this.closed.emit();
     queueMicrotask(() => target?.focus());
   }

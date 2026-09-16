@@ -238,7 +238,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
               type="button"
               class="xp-btn xp-btn-primary"
               [disabled]="saving() || metadataDirty() || metadataBusy() || !metadataValid()"
-              (click)="preparePublish()"
+              (click)="preparePublish($event)"
             >
               {{ i18n.t('experience.editor.publish') }}
             </button>
@@ -1215,7 +1215,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
                       <div class="xp-journal-row">
                         <span>R{{ release.release_number }} · {{ release.created_at || '—' }}</span>
                         @if (canRelease()) {
-                          <button type="button" class="xp-btn" [disabled]="lifecycleBusy()" (click)="openDeployment(release)">
+                          <button type="button" class="xp-btn" [disabled]="lifecycleBusy()" (click)="openDeployment(release, $event)">
                             {{ i18n.t('experience.editor.lifecycle.deploy') }}
                           </button>
                         }
@@ -1284,6 +1284,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
         [summary]="summary()"
         [initialRelease]="deploymentRelease()"
         [open]="publishOpen()"
+        [returnFocus]="publishTrigger"
         (closed)="closePublish()"
         (released)="reloadLifecycle()"
         (deployed)="reload()"
@@ -2365,7 +2366,10 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.requestSave();
   }
 
-  preparePublish(): void {
+  protected publishTrigger: HTMLElement | null = null;
+
+  preparePublish(event?: Event): void {
+    this.publishTrigger = event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
     if (!this.canRelease()) return;
     this.deploymentRelease.set(null);
     if (this.readOnly()) {
@@ -2387,7 +2391,8 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.lockedDraft.set(null);
   }
 
-  openDeployment(release: StudioRelease): void {
+  openDeployment(release: StudioRelease, event?: Event): void {
+    this.publishTrigger = event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
     if (!this.canRelease()) return;
     const draft = this.detail()?.draft;
     if (!draft) return;
