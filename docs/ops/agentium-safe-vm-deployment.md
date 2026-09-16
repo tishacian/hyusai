@@ -6645,3 +6645,17 @@ unqualified. No default activation or NAWA theme change.
 Previous runtime: 7ab88007328c5e3a2cf5eaf6663e7d9c00eec927. New tool_contract
 fields require compatible readers once persisted; prefer fix-forward rather than
 unconditional rollback to an older reader. Never restore over new database writes.
+
+
+### 2026-09-16 — BRD evidence and generation correction, 7951e698
+
+Deployed pushed demo/agentic SHA 7951e698cb04c6c4791e7e7d7fd620e253402616.
+148 backend / 1,466 frontend tests, three frontend guards and production build pass.
+All three immutable images built on omnirag-demo, optional Giskard worker retained.
+No migration. Storage checks passed; six application containers use the new tag;
+backend/frontend healthy, public SHA verified, homepage 200, no startup exception.
+Carakai: 10 passed / 2 intentional skips in 2.1m, exact SHA asserted.
+Artifacts: /tmp/iteration-canaries-20260916T154240Z.iZVK3n.
+Rollback: d5a02f49ae9c, compatible frozen-tool reader. No database restore.
+Manual authenticated smoke and milestone acceptance remain open.
+Evidence: ../evidence/brd-evidence-release-2026-09-16/README.md.
