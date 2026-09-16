@@ -92,3 +92,41 @@ def test_example_is_releasable_with_the_existing_lifecycle(db_session):
     assert deployment.channel == "live"
     assert ensure_experience(db_session, workspace, system).id == experience.id
     assert db_session.query(ExperienceRelease).filter_by(experience_id=experience.id).count() == 1
+
+
+def test_scoped_install_is_idempotent_and_preserves_published_edits(db_session):
+    from scripts.showcase_operational_analysis import install
+    from app.models.workspace import Workspace
+    from app.models.system import System
+    from app.models.experience import ExperienceRelease
+    from app.services.skills_registry.seed import seed_skills_and_capabilities
+
+    workspace = Workspace(id="install-ops", slug="agentium-showcase", name="Showcase",
+        settings={"showcase_seed": True, "features": {"experience_v1": True, "adoption_experience_v1": True}})
+    db_session.add(workspace)
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+    assert install(db_session)["applied"] is False
+    assert db_session.query(System).count() == 0
+    first = install(db_session, apply=True)
+    system = db_session.get(System, first["system_id"])
+    system.objective = "An authored objective, preserved by reinstall"
+    db_session.commit()
+    assert install(db_session, apply=True) == first
+    assert system.objective == "An authored objective, preserved by reinstall"
+    assert db_session.query(System).count() == 1
+    assert db_session.query(ExperienceRelease).count() == 1
+
+
+def test_scoped_install_requires_structural_showcase_marker(db_session):
+    from scripts.showcase_operational_analysis import install
+    from app.models.workspace import Workspace
+    from app.models.system import System
+    from app.services.seed_catalog_safety import SeedWorkspaceBoundaryError
+
+    db_session.add(Workspace(id="not-showcase", slug="agentium-showcase", name="Client",
+        settings={"features": {"experience_v1": True, "adoption_experience_v1": True}}))
+    db_session.commit()
+    with pytest.raises(SeedWorkspaceBoundaryError):
+        install(db_session, apply=True)
+    assert db_session.query(System).count() == 0
