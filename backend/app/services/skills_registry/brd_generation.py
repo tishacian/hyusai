@@ -79,9 +79,15 @@ def validate_intervention_planner(body, selected_slugs):
         if not isinstance(ref, dict) or ref.get("node_id") not in sources or ref.get("required") is not True or len(ref.get("path", [])) != 1:
             raise ValueError("Bind objective directly to the operator-request source with required=true")
         field = ref["path"][0]
+        schema = (sources[ref["node_id"]].get("config") or {}).get("input_schema") or {}
+        if schema.get("type") != "object" or (schema.get("properties", {}).get(field) or {}).get("type") != "string":
+            raise ValueError(f"Operator source input_schema must be an object declaring string property {field!r}; "
+                             f"cases use input_ref={{{field!r}: question}}, never the request_key as a field name")
         for case in body.cases:
             if not case.get("question") or (case.get("input_ref") or {}).get(field) != case["question"]:
-                raise ValueError("Intervention case input objective must equal its question only; keep expected answers and reviewer instructions in assertions/reference_answer")
+                raise ValueError(f"Case {case.get('id')!r}: input_ref[{field!r}] must equal question; "
+                                 f"received keys {sorted((case.get('input_ref') or {}).keys())}. "
+                                 "Keep expected answers and reviewer instructions in assertions/reference_answer")
 
 
 _DOCUMENTARY_INSTRUCTIONS = (

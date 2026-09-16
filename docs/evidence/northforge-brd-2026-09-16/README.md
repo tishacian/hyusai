@@ -65,3 +65,10 @@ limit. A source citation after character 4,000 and explicit oversize rejection a
 
 Scoped backend validation after these corrections: 73 passed, 1 skipped.
 No generated candidate in this section has been applied or published to Showcase.
+
+The next live generation exhausted its three bounded attempts. It incorrectly declared a
+scalar source schema and used the request key `live-worker` as the case input field rather
+than `objective`. All attempts were rejected; no System was applied. The validation feedback
+now identifies the exact required source property and received keys, rather than a generic
+question mismatch. Eleven focused validator tests pass after this feedback correction.
+The rejection is evidence of a working guard, not completion of the NorthForge journey.
