@@ -615,3 +615,14 @@ Seventeen generation/import tests pass. This does not qualify the two NorthForge
 read tools or their data, prove dynamic tool selection, or establish that every
 catalog Skill classified by the existing mandate is side-effect-free. Those
 runtime checks remain mandatory before accepting this family.
+
+
+### NorthForge resource preparation — 16 September
+
+Live read-only inventory confirms the native planner and semantic search are
+available. A dedicated intervention-history collection is absent. Prepared the
+history from the existing four Operational Analysis records, with missing causes
+and equipment explicit, plus distinct notice/history and refusal cases. One
+fixture test passes. Evidence and the generated Markdown are in
+`docs/evidence/northforge-intervention-2026-09-16/`. Ingestion, pinned tool setup
+and actual AgentLoop selection remain open; no production mutation was made.
