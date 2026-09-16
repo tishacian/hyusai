@@ -49,3 +49,24 @@ def test_repair_prompt_is_bounded_and_keeps_source_separate():
     with pytest.raises(ValueError, match="Repair feedback exceeds"):
         service.generation_prompt(document, request, catalog=[], proposal_schema={},
             feedback={"previous_proposal": "x" * (256 * 1024)})
+
+
+def test_generated_case_paths_must_address_the_declared_sink_result():
+    from fastapi import HTTPException
+    from app.api.v1.endpoints.evaluation_campaigns import CaseBody
+    from app.services.skills_registry.brd_proposals import validate_case_output_paths
+    flow = {"nodes": [{"id": "sink_draft", "kind": "sink", "config": {
+        "output_schema": {"type": "object", "properties": {"completion": {"type": "string"}},
+                          "additionalProperties": True}}}]}
+    case = CaseBody(id="normal", input_ref={}, assertions=[{
+        "id": "source-title", "path": ["nodes", "sink_draft", "completion"],
+        "operator": "contains", "value": "Senior Data Analyst"}])
+    with pytest.raises(HTTPException) as failure:
+        validate_case_output_paths(flow, [case])
+    assert failure.value.detail["code"] == "brd_case_output_path_invalid"
+    assert failure.value.detail["declared_output_fields"] == ["completion"]
+    case.assertions[0].path = ["completion"]
+    validate_case_output_paths(flow, [case])
+    case.answer_path = ["output", "completion"]
+    with pytest.raises(HTTPException):
+        validate_case_output_paths(flow, [case])

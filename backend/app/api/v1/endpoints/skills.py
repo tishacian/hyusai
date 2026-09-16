@@ -736,7 +736,7 @@ def _save_business_requirements_proposal(document_id, body, *, workspace, user, 
     import json
     from app.api.v1.endpoints.evaluation_campaigns import CaseBody
     from app.services.chains import dag_validator
-    from app.services.skills_registry.brd_proposals import coverage, retain_proposal, proposal_payload
+    from app.services.skills_registry.brd_proposals import coverage, retain_proposal, proposal_payload, validate_case_output_paths
     document = _retained_brd(db, workspace, user, document_id)
     enforce_action(db, user=user, workspace=workspace, resource_kind="system", action="admin",
         legacy_allowed=legacy_object_action_allowed(db, user=user, workspace=workspace,
@@ -755,6 +755,7 @@ def _save_business_requirements_proposal(document_id, body, *, workspace, user, 
             validate_schema_definition(skill.output_schema, field="output_schema")
     except (ValueError, SkillBindingError, FlowContractError) as exc:
         raise HTTPException(422, "Invalid proposed Skill or test contract") from exc
+    validate_case_output_paths(body.flow_definition, cases)
     if any(case.reference_run_id for case in cases):
         raise HTTPException(422, "New BRD cases cannot claim historical reference Runs")
     if len({case.id for case in cases}) != len(cases):

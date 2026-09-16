@@ -210,6 +210,25 @@ def test_proposal_preserves_uncovered_requirements_and_never_creates_system(db_s
     assert client.post(path, json=mapped).status_code == 422
 
 
+    # Reject the actual provider failure before retaining any proposal: the
+    # evaluator reads Run.output_ref, not a node/trace envelope.
+    from copy import deepcopy
+    invalid = deepcopy(body)
+    invalid["request_key"] = "invalid-output-path"
+    invalid["flow_definition"]["nodes"][1]["config"] = {
+        "output_schema": {"type": "object", "properties": {"completion": {"type": "string"}}}}
+    invalid["cases"] = [{"id": "normal", "input_ref": {}, "assertions": [{
+        "id": "title", "path": ["nodes", "result", "completion"],
+        "operator": "contains", "value": "Senior Data Analyst"}]}]
+    count = db_session.query(BrdProposal).count()
+    rejected = client.post(path, json=invalid)
+    assert rejected.status_code == 422, rejected.text
+    assert rejected.json()["detail"]["code"] == "brd_case_output_path_invalid"
+    assert db_session.query(BrdProposal).count() == count
+    invalid["cases"][0]["assertions"][0]["path"] = ["completion"]
+    assert client.post(path, json=invalid).status_code == 200
+
+
 def test_reviewed_proposal_applies_once_to_draft_only(db_session, tmp_path, monkeypatch):
     from app.core.config import settings
     from app.models.system import System
