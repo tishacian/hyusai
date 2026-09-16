@@ -1,7 +1,7 @@
 """A reproducible data → Python/Polars → LLM → check exercise for the Showcase.
 
-Imported by the existing seed, which owns locking and version reconciliation.
-This module creates no rows and performs no external calls.
+Imported by the existing seed. The scoped installer can also install this one
+application without reseeding the other Showcase systems or their activity.
 """
 
 ROWS = [
@@ -315,7 +315,9 @@ def ensure_experience(db, workspace, system):
     actor = "showcase-seed"
     key = "showcase.operational.analyze"
     try:
-        bindings.get_binding(db, workspace_id=workspace.id, binding_key=key)
+        bound = bindings.get_binding(db, workspace_id=workspace.id, binding_key=key)
+        if bound.system_id != system.id or bound.published_flow_version_id != system.published_flow_version_id:
+            raise ValueError("The existing Operational Analysis binding targets a different System or version")
     except bindings.BindingError as exc:
         if getattr(exc, "status_code", None) not in (None, 404):
             raise
@@ -391,3 +393,69 @@ def ensure_experience(db, workspace, system):
     )
     db.commit()
     return experience
+
+
+def install(db, *, apply=False):
+    """Install only the fixed example; never refresh an existing published Flow.
+
+    This is an operator seed command, not an application endpoint. It requires
+    the structural Showcase marker, existing feature choices and catalogue.
+    The workspace lock serializes concurrent installer invocations.
+    """
+    from app.models.workspace import Workspace
+    from app.models.system import System
+    from app.models.skill import Skill
+    from app.services.seed_catalog_safety import require_showcase_workspace_for_seed
+    from app.services.systems.flow_publication import initialize_new_system_publication_if_enabled, require_flow_publication
+
+    workspace = db.query(Workspace).filter_by(slug="agentium-showcase").with_for_update(of=Workspace).one()
+    require_showcase_workspace_for_seed(workspace)
+    features = (workspace.settings or {}).get("features", {})
+    if not all(features.get(key) is True for key in ("experience_v1", "adoption_experience_v1")):
+        raise ValueError("Showcase Experience and adoption must already be enabled")
+    require_flow_publication(workspace)
+    key = "showcase.operational-analysis.v1"
+    systems = db.query(System).filter_by(workspace_id=workspace.id).all()
+    existing = [s for s in systems if s.blueprint_key == key or s.name == "Operational Analysis"]
+    if len(existing) > 1:
+        raise ValueError("Ambiguous Operational Analysis Systems; reconcile manually")
+    system = existing[0] if existing else None
+    if system and (system.settings or {}).get("showcase_seed") is not True:
+        raise ValueError("An authored System already uses this name; installation refused")
+    if system and not system.published_flow_version_id:
+        raise ValueError("Existing System is not published; review and publish it explicitly")
+    if not apply:
+        return {"workspace_id": workspace.id, "system_id": system.id if system else None,
+                "action": "inspect_existing" if system else "install", "applied": False}
+    if system is None:
+        slugs = {"python_recipe_v1", "llm_rag_answer_v1"}
+        skills = db.query(Skill).filter(Skill.slug.in_(slugs), Skill.workspace_id.is_(None)).all()
+        if {s.slug for s in skills} != slugs:
+            raise ValueError("Required global Skills are absent; no catalogue rows were changed")
+        system = System(
+            workspace_id=workspace.id, blueprint_key=key, name="Operational Analysis",
+            objective="Explain the fixed NorthForge work-order delay using exact calculations and their execution evidence.",
+            status="active", coordination_pattern="graph", created_by="showcase-seed",
+            skill_ids=[s.id for s in skills], flow_definition=flow_operational_analysis(),
+            settings={"showcase_seed": True},
+        )
+        db.add(system)
+        initialize_new_system_publication_if_enabled(db, system=system, workspace=workspace, actor="showcase-seed")
+    experience = ensure_experience(db, workspace, system)
+    db.commit()
+    return {"workspace_id": workspace.id, "system_id": system.id,
+            "published_flow_version_id": system.published_flow_version_id,
+            "experience_id": experience.id, "path": "/work/operational-analysis", "applied": True}
+
+
+if __name__ == "__main__":
+    import argparse
+    import json
+    import app.models  # Register canonical ORM relationships before opening a session.
+    from app.db.base import SessionLocal
+
+    parser = argparse.ArgumentParser(description="Install only the synthetic Operational Analysis Showcase application")
+    parser.add_argument("--apply", action="store_true", help="Explicitly install and publish the example; default is read-only")
+    args = parser.parse_args()
+    with SessionLocal() as db:
+        print(json.dumps(install(db, apply=args.apply), sort_keys=True))
