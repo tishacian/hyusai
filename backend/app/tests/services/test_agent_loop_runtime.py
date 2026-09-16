@@ -567,12 +567,13 @@ async def test_retrieval_evidence_reaches_next_decision_and_persisted_output(db_
     run = _reload(db_session, run)
     assert run.status == "completed"
     observation = run.output_ref["observations"][0]
-    assert observation["output"] == evidence
+    assert observation["output"]["results"] == evidence["results"]
+    assert observation["output"]["evidence_view"]["passages_omitted"] == 0
     assert seen[0] == observation
     invocation = db_session.get(SkillInvocation, observation["invocation_id"])
     assert invocation.run_id == run.id
     assert invocation.skill_slug == "semantic_search_v1"
-    assert invocation.output_ref == observation["output"]
+    assert invocation.output_ref == evidence
 
 
 @pytest.mark.asyncio
@@ -600,3 +601,33 @@ async def test_frozen_tool_receives_declared_arguments_without_loop_envelope(db_
     result = await execute_run_dag(run.id)
     assert result["status"] == "completed"
     assert seen == [{"query": "operating limit"}]
+
+
+def test_retrieval_evidence_view_preserves_sources_and_raw_output():
+    from copy import deepcopy
+    from app.services.run_engine.agent_loop import retrieval_evidence_view
+    output = {"results": [{"content": "full passage " * 1000, "metadata": {
+        "document_id": "doc", "chunk_id": "chunk", "page": 2, "sheet": "Orders",
+        "cell": "B4", "start_char": 0, "end_char": 13000, "custom_source_ref": "ref",
+        "retrieval_role": "advisory_context", "retrieval_evidence_coverage": 0.5,
+        "retrieval_evidence_terms_missing": ["cause"], "retrieval_terms": ["debug"],
+        "content": "stored duplicate", "dense_elapsed_ms": 5,
+    }}], "retrieval_scope": {"collection": "restricted"},
+        "fallback_reason": "missing_index", "retrieval_decision_trace": {"verbose": "debug"}}
+    original = deepcopy(output)
+    view = retrieval_evidence_view(output)
+    assert output == original
+    assert view["results"][0]["content"] == original["results"][0]["content"]
+    assert view["retrieval_scope"] == output["retrieval_scope"]
+    assert view["fallback_reason"] == "missing_index"
+    metadata = view["results"][0]["metadata"]
+    for key in ("document_id", "chunk_id", "page", "sheet", "cell", "start_char",
+                "end_char", "custom_source_ref", "retrieval_role", "retrieval_evidence_coverage",
+                "retrieval_evidence_terms_missing"):
+        assert metadata[key] == original["results"][0]["metadata"][key]
+    assert "content" not in metadata and "dense_elapsed_ms" not in metadata
+    assert view["evidence_view"]["passages_retained"] == 1
+    assert view["evidence_view"]["passages_omitted"] == 0
+    assert "retrieval_decision_trace" not in view
+    malformed = {"results": ["unexpected"]}
+    assert retrieval_evidence_view(malformed) is malformed
