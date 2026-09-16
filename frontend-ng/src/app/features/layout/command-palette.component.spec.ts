@@ -126,6 +126,11 @@ test('command palette drops A index and rejects an old dynamic command after Aâ†
   });
   const palette = injector.get(CommandPaletteComponent);
   palette.ngOnInit();
+  assert.deepEqual(
+    palette.results().map((item) => item.id),
+    ['chat.ask', 'view.knowledge', 'view.systems', 'view.runs', 'view.settings'],
+    'an empty palette shows only the core product journey and Settings',
+  );
   canonical.capabilities[0].next([]);
   canonical.runs[0].next([{
     id: 'run-a',
@@ -138,6 +143,7 @@ test('command palette drops A index and rejects an old dynamic command after Aâ†
     name: 'Andritz private system',
     status: 'active',
   } as System]);
+  palette.query.set('andritz');
   const staleCommand = palette.results().find((item) => item.id === 'sys.system-a');
   assert.ok(staleCommand);
 
@@ -153,6 +159,7 @@ test('command palette drops A index and rejects an old dynamic command after Aâ†
     id: 'cap-b',
     slug: 'capability-b',
     name: 'Capability B',
+    tier: 'client',
   }]);
   canonical.runs[1].next([{
     id: 'run-b',
@@ -170,19 +177,36 @@ test('command palette drops A index and rejects an old dynamic command after Aâ†
     name: 'Sentinel system',
     status: 'active',
   } as System]);
+  palette.query.set('sentinel');
   assert.equal(palette.results().some((item) => item.id === 'sys.system-a'), false);
   assert.equal(palette.results().some((item) => item.id === 'sys.system-b'), true);
+
+  palette.query.set('capability b');
   assert.equal(
     palette.results().find((item) => item.id === 'cap.cap-b')?.route,
     '/capabilities/cap-b',
   );
+  const capabilityCommand = palette.results().find((item) => item.id === 'cap.cap-b');
+  assert.ok(capabilityCommand, 'advanced object links remain searchable');
+  assert.doesNotMatch(capabilityCommand.hint, /client/i, 'legacy commercial tiers stay hidden');
+
+  palette.query.set('skill b');
   assert.equal(
     palette.results().find((item) => item.id === 'sk.skill-b-id')?.route,
     '/skills/skill-b',
   );
+
+  palette.query.set('run-b');
   assert.equal(
     palette.results().find((item) => item.id === 'run.run-b')?.route,
     '/runs/run-b',
+  );
+
+  palette.query.set('hypervisor');
+  assert.equal(
+    palette.results().some((item) => item.id === 'view.hypervisor'),
+    true,
+    'advanced deep links remain reachable through an explicit search',
   );
 
   palette.ngOnDestroy();
