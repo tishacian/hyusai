@@ -346,3 +346,24 @@ Validation: 38 generator/import/evaluation API tests passed, using provider stub
 (no live supplier qualification). Tests cover request replay/conflict, invalid
 catalog references, strict JSON, bounded source handling, revoked reads and generic
 job mutation refusal. Runtime image and UI remain unchanged.
+
+### R1 — import UI connected to generation and draft creation
+
+The existing BRD import retains the original and offers a System proposal panel:
+name/family, selected catalog Skills, persisted generation, operations and coverage,
+full contract inspection, explicit review and draft creation. The original can be
+downloaded. The result opens the canonical System design facet through the
+navigation catalog. No publication action was added to import.
+
+The URL records document/job IDs for reload recovery. A completed job reloads the
+current proposal, including an already-applied System. Late replies are discarded
+when the workspace request scope changes; uncertain generation retries retain the
+same request key while the inputs stay unchanged. New proposals reset review.
+
+Validation: 35 targeted frontend tests passed; i18n passed with 7,970 keys;
+nav-link and UI-chrome guards passed; production build passed with existing bundle
+and CommonJS warnings. The actual component passed 12 controlled visual states
+(FR/EN, light/dark, 1280/390/320 px), with no horizontal overflow and creation
+blocked before review. [Captures](../evidence/brd-system-ui-2026-09-16/README.md).
+These are local fixture renders, not live BRD-generation results. Full dialog
+keyboard/focus, live job recovery and download remain acceptance checks.

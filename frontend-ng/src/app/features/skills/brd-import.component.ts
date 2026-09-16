@@ -1,17 +1,6 @@
 /**
- * `<app-brd-import>` — read a Business Requirements document into drafts.
- *
- * The document is parsed server-side and nothing else happens: the rows it
- * yields are material for the authoring wizard, never Skills created behind
- * the author's back. A document the parser cannot read is not a dead end
- * either — the screen says what went wrong and the wizard is still one click
- * away, empty.
- *
- * What lands here is the traceability chain the template makes explicit:
- * business outcomes, functional requirements with their priority and the
- * capability they map to, the decisions the agent makes, and the rules and
- * prohibitions that bound them. A requirement or a decision is the natural
- * seed for one Skill, so those two carry the draft button.
+ * Retain a BRD and review extracted requirements. Individual Skill authoring
+ * remains available; System generation and application require explicit actions.
  */
 import {
   ChangeDetectionStrategy,
@@ -19,9 +8,15 @@ import {
   EventEmitter,
   HostListener,
   Output,
+  OnInit,
+  OnDestroy,
   inject,
   signal,
 } from '@angular/core';
+import { Subscription } from 'rxjs';
+import { ActivatedRoute, Router } from '@angular/router';
+import { WorkspaceService } from '@app/core/workspace.service';
+import { BrdSystemProposalComponent } from './brd-system-proposal.component';
 import { A11yModule } from '@angular/cdk/a11y';
 import { CanonicalApiService, type BrdImport } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
@@ -32,9 +27,9 @@ import { backendMessage, type SkillDraftSeed } from './new-skill-dialog.componen
   selector: 'app-brd-import',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [A11yModule, GlyphComponent],
+  imports: [A11yModule, GlyphComponent, BrdSystemProposalComponent],
   template: `
-    <div class="fixed inset-0 z-50 flex items-start justify-center p-6 overflow-auto">
+    <div class="fixed inset-0 z-50 flex items-start justify-center p-3 sm:p-6 overflow-auto">
       <div class="absolute inset-0" style="background:var(--ck-scrim);" (click)="dismiss()"></div>
       <div
         class="relative ck-surface rounded-md"
@@ -90,6 +85,9 @@ import { backendMessage, type SkillDraftSeed } from './new-skill-dialog.componen
         }
 
         @if (result(); as parsed) {
+          @if (parsed.document?.id) {
+            <app-brd-system-proposal [document]="parsed" />
+          }
           @if (!rowCount(parsed)) {
             <p class="ck-mono" [style]="noteStyle">{{ i18n.t('skills.import.empty') }}</p>
           }
@@ -112,7 +110,7 @@ import { backendMessage, type SkillDraftSeed } from './new-skill-dialog.componen
           @if (parsed.outcomes.length) {
             <section style="margin-top:18px;">
               <span class="ck-mono" [style]="sectionStyle">{{ i18n.t('skills.import.outcomes') }}</span>
-              @for (row of parsed.outcomes; track row.id) {
+              @for (row of parsed.outcomes; track $index) {
                 <div [style]="rowStyle">
                   <span class="ck-mono" [style]="refStyle">{{ row.id }}</span>
                   <span style="font-size:11px; color:var(--ck-fg-1);">{{ row.outcome }}</span>
@@ -125,7 +123,7 @@ import { backendMessage, type SkillDraftSeed } from './new-skill-dialog.componen
           @if (parsed.requirements.length) {
             <section style="margin-top:18px;">
               <span class="ck-mono" [style]="sectionStyle">{{ i18n.t('skills.import.requirements') }}</span>
-              @for (row of parsed.requirements; track row.id) {
+              @for (row of parsed.requirements; track $index) {
                 <div [style]="rowStyle">
                   <span class="ck-mono" [style]="refStyle">{{ row.id }}</span>
                   <div class="min-w-0" style="flex:1 1 auto;">
@@ -147,7 +145,7 @@ import { backendMessage, type SkillDraftSeed } from './new-skill-dialog.componen
           @if (parsed.decisions.length) {
             <section style="margin-top:18px;">
               <span class="ck-mono" [style]="sectionStyle">{{ i18n.t('skills.import.decisions') }}</span>
-              @for (row of parsed.decisions; track row.id) {
+              @for (row of parsed.decisions; track $index) {
                 <div [style]="rowStyle">
                   <span class="ck-mono" [style]="refStyle">{{ row.id }}</span>
                   <div class="min-w-0" style="flex:1 1 auto;">
@@ -165,7 +163,7 @@ import { backendMessage, type SkillDraftSeed } from './new-skill-dialog.componen
           @if (parsed.guardrails.length) {
             <section style="margin-top:18px;">
               <span class="ck-mono" [style]="sectionStyle">{{ i18n.t('skills.import.guardrails') }}</span>
-              @for (row of parsed.guardrails; track row.id) {
+              @for (row of parsed.guardrails; track $index) {
                 <div [style]="rowStyle">
                   <span class="ck-mono" [style]="refStyle">{{ row.id }}</span>
                   <span style="font-size:11px; color:var(--ck-fg-2);">{{ row.text }}</span>
@@ -182,9 +180,26 @@ import { backendMessage, type SkillDraftSeed } from './new-skill-dialog.componen
     </div>
   `,
 })
-export class BrdImportComponent {
+export class BrdImportComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
   readonly i18n = inject(I18nService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly scope = this.workspace.captureRequestScope();
+  private request?: Subscription;
+
+  ngOnInit(): void {
+    const id = this.route.snapshot.queryParamMap.get('brd_document');
+    if (!id) return;
+    this.loading.set(true);
+    this.request = this.canonical.getBrdDocument(id).subscribe({
+      next: parsed => { if (!this.workspace.isRequestScopeCurrent(this.scope)) return; this.result.set(parsed); this.loading.set(false); },
+      error: error => { if (!this.workspace.isRequestScopeCurrent(this.scope)) return; this.failure.set(backendMessage(error, 'unreadable')); this.loading.set(false); },
+    });
+  }
+  ngOnDestroy(): void { this.request?.unsubscribe(); }
+
 
   @Output() readonly drafted = new EventEmitter<SkillDraftSeed>();
   @Output() readonly dismissed = new EventEmitter<void>();
@@ -228,12 +243,17 @@ export class BrdImportComponent {
     this.loading.set(true);
     this.failure.set(null);
     this.result.set(null);
-    this.canonical.importBusinessRequirements(file).subscribe({
+    this.request?.unsubscribe();
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { brd_document: null, brd_job: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    this.request = this.canonical.importBusinessRequirements(file, true).subscribe({
       next: (parsed) => {
+        if (!this.workspace.isRequestScopeCurrent(this.scope)) return;
         this.loading.set(false);
         this.result.set(parsed);
+        if (parsed.document?.id) void this.router.navigate([], { relativeTo: this.route, queryParams: { brd_document: parsed.document.id }, queryParamsHandling: 'merge', replaceUrl: true });
       },
       error: (error: unknown) => {
+        if (!this.workspace.isRequestScopeCurrent(this.scope)) return;
         this.loading.set(false);
         this.failure.set(backendMessage(error, 'unreadable'));
       },

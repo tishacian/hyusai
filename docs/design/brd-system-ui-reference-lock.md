@@ -1,0 +1,22 @@
+# BRD → System authoring — reference lock
+
+16 September 2026. Extend the existing Cockpit BRD import; no brand redesign.
+
+| Decision | Reference | Adaptation |
+|---|---|---|
+| Keep Cockpit surfaces, typography and semantic tokens | Existing `brd-import.component.ts`, `cockpit-tokens.scss` | No NAWA theme modification or new palette |
+| Compact, readable hierarchy and restrained separators | [Linear changelog](https://linear.app/changelog), Refero style `11d3e58a-87d7-4a9a-bbf5-720f4fd3ffc6` | Functional text, thin borders; do not import marketing headlines or a dark-only palette |
+| Clear forms and explicit action | [shadcn UI](https://ui.shadcn.com), Refero style `c14c0a94-1037-449e-bf5b-4cb972656ac7` | Native labelled inputs, visible focus, one primary next action; retain Agentium tokens |
+| Generation → review → editor | [n8n generation journey](https://refero.design/flows/9532) | Show operations and unresolved coverage before application; open the canonical Flow afterwards |
+| Proposed is distinct from tested | Accepted R1 roadmap | Show uncovered requirements and not-run copy; no artificial completion percentages |
+| Resume without browser document storage | Existing server-owned BRD and job records | URL retains document/job IDs; the API rechecks workspace rights |
+
+The panel is a direct extension of the existing import dialog. Requirements use
+source table/row identity, so repeated labels do not collapse separate rows.
+Detailed contracts, prompts, mappings and cases are available before applying.
+The original file can be downloaded. Publication remains in the existing Flow/
+application lifecycle, outside the proposal's creation action.
+
+Visual verification uses the actual Angular component with controlled fixture
+responses. These images verify layout; they are not live PIH results or proof of
+model generation. See the [capture evidence](../evidence/brd-system-ui-2026-09-16/README.md).
