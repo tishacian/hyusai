@@ -2700,6 +2700,11 @@ def ensure_systems(
             systems_by_name.get(spec["name"], []),
             description=f"{spec['name']} System",
         )
+        if system is not None and spec["key"] == "operational_analysis":
+            # This application is installed once. Upgrades use its existing
+            # draft/publish and Experience release lifecycle, as the scoped installer does.
+            out[spec["key"]] = system
+            continue
         cap = capabilities[spec["capability"]]
         if spec["key"] == "translation":
             policies["translation_control"].target_id = cap.id

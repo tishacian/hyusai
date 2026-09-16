@@ -1,7 +1,9 @@
-"""A reproducible data → Python/Polars → LLM → check exercise for the Showcase.
+"""A reproducible data → Python/Polars → LLM → check → review Showcase exercise.
 
 Imported by the existing seed. The scoped installer can also install this one
 application without reseeding the other Showcase systems or their activity.
+Existing installations adopt changes through Flow draft/publish, binding
+retarget, then Experience readiness/release/deploy; rerunning is not an upgrade.
 """
 
 ROWS = [
@@ -158,11 +160,51 @@ def flow_operational_analysis():
                 },
             },
             {
+                "id": "allow_review",
+                "kind": "decision",
+                "label": "Require a successful numerical check",
+                "position": {"x": 1120, "y": 160},
+                "config": {
+                    "inputs_map": {
+                        "check_result": {"node_id": "check", "path": []},
+                        "numerical_reference_passed": {"node_id": "check", "path": ["numerical_reference_passed"], "required": False},
+                    },
+                    # Compatibility DAG failures carry their inputs forward.
+                    # A failed recipe must never become a reviewable result.
+                    "branches": [{"label": "passed", "condition": "'_error' not in check_result and numerical_reference_passed == True"}],
+                },
+            },
+            {
+                "id": "review",
+                "kind": "hitl",
+                "label": "Review the explanation against the evidence",
+                "position": {"x": 1400, "y": 160},
+                "config": {
+                    "prompt": "Review the explanation against the checked NorthForge figures. Accept only if its claims and proposed investigation are supported. No customer data or verified savings are demonstrated.",
+                    "expires_in_days": 1,
+                    "expiry_action": "reject",
+                    "inputs_map": {
+                        key: {"node_id": "check", "path": [key]}
+                        for key in ("stats", "answer", "numerical_reference_passed", "human_validated", "economic_impact", "showcase_seed")
+                    },
+                },
+            },
+            {
                 "id": "sink",
                 "kind": "sink",
                 "label": "Inspect result and evidence",
-                "position": {"x": 1120, "y": 160},
+                "position": {"x": 1680, "y": 160},
                 "config": {
+                    "inputs_map": {
+                        **{
+                            key: {"node_id": "check", "path": [key]}
+                            for key in ("stats", "answer", "numerical_reference_passed", "economic_impact", "showcase_seed")
+                        },
+                        "human_validated": {"node_id": "review", "path": ["approved"]},
+                        "review_decision_id": {"node_id": "review", "path": ["decision_id"]},
+                        "review_status": {"node_id": "review", "path": ["decision_status"]},
+                        "reviewed_by": {"node_id": "review", "path": ["decided_by"]},
+                    },
                     "output_schema": {
                         "type": "object",
                         "properties": {
@@ -171,6 +213,10 @@ def flow_operational_analysis():
                             "numerical_reference_passed": {"type": "boolean"},
                             "human_validated": {"type": "boolean"},
                             "showcase_seed": {"type": "boolean"},
+                            "economic_impact": {"type": "null"},
+                            "review_decision_id": {"type": "string"},
+                            "review_status": {"type": "string"},
+                            "reviewed_by": {"type": ["string", "null"]},
                         },
                         "required": [
                             "stats",
@@ -178,6 +224,10 @@ def flow_operational_analysis():
                             "numerical_reference_passed",
                             "human_validated",
                             "showcase_seed",
+                            "economic_impact",
+                            "review_decision_id",
+                            "review_status",
+                            "reviewed_by",
                         ],
                     }
                 },
@@ -186,8 +236,11 @@ def flow_operational_analysis():
         "edges": [
             {"from": a, "to": b}
             for a, b in zip(
-                ["src", "calculate", "explain", "check"], ["calculate", "explain", "check", "sink"]
+                ["src", "calculate", "explain", "check", "review"], ["calculate", "explain", "check", "allow_review", "sink"]
             )
+        ] + [
+            {"from": "allow_review", "to": "review", "kind": "branch", "branch_label": "passed"},
+            {"from": "check", "to": "sink", "kind": "data"},
         ],
     }
 
@@ -280,8 +333,8 @@ def experience_document():
                         "id": "meaning",
                         "props": {
                             "body": copy(
-                                "Expected: 120 planned minutes, 155 actual, 35 net overrun, 3 late orders; largest overrun: NF-04, +25 minutes. A passed numerical check does not validate the model’s prose or prove savings.",
-                                "Référence : 120 minutes prévues, 155 réalisées, 35 de dépassement net, 3 ordres en retard ; dépassement maximal : NF-04, +25 minutes. Un contrôle numérique réussi ne valide ni la prose du modèle ni des économies.",
+                                "Expected: 120 planned minutes, 155 actual, 35 net overrun, 3 late orders; largest overrun: NF-04, +25 minutes. Review the explanation and its evidence in the validation queue before accepting or rejecting it. A passed numerical check does not validate the model’s prose or prove savings.",
+                                "Référence : 120 minutes prévues, 155 réalisées, 35 de dépassement net, 3 ordres en retard ; dépassement maximal : NF-04, +25 minutes. Examinez l’explication et ses preuves dans la file de validation avant de l’accepter ou de la refuser. Un contrôle numérique réussi ne valide ni la prose du modèle ni des économies.",
                             )
                         },
                     },
