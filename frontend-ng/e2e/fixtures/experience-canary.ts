@@ -184,7 +184,9 @@ export async function discoverExperienceWorkspace(
   memberships: WorkspaceSummary[],
   options: { studio?: boolean } = {},
 ): Promise<WorkspaceSummary | null> {
-  for (const membership of memberships) {
+  const showcase = process.env['E2E_SHOWCASE_WORKSPACE_SLUG'];
+  const candidates = showcase ? memberships.filter(item => item.slug === showcase) : memberships;
+  for (const membership of candidates) {
     const detail = await api<WorkspaceSummary>(
       page,
       membership.slug,
