@@ -6,6 +6,12 @@ metadata:
   labels:
     {{- include "agentium.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
+  {{- if .Values.migrate.hook }}
+  annotations:
+    helm.sh/hook: {{ .Values.migrate.hook | quote }}
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  {{- end }}
 spec:
   ttlSecondsAfterFinished: 600
   template:
@@ -16,6 +22,16 @@ spec:
     spec:
       restartPolicy: OnFailure
       {{- include "agentium.imagePullSecrets" . | nindent 6 }}
+      {{- if and .Values.migrate.waitForPostgres .Values.postgres.enabled }}
+      initContainers:
+        - name: wait-postgres
+          image: {{ .Values.postgres.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - until pg_isready -h agentium-pg -U {{ .Values.postgres.user | quote }} -d {{ .Values.postgres.database | quote }}; do sleep 2; done
+      {{- end }}
       containers:
         - name: migrate
           image: {{ .Values.image.backend | quote }}

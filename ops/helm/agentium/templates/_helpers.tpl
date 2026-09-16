@@ -38,3 +38,12 @@ imagePullSecrets:
 {{- end }}
 {{- end }}
 {{- end -}}
+
+{{- define "agentium.storageClassName" -}}
+{{- $explicit := index . 0 -}}
+{{- $root := index . 1 -}}
+{{- $sc := default $root.Values.storageClass $explicit -}}
+{{- if $sc }}
+storageClassName: {{ $sc | quote }}
+{{- end }}
+{{- end -}}
