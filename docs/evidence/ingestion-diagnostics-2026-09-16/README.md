@@ -1,8 +1,9 @@
 # Explain a missing original before retrying
 
 Implemented after the [real c399 recovery exercise](../release-c399f2be-2026-09-16/README.md)
-exposed a raw storage key as the only failure explanation. Not deployed in this
-record; the public runtime remains c399f2be.
+exposed a raw storage key as the only failure explanation. Deployed as `37056391`;
+[release and real recovery evidence](../release-37056391-2026-09-17/README.md).
+The component captures below remain local fixtures, not live screenshots.
 
 ## Behavior / comportement
 

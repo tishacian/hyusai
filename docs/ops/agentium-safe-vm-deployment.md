@@ -6757,3 +6757,21 @@ Manual smoke, live UI capture, R0 human sessions and complete R1/R2 acceptance
 remain open. No NAWA theme or adoption-default change.
 Rollback: **`6f8f81696db0`**, preserving all current writes.
 [Release and recovery evidence](../evidence/release-c399f2be-2026-09-16/README.md).
+
+### 2026-09-17 — missing-original diagnosis and real document checks
+
+Deployed pushed `demo/agentic` SHA `37056391d6cc315c72495f973fb6fe0e2072ed68`.
+Three VM-built images; storage, exact public frontend/backend identity, healthy
+services and homepage 200 verified. Worker pip/offline Giskard checks passed;
+no migration or concurrent image cleanup. Carakai: **10 passed, 2 intentional
+skips**, `/tmp/iteration-canaries-20260916T221358Z.YD4yNR`.
+
+A real missing-original job preserves the structured cause through restoration
+and explicit retry, indexes its passage and deduplicates replay. A separate
+synthetic upload verifies native PDF page provenance and original checksums.
+Its Excel check reveals a real wider-citation defect: A830:O831 opens only A:L.
+The failure is retained; the bounded preview correction requires another release.
+No re-upload, human decision or BRD-generated application publication is claimed.
+Manual R0 smoke and human baseline remain open. NAWA and adoption defaults unchanged.
+Rollback: **`c399f2bec1ca`**, without reverting writes.
+[Release evidence](../evidence/release-37056391-2026-09-17/README.md).

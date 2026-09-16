@@ -816,6 +816,34 @@ def test_preview_deposit_file_returns_text_content(db_session, monkeypatch, tmp_
     assert preview["download_url"].endswith(f"/{row.id}/download")
 
 
+@pytest.mark.parametrize("cell_range, start, truncated", [
+    ("C3:AP42", 3, False),
+    ("C3:AX50", 3, True),
+    (None, 1, False),
+])
+def test_spreadsheet_preview_prioritizes_selection_with_bounded_size(tmp_path, cell_range, start, truncated):
+    from openpyxl import Workbook
+
+    book = Workbook()
+    book.active["C3"] = "Selection starts"
+    book.active["AP42"] = "Selection ends"
+    book.active["AX50"] = "Outside bounded window"
+    source = tmp_path / "wide.xlsx"
+    book.save(source)
+    book.close()
+    preview = build_file_preview(source, filename=source.name,
+                                 media_type="application/octet-stream",
+                                 size_bytes=source.stat().st_size, download_url="/original",
+                                 sheet_name="Sheet", cell_range=cell_range)
+    assert preview["row_start"] == preview["column_start"] == start
+    assert len(preview["rows"]) == 40
+    assert len(preview["columns"]) == (40 if cell_range else 12)
+    assert preview["selection_truncated"] is truncated
+    if cell_range:
+        assert preview["rows"][0][0] == "Selection starts"
+        assert preview["rows"][-1][-1] == "Selection ends"
+
+
 def test_build_file_preview_large_pdf_renders_inline(tmp_path):
     # Carde manuals routinely exceed the 25 MB image cap (the real one was
     # ~125 MB). The PDF branch only needs size + media type, so we assert the
