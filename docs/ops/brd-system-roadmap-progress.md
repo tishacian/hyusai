@@ -234,3 +234,18 @@ technical release from the outstanding human adoption baseline. Giskard provider
 qualification and the unprepared observability case retain their own acceptance
 scope; this clarification does not mark them passed. R0 is not declared formally
 closed and R1's complete BRD-to-System generation is not yet delivered.
+
+### R1 implementation started — BRD source locations
+
+The import now returns a separate provenance list with section, reference,
+one-based Word table/row and whether the reference was generated. Duplicate IDs
+remain distinguishable by their source position, including after blank rows.
+Multiple matching tables produce an explicit review problem instead of silently
+hiding later requirements. Existing requirement payloads remain compatible.
+
+Validation: BRD parser and workspace import API tests: 15 passed, one skipped
+because the shipped DOCX template is absent from this worktree. This is an initial
+traceability change, not file persistence or a complete System generator.
+Remaining R1 work includes stored originals, reviewed server-owned proposals,
+canonical draft creation, both reference families, requirement/test/Run mapping,
+HITL and publication to a second user. No R1 deployment is claimed.
