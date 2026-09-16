@@ -106,3 +106,18 @@ def test_case_cannot_require_a_disclaimer_and_forbid_its_words():
     assert failure.value.detail["code"] == "brd_case_assertions_contradict"
     case.assertions[1].path = ["another_output"]
     validate_case_output_paths({}, [case])
+
+
+def test_case_inputs_obey_the_original_ingress_contract():
+    from fastapi import HTTPException
+    from app.api.v1.endpoints.evaluation_campaigns import CaseBody
+    from app.services.skills_registry.brd_proposals import validate_case_output_paths
+    flow = {"nodes": [{"id": "source", "kind": "source", "config": {"input_schema": {
+        "type": "object", "properties": {"text": {"type": "string"}},
+        "required": ["text"], "additionalProperties": False}}}]}
+    case = CaseBody(id="normal", input_ref={"text": "source", "node_id": "source"})
+    with pytest.raises(HTTPException) as failure:
+        validate_case_output_paths(flow, [case])
+    assert failure.value.detail["code"] == "brd_case_input_invalid"
+    del case.input_ref["node_id"]
+    validate_case_output_paths(flow, [case])
