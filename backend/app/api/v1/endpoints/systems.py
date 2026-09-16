@@ -987,6 +987,13 @@ async def create_system(
     db: DBSession = Depends(get_db),
     options: SystemCreateOptions = Depends(),
 ):
+    payload = _create_system_record(body, workspace=workspace, user=user, db=db, options=options)
+    db.commit()
+    return payload
+
+
+def _create_system_record(body: SystemCreate, *, workspace, user, db, options=None):
+    """Canonical creation, leaving transaction ownership with the caller."""
     # Unit/service callers invoke the endpoint function directly and therefore
     # see FastAPI's ``Depends`` sentinel instead of dependency injection.
     if not isinstance(options, SystemCreateOptions):
@@ -1119,7 +1126,7 @@ async def create_system(
             message="Initial version",
         )
 
-    db.commit()
+    db.flush()
     db.refresh(s)
     payload = _serialize(s)
     payload["validation_warnings"] = dag_validator.issues_to_payload(

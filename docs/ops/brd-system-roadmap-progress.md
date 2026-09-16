@@ -291,3 +291,29 @@ retention, proposal replay/conflict, unknown mappings, uncovered requirements,
 and executable SQLite upgrade/constraint/downgrade checks for migrations 106/107.
 PostgreSQL migration qualification, object backup coverage, generation, explicit
 application, UI and live acceptance remain to complete before release.
+
+### R1 — explicit atomic application to canonical drafts
+
+Applying a proposal requires its reviewed SHA and a strict explicit review flag.
+The server locks the proposal, checks current authoring permissions, creates
+proposal-owned Skills through the existing authoring checks, resolves `@local_name`
+references, creates a draft-status System through canonical creation, compiles its
+candidate contract and saves the candidate only in SystemFlowDraft. The initial
+published pointer contains the empty graph, not the proposed candidate; no Work
+application is published or activated. Existing shared Skills remain unchanged.
+
+Reviewed cases enter the existing EvaluationSuite registry with the BRD proposal
+reference. Workbench-disabled workspaces cannot create such a suite; failure rolls
+back the whole application. The proposal, document and suite references are linked
+from System settings. Immutable publication/Run provenance still needs its own
+completion; this mutable settings link alone is not that guarantee.
+
+Canonical creation helpers now let their caller own the transaction; their public
+API endpoints still commit as before. Replay returns the same System. An invalid
+binding after Skill insertion rolls back the Skill and System, leaving the proposal
+available for revision. PostgreSQL concurrent request qualification remains open.
+
+Validation: 97 BRD, Skill-authoring, System safety, publication and evaluation API
+tests passed. The expanded eight-test BRD API file then also passed with a real
+prompt-template Skill resolved into the compiled draft and a second System left
+unchanged. No live model call, generation UI or release is claimed by these tests.
