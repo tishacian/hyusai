@@ -328,6 +328,7 @@ export interface RunTriggerRequest {
 }
 
 export interface Run {
+  test_result?: { suite_id: string; suite_revision: number; case_id: string; verdict: string; assertions: Array<{id: string; passed: boolean}> } | null;
   id: string;
   system_id: string;
   capability_id?: string | null;
@@ -756,7 +757,9 @@ export interface SystemFlowWorkbenchGoldenRunRequest {
   expected_flow_sha256: string;
   ingress_id?: string;
   kind?: 'manual' | 'chat' | 'http' | 'schedule' | 'event';
-  cases: SystemFlowWorkbenchGoldenCase[];
+  cases?: SystemFlowWorkbenchGoldenCase[];
+  suite_id?: string;
+  request_key?: string;
 }
 
 export interface SystemFlowWorkbenchGoldenRunResponse {

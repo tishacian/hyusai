@@ -3,8 +3,8 @@ import { NavLinkDirective } from '@app/shared/cockpit';
 import { FormsModule } from '@angular/forms';
 import { JsonPipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
-import { Subscription, timer, exhaustMap, takeWhile } from 'rxjs';
-import { CanonicalApiService, BrdGenerationJob, BrdImport, BrdProposal, Skill } from '@app/core/canonical-api.service';
+import { Subscription, timer, exhaustMap, takeWhile, forkJoin, switchMap, of } from 'rxjs';
+import { CanonicalApiService, BrdGenerationJob, BrdImport, BrdProposal, Skill, Run, SystemFlowWorkbenchGoldenRunRequest } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { backendMessage } from './new-skill-dialog.component';
@@ -79,7 +79,7 @@ import { backendMessage } from './new-skill-dialog.component';
             <li>{{ node.label || node.id }}</li>
           }
         </ul>
-        <p class="muted">{{ i18n.t('skills.brdSystem.notTested') }}</p>
+        @if (!testRuns().length) { <p class="muted">{{ i18n.t('skills.brdSystem.notTested') }}</p> }
         @for (issue of current.proposal.problems; track $index) { <p class="warning">{{ issue }}</p> }
         @for (row of current.proposal.coverage; track row.table + ':' + row.row) {
           <div class="coverage">
@@ -97,6 +97,19 @@ import { backendMessage } from './new-skill-dialog.component';
         @if (current.system_id) {
           <p role="status">{{ i18n.t('skills.brdSystem.created') }}</p>
           <a class="action primary" [navLink]="{type:'system',ref:current.system_id,lens:'build',facet:'design'}">{{ i18n.t('skills.brdSystem.open') }}</a>
+          <p class="muted">{{ i18n.t('skills.brdSystem.testsHelp') }}</p>
+          <button type="button" [disabled]="testing()" (click)="testCases()">{{ i18n.t('skills.brdSystem.testCases') }}</button>
+          @if (testRuns().length) {
+            <button type="button" [disabled]="testing()" (click)="newTestAttempt()">{{ i18n.t('skills.brdSystem.newTest') }}</button>
+            <button type="button" [disabled]="testing()" (click)="refreshTests()">{{ i18n.t('skills.brdSystem.refreshTests') }}</button>
+          }
+          @for (run of testRuns(); track run.id) {
+            <div class="coverage">
+              <strong>{{ run.test_result?.case_id || run.id }}</strong>
+              <p>{{ i18n.t('skills.brdSystem.verdict.' + (run.status === 'hitl_pending' ? 'human' : (run.test_result?.verdict || 'pending'))) }}</p>
+              <a class="action" [navLink]="{type:'run',ref:run.id}">{{ i18n.t('skills.brdSystem.inspectRun') }}</a>
+            </div>
+          }
         } @else {
           <label class="review"><input type="checkbox" [(ngModel)]="reviewed" [disabled]="busy()" /> {{ i18n.t('skills.brdSystem.review') }}</label>
           <button class="primary" type="button" [disabled]="busy() || !reviewed" (click)="apply()">{{ i18n.t('skills.brdSystem.apply') }}</button>
@@ -121,6 +134,9 @@ export class BrdSystemProposalComponent implements OnInit, OnDestroy {
   readonly busy = signal(false);
   readonly applying = signal(false);
   readonly failure = signal<string | null>(null);
+  readonly testing = signal(false);
+  readonly testRuns = signal<Run[]>([]);
+  private testRequest?: { system: string; body: SystemFlowWorkbenchGoldenRunRequest };
   name = '';
   family: 'document_summary' | 'intervention_preparation' = 'document_summary';
   selected: string[] = [];
@@ -186,6 +202,41 @@ export class BrdSystemProposalComponent implements OnInit, OnDestroy {
     this.subscriptions.add(this.api.applyBrdProposal(id, proposal).subscribe({
       next: result => { if (!this.current()) return; this.proposal.set(result); this.busy.set(false); this.applying.set(false); },
       error: error => this.fail(error),
+    }));
+  }
+  testCases(): void {
+    const system = this.proposal()?.system_id;
+    if (!system || this.testing() || !this.current()) return;
+    this.testing.set(true); this.failure.set(null);
+    const request = this.testRequest?.system === system ? of(this.testRequest.body) : forkJoin({
+      system: this.api.getSystem(system), state: this.api.getSystemFlowState(system),
+    }).pipe(switchMap(({system: record, state}) => {
+      if (!this.current()) return of(null);
+      const provenance = record?.settings?.['brd_provenance'] as {suite_id?: string} | undefined;
+      if (!provenance?.suite_id) throw new Error(this.i18n.t('skills.brdSystem.noSuite'));
+      const body: SystemFlowWorkbenchGoldenRunRequest = {acknowledge_real_side_effects: true,
+        suite_id: provenance.suite_id, request_key: crypto.randomUUID(),
+        flow_definition: state.draft.flow_definition, expected_flow_sha256: state.draft.flow_sha256};
+      this.testRequest = {system, body};
+      return of(body);
+    }));
+    this.subscriptions.add(request.pipe(switchMap(body => body && this.current()
+      ? this.api.triggerSystemFlowWorkbenchGoldenRuns(system, body) : of(null))).subscribe({
+        next: result => { if (!this.current()) return; this.testing.set(false);
+          if (result) { this.testRuns.set(result.runs); this.refreshTests(); } },
+        error: error => { this.testing.set(false); this.fail(error); },
+      }));
+  }
+  newTestAttempt(): void {
+    if (this.testing() || !this.current()) return;
+    this.testRequest = undefined; this.testRuns.set([]); this.testCases();
+  }
+  refreshTests(): void {
+    if (!this.current() || this.testing() || !this.testRuns().length) return;
+    this.testing.set(true);
+    this.subscriptions.add(forkJoin(this.testRuns().map(run => this.api.getRun(run.id))).subscribe({
+      next: rows => { if (!this.current()) return; this.testRuns.set(rows.filter((row): row is Run => row !== null)); this.testing.set(false); },
+      error: error => { this.testing.set(false); this.fail(error); },
     }));
   }
   revise(): void { this.generationRequest = undefined; this.proposal.set(null); this.reviewed = false; this.failure.set(null); }
