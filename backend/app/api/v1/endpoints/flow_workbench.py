@@ -109,7 +109,8 @@ class WorkbenchGoldenBody(BaseModel):
     expected_flow_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     ingress_id: str | None = Field(default=None, min_length=1, max_length=160)
     kind: Literal["manual", "chat", "http", "schedule", "event"] | None = None
-    cases: list[GoldenCaseBody] = Field(min_length=1, max_length=20)
+    cases: list[GoldenCaseBody] | None = Field(default=None, min_length=1, max_length=20)
+    suite_id: str | None = Field(default=None, min_length=1, max_length=36)
 
     @field_validator("acknowledge_real_side_effects", mode="before")
     @classmethod
@@ -122,7 +123,9 @@ class WorkbenchGoldenBody(BaseModel):
     def validate_controls(self) -> WorkbenchGoldenBody:
         if (self.ingress_id is None) != (self.kind is None):
             raise ValueError("ingress_id and kind must be provided together")
-        case_ids = [case.id for case in self.cases]
+        if (self.cases is None) == (self.suite_id is None):
+            raise ValueError("Provide either cases or a reviewed suite_id")
+        case_ids = [case.id for case in (self.cases or [])]
         if len(set(case_ids)) != len(case_ids):
             raise ValueError("golden case ids must be unique")
         return self
@@ -311,7 +314,7 @@ async def create_golden_preview_runs(
 ):
     _authorize(db, system_id=system_id, workspace=workspace, user=user)
     raw_cases: list[dict[str, Any]] = []
-    for case in body.cases:
+    for case in body.cases or []:
         raw_case: dict[str, Any] = {
             "id": case.id,
             "input_ref": copy.deepcopy(case.input_ref),
@@ -322,6 +325,17 @@ async def create_golden_preview_runs(
         if "expected" in case.model_fields_set:
             raw_case["expected"] = copy.deepcopy(case.expected)
         raw_cases.append(raw_case)
+    suite = None
+    if body.suite_id:
+        from app.models.evaluation_campaign import EvaluationSuite
+        from app.api.v1.endpoints.evaluation_campaigns import authorize_suite
+        from app.services.evaluation.campaigns import corpus_manifest
+        suite = authorize_suite(db, db.get(EvaluationSuite, body.suite_id), workspace, user)
+        if suite.system_id != system_id:
+            raise HTTPException(422, "The suite belongs to a different System")
+        if corpus_manifest(db, workspace.id, [item["id"] for item in suite.corpus_manifest]) != suite.corpus_manifest:
+            raise HTTPException(409, "Corpus changed; review a new suite revision")
+        raw_cases = copy.deepcopy(suite.cases)
     try:
         flow_workbench.validate_golden_cases(raw_cases)
         prepared = flow_workbench.prepare_preview(
@@ -341,6 +355,10 @@ async def create_golden_preview_runs(
                 "batch_id": batch_id,
                 "case_id": case["id"],
             }
+            if suite is not None:
+                checkpoint["suite_id"] = suite.id
+                checkpoint["suite_revision"] = suite.revision
+                checkpoint["assertions"] = copy.deepcopy(case.get("assertions", []))
             if "expected" in case:
                 checkpoint["expected"] = copy.deepcopy(case["expected"])
             run = flow_workbench.create_run(
