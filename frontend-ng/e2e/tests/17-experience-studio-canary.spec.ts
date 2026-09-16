@@ -187,11 +187,13 @@ async function checkMobileEditor(page: Page, editorPath: string, width: 320 | 45
   const chat = page.locator('app-chat-overlay [role="dialog"]');
   await expect(chat).toBeVisible();
   await expectContained(chat, width);
-  await expect(chat.locator('button').first()).toBeFocused();
+  // The chat composer intentionally takes initial focus (focusComposer).
+  const chatInput = chat.getByRole('textbox').first();
+  await expect(chatInput).toBeFocused();
   // Chat sets aria-hidden on #main-content; getByRole('main') cannot see it.
   await expect(page.locator('#main-content')).toHaveAttribute('inert', '');
-  const chatInput = chat.getByRole('textbox').first();
-  if (await chatInput.count()) await chatInput.focus();
+  await page.keyboard.press('Tab');
+  await expect.poll(() => chat.evaluate(element => element.contains(document.activeElement))).toBe(true);
   await page.keyboard.press('Escape');
   await expect(chat).toHaveCount(0);
   await expect(page.locator('#main-content')).not.toHaveAttribute('inert', '');
