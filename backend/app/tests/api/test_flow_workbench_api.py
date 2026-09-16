@@ -846,3 +846,31 @@ async def test_workbench_runs_cannot_use_generic_replay_or_rerun(
     assert rerun_rejected.value.status_code == 409
     assert rerun_rejected.value.detail["code"] == "WORKBENCH_RUN_RERUN_FORBIDDEN"
     assert db_session.query(Run).filter_by(system_id=system.id).count() == 1
+
+
+def test_golden_runs_use_reviewed_suite_without_baseline(db_session, monkeypatch):
+    from app.models.evaluation_campaign import EvaluationSuite
+    workspace, user, system, _ = _seed(db_session)
+    http = _client(db_session, workspace, user, monkeypatch)
+    assertions = [{"id": "fact", "path": ["completion"], "operator": "contains", "value": "source"}]
+    suite = EvaluationSuite(workspace_id=workspace.id, system_id=system.id, name="BRD cases",
+        revision=1, created_by_user_id=user.id, cases=[{"id": "first", "input_ref": {"case": "source"},
+        "assertions": assertions}], corpus_manifest=[], provenance={"method": "brd_proposal"})
+    db_session.add(suite)
+    db_session.commit()
+    flow = _flow("suite-run")
+    body = {"acknowledge_real_side_effects": True, "flow_definition": flow,
+            "expected_flow_sha256": canonical_flow_sha256(flow), "suite_id": suite.id}
+    url = f"/systems/{system.id}/flow-workbench/golden-runs"
+    assert http.post(url, json={**body, "cases": [{"id": "override", "input_ref": {}}]}).status_code == 422
+    response = http.post(url, json=body)
+    assert response.status_code == 201, response.text
+    runs = db_session.query(Run).filter_by(system_id=system.id).all()
+    assert len(runs) == 1
+    assert runs[0].input_ref["case"] == "source"
+    assert "override" not in runs[0].input_ref
+    checkpoint = next(cp for cp in runs[0].checkpoints if cp["kind"] == "golden_case_queued")
+    assert checkpoint["suite_id"] == suite.id
+    assert checkpoint["suite_revision"] == 1
+    assert checkpoint["assertions"] == assertions
+    assert "expected" not in checkpoint  # No invented whole-output oracle.

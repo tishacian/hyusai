@@ -520,3 +520,17 @@ check, alongside accepted/rejected and stale/pending-decision behavior. The API
 refresh test uses persisted status transitions; it is not a real participant
 session. Initial draft suite execution without a completed baseline and the
 frontend review/navigation remain outstanding R1 work.
+
+
+### Initial suite execution — 16 September
+
+The existing Golden Runs endpoint now accepts a reviewed suite ID instead of
+browser-supplied cases. It checks suite visibility, System ownership and corpus
+fingerprint, then creates canonical Runs without requiring a completed baseline.
+Inputs, case ID, suite revision and assertions are copied from the server-owned
+suite into the existing Run checkpoints. A caller cannot simultaneously override
+cases. Existing ad-hoc Golden Runs remain compatible.
+
+The API regression verifies initial execution and retained criteria. UI controls,
+server verdict retrieval and duplicate-request protection for this existing batch
+endpoint remain unfinished; this increment alone is not the complete R1 journey.
