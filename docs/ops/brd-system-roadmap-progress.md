@@ -367,3 +367,19 @@ and CommonJS warnings. The actual component passed 12 controlled visual states
 blocked before review. [Captures](../evidence/brd-system-ui-2026-09-16/README.md).
 These are local fixture renders, not live BRD-generation results. Full dialog
 keyboard/focus, live job recovery and download remain acceptance checks.
+
+### Retained BRD backup gate — 16 September
+
+The paired dump now includes `brd/` objects belonging to workspaces with retained
+BRD rows, including workspaces without datasets or ML models. Each copied
+original must match the digest retained in PostgreSQL. Missing/corrupt originals
+prevent `.ready`. A missing, unreferenced object prefix no longer aborts the size
+probe under `pipefail`.
+
+Validation: 11 executable backup tests passed against disposable PostgreSQL 16
+on carakai, including successful BRD retention, missing original, corrupt
+original and the existing dataset/model/registry cases. Docker/MinIO operations
+were shimmed onto fixture directories; both PostgreSQL dumps and SQL queries
+were real. The unrelated ML registry settings test was deselected in this
+minimal test environment. This is not a production restore drill or an R1
+release acceptance. The disposable container was removed after testing.

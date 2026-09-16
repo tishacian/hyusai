@@ -21,7 +21,7 @@
 # ML_REGISTRY_ENABLED=false) but it is always reported.
 #
 # Scope comes from the registry, not from a path glob. Only workspaces that own
-# datasets or models are mirrored, and only their `tabular/` and `ml/` prefixes
+# datasets, models or BRDs are mirrored, and only their `tabular/`, `ml/` and retained `brd/` prefixes
 # — never a whole workspace, which would drag in knowledge collections an order
 # of magnitude larger for nothing.
 #
@@ -102,7 +102,7 @@ mc_in_minio() {
 # workspace that owns only datasets legitimately has no `ml/` prefix — so the
 # error is an expected answer here and reads as 0.
 prefix_bytes() {
-  mc_in_minio du --json "$1" 2>/dev/null | python3 -c 'import json, sys
+  { mc_in_minio du --json "$1" 2>/dev/null || true; } | python3 -c 'import json, sys
 total = 0
 for line in sys.stdin:
     line = line.strip()
@@ -154,10 +154,12 @@ fi
 
 PLANE_TABLES=$(query "select count(*) from information_schema.tables
                       where table_name in ('tabular_datasets', 'ml_models')")
+BRD_TABLE=$(query "select count(*) from information_schema.tables
+                   where table_schema = 'public' and table_name = 'brd_documents'")
 OBJECTS=0
 WORKSPACES=""
 
-if [ "$PLANE_TABLES" -eq 0 ]; then
+if [ "$PLANE_TABLES" -eq 0 ] && [ "$BRD_TABLE" -eq 0 ]; then
   # A database from before the plane landed. Said out loud, because an empty
   # objects/ is otherwise indistinguishable from a mirror that failed.
   printf 'objects: none — this database predates the data plane (no 096/097)\n'
@@ -166,16 +168,20 @@ else
   [ -n "$BUCKET" ] || fail "OBJECT_STORE_S3_BUCKET is unset on $BACKEND_CONTAINER"
   printf 'bucket: %s\n' "$BUCKET"
 
-  WORKSPACES=$(query "select workspace_id from tabular_datasets
-                      union
-                      select workspace_id from ml_models
-                      order by 1")
+  WORKSPACE_QUERY="select null::text as workspace_id where false"
+  if [ "$PLANE_TABLES" -ne 0 ]; then
+    WORKSPACE_QUERY="$WORKSPACE_QUERY union select workspace_id from tabular_datasets union select workspace_id from ml_models"
+  fi
+  if [ "$BRD_TABLE" -ne 0 ]; then
+    WORKSPACE_QUERY="$WORKSPACE_QUERY union select workspace_id from brd_documents"
+  fi
+  WORKSPACES=$(query "$WORKSPACE_QUERY order by 1")
 fi
 
 if [ -n "$WORKSPACES" ]; then
   total=0
   for workspace in $WORKSPACES; do
-    for kind in tabular ml; do
+    for kind in tabular ml brd; do
       total=$((total + $(prefix_bytes "dump/$BUCKET/workspaces/$workspace/$kind")))
     done
   done
@@ -187,7 +193,7 @@ if [ -n "$WORKSPACES" ]; then
   docker exec "$MINIO_CONTAINER" rm -rf "$STAGE"
   docker exec "$MINIO_CONTAINER" mkdir -p "$STAGE"
   for workspace in $WORKSPACES; do
-    for kind in tabular ml; do
+    for kind in tabular ml brd; do
       mc_in_minio mirror --quiet \
         "dump/$BUCKET/workspaces/$workspace/$kind" \
         "$STAGE/workspaces/$workspace/$kind" >/dev/null 2>&1 || true
@@ -215,7 +221,7 @@ fi
 missing=0
 REPORT_STATES=0
 REPORT_STATES_MISSING=0
-if [ -n "$WORKSPACES" ]; then
+if [ "$PLANE_TABLES" -ne 0 ] && [ -n "$WORKSPACES" ]; then
   # Checked against the bytes just copied out, not against the store: the store
   # is not what a restore will have. A dataset row names one Parquet object; a
   # model row names a directory whose MLmodel file is what the loader opens.
@@ -259,6 +265,24 @@ EOF
     "$REPORT_STATES" "$REPORT_STATES_MISSING"
 fi
 
+# Originals are required to review and reproduce BRD-derived Systems. Verify
+# their stored digest against the copied bytes, not just the current bucket.
+BRD_DOCUMENTS=0
+if [ "$BRD_TABLE" -ne 0 ]; then
+  BRD_ROWS=$(query "select storage_key || '|' || sha256 from brd_documents order by id")
+  while IFS='|' read -r key digest; do
+    [ -n "$key" ] || continue
+    BRD_DOCUMENTS=$((BRD_DOCUMENTS + 1))
+    if [ ! -f "$WINDOW/objects/$key" ]; then
+      printf 'MISSING BRD original %s\n' "$key" >&2
+      missing=$((missing + 1))
+    elif [ "$(sha256sum "$WINDOW/objects/$key" | cut -d ' ' -f1)" != "$digest" ]; then
+      printf 'CORRUPT BRD original %s\n' "$key" >&2
+      missing=$((missing + 1))
+    fi
+  done <<< "$BRD_ROWS"
+fi
+
 cat > "$WINDOW/MANIFEST.json" <<EOF
 {
   "sha12": "$SHA",
@@ -271,6 +295,7 @@ cat > "$WINDOW/MANIFEST.json" <<EOF
   "registry_model_versions": ${REGISTRY_VERSIONS:-null},
   "data_plane_deployed": $([ "$PLANE_TABLES" -eq 0 ] && echo false || echo true),
   "object_files": $OBJECTS,
+  "brd_documents": $BRD_DOCUMENTS,
   "registry_artifacts_missing": $missing,
   "report_states": $REPORT_STATES,
   "report_states_missing": $REPORT_STATES_MISSING
