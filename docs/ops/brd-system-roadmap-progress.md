@@ -626,3 +626,12 @@ and equipment explicit, plus distinct notice/history and refusal cases. One
 fixture test passes. Evidence and the generated Markdown are in
 `docs/evidence/northforge-intervention-2026-09-16/`. Ingestion, pinned tool setup
 and actual AgentLoop selection remain open; no production mutation was made.
+
+
+### NorthForge history ingested on Showcase — 16 September
+
+The canonical upload/worker pipeline indexed the synthetic history successfully.
+A real scoped search returns NF-04 with 30 planned and 55 actual minutes and its
+source identity. Evidence: `docs/evidence/northforge-intervention-2026-09-16/ingestion-and-search.json`.
+The dedicated collection is now available for the second read tool. Native
+AgentLoop tool choice and the BRD-generated System are still unqualified.

@@ -20,3 +20,19 @@ Next qualification must pin each tool to its intended authorized resource,
 prevent payload collection overrides and broad fallback, then execute both
 questions with real retrieval and the canonical AgentLoop. Aggregate arithmetic
 continues through SQL/Polars, not a retrieval answer.
+
+
+## Live ingestion and retrieval
+
+Created the dedicated synthetic collection through the authenticated document
+API on Showcase, then uploaded the Markdown through the normal multipart route.
+Worker job `947e90c5-5546-4534-8226-b69ceb814312` completed in approximately 23 s:
+one document, one Qdrant chunk, nine extracted document facts, BM25 ready.
+Collection: `b3fa0e81-e6c5-468d-b89c-af13bf5e138d`.
+
+A real `/documents/search` query for NF-04 returned the correct source document
+and the passage containing 30 planned / 55 actual minutes. The reported scope
+contains only the intervention-history collection, with no fallback reason.
+`ingestion-and-search.json` retains the upload, worker and retrieval evidence.
+This qualifies ingestion and direct retrieval, not yet AgentLoop tool selection.
+No application image or client configuration was changed.
