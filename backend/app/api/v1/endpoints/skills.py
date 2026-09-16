@@ -542,19 +542,8 @@ async def list_verified_executors(
     }
 
 
-@router.post("")
-async def create_skill(
-    body: SkillCreate,
-    workspace: Workspace = Depends(get_current_workspace),
-    user: User = Depends(get_current_user),
-    db: DBSession = Depends(get_db),
-):
-    """Define a Skill owned by this workspace.
-
-    The caller names the Skill; the server derives the slug. That is what makes
-    cross-namespace authoring unreachable rather than merely rejected.
-    """
-
+def _create_skill_record(body: SkillCreate, *, workspace, user, db):
+    """Canonical authoring checks and insertion within the caller transaction."""
     _enforce_catalog_admin(db, user=user, workspace=workspace)
     try:
         identity = workspace_skill_slug(
@@ -586,6 +575,24 @@ async def create_skill(
     if body.pricing is not None:
         row.pricing = body.pricing
     db.add(row)
+    db.flush()
+    return row
+
+
+@router.post("")
+async def create_skill(
+    body: SkillCreate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Define a Skill owned by this workspace.
+
+    The caller names the Skill; the server derives the slug. That is what makes
+    cross-namespace authoring unreachable rather than merely rejected.
+    """
+
+    row = _create_skill_record(body, workspace=workspace, user=user, db=db)
     db.commit()
     db.refresh(row)
     payload = _serialize(row)
@@ -775,6 +782,44 @@ async def get_business_requirements_proposal(
     if row is None:
         raise HTTPException(404, "BRD proposal not found")
     return proposal_payload(row)
+
+
+class BrdApplyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reviewed: bool = Field(strict=True)
+
+    @field_validator("reviewed")
+    @classmethod
+    def require_review(cls, value):
+        if value is not True:
+            raise ValueError("Explicit proposal review is required")
+        return value
+
+
+@router.post("/imports/business-requirements/{document_id}/proposals/{proposal_id}/apply")
+async def apply_business_requirements_proposal(
+    document_id: str,
+    proposal_id: str,
+    body: BrdApplyBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.services.skills_registry.brd_proposals import apply_proposal
+    from app.services.systems.flow_publication import FlowPublicationError
+    document = _retained_brd(db, workspace, user, document_id)
+    try:
+        result = apply_proposal(db, document=document, proposal_id=proposal_id,
+            expected_sha256=body.expected_sha256, user=user, workspace=workspace)
+        db.commit()
+        return result
+    except FlowPublicationError as exc:
+        db.rollback()
+        raise HTTPException(exc.status_code, exc.payload()) from exc
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.get("/{slug}")

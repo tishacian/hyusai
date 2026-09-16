@@ -208,3 +208,85 @@ def test_proposal_preserves_uncovered_requirements_and_never_creates_system(db_s
     mapped["mappings"][0]["node_ids"] = ["result"]
     mapped["mappings"][0]["row"] = 99
     assert client.post(path, json=mapped).status_code == 422
+
+
+def test_reviewed_proposal_applies_once_to_draft_only(db_session, tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.models.system import System
+    from app.models.system_flow_draft import SystemFlowDraft
+    from app.models.system_version import SystemVersion
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path))
+    workspace, user = _seed(db_session)
+    workspace.settings = {"features": {"flow_workbench_v1": True}}
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+    document_id = client.post("/skills/import/business-requirements?retain=true",
+                             files={"file": ("brd.docx", _brd())}).json()["document"]["id"]
+    path = f"/skills/imports/business-requirements/{document_id}/proposals"
+    flow = {"schema_version": 3, "nodes": [
+        {"id": "input", "type": "source", "kind": "source"},
+        {"id": "result", "type": "sink", "kind": "sink"},
+    ], "edges": [{"from": "input", "to": "result", "kind": "data"}]}
+    proposal = client.post(path, json={"request_key": "apply-test", "name": "Draft only",
+                                      "flow_definition": flow, "cases": [{"id": "case-1", "input_ref": {}, "assertions": []}]}).json()
+    apply_path = path + "/" + proposal["id"] + "/apply"
+    assert client.post(apply_path, json={"expected_sha256": proposal["sha256"], "reviewed": False}).status_code == 422
+    assert client.post(apply_path, json={"expected_sha256": "0" * 64, "reviewed": True}).status_code == 409
+    body = {"expected_sha256": proposal["sha256"], "reviewed": True}
+    applied = client.post(apply_path, json=body)
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["status"] == "applied"
+    assert client.post(apply_path, json=body).json() == applied.json()
+    system = db_session.query(System).one()
+    assert system.status == "draft"
+    assert not system.flow_definition.get("nodes")
+    draft = db_session.query(SystemFlowDraft).one()
+    assert len(draft.flow_definition["nodes"]) == 2
+    assert draft.revision == 2
+    published = db_session.get(SystemVersion, system.published_flow_version_id)
+    assert not published.flow_definition.get("nodes")
+    assert system.settings["brd_provenance"]["proposal_sha256"] == proposal["sha256"]
+    from app.models.evaluation_campaign import EvaluationSuite
+    suite = db_session.query(EvaluationSuite).one()
+    assert suite.system_id == system.id
+    assert suite.cases[0]["id"] == "case-1"
+    assert suite.provenance["brd_proposal_sha256"] == proposal["sha256"]
+    assert system.settings["brd_provenance"]["suite_id"] == suite.id
+
+    # Failure after an authored Skill has been inserted must roll it back.
+    bad_flow = {"schema_version": 3, "nodes": [
+        {"id": "input", "type": "source", "kind": "source"},
+        {"id": "task", "type": "skill", "kind": "task", "config": {"skill_slug": "@missing"}},
+        {"id": "result", "type": "sink", "kind": "sink"},
+    ], "edges": [{"from": "input", "to": "task", "kind": "data"},
+                 {"from": "task", "to": "result", "kind": "data"}]}
+    bad_response = client.post(path, json={"request_key": "rollback-test", "name": "Invalid binding",
+        "flow_definition": bad_flow, "skills": [{"local_name": "summary", "name": "Summary",
+        "executor": {"kind": "prompt_template", "params": {"provider": "workspace", "template": "Summarize {text}"}}}]})
+    assert bad_response.status_code == 200, bad_response.text
+    bad = bad_response.json()
+    failed = client.post(path + "/" + bad["id"] + "/apply", json={"expected_sha256": bad["sha256"], "reviewed": True})
+    assert failed.status_code == 422, failed.text
+    assert db_session.query(Skill).count() == 0
+    assert db_session.query(System).count() == 1
+    from app.models.brd_proposal import BrdProposal
+    assert db_session.get(BrdProposal, bad["id"]).status == "proposed"
+
+    # A resolvable authored executor is cloned for this proposal and frozen by
+    # the canonical compiler, without changing the earlier System's draft.
+    bad_flow["nodes"][1]["config"]["skill_slug"] = "@summary"
+    good_response = client.post(path, json={"request_key": "authored-test", "name": "Authored summary",
+        "flow_definition": bad_flow, "skills": [{"local_name": "summary", "name": "Summary",
+        "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+        "output_schema": {"type": "object", "properties": {"completion": {"type": "string"}}},
+        "executor": {"kind": "prompt_template", "params": {"provider": "workspace", "template": "Summarize {text}"}}}]})
+    assert good_response.status_code == 200, good_response.text
+    good = good_response.json()
+    successful = client.post(path + "/" + good["id"] + "/apply", json={"expected_sha256": good["sha256"], "reviewed": True})
+    assert successful.status_code == 200, successful.text
+    assert db_session.query(System).count() == 2
+    authored = db_session.query(Skill).one()
+    new_draft = db_session.query(SystemFlowDraft).filter_by(system_id=successful.json()["system_id"]).one()
+    assert new_draft.flow_definition["nodes"][1]["config"]["skill_slug"] == authored.slug
+    assert db_session.query(SystemFlowDraft).filter_by(system_id=system.id).one().revision == 2

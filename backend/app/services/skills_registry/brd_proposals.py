@@ -72,3 +72,92 @@ def retain_proposal(db, *, document, user, request_key, proposal):
 def proposal_payload(row):
     return {"id": row.id, "sha256": row.sha256, "status": row.status,
             "system_id": row.system_id, "proposal": deepcopy(row.proposal)}
+
+
+def apply_proposal(db, *, document, proposal_id, expected_sha256, user, workspace):
+    """Apply exactly the reviewed snapshot in one transaction, never publish it."""
+    from app.api.v1.endpoints.skills import SkillCreate, _create_skill_record
+    from app.api.v1.endpoints.systems import SystemCreate, _create_system_record
+    from app.models.skill import Skill
+    from app.models.system import System
+    from app.services.systems import flow_publication
+    from app.services.iam.decision_plane import enforce_action
+    from app.services.iam.legacy_authority import legacy_object_action_allowed
+
+    enforce_action(db, user=user, workspace=workspace, resource_kind="system", action="admin",
+        legacy_allowed=legacy_object_action_allowed(db, user=user, workspace=workspace,
+                                                   resource_kind="system", action="admin"))
+    row = db.query(BrdProposal).filter_by(id=proposal_id, workspace_id=workspace.id,
+                                        document_id=document.id).with_for_update().first()
+    if row is None:
+        raise HTTPException(404, "BRD proposal not found")
+    if row.sha256 != expected_sha256:
+        raise HTTPException(409, "Review the current proposal before applying it")
+    if row.status == "applied":
+        system = db.query(System).filter_by(id=row.system_id, workspace_id=workspace.id).first()
+        if system is None:
+            raise HTTPException(409, "The applied System is no longer available")
+        from app.api.v1.endpoints.systems import _enforce_system_read
+        _enforce_system_read(db, user=user, workspace=workspace, system=system)
+        return proposal_payload(row)
+    flow_publication.require_flow_publication(workspace)
+    snapshot = row.proposal
+    flow = deepcopy(snapshot["flow_definition"])
+    aliases = {}
+    for index, raw in enumerate(snapshot["skills"]):
+        spec = SkillCreate.model_validate(raw)
+        if spec.capability_id:
+            raise HTTPException(422, "Review Capability attachment separately from BRD draft creation")
+        original_name = spec.local_name
+        # Each proposal owns its Skills. Applying another proposal cannot mutate
+        # a shared executor or the version used by an earlier System.
+        spec.local_name = f"brd_{row.id.replace('-', '')}_{index}"
+        skill = _create_skill_record(spec, workspace=workspace, user=user, db=db)
+        aliases["@" + original_name] = skill.slug
+
+    referenced = set()
+    def resolve(value, key=None):
+        if isinstance(value, dict):
+            return {k: resolve(v, k) for k, v in value.items()}
+        if isinstance(value, list):
+            return [resolve(v, key) for v in value]
+        if key in {"skill_slug", "decide_skill", "skill_allowlist"} and isinstance(value, str):
+            if value.startswith("@") and value not in aliases:
+                raise HTTPException(422, "Unknown proposed Skill reference")
+            slug = aliases.get(value, value)
+            referenced.add(slug)
+            return slug
+        return value
+    flow = resolve(flow)
+    skill_ids = []
+    for slug in sorted(referenced):
+        skill = db.query(Skill).filter_by(slug=slug).first()
+        if skill is None:
+            raise HTTPException(422, "A proposed Skill is not available")
+        skill_ids.append(skill.id)
+    evidence = {"document_id": document.id, "document_sha256": document.sha256,
+                "proposal_id": row.id, "proposal_sha256": row.sha256,
+                "coverage": deepcopy(snapshot["coverage"])}
+    # Seed only the empty initial state through canonical creation, then save
+    # the proposal through the draft API. The candidate is never the live graph.
+    created = _create_system_record(SystemCreate(
+        name=snapshot["name"], objective=snapshot["objective"], skill_ids=skill_ids,
+        settings={"brd_provenance": evidence}, flow_definition={},
+    ), workspace=workspace, user=user, db=db)
+    system = db.get(System, created["id"])
+    actor = str(getattr(user, "username", None) or user.id)
+    flow_publication.compile_execution_contract(db, flow, workspace, system=system)
+    flow_publication.save_draft(db, system_id=system.id, workspace=workspace,
+        flow_definition=flow, expected_revision=1, actor=actor)
+    if snapshot["cases"]:
+        from app.api.v1.endpoints.evaluation_campaigns import SuiteBody, _create_suite_record
+        suite = _create_suite_record(SuiteBody(
+            system_id=system.id, name="BRD acceptance", cases=snapshot["cases"], reviewed=True,
+        ), workspace=workspace, user=user, db=db)
+        suite.provenance = {**suite.provenance, "brd_document_id": document.id,
+                            "brd_proposal_id": row.id, "brd_proposal_sha256": row.sha256}
+        system.settings = {**system.settings, "brd_provenance": {**evidence, "suite_id": suite.id}}
+    row.system_id = system.id
+    row.status = "applied"
+    db.flush()
+    return proposal_payload(row)

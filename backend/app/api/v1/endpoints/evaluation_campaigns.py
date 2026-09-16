@@ -111,6 +111,12 @@ def authorize_suite(db, suite, workspace, user):
 @router.post("/suites", status_code=201)
 def create_suite(body: SuiteBody, workspace: Workspace = Depends(get_current_workspace),
                  user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    suite = _create_suite_record(body, workspace=workspace, user=user, db=db)
+    db.commit()
+    return service.serialize_suite(suite)
+
+
+def _create_suite_record(body: SuiteBody, *, workspace, user, db):
     _authorize(db, system_id=body.system_id, workspace=workspace, user=user)
     cases = [case.model_dump(exclude_none=True) for case in body.cases]
     from app.services.systems.flow_workbench import validate_golden_cases, _json_size
@@ -141,8 +147,8 @@ def create_suite(body: SuiteBody, workspace: Workspace = Depends(get_current_wor
     suite = EvaluationSuite(workspace_id=workspace.id, system_id=body.system_id, name=body.name, revision=revision,
         cases=cases, corpus_manifest=manifest, provenance=provenance, created_by_user_id=user.id)
     db.add(suite)
-    db.commit()
-    return service.serialize_suite(suite)
+    db.flush()
+    return suite
 
 
 @router.get("/suites")
