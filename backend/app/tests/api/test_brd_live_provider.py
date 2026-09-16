@@ -306,8 +306,15 @@ async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
             record.update(review='harness_'+selected_decision+'_not_human', resumed=resumed,
                           output=run.output_ref, status=run.status,
                           assertions=assertion_results(run.output_ref, case['assertions']))
-            if resumed['status'] != 'completed' or record['assertions']['verdict'] != 'passed':
-                failures.append({'case': case['id'], 'resumed': resumed, 'assertions': record['assertions']})
+            record['review_matches_requested'] = (
+                isinstance(run.output_ref, dict)
+                and run.output_ref.get('decision_status') == selected_decision
+            )
+            if (resumed['status'] != 'completed' or record['assertions']['verdict'] != 'passed'
+                    or not record['review_matches_requested']):
+                failures.append({'case': case['id'], 'resumed': resumed,
+                                 'assertions': record['assertions'],
+                                 'review_matches_requested': record['review_matches_requested']})
         else:
             failures.append({'case': case['id'], 'result': result, 'decision_node': record['decision_node']})
         record['seconds'] = time.monotonic() - case_started
