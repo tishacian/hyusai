@@ -738,3 +738,13 @@ generated template now produces 27,982 characters and preserves all 13 passages.
 This is a render check, not proof of an improved model answer. A targeted live
 provider retry is running at /tmp/brd-northforge-rejection-evidence-view; no result
 is asserted yet. Not deployed; public runtime remains d5a02f49.
+
+
+The targeted live retry with the evidence view ended at a planner clarification
+(2 provider calls), before final review; it is not a passed rejection case. Its
+request asked the system itself to approve/reject, rather than first prepare an
+answer for a reviewer. Generation guidance now separates these roles: reuse a
+concrete BRD operator question, retain the external reviewer action in the case
+reference and expected status, and wait at the real HITL gate. Thirteen generation
+tests pass. A new proposal must be generated and reviewed before claiming this
+prompt guidance changes model behavior; historical cases are not rewritten.
