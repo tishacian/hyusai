@@ -70,3 +70,24 @@ def test_generated_case_paths_must_address_the_declared_sink_result():
     case.answer_path = ["output", "completion"]
     with pytest.raises(HTTPException):
         validate_case_output_paths(flow, [case])
+
+
+def test_documentary_generation_requires_original_source_in_each_template():
+    from pathlib import Path
+    from app.api.v1.endpoints.skills import BrdProposalBody
+    candidate = Path(__file__).resolve().parents[4] / "docs/evidence/brd-pih-runtime-2026-09-16/candidate-10.json"
+    body = BrdProposalBody.model_validate(json.loads(candidate.read_text()))
+    with pytest.raises(ValueError, match="original source string"):
+        service.validate_document_source_bindings(body)
+    source = next(node for node in body.flow_definition["nodes"] if node["kind"] == "source")
+    for skill in body.skills:
+        skill.input_schema["properties"]["original"] = {"type": "string"}
+        skill.executor["params"]["template"] += "\nOriginal source: {original}"
+    for node in body.flow_definition["nodes"]:
+        if (node.get("config") or {}).get("skill_slug"):
+            node["config"]["inputs_map"]["original"] = {
+                "node_id": source["id"], "path": ["text"], "required": True}
+    service.validate_document_source_bindings(body)
+    body.skills[-1].executor["params"]["template"] = "Ignore the original"
+    with pytest.raises(ValueError, match="original source string"):
+        service.validate_document_source_bindings(body)

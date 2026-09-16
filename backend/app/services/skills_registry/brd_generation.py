@@ -23,6 +23,38 @@ class BrdGenerationRequest(BaseModel):
     skill_slugs: list[str] = Field(default_factory=list, max_length=20)
 
 
+
+def validate_document_source_bindings(body):
+    """Every generated documentary Skill sees the original, not a model copy."""
+    from string import Formatter
+    nodes = body.flow_definition.get("nodes", [])
+    sources = {node["id"]: node for node in nodes if node.get("kind") == "source"}
+    skills = {"@" + skill.local_name: skill for skill in body.skills}
+    for node in nodes:
+        config = node.get("config") or {}
+        skill = skills.get(config.get("skill_slug"))
+        if skill is None:
+            continue
+        template = skill.executor.get("params", {}).get("template", "")
+        fields = {field for _, field, _, _ in Formatter().parse(template) if field}
+        declared = skill.input_schema.get("properties", {})
+        bindings = config.get("inputs_map") or {}
+        for name, ref in bindings.items():
+            if name not in fields or name not in declared or not isinstance(ref, dict):
+                continue
+            source = sources.get(ref.get("node_id"))
+            if source is None or ref.get("required") is not True:
+                continue
+            path = ref.get("path", [])
+            schema = (source.get("config") or {}).get("input_schema")
+            properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+            field_schema = properties.get(path[0]) if isinstance(properties, dict) and isinstance(path, list) and len(path) == 1 and isinstance(path[0], str) else None
+            if isinstance(field_schema, dict) and field_schema.get("type") == "string":
+                break
+        else:
+            raise ValueError(f"Documentary node {node['id']} must bind an original source string directly "
+                             "to a declared template input with required=true; a model copy is insufficient")
+
 _FAMILY_INSTRUCTIONS = {
     "document_summary": (
         "Build a documentary synthesis System: source input, extract supplied facts, "
@@ -261,6 +293,8 @@ def run_generation_job(job_id):
                         for node in body.flow_definition.get("nodes", []):
                             if not isinstance(node, dict) or (node.get("kind") or node.get("type")) not in allowed_kinds:
                                 raise ValueError("Generated Flow uses an unsupported node kind")
+                        if request.family == "document_summary":
+                            validate_document_source_bindings(body)
                         # Validate all referenced catalog tools independently of model instructions.
                         allowed = set(request.skill_slugs) | {"@" + skill.local_name for skill in body.skills}
                         def check(value, key=None):

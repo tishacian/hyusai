@@ -492,3 +492,15 @@ complex output contracts still require review and actual execution.
 Scheduling follows the user's confirmed dependencies: DataOps preparation after
 the stable R1 foundation, generalization after validated R2 contracts. Release
 acceptance criteria for R0–R6 remain unchanged.
+
+
+### Original-source bindings — 16 September
+
+The document-summary generation worker now validates that every authored Skill
+node receives a required string directly from the source, declared in its input
+schema and actually referenced in its template. A previous model completion does
+not satisfy this check. Candidate 10 is a retained regression: its downstream
+stages relied on model copies and are now rejected before proposal retention.
+The existing bounded correction loop receives the diagnostic. Fourteen focused
+tests pass. This proves availability of the original input, not faithful citation
+by the model; actual output review remains mandatory.
