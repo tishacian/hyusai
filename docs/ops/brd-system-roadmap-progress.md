@@ -573,3 +573,17 @@ Four component tests, i18n (7,981 keys), nav-links, ui-chrome and production bui
 passed. Twelve fixture-rendered states were checked; no live deployment is
 claimed. Test-batch recovery after reopening, requirement-level verdict links,
 NorthForge and complete end-user release qualification remain open.
+
+
+### Restore the existing test batch — 16 September
+
+The panel retains the batch ID in its existing BRD URL and retrieves its Runs
+when the completed proposal is reopened. The canonical Runs list supports the
+batch filter while retaining its workspace, System and visibility controls.
+Recovery only reads existing Runs; it does not create or dispatch another batch.
+Twenty-two workbench API tests and five panel tests pass, including reopening
+with a human-review wait and exclusion of a different batch.
+
+This restores a batch from its contextual URL. It does not yet provide a history
+picker for all previous attempts or recover an uncertain submission for which
+no batch response reached the browser.

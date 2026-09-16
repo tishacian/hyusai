@@ -353,6 +353,7 @@ def _invocation(
 
 @router.get("")
 async def list_runs(
+    golden_batch_id: Optional[str] = None,
     system_id: Optional[str] = None,
     capability_id: Optional[str] = None,
     status: Optional[str] = None,
@@ -363,6 +364,9 @@ async def list_runs(
     db: DBSession = Depends(get_db),
 ):
     q = db.query(Run).filter(Run.workspace_id == workspace.id)
+    if golden_batch_id:
+        q = q.filter(Run.execution_surface == "golden_preview",
+            Run.input_ref["execution"]["golden_batch_id"].as_string() == golden_batch_id)
     if not _can_view_private_chat_runs(db, user=user, workspace=workspace):
         q = q.filter(
             or_(

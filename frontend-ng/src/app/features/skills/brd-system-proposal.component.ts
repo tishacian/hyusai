@@ -189,7 +189,7 @@ export class BrdSystemProposalComponent implements OnInit, OnDestroy {
     if (!this.current()) return;
     if (job.status === 'completed' && job.result?.id) {
       this.subscriptions.add(this.api.getBrdProposal(this.document.document!.id!, job.result.id).subscribe({
-        next: proposal => { if (!this.current()) return; this.proposal.set(proposal); this.busy.set(false); },
+        next: proposal => { if (!this.current()) return; this.proposal.set(proposal); this.busy.set(false); this.restoreTests(proposal.system_id); },
         error: error => this.fail(error),
       }));
     }
@@ -223,9 +223,21 @@ export class BrdSystemProposalComponent implements OnInit, OnDestroy {
     this.subscriptions.add(request.pipe(switchMap(body => body && this.current()
       ? this.api.triggerSystemFlowWorkbenchGoldenRuns(system, body) : of(null))).subscribe({
         next: result => { if (!this.current()) return; this.testing.set(false);
-          if (result) { this.testRuns.set(result.runs); this.refreshTests(); } },
+          if (result) {
+            void this.router.navigate([], {relativeTo: this.route, queryParams: {brd_batch: result.batch_id}, queryParamsHandling: 'merge', replaceUrl: true});
+            this.testRuns.set(result.runs); this.refreshTests();
+          } },
         error: error => { this.testing.set(false); this.fail(error); },
       }));
+  }
+  private restoreTests(system: string | null): void {
+    const batch = this.route.snapshot.queryParamMap.get('brd_batch');
+    if (!system || !batch || !this.current()) return;
+    this.testing.set(true);
+    this.subscriptions.add(this.api.listRuns({system_id: system, golden_batch_id: batch}).subscribe({
+      next: runs => { if (!this.current()) return; this.testRuns.set(runs); this.testing.set(false); },
+      error: error => { this.testing.set(false); this.fail(error); },
+    }));
   }
   newTestAttempt(): void {
     if (this.testing() || !this.current()) return;
