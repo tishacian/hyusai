@@ -219,3 +219,18 @@ passed. Iteration canaries: 10 passed, two intentional local-contract skips.
 New Runs show no inferred approval or confidence. [Release evidence](../evidence/runtime-7532d449-2026-09-16/README.md).
 Abrupt worker loss, real-provider Giskard and human adoption acceptance remain
 outside this completed deployment qualification.
+
+### R0 acceptance clarification — 16 September 2026
+
+The owner confirmed that the repository uses Bitbucket and has no active remote
+CI pipeline. Earlier references above to missing GitLab attestation are therefore
+superseded, not outstanding release blockers. The release contract is the local
+gates → immutable VM build → runtime checks → carakai canaries documented in
+[the release process](../agentium-release-process.md). Their recorded results
+for 7532d449 are available in the runtime evidence.
+
+The [R0 acceptance sheet](agentium-r0-acceptance.md) separates the qualified
+technical release from the outstanding human adoption baseline. Giskard provider
+qualification and the unprepared observability case retain their own acceptance
+scope; this clarification does not mark them passed. R0 is not declared formally
+closed and R1's complete BRD-to-System generation is not yet delivered.

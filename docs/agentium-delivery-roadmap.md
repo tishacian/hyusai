@@ -21,7 +21,7 @@ Les releases sont définies par leurs résultats et critères de sortie. Aucune 
 - Uniformiser la présentation des résultats : livrable principal, état réel, prochaine action, accès aux sources et au Run. Conserver les détails techniques accessibles.
 - Corriger les liens restants, les états bloquants et les contradictions de vocabulaire. Retirer les affirmations économiques dépassant les preuves conservées.
 - Fixer les jeux synthétiques, les configurations et les résultats attendus. Conserver un seul dataset NorthForge dans les démonstrations.
-- Vérifier l’exécution effective des gates CI sur le SHA candidat ; leur présence dans `.gitlab-ci.yml` ne suffit pas.
+- Vérifier les gates locaux, le build VM et les canaries carakai sur le SHA candidat selon `agentium-release-process.md`. Le dépôt est hébergé sur Bitbucket ; aucune CI distante n’est actuellement active (confirmation du responsable, 16 septembre 2026).
 
 **Sortie :** canaries requis réussis, parcours disponibles dans Showcase, configurations consignées et captures actualisées. Les premières sessions métier/développeur établissent la baseline d’adoption.
 
@@ -166,7 +166,7 @@ Les sessions formatives restent nécessaires : cinq utilisateurs métier et cinq
 Pour chaque livraison :
 
 1. Développer sur une branche `codex/…` issue de `demo/agentic`, avec périmètre fermé et tests associés.
-2. Passer `check:i18n`, `check:nav-links`, `check:ui-chrome`, tests unitaires, build production, tests backend concernés et gates CI.
+2. Passer `check:i18n`, `check:nav-links`, `check:ui-chrome`, tests unitaires, build production, tests backend concernés, puis les gates VM et canaries carakai du processus de release.
 3. Intégrer et publier le commit sur `demo/agentic`.
 4. Construire les trois images sur `omnirag-demo`, avec tags immuables par SHA.
 5. Exécuter les canaries depuis **carakai**, vérifier le SHA servi et effectuer la recette manuelle.

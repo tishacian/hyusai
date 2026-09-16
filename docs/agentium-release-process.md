@@ -54,11 +54,14 @@ git push origin demo/agentic
 Record the SHA: `git rev-parse HEAD` (40-hex, call it `<sha40>`; its 12-char
 prefix is `<sha12>`).
 
-GitLab's required `agentium-frontend-quality` job runs the three frontend guards,
-unit tests and production build in every pipeline, independently of feature
-flags. The production job also needs this gate explicitly, so its DAG cannot
-skip the frontend checks. Verify that job on the release SHA; a local pass alone
-does not establish that the remote pipeline ran.
+The repository is hosted on **Bitbucket**. As confirmed by the release owner on
+16 September 2026, no remote CI pipeline currently runs for this release loop.
+The `.gitlab-ci.yml` file is configuration, not evidence of an active service.
+The mandatory gates are the local checks above, the VM build and runtime checks,
+and the protected carakai canaries in §7. Record their results against the exact
+candidate SHA in the release evidence. Do not request a GitLab attestation or
+report these checks as a remote CI run. If CI is introduced, update this process
+with its actual project, required jobs and evidence links.
 
 The adoption flag's default switch and retirement are separate release changes:
 see [adoption rollout decisions](agentium-adoption-roadmap.md#default-switch-and-retirement).
