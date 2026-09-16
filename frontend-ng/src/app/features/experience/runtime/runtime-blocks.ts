@@ -15,7 +15,8 @@ import { BaseChartDirective } from 'ng2-charts';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { take } from 'rxjs/operators';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { TagComponent, type CkTagTone } from '@app/shared/cockpit';
+import { TagComponent, NavLinkDirective, type CkTagTone } from '@app/shared/cockpit';
+import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { I18nService } from '@app/core/i18n.service';
 import { ThemeService } from '@app/core/theme.service';
 import { ExperienceRuntimeService } from './experience-runtime.service';
@@ -1015,7 +1016,7 @@ export class RuntimeStatusBlock {
   selector: 'xp-rt-result',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RuntimeSlotComponent],
+  imports: [RuntimeSlotComponent, NavLinkDirective],
   styleUrl: './runtime.scss',
   template: `
     <section class="xp-rt-block" [attr.aria-label]="i18n.t('experience.runtime.result.title')">
@@ -1038,14 +1039,25 @@ export class RuntimeStatusBlock {
           </dl>
         }
       </xp-rt-slot>
+      @if (inspectableRunId(); as id) {
+        <a class="xp-rt-link" [navLink]="{ type: 'run', lens: 'operate', ref: id }">
+          {{ i18n.t('experience.runtime.result.inspect') }}
+        </a>
+      }
     </section>
   `,
 })
 export class ResultBlock {
   private readonly runtime = inject(ExperienceRuntimeService);
+  private readonly profile = inject(NavigationProfileService);
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
+  readonly inspectableRunId = computed(() => {
+    const profile = this.profile.effective();
+    if (this.context().mode !== 'live' || (profile.active && profile.advancedAccess !== 'link' && !profile.admin)) return null;
+    return this.runtime.run(this.context().sourceStateKey)?.id || null;
+  });
   readonly data = computed(() => {
     if (runtimeDataBinding(this.node())) {
       return dynamicValue(this.runtime, this.node(), this.context());

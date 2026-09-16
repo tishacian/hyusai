@@ -14,7 +14,8 @@ import { EXPERIENCE_EN } from '@app/core/i18n/experience.dict';
 import { ThemeService } from '@app/core/theme.service';
 import { ExperienceRuntimeService } from './experience-runtime.service';
 import type { ExperienceNode, RuntimeNodeContext } from './model';
-import { ChartBlock } from './runtime-blocks';
+import { ChartBlock, ResultBlock } from './runtime-blocks';
+import { NavigationProfileService } from '@app/core/navigation-profile.service';
 
 const CONTEXT: RuntimeNodeContext = {
   experienceSlug: 'churn-board',
@@ -24,6 +25,27 @@ const CONTEXT: RuntimeNodeContext = {
   sourceStateKey: 'churn-board:board:load-board',
   mode: 'live',
 };
+
+test('result inspection follows its producing component and respects business navigation', () => {
+  const profile = signal({ active: false, advancedAccess: 'hidden', admin: false });
+  const injector = Injector.create({ providers: [
+    { provide: ExperienceRuntimeService, useValue: { run: (key: string) => ({ id: key === 'second-result' ? 'run-two' : 'run-one' }) } },
+    { provide: NavigationProfileService, useValue: { effective: profile } },
+    { provide: I18nService, useValue: { t: (key: string) => key } },
+  ] });
+  const block = runInInjectionContext(injector, () => new ResultBlock());
+  const context = signal(CONTEXT);
+  Object.defineProperty(block, 'context', { value: context });
+  assert.equal(block.inspectableRunId(), 'run-one');
+  context.set({ ...CONTEXT, sourceStateKey: 'second-result' });
+  assert.equal(block.inspectableRunId(), 'run-two');
+  profile.set({ active: true, advancedAccess: 'hidden', admin: false });
+  assert.equal(block.inspectableRunId(), null);
+  profile.set({ active: true, advancedAccess: 'link', admin: false });
+  assert.equal(block.inspectableRunId(), 'run-two');
+  context.set({ ...CONTEXT, mode: 'preview' });
+  assert.equal(block.inspectableRunId(), null);
+});
 
 const BANDS = [
   { label: 'critical', value: 9 },
