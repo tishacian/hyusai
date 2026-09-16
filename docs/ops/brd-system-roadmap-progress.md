@@ -2,15 +2,17 @@
 
 ## Current delivery status — 17 September 2026
 
-- **Live application: `fd9238fa` on `demo/agentic`.** The
-  [release evidence](../evidence/release-fd9238fa-2026-09-17/README.md) records
-  165 backend tests, 1,493 frontend tests, three VM images, exact public SHA,
+- **Live application: `f9bb4294` on `demo/agentic`.** The
+  [release evidence](../evidence/release-f9bb4294-2026-09-17/README.md) records
+  292 backend tests, 1,493 frontend tests, three VM images, exact public SHA,
   healthy services and **10 carakai passes, 2 intentional skips**.
 - Capture now preserves explicit review, reopens its published source and avoids
   silently selecting an unrelated Context or treating inventory diagnostics as
   report evidence. A real text correction and isolated technical publication pass.
-  The fresh conversation fails because the default Knowledge Scope overrides its
-  selected Context; the failed Run is retained. This is not complete R2 acceptance.
+  A new conversation on the same retained document now returns 6 bar with its
+  exact citation and a completed Run; the earlier failed Run is preserved. The
+  inventory still reports zero sources/chunks: Capture does not synchronize its
+  source ledger. UI handoff, voice and repeated/human acceptance remain open.
 - The real rank-1 Excel citation `A830:O831` now exposes its values through O,
   verified against the same retained job, retrieved hit and original checksum.
   Cited windows expand to at most 40×40, favoring the selection over context.
