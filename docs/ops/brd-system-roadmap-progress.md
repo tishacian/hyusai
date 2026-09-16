@@ -249,3 +249,23 @@ traceability change, not file persistence or a complete System generator.
 Remaining R1 work includes stored originals, reviewed server-owned proposals,
 canonical draft creation, both reference families, requirement/test/Run mapping,
 HITL and publication to a second user. No R1 deployment is claimed.
+
+### R1 — retained BRD originals (backend)
+
+The existing import accepts `retain=true`, retaining the exact original through
+ObjectStore and its extraction in a workspace-scoped `brd_documents` record.
+An additive migration, `106_brd_documents`, introduces the record. Reimport by
+the same author returns the same document ID. Existing parse-only clients retain
+their previous behaviour. Authorized authors can reload the extraction and
+download the integrity-checked original; other workspaces receive 404, revoked
+authoring permissions receive 403. Missing originals return 410; modified bytes
+return an integrity error rather than being presented as the original.
+
+Validation: 17 parser/API tests passed, one template-file test skipped. The tests
+cover retention, byte-for-byte download, replay, tenant boundary, revoked access,
+missing and corrupted originals. The test fixture now clears the new table.
+
+Not deployed. Before R1 release: qualify the migration, include retained BRD
+objects in backup/restore verification, connect the authoring UI, and complete
+proposal → reviewed draft → tests → publication. The extraction alone is not a
+requirement-coverage verdict, and retained documents are not published Systems.
