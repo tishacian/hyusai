@@ -4,6 +4,8 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -322,6 +324,7 @@ export class ExperiencePublishDialogComponent {
   readonly i18n = inject(I18nService);
   private readonly api = inject(StudioApiService);
   private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
   readonly returnFocus = input<HTMLElement | null>(null);
   readonly experienceId = input.required<string>();
   readonly draft = input.required<StudioDraft>();
@@ -664,7 +667,7 @@ export class ExperiencePublishDialogComponent {
         this.release.set(row);
         this.released.emit();
         this.busy.set(false);
-        queueMicrotask(() => this.releasedStatus()?.nativeElement.focus());
+        afterNextRender(() => this.releasedStatus()?.nativeElement.focus(), { injector: this.injector });
       },
       error: (err) => {
         const code = apiCode(err);
@@ -713,7 +716,7 @@ export class ExperiencePublishDialogComponent {
             : studioError(this.i18n, err, 'experience.publish.error'));
           if (conflict) this.refreshRequested.emit();
           this.busy.set(false);
-          queueMicrotask(() => this.deployRetry()?.nativeElement.focus());
+          afterNextRender(() => this.deployRetry()?.nativeElement.focus(), { injector: this.injector });
         },
       });
   }
