@@ -56,3 +56,19 @@ Their test verdicts remain pending; no reviewer decision was submitted.
 The other four cases are not yet qualified. The API schedules this batch
 through sequential FastAPI BackgroundTasks calling schedule_run; this is
 not evidence of durable worker dispatch or restart recovery.
+
+## Qualification finding: canonical approval status
+
+During runtime review, the approval oracle introduced by f6b73cff was found
+incorrect: DAG resume copies Decision.status, which is `accepted` (or later
+`applied`), whereas `approved` is a boolean output. The generated suite's
+`decision_status == approved` assertion cannot pass a normal approval.
+No live decision was submitted to make it pass; the retained suite and Runs
+remain unchanged. The generation guard and prompt are corrected locally to
+require `accepted` and `rejected`, with an explicit regression rejecting the
+old `approved` value. Generation plus canonical HITL authorization tests:
+38 passed. This correction is not deployed yet.
+
+The absence case reached the actual hitl_review_1 node, reporting equipment
+and cause as not supplied, with the history document cited. This confirms
+this execution, not five-repeat reliability.
