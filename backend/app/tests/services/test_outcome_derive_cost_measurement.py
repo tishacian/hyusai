@@ -51,3 +51,36 @@ def test_derive_outcome_preserves_unknown_and_measured_zero_cost_states() -> Non
     )
     assert measured_zero.cost == 0.0
     assert measured_zero.efficiency is None
+
+
+def test_completed_invocations_do_not_manufacture_confidence():
+    from types import SimpleNamespace
+    from app.services.outcome.derive import _extract_confidence
+
+    assert _extract_confidence([SimpleNamespace(output_ref={})]) is None
+    for value in [True, -0.1, 1.1, float('nan'), float('inf'), 'invalid']:
+        assert _extract_confidence([SimpleNamespace(output_ref={'confidence': value})]) is None
+    assert _extract_confidence([SimpleNamespace(output_ref={'confidence': 0})]) == 0
+    assert _extract_confidence([SimpleNamespace(output_ref={'confidence': 0.8})]) == 0.8
+
+
+def test_completion_is_not_an_approval_and_failed_invocations_remain_visible():
+    from types import SimpleNamespace
+    from app.services.outcome.derive import _derive_decision
+
+    completed = [SimpleNamespace(status="completed")]
+    failed = [SimpleNamespace(status="failed")]
+    assert _derive_decision(completed, [], None, None) is None
+    assert _derive_decision(completed, [], None, 0.99) is None
+    assert _derive_decision(completed, failed, None, None) == "partial"
+    assert _derive_decision([], failed, None, None) == "failed"
+    assert _derive_decision(completed, [], 0.8, None) == "hitl_escalated"
+
+
+def test_declared_value_projection_does_not_require_manufactured_approval():
+    from types import SimpleNamespace
+    from app.services.outcome.derive import _estimate_value
+    from app.schemas.canonical import ValueSource
+
+    capability = SimpleNamespace(roi_model={"value_per_outcome": 100}, value_per_outcome=100)
+    assert _estimate_value(capability, None, None) == (100.0, ValueSource.auto)

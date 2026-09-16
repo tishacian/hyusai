@@ -98,6 +98,11 @@ VM_BIND_BACKED_VOLUMES = {
     "agentium_minio_block": "/srv/agentium-data/minio",
     "agentium_qdrant_block": "/srv/agentium-data/qdrant",
 }
+# Same image and protected mounts; separate pool for children awaited by Flows.
+VM_APPLICATION_STORAGE_MOUNTS["agentium-worker-recipes"] = dict(
+    VM_APPLICATION_STORAGE_MOUNTS["agentium-worker-cpu"]
+)
+
 # Targets added to the contract after their service already ran in
 # production. The pre-mutation gate inspects the PREVIOUS container
 # generation, which legitimately predates the bind; it may be absent on the
@@ -427,6 +432,12 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
         "agentium-minio",
         "qdrant",
     } | (set(VM_APPLICATION_STORAGE_MOUNTS) - {"agentium-migrate"})
+    # The pre-switch inventory can still be from the release before this worker.
+    if isinstance(payload, list) and not any(
+        isinstance(row, dict) and row.get("Name") == "/agentium-worker-recipes"
+        for row in payload
+    ):
+        expected_container_names.discard("agentium-worker-recipes")
     if not isinstance(payload, list) or len(payload) != len(expected_container_names):
         raise RuntimeEnvBundleError("VM storage containers are missing or ambiguous")
     containers: dict[str, Mapping[str, Any]] = {}
@@ -454,7 +465,7 @@ def assert_vm_active_storage_mounts(payload: Any) -> None:
         },
     }
     for service_name, required in VM_APPLICATION_STORAGE_MOUNTS.items():
-        if service_name == "agentium-migrate":
+        if service_name == "agentium-migrate" or service_name not in expected_container_names:
             continue
         expected[service_name] = {
             target: (

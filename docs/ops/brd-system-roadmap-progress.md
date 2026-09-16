@@ -181,3 +181,32 @@ No new application build is needed for the test-only retention correction or
 this evidence update; neither changes deployed application bytes. The runtime
 SHA remains 196164eb. Existing concurrency, semantic-evaluation and user-study
 limitations above remain open; this is a deployment, not R0 acceptance closure.
+
+### R0 follow-up — concurrency and truthful completion (development)
+
+The recipe dispatcher now uses a dedicated `recipes` queue, consumed by
+`agentium-worker-recipes` using the same immutable worker image and protected
+mounts. Its beat is disabled. The VM launcher starts it alongside the existing
+workers; the storage guard validates its mounts, while accepting the previous
+container generation during the pre-switch check. Standalone Celery deployments
+must start an independent recipes consumer before upgrading producers.
+
+Completed invocations no longer manufacture 100% confidence or an `approved`
+decision. Only finite, explicit confidence values in [0, 1] are retained.
+Declared per-execution ROI projections retain their existing calculation,
+independently of approval. Historical outcomes are not rewritten. An unhandled failure envelope at the
+terminal output now fails the Run. Recovered outputs remain completed, keeping
+failed attempts in their invocation history. This terminal-envelope check is not
+a proof that every business requirement was validated.
+
+Validation: 36 recipe/outcome tests initially passed; after the decision and
+terminal-error changes, 128 engine, membrane, provenance and runtime-environment
+tests passed. Docker Compose was resolved on carakai without starting services:
+separate queues, identical image and mounts, no second beat. All 54 storage
+guard tests passed, including the new consumer mount check. Concurrent live
+Runs, restart/redelivery and rollback qualification remain NOT RUN for this
+change. No production deployment or R0 acceptance closure is claimed.
+
+Final follow-up: 86 engine/membrane/outcome/provenance tests passed after
+separating declared ROI projection from approval. The 54 storage tests and
+43 runtime-environment tests passed; no frontend files changed in this slice.

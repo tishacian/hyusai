@@ -199,6 +199,7 @@ services:
       - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
     environment:
       AGENTIUM_DISABLE_DOTENV: "1"
+      CELERY_RECIPE_QUEUE: recipes
       AGENTIUM_BACKEND_WORKERS: ${AGENTIUM_BACKEND_WORKERS:-3}
       AGENTIUM_BACKEND_TIMEOUT_KEEP_ALIVE: ${AGENTIUM_BACKEND_TIMEOUT_KEEP_ALIVE:-5}
       STARTUP_RECONCILIATION: ${AGENTIUM_STARTUP_RECONCILIATION:-enabled}
@@ -233,6 +234,7 @@ services:
       - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
     environment:
       AGENTIUM_DISABLE_DOTENV: "1"
+      CELERY_RECIPE_QUEUE: recipes
       CELERY_QUEUES: ${AGENTIUM_CELERY_QUEUES:-cpu}
       CELERY_LOGLEVEL: ${AGENTIUM_CELERY_LOGLEVEL:-info}
       CELERY_CONCURRENCY: ${AGENTIUM_CELERY_CONCURRENCY:-2}
@@ -248,6 +250,16 @@ services:
     depends_on:
       agentium-rabbitmq:
         condition: service_healthy
+
+  # An independent pool prevents waiting Flow tasks from starving their recipes.
+  agentium-worker-recipes:
+    extends:
+      service: agentium-worker-cpu
+    container_name: agentium-worker-recipes
+    environment:
+      CELERY_QUEUES: recipes
+      CELERY_CONCURRENCY: ${AGENTIUM_RECIPE_CONCURRENCY:-2}
+      CELERY_BEAT: "0"
 
   agentium-beat:
     image: agentium-worker:${AGENTIUM_IMAGE_TAG:-local}
@@ -285,6 +297,7 @@ services:
       - ${AGENTIUM_ENV_FILE:-./env/agentium.env.example}
     environment:
       AGENTIUM_DISABLE_DOTENV: "1"
+      CELERY_RECIPE_QUEUE: recipes
       CELERY_QUEUES: ${AGENTIUM_CELERY_QUEUES:-cpu}
       CELERY_LOGLEVEL: ${AGENTIUM_CELERY_LOGLEVEL:-info}
       CELERY_CONCURRENCY: ${AGENTIUM_CELERY_CONCURRENCY:-2}

@@ -1280,7 +1280,20 @@ def _finalize_run(
         control_hitl_threshold=(control.mandatory_hitl_if_confidence_below if control else None),
         duration_ms=duration_ms,
     )
-    run.status = "completed" if not failed or derived.decision != "blocked" else "failed"
+    # Failed task outputs may be routed to recovery branches. Only an error
+    # still present at the terminal output is unhandled; a successful recovery
+    # must not fail merely because its invocation ledger contains an error.
+    terminal_failure = (
+        bool(failed)
+        and isinstance(last_output, dict)
+        and last_output.get("_status") == "failed"
+    )
+    run.status = "failed" if terminal_failure else "completed"
+    if terminal_failure:
+        derived.decision = "failed"
+        derived.value = 0.0
+        derived.efficiency = None
+        run.error = str(last_output.get("_error") or "unhandled_task_failure")[:4000]
     run.completed_at = datetime.utcnow()
     run.duration_ms = duration_ms
     run.decision = derived.decision

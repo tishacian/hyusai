@@ -176,7 +176,11 @@ storage_check() {
     clean_exec python3 "$ENV_HELPER" vm-storage-volume-check \
       --name agentium_qdrant_block
   assert_volume_mountpoint agentium_qdrant_block /qdrant
-  readonly_docker inspect --type container \
+  local recipe_containers=()
+  if readonly_docker inspect --type container agentium-worker-recipes >/dev/null 2>&1; then
+    recipe_containers=(agentium-worker-recipes)
+  fi
+  readonly_docker inspect --type container "${recipe_containers[@]}" \
     agentium-minio qdrant agentium-backend agentium-worker-cpu \
     agentium-p4-maintenance agentium-sftp |
     clean_exec python3 "$ENV_HELPER" vm-storage-runtime-check
@@ -187,7 +191,7 @@ case "${1:-}" in
   images)        compose config --images ;;
   storage-check) storage_check ;;
   migrate)       storage_check; compose run --rm --no-deps --pull never agentium-migrate ;;
-  up)            storage_check; compose up -d --no-build --no-deps --pull never agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat ;;
+  up)            storage_check; compose up -d --no-build --no-deps --pull never agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend agentium-p4-maintenance agentium-beat ;;
   ps)            compose ps ;;
   *)             echo "usage: $0 {images|storage-check|migrate|up|ps}" >&2; exit 2 ;;
 esac
