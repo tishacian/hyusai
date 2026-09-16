@@ -358,3 +358,36 @@ def test_changed_model_refused_before_loading_corpus(db_session, monkeypatch):
     assert campaigns.run_generation_job(created["id"])["status"] == "failed"
     job = db_session.get(WorkspaceJob, created["id"])
     assert "Model routing changed" in job.error
+
+
+def test_comparison_preserves_human_wait_and_reuses_run_after_review(db_session, monkeypatch):
+    campaigns.assert_read_only({"nodes": [{"id": "review", "kind": "hitl"}]}, {"nodes": {}})
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException):
+        campaigns.assert_read_only({"nodes": [{"id": "review", "kind": "hitl", "config": {"effect": "write"}}]}, {"nodes": {}})
+    http, body, *_ = setup_campaign(db_session, monkeypatch, assertions=[
+        {"id": "fact", "path": ["pressure"], "operator": "equals", "value": 6}])
+    created = http.post("/evaluation/campaigns", json=body)
+    assert created.status_code == 201, created.text
+    campaign = created.json()
+    result = campaign["results"][0]
+    for side in ("baseline", "candidate"):
+        run = db_session.get(Run, result[side]["run_id"])
+        run.status = "hitl_pending"
+        run.checkpoints = [{"kind": "hitl_pause", "decision_id": "decision-" + side}]
+    db_session.commit()
+    refreshed = http.get(f"/evaluation/campaigns/{campaign['id']}").json()
+    assert refreshed["status"] == "running"
+    for side in ("baseline", "candidate"):
+        assert refreshed["results"][0][side]["verdict"] == "pending"
+        assert refreshed["results"][0][side]["awaiting_decision_id"] == "decision-" + side
+        run = db_session.get(Run, result[side]["run_id"])
+        assert run.status == "hitl_pending"  # Reading the campaign never decides.
+        run.status, run.output_ref = "completed", {"pressure": 6}
+    db_session.commit()
+    final = http.get(f"/evaluation/campaigns/{campaign['id']}").json()
+    assert final["status"] == "completed"
+    assert final["results"][0]["change"] == "unchanged"
+    for side in ("baseline", "candidate"):
+        assert final["results"][0][side]["run_id"] == result[side]["run_id"]
+        assert final["results"][0][side]["awaiting_decision_id"] is None
