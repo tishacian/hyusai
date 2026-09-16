@@ -1,0 +1,202 @@
+{
+  "sha": "cf90acb0d69607c87ddf2fd1a31ef6faaaed8c85",
+  "status": "five_passed",
+  "scope": "Five sequential synthetic Work executions; no concurrent execution, human validation, or semantic evaluation claim.",
+  "attempts": [
+    {
+      "run_id": "87452119-cf1c-4b96-87e4-5900dced22cd",
+      "passed": true,
+      "seconds": 28.697,
+      "flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+      "output": {
+        "stats": {
+          "orders": 4,
+          "planned_minutes": 120,
+          "actual_minutes": 155,
+          "overrun_minutes": 35,
+          "late_orders": 3,
+          "largest_overrun_order": "NF-04",
+          "largest_overrun_minutes": 25
+        },
+        "answer": "Explication du retard opérationnel (chiffrée)\n- Charge traitée: 4 ordres au total [1].\n- Plan vs réalisé: 120 minutes planifiées vs 155 minutes réelles, soit un dépassement de 35 minutes au global [1].\n- Retards: 3 ordres en retard sur 4 [1].\n- Ordre le plus pénalisant: NF-04, avec le plus grand dépassement individuel de 25 minutes [1].\n- Répartition du dépassement: sur les 35 minutes de dérive totales, 25 minutes proviennent de NF-04; les 10 minutes restantes sont imputables aux autres ordres en retard [1].\n\nConclusion opérationnelle\n- Le retard est majoritairement concentré sur un seul ordre (NF-04, 25/35 minutes), tandis que le reliquat (10 minutes) est réparti sur les autres ordres en retard [1].\n\nProchaine investigation (unique)\n- Mener une analyse de cause sur NF-04: comparer pas à pas les temps planifiés vs réels (horodatages d’opérations) pour localiser précisément les 25 minutes de dérive et identifier l’étape ou la ressource à l’origine du dépassement [1].",
+        "numerical_reference_passed": true,
+        "human_validated": false,
+        "economic_impact": null,
+        "showcase_seed": true
+      },
+      "invocations": [
+        {
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "skill_slug": "llm_rag_answer_v1",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "error": null
+        }
+      ]
+    },
+    {
+      "run_id": "52919021-a3e1-4e2f-87b8-fe47062a1b72",
+      "passed": true,
+      "seconds": 31.945,
+      "flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+      "output": {
+        "stats": {
+          "orders": 4,
+          "planned_minutes": 120,
+          "actual_minutes": 155,
+          "overrun_minutes": 35,
+          "late_orders": 3,
+          "largest_overrun_order": "NF-04",
+          "largest_overrun_minutes": 25
+        },
+        "answer": "Explication chiffrée du retard opérationnel (uniquement à partir des données fournies) — Réponse sourcée:\n- Volume traité: 4 commandes [1].\n- Temps planifié total: 120 min [1].\n- Temps réel total: 155 min [1].\n- Retard (dépassement) total: 35 min, cohérent avec 155 − 120 = 35 et la valeur fournie “overrun_minutes” = 35 [1].\n- Commandes en retard: 3 (donc 1 commande à l’heure: 4 − 3 = 1) [1].\n- Commande la plus en dérive: NF-04, avec 25 min de dépassement [1].\n- Part du dépassement total imputable à NF-04: 25/35 ≈ 71 % [1].\n- Dépassement cumulé restant hors NF-04: 10 min (35 − 25) [1].\n- Surcroît global vs plan: +29,2 % (35/120) [1].\n- Temps moyen planifié par commande: 30,0 min/commande (120/4) [1].\n- Temps moyen réel par commande: 38,75 min/commande (155/4) [1].\n- Écart moyen par commande: +8,75 min/commande (38,75 − 30,0) [1].\n\nLecture opérationnelle:\n- Le retard total est concentré majoritairement sur une seule commande (NF-04 représente ≈71 % du dépassement total) [1], tandis que le solde (10 min) est réparti sur les autres commandes [1].\n- Avec 3 commandes en retard sur 4, le respect du plan a été l’exception (1 commande à l’heure) [1], et la dérive globale est de +29,2 % par rapport au temps planifié total [1].\n\nProchaine investigation (une piste):\n- Analyser en priorité la commande NF-04 (dépassement de 25 min) étape par étape pour localiser précisément le segment contributeur au retard et comparer les temps réels aux temps planifiés sur cette commande [1].",
+        "numerical_reference_passed": true,
+        "human_validated": false,
+        "economic_impact": null,
+        "showcase_seed": true
+      },
+      "invocations": [
+        {
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "skill_slug": "llm_rag_answer_v1",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "error": null
+        }
+      ]
+    },
+    {
+      "run_id": "58292b8e-157a-43ef-944c-cd47a79bb069",
+      "passed": true,
+      "seconds": 31.581,
+      "flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+      "output": {
+        "stats": {
+          "orders": 4,
+          "planned_minutes": 120,
+          "actual_minutes": 155,
+          "overrun_minutes": 35,
+          "late_orders": 3,
+          "largest_overrun_order": "NF-04",
+          "largest_overrun_minutes": 25
+        },
+        "answer": "Analyse du retard opérationnel (données fournies)\n- Ordres traités: 4 [1]\n- Temps planifié total: 120 min; temps réel total: 155 min; dépassement total: 35 min, soit +29,2% par rapport au plan (35/120) [1]\n- Ponctualité: 3 ordres en retard, soit 75% des ordres (3/4) [1]\n- Plus grand dépassement par ordre: NF-04 avec 25 min; cela représente ~71% du dépassement total (25/35). Les autres ordres cumulent donc 10 min d’écart au total (35 − 25) [1]\n- Ecart moyen par ordre: 8,75 min ((155 − 120)/4) [1]\n\nInterprétation opérationnelle\n- Le retard global de 35 min provient majoritairement d’un seul ordre (NF-04, 25 min), ce qui suggère un événement ponctuel significatif sur cet ordre, tandis que les autres ordres contribuent cumulativement 10 min au dépassement [1].\n- La proportion élevée d’ordres en retard (3 sur 4) indique un impact calendrier notable au-delà du seul ordre le plus en dérive [1].\n\nProchaine investigation (une piste)\n- Mener une revue ciblée de l’ordre NF-04 pour expliquer les 25 min d’écart: reconstituer la chronologie (préparation/réglage, attentes, exécution, reprises), à partir des enregistrements disponibles, afin d’isoler le poste de temps dominant. Cela permettra de quantifier précisément la cause principale de ce dépassement [1].",
+        "numerical_reference_passed": true,
+        "human_validated": false,
+        "economic_impact": null,
+        "showcase_seed": true
+      },
+      "invocations": [
+        {
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "skill_slug": "llm_rag_answer_v1",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "error": null
+        }
+      ]
+    },
+    {
+      "run_id": "87e3506d-6357-454f-b129-7ec9c5d08337",
+      "passed": true,
+      "seconds": 31.479,
+      "flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+      "output": {
+        "stats": {
+          "orders": 4,
+          "planned_minutes": 120,
+          "actual_minutes": 155,
+          "overrun_minutes": 35,
+          "late_orders": 3,
+          "largest_overrun_order": "NF-04",
+          "largest_overrun_minutes": 25
+        },
+        "answer": "Constat chiffré de l’écart opérationnel\n- Ordres traités: 4 [1]\n- Temps planifié total: 120 min (moyenne 30,0 min/ordre) [1]\n- Temps réel total: 155 min (moyenne 38,75 min/ordre) [1]\n- Dérive totale vs plan: +35 min, soit +29,2 % du temps planifié (35/120) [1]\n- Commandes en retard: 3 (soit 75 % des ordres) [1]\n- Plus grand dépassement: commande NF-04, +25 min; cette commande concentre ~71,4 % de la dérive totale (25/35), laissant 10 min cumulés sur les autres ordres [1]\n\nExplication de l’écart\n- Le retard opérationnel est majoritairement dû à un seul ordre (NF-04) qui représente l’essentiel de la dérive (+25 min sur +35 min au total), le solde de +10 min étant réparti sur les autres ordres [1].\n\nProchaine investigation proposée (une seule)\n- Décomposer le temps de cycle de l’ordre NF-04 (traçabilité par phases/étapes) pour localiser précisément l’origine des +25 min d’écart et identifier l’étape critique à traiter en priorité [1].\n\nNote: Exercice synthétique; pas de données client ni d’économies vérifiées [1].",
+        "numerical_reference_passed": true,
+        "human_validated": false,
+        "economic_impact": null,
+        "showcase_seed": true
+      },
+      "invocations": [
+        {
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "skill_slug": "llm_rag_answer_v1",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "error": null
+        }
+      ]
+    },
+    {
+      "run_id": "3fee6371-f51c-4648-815a-e7b94bbe93cb",
+      "passed": true,
+      "seconds": 27.356,
+      "flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+      "output": {
+        "stats": {
+          "orders": 4,
+          "planned_minutes": 120,
+          "actual_minutes": 155,
+          "overrun_minutes": 35,
+          "late_orders": 3,
+          "largest_overrun_order": "NF-04",
+          "largest_overrun_minutes": 25
+        },
+        "answer": "Reponse sourcee:\n\nConstat chiffré\n- 4 commandes traitées (orders = 4) [1].\n- Temps planifié total = 120 min (planned_minutes) ; temps réel total = 155 min (actual_minutes) ; dépassement global = 35 min (overrun_minutes) [1].\n- 3 commandes en retard (late_orders = 3) [1].\n- Plus grand dépassement: commande NF-04 avec +25 min (largest_overrun_order = NF-04; largest_overrun_minutes = 25) [1].\n- Données d’exercice synthétique, sans données client ni économies vérifiées [1].\n\nAnalyse du retard opérationnel (à partir des chiffres fournis)\n- Le retard global est de 35 min par rapport au plan (155 − 120 = 35) [1].\n- Le surcroît de 35 min correspond à environ +29 % du temps planifié (35/120 ≈ 29 %) [1].\n- En moyenne, l’écart par commande est de 8,75 min (35/4) [1].\n- La commande NF-04 concentre à elle seule 25 des 35 min de dépassement, soit environ 71 % du retard total (25/35 ≈ 71 %) [1].\n- 3 commandes sur 4 sont livrées en retard (75 %) [1].\n\nProchaine investigation (une seule)\n- Analyser en priorité la décomposition temporelle de NF-04 (postes/étapes et horodatages début–fin) pour identifier l’étape responsable de ses +25 min de dépassement et quantifier sa contribution précise au retard global [1].",
+        "numerical_reference_passed": true,
+        "human_validated": false,
+        "economic_impact": null,
+        "showcase_seed": true
+      },
+      "invocations": [
+        {
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "skill_slug": "llm_rag_answer_v1",
+          "status": "completed",
+          "error": null
+        },
+        {
+          "skill_slug": "python_recipe_v1",
+          "status": "completed",
+          "error": null
+        }
+      ]
+    }
+  ]
+}

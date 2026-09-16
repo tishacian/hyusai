@@ -6488,3 +6488,85 @@ Rollback de l'ensemble de la release LLM :
 restent également disponibles, avec le défaut de lien décrit ci-dessus.
 Le tag flottant `demo-agentic` n'a pas été déplacé. Pas de downgrade ni de
 restauration de base ; les Runs créés depuis le déploiement sont conservés.
+
+
+## 2026-09-16 — R0 Showcase Operational Analysis and accessibility qualification
+
+Operator GO: user requested deployment before further roadmap development.
+Source: pushed `origin/demo/agentic`; VM checkout advanced fast-forward.
+Application-only transaction; no migration, storage move or infrastructure
+container replacement. Database remained at `105_evaluation_corrections`.
+
+Initial switch: `d91e24062a5e09ca39d00b7b8054fcd306b5fd7a` →
+`480864e5c789fe5079cdfd5de3631f89188e53f8`, then
+`e09bde5c3072f406f8f47a8f41be93f2b6bc8323` for publication focus restoration.
+Both public build-info checks returned the exact SHA and revision_verified=true.
+The structural Showcase received one targeted System/Experience installation;
+a second installer application returned the same identifiers and Flow version.
+
+Images built on omnirag-demo (backend / worker / frontend):
+
+- 480864e5: `3018485de4153ea4fe2ef984841771e06100b2f108ea6446bd1df63bd813890a` /
+  `140a6b45c902e61fe1c2a063c86c18e1348cd427699e4c4cd3cb19ce5a0302b4` /
+  `b6791ebc673fed036f61ef0a324214581b55f1dcf2d28b3ce6b87e0c8dca0cae`.
+- e09bde5c: `7eeb9ae83a7a90d584ed7ee45b795a167749769a537c6e77a670674c1eac5496` /
+  `c0683f9f02669d44235a09fab5c7db0f44880e3a7ed10490f91107633229ae80` /
+  `16028b2f58a8b39a88337164ea4e86db575c6d039bb317eb50560511a07a6bcd`.
+
+All worker builds retained INSTALL_GISKARD_RAGET=true. pip check and the actual
+Giskard 2.19.2 SDK fixture passed with mocked provider calls; this is not a live
+Giskard campaign qualification. Independent GitLab CI was not available, and
+this direct iteration does not establish signed promotion eligibility.
+
+Five sequential synthetic Work Runs passed on each of the two revisions.
+The concurrent test failed: parent orchestration and recipe execution share
+the two-slot CPU worker queue. Failed evidence was retained; only two test
+recipe executions were cancelled through their API. No failure was relabelled
+as a successful repetition. Run completion/outcome wording and missing semantic
+evaluation remain explicit blockers to R0 acceptance.
+
+Canaries from carakai: each initial run returned 8 passed / 2 failed / 2
+intentional local-fixture skips. Work workspace discovery and publication focus
+were corrected first; subsequent checks exposed the Work main landmark and
+mobile adoption titlebar overflow, fixed in cf90acb0. Assertions unchanged.
+
+Details, identifiers, evidence and remaining gates:
+[roadmap progress](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026).
+Rollback uses a retained compatible application SHA via the same deployment
+script. It does not restore an older database over the additive Showcase writes.
+
+
+Intermediate accessibility switch: `cf90acb0d69607c87ddf2fd1a31ef6faaaed8c85`.
+Storage gate passed; public API build-info returned the exact revision with
+revision_verified=true after startup. Immutable image IDs (backend / worker /
+frontend):
+`9071ab50f2a0f3aca9010de230ac40ea20485d44254e1ddc42c96ff601e16803` /
+`f1a261b5251c879cac90f850cdf756072472748c9cd32c067ab05587b286820c` /
+`08abe71ecf91601681329eb71ee2980fa8f1286a81bb20d2b335898d25d8fed4`.
+Build logs: `/srv/agentium-data/roadmap-deployments/2026-09-16-cf90acb0d696/`.
+
+
+Final application switch: `196164eb5b8098dca49cf54a7c06c4df05cc8b79`.
+Both public build-info endpoints returned the exact revision and
+revision_verified=true. Storage gate passed. Immutable image IDs:
+
+- backend: `659658f04152795673e2912e405bb02b76e1f4501a78cd38c9c8cc09a22081b2`;
+- worker: `355be13f6f7b21c0ef9d961ffd1cae736a947b039823455d5c1ad6771ec29c09`;
+- frontend: `a14fa6d8a3df069c6ea2b18779afd39232f6c88b0cfb3a79b29585d5e7af78b6`.
+
+VM build logs: `/srv/agentium-data/roadmap-deployments/2026-09-16-196164eb5b80/`.
+Reviewed source transferred to carakai by incremental Git bundle, SHA-256
+`e9570e22716b6f5d9578a910c8164def8df82633ca9caa84cddc691f99d7429a`;
+its canonical checkout and source marker match the deployed SHA.
+
+
+Final qualification: five sequential synthetic Runs passed on 196164eb.
+Full matching-source canaries: 9 passed, 1 cleanup failure, 2 intentional skips.
+The cleanup failure confirmed immutable release deletion protection. Test-only
+bd160451 verifies exact EXPERIENCE_RELEASED and retains the explicitly authorized
+Showcase test release; its focused Studio rerun passed against unchanged 196164eb.
+24 real Work/Studio visual matrix captures and both provenance revisions are in
+[the evidence index](../evidence/roadmap-r0-2026-09-16/README.md).
+R0 is not closed: worker concurrency, failed-check/outcome clarity, semantic
+evaluation and human trials retain their stated limitations. No independent
+CI or signed promotion attestation is claimed.
