@@ -1,7 +1,9 @@
 ---
 - name: Upgrade Agentium with Helm
-  hosts: helm_deploy
-  become: true
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
   run_once: true
   roles:
     - role: helm_agentium

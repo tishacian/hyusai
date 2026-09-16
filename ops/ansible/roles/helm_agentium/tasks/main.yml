@@ -1,21 +1,32 @@
 ---
-- name: Ensure the Agentium namespace exists
-  ansible.builtin.command: kubectl get ns {{ agentium_namespace }}
-  register: ns
-  changed_when: false
-  failed_when: false
+- name: Require KUBECONFIG for the managed cluster
+  ansible.builtin.assert:
+    that:
+      - (agentium_kubeconfig | default('') | length > 0) or (lookup('env', 'KUBECONFIG') | length > 0)
+    fail_msg: >-
+      Set agentium_kubeconfig or KUBECONFIG to the Terraform kubeconfig
+      (not /etc/kubernetes/admin.conf).
 
-- name: Create the Agentium namespace
-  ansible.builtin.command: kubectl create ns {{ agentium_namespace }}
-  when: ns.rc != 0
+- name: Resolve kubeconfig path
+  ansible.builtin.set_fact:
+    agentium_kubeconfig_file: "{{ agentium_kubeconfig | default(lookup('env', 'KUBECONFIG'), true) }}"
+
+- name: Build Helm --values argv
+  ansible.builtin.set_fact:
+    agentium_helm_values_args: []
+
+- name: Add each values file
+  ansible.builtin.set_fact:
+    agentium_helm_values_args: "{{ agentium_helm_values_args + ['--values', item] }}"
+  loop: "{{ agentium_values_files }}"
+
+- name: Append CI digest overlay
+  ansible.builtin.set_fact:
+    agentium_helm_values_args: "{{ agentium_helm_values_args + ['--values', agentium_ci_images_file] }}"
+  when: agentium_ci_images_file | default('') | length > 0
 
 - name: Helm upgrade --install Agentium
-  ansible.builtin.command: >
-    helm upgrade --install {{ agentium_release }}
-    {{ agentium_chart_path }}
-    --namespace {{ agentium_namespace }}
-    --values {{ agentium_values_file }}
-    {% if agentium_extra_values_file %}--values {{ agentium_extra_values_file }}{% endif %}
-    --wait --timeout 15m
+  ansible.builtin.command:
+    argv: "{{ ['helm', 'upgrade', '--install', agentium_release, agentium_chart_path, '--namespace', agentium_namespace, '--create-namespace'] + agentium_helm_values_args + ['--wait', '--timeout', '15m'] }}"
   environment:
-    KUBECONFIG: /etc/kubernetes/admin.conf
+    KUBECONFIG: "{{ agentium_kubeconfig_file }}"
