@@ -587,3 +587,17 @@ with a human-review wait and exclusion of a different batch.
 This restores a batch from its contextual URL. It does not yet provide a history
 picker for all previous attempts or recover an uncertain submission for which
 no batch response reached the browser.
+
+
+### Requirement → case → Run — 16 September
+
+Suite-run checkpoints now retain the originating BRD proposal ID and digest.
+The canonical Run verdict exposes these references. The BRD requirement list
+links mapped cases to their Runs only when both proposal ID and digest match;
+a similarly named case from another proposal cannot appear as supporting proof.
+Coverage remains labelled proposed: a passing lexical assertion does not certify
+the whole requirement. Historical Runs without these references remain unlinked.
+
+Fifty campaign/workbench tests and six panel tests pass; the additional serializer
+assertion verifies exact proposal identity round-trips. Updated live visual and
+release qualification remain outstanding.

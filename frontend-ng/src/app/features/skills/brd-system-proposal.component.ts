@@ -91,6 +91,9 @@ import { backendMessage } from './new-skill-dialog.component';
               <span class="muted">{{ row.node_ids.join(' → ') }} @if (row.node_ids.length && row.case_ids.length) { · } {{ row.case_ids.join(', ') }}</span>
             }
             @if (row.reason) { <p>{{ row.reason }}</p> }
+            @for (run of requirementRuns(row.case_ids); track run.id) {
+              <p><a [navLink]="{type:'run',ref:run.id}">{{ run.test_result?.case_id }} · {{ i18n.t('skills.brdSystem.verdict.' + (run.status === 'hitl_pending' ? 'human' : run.test_result?.verdict)) }}</a></p>
+            }
           </div>
         }
         <details><summary>{{ i18n.t('skills.brdSystem.details') }}</summary><pre>{{ current.proposal | json }}</pre></details>
@@ -261,6 +264,12 @@ export class BrdSystemProposalComponent implements OnInit, OnDestroy {
       link.href = url; link.download = this.document.document?.filename || 'business-requirements.docx'; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }, error: error => this.fail(error) }));
+  }
+  requirementRuns(caseIds: string[]): Run[] {
+    const proposal = this.proposal();
+    return this.testRuns().filter(run => run.test_result?.brd_proposal_id === proposal?.id
+      && run.test_result?.brd_proposal_sha256 === proposal?.sha256
+      && caseIds.includes(run.test_result?.case_id ?? ''));
   }
   requirementText(table: number, row: number): string {
     const source = this.document.provenance?.find(p => p.table === table && p.row === row);

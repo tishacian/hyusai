@@ -856,7 +856,7 @@ def test_golden_runs_use_reviewed_suite_without_baseline(db_session, monkeypatch
     assertions = [{"id": "fact", "path": ["completion"], "operator": "contains", "value": "source"}]
     suite = EvaluationSuite(workspace_id=workspace.id, system_id=system.id, name="BRD cases",
         revision=1, created_by_user_id=user.id, cases=[{"id": "first", "input_ref": {"case": "source"},
-        "assertions": assertions}], corpus_manifest=[], provenance={"method": "brd_proposal"})
+        "assertions": assertions}], corpus_manifest=[], provenance={"method": "brd_proposal", "brd_proposal_id": "proposal", "brd_proposal_sha256": "a" * 64})
     db_session.add(suite)
     db_session.commit()
     flow = _flow("suite-run")
@@ -880,6 +880,8 @@ def test_golden_runs_use_reviewed_suite_without_baseline(db_session, monkeypatch
     result = runs_endpoint._row(runs[0], db=db_session)["test_result"]
     assert result["verdict"] == "passed"
     assert result["suite_id"] == suite.id
+    assert result["brd_proposal_id"] == "proposal"
+    assert result["brd_proposal_sha256"] == "a" * 64
     replay = http.post(url, json=body)
     assert replay.status_code == 201, replay.text
     assert replay.json()["batch_id"] == response.json()["batch_id"]

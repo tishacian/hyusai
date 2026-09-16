@@ -138,6 +138,8 @@ def suite_run_result(run: Run) -> dict | None:
         if run.status in {"failed", "cancelled"} else "pending", "assertions": []})
     return {"suite_id": checkpoint["suite_id"], "suite_revision": checkpoint["suite_revision"],
         "case_id": checkpoint["case_id"], "batch_id": checkpoint["batch_id"],
+        "brd_proposal_id": checkpoint.get("brd_proposal_id"),
+        "brd_proposal_sha256": checkpoint.get("brd_proposal_sha256"),
         "method": "server_assertions", **verdict}
 
 
