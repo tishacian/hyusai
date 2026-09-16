@@ -157,9 +157,9 @@ sudo "$DUMP" <sha12> <slice>
 ```
 
 It takes the same `pg_dump`, adds a dump of the `mlflow` registry database,
-mirrors out the `tabular/` and `ml/` prefixes of every workspace the registry
+mirrors out the `tabular/`, `ml/` and (from revision 106) retained `brd/` prefixes of every workspace the registry
 actually references, checksums each part, and then verifies that every artifact
-the registry names is present in the window. `.ready` appears only if that check
+the registry names is present in the window. Retained BRD originals must also match their recorded SHA-256; a missing or corrupt original blocks the window. `.ready` appears only if that check
 passed — so `.ready`, not the directory, is what says the window can be restored
 from. It also runs safely against a pre-096 database, where it reports that there
 is no plane and skips the mirror rather than writing an empty `objects/` that

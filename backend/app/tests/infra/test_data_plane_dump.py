@@ -512,3 +512,29 @@ def test_the_settings_default_matches_the_database_the_dump_takes():
     finally:
         settings.ml_registry_uri = original
     assert "readonly REGISTRY_DB=mlflow" in DUMP_SCRIPT.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("state", ["present", "missing", "corrupt"])
+def test_brd_original_is_copied_and_digest_verified(harness, state):
+    import hashlib
+
+    original = b"retained business requirements"
+    key = "workspaces/ws-brd/brd/author/requirements.docx"
+    digest = hashlib.sha256(original).hexdigest()
+    _psql(APP_DB, "create table brd_documents (id text, workspace_id text, storage_key text, sha256 text);")
+    _psql(APP_DB, f"insert into brd_documents values ('brd-1', 'ws-brd', '{key}', '{digest}');")
+    path = harness["bucket"] / key
+    if state != "missing":
+        path.parent.mkdir(parents=True)
+        path.write_bytes(original if state == "present" else b"corrupt")
+    result = _run(harness)
+    manifest = _manifest(harness)
+    window = harness["data_root"] / "probe-deployments" / f"{_today()}-{SHA}"
+    assert manifest["brd_documents"] == 1
+    assert (window / ".ready").exists() == (state == "present")
+    assert (result.returncode == 0) == (state == "present"), result.stderr
+    if state == "present":
+        assert (window / "objects" / key).read_bytes() == original
+    else:
+        assert manifest["registry_artifacts_missing"] == 1
+        assert f"{state.upper()} BRD original" in result.stderr
