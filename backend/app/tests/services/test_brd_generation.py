@@ -247,22 +247,26 @@ def test_generated_review_tests_require_real_mapped_approval_and_rejection():
     config['output_schema']['required'].append('decision_status')
     config['inputs_map']['decision_status'] = {
         'node_id': 'review_hitl', 'path': ['decision_status'], 'required': True}
-    with pytest.raises(ValueError, match='both approved and rejected'):
+    with pytest.raises(ValueError, match='both accepted and rejected'):
         service.validate_generated_review_tests(body)
     review_case = next(case for case in body.cases if case['id'] == 'case-review-reject')
     review_case['assertions'].append({'id': 'rejected', 'path': ['decision_status'],
                                       'operator': 'equals', 'value': 'rejected'})
-    with pytest.raises(ValueError, match='both approved and rejected'):
+    with pytest.raises(ValueError, match='both accepted and rejected'):
         service.validate_generated_review_tests(body)
     approval = deepcopy(review_case)
     approval['id'] = 'case-review-approve'
     approval['assertions'][-1]['value'] = 'approved'
     body.cases.append(approval)
-    with pytest.raises(ValueError, match='both approved and rejected'):
+    with pytest.raises(ValueError, match='both accepted and rejected'):
         service.validate_generated_review_tests(body)
     for mapping in body.mappings:
         if 'review_hitl' in mapping.node_ids:
             mapping.case_ids.append(approval['id'])
+    # The runtime copies Decision.status (accepted), not its approved boolean.
+    with pytest.raises(ValueError, match='both accepted and rejected'):
+        service.validate_generated_review_tests(body)
+    approval['assertions'][-1]['value'] = 'accepted'
     service.validate_generated_review_tests(body)
     config['inputs_map']['decision_status']['node_id'] = 'task_synthesis'
     with pytest.raises(ValueError, match='model text is not a decision'):

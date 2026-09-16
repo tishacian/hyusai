@@ -156,8 +156,8 @@ def validate_generated_review_tests(body):
                     if assertion.get("operator") == "equals"
                     and assertion.get("path") in [[name] for name in fields]
                     and isinstance(assertion.get("value"), str)}
-        if not {"approved", "rejected"}.issubset(verdicts):
-            raise ValueError(f"HITL {review['id']}: linked cases must assert both approved and rejected "
+        if not {"accepted", "rejected"}.issubset(verdicts):
+            raise ValueError(f"HITL {review['id']}: linked cases must assert both accepted and rejected "
                              "decision_status with equals on the mapped sink field. Reuse a concrete "
                              "business question; keep the human procedure in reference_answer. "
                              "A draft-exists assertion cannot establish approval, rejection or retry")
@@ -310,9 +310,11 @@ def generation_prompt(document, request, *, catalog, proposal_schema, feedback=N
         "question already present in the BRD as question/input_ref, so the system first prepares "
         "the deliverable. Describe the required reviewer action in reference_answer and assert "
         "its final decision_status; the Run must wait for that explicit human action. Include "
-        "separate cases for approved and rejected using equals assertions, linked through mappings "
+        "separate cases for accepted and rejected using equals assertions, linked through mappings "
         "to the HITL node. Expose its decision_status directly as a required string sink field. Never "
         "send 'review and approve/reject' as the operator objective or infer a decision from text. "
+        "decision_status is accepted after human approval and rejected after refusal; approved "
+        "is a boolean output, never a decision_status value. "
         "Its output contains approved, rejected and decision_status, NOT the upstream completion. "
         "The sink must map draft text directly from the synthesis task, which remains an ancestor "
         "through the HITL path. Always connect synthesis -> hitl -> sink using data edges. "
