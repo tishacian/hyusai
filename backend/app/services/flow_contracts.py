@@ -435,6 +435,7 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
             | (adapter_node_keys if has_adapter else set())
             | (authored_node_keys if has_executor else set())
             | ({"skill_allowlist"} if "skill_allowlist" in node else set())
+            | ({"tool_contract"} if "tool_contract" in node else set())
         )
         if node_keys != expected_keys:
             raise _execution_contract_error(
@@ -452,6 +453,23 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
                     message="An AgentLoop tool allowlist must contain one to eight Skill slugs.",
                     path=f"{path}/skill_allowlist",
                 )
+        if "tool_contract" in node:
+            tools = node["tool_contract"]
+            tool_nodes = tools.get("nodes") if isinstance(tools, Mapping) else None
+            if (
+                "skill_allowlist" not in node
+                or not isinstance(tool_nodes, Mapping)
+                or set(tool_nodes) != set(node.get("skill_allowlist", []))
+                or any(not isinstance(tool, Mapping) or "tool_contract" in tool
+                       or "skill_allowlist" in tool or tool.get("skill_slug") != slug
+                       for slug, tool in tool_nodes.items())
+                or tools.get("ingresses") != [] or tools.get("outputs") != []
+            ):
+                raise _execution_contract_error(
+                    message="Frozen tools must exactly match the AgentLoop allowlist.",
+                    path=f"{path}/tool_contract",
+                )
+            validate_execution_contract(tools)
         if has_executor:
             _validate_frozen_executor(node, path=path)
         for field in ("skill_id", "skill_slug", "skill_version"):
@@ -922,6 +940,15 @@ def compile_execution_contract(
                         message=f"AgentLoop {node_id!r} published with an empty skill_allowlist.",
                         path=f"nodes/{node_id}/config/skill_allowlist",
                     )
+
+                node_contracts[node_id]["tool_contract"] = compile_execution_contract(
+                    db, workspace_id=workspace_id, runtime_mode=runtime_mode,
+                    allowed_skill_ids=allowed_skill_ids,
+                    flow={"nodes": [
+                        {"id": slug, "kind": "task", "config": {"skill_slug": slug}}
+                        for slug in allowlist
+                    ], "edges": []},
+                )
 
         if str(node.get("kind") or "") == "sink":
             raw_schema = config.get("output_schema")

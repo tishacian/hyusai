@@ -366,3 +366,77 @@ def test_a_delete_under_a_published_flow_names_the_system_and_refuses(db_session
     assert detail["code"] == "skill_bound_by_published_flow"
     assert "Reply desk" in detail["message"]
     assert db_session.query(Skill).filter(Skill.slug == AUTHORED_SLUG).one()
+
+
+async def test_agent_loop_tool_keeps_published_executor_after_catalog_edit(db_session):
+    _, _, authored = _seed(db_session)
+    flow = {"nodes": [{"id": "investigate", "kind": "agent_loop", "config": {
+        "skill_slug": "causal_drill_v1", "skill_allowlist": [AUTHORED_SLUG],
+    }}], "edges": []}
+    contract = compile_execution_contract(db_session, flow=flow,
+        workspace_id=WORKSPACE_ID, runtime_mode="dag_overlay")
+    assert validate_execution_contract(contract) == contract
+    _publish(db_session, contract)
+    run = Run(id="loop-freeze", workspace_id=WORKSPACE_ID,
+              status="running", execution_contract=contract)
+    authored.executor = copy.deepcopy(EDITED_TEMPLATE)
+    db_session.commit()
+    frozen = _frozen_node_executor(run, "investigate", AUTHORED_SLUG)
+    assert frozen == FROZEN_TEMPLATE
+    assert _frozen_node_executor(run, "investigate", "causal_drill_v1") is None
+    with pytest.raises(ValueError, match="agent_loop_tool_not_frozen"):
+        _frozen_node_executor(run, "investigate", "unlisted")
+    fn = workspace_skill_callable(db_session, workspace_id=WORKSPACE_ID,
+                                 slug=AUTHORED_SLUG, frozen_executor=frozen)
+    with pytest.raises(SkillBindingError) as error:
+        await fn({"incident": "new catalog input"}, None)
+    assert "ticket" in error.value.message
+    bindings = published_skill_bindings(db_session, workspace_id=WORKSPACE_ID, skill=authored)
+    assert bindings[0].node_ids == ("investigate",)
+    assert bindings[0].stale is True
+    # Even an outer digest recomputed by a caller cannot hide missing tools.
+    contract["nodes"]["investigate"]["tool_contract"]["nodes"] = {}
+    contract["contract_sha256"] = canonical_sha256({k: v for k, v in contract.items() if k != "contract_sha256"})
+    with pytest.raises(FlowContractError):
+        validate_execution_contract(contract)
+
+
+async def test_agent_loop_dispatch_enforces_frozen_tool_input_and_output(db_session, monkeypatch):
+    from app.services.run_engine import engine
+    from app.services.model_plane import execution
+    _, _, authored = _seed(db_session)
+    authored.input_schema = {"type": "object", "required": ["ticket"],
+                             "properties": {"ticket": {"type": "string"}}}
+    authored.output_schema = {"type": "object", "required": ["answer"],
+                              "properties": {"answer": {"type": "string"}}}
+    db_session.commit()
+    contract = compile_execution_contract(db_session, workspace_id=WORKSPACE_ID,
+        runtime_mode="dag_overlay", flow={"nodes": [{"id": "investigate",
+        "kind": "agent_loop", "config": {"skill_slug": "causal_drill_v1",
+        "skill_allowlist": [AUTHORED_SLUG]}}], "edges": []})
+    run = Run(id="loop-input-freeze", workspace_id=WORKSPACE_ID, status="running",
+              execution_contract=contract, input_ref={})
+    db_session.add(run)
+    authored.input_schema = {"type": "object"}
+    db_session.commit()
+    called = []
+    async def tool(payload, ctx):
+        called.append(payload)
+        return {"answer": "fixed"} if payload.get("ticket") == "original" else {}
+    def bind(*args, **kwargs):
+        assert kwargs["frozen_executor"] == FROZEN_TEMPLATE
+        return tool
+    monkeypatch.setattr(engine, "workspace_skill_callable", bind)
+    monkeypatch.setattr(execution, "resolve_skill_model_execution", lambda *a, **kw: None)
+    invocation = await engine._execute_task_node(db_session, run, {}, AUTHORED_SLUG,
+        control=None, last_output={}, node_id="investigate", resolved_input={"incident": "new"})
+    assert invocation.status == "failed"
+    assert called == []
+    valid = await engine._execute_task_node(db_session, run, {}, AUTHORED_SLUG,
+        control=None, last_output={}, node_id="investigate", resolved_input={"ticket": "original"})
+    assert valid.status == "completed"
+    assert called == [{"ticket": "original"}]
+    assert valid.trace["tool_contract_sha256"] == contract["nodes"]["investigate"]["tool_contract"]["contract_sha256"]
+    invalid_output = await engine._execute_task_node(db_session, run, {}, AUTHORED_SLUG,
+        control=None, last_output={}, node_id="investigate", resolved_input={"ticket": "bad output"})
+    assert invalid_output.status == "failed"

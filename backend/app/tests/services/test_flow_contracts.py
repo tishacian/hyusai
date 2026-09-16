@@ -818,6 +818,9 @@ def test_agent_loop_compiled_contract_can_be_read_after_publication(db_session):
         output_schema={"type": "object"}, execution={},
     )
     db_session.add(planner)
+    for slug in ("read_notices", "read_history"):
+        db_session.add(Skill(id=slug, slug=slug, name=slug, version="1",
+                             input_schema={}, output_schema={}, execution={}))
     db_session.commit()
     contract = compile_execution_contract(
         db_session, workspace_id="workspace-contract", runtime_mode="dag_overlay",
