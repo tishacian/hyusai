@@ -1,0 +1,27 @@
+{
+  "sha": "480864e5c789fe5079cdfd5de3631f89188e53f8",
+  "outcome": "failed",
+  "reason": "Concurrent parent Runs occupied both CPU worker slots while awaiting queued recipe tasks. Test tasks cancelled explicitly through recipe API.",
+  "run_id": "17924b6d-4357-4ab0-a2c8-726396cb5971",
+  "run_status": "completed",
+  "flow_version_id": "e997f4e4-3b51-4eef-9481-389f3a9afae4",
+  "output_status": "failed",
+  "numerical_reference_passed": null,
+  "invocations": [
+    {
+      "skill_slug": "python_recipe_v1",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "skill_slug": "llm_rag_answer_v1",
+      "status": "completed",
+      "error": null
+    },
+    {
+      "skill_slug": "python_recipe_v1",
+      "status": "failed",
+      "error": "recipe_execution_cancelled: cancel_requested"
+    }
+  ]
+}

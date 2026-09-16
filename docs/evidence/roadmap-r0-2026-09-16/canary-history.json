@@ -1,0 +1,68 @@
+{
+  "runs": [
+    {
+      "runtime_sha": "480864e5c789fe5079cdfd5de3631f89188e53f8",
+      "passed": 8,
+      "failed": 2,
+      "skipped": 2,
+      "failures": [
+        "Work selected workspace without a published application",
+        "Studio publication close did not restore trigger focus"
+      ]
+    },
+    {
+      "runtime_sha": "e09bde5c3072f406f8f47a8f41be93f2b6bc8323",
+      "passed": 8,
+      "failed": 2,
+      "skipped": 2,
+      "failures": [
+        "Work main landmark absent",
+        "Showcase mobile titlebar child outside viewport"
+      ]
+    },
+    {
+      "runtime_sha": "cf90acb0d69607c87ddf2fd1a31ef6faaaed8c85",
+      "test_source_sha": "cf90acb0d69607c87ddf2fd1a31ef6faaaed8c85",
+      "passed": 8,
+      "failed": 2,
+      "skipped": 2,
+      "failures": [
+        "Obsolete expected Work heading",
+        "Obsolete expected initial Close focus; composer actually focused"
+      ]
+    },
+    {
+      "runtime_sha": "cf90acb0d69607c87ddf2fd1a31ef6faaaed8c85",
+      "test_source_sha": "d38a67f060d8c33c1a0ce1f5acaa2b0c6f4b1ce6",
+      "scope": "Focused Work/Studio follow-up, not the full attested iteration",
+      "passed": 0,
+      "failed": 2,
+      "skipped": 2,
+      "failures": [
+        "Work live badge contrast in six light-theme matrix cases",
+        "New release success message focus attempted before rendering"
+      ]
+    },
+    {
+      "runtime_sha": "196164eb5b8098dca49cf54a7c06c4df05cc8b79",
+      "test_source_sha": "196164eb5b8098dca49cf54a7c06c4df05cc8b79",
+      "passed": 9,
+      "failed": 1,
+      "skipped": 2,
+      "failures": [
+        "Studio cleanup expected deletion of an immutable released Experience; API correctly returned EXPERIENCE_RELEASED (409)."
+      ]
+    },
+    {
+      "runtime_sha": "196164eb5b8098dca49cf54a7c06c4df05cc8b79",
+      "test_source_sha": "bd160451b523a74a55e2c38c88433c2cefffcf00",
+      "scope": "Focused Studio rerun, not a new deployed application revision",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "checks": "Release retention explicitly authorized in synthetic Showcase; exact 409 code checked; released artifact and binding retained."
+    }
+  ],
+  "skips": "Two explicitly local mocked adoption/branding fixtures; not represented as passed.",
+  "independent_ci_attestation": false
+}
