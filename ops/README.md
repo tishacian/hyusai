@@ -44,8 +44,6 @@ scaffold.
 - Replacing in-cluster PostgreSQL / MinIO / Qdrant / Keycloak with managed
   services.
 - Magnum or another OpenStack-managed Kubernetes API.
-- Importing the exact papAI roles/modules once those repos are available
-  beside this worktree.
 
 ## Checks
 
