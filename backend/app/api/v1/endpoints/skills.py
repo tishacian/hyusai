@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
 from fastapi.responses import Response
 import hashlib
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import load_only
 
@@ -691,6 +691,90 @@ async def get_business_requirements_original(
         headers={"Content-Disposition": 'attachment; filename="business-requirements.docx"',
                  "Cache-Control": "no-store"},
     )
+
+
+class BrdRequirementMapping(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    table: int = Field(ge=1, strict=True)
+    row: int = Field(ge=2, strict=True)
+    node_ids: list[str] = Field(default_factory=list, max_length=100)
+    case_ids: list[str] = Field(default_factory=list, max_length=20)
+    reason: str = Field(default="", max_length=2000)
+
+
+class BrdProposalBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_key: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+    objective: str = Field(default="", max_length=8000)
+    flow_definition: dict[str, Any]
+    skills: list[SkillCreate] = Field(default_factory=list, max_length=30)
+    cases: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    mappings: list[BrdRequirementMapping] = Field(default_factory=list, max_length=800)
+
+
+@router.post("/imports/business-requirements/{document_id}/proposals")
+async def save_business_requirements_proposal(
+    document_id: str,
+    body: BrdProposalBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    import json
+    from app.api.v1.endpoints.evaluation_campaigns import CaseBody
+    from app.services.chains import dag_validator
+    from app.services.skills_registry.brd_proposals import coverage, retain_proposal, proposal_payload
+    document = _retained_brd(db, workspace, user, document_id)
+    enforce_action(db, user=user, workspace=workspace, resource_kind="system", action="admin",
+        legacy_allowed=legacy_object_action_allowed(db, user=user, workspace=workspace,
+                                                   resource_kind="system", action="admin"))
+    payload = body.model_dump(exclude={"request_key"})
+    if len(json.dumps(payload).encode("utf-8")) > 256 * 1024:
+        raise HTTPException(413, "The BRD proposal exceeds 256 KiB")
+    issues = dag_validator.validate_flow(body.flow_definition)
+    if dag_validator.has_errors(issues):
+        raise HTTPException(422, {"code": "brd_proposal_flow_invalid", "issues": dag_validator.issues_to_payload(issues)})
+    try:
+        cases = [CaseBody.model_validate(case) for case in body.cases]
+        for skill in body.skills:
+            validate_executor_binding(skill.executor)
+            validate_schema_definition(skill.input_schema, field="input_schema")
+            validate_schema_definition(skill.output_schema, field="output_schema")
+    except (ValueError, SkillBindingError, FlowContractError) as exc:
+        raise HTTPException(422, "Invalid proposed Skill or test contract") from exc
+    if any(case.reference_run_id for case in cases):
+        raise HTTPException(422, "New BRD cases cannot claim historical reference Runs")
+    if len({case.id for case in cases}) != len(cases):
+        raise HTTPException(422, "Proposed case IDs must be unique")
+    if len({skill.local_name for skill in body.skills}) != len(body.skills):
+        raise HTTPException(422, "Proposed Skill names must be unique")
+    payload["cases"] = [case.model_dump() for case in cases]
+    payload["coverage"] = coverage(document.extraction, payload["mappings"],
+        node_ids={node["id"] for node in body.flow_definition.get("nodes", [])},
+        case_ids={case.id for case in cases})
+    payload["problems"] = list(document.extraction.get("problems", []))
+    payload["execution_readiness"] = "not_validated"
+    return proposal_payload(retain_proposal(db, document=document, user=user,
+                                           request_key=body.request_key, proposal=payload))
+
+
+@router.get("/imports/business-requirements/{document_id}/proposals/{proposal_id}")
+async def get_business_requirements_proposal(
+    document_id: str,
+    proposal_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    from app.models.brd_proposal import BrdProposal
+    from app.services.skills_registry.brd_proposals import proposal_payload
+    _retained_brd(db, workspace, user, document_id)
+    row = db.query(BrdProposal).filter_by(id=proposal_id, document_id=document_id,
+                                        workspace_id=workspace.id).first()
+    if row is None:
+        raise HTTPException(404, "BRD proposal not found")
+    return proposal_payload(row)
 
 
 @router.get("/{slug}")
