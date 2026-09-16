@@ -600,7 +600,7 @@
 
 .xp-tag-warn {
   background: var(--ck-status-warn-bg);
-  color: var(--ck-status-warn-fg);
+  color: var(--ck-fg-1);
 }
 
 .xp-tag-origin {
@@ -666,7 +666,8 @@
 
 .xp-tree button.is-on {
   background: var(--ck-status-info-bg);
-  color: var(--ck-signal-cool);
+  color: var(--ck-fg-1);
+  font-weight: 600;
 }
 
 .xp-tree .is-child {

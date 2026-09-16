@@ -16,6 +16,8 @@ EXPECTED = {
     "actual_minutes": 155,
     "overrun_minutes": 35,
     "late_orders": 3,
+    "largest_overrun_order": "NF-04",
+    "largest_overrun_minutes": 25,
 }
 # Pinned for reproducible managed environments, using the repository's recipe plane.
 REQUIREMENTS = "polars==1.31.0"
@@ -39,9 +41,11 @@ def main(inputs):
         raise ValueError("Durations cannot be negative")
     planned = frame["planned_minutes"].sum()
     actual = frame["actual_minutes"].sum()
+    largest = frame.with_columns((pl.col("actual_minutes") - pl.col("planned_minutes")).alias("overrun")).sort(["overrun", "order"], descending=[True, False]).row(0, named=True)
     stats = {"orders": frame.height, "planned_minutes": planned, "actual_minutes": actual,
              "overrun_minutes": actual - planned,
-             "late_orders": frame.filter(pl.col("actual_minutes") > pl.col("planned_minutes")).height}
+             "late_orders": frame.filter(pl.col("actual_minutes") > pl.col("planned_minutes")).height,
+             "largest_overrun_order": largest["order"], "largest_overrun_minutes": largest["overrun"]}
     return {"stats": stats, "context": ["Synthetic NorthForge exercise; no customer data or verified savings. " + json.dumps(stats)],
             "query": "Explain the operational delay using only the supplied numbers. Do not claim savings. Suggest one next investigation.",
             "showcase_seed": True}
@@ -67,7 +71,7 @@ def flow_operational_analysis():
     """Exact arithmetic is checked; the check does not certify the LLM's prose."""
     stats_schema = {
         "type": "object",
-        "properties": {key: {"type": "number"} for key in EXPECTED},
+        "properties": {key: {"type": "string" if isinstance(value, str) else "number"} for key, value in EXPECTED.items()},
         "required": list(EXPECTED),
     }
     return {
@@ -276,8 +280,8 @@ def experience_document():
                         "id": "meaning",
                         "props": {
                             "body": copy(
-                                "Expected: 120 planned minutes, 155 actual, 35 net overrun, 3 late orders. A passed numerical check does not validate the model’s prose or prove savings.",
-                                "Référence : 120 minutes prévues, 155 réalisées, 35 de dépassement net, 3 ordres en retard. Un contrôle numérique réussi ne valide ni la prose du modèle ni des économies.",
+                                "Expected: 120 planned minutes, 155 actual, 35 net overrun, 3 late orders; largest overrun: NF-04, +25 minutes. A passed numerical check does not validate the model’s prose or prove savings.",
+                                "Référence : 120 minutes prévues, 155 réalisées, 35 de dépassement net, 3 ordres en retard ; dépassement maximal : NF-04, +25 minutes. Un contrôle numérique réussi ne valide ni la prose du modèle ni des économies.",
                             )
                         },
                     },
