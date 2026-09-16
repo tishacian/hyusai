@@ -83,7 +83,7 @@ def _compose_model() -> dict:
             for target, source in sources.items()
         ]
 
-    return {
+    model = {
         "services": {
             "agentium-minio": {
                 "volumes": [
@@ -155,6 +155,9 @@ def _compose_model() -> dict:
             },
         },
     }
+
+    model["services"]["agentium-worker-recipes"] = deepcopy(model["services"]["agentium-worker-cpu"])
+    return model
 
 
 def _active_containers() -> list[dict]:
@@ -852,7 +855,7 @@ def test_launcher_scrubs_shell_and_gates_only_closed_application_commands() -> N
     ) in script
     assert (
         "up)            storage_check; compose up -d --no-build --no-deps --pull never "
-        "agentium-backend agentium-worker-cpu agentium-frontend"
+        "agentium-worker-recipes agentium-backend agentium-worker-cpu agentium-frontend"
     ) in script
     for stateful in ("agentium-pg", "agentium-minio", "agentium-qdrant", "agentium-rabbitmq"):
         assert f"compose up -d {stateful}" not in script
@@ -908,3 +911,15 @@ def test_launcher_compose_gateway_drops_ambient_storage_pollution(tmp_path: Path
         "unix:///var/run/docker.sock",
         "compose",
     ]
+
+
+def test_dedicated_recipe_consumer_storage_is_checked_when_present():
+    module = _module()
+    containers = _active_containers()
+    recipe = deepcopy(next(row for row in containers if row["Name"] == "/agentium-worker-cpu"))
+    recipe["Name"] = "/agentium-worker-recipes"
+    containers.append(recipe)
+    module.assert_vm_active_storage_mounts(containers)
+    next(m for m in recipe["Mounts"] if m["Destination"] == "/data/recipe_envs")["Source"] = "/tmp/wrong"
+    with pytest.raises(module.RuntimeEnvBundleError, match="mount identity differs"):
+        module.assert_vm_active_storage_mounts(containers)

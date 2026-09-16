@@ -1162,9 +1162,8 @@ async def test_recipe_failure_envelope_strips_the_graph_owned_recipe_block(
 
     summary = await execute_run_dag(run.id)
 
-    # The walker's continue-on-error contract: the run settles, the failure
-    # rides the output envelope for downstream decision nodes.
-    assert summary["status"] == "completed"
+    # No recovery branch consumes this error: the sink retains its failure.
+    assert summary["status"] == "failed"
     # The wrapper did receive its graph-owned block…
     assert received and received[0]["_recipe"]["requirements_text"] == "pandas\n"
     db_session.expire_all()
@@ -1846,3 +1845,23 @@ async def test_a_decision_whose_names_are_all_bound_routes_untouched(db_session)
     assert not [
         cp for cp in persisted.checkpoints if cp.get("kind") == "decision_input_unbound"
     ]
+
+
+@pytest.mark.parametrize("terminal,expected", [
+    ({"_status": "failed", "_error": "check failed"}, "failed"),
+    ({"recovered": True}, "completed"),
+])
+def test_finalization_distinguishes_terminal_error_from_recovery(db_session, terminal, expected):
+    system = _mk_system(db_session, flow={"nodes": [], "edges": []})
+    run = _mk_run(db_session, system)
+    failed = SkillInvocation(run_id=run.id, skill_slug="required_check", status="failed", output_ref={})
+    summary = engine_module._finalize_run(
+        db_session, run, system=system, capability=None, control=None,
+        invocations=[failed], duration_ms=1, last_output=terminal,
+    )
+    assert summary["status"] == expected
+    assert run.output_ref == terminal
+    assert run.confidence is None
+    if expected == "failed":
+        assert run.error == "check failed"
+        assert run.decision == "failed"

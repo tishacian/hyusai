@@ -288,3 +288,15 @@ The four proofs stay in those docs. The desk is an operator screen (no numbered
 beats). Rebuild the Word with
 `docs/ops/build-nawa-pr-to-po-playbook.py` after a label or figure change.
 Always hard-reload before the talk.
+
+### Recipe consumer prerequisite
+
+Releases using `CELERY_RECIPE_QUEUE=recipes` require the independent
+`agentium-worker-recipes` consumer. The base Compose and VM launcher include it,
+using the same SHA-tagged worker image, recipe store and protected mounts, with
+beat disabled. A manually selected service list must include it. Do not put
+awaited recipes back on the Flow worker's queue: increasing its concurrency
+only postpones starvation. Before promotion, run two Operational Analysis
+requests concurrently, verify each child execution settles, and repeat through
+a worker restart. On rollback, drain recipe executions before stopping the
+consumer; switching producer images does not relocate queued tasks.

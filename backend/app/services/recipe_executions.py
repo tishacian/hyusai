@@ -135,7 +135,7 @@ def dispatch_execution(
     async_result = celery_app.send_task(
         RECIPE_EXECUTE_TASK,
         args=(execution.id, code),
-        queue=settings.celery_task_default_queue,
+        queue=settings.celery_recipe_queue,
     )
     execution.celery_task_id = async_result.id
     db.commit()

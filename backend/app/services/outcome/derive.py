@@ -12,6 +12,7 @@ Strategy (mental model §22.3):
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -29,7 +30,7 @@ class DerivedOutcome:
     value: float
     confidence: Optional[float]
     efficiency: Optional[float]
-    decision: str
+    decision: Optional[str]
     value_source: ValueSource
 
     def as_outcome(self) -> Outcome:
@@ -105,14 +106,18 @@ def apply_operator_override(
 def _extract_confidence(invocations: List[SkillInvocation]) -> Optional[float]:
     for inv in invocations:
         out = inv.output_ref or {}
-        if "confidence" in out:
+        if isinstance(out, dict) and "confidence" in out:
             try:
-                return float(out["confidence"])
+                raw = out["confidence"]
+                if isinstance(raw, bool):
+                    continue
+                value = float(raw)
+                if math.isfinite(value) and 0 <= value <= 1:
+                    return value
             except (TypeError, ValueError):
                 continue
-    if not invocations:
-        return None
-    return round(len(invocations) / max(len(invocations), 1), 3)
+    # Successful execution is not evidence of answer confidence.
+    return None
 
 
 def _derive_decision(
@@ -120,7 +125,7 @@ def _derive_decision(
     failed: List[SkillInvocation],
     hitl_threshold: Optional[float],
     confidence: Optional[float],
-) -> str:
+) -> Optional[str]:
     if not completed and failed:
         return "failed"
     if hitl_threshold is not None:
@@ -128,12 +133,13 @@ def _derive_decision(
             return "hitl_escalated"
     if failed:
         return "partial"
-    return "approved"
+    # A completed invocation does not establish a human or policy approval.
+    return None
 
 
 def _estimate_value(
     capability: Optional[Capability],
-    decision: str,
+    decision: Optional[str],
     confidence: Optional[float],
 ) -> tuple[float, ValueSource]:
     """Return (value, source). Source is `auto` whenever a ROI model or
@@ -176,8 +182,10 @@ def _roi_model_base(roi_model: Dict[str, Any], capability: Capability) -> float:
     return 0.0
 
 
-def _decision_multiplier(decision: str) -> float:
+def _decision_multiplier(decision: Optional[str]) -> float:
+    # Declared per-execution ROI is a projection, independent of approval.
     return {
+        None: 1.0,
         "approved": 1.0,
         "partial": 0.5,
         "hitl_escalated": 0.0,

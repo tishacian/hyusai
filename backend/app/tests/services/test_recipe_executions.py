@@ -571,3 +571,21 @@ def test_apply_recipe_node_config_strips_reserved_key_on_other_nodes():
     node_input = {"q": "hello", "_recipe": {"code": "evil"}}
     _apply_recipe_node_config(node, node_input)
     assert node_input == {"q": "hello"}
+
+
+def test_recipe_dispatch_uses_independent_queue(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from app.workers.celery_app import celery_app
+
+    monkeypatch.setattr(settings, 'worker_eager_mode', False)
+    monkeypatch.setattr(settings, 'celery_task_default_queue', 'cpu')
+    monkeypatch.setattr(settings, 'celery_recipe_queue', 'recipes')
+    send = Mock(return_value=SimpleNamespace(id='recipe-task'))
+    monkeypatch.setattr(celery_app, 'send_task', send)
+    execution = SimpleNamespace(id='execution', celery_task_id=None)
+    db = Mock()
+    assert recipe_executions.dispatch_execution(db, execution, code='def main(x): return x') == 'recipe-task'
+    assert send.call_args.kwargs['queue'] == 'recipes'
+    assert execution.celery_task_id == 'recipe-task'
+    db.commit.assert_called_once()

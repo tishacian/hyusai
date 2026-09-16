@@ -19,6 +19,10 @@ services:
     image: ${AGENTIUM_WORKER_IMAGE:?Set a verified worker digest reference}
     build: null
 
+  agentium-worker-recipes:
+    image: ${AGENTIUM_WORKER_IMAGE:?Set a verified worker digest reference}
+    build: null
+
   agentium-p4-maintenance:
     image: ${AGENTIUM_WORKER_IMAGE:?Set a verified worker digest reference}
     build: null

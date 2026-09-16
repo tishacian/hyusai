@@ -109,6 +109,8 @@ class Settings(BaseSettings):
     celery_broker_url: str = "amqp://guest:guest@localhost:5672//"
     celery_result_backend: Optional[str] = None
     celery_task_default_queue: str = "cpu"
+    # Recipes are awaited by Flow workers: they must have an independent consumer.
+    celery_recipe_queue: str = "recipes"
 
     # Object storage for original / ingested / derived RAG artifacts.
     # "local" is dependency-free for dev/tests; "s3" uses fsspec/s3fs when
