@@ -11,6 +11,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { firstValueFrom } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
+import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
 import { CaptureEngine } from '../capture-engine';
 import { composePublicationName } from '../capture-templates';
 
@@ -34,7 +35,7 @@ const CUSTOM_DESTINATION = '__custom__';
   selector: 'app-capture-fil-publish',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent],
+  imports: [GlyphComponent, DocumentPreviewComponent],
   template: `
     <div style="display:flex; flex-direction:column; gap:18px; max-width:720px;">
       <div>
@@ -73,15 +74,14 @@ const CUSTOM_DESTINATION = '__custom__';
             }
             .
           </div>
-          @if (exportUrl()) {
-            <a
-              [href]="exportUrl()"
-              target="_blank"
-              rel="noopener"
-              style="display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--ck-signal-cool); text-decoration:none;"
+          @if (previewUrl()) {
+            <button
+              type="button"
+              (click)="previewOpen.set(true)"
+              style="display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--ck-signal-cool); border:0; background:transparent; cursor:pointer;"
             >
               <ck-glyph name="zoom-in" [size]="14" color="currentColor" /> {{ i18n.t('capture.publish.open') }}
-            </a>
+            </button>
           }
           @if (engine.proposalId()) {
             <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:4px;">
@@ -216,6 +216,13 @@ const CUSTOM_DESTINATION = '__custom__';
         </div>
       }
     </div>
+    <app-document-preview
+      [open]="previewOpen() && !!published()"
+      [previewUrl]="previewUrl()"
+      [title]="published()?.final_title || finalTitle()"
+      [subtitle]="published()?.collection || ''"
+      (closed)="previewOpen.set(false)"
+    />
   `,
 })
 export class CaptureFilPublishComponent {
@@ -289,10 +296,8 @@ export class CaptureFilPublishComponent {
 
   protected readonly published = this.engine.publication;
 
-  protected readonly exportUrl = computed(() => {
-    const urls = this.published()?.export_urls;
-    return urls?.raw_url || urls?.download_url || null;
-  });
+  protected readonly previewOpen = signal(false);
+  protected readonly previewUrl = computed(() => this.published()?.export_urls?.preview_url || null);
 
   /** Loaded collections, with the preselected default prepended when unlisted. */
   protected readonly destinationOptions = computed(() => {

@@ -1,3 +1,4 @@
+import { A11yModule } from '@angular/cdk/a11y';
 import { HttpClient } from '@angular/common/http';
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewEncapsulation, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
@@ -49,7 +50,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
 @Component({
   selector: 'app-document-preview',
   standalone: true,
-  imports: [IconComponent, NgTemplateOutlet, NgxExtendedPdfViewerModule],
+  imports: [A11yModule, IconComponent, NgTemplateOutlet, NgxExtendedPdfViewerModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Global so the highlight rules reach <mark> nodes injected via innerHTML.
   encapsulation: ViewEncapsulation.None,
@@ -85,7 +86,10 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
       }
     } @else if (open()) {
       <div class="fixed inset-0 z-[80] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4">
-        <section class="w-full max-w-5xl max-h-[88vh] rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10 shadow-2xl" style="background:var(--ck-bg-panel, #030712)">
+        <section role="dialog" aria-modal="true" [attr.aria-label]="title() || i18n.t('common.preview.title')"
+          cdkTrapFocus [cdkTrapFocusAutoCapture]="true"
+          (keydown.escape)="$event.stopPropagation(); closed.emit()"
+          class="w-full max-w-5xl max-h-[88vh] rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10 shadow-2xl" style="background:var(--ck-bg-panel, #030712)">
           <ng-container *ngTemplateOutlet="shell"></ng-container>
         </section>
       </div>
