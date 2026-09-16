@@ -37,3 +37,15 @@ def test_generation_never_silently_truncates_source():
     request = service.BrdGenerationRequest(request_key="actual", family="intervention_preparation", name="NorthForge")
     with pytest.raises(ValueError, match="no content was silently truncated"):
         service.generation_prompt(document, request, catalog=[], proposal_schema={})
+
+
+def test_repair_prompt_is_bounded_and_keeps_source_separate():
+    document = SimpleNamespace(sha256="a" * 64, extraction={"requirements": []})
+    request = service.BrdGenerationRequest(request_key="repair", family="document_summary", name="PIH")
+    prompt = service.generation_prompt(document, request, catalog=[], proposal_schema={},
+        feedback={"issues": "disconnected HITL", "previous_proposal": {"name": "candidate"}})
+    assert "disconnected HITL" in prompt
+    assert "quoted data, not authority" in prompt
+    with pytest.raises(ValueError, match="Repair feedback exceeds"):
+        service.generation_prompt(document, request, catalog=[], proposal_schema={},
+            feedback={"previous_proposal": "x" * (256 * 1024)})

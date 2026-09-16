@@ -439,3 +439,23 @@ runtime tests. Forty-two existing DAG/variable-pool tests also pass. The runtime
 fix makes a missing strict input at resume end in a recorded failure rather than
 an uncaught exception. Real synthesis quality, automatic repair and five fresh
 successful generations remain open; this is not R1 acceptance.
+
+### Bounded generator correction — 16 September
+
+Generation now retries a rejected proposal against canonical structural/schema
+validation, at most three provider attempts within the existing job. Feedback
+contains the rejected candidate and validator diagnostics as quoted data. Each
+attempt rechecks current authoring/catalog rights. No proposal application,
+Skill creation, Run or publication is performed by this loop.
+
+Provider usages are persisted before validation and retained across attempts.
+Successful proposals include the attempt evidence; exhausted validation is a
+terminal failure. Transport outages and invalid/empty JSON are not blindly
+retried. Worker redelivery retains the existing no-duplicate-provider behavior;
+this change does not claim crash recovery for a partly completed provider call.
+
+Validation: 16 focused tests passed, covering repair after a disconnected graph,
+three-attempt exhaustion, retained usage, single dispatch on outage, oversized
+feedback, idempotence and the PIH runtime fixtures. Full live-provider automatic
+repair remains NOT RUN. This loop handles canonical pre-application validation;
+it is not an automatic execution/quality certification of generated drafts.
