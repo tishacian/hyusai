@@ -23,3 +23,11 @@ the model chooses history at confidence .41, below the existing floor, before
 retrieval. Duration 21.21s. No threshold was lowered and no result was fabricated.
 This does not qualify absence handling. The corrective release may carry tested
 contract/evidence improvements independently of R1 acceptance.
+
+Qualification-method correction: the recorder forced max_completion_tokens=4000
+and reasoning_effort=low for runtime calls. Production decide_next_v1 passes no
+generation options. The retained attempts therefore do not qualify default
+production reasoning. The recorder now preserves runtime provider defaults and
+records requested options; BRD generation retains its canonical bounded options.
+The local engine / remote non-streaming boundary remains a qualification limit.
+Fresh provider execution is required before drawing a conclusion about this change.
