@@ -21,3 +21,19 @@ The protected-runner principal requested the existing durable generation job
 `4605ebf3-c548-4c50-9f29-9ea367de70d0`, with the native planner and the two existing
 collection-bound read tools. Generation is in progress, not yet reviewed/applied.
 This is API-assisted technical qualification, not a user study.
+
+## Live generation review
+
+Job `4605ebf3-c548-4c50-9f29-9ea367de70d0` completed on release
+`89f8e09a`, producing proposal `8573471a-4ed0-42a0-812a-62dc76d14bf5`.
+The five-node Flow retains the two authorized read tools and explicit HITL.
+Review found that `case-review-reject` sends the review procedure as the
+operator objective and asserts only that `draft` exists. The sink does not
+map the decision status. This does not establish rejection or retry despite
+the case reference answer claiming those outcomes. The generator prompt
+already forbids this conflation; instruction alone did not enforce it.
+
+The proposal is retained unchanged and has not been applied or published.
+Next correction: validate the generated human-decision test contract before
+accepting a proposal, using the existing proposal validation/repair path.
+Other case assertions are lexical checks, not semantic acceptance.
