@@ -1374,6 +1374,8 @@ async def rich_preview_document(
     filename: Optional[str] = Query(
         None, description="Filename hint; skips the collection scan when provided."
     ),
+    sheet_name: Optional[str] = Query(None, min_length=1, max_length=128),
+    cell_range: Optional[str] = Query(None, min_length=1, max_length=32),
     db: DBSession = Depends(get_db),
     workspace: Workspace = Depends(get_current_workspace),
 ):
@@ -1433,6 +1435,8 @@ async def rich_preview_document(
                 media_type=media_type,
                 size_bytes=size,
                 download_url=download_url,
+                sheet_name=sheet_name,
+                cell_range=cell_range,
             )
 
         data = _resolve_original_bytes(db, workspace, collection_name, document_id, resolved_name)
@@ -1449,6 +1453,8 @@ async def rich_preview_document(
                 media_type=media_type,
                 size_bytes=len(data),
                 download_url=download_url,
+                sheet_name=sheet_name,
+                cell_range=cell_range,
             )
         finally:
             try:

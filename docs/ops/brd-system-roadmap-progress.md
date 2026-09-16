@@ -36,6 +36,21 @@ Base: `origin/demo/agentic` at `9494149ad1ade0dc9da713588590d1ec01a9d2da`.
 Implementation branch: `codex/brd-system-roadmap`.
 Scope: [accepted roadmap](../agentium-delivery-roadmap.md).
 
+## Next grouped candidate — verifiable spreadsheet citations
+
+R2.1 preparation now opens the cited worksheet and cell window in the existing
+source preview, with original row/column coordinates and exact selection.
+The old first-sheet/first-40-rows behavior was insufficient for citations at
+row 830. Invalid or missing referenced cells fail explicitly; partial ranges
+remain labelled. PDF/OCR page aliases are resolved consistently. Shared preview
+labels are FR/EN and its surfaces use existing theme tokens.
+
+[Implementation and visual evidence](../evidence/document-cell-preview-2026-09-16/README.md):
+63 unique backend tests, 1,479 frontend tests plus a final focused rerun, guards,
+production build and local real-component FR/light + EN/dark mobile captures.
+Not deployed. This joins the pending server Golden-verdict correction in the
+next grouped release; R2 ingestion/recovery and live qualification remain open.
+
 ## Deployed b4fde677 — Work handoff and evaluation evidence
 
 `b4fde677a75a7a9f6ab30898882104c37582709b` is deployed from pushed

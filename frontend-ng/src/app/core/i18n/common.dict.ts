@@ -6,6 +6,21 @@
  */
 
 export const COMMON_FR = {
+  'common.preview.title': 'Aperçu',
+  'common.preview.open': 'Ouvrir',
+  'common.preview.close': 'Fermer l’aperçu',
+  'common.preview.loading': 'Chargement de l’aperçu…',
+  'common.preview.unsupported': 'L’aperçu n’est pas disponible pour ce type de fichier.',
+  'common.preview.empty': 'Aucun aperçu disponible.',
+  'common.preview.preparing': 'Préparation de l’aperçu…',
+  'common.preview.truncated': 'Aperçu partiel',
+  'common.preview.open_failed': 'Impossible d’ouvrir {name}.',
+  'common.preview.load_failed': 'Impossible de charger {name}.',
+  'common.preview.locator_missing': 'La feuille ou les cellules citées sont introuvables dans le document source.',
+  'common.preview.worksheet': 'Feuille',
+  'common.preview.row': 'Ligne',
+  'common.preview.sheet_window': 'Extrait du classeur · télécharger pour consulter l’ensemble',
+  'common.preview.selection_partial': 'La plage citée dépasse cet aperçu',
   // --- Common actions / verbs --------------------------------------
   'common.save': 'Enregistrer',
   'common.cancel': 'Annuler',
@@ -82,6 +97,21 @@ export const COMMON_FR = {
  * other, before the guard even runs.
  */
 export const COMMON_EN: Record<keyof typeof COMMON_FR, string> = {
+  'common.preview.title': 'Preview',
+  'common.preview.open': 'Open',
+  'common.preview.close': 'Close preview',
+  'common.preview.loading': 'Loading preview…',
+  'common.preview.unsupported': 'Inline preview is not available for this file type.',
+  'common.preview.empty': 'No preview available.',
+  'common.preview.preparing': 'Preparing preview…',
+  'common.preview.truncated': 'Partial preview',
+  'common.preview.open_failed': 'Unable to open {name}.',
+  'common.preview.load_failed': 'Unable to load {name}.',
+  'common.preview.locator_missing': 'The cited sheet or cells could not be found in the source document.',
+  'common.preview.worksheet': 'Worksheet',
+  'common.preview.row': 'Row',
+  'common.preview.sheet_window': 'Workbook excerpt · download to view all cells',
+  'common.preview.selection_partial': 'The cited range extends beyond this preview',
   // --- Common actions / verbs --------------------------------------
   'common.save': 'Save',
   'common.cancel': 'Cancel',

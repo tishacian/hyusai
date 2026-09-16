@@ -7,6 +7,7 @@ import { Subscription } from 'rxjs';
 
 import { NgxExtendedPdfViewerModule, NgxExtendedPdfViewerService, pdfDefaultOptions } from 'ngx-extended-pdf-viewer';
 
+import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { HIGHLIGHT_ANCHOR_ID, cellMatchesNeedle, escapeText, highlightPlainText, markRangeInDom, normalizeNeedleForCells, pdfFindPhrase } from './highlight-text.util';
 
@@ -27,6 +28,12 @@ interface RichDocumentPreview {
   content?: string;
   rows?: string[][];
   sheet_name?: string;
+  row_start?: number;
+  column_start?: number;
+  columns?: string[];
+  cell_range?: string | null;
+  selection?: { row_start: number; row_end: number; column_start: number; column_end: number } | null;
+  selection_truncated?: boolean;
   truncated?: boolean;
   reason?: string;
 }
@@ -72,13 +79,13 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
           <ng-container *ngTemplateOutlet="shell"></ng-container>
         </div>
       } @else {
-        <div class="rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10">
+        <div class="rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10" style="background:var(--ck-bg-panel, #030712)">
           <ng-container *ngTemplateOutlet="shell"></ng-container>
         </div>
       }
     } @else if (open()) {
       <div class="fixed inset-0 z-[80] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4">
-        <section class="w-full max-w-5xl max-h-[88vh] rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10 shadow-2xl">
+        <section class="w-full max-w-5xl max-h-[88vh] rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10 shadow-2xl" style="background:var(--ck-bg-panel, #030712)">
           <ng-container *ngTemplateOutlet="shell"></ng-container>
         </section>
       </div>
@@ -88,8 +95,8 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
           @if (!inline()) {
             <header class="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
               <div class="min-w-0">
-                <p class="text-[10px] uppercase tracking-[0.18em] text-cyan-300">{{ subtitle() || 'Document' }}</p>
-                <h2 class="mt-0.5 truncate text-sm font-semibold">{{ title() || 'Preview' }}</h2>
+                <p class="text-[10px] uppercase tracking-[0.18em] text-cyan-300" style="color:var(--ck-fg-2, #67e8f9)">{{ subtitle() || 'Document' }}</p>
+                <h2 class="mt-0.5 truncate text-sm font-semibold">{{ title() || i18n.t('common.preview.title') }}</h2>
                 @if (normalizedPage(); as pageNo) {
                   <p class="mt-0.5 text-[10px] font-mono text-gray-400">Page {{ pageNo }}</p>
                 }
@@ -103,14 +110,14 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
                     (click)="openExternal()"
                   >
                     <app-icon [name]="openingExternal() ? 'loader-2' : 'external-link'" [size]="13" [class.animate-spin]="openingExternal()" />
-                    Open
+                    {{ i18n.t('common.preview.open') }}
                   </button>
                 }
                 <button
                   type="button"
                   class="inline-flex items-center justify-center rounded p-2 text-gray-300 hover:bg-white/10 hover:text-white"
                   (click)="closed.emit()"
-                  aria-label="Close preview"
+                  [attr.aria-label]="i18n.t('common.preview.close')"
                 >
                   <app-icon name="x" [size]="16" />
                 </button>
@@ -124,7 +131,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
             [class.overflow-hidden]="thumbnail()"
             [style.height]="bodyHeight()"
             [style.pointerEvents]="thumbnail() ? 'none' : null"
-            [style.background]="thumbnail() ? 'var(--ck-bg-inset, #e8ecf0)' : null"
+            [style.background]="thumbnail() ? 'var(--ck-bg-inset, #e8ecf0)' : 'var(--ck-bg-panel, #111827)'"
           >
             @if (loading()) {
               <div
@@ -135,7 +142,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
               >
                 <app-icon name="loader-2" [size]="thumbnail() ? 14 : 16" class="animate-spin text-cyan-300" />
                 @if (!thumbnail()) {
-                  Loading preview...
+                  {{ i18n.t('common.preview.loading') }}
                 }
               </div>
             } @else if (error()) {
@@ -148,13 +155,13 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
               @if (htmlDoc(); as html) {
                 <div class="relative h-full">
                   @if (doc.truncated) {
-                    <span class="absolute right-3 top-3 z-10 rounded bg-yellow-500/90 px-2 py-0.5 text-[10px] font-semibold text-black shadow ring-1 ring-yellow-600/40">Truncated preview</span>
+                    <span class="absolute right-3 top-3 z-10 rounded bg-yellow-500/90 px-2 py-0.5 text-[10px] font-semibold text-black shadow ring-1 ring-yellow-600/40">{{ i18n.t('common.preview.truncated') }}</span>
                   }
                   <iframe
                     class="block h-full w-full bg-white"
                     [attr.sandbox]="html.sandbox"
                     [srcdoc]="html.srcdoc"
-                    title="HTML document preview"
+                    [title]="i18n.t('common.preview.title')"
                   ></iframe>
                 </div>
               } @else if (doc.kind === 'text') {
@@ -162,16 +169,31 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
               } @else if (doc.kind === 'spreadsheet') {
                 <div class="p-4">
                   <div class="mb-3 flex flex-wrap items-center gap-2 text-xs text-gray-400">
-                    <span>{{ doc.sheet_name || 'Sheet 1' }}</span>
+                    <span>{{ doc.sheet_name || i18n.t('common.preview.worksheet') }}</span>
+                    @if (doc.cell_range) { <span class="font-mono">{{ doc.cell_range }}</span> }
+                    @if (doc.selection_truncated) {
+                      <span>{{ i18n.t('common.preview.selection_partial') }}</span>
+                    }
                     @if (doc.truncated) {
-                      <span class="rounded bg-yellow-500/10 px-2 py-0.5 text-yellow-100 ring-1 ring-yellow-500/20">Truncated preview</span>
+                      <span class="rounded bg-yellow-500/10 px-2 py-0.5 text-yellow-100 ring-1 ring-yellow-500/20" style="color:var(--ck-fg-2, #fef9c3)">{{ i18n.t('common.preview.sheet_window') }}</span>
                     }
                   </div>
                   <div class="overflow-auto rounded bg-black/20 ring-1 ring-white/10">
                     <table class="min-w-full border-collapse text-left text-xs text-gray-100">
+                      @if (doc.columns?.length) {
+                        <thead><tr>
+                          <th scope="col" class="px-3 py-2">{{ i18n.t('common.preview.row') }}</th>
+                          @for (column of doc.columns; track column) {
+                            <th scope="col" class="px-3 py-2 font-mono">{{ column }}</th>
+                          }
+                        </tr></thead>
+                      }
                       <tbody>
                         @for (row of doc.rows || []; track $index; let ri = $index) {
                           <tr class="border-b border-white/10 last:border-b-0">
+                            @if (doc.columns?.length) {
+                              <th scope="row" class="px-3 py-2 font-mono">{{ (doc.row_start || 1) + ri }}</th>
+                            }
                             @for (cell of row; track $index) {
                               <td
                                 class="max-w-[320px] border-r border-white/10 px-3 py-2 align-top last:border-r-0"
@@ -224,13 +246,13 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
               } @else {
                 <div class="flex h-full items-center justify-center p-6 text-center">
                   <div class="max-w-md rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
-                    Inline preview is not available for this file type.
+                    {{ i18n.t('common.preview.unsupported') }}
                   </div>
                 </div>
               }
             } @else {
               <div class="flex h-64 items-center justify-center text-sm text-gray-400">
-                No preview available.
+                {{ i18n.t('common.preview.empty') }}
               </div>
             }
           </div>
@@ -241,7 +263,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
         @if (mediaLoading()) {
           <div class="max-w-md rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
             <app-icon name="loader-2" [size]="18" class="mx-auto mb-3 animate-spin text-cyan-300" />
-            Loading inline document...
+            {{ i18n.t('common.preview.loading') }}
           </div>
         } @else if (mediaError()) {
           <div class="max-w-md rounded bg-yellow-500/10 p-4 text-sm text-yellow-100 ring-1 ring-yellow-500/20">
@@ -249,7 +271,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
           </div>
         } @else {
           <div class="max-w-md rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
-            Inline preview is preparing.
+            {{ i18n.t('common.preview.preparing') }}
           </div>
         }
       </div>
@@ -257,6 +279,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
   `,
 })
 export class DocumentPreviewComponent {
+  readonly i18n = inject(I18nService);
   private static readonly previewCache = new Map<string, RichDocumentPreview>();
   private readonly destroyRef = inject(DestroyRef);
   private readonly http = inject(HttpClient);
@@ -343,12 +366,18 @@ export class DocumentPreviewComponent {
     const needle = normalizeNeedleForCells(this.highlight());
     const hits = new Set<string>();
     let first: string | null = null;
-    if (doc?.kind === 'spreadsheet' && needle) {
+    if (doc?.kind === 'spreadsheet' && (doc.selection || needle)) {
       const rows = doc.rows || [];
       for (let r = 0; r < rows.length; r++) {
         const row = rows[r] || [];
         for (let c = 0; c < row.length; c++) {
-          if (cellMatchesNeedle(row[c], needle)) {
+          const absoluteRow = (doc.row_start || 1) + r;
+          const absoluteColumn = (doc.column_start || 1) + c;
+          const selected = doc.selection
+            ? absoluteRow >= doc.selection.row_start && absoluteRow <= doc.selection.row_end &&
+              absoluteColumn >= doc.selection.column_start && absoluteColumn <= doc.selection.column_end
+            : cellMatchesNeedle(row[c], needle);
+          if (selected) {
             const key = r + ':' + c;
             hits.add(key);
             if (!first) first = key;
@@ -474,7 +503,7 @@ export class DocumentPreviewComponent {
         },
         error: () => {
           this.openingExternal.set(false);
-          this.error.set(`Unable to open ${this.displayName()}.`);
+          this.error.set(this.i18n.t('common.preview.open_failed', { name: this.displayName() }));
         },
       });
   }
@@ -689,7 +718,10 @@ export class DocumentPreviewComponent {
 
   private errorMessage(err: unknown): string {
     const detail = (err as { error?: { detail?: unknown } })?.error?.detail;
+    if (detail === 'Referenced worksheet not found' || detail === 'Referenced cells are outside the source worksheet') {
+      return this.i18n.t('common.preview.locator_missing');
+    }
     if (typeof detail === 'string') return detail;
-    return `Unable to load ${this.displayName()}.`;
+    return this.i18n.t('common.preview.load_failed', { name: this.displayName() });
   }
 }
