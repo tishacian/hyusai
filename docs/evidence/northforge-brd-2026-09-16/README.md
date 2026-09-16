@@ -115,3 +115,18 @@ The exact candidate and compact evidence are retained in `runtime-7/`. The missi
 case is now refused during generation; merely declaring a template input is insufficient.
 Thirteen generation tests pass. A new generated candidate remains necessary. Do not count
 these Runs as NorthForge acceptance or as five successful repetitions.
+
+## Port declarations and action confidence
+
+Generations 8 and 9 exhausted the bounded repair budget on malformed output-port declarations
+and inconsistent references. The generation instructions now give the exact named-port array
+for the native AgentLoop and the matching observations binding, input type and prompt placeholder.
+
+The planner prompt clarifies that confidence measures the next action, not an answer it has
+not researched. Clear read-tool matches should be investigated; unavailable mutations should
+be refused under the visible mandate. The confidence threshold, tool allowlist and human gates
+are unchanged. Runtime and generation/API regression tests: 38 passed.
+
+The opt-in runtime recorder now resumes only the explicit Flow review in an isolated database,
+labels that action `harness_acceptance_not_human`, and checks the original proposed assertions
+against the canonical result. It never automatically approves a planner clarification.
