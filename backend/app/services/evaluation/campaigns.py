@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from datetime import datetime
 from typing import Any
 
@@ -111,6 +112,7 @@ def assertion_results(output: Any, assertions: list[dict]) -> dict:
                 break
         operator = assertion["operator"]
         expected = assertion.get("value")
+        details = {}
         if operator == "exists":
             passed = present
         elif operator == "equals":
@@ -119,9 +121,17 @@ def assertion_results(output: Any, assertions: list[dict]) -> dict:
             passed = present and isinstance(value, str) and isinstance(expected, str) and expected in value
         elif operator == "not_contains":
             passed = present and isinstance(value, str) and isinstance(expected, str) and expected not in value
+        elif operator == "quotes_in_source":
+            # Exact substring provenance only; no claim of semantic entailment.
+            quotes = [next(part for part in match if part).strip() for match in
+                      re.findall(r'"([^"\n]+)"|“([^”\n]+)”|«([^»\n]+)»', value)
+                      ] if present and isinstance(value, str) else []
+            missing = [quote for quote in quotes if not isinstance(expected, str) or quote not in expected]
+            passed = bool(quotes) and all(quotes) and not missing
+            details = {"quotes_examined": len(quotes), "quotes_not_found": len(missing)}
         else:
             raise ValueError("Unsupported assertion operator")
-        result.append({"id": assertion["id"], "passed": passed, "path_found": present})
+        result.append({"id": assertion["id"], "passed": passed, "path_found": present, **details})
     return {"verdict": "passed" if all(item["passed"] for item in result) else "failed", "assertions": result}
 
 

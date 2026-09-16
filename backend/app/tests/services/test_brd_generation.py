@@ -135,3 +135,17 @@ def test_intervention_requires_native_selected_planner_and_recommend_mandate():
     config["privilege_tier"] = "act_with_approval"
     with pytest.raises(ValueError, match="privilege_tier=recommend"):
         service.validate_intervention_planner(body, ["decide_next_v1"])
+
+
+def test_quote_assertion_cannot_replace_original_input_with_model_annotation():
+    from fastapi import HTTPException
+    from app.api.v1.endpoints.evaluation_campaigns import CaseBody
+    from app.services.skills_registry.brd_proposals import validate_case_output_paths
+    case = CaseBody(id="missing", input_ref={"text": "No grade supplied."}, assertions=[{
+        "id": "quote", "operator": "quotes_in_source", "path": ["completion"],
+        "value": "MISSING EVIDENCE",
+    }])
+    with pytest.raises(HTTPException, match="original case input"):
+        validate_case_output_paths({}, [case])
+    case.assertions[0].value = case.input_ref["text"]
+    validate_case_output_paths({}, [case])

@@ -32,15 +32,15 @@ class AssertionBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1, max_length=100)
     path: list[str] = Field(default_factory=list, max_length=12)
-    operator: Literal["equals", "contains", "not_contains", "exists"]
+    operator: Literal["equals", "contains", "not_contains", "exists", "quotes_in_source"]
     value: Any = None
 
     @model_validator(mode="after")
     def validate_value(self):
         if self.operator != "exists" and "value" not in self.model_fields_set:
             raise ValueError("An assertion value is required")
-        if self.operator in {"contains", "not_contains"} and (not isinstance(self.value, str) or not self.value):
-            raise ValueError("Contains assertions require non-empty text")
+        if self.operator in {"contains", "not_contains", "quotes_in_source"} and (not isinstance(self.value, str) or not self.value):
+            raise ValueError("Text assertions require non-empty text")
         return self
 
 
