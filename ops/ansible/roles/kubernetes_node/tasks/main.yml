@@ -1,0 +1,26 @@
+---
+- name: Install Kubernetes node packages
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - containerd
+      - kubelet={{ kubernetes_version }}-1.1
+      - kubeadm={{ kubernetes_version }}-1.1
+      - kubectl={{ kubernetes_version }}-1.1
+    state: present
+    update_cache: true
+  # Exact package versions depend on the distro Kubernetes repo. The
+  # playbook is the pipeline hook; pin packages in group_vars per cloud.
+  ignore_errors: true
+
+- name: Enable containerd and kubelet
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - containerd
+    - kubelet
+  ignore_errors: true

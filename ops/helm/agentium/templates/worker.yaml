@@ -1,0 +1,50 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentium-worker
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.replicaCount.worker }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+    spec:
+      {{- include "agentium.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: worker
+          image: {{ .Values.image.worker | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentium.fullname" . }}-config
+            - secretRef:
+                name: {{ include "agentium.secretName" . }}
+          volumeMounts:
+            - name: object-store
+              mountPath: /data/object_store
+            - name: secure-deposit
+              mountPath: /data/secure_deposit
+              readOnly: true
+            - name: faiss
+              mountPath: /data/faiss_db
+            - name: recipe-envs
+              mountPath: /data/recipe_envs
+      volumes:
+        - name: object-store
+          emptyDir: {}
+        - name: secure-deposit
+          emptyDir: {}
+        - name: faiss
+          emptyDir: {}
+        - name: recipe-envs
+          emptyDir: {}
+{{- end }}

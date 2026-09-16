@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentium.fullname" . }}-config
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+data:
+  AGENTIUM_DISABLE_DOTENV: {{ .Values.config.AGENTIUM_DISABLE_DOTENV | quote }}
+  STARTUP_RECONCILIATION: {{ .Values.config.STARTUP_RECONCILIATION | quote }}
+  AGENTIUM_BACKEND_WORKERS: {{ .Values.backend.workers | quote }}
+  CELERY_QUEUES: {{ .Values.worker.queues | quote }}
+  CELERY_CONCURRENCY: {{ .Values.worker.concurrency | quote }}
+  CELERY_BEAT: {{ .Values.worker.beat | quote }}
+  POSTGRES_DB: {{ .Values.postgres.database | quote }}
+  POSTGRES_USER: {{ .Values.postgres.user | quote }}
+  RABBITMQ_DEFAULT_USER: {{ .Values.rabbitmq.user | quote }}
+  DATABASE_HOST: agentium-pg
+  RABBITMQ_HOST: agentium-rabbitmq
+  QDRANT_HOST: agentium-qdrant
+  MINIO_HOST: agentium-minio
+  KEYCLOAK_HOST: agentium-kc

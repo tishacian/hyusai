@@ -1,0 +1,7 @@
+---
+- name: Upgrade Agentium with Helm
+  hosts: helm_deploy
+  become: true
+  run_once: true
+  roles:
+    - role: helm_agentium

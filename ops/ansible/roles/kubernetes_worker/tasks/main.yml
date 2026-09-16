@@ -1,0 +1,8 @@
+---
+- name: Wait for a join command from the first control plane
+  ansible.builtin.debug:
+    msg: >-
+      Workers join with the kubeadm token created by
+      kubernetes_control_plane. Export that command into
+      group_vars before a real apply; this role is the
+      pipeline hook, not a silent join.

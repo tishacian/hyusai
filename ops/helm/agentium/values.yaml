@@ -1,0 +1,110 @@
+# Image tags stay SHA- or digest-addressed. The Compose registry overlay
+# (docker/compose.agentium.registry.yml) is the same contract.
+image:
+  pullPolicy: IfNotPresent
+  frontend: agentium-frontend:local
+  backend: agentium-backend:local
+  worker: agentium-worker:local
+
+imagePullSecrets: []
+
+replicaCount:
+  frontend: 1
+  backend: 1
+  worker: 1
+  p4Maintenance: 1
+  keycloak: 1
+
+frontend:
+  enabled: true
+  port: 8080
+
+backend:
+  enabled: true
+  port: 8000
+  workers: 3
+  extraEnv: []
+
+worker:
+  enabled: true
+  queues: cpu
+  concurrency: 2
+  beat: "1"
+
+p4Maintenance:
+  enabled: true
+
+migrate:
+  enabled: true
+  hook: pre-upgrade
+
+rabbitmq:
+  enabled: true
+  image: rabbitmq:4.1-management
+  user: guest
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+
+postgres:
+  enabled: true
+  image: postgres:17
+  database: agentium
+  user: agentium
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: ""
+
+minio:
+  enabled: true
+  image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+  persistence:
+    enabled: true
+    size: 100Gi
+    storageClass: ""
+
+qdrant:
+  enabled: true
+  image: qdrant/qdrant:v1.12.5-unprivileged
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: ""
+
+keycloak:
+  enabled: true
+  image: quay.io/keycloak/keycloak:26.1.4
+  httpRelativePath: /kc/
+
+ingress:
+  enabled: true
+  className: nginx
+  host: agentium.example
+  tls: []
+  # tls:
+  #   - secretName: agentium-tls
+  #     hosts: [agentium.example]
+
+# Application env that is not secret. Secrets go in existingSecret or
+# the generated Secret when createSecret is true.
+config:
+  AGENTIUM_DISABLE_DOTENV: "1"
+  STARTUP_RECONCILIATION: enabled
+
+createSecret: true
+# When createSecret is true these placeholders are rendered. Replace them
+# before any shared environment; they are not production values.
+secret:
+  AGENTIUM_POSTGRES_PASSWORD: change-me
+  AGENTIUM_RABBITMQ_PASSWORD: guest
+  AGENTIUM_MINIO_ROOT_PASSWORD: change-me-minio-password
+  OBJECT_STORE_S3_SECRET_KEY: change-me-agentium-app-password
+
+existingSecret: ""
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
