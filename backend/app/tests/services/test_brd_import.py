@@ -198,3 +198,28 @@ def test_expanded_archive_is_bounded_before_word_parsing(monkeypatch):
         z.writestr("word/document.xml", "x" * 2048)
     with pytest.raises(BrdUnreadableError, match="expanded document"):
         parse_business_requirements(archive.getvalue())
+
+
+def test_provenance_distinguishes_duplicate_ids_and_keeps_word_row_positions():
+    data = _document(requirements=[
+        ["FR-1", "First", "M", ""],
+        ["FR-2", "", "", ""],
+        ["FR-1", "Second", "M", ""],
+        ["", "Third", "M", ""],
+    ])
+    parsed = parse_business_requirements(data)
+    sources = [p for p in parsed["provenance"] if p["section"] == "functional requirements"]
+    assert [(p["reference"], p["table"], p["row"], p["reference_generated"]) for p in sources] == [
+        ("FR-1", 2, 2, False), ("FR-1", 2, 4, False), ("FR-4", 2, 5, True),
+    ]
+
+
+def test_second_requirements_table_is_reported_instead_of_silently_discarded():
+    document = docx.Document(io.BytesIO(_document()))
+    _table(document, ["ID", "Requirement", "Priority", "Capability"], [["FR-9", "Critical prohibition", "M", ""]])
+    buffer = io.BytesIO()
+    document.save(buffer)
+    parsed = parse_business_requirements(buffer.getvalue())
+    assert any("Multiple functional requirements tables" in p for p in parsed["problems"])
+    assert len(parsed["requirements"]) == 1
+    assert all(p["table"] != 7 for p in parsed["provenance"])

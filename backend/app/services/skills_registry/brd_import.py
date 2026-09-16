@@ -66,11 +66,13 @@ def parse_business_requirements(data: bytes) -> dict[str, Any]:
         raise BrdUnreadableError(f"the file could not be opened as a .docx ({exc})") from exc
 
     problems: list[str] = []
+    provenance: list[dict[str, Any]] = []
     tables = [_table_rows(table, problems, index) for index, table in enumerate(document.tables, 1)]
 
     outcomes = _rows(
         tables,
         problems,
+        provenance=provenance,
         section="business outcomes",
         match=lambda header: header[:2] == ["id", "business outcome"],
         fields=("id", "outcome", "why", "signal"),
@@ -79,6 +81,7 @@ def parse_business_requirements(data: bytes) -> dict[str, Any]:
     requirements = _rows(
         tables,
         problems,
+        provenance=provenance,
         section="functional requirements",
         match=lambda header: header[:2] == ["id", "requirement"],
         fields=("id", "requirement", "priority", "capability"),
@@ -87,6 +90,7 @@ def parse_business_requirements(data: bytes) -> dict[str, Any]:
     decisions = _rows(
         tables,
         problems,
+        provenance=provenance,
         section="decisions",
         match=lambda header: header[:2] == ["id", "decision"],
         fields=("id", "decision", "inputs", "outcomes", "threshold", "escalation"),
@@ -95,6 +99,7 @@ def parse_business_requirements(data: bytes) -> dict[str, Any]:
     rules = _rows(
         tables,
         problems,
+        provenance=provenance,
         section="business rules",
         match=lambda header: len(header) > 1 and header[0] == "id" and header[1].startswith("rule"),
         fields=("id", "text", "source"),
@@ -103,6 +108,7 @@ def parse_business_requirements(data: bytes) -> dict[str, Any]:
     prohibitions = _rows(
         tables,
         problems,
+        provenance=provenance,
         section="prohibitions",
         match=lambda header: len(header) > 1 and header[0] == "id" and "never" in header[1],
         fields=("id", "text"),
@@ -117,6 +123,7 @@ def parse_business_requirements(data: bytes) -> dict[str, Any]:
 
     return {
         "document": {"sha256": hashlib.sha256(data).hexdigest(), "size_bytes": len(data)},
+        "provenance": provenance,
         "context": _context(document),
         "outcomes": outcomes,
         "requirements": requirements,
@@ -151,6 +158,7 @@ def _rows(
     tables: Sequence[list[list[str]]],
     problems: list[str],
     *,
+    provenance: list[dict[str, Any]],
     section: str,
     match: Any,
     fields: Sequence[str],
@@ -163,13 +171,17 @@ def _rows(
     """
 
     found = None
-    for rows in tables:
+    table_index = 0
+    for position, rows in enumerate(tables, 1):
         if not rows:
             continue
         header = [cell.strip().lower() for cell in rows[0]]
         if match(header):
+            if found is not None:
+                problems.append(f"Multiple {section} tables were found; table {position} was not imported. Review the document before generating a System.")
+                continue
             found = rows
-            break
+            table_index = position
     if found is None:
         problems.append(f"No {section} table was found; its rows were skipped.")
         return []
@@ -192,6 +204,13 @@ def _rows(
         seen.add(entry["id"])
         if not entry.get(fields[1]):
             problems.append(f"Reference {entry['id']} in {section} has no description; it cannot define a requirement or control.")
+        provenance.append({
+            "section": section,
+            "reference": entry["id"],
+            "table": table_index,
+            "row": index + 1,
+            "reference_generated": not bool(values[0]),
+        })
         out.append(entry)
     return out
 
