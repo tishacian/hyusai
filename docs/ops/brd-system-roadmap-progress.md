@@ -2,21 +2,21 @@
 
 ## Current delivery status — 17 September 2026
 
-- **Live application: `37056391` on `demo/agentic`.** The
-  [release evidence](../evidence/release-37056391-2026-09-17/README.md) records
-  75 backend tests, 1,487 frontend tests, three VM images, exact public SHA,
+- **Live application: `bb467f53` on `demo/agentic`.** The
+  [release evidence](../evidence/release-bb467f53-2026-09-17/README.md) records
+  66 backend tests, 1,487 frontend tests, three VM images, exact public SHA,
   healthy services and **10 carakai passes, 2 intentional skips**.
-- Confirmed missing-original causes now survive the real failure/retry history;
-  restoration, real worker completion, retrieval and idempotent replay are verified.
-  Native PDF page provenance and original checksums are verified on a separate
-  synthetic upload. Its Excel check found that a real row citation A830:O831
-  opened only A:L, hiding the cited values. The failure remains recorded.
-- **Next candidate:** the shared preview prioritizes selected cells over context,
-  expands a cited window to at most 40 columns and 40 rows, and keeps larger
-  selections explicitly partial. [Local qualification](../evidence/wide-citation-preview-2026-09-17/README.md):
-  66 backend tests, 1,487 frontend tests, guards/build and FR/light + EN/dark
-  mobile component captures passed. Not deployed.
-  Current manual acceptance and OCR/Capture qualification remain open.
+- The real rank-1 Excel citation `A830:O831` now exposes its values through O,
+  verified against the same retained job, retrieved hit and original checksum.
+  Cited windows expand to at most 40×40, favoring the selection over context.
+  Larger references remain explicitly partial; untargeted previews stay unchanged.
+- The preceding [37056391 release](../evidence/release-37056391-2026-09-17/README.md)
+  verified structured missing-original diagnosis, restoration/retry history,
+  retrieval and idempotent replay, plus native PDF page/original provenance.
+  A real image-only scan on bb467f53 also retrieves its invoice/amount/page and
+  retains Tesseract eng+fra provenance. This is one clean reference, not general
+  OCR accuracy or a five-run recipe. Current manual acceptance and the complete
+  Capture voice/text journey remain open.
 - The previous `6f8f8169` release opens spreadsheet citations at the original cells and
   reports authoritative Golden verdicts. Three real previews verify passed,
   intentionally failed and unevaluated outcomes; replay returns the same Runs.

@@ -1,0 +1,2 @@
+No broken requirements found.
+[0m{"sdk": "2.19.2", "python_scope": "isolated_optional_environment", "cases": 3, "judge_calls": 4, "models": "mocked", "provider_live_run": "NOT RUN", "qatestset": "PASS", "knowledge_base": "PASS", "rag_report": "PASS", "canonical_reference_serialization": "PASS"}
