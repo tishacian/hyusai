@@ -1,0 +1,192 @@
+{
+  "status": "failed",
+  "result": {
+    "generation_attempts": [
+      {
+        "attempt": 1,
+        "method": "workspace_model_brd_proposal",
+        "family": "intervention_preparation",
+        "model_execution": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "credential_source": "env",
+          "model_source": "global",
+          "fallback": false,
+          "requested_provider": "workspace",
+          "fallback_plan": [
+            {
+              "provider": "ollama",
+              "model": "qwen3:8b",
+              "credential_source": "none",
+              "model_source": "global",
+              "fallback": false,
+              "requested_provider": "ollama"
+            }
+          ]
+        },
+        "usage": {
+          "usage": {
+            "total_tokens": 10448,
+            "provider_calls": 1,
+            "measurement_source": "provider_reported",
+            "measurement_coverage": "complete",
+            "providers": [
+              "openai"
+            ],
+            "calls": [
+              {
+                "provider": "openai",
+                "model": "gpt-5",
+                "total_tokens": 10448,
+                "prompt_tokens": 4344,
+                "completion_tokens": 6104
+              }
+            ],
+            "prompt_tokens": 4344,
+            "completion_tokens": 6104
+          }
+        },
+        "document_sha256": "0e43677c3974a38e6e4ccdab10cb2784776b9abe50a4223a8263b96265a8da7a"
+      },
+      {
+        "attempt": 2,
+        "method": "workspace_model_brd_proposal",
+        "family": "intervention_preparation",
+        "model_execution": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "credential_source": "env",
+          "model_source": "global",
+          "fallback": false,
+          "requested_provider": "workspace",
+          "fallback_plan": [
+            {
+              "provider": "ollama",
+              "model": "qwen3:8b",
+              "credential_source": "none",
+              "model_source": "global",
+              "fallback": false,
+              "requested_provider": "ollama"
+            }
+          ]
+        },
+        "usage": {
+          "usage": {
+            "total_tokens": 11948,
+            "provider_calls": 1,
+            "measurement_source": "provider_reported",
+            "measurement_coverage": "complete",
+            "providers": [
+              "openai"
+            ],
+            "calls": [
+              {
+                "provider": "openai",
+                "model": "gpt-5",
+                "total_tokens": 11948,
+                "prompt_tokens": 7026,
+                "completion_tokens": 4922
+              }
+            ],
+            "prompt_tokens": 7026,
+            "completion_tokens": 4922
+          }
+        },
+        "document_sha256": "0e43677c3974a38e6e4ccdab10cb2784776b9abe50a4223a8263b96265a8da7a"
+      },
+      {
+        "attempt": 3,
+        "method": "workspace_model_brd_proposal",
+        "family": "intervention_preparation",
+        "model_execution": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "credential_source": "env",
+          "model_source": "global",
+          "fallback": false,
+          "requested_provider": "workspace",
+          "fallback_plan": [
+            {
+              "provider": "ollama",
+              "model": "qwen3:8b",
+              "credential_source": "none",
+              "model_source": "global",
+              "fallback": false,
+              "requested_provider": "ollama"
+            }
+          ]
+        },
+        "usage": {
+          "usage": {
+            "total_tokens": 12458,
+            "provider_calls": 1,
+            "measurement_source": "provider_reported",
+            "measurement_coverage": "complete",
+            "providers": [
+              "openai"
+            ],
+            "calls": [
+              {
+                "provider": "openai",
+                "model": "gpt-5",
+                "total_tokens": 12458,
+                "prompt_tokens": 7008,
+                "completion_tokens": 5450
+              }
+            ],
+            "prompt_tokens": 7008,
+            "completion_tokens": 5450
+          }
+        },
+        "document_sha256": "0e43677c3974a38e6e4ccdab10cb2784776b9abe50a4223a8263b96265a8da7a"
+      }
+    ],
+    "generation": {
+      "method": "workspace_model_brd_proposal",
+      "family": "intervention_preparation",
+      "model_execution": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "credential_source": "env",
+        "model_source": "global",
+        "fallback": false,
+        "requested_provider": "workspace",
+        "fallback_plan": [
+          {
+            "provider": "ollama",
+            "model": "qwen3:8b",
+            "credential_source": "none",
+            "model_source": "global",
+            "fallback": false,
+            "requested_provider": "ollama"
+          }
+        ]
+      },
+      "usage": {
+        "usage": {
+          "total_tokens": 12458,
+          "provider_calls": 1,
+          "measurement_source": "provider_reported",
+          "measurement_coverage": "complete",
+          "providers": [
+            "openai"
+          ],
+          "calls": [
+            {
+              "provider": "openai",
+              "model": "gpt-5",
+              "total_tokens": 12458,
+              "prompt_tokens": 7008,
+              "completion_tokens": 5450
+            }
+          ],
+          "prompt_tokens": 7008,
+          "completion_tokens": 5450
+        }
+      },
+      "document_sha256": "0e43677c3974a38e6e4ccdab10cb2784776b9abe50a4223a8263b96265a8da7a"
+    },
+    "reason": "proposal_validation_failed"
+  },
+  "error": "BRD proposal generation failed (ValueError). Review configuration and start a new attempt."
+}
