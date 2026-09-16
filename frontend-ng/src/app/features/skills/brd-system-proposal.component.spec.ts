@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Injector } from '@angular/core';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
-import { Subject, throwError } from 'rxjs';
+import { Subject, throwError, of } from 'rxjs';
 import { CanonicalApiService, BrdProposal } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -60,5 +60,27 @@ test('uncertain generation retries retain their key; changing inputs starts anot
   assert.equal(keys[0], keys[1]);
   component.name = 'NorthForge'; component.generate();
   assert.notEqual(keys[1], keys[2]);
+  component.ngOnDestroy();
+});
+
+
+test('uncertain suite execution retries keep the same frozen request and workspace scope', () => {
+  const sent: Array<{request_key: string; suite_id: string}> = [];
+  let hydrations = 0;
+  const {component, leave} = setup({
+    getSystem: () => { hydrations++; return of({settings: {brd_provenance: {suite_id: 'suite'}}}); },
+    getSystemFlowState: () => of({draft: {flow_definition: {nodes: []}, flow_sha256: 'sha'}}),
+    triggerSystemFlowWorkbenchGoldenRuns: (_id: string, body: {request_key: string; suite_id: string}) => {
+      sent.push(body); return throwError(() => new Error('network'));
+    },
+  });
+  component.proposal.set({...proposal, status: 'applied', system_id: 'system'});
+  component.testCases(); component.testCases();
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].request_key, sent[1].request_key);
+  assert.equal(sent[0].suite_id, 'suite');
+  assert.equal(hydrations, 1);
+  leave(); component.testCases();
+  assert.equal(sent.length, 2);
   component.ngOnDestroy();
 });

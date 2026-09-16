@@ -559,3 +559,17 @@ workspace, System and initiating user. Ad-hoc Golden Runs remain compatible.
 The API replay test confirms one Run and one dispatch. Twenty-two workbench
 tests pass. Concurrent PostgreSQL submission and interruption between commit and
 dispatch remain to qualify; this does not claim exactly-once external effects.
+
+
+### BRD test controls in the interface — 16 September
+
+The applied-proposal panel now launches its server-owned suite against the
+current draft, shows Run verdicts and human waits, and links to canonical Runs.
+Network retries reuse the frozen request key; an explicit new attempt reloads
+the current draft. Workspace changes suppress late results. FR/EN labels share
+the existing Cockpit styling and reference lock.
+
+Four component tests, i18n (7,981 keys), nav-links, ui-chrome and production build
+passed. Twelve fixture-rendered states were checked; no live deployment is
+claimed. Test-batch recovery after reopening, requirement-level verdict links,
+NorthForge and complete end-user release qualification remain open.
