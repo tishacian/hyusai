@@ -1,0 +1,70 @@
+{
+  "case": {
+    "id": "case_absence_cause",
+    "input_ref": {
+      "objective": "ask which equipment caused the NF-04 delay."
+    },
+    "assertions": [
+      {
+        "id": "states_absence",
+        "path": [
+          "draft"
+        ],
+        "operator": "contains",
+        "value": "not supplied"
+      }
+    ],
+    "reference_run_id": null,
+    "question": "ask which equipment caused the NF-04 delay.",
+    "reference_answer": "States that equipment and cause are not supplied by the authorized sources.",
+    "reference_context": null,
+    "answer_path": [
+      "draft"
+    ]
+  },
+  "status": "completed",
+  "seconds": 93.8593716250034,
+  "review": "harness_accepted_not_human",
+  "review_matches_requested": true,
+  "decision_node": "hitl_review",
+  "output": {
+    "draft": "Briefing: NF-04 equipment causing delay \u2014 status\n\n- The available operational analysis history does not specify which equipment caused the NF-04 delay. NF-04 shows planned 30 minutes and actual 55 minutes; equipment is \u201cnot supplied.\u201d [tool:ws.ws-brd.northforge_history; ref:503f8bb1-0d46-54ab-9f9b-d0ac83572de6/northforge-intervention-history.md]\n- Operating notice: This fixed Showcase Operational Analysis dataset contains durations only; equipment and causes are not supplied. Do not infer these details. [tool:ws.ws-brd.northforge_history; ref:503f8bb1-0d46-54ab-9f9b-d0ac83572de6/northforge-intervention-history.md]\n\nQuestion to resolve\n- Which equipment caused the NF-04 delay?\n\nMissing or Not Supplied\n- Equipment (including for NF-04) [tool:ws.ws-brd.northforge_history; ref:503f8bb1-0d46-54ab-9f9b-d0ac83572de6/northforge-intervention-history.md]\n- Cause [tool:ws.ws-brd.northforge_history; ref:503f8bb1-0d46-54ab-9f9b-d0ac83572de6/northforge-intervention-history.md]\n- Actions performed, technician identities, intervention dates [tool:ws.ws-brd.northforge_history; ref:503f8bb1-0d46-54ab-9f9b-d0ac83572de6/northforge-intervention-history.md]",
+    "decision_status": "accepted"
+  },
+  "assertions": {
+    "verdict": "passed",
+    "assertions": [
+      {
+        "id": "states_absence",
+        "passed": true,
+        "path_found": true
+      }
+    ]
+  },
+  "planner_decisions": [
+    {
+      "next_skill": "ws.ws-brd.northforge_history",
+      "rationale": "Use the NorthForge intervention history to document NF-04 planned vs actual durations and confirm the delay. This read tool explicitly lacks equipment/causes, but we must first retrieve the NF-04 record to establish the delay before deciding whether a human query is needed for the missing equipment detail.",
+      "confidence": 0.7,
+      "needs_human": false,
+      "human_prompt": null,
+      "exit": null,
+      "done": false
+    },
+    {
+      "next_skill": null,
+      "rationale": "Authorized history explicitly states for NF-04: \"Planned duration: 30 minutes. Actual duration: 55 minutes. Cause: not supplied. Equipment: not supplied.\" Therefore, the equipment that caused the NF-04 delay is not available in the documentary record. The operating notices source is not an intervention record and is not expected to contain NF-04 cause/equipment details. Concluding with an evidence",
+      "confidence": 0.9,
+      "needs_human": false,
+      "human_prompt": null,
+      "exit": null,
+      "done": true
+    }
+  ],
+  "tools": [
+    "decide_next_v1",
+    "ws.ws-brd.northforge_history",
+    "decide_next_v1",
+    "ws.ws-brd.brd_5d824b021bf84857917a3d792cc3e1dd_0"
+  ]
+}
