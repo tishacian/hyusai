@@ -2,8 +2,8 @@
 
 ## Current delivery status — 16 September 2026
 
-- **Live application: `7951e698` on `demo/agentic`.** See the
-  [release evidence](../evidence/brd-evidence-release-2026-09-16/README.md).
+- **Live application: `89f8e09a` on `demo/agentic`.** See the
+  [release evidence](../evidence/hitl-observed-decision-2026-09-16/README.md).
 - **R0 remains open:** the adoption sessions and current authenticated manual
   acceptance are not complete. There is no remote CI; the documented local,
   VM and carakai gates apply, as confirmed by the release owner.
@@ -796,3 +796,8 @@ Validation: 24 HITL API tests (including both stale actions and matching ID),
 1,467 frontend tests, i18n/navigation/chrome guards pass. Production build and
 release qualification must be recorded before claiming deployment. The manual
 human-acceptance sessions remain outstanding.
+
+HITL corrective release `89f8e09a` is deployed: all local gates, three immutable
+VM images, storage gate, healthy backend/frontend, public exact SHA and 10
+carakai canaries passed (2 intentional local-contract skips). Manual authenticated
+smoke and human acceptance remain open. No migration or NAWA theme change.
