@@ -743,6 +743,17 @@ export interface SystemFlowPublishResult {
   draft: SystemFlowDraftSaveResult;
 }
 
+export interface SystemFormPublishResult {
+  no_op: boolean;
+  system: System;
+  published: {
+    version_id: string;
+    version_number: number;
+    flow_sha256: string;
+  };
+  draft: SystemFlowDraftSaveResult;
+}
+
 export type FlowDiffImpact = 'breaking' | 'behavioral' | 'presentation';
 
 export interface SystemFlowDiffChange {
@@ -1923,6 +1934,30 @@ export class CanonicalApiService {
     },
   ): Observable<SystemFlowPublishResult> {
     return this.api.post<SystemFlowPublishResult>(`/systems/${id}/flow/publish`, body);
+  }
+
+  publishSystemForm(
+    id: string,
+    body: {
+      expected_draft_revision: number;
+      expected_published_version_id: string | null;
+      message: string;
+      breaking_change_intent: 'acknowledged' | null;
+      flow_definition: Record<string, unknown>;
+      configuration: {
+        name: string;
+        objective: string;
+        capability_id: string | null;
+        skill_ids: string[];
+        context_id: string | null;
+        default_prompt_type: string | null;
+        default_model: string | null;
+        retrieval_mode_default: string | null;
+        execution_mode: ExecutionMode;
+      };
+    },
+  ): Observable<SystemFormPublishResult> {
+    return this.api.post<SystemFormPublishResult>(`/systems/${id}/form-publish`, body);
   }
 
   createSystem(

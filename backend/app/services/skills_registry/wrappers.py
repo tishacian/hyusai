@@ -541,6 +541,17 @@ async def _llm_rag_answer_v1(
         # the sink and observe no behavioural change.
         token_sink=ctx.get("token_sink"),
     )
+    result_meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+    generation_error = result_meta.get("error")
+    if not str(result.get("answer") or "").strip() and generation_error:
+        error_code = (
+            str(generation_error.get("code") or "generation_failed")
+            if isinstance(generation_error, dict)
+            else "generation_failed"
+        )
+        # Keep the invocation error safe and actionable. Provider exception
+        # text remains in server logs and is never copied into the Run ledger.
+        raise RuntimeError(f"model_generation_failed:{error_code}")
     # The classic orchestrator is a separate generation facade.  It currently
     # exposes no usage; if it starts doing so, consume the real counters.  Until
     # then this provider call remains unavailable instead of being estimated
@@ -555,7 +566,7 @@ async def _llm_rag_answer_v1(
         "answer": result.get("answer", ""),
         "citations": result.get("citations", []),
         "decision_steps": result.get("decision_steps", []),
-        "meta": _without_direct_meta_usage(result.get("meta", {})),
+        "meta": _without_direct_meta_usage(result_meta),
     }
     output.update(provider_usage_evidence(usage_accumulator))
     return output

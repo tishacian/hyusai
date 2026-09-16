@@ -11,7 +11,7 @@ import pytest
 from app.models.audit import AuditLog
 from app.models.capability import Capability
 from app.models.policy import ControlPolicy
-from app.models.run import Run
+from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.models.workspace import Workspace
 from app.services.control_policy_snapshot import control_policy_execution_contract
@@ -449,6 +449,101 @@ def test_engine_finalizer_writes_runtime_receipt_and_audit_atomically(
         .count()
         == 1
     )
+
+
+def test_answer_capability_fails_when_retrieval_succeeds_but_answer_is_missing(
+    db_session,
+    monkeypatch,
+):
+    system, capability, policy, run = _running_engine_run(db_session)
+    capability.output_unit = "answer"
+    answer = SkillInvocation(
+        id=str(uuid4()),
+        run_id=run.id,
+        skill_slug="llm_rag_answer_v1",
+        status="failed",
+        error="provider credentials rejected",
+        output_ref={},
+    )
+    retrieval = SkillInvocation(
+        id=str(uuid4()),
+        run_id=run.id,
+        skill_slug="semantic_search_v1",
+        status="completed",
+        output_ref={"results": [{"content": "diagnostic evidence"}]},
+    )
+    db_session.add_all([answer, retrieval])
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.evaluation.auto_eval.schedule_eval",
+        lambda _run_id: None,
+    )
+
+    result = _finalize_run(
+        db_session,
+        run,
+        system=system,
+        capability=capability,
+        control=policy,
+        invocations=[answer, retrieval],
+        duration_ms=10.0,
+        last_output=retrieval.output_ref,
+    )
+
+    assert result["status"] == "failed"
+    assert result["outcome"]["decision"] == "blocked"
+    assert result["outcome"]["confidence"] == 0.0
+    assert run.error == "required_output_missing:answer:llm_rag_answer_v1"
+    assert run.output_ref == {
+        "error": {
+            "code": "required_output_missing",
+            "message": "The System did not produce its required answer.",
+            "output_unit": "answer",
+        }
+    }
+
+
+def test_answer_capability_can_complete_when_answer_exists_and_audit_fails(
+    db_session,
+    monkeypatch,
+):
+    system, capability, policy, run = _running_engine_run(db_session)
+    capability.output_unit = "answer"
+    answer = SkillInvocation(
+        id=str(uuid4()),
+        run_id=run.id,
+        skill_slug="llm_rag_answer_v1",
+        status="completed",
+        output_ref={"answer": "Grounded answer", "citations": []},
+    )
+    audit = SkillInvocation(
+        id=str(uuid4()),
+        run_id=run.id,
+        skill_slug="audit_log_v1",
+        status="failed",
+        error="audit sidecar unavailable",
+        output_ref={},
+    )
+    db_session.add_all([answer, audit])
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.evaluation.auto_eval.schedule_eval",
+        lambda _run_id: None,
+    )
+
+    result = _finalize_run(
+        db_session,
+        run,
+        system=system,
+        capability=capability,
+        control=policy,
+        invocations=[answer, audit],
+        duration_ms=10.0,
+        last_output=answer.output_ref,
+    )
+
+    assert result["status"] == "completed"
+    assert run.output_ref == answer.output_ref
 
 
 def test_engine_finalizer_rolls_back_completion_when_runtime_audit_flush_fails(

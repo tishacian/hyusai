@@ -239,6 +239,80 @@ def test_run_snapshot_replaces_caller_tenant_actor_and_retrieval_contract(db_ses
     assert 11.0 < remaining <= 12.0
 
 
+def test_run_context_uses_verified_workspace_model_route_when_system_has_no_override(
+    db_session,
+):
+    workspace = _workspace(db_session, "Workspace model route")
+    workspace.settings = {
+        "llm_portal": {
+            "routing": {
+                "default_provider": "anthropic",
+                "default_model": "claude-opus-5",
+                "fallback_chain": ["anthropic"],
+            }
+        }
+    }
+    system = System(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        name="Workspace-routed System",
+        objective="test",
+        default_model=None,
+        flow_definition={"nodes": [], "edges": []},
+    )
+    run = Run(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        status="pending",
+        input_ref={},
+    )
+    db_session.add_all([system, run])
+    db_session.commit()
+
+    ctx = _build_initial_ctx(db_session, run, system, None)
+
+    assert ctx["default_model"] == "anthropic:claude-opus-5"
+
+
+def test_run_context_preserves_explicit_model_precedence(db_session):
+    workspace = _workspace(db_session, "Explicit model precedence")
+    workspace.settings = {
+        "llm_portal": {
+            "routing": {
+                "default_provider": "anthropic",
+                "default_model": "claude-opus-5",
+            }
+        }
+    }
+    system = System(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        name="Explicitly routed System",
+        objective="test",
+        default_model="openai:gpt-system",
+        flow_definition={"nodes": [], "edges": []},
+    )
+    run = Run(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        status="pending",
+        input_ref={"default_model": "gemini:gemini-run"},
+    )
+    db_session.add_all([system, run])
+    db_session.commit()
+
+    assert _build_initial_ctx(db_session, run, system, None)["default_model"] == (
+        "gemini:gemini-run"
+    )
+    run.input_ref = {}
+    db_session.commit()
+    assert _build_initial_ctx(db_session, run, system, None)["default_model"] == (
+        "openai:gpt-system"
+    )
+
+
 @pytest.mark.parametrize(
     "trigger",
     ["manual", "chat_agentic", "scheduler", "rerun", "replay"],

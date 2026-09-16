@@ -13,12 +13,17 @@ from app.api.v1.endpoints.systems import (
     _actor_display_name,
     _enforce_system_admin,
     _enforce_system_read,
+    _resolve_catalog_bindings_http,
+    _serialize,
+    _validate_context_tenant,
 )
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.schemas.canonical import ExecutionMode
+from app.services.audit_logger import emit_audit_event
 from app.services.run_engine import schedule_run
 from app.services.run_engine.debug_contract import (
     DebugContractError,
@@ -79,6 +84,42 @@ class PublishBody(BaseModel):
         if not stripped:
             raise ValueError("release message must contain non-whitespace characters")
         return stripped
+
+
+class FormConfigurationBody(BaseModel):
+    """Mutable fields owned by the simple System Builder.
+
+    The Flow graph is deliberately not part of this object. Keeping the graph
+    separate makes it impossible for a generic System PATCH to bypass the
+    publication boundary.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    objective: str = Field(default="", max_length=4000)
+    capability_id: str | None = None
+    skill_ids: list[str] = Field(default_factory=list)
+    context_id: str | None = None
+    default_prompt_type: str | None = None
+    default_model: str | None = None
+    retrieval_mode_default: str | None = None
+    execution_mode: ExecutionMode = ExecutionMode.real_time_decision
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("name must contain non-whitespace characters")
+        return stripped
+
+
+class FormPublishBody(PublishBody):
+    """One atomic Form Builder save: configuration, draft and publication."""
+
+    flow_definition: dict[str, Any] = Field(default_factory=dict)
+    configuration: FormConfigurationBody
 
 
 def _system_or_404(
@@ -294,3 +335,111 @@ async def publish_flow(
         }
     except publication.FlowPublicationError as exc:
         _raise_http(db, exc)
+
+
+@router.post("/{system_id}/form-publish")
+async def publish_form_configuration(
+    system_id: str,
+    body: FormPublishBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Atomically publish a simple-Builder configuration and its Flow.
+
+    Published Systems used to be edited through the generic PATCH endpoint.
+    That endpoint correctly rejects Flow writes, leaving the UI unable to
+    repair a wrong capability binding. This purpose-built boundary applies
+    the catalog/context bindings, saves the server draft and advances the
+    immutable published pointer in one transaction. Any validation or
+    publication failure rolls the entire edit back.
+    """
+
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_admin(
+        db,
+        user=user,
+        workspace=workspace,
+        system=system,
+        mutation="form_publish",
+    )
+    try:
+        publication.require_flow_publication(workspace)
+        config = body.configuration
+        _validate_context_tenant(
+            db,
+            workspace_id=workspace.id,
+            context_id=config.context_id,
+        )
+        _resolve_catalog_bindings_http(
+            db,
+            workspace=workspace,
+            system_id=system.id,
+            capability_id=config.capability_id,
+            skill_ids=config.skill_ids,
+            adaptive_policy_id=system.adaptive_policy_id,
+        )
+
+        changed_fields: list[str] = []
+        for field, value in config.model_dump(mode="json").items():
+            if getattr(system, field, None) != value:
+                setattr(system, field, value)
+                changed_fields.append(field)
+        # The Save & publish action is the explicit activation boundary.
+        if system.status != "active":
+            system.status = "active"
+            changed_fields.append("status")
+        db.flush()
+
+        draft, draft_no_op = publication.save_draft(
+            db,
+            system_id=system.id,
+            workspace=workspace,
+            flow_definition=body.flow_definition,
+            expected_revision=body.expected_draft_revision,
+            actor=_actor_display_name(user),
+        )
+        version, draft, publish_no_op = publication.publish_draft(
+            db,
+            system_id=system.id,
+            workspace=workspace,
+            expected_draft_revision=draft.revision,
+            expected_published_version_id=body.expected_published_version_id,
+            message=body.message,
+            breaking_change_intent=body.breaking_change_intent,
+            actor=_actor_display_name(user),
+        )
+        if changed_fields:
+            emit_audit_event(
+                workspace_id=workspace.id,
+                event_type="system.form_published",
+                actor=_actor_display_name(user),
+                agent_id=system.id,
+                details={
+                    "system_id": system.id,
+                    "fields": sorted(set(changed_fields)),
+                    "version_id": version.id,
+                    "version_number": version.version_number,
+                },
+                db=db,
+            )
+        db.commit()
+        db.refresh(system)
+        db.refresh(version)
+        db.refresh(draft)
+        return {
+            "no_op": draft_no_op and publish_no_op and not changed_fields,
+            "system": _serialize(system),
+            "published": {
+                "version_id": version.id,
+                "version_number": version.version_number,
+                "flow_sha256": version.flow_sha256
+                or publication.canonical_flow_sha256(version.flow_definition),
+            },
+            "draft": _draft_payload(draft, no_op=draft_no_op),
+        }
+    except publication.FlowPublicationError as exc:
+        _raise_http(db, exc)
+    except HTTPException:
+        db.rollback()
+        raise

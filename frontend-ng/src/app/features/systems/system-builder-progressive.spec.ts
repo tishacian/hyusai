@@ -64,3 +64,14 @@ test('publication is reported from the live System the API returned', () => {
 test('switching to Flow Builder persists a draft instead of advertising a live System', () => {
   assert.match(builderSource, /switchToFlow\(\)[\s\S]*?systemBodyFromDraft\(\{[\s\S]*?status:\s*'draft'/);
 });
+
+test('editing a published System uses the atomic form publication boundary', () => {
+  assert.match(builderSource, /getSystemFlowState\(editId\)/);
+  assert.match(builderSource, /publishSystemForm\(sid, \{/);
+  assert.match(builderSource, /expected_draft_revision:\s*flowState\.draft\.revision/);
+  assert.match(builderSource, /expected_published_version_id:\s*flowState\.published\.version_id/);
+  assert.doesNotMatch(
+    builderSource,
+    /sid\s*\?\s*this\.canonical\.updateSystem\(sid, body/,
+  );
+});

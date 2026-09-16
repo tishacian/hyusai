@@ -10,7 +10,7 @@ from app.models.workspace_map import (
     WorkspaceMapZone,
 )
 from app.services.skills_registry import wrappers
-from app.services.skills_registry.seed import SEED_SKILLS
+from app.services.skills_registry.seed import SEED_CAPABILITIES, SEED_SKILLS
 from app.services.workspace_maps import OCTOCITY_MAP_SLUG, SENTINEL_MAP_SLUG
 
 
@@ -116,6 +116,12 @@ def test_seed_rag_skills_expose_retrieval_policy_contract():
 
     assert by_slug["semantic_search_v1"]["execution"]["timeout_ms"] == 8_000
     assert "sparse+dense" in by_slug["semantic_search_v1"]["description"]
+
+
+def test_intelligent_qa_default_has_one_compatible_runnable_step():
+    capability = next(row for row in SEED_CAPABILITIES if row["slug"] == "intelligent_qa")
+
+    assert capability["skill_slugs"] == ["llm_rag_answer_v1"]
 
 
 @pytest.mark.asyncio

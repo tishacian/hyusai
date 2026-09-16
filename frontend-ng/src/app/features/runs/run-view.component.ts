@@ -83,6 +83,35 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
       </ck-object-header>
     @if (run(); as currentRun) { <app-run-investigation [run]="currentRun" /> }
 
+      @if (runRecovery(); as recovery) {
+        <section class="ck-tone-neg rounded-lg p-4 mb-4" role="alert" data-testid="run-recovery">
+          <div class="flex items-start gap-3">
+            <app-icon name="alert-triangle" [size]="16" class="mt-0.5" />
+            <div class="min-w-0 flex-1">
+              <h2 class="text-sm font-semibold">{{ recovery.title }}</h2>
+              <p class="text-sm mt-1">{{ recovery.message }}</p>
+              <div class="flex flex-wrap gap-2 mt-3">
+                <a [routerLink]="navigation.surfaceUrlTree('settings')" class="ck-btn-quiet px-3 py-1.5 rounded text-xs font-medium">
+                  {{ i18n.t('runs.detail.recovery.check_model') }}
+                </a>
+                @if (run()?.system_id) {
+                  <a
+                    [routerLink]="navigation.leafUrl('system-new')"
+                    [queryParams]="{ systemId: run()!.system_id }"
+                    class="ck-btn-quiet px-3 py-1.5 rounded text-xs font-medium"
+                  >{{ i18n.t('runs.detail.recovery.edit_system') }}</a>
+                }
+                @if (rerunnable()) {
+                  <button type="button" class="ck-btn-quiet px-3 py-1.5 rounded text-xs font-medium" (click)="rerun()" [disabled]="rerunning()">
+                    {{ i18n.t(rerunning() ? 'runs.detail.recovery.retrying' : 'runs.detail.recovery.retry') }}
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+        </section>
+      }
+
       <ck-tabs [active]="activePerspectiveTab()" (activeChange)="onPerspectiveTabChange($event)" [ariaLabel]="i18n.t('runs.detail.facets_aria')">
         <ck-tab id="overview" [label]="i18n.t('runs.detail.tab.overview')">
           <ck-object-perspective [objectLabel]="i18n.t('runs.detail.object_label')" [lens]="activeLens()" facet="overview" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
@@ -262,16 +291,25 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
         </div>
 
         <!-- Error banner -->
-        @if (run()?.error) {
+        @if (runRecovery(); as recovery) {
           <div class="rounded-lg border border-red-500/30 bg-red-500/10 p-3 mb-6">
             <div class="flex items-start gap-2">
               <app-icon name="alert-triangle" [size]="14" class="text-red-400 mt-0.5" />
               <div class="min-w-0">
                 <div class="text-xs font-semibold text-red-300 mb-1">
-                  {{ i18n.t('runs.detail.error.title') }}
+                  {{ recovery.title }}
                 </div>
-                <div class="text-xs font-mono text-red-200/80 break-all">
-                  {{ run()!.error }}
+                <p class="text-xs text-red-200/80">{{ recovery.message }}</p>
+                <div class="flex flex-wrap gap-2 mt-3">
+                  <a [routerLink]="navigation.surfaceUrlTree('settings')" class="ck-btn-quiet px-3 py-1.5 rounded text-xs font-medium">{{ i18n.t('runs.detail.recovery.check_model') }}</a>
+                  @if (run()?.system_id) {
+                    <a [routerLink]="navigation.leafUrl('system-new')" [queryParams]="{ systemId: run()!.system_id }" class="ck-btn-quiet px-3 py-1.5 rounded text-xs font-medium">{{ i18n.t('runs.detail.recovery.edit_system') }}</a>
+                  }
+                  @if (rerunnable()) {
+                    <button type="button" class="ck-btn-quiet px-3 py-1.5 rounded text-xs font-medium" (click)="rerun()" [disabled]="rerunning()">
+                      {{ i18n.t(rerunning() ? 'runs.detail.recovery.retrying' : 'runs.detail.recovery.retry') }}
+                    </button>
+                  }
                 </div>
               </div>
             </div>
@@ -565,6 +603,29 @@ export class RunViewComponent implements OnInit, OnDestroy {
   });
 
   readonly outcomeJson = computed(() => this.asJson(this.run()?.outcome ?? {}));
+
+  readonly runRecovery = computed<{ title: string; message: string } | null>(() => {
+    const run = this.run();
+    if (!run?.error) return null;
+    if (run.error.startsWith('required_output_missing:answer:')) {
+      const answerFailure = (run.skill_invocations ?? []).find(
+        (invocation) => invocation.status === 'failed' && (invocation.skill_slug ?? '').includes('answer'),
+      );
+      const credentials = /credential|api key|authentication|unauthori[sz]ed/i.test(
+        answerFailure?.error ?? '',
+      );
+      return {
+        title: this.i18n.t('runs.detail.recovery.no_answer.title'),
+        message: credentials
+          ? this.i18n.t('runs.detail.recovery.no_answer.credentials')
+          : this.i18n.t('runs.detail.recovery.no_answer.generic'),
+      };
+    }
+    return {
+      title: this.i18n.t('runs.detail.error.title'),
+      message: this.i18n.t('runs.detail.recovery.generic'),
+    };
+  });
 
   readonly retrievalDecisionTrace = computed<RetrievalDecisionTrace | null>(() => {
     const run = this.run();
