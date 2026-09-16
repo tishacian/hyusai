@@ -1,4 +1,19 @@
-# NorthForge generation — rejected proposal
+# NorthForge BRD qualification
+
+## Current status
+
+The first complete five-case suite with the configured provider defaults passed
+on the unchanged generation-14 candidate. See [results and limits](runtime-provider-defaults/full-suite-1/README.md).
+The application fixes are deployed in `7951e698`; these qualification Runs use
+an isolated database with real provider and Showcase retrieval calls. They are
+not production Runs, human acceptance, or five consecutive successful suites.
+
+Publication, consumption by another authorized user, browser source navigation
+and the remaining repetition/acceptance requirements are still open. Historical
+failures below are retained; they describe their own candidate and date, not the
+current result.
+
+## Initial deployed proposal — rejected
 
 Deployed candidate: `f63f1eaf`. Retained document: `3a2c54b8-3529-42b3-b05b-68e7781b4197`.
 Generation job: `bf1c59f9-81c4-452e-aed4-0f8a83620007`.
