@@ -651,3 +651,21 @@ checks, twenty executor tests and two seed tests pass. One test runs the native
 semantic-search wrapper with only its retrieval boundary replaced and proves a
 single collection-scoped call on no results. Actual tool installation and live
 AgentLoop selection await deployment of the guard; they are not yet qualified.
+
+### Exact quote provenance — 16 September
+
+Added `quotes_in_source` to the existing server assertion engine. It checks
+single-line ASCII/curly/French double-quoted spans against the exact supplied
+source, reports examined/missing counts, and fails when no quotes are examined.
+It does not infer entailment, validate unquoted claims, or repair the answer.
+BRD proposal validation requires the comparison source to equal an original case
+input string, rather than a generated annotation. Generation guidance requests
+this assertion and avoids isolated-word bans that penalize disclaimers.
+
+51 scoped tests passed before the final source-reference regression; 43 campaign
+and generation tests passed after it. Offline application to the unchanged live
+PIH answers examined 6/4/11 quotes and found 0/0/5 missing, respectively. Evidence:
+`docs/evidence/brd-release-candidate-2026-09-16/quote-diagnostic.json`.
+This is a separate diagnostic: historical suite criteria, Run statuses and human
+decisions were not changed. New code is not deployed. Runtime quality gates,
+reviewable test revisions and a fresh successful generated suite remain open.

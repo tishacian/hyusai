@@ -45,6 +45,11 @@ def validate_case_output_paths(flow, cases):
     contracts still need execution and review; this is not an oracle.
     """
     for case in cases:
+        for assertion in case.assertions:
+            if assertion.operator == "quotes_in_source" and not any(
+                isinstance(value, str) and value == assertion.value for value in case.input_ref.values()
+            ):
+                raise HTTPException(422, "Quote provenance must use an original case input text")
         required_text = [item for item in case.assertions
                          if item.operator in {"contains", "equals"} and isinstance(item.value, str)]
         for exclusion in case.assertions:

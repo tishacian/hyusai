@@ -391,3 +391,20 @@ def test_comparison_preserves_human_wait_and_reuses_run_after_review(db_session,
     for side in ("baseline", "candidate"):
         assert final["results"][0][side]["run_id"] == result[side]["run_id"]
         assert final["results"][0][side]["awaiting_decision_id"] is None
+
+
+@pytest.mark.parametrize("answer, expected, examined", [
+    ('Fact: "Current grade: P3."', "passed", 1),
+    ('Fact: “Current grade: P3.” and « Current grade: P3. »', "passed", 2),
+    ('Missing: "Current grade evidence: MISSING EVIDENCE"', "failed", 1),
+    ('"Current grade: P3." and "MISSING EVIDENCE"', "failed", 2),
+    ('No quotes supplied', "failed", 0),
+    (None, "failed", 0),
+])
+def test_quote_provenance_rejects_intermediate_annotations(answer, expected, examined):
+    from app.api.v1.endpoints.evaluation_campaigns import AssertionBody
+    assertion = AssertionBody(id="source", path=["completion"], operator="quotes_in_source",
+                              value="Current grade: P3.")
+    result = campaigns.assertion_results({"completion": answer}, [assertion.model_dump()])
+    assert result["verdict"] == expected
+    assert result["assertions"][0]["quotes_examined"] == examined
