@@ -78,7 +78,7 @@ test.describe('US-8 — Experience /work canary', () => {
     if (surface === 'launcher') {
       await expect(page.locator('app-work-launcher')).toBeVisible();
       await expect(
-        page.getByRole('heading', { name: /Mes applications|My applications/ }),
+        page.getByRole('heading', { level: 1, name: /Bienvenue dans votre espace de travail\.|Welcome to your workspace\./ }),
       ).toBeVisible();
       await expect(page.locator('.xp-work-grid a.xp-work-card')).toHaveCount(apps.length);
       const chrome = page.locator('app-work-launcher header, app-work-launcher .xp-work-status, app-work-launcher .xp-work-grid p');
