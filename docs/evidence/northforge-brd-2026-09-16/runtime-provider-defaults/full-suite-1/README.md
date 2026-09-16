@@ -31,3 +31,19 @@ retrieved evidence, not an exhaustive statement about the corpus.
 This is **one** successful suite, not five consecutive repetitions. Production
 execution, human review, second-user consumption, published-version retention,
 and an unprepared case remain required.
+
+## Publication and access regression gate
+
+On application code `7951e698` (documentation HEAD `d83fec8b`), the existing
+BRD import, Flow publication and Experience authorization suites passed:
+**45 passed in 4.05 seconds**. Command, from backend:
+
+```sh
+python -m pytest app/tests/api/test_workspace_skill_brd_import.py app/tests/api/test_flow_publication_api.py app/tests/api/test_experience_authorization.py -q
+```
+
+These checks cover server-owned BRD origin frozen in publication and Runs,
+immutable published Flow snapshots, rerun attribution, and separation between
+Experience view/edit/release/deploy permissions. They use isolated test data.
+They do not demonstrate a second person consuming this generated NorthForge
+application, nor browser source navigation. Those acceptance items remain open.
