@@ -396,6 +396,7 @@ export interface CapturePublicationResult {
   export_urls?: {
     download_url?: string;
     raw_url?: string;
+    preview_url?: string;
     pdf_url?: string;
     docx_url?: string;
   };
@@ -436,6 +437,7 @@ export interface CaptureProposal {
       export_urls?: {
         download_url?: string;
         raw_url?: string;
+        preview_url?: string;
         pdf_url?: string;
         docx_url?: string;
       };

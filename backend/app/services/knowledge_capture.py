@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified, set_committed_value
@@ -2967,6 +2967,24 @@ def export_session_proposal_markdown(
     return f"## Résumé exécutif\n\n{summary}\n\n{body}"
 
 
+def _publication_with_source_urls(publication: Dict[str, Any]) -> Dict[str, Any]:
+    publication = dict(publication)
+    document_id = publication.get("document_id")
+    collection = publication.get("collection_slug")
+    if document_id and collection:
+        params = {"collection_name": str(collection)}
+        if publication.get("filename"):
+            params["filename"] = str(publication["filename"])
+        raw_url = f"/api/v1/documents/{quote(str(document_id), safe='')}/raw?{urlencode(params)}"
+        publication["export_urls"] = {
+            **dict(publication.get("export_urls") or {}),
+            "raw_url": raw_url,
+            "download_url": raw_url,
+            "preview_url": f"/api/v1/documents/{quote(str(document_id), safe='')}/rich-preview?{urlencode(params)}",
+        }
+    return publication
+
+
 async def publish_proposal_to_knowledge(
     db: DBSession,
     *,
@@ -3231,16 +3249,12 @@ async def publish_proposal_to_knowledge(
     if document_id:
         from app.services.capture_report_export import export_urls_for_proposal
 
-        raw_url = f"/api/v1/documents/{quote(str(document_id), safe='')}/raw"
-        export_urls = {
-            "download_url": raw_url,
-            "raw_url": raw_url,
-            **export_urls_for_proposal(str(proposal.id)),
-        }
-        publication_meta["export_urls"] = export_urls
         publication_meta["document_id"] = document_id
         publication_meta["collection_slug"] = collection.slug
         publication_meta["chunks_processed"] = result.get("chunks_processed", 0)
+        publication_meta["export_urls"] = export_urls_for_proposal(str(proposal.id))
+        publication_meta = _publication_with_source_urls(publication_meta)
+        export_urls = publication_meta["export_urls"]
         proposal_payload["publication"] = publication_meta
         proposal.proposal = proposal_payload
         flag_modified(proposal, "proposal")
@@ -9982,12 +9996,15 @@ def _serialize_plan_for_ui(plan: Dict[str, Any], *, surface: Optional[str] = Non
 
 
 def serialize_proposal(proposal: KnowledgeUpdateProposal) -> Dict[str, Any]:
+    payload = dict(proposal.proposal or {})
+    if payload.get("publication"):
+        payload["publication"] = _publication_with_source_urls(payload["publication"])
     return {
         "id": proposal.id,
         "workspace_id": proposal.workspace_id,
         "session_id": proposal.session_id,
         "status": proposal.status,
-        "proposal": proposal.proposal or {},
+        "proposal": payload,
         "review_notes": proposal.review_notes,
         "reviewer": proposal.reviewer,
         "created_by_user_id": proposal.created_by_user_id,
@@ -10075,10 +10092,11 @@ def _serialize_published_fiche(
     author_user_id = (session.created_by_user_id if session else None) or proposal.created_by_user_id
     published_by_user_id = proposal.reviewer_user_id or author_user_id
 
+    publication = _publication_with_source_urls({
+        **publication, "document_id": document_id, "collection_slug": collection_slug,
+    })
     export_urls = dict(publication.get("export_urls") or {})
     raw_url = export_urls.get("raw_url") or export_urls.get("download_url")
-    if not raw_url and document_id:
-        raw_url = f"/api/v1/documents/{quote(str(document_id), safe='')}/raw"
 
     preview_url = None
     if document_id and collection_slug:

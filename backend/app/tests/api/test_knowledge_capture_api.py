@@ -2374,7 +2374,7 @@ def test_list_published_fiches_returns_workspace_outputs(db_session, monkeypatch
     assert fiche["destination"] == "capture-knowledge"
     assert fiche["document_id"] == "doc-published-fiche"
     assert fiche["preview_url"]
-    assert fiche["raw_url"] == "/api/v1/documents/doc-published-fiche/raw"
+    assert fiche["raw_url"] == "/api/v1/documents/doc-published-fiche/raw?collection_name=capture-knowledge"
     assert fiche["chunks_processed"] == 4
     assert fiche["open_questions_count"] == 1
     assert fiche["author"]["id"] == author.id

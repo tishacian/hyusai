@@ -1304,7 +1304,10 @@ async def test_publish_persists_export_urls(db_session, monkeypatch):
         final_title="Publication export validée",
     )
 
-    expected_url = "/api/v1/documents/doc%20published%2Fid/raw"
+    expected_url = (
+        "/api/v1/documents/doc%20published%2Fid/raw?collection_name=capture-export-knowledge"
+        f"&filename=capture-{session.id[:8]}.md"
+    )
     assert result["export_urls"]["download_url"] == expected_url
     assert result["export_urls"]["raw_url"] == expected_url
     assert result["export_urls"]["pdf_url"] == (
@@ -6622,3 +6625,24 @@ def test_grounded_question_lexical_filter_drops_off_transcript_question():
         context="On a parlé des réglages sans donner de valeurs.",
         section_label="Réglages de la calandre",
     )
+
+
+def test_serialized_publication_repairs_source_scope_without_rewriting_history():
+    from copy import deepcopy
+    from urllib.parse import parse_qs, urlsplit
+    from app.models.expert_capture import KnowledgeUpdateProposal
+    from app.services.knowledge_capture import serialize_proposal
+
+    stored = {"publication": {"document_id": "doc /1", "collection_slug": "approved-reports",
+              "filename": "Fiche & été.md", "export_urls": {"raw_url": "/api/v1/documents/doc%20%2F1/raw",
+              "pdf_url": "/api/v1/knowledge-capture/proposals/p/export?format=pdf"}}}
+    proposal = KnowledgeUpdateProposal(id="p", workspace_id="ws", session_id="s",
+                                       status="published", proposal=deepcopy(stored))
+    publication = serialize_proposal(proposal)["proposal"]["publication"]
+    url = urlsplit(publication["export_urls"]["raw_url"])
+    assert url.path == "/api/v1/documents/doc%20%2F1/raw"
+    assert parse_qs(url.query) == {"collection_name": ["approved-reports"], "filename": ["Fiche & été.md"]}
+    assert publication["export_urls"]["download_url"] == publication["export_urls"]["raw_url"]
+    assert publication["export_urls"]["preview_url"] == publication["export_urls"]["raw_url"].replace("/raw?", "/rich-preview?")
+    assert publication["export_urls"]["pdf_url"] == stored["publication"]["export_urls"]["pdf_url"]
+    assert proposal.proposal == stored

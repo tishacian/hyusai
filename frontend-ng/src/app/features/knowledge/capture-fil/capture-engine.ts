@@ -1511,8 +1511,9 @@ export class CaptureEngine {
 
   /** Bind the engine to a session without opening the realtime leg. */
   setSession(info: CaptureSessionInfo | null): void {
+    if (info?.id !== this._sessionId()) this.setProposal(null);
     this._session.set(info);
-    if (info?.id) this._sessionId.set(info.id);
+    this._sessionId.set(info?.id ?? null);
     this.hydrateFromSession(info);
     // Resuming a system-scoped session preserves the scope for downstream lists.
     if (info?.system_id && info.system_id !== this._systemId()) {
@@ -1781,7 +1782,7 @@ export class CaptureEngine {
   /**
    * Restore the proposal for the bound session (dashboard re-entry / resume):
    * list the session's proposals and adopt the one whose `session_id` matches
-   * (falling back to the most recent), so the report fiche renders without a
+   * so the report fiche renders without a
    * fresh finalize.
    */
   async loadProposal(): Promise<CaptureProposal | null> {
@@ -1801,7 +1802,7 @@ export class CaptureEngine {
       if (!this.isConnectionAttemptCurrent(attempt)) return null;
       const proposals = (payload as { proposals?: CaptureProposal[] } | null)?.proposals ?? [];
       const match =
-        proposals.find((p) => p?.session_id === attempt.sessionId) ?? proposals[0] ?? null;
+        proposals.find((p) => p?.session_id === attempt.sessionId) ?? null;
       if (match) this.setProposal(match);
       return match;
     } catch (error) {
@@ -1968,9 +1969,8 @@ export class CaptureEngine {
   }
 
   /**
-   * Publish the accepted report to the KB (P0 #3). Accepts the proposal first if
-   * it isn't already, then pushes the fiche; stores the result and merges it
-   * into the proposal's `publication` block. Errors surface via {@link lastError}.
+   * Publish an already accepted report. Review remains a separate action;
+   * publication can be recovered from the persisted proposal after a lost reply.
    */
   async publish(body: {
     category?: string | null;
@@ -1980,7 +1980,8 @@ export class CaptureEngine {
     include_unresolved_questions?: boolean;
   }): Promise<CapturePublicationResult | null> {
     const proposalId = this._proposalId();
-    if (!proposalId) return null;
+    const attempt = this.captureCurrentAttempt();
+    if (!proposalId || !attempt) return null;
     try {
       const status = (this._proposal()?.status ?? '').toLowerCase();
       // A rejected fiche must NOT be silently re-accepted on publish: the
@@ -1990,25 +1991,38 @@ export class CaptureEngine {
         return null;
       }
       if (status !== 'accepted' && status !== 'published') {
-        const accepted = await this.reviewProposal('accepted');
-        if (!accepted) return null;
+        this._lastError.set(this.i18n.t('capture.publish.validate_first'));
+        return null;
       }
+      if (status === 'published' && this._publication()) return this._publication();
+      this._lastError.set(null);
       const payload = await firstValueFrom(this.api.publishCaptureProposal(proposalId, body));
+      if (!this.isConnectionAttemptCurrent(attempt) || this._proposalId() !== proposalId) return null;
       const result = (payload as CapturePublicationResult | null) ?? null;
-      this._publication.set(result);
+      if (result?.status !== 'success' || !result.document_id || !(result.collection_slug || result.collection)) {
+        throw new Error(this.i18n.t('capture.publish.failed'));
+      }
       if (result) {
-        this._proposal.update((p) => {
-          if (!p) return p;
+        const p = this._proposal();
+        if (p) {
           const inner = p.proposal ?? {};
           const publication = {
             ...(inner.publication ?? {}),
             ...(result as Record<string, unknown>),
+            collection_slug: result.collection_slug || result.collection,
           } as NonNullable<CaptureProposal['proposal']>['publication'];
-          return { ...p, proposal: { ...inner, publication } };
-        });
+          this.setProposal({ ...p, status: 'published', proposal: { ...inner, publication } });
+        }
       }
       return result;
     } catch (error) {
+      if (!this.isConnectionAttemptCurrent(attempt) || this._proposalId() !== proposalId) return null;
+      await this.loadProposalForAttempt(attempt);
+      if (!this.isConnectionAttemptCurrent(attempt) || this._proposalId() !== proposalId) return null;
+      if (this._publication()) {
+        this._lastError.set(null);
+        return this._publication();
+      }
       this._lastError.set(this.errorMessage(error));
       return null;
     }
@@ -2020,7 +2034,13 @@ export class CaptureEngine {
    */
   private setProposal(proposal: CaptureProposal | null): void {
     this._proposal.set(proposal);
-    if (proposal?.id) this._proposalId.set(proposal.id);
+    this._proposalId.set(proposal?.id ?? null);
+    const publication = proposal?.proposal?.publication;
+    this._publication.set(proposal?.status === 'published' && publication?.document_id && publication.collection_slug
+      ? { ...publication, proposal_id: proposal.id, document_id: publication.document_id,
+          collection: publication.collection_slug, chunks_processed: publication.chunks_processed ?? undefined,
+          status: 'success' }
+      : null);
   }
 
   /**

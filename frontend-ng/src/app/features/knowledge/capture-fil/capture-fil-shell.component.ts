@@ -242,11 +242,9 @@ export class CaptureFilShellComponent {
         // Reachable once a report (proposal) has been generated/loaded.
         return !!this.engine.proposal() || !!this.engine.proposalId();
       case 'publish': {
-        // Reachable once the report is accepted; if the status isn't reliably
-        // present on the loaded proposal, fall back to "a proposal exists".
+        // An absent review state never authorizes publication.
         if (!this.engine.proposal() && !this.engine.proposalId()) return false;
         const status = (this.engine.proposal()?.status ?? '').toLowerCase();
-        if (!status) return true;
         return status === 'accepted' || status === 'published';
       }
       default:

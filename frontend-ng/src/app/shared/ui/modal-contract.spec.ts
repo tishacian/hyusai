@@ -10,11 +10,12 @@ test('authoring and confirmation modals own focus, Escape and an accessible name
     'src/app/features/skills/new-skill-dialog.component.ts',
     'src/app/features/skills/brd-import.component.ts',
     'src/app/shared/ui/confirm-dialog.component.ts',
+    'src/app/shared/document-preview/document-preview.component.ts',
   ]) {
     const source = read(path);
     assert.match(source, /role="(?:dialog|alertdialog)"/);
     assert.match(source, /aria-modal="true"/);
-    assert.match(source, /aria-labelledby=/);
+    assert.match(source, /aria-label(?:ledby)?(?:\])?=/);
     assert.match(source, /cdkTrapFocus/);
     assert.match(source, /cdkTrapFocusAutoCapture/);
     assert.match(source, /keydown\.escape/);

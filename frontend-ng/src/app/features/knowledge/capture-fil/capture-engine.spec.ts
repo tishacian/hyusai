@@ -2,7 +2,7 @@ import '@angular/compiler';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DestroyRef, Injector } from '@angular/core';
-import { NEVER, Subject, of, type Observable } from 'rxjs';
+import { BehaviorSubject, NEVER, Subject, of, throwError, type Observable } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { LiveKitConversationService } from '@app/core/livekit-conversation.service';
@@ -104,6 +104,7 @@ interface HarnessOptions {
   readonly feed$: Observable<any>;
   readonly livekitOpen?: (sessionId: string) => Promise<RealtimeConnectionStub>;
   readonly proposalList$?: Observable<any>;
+  readonly publication$?: Observable<any>;
 }
 
 function createHarness(options: HarnessOptions) {
@@ -112,10 +113,17 @@ function createHarness(options: HarnessOptions) {
   const backendConnections: RealtimeConnectionStub[] = [];
   let livekitOpenCalls = 0;
   let createProposalCalls = 0;
+  let publishCalls = 0;
+  let reviewCalls = 0;
   const api = {
     getCaptureFeed: () => options.feed$,
     getCaptureHintQueue: () => of({ hints: [] }),
     listCaptureProposals: () => options.proposalList$ ?? of({ proposals: [] }),
+    publishCaptureProposal: () => {
+      publishCalls += 1;
+      return options.publication$ ?? of(null);
+    },
+    reviewCaptureProposal: () => { reviewCalls += 1; return of(null); },
     createCaptureProposal: () => {
       createProposalCalls += 1;
       return of({ id: 'proposal-bad-fallback' });
@@ -162,6 +170,8 @@ function createHarness(options: HarnessOptions) {
     backendConnections,
     livekitOpenCalls: () => livekitOpenCalls,
     createProposalCalls: () => createProposalCalls,
+    publishCalls: () => publishCalls,
+    reviewCalls: () => reviewCalls,
   };
 }
 
@@ -278,5 +288,102 @@ test('workspace reset invalidates an in-flight finalize recovery before its HTTP
   assert.equal(await finalized, null);
   assert.equal(harness.createProposalCalls(), 0, 'stale recovery must never POST under workspace B');
   assert.equal(harness.engine.proposal(), null);
+  harness.destroyRef.destroy();
+});
+
+const retainedPublication = {
+  document_id: 'doc-a', collection_slug: 'reviewed-knowledge', final_title: 'Reviewed report',
+  export_urls: { raw_url: '/api/v1/documents/doc-a/raw?collection_name=reviewed-knowledge' },
+};
+function proposalFor(status: string) {
+  return { id: 'proposal-a', session_id: 'session-a', status,
+    proposal: { publication: retainedPublication } };
+}
+
+test('publication requires an explicit accepted state, never triggers review', async () => {
+  for (const status of ['pending_review', 'changes_requested', 'rejected', '']) {
+    const harness = createHarness({ feed$: of({ feed: [] }),
+      proposalList$: of({ proposals: [proposalFor(status)] }) });
+    harness.engine.setSession({ id: 'session-a', status: 'completed' });
+    await harness.engine.loadProposal();
+    assert.equal(harness.engine.publication(), null);
+    assert.equal(await harness.engine.publish({}), null);
+    assert.equal(harness.reviewCalls(), 0);
+    assert.equal(harness.publishCalls(), 0);
+    assert.ok(harness.engine.lastError());
+    harness.destroyRef.destroy();
+  }
+});
+
+test('a loaded publication restores its receipt and clears on session change', async () => {
+  const harness = createHarness({ feed$: of({ feed: [] }),
+    proposalList$: of({ proposals: [proposalFor('published')] }) });
+  harness.engine.setSession({ id: 'session-a', status: 'completed' });
+  await harness.engine.loadProposal();
+  assert.equal(harness.engine.publication()?.document_id, 'doc-a');
+  assert.equal(harness.engine.publication()?.collection, 'reviewed-knowledge');
+  assert.equal((await harness.engine.publish({}))?.document_id, 'doc-a');
+  assert.equal(harness.publishCalls(), 0);
+  harness.engine.setSession({ id: 'session-b', status: 'completed' });
+  assert.equal(harness.engine.publication(), null);
+  assert.equal(harness.engine.proposalId(), null);
+  harness.destroyRef.destroy();
+});
+
+test('a lost publication reply recovers the stored receipt without a second POST', async () => {
+  const proposals = new BehaviorSubject({ proposals: [proposalFor('accepted')] });
+  const harness = createHarness({ feed$: of({ feed: [] }), proposalList$: proposals,
+    publication$: throwError(() => new Error('Connection lost')) });
+  harness.engine.setSession({ id: 'session-a', status: 'completed' });
+  await harness.engine.loadProposal();
+  proposals.next({ proposals: [proposalFor('published')] });
+  assert.equal((await harness.engine.publish({}))?.document_id, 'doc-a');
+  assert.equal(harness.engine.lastError(), null);
+  assert.equal(harness.publishCalls(), 1);
+  assert.equal(harness.reviewCalls(), 0);
+  harness.destroyRef.destroy();
+});
+
+test('late publication replies cannot restore another workspace receipt', async () => {
+  const reply = new Subject<any>();
+  const harness = createHarness({ feed$: of({ feed: [] }), publication$: reply,
+    proposalList$: of({ proposals: [proposalFor('accepted')] }) });
+  harness.engine.setSession({ id: 'session-a', status: 'completed' });
+  await harness.engine.loadProposal();
+  const publishing = harness.engine.publish({});
+  harness.workspace.switchWorkspace();
+  reply.next({ status: 'success', document_id: 'doc-a', collection: 'reviewed-knowledge' });
+  reply.complete();
+  assert.equal(await publishing, null);
+  assert.equal(harness.engine.publication(), null);
+  assert.equal(harness.engine.proposal(), null);
+  assert.equal(harness.engine.lastError(), null);
+  harness.destroyRef.destroy();
+});
+
+test('a proposal from another session cannot restore a publication', async () => {
+  const harness = createHarness({ feed$: of({ feed: [] }),
+    proposalList$: of({ proposals: [{ ...proposalFor('published'), session_id: 'session-other' }] }) });
+  harness.engine.setSession({ id: 'session-a', status: 'completed' });
+  assert.equal(await harness.engine.loadProposal(), null);
+  assert.equal(harness.engine.publication(), null);
+  assert.equal(harness.engine.proposalId(), null);
+  harness.destroyRef.destroy();
+});
+
+test('a successful publication stores the canonical receipt without an implicit review', async () => {
+  const harness = createHarness({ feed$: of({ feed: [] }),
+    proposalList$: of({ proposals: [proposalFor('accepted')] }),
+    publication$: of({ status: 'success', document_id: 'new-doc', collection: 'new-collection',
+      export_urls: { preview_url: '/api/v1/documents/new-doc/rich-preview?collection_name=new-collection' } }) });
+  harness.engine.setSession({ id: 'session-a', status: 'completed' });
+  await harness.engine.loadProposal();
+  const result = await harness.engine.publish({});
+  assert.equal(result?.document_id, 'new-doc');
+  assert.equal(harness.engine.proposal()?.status, 'published');
+  assert.equal(harness.engine.proposal()?.proposal?.publication?.collection_slug, 'new-collection');
+  assert.equal(harness.engine.publication()?.export_urls?.preview_url, result?.export_urls?.preview_url);
+  assert.equal(harness.reviewCalls(), 0);
+  assert.equal(harness.publishCalls(), 1);
   harness.destroyRef.destroy();
 });
