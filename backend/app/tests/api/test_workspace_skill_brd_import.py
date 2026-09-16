@@ -1,8 +1,7 @@
 """The BRD import endpoint: who may read a document, and what reading yields.
 
 The endpoint parses and returns. It is behind the authoring boundary because
-its only use is drafting a Skill, and it creates nothing at all -- the two
-properties the tests below hold in place.
+its only use is drafting a Skill, and retention is opt-in. It creates no executable objects.
 """
 from __future__ import annotations
 
@@ -105,3 +104,62 @@ def test_an_oversized_upload_is_refused_before_it_is_parsed(db_session):
     response = _upload(client, b"0" * (5 * 1024 * 1024 + 1))
 
     assert response.status_code == 413
+
+
+def test_retained_original_round_trip_replay_and_workspace_boundary(db_session, tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.models.brd_document import BrdDocument
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path))
+    workspace, user = _seed(db_session)
+    client = _client(db_session, workspace, user)
+    data = _brd()
+    def upload():
+        return client.post("/skills/import/business-requirements?retain=true",
+                           files={"file": ("../requirements.docx", data)})
+    first = upload()
+    assert first.status_code == 200
+    document = first.json()["document"]
+    assert document["filename"] == "requirements.docx"
+    document_id = document["id"]
+    assert upload().json()["document"]["id"] == document_id
+    assert db_session.query(BrdDocument).count() == 1
+    assert db_session.query(Skill).count() == 0
+    path = f"/skills/imports/business-requirements/{document_id}"
+    assert client.get(path).json()["requirements"] == first.json()["requirements"]
+    assert client.get(path + "/original").content == data
+
+    other = Workspace(id="other-brd", slug="other-brd", name="Other", settings={})
+    db_session.add(other)
+    db_session.add(WorkspaceMember(workspace_id=other.id, user_id=user.id,
+                                   role="member", role_template="workspace_admin"))
+    db_session.commit()
+    other_client = _client(db_session, other, user)
+    assert other_client.get(path).status_code == 404
+    assert other_client.get(path + "/original").status_code == 404
+
+    member = db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id).one()
+    member.role_template = "workspace_viewer"
+    db_session.commit()
+    assert client.get(path).status_code == 403
+    assert client.get(path + "/original").status_code == 403
+    assert upload().status_code == 403
+
+
+def test_retained_original_missing_or_modified_is_not_presented_as_evidence(db_session, tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.models.brd_document import BrdDocument
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path))
+    workspace, user = _seed(db_session)
+    client = _client(db_session, workspace, user)
+    response = client.post("/skills/import/business-requirements?retain=true",
+                           files={"file": ("requirements.docx", _brd())})
+    assert response.status_code == 200
+    row = db_session.query(BrdDocument).one()
+    path = f"/skills/imports/business-requirements/{row.id}/original"
+    original = tmp_path / row.storage_key
+    original.write_bytes(b"changed")
+    assert client.get(path).json()["detail"]["code"] == "brd_original_integrity_error"
+    original.unlink()
+    assert client.get(path).status_code == 410

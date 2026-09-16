@@ -9,7 +9,9 @@ verified executor set rather than to code of its own.
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
+from fastapi.responses import Response
+import hashlib
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm import load_only
@@ -17,6 +19,9 @@ from sqlalchemy.orm import load_only
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.capability import Capability
+from app.models.brd_document import BrdDocument
+from app.services.object_store import ObjectStore
+from app.services.skills_registry.brd_documents import retain_brd, document_payload
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.user import User
@@ -604,11 +609,14 @@ _MAX_IMPORT_BYTES = 5 * 1024 * 1024
 @router.post("/import/business-requirements")
 async def import_business_requirements(
     file: UploadFile = File(...),
+    retain: bool = Query(False),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    """Read a BRD ``.docx`` into draft material. Nothing is created.
+    """Read a BRD, optionally retaining its original for System authoring.
+
+    Retention creates no Skill, System, publication or permission.
 
     Gated on ``skill.admin`` because the only thing this answer is good for is
     authoring a Skill, and offering the reading to someone who cannot author
@@ -630,12 +638,59 @@ async def import_business_requirements(
             },
         )
     try:
-        return parse_business_requirements(data)
+        extraction = parse_business_requirements(data)
+        if retain is True:
+            row = retain_brd(
+                db, workspace_id=workspace.id, user_id=user.id,
+                filename=file.filename, data=data, extraction=extraction,
+            )
+            return document_payload(row)
+        return extraction
     except BrdUnreadableError as exc:
         raise HTTPException(
             400,
             {"code": "brd_document_unreadable", "message": str(exc)},
         ) from exc
+
+
+def _retained_brd(db, workspace, user, document_id):
+    _enforce_catalog_admin(db, user=user, workspace=workspace)
+    row = db.query(BrdDocument).filter_by(id=document_id, workspace_id=workspace.id).first()
+    if row is None:
+        raise HTTPException(404, {"code": "brd_document_not_found"})
+    return row
+
+
+@router.get("/imports/business-requirements/{document_id}")
+async def get_business_requirements(
+    document_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    return document_payload(_retained_brd(db, workspace, user, document_id))
+
+
+@router.get("/imports/business-requirements/{document_id}/original")
+async def get_business_requirements_original(
+    document_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    row = _retained_brd(db, workspace, user, document_id)
+    store = ObjectStore()
+    if not store.exists(row.storage_key):
+        raise HTTPException(410, {"code": "brd_original_unavailable"})
+    data = store.read_bytes(row.storage_key)
+    if hashlib.sha256(data).hexdigest() != row.sha256:
+        raise HTTPException(409, {"code": "brd_original_integrity_error"})
+    return Response(
+        data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="business-requirements.docx"',
+                 "Cache-Control": "no-store"},
+    )
 
 
 @router.get("/{slug}")

@@ -109,3 +109,4 @@ __all__ = [
 
 from app.models.evaluation_correction import EvaluationCorrection
 from app.models.evaluation_campaign import EvaluationSuite, EvaluationCampaign
+from app.models.brd_document import BrdDocument
