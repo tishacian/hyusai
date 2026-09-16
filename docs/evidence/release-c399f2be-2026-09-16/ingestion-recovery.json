@@ -1,0 +1,506 @@
+{
+  "sha": "c399f2bec1ca9c984afa00ca7a3400d01a86d4cf",
+  "seed": {
+    "collection_id": "55421492-532a-448f-8b64-92960a780422",
+    "collection_slug": "qa-ingest-retry-c399f2be",
+    "source_restored": true,
+    "job": {
+      "id": "62601299-b603-4c6f-ba34-bfc07667cff6",
+      "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+      "collection_id": "55421492-532a-448f-8b64-92960a780422",
+      "kind": "document_ingest_index",
+      "celery_task_id": "8f4c5cc9-b091-483f-b2a0-c92b3ad751e9",
+      "status": "failed",
+      "progress": 100,
+      "error": "agentium-artifacts/workspaces/e2ed9e40-5fa6-4e32-8948-3e1220134fd3/knowledge-collections/55421492-532a-448f-8b64-92960a780422/original/synthetic-recovery-checkpoint.txt",
+      "stage": "copy_originals",
+      "result": {
+        "stage": "copy_originals",
+        "qualification": "c399f2be-retained-source-recovery"
+      },
+      "poll_url": "/documents/jobs/62601299-b603-4c6f-ba34-bfc07667cff6",
+      "created_at": "2026-09-16T21:48:46.576040",
+      "started_at": "2026-09-16T21:48:47.128495",
+      "completed_at": "2026-09-16T21:48:50.172577",
+      "updated_at": "2026-09-16T21:48:50.172577"
+    }
+  },
+  "before": {
+    "id": "62601299-b603-4c6f-ba34-bfc07667cff6",
+    "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+    "collection_id": "55421492-532a-448f-8b64-92960a780422",
+    "kind": "document_ingest_index",
+    "celery_task_id": "8f4c5cc9-b091-483f-b2a0-c92b3ad751e9",
+    "status": "failed",
+    "progress": 100,
+    "error": "agentium-artifacts/workspaces/e2ed9e40-5fa6-4e32-8948-3e1220134fd3/knowledge-collections/55421492-532a-448f-8b64-92960a780422/original/synthetic-recovery-checkpoint.txt",
+    "stage": "copy_originals",
+    "result": {
+      "stage": "copy_originals",
+      "qualification": "c399f2be-retained-source-recovery"
+    },
+    "poll_url": "/documents/jobs/62601299-b603-4c6f-ba34-bfc07667cff6",
+    "created_at": "2026-09-16T21:48:46.576040",
+    "started_at": "2026-09-16T21:48:47.128495",
+    "completed_at": "2026-09-16T21:48:50.172577",
+    "updated_at": "2026-09-16T21:48:50.172577"
+  },
+  "request": {
+    "request_id": "0467edb2-c018-4f56-88aa-2d2d288f56db",
+    "observed_updated_at": "2026-09-16T21:48:50.172577"
+  },
+  "receipt": {
+    "id": "62601299-b603-4c6f-ba34-bfc07667cff6",
+    "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+    "collection_id": "55421492-532a-448f-8b64-92960a780422",
+    "kind": "document_ingest_index",
+    "celery_task_id": "29ea594a-9a9c-4565-bdb8-24e26d08929d",
+    "status": "queued",
+    "progress": 0,
+    "error": null,
+    "stage": "dispatch_pending",
+    "result": {
+      "ingest_options": {},
+      "retry_history": [
+        {
+          "error": "agentium-artifacts/workspaces/e2ed9e40-5fa6-4e32-8948-3e1220134fd3/knowledge-collections/55421492-532a-448f-8b64-92960a780422/original/synthetic-recovery-checkpoint.txt",
+          "celery_task_id": "8f4c5cc9-b091-483f-b2a0-c92b3ad751e9",
+          "started_at": "2026-09-16T21:48:47.128495",
+          "completed_at": "2026-09-16T21:48:50.172577",
+          "result": {
+            "stage": "copy_originals",
+            "qualification": "c399f2be-retained-source-recovery"
+          },
+          "retried_by": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "retried_at": "2026-09-16T21:49:50.851126"
+        }
+      ],
+      "retry_request_id": "0467edb2-c018-4f56-88aa-2d2d288f56db",
+      "stage": "dispatch_pending"
+    },
+    "poll_url": "/documents/jobs/62601299-b603-4c6f-ba34-bfc07667cff6",
+    "created_at": "2026-09-16T21:48:46.576040",
+    "started_at": null,
+    "completed_at": null,
+    "updated_at": "2026-09-16T21:49:51.048231"
+  },
+  "after": {
+    "id": "62601299-b603-4c6f-ba34-bfc07667cff6",
+    "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+    "collection_id": "55421492-532a-448f-8b64-92960a780422",
+    "kind": "document_ingest_index",
+    "celery_task_id": "29ea594a-9a9c-4565-bdb8-24e26d08929d",
+    "status": "completed",
+    "progress": 100,
+    "error": null,
+    "stage": "ready",
+    "result": {
+      "retry_history": [
+        {
+          "error": "agentium-artifacts/workspaces/e2ed9e40-5fa6-4e32-8948-3e1220134fd3/knowledge-collections/55421492-532a-448f-8b64-92960a780422/original/synthetic-recovery-checkpoint.txt",
+          "celery_task_id": "8f4c5cc9-b091-483f-b2a0-c92b3ad751e9",
+          "started_at": "2026-09-16T21:48:47.128495",
+          "completed_at": "2026-09-16T21:48:50.172577",
+          "result": {
+            "stage": "copy_originals",
+            "qualification": "c399f2be-retained-source-recovery"
+          },
+          "retried_by": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "retried_at": "2026-09-16T21:49:50.851126"
+        }
+      ],
+      "retry_request_id": "0467edb2-c018-4f56-88aa-2d2d288f56db",
+      "ingest": {
+        "total": 1,
+        "successful": 1,
+        "failed": 0,
+        "results": [
+          {
+            "document_id": "025a646d-eb42-5fc3-abf4-e5043f1d3fb0",
+            "status": "success",
+            "chunks_processed": 1,
+            "table_facts_processed": 0,
+            "document_facts_processed": 1,
+            "filename": "synthetic-recovery-checkpoint.txt"
+          }
+        ]
+      },
+      "bm25": {
+        "status": "ready",
+        "path": "workspaces/e2ed9e40-5fa6-4e32-8948-3e1220134fd3/knowledge-collections/55421492-532a-448f-8b64-92960a780422/derived/bm25_retriever.pkl",
+        "chunk_count": 1,
+        "documents_indexed": 1,
+        "forced": false
+      },
+      "vector_db_type": "qdrant",
+      "collection_slug": "qa-ingest-retry-c399f2be",
+      "chunk_count": 1,
+      "document_count": 1,
+      "indexed_document_count": 1,
+      "deposit_files": [],
+      "ingest_options": {},
+      "postflight_required": false,
+      "postflight_status": "not_required",
+      "stage": "ready"
+    },
+    "poll_url": "/documents/jobs/62601299-b603-4c6f-ba34-bfc07667cff6",
+    "created_at": "2026-09-16T21:48:46.576040",
+    "started_at": "2026-09-16T21:49:51.054456",
+    "completed_at": "2026-09-16T21:50:13.899281",
+    "updated_at": "2026-09-16T21:50:13.899281"
+  },
+  "inventory": {
+    "collection_id": "55421492-532a-448f-8b64-92960a780422",
+    "collection_slug": "qa-ingest-retry-c399f2be",
+    "collection_name": "QA ingestion recovery c399f2be",
+    "status": "ready",
+    "source_count": 1,
+    "sources_total": 1,
+    "document_count": 1,
+    "chunk_count": 1,
+    "by_kind": {
+      "text": 1
+    },
+    "by_extension": {
+      "txt": 1
+    },
+    "by_status": {
+      "ready": 1
+    },
+    "top_sources": [
+      {
+        "id": "4e55e97a-e28f-474b-b9cd-4c2e4c32031b",
+        "filename": "synthetic-recovery-checkpoint.txt",
+        "source_kind": "text",
+        "extension": "txt",
+        "chunk_count": 1,
+        "status": "ready",
+        "metadata": {
+          "content_sha256": "49a514a4b9c2cc950a63acd199210637a3b3f662cdf44eb4019db6b5fe59de52",
+          "document_id": "025a646d-eb42-5fc3-abf4-e5043f1d3fb0",
+          "table_facts_processed": 0,
+          "document_facts_processed": 1
+        }
+      }
+    ],
+    "chunk_buckets": {
+      "0": {
+        "sources": 0,
+        "chunks": 0
+      },
+      "1-5": {
+        "sources": 1,
+        "chunks": 1
+      },
+      "6-50": {
+        "sources": 0,
+        "chunks": 0
+      },
+      "51-200": {
+        "sources": 0,
+        "chunks": 0
+      },
+      "201-1000": {
+        "sources": 0,
+        "chunks": 0
+      },
+      ">1000": {
+        "sources": 0,
+        "chunks": 0
+      }
+    },
+    "chunk_percentiles": {
+      "p50": 1,
+      "p90": 1,
+      "p95": 1,
+      "p99": 1
+    },
+    "zero_chunk_sources": 0,
+    "error_sources": 0,
+    "heavy_sources": 0,
+    "source_filters": {
+      "q": "",
+      "source_kind": "",
+      "extension": "",
+      "status": "",
+      "project_code": "",
+      "archive_name": "",
+      "document_id": [],
+      "document_filename": [],
+      "language": "",
+      "sort": "filename",
+      "sort_dir": "asc"
+    },
+    "sources": [
+      {
+        "id": "4e55e97a-e28f-474b-b9cd-4c2e4c32031b",
+        "filename": "synthetic-recovery-checkpoint.txt",
+        "source_kind": "text",
+        "extension": "txt",
+        "mime_type": "text/plain",
+        "origin": "upload",
+        "size_bytes": null,
+        "chunk_count": 1,
+        "status": "ready",
+        "indexed_at": "2026-09-16T21:50:13.669394",
+        "last_error": null,
+        "metadata": {
+          "content_sha256": "49a514a4b9c2cc950a63acd199210637a3b3f662cdf44eb4019db6b5fe59de52",
+          "document_id": "025a646d-eb42-5fc3-abf4-e5043f1d3fb0",
+          "table_facts_processed": 0,
+          "document_facts_processed": 1
+        }
+      }
+    ],
+    "sources_offset": 0,
+    "sources_limit": null,
+    "sources_returned": 1,
+    "sources_has_more": false
+  },
+  "retrieval": {
+    "results": [
+      {
+        "id": "025a646d-eb42-5fc3-abf4-e5043f1d3fb0_chunk_0",
+        "score": 0.7052902,
+        "content": "Agentium synthetic ingestion recovery checkpoint R2-C399. Retained source restored after an intentional missing-original failure. This is a technical qualification document, not client knowledge or an operational instruction.",
+        "metadata": {
+          "document_id": "025a646d-eb42-5fc3-abf4-e5043f1d3fb0",
+          "document_filename": "synthetic-recovery-checkpoint.txt",
+          "chunk_index": 0,
+          "content": "Agentium synthetic ingestion recovery checkpoint R2-C399. Retained source restored after an intentional missing-original failure. This is a technical qualification document, not client knowledge or an operational instruction.",
+          "start_char": 0,
+          "end_char": 225,
+          "document_type": "txt",
+          "file_size": 225,
+          "created_at": "2026-09-16T21:49:51.134150",
+          "modified_at": "2026-09-16T21:49:51.134150",
+          "extension": "txt",
+          "document_encoding": "ascii",
+          "document_word_count": 27,
+          "document_character_count": 225,
+          "document_line_count": 1,
+          "document_paragraph_count": 1,
+          "document_extracted_keywords": [
+            "after",
+            "an",
+            "not client",
+            "operational",
+            "operational instruction",
+            "or",
+            "or an",
+            "original",
+            "original failure",
+            "qualification"
+          ],
+          "document_has_front_matter": false,
+          "document_token_count": 37,
+          "content_sha256": "49a514a4b9c2cc950a63acd199210637a3b3f662cdf44eb4019db6b5fe59de52",
+          "collection_slug": "qa-ingest-retry-c399f2be",
+          "collection": "qa-ingest-retry-c399f2be",
+          "source_kind": "text",
+          "status": "ready",
+          "sparse_schema_version": "metadata_v1",
+          "retrieval_identifiers": [
+            "025a646deb425fc3abf4e5043f1d3fb0",
+            "eb42",
+            "eb 42",
+            "eb-42",
+            "eb_42",
+            "eb.42",
+            "025a646deb42",
+            "5fc3abf4",
+            "e5043f1d3fb0",
+            "e 5043f1d3fb0",
+            "e-5043f1d3fb0",
+            "e_5043f1d3fb0",
+            "e.5043f1d3fb0",
+            "syntheticrecoverycheckpointtxt"
+          ],
+          "retrieval_terms": [
+            "synthetic",
+            "recovery",
+            "checkpoint",
+            "txt",
+            "syntheticrecoverycheckpointtxt",
+            "text"
+          ]
+        },
+        "vector_score": 0.7052902,
+        "bm25_score": 0.0,
+        "combined_score": 0.7052902
+      }
+    ],
+    "total": 1,
+    "retrieval_plan": {
+      "profile": "fast",
+      "intent": "content_search",
+      "dense_policy": "standard",
+      "deadline_ms": 8000,
+      "top_k": 3,
+      "candidate_pool_k": 12,
+      "synthesis_k": 12,
+      "max_variants": 3,
+      "max_candidates": 20,
+      "coarse_to_fine": false,
+      "layers": {
+        "inventory": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "dense corpus guardrail and scope discovery",
+          "budget_ms": 500
+        },
+        "facts": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "small corpus can retrieve chunks directly",
+          "budget_ms": 1200
+        },
+        "summaries": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "summary artifacts are optional unless dense scope or deep retrieval is active",
+          "budget_ms": 2500,
+          "top_k": 20
+        },
+        "dense_qdrant": {
+          "enabled": true,
+          "status": "enabled",
+          "reason": "payload-filtered dense chunk retrieval",
+          "budget_ms": 3500,
+          "top_k": 12
+        },
+        "sparse": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "legacy hybrid allowed for non-dense corpus",
+          "budget_ms": 2500,
+          "top_k": 12
+        },
+        "hah_chah": {
+          "enabled": true,
+          "status": "enabled",
+          "reason": "budget-aware layered HAH/C-HAH enabled",
+          "budget_ms": 8000,
+          "top_k": 20
+        },
+        "rerank": {
+          "enabled": true,
+          "status": "enabled",
+          "reason": "normalize/fuse/rerank only the bounded candidate pool",
+          "budget_ms": 1200,
+          "top_k": 12
+        },
+        "deep_async": {
+          "enabled": false,
+          "status": "skipped",
+          "reason": "not needed for this interactive plan",
+          "budget_ms": 120000
+        }
+      },
+      "guardrails": {
+        "allow_legacy_hybrid": true,
+        "global_chunk_search_allowed": true,
+        "scoped_chunk_search_allowed": true,
+        "user_scope_required": false
+      }
+    },
+    "retrieval_scope": {
+      "collections": [
+        "qa-ingest-retry-c399f2be"
+      ],
+      "filters": {
+        "document_id": [
+          "025a646d-eb42-5fc3-abf4-e5043f1d3fb0"
+        ]
+      },
+      "intent": "content_search",
+      "dense": false,
+      "source_count": 1,
+      "chunk_count": 1,
+      "confidence": 0.75,
+      "reason": "document_id_match=1",
+      "corpus_version": "2026-09-16 21:50:13.897279",
+      "soft_scope_filters": {},
+      "soft_scope_collections": [],
+      "recall_floor_collections": [],
+      "recall_floor_top_n": 0,
+      "planner_ms": 20
+    },
+    "dense_policy": "standard",
+    "fallback_reason": null,
+    "latency_budget": {
+      "profile": "fast",
+      "deadline_seconds": 8.0,
+      "top_k": 3,
+      "candidate_pool_k": 12
+    },
+    "total_available": 1,
+    "total_is_dense": false
+  },
+  "replay": {
+    "id": "62601299-b603-4c6f-ba34-bfc07667cff6",
+    "workspace_id": "e2ed9e40-5fa6-4e32-8948-3e1220134fd3",
+    "collection_id": "55421492-532a-448f-8b64-92960a780422",
+    "kind": "document_ingest_index",
+    "celery_task_id": "29ea594a-9a9c-4565-bdb8-24e26d08929d",
+    "status": "completed",
+    "progress": 100,
+    "error": null,
+    "stage": "ready",
+    "result": {
+      "retry_history": [
+        {
+          "error": "agentium-artifacts/workspaces/e2ed9e40-5fa6-4e32-8948-3e1220134fd3/knowledge-collections/55421492-532a-448f-8b64-92960a780422/original/synthetic-recovery-checkpoint.txt",
+          "celery_task_id": "8f4c5cc9-b091-483f-b2a0-c92b3ad751e9",
+          "started_at": "2026-09-16T21:48:47.128495",
+          "completed_at": "2026-09-16T21:48:50.172577",
+          "result": {
+            "stage": "copy_originals",
+            "qualification": "c399f2be-retained-source-recovery"
+          },
+          "retried_by": "06a2e190-ae2d-4365-b4f3-9952401f531d",
+          "retried_at": "2026-09-16T21:49:50.851126"
+        }
+      ],
+      "retry_request_id": "0467edb2-c018-4f56-88aa-2d2d288f56db",
+      "ingest": {
+        "total": 1,
+        "successful": 1,
+        "failed": 0,
+        "results": [
+          {
+            "document_id": "025a646d-eb42-5fc3-abf4-e5043f1d3fb0",
+            "status": "success",
+            "chunks_processed": 1,
+            "table_facts_processed": 0,
+            "document_facts_processed": 1,
+            "filename": "synthetic-recovery-checkpoint.txt"
+          }
+        ]
+      },
+      "bm25": {
+        "status": "ready",
+        "path": "workspaces/e2ed9e40-5fa6-4e32-8948-3e1220134fd3/knowledge-collections/55421492-532a-448f-8b64-92960a780422/derived/bm25_retriever.pkl",
+        "chunk_count": 1,
+        "documents_indexed": 1,
+        "forced": false
+      },
+      "vector_db_type": "qdrant",
+      "collection_slug": "qa-ingest-retry-c399f2be",
+      "chunk_count": 1,
+      "document_count": 1,
+      "indexed_document_count": 1,
+      "deposit_files": [],
+      "ingest_options": {},
+      "postflight_required": false,
+      "postflight_status": "not_required",
+      "stage": "ready"
+    },
+    "poll_url": "/documents/jobs/62601299-b603-4c6f-ba34-bfc07667cff6",
+    "created_at": "2026-09-16T21:48:46.576040",
+    "started_at": "2026-09-16T21:49:51.054456",
+    "completed_at": "2026-09-16T21:50:13.899281",
+    "updated_at": "2026-09-16T21:50:13.899281"
+  },
+  "status": "verified"
+}
