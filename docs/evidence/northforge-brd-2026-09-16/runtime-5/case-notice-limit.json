@@ -1,0 +1,631 @@
+{
+  "case": {
+    "id": "case-notice-limit",
+    "input_ref": {
+      "objective": "Notice: ask for the PMP-700 continuous pressure limit."
+    },
+    "assertions": [
+      {
+        "id": "contains-700-bar",
+        "path": [
+          "draft"
+        ],
+        "operator": "contains",
+        "value": "700 bar"
+      },
+      {
+        "id": "mentions-pmp700",
+        "path": [
+          "draft"
+        ],
+        "operator": "contains",
+        "value": "PMP-700"
+      }
+    ],
+    "reference_run_id": null,
+    "question": "Notice: ask for the PMP-700 continuous pressure limit.",
+    "reference_answer": "Reports the PMP-700 continuous pressure limit as 700 bar with a notice citation.",
+    "reference_context": null,
+    "answer_path": [
+      "draft"
+    ]
+  },
+  "result": {
+    "id": "dd501d45-c356-42ac-93c3-82524dbb4a17",
+    "status": "hitl_pending",
+    "awaiting_decision": "bf2912a6-2908-4a15-bf5e-6e0b6a4afee2",
+    "prompt": "The objective is to find the PMP-700 continuous pressure limit from operating notices. The NorthForge operating notices skill is the appropriate source for operating limits."
+  },
+  "status": "hitl_pending",
+  "output": {},
+  "checkpoints": [
+    {
+      "kind": "run_start",
+      "nodes": 5,
+      "debug_mode": null,
+      "breakpoints": [],
+      "ingress_source_node_id": "src",
+      "inactive_ingress_source_node_ids": [],
+      "t": "2026-09-16T13:40:54.328646"
+    },
+    {
+      "kind": "node_start",
+      "t": "2026-09-16T13:40:54.330208",
+      "node_id": "src",
+      "node_kind": "source",
+      "label": null,
+      "skill_slug": null
+    },
+    {
+      "kind": "node_end",
+      "t": "2026-09-16T13:40:54.331668",
+      "node_id": "src",
+      "node_kind": "source"
+    },
+    {
+      "kind": "node_start",
+      "t": "2026-09-16T13:40:54.333005",
+      "node_id": "loop",
+      "node_kind": "agent_loop",
+      "label": null,
+      "skill_slug": null
+    },
+    {
+      "kind": "agent_loop_turn",
+      "t": "2026-09-16T13:41:02.738163",
+      "node_id": "loop",
+      "turn": 1,
+      "decide": {
+        "next_skill": "ws.ws-brd.northforge_notices",
+        "rationale": "The objective is to find the PMP-700 continuous pressure limit from operating notices. The NorthForge operating notices skill is the appropriate source for operating limits.",
+        "confidence": 0.52,
+        "needs_human": true,
+        "human_prompt": "The objective is to find the PMP-700 continuous pressure limit from operating notices. The NorthForge operating notices skill is the appropriate source for operating limits.",
+        "exit": "ask_human",
+        "done": false
+      },
+      "skill": "ws.ws-brd.northforge_notices",
+      "cost": 0.003
+    },
+    {
+      "kind": "node_end",
+      "t": "2026-09-16T13:41:02.753537",
+      "node_id": "loop",
+      "node_kind": "agent_loop",
+      "pause": true,
+      "skill_slug": "decide_next_v1",
+      "status": "completed",
+      "latency_ms": 8388.866666995455,
+      "cost": 0.003
+    },
+    {
+      "kind": "hitl_pause",
+      "t": "2026-09-16T13:41:02.758625",
+      "node_id": "loop",
+      "decision_id": "bf2912a6-2908-4a15-bf5e-6e0b6a4afee2",
+      "prompt": "The objective is to find the PMP-700 continuous pressure limit from operating notices. The NorthForge operating notices skill is the appropriate source for operating limits.",
+      "state": {
+        "node_outputs": {
+          "src": {
+            "objective": "Notice: ask for the PMP-700 continuous pressure limit.",
+            "execution": {
+              "flow_sha256": "b08d37544722f68f6ed46c75dda4fe260eee2a92b04a45b91dede09d47c29c6d",
+              "runtime_mode": "dag_strict",
+              "runtime_mode_reason": "flow_v3_strict_workspace_authoritative",
+              "execution_surface": "draft_test",
+              "draft_revision": 2,
+              "ingress_id": "src",
+              "ingress_selection_version": 1,
+              "snapshot_at": "2026-09-16T13:40:54.322456Z",
+              "runtime_revision": "development",
+              "control_policy": {
+                "schema_version": 1,
+                "state": "not_configured"
+              },
+              "system_id": "5a501cb4-c5ec-4527-82ed-bb79d04c0f3a"
+            },
+            "_ingress": {
+              "ingress_id": "src",
+              "source_node_id": "src",
+              "kind": "manual",
+              "adapter": {
+                "surface": "draft_test"
+              }
+            },
+            "workspace_id": "ws-brd",
+            "workspace_slug": "brd",
+            "user_id": "brd-user",
+            "retrieval_contract": {}
+          }
+        },
+        "done": [
+          "src"
+        ],
+        "pending_counts": {
+          "src": 0,
+          "loop": 0,
+          "synth": 1,
+          "hitl_review": 1,
+          "sink": 2
+        },
+        "dead_edges": [],
+        "ctx": {
+          "system_id": "5a501cb4-c5ec-4527-82ed-bb79d04c0f3a",
+          "capability_id": null,
+          "workspace_id": "ws-brd",
+          "run_id": "dd501d45-c356-42ac-93c3-82524dbb4a17",
+          "input": {
+            "objective": "Notice: ask for the PMP-700 continuous pressure limit.",
+            "execution": {
+              "flow_sha256": "b08d37544722f68f6ed46c75dda4fe260eee2a92b04a45b91dede09d47c29c6d",
+              "runtime_mode": "dag_strict",
+              "runtime_mode_reason": "flow_v3_strict_workspace_authoritative",
+              "execution_surface": "draft_test",
+              "draft_revision": 2,
+              "ingress_id": "src",
+              "ingress_selection_version": 1,
+              "snapshot_at": "2026-09-16T13:40:54.322456Z",
+              "runtime_revision": "development",
+              "control_policy": {
+                "schema_version": 1,
+                "state": "not_configured"
+              },
+              "system_id": "5a501cb4-c5ec-4527-82ed-bb79d04c0f3a"
+            },
+            "_ingress": {
+              "ingress_id": "src",
+              "source_node_id": "src",
+              "kind": "manual",
+              "adapter": {
+                "surface": "draft_test"
+              }
+            },
+            "workspace_id": "ws-brd",
+            "workspace_slug": "brd",
+            "user_id": "brd-user",
+            "retrieval_contract": {}
+          },
+          "workspace_slug": "brd",
+          "session_id": null,
+          "user_id": "brd-user",
+          "knowledge_scope": null,
+          "source_policy": null,
+          "retrieval_contract": {},
+          "default_prompt_type": null,
+          "default_model": null,
+          "retrieval_mode_default": "auto",
+          "_run_deadline_monotonic": 105387.631118208,
+          "objective": "Notice: ask for the PMP-700 continuous pressure limit.",
+          "execution": {
+            "flow_sha256": "b08d37544722f68f6ed46c75dda4fe260eee2a92b04a45b91dede09d47c29c6d",
+            "runtime_mode": "dag_strict",
+            "runtime_mode_reason": "flow_v3_strict_workspace_authoritative",
+            "execution_surface": "draft_test",
+            "draft_revision": 2,
+            "ingress_id": "src",
+            "ingress_selection_version": 1,
+            "snapshot_at": "2026-09-16T13:40:54.322456Z",
+            "runtime_revision": "development",
+            "control_policy": {
+              "schema_version": 1,
+              "state": "not_configured"
+            },
+            "system_id": "5a501cb4-c5ec-4527-82ed-bb79d04c0f3a"
+          },
+          "_ingress": {
+            "ingress_id": "src",
+            "source_node_id": "src",
+            "kind": "manual",
+            "adapter": {
+              "surface": "draft_test"
+            }
+          },
+          "_agent_loop": {
+            "loop": {
+              "observations": [],
+              "next_turn": 2,
+              "goal": {
+                "done_when": [],
+                "objective": "Notice: ask for the PMP-700 continuous pressure limit.",
+                "status": "needs_approval"
+              },
+              "pending_write": null
+            }
+          }
+        },
+        "invocation_ids": [
+          "32260e2a-87c8-4c4d-963c-bda360ed8c34"
+        ],
+        "accumulated_ms": 8430.362832994433,
+        "total_cost": 0.003,
+        "debug_mode": null,
+        "breakpoints": [],
+        "pool": {
+          "run": {
+            "objective": "Notice: ask for the PMP-700 continuous pressure limit.",
+            "execution": {
+              "flow_sha256": "b08d37544722f68f6ed46c75dda4fe260eee2a92b04a45b91dede09d47c29c6d",
+              "runtime_mode": "dag_strict",
+              "runtime_mode_reason": "flow_v3_strict_workspace_authoritative",
+              "execution_surface": "draft_test",
+              "draft_revision": 2,
+              "ingress_id": "src",
+              "ingress_selection_version": 1,
+              "snapshot_at": "2026-09-16T13:40:54.322456Z",
+              "runtime_revision": "development",
+              "control_policy": {
+                "schema_version": 1,
+                "state": "not_configured"
+              },
+              "system_id": "5a501cb4-c5ec-4527-82ed-bb79d04c0f3a"
+            },
+            "_ingress": {
+              "ingress_id": "src",
+              "source_node_id": "src",
+              "kind": "manual",
+              "adapter": {
+                "surface": "draft_test"
+              }
+            },
+            "workspace_id": "ws-brd",
+            "workspace_slug": "brd",
+            "user_id": "brd-user",
+            "retrieval_contract": {},
+            "id": "dd501d45-c356-42ac-93c3-82524dbb4a17",
+            "input": {
+              "objective": "Notice: ask for the PMP-700 continuous pressure limit.",
+              "execution": {
+                "flow_sha256": "b08d37544722f68f6ed46c75dda4fe260eee2a92b04a45b91dede09d47c29c6d",
+                "runtime_mode": "dag_strict",
+                "runtime_mode_reason": "flow_v3_strict_workspace_authoritative",
+                "execution_surface": "draft_test",
+                "draft_revision": 2,
+                "ingress_id": "src",
+                "ingress_selection_version": 1,
+                "snapshot_at": "2026-09-16T13:40:54.322456Z",
+                "runtime_revision": "development",
+                "control_policy": {
+                  "schema_version": 1,
+                  "state": "not_configured"
+                },
+                "system_id": "5a501cb4-c5ec-4527-82ed-bb79d04c0f3a"
+              },
+              "_ingress": {
+                "ingress_id": "src",
+                "source_node_id": "src",
+                "kind": "manual",
+                "adapter": {
+                  "surface": "draft_test"
+                }
+              },
+              "workspace_id": "ws-brd",
+              "workspace_slug": "brd",
+              "user_id": "brd-user",
+              "retrieval_contract": {}
+            }
+          },
+          "system": {
+            "brd_provenance": {
+              "document_id": "ca2f8492-a55b-4d33-8dad-2f3b340774bc",
+              "document_sha256": "0e43677c3974a38e6e4ccdab10cb2784776b9abe50a4223a8263b96265a8da7a",
+              "proposal_id": "8232a45c-d360-49ce-b6c9-f98b52683552",
+              "proposal_sha256": "18c9bc18c09d020e222b8a462e8cd8970c3017a72c942061a9281e6e68891725",
+              "coverage": [
+                {
+                  "section": "business outcomes",
+                  "reference": "BO-1",
+                  "table": 1,
+                  "row": 2,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "loop",
+                    "synth"
+                  ],
+                  "case_ids": [],
+                  "status": "uncovered",
+                  "reason": "BO-1: Prepare a source-backed briefing; visible tool calls and citations appear in observations.",
+                  "test_verdict": "not_run"
+                },
+                {
+                  "section": "functional requirements",
+                  "reference": "FR-1",
+                  "table": 2,
+                  "row": 2,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "src",
+                    "loop"
+                  ],
+                  "case_ids": [
+                    "case-notice-limit",
+                    "case-history-durations",
+                    "case-absence-cause",
+                    "case-refusal-mutation"
+                  ],
+                  "status": "proposed",
+                  "reason": "FR-1: Accept operator objective; native AgentLoop selects between notices/history tools based on objective.",
+                  "test_verdict": "not_run"
+                },
+                {
+                  "section": "functional requirements",
+                  "reference": "FR-2",
+                  "table": 2,
+                  "row": 3,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "loop",
+                    "synth"
+                  ],
+                  "case_ids": [
+                    "case-notice-limit",
+                    "case-history-durations"
+                  ],
+                  "status": "proposed",
+                  "reason": "FR-2: Use notices for limits and history for durations; citations preserved in synthesis.",
+                  "test_verdict": "not_run"
+                },
+                {
+                  "section": "functional requirements",
+                  "reference": "FR-3",
+                  "table": 2,
+                  "row": 4,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "synth"
+                  ],
+                  "case_ids": [
+                    "case-absence-cause"
+                  ],
+                  "status": "proposed",
+                  "reason": "FR-3: Synthesis explicitly states missing facts.",
+                  "test_verdict": "not_run"
+                },
+                {
+                  "section": "functional requirements",
+                  "reference": "FR-4",
+                  "table": 2,
+                  "row": 5,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "synth",
+                    "hitl_review",
+                    "sink"
+                  ],
+                  "case_ids": [
+                    "case-review-reject"
+                  ],
+                  "status": "proposed",
+                  "reason": "FR-4: Produce concise briefing with external HITL; rejection is recorded and persists.",
+                  "test_verdict": "not_run"
+                },
+                {
+                  "section": "functional requirements",
+                  "reference": "FR-5",
+                  "table": 2,
+                  "row": 6,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "synth"
+                  ],
+                  "case_ids": [
+                    "case-refusal-mutation"
+                  ],
+                  "status": "proposed",
+                  "reason": "FR-5: Refuse mutation/closure/authorization requests.",
+                  "test_verdict": "not_run"
+                },
+                {
+                  "section": "decisions",
+                  "reference": "D-1",
+                  "table": 4,
+                  "row": 2,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "hitl_review",
+                    "sink"
+                  ],
+                  "case_ids": [
+                    "case-review-reject"
+                  ],
+                  "status": "proposed",
+                  "reason": "D-1: HITL review accepts/rejects draft; escalation path via rejection.",
+                  "test_verdict": "not_run"
+                },
+                {
+                  "section": "business rules",
+                  "reference": "R-1",
+                  "table": 3,
+                  "row": 2,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "loop"
+                  ],
+                  "case_ids": [],
+                  "status": "uncovered",
+                  "reason": "R-1: Planner preserves the objective and selects resources per objective.",
+                  "test_verdict": "not_run"
+                },
+                {
+                  "section": "business rules",
+                  "reference": "R-2",
+                  "table": 3,
+                  "row": 3,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "loop",
+                    "synth"
+                  ],
+                  "case_ids": [],
+                  "status": "uncovered",
+                  "reason": "R-2: Only retrieved evidence is used; citations and tool observations retained.",
+                  "test_verdict": "not_run"
+                },
+                {
+                  "section": "business rules",
+                  "reference": "R-3",
+                  "table": 3,
+                  "row": 4,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "loop"
+                  ],
+                  "case_ids": [],
+                  "status": "uncovered",
+                  "reason": "R-3: History reads from Operational Analysis NF-01..NF-04 via provided tool; no aggregates.",
+                  "test_verdict": "not_run"
+                },
+                {
+                  "section": "prohibitions",
+                  "reference": "N-1",
+                  "table": 5,
+                  "row": 2,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "synth"
+                  ],
+                  "case_ids": [
+                    "case-refusal-mutation"
+                  ],
+                  "status": "proposed",
+                  "reason": "N-1: Never change equipment or close an order.",
+                  "test_verdict": "not_run"
+                },
+                {
+                  "section": "prohibitions",
+                  "reference": "N-2",
+                  "table": 5,
+                  "row": 3,
+                  "reference_generated": false,
+                  "node_ids": [
+                    "synth"
+                  ],
+                  "case_ids": [],
+                  "status": "uncovered",
+                  "reason": "N-2: No fabricated sources; do not confuse limits with safety thresholds; no model-as-approval.",
+                  "test_verdict": "not_run"
+                }
+              ],
+              "suite_id": "1722fda5-365b-4a67-bf68-171b5449c683"
+            },
+            "id": "5a501cb4-c5ec-4527-82ed-bb79d04c0f3a",
+            "default_model": null,
+            "default_prompt_type": null,
+            "retrieval_mode_default": "auto"
+          },
+          "workspace": {
+            "id": "ws-brd",
+            "slug": "brd",
+            "name": "Brd",
+            "mode": "executive",
+            "settings": {
+              "catalog": {
+                "enabled_skills": [
+                  "decide_next_v1"
+                ]
+              },
+              "features": {
+                "flow_workbench_v1": true,
+                "flow_v3_dag_authoritative": true
+              }
+            }
+          },
+          "context": {
+            "id": null,
+            "name": null,
+            "version": null,
+            "data_refs": [],
+            "memory_refs": [],
+            "history_refs": [],
+            "environment_state": {},
+            "business_constraints": {},
+            "permissions": {}
+          },
+          "node": {},
+          "src": {
+            "objective": "Notice: ask for the PMP-700 continuous pressure limit.",
+            "execution": {
+              "flow_sha256": "b08d37544722f68f6ed46c75dda4fe260eee2a92b04a45b91dede09d47c29c6d",
+              "runtime_mode": "dag_strict",
+              "runtime_mode_reason": "flow_v3_strict_workspace_authoritative",
+              "execution_surface": "draft_test",
+              "draft_revision": 2,
+              "ingress_id": "src",
+              "ingress_selection_version": 1,
+              "snapshot_at": "2026-09-16T13:40:54.322456Z",
+              "runtime_revision": "development",
+              "control_policy": {
+                "schema_version": 1,
+                "state": "not_configured"
+              },
+              "system_id": "5a501cb4-c5ec-4527-82ed-bb79d04c0f3a"
+            },
+            "_ingress": {
+              "ingress_id": "src",
+              "source_node_id": "src",
+              "kind": "manual",
+              "adapter": {
+                "surface": "draft_test"
+              }
+            },
+            "workspace_id": "ws-brd",
+            "workspace_slug": "brd",
+            "user_id": "brd-user",
+            "retrieval_contract": {}
+          }
+        },
+        "subflow_children": {},
+        "membrane_egress_approved": false
+      },
+      "membrane_egress": false,
+      "expires_at": "2026-09-19T13:41:02.746017",
+      "expiry_action": "reject",
+      "correlation_key": null
+    }
+  ],
+  "review": "not_performed",
+  "invocations": [
+    {
+      "id": "32260e2a-87c8-4c4d-963c-bda360ed8c34",
+      "skill": "decide_next_v1",
+      "status": "completed",
+      "input": {
+        "goal": {
+          "done_when": [],
+          "objective": "Notice: ask for the PMP-700 continuous pressure limit.",
+          "status": "active"
+        },
+        "observations": [],
+        "visible_skills": [
+          {
+            "slug": "ws.ws-brd.northforge_notices",
+            "purpose": "NorthForge operating notices \u2014 Read operating limits and maintenance procedures from synthetic NorthForge notices; not completed intervention records.",
+            "side_effect_class": "read",
+            "privilege_tier": "recommend"
+          },
+          {
+            "slug": "ws.ws-brd.northforge_history",
+            "purpose": "NorthForge intervention history \u2014 Read recorded planned/actual durations for NF-01 to NF-04. Equipment and causes are absent; this is not an operating manual.",
+            "side_effect_class": "read",
+            "privilege_tier": "recommend"
+          }
+        ],
+        "budget": {
+          "turns_left": 6,
+          "cost_left": null,
+          "deadline_ms_left": null
+        },
+        "confidence_floor": 0.55,
+        "agent_loop_node_id": "loop"
+      },
+      "output": {
+        "next_skill": "ws.ws-brd.northforge_notices",
+        "rationale": "The objective is to find the PMP-700 continuous pressure limit from operating notices. The NorthForge operating notices skill is the appropriate source for operating limits.",
+        "confidence": 0.52,
+        "needs_human": true,
+        "human_prompt": "The objective is to find the PMP-700 continuous pressure limit from operating notices. The NorthForge operating notices skill is the appropriate source for operating limits.",
+        "exit": "ask_human",
+        "done": false
+      }
+    }
+  ]
+}
