@@ -376,6 +376,9 @@ def test_brd_generation_is_durable_idempotent_and_validated(db_session, tmp_path
     monkeypatch.setattr(brd_generation, "generate_material", invalid)
     second = client.post(path, json={**request, "request_key": "gen-2"}).json()["id"]
     assert brd_generation.run_generation_job(second)["status"] == "failed"
+    db_session.expire_all()
+    assert db_session.get(WorkspaceJob, second).result["reason"] == "proposal_validation_failed"
+    assert "generation" in db_session.get(WorkspaceJob, second).result
     assert db_session.query(BrdProposal).count() == 1
 
     from app.api.v1.endpoints import workspace_jobs as jobs_api

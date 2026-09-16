@@ -404,3 +404,22 @@ optional `brd_origin` reader together. Earlier binaries reject that field, so a
 rollback to a pre-R1 image cannot execute newly published BRD contracts. Retain a
 compatible reader when rolling back the authoring experience; do not rewrite
 published contracts to make an older binary accept them.
+
+### First real PIH generation — 16 September
+
+Four diagnostic supplier attempts revealed a GPT-5 token-parameter refusal,
+empty reasoning-only output, then invalid generated category/executor/node
+shapes. The fourth proposal (38.73 s, 8,183 provider-reported tokens) passes
+canonical proposal retention, application, draft compilation and pending Run
+creation for its three inputs in local tests. No manual Flow rewrite was used.
+
+The client now adapts reasoning-model token limits across normal, streamed and
+tool calls. Generation uses low reasoning effort where supported, exact Flow
+and executor instructions, canonical case schema and published category enums.
+Failed output/validation retains available usage evidence. Business outcomes
+are accepted and displayed in requirement coverage alongside requirements and
+constraints. Evidence and remaining acceptance limits:
+`docs/evidence/brd-generation-2026-09-16/README.md`.
+
+This is not deployed R1 acceptance: runtime execution/HITL/assertions and the
+NorthForge family remain to qualify.

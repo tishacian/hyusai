@@ -85,7 +85,7 @@ class SkillCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
     type: str = Field(default="generic", max_length=60)
-    category: Optional[str] = None
+    category: Optional[str] = Field(default=None, json_schema_extra={"enum": [*AUTHORABLE_CATEGORIES, None]})
     input_schema: Dict[str, Any] = {}
     output_schema: Dict[str, Any] = {}
     executor: Dict[str, Any]
@@ -103,7 +103,7 @@ class SkillUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     description: Optional[str] = None
     type: Optional[str] = Field(default=None, max_length=60)
-    category: Optional[str] = None
+    category: Optional[str] = Field(default=None, json_schema_extra={"enum": [*AUTHORABLE_CATEGORIES, None]})
     input_schema: Optional[Dict[str, Any]] = None
     output_schema: Optional[Dict[str, Any]] = None
     executor: Optional[Dict[str, Any]] = None

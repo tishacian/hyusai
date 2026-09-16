@@ -13,7 +13,7 @@ def coverage(extraction, mappings, *, node_ids, case_ids):
     sources = {
         (item["table"], item["row"]): item
         for item in extraction.get("provenance", [])
-        if item["section"] in {"functional requirements", "business rules", "prohibitions", "decisions"}
+        if item["section"] in {"business outcomes", "functional requirements", "business rules", "prohibitions", "decisions"}
     }
     selected = {}
     for mapping in mappings:
