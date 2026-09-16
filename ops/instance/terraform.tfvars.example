@@ -1,0 +1,13 @@
+name                = "agentium-lab"
+os_auth_url         = "https://keystone.example:5000/v3"
+os_region           = "RegionOne"
+os_tenant_name      = "agentium"
+os_username         = "agentium-tf"
+os_password         = "set-in-environment-or-secret-store"
+external_network_id = "00000000-0000-0000-0000-000000000000"
+image_name          = "ubuntu-24.04"
+flavor_control_plane = "m1.large"
+flavor_worker        = "m1.large"
+keypair_name        = "agentium-ops"
+worker_count        = 2
+ssh_cidr            = "10.0.0.0/8"

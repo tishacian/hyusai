@@ -1,0 +1,53 @@
+{{- if .Values.keycloak.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentium-kc
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+spec:
+  replicas: {{ .Values.replicaCount.keycloak }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: keycloak
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: {{ .Values.keycloak.image | quote }}
+          args: ["start-dev"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: KC_HTTP_RELATIVE_PATH
+              value: {{ .Values.keycloak.httpRelativePath | quote }}
+          readinessProbe:
+            httpGet:
+              path: {{ printf "%srealms/papai-org" .Values.keycloak.httpRelativePath | quote }}
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentium-kc
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: keycloak
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}

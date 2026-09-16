@@ -1,0 +1,32 @@
+{{- if .Values.p4Maintenance.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentium-p4-maintenance
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: p4-maintenance
+spec:
+  replicas: {{ .Values.replicaCount.p4Maintenance }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: p4-maintenance
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: p4-maintenance
+    spec:
+      {{- include "agentium.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: p4-maintenance
+          image: {{ .Values.image.worker | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "app.workers.p4_maintenance"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "agentium.fullname" . }}-config
+            - secretRef:
+                name: {{ include "agentium.secretName" . }}
+{{- end }}
