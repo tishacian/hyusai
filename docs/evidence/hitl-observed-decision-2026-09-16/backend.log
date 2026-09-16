@@ -1,0 +1,46 @@
+........................                                                 [100%]
+=============================== warnings summary ===============================
+app/tests/api/test_runs_hitl_auth.py: 240 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/api/test_runs_hitl_auth.py: 10 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/api/v1/endpoints/runs.py:856: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "t": datetime.utcnow().isoformat(),
+
+app/tests/api/test_runs_hitl_auth.py::test_ordinary_hitl_owner_uses_authenticated_actor_not_body
+app/tests/api/test_runs_hitl_auth.py::test_hitl_run_approve_shadow_preserves_legacy_and_enforce_uses_candidate
+app/tests/api/test_runs_hitl_auth.py::test_ordinary_hitl_idempotent_retry_republishes_same_durable_task
+app/tests/api/test_runs_hitl_auth.py::test_in_process_child_and_parent_routes_share_outermost_resume_owner
+app/tests/api/test_runs_hitl_auth.py::test_run_hitl_celery_flag_off_keeps_inline_background_path
+app/tests/api/test_runs_hitl_auth.py::test_nested_in_process_descendant_under_celery_child_uses_p4_resume
+app/tests/api/test_runs_hitl_auth.py::test_delegated_hitl_queues_durable_child_resume
+app/tests/api/test_runs_hitl_auth.py::test_managed_agentic_hitl_requires_admin_even_for_run_initiator
+app/tests/api/test_runs_hitl_auth.py::test_global_admin_can_resolve_managed_hitl_without_membership
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/decisions/state_machine.py:55: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    decision.approved_at = datetime.utcnow()
+
+app/tests/api/test_runs_hitl_auth.py: 11 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/run_engine/dispatch_outbox.py:176: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/api/test_runs_hitl_auth.py::test_hitl_run_approve_shadow_preserves_legacy_and_enforce_uses_candidate
+app/tests/api/test_runs_hitl_auth.py::test_hitl_run_approve_shadow_preserves_legacy_and_enforce_uses_candidate
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/audit_logger.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+app/tests/api/test_runs_hitl_auth.py::test_delegated_hitl_rejects_a_first_resolution_after_its_deadline
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/tests/api/test_runs_hitl_auth.py:632: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    deadline = datetime.utcnow() - timedelta(seconds=1)
+
+app/tests/api/test_runs_hitl_auth.py::test_delegated_hitl_rejects_a_first_resolution_after_its_deadline
+app/tests/api/test_runs_hitl_auth.py::test_delegated_hitl_rolls_back_when_transition_timestamp_crosses_deadline
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/api/v1/endpoints/runs.py:1088: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    if deadline is not None and datetime.utcnow() > deadline and not resolved_before_deadline:
+
+app/tests/api/test_runs_hitl_auth.py::test_delegated_hitl_rolls_back_when_transition_timestamp_crosses_deadline
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/tests/api/test_runs_hitl_auth.py:691: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    deadline = datetime.utcnow() + timedelta(minutes=1)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+24 passed, 276 warnings in 7.36s
