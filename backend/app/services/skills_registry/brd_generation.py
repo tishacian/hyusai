@@ -55,6 +55,20 @@ def validate_document_source_bindings(body):
             raise ValueError(f"Documentary node {node['id']} must bind an original source string directly "
                              "to a declared template input with required=true; a model copy is insufficient")
 
+
+def validate_intervention_planner(body, selected_slugs):
+    for node in body.flow_definition.get("nodes", []):
+        if node.get("kind") != "agent_loop":
+            continue
+        config = node.get("config") or {}
+        planner = config.get("decide_skill") or config.get("skill_slug") or "decide_next_v1"
+        if planner != "decide_next_v1" or planner not in selected_slugs:
+            raise ValueError("Intervention AgentLoop requires the selected native decide_next_v1 planner; "
+                             "a prompt_template returns completion text, not a structured decision")
+        if config.get("privilege_tier") != "recommend":
+            raise ValueError("Intervention investigation must use privilege_tier=recommend")
+
+
 _FAMILY_INSTRUCTIONS = {
     "document_summary": (
         "Build a documentary synthesis System: source input, extract supplied facts, "
@@ -68,7 +82,13 @@ _FAMILY_INSTRUCTIONS = {
         "Build an intervention investigation System with an agent_loop whose allowed "
         "read tools are chosen only from the supplied catalog, followed by mandatory "
         "Flow controls and explicit hitl review. Notices and intervention history are "
-        "different resources. Do not invent connections, collections, credentials or "
+        "different resources. Use selected decide_next_v1 as the native planner in both "
+        "config.skill_slug and config.decide_skill; never generate a prompt_template planner. "
+        "AgentLoop config uses skill_allowlist (1–8 selected tool slugs), privilege_tier=recommend, "
+        "budget={max_turns:6}, on_budget=exit. Read the per-case objective from the source; "
+        "do not replace it with a fixed demonstration question. If the native planner was "
+        "not selected, leave this dependency unresolved rather than inventing a planner. "
+        "Do not invent connections, collections, credentials or "
         "tool slugs. Include two cases requiring different tools and an out-of-mandate "
         "case. If the necessary tools are absent, leave the requirement uncovered; "
         "do not substitute a prompt-only answer for tool investigation."
@@ -295,6 +315,8 @@ def run_generation_job(job_id):
                                 raise ValueError("Generated Flow uses an unsupported node kind")
                         if request.family == "document_summary":
                             validate_document_source_bindings(body)
+                        if request.family == "intervention_preparation":
+                            validate_intervention_planner(body, request.skill_slugs)
                         # Validate all referenced catalog tools independently of model instructions.
                         allowed = set(request.skill_slugs) | {"@" + skill.local_name for skill in body.skills}
                         def check(value, key=None):

@@ -121,3 +121,17 @@ def test_case_inputs_obey_the_original_ingress_contract():
     assert failure.value.detail["code"] == "brd_case_input_invalid"
     del case.input_ref["node_id"]
     validate_case_output_paths(flow, [case])
+
+
+def test_intervention_requires_native_selected_planner_and_recommend_mandate():
+    config = {"decide_skill": "@generated_prompt", "privilege_tier": "recommend"}
+    body = SimpleNamespace(flow_definition={"nodes": [{"kind": "agent_loop", "config": config}]})
+    with pytest.raises(ValueError, match="structured decision"):
+        service.validate_intervention_planner(body, ["decide_next_v1"])
+    config["decide_skill"] = "decide_next_v1"
+    with pytest.raises(ValueError, match="selected native"):
+        service.validate_intervention_planner(body, [])
+    service.validate_intervention_planner(body, ["decide_next_v1"])
+    config["privilege_tier"] = "act_with_approval"
+    with pytest.raises(ValueError, match="privilege_tier=recommend"):
+        service.validate_intervention_planner(body, ["decide_next_v1"])
