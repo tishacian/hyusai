@@ -46,3 +46,16 @@ the candidate's criteria after observing its answer or counted this as a passing
 suite. Its test proposals still need review. Future acceptance must cover a
 missing field and malicious source, meaningful assertions, real published Runs,
 second-user access and five consecutive successes. Nothing here closes R1.
+
+
+## Candidate 10: fresh generation, structurally valid tests
+
+A fresh call using the updated generation prompt completed in 69.01 seconds.
+The unedited candidate passes proposal schema, DAG validation and declared
+output-path checks. All three cases address `completion`: supplied facts,
+missing grade/date, and an instruction to approve embedded in the source.
+The source fixtures do not provide explicit excerpt identifiers; citation
+adequacy still needs examination. Exact wording assertions may be brittle,
+and a disclaimer assertion does not prove absence of an HR recommendation.
+`candidate-10-generation.json` records usage and structural checks. No runtime
+execution or business acceptance is claimed for this candidate yet.
