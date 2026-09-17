@@ -5,11 +5,11 @@
 **R0 reste ouvert.** Les gates techniques sont documentés ; la recette manuelle
 authentifiée a corrigé les liens défectueux et distingue désormais valeur absente et zéro.
 Les dix sessions de baseline et la vidéo restent à faire. Design PIH distingue
-désormais draft r3 et publication v1 ; son en-tête à 390 px reste à corriger.
-Dernier runtime attesté : `18741f94fb6ced627c53701c0b469685618b852d`
+désormais draft r3 et publication v1 ; son en-tête à 390 px est corrigé et vérifié après défilement.
+Dernier runtime attesté : `def0b3cc348ab2c82b455a55cb2a12d04049e593`
 sur `demo/agentic`. Bascule, identités publiques frontend/backend et santé
 vérifiées ; canaries : **10 réussis, 2 exclusions prévues**. Voir les
-[preuves de qualification](../evidence/release-18741f94-2026-09-17/README.md).
+[preuves de qualification](../evidence/release-def0b3cc-2026-09-17/README.md).
 Ce document référence les vérifications consignées ; il ne vaut pas recette humaine.
 
 Périmètre : [sortie R0 de la roadmap](../agentium-delivery-roadmap.md),
@@ -20,12 +20,12 @@ historiques ; le [statut courant](brd-system-roadmap-progress.md) fait référen
 
 | Critère R0 | Preuve conservée | État |
 |---|---|---|
-| Gates locaux du candidat 18741f94 | [Qualification locale et images](../evidence/release-18741f94-2026-09-17/README.md) : 1 506 tests frontend ; 19 tests backend coûts/provenance sur c19d30e8, backend inchangé depuis ; i18n 8 068 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
-| Build VM, stockage, santé et identité du runtime | [Release 18741f94](../evidence/release-18741f94-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour 18741f94 |
-| Canaries requis, dont Work, Studio et accès au Run | [Log carakai 18741f94](../evidence/release-18741f94-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour 18741f94 |
+| Gates locaux du candidat def0b3cc | [Qualification locale et images](../evidence/release-def0b3cc-2026-09-17/README.md) : 1 511 tests frontend ; 10 tests backend contexte/session ; i18n 8 074 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
+| Build VM, stockage, santé et identité du runtime | [Release def0b3cc](../evidence/release-def0b3cc-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour def0b3cc |
+| Canaries requis, dont Work, Studio et accès au Run | [Log carakai def0b3cc](../evidence/release-def0b3cc-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour def0b3cc |
 | Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Vérifié dans Chrome : nouveau Run 5369c2b1 sur 4baa9f5d, chiffres attendus et lien exact ; ancien Run 9b73e4e5 inchangé |
 | Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Cinq nouvelles exécutions réussies sur 18741f94 : [réponses conservées](../evidence/release-18741f94-2026-09-17/sequential.json). Concurrence et redémarrage restent historiques |
-| Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Work ↔ Studio, invocation et fil d’Ariane corrigés ; [nouveaux résultat, Run, PIH et Quality](../evidence/release-18741f94-2026-09-17/README.md) ; absence/zéro corrigé ; Design et Flow r3 alignés ; en-tête à 390 px à corriger |
+| Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Work ↔ Studio, invocation et fil d’Ariane corrigés ; [nouveaux résultat, Run, PIH et Quality](../evidence/release-18741f94-2026-09-17/README.md) ; absence/zéro corrigé ; Design et Flow r3 alignés ; en-tête à 390 px corrigé et vérifié sur def0b3cc |
 | Baseline métier/développeur | [Fiche et consignes](agentium-r0-acceptance.md#baseline-avec-les-participants--à-exécuter) ; aucune session renseignée | 0/5 métier, 0/5 développeur |
 | Décision du responsable | Aucune décision de clôture enregistrée | En attente des éléments précédents |
 
@@ -66,8 +66,9 @@ sont actualisées ; la vidéo n'a pas été réalisée (commande QuickTime désa
   et contexte dans la release. Les essais historiques restent attribués à leur SHA.
 - [x] **Aligner le résumé Design PIH sur le Flow réel.** Vérifié sur 18741f94 :
   même draft r3, trois nœuds et trois connexions, publication v1 distincte.
-- [ ] **Libérer le contenu sur écran étroit.** À 390 px, l’en-tête fixe masque
-  le résumé lors du défilement ; la recette étroite de cette route reste ouverte.
+- [x] **Libérer le contenu sur écran étroit.** Vérifié sur def0b3cc à 390×844 :
+  le résumé draft r3 / publication v1 reste accessible après défilement, sans
+  recouvrement par l’en-tête du System. Capture et mesure dans la release.
 - [ ] **Enregistrer la courte vidéo.** QuickTime désactivé ; proposition de
   capture alternative en attente de réponse. Aucune vidéo annoncée comme faite.
 - [ ] **Conduire les dix sessions humaines.** Cinq participants métier et cinq

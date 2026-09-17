@@ -37,6 +37,7 @@ from app.services.rag.corpus_planner import (
     is_catalogue_query,
     normalize_latency_profile,
     plan_corpus,
+    query_without_citation_suffix,
 )
 from app.services.rag.cross_encoder_stage import rerank_with_cross_encoder
 from app.services.rag.decision_trace import build_retrieval_decision_trace
@@ -183,9 +184,7 @@ def _int_clamped(value: Any, default: int, *, minimum: int = 1, maximum: int = 2
 
 
 def is_collection_inventory_query(query: str) -> bool:
-    from app.services.rag.conversation_anchors import strip_conversation_anchor
-
-    text = strip_conversation_anchor(query).strip()
+    text = query_without_citation_suffix(query)
     if not text:
         return False
     # "Quels documents parlent de X ?" is a content-discovery query, not an
@@ -1112,7 +1111,7 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         # fail-soft intersection, an empty/mismatched upstream scope cannot
         # broaden this contract.
         collections = list(dict.fromkeys(authoritative_collections))
-    else:
+    elif not (context_collection and context_mode == "replace"):
         collections = _include_expert_fiche_collection(
             collections,
             workspace_slug=request.get("workspace_slug"),
@@ -1129,6 +1128,7 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
     )
     vector_db_type = resolve_vector_db_type(app_settings)
     return {
+        "context_replaces_workspace": bool(context_collection and context_mode == "replace"),
         "query": _history_augmented_query(request),
         "rag_mode": rag_mode,
         "retrieval_profile": retrieval_profile,
@@ -2979,12 +2979,13 @@ async def _retrieve_rag_context(
         dict.fromkeys(requested_authoritative_collections)
     )
     # `get_retrieval_profile` already applied the tenant Membrane to the
-    # graph-owned list. Reassert only that effective intersection after corpus
+    # graph-owned list (or an explicitly replacing Context). Reassert only
+    # that effective intersection after corpus
     # planning; replaying the raw request here would reintroduce a collection
     # the Membrane deliberately removed.
     authoritative_collections = (
         list(profile.get("collections") or [])
-        if requested_authoritative_collections
+        if requested_authoritative_collections or profile.get("context_replaces_workspace")
         else []
     )
     authoritative_document_scope = profile.get("authoritative_document_scope") is True

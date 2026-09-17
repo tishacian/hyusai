@@ -467,3 +467,19 @@ test('a fresh publication conversation ignores stored history but can select its
     assert.equal(api.sessionDetailPaths[0],'/sessions/new-session?include_messages=true&include_jobs=true');
   } finally {injector.destroy();}
 });
+
+
+test('publication context describes its collection rather than uploaded session files', () => {
+  const {injector,component}=makeHarness();
+  try {
+    Object.defineProperty(component,'contextId',{value:()=> 'published-context'});
+    Object.defineProperty(component,'contextCollection',{value:()=> 'published-knowledge'});
+    assert.equal(component.activeKnowledgeScope(), null);
+    assert.equal(component.assistantScopeLabel(),'chat.scope.collection_only');
+    assert.equal(component.inputPlaceholder(),'chat.ask.placeholder_scope');
+    assert.equal(component.emptySubtitle(),'chat.ask.subtitle_scope');
+    assert.equal(component.activeSuggestions()[0].label,'chat.prompt.ask.label');
+    component.setSessionDocsMode('combine');
+    assert.equal(component.assistantScopeLabel(),'chat.scope.collection_plus');
+  } finally {injector.destroy();}
+});

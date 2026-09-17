@@ -623,7 +623,7 @@ const STEP_ICONS: Record<string, string> = {
             <span class="chat-mode-model">{{ chatRuntimeLabel() }}</span>
           </div>
 
-          @if (knowledgeScopeOptions().length > 0) {
+          @if (knowledgeScopeOptions().length > 0 && (!contextId() || sessionDocsMode() === 'combine')) {
             <div class="source-picker" [title]="assistantScopeLabel()">
               <span class="source-picker-label">
                 <app-icon name="database" [size]="12" />
@@ -654,13 +654,13 @@ const STEP_ICONS: Record<string, string> = {
           }
 
           @if (contextId()) {
-            <div class="session-doc-mode" [title]="i18n.t('chat.controls.session_docs_hint')">
+            <div class="session-doc-mode" [title]="contextCollection() ? i18n.t('chat.controls.collection_hint') : i18n.t('chat.controls.session_docs_hint')">
               <span class="session-doc-label">
                 <app-icon name="files" [size]="12" />
-                {{ i18n.t('chat.controls.session_docs') }}
+                {{ contextCollection() || i18n.t('chat.controls.session_docs') }}
                 <span
                   class="control-info-dot"
-                  [title]="i18n.t('chat.controls.session_docs_info')"
+                  [title]="contextCollection() ? i18n.t('chat.controls.collection_hint') : i18n.t('chat.controls.session_docs_info')"
                 >
                   <app-icon name="info" [size]="10" />
                 </span>
@@ -3209,6 +3209,8 @@ export class ChatPanelComponent implements AfterViewInit {
    * the orchestrator knows to ground answers on the dropped documents.
    */
   readonly contextId = input<string | null>(null);
+  /** Presentation of the server-created Context; does not grant retrieval access. */
+  readonly contextCollection = input<string | null>(null);
   readonly assistantProfileKey = input<string | null>(null);
   readonly initialPrompt = input<string | null>(null);
   readonly autoStartVoiceLoop = input(false);
@@ -3548,6 +3550,9 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly assistantScopeLabel = computed(() => {
     const label = this.scopeLabel(this.activeKnowledgeScope());
     if (!this.contextId()) return this.i18n.t('chat.scope.sources', { label });
+    if (this.contextCollection()) {
+      return this.i18n.t(this.sessionDocsMode() === 'combine' ? 'chat.scope.collection_plus' : 'chat.scope.collection_only', { collection: this.contextCollection()!, source: label });
+    }
     if (this.sessionDocsMode() === 'combine') {
       return this.i18n.t('chat.scope.session_plus', { label });
     }
@@ -3569,6 +3574,7 @@ export class ChatPanelComponent implements AfterViewInit {
   });
 
   readonly activeSuggestions = computed<SuggestionCard[]>(() => {
+    if (this.contextId() && this.contextCollection()) return this.knowledgeSourceSuggestions(this.assistantScopeLabel());
     if (this.executiveMode()) {
       const pack = this.sanitizePromptPack(this.activeAssistantProfile()?.prompt_pack);
       if (pack.length) return pack;
@@ -3590,6 +3596,7 @@ export class ChatPanelComponent implements AfterViewInit {
     return this.i18n.t('chat.ask.title_default');
   });
   readonly emptySubtitle = computed(() => {
+    if (this.contextId() && this.contextCollection()) return this.i18n.t('chat.ask.subtitle_scope', { source: this.assistantScopeLabel() });
     const configured = this.workspaceChatConfig().subtitle;
     if (configured) return configured;
     if (this.isDemoMode()) {
@@ -3609,6 +3616,7 @@ export class ChatPanelComponent implements AfterViewInit {
     return this.i18n.t('chat.ask.subtitle_default');
   });
   readonly inputPlaceholder = computed(() => {
+    if (this.contextId() && this.contextCollection()) return this.i18n.t('chat.ask.placeholder_scope', { source: this.assistantScopeLabel() });
     const configured = this.workspaceChatConfig().placeholder;
     if (configured) return configured;
     if (this.isDemoMode()) return this.i18n.t('chat.ask.placeholder');
@@ -5686,8 +5694,7 @@ export class ChatPanelComponent implements AfterViewInit {
     ];
   }
 
-  private knowledgeSourceSuggestions(): SuggestionCard[] {
-    const source = this.scopeLabel(this.activeKnowledgeScope());
+  private knowledgeSourceSuggestions(source = this.scopeLabel(this.activeKnowledgeScope())): SuggestionCard[] {
     return [
       {
         icon: 'search',

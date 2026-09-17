@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import sys
+
+import pytest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -792,6 +794,29 @@ def test_project_summary_with_citation_words_is_not_catalogue():
         assert not is_catalogue_query(query), query
         assert classify_intent(query) == "content_search", query
         assert not rag_context.is_collection_inventory_query(query), query
+
+
+@pytest.mark.parametrize("query", [
+    "Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.",
+    "Quelle est la pression nominale ? Citez les sources utilisées.",
+    "What is the corrected nominal pressure? Cite the source passage.",
+    "What is the maintenance interval; quote the relevant excerpt.",
+    "Quelle pression nominale, cite le document.",
+])
+def test_factual_citation_request_retrieves_content(query):
+    assert not is_catalogue_query(query)
+    assert classify_intent(query) == "content_search"
+    assert not rag_context.is_collection_inventory_query(query)
+
+
+@pytest.mark.parametrize("query", [
+    "Combien de documents sont disponibles ? Cite les sources.",
+    "How many documents are available? Cite the sources.",
+])
+def test_inventory_with_citation_remains_inventory(query):
+    assert is_catalogue_query(query)
+    assert classify_intent(query) == "catalogue"
+    assert rag_context.is_collection_inventory_query(query)
 
 
 def test_explicit_project_catalogue_requests_remain_catalogue():
@@ -3641,6 +3666,8 @@ def test_retrieval_profile_replaces_workspace_scope_with_selected_context(monkey
         "context_id": "capture-context",
         "context_collection": "published-capture",
         "context_mode": "replace",
+        "workspace_slug": "andritz",
+        "source_policy": {"expert_fiche_correction_enabled": True},
     }
     profile = get_retrieval_profile(request)
     assert profile["collections"] == ["published-capture"]
@@ -3924,3 +3951,23 @@ def test_inventory_evidence_coverage_reserves_sibling_family_and_eight_slots():
     assert chunks[1] == "Distinct sibling supplier family."
     assert sum(bool(metadata.get("inventory_evidence")) for metadata in metadatas) == 8
     assert diag == {"admission_cap": 8, "inserted": 0, "replaced": 8}
+
+
+async def test_replacement_context_survives_planner_and_expert_overlay(monkeypatch):
+    monkeypatch.setattr(rag_context, "get_resolved_settings", lambda **_: {
+        "ragCollectionName": "workspace-default", "ragVectorDBType": "qdrant",
+    })
+    monkeypatch.setattr(rag_context, "plan_corpus",
+        _plan_corpus_narrowing_to([_ANDRITZ_NOTICES], {}))
+    captured = _install_multi_collection_capture(monkeypatch)
+    result = await retrieve_rag_context({
+        "query": "Quelle est la pression nominale ? Cite le passage source.", "workspace_slug": "andritz",
+        "context_id": "capture-context", "context_collection": "published-capture",
+        "context_mode": "replace",
+        "source_policy": {"expert_fiche_correction_enabled": True},
+    })
+    assert result["collections"] == ["published-capture"]
+    assert result["pipeline"] != "collection_inventory"
+    assert result["query"] == "Quelle est la pression nominale ? Cite le passage source."
+    assert result["metrics"]["expert_fiche_collection_included"] is False
+    assert _ANDRITZ_FICHE not in captured

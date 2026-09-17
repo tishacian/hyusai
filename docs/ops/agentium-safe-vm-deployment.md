@@ -6940,3 +6940,14 @@ idempotent replay on this exact runtime. Desktop Chrome confirms Design r3 →
 Flow Builder r3 → back, with published v1 explicit and unchanged. New Design
 copy is FR/EN; existing header copy and 390 px sticky-header layout have limits.
 No retained R1 gate changed. [Evidence](../evidence/release-18741f94-2026-09-17/README.md).
+
+
+### 17 September — def0b3cc Capture handoff / responsive Design
+
+Pushed `demo/agentic`, three immutable images built on omnirag-demo, idle jobs
+and workers checked before switch, exact public frontend/backend SHA and healthy
+services verified. Carakai: 10 passes, 2 intentional skips. Giskard worker fixture
+passes with mocked providers. Rollback: 18741f94fb6c. No migration or flag change.
+[Release record](../evidence/release-def0b3cc-2026-09-17/README.md) records the
+successful narrow Design check and failed live Capture sourced-answer test.
+The latter remains open for correction; it is not a successful R2 qualification.

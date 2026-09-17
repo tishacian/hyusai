@@ -30,5 +30,8 @@ feature opt-out remain enforced.
 ![Actual Design — English](../evidence/release-18741f94-2026-09-17/pih-design-en-dark.png)
 
 [Qualification and remaining limits](../evidence/release-18741f94-2026-09-17/README.md):
-new block translated, existing header partly English; sticky header at 390 px
-still obscures content. No whole-screen/mobile acceptance or R1 closure claimed.
+new block translated, existing header partly English. The sticky header obstruction
+is corrected on def0b3cc: the draft/publication summary is visible after scrolling
+at 390×844. No whole-screen/mobile acceptance or R1 closure claimed.
+
+![Actual narrow Design after correction](../evidence/release-def0b3cc-2026-09-17/pih-design-390.png)
