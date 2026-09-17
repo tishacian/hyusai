@@ -227,6 +227,12 @@ def run_mandate(run: Any, *, decisions: list[Any], invocations: list[Any],
                 "valves" if decision.kind == "policy_breach" else "capabilities")
         status = {"policy_block": "blocked", "policy_shadow": "observed",
                   "policy_breach": "recorded"}.get(decision.kind, "recorded")
+        if decision.kind == "policy_breach" and rationale.get("hard_abort") is True:
+            breaches = rationale.get("breaches")
+            if (run.status in {"failed", "cancelled"} and isinstance(breaches, list)
+                    and breaches and all(isinstance(value, str) for value in breaches)
+                    and getattr(run, "error", None) == f"membrane_valve_breach:{','.join(breaches)}"):
+                status = "blocked"
         human = bool(decision.human_confirmed_by and decision.human_confirmed_at)
         if decision.kind == "hitl_approval":
             active = (decision.id == active_gate.get("decision_id")
