@@ -1,7 +1,7 @@
 # BRD tests → actual tool evidence
 
-17 September 2026. Candidate implementation; live qualification not run yet.
-The deployed runtime remains d05e84b1 until a separately recorded switch.
+17 September 2026. Deployed as 1e374c3c; see the [runtime qualification and
+failed review of a fresh generated proposal](../release-1e374c3c-2026-09-17/README.md).
 
 ## Behavior
 
