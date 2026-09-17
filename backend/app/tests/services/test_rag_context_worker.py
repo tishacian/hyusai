@@ -802,6 +802,10 @@ def test_project_summary_with_citation_words_is_not_catalogue():
     "What is the corrected nominal pressure? Cite the source passage.",
     "What is the maintenance interval; quote the relevant excerpt.",
     "Quelle pression nominale, cite le document.",
+    "Report planned and actual durations for NF-04, with source.",
+    "Report planned and actual durations for NF-04 with sources.",
+    "Indique les durées prévues et réalisées pour NF-04, avec les sources.",
+    "What is the pressure limit? With references.",
 ])
 def test_factual_citation_request_retrieves_content(query):
     assert not is_catalogue_query(query)
@@ -812,11 +816,23 @@ def test_factual_citation_request_retrieves_content(query):
 @pytest.mark.parametrize("query", [
     "Combien de documents sont disponibles ? Cite les sources.",
     "How many documents are available? Cite the sources.",
+    "How many documents are available, with sources?",
+    "Combien de documents sont disponibles avec les références ?",
 ])
 def test_inventory_with_citation_remains_inventory(query):
     assert is_catalogue_query(query)
     assert classify_intent(query) == "catalogue"
     assert rag_context.is_collection_inventory_query(query)
+
+
+@pytest.mark.parametrize("query", [
+    "With sources",  # No substantive question to strip.
+    "Which documents come with source code?",
+    "List documents with sources about maintenance.",
+])
+def test_citation_suffix_keeps_substantive_source_requests(query):
+    from app.services.rag.corpus_planner import query_without_citation_suffix
+    assert query_without_citation_suffix(query) == query
 
 
 def test_explicit_project_catalogue_requests_remain_catalogue():

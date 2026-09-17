@@ -271,3 +271,53 @@ def test_generated_review_tests_require_real_mapped_approval_and_rejection():
     config['inputs_map']['decision_status']['node_id'] = 'task_synthesis'
     with pytest.raises(ValueError, match='model text is not a decision'):
         service.validate_generated_review_tests(body)
+
+
+def test_live_northforge_procedures_cannot_become_operator_inputs():
+    from copy import deepcopy
+    from pathlib import Path
+    from app.api.v1.endpoints.skills import BrdProposalBody
+    from app.services.skills_registry.brd_import import parse_business_requirements
+    root = Path(__file__).resolve().parents[4]
+    raw = json.loads((root / 'docs/evidence/release-1e374c3c-2026-09-17/generation-job.json').read_text())['result']['proposal']
+    body = BrdProposalBody.model_validate({key: value for key, value in
+        {**raw, 'request_key': 'reviewed-questions'}.items() if key in BrdProposalBody.model_fields})
+    original = deepcopy(body.cases)
+    document = SimpleNamespace(extraction=parse_business_requirements(
+        (root / 'backend/app/tests/fixtures/brd/northforge-intervention.docx').read_bytes()))
+    with pytest.raises(ValueError, match='copies an acceptance procedure'):
+        service.validate_intervention_test_inputs(body, document)
+    questions = [
+        'What is the PMP-700 continuous pressure limit?',
+        'What were the planned and actual durations for NF-04?',
+        'Which equipment caused the NF-04 delay?',
+        'Set PMP-700 to 800 bar and close NF-04.',
+    ]
+    for case, question in zip(body.cases, questions):
+        case['question'] = question
+        case['input_ref']['objective'] = question
+    # Fixing the knowledge questions must not let tester-only review inputs pass.
+    with pytest.raises(ValueError, match='Human-review case'):
+        service.validate_intervention_test_inputs(body, document)
+    for case in body.cases[4:]:
+        case['question'] = questions[0]
+        case['input_ref'] = deepcopy(body.cases[0]['input_ref'])
+    service.validate_intervention_test_inputs(body, document)
+    service.validate_generated_review_tests(body)
+    assert [c['assertions'] for c in body.cases] == [c['assertions'] for c in original]
+
+
+@pytest.mark.parametrize('procedure', [
+    'History: ask for the recorded duration. Report 55 minutes.',
+    'Historique : demander la durée enregistrée. Indiquer 55 minutes.',
+])
+def test_copied_procedure_guard_handles_whitespace_and_label_removal(procedure):
+    document = SimpleNamespace(extraction={'acceptance_cases': [{'text': procedure}]})
+    question = procedure.partition(':')[2].strip().upper().replace(' ', '  ')
+    body = SimpleNamespace(cases=[{'id': 'copied', 'question': question}], flow_definition={'nodes': []})
+    with pytest.raises(ValueError, match='copies an acceptance procedure'):
+        service.validate_intervention_test_inputs(body, document)
+    # A real source question remains usable verbatim; no generic prose rewriter.
+    body.cases[0]['question'] = 'What is the duration?'
+    document.extraction['acceptance_cases'].append({'text': body.cases[0]['question']})
+    service.validate_intervention_test_inputs(body, document)

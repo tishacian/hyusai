@@ -174,7 +174,7 @@ def test_live_generation_worker(db_session, tmp_path, monkeypatch):
     if family == "intervention_preparation":
         slugs = northforge_catalog(db_session, workspace, client)
         fixture = "northforge-intervention.docx"
-    source = Path(__file__).resolve().parents[1] / "fixtures/brd" / fixture
+    source = Path(os.environ["BRD_LIVE_SOURCE"]) if os.environ.get("BRD_LIVE_SOURCE") else Path(__file__).resolve().parents[1] / "fixtures/brd" / fixture
     imported = client.post('/skills/import/business-requirements?retain=true',
         files={'file': (fixture, source.read_bytes())})
     assert imported.status_code == 200, imported.text
@@ -233,6 +233,35 @@ with SessionLocal() as db:
     return output
 
 
+def mirror_northforge_collection_metadata(db_session, workspace, evidence):
+    """Local ledger mirror only; all source retrieval stays on the live read path."""
+    from datetime import datetime
+    from app.models.knowledge_collection import KnowledgeCollection
+    program = """
+import json
+from app.db.base import SessionLocal
+from app.models.workspace import Workspace
+from app.models.knowledge_collection import KnowledgeCollection
+with SessionLocal() as db:
+    workspace=db.query(Workspace).filter_by(slug='agentium-showcase').one()
+    slugs={'agentium-showcase-notices','agentium-showcase-intervention-history'}
+    rows=db.query(KnowledgeCollection).filter(KnowledgeCollection.workspace_id==workspace.id,
+                                            KnowledgeCollection.slug.in_(slugs)).all()
+    assert {row.slug for row in rows}==slugs and all(row.status=='ready' for row in rows)
+    fields=('id','slug','name','status','document_names','vector_collection_name','artifact_prefix',
+            'embedding_model','document_count','chunk_count','updated_at')
+    print(json.dumps([{key:getattr(row,key) for key in fields} for row in rows],default=str))
+"""
+    result = subprocess.run(['ssh', 'omnirag-demo', 'docker exec -i agentium-backend python'],
+                            input=program, text=True, capture_output=True, timeout=30, check=True)
+    rows = json.loads(result.stdout.splitlines()[-1])
+    (evidence/'remote-collection-metadata.json').write_text(json.dumps(rows, indent=2))
+    for row in rows:
+        db_session.add(KnowledgeCollection(**{**row, 'workspace_id': workspace.id,
+                                              'updated_at': datetime.fromisoformat(row['updated_at'])}))
+    db_session.commit()
+
+
 @pytest.mark.skipif(not os.environ.get('BRD_NORTHFORGE_CANDIDATE'), reason='Opt-in live NorthForge tools')
 @pytest.mark.asyncio
 async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
@@ -248,7 +277,8 @@ async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
     workspace, user = _seed(db_session)
     client = _client(db_session, workspace, user)
     selected_slugs = northforge_catalog(db_session, workspace, client)
-    source = Path(__file__).parents[1]/'fixtures/brd/northforge-intervention.docx'
+    mirror_northforge_collection_metadata(db_session, workspace, evidence)
+    source = Path(os.environ['BRD_LIVE_SOURCE']) if os.environ.get('BRD_LIVE_SOURCE') else Path(__file__).parents[1]/'fixtures/brd/northforge-intervention.docx'
     imported = client.post('/skills/import/business-requirements?retain=true',
                            files={'file': (source.name, source.read_bytes())})
     assert imported.status_code == 200, imported.text

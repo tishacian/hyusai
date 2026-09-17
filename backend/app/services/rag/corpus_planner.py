@@ -232,9 +232,13 @@ def query_without_citation_suffix(query: str) -> str:
     """
     text = strip_conversation_anchor(query).strip()
     match = re.search(
+        r"(?:"
         r"(?:[?!.;]\s*|,\s*|\s+(?:en\s+|and\s+))"
         r"(?:cite(?:z|r)?|citant|citing|quote|quoting)\b"
-        r"[^?!.;]*\b(?:sources?|passages?|documents?|excerpts?|citations?)\b[^?!.;]*[.!?]?\s*$",
+        r"[^?!.;]*\b(?:sources?|passages?|documents?|excerpts?|citations?)\b[^?!.;]*"
+        r"|(?:[?!.;,]\s*|\s+)(?:with|avec)\s+(?:(?:the|les?|des|une?)\s+)?"
+        r"(?:sources?|citations?|r[ée]f[ée]rences?)(?:\s+(?:used|utilis[ée]es?))?"
+        r")\s*[.!?]?\s*$",
         text, re.IGNORECASE,
     )
     if match and text[:match.start()].strip():
