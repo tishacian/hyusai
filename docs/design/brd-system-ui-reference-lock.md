@@ -39,3 +39,20 @@ explain restoration before retry, keep raw storage keys in expandable details.
 The diagnosis is server-owned and confirmed by storage, not guessed from an old
 error string. Governed campaigns keep their own recovery instruction; a reader
 cannot gain a retry control. No palette, layout or token-role change is needed.
+
+## Run outcome card — 17 September
+
+The existing Cockpit card remains the build target. Live Chrome QA on c19d30e8
+found 40.8 px readout columns at a 390 px viewport, with text up to 96 px wide;
+the full cost-calculation sentence also wrapped into five lines in a 70 px ledger
+column. Revisited Refero Linear Changelog (11d3e58a-87d7-4a9a-bbf5-720f4fd3ffc6)
+and shadcn UI (c14c0a94-1037-449e-bf5b-4cb972656ac7), plus copywriting guidance.
+
+| Decision | Source | Preserved role |
+|---|---|---|
+| Fit readouts to available width, minimum 120 px; retain existing 18 px gap | Actual mobile overflow; existing Cockpit density | Readable figures and qualifications without hiding any metric |
+| Short “Calculated / Calculé” beside each amount | Refero clarity rule; Linear compact technical notation | Basis remains visible; exact tariff evidence remains in the invocation audit |
+| Keep existing tokens, fonts, surfaces and native details control | Existing Cockpit; shadcn functional components | No new palette, decoration, dependency or NAWA branding change |
+
+This repairs the existing result card. No marketing imagery, new font family
+or theme-specific palette from the external references is introduced.

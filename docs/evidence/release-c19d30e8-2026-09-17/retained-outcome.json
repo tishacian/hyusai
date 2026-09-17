@@ -1,0 +1,13 @@
+{
+  "decision": null,
+  "confidence": null,
+  "value_estimated": 0,
+  "cost_internal": 0.012,
+  "revenue_allocated": null,
+  "efficiency": 0,
+  "value_source": "unset",
+  "operator_value_note": null,
+  "measurement_provenance": null,
+  "baseline_eligible": false,
+  "baseline_ineligible_reason": "baseline_run_is_synthetic_demo"
+}
