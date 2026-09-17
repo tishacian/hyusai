@@ -2,17 +2,19 @@
 
 ## Current delivery status — 17 September 2026
 
-- **Live application: `f9bb4294` on `demo/agentic`.** The
-  [release evidence](../evidence/release-f9bb4294-2026-09-17/README.md) records
-  292 backend tests, 1,493 frontend tests, three VM images, exact public SHA,
+- **Live application: `447997ee` on `demo/agentic`.** The
+  [release evidence](../evidence/release-447997ee-2026-09-17/README.md) records
+  318 backend tests, 1,493 frontend tests, three VM images, exact public SHA,
   healthy services and **10 carakai passes, 2 intentional skips**.
-- Capture now preserves explicit review, reopens its published source and avoids
-  silently selecting an unrelated Context or treating inventory diagnostics as
-  report evidence. A real text correction and isolated technical publication pass.
-  A new conversation on the same retained document now returns 6 bar with its
-  exact citation and a completed Run; the earlier failed Run is preserved. The
-  inventory still reports zero sources/chunks: Capture does not synchronize its
-  source ledger. UI handoff, voice and repeated/human acceptance remain open.
+- A new isolated Capture passes absence-before-publication, text amendment,
+  explicitly technical review, publication, source inventory (one source/one
+  chunk), authenticated preview and a fresh response quoting the exact 6-bar
+  passage with its completed Run. Historical ledger gaps remain unchanged.
+  UI handoff, voice, five repetitions and human acceptance remain open.
+- Authenticated Chrome QA now verifies a new Operational Analysis result and
+  its exact Run, PIH execution settings, and Quality heatmap → historical Run →
+  passage. It also exposes broken Work → Studio and System stage links caused
+  by encoded query delimiters. Their correction is prepared, not yet deployed.
 - The real rank-1 Excel citation `A830:O831` now exposes its values through O,
   verified against the same retained job, retrieved hit and original checksum.
   Cited windows expand to at most 40×40, favoring the selection over context.
@@ -29,8 +31,8 @@
   intentionally failed and unevaluated outcomes; replay returns the same Runs.
   The earlier explicit Work publication handoff, text constraints, corpus
   manifests and native planner provenance remain deployed.
-- **R0 remains open:** the adoption sessions and current authenticated manual
-  acceptance are not complete. There is no remote CI; the documented local,
+- **R0 remains open:** the adoption sessions are not complete, and authenticated manual
+  QA found navigation defects to resolve. There is no remote CI; the documented local,
   VM and carakai gates apply, as confirmed by the release owner. The remaining
   actions are isolated in the [R0 closure checklist](agentium-r0-closure.md).
 - **R1 remains open:** BRD proposals, drafts, provenance, generated cases and

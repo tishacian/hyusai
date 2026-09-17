@@ -1,0 +1,138 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button: Portfolio
+  - link:
+    - /url: /work
+    - text: Work ↗
+  - generic: Diagnostics
+  - button:
+    - generic: Chat
+  - button:
+  - button:
+    - generic: AS
+    - generic: Agentium Showcase
+  - button:
+    - generic: TI
+- complementary:
+  - navigation:
+    - link:
+      - /url: /hypervisor
+      - generic: Impact
+    - link:
+      - /url: /create
+      - generic: Create
+    - link:
+      - /url: /runs
+      - generic: Monitor
+    - link:
+      - /url: /steering
+      - generic: Improve
+    - link:
+      - /url: /governance
+      - generic: Administer
+  - button:
+    - generic: Jump to…
+- complementary:
+  - generic: Summary
+  - generic: Create
+  - navigation:
+    - link:
+      - /url: /create/apps
+      - generic: Business application
+    - link:
+      - /url: /systems
+      - generic: Systems
+    - link:
+      - /url: /capabilities
+      - generic: Capabilities
+    - link:
+      - /url: /skills
+      - generic: Skills
+    - link:
+      - /url: /knowledge
+      - generic: Knowledge
+    - link:
+      - /url: /data
+      - generic: Data & Models
+    - link:
+      - /url: /orchestration
+      - generic: Scratchpad
+- main:
+  - link "Business applications":
+    - /url: /create/apps
+  - generic: Workspace · Agentium Showcase
+  - heading [active] [level=1]
+  - generic: Draft
+  - generic: Running checks…
+  - button "Visual identity"
+  - button "Undo" [disabled]
+  - button "Redo" [disabled]
+  - button "Save"
+  - button "Publish" [disabled]
+  - button "Help about Release": "?"
+  - status: Running checks…
+  - alert: Experience not found.
+  - complementary "Pages":
+    - tablist "Pages":
+      - tab "Pages" [selected]
+      - tab "Components"
+    - tabpanel "Pages":
+      - strong: Pages
+      - button "Add a page": +
+      - list
+  - region "Application preview":
+    - radiogroup "Preview size":
+      - radio "Desktop" [checked]
+      - radio "Tablet"
+      - radio "Mobile"
+    - generic: Safe preview · actions disabled
+    - generic "Preview as":
+      - strong: Preview as
+      - generic: Simulated role
+      - combobox "Simulated role":
+        - option "Viewer" [selected]
+        - option "Contributor"
+        - option "Reviewer"
+        - option "Admin"
+      - status: Access denied
+      - generic: Local simulation only · no borrowed identity and no data is loaded.
+    - status:
+      - strong: This audience cannot see the application
+      - paragraph: Change the simulated role or group to check another access.
+    - textbox "Quick edits (local)":
+      - /placeholder: e.g. add an empty state
+    - button "Propose"
+    - paragraph: "Supported commands: empty state, rename a page, approval card, and density."
+  - complementary "Inspector":
+    - tablist "Inspector":
+      - tab "Content" [selected]
+      - tab "Action"
+      - tab "Appearance"
+      - tab "Accessibility"
+    - tabpanel "Content":
+      - generic: Content language
+      - radiogroup "Content language":
+        - radio "FR" [checked]
+        - radio "EN"
+  - tablist "Build details":
+    - tab "Data" [selected]
+    - tab "Actions"
+    - tab "Identity & access"
+    - tab "Tests"
+    - tab "Journal"
+  - button "Running checks…"
+  - status
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Create · Depth 1/5
+  - generic: ⌘K
+  - text: Command
+  - generic: ⌘Z
+  - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Agentium
+- document

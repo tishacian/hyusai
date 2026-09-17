@@ -1,7 +1,7 @@
 import { OperationalObjectiveComponent } from '@app/features/systems/operational-objective.component';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink, type UrlTree } from '@angular/router';
 import { Subscription, forkJoin, of } from 'rxjs';
 import { catchError, distinctUntilChanged, map } from 'rxjs/operators';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
@@ -95,7 +95,7 @@ interface PipelineStage {
   icon: string;
   description: string;
   configureLabel: string;
-  route: string;
+  route: UrlTree;
   tone: 'brand' | 'violet' | 'emerald';
 }
 
@@ -1462,7 +1462,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'archive',
           description: 'Validate DITA archive, manifest hash and topic inventory.',
           configureLabel: 'Source',
-          route: this.navigation.leafUrl('system-flow', { systemId: this.systemId }),
+          route: this.navigation.leafUrlTree('system-flow', { systemId: this.systemId }),
           tone: 'brand',
         },
         {
@@ -1471,7 +1471,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'database',
           description: 'Retrieve reviewed bilingual examples from sovereign translation memory.',
           configureLabel: 'Knowledge',
-          route: this.navigation.surfaceUrl('knowledge'),
+          route: this.navigation.surfaceUrlTree('knowledge'),
           tone: 'violet',
         },
         {
@@ -1480,7 +1480,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'workflow',
           description: 'Normalize source DITA into a deterministic en-GB pivot.',
           configureLabel: 'Flow',
-          route: this.navigation.leafUrl('system-flow', { systemId: this.systemId }),
+          route: this.navigation.leafUrlTree('system-flow', { systemId: this.systemId }),
           tone: 'brand',
         },
         {
@@ -1489,7 +1489,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'globe-2',
           description: 'Translate the pivot into 39 target locales with bounded parallelism.',
           configureLabel: 'Runtime',
-          route: this.navigation.leafUrl('system-flow', { systemId: this.systemId }),
+          route: this.navigation.leafUrlTree('system-flow', { systemId: this.systemId }),
           tone: 'violet',
         },
         {
@@ -1498,7 +1498,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'list-checks',
           description: 'Run seven category agents and supervisor convergence.',
           configureLabel: 'Guardrails',
-          route: this.navigation.surfaceUrl('workspace-blueprints'),
+          route: this.navigation.surfaceUrlTree('workspace-blueprints'),
           tone: 'emerald',
         },
         {
@@ -1507,7 +1507,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'shield-check',
           description: 'Apply CDC E1 guards, CDT approval and ACCEPT_4D delivery evidence.',
           configureLabel: 'Audit',
-          route: this.navigation.leafUrl('governance-audit'),
+          route: this.navigation.leafUrlTree('governance-audit'),
           tone: 'emerald',
         },
       ];
@@ -1520,7 +1520,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'list-checks',
           description: this.i18n.t('systems.view.stage.plan.desc'),
           configureLabel: this.i18n.t('systems.view.capture.cta'),
-          route: this.navigation.leafUrl('system-capture-page', { systemId: this.systemId }),
+          route: this.navigation.leafUrlTree('system-capture-page', { systemId: this.systemId }),
           tone: 'brand',
         },
         {
@@ -1529,7 +1529,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'mic',
           description: this.i18n.t('systems.view.stage.voice.desc'),
           configureLabel: this.i18n.t('systems.view.capture.cta'),
-          route: this.navigation.leafUrl('system-capture-page', { systemId: this.systemId }),
+          route: this.navigation.leafUrlTree('system-capture-page', { systemId: this.systemId }),
           tone: 'violet',
         },
         {
@@ -1538,7 +1538,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'database',
           description: this.i18n.t('systems.view.stage.sources.desc'),
           configureLabel: this.i18n.t('systems.view.stage.sources'),
-          route: this.navigation.surfaceUrl('knowledge'),
+          route: this.navigation.surfaceUrlTree('knowledge'),
           tone: 'brand',
         },
         {
@@ -1547,7 +1547,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           icon: 'check-circle-2',
           description: this.i18n.t('systems.view.stage.report.desc'),
           configureLabel: this.i18n.t('systems.view.stage.report'),
-          route: this.navigation.leafUrl('system-flow', { systemId: this.systemId }),
+          route: this.navigation.leafUrlTree('system-flow', { systemId: this.systemId }),
           tone: 'emerald',
         },
       ];
@@ -1559,7 +1559,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         icon: 'message-square',
         description: 'User intent parsing, query rewriting and routing.',
         configureLabel: 'System prompt',
-        route: this.navigation.surfaceUrl('presets'),
+        route: this.navigation.surfaceUrlTree('presets'),
         tone: 'brand',
       },
       {
@@ -1568,7 +1568,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         icon: 'database',
         description: 'Planner-bounded retrieval over your collections.',
         configureLabel: 'Collections',
-        route: this.navigation.surfaceUrl('knowledge'),
+        route: this.navigation.surfaceUrlTree('knowledge'),
         tone: 'violet',
       },
       {
@@ -1577,7 +1577,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         icon: 'filter',
         description: 'Cross-encoder reranking + context filtering.',
         configureLabel: 'Top-K & threshold',
-        route: this.navigation.surfaceUrl('presets'),
+        route: this.navigation.surfaceUrlTree('presets'),
         tone: 'brand',
       },
       {
@@ -1586,7 +1586,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
         icon: 'sparkles',
         description: 'LLM synthesis with citations and guardrails.',
         configureLabel: 'Model',
-        route: this.navigation.surfaceUrl('presets'),
+        route: this.navigation.surfaceUrlTree('presets'),
         tone: 'emerald',
       },
     ];

@@ -13,7 +13,7 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink, type UrlTree } from '@angular/router';
 import { Subscription, timer } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -334,13 +334,13 @@ export class WorkShellComponent {
     });
   }
 
-  studioLink(): string {
+  studioLink(): UrlTree {
     const requested = this.activePage() ?? this.requestedPage();
     const pageId = requested === VALIDATIONS ? null : requested;
     const returnTo = this.slug()
       ? workPageHref(this.slug(), requested)
       : null;
-    return studioHref(this.experienceId(), pageId, returnTo, this.releaseId(), this.releaseNumber());
+    return this.router.parseUrl(studioHref(this.experienceId(), pageId, returnTo, this.releaseId(), this.releaseNumber()));
   }
 
   pageHref(pageId: string): string {
