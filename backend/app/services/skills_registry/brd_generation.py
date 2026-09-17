@@ -1,6 +1,7 @@
 """Generate review material through the workspace's canonical model routing."""
 import asyncio
 import json
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -132,6 +133,45 @@ def validate_intervention_planner(body, selected_slugs):
                                  "Keep expected answers and reviewer instructions in assertions/reference_answer")
 
 
+def validate_intervention_test_inputs(body, document):
+    """Reject copied test procedures; this is not a semantic leakage detector."""
+    normalize = lambda text: " ".join(str(text).split()).casefold()
+    procedures = set()
+    problems = []
+    for item in document.extraction.get("acceptance_cases", []):
+        text = str(item.get("text") or "")
+        # Third-person requests are instructions to the tester, not user turns.
+        if re.search(r"(?:^|:\s*)(?:ask|demander)\b", text, re.I):
+            procedures.add(normalize(text))
+            procedures.add(normalize(text.partition(":")[2] or text))
+    for case in body.cases:
+        if normalize(case.get("question", "")) in procedures:
+            problems.append(f"Case {case.get('id')!r} copies an acceptance procedure into question. "
+                             "Write the actual operator request, without the scenario label, expected "
+                             "answer or tester instructions; retain those in assertions/reference_answer.")
+
+    nodes = body.flow_definition.get("nodes", [])
+    review_ids = {node["id"] for node in nodes if node.get("kind") == "hitl"}
+    review_fields = {name for node in nodes if node.get("kind") == "sink"
+                     for name, ref in (node.get("config", {}).get("inputs_map") or {}).items()
+                     if isinstance(ref, dict) and ref.get("node_id") in review_ids}
+    business_inputs = set()
+    review_only = []
+    for case in body.cases:
+        checks = case.get("assertions") or []
+        if checks and all(check.get("path") in [[field] for field in review_fields] for check in checks):
+            review_only.append(case)
+        elif checks:
+            business_inputs.add(json.dumps(case.get("input_ref"), sort_keys=True))
+    for case in review_only:
+        if json.dumps(case.get("input_ref"), sort_keys=True) not in business_inputs:
+            problems.append(f"Human-review case {case.get('id')!r} must reuse the input_ref and question "
+                             "of a concrete business test. Review instructions belong in reference_answer, "
+                             "never in the operator objective. Do not remove its decision assertions.")
+    if problems:
+        raise ValueError("\n".join(problems))
+
+
 def validate_generated_review_tests(body):
     """A generated HITL test must inspect its real verdict, never model prose."""
     nodes = body.flow_definition.get("nodes", [])
@@ -238,7 +278,28 @@ _FAMILY_INSTRUCTIONS = {
         "sources explicitly lack a requested fact, finish with that limitation rather than "
         "asking a human to manufacture the missing evidence. Keep genuine ambiguity "
         "about the operator request eligible for clarification. "
-        "Preserve acceptance questions and reference facts provided by the BRD. "
+        "Separate the three roles in each source acceptance case before writing cases: "
+        "(1) the operator's actual request, (2) the expected source facts and assertions, "
+        "(3) the tester or human review procedure. A paragraph saying 'ask for X; report Y' "
+        "is a test procedure, NOT a verbatim user question. Ask for X without revealing Y. "
+        "Do not copy scenario labels, 'ask for', 'report the expected value', 'state the gap', "
+        "'refuse the change' or 'approve/reject the draft' into the objective. In a refusal "
+        "test the operator asks for the forbidden action; the SYSTEM must decide to refuse. "
+        "In an absence test the operator asks for the missing fact without being told it is absent. "
+        "A human-review-only case must reuse the entire input_ref of a concrete business case; "
+        "put its reviewer procedure in reference_answer and assert the actual human decision. "
+        "Preserve actual operator questions and reference facts provided by the BRD, "
+        "but keep expected facts exclusively in assertions/reference_answer. Do not embed "
+        "reference answers, expected quantities or scenario-specific absence sentences in "
+        "Skill templates, planner instructions or runtime input. "
+        "Oracle preservation is mandatory: removing a fact from the operator question means "
+        "moving it into the case's reference_answer AND a factual assertion, not dropping it. "
+        "For every source acceptance procedure requiring exact quantities, retain those quantities "
+        "and units in the expected answer and in assertions on the synthesized result. A tool-use "
+        "check plus an equipment/order identifier check is insufficient: those can pass with "
+        "the wrong factual answer. Keep the BRD's expected absence and refusal as reference "
+        "answers too. Do not replace the oracle with generic 'cites the source' language. "
+
         "Never invent replacement equipment, records, units or oracle values. Each case "
         "input objective must equal its question verbatim, containing only the operator "
         "request, never expected facts or instructions to pass the test. Put expected "
@@ -489,6 +550,7 @@ def run_generation_job(job_id):
                             validate_document_source_bindings(body)
                         if request.family == "intervention_preparation":
                             validate_intervention_planner(body, request.skill_slugs)
+                            validate_intervention_test_inputs(body, document)
                         validate_generated_review_tests(body)
                         # Validate all referenced catalog tools independently of model instructions.
                         allowed = set(request.skill_slugs) | {"@" + skill.local_name for skill in body.skills}
