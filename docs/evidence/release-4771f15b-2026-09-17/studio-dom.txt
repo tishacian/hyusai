@@ -1,0 +1,175 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button: Portfolio
+  - link:
+    - /url: /work
+    - text: Work ↗
+  - generic: Diagnostics
+  - button:
+    - generic: Chat
+  - button:
+  - button:
+    - generic: AS
+    - generic: Agentium Showcase
+  - button:
+    - generic: TI
+- complementary:
+  - navigation:
+    - link:
+      - /url: /hypervisor
+      - generic: Impact
+    - link:
+      - /url: /create
+      - generic: Create
+    - link:
+      - /url: /runs
+      - generic: Monitor
+    - link:
+      - /url: /steering
+      - generic: Improve
+    - link:
+      - /url: /governance
+      - generic: Administer
+  - button:
+    - generic: Jump to…
+- complementary:
+  - generic: Summary
+  - generic: Create
+  - navigation:
+    - link:
+      - /url: /create/apps
+      - generic: Business application
+    - link:
+      - /url: /systems
+      - generic: Systems
+    - link:
+      - /url: /capabilities
+      - generic: Capabilities
+    - link:
+      - /url: /skills
+      - generic: Skills
+    - link:
+      - /url: /knowledge
+      - generic: Knowledge
+    - link:
+      - /url: /data
+      - generic: Data & Models
+    - link:
+      - /url: /orchestration
+      - generic: Scratchpad
+- main:
+  - link "Back to the application":
+    - /url: /work/operational-analysis/analysis
+  - generic: Workspace · Agentium Showcase
+  - heading "Operational Analysis" [active] [level=1]
+  - generic: In service
+  - generic "Version opened from Work. The editor always edits the current draft, never this immutable release. · 9f8ad33f-41bc-4ccb-a043-d26e5241d779": From R— · 9f8ad33f-41bc-4ccb-a043-d26e5241d779
+  - generic: Ready to publish
+  - button "Visual identity"
+  - button "Undo" [disabled]
+  - button "Redo" [disabled]
+  - button "Draft saved" [disabled]
+  - link "Open the application":
+    - /url: /work/operational-analysis/analysis
+  - button "Publish"
+  - button "Help about Release": "?"
+  - status: Draft saved
+  - complementary "Pages":
+    - tablist "Pages":
+      - tab "Pages" [selected]
+      - tab "Components"
+    - tabpanel "Pages":
+      - strong: Pages
+      - button "Add a page": +
+      - list:
+        - button "Operational Analysis"
+        - list:
+          - button "Header"
+          - button "Action button"
+          - button "Execution status"
+          - button "Indicator"
+          - button "Indicator"
+          - button "Indicator"
+          - button "Result"
+          - button "Callout"
+  - region "Application preview":
+    - radiogroup "Preview size":
+      - radio "Desktop" [checked]
+      - radio "Tablet"
+      - radio "Mobile"
+    - generic: Safe preview · actions disabled
+    - generic "Preview as":
+      - strong: Preview as
+      - generic: Simulated role
+      - combobox "Simulated role":
+        - option "Viewer" [selected]
+        - option "Contributor"
+        - option "Reviewer"
+        - option "Admin"
+      - status: Access allowed
+      - generic: Local simulation only · no borrowed identity and no data is loaded.
+    - article "Operational Analysis":
+      - heading "Operational Analysis" [level=2]
+      - heading "Explain an operational delay" [level=3]
+      - paragraph: "Synthetic NorthForge exercise: 4 orders, exact calculations, one explanation. No customer data or savings."
+      - status: "Effect-free preview: actions and file uploads are disabled."
+      - button "Analyze the example" [disabled]
+      - status:
+        - generic: Not started yet
+      - article:
+        - paragraph: Orders
+        - paragraph: —
+      - article:
+        - paragraph: Net overrun (minutes)
+        - paragraph: —
+      - article:
+        - paragraph: Late orders
+        - paragraph: —
+      - region "Result":
+        - heading "Result" [level=3]
+        - heading "No result yet" [level=3]
+        - paragraph: The result will show up after the first send.
+      - note:
+        - paragraph: "Expected: 120 planned minutes, 155 actual, 35 net overrun, 3 late orders; largest overrun: NF-04, +25 minutes. A passed numerical check does not validate the model’s prose or prove savings."
+    - textbox "Quick edits (local)":
+      - /placeholder: e.g. add an empty state
+    - button "Propose"
+    - paragraph: "Supported commands: empty state, rename a page, approval card, and density."
+  - complementary "Inspector":
+    - strong: Operational Analysis
+    - button "Delete the page" [disabled]: ✕
+    - tablist "Inspector":
+      - tab "Content" [selected]
+      - tab "Action"
+      - tab "Appearance"
+      - tab "Accessibility"
+    - tabpanel "Content":
+      - generic: Content language
+      - radiogroup "Content language":
+        - radio "EN" [checked]
+        - radio "FR"
+      - generic: Title
+      - textbox "Title": Operational Analysis
+      - paragraph: Fallback copy · Operational Analysis
+  - tablist "Build details":
+    - tab "Data" [selected]
+    - tab "Actions"
+    - tab "Identity & access"
+    - tab "Tests"
+    - tab "Journal"
+  - button "Ready to publish"
+  - status
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Create · Depth 1/5
+  - generic: ⌘K
+  - text: Command
+  - generic: ⌘Z
+  - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Agentium
+- document

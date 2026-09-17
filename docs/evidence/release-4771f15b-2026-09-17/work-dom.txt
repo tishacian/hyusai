@@ -1,0 +1,45 @@
+- banner:
+  - generic: OA
+  - link "All applications":
+    - /url: /work
+  - heading "Operational Analysis" [level=1]
+  - paragraph: Synthetic NorthForge onboarding exercise; no customer data or verified savings.
+  - navigation "Pages":
+    - link "Operational Analysis":
+      - /url: /work/operational-analysis/analysis
+  - button "Control through conversation"
+  - group "Application language":
+    - button "EN" [pressed]
+    - button "FR"
+  - link "Cockpit":
+    - /url: /hypervisor
+  - link "Adapt and publish this example":
+    - /url: /help/systems?lens=hypervisor
+  - link "Edit application":
+    - /url: /create/apps/f286295a-ebef-44d2-a4a3-d0dbf04c866f?pageId=analysis&returnTo=%2Fwork%2Foperational-analysis%2Fanalysis&releaseId=9f8ad33f-41bc-4ccb-a043-d26e5241d779
+- main "Operational Analysis":
+  - status: Operational Analysis
+  - article "Operational Analysis":
+    - heading "Operational Analysis" [level=2]
+    - heading "Explain an operational delay" [level=3]
+    - paragraph: "Synthetic NorthForge exercise: 4 orders, exact calculations, one explanation. No customer data or savings."
+    - button "Analyze the example"
+    - status:
+      - generic: Completed
+    - article:
+      - paragraph: Orders
+      - paragraph: "4"
+    - article:
+      - paragraph: Net overrun (minutes)
+      - paragraph: "35"
+    - article:
+      - paragraph: Late orders
+      - paragraph: "3"
+    - region "Result":
+      - heading "Result" [level=3]
+      - paragraph: "Réponse sourcée: - Volume traité: 4 commandes [1] - Temps planifié total: 120 min [1] - Temps réel total: 155 min [1] - Dépassement cumulé: 35 min (155 − 120) [1] - Commandes en retard: 3, soit 75 % des commandes (3/4) [1] - Plus grand dépassement: commande NF-04, 25 min [1] Analyse du retard (calculs à partir des valeurs fournies): - Taux global de dépassement vs plan: 35/120 ≈ 29,2 % [1] - Durée moyenne planifiée par commande: 120/4 = 30,0 min/commande [1] - Durée moyenne réelle par commande: 155/4 = 38,75 min/commande [1] - Surplus moyen par commande (global): 35/4 = 8,75 min/commande [1] - Concentration du retard: NF-04 représente ≈ 71,4 % du dépassement total (25/35) [1] Conclusion opérationnelle: - Le retard global est significativement concentré sur une seule commande (NF-04, 25 min), tout en affectant la ponctualité de 3 commandes sur 4 [1]. Prochaine investigation (unique): - Mener une analyse chronologique détaillée de la commande NF-04 pour localiser précisément l’étape générant les 25 minutes d’écart et quantifier sa contribution au dépassement total [1]."
+      - link "Inspect this result":
+        - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3
+    - note:
+      - paragraph: "Expected: 120 planned minutes, 155 actual, 35 net overrun, 3 late orders; largest overrun: NF-04, +25 minutes. A passed numerical check does not validate the model’s prose or prove savings."
+- document

@@ -46,6 +46,11 @@ uses one new, isolated synthetic collection, `qa-capture-inventory-4479`.
 The model's wording “fiche experte — validée” does not establish a human review.
 The empty-answer fallback before publication is technical English despite the
 French question; it establishes absence, not a polished localized interaction.
+A subsequent Chrome inspection confirms the new source in Knowledge → Sources,
+one document/one chunk, status ready, and the authenticated preview at 6 bar:
+[source DOM](capture-source-dom.txt), [actual screenshot](capture-source.png).
+Capture's direct ingestion has no WorkspaceJob attempt; the UI currently reports
+“No indexing attempt” separately from the ready source.
 Historical publications with missing ledger rows were not backfilled or replayed.
 Voice, UI handoff to a new scoped conversation and five consecutive repetitions
 remain open.
