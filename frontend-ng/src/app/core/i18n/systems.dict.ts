@@ -6,6 +6,18 @@
  */
 
 export const SYSTEMS_FR = {
+  'systems.design.loading': "Chargement du draft enregistré…",
+  'systems.design.unavailable': "Le draft ne peut pas être lu. Réessayez avant de comparer sa configuration à la version publiée.",
+  'systems.design.version': "Draft r{revision} · Version publiée v{version}.",
+  'systems.design.boundary': "Cette vue décrit le draft. Les exécutions publiées conservent leur version jusqu’à une publication explicite.",
+  'systems.design.graph': "Flow enregistré",
+  'systems.design.counts': "{nodes} nœuds · {edges} connexions",
+  'systems.design.open_flow': "Ouvrir le Flow builder",
+  'systems.design.triggers': "Déclencheurs",
+  'systems.design.steps': "Étapes",
+  'systems.design.skills': "Skills liées",
+  'systems.design.configuration': "Ce draft ne contient pas de graphe exécutable identifié. Ouvrez sa configuration dans le Flow builder.",
+
   // --- Systems / runs shells ---------------------------------------
   'systems.title': 'Systèmes',
   'systems.empty': "Aucun système pour l'instant.",
@@ -82,6 +94,18 @@ export const SYSTEMS_FR = {
  * other, before the guard even runs.
  */
 export const SYSTEMS_EN: Record<keyof typeof SYSTEMS_FR, string> = {
+  'systems.design.loading': "Loading the saved draft…",
+  'systems.design.unavailable': "The draft could not be read. Retry before comparing its configuration with the published version.",
+  'systems.design.version': "Draft r{revision} · Published v{version}.",
+  'systems.design.boundary': "This view describes the draft. Published executions keep their version until you explicitly publish.",
+  'systems.design.graph': "Saved Flow",
+  'systems.design.counts': "{nodes} nodes · {edges} connections",
+  'systems.design.open_flow': "Open in flow builder",
+  'systems.design.triggers': "Triggers",
+  'systems.design.steps': "Steps",
+  'systems.design.skills': "Bound skills",
+  'systems.design.configuration': "This draft has no identified executable graph. Open its configuration in the Flow builder.",
+
   // --- Systems / runs shells ---------------------------------------
   'systems.title': 'Systems',
   'systems.empty': 'No systems yet.',
