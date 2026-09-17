@@ -1258,6 +1258,9 @@ async def test_publish_persists_export_urls(db_session, monkeypatch):
         def __init__(self, **_: object) -> None:
             pass
 
+        async def get_document_count(self) -> int:
+            return 1
+
         async def ingest_document(self, *_: object, **__: object) -> dict:
             return {"document_id": "doc published/id", "chunks_processed": 1, "status": "success"}
 
@@ -1327,6 +1330,53 @@ async def test_publish_persists_export_urls(db_session, monkeypatch):
     assert reviewed.proposal["recommended_ingestion"]["metadata"]["proposal_id"] == reviewed.id
     assert reviewed.proposal["recommended_ingestion"]["metadata"]["capture_session_id"] == session.id
 
+    from app.services.knowledge_collections import collection_inventory, get_collection_or_404
+    from hashlib import sha256
+
+    collection = get_collection_or_404(db_session, workspace_id=workspace.id, collection_ref=result["collection"])
+    inventory = collection_inventory(db_session, collection=collection)
+    assert collection.status == "ready"
+    assert collection.document_count == inventory["source_count"] == 1
+    assert collection.chunk_count == inventory["chunk_count"] == 1
+    source = inventory["sources"][0]
+    assert source["status"] == "ready"
+    assert source["metadata"]["document_id"] == result["document_id"]
+    assert source["metadata"]["proposal_id"] == reviewed.id
+    content = reviewed.proposal["recommended_ingestion"]["content"].encode("utf-8")
+    assert source["metadata"]["content_sha256"] == sha256(content).hexdigest()
+    assert source["size_bytes"] == len(content)
+    with pytest.raises(ValueError, match="accepted before publication"):
+        await publish_proposal_to_knowledge(db_session, workspace=workspace, proposal_id=reviewed.id, actor_label="operator")
+    assert collection_inventory(db_session, collection=collection)["source_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_publication_does_not_create_ready_source(db_session, monkeypatch):
+    from app.models.knowledge_collection import KnowledgeCollectionSource
+
+    workspace, user, proposal = _report_instruction_fixture(db_session, suffix="failed-publication")
+    review_proposal(db_session, workspace_id=workspace.id, proposal_id=proposal.id,
+                    status="accepted", reviewer=user.email, review_notes="Technical fixture")
+
+    class FailedDocumentService:
+        def __init__(self, **kwargs):
+            pass
+
+        async def ingest_document(self, *args, **kwargs):
+            return {"status": "error", "error": "index unavailable"}
+
+        async def get_document_count(self):
+            pytest.fail("failed indexing must not become an inventory success")
+
+    monkeypatch.setattr("app.services.rag.document_service.DocumentService", FailedDocumentService)
+    with pytest.raises(ValueError, match="index unavailable"):
+        await publish_proposal_to_knowledge(db_session, workspace=workspace,
+            proposal_id=proposal.id, actor_label=user.email, destination="failed-fixture")
+    db_session.refresh(proposal)
+    assert proposal.status == "accepted"
+    assert proposal.proposal["publication"]["status"] == "failed"
+    assert db_session.query(KnowledgeCollectionSource).filter_by(workspace_id=workspace.id).count() == 0
+
 
 @pytest.mark.asyncio
 async def test_publish_defaults_to_chat_expert_fiche_collection(db_session, monkeypatch):
@@ -1358,6 +1408,9 @@ async def test_publish_defaults_to_chat_expert_fiche_collection(db_session, monk
     class FakeDocumentService:
         def __init__(self, **_: object) -> None:
             pass
+
+        async def get_document_count(self) -> int:
+            return 1
 
         async def ingest_document(self, *_: object, **kwargs: object) -> dict:
             captured_metadata.update(kwargs.get("document_metadata") or {})
@@ -1465,6 +1518,9 @@ async def test_publish_promotes_referenced_capture_documents(db_session, monkeyp
         def __init__(self, **_: object) -> None:
             pass
 
+        async def get_document_count(self) -> int:
+            return 1
+
         async def ingest_document(self, *_: object, **__: object) -> dict:
             return {"document_id": "published-fiche", "chunks_processed": 1, "status": "success"}
 
@@ -1545,6 +1601,10 @@ async def test_publish_promotes_referenced_capture_documents(db_session, monkeyp
     report_source = reviewed.proposal["plan_structure"]["topics"][0]["sources"][0]
     assert report_source["collection"] == "capture-export-knowledge"
     assert report_source["publication_promoted"] is True
+    # The fiche is indexed, but the promoted support still has an active job.
+    assert destination_collection.status == "queued"
+    assert destination_collection.document_count == 2
+    assert len(destination_collection.document_names) == 2
 
 
 @pytest.mark.asyncio
@@ -1562,6 +1622,9 @@ async def test_list_published_fiches_reads_proposal_publication_metadata(db_sess
     class FakeDocumentService:
         def __init__(self, **_: object) -> None:
             pass
+
+        async def get_document_count(self) -> int:
+            return 3
 
         async def ingest_document(self, *_: object, **__: object) -> dict:
             return {"document_id": "doc-fiche-list", "chunks_processed": 3, "status": "success"}

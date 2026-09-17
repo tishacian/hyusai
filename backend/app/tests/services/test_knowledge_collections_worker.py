@@ -16,6 +16,8 @@ from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import (
+    collection_inventory,
+    collection_source_rows,
     create_collection,
     create_worker_job,
     document_manifest_key,
@@ -78,6 +80,23 @@ def test_worker_job_lifecycle_update(db_session):
     assert refreshed.started_at is not None
     assert refreshed.completed_at is not None
     assert refreshed.result == {"ok": True}
+
+
+def test_source_inventory_keeps_legacy_names_after_first_indexed_source(db_session):
+    workspace = _workspace(db_session)
+    collection = create_collection(db_session, workspace=workspace, name="Mixed inventory")
+    collection.document_names = ["legacy.md", "removed.md", "capture.md", "legacy.md"]
+    collection.chunk_count = 9
+    upsert_collection_source(db_session, collection=collection, filename="capture.md", status="ready", chunk_count=1)
+    upsert_collection_source(db_session, collection=collection, filename="removed.md", status="deleted")
+    db_session.commit()
+
+    inventory = collection_inventory(db_session, collection=collection)
+    assert inventory["source_count"] == 2
+    assert inventory["chunk_count"] == 9
+    assert {s["filename"] for s in inventory["sources"]} == {"legacy.md", "capture.md"}
+    assert {s.filename for s in collection_source_rows(db_session, collection=collection, include_deleted=True)} == {"legacy.md", "capture.md", "removed.md"}
+    assert db_session.query(KnowledgeCollectionSource).filter_by(collection_id=collection.id).count() == 2
 
 
 def test_worker_ingest_skips_terminal_job(db_session, monkeypatch):

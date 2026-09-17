@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -3096,9 +3097,12 @@ async def publish_proposal_to_knowledge(
 
     from app.core.settings_manager import get_resolved_settings
     from app.services.knowledge_collections import (
+        collection_source_rows,
         create_or_get_collection,
         ingested_key,
         original_key,
+        update_collection_status,
+        upsert_collection_source,
     )
     from app.services.object_store import get_object_store
     from app.services.rag.document_service import DocumentService
@@ -3243,6 +3247,39 @@ async def publish_proposal_to_knowledge(
         )
         db.commit()
         raise ValueError(f"Publication failed during vector ingestion: {publication_meta['error']}")
+    # Capture uses direct indexing, but must leave the same source ledger as an
+    # upload worker. Read the vector total instead of incrementing a retry twice.
+    chunk_count = await doc_service.get_document_count()
+    db.flush()
+    db.refresh(collection, with_for_update=True)
+    upsert_collection_source(
+        db,
+        collection=collection,
+        filename=filename,
+        status="ready",
+        origin="capture_publication",
+        mime_type="text/markdown",
+        size_bytes=len(content.encode("utf-8")),
+        chunk_count=result.get("chunks_processed", 0),
+        source_metadata={
+            **ingest_metadata,
+            "document_id": document_id,
+            "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        },
+    )
+    db.flush()
+    names = [row.filename for row in collection_source_rows(db, collection=collection)]
+    update_collection_status(
+        db,
+        collection.id,
+        status="ready" if collection.status in {"created", "ready"} else collection.status,
+        last_error=collection.last_error,
+        document_names=names,
+        document_count=len(names),
+        # Direct publication only upserts. A concurrent publication may have
+        # committed a newer total while this one was counting the vectors.
+        chunk_count=max(chunk_count, collection.chunk_count or 0),
+    )
     export_urls: Dict[str, str] = {}
     if document_id:
         from app.services.capture_report_export import export_urls_for_proposal

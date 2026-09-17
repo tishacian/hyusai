@@ -612,6 +612,9 @@ def _patch_capture_doc_service(monkeypatch):
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
+        async def get_document_count(self):
+            return 1
+
         async def ingest_document(self, path, **kwargs):
             ingest_calls.append((path, dict(kwargs.get("document_metadata") or {})))
             return {"status": "success", "document_id": "fake", "chunks_processed": 1}
@@ -822,6 +825,9 @@ def test_capture_finalize_index_indexes_referenced_views_and_full_docs(db_sessio
     class _FakeDocService:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
+
+        async def get_document_count(self):
+            return 1
 
         async def ingest_document(self, path, **kwargs):
             ingest_calls.append((path, dict(kwargs.get("document_metadata") or {})))

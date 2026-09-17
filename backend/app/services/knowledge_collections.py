@@ -260,16 +260,17 @@ def collection_source_rows(
     include_deleted: bool = False,
 ) -> list[KnowledgeCollectionSource]:
     query = db.query(KnowledgeCollectionSource).filter(KnowledgeCollectionSource.collection_id == collection.id)
-    if not include_deleted:
-        query = query.filter(KnowledgeCollectionSource.status != "deleted")
-    rows = query.order_by(KnowledgeCollectionSource.filename.asc()).all()
-    if rows:
-        return rows
+    recorded = query.order_by(KnowledgeCollectionSource.filename.asc()).all()
+    rows = [row for row in recorded if include_deleted or row.status != "deleted"]
+    known_names = {normalize_source_name(row.normalized_name or row.filename) for row in recorded}
     # Backward-compatible fallback for pre-ledger collections. Do not commit:
     # callers may use this in read paths where side effects would be surprising.
     fallback: list[KnowledgeCollectionSource] = []
     for name in collection.document_names or []:
         normalized = normalize_source_name(str(name))
+        if normalized in known_names:
+            continue
+        known_names.add(normalized)
         fallback.append(
             KnowledgeCollectionSource(
                 id=f"fallback-{collection.id}-{len(fallback)}",
@@ -287,7 +288,7 @@ def collection_source_rows(
                 source_metadata={"fallback": True},
             )
         )
-    return fallback
+    return rows + fallback
 
 
 def collection_inventory(
@@ -447,6 +448,10 @@ def collection_inventory(
         for row in source_rows
     ]
     total_chunks = sum(int(row.chunk_count or 0) for row in rows) or (collection.chunk_count or 0)
+    if any((row.source_metadata or {}).get("fallback") for row in rows):
+        # Legacy names have no per-source count; keep the observed collection
+        # total instead of treating these unknown counts as measured zeroes.
+        total_chunks = max(total_chunks, collection.chunk_count or 0)
     top_sources = [
         {
             "id": row.id,
