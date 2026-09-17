@@ -1,7 +1,7 @@
 import '@angular/compiler';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Injector } from '@angular/core';
+import { Injector, signal } from '@angular/core';
 import { Subject } from 'rxjs';
 import { CanonicalApiService, type Context } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
@@ -10,6 +10,7 @@ import { CapturePublishedChatComponent } from './capture-published-chat.componen
 
 function harness() {
   let epoch = 1;
+  const current = signal({settings:{features:{adoption_experience_v1:true}}});
   let reset = () => {};
   const requests: Array<{ body: Partial<Context>; options: unknown; response: Subject<Context | null> }> = [];
   const injector = Injector.create({ providers: [
@@ -19,6 +20,7 @@ function harness() {
       const response = new Subject<Context | null>(); requests.push({ body, options, response }); return response;
     } } },
     { provide: WorkspaceService, useValue: {
+      current,
       captureRequestScope: () => ({workspaceSlug:'showcase',workspaceId:'ws',epoch}),
       isRequestScopeCurrent: (scope: {epoch:number}) => scope.epoch === epoch,
       registerContextReset: (callback: () => void) => { reset = callback; return () => { reset = () => {}; }; },
@@ -27,7 +29,7 @@ function harness() {
   const component = injector.get(CapturePublishedChatComponent);
   component.collection = 'published-expertise'; component.proposalId = 'proposal-1';
   const result = {id:'ctx-1',name:'Capture',environment_state:{collection:'published-expertise'}};
-  return { component, requests, result, injector, switchWorkspace: () => { reset(); epoch++; } };
+  return { component, requests, result, injector, current, switchWorkspace: () => { reset(); epoch++; } };
 }
 
 test('publication opens only its confirmed collection, without interview memory or duplicate creation', () => {
@@ -71,4 +73,15 @@ test('workspace, publication change, close and destruction cancel pending handof
     if(action==='workspace') {h.component.open();assert.equal(h.requests.length,1,'old publication cannot open in another workspace');}
     if(action!=='destroy')h.injector.destroy();
   }
+});
+
+
+test('the publication handoff stays within the existing adoption rollout', () => {
+  const h=harness();try {
+    h.current.set({settings:{features:{adoption_experience_v1:false}}});
+    assert.equal(h.component.enabled(),false);
+    h.component.open();assert.equal(h.requests.length,0);
+    h.current.set({settings:{features:{adoption_experience_v1:true}}});
+    h.component.open();assert.equal(h.requests.length,1);
+  } finally {h.injector.destroy();}
 });

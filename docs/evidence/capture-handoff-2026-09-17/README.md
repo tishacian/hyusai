@@ -3,7 +3,8 @@
 17 September 2026. Candidate implementation; live runtime remains 18741f94
 until the next documented deployment. Backend code and storage schemas unchanged.
 
-Both Capture publication screens now expose “Ask about the published knowledge”.
+Within workspaces that enabled the existing `adoption_experience_v1` flag,
+both Capture publication screens expose “Ask about the published knowledge”.
 The actual published collection is shown. Clicking creates an ordinary Context
 through the existing canonical API, then opens the existing ChatPanel in fresh,
 compact mode. No question is submitted automatically. Context data/memory/history
@@ -25,7 +26,7 @@ NAWA theme, workspace settings or permissions are modified.
 
 ## Verification
 
-- New Angular-instance tests cover context creation, exact collection, duplicate
+- New Angular-instance tests cover the existing adoption flag and context creation, exact collection, duplicate
   click, failure/wrong collection, retry, workspace/publication change and teardown.
 - ChatPanel regression check ensures fresh sessions ignore stored/first history,
   while a newly created session can be requested explicitly.
@@ -33,7 +34,7 @@ NAWA theme, workspace settings or permissions are modified.
   tenant bindings, chat-session bounds and selected Context replacing defaults
   without widening an executor's frozen source contract.
 - [FR/EN](i18n.log): 8,074 keys; [navigation](nav.log), [chrome](chrome.log) and
-  [production build](build.log) pass. [Full unit result](unit.log): 1,510 passed.
+  [production build](build.log) pass. [Full unit result](unit.log): 1,511 passed.
 - [Viewport checks](viewport-checks.json): real shared header is static at 390 px
   and 1100×550, sticky at desktop. The 390 px action receives its hit-test and the
   page has no horizontal overflow. The live canary now checks the version summary
@@ -59,3 +60,7 @@ demo/agentic. Existing provider/model limits remain effective.
 The component does not prove voice interruption/reconnection, five full Capture
 repetitions, second-user use or human acceptance. R0/R1/R2 remain open according
 to their existing criteria.
+
+The first c3f1fb73 image build was superseded before switching: the final candidate
+adds the existing adoption rollout guard. No c3f1fb73 runtime activation is intended.
+The common header correction remains independent of that UI activation.

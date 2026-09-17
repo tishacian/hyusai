@@ -13,7 +13,7 @@ chunk-SSPAJT6Z.js   | -                                    |  51.56 kB |        
 chunk-27NZPUUO.js   | -                                    |  40.61 kB |                 9.39 kB
 chunk-WUQL22CF.js   | -                                    |  27.97 kB |                 7.97 kB
 chunk-6ZS6GMDY.js   | -                                    |  25.59 kB |                 5.90 kB
-main-XQEJXMOK.js    | main                                 |  24.97 kB |                 7.54 kB
+main-D4RYEAAK.js    | main                                 |  24.97 kB |                 7.54 kB
 chunk-ZHNEGG73.js   | -                                    |  19.67 kB |                 4.23 kB
 chunk-VTT7MQJV.js   | -                                    |  17.75 kB |                 5.24 kB
 chunk-QF2LUN5E.js   | -                                    |  17.13 kB |                 5.42 kB
@@ -44,9 +44,9 @@ chunk-FUGOGVMD.js   | -                                    | 932.01 kB |        
 chunk-PULQP232.js   | livekit-client-esm                   | 523.05 kB |               113.89 kB
 chunk-XYONAYDS.js   | mission-room-provider-host-component | 411.34 kB |                71.60 kB
 chunk-SJBNBFGZ.js   | -                                    | 406.02 kB |               100.66 kB
-chunk-UZQT34HH.js   | knowledge-capture-component          | 387.54 kB |                67.46 kB
+chunk-QEVTYUCP.js   | knowledge-capture-component          | 387.54 kB |                67.41 kB
 chunk-W7YJOQVW.js   | -                                    | 285.32 kB |                52.93 kB
-chunk-6CCARHAV.js   | capture-fil-shell-component          | 274.25 kB |                48.28 kB
+chunk-4TLCX4WY.js   | capture-fil-shell-component          | 274.25 kB |                48.34 kB
 chunk-SMBFJVD2.js   | -                                    | 211.94 kB |                49.66 kB
 chunk-4MF5JBJI.js   | -                                    | 200.91 kB |                56.58 kB
 chunk-TER3T5Q2.js   | editor-component                     | 188.65 kB |                30.10 kB
@@ -54,7 +54,7 @@ chunk-C26KCLSZ.js   | index                                | 159.25 kB |        
 chunk-43EWFVTY.js   | -                                    | 158.64 kB |                38.47 kB
 ...and 203 more lazy chunks files. Use "--verbose" to show all the files.
 
-Application bundle generation complete. [26.381 seconds] - 2026-09-17T03:09:13.488Z
+Application bundle generation complete. [26.730 seconds] - 2026-09-17T03:20:28.953Z
 
 ▲ [WARNING] NG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator. [plugin angular-compiler]
 
