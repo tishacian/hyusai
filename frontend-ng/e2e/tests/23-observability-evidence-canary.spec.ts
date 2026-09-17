@@ -44,6 +44,7 @@ test('evaluation and chart inspection retain the exact Run',async({page},testInf
      await expect(page.locator('app-skill-invocation-view ck-tabs')).toBeVisible();
    }
    await expect(page.getByTestId('skill-invocation-projection-disabled')).toHaveCount(0);
+   await expect(page.locator('header, [role=banner]').getByRole('button', {name: /Run ·/})).toBeVisible();
    await page.screenshot({path:testInfo.outputPath('invocation-audit.png'),fullPage:true});
    await page.locator('app-skill-invocation-view a').filter({hasText:/Back to Run|Retour à l.Exécution/}).click();
    await expect(page.locator('app-run-investigation')).toBeVisible();

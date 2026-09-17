@@ -9,7 +9,6 @@ import {
   type Capability,
   type Run,
   type Skill,
-  type SkillInvocation,
   type System,
 } from './canonical-api.service';
 import { WorkspaceService, type WorkspaceContextTransition } from './workspace.service';
@@ -122,12 +121,10 @@ function graphHarness(url: string, options: { axesV4?: boolean; navV5?: boolean 
     status: 'completed',
     skill_invocations: [{
       id: 'inv-real',
-      run_id: 'run-real',
       skill_slug: 'contract_extract_v1',
       status: 'completed',
     }],
   };
-  const invocation: SkillInvocation = run.skill_invocations![0];
   const skill: Skill = {
     id: 'skill-id',
     slug: 'contract_extract_v1',
@@ -135,9 +132,7 @@ function graphHarness(url: string, options: { axesV4?: boolean; navV5?: boolean 
   };
   const canonical = {
     getRun: (id: string) => of(id === run.id ? run : null),
-    getSkillInvocation: (runId: string, invocationId: string) => of(
-      runId === run.id && invocationId === invocation.id ? invocation : null,
-    ),
+    getSkillInvocation: () => { throw new Error('360 endpoint is not needed for Run membership'); },
     getSystem: (id: string) => of(id === system.id ? system : null),
     getCapability: (id: string) => of(id === capability.id ? capability : null),
     getSkill: (slug: string) => of(
@@ -465,4 +460,13 @@ test('workspace reset clears synchronously and ignores the late graph from the o
   systemReads[0].complete();
   assert.equal(navigation.systemLabel(), 'System B');
   assert.equal(navigation.capabilityLabel(), 'Capability B');
+});
+
+
+test('an invocation absent from the authorized Run cannot inherit forged query parents', () => {
+  const { navigation } = graphHarness('/runs/run-real/invocations/hidden?systemId=sys-real&capabilityId=cap-real');
+  assert.equal(navigation.runId(), null);
+  assert.equal(navigation.systemId(), null);
+  assert.equal(navigation.skillInvocationId(), null);
+  assert.deepEqual(navigation.nodes().map((node) => node.key), ['portfolio']);
 });
