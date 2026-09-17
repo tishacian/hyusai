@@ -3,11 +3,13 @@
 17 septembre 2026 · Agentium Showcase (`agentium-showcase`).
 
 **R0 reste ouvert.** Les gates techniques sont documentés ; la recette manuelle
-authentifiée a corrigé les liens défectueux. La carte de résultat confond encore valeur absente et zéro ; les dix sessions de baseline restent à faire.
-Dernier runtime attesté : `ab15d204a73ee9975ce52d56dccb11b92e39589d`
+authentifiée a corrigé les liens défectueux et distingue désormais valeur absente et zéro.
+Les dix sessions de baseline et la vidéo restent à faire. Le résumé Design PIH
+affiche encore un pipeline générique différent du Flow réel ; ce point est consigné.
+Dernier runtime attesté : `4baa9f5d1487161770c715ee393dd92eb3c8ddb3`
 sur `demo/agentic`. Bascule, identités publiques frontend/backend et santé
 vérifiées ; canaries : **10 réussis, 2 exclusions prévues**. Voir les
-[preuves de qualification](../evidence/release-ab15d204-2026-09-17/README.md).
+[preuves de qualification](../evidence/release-4baa9f5d-2026-09-17/README.md).
 Ce document référence les vérifications consignées ; il ne vaut pas recette humaine.
 
 Périmètre : [sortie R0 de la roadmap](../agentium-delivery-roadmap.md),
@@ -18,12 +20,12 @@ historiques ; le [statut courant](brd-system-roadmap-progress.md) fait référen
 
 | Critère R0 | Preuve conservée | État |
 |---|---|---|
-| Gates locaux du candidat ab15d204 | [Qualification locale et images](../evidence/release-ab15d204-2026-09-17/README.md) : 1 497 tests frontend ; 16 tests backend ciblés sur 970f4512, backend inchangé depuis ; i18n 8 048 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
-| Build VM, stockage, santé et identité du runtime | [Release ab15d204](../evidence/release-ab15d204-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour ab15d204 |
-| Canaries requis, dont Work, Studio et accès au Run | [Log carakai ab15d204](../evidence/release-ab15d204-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour ab15d204 |
-| Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Vérifié dans Chrome : Run conservé 9b73e4e5 (exécuté sur 4771f15b), chiffres attendus et lien exact |
-| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Prouvé historiquement ; ces exécutions ne sont pas attribuées à ab15d204 |
-| Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Work ↔ Studio, invocation et fil d’Ariane corrigés ; valeur absente affichée comme zéro à corriger |
+| Gates locaux du candidat 4baa9f5d | [Qualification locale et images](../evidence/release-4baa9f5d-2026-09-17/README.md) : 1 503 tests frontend ; 19 tests backend coûts/provenance sur c19d30e8, backend inchangé depuis ; i18n 8 057 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
+| Build VM, stockage, santé et identité du runtime | [Release 4baa9f5d](../evidence/release-4baa9f5d-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour 4baa9f5d |
+| Canaries requis, dont Work, Studio et accès au Run | [Log carakai 4baa9f5d](../evidence/release-4baa9f5d-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour 4baa9f5d |
+| Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Vérifié dans Chrome : nouveau Run 5369c2b1 sur 4baa9f5d, chiffres attendus et lien exact ; ancien Run 9b73e4e5 inchangé |
+| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Prouvé historiquement ; ces cinq exécutions ne sont pas attribuées à 4baa9f5d |
+| Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Work ↔ Studio, invocation et fil d’Ariane corrigés ; [nouveaux résultat, Run, PIH et Quality](../evidence/release-4baa9f5d-2026-09-17/README.md) ; absence/zéro corrigé ; résumé Design générique PIH à aligner |
 | Baseline métier/développeur | [Fiche et consignes](agentium-r0-acceptance.md#baseline-avec-les-participants--à-exécuter) ; aucune session renseignée | 0/5 métier, 0/5 développeur |
 | Décision du responsable | Aucune décision de clôture enregistrée | En attente des éléments précédents |
 
@@ -46,23 +48,26 @@ conservé a été exécuté sur 4771f15b.
 Le parcours Quality → Run → passage est capturé sur 447997ee. Sur ab15d204,
 l'invocation ouvre son audit autorisé et conserve le System et le Run, y compris
 après rechargement et retour arrière. L'absence est explicite et peut être relue.
-La carte de résultat affiche encore 0 $ et 0 % pour une valeur absente. Les
-captures sont actualisées ; la vidéo n'a pas été réalisée (commande QuickTime désactivée).
+Sur 4baa9f5d, la carte affiche — pour la valeur absente et son efficacité, et
+qualifie les coûts calculés. Les trois parcours ont été ouverts : nouvelle exécution
+Work, Flow/configuration PIH, Quality → Run → passages. Le résumé Design PIH
+reste générique et différent de son Flow. Les [captures](../evidence/release-4baa9f5d-2026-09-17/README.md)
+sont actualisées ; la vidéo n'a pas été réalisée (commande QuickTime désactivée).
 
 ## Actions restantes
 
-- [ ] **Distinguer absence et zéro dans la carte de résultat.** Ne pas afficher
+- [x] **Distinguer absence et zéro dans la carte de résultat.** Ne pas afficher
   une valeur ni une efficacité mesurée lorsque `value_source` vaut `unset`.
   Conserver les hypothèses déclarées et la provenance des coûts accessibles.
 
-- [ ] **Faire le smoke authentifié sur le SHA retenu.** Recharger complètement
-  le navigateur, sélectionner Showcase et consigner SHA, date, permissions,
-  flags et langue. Suivre les trois parcours de la fiche R0 : Operational
-  Analysis → résultat → Run exact ; exemple PIH existant ; Quality → Run.
-  Vérifier le résultat NorthForge attendu, l'état réel, la prochaine action et
-  les preuves accessibles. Ouvrir Work et Studio et conserver des captures
-  actuelles ainsi que la courte vidéo prévue par la roadmap. Les captures
-  historiques restent datées de leur propre SHA. Consigner tout échec observé.
+- [x] **Faire le smoke authentifié sur 4baa9f5d.** Nouvelle exécution NorthForge
+  depuis Work → résultat → Run → contrôle numérique ; Flow et paramètres PIH
+  ouverts sans mutation ; Quality → Run sélectionné → passages examinés. Captures
+  et contexte dans la release. Les essais historiques restent attribués à leur SHA.
+- [ ] **Aligner le résumé Design PIH sur le Flow réel.** La page affiche quatre
+  étapes RAG génériques alors que le Flow contient déclencheur → Skill → sortie.
+- [ ] **Enregistrer la courte vidéo.** QuickTime désactivé ; proposition de
+  capture alternative en attente de réponse. Aucune vidéo annoncée comme faite.
 - [ ] **Conduire les dix sessions humaines.** Cinq participants métier et cinq
   développeurs extérieurs à la conception, selon la fiche existante. Une ligne
   par participant : tâche, réussite sans aide, durée, aide demandée et blocage,

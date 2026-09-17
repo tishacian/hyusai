@@ -1,0 +1,202 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+    - button "Operational Analysis"
+    - button "Run · 5369c2b1-539…"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef?lens=build&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Create
+    - link "Monitor":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef?lens=operate&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Monitor
+    - link "Improve":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef?lens=steer&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Improve
+    - link "Administer":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef?lens=govern&systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Operate
+  - navigation:
+    - link "Runs":
+      - /url: /runs
+      - generic: Runs
+    - link "Observability":
+      - /url: /observability
+      - generic: Observability
+    - link "Intelligence":
+      - /url: /intelligence
+      - generic: Intelligence
+    - link "Missions":
+      - /url: /tasks
+      - generic: Missions
+    - generic: In Operational Analysis
+    - link "Overview":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=overview
+      - generic: Overview
+    - link "Runs":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=runs
+      - generic: Runs
+    - link "Design":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=design
+      - generic: Design
+    - link "Context":
+      - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate&facet=context
+      - generic: Context
+- main:
+  - generic: Measure · Runs
+  - heading "Run 5369c2b1-539…" [active] [level=1]
+  - generic: Completed
+  - paragraph: "Trigger: manual · System: 15b05919-c93b-4648-8581-8a41cbe2fae6 · Started: 17 Sept 2026, 02:20:33"
+  - link "← Operational Analysis":
+    - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate
+  - link "Open system":
+    - /url: /systems/15b05919-c93b-4648-8581-8a41cbe2fae6?lens=operate
+    - text: Open system
+  - button "Refresh":
+    - text: Refresh
+  - button "Rerun":
+    - text: Rerun
+  - region "Understand this result":
+    - heading "Understand this result" [level=2]
+    - button "Evaluate this result"
+    - generic: "Execution: Completed"
+    - generic: "Automatic check: Skipped"
+    - generic: "Human decision: see Run decisions"
+    - paragraph: The retained inputs or result cannot be evaluated by this check.
+    - generic "Technical details"
+    - heading "Examined response" [level=3]
+    - paragraph: No examined response retained.
+    - heading "Examined claims" [level=3]
+    - paragraph: No claims examined; compliance remains undetermined.
+    - complementary:
+      - heading "Supporting passage" [level=3]
+      - paragraph: No verifiable passage linked to this claim.
+      - generic "Method and coverage"
+    - heading "Operation timeline" [level=3]
+    - generic: Recorded timestamps · parallel operations preserved
+    - generic: 0 s
+    - generic: 32.42 s
+    - link "python_recipe_v1":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef/invocations/f244ca5e-7fb8-41bf-bcc0-01fb18fcabd5?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic "Completed"
+    - generic: 3.15 s
+    - link "llm_rag_answer_v1":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef/invocations/9a48f4d2-a22d-4681-9c77-6e1de70721bd?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic "Completed"
+    - generic: 28.16 s
+    - link "python_recipe_v1":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef/invocations/7a22fa3a-051d-4a4c-8068-4febe369d7a4?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic "Completed"
+    - generic: 1.03 s
+  - generic: Completed
+  - generic: Run · 5369c2b1
+  - generic: · manual
+  - generic: 32.54 s
+  - generic: Decision
+  - generic: —
+  - generic: Confidence
+  - generic: —
+  - generic: Estimated value
+  - generic: —
+  - generic: Value not provided
+  - generic: Recorded cost
+  - generic: $0.012
+  - generic: Coverage and billing not verified
+  - generic: Efficiency
+  - generic: —
+  - generic "Skill ledger · 3"
+  - generic: Value source
+  - generic: Unset
+  - button "Help about Override Outcome.value": "?"
+  - button "Override value":
+    - text: Override value
+  - heading "Skill trail" [level=2]
+  - generic: 3 steps
+  - list:
+    - generic: "1"
+    - link "python_recipe_v1":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef/invocations/f244ca5e-7fb8-41bf-bcc0-01fb18fcabd5?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic: Completed
+    - generic: 3.14s
+    - generic: $0.00 · Calculated
+    - generic: 17 Sept 2026, 02:20:33
+    - generic "Invocation audit"
+    - generic: "2"
+    - link "llm_rag_answer_v1":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef/invocations/9a48f4d2-a22d-4681-9c77-6e1de70721bd?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic: Completed
+    - generic: 28.16s
+    - generic: $0.012 · Calculated
+    - generic: 17 Sept 2026, 02:20:37
+    - term: Effective provider
+    - definition: openai
+    - term: Model
+    - definition: gpt-5-2025-08-07
+    - term: Connection source
+    - definition: Deployment configuration
+    - term: Model selection source
+    - definition: Deployment default
+    - generic "Invocation audit"
+    - generic: "3"
+    - link "python_recipe_v1":
+      - /url: /runs/5369c2b1-5396-4238-906f-80826da0c9ef/invocations/7a22fa3a-051d-4a4c-8068-4febe369d7a4?systemId=15b05919-c93b-4648-8581-8a41cbe2fae6
+    - generic: Completed
+    - generic: 1.02s
+    - generic: $0.00 · Calculated
+    - generic: 17 Sept 2026, 02:21:05
+    - generic "Invocation audit"
+  - heading "Input" [level=2]
+  - generic: "{ \"execution\": { \"flow_sha256\": \"f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d\", \"runtime_mode\": \"dag_overlay\", \"runtime_mode_reason\": null, \"execution_surface\": \"published_manual\", \"published_flow_version_id\": \"e997f4e4-3b51-4eef-9481-389f3a9afae4\", \"ingress_id\": \"src\", \"ingress_selection_version\": 1, \"snapshot_at\": \"2026-09-17T02:20:33.741797Z\", \"runtime_revision\": \"4baa9f5d1487161770c715ee393dd92eb3c8ddb3\", \"control_policy\": { \"schema_version\": 1, \"state\": \"not_configured\" }, \"system_id\": \"15b05919-c93b-4648-8581-8a41cbe2fae6\" }, \"_ingress\": { \"ingress_id\": \"src\", \"source_node_id\": \"src\", \"kind\": \"manual\", \"adapter\": { \"surface\": \"experience\", \"origin\": \"experience:operational-analysis\", \"experience_id\": \"f286295a-ebef-44d2-a4a3-d0dbf04c866f\", \"experience_slug\": \"operational-analysis\", \"experience_release_id\": \"9f8ad33f-41bc-4ccb-a043-d26e5241d779\", \"experience_deployment_id\": \"e6d39e68-2eec-41db-b331-9e2ba71b36b1\", \"channel\": \"live\", \"binding_key\": \"showcase.operational.analyze\", \"page_id\": \"analysis\", \"component_id\": \"analyze\", \"request_sha256\": \"e615a5cc3779118bf3768ec8edb5a8a99520bed9eaad0d84f7332088ae4121f5\" } }, \"workspace_id\": \"e2ed9e40-5fa6-4e32-8948-3e1220134fd3\", \"workspace_slug\": \"agentium-showcase\", \"user_id\": \"06a2e190-ae2d-4365-b4f3-9952401f531d\", \"retrieval_contract\": {} }"
+  - heading "Outcome" [level=2]
+  - generic: "{ \"decision\": null, \"confidence\": null, \"value_estimated\": 0, \"cost_internal\": 0.012, \"revenue_allocated\": null, \"efficiency\": 0, \"value_source\": \"unset\", \"operator_value_note\": null, \"measurement_provenance\": null, \"baseline_eligible\": false, \"baseline_ineligible_reason\": \"baseline_run_is_synthetic_demo\" }"
+  - heading "Checkpoints" [level=2]
+  - generic: "13"
+  - list:
+    - listitem: "{ \"kind\": \"ingress_accepted\", \"t\": \"2026-09-17T02:20:33.191322\", \"ingress_id\": \"src\", \"ingress_kind\": \"manual\", \"published_flow_version_id\": \"e997f4e4-3b51-4eef-9481-389f3a9afae4\", \"flow_sha256\": \"f1cdd9b755357f0960c334129f09e9106c63c4a49d9fa1937829dc01ae59d14d\" }"
+    - listitem: "{ \"kind\": \"run_start\", \"nodes\": 5, \"debug_mode\": null, \"breakpoints\": [], \"ingress_source_node_id\": \"src\", \"inactive_ingress_source_node_ids\": [], \"t\": \"2026-09-17T02:20:33.794767\" }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-17T02:20:33.801685\", \"node_id\": \"src\", \"node_kind\": \"source\", \"label\": \"Synthetic work orders\", \"skill_slug\": null }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-17T02:20:33.808193\", \"node_id\": \"src\", \"node_kind\": \"source\" }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-17T02:20:33.814542\", \"node_id\": \"calculate\", \"node_kind\": \"task\", \"label\": \"Calculate with Python / Polars\", \"skill_slug\": \"python_recipe_v1\" }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-17T02:20:37.030551\", \"node_id\": \"calculate\", \"node_kind\": \"task\", \"skill_slug\": \"python_recipe_v1\", \"status\": \"completed\", \"latency_ms\": 3135.306667536497, \"cost\": 0 }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-17T02:20:37.045933\", \"node_id\": \"explain\", \"node_kind\": \"task\", \"label\": \"Explain the computed evidence\", \"skill_slug\": \"llm_rag_answer_v1\" }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-17T02:21:05.238295\", \"node_id\": \"explain\", \"node_kind\": \"task\", \"skill_slug\": \"llm_rag_answer_v1\", \"status\": \"completed\", \"latency_ms\": 28155.20039666444, \"cost\": 0.012 }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-17T02:21:05.249397\", \"node_id\": \"check\", \"node_kind\": \"task\", \"label\": \"Check against the numerical reference\", \"skill_slug\": \"python_recipe_v1\" }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-17T02:21:06.299193\", \"node_id\": \"check\", \"node_kind\": \"task\", \"skill_slug\": \"python_recipe_v1\", \"status\": \"completed\", \"latency_ms\": 1019.008070230484, \"cost\": 0 }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-17T02:21:06.311503\", \"node_id\": \"sink\", \"node_kind\": \"sink\", \"label\": \"Inspect result and evidence\", \"skill_slug\": null }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-17T02:21:06.320516\", \"node_id\": \"sink\", \"node_kind\": \"sink\" }"
+    - listitem: "{ \"kind\": \"run_end\", \"status\": \"completed\", \"nodes_executed\": 5, \"t\": \"2026-09-17T02:21:06.603113\" }"
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Operate · Depth 4/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Run 5369c2b1-539…
+- document

@@ -1,0 +1,196 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+    - button "OBS QA — NorthForge — obs_qa_a5fe6e4180bd"
+    - button "Run · 2d630608-a54…"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /runs/2d630608-a541-408d-bfe0-b55aadb5c734?lens=build&systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+      - generic: Create
+    - link "Monitor":
+      - /url: /runs/2d630608-a541-408d-bfe0-b55aadb5c734?lens=operate&systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+      - generic: Monitor
+    - link "Improve":
+      - /url: /runs/2d630608-a541-408d-bfe0-b55aadb5c734?lens=steer&systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+      - generic: Improve
+    - link "Administer":
+      - /url: /runs/2d630608-a541-408d-bfe0-b55aadb5c734?lens=govern&systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Operate
+  - navigation:
+    - link "Runs":
+      - /url: /runs
+      - generic: Runs
+    - link "Observability":
+      - /url: /observability
+      - generic: Observability
+    - link "Intelligence":
+      - /url: /intelligence
+      - generic: Intelligence
+    - link "Missions":
+      - /url: /tasks
+      - generic: Missions
+    - generic: In OBS QA — NorthForge — obs_qa_a5fe6e4180bd
+    - link "Overview":
+      - /url: /systems/a1cd8c00-6474-48bd-9d87-dba29f017e92?lens=operate&facet=overview
+      - generic: Overview
+    - link "Runs":
+      - /url: /systems/a1cd8c00-6474-48bd-9d87-dba29f017e92?lens=operate&facet=runs
+      - generic: Runs
+    - link "Design":
+      - /url: /systems/a1cd8c00-6474-48bd-9d87-dba29f017e92?lens=operate&facet=design
+      - generic: Design
+    - link "Context":
+      - /url: /systems/a1cd8c00-6474-48bd-9d87-dba29f017e92?lens=operate&facet=context
+      - generic: Context
+- main [active]:
+  - generic: Measure · Runs
+  - heading "Run 2d630608-a54…" [level=1]
+  - generic: Completed
+  - paragraph: "Trigger: golden_preview · System: a1cd8c00-6474-48bd-9d87-dba29f017e92 · Started: 15 Sept 2026, 23:51:28"
+  - link "← OBS QA — NorthForge — obs_qa_a5fe6e4180bd":
+    - /url: /systems/a1cd8c00-6474-48bd-9d87-dba29f017e92?lens=operate
+  - link "Open system":
+    - /url: /systems/a1cd8c00-6474-48bd-9d87-dba29f017e92?lens=operate
+    - text: Open system
+  - button "Refresh":
+    - text: Refresh
+  - button "Rerun":
+    - text: Rerun
+  - region "Understand this result":
+    - heading "Understand this result" [level=2]
+    - button "Evaluate this result"
+    - generic: "Execution: Completed"
+    - generic: "Automatic check: Partial"
+    - generic: "Human decision: see Run decisions"
+    - heading "Examined response" [level=3]
+    - paragraph: Not stated in the provided excerpts [S1], [S2].
+    - heading "Examined claims" [level=3]
+    - button "The serial number is not stated in the provided excerpts. Supported claim" [pressed]:
+      - generic: The serial number is not stated in the provided excerpts.
+      - strong: Supported claim
+    - button "It is not stated in [S1]. Supported claim":
+      - generic: It is not stated in [S1].
+      - strong: Supported claim
+    - button "It is not stated in [S2]. Supported claim":
+      - generic: It is not stated in [S2].
+      - strong: Supported claim
+    - complementary:
+      - heading "Supporting passage" [level=3]
+      - article:
+        - strong: Examined excerpt
+        - blockquote: "# NorthForge PMP-700 Operating Manual The PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar."
+      - article:
+        - strong: Examined excerpt
+        - blockquote: "# NorthForge PMP-700 Maintenance Procedure Preventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear."
+      - generic "Method and coverage"
+    - heading "Operation timeline" [level=3]
+    - generic: Recorded timestamps · parallel operations preserved
+    - generic: 0 s
+    - generic: 4.86 s
+    - link "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.obs_qa_a5fe6e4180bd":
+      - /url: /runs/2d630608-a541-408d-bfe0-b55aadb5c734/invocations/fbac164b-7d7f-4504-8c5f-2ac16d7b8d72?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+    - generic "Completed"
+    - generic: 4.86 s
+    - region "Prepare an improvement":
+      - heading "Prepare an improvement" [level=3]
+      - paragraph: The correction stays in this System’s draft. The published version and shared Skill remain unchanged.
+      - generic: Operation to inspect
+      - combobox "Operation to inspect":
+        - option "Choose an executed operation" [selected]
+        - option "request"
+        - option "answer · ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.obs_qa_a5fe6e4180bd"
+        - option "result"
+      - button "Inspect configuration" [disabled]
+  - generic: Completed
+  - generic: Run · 2d630608
+  - generic: · golden_preview
+  - generic: 4.94 s
+  - generic: Decision
+  - generic: APPROVED
+  - generic: Confidence
+  - generic: 100%
+  - generic: Estimated value
+  - generic: —
+  - generic: Value not provided
+  - generic: Recorded cost
+  - generic: $0.00
+  - generic: Coverage and billing not verified
+  - generic: Efficiency
+  - generic: —
+  - generic: Confidence
+  - generic: 100%
+  - generic "Skill ledger · 1"
+  - generic: Value source
+  - generic: Unset
+  - button "Help about Override Outcome.value": "?"
+  - button "Override value":
+    - text: Override value
+  - heading "Skill trail" [level=2]
+  - generic: 1 step
+  - list:
+    - generic: "1"
+    - link "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.obs_qa_a5fe6e4180bd":
+      - /url: /runs/2d630608-a541-408d-bfe0-b55aadb5c734/invocations/fbac164b-7d7f-4504-8c5f-2ac16d7b8d72?systemId=a1cd8c00-6474-48bd-9d87-dba29f017e92
+    - generic: Completed
+    - generic: 4.85s
+    - generic: $0.00 · Calculated
+    - generic: 15 Sept 2026, 23:51:53
+    - term: Effective provider
+    - definition: openai
+    - term: Model
+    - definition: gpt-5-2025-08-07
+    - term: Connection source
+    - definition: Deployment configuration
+    - term: Model selection source
+    - definition: Deployment default
+    - generic "Invocation audit"
+  - heading "Input" [level=2]
+  - generic: "{ \"question\": \"What is the serial number of the installed PMP-700 unit?\", \"document_text\": \"[S1] northforge-pmp-700-operating-manual.md\\n# NorthForge PMP-700 Operating Manual\\n\\nThe PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.\\n\\n[S2] northforge-pmp-700-maintenance.md\\n# NorthForge PMP-700 Maintenance Procedure\\n\\nPreventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.\", \"sources\": [ { \"text\": \"# NorthForge PMP-700 Operating Manual\\n\\nThe PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.\", \"filename\": \"northforge-pmp-700-operating-manual.md\", \"source_id\": \"51fb4b5d-39d3-4a17-ba51-5fc9e9afbdf1\", \"document_id\": \"9dd3fa47-1526-53e2-a335-b84221915b02\", \"collection_id\": \"5c0f10fa-c7ff-499a-bd99-6efda2a98fb1\", \"chunk_id\": \"9dd3fa47-1526-53e2-a335-b84221915b02_chunk_0\", \"source_label\": \"S1\" }, { \"text\": \"# NorthForge PMP-700 Maintenance Procedure\\n\\nPreventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.\", \"filename\": \"northforge-pmp-700-maintenance.md\", \"source_id\": \"bc15605e-52c6-461f-8775-01bcc35c85f1\", \"document_id\": \"370bc788-eba4-5eb8-ac83-671236af5896\", \"collection_id\": \"5c0f10fa-c7ff-499a-bd99-6efda2a98fb1\", \"chunk_id\": \"370bc788-eba4-5eb8-ac83-671236af5896_chunk_0\", \"source_label\": \"S2\" } ], \"execution\": { \"flow_sha256\": \"f664c61641d73ab4aa757988124e8f956ead698ad8d466e106ee2d45894a9024\", \"source_flow_sha256\": \"f664c61641d73ab4aa757988124e8f956ead698ad8d466e106ee2d45894a9024\", \"runtime_mode\": \"dag_strict\", \"runtime_mode_reason\": \"flow_v3_strict_workspace_authoritative\", \"execution_surface\": \"golden_preview\", \"evaluation_campaign_id\": \"b447f925-8b5a-4f55-881e-6be75bf14eaf\", \"golden_case_id\": \"absent-serial\", \"comparison_side\": \"candidate\", \"readonly_comparison\": true, \"ingress_id\": \"request\", \"ingress_selection_version\": 1, \"snapshot_at\": \"2026-09-15T23:51:53.790024Z\", \"runtime_revision\": \"63d9afa753e6a1b320ac3e65122c7f7a32d9c3ca\", \"control_policy\": { \"schema_version\": 1, \"state\": \"not_configured\" }, \"system_id\": \"a1cd8c00-6474-48bd-9d87-dba29f017e92\" }, \"_ingress\": { \"ingress_id\": \"request\", \"source_node_id\": \"request\", \"kind\": \"manual\", \"adapter\": { \"surface\": \"golden_preview\" } }, \"workspace_id\": \"e2ed9e40-5fa6-4e32-8948-3e1220134fd3\", \"workspace_slug\": \"agentium-showcase\", \"user_id\": \"06a2e190-ae2d-4365-b4f3-9952401f531d\", \"retrieval_contract\": {} }"
+  - heading "Outcome" [level=2]
+  - generic: "{ \"decision\": \"approved\", \"confidence\": 1, \"value_estimated\": 0, \"cost_internal\": 0, \"revenue_allocated\": null, \"efficiency\": null, \"value_source\": \"unset\", \"operator_value_note\": null, \"measurement_provenance\": null, \"baseline_eligible\": false, \"baseline_ineligible_reason\": \"baseline_run_is_flow_workbench\" }"
+  - heading "Checkpoints" [level=2]
+  - generic: "8"
+  - list:
+    - listitem: "{ \"kind\": \"run_start\", \"nodes\": 3, \"debug_mode\": null, \"breakpoints\": [], \"ingress_source_node_id\": \"request\", \"inactive_ingress_source_node_ids\": [], \"t\": \"2026-09-15T23:51:53.804863\" }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-15T23:51:53.816385\", \"node_id\": \"request\", \"node_kind\": \"source\", \"label\": \"Indexed NorthForge excerpts\", \"skill_slug\": null }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-15T23:51:53.823580\", \"node_id\": \"request\", \"node_kind\": \"source\" }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-15T23:51:53.830628\", \"node_id\": \"answer\", \"node_kind\": \"task\", \"label\": \"Source-grounded answer\", \"skill_slug\": \"ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.obs_qa_a5fe6e4180bd\" }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-15T23:51:58.715580\", \"node_id\": \"answer\", \"node_kind\": \"task\", \"skill_slug\": \"ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.obs_qa_a5fe6e4180bd\", \"status\": \"completed\", \"latency_ms\": 4850.4723673686385, \"cost\": 0 }"
+    - listitem: "{ \"kind\": \"node_start\", \"t\": \"2026-09-15T23:51:58.726075\", \"node_id\": \"result\", \"node_kind\": \"sink\", \"label\": \"Reviewable answer\", \"skill_slug\": null }"
+    - listitem: "{ \"kind\": \"node_end\", \"t\": \"2026-09-15T23:51:58.734117\", \"node_id\": \"result\", \"node_kind\": \"sink\" }"
+    - listitem: "{ \"kind\": \"run_end\", \"status\": \"completed\", \"nodes_executed\": 3, \"t\": \"2026-09-15T23:51:58.788026\" }"
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Operate · Depth 4/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Agentium
+- document
