@@ -1,0 +1,57 @@
+Updating 0f06b4eb..d05e84b1
+Fast-forward
+ backend/app/agents/procurement_agent.py            |   60 +-
+ backend/app/tests/services/test_omnirag_sources.py |   58 +
+ .../evidence/release-0f06b4eb-2026-09-17/README.md |   74 +
+ .../release-0f06b4eb-2026-09-17/canaries.log       |   19 +
+ .../capture-retrieval-empty-dom.txt                |  218 +++
+ .../capture-retrieval-empty-run.json               |    1 +
+ .../capture-retrieval-empty.png                    |  Bin 0 -> 83604 bytes
+ .../giskard-campaign.json                          |  364 +++++
+ .../release-0f06b4eb-2026-09-17/giskard-raget.json |  209 +++
+ .../release-0f06b4eb-2026-09-17/giskard-suite.json |  169 +++
+ .../release-0f06b4eb-2026-09-17/health-ready.log   |    6 +
+ .../release-0f06b4eb-2026-09-17/pre-switch.log     |    3 +
+ .../public-verification.log                        |    3 +
+ .../release-0f06b4eb-2026-09-17/runner-sync.log    |   23 +
+ .../release-0f06b4eb-2026-09-17/runtime-health.log |    7 +
+ .../release-0f06b4eb-2026-09-17/switch.log         |   14 +
+ .../release-0f06b4eb-2026-09-17/vm-build.log       |    9 +
+ .../release-0f06b4eb-2026-09-17/vm-sync.log        |   16 +
+ .../release-0f06b4eb-2026-09-17/worker-sdk.log     |    7 +
+ .../synthesis-context-handoff-2026-09-17/README.md |   22 +
+ .../backend.log                                    |   22 +
+ .../synthesis-context-handoff-2026-09-17/build.log |  108 ++
+ .../chrome.log                                     |    5 +
+ .../synthesis-context-handoff-2026-09-17/i18n.log  |    5 +
+ .../synthesis-context-handoff-2026-09-17/nav.log   |    5 +
+ .../regression-before.log                          |  128 ++
+ .../synthesis-context-handoff-2026-09-17/unit.log  | 1526 ++++++++++++++++++++
+ docs/ops/brd-system-roadmap-progress.md            |   25 +-
+ docs/ui/capture-published-knowledge.md             |   16 +-
+ 29 files changed, 3051 insertions(+), 71 deletions(-)
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/README.md
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/canaries.log
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/capture-retrieval-empty-dom.txt
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/capture-retrieval-empty-run.json
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/capture-retrieval-empty.png
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/giskard-campaign.json
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/giskard-raget.json
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/giskard-suite.json
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/health-ready.log
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/pre-switch.log
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/public-verification.log
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/runner-sync.log
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/runtime-health.log
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/switch.log
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/vm-build.log
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/vm-sync.log
+ create mode 100644 docs/evidence/release-0f06b4eb-2026-09-17/worker-sdk.log
+ create mode 100644 docs/evidence/synthesis-context-handoff-2026-09-17/README.md
+ create mode 100644 docs/evidence/synthesis-context-handoff-2026-09-17/backend.log
+ create mode 100644 docs/evidence/synthesis-context-handoff-2026-09-17/build.log
+ create mode 100644 docs/evidence/synthesis-context-handoff-2026-09-17/chrome.log
+ create mode 100644 docs/evidence/synthesis-context-handoff-2026-09-17/i18n.log
+ create mode 100644 docs/evidence/synthesis-context-handoff-2026-09-17/nav.log
+ create mode 100644 docs/evidence/synthesis-context-handoff-2026-09-17/regression-before.log
+ create mode 100644 docs/evidence/synthesis-context-handoff-2026-09-17/unit.log

@@ -6,10 +6,10 @@
 authentifiée a corrigé les liens défectueux et distingue désormais valeur absente et zéro.
 Les dix sessions de baseline et la vidéo restent à faire. Design PIH distingue
 désormais draft r3 et publication v1 ; son en-tête à 390 px est corrigé et vérifié après défilement.
-Dernier runtime attesté : `def0b3cc348ab2c82b455a55cb2a12d04049e593`
+Dernier runtime attesté : `d05e84b15c53e9a12dc92a9cab6f765be648fead`
 sur `demo/agentic`. Bascule, identités publiques frontend/backend et santé
 vérifiées ; canaries : **10 réussis, 2 exclusions prévues**. Voir les
-[preuves de qualification](../evidence/release-def0b3cc-2026-09-17/README.md).
+[preuves de qualification](../evidence/release-d05e84b1-2026-09-17/README.md).
 Ce document référence les vérifications consignées ; il ne vaut pas recette humaine.
 
 Périmètre : [sortie R0 de la roadmap](../agentium-delivery-roadmap.md),
@@ -20,9 +20,9 @@ historiques ; le [statut courant](brd-system-roadmap-progress.md) fait référen
 
 | Critère R0 | Preuve conservée | État |
 |---|---|---|
-| Gates locaux du candidat def0b3cc | [Qualification locale et images](../evidence/release-def0b3cc-2026-09-17/README.md) : 1 511 tests frontend ; 10 tests backend contexte/session ; i18n 8 074 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
-| Build VM, stockage, santé et identité du runtime | [Release def0b3cc](../evidence/release-def0b3cc-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour def0b3cc |
-| Canaries requis, dont Work, Studio et accès au Run | [Log carakai def0b3cc](../evidence/release-def0b3cc-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour def0b3cc |
+| Gates locaux du candidat d05e84b1 | [Qualification locale et images](../evidence/release-d05e84b1-2026-09-17/README.md) : 1 512 tests frontend ; 137 tests backend ; i18n 8 077 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
+| Build VM, stockage, santé et identité du runtime | [Release d05e84b1](../evidence/release-d05e84b1-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour d05e84b1 |
+| Canaries requis, dont Work, Studio et accès au Run | [Log carakai d05e84b1](../evidence/release-d05e84b1-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour d05e84b1 |
 | Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Vérifié dans Chrome : nouveau Run 5369c2b1 sur 4baa9f5d, chiffres attendus et lien exact ; ancien Run 9b73e4e5 inchangé |
 | Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Cinq nouvelles exécutions réussies sur 18741f94 : [réponses conservées](../evidence/release-18741f94-2026-09-17/sequential.json). Concurrence et redémarrage restent historiques |
 | Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Work ↔ Studio, invocation et fil d’Ariane corrigés ; [nouveaux résultat, Run, PIH et Quality](../evidence/release-18741f94-2026-09-17/README.md) ; absence/zéro corrigé ; Design et Flow r3 alignés ; en-tête à 390 px corrigé et vérifié sur def0b3cc |
@@ -86,9 +86,10 @@ sont actualisées ; la vidéo n'a pas été réalisée (commande QuickTime désa
 ## Limites conservées sans élargir R0
 
 Aucune CI distante n'est active ; aucune attestation GitLab n'est attendue.
-Les réserves historiques sur une campagne Giskard avec fournisseur réel,
-un cas d'observabilité non préparé ou une perte brutale du worker restent
-documentées dans leur périmètre ; elles ne sont pas marquées réussies ici.
+La campagne Giskard avec le fournisseur réel a terminé sur 0f06b4eb : six
+réponses évaluées, Runs et usage fournisseur conservés dans les preuves. Le cas
+d'observabilité non préparé et la perte brutale du worker restent ouverts dans
+leur périmètre. Cette campagne ne remplace pas la baseline humaine de R0.
 La génération complète des deux BRD, leurs suites Golden, la revue/reprise,
 la publication et la consommation par un second utilisateur relèvent de R1.
 Le défaut d'oracle `approved`/`accepted` découvert sur f6b73cff est suivi dans
