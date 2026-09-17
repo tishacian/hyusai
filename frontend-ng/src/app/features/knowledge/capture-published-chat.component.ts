@@ -1,8 +1,8 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, Input, OnChanges, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, Input, OnChanges, computed, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
-import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceService, workspaceSettingFeature } from '@app/core/workspace.service';
 import { ChatPanelComponent } from '../chat/chat-panel.component';
 
 /** Start a new conversation from a confirmed Capture publication, not its interview. */
@@ -12,7 +12,7 @@ import { ChatPanelComponent } from '../chat/chat-panel.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ChatPanelComponent],
   template: `
-    @if (collection && proposalId) {
+    @if (enabled() && collection && proposalId) {
       <section class="ck-surface" style="padding:16px; border-radius:var(--ck-radius-lg); min-width:0;">
         <p style="margin:0 0 12px; color:var(--ck-fg-2); overflow-wrap:anywhere;">
           {{ i18n.t('capture.publish.chat_scope', { collection }) }}
@@ -45,6 +45,7 @@ export class CapturePublishedChatComponent implements OnChanges {
   readonly i18n = inject(I18nService);
   private readonly api = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
+  readonly enabled = computed(() => workspaceSettingFeature(this.workspace.current(), 'adoption_experience_v1'));
   readonly contextId = signal<string | null>(null);
   readonly busy = signal(false);
   readonly failed = signal(false);
@@ -71,7 +72,7 @@ export class CapturePublishedChatComponent implements OnChanges {
   }
 
   open(): void {
-    if (this.busy() || this.contextId()) return;
+    if (!this.enabled() || this.busy() || this.contextId()) return;
     const scope = this.publicationScope;
     const collection = this.collection.trim();
     if (!this.workspace.isRequestScopeCurrent(scope) || !scope.workspaceSlug || !scope.workspaceId || !this.proposalId || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$/.test(collection)) {

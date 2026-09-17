@@ -86,3 +86,6 @@ no prompt is submitted automatically. Existing Context creation supplies the
 collection and the standard chat owns citations, Runs and source inspection.
 The same small component serves both Capture surfaces. Keep Cockpit tokens and
 published source actions; no NAWA branding changes or additional orchestration.
+
+The new Capture action stays inside `adoption_experience_v1`, already used for
+the pilot cohort. No new flag, workspace mutation or general client activation.
