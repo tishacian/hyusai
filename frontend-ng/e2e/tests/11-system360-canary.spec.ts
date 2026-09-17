@@ -326,6 +326,15 @@ async function selectLens(page: Page, lens: Lens, systemId: string, facet: Facet
     const url = new URL(page.url());
     return `${url.pathname}|${url.searchParams.get('lens')}|${url.searchParams.get('facet')}`;
   }).toBe(`/systems/${systemId}|${lens}|${facet}`);
+  if (lens === 'govern' && facet === 'overview') {
+    await expect(page.locator('#ck-tabpanel-overview app-system-mandate section')).toBeVisible();
+    await expect(page.getByTestId('system-mandate-coverage')).toBeVisible();
+    return;
+  }
+  if (lens === 'govern' && facet === 'context') {
+    await expect(page.locator('#ck-tabpanel-context app-mandate-editor')).toBeVisible();
+    return;
+  }
   await expect(
     page.locator(`#ck-tabpanel-${facet} app-system-perspective section[data-system-id="${systemId}"][data-perspective-lens="${lens}"]`),
   ).toBeVisible();
@@ -477,14 +486,18 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
       expect(factStates).toContain(fact.state);
       if (fact.state !== 'available') expect(fact.value).toBeNull();
     }
-    const missing = facts.find(
+    // Governance overview/context now render the mandate, not perspective facts.
+    // Keep all API honesty checks above; compare UI facts on their rendered facets.
+    const renderedFacts = facts.filter(row => row.lens !== 'govern'
+      || (row.facet !== 'overview' && row.facet !== 'context'));
+    const missing = renderedFacts.find(
       (row): row is MissingFact => row.fact.state === 'not_measured' || row.fact.state === 'not_configured',
     );
     expect(missing, 'at least one honest missing-data state must be exposed').toBeTruthy();
-    const restricted = facts.find((row) => row.fact.state === 'restricted');
+    const restricted = renderedFacts.find((row) => row.fact.state === 'restricted');
     expect(restricted, 'at least one genuinely restricted field must be explicit').toBeTruthy();
     const uiFacts = Object.fromEntries(lenses.map((lens) => {
-      const located = facts.find(
+      const located = renderedFacts.find(
         (row) => row.lens === lens
           && row.fact.state === 'available'
           && formatPrimitive(row.fact.value) !== null,
@@ -526,11 +539,19 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
       await expect
         .poll(async () => (await headerParts(page)).zone)
         .toMatch(zoneLabels[lens]);
-      const expectedBlocks = payloads[lens].facets.overview.blocks.map((block) => block.id).sort();
-      const renderedBlocks = await page
-        .locator('#ck-tabpanel-overview app-system-perspective article[data-block-id]')
-        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-block-id')).filter(Boolean).sort());
-      expect(renderedBlocks).toEqual(expectedBlocks);
+      if (lens !== 'govern') {
+        const expectedBlocks = payloads[lens].facets.overview.blocks.map((block) => block.id).sort();
+        const renderedBlocks = await page
+          .locator('#ck-tabpanel-overview app-system-perspective article[data-block-id]')
+          .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-block-id')).filter(Boolean).sort());
+        expect(renderedBlocks).toEqual(expectedBlocks);
+      } else {
+        const mandate = await api<{ system_id: string }>(page, primary.slug, `/systems/${encodeURIComponent(system.id)}/mandate`);
+        expect(mandate.ok).toBe(true);
+        expect(mandate.body.system_id).toBe(system.id);
+        await expect(page.locator('#ck-tabpanel-overview app-system-mandate [role="alert"]')).toHaveCount(0);
+        await expect(page.getByTestId('system-mandate-coverage').locator('[role="alert"]')).toHaveCount(0);
+      }
       expect(await page.evaluate(() => {
         const state = (window as typeof window & { __system360Invariant?: {
           header: Element | null;
