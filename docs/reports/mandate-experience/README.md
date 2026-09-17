@@ -2,7 +2,7 @@
 
 **Le mandat est intégré à Chat, Work, System et Run.** La configuration décrit le périmètre prévu ; les événements conservés expliquent les contrôles, attentes et refus de chaque exécution.
 
-Branche : `codex/mandate-experience`. Base : `origin/demo/agentic`, `c432f2dc`. Travail local non commité et non déployé. Les images ci-dessous montrent les composants Angular compilés, alimentés par des fixtures synthétiques locales. Elles illustrent l’interface implémentée, pas une exécution de production.
+Recette locale initiale : branche `codex/mandate-experience`, base `origin/demo/agentic` à `c432f2dc`. Le travail a depuis été intégré et déployé ; voir la [qualification distante](../../evidence/release-6f6d10c0-2026-09-17/README.md). Les images ci-dessous montrent les composants Angular compilés, alimentés par des fixtures synthétiques locales. Elles illustrent l’interface implémentée, pas une exécution de production.
 
 ## Dans le produit
 

@@ -6990,3 +6990,29 @@ history case now retrieves the actual 30/55-minute source in one call and passes
 Local engine review was simulated; production R1 decisions remain untouched.
 [Release evidence](../evidence/release-e30230ae-2026-09-17/README.md).
 R0 human sessions/video and complete R1 acceptance remain open.
+
+
+### 2026-09-17 — visible mandate, draft editor and frozen policies, 6f6d10c0
+
+Pushed `demo/agentic` SHA `6f6d10c04c62bc6b916da0724a49b379a4e0620d`
+is deployed. Three immutable images were built on omnirag-demo for each candidate.
+The first candidate `e2294c37` applied additive migration 108 after the verified
+PostgreSQL/MLflow/retained-object backup at
+`/srv/agentium-data/mandate-deployments/2026-09-17-e2294c37e79a` (`.ready`).
+Workers had no active or reserved tasks before switches. Existing stale Runs,
+human gates, infrastructure, workspace flags and NAWA branding were left intact.
+
+Live qualification found and corrected the classification of actual postcheck
+stops, then aligned the System360 canary with the new governance view. Final
+carakai result: **10 passed, 2 intentional exclusions, 0 failed**. Exact public
+frontend/backend revisions, six running app services, API/frontend health,
+HTTP 200 and zero startup exception matches verified. Chrome hard-reload,
+draft validation and real canonical Runs passed. The synthetic qualification
+preserves an earlier refused cost Run while later Runs use their own published
+duration limit. No live Giskard provider campaign is claimed; the optional SDK
+and offline image qualification remain present.
+
+Previous compatible image tag: `43a33dcd8cc8`. Pre-mandate workers are not a
+compatible rollback for newly published frozen-policy contracts. Do not restore
+the backup over later writes. [Release evidence, actual screenshots and URLs](../evidence/release-6f6d10c0-2026-09-17/README.md).
+R0 human acceptance and complete Rx qualification remain separate.

@@ -1,0 +1,99 @@
+{
+  "revision": "6f6d10c04c62bc6b916da0724a49b379a4e0620d",
+  "system_id": "141db166-2d4d-42df-bee3-6b65e556ca46",
+  "run_id": "88045ffc-30c0-48f6-a081-5e95291ab5e4",
+  "status": "completed",
+  "applied": {
+    "state": "recorded",
+    "policy_id": "a1589aed-eb69-5456-8e94-a146ab5e33ee",
+    "revision": "control-policy-v1:247398e53802b1c06ee005273cc87cd9aba4aeed4618cdd55443b35e2fbcff25",
+    "snapshot_at": "2026-09-17T09:29:50.751073Z",
+    "mode": "enforce",
+    "version": 2,
+    "spec": {
+      "version": 2,
+      "inbound": {
+        "collection_allowlist": [],
+        "reference_type_filters": [],
+        "reject_cross_project_sources": false,
+        "preserve_reference_types": false,
+        "expert_fiche_correction_enabled": false,
+        "industrial_grounding": false
+      },
+      "outbound": {
+        "expert_review_required": false,
+        "gate_if_confidence_below": null
+      },
+      "capabilities": {
+        "allowed_skills": [],
+        "allowed_models": [],
+        "allowed_delegations": [],
+        "allowed_actions": []
+      },
+      "provenance": {
+        "require_citations": false
+      },
+      "valves": {
+        "max_cost_per_decision": null,
+        "max_latency_ms": 30000.0,
+        "mandatory_hitl_if_confidence_below": null,
+        "hard_abort": false,
+        "circuit_breaker": null,
+        "token_budget": null
+      },
+      "enforcement_mode": "enforce"
+    },
+    "policy_binding": "frozen",
+    "not_recorded_reason": null
+  },
+  "prior_cost_stop": {
+    "run_id": "e4b1fceb-6401-4097-a6e3-07052506a87e",
+    "counts": {
+      "recorded_events": 2,
+      "blocked": 1,
+      "awaiting_human": 0
+    },
+    "events": [
+      {
+        "id": "checkpoint:7",
+        "kind": "membrane_egress_evaluated",
+        "facet": "outbound",
+        "status": "recorded",
+        "at": "2026-09-17T09:01:38.095528",
+        "node_id": null,
+        "invocation_id": null,
+        "decision_id": null,
+        "child_run_id": null,
+        "rule": null,
+        "details": {
+          "mode": "enforce",
+          "disposition": "allow",
+          "would_disposition": "allow",
+          "reasons": [],
+          "citation_count": 0
+        }
+      },
+      {
+        "id": "decision:5f358204-7236-4076-9c98-fc0e9671648c",
+        "kind": "policy_breach",
+        "facet": "valves",
+        "status": "blocked",
+        "at": "2026-09-17T09:01:38.116670",
+        "node_id": null,
+        "invocation_id": null,
+        "decision_id": "5f358204-7236-4076-9c98-fc0e9671648c",
+        "child_run_id": null,
+        "rule": "cost_measurement_unavailable",
+        "details": {
+          "breaches": [
+            "cost_measurement_unavailable"
+          ],
+          "mode": "enforce",
+          "decision_status": "applied",
+          "human_confirmed": false
+        }
+      }
+    ]
+  },
+  "scope": "Real canonical Runs, synthetic source-to-sink Flow, no model call or external effect."
+}

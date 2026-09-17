@@ -1,0 +1,12 @@
+{
+  "candidate": "43a33dcd8cc8880edca8b6e0f2be9b5e456eb4ec",
+  "initial_implementation_gates": "../release-e2294c37-2026-09-17/README.md",
+  "delta": {
+    "backend_projection_tests": 22,
+    "backend_api_authority_draft_tests": 39,
+    "failures": 0,
+    "playwright_system360_spec_load": "passed",
+    "diff_check": "passed"
+  },
+  "scope": "Delta changes only the blocked-event projection and the existing System360 canary. Frontend production application bytes are unchanged from the initial gate run."
+}

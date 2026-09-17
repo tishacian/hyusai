@@ -1,0 +1,100 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  211.4MB
+Step 1/26 : FROM python:3.12-slim
+ ---> ec948fa5f90f
+Step 2/26 : ENV DEBIAN_FRONTEND=noninteractive     PYTHONUNBUFFERED=1     PYTHONDONTWRITEBYTECODE=1
+ ---> Using cache
+ ---> 279b020c50f6
+Step 3/26 : RUN apt-get update     && apt-get install --no-install-recommends -y         build-essential         libreoffice-calc         libreoffice-writer         tesseract-ocr         tesseract-ocr-eng         tesseract-ocr-fra     && rm -rf /var/lib/apt/lists/*
+ ---> Using cache
+ ---> 4eec81a93904
+Step 4/26 : ARG PIP_INDEX_URL
+ ---> Using cache
+ ---> 6bed9a0995b0
+Step 5/26 : RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
+ ---> Using cache
+ ---> 324c12333409
+Step 6/26 : COPY backend/requirements.txt backend/constraints-demo-worker.txt /tmp/requirements/
+ ---> Using cache
+ ---> dc5abcccd115
+Step 7/26 : RUN pip install --no-cache-dir     --constraint=/tmp/requirements/constraints-demo-worker.txt     --index-url=${PIP_INDEX_URL}     -r /tmp/requirements/requirements.txt
+ ---> Using cache
+ ---> e1df4c66c689
+Step 8/26 : RUN pip install --no-cache-dir torch torchvision         --constraint=/tmp/requirements/constraints-demo-worker.txt         --index-url=https://download.pytorch.org/whl/cpu     && pip install --no-cache-dir         --constraint=/tmp/requirements/constraints-demo-worker.txt         --index-url=${PIP_INDEX_URL}         "transformers>=4.41.0"     && pip check
+ ---> Using cache
+ ---> fdbe1f4418ff
+Step 9/26 : COPY backend/requirements_giskard.txt /tmp/requirements/
+ ---> Using cache
+ ---> 19acf0069b00
+Step 10/26 : ARG INSTALL_GISKARD_RAGET=false
+ ---> Using cache
+ ---> b4c248f08c79
+Step 11/26 : RUN if [ "$INSTALL_GISKARD_RAGET" = "true" ]; then       pip install --no-cache-dir --index-url=${PIP_INDEX_URL}         --constraint=/tmp/requirements/constraints-demo-worker.txt         -r /tmp/requirements/requirements_giskard.txt;     fi
+ ---> Using cache
+ ---> ea6223c0fbc5
+Step 12/26 : ARG USERNAME=agentium
+ ---> Using cache
+ ---> 8796e67e56a2
+Step 13/26 : ARG USER_UID=1000
+ ---> Using cache
+ ---> b5f21a0b5c58
+Step 14/26 : ARG USER_GID=1000
+ ---> Using cache
+ ---> 8dfa288b3703
+Step 15/26 : RUN groupadd --gid "$USER_GID" "$USERNAME"     && useradd --uid "$USER_UID" --gid "$USER_GID" --create-home "$USERNAME"
+ ---> Using cache
+ ---> 91bd33d63da1
+Step 16/26 : WORKDIR /app
+ ---> Using cache
+ ---> 2f15caf136d6
+Step 17/26 : COPY --chown=$USERNAME:$USERNAME . .
+ ---> 6f5eae656419
+Step 18/26 : RUN if [ "$INSTALL_GISKARD_RAGET" = "true" ]; then       pip check && PYTHONPATH=/app/backend python backend/scripts/qualify_giskard_raget.py;     fi
+ ---> Running in 79564ec65a86
+No broken requirements found.
+[91m/app/backend/scripts/qualify_giskard_raget.py:44: DeprecationWarning: set_default_client is deprecated: https://docs.giskard.ai/en/latest/open_source/setting_up/index.html
+  set_default_client(judge)
+/app/backend/scripts/qualify_giskard_raget.py:46: DeprecationWarning: set_default_embedding is deprecated, check documentation to setup llm: https://docs.giskard.ai/en/latest/open_source/setting_up/index.html
+  set_default_embedding(FixtureEmbedding())
+[0m[91mAsking questions to the agent:   0%|          | 0/3 [00:00<?, ?it/s]Asking questions to the agent: 100%|██████████| 3/3 [00:00<00:00, 35544.95it/s]
+[0m[91mCorrectnessMetric evaluation:   0%|          | 0/3 [00:00<?, ?it/s][0m[91mCorrectnessMetric evaluation: 100%|██████████| 3/3 [00:00<00:00, 8149.55it/s]
+[0m{"sdk": "2.19.2", "python_scope": "isolated_optional_environment", "cases": 3, "judge_calls": 4, "models": "mocked", "provider_live_run": "NOT RUN", "qatestset": "PASS", "knowledge_base": "PASS", "rag_report": "PASS", "canonical_reference_serialization": "PASS"}
+ ---> Removed intermediate container 79564ec65a86
+ ---> 7a1e92293ebe
+Step 19/26 : RUN chmod +x ./run_celery.sh     && mkdir -p /data/object_store /data/recipe_envs /app/vector_store     && chown -R "$USERNAME":"$USERNAME" /data /app/vector_store
+ ---> Running in 7ec95a303d75
+ ---> Removed intermediate container 7ec95a303d75
+ ---> 8d797a2ba8fe
+Step 20/26 : USER $USERNAME
+ ---> Running in 952a8ccc4519
+ ---> Removed intermediate container 952a8ccc4519
+ ---> c0d0be77de7b
+Step 21/26 : ENV PYTHONPATH=/app/backend:/app
+ ---> Running in ad81fd480d35
+ ---> Removed intermediate container ad81fd480d35
+ ---> 0efe5b160439
+Step 22/26 : WORKDIR /app
+ ---> Running in 590f168702de
+ ---> Removed intermediate container 590f168702de
+ ---> 2d57811a2fc6
+Step 23/26 : ARG AGENTIUM_IMAGE_REVISION=unknown
+ ---> Running in 553d6d8b4021
+ ---> Removed intermediate container 553d6d8b4021
+ ---> c1f7c61a1491
+Step 24/26 : ENV AGENTIUM_IMAGE_REVISION=${AGENTIUM_IMAGE_REVISION}
+ ---> Running in 5bdb0fe20464
+ ---> Removed intermediate container 5bdb0fe20464
+ ---> 09e535d998ed
+Step 25/26 : LABEL org.opencontainers.image.revision="${AGENTIUM_IMAGE_REVISION}"
+ ---> Running in cf7b4cc20b82
+ ---> Removed intermediate container cf7b4cc20b82
+ ---> 14eb2c3db827
+Step 26/26 : CMD ["./run_celery.sh"]
+ ---> Running in c49cab6c33f2
+ ---> Removed intermediate container c49cab6c33f2
+ ---> f423e92908ca
+Successfully built f423e92908ca
+Successfully tagged agentium-worker:6f6d10c04c62
