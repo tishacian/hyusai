@@ -33,6 +33,11 @@ function card(outcome: Outcome = {}) {
   return { component, locale };
 }
 
+test('a small negative declaration keeps the correct inequality at display precision', () => {
+  const { component } = card({ value_source: 'operator', value_estimated: -.000001 });
+  assert.equal(component.snapshot().value, '> −$0.0001');
+});
+
 test('NorthForge unset value is absent, not zero business value or zero efficiency', () => {
   const { component } = card({ value_source: 'unset', value_estimated: 0, efficiency: 0, cost_internal: .012 });
   const view = component.snapshot();

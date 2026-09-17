@@ -35,6 +35,17 @@ test('evaluation and chart inspection retain the exact Run',async({page},testInf
      await expect(outcomeCard.locator('ck-stat-readout').filter({hasText:/Estimated value|Valeur estimée/})).toContainText('—');
      await expect(outcomeCard.locator('ck-stat-readout').filter({hasText:/Efficiency|Rendement/})).toContainText('—');
    }
+   const viewport=page.viewportSize();
+   try{
+     await page.setViewportSize({width:390,height:844});
+     await outcomeCard.scrollIntoViewIfNeeded();
+     const sizes=await outcomeCard.locator('ck-stat-readout').evaluateAll(elements=>elements.map(el=>({
+       width:el.getBoundingClientRect().width,scroll:el.scrollWidth,
+     })));
+     expect(sizes).toHaveLength(5);
+     for(const size of sizes)expect(size.scroll).toBeLessThanOrEqual(Math.ceil(size.width)+1);
+     await page.screenshot({path:testInfo.outputPath('outcome-narrow.png'),fullPage:true});
+   }finally{if(viewport)await page.setViewportSize(viewport);}
  }
  await page.screenshot({path:testInfo.outputPath('run-investigation.png'),fullPage:true});
  // The operation shortcut must remain useful when the 360 projection is off.

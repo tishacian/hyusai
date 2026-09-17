@@ -1,0 +1,6 @@
+/agentium-backend agentium-backend:c19d30e8133c running healthy
+/agentium-worker-cpu agentium-worker:c19d30e8133c running
+/agentium-worker-recipes agentium-worker:c19d30e8133c running
+/agentium-frontend agentium-frontend:c19d30e8133c running healthy
+/agentium-p4-maintenance agentium-worker:c19d30e8133c running
+/agentium-beat agentium-worker:c19d30e8133c running

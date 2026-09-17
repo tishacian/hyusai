@@ -41,7 +41,7 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
         </span>
       </div>
 
-      <div style="display:grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap:18px;">
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); gap:18px;">
         <ck-stat-readout
           [label]="i18n.t('runs.outcome.decision')"
           [value]="decisionLabel()"
@@ -255,6 +255,7 @@ export class RunOutcomeCardComponent {
   protected currency(value: number | null | undefined): string {
     if (value == null || !Number.isFinite(value)) return '—';
     const formatted = this.formatCost(Math.abs(value));
+    if (value < 0 && formatted.startsWith('< ')) return `> −${formatted.slice(2)}`;
     return value < 0 && formatted !== '—' ? `−${formatted}` : formatted;
   }
 
