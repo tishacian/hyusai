@@ -9,8 +9,9 @@ import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
+import type { RunAssertionResult } from '@app/core/canonical-api.service';
 interface Suite {id:string;name:string;revision:number;cases:unknown[];}
-interface CaseResult {run_id:string;status:string;verdict:string;output_ref:unknown;duration_ms:number|null;execution_cost:number|null;assertions:unknown[];}
+interface CaseResult {run_id:string;status:string;verdict:string;output_ref:unknown;duration_ms:number|null;execution_cost:number|null;assertions:RunAssertionResult[];}
 interface Campaign {id:string;status:string;method:string;snapshot:{comparability:string;limitations:unknown[]};results:Array<{case_id:string;change:string;baseline:CaseResult;candidate:CaseResult}>;}
 interface Generation {id:string;status:string;stage:string;progress:number;error?:string;result?:{cases?:Array<{id?:string;question?:string;reference_answer?:string;reference_context?:string}>;method?:string;version?:string;usage?:unknown;models?:unknown;coverage?:unknown;sides?:unknown};}
 interface CollectionOption {id:string;name:string;status:string;}
@@ -54,7 +55,14 @@ interface CollectionOption {id:string;name:string;status:string;}
       <div><strong>{{i18n.t($index === 0 ? 'runs.comparison.baseline' : 'runs.comparison.candidate')}}</strong>
        <p>{{code('status',side.status)}} · {{code('verdict',side.verdict)}}</p><pre>{{side.output_ref | json}}</pre>
        @if(side.run_id){<a [navLink]="{type:'run',ref:side.run_id}">{{i18n.t('runs.comparison.proof')}}</a>}
-       <details><summary>{{i18n.t('runs.comparison.assertions')}}</summary><pre>{{side.assertions | json}}</pre><p>{{i18n.t('runs.comparison.cost')}}: {{cost(side.execution_cost)}} · {{i18n.t('observability.quality.milliseconds',{value:number(side.duration_ms)})}}</p></details>
+       <details><summary>{{i18n.t('runs.comparison.assertions')}}</summary>
+        @for(check of side.assertions;track check.id){
+         <p>{{check.id}} · {{code('verdict',check.passed === true ? 'passed' : check.passed === false ? 'failed' : 'unevaluated')}}</p>
+         @for(invocationId of check.invocation_ids;track invocationId){
+          <p><a [navLink]="{type:'skill_invocation',runId:side.run_id,ref:invocationId}">{{i18n.t('runs.investigation.invocation')}} · {{invocationId}}</a></p>
+         }
+        }
+        <details><summary>{{i18n.t('observability.quality.technical')}}</summary><pre>{{side.assertions | json}}</pre></details><p>{{i18n.t('runs.comparison.cost')}}: {{cost(side.execution_cost)}} · {{i18n.t('observability.quality.milliseconds',{value:number(side.duration_ms)})}}</p></details>
       </div>
      }
     </div>
@@ -65,7 +73,7 @@ interface CollectionOption {id:string;name:string;status:string;}
   @if(raget();as report){<p aria-live="polite">{{code('status',report.status)}} · {{code('stage',report.stage)}}</p>@if(report.error){<p role="alert">{{code('reason',report.error)}}</p><details><summary>{{i18n.t('observability.quality.technical')}}</summary><pre>{{report.error}}</pre></details>}@if(report.result?.sides){<details open><summary>{{i18n.t('runs.generation.report')}}</summary><pre>{{report.result?.sides | json}}</pre></details>}}
  }
  </section>`,
- styles:[`.comparison{padding:24px;border-top:1px solid var(--ck-stroke-2);color:var(--ck-fg-1)}h2{font-size:24px;font-weight:600}h3{font-size:18px;margin:20px 0}p{margin:12px 0;line-height:1.6}.controls{display:flex;align-items:end;gap:16px;flex-wrap:wrap}label{display:block;margin:12px 0}select,input,textarea,button{background:var(--ck-bg-panel);color:inherit;border:1px solid var(--ck-stroke-3);padding:10px;border-radius:6px}textarea{display:block;width:100%;font-family:monospace}select{display:block;min-width:240px}button:disabled{opacity:.5}.columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}.columns>div{min-width:0;padding:20px;background:var(--ck-bg-panel-hi)}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{color:var(--ck-signal-cool);text-decoration:underline}details{margin:16px 0}article{border-top:1px solid var(--ck-stroke-2);margin-top:24px}@media(max-width:800px){.columns{grid-template-columns:1fr}}`]
+ styles:[`.comparison{padding:24px;border-top:1px solid var(--ck-stroke-2);color:var(--ck-fg-1)}h2{font-size:24px;font-weight:600}h3{font-size:18px;margin:20px 0}p{margin:12px 0;line-height:1.6}.controls{display:flex;align-items:end;gap:16px;flex-wrap:wrap}label{display:block;margin:12px 0}select,input,textarea,button{background:var(--ck-bg-panel);color:inherit;border:1px solid var(--ck-stroke-3);padding:10px;border-radius:6px}textarea{display:block;width:100%;font-family:monospace}select{display:block;min-width:240px}button:disabled{opacity:.5}.columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}.columns>div{min-width:0;padding:20px;background:var(--ck-bg-panel-hi)}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{overflow-wrap:anywhere;color:var(--ck-signal-cool);text-decoration:underline}details{margin:16px 0}article{border-top:1px solid var(--ck-stroke-2);margin-top:24px}@media(max-width:800px){.columns{grid-template-columns:1fr}}`]
 })
 export class RunComparisonComponent {
  code(category:string,value:unknown):string{return observabilityText(this.i18n,category,value);}

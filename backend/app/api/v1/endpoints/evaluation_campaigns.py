@@ -32,7 +32,7 @@ class AssertionBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1, max_length=100)
     path: list[str] = Field(default_factory=list, max_length=12)
-    operator: Literal["equals", "contains", "not_contains", "exists", "quotes_in_source"]
+    operator: Literal["equals", "contains", "not_contains", "exists", "quotes_in_source", "invocation_succeeded"]
     value: Any = None
 
     @model_validator(mode="after")
@@ -41,6 +41,10 @@ class AssertionBody(BaseModel):
             raise ValueError("An assertion value is required")
         if self.operator in {"contains", "not_contains", "quotes_in_source"} and (not isinstance(self.value, str) or not self.value):
             raise ValueError("Text assertions require non-empty text")
+        if self.operator == "invocation_succeeded":
+            if (self.path or not isinstance(self.value, str) or not self.value.strip()
+                    or self.value != self.value.strip() or len(self.value) > 160):
+                raise ValueError("Invocation assertions require an exact Skill slug and an empty path")
         return self
 
 

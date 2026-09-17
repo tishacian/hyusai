@@ -325,11 +325,19 @@ def generation_prompt(document, request, *, catalog, proposal_schema, feedback=N
         "skill_allowlist (1 to 8 exact supplied tool slugs), budget={max_turns:6}, "
         "privilege_tier=recommend. Use the family-specific planner constraints. "
         "Case assertions support equals, contains, not_contains, exists and quotes_in_source with path arrays. "
+        "For a case that requires a particular tool, add invocation_succeeded with path=[] and "
+        "value equal to the exact existing Skill slug. It checks a completed canonical invocation "
+        "of this Run, not a tool name mentioned in the answer. Keep factual assertions too: a "
+        "successful call alone does not validate the answer, tool arguments or business policy. "
         "Assertion path and answer_path are relative to Run.output_ref: the sink output object "
         "itself, NOT nodes/sink_id/output or a trace envelope. For sink output {completion: ...}, "
         "use path=[completion]; for {draft: ...}, use path=[draft]. "
         "Map source table/row positions to operation IDs and case IDs; absent coverage remains "
         "uncovered. Mappings are proposals, not evidence of passing tests. "
+        "Reuse relevant acceptance cases for business outcomes, business rules and prohibitions "
+        "as well as functional requirements. Do not leave case_ids empty when an existing case "
+        "actually checks that requirement. Never link an unrelated case merely to fill coverage; "
+        "explain remaining gaps when a requirement has no supported check. "
         + _FAMILY_INSTRUCTIONS[request.family]
         + "\nRequested name: " + json.dumps(request.name)
         + "\nRequired request_key: " + json.dumps(request.request_key)

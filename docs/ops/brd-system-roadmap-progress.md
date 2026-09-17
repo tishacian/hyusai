@@ -2,6 +2,16 @@
 
 ## Current delivery status — 17 September 2026
 
+- **R1 candidate, not deployed:** generated tests can assert a successful exact
+  Skill invocation using the canonical Run ledger. Model text, failures and
+  another Run cannot supply that proof. Run investigation and comparison expose
+  the proof links with their correct parent Run. See the
+  [implementation and qualification](../evidence/brd-tool-proof-2026-09-17/README.md).
+  The retained NorthForge proposal still has six uncovered requirements with
+  no linked cases; its waiting Runs, proposal and human gates remain untouched.
+  This adds an evidence primitive for newly reviewed proposals, not acceptance
+  of the existing BRD suite or of an ungenerated replacement.
+
 - **Live application: `d05e84b1` on `demo/agentic`.** The
   [release evidence](../evidence/release-d05e84b1-2026-09-17/README.md) records
   exact public SHA, healthy images, **10 carakai passes and 2 intentional skips**.

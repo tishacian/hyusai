@@ -101,3 +101,16 @@ The 390 px real-component fixture revealed action buttons overlapping a long
 collection label. Keep all existing controls and let their flex rows wrap; allow
 the collection name to wrap rather than truncate its identity. The verified
 rectangles no longer overlap. No breakpoint-specific replacement toolbar.
+
+
+## BRD test → invocation proof — 17 September
+
+Keep the existing Run investigation and side-by-side comparison as the build
+target. The locked Cockpit/Linear hierarchy supplies compact check results;
+shadcn's native disclosure and link behavior keeps detail and navigation usable
+by keyboard. Show the check identifier, its server verdict and its actual
+invocation links. A comparison supplies the explicit parent Run for each side,
+through the existing navigation resolver. Technical JSON stays expandable.
+Long invocation identifiers wrap on narrow screens. FR/EN copy distinguishes
+case checks from judge evaluation and human decisions. No new palette, theme,
+component framework, navigation engine or NAWA-specific change.

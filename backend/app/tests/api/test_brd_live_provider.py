@@ -130,7 +130,7 @@ async def test_live_pih_candidate(db_session, tmp_path, monkeypatch):
         db_session.expire_all()
         from app.services.evaluation.campaigns import assertion_results
         result = {"case_id": case["id"], "run_id": run.id, "output": run.output_ref,
-                  "assertions": assertion_results(run.output_ref, case["assertions"]),
+                  "assertions": assertion_results(run.output_ref, case["assertions"], run=run),
                   "review": "harness_acceptance_not_human"}
         (evidence/(case["id"]+'.json')).write_text(json.dumps(result,indent=2))
         assert db_session.query(SkillInvocation).filter_by(run_id=run.id).count() == 3
@@ -316,7 +316,7 @@ async def test_live_northforge_candidate(db_session, tmp_path, monkeypatch):
             db_session.expire_all()
             record.update(review='harness_'+selected_decision+'_not_human', resumed=resumed,
                           output=run.output_ref, status=run.status,
-                          assertions=assertion_results(run.output_ref, case['assertions']))
+                          assertions=assertion_results(run.output_ref, case['assertions'], run=run))
             record['review_matches_requested'] = (
                 isinstance(run.output_ref, dict)
                 and run.output_ref.get('decision_status') == selected_decision
