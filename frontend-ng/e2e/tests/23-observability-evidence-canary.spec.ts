@@ -28,4 +28,26 @@ test('evaluation and chart inspection retain the exact Run',async({page},testInf
  await expect(page.locator('app-run-investigation')).toBeVisible();
  expect(new URL(page.url()).pathname).toBe(`/runs/${runId}`);
  await page.screenshot({path:testInfo.outputPath('run-investigation.png'),fullPage:true});
+ // The operation shortcut must remain useful when the 360 projection is off.
+ const invocationLink=page.locator('app-run-waterfall a').first();
+ if(await invocationLink.count()){
+   const invocationHref=await invocationLink.getAttribute('href');
+   expect(invocationHref).toContain(`/runs/${runId}/invocations/`);
+   await invocationLink.click();
+   await page.reload();
+   await expect(page.locator('app-skill-invocation-view')).toBeVisible();
+   const audit=page.getByTestId('skill-invocation-audit');
+   if(await audit.count()){
+     await expect(audit.locator('pre')).toBeVisible();
+     expect(JSON.parse(await audit.locator('pre').innerText())).toHaveProperty('output_ref');
+   }else{
+     await expect(page.locator('app-skill-invocation-view ck-tabs')).toBeVisible();
+   }
+   await expect(page.getByTestId('skill-invocation-projection-disabled')).toHaveCount(0);
+   await page.screenshot({path:testInfo.outputPath('invocation-audit.png'),fullPage:true});
+   await page.locator('app-skill-invocation-view a').filter({hasText:/Back to Run|Retour à l.Exécution/}).click();
+   await expect(page.locator('app-run-investigation')).toBeVisible();
+   expect(new URL(page.url()).pathname).toBe(`/runs/${runId}`);
+ }
+
 });
