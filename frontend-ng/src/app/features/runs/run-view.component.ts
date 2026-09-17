@@ -94,7 +94,7 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
               <h3 class="text-xs font-semibold text-white mb-3">{{ i18n.t('runs.detail.invocations.title') }}</h3>
               <div class="flex flex-col gap-2">
                 @for (inv of skillInvocations(); track inv.id || $index) {
-                  @if (inv.id && skillInvocationProjectionEnabled()) {
+                  @if (inv.id) {
                     <a
                       [navLink]="{ type: 'skill_invocation', ref: inv.id }"
                       class="flex items-center justify-between gap-3 rounded px-3 py-2 bg-white/[0.03] hover:bg-white/[0.07] ring-1 ring-white/10 text-xs"
@@ -350,7 +350,7 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
                   </div>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-baseline justify-between gap-3">
-                      @if (skillInvocationProjectionEnabled() && inv.id) {
+                      @if (inv.id) {
                         <a
                           [navLink]="{ type: 'skill_invocation', ref: inv.id }"
                           class="font-mono text-sm text-white truncate hover:text-cyan-300"
@@ -503,9 +503,6 @@ export class RunViewComponent implements OnInit, OnDestroy {
   readonly perspectivesError = signal(false);
   readonly activePerspectiveTab = signal<RunPerspectiveFacet>('overview');
   readonly projectionEnabled = computed(() => this.workspaceFeature('run_360_projection_v1'));
-  readonly skillInvocationProjectionEnabled = computed(
-    () => this.workspaceFeature('skill_invocation_360_projection_v1'),
-  );
   readonly activeLens = computed<ObjectLens>(() => {
     const lens = this.lensService.lens();
     return isObjectLens(lens) ? lens : 'build';

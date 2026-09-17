@@ -36,6 +36,7 @@ import { ObjectPerspectiveComponent } from '@app/shared/cockpit/object-perspecti
 import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-perspective.models';
 import { recordedModelExecution } from '@app/core/model-catalog';
 import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
+import { observabilityText } from '../observability/observability-labels';
 
 @Component({
   selector: 'app-skill-invocation-view',
@@ -73,9 +74,17 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
     }
 
     @if (!projectionEnabled()) {
-      <div class="ck-surface rounded-md p-6 text-center text-sm text-gray-400" data-testid="skill-invocation-projection-disabled">
-        {{ i18n.t('runs.invocation.projection_disabled') }}
-      </div>
+      <section class="ck-surface rounded-md p-4" data-testid="skill-invocation-audit" aria-live="polite">
+        @if (loading()) {
+          <p>{{ i18n.t('common.loading') }}</p>
+        } @else if (error() || !invocation()) {
+          <p role="status">{{ i18n.t('observability.codes.reason.invocation_unavailable') }}</p>
+          <button type="button" class="mt-3 px-3 py-2 rounded bg-white/5 ring-1 ring-white/10" (click)="retry()">{{ i18n.t('common.retry') }}</button>
+        } @else {
+          <h2 class="text-sm font-semibold mb-3">{{ i18n.t('runs.detail.trail.audit') }}</h2>
+          <pre class="text-xs font-mono whitespace-pre-wrap break-words">{{ auditJson() }}</pre>
+        }
+      </section>
     } @else {
       <ck-tabs [active]="activeTab()" (activeChange)="onTabChange($event)" [ariaLabel]="i18n.t('runs.invocation.facets_aria')">
         <ck-tab id="overview" [label]="i18n.t('runs.invocation.tab.overview')">
@@ -117,7 +126,6 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
   private perspectiveSubscription: Subscription | null = null;
   private featureRefreshSubscription: Subscription | null = null;
   private projectionFeatureEnabled = false;
-  private projectionActivationInFlight = false;
   private requestedFacet: string | null = null;
   private readonly workspaceView = new WorkspaceViewContext(
     this.workspace,
@@ -142,7 +150,20 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
   readonly title = computed(() => this.invocation()?.skill_slug
     || this.invocation()?.skill_id
     || this.i18n.t('runs.invocation.title', { id: this.invocationId().slice(0, 12) }));
+  readonly auditJson = computed(() => {
+    const inv = this.invocation();
+    if (!inv) return '';
+    return JSON.stringify({ input_ref: inv.input_ref ?? {}, output_ref: inv.output_ref ?? {},
+      metrics: inv.metrics ?? {}, trace: inv.trace ?? {} }, null, 2);
+  });
   readonly kpis = computed<CkObjectKpi[]>(() => {
+    if (!this.projectionEnabled()) {
+      const inv = this.invocation();
+      return [
+        { label: this.i18n.t('runs.invocation.kpi.status'), value: inv ? observabilityText(this.i18n, 'status', inv.status) : '—' },
+        { label: this.i18n.t('runs.invocation.kpi.latency'), value: this.msFactValue({ state: 'available', value: inv?.latency_ms }) },
+      ];
+    }
     const header = this.perspectives()['build']?.header;
     return [
       { label: this.i18n.t('runs.invocation.kpi.status'), value: this.factValue(header?.['status']) },
@@ -211,6 +232,28 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
     const request = this.workspaceView.beginRequest();
     this.loading.set(true);
     this.error.set(false);
+    // The Run endpoint already filters readable invocations and redacts held I/O.
+    // The 360 flag gates richer projections, not this existing Run audit.
+    if (!this.projectionEnabled()) {
+      const subscription = this.api.getRun(runId).subscribe({
+        next: (run) => {
+          if (!this.current(request, runId, invocationId)) return;
+          const invocation = run?.id === runId
+            ? run.skill_invocations?.find((item) => item.id === invocationId) ?? null
+            : null;
+          this.invocation.set(invocation);
+          this.error.set(!invocation);
+          this.loading.set(false);
+        },
+        error: () => {
+          if (!this.current(request, runId, invocationId)) return;
+          this.error.set(true);
+          this.loading.set(false);
+        },
+      });
+      this.invocationSubscription = subscription.closed ? null : subscription;
+      return;
+    }
     const invocationSubscription = this.api.getSkillInvocation(runId, invocationId).subscribe({
       next: (value) => {
         if (!this.current(request, runId, invocationId)) return;
@@ -241,16 +284,12 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
         this.perspectives.set(payloads);
         this.loading.set(false);
         this.error.set(Object.keys(payloads).length !== 4);
-        this.projectionActivationInFlight = false;
       },
       error: (error: unknown) => {
         if (!this.current(request, runId, invocationId)) return;
         this.perspectives.set({});
         this.loading.set(false);
         this.error.set(!(error instanceof ObjectPerspectiveGateRevokedError));
-        if (!(error instanceof ObjectPerspectiveGateRevokedError)) {
-          this.projectionActivationInFlight = false;
-        }
       },
     });
     this.perspectiveSubscription = subscription.closed ? null : subscription;
@@ -272,7 +311,6 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
     this.perspectives.set({});
     this.loading.set(false);
     this.error.set(false);
-    this.projectionActivationInFlight = false;
   }
 
   private resetWorkspaceState(): void {
@@ -284,26 +322,19 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
     this.perspectives.set({});
     this.loading.set(false);
     this.error.set(false);
-    this.projectionActivationInFlight = false;
     this.applyRequestedFacet(this.requestedFacet);
+  }
+
+  retry(): void {
+    this.resetResult();
+    this.reload();
   }
 
   private onProjectionFeatureRefresh(): void {
     const enabled = this.projectionEnabled();
-    const activated = enabled && !this.projectionFeatureEnabled;
+    if (enabled === this.projectionFeatureEnabled) return;
     this.projectionFeatureEnabled = enabled;
-    if (!enabled) {
-      this.perspectiveSubscription?.unsubscribe();
-      this.perspectiveSubscription = null;
-      this.perspectives.set({});
-      this.loading.set(false);
-      this.error.set(false);
-      return;
-    }
-    if (activated && !this.projectionActivationInFlight) {
-      this.projectionActivationInFlight = true;
-      this.reload();
-    }
+    this.retry();
   }
 
   private workspaceFeature(key: string): boolean {
