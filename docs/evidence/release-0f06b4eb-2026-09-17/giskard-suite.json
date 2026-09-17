@@ -1,0 +1,169 @@
+{
+  "id": "9cf497f2-1a8f-4581-b18f-5539eb80166b",
+  "system_id": "a1cd8c00-6474-48bd-9d87-dba29f017e92",
+  "name": "OBS QA — NorthForge RAGET reference suite — technical review 2026-09-17",
+  "revision": 1,
+  "cases": [
+    {
+      "id": "pressure",
+      "input_ref": {
+        "question": "What is the PMP-700 continuous operating pressure? Distinguish it from the relief-valve threshold.",
+        "document_text": "[S1] northforge-pmp-700-operating-manual.md\n# NorthForge PMP-700 Operating Manual\n\nThe PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.\n\n[S2] northforge-pmp-700-maintenance.md\n# NorthForge PMP-700 Maintenance Procedure\n\nPreventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.",
+        "sources": [
+          {
+            "text": "# NorthForge PMP-700 Operating Manual\n\nThe PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.",
+            "filename": "northforge-pmp-700-operating-manual.md",
+            "source_id": "51fb4b5d-39d3-4a17-ba51-5fc9e9afbdf1",
+            "document_id": "9dd3fa47-1526-53e2-a335-b84221915b02",
+            "collection_id": "5c0f10fa-c7ff-499a-bd99-6efda2a98fb1",
+            "chunk_id": "9dd3fa47-1526-53e2-a335-b84221915b02_chunk_0",
+            "source_label": "S1"
+          },
+          {
+            "text": "# NorthForge PMP-700 Maintenance Procedure\n\nPreventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.",
+            "filename": "northforge-pmp-700-maintenance.md",
+            "source_id": "bc15605e-52c6-461f-8775-01bcc35c85f1",
+            "document_id": "370bc788-eba4-5eb8-ac83-671236af5896",
+            "collection_id": "5c0f10fa-c7ff-499a-bd99-6efda2a98fb1",
+            "chunk_id": "370bc788-eba4-5eb8-ac83-671236af5896_chunk_0",
+            "source_label": "S2"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "operating-limit",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "700"
+        },
+        {
+          "id": "source",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "[S1]"
+        }
+      ],
+      "question": "What is the PMP-700 continuous operating pressure? Distinguish it from the relief-valve threshold.",
+      "reference_answer": "The PMP-700 continuous operating pressure is 700 bar. The relief valve opens at 735 bar.",
+      "reference_context": "[S1] northforge-pmp-700-operating-manual.md\n# NorthForge PMP-700 Operating Manual\n\nThe PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.\n\n[S2] northforge-pmp-700-maintenance.md\n# NorthForge PMP-700 Maintenance Procedure\n\nPreventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.",
+      "answer_path": [
+        "completion"
+      ]
+    },
+    {
+      "id": "maintenance",
+      "input_ref": {
+        "question": "After how many operating hours is PMP-700 preventive maintenance due?",
+        "document_text": "[S1] northforge-pmp-700-operating-manual.md\n# NorthForge PMP-700 Operating Manual\n\nThe PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.\n\n[S2] northforge-pmp-700-maintenance.md\n# NorthForge PMP-700 Maintenance Procedure\n\nPreventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.",
+        "sources": [
+          {
+            "text": "# NorthForge PMP-700 Operating Manual\n\nThe PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.",
+            "filename": "northforge-pmp-700-operating-manual.md",
+            "source_id": "51fb4b5d-39d3-4a17-ba51-5fc9e9afbdf1",
+            "document_id": "9dd3fa47-1526-53e2-a335-b84221915b02",
+            "collection_id": "5c0f10fa-c7ff-499a-bd99-6efda2a98fb1",
+            "chunk_id": "9dd3fa47-1526-53e2-a335-b84221915b02_chunk_0",
+            "source_label": "S1"
+          },
+          {
+            "text": "# NorthForge PMP-700 Maintenance Procedure\n\nPreventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.",
+            "filename": "northforge-pmp-700-maintenance.md",
+            "source_id": "bc15605e-52c6-461f-8775-01bcc35c85f1",
+            "document_id": "370bc788-eba4-5eb8-ac83-671236af5896",
+            "collection_id": "5c0f10fa-c7ff-499a-bd99-6efda2a98fb1",
+            "chunk_id": "370bc788-eba4-5eb8-ac83-671236af5896_chunk_0",
+            "source_label": "S2"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "interval",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "2000"
+        },
+        {
+          "id": "source",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "[S2]"
+        }
+      ],
+      "question": "After how many operating hours is PMP-700 preventive maintenance due?",
+      "reference_answer": "Preventive maintenance is due every 2000 operating hours.",
+      "reference_context": "[S1] northforge-pmp-700-operating-manual.md\n# NorthForge PMP-700 Operating Manual\n\nThe PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.\n\n[S2] northforge-pmp-700-maintenance.md\n# NorthForge PMP-700 Maintenance Procedure\n\nPreventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.",
+      "answer_path": [
+        "completion"
+      ]
+    },
+    {
+      "id": "absent-serial",
+      "input_ref": {
+        "question": "What is the serial number of the installed PMP-700 unit?",
+        "document_text": "[S1] northforge-pmp-700-operating-manual.md\n# NorthForge PMP-700 Operating Manual\n\nThe PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.\n\n[S2] northforge-pmp-700-maintenance.md\n# NorthForge PMP-700 Maintenance Procedure\n\nPreventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.",
+        "sources": [
+          {
+            "text": "# NorthForge PMP-700 Operating Manual\n\nThe PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.",
+            "filename": "northforge-pmp-700-operating-manual.md",
+            "source_id": "51fb4b5d-39d3-4a17-ba51-5fc9e9afbdf1",
+            "document_id": "9dd3fa47-1526-53e2-a335-b84221915b02",
+            "collection_id": "5c0f10fa-c7ff-499a-bd99-6efda2a98fb1",
+            "chunk_id": "9dd3fa47-1526-53e2-a335-b84221915b02_chunk_0",
+            "source_label": "S1"
+          },
+          {
+            "text": "# NorthForge PMP-700 Maintenance Procedure\n\nPreventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.",
+            "filename": "northforge-pmp-700-maintenance.md",
+            "source_id": "bc15605e-52c6-461f-8775-01bcc35c85f1",
+            "document_id": "370bc788-eba4-5eb8-ac83-671236af5896",
+            "collection_id": "5c0f10fa-c7ff-499a-bd99-6efda2a98fb1",
+            "chunk_id": "370bc788-eba4-5eb8-ac83-671236af5896_chunk_0",
+            "source_label": "S2"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "absence",
+          "path": [
+            "completion"
+          ],
+          "operator": "contains",
+          "value": "Not stated in the provided excerpts."
+        }
+      ],
+      "question": "What is the serial number of the installed PMP-700 unit?",
+      "reference_answer": "The supplied excerpts do not state the installed unit serial number.",
+      "reference_context": "[S1] northforge-pmp-700-operating-manual.md\n# NorthForge PMP-700 Operating Manual\n\nThe PMP-700 is a high-pressure process pump rated for 700 bar continuous duty. Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3 filtration cartridge is seated and the suction line is primed. The PMP-700 uses two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head. Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.\n\n[S2] northforge-pmp-700-maintenance.md\n# NorthForge PMP-700 Maintenance Procedure\n\nPreventive maintenance for the PMP-700 runs every 2000 operating hours. Replace the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease (18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.",
+      "answer_path": [
+        "completion"
+      ]
+    }
+  ],
+  "corpus_manifest": [
+    {
+      "id": "5c0f10fa-c7ff-499a-bd99-6efda2a98fb1",
+      "updated_at": "2026-06-24T13:37:15.216265",
+      "document_count": 9,
+      "chunk_count": 11,
+      "embedding_model": "text-embedding-3-small",
+      "document_names_sha256": "568eba058c4299e71bba9f45587544a276ae8027cf954cba44566611204b85b5",
+      "verification": "collection_ledger"
+    }
+  ],
+  "provenance": {
+    "method": "human_authored",
+    "reviewed_by": "06a2e190-ae2d-4365-b4f3-9952401f531d"
+  },
+  "created_at": "2026-09-17T04:09:41.195772"
+}

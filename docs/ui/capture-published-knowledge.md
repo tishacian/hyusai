@@ -24,11 +24,11 @@ retried. Workspace source permissions still apply; publication grants no access.
 
 ## Live acceptance status
 
-On def0b3cc the action opens, closes and reopens blank. The actual pressure
-question failed: the source was a collection inventory, not the 6-bar passage.
-This is preserved in the [release evidence](../evidence/release-def0b3cc-2026-09-17/README.md).
-The next correction fixes citation intent and collection-only scope, and names
-that collection in ChatPanel. Its [local gates](../evidence/capture-scope-routing-2026-09-17/README.md)
-pass; new live acceptance remains required. This is not a successful voice demo.
+On 0f06b4eb the same question retrieves the actual 6-bar passage from only the
+published collection, and the UI names that scope correctly. Synthesis still
+fails because a second filter misreads the hybrid rank score as a cosine
+similarity. The [actual Run and diagnosis](../evidence/release-0f06b4eb-2026-09-17/README.md)
+are preserved. Removing that duplicate filter is under qualification. This is
+not yet a successful end-to-end Capture or voice demonstration.
 
-![Actual answer requiring a routing correction](../evidence/release-def0b3cc-2026-09-17/capture-question-failed.png)
+![Actual answer after successful retrieval](../evidence/release-0f06b4eb-2026-09-17/capture-retrieval-empty.png)

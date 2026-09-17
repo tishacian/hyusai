@@ -1,0 +1,22 @@
+........................................................................ [ 52%]
+.................................................................        [100%]
+=============================== warnings summary ===============================
+app/tests/services/test_rag_context_worker.py: 131 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/services/test_rag_context_worker.py: 78 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/knowledge_collections.py:180: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/services/test_rag_context_worker.py::test_dense_collection_quick_ask_uses_fact_scoped_document_filter
+app/tests/services/test_rag_context_worker.py::test_dense_deep_chah_uses_summary_scope_without_legacy_hybrid
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/rag/summary_artifacts.py:357: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+
+app/tests/services/test_rag_context_worker.py::test_retrieve_rag_context_cache_invalidates_on_collection_version
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/tests/services/test_rag_context_worker.py:2288: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    collection.updated_at = datetime.utcnow() + timedelta(seconds=30)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+137 passed, 212 warnings in 2.52s

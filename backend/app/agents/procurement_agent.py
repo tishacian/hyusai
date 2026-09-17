@@ -1360,7 +1360,7 @@ class OmniRAGAgent(BaseAgent):
                 rag_context=retrieval_context,
             )
 
-        # ── Step 5: Context Filtering & Reranking ──
+        # ── Step 5: Prepare the canonical retrieval result ──
         step_start = time.time()
         sid = f"context-filter-{uid}"
         yield self._step(
@@ -1369,8 +1369,8 @@ class OmniRAGAgent(BaseAgent):
             "context_filtering",
             "ContextFilter",
             "text-embedding-3-small",
-            "Filtering and reranking contexts",
-            f"Evaluating {n_chunks} chunks for relevance…",
+            "Preparing retrieved context",
+            f"Preparing {n_chunks} retrieved chunks for synthesis…",
         )
 
         filtered_chunks = retrieval_context["chunks"]
@@ -1385,53 +1385,11 @@ class OmniRAGAgent(BaseAgent):
             )
         from app.services.rag.retrieval_policy import is_document_discovery_query
 
-        # Document-discovery queries ("quels documents… ?") rely on the upstream
-        # policy rerank to surface the specific content docs above generic
-        # cover/index pages. A raw-similarity re-sort below would silently undo
-        # that ordering, so we honour the policy score for this intent only and
-        # leave every other query's ordering byte-for-byte unchanged.
         _discovery_intent = is_document_discovery_query(query)
-        preserve_retrieval_order = str(retrieval_context.get("pipeline") or "").startswith(
-            ("chah_", "hah_", "multi_")
-        )
-        try:
-            threshold = max(0.0, min(1.0, float(getattr(settings, "rag_similarity_threshold", 0.1) or 0.1)))
-        except (TypeError, ValueError):
-            threshold = 0.1
-        if preserve_retrieval_order:
-            # HAH/C-HAH and multi-collection paths use RRF-like scores. Those
-            # values are rank-combination weights, not similarity scores, and
-            # can legitimately sit below the dense-search threshold. Filtering
-            # them was dropping exact spreadsheet evidence while keeping only
-            # high-scored advisory Knowledge Guides.
-            before = after = n_chunks
-        elif n_chunks > 0 and scores:
-            before = n_chunks
-            triples = list(zip(retrieval_context["chunks"], scores, filtered_metadatas))
-            triples = [
-                (c, s, m)
-                for c, s, m in triples
-                if s >= threshold or str(m.get("source_type") or m.get("type") or "") == "knowledge_guide"
-            ]
-            if not preserve_retrieval_order:
-                if _discovery_intent:
-                    # Honour the policy rerank (specific annex/operating-manual
-                    # docs first), falling back to raw similarity as a tiebreaker.
-                    triples.sort(
-                        key=lambda x: (
-                            float(x[2].get("retrieval_policy_score") or 0.0),
-                            x[1],
-                        ),
-                        reverse=True,
-                    )
-                else:
-                    triples.sort(key=lambda x: x[1], reverse=True)
-            filtered_chunks = [c for c, _, _ in triples]
-            filtered_scores = [s for _, s, _ in triples]
-            filtered_metadatas = [m for _, _, m in triples]
-            after = len(filtered_chunks)
-        else:
-            before = after = 0
+        # Retrieval owns thresholding and policy order for every pipeline.
+        # Hybrid/RRF ranks are not cosine similarities: filtering them again
+        # here discarded passages already accepted by the canonical retriever.
+        after = n_chunks
 
         await asyncio.sleep(0.02)
         yield self._step(
@@ -1440,8 +1398,8 @@ class OmniRAGAgent(BaseAgent):
             "context_filtering",
             "ContextFilter",
             "text-embedding-3-small",
-            "Context filtered",
-            f"Kept {after}/{before} chunks · Threshold: {threshold:.2f} · Sorted by relevance",
+            "Retrieved context prepared",
+            f"{after} chunks · Retrieval policy and ranking preserved",
             duration=self._ms_since(step_start),
         )
 
