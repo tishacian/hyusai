@@ -27,6 +27,15 @@ test('evaluation and chart inspection retain the exact Run',async({page},testInf
  await page.reload();
  await expect(page.locator('app-run-investigation')).toBeVisible();
  expect(new URL(page.url()).pathname).toBe(`/runs/${runId}`);
+ const recordedRun=await expectOk<{outcome?:{value_source?:string}}>(page,`/api/v1/runs/${encodeURIComponent(runId)}`);
+ const outcomeCard=page.locator('ck-run-outcome-card');
+ if(await outcomeCard.count()){
+   await expect(outcomeCard).toContainText(/Recorded cost|Coût enregistré/);
+   if(!['auto','operator'].includes(recordedRun.outcome?.value_source ?? '')){
+     await expect(outcomeCard.locator('ck-stat-readout').filter({hasText:/Estimated value|Valeur estimée/})).toContainText('—');
+     await expect(outcomeCard.locator('ck-stat-readout').filter({hasText:/Efficiency|Rendement/})).toContainText('—');
+   }
+ }
  await page.screenshot({path:testInfo.outputPath('run-investigation.png'),fullPage:true});
  // The operation shortcut must remain useful when the 360 projection is off.
  const invocationLink=page.locator('app-run-waterfall a').first();

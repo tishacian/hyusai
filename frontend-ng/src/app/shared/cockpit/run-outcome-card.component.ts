@@ -4,6 +4,8 @@ import { MicroBarComponent } from './micro-bar.component';
 import { StatReadoutComponent } from './stat-readout.component';
 import { TagComponent } from './tag.component';
 import { formatYieldPercent } from './yield-format';
+import { formatSkillCost } from '@app/features/skills/skill-cost';
+import { invocationCost } from './run-cost';
 import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.service';
 
 /**
@@ -53,26 +55,29 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
           [size]="18"
         />
         <ck-stat-readout
-          [label]="i18n.t('runs.outcome.value')"
-          [value]="currency(outcome.value_estimated)"
-          tone="pos"
+          [label]="i18n.t(outcome.value_source === 'operator' ? 'runs.outcome.declared_value' : 'runs.outcome.estimated_value')"
+          [value]="currency(value())"
+          [delta]="i18n.t(value() === null ? 'runs.outcome.value_absent' : 'runs.outcome.not_verified_savings')"
+          tone="neutral"
           [size]="18"
         />
         <ck-stat-readout
-          [label]="i18n.t('runs.outcome.cost')"
-          [value]="currency(outcome.cost_internal)"
+          [label]="i18n.t('runs.outcome.recorded_cost')"
+          [value]="formatCost(outcome.cost_internal)"
+          [delta]="i18n.t('runs.outcome.cost_coverage_unknown')"
+          deltaTone="neutral"
           tone="cool"
           [size]="18"
         />
         <ck-stat-readout
           [label]="i18n.t('runs.outcome.efficiency')"
-          [value]="efficiencyLabel(outcome.efficiency)"
+          [value]="efficiencyLabel(efficiency())"
           [tone]="efficiencyTone()"
           [size]="18"
         />
       </div>
 
-      @if (outcome.confidence !== null && outcome.confidence !== undefined) {
+      @if (confidence() !== null) {
         <div style="display:flex; align-items:center; gap:10px;">
           <span class="ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4); min-width:78px;">{{ i18n.t('runs.outcome.confidence') }}</span>
           <ck-micro-bar
@@ -110,10 +115,11 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
                   {{ inv.skill_slug || inv.skill_id || '—' }}
                 </span>
                 <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-3); text-align:right;">
-                  {{ inv.latency_ms != null ? inv.latency_ms + ' ms' : '—' }}
+                  {{ inv.latency_ms != null ? roundedLatency(inv.latency_ms) + ' ms' : '—' }}
                 </span>
                 <span class="ck-mono ck-tnum" style="font-size:10px; color:var(--ck-fg-3); text-align:right;">
-                  {{ inv.cost != null ? currencyShort(inv.cost) : '—' }}
+                  {{ invocationCost(inv, i18n.locale()).value }}
+                  <span style="display:block;">{{ i18n.t(invocationCost(inv, i18n.locale()).labelKey) }}</span>
                 </span>
               </li>
             }
@@ -133,11 +139,29 @@ import type { Outcome, Run, SkillInvocation } from '@app/core/canonical-api.serv
   `,
 })
 export class RunOutcomeCardComponent {
-  @Input({ required: true }) run!: Run;
+  private readonly currentRun = signal<Run | null>(null);
+  @Input({ required: true }) set run(value: Run) { this.currentRun.set(value); }
+  get run(): Run { return this.currentRun()!; }
 
   protected readonly i18n = inject(I18nService);
 
   protected readonly expanded = signal(false);
+  protected readonly invocationCost = invocationCost;
+  protected readonly roundedLatency = Math.round;
+  protected readonly value = computed(() => {
+    const value = this.outcome.value_estimated;
+    return ['auto', 'operator'].includes(this.outcome.value_source ?? '')
+      && value != null && Number.isFinite(value) ? value : null;
+  });
+  protected readonly confidence = computed(() => {
+    const value = this.outcome.confidence;
+    return value != null && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+  });
+  protected readonly efficiency = computed(() => {
+    const cost = this.outcome.cost_internal;
+    return this.value() !== null && cost != null && Number.isFinite(cost) && cost > 0
+      ? this.outcome.efficiency : null;
+  });
 
   get outcome(): Outcome {
     return this.run?.outcome ?? {};
@@ -152,8 +176,8 @@ export class RunOutcomeCardComponent {
 
   protected durationLabel = computed(() => {
     const d = this.run?.duration_ms;
-    if (d == null) return '—';
-    if (d < 1000) return `${d} ms`;
+    if (d == null || !Number.isFinite(d) || d < 0) return '—';
+    if (d < 1000) return `${Math.round(d)} ms`;
     return `${(d / 1000).toFixed(2)} s`;
   });
 
@@ -185,7 +209,7 @@ export class RunOutcomeCardComponent {
   });
 
   protected confidenceTone = computed(() => {
-    const c = this.outcome?.confidence;
+    const c = this.confidence();
     if (c == null) return 'neutral' as const;
     if (c >= 0.8) return 'pos' as const;
     if (c >= 0.6) return 'cool' as const;
@@ -194,14 +218,14 @@ export class RunOutcomeCardComponent {
   });
 
   protected confidenceRatio = computed(() => {
-    const c = this.outcome?.confidence;
+    const c = this.confidence();
     if (c == null) return 0;
     return Math.max(0, Math.min(1, c));
   });
 
   protected efficiencyTone = computed(() => {
-    const e = this.outcome?.efficiency;
-    if (e == null) return 'neutral' as const;
+    const e = this.efficiency();
+    if (e == null || !Number.isFinite(e)) return 'neutral' as const;
     if (e >= 1.5) return 'pos' as const;
     if (e >= 1) return 'cool' as const;
     if (e >= 0.5) return 'warn' as const;
@@ -220,7 +244,7 @@ export class RunOutcomeCardComponent {
   });
 
   protected percentage(value: number | null | undefined): string {
-    if (value == null) return '—';
+    if (value == null || !Number.isFinite(value) || value < 0 || value > 1) return '—';
     return `${Math.round(value * 100)}%`;
   }
 
@@ -229,17 +253,13 @@ export class RunOutcomeCardComponent {
   }
 
   protected currency(value: number | null | undefined): string {
-    if (value == null) return '—';
-    const sym = (this.outcome?.currency === 'EUR') ? '€' : '$';
-    if (Math.abs(value) >= 1000) return `${sym}${(value / 1000).toFixed(1)}k`;
-    return `${sym}${value.toFixed(2)}`;
+    if (value == null || !Number.isFinite(value)) return '—';
+    const formatted = this.formatCost(Math.abs(value));
+    return value < 0 && formatted !== '—' ? `−${formatted}` : formatted;
   }
 
-  protected currencyShort(value: number): string {
-    const sym = (this.outcome?.currency === 'EUR') ? '€' : '$';
-    if (value < 0.01) return `${sym}${value.toFixed(4)}`;
-    if (value < 1) return `${sym}${value.toFixed(3)}`;
-    return `${sym}${value.toFixed(2)}`;
+  protected formatCost(value: number | null | undefined): string {
+    return formatSkillCost(value, this.outcome.currency ?? 'USD', this.i18n.locale());
   }
 
   protected invocationDot(inv: SkillInvocation): string {
