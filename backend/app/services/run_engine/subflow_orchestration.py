@@ -578,6 +578,7 @@ async def resume_subflow_parent(
         DagGraph,
         WalkerState,
         _load_control_policy,
+        _fail,
         _settle_node,
         _settle_subflow_output,
         _walk,
@@ -827,6 +828,10 @@ async def resume_subflow_parent(
                     target_id,
                 )
             _settle_node(graph, state, node_id, outcome)
+        try:
+            frozen_control = _load_control_policy(db, system, run=parent)
+        except (TypeError, ValueError) as exc:
+            return _fail(db, parent, f"control_policy_snapshot_invalid:{exc}")
         return await _walk(
             db,
             parent,
@@ -834,7 +839,7 @@ async def resume_subflow_parent(
             state,
             system=system,
             capability=catalog_bindings.capability,
-            control=_load_control_policy(db, system),
+            control=frozen_control,
             adaptive=catalog_bindings.adaptive_policy,
         )
     finally:

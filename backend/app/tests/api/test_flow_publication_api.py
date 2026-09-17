@@ -503,6 +503,9 @@ async def test_migration_baseline_requires_contract_only_publish_before_run(
             "expected_published_version_id": initial_pointer,
             "message": "Freeze the migration baseline contract",
             "breaking_change_intent": None,
+            "expected_execution_contract_sha256": flow_publication.compile_execution_contract(
+                db_session, system.flow_definition, workspace, system=system,
+            )["contract_sha256"],
         },
     )
 

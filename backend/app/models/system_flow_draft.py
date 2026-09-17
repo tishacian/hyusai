@@ -30,6 +30,9 @@ class SystemFlowDraft(Base):
         index=True,
     )
     flow_definition = Column(JSON, nullable=False, default=dict)
+    # NULL preserves the legacy authority until an explicit draft save or
+    # publication captures it. Never backfill historical policy guesses.
+    control_policy_snapshot = Column(JSON, nullable=True)
     revision = Column(Integer, nullable=False, default=1)
     flow_sha256 = Column(String(64), nullable=False)
     base_published_version_id = Column(

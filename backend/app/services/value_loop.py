@@ -46,7 +46,7 @@ from app.services.run_outcome_provenance import (
     is_canary_authored_operator_outcome,
     run_measurement_provenance,
 )
-from app.services.value_loop_contract import CONTROL_POLICY_GUARDRAILS_PATCH_V1
+from app.services.value_loop_contract import CONTROL_POLICY_GUARDRAILS_PATCH_V1, policy_edit_requires_publication
 from app.services.value_loop_gate import record_authorized_policy_transition
 
 PATCH_FIELDS = (
@@ -824,6 +824,11 @@ def _validate_locked_authority(
 
     if actuator != CONTROL_POLICY_GUARDRAILS_PATCH_V1:
         raise ValueLoopValidationError("unsupported value actuator")
+    if policy_edit_requires_publication(db, system=system):
+        raise ValueLoopConflict(
+            "Mandate changes require draft review and publication. Open the System Flow draft to propose this change.",
+            code="mandate_publication_required",
+        )
     if control is None:
         raise ValueLoopConflict(
             "System ControlPolicy must be explicitly scoped to this System",

@@ -1,0 +1,33 @@
+export const WORK_MANDATE_FR = {
+  'workMandate.review': 'Examiner la demande',
+  'workMandate.review_scope': 'Ce Run attend votre accord',
+  'workMandate.exact_decision': 'Votre décision porte sur la demande présentée ci-dessous. Si elle change, une nouvelle lecture est nécessaire.',
+  'workMandate.decision': 'Demande',
+  'workMandate.operation': 'Opération en attente',
+  'workMandate.executed_version': 'Version exécutée',
+  'workMandate.deadline': 'Échéance',
+  'workMandate.submitted_context': 'Examiner les données soumises à la décision',
+  'workMandate.no_context': 'Aucun contenu prévisualisable n’est joint à cette porte. Consultez le Run et ses preuves avant de décider.',
+  'workMandate.after_approval': 'Un accord autorise la reprise prévue par le Flow. Seule la preuve du traitement suivant établit ce qui a effectivement été réalisé.',
+  'workMandate.run_proof': 'Ouvrir ce Run et ses preuves',
+  'workMandate.unavailable': 'Cette demande n’est plus disponible pour décision. Actualisez la liste pour retrouver son état.',
+  'workMandate.review_changed': 'La demande a changé ou n’est plus disponible. Examinez de nouveau son état avant de décider.',
+  'workMandate.recorded': 'Votre décision est enregistrée. Suivez le Run pour vérifier la reprise et ses effets.',
+} as const;
+
+export const WORK_MANDATE_EN: Record<keyof typeof WORK_MANDATE_FR, string> = {
+  'workMandate.review': 'Review request',
+  'workMandate.review_scope': 'This Run needs your approval',
+  'workMandate.exact_decision': 'Your decision applies to the request shown below. A changed request must be reviewed again.',
+  'workMandate.decision': 'Request',
+  'workMandate.operation': 'Waiting operation',
+  'workMandate.executed_version': 'Executed version',
+  'workMandate.deadline': 'Deadline',
+  'workMandate.submitted_context': 'Review the data submitted for this decision',
+  'workMandate.no_context': 'This gate includes no previewable content. Inspect the Run and its evidence before deciding.',
+  'workMandate.after_approval': 'Approval allows the Flow to resume as configured. Only evidence from subsequent processing establishes what actually happened.',
+  'workMandate.run_proof': 'Open this Run and its evidence',
+  'workMandate.unavailable': 'This request is no longer available for a decision. Refresh the list to see its current state.',
+  'workMandate.review_changed': 'The request has changed or is no longer available. Review its state again before deciding.',
+  'workMandate.recorded': 'Your decision was recorded. Follow the Run to verify its continuation and effects.',
+};

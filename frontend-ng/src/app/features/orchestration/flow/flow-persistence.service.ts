@@ -208,6 +208,8 @@ export class FlowPersistenceService {
   readonly publishedVersionId = signal<string | null>(null);
   readonly publishedVersionNumber = signal<number | null>(null);
   readonly publishedFlowSha256 = signal<string | null>(null);
+  readonly draftPolicySha256 = signal<string | null>(null);
+  readonly publishedPolicySha256 = signal<string | null>(null);
   /** Exact immutable execution contract pinned to the published version.
    * Mutable drafts deliberately have no equivalent pinned contract. */
   readonly publishedExecutionContract = signal<Record<string, unknown> | null>(null);
@@ -217,7 +219,8 @@ export class FlowPersistenceService {
     () =>
       this.publicationMode() &&
       this.savedFlowSha256() !== null &&
-      this.savedFlowSha256() === this.publishedFlowSha256(),
+      this.savedFlowSha256() === this.publishedFlowSha256() &&
+      this.draftPolicySha256() === this.publishedPolicySha256(),
   );
   readonly lastSavedAt = signal<number | null>(null);
   readonly draftAvailable = signal(false);
@@ -561,12 +564,14 @@ export class FlowPersistenceService {
     this.publicationMode.set(true);
     this.draftRevision.set(flowState.draft.revision);
     this.savedFlowSha256.set(flowState.draft.flow_sha256);
+    this.draftPolicySha256.set(flowState.draft.control_policy_snapshot_sha256 ?? null);
     this.draftBasePublishedVersionId.set(
       flowState.draft.base_published_version_id ?? null,
     );
     this.publishedVersionId.set(flowState.published.version_id);
     this.publishedVersionNumber.set(flowState.published.version_number);
     this.publishedFlowSha256.set(flowState.published.flow_sha256);
+    this.publishedPolicySha256.set(flowState.published.control_policy_snapshot_sha256 ?? null);
     this.publishedExecutionContract.set(
       flowState.published.execution_contract
         ? structuredClone(flowState.published.execution_contract)
@@ -858,6 +863,9 @@ export class FlowPersistenceService {
       .publishSystemFlow(sid, {
         expected_draft_revision: draftRevision,
         expected_published_version_id: publishedVersionId,
+        ...(diff.target.execution_contract_sha256
+          ? { expected_execution_contract_sha256: diff.target.execution_contract_sha256 }
+          : {}),
         message: resolvedMessage,
         breaking_change_intent:
           diff.summary.breaking > 0 ? 'acknowledged' : null,
@@ -870,6 +878,7 @@ export class FlowPersistenceService {
           this.publishedVersionId.set(result.published.version_id);
           this.publishedVersionNumber.set(result.published.version_number);
           this.publishedFlowSha256.set(result.published.flow_sha256);
+          this.publishedPolicySha256.set(result.published.control_policy_snapshot_sha256 ?? null);
           this.publishedExecutionContract.set(
             result.published.execution_contract
               ? structuredClone(result.published.execution_contract)
@@ -878,6 +887,7 @@ export class FlowPersistenceService {
           this.publishedContractReady.set(true);
           this.draftRevision.set(result.draft.revision);
           this.savedFlowSha256.set(result.draft.flow_sha256);
+          this.draftPolicySha256.set(result.draft.control_policy_snapshot_sha256 ?? null);
           this.draftBasePublishedVersionId.set(
             result.draft.base_published_version_id ?? result.published.version_id,
           );
@@ -1293,6 +1303,9 @@ export class FlowPersistenceService {
   private applyDraftSaveResult(result: SystemFlowDraftSaveResult): void {
     this.draftRevision.set(result.revision);
     this.savedFlowSha256.set(result.flow_sha256);
+    if ('control_policy_snapshot_sha256' in result) {
+      this.draftPolicySha256.set(result.control_policy_snapshot_sha256 ?? null);
+    }
     this.draftBasePublishedVersionId.set(
       result.base_published_version_id ?? this.draftBasePublishedVersionId(),
     );
@@ -1346,6 +1359,8 @@ export class FlowPersistenceService {
     this.publishedVersionId.set(null);
     this.publishedVersionNumber.set(null);
     this.publishedFlowSha256.set(null);
+    this.draftPolicySha256.set(null);
+    this.publishedPolicySha256.set(null);
     this.publishedExecutionContract.set(null);
     this.publishedContractReady.set(false);
     this.draftUpdatedAt.set(null);

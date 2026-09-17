@@ -74,6 +74,13 @@ def test_run_start_overwrites_caller_policy_identity_with_loaded_policy(db_sessi
     assert run.input_ref["execution"]["control_policy"] == (
         control_policy_execution_contract(policy)
     )
+    observed = [cp for cp in run.checkpoints if cp.get("kind") == "mandate_snapshot"]
+    assert len(observed) == 1
+    assert observed[0]["control_policy"] == control_policy_execution_contract(policy)
+    assert observed[0]["mandate"]["spec"]["valves"]["mandatory_hitl_if_confidence_below"] == 0.6
+    policy.mandatory_hitl_if_confidence_below = 0.9
+    _snapshot_run_flow(db_session, run, system, control=policy, first_start=False)
+    assert [cp for cp in run.checkpoints if cp.get("kind") == "mandate_snapshot"] == observed
 
 
 def test_system_without_explicit_adaptive_policy_never_inherits_global_latest(db_session):

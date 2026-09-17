@@ -8,6 +8,8 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { I18nService } from '@app/core/i18n.service';
+import { NavLinkDirective } from '@app/shared/cockpit/nav-link.directive';
 import {
   CanonicalApiService,
   type Run,
@@ -111,7 +113,7 @@ export class ValueLoopCommandLedger {
 @Component({
   selector: 'app-system-value-loop',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, NavLinkDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="value-loop" data-testid="system-value-loop">
@@ -128,7 +130,12 @@ export class ValueLoopCommandLedger {
       @if (loading()) {
         <div class="state">Loading persisted value evidence…</div>
       } @else if (error()) {
-        <div class="state error" data-testid="value-loop-error">{{ error() }}</div>
+        <div class="state error" data-testid="value-loop-error">
+          @if (mandatePublicationRequired()) {
+            <p>{{ i18n.t('mandate_system.value_loop.publication_required') }}</p>
+            <a [navLink]="{type:'system',ref:systemId(),lens:'build',facet:'context'}">{{ i18n.t('mandate_system.value_loop.review_draft') }}</a>
+          } @else { {{ error() }} }
+        </div>
       } @else if (!loop()) {
         <div class="state">Value loop not configured for this System.</div>
       } @else {
@@ -254,6 +261,7 @@ export class ValueLoopCommandLedger {
     h3, h4 { margin:0; color:var(--ck-fg-1); } h3 { font-size:15px; } h4 { margin-top:5px; font-size:14px; }
     small { color:var(--ck-fg-4); font-family:var(--ck-font-mono); font-size:9px; }
     .state { padding:20px; border:1px dashed var(--ck-stroke-soft); border-radius:4px; color:var(--ck-fg-4); font-family:var(--ck-font-mono); font-size:11px; text-align:center; }
+    .state.error a { color:var(--ck-signal-cool); text-decoration:underline; }
     .state.error { color:var(--ck-signal-neg); }
     .create-card { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:14px; background:var(--ck-bg-inset); border-radius:4px; }
     .create-heading { display:flex; grid-column:1/-1; flex-direction:column; gap:3px; color:var(--ck-fg-2); font-size:11px; }
@@ -284,6 +292,7 @@ export class ValueLoopCommandLedger {
 })
 export class SystemValueLoopComponent {
   private readonly api = inject(CanonicalApiService);
+  readonly i18n = inject(I18nService);
   private requestSequence = 0;
   private readonly commandLedger = new ValueLoopCommandLedger();
 
@@ -295,6 +304,7 @@ export class SystemValueLoopComponent {
   readonly loading = signal(false);
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
+  readonly mandatePublicationRequired = signal(false);
 
   selectedRunId = '';
   title = 'Optimize the measured outcome';
@@ -316,6 +326,7 @@ export class SystemValueLoopComponent {
       this.selectedRunId = '';
       this.loop.set(null);
       this.error.set(null);
+      this.mandatePublicationRequired.set(false);
       queueMicrotask(() => this.load(systemId, workspaceKey));
     });
     effect(() => {
@@ -331,6 +342,7 @@ export class SystemValueLoopComponent {
     const sequence = ++this.requestSequence;
     this.loading.set(true);
     this.error.set(null);
+    this.mandatePublicationRequired.set(false);
     this.api.getSystemValueLoop(expectedSystem).subscribe({
       next: (payload) => {
         if (!this.isCurrent(sequence, expectedSystem, expectedWorkspace)) return;
@@ -450,6 +462,7 @@ export class SystemValueLoopComponent {
     const key = this.commandKey(command);
     this.busy.set(true);
     this.error.set(null);
+    this.mandatePublicationRequired.set(false);
     factory(key).subscribe({
       next: () => {
         if (!this.isCurrent(sequence, expectedSystem, expectedWorkspace)) return;
@@ -457,9 +470,10 @@ export class SystemValueLoopComponent {
         this.busy.set(false);
         this.load(expectedSystem, expectedWorkspace);
       },
-      error: (error: { error?: { detail?: { message?: string } } }) => {
+      error: (error: { error?: { detail?: { code?: string; message?: string } } }) => {
         if (!this.isCurrent(sequence, expectedSystem, expectedWorkspace)) return;
         this.busy.set(false);
+        this.mandatePublicationRequired.set(error?.error?.detail?.code === 'mandate_publication_required');
         this.error.set(error?.error?.detail?.message || 'The governed transition failed.');
       },
     });

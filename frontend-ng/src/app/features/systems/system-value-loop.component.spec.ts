@@ -1,6 +1,8 @@
 import '@angular/compiler';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { signal } from '@angular/core';
+import { Subject } from 'rxjs';
 import type {
   Run,
   ValueLoopMeasurement,
@@ -9,6 +11,7 @@ import type {
 } from '@app/core/canonical-api.service';
 import {
   ValueLoopCommandLedger,
+  SystemValueLoopComponent,
   latestValueLoopMeasurement,
   valueLoopBaselineRunIsEligible,
   valueLoopMeasurementLabel,
@@ -19,6 +22,22 @@ import {
   systemPerspectiveAuthorizesValueLoop,
   type SystemPerspectiveResponse,
 } from './system-perspective.models';
+
+test('a frozen-mandate action refusal routes to publication guidance without treating other errors as a mandate block', () => {
+  const replies: Subject<unknown>[] = [];
+  const view = Object.assign(Object.create(SystemValueLoopComponent.prototype), {
+    systemId: () => 'system-a', workspaceKey: () => 'workspace-a', requestSequence: 0,
+    commandLedger: new ValueLoopCommandLedger(() => 'nonce'), busy: signal(false), error: signal<string | null>(null), mandatePublicationRequired: signal(false),
+    api: {actOnValueScenario: () => {const reply = new Subject<unknown>(); replies.push(reply); return reply;}},
+  }) as SystemValueLoopComponent;
+  view.act(scenario('approved', {simulated: true}));
+  replies[0].error({error: {detail: {code: 'mandate_publication_required', message: 'backend text'}}});
+  assert.equal(view.mandatePublicationRequired(), true); assert.equal(view.busy(), false);
+  view.act(scenario('approved', {simulated: true}));
+  assert.equal(view.mandatePublicationRequired(), false);
+  replies[1].error({error: {detail: {code: 'other_conflict', message: 'Another conflict'}}});
+  assert.equal(view.mandatePublicationRequired(), false); assert.equal(view.error(), 'Another conflict');
+});
 
 function simulation(): ValueLoopSimulation {
   return {

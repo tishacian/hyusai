@@ -66,6 +66,8 @@ import {
   VoiceControlsComponent,
 } from '@app/shared/voice/voice-controls.component';
 import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
+import { SystemMandateComponent } from '../mandate/system-mandate.component';
+import { RunMandateComponent } from '../mandate/run-mandate.component';
 
 interface DecisionStep {
   id: string;
@@ -492,6 +494,8 @@ const STEP_ICONS: Record<string, string> = {
     ThinkingOrbComponent,
     VoiceControlsComponent,
     DocumentPreviewComponent,
+    SystemMandateComponent,
+    RunMandateComponent,
   ],
   template: `
     <div class="chat-history-shell" [class.chat-history-embed]="compact()">
@@ -863,6 +867,9 @@ const STEP_ICONS: Record<string, string> = {
         class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-5"
         [class.vigie-messages]="executiveMode()"
       >
+        @if (systemId(); as mandateSystemId) {
+          <app-system-mandate [systemId]="mandateSystemId" [compact]="true" />
+        }
         @if (messages().length === 0 && !streaming()) {
           <div class="h-full flex flex-col items-center justify-center py-8" [class.vigie-empty-state]="executiveMode()">
             <div class="ck-chat-empty-mark w-12 h-12 rounded-full flex items-center justify-center mb-3">
@@ -1446,6 +1453,10 @@ const STEP_ICONS: Record<string, string> = {
                     {{ i18n.t('chat.summary.quality_link') }}
                   </a>
                 </div>
+              }
+
+              @if (msg.runId; as mandateRunId) {
+                <app-run-mandate [runId]="mandateRunId" [compact]="true" />
               }
 
               @if (msg.retrievalInfo?.decisionTrace; as trace) {

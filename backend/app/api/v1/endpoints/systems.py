@@ -75,7 +75,7 @@ from app.services.system_catalog_bindings import (
     resolve_persisted_system_catalog_bindings,
     resolve_system_catalog_bindings,
 )
-from app.services.system_perspective import build_system_perspective
+from app.services.system_perspective import PublishedMandateUnavailable, build_system_perspective
 from app.services.systems import dispatch_readiness, flow_ingress, flow_publication
 from app.services.systems.flow_manifest import serialize_flow_manifest
 
@@ -434,6 +434,7 @@ def _enforce_system_run_authority(
     workspace: Workspace,
     system: System,
     execution_source: str,
+    execution_contract: dict[str, Any] | None = None,
 ) -> None:
     """Apply the complete operator Run boundary shared by every HTTP surface."""
 
@@ -484,29 +485,66 @@ def _enforce_system_run_authority(
         },
     )
 
-    control = None
-    if system.control_policy_id:
-        control = (
-            db.query(ControlPolicy)
-            .filter(
-                ControlPolicy.id == system.control_policy_id,
-                ControlPolicy.workspace_id == workspace.id,
-                ControlPolicy.scope == "system",
-                ControlPolicy.target_id == system.id,
-            )
+    # New Runs use the published policy; replay/debug use the exact stored
+    # contract passed by their server handler. An explicit {} denotes a legacy
+    # Run, whose live policy checks must remain intact.
+    if execution_contract is None and flow_publication.flow_publication_enabled(workspace):
+        locked = (
+            db.query(System)
+            .filter(System.id == system.id, System.workspace_id == workspace.id)
+            .populate_existing()
+            .with_for_update(of=System)
             .first()
         )
-    if control is None:
-        control = (
-            db.query(ControlPolicy)
-            .filter(
-                ControlPolicy.workspace_id == workspace.id,
-                ControlPolicy.scope == "system",
-                ControlPolicy.target_id == system.id,
+        if locked is None:
+            raise HTTPException(404, "System not found")
+        system = locked
+        try:
+            _, _, _, execution_contract = flow_publication.published_run_evidence(
+                db, system=system, workspace=workspace,
             )
-            .order_by(ControlPolicy.updated_at.desc())
-            .first()
-        )
+        except flow_publication.FlowPublicationError as exc:
+            raise HTTPException(exc.status_code, detail=exc.payload()) from exc
+
+    if isinstance(execution_contract, dict) and "control_policy_snapshot" in execution_contract:
+        from app.services.control_policy_snapshot import thaw_control_policy
+        from app.services.flow_contracts import FlowContractError, validate_execution_contract
+
+        try:
+            validate_execution_contract(execution_contract)
+            control = thaw_control_policy(
+                execution_contract["control_policy_snapshot"],
+                workspace_id=workspace.id, system_id=system.id,
+            )
+        except (ValueError, FlowContractError) as exc:
+            raise HTTPException(409, detail={
+                "code": "CONTROL_POLICY_SNAPSHOT_INVALID",
+                "message": "The frozen execution policy is invalid; execution was not started.",
+            }) from exc
+    else:
+        control = None
+        if system.control_policy_id:
+            control = (
+                db.query(ControlPolicy)
+                .filter(
+                    ControlPolicy.id == system.control_policy_id,
+                    ControlPolicy.workspace_id == workspace.id,
+                    ControlPolicy.scope == "system",
+                    ControlPolicy.target_id == system.id,
+                )
+                .first()
+            )
+        if control is None:
+            control = (
+                db.query(ControlPolicy)
+                .filter(
+                    ControlPolicy.workspace_id == workspace.id,
+                    ControlPolicy.scope == "system",
+                    ControlPolicy.target_id == system.id,
+                )
+                .order_by(ControlPolicy.updated_at.desc())
+                .first()
+            )
     spec = resolve_membrane_spec(control=control)
     membrane_decision = evaluate_capability(
         spec,
@@ -1193,14 +1231,20 @@ async def get_system_perspective(
     if system is None or not _system_360_enabled(workspace, system):
         raise HTTPException(404, "System perspective not found")
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
-    return build_system_perspective(
-        db,
-        workspace=workspace,
-        user=user,
-        system=system,
-        lens=lens,
-        window=window,
-    )
+    try:
+        return build_system_perspective(
+            db,
+            workspace=workspace,
+            user=user,
+            system=system,
+            lens=lens,
+            window=window,
+        )
+    except PublishedMandateUnavailable as exc:
+        raise HTTPException(409, detail={
+            "code": "published_mandate_unavailable",
+            "message": "The published mandate could not be verified. Review the System publication before relying on its access preview.",
+        }) from exc
 
 
 @router.get("/{system_id}/flow-manifest")

@@ -1003,7 +1003,10 @@ def _persist_chat_run(
                     _snapshot_run_flow,
                 )
 
-                control = _load_control_policy(db, system)
+                # Canonical agentic Runs already pin their contract. A legacy
+                # direct chat Run has no frozen Flow contract; never attach a
+                # newly published mandate retroactively to that completed turn.
+                control = _load_control_policy(db, system, run=run)
                 if control is not None:
                     _snapshot_run_flow(
                         db,

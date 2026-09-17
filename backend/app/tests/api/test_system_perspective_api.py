@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from app.api.v1.endpoints import systems
 from app.models.audit import AuditLog
 from app.models.system import System
+from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 
@@ -75,6 +77,24 @@ def test_perspective_returns_requested_lens_for_marked_system(db_session):
     assert payload["window"] == "7d"
     assert payload["identity"]["workspace_id"] == workspace.id
     assert payload["identity"]["system_id"] == system.id
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_unverifiable_published_mandate_returns_explicit_unavailable(db_session, missing):
+    workspace, _, user, system, _ = _seed(db_session)
+    if not missing:
+        db_session.add(SystemVersion(id="invalid-publication", system_id=system.id,
+                        workspace_id=workspace.id, version_number=1, flow_definition={},
+                        execution_contract={"control_policy_snapshot": {"state": "forged"}}))
+        db_session.flush()
+    system.published_flow_version_id = "invalid-publication"
+    db_session.commit()
+    response = _client(db_session, workspace, user).get(
+        f"/systems/{system.id}/perspective", params={"lens": "govern"})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "published_mandate_unavailable"
+    assert "could not be verified" in response.json()["detail"]["message"]
+    assert "forged" not in response.text
 
 
 def test_system_detail_and_perspective_share_canonical_read_decision(

@@ -34,6 +34,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/workspace-view-context';
 import { recordedModelExecution } from '@app/core/model-catalog';
+import { RunMandateComponent } from '../mandate/run-mandate.component';
 import { RunInvestigationComponent } from './run-investigation.component';
 import { invocationCost } from '@app/shared/cockpit/run-cost';
 import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
@@ -57,6 +58,7 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
     ObjectPerspectiveComponent,
     ModelExecutionComponent,
     RunInvestigationComponent,
+    RunMandateComponent,
   ],
   template: `
 
@@ -82,7 +84,7 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
           </button>
         </div>
       </ck-object-header>
-    @if (run(); as currentRun) { <app-run-investigation [run]="currentRun" /> }
+    @if (run(); as currentRun) { <app-run-mandate [runId]="currentRun.id" /><app-run-investigation [run]="currentRun" /> }
 
       <ck-tabs [active]="activePerspectiveTab()" (activeChange)="onPerspectiveTabChange($event)" [ariaLabel]="i18n.t('runs.detail.facets_aria')">
         <ck-tab id="overview" [label]="i18n.t('runs.detail.tab.overview')">
@@ -176,6 +178,7 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
           [description]="i18n.t('runs.detail.not_found.description')"
         />
       } @else {
+        <app-run-mandate [runId]="run()!.id" />
         <app-run-investigation [run]="run()!" />
         <!-- Canonical Outcome card — value / cost / confidence / efficiency + decision. -->
         <div class="mb-6">

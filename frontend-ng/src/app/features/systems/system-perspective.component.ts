@@ -1,4 +1,6 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { I18nService } from '@app/core/i18n.service';
+import { NavLinkDirective } from '@app/shared/cockpit/nav-link.directive';
 import type { ObjectLens } from '@app/core/navigation.catalog';
 import type {
   PerspectiveFact,
@@ -17,6 +19,7 @@ const STATE_LABELS: Record<PerspectiveFact['state'], string> = {
 @Component({
   selector: 'app-system-perspective',
   standalone: true,
+  imports: [NavLinkDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -81,7 +84,10 @@ const STATE_LABELS: Record<PerspectiveFact['state'], string> = {
                     }
                     @if (fact.state !== 'available' && fact.reason) {
                       <small class="fact-reason" data-testid="perspective-fact-reason">
-                        {{ fact.reason }}
+                        @if (fact.reason === 'mandate_publication_required') {
+                          {{ i18n.t('mandate_system.value_loop.publication_required') }}
+                          <a [navLink]="{type:'system',ref:payload.identity.system_id,lens:'build',facet:'context'}">{{ i18n.t('mandate_system.value_loop.review_draft') }}</a>
+                        } @else { {{ fact.reason }} }
                       </small>
                     }
                   </div>
@@ -113,6 +119,7 @@ const STATE_LABELS: Record<PerspectiveFact['state'], string> = {
     .perspective-fact dt { color:var(--ck-fg-4); font-size:11px; }
     .perspective-fact dd { margin:0; color:var(--ck-fg-1); font-family:var(--ck-font-mono); font-size:11px; text-align:right; overflow-wrap:anywhere; }
     .perspective-fact small { grid-column:1/-1; color:var(--ck-fg-4); font-family:var(--ck-font-mono); font-size:9px; text-align:right; }
+    .fact-reason a { display:block; margin-top:8px; color:var(--ck-signal-cool); text-decoration:underline; }
     .fact-unit { margin-left:4px; color:var(--ck-fg-4); }
     .fact-state { color:var(--ck-fg-3); }
     .fact-state[data-state="restricted"] { color:var(--ck-signal-warn); }
@@ -122,6 +129,7 @@ const STATE_LABELS: Record<PerspectiveFact['state'], string> = {
   `],
 })
 export class SystemPerspectiveComponent {
+  readonly i18n = inject(I18nService);
   readonly lens = input.required<ObjectLens>();
   readonly facet = input.required<SystemPerspectiveFacet>();
   readonly perspective = input<SystemPerspectiveResponse | null>(null);
