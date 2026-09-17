@@ -11,13 +11,71 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from app.agents.procurement_agent import (
+    OmniRAGAgent,
     _assemble_context_and_sources,
     _clean_source_snippet,
     _display_title,
     _is_placeholder_title,
     _select_citation_entries,
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "pipeline,score,dense_score,expected_source",
+    [("hybrid", 1 / 61, 0.72, True), ("hybrid", 1 / 61, None, True),
+     ("naive", 0.05, None, False), ("hybrid", 1 / 61, 0.05, False)],
+)
+async def test_retrieved_evidence_reaches_generation_without_a_second_threshold(
+    monkeypatch, pipeline, score, dense_score, expected_source,
+):
+    from app.services.rag import context
+
+    monkeypatch.setattr(context.settings, "rag_similarity_threshold", 0.2)
+    monkeypatch.setattr(context.settings, "rag_retrieval_worker_enabled", False)
+    monkeypatch.setattr(context.settings, "rag_generation_adaptive_enabled", False)
+    passage = "Synthetic capture: corrected nominal pressure is 6 bar."
+    metadata = {"document_id": "capture-test", "document_filename": "capture.md",
+                "collection": "capture-test", "source_type": "expert_fiche"}
+    if dense_score is not None:
+        metadata["dense_score"] = dense_score
+
+    async def retrieve(*args, **kwargs):
+        chunks, scores, metas, metrics = context._apply_similarity_threshold(
+            [passage], [score], [metadata], pipeline=pipeline,
+        )
+        return {"chunks": chunks, "scores": scores, "metadatas": metas,
+                "pipeline": pipeline, "metrics": metrics}
+
+    monkeypatch.setattr(context, "retrieve_rag_context", retrieve)
+    monkeypatch.setattr(context, "get_retrieval_profile", lambda request: {
+        "collection": "capture-test", "collections": ["capture-test"],
+        "vector_db": "qdrant", "top_k": 5, "latency_profile": "fast",
+        "query": request["query"],
+    })
+    prompts = []
+
+    class RecordingLLM:
+        async def stream_complete(self, *, prompt, **kwargs):
+            prompts.append(prompt)
+            yield "6 bar [1]." if passage in prompt else "No documents found."
+
+    agent = OmniRAGAgent()
+    monkeypatch.setattr(agent, "_get_document_service", lambda request: None)
+    monkeypatch.setattr(agent, "_get_llm", lambda: RecordingLLM())
+    events = [event async for event in agent.process({
+        "query": "What is the corrected nominal pressure? Cite the source.",
+        "workspace_slug": "test", "response_language": "en",
+    })]
+    assert len(prompts) == 1
+    assert (passage in prompts[0]) is expected_source
+    sources = [source for event in events for source in event.get("sources", [])]
+    assert [source["document_id"] for source in sources] == (
+        ["capture-test"] if expected_source else []
+    )
 
 
 # ── Item 3: placeholder titles ────────────────────────────────────────────

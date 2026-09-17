@@ -2,18 +2,19 @@
 
 ## Current delivery status — 17 September 2026
 
-- **Live application: `def0b3cc` on `demo/agentic`.** The
-  [release evidence](../evidence/release-def0b3cc-2026-09-17/README.md) records
-  1,511 frontend tests and 10 context/session backend checks, three VM images, exact public SHA,
-  healthy services and **10 carakai passes, 2 intentional skips**.
-- A new isolated Capture passes absence-before-publication, text amendment,
-  explicitly technical review, publication, source inventory (one source/one
-  chunk), authenticated preview and a fresh response quoting the exact 6-bar
-  passage with its completed Run. Historical ledger gaps remain unchanged.
-  The UI handoff now opens and reopens blank. Its real cited-pressure question
-  fails on def0b3cc: an inventory summary replaces the passage, and the expert
-  overlay joins the selected context. These defects are being corrected; voice,
-  five complete repetitions and human acceptance remain open.
+- **Live application: `0f06b4eb` on `demo/agentic`.** The
+  [release evidence](../evidence/release-0f06b4eb-2026-09-17/README.md) records
+  exact public SHA, healthy images, **10 carakai passes and 2 intentional skips**.
+- The actual Giskard RAGET campaign completed on the configured OpenAI `gpt-5`
+  provider: three cases × two versions, eight judge calls, linked canonical Runs.
+  Both versions are semantically correct; native checks distinguish missing
+  citations. The absent-serial baseline fails a brittle lexical assertion despite
+  correctly acknowledging absence. Comparability remains explicitly limited.
+- Capture now retrieves the exact published passage in its selected collection.
+  The same UI question still fails at synthesis: a duplicate cosine threshold
+  drops its hybrid rank score. The retained Run proves the boundary; the fix is
+  being qualified. The earlier successful direct handoff remains historical.
+  Voice, five complete repetitions and human acceptance remain open.
 - Authenticated Chrome QA now verifies a new Operational Analysis result and
   its exact Run, PIH execution settings, and Quality heatmap → historical Run →
   passage. Work → Studio and System stage query encoding is corrected and verified live.
