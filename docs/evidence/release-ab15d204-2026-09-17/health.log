@@ -1,0 +1,7 @@
+/agentium-backend agentium-backend:ab15d204a73e running healthy
+/agentium-worker-cpu agentium-worker:ab15d204a73e running
+/agentium-worker-recipes agentium-worker:ab15d204a73e running
+/agentium-frontend agentium-frontend:ab15d204a73e running healthy
+/agentium-p4-maintenance agentium-worker:ab15d204a73e running
+/agentium-beat agentium-worker:ab15d204a73e running
+BACKEND_STARTUP_ERRORS=0

@@ -2,9 +2,9 @@
 
 ## Current delivery status — 17 September 2026
 
-- **Live application: `4771f15b` on `demo/agentic`.** The
-  [release evidence](../evidence/release-4771f15b-2026-09-17/README.md) records
-  1,495 frontend tests (backend unchanged from the prior 318-test qualification), three VM images, exact public SHA,
+- **Live application: `ab15d204` on `demo/agentic`.** The
+  [release evidence](../evidence/release-ab15d204-2026-09-17/README.md) records
+  1,497 frontend tests (16 targeted backend tests on the preceding 970f4512), three VM images, exact public SHA,
   healthy services and **10 carakai passes, 2 intentional skips**.
 - A new isolated Capture passes absence-before-publication, text amendment,
   explicitly technical review, publication, source inventory (one source/one
@@ -14,8 +14,10 @@
 - Authenticated Chrome QA now verifies a new Operational Analysis result and
   its exact Run, PIH execution settings, and Quality heatmap → historical Run →
   passage. Work → Studio and System stage query encoding is corrected and verified live.
-  The operation-timeline shortcut still opens a disabled invocation perspective;
-  its recorded audit remains readable in the parent Run. This is the next repair.
+  The operation shortcut now opens its authorized audit with the 360 flag off,
+  preserving System/Run ancestry, reload and history. An unavailable invocation
+  has a retry action. The shared outcome card still shows zero value/efficiency
+  for an absent value; this is the next R0 truthfulness correction.
 - The real rank-1 Excel citation `A830:O831` now exposes its values through O,
   verified against the same retained job, retrieved hit and original checksum.
   Cited windows expand to at most 40×40, favoring the selection over context.
@@ -33,7 +35,8 @@
   The earlier explicit Work publication handoff, text constraints, corpus
   manifests and native planner provenance remain deployed.
 - **R0 remains open:** the adoption sessions are not complete, and authenticated manual
-  QA found navigation defects to resolve. There is no remote CI; the documented local,
+  QA corrected the navigation defects but still finds zero displayed for absent
+  outcome value/efficiency. There is no remote CI; the documented local,
   VM and carakai gates apply, as confirmed by the release owner. The remaining
   actions are isolated in the [R0 closure checklist](agentium-r0-closure.md).
 - **R1 remains open:** BRD proposals, drafts, provenance, generated cases and

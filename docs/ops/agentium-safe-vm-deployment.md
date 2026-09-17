@@ -6876,3 +6876,34 @@ Chrome confirms Work ↔ Studio, System preset links, and new numerical Run
 The timeline-to-invocation shortcut still targets a disabled perspective; the
 canonical Run audit is readable. That defect, video and human R0 sessions remain
 open. No R1 decision changed. [Evidence](../evidence/release-4771f15b-2026-09-17/README.md).
+
+### 2026-09-17 — accessible invocation audit (970f4512)
+
+Deployed `970f4512d81c9522f12cd9435227a79831fd67a1` from published
+`demo/agentic`; three VM images, immutable tag `970f4512d81c`.
+Rollback `4771f15b2d54`; no migration or flag change. Local gates: 1,496 frontend
+and 16 backend tests, i18n/nav/chrome/build. Idle-worker and storage checks passed.
+Both public SHAs, HTTP 200 and healthy services verified. An initial canary was
+started during backend warm-up and failed three revision probes with HTTP 502;
+its terminal log is retained. After health settled, the next complete canary
+passed 10 tests with 2 intentional skips. No runtime restart was used to handle
+warm-up. Offline worker SDK qualification passed.
+Chrome opened the retained numerical-check invocation and verified its exact
+output, but exposed a remaining navigation-resolver 360 dependency. The audit
+is readable; the System/Run breadcrumbs still disappear in this release.
+[Evidence and both canary attempts](../evidence/release-970f4512-2026-09-17/README.md).
+
+### 2026-09-17 — preserve invocation ancestry (ab15d204)
+
+Deployed `ab15d204a73ee9975ce52d56dccb11b92e39589d` from published
+`demo/agentic`, with three VM images at immutable tag `ab15d204a73e`.
+Rollback `970f4512d81c`; no migration or activation change. 1,497 frontend tests
+and all frontend guards/build passed; backend unchanged from 16 targeted tests.
+Idle workers, storage, full service health, both public SHAs, HTTP 200 and zero
+backend startup exception matches verified before launching the canaries.
+Carakai: 10 passed, 2 intentional skips, including the new breadcrumb assertion.
+Worker SDK fixture passed. Chrome confirms exact Run audit, System/Run ancestry,
+reload, return/history and an unavailable invocation with retry. The retained
+Run keeps its historical execution SHA. No R1 decision or published System changed.
+The outcome-card absent-value display, video and R0 human baseline remain open.
+[Evidence](../evidence/release-ab15d204-2026-09-17/README.md).
