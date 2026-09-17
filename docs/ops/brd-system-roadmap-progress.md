@@ -2,16 +2,19 @@
 
 ## Current delivery status — 17 September 2026
 
-- **Live application: `1e374c3c` on `demo/agentic`.** The
-  [release evidence](../evidence/release-1e374c3c-2026-09-17/README.md) records
+- **Live application: `e30230ae` on `demo/agentic`.** The
+  [release evidence](../evidence/release-e30230ae-2026-09-17/README.md) records
   exact public SHA, healthy images, **10 carakai passes and 2 intentional skips**.
-- R1 tests now verify successful tool use against canonical invocations and link
-  each proof to its actual Run. A fresh NorthForge generation uses both tool
-  assertions and links all twelve requirement rows, but failed technical review:
-  test inputs copy expected answers and reviewer instructions from the BRD.
-  Proposal de87d014 remains unapplied. Next: separate operator questions from
-  acceptance procedures and inspect a new candidate. No existing R1 Run or gate
-  was changed; proposed coverage is not successful execution.
+- R1 generation now separates operator questions, expected facts and reviewer
+  procedures; the contaminated proposal de87d014 remains unapplied. A new real-
+  provider candidate applies without manual Flow assembly in the isolated engine.
+  Six local canonical cases produced four passes and two failures. One failure
+  exposed a retrieval route bug: “with source” returned inventory, not content.
+  On e30230ae the unchanged history case passes with planned 30 / actual 55 minutes,
+  its exact passage and one history invocation (previously six, all inventory).
+  French citation wording also retrieves content. The refusal's lexical assertions
+  remain failed; D-1 is uncovered. Local accept/reject harness outcomes are not
+  human acceptance. No retained production R1 Run or decision was changed.
 - On 0f06b4eb, the actual Giskard RAGET campaign completed on the configured OpenAI `gpt-5`
   provider: three cases × two versions, eight judge calls, linked canonical Runs.
   Both versions are semantically correct; native checks distinguish missing
