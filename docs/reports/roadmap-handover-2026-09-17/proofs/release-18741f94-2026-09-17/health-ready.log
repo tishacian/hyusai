@@ -1,0 +1,6 @@
+/agentium-backend agentium-backend:18741f94fb6c running healthy
+/agentium-worker-cpu agentium-worker:18741f94fb6c running
+/agentium-worker-recipes agentium-worker:18741f94fb6c running
+/agentium-frontend agentium-frontend:18741f94fb6c running healthy
+/agentium-p4-maintenance agentium-worker:18741f94fb6c running
+/agentium-beat agentium-worker:18741f94fb6c running
