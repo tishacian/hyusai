@@ -146,6 +146,7 @@ const storeSpecs = [
   'src/app/features/chat/assistant-draft-drawer.component.spec.ts',
   'src/app/features/chat/chat-panel.component.spec.ts',
   'src/app/features/chat/chat-workspace.component.spec.ts',
+  'src/app/features/knowledge/capture-published-chat.component.spec.ts',
   'src/app/features/client360/client360-page.component.spec.ts',
   'src/app/features/capabilities/capabilities.component.spec.ts',
   'src/app/features/capabilities/capability-view.component.spec.ts',

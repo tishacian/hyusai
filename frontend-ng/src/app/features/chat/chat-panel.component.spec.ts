@@ -73,20 +73,23 @@ class WorkspaceStub {
 }
 
 class ApiStub {
+  sessionList: Array<Record<string, unknown>> = [];
   readonly sessionCreates: Array<Subject<Record<string, unknown>>> = [];
   readonly sessionCreateOptions: unknown[] = [];
   readonly sessionDetails: Array<Subject<Record<string, unknown>>> = [];
   readonly sessionDetailOptions: unknown[] = [];
+  readonly sessionDetailPaths: string[] = [];
   readonly deepPolls: Array<Subject<Record<string, unknown>>> = [];
   readonly deepPollOptions: unknown[] = [];
 
   get(path: string, _params?: unknown, options?: unknown) {
     if (path === '/reasoning/templates') return of({ templates: [] });
-    if (path.startsWith('/sessions?')) return of({ sessions: [] });
+    if (path.startsWith('/sessions?')) return of({ sessions: this.sessionList });
     if (path.startsWith('/sessions/')) {
       const request = new Subject<Record<string, unknown>>();
       this.sessionDetails.push(request);
       this.sessionDetailOptions.push(options);
+      this.sessionDetailPaths.push(path);
       return request.asObservable();
     }
     if (path.startsWith('/workspace-jobs/')) {
@@ -446,4 +449,21 @@ test('spreadsheet citations preserve the sheet and cell range in the source prev
     component.previewSource({ document_id: 'scan', collection: 'manuals', page: '12oops' });
     assert.equal(component.sourcePreviewPage(), null);
   } finally { injector.destroy(); }
+});
+
+
+test('a fresh publication conversation ignores stored history but can select its newly created session', () => {
+  const {injector,component,api}=makeHarness();
+  try {
+    api.sessionList=[{id:'old-session',title:'Previous interview'},{id:'new-session',title:'New question'}];
+    Object.defineProperty(component,'freshSession',{value:()=>true});
+    Object.defineProperty(component,'loadSelectedSessionId',{value:()=> 'old-session'});
+    component.loadChatSessions();
+    assert.equal(api.sessionDetails.length,0);
+    assert.equal(component.activeChatSessionId(),null);
+    assert.deepEqual(component.messages(),[]);
+    component.loadChatSessions('new-session');
+    assert.equal(api.sessionDetails.length,1);
+    assert.equal(api.sessionDetailPaths[0],'/sessions/new-session?include_messages=true&include_jobs=true');
+  } finally {injector.destroy();}
 });

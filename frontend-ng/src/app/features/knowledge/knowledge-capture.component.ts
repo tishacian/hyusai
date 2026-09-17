@@ -26,6 +26,7 @@ import { VoiceTtsPlaybackService, VoiceTtsState } from '@app/core/voice-tts-play
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspace.service';
 import { DocumentPreviewComponent, DocumentPreviewViewChange } from '@app/shared/document-preview/document-preview.component';
+import { CapturePublishedChatComponent } from './capture-published-chat.component';
 import { ThinkingOrbComponent } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 
@@ -560,6 +561,7 @@ interface ProposalFact {
     IconComponent,
     DocumentPreviewComponent,
     ThinkingOrbComponent,
+    CapturePublishedChatComponent,
   ],
   styles: [
     `
@@ -3884,6 +3886,10 @@ interface ProposalFact {
                     </button>
                   </div>
                 </div>
+                <app-capture-published-chat
+                  [collection]="publicationResult()?.collection || p.proposal?.publication?.collection_slug || ''"
+                  [proposalId]="p.id"
+                />
               } @else {
                 <div>
                   <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.publish.eyebrow') }}</p>

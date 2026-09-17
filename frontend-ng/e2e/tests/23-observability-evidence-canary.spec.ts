@@ -86,6 +86,20 @@ test('evaluation and chart inspection retain the exact Run',async({page},testInf
        for(const node of state.draft.flow_definition.nodes || [])await expect(design).toContainText(node.label || node.id);
      }
      await page.screenshot({path:testInfo.outputPath('system-design-draft.png'),fullPage:true});
+     const originalViewport=page.viewportSize();
+     try {
+       await page.setViewportSize({width:390,height:844});
+       const version=page.getByTestId('system-design-version');
+       await version.scrollIntoViewIfNeeded();
+       const exposed=await version.evaluate(el=>{
+         const rect=el.getBoundingClientRect();
+         const hit=document.elementFromPoint(rect.left+rect.width/2,rect.top+Math.min(rect.height/2,24));
+         return !!hit && el.contains(hit);
+       });
+       expect(exposed,'Version summary must not be covered by the sticky object header').toBe(true);
+       await page.screenshot({path:testInfo.outputPath('system-design-narrow.png'),fullPage:true});
+     } finally {if(originalViewport)await page.setViewportSize(originalViewport);}
+
    }
  }
 

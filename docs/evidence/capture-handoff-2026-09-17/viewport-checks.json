@@ -1,0 +1,18 @@
+{
+  "headerDesktop": {
+    "height": 776,
+    "position": "sticky",
+    "width": 1470
+  },
+  "shortViewport": {
+    "height": 550,
+    "position": "static",
+    "width": 1100
+  },
+  "narrow": {
+    "width": 390,
+    "scrollWidth": 390,
+    "headerPosition": "static",
+    "actionHitTest": true
+  }
+}
