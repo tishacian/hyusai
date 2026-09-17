@@ -1,0 +1,81 @@
+From bitbucket.org:datategy-root/omnirag
+ * branch              demo/agentic -> FETCH_HEAD
+   d05e84b1..1e374c3c  demo/agentic -> origin/demo/agentic
+Auto packing the repository in background for optimum performance.
+See "git help gc" for manual housekeeping.
+Updating d05e84b1..1e374c3c
+Fast-forward
+Auto packing the repository in background for optimum performance.
+See "git help gc" for manual housekeeping.
+ .../app/api/v1/endpoints/evaluation_campaigns.py   |    6 +-
+ backend/app/services/evaluation/campaigns.py       |   20 +-
+ .../app/services/skills_registry/brd_generation.py |    8 +
+ backend/app/tests/api/test_brd_live_provider.py    |    4 +-
+ backend/app/tests/api/test_evaluation_campaigns.py |   48 +-
+ backend/app/tests/api/test_flow_workbench_api.py   |   16 +
+ .../app/tests/services/test_agent_loop_runtime.py  |   11 +
+ docs/design/brd-system-ui-reference-lock.md        |   13 +
+ docs/evidence/brd-tool-proof-2026-09-17/README.md  |   71 +
+ .../evidence/brd-tool-proof-2026-09-17/backend.log |  165 +
+ docs/evidence/brd-tool-proof-2026-09-17/build.log  |  108 +
+ docs/evidence/brd-tool-proof-2026-09-17/chrome.log |    5 +
+ .../comparison-en-dark-390.png                     |  Bin 0 -> 167095 bytes
+ .../comparison-fr-light-1280.png                   |  Bin 0 -> 177223 bytes
+ .../brd-tool-proof-2026-09-17/frontend-tests.log   | 1527 +++++++++
+ docs/evidence/brd-tool-proof-2026-09-17/i18n.log   |    5 +
+ docs/evidence/brd-tool-proof-2026-09-17/nav.log    |    5 +
+ .../brd-tool-proof-2026-09-17/run-en-dark-390.png  |  Bin 0 -> 73736 bytes
+ .../run-fr-light-1280.png                          |  Bin 0 -> 85236 bytes
+ .../brd-tool-proof-2026-09-17/visual-checks.json   |   50 +
+ .../evidence/release-d05e84b1-2026-09-17/README.md |   67 +
+ .../release-d05e84b1-2026-09-17/canaries.log       |   19 +
+ .../capture-absence-conversation.json              | 3259 +++++++++++++++++++
+ .../capture-conversation.json                      | 3342 ++++++++++++++++++++
+ .../capture-fast-conversation.json                 | 3282 +++++++++++++++++++
+ .../release-d05e84b1-2026-09-17/health-ready.log   |    6 +
+ .../release-d05e84b1-2026-09-17/pre-switch.log     |    3 +
+ .../public-verification.log                        |    3 +
+ .../release-d05e84b1-2026-09-17/runner-sync.log    |   58 +
+ .../release-d05e84b1-2026-09-17/runtime-health.log |    7 +
+ .../release-d05e84b1-2026-09-17/switch.log         |   14 +
+ .../release-d05e84b1-2026-09-17/vm-build.log       |    9 +
+ .../release-d05e84b1-2026-09-17/vm-sync.log        |   57 +
+ .../worker-sdk-build.log                           |    2 +
+ .../synthesis-context-handoff-2026-09-17/README.md |    5 +-
+ docs/ops/agentium-r0-closure.md                    |   17 +-
+ docs/ops/agentium-safe-vm-deployment.md            |   14 +
+ docs/ops/brd-system-roadmap-progress.md            |   27 +-
+ docs/ui/capture-published-knowledge.md             |   18 +-
+ frontend-ng/src/app/core/canonical-api.service.ts  |    8 +-
+ frontend-ng/src/app/core/i18n/runs.dict.ts         |    2 +
+ .../src/app/core/navigation.catalog.spec.ts        |    9 +
+ frontend-ng/src/app/core/navigation.catalog.ts     |    2 +
+ .../observability/run-comparison.component.ts      |   14 +-
+ .../features/runs/run-investigation.component.ts   |   13 +-
+ 45 files changed, 12279 insertions(+), 40 deletions(-)
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/README.md
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/backend.log
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/build.log
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/chrome.log
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/comparison-en-dark-390.png
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/comparison-fr-light-1280.png
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/frontend-tests.log
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/i18n.log
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/nav.log
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/run-en-dark-390.png
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/run-fr-light-1280.png
+ create mode 100644 docs/evidence/brd-tool-proof-2026-09-17/visual-checks.json
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/README.md
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/canaries.log
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/capture-absence-conversation.json
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/capture-conversation.json
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/capture-fast-conversation.json
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/health-ready.log
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/pre-switch.log
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/public-verification.log
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/runner-sync.log
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/runtime-health.log
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/switch.log
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/vm-build.log
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/vm-sync.log
+ create mode 100644 docs/evidence/release-d05e84b1-2026-09-17/worker-sdk-build.log

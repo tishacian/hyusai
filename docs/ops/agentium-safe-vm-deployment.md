@@ -6965,3 +6965,15 @@ The fresh hybrid Capture Run now cites the actual 6-bar passage; a second Run
 acknowledges an absent serial number. The preceding actual Giskard/OpenAI report
 remains attributed to 0f06b4eb. [Release evidence and retained Runs](../evidence/release-d05e84b1-2026-09-17/README.md).
 Browser smoke awaits reconnection; R0 baseline, video and owner decision remain open.
+
+
+### 2026-09-17 — R1 canonical tool evidence, 1e374c3c
+
+Iteration deployed from pushed `demo/agentic` SHA
+`1e374c3c1b71a70d88d1ffcee7fb8688ee28c2a6`; previous images d05e84b15c53 retained.
+Three immutable VM builds, zero active/reserved work before switch, storage and
+six services healthy, exact public frontend/backend revisions; carakai 10 pass,
+2 intentional exclusions. No migration, policy, flag or NAWA branding change.
+[Evidence and actual generation review](../evidence/release-1e374c3c-2026-09-17/README.md).
+The fresh proposal remains unapplied because its test questions contain oracle
+answers. Old R1 Runs/human gates are untouched. R0 human acceptance remains open.

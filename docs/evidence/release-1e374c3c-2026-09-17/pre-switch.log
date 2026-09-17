@@ -1,0 +1,3 @@
+ACTIVE_DURABLE_JOBS=0
+active {'celery@e7778b36cf0c': 0, 'celery@d879c88b924f': 0}
+reserved {'celery@e7778b36cf0c': 0, 'celery@d879c88b924f': 0}

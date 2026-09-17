@@ -1,0 +1,7 @@
+/agentium-backend agentium-backend:1e374c3c1b71 running healthy
+/agentium-worker-cpu agentium-worker:1e374c3c1b71 running 
+/agentium-worker-recipes agentium-worker:1e374c3c1b71 running 
+/agentium-frontend agentium-frontend:1e374c3c1b71 running healthy
+/agentium-p4-maintenance agentium-worker:1e374c3c1b71 running 
+/agentium-beat agentium-worker:1e374c3c1b71 running 
+BACKEND_STARTUP_ERRORS=0
