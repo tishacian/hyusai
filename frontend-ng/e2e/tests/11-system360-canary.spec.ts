@@ -652,7 +652,7 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
       unique_marker_discovery: true,
       four_distinct_projections: true,
       invariant_identity_header_breadcrumb_tabs: true,
-      ui_value_matches_api_rendered_perspectives: true,
+      ui_value_matches_api_per_lens: true,
       governance_coverage_matches_authorized_runs: true,
       deep_link_reload_history_and_facet: true,
       workspace_switch_purges_object: true,
