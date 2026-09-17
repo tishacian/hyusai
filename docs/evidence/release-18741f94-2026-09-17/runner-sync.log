@@ -1,0 +1,110 @@
+The bundle contains this ref:
+18741f94fb6ced627c53701c0b469685618b852d refs/heads/demo/agentic
+The bundle requires this ref:
+4baa9f5d1487161770c715ee393dd92eb3c8ddb3
+The bundle uses this hash algorithm: sha1
+/tmp/system-design-18741f94.bundle is okay
+From /tmp/system-design-18741f94.bundle
+ * branch              demo/agentic -> FETCH_HEAD
+Updating 4baa9f5d..18741f94
+Fast-forward
+ docs/design/brd-system-ui-reference-lock.md        |   13 +
+ .../outcome-card-responsive-2026-09-17/README.md   |    3 +-
+ .../evidence/release-4baa9f5d-2026-09-17/README.md |  103 ++
+ .../backend-build-info.json                        |    6 +
+ .../release-4baa9f5d-2026-09-17/canaries.log       |   19 +
+ .../release-4baa9f5d-2026-09-17/en-dark-dom.txt    |  215 +++
+ .../release-4baa9f5d-2026-09-17/en-dark.png        |  Bin 0 -> 65720 bytes
+ .../release-4baa9f5d-2026-09-17/fr-light-dom.txt   |  215 +++
+ .../release-4baa9f5d-2026-09-17/fr-light.png       |  Bin 0 -> 71522 bytes
+ .../release-4baa9f5d-2026-09-17/fr-narrow-dom.txt  |  213 +++
+ .../fr-narrow-metrics.json                         |   27 +
+ .../release-4baa9f5d-2026-09-17/fr-narrow.png      |  Bin 0 -> 33070 bytes
+ .../frontend-build-info.json                       |    5 +
+ .../release-4baa9f5d-2026-09-17/health-ready.log   |    6 +
+ .../release-4baa9f5d-2026-09-17/home-http.log      |    1 +
+ .../release-4baa9f5d-2026-09-17/manual-checks.json |    7 +
+ .../new-run-check-dom.txt                          |   96 ++
+ .../release-4baa9f5d-2026-09-17/new-run-check.png  |  Bin 0 -> 132850 bytes
+ .../release-4baa9f5d-2026-09-17/new-run-dom.txt    |  202 +++
+ .../release-4baa9f5d-2026-09-17/new-run.png        |  Bin 0 -> 67961 bytes
+ .../release-4baa9f5d-2026-09-17/pih-flow-dom.txt   |  264 ++++
+ .../release-4baa9f5d-2026-09-17/pih-flow.png       |  Bin 0 -> 87613 bytes
+ .../release-4baa9f5d-2026-09-17/pih-skill-dom.txt  |  125 ++
+ .../release-4baa9f5d-2026-09-17/pih-system-dom.txt |  154 ++
+ .../release-4baa9f5d-2026-09-17/pre-switch.log     |    3 +
+ .../public-verification.log                        |    3 +
+ .../quality-run-dom.txt                            |  196 +++
+ .../release-4baa9f5d-2026-09-17/quality-run.png    |  Bin 0 -> 106949 bytes
+ .../quality-selection-dom.txt                      |  550 +++++++
+ .../quality-selection.png                          |  Bin 0 -> 123579 bytes
+ .../retained-outcome.json                          |   13 +
+ .../release-4baa9f5d-2026-09-17/runner-sync.log    |   73 +
+ .../release-4baa9f5d-2026-09-17/runtime-health.log |    7 +
+ .../release-4baa9f5d-2026-09-17/switch.log         |   14 +
+ .../release-4baa9f5d-2026-09-17/vm-build.log       |    9 +
+ .../work-result-dom.txt                            |   45 +
+ .../release-4baa9f5d-2026-09-17/work-result.png    |  Bin 0 -> 68184 bytes
+ .../release-4baa9f5d-2026-09-17/worker-sdk.log     |   11 +
+ .../system-design-draft-2026-09-17/README.md       |   28 +
+ .../system-design-draft-2026-09-17/build.log       |  107 ++
+ .../system-design-draft-2026-09-17/canary-list.log |    3 +
+ .../system-design-draft-2026-09-17/chrome.log      |    5 +
+ .../system-design-draft-2026-09-17/i18n.log        |    5 +
+ .../system-design-draft-2026-09-17/nav.log         |    5 +
+ .../system-design-draft-2026-09-17/unit.log        | 1520 ++++++++++++++++++++
+ docs/ops/agentium-r0-closure.md                    |   45 +-
+ docs/ops/agentium-safe-vm-deployment.md            |   17 +
+ docs/ops/brd-system-roadmap-progress.md            |   17 +-
+ docs/ui/observability/README.md                    |   26 +-
+ .../tests/23-observability-evidence-canary.spec.ts |   20 +-
+ frontend-ng/src/app/core/i18n/systems.dict.ts      |   24 +
+ .../features/systems/system-view.component.spec.ts |   92 ++
+ .../app/features/systems/system-view.component.ts  |  102 +-
+ 53 files changed, 4569 insertions(+), 45 deletions(-)
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/README.md
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/backend-build-info.json
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/canaries.log
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/en-dark-dom.txt
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/en-dark.png
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/fr-light-dom.txt
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/fr-light.png
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/fr-narrow-dom.txt
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/fr-narrow-metrics.json
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/fr-narrow.png
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/frontend-build-info.json
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/health-ready.log
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/home-http.log
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/manual-checks.json
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/new-run-check-dom.txt
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/new-run-check.png
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/new-run-dom.txt
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/new-run.png
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/pih-flow-dom.txt
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/pih-flow.png
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/pih-skill-dom.txt
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/pih-system-dom.txt
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/pre-switch.log
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/public-verification.log
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/quality-run-dom.txt
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/quality-run.png
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/quality-selection-dom.txt
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/quality-selection.png
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/retained-outcome.json
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/runner-sync.log
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/runtime-health.log
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/switch.log
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/vm-build.log
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/work-result-dom.txt
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/work-result.png
+ create mode 100644 docs/evidence/release-4baa9f5d-2026-09-17/worker-sdk.log
+ create mode 100644 docs/evidence/system-design-draft-2026-09-17/README.md
+ create mode 100644 docs/evidence/system-design-draft-2026-09-17/build.log
+ create mode 100644 docs/evidence/system-design-draft-2026-09-17/canary-list.log
+ create mode 100644 docs/evidence/system-design-draft-2026-09-17/chrome.log
+ create mode 100644 docs/evidence/system-design-draft-2026-09-17/i18n.log
+ create mode 100644 docs/evidence/system-design-draft-2026-09-17/nav.log
+ create mode 100644 docs/evidence/system-design-draft-2026-09-17/unit.log
+?? .agentium-source-sha
+644 41
+18741f94fb6ced627c53701c0b469685618b852d

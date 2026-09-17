@@ -2,12 +2,13 @@
 
 16 septembre 2026 · Workspace : **Agentium Showcase** (`agentium-showcase`).
 
-**Release technique qualifiée ; clôture produit en attente de la baseline utilisateurs.**
-SHA applicatif : `7532d4491a239d0e2285303cb12447ceac7419c2`, intégré sur
-`demo/agentic`. Les commits documentaires ultérieurs ne changent pas le runtime.
-Décision finale : Thibaud. Aucune acceptation utilisateur n'est présumée.
+**La clôture produit attend la baseline utilisateurs et la décision de Thibaud.**
+Pour le runtime courant, ses gates et les derniers défauts observés, utiliser la
+[checklist de clôture](agentium-r0-closure.md). Les consignes ci-dessous restent
+les parcours à tester ; les preuves du 16 septembre conservent leur propre SHA.
+Aucune acceptation utilisateur n’est présumée.
 
-## Preuves de release
+## Preuves historiques — runtime 7532d449 du 16 septembre
 
 | Gate | Résultat et portée |
 |---|---|
@@ -58,9 +59,10 @@ Le livrable synthétise titres et grades actuels/proposés, date, informations m
 et citations. Il n'approuve pas une transaction. Ce Run est un test de draft
 antérieur au SHA candidat ; il ne prouve pas une application PIH publiée.
 
-Aujourd'hui, l'import extrait les exigences pour créer une Skill ; le Flow de cette
-démonstration a été assemblé. La génération d'un System complet et la traçabilité
-exigence → test → Run constituent **R1**, pas un acquis de R0.
+Le Flow de cette démonstration historique a été assemblé. Les propositions BRD →
+System et leur traçabilité sont désormais implémentées, avec une qualification R1
+encore ouverte : voir le [statut de livraison](brd-system-roadmap-progress.md).
+Cette démonstration R0 ne prouve pas la recette ni la publication des Systems générés.
 
 ### 3. Retrouver les preuves depuis l'observabilité
 
@@ -93,8 +95,16 @@ Ne pas enregistrer le contenu des documents ni des conversations dans la fiche.
 
 | Participant | Profil | Tâche | Réussite sans aide | Temps | Demandes d'aide | Blocage / observation |
 |---|---|---|---|---|---|---|
-| M1–M5 (une ligne par session) | Métier | À renseigner | NOT RUN | — | — | — |
-| D1–D5 (une ligne par session) | Développeur | À renseigner | NOT RUN | — | — | — |
+| M1 | Métier | À renseigner | NOT RUN | — | — | — |
+| M2 | Métier | À renseigner | NOT RUN | — | — | — |
+| M3 | Métier | À renseigner | NOT RUN | — | — | — |
+| M4 | Métier | À renseigner | NOT RUN | — | — | — |
+| M5 | Métier | À renseigner | NOT RUN | — | — | — |
+| D1 | Développeur | À renseigner | NOT RUN | — | — | — |
+| D2 | Développeur | À renseigner | NOT RUN | — | — | — |
+| D3 | Développeur | À renseigner | NOT RUN | — | — | — |
+| D4 | Développeur | À renseigner | NOT RUN | — | — | — |
+| D5 | Développeur | À renseigner | NOT RUN | — | — | — |
 
 Pour chaque session, consigner également le SHA, les permissions, les flags,
 le point de départ et la langue. Un scénario indisponible est un blocage constaté,
@@ -104,8 +114,8 @@ pas un succès ni une ligne supprimée du protocole.
 
 R0 peut être clos après les premières sessions, l'analyse de leurs blocages et
 la décision explicite du responsable sur les réserves. La release technique
-n'attend plus une CI inexistante. Les préparations indépendantes de R1 peuvent
-avancer, sans présenter sa génération complète comme déjà livrée.
+n'attend plus une CI inexistante. Les développements R1 peuvent avancer ; ses approbations, publications et
+consommations par un second utilisateur doivent conserver leurs preuves propres.
 
 Restent distinctement non qualifiés : campagne Giskard avec fournisseur réel,
 cas observabilité non préparé, perte brutale/redélivrance du worker et essais

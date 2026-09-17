@@ -6924,3 +6924,19 @@ New Work Run 5369c2b1 completes on 4baa9f5d with exact NorthForge numerical outp
 PIH configuration/Flow and Quality → Run → passage are inspected. Retained R1
 reviews are untouched. Generic PIH Design summary, video and R0 human acceptance
 remain open. [Final evidence](../evidence/release-4baa9f5d-2026-09-17/README.md).
+
+
+### 2026-09-17 — Design shows the canonical draft (18741f94)
+
+Published `demo/agentic` revision `18741f94fb6ced627c53701c0b469685618b852d`,
+three VM-built images at immutable tag `18741f94fb6c`; rollback `4baa9f5d1487`.
+No migration, stored flag change or NAWA theme change. Local: 1,506 frontend
+checks, 8,068 FR/EN keys, navigation/chrome/build pass; backend unchanged.
+Storage, idle workers, six app containers, both public revisions and HTTP 200
+verified. Carakai: 10 passed, 2 intentional skips, including canonical Design
+identity. Offline worker SDK fixture passes; no provider campaign claimed.
+Five new sequential Work Runs pass the NorthForge numerical reference and
+idempotent replay on this exact runtime. Desktop Chrome confirms Design r3 →
+Flow Builder r3 → back, with published v1 explicit and unchanged. New Design
+copy is FR/EN; existing header copy and 390 px sticky-header layout have limits.
+No retained R1 gate changed. [Evidence](../evidence/release-18741f94-2026-09-17/README.md).

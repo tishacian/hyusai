@@ -2,9 +2,9 @@
 
 ## Current delivery status — 17 September 2026
 
-- **Live application: `4baa9f5d` on `demo/agentic`.** The
-  [release evidence](../evidence/release-4baa9f5d-2026-09-17/README.md) records
-  1,503 frontend tests (19 cost/provenance backend tests, unchanged backend), three VM images, exact public SHA,
+- **Live application: `18741f94` on `demo/agentic`.** The
+  [release evidence](../evidence/release-18741f94-2026-09-17/README.md) records
+  1,506 frontend tests (19 cost/provenance backend tests, unchanged backend), three VM images, exact public SHA,
   healthy services and **10 carakai passes, 2 intentional skips**.
 - A new isolated Capture passes absence-before-publication, text amendment,
   explicitly technical review, publication, source inventory (one source/one
@@ -19,8 +19,10 @@
   has a retry action. The shared outcome card now distinguishes absent value/efficiency from zero,
   qualifies tariff-derived costs and fits five readouts at 390 px in FR/EN.
   A fresh Run 5369c2b1 on 4baa9f5d passes the exact numerical reference.
-  PIH Design still shows a generic RAG summary unlike its actual three-node Flow;
-  this discrepancy is the next R0 correction.
+  PIH Design now reads the same three-node draft r3 as Flow Builder and names
+  published v1 separately. Five additional Work executions pass on 18741f94,
+  with exact runtime/version attribution and no invented human/economic proof.
+  The shared sticky header still obscures the Design summary at 390 px.
 - The real rank-1 Excel citation `A830:O831` now exposes its values through O,
   verified against the same retained job, retrieved hit and original checksum.
   Cited windows expand to at most 40×40, favoring the selection over context.
@@ -38,8 +40,8 @@
   The earlier explicit Work publication handoff, text constraints, corpus
   manifests and native planner provenance remain deployed.
 - **R0 remains open:** the adoption sessions are not complete, and authenticated manual
-  QA corrected navigation and absent-value presentation. The PIH generic
-  Design summary, video, ten human sessions and closure decision remain open. There is no remote CI; the documented local,
+  QA corrected navigation and absent-value presentation. The narrow System
+  header, video, ten human sessions and closure decision remain open. There is no remote CI; the documented local,
   VM and carakai gates apply, as confirmed by the release owner. The remaining
   actions are isolated in the [R0 closure checklist](agentium-r0-closure.md).
 - **R1 remains open:** BRD proposals, drafts, provenance, generated cases and
