@@ -102,6 +102,25 @@ test.describe('US-8 — Experience /work canary', () => {
       surface: 'work',
     });
 
+    let editorHandoff = 'no_standard_application';
+    const editableCandidate = apps.find(item => item.release.renderer_version === 'certified-components-0.2.0');
+    if (editableCandidate) {
+      await page.goto(`/work/${encodeURIComponent(editableCandidate.experience.slug)}`);
+      await expect(page.locator('app-work-shell .xp-work-nav')).toBeVisible();
+      const edit = page.getByRole('link', { name: /^(Edit application|Modifier l’application)$/ });
+      editorHandoff = 'not_authorized';
+      if (await edit.isVisible()) {
+        const href = new URL((await edit.getAttribute('href'))!, page.url());
+        expect(href.pathname).toBe(`/create/apps/${editableCandidate.experience.id}`);
+        expect(href.searchParams.get('releaseId')).toBe(editableCandidate.release.id);
+        expect(href.searchParams.get('returnTo')).toMatch(/^\/work\//);
+        await edit.click();
+        await expect(page.locator('app-experience-editor h1')).not.toHaveText('');
+        await expect(page.getByText('Experience not found.', { exact: true })).toHaveCount(0);
+        editorHandoff = 'passed';
+      }
+    }
+
     const evidence = {
       schema_version: 2,
       kind: 'experience_work_canary',
@@ -120,6 +139,7 @@ test.describe('US-8 — Experience /work canary', () => {
         wcag_aa_axe: true,
         reduced_motion: true,
         reflow_320_css_px: true,
+        work_to_studio: editorHandoff,
       },
     };
     writeEvidence(evidencePathFor('work'), evidence);

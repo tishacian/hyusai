@@ -6843,3 +6843,20 @@ still reports zero; ledger synchronization remains to correct. This is one
 technical text qualification, not voice, repetition or human acceptance.
 NAWA theme and activation defaults unchanged. Rollback `fd9238fa6e4a`.
 [Evidence](../evidence/release-f9bb4294-2026-09-17/README.md).
+
+
+### 2026-09-17 — Capture publication source ledger (447997ee)
+
+Deployed pushed `demo/agentic` SHA `447997ee62c280988cd072b32386245173874f3c`,
+three immutable images built on the VM, tag `447997ee62c2`.
+Rollback: `f9bb42943811`. No migration, flag change or NAWA theme change.
+Local gates: 318 backend, 1,493 frontend tests; i18n/nav/chrome/production build.
+Idle workers, storage, healthy runtime, public frontend/backend SHA, HTTP 200
+and zero startup exception matches verified. Carakai: 10 passed, 2 intentional
+skips. Worker Giskard SDK 2.19.2 fixture qualification passed (not a provider campaign).
+A real isolated Capture now proves zero sources before, amendment, publication,
+one ready source/chunk with matching checksum, and fresh sourced answer/Run.
+Chrome smoke verified Operational Analysis → exact new Run and Quality → proof,
+but exposed Work-to-Studio/System-stage URL encoding defects. Fix pending.
+R0 human sessions and closure decision remain open; no R1 decision was changed.
+[Evidence and current screenshots](../evidence/release-447997ee-2026-09-17/README.md).

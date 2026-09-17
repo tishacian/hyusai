@@ -3,11 +3,11 @@
 17 septembre 2026 · Agentium Showcase (`agentium-showcase`).
 
 **R0 reste ouvert.** Les gates techniques sont documentés ; la recette manuelle
-authentifiée sur le SHA courant et les dix sessions de baseline restent à faire.
-Dernier runtime attesté : `f9bb429438119e2d9a2a5e90aa28fae51807a964`
+authentifiée a révélé des liens défectueux à corriger. Les dix sessions de baseline restent à faire.
+Dernier runtime attesté : `447997ee62c280988cd072b32386245173874f3c`
 sur `demo/agentic`. Bascule, identités publiques frontend/backend et santé
 vérifiées ; canaries : **10 réussis, 2 exclusions prévues**. Voir les
-[preuves de qualification](../evidence/release-f9bb4294-2026-09-17/README.md).
+[preuves de qualification](../evidence/release-447997ee-2026-09-17/README.md).
 Ce document référence les vérifications consignées ; il ne vaut pas recette humaine.
 
 Périmètre : [sortie R0 de la roadmap](../agentium-delivery-roadmap.md),
@@ -18,12 +18,12 @@ historiques ; le [statut courant](brd-system-roadmap-progress.md) fait référen
 
 | Critère R0 | Preuve conservée | État |
 |---|---|---|
-| Gates locaux du candidat f9bb4294 | [Qualification locale et images](../evidence/release-f9bb4294-2026-09-17/README.md) : 292 tests backend ; 1 493 tests frontend ; i18n 8 048 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
-| Build VM, stockage, santé et identité du runtime | [Release f9bb4294](../evidence/release-f9bb4294-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour f9bb4294 |
-| Canaries requis, dont Work, Studio et accès au Run | [Log carakai f9bb4294](../evidence/release-f9bb4294-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour f9bb4294 |
-| Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Consigné ; disponibilité actuelle à constater pendant le smoke |
-| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Prouvé historiquement ; ces exécutions ne sont pas attribuées à f9bb4294 |
-| Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | À actualiser sur le SHA retenu pour la clôture |
+| Gates locaux du candidat 447997ee | [Qualification locale et images](../evidence/release-447997ee-2026-09-17/README.md) : 318 tests backend ; 1 493 tests frontend ; i18n 8 048 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
+| Build VM, stockage, santé et identité du runtime | [Release 447997ee](../evidence/release-447997ee-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour 447997ee |
+| Canaries requis, dont Work, Studio et accès au Run | [Log carakai 447997ee](../evidence/release-447997ee-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour 447997ee |
+| Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Vérifié dans Chrome : nouveau Run c23fe4b7, chiffres attendus et lien exact |
+| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Prouvé historiquement ; ces exécutions ne sont pas attribuées à 447997ee |
+| Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Actualisé sur 447997ee ; Work → Studio échoue, correctif en préparation |
 | Baseline métier/développeur | [Fiche et consignes](agentium-r0-acceptance.md#baseline-avec-les-participants--à-exécuter) ; aucune session renseignée | 0/5 métier, 0/5 développeur |
 | Décision du responsable | Aucune décision de clôture enregistrée | En attente des éléments précédents |
 
@@ -39,6 +39,12 @@ La release c399f2be ajoute la reprise d’indexation, qualifiée techniquement s
 une collection synthétique dédiée : échec, restauration de l’original, même job
 repris, passage retrouvé et absence de duplication. Cette preuve ne remplace ni
 le smoke manuel, ni les sessions humaines, ni la recette complète de R2.
+
+Le [smoke Chrome du 17 septembre](../evidence/release-447997ee-2026-09-17/README.md)
+ouvre Work, le Run exact, la Skill/System PIH et la preuve sélectionnée depuis
+Quality. Le lien « Edit application » et les liens d'étapes System encodent leurs
+paramètres dans le chemin : ce défaut observé empêche de déclarer le parcours
+complet réussi. Captures et échecs sont conservés ; correctif local en préparation.
 
 ## Actions restantes
 

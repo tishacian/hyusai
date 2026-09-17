@@ -1,0 +1,45 @@
+- banner:
+  - generic: OA
+  - link "All applications":
+    - /url: /work
+  - heading "Operational Analysis" [level=1]
+  - paragraph: Synthetic NorthForge onboarding exercise; no customer data or verified savings.
+  - navigation "Pages":
+    - link "Operational Analysis":
+      - /url: /work/operational-analysis/analysis
+  - button "Control through conversation"
+  - group "Application language":
+    - button "EN" [pressed]
+    - button "FR"
+  - link "Cockpit":
+    - /url: /hypervisor
+  - link "Adapt and publish this example":
+    - /url: /help/systems?lens=hypervisor
+  - link "Edit application":
+    - /url: /create/apps/f286295a-ebef-44d2-a4a3-d0dbf04c866f%3FpageId%3Danalysis&returnTo%3D%252Fwork%252Foperational-analysis%252Fanalysis&releaseId%3D9f8ad33f-41bc-4ccb-a043-d26e5241d779
+- main "Operational Analysis":
+  - status: Operational Analysis
+  - article "Operational Analysis":
+    - heading "Operational Analysis" [level=2]
+    - heading "Explain an operational delay" [level=3]
+    - paragraph: "Synthetic NorthForge exercise: 4 orders, exact calculations, one explanation. No customer data or savings."
+    - button "Analyze the example"
+    - status:
+      - generic: Completed
+    - article:
+      - paragraph: Orders
+      - paragraph: "4"
+    - article:
+      - paragraph: Net overrun (minutes)
+      - paragraph: "35"
+    - article:
+      - paragraph: Late orders
+      - paragraph: "3"
+    - region "Result":
+      - heading "Result" [level=3]
+      - paragraph: "Constats chiffrés - 4 ordres planifiés [1] - Temps planifié total: 120 min; temps réel: 155 min; dépassement: 35 min [1] → soit +29,2% vs plan (35/120, calculé à partir de [1]) - 3 ordres en retard sur 4 → 75% d’ordres en retard (calculé à partir de [1]) - Plus grand dépassement: ordre NF-04 avec 25 min, représentant ~71,4% du dépassement total (25/35, calculé à partir de [1]) Explication du retard opérationnel (sur base des seules données fournies) - Le retard global de 35 min provient majoritairement d’un seul ordre, NF-04, qui concentre 25 min du dépassement total [1]. Les 10 min restantes sont réparties sur d’autres ordres (calculé à partir de [1]). - Cette concentration du dépassement sur NF-04 explique mécaniquement qu’une part élevée des ordres (3 sur 4) se retrouvent en retard [1]. Piste d’investigation prioritaire (une) - Analyser en détail la chronologie de l’ordre NF-04 (horodatages par phases: préparation, production, attentes, contrôle) pour attribuer précisément les 25 min de surtemps et identifier l’étape contributrice principale [1]."
+      - link "Inspect this result":
+        - /url: /runs/c23fe4b7-0516-4756-b92c-9afdfd2ca08b
+    - note:
+      - paragraph: "Expected: 120 planned minutes, 155 actual, 35 net overrun, 3 late orders; largest overrun: NF-04, +25 minutes. A passed numerical check does not validate the model’s prose or prove savings."
+- document
