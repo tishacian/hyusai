@@ -3,11 +3,11 @@
 17 septembre 2026 · Agentium Showcase (`agentium-showcase`).
 
 **R0 reste ouvert.** Les gates techniques sont documentés ; la recette manuelle
-authentifiée a révélé des liens défectueux à corriger. Les dix sessions de baseline restent à faire.
-Dernier runtime attesté : `4771f15b2d54051f7b7611e74ae446cad44bc70d`
+authentifiée a corrigé les liens défectueux. La carte de résultat confond encore valeur absente et zéro ; les dix sessions de baseline restent à faire.
+Dernier runtime attesté : `ab15d204a73ee9975ce52d56dccb11b92e39589d`
 sur `demo/agentic`. Bascule, identités publiques frontend/backend et santé
 vérifiées ; canaries : **10 réussis, 2 exclusions prévues**. Voir les
-[preuves de qualification](../evidence/release-4771f15b-2026-09-17/README.md).
+[preuves de qualification](../evidence/release-ab15d204-2026-09-17/README.md).
 Ce document référence les vérifications consignées ; il ne vaut pas recette humaine.
 
 Périmètre : [sortie R0 de la roadmap](../agentium-delivery-roadmap.md),
@@ -18,12 +18,12 @@ historiques ; le [statut courant](brd-system-roadmap-progress.md) fait référen
 
 | Critère R0 | Preuve conservée | État |
 |---|---|---|
-| Gates locaux du candidat 4771f15b | [Qualification locale et images](../evidence/release-4771f15b-2026-09-17/README.md) : 1 495 tests frontend ; backend inchangé depuis les 318 tests de 447997ee ; i18n 8 048 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
-| Build VM, stockage, santé et identité du runtime | [Release 4771f15b](../evidence/release-4771f15b-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour 4771f15b |
-| Canaries requis, dont Work, Studio et accès au Run | [Log carakai 4771f15b](../evidence/release-4771f15b-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour 4771f15b |
-| Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Vérifié dans Chrome : nouveau Run 9b73e4e5, chiffres attendus et lien exact |
-| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Prouvé historiquement ; ces exécutions ne sont pas attribuées à 4771f15b |
-| Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Work ↔ Studio corrigé ; raccourci vers l’invocation encore bloqué par son flag |
+| Gates locaux du candidat ab15d204 | [Qualification locale et images](../evidence/release-ab15d204-2026-09-17/README.md) : 1 497 tests frontend ; 16 tests backend ciblés sur 970f4512, backend inchangé depuis ; i18n 8 048 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
+| Build VM, stockage, santé et identité du runtime | [Release ab15d204](../evidence/release-ab15d204-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour ab15d204 |
+| Canaries requis, dont Work, Studio et accès au Run | [Log carakai ab15d204](../evidence/release-ab15d204-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour ab15d204 |
+| Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Vérifié dans Chrome : Run conservé 9b73e4e5 (exécuté sur 4771f15b), chiffres attendus et lien exact |
+| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Prouvé historiquement ; ces exécutions ne sont pas attribuées à ab15d204 |
+| Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Work ↔ Studio, invocation et fil d’Ariane corrigés ; valeur absente affichée comme zéro à corriger |
 | Baseline métier/développeur | [Fiche et consignes](agentium-r0-acceptance.md#baseline-avec-les-participants--à-exécuter) ; aucune session renseignée | 0/5 métier, 0/5 développeur |
 | Décision du responsable | Aucune décision de clôture enregistrée | En attente des éléments précédents |
 
@@ -40,14 +40,20 @@ une collection synthétique dédiée : échec, restauration de l’original, mê
 repris, passage retrouvé et absence de duplication. Cette preuve ne remplace ni
 le smoke manuel, ni les sessions humaines, ni la recette complète de R2.
 
-Le [smoke Chrome du 17 septembre](../evidence/release-4771f15b-2026-09-17/README.md)
-vérifie Work ↔ Studio, les liens d'étapes System et un nouveau Run numérique.
-Le parcours Quality → Run → passage est capturé sur 447997ee. Le raccourci de la
-chronologie vers une invocation ouvre encore une perspective désactivée, alors
-que son audit est accessible dans le Run. Cette impasse reste à corriger. Les
+Le [smoke Chrome du 17 septembre](../evidence/release-ab15d204-2026-09-17/README.md)
+reprend les preuves Work ↔ Studio et des liens d'étapes System ; le Run numérique
+conservé a été exécuté sur 4771f15b.
+Le parcours Quality → Run → passage est capturé sur 447997ee. Sur ab15d204,
+l'invocation ouvre son audit autorisé et conserve le System et le Run, y compris
+après rechargement et retour arrière. L'absence est explicite et peut être relue.
+La carte de résultat affiche encore 0 $ et 0 % pour une valeur absente. Les
 captures sont actualisées ; la vidéo n'a pas été réalisée (commande QuickTime désactivée).
 
 ## Actions restantes
+
+- [ ] **Distinguer absence et zéro dans la carte de résultat.** Ne pas afficher
+  une valeur ni une efficacité mesurée lorsque `value_source` vaut `unset`.
+  Conserver les hypothèses déclarées et la provenance des coûts accessibles.
 
 - [ ] **Faire le smoke authentifié sur le SHA retenu.** Recharger complètement
   le navigateur, sélectionner Showcase et consigner SHA, date, permissions,

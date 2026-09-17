@@ -74,3 +74,23 @@ La lecture de *How to Make AI-Generated UI Look Professional in 2026* (Threestud
 Les recettes de site marketing ne deviennent pas des règles universelles du Cockpit. Ni changement arbitraire de police, ni interdiction globale d’une couleur, ni animation obligatoire. La couleur encode une mesure ou un état ; le texte et la forme doivent rester suffisants pour comprendre. Le détail distinctif est l’interaction entre résultat, affirmation, extrait et invocation.
 
 Le prochain contrôle visuel doit porter sur la page entière, avec des volumes et des anomalies réels, et pas seulement sur un graphique recadré. Le critère est de trouver le sujet à examiner puis sa preuve, sans lire tous les indicateurs.
+
+## Ouvrir une opération enregistrée — livré sur ab15d204
+
+En tant qu'opérateur, je peux ouvrir une opération depuis la chronologie du Run,
+retrouver son entrée, sa sortie et sa trace, puis revenir au même Run et au même
+System. L'audit reste disponible lorsque les perspectives 360 sont désactivées.
+Une invocation absente affiche une explication et une reprise de lecture.
+
+La [capture réelle du contrôle NorthForge](../../evidence/release-ab15d204-2026-09-17/invocation.png)
+illustre ce parcours. Les preuves détaillées sont techniques ; elles n'établissent
+ni validation humaine ni valeur économique. La carte de résultat confond encore
+valeur absente et zéro : ce point reste à corriger.
+
+As an operator, I can open a recorded operation from its Run timeline, inspect
+its input/output/trace, and return to the same Run and System. The authorized
+audit remains available with 360 perspectives disabled. A missing invocation
+shows an unavailable state and a retry action. Reload and browser history keep
+the selected operation. This does not imply human approval or economic impact.
+
+[Release, real browser evidence and remaining scope](../../evidence/release-ab15d204-2026-09-17/README.md).

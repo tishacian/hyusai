@@ -11,3 +11,6 @@ missing invocation membership. i18n, links, chrome and production build pass.
 The existing live observability canary additionally checks the Run breadcrumb.
 Backend unchanged from the 16 targeted tests recorded with 970f4512.
 Runtime verification is pending at this commit.
+
+The complete audit/ancestry path is now deployed and verified on
+[ab15d204](../release-ab15d204-2026-09-17/README.md).

@@ -1,0 +1,78 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/00000000-0000-0000-0000-000000000000?lens=build
+      - generic: Create
+    - link "Monitor":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/00000000-0000-0000-0000-000000000000?lens=operate
+      - generic: Monitor
+    - link "Improve":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/00000000-0000-0000-0000-000000000000?lens=steer
+      - generic: Improve
+    - link "Administer":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/00000000-0000-0000-0000-000000000000?lens=govern
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Operate
+  - navigation:
+    - link "Runs":
+      - /url: /runs
+      - generic: Runs
+    - link "Observability":
+      - /url: /observability
+      - generic: Observability
+    - link "Intelligence":
+      - /url: /intelligence
+      - generic: Intelligence
+    - link "Missions":
+      - /url: /tasks
+      - generic: Missions
+- main:
+  - generic: Runs · Skill invocation · VIEWED FROM Operate
+  - heading "Invocation 00000000-000" [active] [level=1]
+  - generic: One concrete execution of a catalog Skill inside a Run.
+  - link "Back to Run":
+    - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3
+  - generic "Status":
+    - generic: Status
+    - generic: —
+  - generic "Latency":
+    - generic: Latency
+    - generic: —
+  - status: The selected invocation is unavailable.
+  - button "Retry"
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Operate · Depth 1/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Invocation 00000000-000
+- document

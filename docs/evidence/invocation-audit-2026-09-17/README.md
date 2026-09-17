@@ -26,3 +26,6 @@ Local qualification:
 
 Runtime build, live canaries and manual browser verification: pending at this commit.
 No migration, flag change, shared Skill modification or NAWA theme change.
+
+The complete audit/ancestry path is now deployed and verified on
+[ab15d204](../release-ab15d204-2026-09-17/README.md).
