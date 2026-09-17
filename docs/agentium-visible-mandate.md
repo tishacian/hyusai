@@ -43,7 +43,7 @@ Les composants sont partagés entre Chat, Work, System et Run. Ils utilisent les
 
 ## État de la livraison
 
-Développement dans `codex/mandate-experience`, à partir de `origin/demo/agentic` (`c432f2dc`). Cette version n’est pas déployée. Les captures de recette montrent les composants compilés avec des données synthétiques locales ; elles ne constituent pas des preuves d’exécution en production.
+Développement intégré dans `demo/agentic` et déployé le 17 septembre 2026. Le [rapport de release](evidence/release-6f6d10c0-2026-09-17/README.md) distingue les vérifications distantes et les Runs réellement exécutés. Les captures de recette locale montrent les composants compilés avec des données synthétiques interceptées ; elles ne constituent pas des preuves d’exécution en production.
 
 L’éditeur M4 est disponible dans **System → Contexte**, pour les membres autorisés à administrer le System et lorsque la publication de Flow est activée. Les autres membres conservent le résumé de lecture.
 

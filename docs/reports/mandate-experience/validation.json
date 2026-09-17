@@ -2,7 +2,7 @@
   "checked_at": "2026-09-17T08:44:17.295439+00:00",
   "branch": "codex/mandate-experience",
   "base_sha": "c432f2dc",
-  "deployed": false,
+  "deployed": true,
   "backend": {
     "passed": 476,
     "failed": 0,
@@ -43,5 +43,10 @@
       1440,
       390
     ]
+  },
+  "release": {
+    "revision": "6f6d10c04c62bc6b916da0724a49b379a4e0620d",
+    "evidence": "../../evidence/release-6f6d10c0-2026-09-17/README.md",
+    "note": "Local gate counts above describe the initial implementation; follow-up tests and live qualification are recorded in the release evidence."
   }
 }
