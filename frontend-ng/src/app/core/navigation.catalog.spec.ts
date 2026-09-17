@@ -432,3 +432,12 @@ test('a page link keeps lens and ancestry (I3)', () => {
     '/hypervisor?facet=bases&capabilityId=cap-basis',
   );
 });
+
+
+test('comparison invocation links retain their explicit Run instead of inherited baseline ancestry', () => {
+  const link = resolveNavLink({type: 'skill_invocation', runId: 'candidate/run', ref: 'proof/1'}, {lens: 'operate', ancestry: {...EMPTY_ANCESTRY, runId: 'baseline', systemId: 'sys-1'},
+    currentUrl: '/runs/baseline?campaign=comparison-1'});
+  assert.equal(link.url, '/runs/candidate%2Frun/invocations/proof%2F1?systemId=sys-1');
+  const context = navigationRouteContext(link.url);
+  assert.equal(context.runId, 'candidate/run');
+});

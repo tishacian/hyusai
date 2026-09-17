@@ -79,6 +79,7 @@ export const RUNS_FR = {
 "runs.comparison.change.unevaluated":"Non évalué",
 "runs.comparison.change.not_comparable":"Non comparable",
 
+  "runs.investigation.test_criteria": "Contrôles du cas de test",
   "runs.investigation.title": "Comprendre ce résultat",
   "runs.investigation.evaluate": "Évaluer ce résultat",
   "runs.investigation.execution": "Exécution",
@@ -316,6 +317,7 @@ export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
 "runs.comparison.change.unevaluated":"Unevaluated",
 "runs.comparison.change.not_comparable":"Not comparable",
 
+  "runs.investigation.test_criteria": "Test case checks",
   "runs.investigation.title": "Understand this result",
   "runs.investigation.evaluate": "Evaluate this result",
   "runs.investigation.execution": "Execution",

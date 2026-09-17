@@ -136,7 +136,7 @@ def assert_read_only(flow: dict, contract: dict) -> None:
             raise HTTPException(422, "Comparison Skill is not qualified for read-only replay")
 
 
-def assertion_results(output: Any, assertions: list[dict]) -> dict:
+def assertion_results(output: Any, assertions: list[dict], *, run: Run | None = None) -> dict:
     if not assertions:
         return {"verdict": "unevaluated", "assertions": []}
     result = []
@@ -151,7 +151,15 @@ def assertion_results(output: Any, assertions: list[dict]) -> dict:
         operator = assertion["operator"]
         expected = assertion.get("value")
         details = {}
-        if operator == "exists":
+        if operator == "invocation_succeeded":
+            # Model output and copied observations are never invocation evidence.
+            present = run is not None and run.status == "completed"
+            ids = [item.id for item in run.invocations
+                   if item.run_id == run.id and item.skill_slug == expected
+                   and item.status == "completed" and not item.error] if present else []
+            passed = bool(ids) if present else None
+            details = {"evidence_basis": "invocation_ledger", "invocation_ids": ids}
+        elif operator == "exists":
             passed = present
         elif operator == "equals":
             passed = present and digest(value) == digest(expected)
@@ -170,7 +178,9 @@ def assertion_results(output: Any, assertions: list[dict]) -> dict:
         else:
             raise ValueError("Unsupported assertion operator")
         result.append({"id": assertion["id"], "passed": passed, "path_found": present, **details})
-    return {"verdict": "passed" if all(item["passed"] for item in result) else "failed", "assertions": result}
+    verdict = ("failed" if any(item["passed"] is False for item in result) else
+               "unevaluated" if any(item["passed"] is None for item in result) else "passed")
+    return {"verdict": verdict, "assertions": result}
 
 
 def matches_expected_subset(expected: Any, actual: Any) -> bool:
@@ -212,7 +222,7 @@ def suite_run_result(run: Run) -> dict | None:
                 verdict = "passed" if passed else "failed"
         return {"case_id": checkpoint["case_id"], "batch_id": checkpoint["batch_id"],
                 "method": checkpoint["evaluation_method"], "verdict": verdict, "assertions": checks}
-    verdict = (assertion_results(run.output_ref, checkpoint.get("assertions", []))
+    verdict = (assertion_results(run.output_ref, checkpoint.get("assertions", []), run=run)
         if run.status == "completed" else {"verdict": "unevaluated"
         if run.status in {"failed", "cancelled"} else "pending", "assertions": []})
     return {"suite_id": checkpoint["suite_id"], "suite_revision": checkpoint["suite_revision"],
@@ -320,7 +330,7 @@ def refresh_campaign(db, campaign: EvaluationCampaign) -> EvaluationCampaign:
                 item[side] = {**item[side], "status": "unavailable", "verdict": "unevaluated"}
                 finished += 1
                 continue
-            verdict = assertion_results(run.output_ref, cases[item["case_id"]].get("assertions", [])) if run.status == "completed" else {"verdict": "unevaluated" if run.status in {"failed", "cancelled"} else "pending"}
+            verdict = assertion_results(run.output_ref, cases[item["case_id"]].get("assertions", []), run=run) if run.status == "completed" else {"verdict": "unevaluated" if run.status in {"failed", "cancelled"} else "pending"}
             item[side] = {"run_id": run.id, "status": run.status, **verdict,
                 "output_ref": copy.deepcopy(run.output_ref), "duration_ms": run.duration_ms,
                 **execution_cost_evidence(db, run), "evaluation_cost": None, "test_generation_cost": None,

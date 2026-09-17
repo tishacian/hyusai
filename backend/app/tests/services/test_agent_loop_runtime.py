@@ -673,6 +673,17 @@ async def test_decide_skill_freezes_authored_retrieval_and_preserves_evidence(db
     assert invocation.skill_slug == slug
     assert invocation.output_ref == evidence
 
+    from app.services.evaluation.campaigns import assertion_results
+    verdict = assertion_results(run.output_ref, [
+        {"id": "notice-tool", "operator": "invocation_succeeded", "value": slug},
+    ], run=run)
+    assert verdict["verdict"] == "passed"
+    assert verdict["assertions"][0]["invocation_ids"] == [invocation.id]
+    # The wrapper's internal executor name is not the authored Skill invoked.
+    assert assertion_results(run.output_ref, [
+        {"id": "wrong-tool", "operator": "invocation_succeeded", "value": "semantic_search_v1"},
+    ], run=run)["verdict"] == "failed"
+
 
 @pytest.mark.asyncio
 async def test_frozen_tool_receives_declared_arguments_without_loop_envelope(db_session, monkeypatch):

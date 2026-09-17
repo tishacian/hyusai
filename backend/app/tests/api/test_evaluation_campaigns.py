@@ -7,7 +7,7 @@ from app.api.v1.endpoints import evaluation_campaigns as api
 from app.tests.api.test_flow_workbench_api import _seed
 from app.services.systems import flow_workbench
 from app.services.evaluation import campaigns
-from app.models.run import Run
+from app.models.run import Run, SkillInvocation
 from app.models.system_flow_draft import SystemFlowDraft
 from app.models.knowledge_collection import KnowledgeCollection
 
@@ -78,6 +78,52 @@ def test_server_verdict_detects_regression_and_deduplicates(db_session, monkeypa
     result = http.get(f"/evaluation/campaigns/{first.json()['id']}").json()
     assert result["results"][0]["change"] == "regressed"
     assert result["results"][0]["candidate"]["assertions"][0]["passed"] is False
+
+
+def test_tool_assertion_uses_this_runs_successful_invocations(db_session, monkeypatch):
+    assertion = {"id": "notice-tool", "operator": "invocation_succeeded", "value": "read-notices"}
+    http, body, reference, *_ = setup_campaign(db_session, monkeypatch, assertions=[assertion])
+    campaign = http.post("/evaluation/campaigns", json=body).json()
+    ids = {side: campaign["results"][0][side]["run_id"] for side in ("baseline", "candidate")}
+    for run_id in ids.values():
+        run = db_session.get(Run, run_id)
+        run.status = "completed"
+        run.output_ref = {"invocations": [{"skill_slug": "read-notices", "status": "completed"}]}
+    # A success on another Run, a failure and a different tool cannot satisfy it.
+    db_session.add_all([
+        SkillInvocation(run_id=reference.id, skill_slug="read-notices", status="completed"),
+        SkillInvocation(run_id=ids["baseline"], skill_slug="read-notices", status="failed"),
+        SkillInvocation(run_id=ids["candidate"], skill_slug="read-history", status="completed"),
+        SkillInvocation(run_id=ids["candidate"], skill_slug="read-notices", status="completed", error="failed"),
+    ])
+    db_session.commit()
+    initial = http.get(f"/evaluation/campaigns/{campaign['id']}").json()["results"][0]
+    assert initial["baseline"]["verdict"] == initial["candidate"]["verdict"] == "failed"
+
+    proof = SkillInvocation(run_id=ids["candidate"], skill_slug="read-notices", status="completed")
+    db_session.add(proof)
+    db_session.commit()
+    result = http.get(f"/evaluation/campaigns/{campaign['id']}").json()["results"][0]
+    assert result["change"] == "improved"
+    assert result["candidate"]["assertions"][0]["invocation_ids"] == [proof.id]
+    assert result["candidate"]["assertions"][0]["evidence_basis"] == "invocation_ledger"
+
+
+def test_tool_assertion_without_run_evidence_is_not_evaluated():
+    result = campaigns.assertion_results(
+        {"invocations": [{"skill_slug": "read-notices", "status": "completed"}]},
+        [{"id": "tool", "operator": "invocation_succeeded", "value": "read-notices"}],
+    )
+    assert result["verdict"] == "unevaluated"
+    assert result["assertions"][0]["passed"] is None
+
+
+@pytest.mark.parametrize("value,path", [(None, []), ({"skill": "read-notices"}, []),
+                                       (" read-notices", []), ("read-notices", ["completion"])])
+def test_tool_assertion_requires_exact_slug_and_no_output_path(value, path):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        api.AssertionBody(id="tool", operator="invocation_succeeded", value=value, path=path)
 
 
 def test_draft_conflict_creates_no_runs(db_session, monkeypatch):

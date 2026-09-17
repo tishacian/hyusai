@@ -25,6 +25,17 @@ export interface RunEvaluation { evaluation_id?: string; status: string; reason?
   <div class="states"><span>{{ i18n.t('runs.investigation.execution') }}: {{code('status',run().status)}}</span>
    <span>{{ i18n.t('runs.investigation.evaluation') }}: {{code('status',evaluation()?.status || 'unavailable')}}</span>
    <span>{{ i18n.t('runs.investigation.human_separate') }}</span></div>
+  @if (run().test_result; as test) {
+   <details open>
+    <summary>{{i18n.t('runs.investigation.test_criteria')}} · {{test.case_id}} · {{code('verdict',test.verdict)}}</summary>
+    @for(check of test.assertions;track check.id){
+     <p>{{check.id}} · {{code('verdict',check.passed === true ? 'passed' : check.passed === false ? 'failed' : 'unevaluated')}}</p>
+     @for(invocationId of check.invocation_ids;track invocationId){
+      <p><a [navLink]="{type:'skill_invocation',runId:run().id,ref:invocationId}">{{i18n.t('runs.investigation.invocation')}} · {{invocationId}}</a></p>
+     }
+    }
+   </details>
+  }
   @if (error()) { <p role="alert">{{ error() }}</p> }
   @if (evaluation()?.reason) { <p class="reserve">{{code('reason',evaluation()?.reason)}}</p><details><summary>{{i18n.t('observability.quality.technical')}}</summary><code>{{evaluation()?.reason}}</code></details> }
   <div class="evidence-columns">
@@ -52,7 +63,7 @@ export interface RunEvaluation { evaluation_id?: string; status: string; reason?
   <app-correction-review [run]="run()" [evaluationId]="evaluationId" />
  }
  </section>`,
- styles: [`:host{display:block;margin:24px 0}.investigation{padding:24px;background:var(--ck-bg-panel);color:var(--ck-fg-1);border:1px solid var(--ck-stroke-2);border-radius:6px}header,.states{display:flex;gap:20px;align-items:center;flex-wrap:wrap}header{justify-content:space-between}h2{font-size:24px;font-weight:600}h3{font-size:16px;font-weight:600;margin:20px 0 12px}.states{font-size:13px;padding:16px 0;border-bottom:1px solid var(--ck-stroke-2)}.evidence-columns{display:grid;grid-template-columns:1fr 1fr;gap:32px}.answer,blockquote{white-space:pre-wrap;line-height:1.7;overflow-wrap:anywhere}.claim{display:flex;flex-direction:column;gap:10px;width:100%;text-align:left;margin:12px 0}.claim.selected{border-color:var(--ck-signal-cool);background:var(--ck-status-info-bg)}button{border:1px solid var(--ck-stroke-3);padding:12px 16px;border-radius:6px;color:inherit;background:transparent}button:disabled{opacity:.5}button:focus-visible,summary:focus-visible{outline:2px solid var(--ck-signal-cool);outline-offset:3px}.excerpt{padding:20px;background:var(--ck-bg-panel-hi);border-left:3px solid var(--ck-signal-cool)}mark{background:var(--ck-status-warn-bg);color:inherit}a{color:var(--ck-signal-cool)}.reserve{color:var(--ck-signal-warn)}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}details{margin-top:24px}@media(max-width:800px){.evidence-columns{grid-template-columns:1fr}.investigation{padding:16px}}`]
+ styles: [`:host{display:block;margin:24px 0}.investigation{padding:24px;background:var(--ck-bg-panel);color:var(--ck-fg-1);border:1px solid var(--ck-stroke-2);border-radius:6px}header,.states{display:flex;gap:20px;align-items:center;flex-wrap:wrap}header{justify-content:space-between}h2{font-size:24px;font-weight:600}h3{font-size:16px;font-weight:600;margin:20px 0 12px}.states{font-size:13px;padding:16px 0;border-bottom:1px solid var(--ck-stroke-2)}.evidence-columns{display:grid;grid-template-columns:1fr 1fr;gap:32px}.answer,blockquote{white-space:pre-wrap;line-height:1.7;overflow-wrap:anywhere}.claim{display:flex;flex-direction:column;gap:10px;width:100%;text-align:left;margin:12px 0}.claim.selected{border-color:var(--ck-signal-cool);background:var(--ck-status-info-bg)}button{border:1px solid var(--ck-stroke-3);padding:12px 16px;border-radius:6px;color:inherit;background:transparent}button:disabled{opacity:.5}button:focus-visible,summary:focus-visible{outline:2px solid var(--ck-signal-cool);outline-offset:3px}.excerpt{padding:20px;background:var(--ck-bg-panel-hi);border-left:3px solid var(--ck-signal-cool)}mark{background:var(--ck-status-warn-bg);color:inherit}a{overflow-wrap:anywhere;color:var(--ck-signal-cool)}.reserve{color:var(--ck-signal-warn)}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}details{margin-top:24px}@media(max-width:800px){.evidence-columns{grid-template-columns:1fr}.investigation{padding:16px}}`]
 })
 export class RunInvestigationComponent {
  code(category:string,value:unknown):string{return observabilityText(this.i18n,category,value);}

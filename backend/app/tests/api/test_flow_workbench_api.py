@@ -995,6 +995,22 @@ def test_suite_run_verdict_uses_frozen_server_criteria():
     assert suite_run_result(run) is None
 
 
+def test_golden_tool_assertion_keeps_human_wait_and_reads_actual_invocation():
+    from types import SimpleNamespace
+    from app.services.evaluation.campaigns import suite_run_result
+    run = SimpleNamespace(id="run", execution_surface="golden_preview", status="hitl_pending",
+        output_ref={}, invocations=[SimpleNamespace(id="proof", run_id="run", skill_slug="read-notices",
+                                                  status="completed", error=None)],
+        checkpoints=[{"kind": "golden_case_queued", "suite_id": "suite", "suite_revision": 1,
+            "case_id": "case", "batch_id": "batch", "assertions": [
+                {"id": "tool", "operator": "invocation_succeeded", "value": "read-notices"}]}])
+    assert suite_run_result(run)["verdict"] == "pending"
+    run.status = "completed"
+    assert suite_run_result(run)["assertions"][0]["invocation_ids"] == ["proof"]
+    run.invocations[0].run_id = "another-run"
+    assert suite_run_result(run)["verdict"] == "failed"
+
+
 @pytest.mark.parametrize(("expected", "actual", "passed"), [
     ({"answer": {"text": "ok"}, "citations": [{"id": 1}]},
      {"answer": {"text": "ok", "extra": True}, "citations": [{"id": 1}], "trace": True}, True),

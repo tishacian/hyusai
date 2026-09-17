@@ -742,6 +742,7 @@ export type NavLinkInput =
   | {
       type: HierarchyObjectType;
       ref: string;
+      runId?: string;
       lens?: CockpitLens | null;
       facet?: string | null;
     }
@@ -1289,6 +1290,7 @@ export function resolveNavLink(
     return {
       url: navigationObjectUrl(input.type, input.ref, {
         ...context.ancestry,
+        runId: input.runId ?? context.ancestry.runId,
         lens,
         facet: input.facet,
       }),

@@ -1,0 +1,50 @@
+[
+  {
+    "view": "comparison",
+    "lang": "fr",
+    "theme": "light",
+    "width": 1280,
+    "errors": [],
+    "links": [
+      "/runs/candidate-run/invocations/41da9d84-f160-49d0-93a4-123456789abc?systemId=system-1"
+    ],
+    "scroll": 1280,
+    "text": "Tester les mêmes cas\n\nLa référence conserve son contrat exécuté. Le candidat utilise le draft indiqué.\n\nSuite relue\nNorthForge · 1\nComparer au draft\nGénérer des cas depuis les sources\n\nGiskard propose des questions et références depuis le corpus autorisé. Relisez-les avant de créer une suite. Le worker utilise le fournisseur OpenAI configuré et un budget borné.\n\nCorpus de référence\nChoisir une collection\n\nAucune collection disponible. Ajoutez et indexez des documents avant de générer les cas.\n\nProposer trois cas\nCréer une suite de référence\nNom de la suite\nCas et critères de validation\n\nSans critère de validation, un cas reste exécuté, non évalué.\n\nJ’ai relu les entrées et les critères.\nEnregistrer la suite\nAvancement: Terminé\n\nAssertions vérifiées côté serveur · Comparaison à portée limitée\n\nNF-01 · Sans verdict comparable\nRéférence\n\nTerminé · Critères non satisfaits\n\n{\n  \"pressure\": \"700 bar\"\n}\nExaminer les preuves du Run\nCritères, coûts et durée\n\nnotice-tool · Critères non satisfaits\n\nDétails techniques\n[\n  {\n    \"id\": \"notice-tool\",\n    \"passed\": false\n  }\n]\n\nCoût d’exécution: 0,0010 $US · 300 ms\n\nCandidat\n\nTerminé · Exécuté, sans verdict\n\n{\n  \"pressure\": \"700 bar\"\n}\nExaminer les preuves du Run\nCritères, coûts et durée\n\nnotice-tool · Critères satisfaits\n\nInvocation · 41da9d84-f160-49d0-93a4-123456789abc\n\npressure · Critères satisfaits\n\nunavailable-check · Exécuté, sans verdict\n\nDétails techniques\n[\n  {\n    \"id\": \"notice-tool\",\n    \"passed\": true,\n    \"invocation_ids\": [\n      \"41da9d84-f160-49d0-93a4-123456789abc\"\n    ]\n  },\n  {\n    \"id\": \"pressure\",\n    \"passed\": true\n  },\n  {\n    \"id\": \"unavailable-check\",\n    \"passed\": null\n  }\n]\n\nCoût d’exécution: 0,0010 $US · 300 ms\n\nOuvrir le Flow et sa revue de publicationÉvaluer les réponses avec Giskard"
+  },
+  {
+    "view": "comparison",
+    "lang": "en",
+    "theme": "dark",
+    "width": 390,
+    "errors": [],
+    "links": [
+      "/runs/candidate-run/invocations/41da9d84-f160-49d0-93a4-123456789abc?systemId=system-1"
+    ],
+    "scroll": 390,
+    "text": "Test the same cases\n\nThe baseline retains its executed contract. The candidate uses the specified draft.\n\nReviewed suite\nNorthForge · 1\nCompare with draft\nGenerate cases from sources\n\nGiskard proposes questions and references from the authorized corpus. Review them before creating a suite. The worker uses the configured OpenAI provider and a bounded budget.\n\nReference corpus\nChoose a collection\n\nNo collection available. Add and index documents before generating cases.\n\nPropose three cases\nCreate a reference suite\nSuite name\nCases and assertions\n\nWithout assertions, a case remains executed, not evaluated.\n\nI reviewed the inputs and assertions.\nSave suite\nProgress: Completed\n\nServer-side assertion checks · Limited comparison\n\nNF-01 · No comparable verdict\nBaseline\n\nCompleted · Criteria not met\n\n{\n  \"pressure\": \"700 bar\"\n}\nExamine Run evidence\nAssertions, costs and duration\n\nnotice-tool · Criteria not met\n\nTechnical details\n[\n  {\n    \"id\": \"notice-tool\",\n    \"passed\": false\n  }\n]\n\nExecution cost: $0.0010 · 300 ms\n\nCandidate\n\nCompleted · Executed, not evaluated\n\n{\n  \"pressure\": \"700 bar\"\n}\nExamine Run evidence\nAssertions, costs and duration\n\nnotice-tool · Criteria met\n\nInvocation · 41da9d84-f160-49d0-93a4-123456789abc\n\npressure · Criteria met\n\nunavailable-check · Executed, not evaluated\n\nTechnical details\n[\n  {\n    \"id\": \"notice-tool\",\n    \"passed\": true,\n    \"invocation_ids\": [\n      \"41da9d84-f160-49d0-93a4-123456789abc\"\n    ]\n  },\n  {\n    \"id\": \"pressure\",\n    \"passed\": true\n  },\n  {\n    \"id\": \"unavailable-check\",\n    \"passed\": null\n  }\n]\n\nExecution cost: $0.0010 · 300 ms\n\nOpen Flow and publication reviewEvaluate answers with Giskard"
+  },
+  {
+    "view": "run",
+    "lang": "fr",
+    "theme": "light",
+    "width": 1280,
+    "errors": [],
+    "links": [
+      "/runs/candidate-run/invocations/41da9d84-f160-49d0-93a4-123456789abc?systemId=system-1"
+    ],
+    "scroll": 1280,
+    "text": "Comprendre ce résultat\nÉvaluer ce résultat\nExécution: Terminé\nContrôle automatique: Indisponible\nDécision humaine : voir les décisions du Run\nContrôles du cas de test · NF-01 · Exécuté, sans verdict\n\nnotice-tool · Critères satisfaits\n\nInvocation · 41da9d84-f160-49d0-93a4-123456789abc\n\npressure · Critères satisfaits\n\nunavailable-check · Exécuté, sans verdict\n\nRéponse examinée\n\n Aucune réponse examinée conservée. \n\nAffirmations examinées\n\nAucune affirmation examinée ; la conformité reste indéterminée.\n\nPassage justificatif\n\nAucun passage vérifiable associé à cette affirmation.\n\nMéthode et couverture\n\nMéthode non renseignée\n\nDéroulement des opérations\nHorodatages enregistrés · opérations parallèles conservées\n\nAucun intervalle complet enregistré pour les invocations de ce Run."
+  },
+  {
+    "view": "run",
+    "lang": "en",
+    "theme": "dark",
+    "width": 390,
+    "errors": [],
+    "links": [
+      "/runs/candidate-run/invocations/41da9d84-f160-49d0-93a4-123456789abc?systemId=system-1"
+    ],
+    "scroll": 390,
+    "text": "Understand this result\nEvaluate this result\nExecution: Completed\nAutomatic check: Unavailable\nHuman decision: see Run decisions\nTest case checks · NF-01 · Executed, not evaluated\n\nnotice-tool · Criteria met\n\nInvocation · 41da9d84-f160-49d0-93a4-123456789abc\n\npressure · Criteria met\n\nunavailable-check · Executed, not evaluated\n\nExamined response\n\n No examined response retained. \n\nExamined claims\n\nNo claims examined; compliance remains undetermined.\n\nSupporting passage\n\nNo verifiable passage linked to this claim.\n\nMethod and coverage\n\nMethod unavailable\n\nOperation timeline\nRecorded timestamps · parallel operations preserved\n\nNo complete invocation intervals recorded for this Run."
+  }
+]

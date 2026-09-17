@@ -327,8 +327,14 @@ export interface RunTriggerRequest {
   expected_flow_sha256: string;
 }
 
+export interface RunAssertionResult {
+  id: string;
+  passed: boolean | null;
+  invocation_ids?: string[];
+}
+
 export interface Run {
-  test_result?: { brd_proposal_id?: string | null; brd_proposal_sha256?: string | null; suite_id?: string; suite_revision?: number; case_id: string; batch_id: string; method?: string; verdict: string; assertions: Array<{id: string; passed: boolean}> } | null;
+  test_result?: { brd_proposal_id?: string | null; brd_proposal_sha256?: string | null; suite_id?: string; suite_revision?: number; case_id: string; batch_id: string; method?: string; verdict: string; assertions: RunAssertionResult[] } | null;
   id: string;
   system_id: string;
   capability_id?: string | null;
