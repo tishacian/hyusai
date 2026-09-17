@@ -27,3 +27,23 @@ before the final full run. That failed attempt is not counted as qualification.
 Visual/live acceptance on the new candidate is NOT RUN yet. Repeat the retained
 question from Capture in a fresh conversation, inspect 6 bar and the exact source,
 then inspect the new Run. Do not relaunch or approve retained R1 Runs.
+
+## Visual qualification before switch
+
+Actual ChatPanel rendered locally with mocked service responses. The JIT harness
+sets the four input defaults (Context, collection, compact, fresh) in its bundle;
+production binding is compiled by the passing AOT build. No model response is
+mocked into a successful Capture result. Initial harness-only HTTP/icon providers
+were completed before these screenshots; no production dependencies changed.
+
+[EN/dark 390 px](chat-en-dark-390.png), [FR/light 390 px](chat-fr-light-390.png).
+The toolbar initially overlapped its action buttons at this width; allowing the
+existing flex rows and collection label to wrap fixes it. Document scroll width
+390 equals viewport width, and the main controls/action rectangles do not overlap.
+“+ Sources” changes the displayed scope to include the workspace. FR/EN
+placeholders and suggestions name the published collection. No microphone used.
+
+The d5c8b93d images were already building when the visual refinement completed;
+they will not be switched live. The final reviewed candidate includes the wrap
+and grammatical corrections. All frontend gates were rerun successfully; backend
+code is unchanged from the 117-test run.
