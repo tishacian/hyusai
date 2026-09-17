@@ -15,12 +15,12 @@ import {
 import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.component';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { ApiService } from '@app/core/api.service';
-import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type Run, type System, type SystemFlowState } from '@app/core/canonical-api.service';
 import { NewsLabComponent } from '@app/features/intelligence/news-lab.component';
 import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
 import { SettingsService } from '@app/core/settings.service';
-import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceService, workspaceSettingFeature } from '@app/core/workspace.service';
 import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkApiService } from '@app/features/experience/work/work-api.service';
@@ -596,7 +596,25 @@ interface ContextConfigRow {
             [loading]="perspectivesLoading()"
             [error]="perspectivesError()"
           />
-        } @else if (flowProfile(); as flow) {
+        } @else if (designUsesPublication() && !designFlowState()) {
+          <section class="ck-surface rounded-md p-5" role="status">
+            @if (designFlowError()) {
+              <p>{{ i18n.t('systems.design.unavailable') }}</p>
+              <button type="button" class="ck-btn-soft mt-3" (click)="loadDesignFlow()">
+                {{ i18n.t('common.retry') }}
+              </button>
+            } @else {
+              <p>{{ i18n.t('systems.design.loading') }}</p>
+            }
+          </section>
+        } @else {
+        @if (designFlowState(); as state) {
+          <p class="ck-surface rounded-md p-4 mb-4" role="status" data-testid="system-design-version">
+            <strong>{{ i18n.t('systems.design.version', { revision: state.draft.revision, version: state.published.version_number }) }}</strong>
+            {{ i18n.t('systems.design.boundary') }}
+          </p>
+        }
+        @if (designFlowProfile(); as flow) {
           <div class="space-y-4" data-testid="system-flow-design">
             <div
               class="ck-surface rounded-md p-4 flex items-start gap-3"
@@ -606,16 +624,17 @@ interface ContextConfigRow {
                 <app-icon name="workflow" set="phosphor" [size]="18" />
               </div>
               <div class="flex-1 min-w-0">
-                <div class="text-sm font-semibold text-white">Executable graph</div>
+                <div class="text-sm font-semibold text-white">{{ i18n.t('systems.design.graph') }}</div>
                 <p class="text-xs text-gray-400 mt-0.5 leading-relaxed max-w-2xl">
-                  {{ flowSummaryLine() }} {{ flowPublicationDetail() }}
+                  {{ i18n.t('systems.design.counts', { nodes: flow.nodeCount, edges: flow.edgeCount }) }}
+                  @if (!designFlowState()) { {{ flowPublicationDetail() }} }
                 </p>
               </div>
               <a
                 [navLink]="{ leaf: 'system-flow', ref: systemId }"
                 class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium shrink-0"
               >
-                <app-icon name="workflow" [size]="14" /> Open in flow builder
+                <app-icon name="workflow" [size]="14" /> {{ i18n.t('systems.design.open_flow') }}
               </a>
             </div>
 
@@ -623,7 +642,7 @@ interface ContextConfigRow {
               <section class="ck-surface t-elevated rounded-md p-5">
                 <div class="flex items-center gap-2 mb-3">
                   <app-icon name="play-circle" [size]="16" class="ck-accent" />
-                  <h3 class="text-sm font-semibold text-white">Triggers</h3>
+                  <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.design.triggers') }}</h3>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   @for (trigger of flow.triggers; track trigger.nodeId) {
@@ -640,10 +659,10 @@ interface ContextConfigRow {
               <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
                 <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
                   <app-icon name="layers" set="phosphor" [size]="16" class="ck-accent" />
-                  Steps
+                  {{ i18n.t('systems.design.steps') }}
                 </h3>
                 <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
-                  {{ flow.nodeCount }} nodes · {{ flow.edgeCount }} connections
+                  {{ i18n.t('systems.design.counts', { nodes: flow.nodeCount, edges: flow.edgeCount }) }}
                 </span>
               </div>
               <ul>
@@ -682,7 +701,7 @@ interface ContextConfigRow {
               <section class="ck-surface t-elevated rounded-md p-5">
                 <div class="flex items-center gap-2 mb-3">
                   <app-icon name="zap" [size]="16" class="ck-accent" />
-                  <h3 class="text-sm font-semibold text-white">Bound skills</h3>
+                  <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.design.skills') }}</h3>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   @for (slug of flow.skillSlugs; track slug) {
@@ -697,6 +716,13 @@ interface ContextConfigRow {
               </section>
             }
           </div>
+        } @else if (designFlowState()) {
+          <section class="ck-surface rounded-md p-5">
+            <p>{{ i18n.t('systems.design.configuration') }}</p>
+            <a [navLink]="{ leaf: 'system-flow', ref: systemId }" class="ck-btn-soft mt-3 inline-flex">
+              {{ i18n.t('systems.design.open_flow') }}
+            </a>
+          </section>
         } @else {
         <div class="space-y-4">
         <!-- Orientation banner -->
@@ -719,7 +745,7 @@ interface ContextConfigRow {
             [navLink]="{ leaf: 'system-flow', ref: systemId }"
             class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium shrink-0"
           >
-            <app-icon name="workflow" [size]="14" /> Open in flow builder
+            <app-icon name="workflow" [size]="14" /> {{ i18n.t('systems.design.open_flow') }}
           </a>
         </div>
 
@@ -765,6 +791,7 @@ interface ContextConfigRow {
           </ul>
         </section>
         </div>
+        }
         }
       </ck-tab>
 
@@ -1168,9 +1195,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     const current = this.workspace.current();
     const effective = current?.effective_features?.['flow_publication_v1'];
     if (typeof effective === 'boolean') return effective;
-    const settings = asRecord(current?.settings) ?? {};
-    const features = asRecord(settings['features']) ?? {};
-    return features['flow_publication_v1'] === true;
+    return !!current && workspaceSettingFeature(current, 'flow_publication_v1', true);
   });
 
   readonly systemDefaults = signal<{
@@ -1215,6 +1240,23 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   });
 
   readonly systemSnapshot = signal<System | null>(null);
+  readonly designFlowState = signal<SystemFlowState | null>(null);
+  readonly designFlowError = signal(false);
+  readonly designUsesPublication = computed(() =>
+    !this.system360Enabled() && this.variant() === 'standard' && this.flowPublicationEnabled(),
+  );
+  readonly designFlowProfile = computed(() => {
+    if (!this.designUsesPublication()) return this.flowProfile();
+    const system = this.systemSnapshot();
+    const state = this.designFlowState();
+    if (!system || !state || state.system_id !== system.id) return null;
+    // Runtime manifests describe the published graph, never this draft.
+    return systemFlowProfile({
+      ...system, flow_definition: state.draft.flow_definition,
+      published_flow_version_id: null, published_at: null, published_by: null,
+    });
+  });
+
 
   /**
    * Non-null only when the persisted graph proves the run engine walks it.
@@ -1661,12 +1703,42 @@ export class SystemViewComponent implements OnInit, OnDestroy {
           this.perspectivesLoading.set(false);
           this.perspectivesError.set(false);
         }
+        if (this.designUsesPublication()) this.loadDesignFlow(request, systemId);
         this.applyRequestedFacet();
       },
       error: () => {
         if (!this.requestIsCurrent(request, systemId)) return;
+        this.designFlowError.set(true);
         this.systemSnapshot.set(null);
         this.applyRequestedFacet();
+      },
+    });
+    this.viewSubscriptions.add(subscription);
+  }
+
+  loadDesignFlow(
+    request = this.workspaceView.captureRequest(),
+    systemId = this.systemId,
+  ): void {
+    this.designFlowState.set(null);
+    this.designFlowError.set(false);
+    const subscription = this.canonical.getSystemFlowState(systemId).subscribe({
+      next: (state) => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        const flow = asRecord(state?.draft?.flow_definition);
+        if (state?.system_id !== systemId || !flow
+          || (Object.keys(flow).length > 0 && (!Array.isArray(flow['nodes']) || !Array.isArray(flow['edges'])))
+          || !Number.isInteger(state.draft.revision) || state.draft.revision < 1
+          || !state.draft.flow_sha256 || !state.published?.version_id
+          || !Number.isInteger(state.published.version_number)) {
+          this.designFlowError.set(true);
+          return;
+        }
+        this.designFlowState.set(state);
+      },
+      error: () => {
+        if (!this.requestIsCurrent(request, systemId)) return;
+        this.designFlowError.set(true);
       },
     });
     this.viewSubscriptions.add(subscription);
@@ -1938,6 +2010,8 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     this.activeTab.set('overview');
     this.systemDefaults.set(null);
     this.systemSnapshot.set(null);
+    this.designFlowState.set(null);
+    this.designFlowError.set(false);
     this.perspectives.set({});
     this.perspectivesLoading.set(false);
     this.perspectivesError.set(false);

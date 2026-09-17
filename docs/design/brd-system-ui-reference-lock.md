@@ -56,3 +56,16 @@ and shadcn UI (c14c0a94-1037-449e-bf5b-4cb972656ac7), plus copywriting guidance.
 
 This repairs the existing result card. No marketing imagery, new font family
 or theme-specific palette from the external references is introduced.
+
+
+## System Design — draft/publication boundary, 17 September
+
+Target: the existing System graph summary and the Flow Builder publication
+boundary, inspected live on PIH. Design used the published form projection while
+the editor displayed draft r3. Reuse the existing graph list, native links and
+Cockpit tokens; do not invent another graph renderer. State the draft revision
+and published version together, following the locked n8n edit/review continuity
+and existing publication controls. A failed draft read shows a retry, never a
+fabricated RAG pipeline. Overview and historical Runs retain published identity.
+FR/EN copy names the version distinction before the node list. No branding,
+fonts, palette or new dependencies change.

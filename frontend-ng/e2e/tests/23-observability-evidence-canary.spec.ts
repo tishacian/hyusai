@@ -27,7 +27,7 @@ test('evaluation and chart inspection retain the exact Run',async({page},testInf
  await page.reload();
  await expect(page.locator('app-run-investigation')).toBeVisible();
  expect(new URL(page.url()).pathname).toBe(`/runs/${runId}`);
- const recordedRun=await expectOk<{outcome?:{value_source?:string}}>(page,`/api/v1/runs/${encodeURIComponent(runId)}`);
+ const recordedRun=await expectOk<{system_id?:string;outcome?:{value_source?:string}}>(page,`/api/v1/runs/${encodeURIComponent(runId)}`);
  const outcomeCard=page.locator('ck-run-outcome-card');
  if(await outcomeCard.count()){
    await expect(outcomeCard).toContainText(/Recorded cost|Coût enregistré/);
@@ -69,6 +69,24 @@ test('evaluation and chart inspection retain the exact Run',async({page},testInf
    await page.locator('app-skill-invocation-view a').filter({hasText:/Back to Run|Retour à l.Exécution/}).click();
    await expect(page.locator('app-run-investigation')).toBeVisible();
    expect(new URL(page.url()).pathname).toBe(`/runs/${runId}`);
+ }
+ // Design and the editor must describe the same server-owned draft, while
+ // recorded Runs keep their published execution snapshots.
+ if(recordedRun.system_id){
+   const sid=recordedRun.system_id;
+   const system=await expectOk<{flow_definition?:{variant?:string};settings?:{experience?:{system_360_canary?:string}}}>(page,`/api/v1/systems/${sid}`);
+   if(!system.flow_definition?.variant && system.settings?.experience?.system_360_canary!=='v1'){
+     const state=await expectOk<{draft:{revision:number;flow_definition:{source?:string;nodes?:Array<{id:string;label?:string}>}};published:{version_number:number}}>(page,`/api/v1/systems/${sid}/flow-state`);
+     await page.goto(`/systems/${sid}?lens=build&facet=design`);
+     await expect(page.getByTestId('system-design-version')).toContainText(`r${state.draft.revision}`);
+     await expect(page.getByTestId('system-design-version')).toContainText(`v${state.published.version_number}`);
+     if(state.draft.flow_definition.source==='flow'){
+       const design=page.getByTestId('system-flow-design');
+       await expect(design).toBeVisible();
+       for(const node of state.draft.flow_definition.nodes || [])await expect(design).toContainText(node.label || node.id);
+     }
+     await page.screenshot({path:testInfo.outputPath('system-design-draft.png'),fullPage:true});
+   }
  }
 
 });
