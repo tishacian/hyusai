@@ -131,11 +131,11 @@ import { FlowPersistenceService } from './flow-persistence.service';
                   @for (change of diff.changes; track change.path + change.subject) {
                     <li [attr.data-impact]="change.impact">
                       <div class="ck-publish__change-head">
-                        <strong>{{ change.impact }}</strong>
-                        <span>{{ change.category }}</span>
+                        <strong>{{ change.category === 'mandate' ? i18n.t('mandate_system.publication.impact') : change.impact }}</strong>
+                        <span>{{ change.category === 'mandate' ? i18n.t('mandate_system.publication.category') : change.category }}</span>
                         <code>{{ change.subject }}</code>
                       </div>
-                      <p>{{ change.description }}</p>
+                      <p>{{ change.category === 'mandate' ? i18n.t('mandate_system.publication.description') : change.description }}</p>
                     </li>
                   } @empty {
                     <li class="is-empty">{{ i18n.t('flow.publish.diff.empty') }}</li>

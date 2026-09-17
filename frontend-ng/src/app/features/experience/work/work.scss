@@ -354,7 +354,18 @@
   color: var(--ck-fg-3);
 }
 
+.xp-work-hitl article > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
 .xp-work-hitl textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
   min-height: 64px;
   padding: 8px;
   border: 1px solid var(--ck-stroke-3);

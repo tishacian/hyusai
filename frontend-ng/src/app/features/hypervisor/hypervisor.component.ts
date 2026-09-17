@@ -261,7 +261,10 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
                 } @else {
                   @for (risk of valueLoop()!.risks.items.slice(0, 4); track risk.kind + ':' + risk.scenario_id) {
                     <div class="ck-mono" style="padding:6px 0; border-bottom:1px solid var(--ck-hair); font-size:10px; color:var(--ck-signal-warn);">
-                      {{ risk.kind }} · {{ risk.detail || i18n.t('hypervisor.value_loop.persisted_evidence') }}
+                      @if (risk.detail === 'mandate_publication_required') {
+                        {{ i18n.t('mandate_system.value_loop.publication_required') }}
+                        <a [navLink]="{type:'system',ref:risk.system_id,lens:'build',facet:'context'}">{{ i18n.t('mandate_system.value_loop.review_draft') }}</a>
+                      } @else { {{ risk.kind }} · {{ risk.detail || i18n.t('hypervisor.value_loop.persisted_evidence') }} }
                     </div>
                   }
                 }

@@ -74,6 +74,10 @@ FACT_STATES = {
 WINDOW_DAYS = {"7d": 7, "30d": 30, "90d": 90}
 
 
+class PublishedMandateUnavailable(ValueError):
+    """The publication cannot support an honest effective-access preview."""
+
+
 def build_system_perspective(
     db: DBSession,
     *,
@@ -234,6 +238,11 @@ def build_system_perspective(
     )
 
     latest_version = versions[0] if versions else None
+    published = db.get(SystemVersion, system.published_flow_version_id) if system.published_flow_version_id else None
+    published_contract = published.execution_contract if published else None
+    control_source = ("system_versions.execution_contract.control_policy_snapshot"
+                      if isinstance(published_contract, Mapping) and "control_policy_snapshot" in published_contract
+                      else "control_policies")
     generated_at = _iso(datetime.utcnow())
     header = _header(system, runs)
     common = {
@@ -244,6 +253,7 @@ def build_system_perspective(
         "contexts": contexts,
         "skills": skills,
         "control": control,
+        "control_source": control_source,
         "adaptive": adaptive,
         "membrane": membrane,
         "decisions": decisions,
@@ -446,7 +456,7 @@ def _steer_projection(system: System, **data: Any) -> dict[str, Any]:
     ]
     design_blocks = [
         _block("policies", "Steering policies", [
-            _fact("control", "Control policy", _policy_value(control), configured=control is not None, source="control_policies"),
+            _fact("control", "Control policy", _policy_value(control), configured=control is not None, source=data["control_source"]),
             _fact("adaptive", "Adaptive policy", _adaptive_value(adaptive), configured=adaptive is not None, source="adaptive_policies"),
         ]),
         _block("simulation", "Impact preview", [
@@ -665,8 +675,8 @@ def _govern_projection(
                 _fact("actions", "Effective actions", access, source="iam+membrane"),
             ]),
             _block("constraints", "Enforced constraints", [
-                _fact("membrane", "Membrane facets", facet_states, configured=bool(membrane.configured_facets()), source="control_policies.extra.membrane_spec"),
-                _fact("control", "Control policy", _policy_value(control), configured=control is not None, source="control_policies"),
+                _fact("membrane", "Membrane facets", facet_states, configured=bool(membrane.configured_facets()), source=data["control_source"]),
+                _fact("control", "Control policy", _policy_value(control), configured=control is not None, source=data["control_source"]),
             ]),
         ],
         runs=[
@@ -823,16 +833,25 @@ def _skills(db: DBSession, workspace_id: str, identifiers: list[str]) -> list[Sk
 
 
 def _control_policy(db: DBSession, workspace_id: str, system: System) -> Optional[ControlPolicy]:
-    query = db.query(ControlPolicy).filter(ControlPolicy.workspace_id == workspace_id)
-    if system.control_policy_id:
-        row = query.filter(ControlPolicy.id == system.control_policy_id).first()
-        if row:
-            return row
-    return (
-        query.filter(ControlPolicy.scope == "system", ControlPolicy.target_id == system.id)
-        .order_by(ControlPolicy.updated_at.desc())
-        .first()
-    )
+    if system.published_flow_version_id:
+        from app.services.control_policy_snapshot import thaw_control_policy
+        from app.services.flow_contracts import validate_execution_contract
+
+        published = db.query(SystemVersion).filter_by(id=system.published_flow_version_id,
+                        system_id=system.id, workspace_id=workspace_id).one_or_none()
+        if published is None:
+            raise PublishedMandateUnavailable("published_mandate_version_unavailable")
+        if published.execution_contract is not None:
+            try:
+                contract = validate_execution_contract(published.execution_contract)
+                if "control_policy_snapshot" in contract:
+                    return thaw_control_policy(contract["control_policy_snapshot"],
+                                               workspace_id=workspace_id, system_id=system.id)
+            except (ValueError, TypeError, OverflowError) as exc:
+                raise PublishedMandateUnavailable("published_mandate_invalid") from exc
+    from app.services.run_engine.engine import _load_control_policy
+
+    return _load_control_policy(db, system)
 
 
 def _adaptive_policy(db: DBSession, workspace_id: str, system: System) -> Optional[AdaptivePolicy]:

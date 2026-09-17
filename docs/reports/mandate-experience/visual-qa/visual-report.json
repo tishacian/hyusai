@@ -1,0 +1,342 @@
+[
+  {
+    "name": "system-mandate",
+    "theme": "light",
+    "locale": "fr",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 392,
+      "right": 1440,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "coverage",
+    "theme": "light",
+    "locale": "fr",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 392,
+      "right": 1440,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "run-mandate",
+    "theme": "light",
+    "locale": "fr",
+    "url": "http://localhost:4200/runs/run-1840?lens=govern&mandateEvent=decision:source-block",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 424,
+      "right": 1408,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "run-mandate-narrow",
+    "theme": "light",
+    "locale": "fr",
+    "url": "http://localhost:4200/runs/run-1840?lens=govern&mandateEvent=decision:source-block",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "overflow": {
+      "left": 62,
+      "right": 376,
+      "viewport": 390
+    }
+  },
+  {
+    "name": "coverage-narrow-missing",
+    "theme": "light",
+    "locale": "fr",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview&mandateRun=run-1841&mandateFacet=inbound",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "overflow": {
+      "left": 48,
+      "right": 390,
+      "viewport": 390
+    }
+  },
+  {
+    "name": "system-mandate",
+    "theme": "light",
+    "locale": "en",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 392,
+      "right": 1440,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "coverage",
+    "theme": "light",
+    "locale": "en",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 392,
+      "right": 1440,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "run-mandate",
+    "theme": "light",
+    "locale": "en",
+    "url": "http://localhost:4200/runs/run-1840?lens=govern&mandateEvent=decision:source-block",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 424,
+      "right": 1408,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "run-mandate-narrow",
+    "theme": "light",
+    "locale": "en",
+    "url": "http://localhost:4200/runs/run-1840?lens=govern&mandateEvent=decision:source-block",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "overflow": {
+      "left": 62,
+      "right": 376,
+      "viewport": 390
+    }
+  },
+  {
+    "name": "coverage-narrow-missing",
+    "theme": "light",
+    "locale": "en",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview&mandateRun=run-1841&mandateFacet=inbound",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "overflow": {
+      "left": 48,
+      "right": 390,
+      "viewport": 390
+    }
+  },
+  {
+    "name": "system-mandate",
+    "theme": "dark",
+    "locale": "fr",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 392,
+      "right": 1440,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "coverage",
+    "theme": "dark",
+    "locale": "fr",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 392,
+      "right": 1440,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "run-mandate",
+    "theme": "dark",
+    "locale": "fr",
+    "url": "http://localhost:4200/runs/run-1840?lens=govern&mandateEvent=decision:source-block",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 424,
+      "right": 1408,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "run-mandate-narrow",
+    "theme": "dark",
+    "locale": "fr",
+    "url": "http://localhost:4200/runs/run-1840?lens=govern&mandateEvent=decision:source-block",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "overflow": {
+      "left": 62,
+      "right": 376,
+      "viewport": 390
+    }
+  },
+  {
+    "name": "coverage-narrow-missing",
+    "theme": "dark",
+    "locale": "fr",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview&mandateRun=run-1841&mandateFacet=inbound",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "overflow": {
+      "left": 48,
+      "right": 390,
+      "viewport": 390
+    }
+  },
+  {
+    "name": "system-mandate",
+    "theme": "dark",
+    "locale": "en",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 392,
+      "right": 1440,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "coverage",
+    "theme": "dark",
+    "locale": "en",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 392,
+      "right": 1440,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "run-mandate",
+    "theme": "dark",
+    "locale": "en",
+    "url": "http://localhost:4200/runs/run-1840?lens=govern&mandateEvent=decision:source-block",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "overflow": {
+      "left": 424,
+      "right": 1408,
+      "viewport": 1440
+    }
+  },
+  {
+    "name": "run-mandate-narrow",
+    "theme": "dark",
+    "locale": "en",
+    "url": "http://localhost:4200/runs/run-1840?lens=govern&mandateEvent=decision:source-block",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "overflow": {
+      "left": 62,
+      "right": 376,
+      "viewport": 390
+    }
+  },
+  {
+    "name": "coverage-narrow-missing",
+    "theme": "dark",
+    "locale": "en",
+    "url": "http://localhost:4200/systems/northforge?lens=govern&facet=overview&mandateRun=run-1841&mandateFacet=inbound",
+    "fixture": true,
+    "errors": [],
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "overflow": {
+      "left": 48,
+      "right": 390,
+      "viewport": 390
+    }
+  }
+]

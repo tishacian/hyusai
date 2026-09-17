@@ -164,7 +164,17 @@ def semantic_flow_diff(
     target_contract: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     changes: list[dict[str, Any]] = []
-    if base_contract != target_contract and (
+    base_policy = base_contract.get("control_policy_snapshot") if base_contract is not None else None
+    target_policy = target_contract.get("control_policy_snapshot") if target_contract is not None else None
+    if base_contract is not None and base_policy != target_policy:
+        changes.append(_change(category="mandate", impact="breaking", subject="system",
+                               path="execution_contract/control_policy_snapshot", before=base_policy,
+                               after=target_policy, description="Frozen System mandate changed; review permissions, human gates and limits."))
+    base_bindings = ({key: value for key, value in base_contract.items() if key not in {"control_policy_snapshot", "contract_sha256"}}
+                     if base_contract is not None else None)
+    target_bindings = ({key: value for key, value in target_contract.items() if key not in {"control_policy_snapshot", "contract_sha256"}}
+                       if target_contract is not None else None)
+    if base_bindings != target_bindings and (
         base_contract is not None or target_contract is not None
     ):
         changes.append(

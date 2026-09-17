@@ -649,6 +649,7 @@ export interface FlowValidationResponse {
 export interface SystemFlowDraftState {
   revision: number;
   flow_sha256: string;
+  control_policy_snapshot_sha256?: string | null;
   flow_definition: Record<string, unknown>;
   base_published_version_id: string | null;
   updated_by?: string | null;
@@ -660,6 +661,7 @@ export interface SystemPublishedFlowState {
   version_id: string;
   version_number: number;
   flow_sha256: string;
+  control_policy_snapshot_sha256?: string | null;
   flow_definition: Record<string, unknown>;
   release_kind?: string | null;
   published_by?: string | null;
@@ -703,8 +705,8 @@ export interface SystemFlowDiffChange {
 }
 
 export interface SystemFlowDiff {
-  base: { identity: string; flow_sha256: string };
-  target: { identity: string; flow_sha256: string };
+  base: { identity: string; flow_sha256: string; execution_contract_sha256?: string | null };
+  target: { identity: string; flow_sha256: string; execution_contract_sha256?: string | null };
   summary: {
     breaking: number;
     behavioral: number;
@@ -1853,6 +1855,7 @@ export class CanonicalApiService {
       expected_published_version_id: string | null;
       message: string;
       breaking_change_intent: 'acknowledged' | null;
+      expected_execution_contract_sha256?: string;
     },
   ): Observable<SystemFlowPublishResult> {
     return this.api.post<SystemFlowPublishResult>(`/systems/${id}/flow/publish`, body);

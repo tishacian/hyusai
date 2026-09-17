@@ -1,0 +1,47 @@
+{
+  "checked_at": "2026-09-17T08:44:17.295439+00:00",
+  "branch": "codex/mandate-experience",
+  "base_sha": "c432f2dc",
+  "deployed": false,
+  "backend": {
+    "passed": 476,
+    "failed": 0,
+    "scope": "Mandate, canonical publication/admission, runtime, migration, projections and value-loop regression suites"
+  },
+  "frontend": {
+    "passed": 1553,
+    "failed": 0,
+    "skipped": 0,
+    "scope": "Complete unit suite"
+  },
+  "gates": {
+    "check:i18n": {
+      "status": "passed",
+      "keys": 8368
+    },
+    "check:nav-links": "passed",
+    "check:ui-chrome": "passed",
+    "build:prod": "passed_with_warnings"
+  },
+  "visual_fixture_note": "Compiled components with synthetic API fixtures; not production Run evidence",
+  "migration": "108_flow_draft_control_policy",
+  "visual": {
+    "editor_states": 20,
+    "system_run_states": 20,
+    "work_approval_journeys": 4,
+    "screenshots": 48,
+    "errors": 0,
+    "locales": [
+      "fr",
+      "en"
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "viewport_widths": [
+      1440,
+      390
+    ]
+  }
+}

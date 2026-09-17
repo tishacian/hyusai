@@ -1,0 +1,38 @@
+[
+  {
+    "theme": "light",
+    "locale": "fr",
+    "fixture": true,
+    "reviewed_before_submit": true,
+    "expected_decision_id": "gate-1",
+    "exact_run_link": true,
+    "errors": []
+  },
+  {
+    "theme": "light",
+    "locale": "en",
+    "fixture": true,
+    "reviewed_before_submit": true,
+    "expected_decision_id": "gate-1",
+    "exact_run_link": true,
+    "errors": []
+  },
+  {
+    "theme": "dark",
+    "locale": "fr",
+    "fixture": true,
+    "reviewed_before_submit": true,
+    "expected_decision_id": "gate-1",
+    "exact_run_link": true,
+    "errors": []
+  },
+  {
+    "theme": "dark",
+    "locale": "en",
+    "fixture": true,
+    "reviewed_before_submit": true,
+    "expected_decision_id": "gate-1",
+    "exact_run_link": true,
+    "errors": []
+  }
+]

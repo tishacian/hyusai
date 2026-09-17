@@ -12,9 +12,9 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink, type UrlTree } from '@angular/router';
-import { Subscription, timer } from 'rxjs';
+import { combineLatest, Subscription, timer } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { NavLinkDirective } from '@app/shared/cockpit';
@@ -22,6 +22,7 @@ import { I18nService, type Locale } from '@app/core/i18n.service';
 import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
 import { canEditExperienceStudio } from '../experience-access';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { type Run } from '@app/core/canonical-api.service';
 import { ExperienceRuntimeService } from '../runtime/experience-runtime.service';
 import {
@@ -33,6 +34,9 @@ import {
   type CertifiedExperienceRenderer,
 } from '../runtime/renderer-registry';
 import { WorkApiService } from './work-api.service';
+import { WorkDecisionContextComponent } from './work-decision-context.component';
+import { workDecisionAvailable, workDecisionKey } from './work-decision';
+import { RunMandateComponent } from '../../mandate/run-mandate.component';
 import {
   canEditExperience,
   documentNeedsValidations,
@@ -54,7 +58,7 @@ const POLL_MS = 8000;
   selector: 'app-work-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgStyle, RouterLink, NgComponentOutlet, EmptyStateComponent, NavLinkDirective],
+  imports: [NgStyle, RouterLink, NgComponentOutlet, EmptyStateComponent, NavLinkDirective, WorkDecisionContextComponent, RunMandateComponent],
   styleUrl: './work.scss',
   template: `
     <div
@@ -164,6 +168,12 @@ const POLL_MS = 8000;
           @default {
             @if (activePage() === validationsPage) {
               <section class="xp-work-hitl" [attr.aria-label]="i18n.t('experience.work.validations')">
+                @if (decidedRun(); as decided) {
+                  <div class="xp-work-note" role="status">
+                    <p>{{ i18n.t('workMandate.recorded') }}</p>
+                    <app-run-mandate [runId]="decided.id" [compact]="true" />
+                  </div>
+                }
                 @if (decisionError()) {
                   <p class="xp-work-note" role="alert">{{ i18n.t('experience.work.validations.error') }}</p>
                 }
@@ -189,10 +199,18 @@ const POLL_MS = 8000;
                     @if (run.hitl?.prompt && run.hitl?.decision_title) {
                       <p>{{ run.hitl?.prompt }}</p>
                     }
+                    <app-run-mandate [runId]="run.id" [compact]="true" />
+                    @if (!decisionAvailable(run)) {
+                      <p class="xp-work-note" role="status">{{ i18n.t('workMandate.unavailable') }}</p>
+                    } @else if (!isReviewed(run)) {
+                      <button type="button" class="xp-work-btn xp-work-btn-primary" (click)="reviewDecision(run)">{{ i18n.t('workMandate.review') }}</button>
+                    }
+                    @if (isReviewed(run)) {
+                      <app-work-decision-context [run]="run" [showRunLink]="canInspectRuns()" />
                     <label>
                       {{ i18n.t('experience.work.validations.reason') }}
                       <textarea
-                        [value]="reasons()[run.id]"
+                        [value]="reasons()[run.id] ?? ''"
                         (input)="setReason(run.id, reasonValue($event))"
                       ></textarea>
                     </label>
@@ -200,7 +218,7 @@ const POLL_MS = 8000;
                       <button
                         type="button"
                         class="xp-work-btn xp-work-btn-primary"
-                        [disabled]="decisionBusy().has(run.id)"
+                        [disabled]="decisionBusy().has(run.id) || !decisionAvailable(run)"
                         (click)="decide(run, 'accept')"
                       >
                         {{ i18n.t('experience.work.validations.approve') }}
@@ -208,7 +226,7 @@ const POLL_MS = 8000;
                       <button
                         type="button"
                         class="xp-work-btn"
-                        [disabled]="decisionBusy().has(run.id)"
+                        [disabled]="decisionBusy().has(run.id) || !decisionAvailable(run)"
                         (click)="decide(run, 'reject')"
                       >
                         {{ i18n.t('experience.work.validations.refuse') }}
@@ -216,6 +234,7 @@ const POLL_MS = 8000;
                     </div>
                     @if (reasonError() === run.id) {
                       <p class="xp-work-note" role="alert">{{ i18n.t('experience.work.validations.reason_required') }}</p>
+                    }
                     }
                   </article>
                 }
@@ -291,6 +310,15 @@ export class WorkShellComponent {
   readonly announcement = signal('');
   readonly decisionBusy = signal<ReadonlySet<string>>(new Set());
   readonly decisionError = signal(false);
+  readonly reviewedDecisions = signal<Record<string, string>>({});
+  readonly decidedRun = signal<Run | null>(null);
+  readonly decisionAvailable = workDecisionAvailable;
+  private readonly navigationProfile = inject(NavigationProfileService);
+  readonly canInspectRuns = computed(() => {
+    const profile = this.navigationProfile.effective();
+    return !profile.active || profile.advancedAccess === 'link'
+      || (profile.advancedAccess === 'admin_only' && profile.admin);
+  });
 
   readonly canEdit = computed(() =>
     this.workspace.experienceStudioV1Enabled()
@@ -311,7 +339,15 @@ export class WorkShellComponent {
 
   constructor() {
     let generation = 0;
-    this.route.paramMap.pipe(takeUntilDestroyed(this.destroy)).subscribe((params) => {
+    const reset = this.workspace.registerContextReset(() => {
+      generation++;
+      this.resetExperienceState();
+      this.slug.set('');
+      this.state.set('loading');
+    });
+    this.destroy.onDestroy(reset);
+    combineLatest([this.route.paramMap, toObservable(this.workspace.contextEpoch)])
+      .pipe(takeUntilDestroyed(this.destroy)).subscribe(([params]) => {
       const slug = params.get('slug') ?? '';
       this.requestedPage.set(params.get('pageId'));
       if (slug === this.slug() && this.state() === 'ready') {
@@ -322,7 +358,7 @@ export class WorkShellComponent {
       this.slug.set(slug);
       this.state.set('loading');
       const request = ++generation;
-      this.api.resolve(slug).subscribe((result) => {
+      this.api.resolve(slug).pipe(takeUntilDestroyed(this.destroy)).subscribe((result) => {
         if (request !== generation) return;
         if (result.kind !== 'ok') {
           this.state.set(result.kind);
@@ -362,6 +398,11 @@ export class WorkShellComponent {
 
   decide(run: Run, action: 'accept' | 'reject'): void {
     if (this.decisionBusy().has(run.id)) return;
+    if (!this.isReviewed(run) || !workDecisionAvailable(run)) {
+      this.decisionError.set(true);
+      this.announcement.set(this.i18n.t('workMandate.review_changed'));
+      return;
+    }
     const note = (this.reasons()[run.id] ?? '').trim();
     if (action === 'reject' && !note) {
       this.reasonError.set(run.id);
@@ -370,7 +411,10 @@ export class WorkShellComponent {
     const title = run.hitl?.decision_title || run.hitl?.prompt || this.i18n.t('experience.work.validations.item');
     this.decisionBusy.update((current) => new Set([...current, run.id]));
     this.decisionError.set(false);
-    this.api.decide(run, action, note).subscribe((updated) => {
+    const scope = this.workspace.captureRequestScope();
+    const experienceId = this.experienceId();
+    this.api.decide(run, action, note).pipe(takeUntilDestroyed(this.destroy)).subscribe((updated) => {
+      if (!this.workspace.isRequestScopeCurrent(scope) || this.experienceId() !== experienceId) return;
       this.decisionBusy.update((current) => {
         const next = new Set(current);
         next.delete(run.id);
@@ -382,6 +426,7 @@ export class WorkShellComponent {
         return;
       }
       this.runtime.resumeAfterDecision(updated);
+      this.decidedRun.set(updated);
       this.pending.update((rows) => rows.filter((item) => item.id !== run.id));
       this.announcement.set(
         this.i18n.t(
@@ -396,6 +441,15 @@ export class WorkShellComponent {
         (next ?? this.workMain?.nativeElement)?.focus();
       });
     });
+  }
+
+  reviewDecision(run: Run): void {
+    if (!workDecisionAvailable(run)) return;
+    this.reviewedDecisions.update(rows => ({...rows, [run.id]: workDecisionKey(run)}));
+  }
+
+  isReviewed(run: Run): boolean {
+    return this.reviewedDecisions()[run.id] === workDecisionKey(run);
   }
 
   private open(body: WorkResolve): void {
@@ -493,6 +547,8 @@ export class WorkShellComponent {
   }
 
   private resetExperienceState(): void {
+    this.reviewedDecisions.set({});
+    this.decidedRun.set(null);
     this.boundSystemIds.set([]);
     this.validationWatch?.unsubscribe();
     this.validationWatch = null;

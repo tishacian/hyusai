@@ -132,6 +132,7 @@ class CanonicalStub {
       expected_published_version_id: string | null;
       message: string;
       breaking_change_intent: 'acknowledged' | null;
+      expected_execution_contract_sha256?: string;
     };
   }> = [];
   readonly createCalls: Array<{ body: Partial<System> }> = [];
@@ -178,6 +179,7 @@ class CanonicalStub {
       expected_published_version_id: string | null;
       message: string;
       breaking_change_intent: 'acknowledged' | null;
+      expected_execution_contract_sha256?: string;
     },
   ) {
     this.publishCalls.push({ systemId, body });
@@ -261,6 +263,8 @@ function publicationState(
     publishedVersion?: number;
     contractReady?: boolean;
     executionContractSha256?: string;
+    draftPolicySha256?: string;
+    publishedPolicySha256?: string;
   } = {},
 ): SystemFlowState {
   return {
@@ -268,6 +272,7 @@ function publicationState(
     status: 'paused',
     draft: {
       revision: options.draftRevision ?? 3,
+      control_policy_snapshot_sha256: options.draftPolicySha256 ?? null,
       flow_sha256: options.draftHash ?? 'sha-draft',
       flow_definition: draftFlow as unknown as Record<string, unknown>,
       base_published_version_id: 'version-published',
@@ -277,6 +282,7 @@ function publicationState(
     published: {
       version_id: 'version-published',
       version_number: options.publishedVersion ?? 2,
+      control_policy_snapshot_sha256: options.publishedPolicySha256 ?? null,
       flow_sha256: options.publishedHash ?? 'sha-published',
       flow_definition: flow('published') as unknown as Record<string, unknown>,
       published_by: 'publisher@example.invalid',
@@ -1341,4 +1347,66 @@ test('stale save acknowledgement schedules exactly one follow-up autosave', () =
     });
     harness.cleanup();
   }
+});
+
+
+test('policy-only draft changes require review and send the reviewed contract digest', () => {
+  const harness = makeHarness('system-a');
+  try {
+    harness.service.hydratePublicationState(
+      { id: 'system-a', name: 'System A', status: 'paused' },
+      publicationState(flow('same'), {
+        draftHash: 'sha-same', publishedHash: 'sha-same',
+        draftPolicySha256: 'policy-new', publishedPolicySha256: 'policy-old',
+      }),
+    );
+    assert.equal(harness.service.draftMatchesPublished(), false);
+    assert.equal(harness.service.canOpenPublishedHome(), false);
+    harness.validation.currentResult.set({
+      flow_sha256: 'sha-same', analyzer_version: 'flow-analyzer/1',
+      runtime_mode: 'dag_strict', valid: true, issues: [],
+    });
+    harness.service.openPublicationReview();
+    harness.canonical.diffSubject.next({
+      base: { identity: 'published:2', flow_sha256: 'sha-same', execution_contract_sha256: 'contract-old' },
+      target: { identity: 'draft:3', flow_sha256: 'sha-same', execution_contract_sha256: 'contract-reviewed' },
+      summary: { breaking: 1, behavioral: 0, presentation: 0, total: 1 },
+      changes: [{ category: 'control_policy', impact: 'breaking', subject: 'system-a',
+        path: 'control_policy_snapshot', description: 'Mandate changed.' }],
+    });
+    assert.equal(harness.service.canConfirmPublication(), false);
+    harness.service.setBreakingChangeAcknowledged(true);
+    harness.service.publishDraft('Reviewed new mandate');
+    assert.equal(harness.canonical.publishCalls.length, 1);
+    assert.equal(harness.canonical.publishCalls[0].body.expected_execution_contract_sha256, 'contract-reviewed');
+    harness.canonical.publishSubject.next({
+      no_op: false, system_id: 'system-a', status: 'paused',
+      published: { version_id: 'version-new', version_number: 3, flow_sha256: 'sha-same',
+        control_policy_snapshot_sha256: 'policy-new', execution_contract: { contract_sha256: 'contract-reviewed' } },
+      draft: { system_id: 'system-a', revision: 3, flow_sha256: 'sha-same',
+        control_policy_snapshot_sha256: 'policy-new',
+        flow_definition: flow('same') as unknown as Record<string, unknown>, no_op: false },
+    });
+    assert.equal(harness.service.draftMatchesPublished(), true);
+    assert.equal(harness.service.publishedPolicySha256(), 'policy-new');
+    harness.service.beginHydration();
+    assert.equal(harness.service.draftPolicySha256(), null);
+    assert.equal(harness.service.publishedPolicySha256(), null);
+  } finally { harness.cleanup(); }
+});
+
+test('matching mandate and flow retain the existing published application handoff', () => {
+  const harness = makeHarness('system-a');
+  try {
+    harness.service.hydratePublicationState(
+      { id: 'system-a', name: 'System A', status: 'paused' },
+      publicationState(flow('same'), {
+        draftHash: 'sha-same', publishedHash: 'sha-same',
+        draftPolicySha256: 'policy-same', publishedPolicySha256: 'policy-same',
+        executionContractSha256: 'contract-same',
+      }),
+    );
+    assert.equal(harness.service.draftMatchesPublished(), true);
+    assert.equal(harness.service.canOpenPublishedHome(), true);
+  } finally { harness.cleanup(); }
 });

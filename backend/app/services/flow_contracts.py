@@ -273,7 +273,7 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
             path="/",
         ) from exc
 
-    if set(contract) - {"brd_origin"} != _EXECUTION_CONTRACT_KEYS:
+    if set(contract) - {"brd_origin", "control_policy_snapshot"} != _EXECUTION_CONTRACT_KEYS:
         raise _execution_contract_error(
             message="The execution contract has missing or unknown top-level fields.",
             path="/",
@@ -548,6 +548,16 @@ def validate_execution_contract(value: Any) -> dict[str, Any]:
             path="/outputs",
         )
 
+    if "control_policy_snapshot" in contract:
+        from app.services.control_policy_snapshot import validate_frozen_control_policy
+
+        try:
+            validate_frozen_control_policy(contract["control_policy_snapshot"])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise _execution_contract_error(
+                message="The frozen control policy is invalid.",
+                path="/control_policy_snapshot",
+            ) from exc
     contract["contract_sha256"] = pinned_sha256
     return contract
 

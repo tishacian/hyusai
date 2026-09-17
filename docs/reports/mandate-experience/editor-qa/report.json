@@ -1,0 +1,247 @@
+{
+  "generated_at": "2026-09-17T08:44:07.751Z",
+  "kind": "compiled UI + synthetic API fixtures",
+  "states": 20,
+  "checks": [
+    {
+      "name": "editor-initial",
+      "theme": "light",
+      "locale": "fr",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-diff",
+      "theme": "light",
+      "locale": "fr",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-validated",
+      "theme": "light",
+      "locale": "fr",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-narrow",
+      "theme": "light",
+      "locale": "fr",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-conflict",
+      "theme": "light",
+      "locale": "fr",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-initial",
+      "theme": "light",
+      "locale": "en",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-diff",
+      "theme": "light",
+      "locale": "en",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-validated",
+      "theme": "light",
+      "locale": "en",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-narrow",
+      "theme": "light",
+      "locale": "en",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-conflict",
+      "theme": "light",
+      "locale": "en",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-initial",
+      "theme": "dark",
+      "locale": "fr",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-diff",
+      "theme": "dark",
+      "locale": "fr",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-validated",
+      "theme": "dark",
+      "locale": "fr",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-narrow",
+      "theme": "dark",
+      "locale": "fr",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-conflict",
+      "theme": "dark",
+      "locale": "fr",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-initial",
+      "theme": "dark",
+      "locale": "en",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-diff",
+      "theme": "dark",
+      "locale": "en",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-validated",
+      "theme": "dark",
+      "locale": "en",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-narrow",
+      "theme": "dark",
+      "locale": "en",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "errors": []
+    },
+    {
+      "name": "editor-conflict",
+      "theme": "dark",
+      "locale": "en",
+      "url": "http://localhost:4200/systems/northforge?lens=build&facet=context",
+      "fixture": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "errors": []
+    }
+  ]
+}

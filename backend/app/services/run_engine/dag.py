@@ -639,7 +639,10 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
             return _fail(db, run, f"system_catalog_binding_invalid:{exc.code}")
 
         capability = catalog_bindings.capability
-        control = _load_control_policy(db, system)
+        try:
+            control = _load_control_policy(db, system, run=run)
+        except (TypeError, ValueError) as exc:
+            return _fail(db, run, f"control_policy_snapshot_invalid:{exc}")
         adaptive = _load_adaptive_policy(db, system)
 
         run_gate = _evaluate_run_capability(control, system, db=db, run=run)
@@ -840,7 +843,10 @@ async def resume_run_dag(
         state.start_monotonic = time.monotonic()
 
         capability = catalog_bindings.capability
-        control = _load_control_policy(db, system)
+        try:
+            control = _load_control_policy(db, system, run=run)
+        except (TypeError, ValueError) as exc:
+            return _fail(db, run, f"control_policy_snapshot_invalid:{exc}")
         adaptive = _load_adaptive_policy(db, system)
 
         run_gate = _evaluate_run_capability(control, system, db=db, run=run)
@@ -1672,7 +1678,10 @@ async def resume_run_dag_debug(
             return _fail(db, run, f"system_catalog_binding_invalid:{exc.code}")
 
         capability = catalog_bindings.capability
-        control = _load_control_policy(db, system)
+        try:
+            control = _load_control_policy(db, system, run=run)
+        except (TypeError, ValueError) as exc:
+            return _fail(db, run, f"control_policy_snapshot_invalid:{exc}")
         adaptive = _load_adaptive_policy(db, system)
 
         run_gate = _evaluate_run_capability(control, system, db=db, run=run)

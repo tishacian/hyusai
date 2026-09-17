@@ -20,6 +20,7 @@ import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { I18nService } from '@app/core/i18n.service';
 import { ThemeService } from '@app/core/theme.service';
 import { ExperienceRuntimeService } from './experience-runtime.service';
+import { RunMandateComponent } from '../../mandate/run-mandate.component';
 import {
   type CertifiedType,
   type ExperienceNode,
@@ -1016,7 +1017,7 @@ export class RuntimeStatusBlock {
   selector: 'xp-rt-result',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RuntimeSlotComponent, NavLinkDirective],
+  imports: [RuntimeSlotComponent, NavLinkDirective, RunMandateComponent],
   styleUrl: './runtime.scss',
   template: `
     <section class="xp-rt-block" [attr.aria-label]="i18n.t('experience.runtime.result.title')">
@@ -1039,6 +1040,7 @@ export class RuntimeStatusBlock {
           </dl>
         }
       </xp-rt-slot>
+      @if (mandateRunId(); as id) { <app-run-mandate [runId]="id" [compact]="true" /> }
       @if (inspectableRunId(); as id) {
         <a class="xp-rt-link" [navLink]="{ type: 'run', lens: 'operate', ref: id }">
           {{ i18n.t('experience.runtime.result.inspect') }}
@@ -1053,6 +1055,8 @@ export class ResultBlock {
   readonly i18n = inject(I18nService);
   readonly node = input.required<ExperienceNode>();
   readonly context = input.required<RuntimeNodeContext>();
+  readonly mandateRunId = computed(() => this.context().mode === 'live'
+    ? this.runtime.run(this.context().sourceStateKey)?.id || null : null);
   readonly inspectableRunId = computed(() => {
     const profile = this.profile.effective();
     if (this.context().mode !== 'live' || (profile.active && profile.advancedAccess !== 'link' && !profile.admin)) return null;

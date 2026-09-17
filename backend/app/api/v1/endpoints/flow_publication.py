@@ -71,6 +71,7 @@ class PublishBody(BaseModel):
     expected_published_version_id: str | None = Field(..., max_length=36)
     message: str = Field(min_length=1, max_length=2000)
     breaking_change_intent: Literal["acknowledged"] | None = None
+    expected_execution_contract_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @field_validator("message")
     @classmethod
@@ -104,11 +105,12 @@ def _raise_http(db: DBSession, exc: publication.FlowPublicationError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
 
 
-def _draft_payload(draft: Any, *, no_op: bool) -> dict[str, Any]:
+def _draft_payload(draft: Any, *, no_op: bool, db: DBSession, system: System) -> dict[str, Any]:
     return {
         "system_id": draft.system_id,
         "revision": draft.revision,
         "flow_sha256": draft.flow_sha256,
+        "control_policy_snapshot_sha256": publication.resolved_control_policy_snapshot(db, system=system, draft=draft)["sha256"],
         "flow_definition": copy.deepcopy(draft.flow_definition),
         "base_published_version_id": draft.base_published_version_id,
         "updated_by": draft.updated_by,
@@ -159,7 +161,7 @@ async def put_flow_draft(
         )
         db.commit()
         db.refresh(draft)
-        return _draft_payload(draft, no_op=no_op)
+        return _draft_payload(draft, no_op=no_op, db=db, system=system)
     except publication.FlowPublicationError as exc:
         _raise_http(db, exc)
 
@@ -192,7 +194,7 @@ async def restore_flow_draft(
         )
         db.commit()
         db.refresh(draft)
-        return _draft_payload(draft, no_op=no_op)
+        return _draft_payload(draft, no_op=no_op, db=db, system=system)
     except publication.FlowPublicationError as exc:
         _raise_http(db, exc)
 
@@ -267,6 +269,8 @@ async def publish_flow(
             expected_published_version_id=body.expected_published_version_id,
             message=body.message,
             breaking_change_intent=body.breaking_change_intent,
+            expected_execution_contract_sha256=body.expected_execution_contract_sha256,
+            require_review=True,
             actor=_actor_display_name(user),
         )
         db.commit()
@@ -288,9 +292,10 @@ async def publish_flow(
                     system.published_at.isoformat() if system.published_at else None
                 ),
                 "execution_contract": copy.deepcopy(version.execution_contract),
+                "control_policy_snapshot_sha256": (version.execution_contract or {}).get("control_policy_snapshot", {}).get("sha256"),
                 "execution_contract_ready": True,
             },
-            "draft": _draft_payload(draft, no_op=no_op),
+            "draft": _draft_payload(draft, no_op=no_op, db=db, system=system),
         }
     except publication.FlowPublicationError as exc:
         _raise_http(db, exc)

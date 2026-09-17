@@ -46,7 +46,10 @@ from app.services.chains.version_service import (
     ConfigurationSnapshotError,
     normalize_configuration_snapshot,
 )
-from app.services.control_policy_snapshot import control_policy_execution_contract
+from app.services.control_policy_snapshot import (
+    control_policy_execution_contract,
+    thaw_control_policy,
+)
 from app.services.membrane.enforcement import (
     MembraneEnforcementError,
     ValveUsage,
@@ -417,7 +420,10 @@ async def execute_run(run_id: str) -> Dict[str, Any]:
         if run.capability_id is None:
             run.capability_id = system.capability_id
         capability = catalog_bindings.capability
-        control = _load_control_policy(db, system)
+        try:
+            control = _load_control_policy(db, system, run=run)
+        except (TypeError, ValueError) as exc:
+            return _fail(db, run, f"control_policy_snapshot_invalid:{exc}")
         adaptive = (
             catalog_bindings.adaptive_policy
             if catalog_bindings.adaptive_policy is not None
@@ -827,6 +833,16 @@ def _snapshot_run_flow(
             if control is not None
             else {"schema_version": 1, "state": "not_configured"}
         )
+        # First-start observation only: preserve the mandate that was read,
+        # without inferring that every configured control actually executed.
+        from app.services.mandate_projection import snapshot as mandate_snapshot
+
+        run.checkpoints = [*(run.checkpoints or []), {
+            "kind": "mandate_snapshot", "t": execution["snapshot_at"],
+            "snapshot_at": execution["snapshot_at"],
+            "control_policy": deepcopy(execution["control_policy"]),
+            "mandate": mandate_snapshot(control),
+        }]
     else:
         snapshot_at = _parse_snapshot_boundary(execution.get("snapshot_at"))
         # Runs started before the server-owned boundary was introduced retain
@@ -1392,7 +1408,26 @@ def _resolve_skill_sequence(
     return [by_id[i].slug for i in skill_ids if i in by_id]
 
 
-def _load_control_policy(db: DBSession, system: System) -> Optional[ControlPolicy]:
+def _load_control_policy(
+    db: DBSession, system: System, *, run: Run | None = None,
+) -> Optional[ControlPolicy]:
+    if run is not None:
+        if run.system_id != system.id or run.workspace_id != system.workspace_id:
+            raise ValueError("control_policy_snapshot_run_scope_mismatch")
+        contract = run.execution_contract if isinstance(run.execution_contract, dict) else {}
+        if "control_policy_snapshot" in contract:
+            # The private execution contract is compiled by the server before
+            # queueing. Never accept an identically named caller input field.
+            from app.services.flow_contracts import validate_execution_contract
+
+            validate_execution_contract(contract)
+            return thaw_control_policy(
+                contract["control_policy_snapshot"],
+                workspace_id=run.workspace_id, system_id=run.system_id,
+            )
+        # A historical contract without policy content keeps its legacy live
+        # guard semantics (including revocation on resume). The draft editor
+        # does not mutate that row, and we do not invent an immutable history.
     if system.control_policy_id:
         return (
             db.query(ControlPolicy)

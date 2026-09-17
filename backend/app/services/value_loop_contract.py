@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.models.policy import ControlPolicy
 from app.models.system import System
+from app.models.system_version import SystemVersion
 from app.services.membrane.spec import EnforcementMode, MembraneSpec
 
 CONTROL_POLICY_GUARDRAILS_PATCH_V1 = "control_policy.guardrails.patch.v1"
@@ -88,6 +89,8 @@ def validate_value_loop_runtime_contract(
 ) -> ValueLoopActuatorContract:
     """Resolve and validate the effective current runtime contract fail-closed."""
 
+    if policy_edit_requires_publication(db, system=system):
+        return ValueLoopActuatorContract(False, "mandate_publication_required")
     if not system.control_policy_id:
         return ValueLoopActuatorContract(False, "control_policy_missing")
     policy = (
@@ -106,6 +109,32 @@ def validate_value_loop_runtime_contract(
     )
 
 
+def policy_edit_requires_publication(db: DBSession, *, system: System) -> bool:
+    """A live-row actuator cannot change an immutable published mandate.
+
+    Missing/corrupt publications also close this path; legacy versions without
+    a frozen policy retain their original live-policy actuator semantics.
+    """
+    if not system.published_flow_version_id:
+        return False
+    version = db.query(SystemVersion).filter_by(id=system.published_flow_version_id,
+                     system_id=system.id, workspace_id=system.workspace_id).one_or_none()
+    if version is None:
+        return True
+    contract = version.execution_contract
+    if contract is None:
+        return False
+    if not isinstance(contract, Mapping) or "control_policy_snapshot" in contract:
+        return True
+    from app.services.flow_contracts import validate_execution_contract
+
+    try:
+        validate_execution_contract(contract)
+    except (ValueError, TypeError, OverflowError):
+        return True
+    return False
+
+
 __all__ = [
     "CONTROL_POLICY_GUARDRAILS_PATCH_V1",
     "VALUE_LOOP_ACTUATOR_BOUNDS",
@@ -113,4 +142,5 @@ __all__ = [
     "canonical_value_loop_actuator_config",
     "validate_value_loop_actuator_objects",
     "validate_value_loop_runtime_contract",
+    "policy_edit_requires_publication",
 ]

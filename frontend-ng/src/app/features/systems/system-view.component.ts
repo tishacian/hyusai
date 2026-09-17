@@ -1,3 +1,6 @@
+import { MandateEditorComponent } from '@app/features/mandate/mandate-editor.component';
+import { SystemMandateComponent } from '@app/features/mandate/system-mandate.component';
+import { SystemMandateCoverageComponent } from './system-mandate-coverage.component';
 import { OperationalObjectiveComponent } from '@app/features/systems/operational-objective.component';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
@@ -136,6 +139,9 @@ interface ContextConfigRow {
     SystemPerspectiveComponent,
     SystemValueLoopComponent,
     OperationalObjectiveComponent,
+    SystemMandateComponent,
+    SystemMandateCoverageComponent,
+    MandateEditorComponent,
   ],
   template: `
     <ck-object-header
@@ -200,6 +206,14 @@ interface ContextConfigRow {
       >
         <app-icon name="message-square" [size]="14" /> Chat
       </button>
+      <a
+        actions
+        [navLink]="{ type: 'system', ref: systemId, lens: 'govern', facet: 'overview' }"
+        class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+        data-testid="system-mandate-link"
+      >
+        <app-icon name="shield-check" [size]="14" /> {{ i18n.t('mandate_system.open') }}
+      </a>
       @if (showSystemSettingsAction()) {
         <button
           actions
@@ -225,6 +239,12 @@ interface ContextConfigRow {
       }
 
       <ck-tab id="overview" [label]="i18n.t('systems.view.tab.overview')">
+        @if (activeObjectLens() === 'govern') {
+          @if (activeTab() === 'overview' && systemId) {
+            <app-system-mandate [systemId]="systemId" [compact]="true" />
+            <app-system-mandate-coverage [systemId]="systemId" />
+          }
+        } @else {
 <app-operational-objective [systemId]="systemId" />
         @if (system360Enabled()) {
           <app-system-perspective
@@ -528,6 +548,7 @@ interface ContextConfigRow {
         </div>
         }
         }
+        }
       </ck-tab>
 
       <ck-tab id="runs" label="Runs">
@@ -796,7 +817,10 @@ interface ContextConfigRow {
       </ck-tab>
 
       <ck-tab id="context" [label]="i18n.t('systems.view.tab.context')">
-        @if (system360Enabled()) {
+        @if (activeTab() === 'context' && systemId) {
+          <app-mandate-editor [systemId]="systemId" />
+        }
+        @if (system360Enabled() && activeObjectLens() !== 'govern') {
           <app-system-perspective
             [lens]="activeObjectLens()"
             facet="context"

@@ -137,19 +137,16 @@ def _attach_membrane_provenance(
     artifact prefix for downstream audit.
     """
     try:
-        from app.models.policy import ControlPolicy
+        from app.services.run_engine.engine import _load_control_policy
         from app.services.membrane.enforcement import persist_provenance_artifact
         from app.services.membrane.spec import resolve_membrane_spec
 
         control = None
         if run.system_id:
-            system = db.query(System).filter(System.id == run.system_id).first()
-            if system and system.control_policy_id:
-                control = (
-                    db.query(ControlPolicy)
-                    .filter(ControlPolicy.id == system.control_policy_id)
-                    .first()
-                )
+            system = db.query(System).filter(System.id == run.system_id,
+                                            System.workspace_id == run.workspace_id).first()
+            if system:
+                control = _load_control_policy(db, system, run=run)
         spec = resolve_membrane_spec(control=control)
         if not spec.authoritative:
             return

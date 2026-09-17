@@ -13,10 +13,12 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session as DBSession
 
 from app.models.run import Run
+from app.models.policy import ControlPolicy
 from app.models.system import System
 from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.services import flow_contracts, flow_diff
+from app.services.control_policy_snapshot import freeze_control_policy, validate_frozen_control_policy
 from app.services.audit_logger import emit_audit_event
 from app.services.chains import dag_validator, version_service
 from app.services.run_engine.debug_contract import (
@@ -39,6 +41,43 @@ from app.services.system_catalog_bindings import (
 from app.services.workspace_features import graduated_feature_enabled
 
 FEATURE_KEY = "flow_publication_v1"
+
+
+def resolved_control_policy_snapshot(db: DBSession, *, system: System,
+                                     draft: SystemFlowDraft | None = None,
+                                     use_draft: bool = True) -> dict[str, Any]:
+    """Draft, published version, then the explicitly identified legacy policy."""
+    if draft is None and use_draft:
+        draft = db.query(SystemFlowDraft).filter_by(system_id=system.id, workspace_id=system.workspace_id).one_or_none()
+    raw = draft.control_policy_snapshot if draft is not None and use_draft else None
+    has_snapshot = raw is not None
+    if raw is None and system.published_flow_version_id:
+        version = _owned_version(db, system=system, version_id=system.published_flow_version_id)
+        contract = version.execution_contract if isinstance(version.execution_contract, dict) else {}
+        if "control_policy_snapshot" in contract:
+            raw = contract["control_policy_snapshot"]
+            has_snapshot = True
+            try:
+                flow_contracts.validate_execution_contract(contract)
+            except flow_contracts.FlowContractError as exc:
+                raise FlowPublicationError("FLOW_POLICY_SNAPSHOT_INVALID", "The published contract is invalid.") from exc
+    if has_snapshot:
+        try:
+            return validate_frozen_control_policy(raw, workspace_id=system.workspace_id, system_id=system.id)
+        except ValueError as exc:
+            raise FlowPublicationError("FLOW_POLICY_SNAPSHOT_INVALID", "The frozen mandate is invalid.") from exc
+    policy_query = db.query(ControlPolicy).filter(
+        ControlPolicy.workspace_id == system.workspace_id,
+        ControlPolicy.scope == "system", ControlPolicy.target_id == system.id,
+    )
+    policy = (policy_query.filter(ControlPolicy.id == system.control_policy_id).first()
+              if system.control_policy_id else policy_query.order_by(ControlPolicy.updated_at.desc()).first())
+    if system.control_policy_id and policy is None:
+        raise FlowPublicationError("FLOW_POLICY_BINDING_INVALID", "The System policy binding is unavailable.")
+    try:
+        return freeze_control_policy(policy, workspace_id=system.workspace_id, system_id=system.id)
+    except (ValueError, TypeError) as exc:
+        raise FlowPublicationError("FLOW_POLICY_SNAPSHOT_INVALID", "The existing mandate cannot be frozen safely.") from exc
 
 
 # Not frozen: a context manager's ``__exit__`` assigns ``__traceback__`` while
@@ -93,6 +132,7 @@ def compile_execution_contract(
     workspace: Any,
     *,
     system: System | None = None,
+    control_policy_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Bind publication identity around the shared executable compiler."""
 
@@ -130,6 +170,13 @@ def compile_execution_contract(
             details={"path": exc.path} if exc.path else None,
         ) from exc
     if system is not None:
+        contract["control_policy_snapshot"] = (validate_frozen_control_policy(
+            control_policy_snapshot, workspace_id=system.workspace_id, system_id=system.id,
+        ) if control_policy_snapshot is not None else resolved_control_policy_snapshot(db, system=system))
+        from app.services.systems.mandate_draft import validate_resources
+        validate_resources(db, snapshot=contract["control_policy_snapshot"], system=system, flow=canonical)
+        contract.pop("contract_sha256", None)
+        contract["contract_sha256"] = flow_contracts.canonical_sha256(contract)
         # Resolve the applied proposal from server-owned rows. Mutable System
         # settings cannot nominate or rewrite the origin of an executed Flow.
         from app.models.brd_document import BrdDocument
@@ -380,6 +427,7 @@ def initialize_publication_state(
     draft = existing_draft or SystemFlowDraft(system_id=locked.id)
     draft.workspace_id = locked.workspace_id
     draft.flow_definition = copy.deepcopy(flow)
+    draft.control_policy_snapshot = copy.deepcopy((exact.execution_contract or {}).get("control_policy_snapshot"))
     draft.revision = 1
     draft.flow_sha256 = digest
     draft.base_published_version_id = exact.id
@@ -490,7 +538,9 @@ def reconcile_system_flow(
         and owner_prefix
         and str(locked.created_by or "").startswith(owner_prefix)
     )
-    clean_draft = draft.flow_sha256 == published_sha256
+    published_policy = (published.execution_contract or {}).get("control_policy_snapshot")
+    clean_draft = (draft.flow_sha256 == published_sha256
+                   and (draft.control_policy_snapshot is None or draft.control_policy_snapshot == published_policy))
     contract_missing = _pinned_execution_contract(published) is None
 
     if desired_sha256 != published_sha256:
@@ -575,6 +625,7 @@ def flow_state(
         version_id=system.published_flow_version_id,
     )
     published_hash = _assert_published_mirror(system, published)
+    policy_snapshot = resolved_control_policy_snapshot(db, system=system, draft=draft)
     return {
         "system_id": system.id,
         "status": system.status,
@@ -582,6 +633,7 @@ def flow_state(
             "revision": draft.revision,
             "flow_sha256": draft.flow_sha256,
             "flow_definition": copy.deepcopy(draft.flow_definition),
+            "control_policy_snapshot_sha256": policy_snapshot["sha256"],
             "base_published_version_id": draft.base_published_version_id,
             "updated_by": draft.updated_by,
             "updated_at": draft.updated_at.isoformat() if draft.updated_at else None,
@@ -591,6 +643,7 @@ def flow_state(
             "version_number": published.version_number,
             "flow_sha256": published.flow_sha256 or published_hash,
             "flow_definition": copy.deepcopy(published.flow_definition),
+            "control_policy_snapshot_sha256": ((published.execution_contract or {}).get("control_policy_snapshot") or {}).get("sha256"),
             "release_kind": published.release_kind or "legacy_snapshot",
             "published_by": system.published_by,
             "published_at": system.published_at.isoformat() if system.published_at else None,
@@ -668,9 +721,22 @@ def restore_draft(
     target = _owned_version(db, system=system, version_id=version_id)
     _assert_draft_flow_shape(target.flow_definition)
     digest = canonical_flow_sha256(target.flow_definition)
-    if digest == draft.flow_sha256:
+    target_contract = target.execution_contract if isinstance(target.execution_contract, dict) else {}
+    target_policy = target_contract.get("control_policy_snapshot")
+    if "control_policy_snapshot" in target_contract:
+        try:
+            flow_contracts.validate_execution_contract(target_contract)
+            target_policy = validate_frozen_control_policy(target_policy, workspace_id=system.workspace_id, system_id=system.id)
+        except (ValueError, flow_contracts.FlowContractError) as exc:
+            raise FlowPublicationError("FLOW_POLICY_SNAPSHOT_INVALID", "The restored version has an invalid mandate.") from exc
+    else:
+        # Legacy versions never recorded policy content. Keep the explicitly
+        # identified current draft mandate instead of inventing historical data.
+        target_policy = resolved_control_policy_snapshot(db, system=system, draft=draft)
+    if digest == draft.flow_sha256 and target_policy == draft.control_policy_snapshot:
         return draft, True
     draft.flow_definition = copy.deepcopy(canonical_flow(target.flow_definition))
+    draft.control_policy_snapshot = copy.deepcopy(target_policy)
     draft.flow_sha256 = digest
     draft.revision += 1
     draft.updated_by = actor
@@ -705,6 +771,8 @@ def publish_draft(
     message: str,
     breaking_change_intent: str | None,
     actor: str,
+    expected_execution_contract_sha256: str | None = None,
+    require_review: bool = False,
 ) -> tuple[SystemVersion, SystemFlowDraft, bool]:
     require_flow_publication(workspace)
     system = _lock_system(db, system_id=system_id, workspace_id=workspace.id)
@@ -755,11 +823,20 @@ def publish_draft(
     # an unchanged graph can therefore produce a new immutable execution
     # contract that must be published as its own append-only version.
     contract = compile_execution_contract(db, flow, workspace, system=system)
+    policy_changed = (current_contract or {}).get("control_policy_snapshot") != contract["control_policy_snapshot"]
+    if require_review and expected_execution_contract_sha256 is None and (draft.control_policy_snapshot is None or policy_changed):
+        raise FlowPublicationError("FLOW_PUBLISH_REVIEW_REQUIRED", "Review the Flow and mandate diff before publishing.")
+    if expected_execution_contract_sha256 is not None and contract["contract_sha256"] != expected_execution_contract_sha256:
+        raise FlowPublicationError("FLOW_PUBLISH_REVIEW_STALE", "The reviewed Flow or mandate changed; review the diff again.",
+                                   details={"current_execution_contract_sha256": contract["contract_sha256"]})
+    # The same frozen body must reach draft tests and every subsequently
+    # created version. Neither the catalog row nor another System is updated.
     if (
         draft_hash == current_hash
         and current_contract is not None
         and current_contract.get("contract_sha256") == contract.get("contract_sha256")
     ):
+        draft.control_policy_snapshot = copy.deepcopy(contract["control_policy_snapshot"])
         draft.base_published_version_id = current.id
         return current, draft, True
 
@@ -809,6 +886,7 @@ def publish_draft(
     db.flush()
 
     published_at = datetime.utcnow()
+    draft.control_policy_snapshot = copy.deepcopy(contract["control_policy_snapshot"])
     status_before = system.status
     system.flow_definition = copy.deepcopy(flow)
     system.published_flow_version_id = version.id

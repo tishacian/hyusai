@@ -1330,6 +1330,7 @@ async def step_run(
         workspace=workspace,
         system=system,
         execution_source="run_debug_resume_api",
+        execution_contract=r.execution_contract or {},
     )
     if r.status != "debug_pending":
         raise HTTPException(409, f"Run is not in debugger pause (status={r.status!r})")
@@ -1881,6 +1882,7 @@ async def rerun_run(
         workspace=workspace,
         system=system,
         execution_source="run_rerun_api",
+        execution_contract=parent.execution_contract or {},
     )
 
     new_run = Run(
