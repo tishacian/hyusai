@@ -1,0 +1,17 @@
+
+> agentium@0.1.0 test:unit
+> node scripts/run-unit.mjs
+
+✔ NorthForge unset value is absent, not zero business value or zero efficiency (14.073083ms)
+✔ declared and estimated zeros remain values; unavailable cost cannot yield efficiency (0.780167ms)
+✔ input updates and language changes refresh all cached Run summaries (0.772292ms)
+✔ nonfinite values and invalid confidence never become economic or quality indicators (0.249833ms)
+✔ invocation costs distinguish configured calculations, old zeros, missing evidence and tiny amounts (0.267791ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 253.120959

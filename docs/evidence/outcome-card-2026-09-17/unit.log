@@ -1,0 +1,25 @@
+chunked unit run: 164 specs in 21 batches of 8
+batch 1   specs 7    pass 69    fail 0   exit 0
+batch 2   specs 7    pass 97    fail 0   exit 0
+batch 3   specs 7    pass 93    fail 0   exit 0
+batch 4   specs 7    pass 52    fail 0   exit 0
+batch 5   specs 7    pass 30    fail 0   exit 0
+batch 6   specs 7    pass 78    fail 0   exit 0
+batch 7   specs 7    pass 126   fail 0   exit 0
+batch 8   specs 7    pass 27    fail 0   exit 0
+batch 9   specs 7    pass 51    fail 0   exit 0
+batch 10  specs 7    pass 49    fail 0   exit 0
+batch 11  specs 7    pass 162   fail 0   exit 0
+batch 12  specs 7    pass 109   fail 0   exit 0
+batch 13  specs 7    pass 51    fail 0   exit 0
+batch 14  specs 7    pass 86    fail 0   exit 0
+batch 15  specs 7    pass 107   fail 0   exit 0
+batch 16  specs 7    pass 87    fail 0   exit 0
+batch 17  specs 7    pass 66    fail 0   exit 0
+batch 18  specs 7    pass 58    fail 0   exit 0
+batch 19  specs 7    pass 42    fail 0   exit 0
+batch 20  specs 7    pass 36    fail 0   exit 0
+batch 21  specs 3    pass 26    fail 0   exit 0
+----------------------------------------
+TOTAL pass=1502 fail=0
+all batches green

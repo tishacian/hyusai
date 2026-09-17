@@ -218,6 +218,15 @@ export const RUNS_FR = {
 
   // --- Run outcome card (shared ck-run-outcome-card) -----------------
   'runs.outcome.run': 'Exécution',
+  'runs.outcome.estimated_value': 'Valeur estimée',
+  'runs.outcome.declared_value': 'Valeur déclarée',
+  'runs.outcome.value_absent': 'Valeur non renseignée',
+  'runs.outcome.not_verified_savings': 'Économies non vérifiées',
+  'runs.outcome.recorded_cost': 'Coût enregistré',
+  'runs.outcome.cost_coverage_unknown': 'Couverture et facturation non vérifiées',
+  'runs.outcome.cost_unavailable': 'Non mesuré',
+  'runs.outcome.cost_calculated': 'Calculé au tarif configuré',
+  'runs.outcome.cost_recorded': 'Montant enregistré',
   'runs.outcome.decision': 'Décision',
   'runs.outcome.confidence': 'Confiance',
   'runs.outcome.value': 'Valeur',
@@ -445,6 +454,15 @@ export const RUNS_EN: Record<keyof typeof RUNS_FR, string> = {
 
   // --- Run outcome card (shared ck-run-outcome-card) -----------------
   'runs.outcome.run': 'Run',
+  'runs.outcome.estimated_value': 'Estimated value',
+  'runs.outcome.declared_value': 'Declared value',
+  'runs.outcome.value_absent': 'Value not provided',
+  'runs.outcome.not_verified_savings': 'Savings not verified',
+  'runs.outcome.recorded_cost': 'Recorded cost',
+  'runs.outcome.cost_coverage_unknown': 'Coverage and billing not verified',
+  'runs.outcome.cost_unavailable': 'Not measured',
+  'runs.outcome.cost_calculated': 'Calculated from configured pricing',
+  'runs.outcome.cost_recorded': 'Recorded amount',
   'runs.outcome.decision': 'Decision',
   'runs.outcome.confidence': 'Confidence',
   'runs.outcome.value': 'Value',

@@ -35,6 +35,7 @@ import { WorkspaceService, type WorkspaceRequestScope } from '@app/core/workspac
 import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/workspace-view-context';
 import { recordedModelExecution } from '@app/core/model-catalog';
 import { RunInvestigationComponent } from './run-investigation.component';
+import { invocationCost } from '@app/shared/cockpit/run-cost';
 import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
 
 @Component({
@@ -181,7 +182,7 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
           <ck-run-outcome-card [run]="run()!" />
 
           <!-- Operator override strip — live next to the Outcome so operators
-               can declare "actual" value when the auto-derivation is off. -->
+               can declare an estimate without certifying realized savings. -->
           <div class="mt-3 rounded-lg border border-white/5 bg-white/[0.02] p-3">
             <div class="flex items-center gap-3 flex-wrap">
               <div class="flex items-center gap-2">
@@ -388,9 +389,9 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
                             {{ formatDuration(inv.latency_ms) }}
                           </span>
                         }
-                        @if (inv.cost != null && inv.cost > 0) {
+                        @if (invocationCost(inv, i18n.locale()).value !== '—') {
                           <span class="text-[10px] font-mono text-amber-300 tabular-nums">
-                            \${{ inv.cost.toFixed(4) }}
+                            {{ invocationCost(inv, i18n.locale()).value }} · {{ i18n.t(invocationCost(inv, i18n.locale()).labelKey) }}
                           </span>
                         }
                       </div>
@@ -471,6 +472,7 @@ export class RunViewComponent implements OnInit, OnDestroy {
   private readonly perspectiveStore = inject(ObjectPerspectiveStore);
   protected readonly navigation = inject(ZoomContextService);
   readonly i18n = inject(I18nService);
+  readonly invocationCost = invocationCost;
 
   objectEyebrow(type: string): string {
     if (!this.navigation.navV5Enabled()) return type;
