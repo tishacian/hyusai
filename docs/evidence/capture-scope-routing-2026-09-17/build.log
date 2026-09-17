@@ -13,7 +13,7 @@ chunk-SSPAJT6Z.js   | -                                    |  51.56 kB |        
 chunk-27NZPUUO.js   | -                                    |  40.61 kB |                 9.39 kB
 chunk-WUQL22CF.js   | -                                    |  27.97 kB |                 7.97 kB
 chunk-6ZS6GMDY.js   | -                                    |  25.59 kB |                 5.90 kB
-main-AGTFCRN3.js    | main                                 |  24.97 kB |                 7.54 kB
+main-MARUXX2X.js    | main                                 |  24.97 kB |                 7.56 kB
 chunk-ZHNEGG73.js   | -                                    |  19.67 kB |                 4.23 kB
 chunk-VTT7MQJV.js   | -                                    |  17.75 kB |                 5.24 kB
 chunk-QF2LUN5E.js   | -                                    |  17.13 kB |                 5.42 kB
@@ -34,27 +34,27 @@ chunk-K7WBSYBP.js   | -                                    | 547 bytes |        
 chunk-EY6GXZWU.js   | -                                    | 461 bytes |               461 bytes
 chunk-KTDHJJS7.js   | -                                    | 446 bytes |               446 bytes
 
-                    | Initial total                        | 889.01 kB |               233.35 kB
+                    | Initial total                        | 889.01 kB |               233.37 kB
 
 Lazy chunk files    | Names                                |  Raw size | Estimated transfer size
-chunk-RQARPDW6.js   | -                                    |   1.09 MB |               195.38 kB
-chunk-SXWL3W6S.js   | flow-builder-component               |   1.06 MB |               198.70 kB
+chunk-KTNKU5F5.js   | -                                    |   1.09 MB |               195.47 kB
+chunk-M4Y6PSNG.js   | flow-builder-component               |   1.06 MB |               198.75 kB
 chunk-5X43FOUX.js   | maplibre-gl                          |   1.04 MB |               231.15 kB
-chunk-ZYCGHUE2.js   | -                                    | 932.01 kB |               121.33 kB
+chunk-XZP75FFV.js   | -                                    | 932.01 kB |               121.34 kB
 chunk-PULQP232.js   | livekit-client-esm                   | 523.05 kB |               113.89 kB
-chunk-GBX3HZUO.js   | mission-room-provider-host-component | 411.34 kB |                71.68 kB
+chunk-HBGCIPB4.js   | mission-room-provider-host-component | 411.34 kB |                71.72 kB
 chunk-SJBNBFGZ.js   | -                                    | 406.02 kB |               100.66 kB
-chunk-LSEV2CSH.js   | knowledge-capture-component          | 387.54 kB |                67.42 kB
-chunk-UHMHDBKG.js   | -                                    | 286.14 kB |                52.96 kB
-chunk-P7KC3GSS.js   | capture-fil-shell-component          | 274.25 kB |                48.34 kB
+chunk-DTORDYRS.js   | knowledge-capture-component          | 387.54 kB |                67.38 kB
+chunk-PXF75DI5.js   | -                                    | 286.24 kB |                53.11 kB
+chunk-RY4UH3V5.js   | capture-fil-shell-component          | 274.25 kB |                48.31 kB
 chunk-SMBFJVD2.js   | -                                    | 211.94 kB |                49.66 kB
 chunk-4MF5JBJI.js   | -                                    | 200.91 kB |                56.58 kB
-chunk-RZVRECK3.js   | editor-component                     | 188.65 kB |                30.14 kB
+chunk-5YKFYJOG.js   | editor-component                     | 188.65 kB |                30.12 kB
 chunk-C26KCLSZ.js   | index                                | 159.25 kB |                35.47 kB
-chunk-SDN4AUTR.js   | -                                    | 158.64 kB |                38.44 kB
+chunk-XVK2ALN6.js   | -                                    | 158.64 kB |                38.46 kB
 ...and 203 more lazy chunks files. Use "--verbose" to show all the files.
 
-Application bundle generation complete. [26.998 seconds] - 2026-09-17T03:44:51.677Z
+Application bundle generation complete. [27.552 seconds] - 2026-09-17T03:54:34.688Z
 
 ▲ [WARNING] NG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator. [plugin angular-compiler]
 
@@ -80,7 +80,7 @@ Application bundle generation complete. [26.998 seconds] - 2026-09-17T03:44:51.6
 ▲ [WARNING] bundle initial exceeded maximum budget. Budget 500.00 kB was not met by 389.01 kB with a total of 889.01 kB.
 
 
-▲ [WARNING] angular:styles/component:css;4be1915ab9b3ca0e39cb5ece6234fe1aad8f08fc0a7ad22b9e5e14e33dc042c2;/Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/frontend-ng/src/app/features/chat/chat-panel.component.ts exceeded maximum budget. Budget 24.00 kB was not met by 4.75 kB with a total of 28.75 kB.
+▲ [WARNING] angular:styles/component:css;38f2d40a4c30bb781702f226823093d6d860156924dd046ad122d90fa0eaecb4;/Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/frontend-ng/src/app/features/chat/chat-panel.component.ts exceeded maximum budget. Budget 24.00 kB was not met by 4.85 kB with a total of 28.85 kB.
 
 
 ▲ [WARNING] angular:styles/component:css;47012a13bd38476ceac9cce34114efc0f041815268bd4a462f4509aa8c474c89;/Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/frontend-ng/src/app/features/mission-room/mission-room.component.ts exceeded maximum budget. Budget 24.00 kB was not met by 23.97 kB with a total of 47.97 kB.

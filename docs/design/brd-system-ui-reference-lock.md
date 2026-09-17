@@ -96,3 +96,8 @@ ChatPanel controls: name the actual collection, show workspace source selection
 only when it participates, and reuse source-oriented suggestions and FR/EN
 copy. “+ Sources” remains an explicit scope change. This follows the locked
 Cockpit clarity target; no new component, palette or native NAWA change.
+
+The 390 px real-component fixture revealed action buttons overlapping a long
+collection label. Keep all existing controls and let their flex rows wrap; allow
+the collection name to wrap rather than truncate its identity. The verified
+rectangles no longer overlap. No breakpoint-specific replacement toolbar.

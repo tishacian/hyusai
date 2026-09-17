@@ -164,7 +164,7 @@ export const CHAT_FR = {
   // of the copy instead of becoming a `{param}`.
   'chat.prompt.ask.label': 'Poser une question',
   'chat.prompt.ask.prompt':
-    'Que disent les documents {source} sur [votre sujet] ? Cite les sources utilisées.',
+    'Que disent les documents de {source} sur [votre sujet] ? Cite les sources utilisées.',
   'chat.prompt.ask.prompt_selected':
     'Que disent les documents sélectionnés sur [votre sujet] ? Cite les sources utilisées.',
   'chat.prompt.find.label': 'Retrouver un passage',
@@ -809,7 +809,7 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   // --- Generated prompt pack ----------------------------------------
   'chat.prompt.ask.label': 'Ask a question',
   'chat.prompt.ask.prompt':
-    'What do the {source} documents say about [your topic]? Cite the sources you used.',
+    'What do documents in {source} say about [your topic]? Cite the sources you used.',
   'chat.prompt.ask.prompt_selected':
     'What do the selected documents say about [your topic]? Cite the sources you used.',
   'chat.prompt.find.label': 'Find a passage',

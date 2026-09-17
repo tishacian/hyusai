@@ -2386,6 +2386,7 @@ const STEP_ICONS: Record<string, string> = {
     }
     .chat-control-bar {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
@@ -2497,9 +2498,14 @@ const STEP_ICONS: Record<string, string> = {
     }
     .session-doc-mode {
       padding: 3px;
+      max-width: 100%;
+      flex-wrap: wrap;
     }
     .session-doc-label {
       padding-left: 6px;
+      min-width: 0;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
     .session-doc-mode-button {
       border: 0;
