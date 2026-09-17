@@ -1,0 +1,7 @@
+/agentium-backend agentium-backend:970f4512d81c running healthy
+/agentium-worker-cpu agentium-worker:970f4512d81c running 
+/agentium-worker-recipes agentium-worker:970f4512d81c running 
+/agentium-frontend agentium-frontend:970f4512d81c running healthy
+/agentium-p4-maintenance agentium-worker:970f4512d81c running 
+/agentium-beat agentium-worker:970f4512d81c running 
+BACKEND_STARTUP_ERRORS=0

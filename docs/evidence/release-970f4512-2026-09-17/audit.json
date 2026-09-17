@@ -1,0 +1,104 @@
+{
+  "input_ref": {
+    "answer": "Réponse sourcée:\n\n- Volume traité: 4 commandes [1]\n- Temps planifié total: 120 min [1]\n- Temps réel total: 155 min [1]\n- Dépassement cumulé: 35 min (155 − 120) [1]\n- Commandes en retard: 3, soit 75 % des commandes (3/4) [1]\n- Plus grand dépassement: commande NF-04, 25 min [1]\n\nAnalyse du retard (calculs à partir des valeurs fournies):\n- Taux global de dépassement vs plan: 35/120 ≈ 29,2 % [1]\n- Durée moyenne planifiée par commande: 120/4 = 30,0 min/commande [1]\n- Durée moyenne réelle par commande: 155/4 = 38,75 min/commande [1]\n- Surplus moyen par commande (global): 35/4 = 8,75 min/commande [1]\n- Concentration du retard: NF-04 représente ≈ 71,4 % du dépassement total (25/35) [1]\n\nConclusion opérationnelle:\n- Le retard global est significativement concentré sur une seule commande (NF-04, 25 min), tout en affectant la ponctualité de 3 commandes sur 4 [1].\n\nProchaine investigation (unique):\n- Mener une analyse chronologique détaillée de la commande NF-04 pour localiser précisément l’étape générant les 25 minutes d’écart et quantifier sa contribution au dépassement total [1].",
+    "citations": [
+      {
+        "index": 1,
+        "id": null,
+        "source_id": null,
+        "document": "source 1",
+        "title": "source 1",
+        "filename": "source 1",
+        "document_id": null,
+        "collection": null,
+        "page": null,
+        "snippet": "Synthetic NorthForge exercise; no customer data or verified savings. {\"orders\": 4, \"planned_minutes\": 120, \"actual_minutes\": 155, \"overrun_minutes\": 35, \"late_orders\": 3, \"largest_overrun_order\": \"NF-04\", \"largest_overrun_minutes\": 25}",
+        "score": null
+      }
+    ],
+    "decision_steps": [],
+    "meta": {
+      "retrieval": {
+        "raw_chunks_retrieved": 1,
+        "source": "join_context",
+        "stage_timings": {}
+      },
+      "inventory_coverage_review": {
+        "status": "not_armed",
+        "reason": "not_inventory"
+      }
+    },
+    "usage": {
+      "total_tokens": 1945,
+      "provider_calls": 1,
+      "measurement_source": "provider_reported",
+      "measurement_coverage": "complete",
+      "providers": [
+        "openai"
+      ],
+      "calls": [
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "total_tokens": 1945,
+          "prompt_tokens": 328,
+          "completion_tokens": 1617
+        }
+      ],
+      "prompt_tokens": 328,
+      "completion_tokens": 1617
+    },
+    "stats": {
+      "orders": 4,
+      "planned_minutes": 120,
+      "actual_minutes": 155,
+      "overrun_minutes": 35,
+      "late_orders": 3,
+      "largest_overrun_order": "NF-04",
+      "largest_overrun_minutes": 25
+    },
+    "_recipe": {
+      "code": "def main(inputs):\n    stats = inputs.get(\"stats\") or {}\n    answer = inputs.get(\"answer\")\n    if stats != {'orders': 4, 'planned_minutes': 120, 'actual_minutes': 155, 'overrun_minutes': 35, 'late_orders': 3, 'largest_overrun_order': 'NF-04', 'largest_overrun_minutes': 25}:\n        raise ValueError(\"The fixed NorthForge fixture no longer matches the expected result; inspect the Python inputs and version before changing the reference\")\n    if not isinstance(answer, str) or not answer.strip():\n        raise ValueError(\"The model returned no explanation\")\n    return {\"stats\": stats, \"answer\": answer, \"numerical_reference_passed\": True,\n            \"human_validated\": False, \"economic_impact\": None, \"showcase_seed\": True}\n",
+      "requirements_text": null,
+      "index_url": null,
+      "extra_index_urls": null,
+      "timeout_s": 30,
+      "sources": null,
+      "node_id": "check"
+    }
+  },
+  "output_ref": {
+    "stats": {
+      "orders": 4,
+      "planned_minutes": 120,
+      "actual_minutes": 155,
+      "overrun_minutes": 35,
+      "late_orders": 3,
+      "largest_overrun_order": "NF-04",
+      "largest_overrun_minutes": 25
+    },
+    "answer": "Réponse sourcée:\n\n- Volume traité: 4 commandes [1]\n- Temps planifié total: 120 min [1]\n- Temps réel total: 155 min [1]\n- Dépassement cumulé: 35 min (155 − 120) [1]\n- Commandes en retard: 3, soit 75 % des commandes (3/4) [1]\n- Plus grand dépassement: commande NF-04, 25 min [1]\n\nAnalyse du retard (calculs à partir des valeurs fournies):\n- Taux global de dépassement vs plan: 35/120 ≈ 29,2 % [1]\n- Durée moyenne planifiée par commande: 120/4 = 30,0 min/commande [1]\n- Durée moyenne réelle par commande: 155/4 = 38,75 min/commande [1]\n- Surplus moyen par commande (global): 35/4 = 8,75 min/commande [1]\n- Concentration du retard: NF-04 représente ≈ 71,4 % du dépassement total (25/35) [1]\n\nConclusion opérationnelle:\n- Le retard global est significativement concentré sur une seule commande (NF-04, 25 min), tout en affectant la ponctualité de 3 commandes sur 4 [1].\n\nProchaine investigation (unique):\n- Mener une analyse chronologique détaillée de la commande NF-04 pour localiser précisément l’étape générant les 25 minutes d’écart et quantifier sa contribution au dépassement total [1].",
+    "numerical_reference_passed": true,
+    "human_validated": false,
+    "economic_impact": null,
+    "showcase_seed": true
+  },
+  "metrics": {
+    "cost_evidence": {
+      "schema_version": 1,
+      "state": "calculated",
+      "method": "catalog_unit_price",
+      "source": "skill_catalog:2d48c95e-d295-4058-b1c6-498f37e958a1:pricing",
+      "pricing_sha256": "180d622b84036120f8983343008002bc2238a477f008c40316b1a6e9ed22b494",
+      "currency": "USD",
+      "unit": "per_execution",
+      "quantity": 1
+    }
+  },
+  "trace": {
+    "node_id": "check",
+    "membrane_attempt_kind": "task",
+    "membrane_attempt_index": 1,
+    "effective_model": null
+  }
+}

@@ -391,12 +391,16 @@ export class ZoomContextService implements OnDestroy {
         // When a Run was requested but cannot be resolved, do not fall back
         // to unverified parent hints from the URL.
         const systemId = runId ? run?.system_id : directSystemId;
+        // Run membership is already authorized, including when 360 is disabled.
+        const recordedInvocation = run?.id === runId
+          ? run?.skill_invocations?.find((item) => item.id === invocationId)
+          : null;
         return forkJoin({
           run: of(run),
           system: systemId ? this.canonical.getSystem(systemId) : of(null),
-          invocation: invocationId && runId
-            ? this.canonical.getSkillInvocation(runId, invocationId)
-            : of(null),
+          invocation: of(recordedInvocation && run
+            ? { ...recordedInvocation, run_id: recordedInvocation.run_id ?? run.id }
+            : null),
           skill: skillRef ? this.canonical.getSkill(skillRef) : of(null),
         });
       }),
