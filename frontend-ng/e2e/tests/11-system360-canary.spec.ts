@@ -496,7 +496,7 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
     expect(missing, 'at least one honest missing-data state must be exposed').toBeTruthy();
     const restricted = renderedFacts.find((row) => row.fact.state === 'restricted');
     expect(restricted, 'at least one genuinely restricted field must be explicit').toBeTruthy();
-    const uiFacts = Object.fromEntries(lenses.map((lens) => {
+    const uiFacts = Object.fromEntries(lenses.filter(lens => lens !== 'govern').map((lens) => {
       const located = renderedFacts.find(
         (row) => row.lens === lens
           && row.fact.state === 'available'
@@ -546,9 +546,17 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
           .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-block-id')).filter(Boolean).sort());
         expect(renderedBlocks).toEqual(expectedBlocks);
       } else {
-        const mandate = await api<{ system_id: string }>(page, primary.slug, `/systems/${encodeURIComponent(system.id)}/mandate`);
+        const mandate = await api<{ system_id: string; recent_runs: Array<{ run_id: string }> }>(page, primary.slug, `/systems/${encodeURIComponent(system.id)}/mandate`);
         expect(mandate.ok).toBe(true);
         expect(mandate.body.system_id).toBe(system.id);
+        const coverage = page.getByTestId('system-mandate-coverage');
+        const recent = mandate.body.recent_runs.slice(0, 4);
+        if (recent.length) {
+          await expect(coverage.locator('thead button')).toHaveText(recent.map(run => run.run_id.slice(0, 8)));
+          await expect(coverage.locator('.coverage-summary strong').first()).toHaveText(String(recent.length * 5));
+        } else {
+          await expect(coverage.locator('.coverage-empty')).toBeVisible();
+        }
         await expect(page.locator('#ck-tabpanel-overview app-system-mandate [role="alert"]')).toHaveCount(0);
         await expect(page.getByTestId('system-mandate-coverage').locator('[role="alert"]')).toHaveCount(0);
       }
@@ -587,7 +595,7 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
     await expect(page.locator('#ck-tabpanel-context app-system-perspective section[data-perspective-lens="operate"]')).toBeVisible();
 
     let currentFacet: Facet = 'context';
-    for (const lens of lenses) {
+    for (const lens of lenses.filter(lens => lens !== 'govern')) {
       const located = uiFacts[lens];
       await selectLens(page, lens, system.id, currentFacet);
       if (located.facet !== currentFacet) {
@@ -644,7 +652,8 @@ test.describe.serial('Lot 6 — authenticated System 360 canary', () => {
       unique_marker_discovery: true,
       four_distinct_projections: true,
       invariant_identity_header_breadcrumb_tabs: true,
-      ui_value_matches_api_per_lens: true,
+      ui_value_matches_api_rendered_perspectives: true,
+      governance_coverage_matches_authorized_runs: true,
       deep_link_reload_history_and_facet: true,
       workspace_switch_purges_object: true,
       explicit_missing_state: true,
