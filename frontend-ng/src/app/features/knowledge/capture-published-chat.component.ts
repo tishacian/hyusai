@@ -20,7 +20,7 @@ import { ChatPanelComponent } from '../chat/chat-panel.component';
         @if (contextId(); as id) {
           <button type="button" class="ck-btn-quiet" (click)="close()">{{ i18n.t('capture.publish.chat_close') }}</button>
           <div style="height:65vh; min-height:320px; margin-top:12px;">
-            <app-chat-panel [contextId]="id" [freshSession]="true" [compact]="true" />
+            <app-chat-panel [contextId]="id" [contextCollection]="collection" [freshSession]="true" [compact]="true" />
           </div>
         } @else {
           <button type="button" class="ck-btn-accent" [disabled]="busy()" (click)="open()">

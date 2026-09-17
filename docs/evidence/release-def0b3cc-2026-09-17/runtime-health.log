@@ -1,0 +1,7 @@
+/agentium-backend agentium-backend:def0b3cc348a running healthy
+/agentium-worker-cpu agentium-worker:def0b3cc348a running 
+/agentium-worker-recipes agentium-worker:def0b3cc348a running 
+/agentium-frontend agentium-frontend:def0b3cc348a running healthy
+/agentium-p4-maintenance agentium-worker:def0b3cc348a running 
+/agentium-beat agentium-worker:def0b3cc348a running 
+BACKEND_STARTUP_ERRORS=0

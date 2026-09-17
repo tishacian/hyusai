@@ -1,0 +1,100 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /create
+      - generic: Create
+    - link "Monitor":
+      - /url: /runs
+      - generic: Monitor
+    - link "Improve":
+      - /url: /steering
+      - generic: Improve
+    - link "Administer":
+      - /url: /governance
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Create
+  - navigation:
+    - link "Business application":
+      - /url: /create/apps
+      - generic: Business application
+    - link "Systems":
+      - /url: /systems
+      - generic: Systems
+    - link "Capabilities":
+      - /url: /capabilities
+      - generic: Capabilities
+    - link "Skills":
+      - /url: /skills
+      - generic: Skills
+    - link "Knowledge":
+      - /url: /knowledge
+      - generic: Knowledge
+    - link "Data & Models":
+      - /url: /data
+      - generic: Data & Models
+    - link "Scratchpad":
+      - /url: /orchestration
+      - generic: Scratchpad
+- main:
+  - generic: Knowledge · Capture
+  - heading "Knowledge capture" [level=1]
+  - navigation:
+    - button "Sessions"
+    - button "Preparation"
+    - button "Plan"
+    - button "Capture"
+    - button "Wrap-up"
+    - button "Review"
+    - button "Publication" [active]
+  - text: Capture · Publication
+  - heading "Publish to knowledge base" [level=2]
+  - paragraph: The accepted record becomes an indexed document. Choose the final title, the category and the destination collection, then publish.
+  - generic: Record published
+  - text: “QA Capture R2INV4479” is now in the knowledge base
+  - text: · collection
+  - strong: qa-capture-inventory-4479
+  - text: .
+  - button "Open the published record":
+    - text: Open the published record
+  - button "Export PDF":
+    - text: Export PDF
+  - button "Export DOCX":
+    - text: Export DOCX
+  - button "Back to dashboard":
+    - text: Back to dashboard
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Create · Depth 1/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Agentium
+- document

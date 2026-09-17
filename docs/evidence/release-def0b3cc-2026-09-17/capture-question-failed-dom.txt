@@ -1,0 +1,225 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /create
+      - generic: Create
+    - link "Monitor":
+      - /url: /runs
+      - generic: Monitor
+    - link "Improve":
+      - /url: /steering
+      - generic: Improve
+    - link "Administer":
+      - /url: /governance
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Create
+  - navigation:
+    - link "Business application":
+      - /url: /create/apps
+      - generic: Business application
+    - link "Systems":
+      - /url: /systems
+      - generic: Systems
+    - link "Capabilities":
+      - /url: /capabilities
+      - generic: Capabilities
+    - link "Skills":
+      - /url: /skills
+      - generic: Skills
+    - link "Knowledge":
+      - /url: /knowledge
+      - generic: Knowledge
+    - link "Data & Models":
+      - /url: /data
+      - generic: Data & Models
+    - link "Scratchpad":
+      - /url: /orchestration
+      - generic: Scratchpad
+- main:
+  - generic: Knowledge · Capture
+  - heading "Knowledge capture" [level=1]
+  - navigation:
+    - button "Sessions"
+    - button "Preparation"
+    - button "Plan"
+    - button "Capture"
+    - button "Wrap-up"
+    - button "Review"
+    - button "Publication"
+  - text: Capture · Publication
+  - heading "Publish to knowledge base" [level=2]
+  - paragraph: The accepted record becomes an indexed document. Choose the final title, the category and the destination collection, then publish.
+  - generic: Record published
+  - text: “QA Capture R2INV4479” is now in the knowledge base
+  - text: · collection
+  - strong: qa-capture-inventory-4479
+  - text: .
+  - button "Open the published record":
+    - text: Open the published record
+  - button "Export PDF":
+    - text: Export PDF
+  - button "Export DOCX":
+    - text: Export DOCX
+  - button "Back to dashboard":
+    - text: Back to dashboard
+  - paragraph: Ask a new question using the “qa-capture-inventory-4479” collection.
+  - button "Close this conversation"
+  - generic "Chat runtime used for answer generation. Provider details are hidden in demo-safe presentation.":
+    - generic: Chat
+    - generic: gpt-5
+  - generic "Session docs only":
+    - text: Sources
+    - generic "Select the workspace source searched by retrieval. Auto uses the assistant profile default when available, otherwise the workspace context.":
+    - combobox:
+      - option "Auto · NorthForge Notices" [selected]
+      - option "Default context"
+      - option "NorthForge Notices"
+  - generic: ·
+  - generic "Choose whether uploaded session documents replace or complement the selected workspace sources.":
+    - text: Session docs
+    - generic "“Only” searches uploaded session docs. “+ Sources” searches session docs plus the selected workspace sources.":
+    - button "Only"
+    - button "+ Sources"
+  - generic: ·
+  - generic "Use workspace default":
+    - text: Retrieval
+    - generic "Choose how Agentium searches indexed sources for this question. Auto follows workspace/source defaults.":
+    - combobox:
+      - option "Auto" [selected]
+      - option "Naive"
+      - option "Hybrid"
+      - option "HAH"
+      - option "C-HAH"
+  - generic "Heuristic selector picks the template per query":
+    - text: Reasoning
+    - generic "Choose the answer framing. Auto lets Agentium infer the best reasoning template from the question.":
+    - combobox:
+      - option "Auto" [selected]
+      - option "Factual"
+      - option "Analytical"
+      - option "Comparative"
+      - option "Causal"
+      - option "Hypothetical"
+      - option "Trivial"
+  - button "Voice output off":
+  - button "Clear conversation":
+  - text: Voice runtime
+  - generic "Select the voice runtime used for speech-to-text and voice session events.":
+  - 'generic "Reliable fallback lane: recorded chunks -> STT -> Agentium oracle -> segmented TTS."':
+    - combobox:
+      - option "cascade openai" [selected]
+      - option "openai realtime · WebRTC not wired in chat" [disabled]
+      - option "local stt · unconfigured"
+      - option "local tts · unconfigured"
+      - option "local realtime · unconfigured"
+      - option "realtime gpu · experimental"
+  - generic "Batch records one audio segment over HTTP. Session opens a persistent Agentium voice channel; Cascade still finalizes by segment. Full realtime speech requires WebRTC.":
+    - button "Batch"
+    - button "Conversation"
+    - button "Realtime" [disabled]
+  - text: Capture
+  - generic "Normal capture uses workspace voice settings.":
+    - combobox:
+      - option "Normal" [selected]
+      - option "Robuste"
+      - option "Manuel"
+  - generic "Start, pause or stop the voice conversation. The microphone can reopen after the spoken answer.":
+    - button "Start":
+      - text: Start
+  - 'generic "Realtime loop + background oracle with latest-wins events: oracle.delta, oracle.superseded, oracle.action and oracle.commit."':
+    - text: Live context
+    - generic "Background Knowledge search can refresh context while the conversation continues.":
+  - generic "When enabled, the final voice transcript replaces the current draft and is sent as one chat turn.":
+    - checkbox "Auto-send final transcript" [checked]
+    - text: Auto-send final transcript
+  - generic "When enabled, Agentium ends the current voice turn after speech followed by a short silence.":
+    - checkbox "Auto endpoint" [checked]
+    - text: Auto endpoint
+  - generic: ready
+  - generic: ·
+  - generic "batch STT · native output · Agentium voice channel · tandem oracle"
+  - 'generic "The session panel shows the voice turn lifecycle: listening, background oracle update, latest-wins refreshes, fallback and commit."':
+    - generic: Session vocale
+    - generic: "Batch mode: no persistent voice session is open."
+    - generic "Microphone input is being recorded. Agent speech is paused to avoid overlap.":
+      - text: listening
+    - generic "Agentium received a transcript and is updating the background oracle.":
+      - text: thinking
+    - generic "A newer oracle signal replaced an older one using latest-wins semantics.":
+      - text: refreshed
+    - generic "The selected runtime used its fallback lane for this voice turn.":
+      - text: fallback
+    - generic "The latest transcript/oracle decision is committed for the current turn.":
+      - text: committed
+  - generic: Pour la recette synthétique R2INV4479, quelle est la pression nominale après correction ? Cite le passage source.
+  - button "Reasoning trail · 9 steps":
+    - text: Reasoning trail · 9 steps
+  - paragraph:
+    - text: No relevant information is available in the provided context to determine the corrected nominal pressure for recipe R2INV4479. The retrieved source only contains an inventory summary without recipe details or pressure values
+    - button "1"
+    - text: .
+  - button "Sources · 1":
+    - text: Sources · 1
+  - generic: 9 steps
+  - generic: · 9732ms
+  - generic: · 1 sources
+  - generic "ledger source scope matched 1 candidate document(s) · scope file capture-9d3500c7.md · confidence 89% · policy standard · profile fast, deadline 8s, candidate pool 20, top k 5 · layers dense_qdrant, hah_chah, rerank / 8s · timings plan 40ms, inventory 13ms, llm 3728ms, total 3827ms · counts loaded 1, raw 0, pool 20, corpus 1":
+    - text: Fast · capture-9d3500c... · 8s
+  - 'generic "collection_inventory selected for source_lookup query under fast latency profile: ledger source scope matched 1 candidate document(s) · ledger source scope matched 1 candidate document(s) · Used inventory/coarse evidence to avoid an expensive global scan."':
+    - text: "Route: collection inventory"
+  - link "Runs":
+    - /url: /runs/26d9d307-a7fe-4093-9ad9-68aa80b02a9c?lens=build
+    - text: Runs
+  - link "Quality":
+    - /url: /runs/26d9d307-a7fe-4093-9ad9-68aa80b02a9c?lens=build
+    - text: Quality
+  - generic "Decision trace · collection inventory"
+  - button "Helpful":
+  - button "Not helpful":
+  - button "Copy response":
+  - button "Deep search":
+    - generic: Deep search
+  - button "Fact-check":
+    - generic: Fact-check
+  - button "Correct":
+    - generic: Correct
+  - button "Record voice · cascade_openai · session":
+  - textbox "Ask about the uploaded session documents…" [active]
+  - button "Send" [disabled]:
+    - text: Send
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Create · Depth 1/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Agentium
+- document

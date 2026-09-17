@@ -2,15 +2,18 @@
 
 ## Current delivery status — 17 September 2026
 
-- **Live application: `18741f94` on `demo/agentic`.** The
-  [release evidence](../evidence/release-18741f94-2026-09-17/README.md) records
-  1,506 frontend tests (19 cost/provenance backend tests, unchanged backend), three VM images, exact public SHA,
+- **Live application: `def0b3cc` on `demo/agentic`.** The
+  [release evidence](../evidence/release-def0b3cc-2026-09-17/README.md) records
+  1,511 frontend tests and 10 context/session backend checks, three VM images, exact public SHA,
   healthy services and **10 carakai passes, 2 intentional skips**.
 - A new isolated Capture passes absence-before-publication, text amendment,
   explicitly technical review, publication, source inventory (one source/one
   chunk), authenticated preview and a fresh response quoting the exact 6-bar
   passage with its completed Run. Historical ledger gaps remain unchanged.
-  UI handoff, voice, five repetitions and human acceptance remain open.
+  The UI handoff now opens and reopens blank. Its real cited-pressure question
+  fails on def0b3cc: an inventory summary replaces the passage, and the expert
+  overlay joins the selected context. These defects are being corrected; voice,
+  five complete repetitions and human acceptance remain open.
 - Authenticated Chrome QA now verifies a new Operational Analysis result and
   its exact Run, PIH execution settings, and Quality heatmap → historical Run →
   passage. Work → Studio and System stage query encoding is corrected and verified live.
@@ -22,7 +25,7 @@
   PIH Design now reads the same three-node draft r3 as Flow Builder and names
   published v1 separately. Five additional Work executions pass on 18741f94,
   with exact runtime/version attribution and no invented human/economic proof.
-  The shared sticky header still obscures the Design summary at 390 px.
+  The shared header obstruction is corrected and verified at 390×844 on def0b3cc.
 - The real rank-1 Excel citation `A830:O831` now exposes its values through O,
   verified against the same retained job, retrieved hit and original checksum.
   Cited windows expand to at most 40×40, favoring the selection over context.
@@ -40,8 +43,8 @@
   The earlier explicit Work publication handoff, text constraints, corpus
   manifests and native planner provenance remain deployed.
 - **R0 remains open:** the adoption sessions are not complete, and authenticated manual
-  QA corrected navigation and absent-value presentation. The narrow System
-  header, video, ten human sessions and closure decision remain open. There is no remote CI; the documented local,
+  QA corrected navigation, absent-value presentation and the narrow System
+  header. Video, ten human sessions and closure decision remain open. There is no remote CI; the documented local,
   VM and carakai gates apply, as confirmed by the release owner. The remaining
   actions are isolated in the [R0 closure checklist](agentium-r0-closure.md).
 - **R1 remains open:** BRD proposals, drafts, provenance, generated cases and

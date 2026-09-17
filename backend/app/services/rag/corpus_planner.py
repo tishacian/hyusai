@@ -224,8 +224,26 @@ def normalize_latency_profile(value: Any, *, deep_retrieval: Any = None) -> Late
     return "fast"
 
 
-def is_catalogue_query(query: str) -> bool:
+def query_without_citation_suffix(query: str) -> str:
+    """Ignore a trailing citation instruction for intent, never for retrieval.
+
+    A factual question followed by “Cite the source passage” still needs content.
+    Keep standalone source requests and the substantive inventory question intact.
+    """
     text = strip_conversation_anchor(query).strip()
+    match = re.search(
+        r"(?:[?!.;]\s*|,\s*|\s+(?:en\s+|and\s+))"
+        r"(?:cite(?:z|r)?|citant|citing|quote|quoting)\b"
+        r"[^?!.;]*\b(?:sources?|passages?|documents?|excerpts?|citations?)\b[^?!.;]*[.!?]?\s*$",
+        text, re.IGNORECASE,
+    )
+    if match and text[:match.start()].strip():
+        return text[:match.start()].strip()
+    return text
+
+
+def is_catalogue_query(query: str) -> bool:
+    text = query_without_citation_suffix(query)
     if not text:
         return False
     if _is_scoped_project_summary_query(text):
@@ -249,7 +267,7 @@ def is_catalogue_query(query: str) -> bool:
 
 
 def classify_intent(query: str) -> str:
-    text = strip_conversation_anchor(query)
+    text = query_without_citation_suffix(query)
     # Citation/source wording is answer-shaping context for a scoped project
     # summary, not a request to enumerate the corpus.  Resolve this strong
     # grammar before the generic document/source and catalogue branches.

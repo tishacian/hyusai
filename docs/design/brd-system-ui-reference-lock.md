@@ -89,3 +89,10 @@ published source actions; no NAWA branding changes or additional orchestration.
 
 The new Capture action stays inside `adoption_experience_v1`, already used for
 the pilot cohort. No new flag, workspace mutation or general client activation.
+
+The live def0b3cc test exposed misleading session-upload copy and an inactive
+NorthForge default beside a replacing published Context. Preserve the same
+ChatPanel controls: name the actual collection, show workspace source selection
+only when it participates, and reuse source-oriented suggestions and FR/EN
+copy. “+ Sources” remains an explicit scope change. This follows the locked
+Cockpit clarity target; no new component, palette or native NAWA change.

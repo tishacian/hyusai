@@ -400,6 +400,9 @@ export const CHAT_FR = {
   'chat.input.working': 'En cours…',
   'chat.input.streaming': 'Génération…',
   // --- Scope labels -----------------------------------------------------------
+  'chat.controls.collection_hint': '« Seuls » interroge cette collection. « + Sources » ajoute les sources du workspace sélectionnées.',
+  'chat.scope.collection_only': 'la collection {collection}',
+  'chat.scope.collection_plus': 'la collection {collection} et {source}',
   'chat.scope.session_only': 'Documents de session uniquement',
   'chat.scope.session_plus': 'Documents de session + {label}',
   'chat.scope.profile_default': 'Défaut du profil',
@@ -1036,6 +1039,9 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   'chat.input.working': 'Working…',
   'chat.input.streaming': 'Streaming',
   // --- Scope labels -----------------------------------------------------------
+  'chat.controls.collection_hint': '“Only” searches this collection. “+ Sources” adds the selected workspace sources.',
+  'chat.scope.collection_only': 'the {collection} collection',
+  'chat.scope.collection_plus': 'the {collection} collection and {source}',
   'chat.scope.session_only': 'Session docs only',
   'chat.scope.session_plus': 'Session docs + {label}',
   'chat.scope.profile_default': 'Profile default',

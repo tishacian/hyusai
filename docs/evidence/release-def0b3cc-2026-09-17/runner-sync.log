@@ -1,0 +1,20 @@
+The bundle contains this ref:
+def0b3cc348ab2c82b455a55cb2a12d04049e593 refs/heads/demo/agentic
+The bundle requires this ref:
+c3f1fb73a7572db0abdb2627d71ea88afc25b1a3 
+The bundle uses this hash algorithm: sha1
+/tmp/capture-handoff-def0b3cc.bundle is okay
+From /tmp/capture-handoff-def0b3cc.bundle
+ * branch              demo/agentic -> FETCH_HEAD
+Updating c3f1fb73..def0b3cc
+Fast-forward
+ docs/design/brd-system-ui-reference-lock.md        |    3 +
+ docs/evidence/capture-handoff-2026-09-17/README.md |   11 +-
+ docs/evidence/capture-handoff-2026-09-17/build.log |    8 +-
+ docs/evidence/capture-handoff-2026-09-17/unit.log  | 3029 ++++++++++----------
+ .../capture-published-chat.component.spec.ts       |   17 +-
+ .../knowledge/capture-published-chat.component.ts  |    9 +-
+ 6 files changed, 1550 insertions(+), 1527 deletions(-)
+?? .agentium-source-sha
+644 41
+def0b3cc348ab2c82b455a55cb2a12d04049e593
