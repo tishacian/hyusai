@@ -1,0 +1,6 @@
+Step 9/26 : COPY backend/requirements_giskard.txt /tmp/requirements/
+Step 11/26 : RUN if [ "$INSTALL_GISKARD_RAGET" = "true" ]; then       pip install --no-cache-dir --index-url=${PIP_INDEX_URL}         --constraint=/tmp/requirements/constraints-demo-worker.txt         -r /tmp/requirements/requirements_giskard.txt;     fi
+Step 18/26 : RUN if [ "$INSTALL_GISKARD_RAGET" = "true" ]; then       pip check && PYTHONPATH=/app/backend python backend/scripts/qualify_giskard_raget.py;     fi
+No broken requirements found.
+[91m/app/backend/scripts/qualify_giskard_raget.py:44: DeprecationWarning: set_default_client is deprecated: https://docs.giskard.ai/en/latest/open_source/setting_up/index.html
+/app/backend/scripts/qualify_giskard_raget.py:46: DeprecationWarning: set_default_embedding is deprecated, check documentation to setup llm: https://docs.giskard.ai/en/latest/open_source/setting_up/index.html

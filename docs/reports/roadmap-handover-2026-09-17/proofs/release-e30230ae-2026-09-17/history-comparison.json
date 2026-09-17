@@ -1,0 +1,282 @@
+{
+  "scope": "Local isolated canonical Runs and harness review; real provider and deployed retrieval. No production Run or decision mutated.",
+  "candidate_sha256": "e65554184c50c8ccf8adb312b78366d7bf538d4939fc11ab2b38008ce68757dc",
+  "same_case_and_corpus_metadata": true,
+  "case": {
+    "id": "case-history-durations",
+    "input_ref": {
+      "live-worker": "Report planned and actual durations for NF-04, with source."
+    },
+    "assertions": [
+      {
+        "id": "uses-history-tool",
+        "path": [],
+        "operator": "invocation_succeeded",
+        "value": "ws.ws-brd.northforge_history"
+      },
+      {
+        "id": "planned-30",
+        "path": [
+          "draft"
+        ],
+        "operator": "contains",
+        "value": "30"
+      },
+      {
+        "id": "actual-55",
+        "path": [
+          "draft"
+        ],
+        "operator": "contains",
+        "value": "55"
+      },
+      {
+        "id": "preserves-nf04-id",
+        "path": [
+          "draft"
+        ],
+        "operator": "contains",
+        "value": "NF-04"
+      }
+    ],
+    "reference_run_id": null,
+    "question": "Report planned and actual durations for NF-04, with source.",
+    "reference_answer": "Briefing cites the Operational Analysis history for NF-04 and reports planned duration 30 minutes and actual duration 55 minutes with preserved source identifiers.",
+    "reference_context": null,
+    "answer_path": [
+      "draft"
+    ]
+  },
+  "before": {
+    "status": "completed",
+    "output": {
+      "draft": "No planned or actual durations for NF-04 are available in the retrieved evidence. The only authorized material surfaced is a collection inventory that lists a single source (\u201cnorthforge-intervention-history.md\u201d) but does not provide its contents; therefore, NF-04 durations cannot be reported from the available evidence.\n\n- [tool: ws.ws-brd.northforge_history] [id: 401b2ca0-b844-49bb-bbed-2829ded64db3] \"Collections: - agentium-showcase-intervention-history: 1 source(s), 1 chunk(s), 1 matching source(s), statut ready. - northforge-intervention-history.md | text | md | ready | 1 chunks | 846 bytes\" (source title: Inventaire Knowledge collection)\n\nAbsences/Limitations: The requested planned and actual durations for NF-04 do not appear in the retrieved sources; only a collection inventory was available and no content from \u201cnorthforge-intervention-history.md\u201d was retrieved.",
+      "approved": true,
+      "rejected": false,
+      "decision_status": "accepted"
+    },
+    "assertions": {
+      "verdict": "failed",
+      "assertions": [
+        {
+          "id": "uses-history-tool",
+          "passed": true,
+          "path_found": true,
+          "evidence_basis": "invocation_ledger",
+          "invocation_ids": [
+            "401b2ca0-b844-49bb-bbed-2829ded64db3",
+            "57eb396d-f50b-4854-8a9e-0893c80b5492",
+            "c6751843-99bc-4183-ac33-7888f1af75ee",
+            "c81bd817-d56d-4602-953b-ffbfaae93242",
+            "4ef0d812-0fcb-4562-b56d-c0bf845b63d0",
+            "826e6a72-1ff4-4a83-831b-1f1b43b2746b"
+          ]
+        },
+        {
+          "id": "planned-30",
+          "passed": false,
+          "path_found": true
+        },
+        {
+          "id": "actual-55",
+          "passed": false,
+          "path_found": true
+        },
+        {
+          "id": "preserves-nf04-id",
+          "passed": true,
+          "path_found": true
+        }
+      ]
+    },
+    "review": "harness_accepted_not_human",
+    "seconds": 199.91556904100435,
+    "run_id": "8da9bb59-0dec-4501-9d3c-87f342c77ded",
+    "retrieval_calls": [
+      {
+        "request": {
+          "query": "Report planned and actual durations for NF-04, with source.",
+          "context_collection": "agentium-showcase-intervention-history",
+          "top_k": 5,
+          "latency_profile": "balanced"
+        },
+        "pipeline": "collection_inventory",
+        "seconds": 15.757039415999316
+      },
+      {
+        "request": {
+          "query": "Report planned and actual durations for NF-04, with source.",
+          "context_collection": "agentium-showcase-intervention-history",
+          "top_k": 5,
+          "latency_profile": "balanced"
+        },
+        "pipeline": "collection_inventory",
+        "seconds": 13.913820334004413
+      },
+      {
+        "request": {
+          "query": "Report planned and actual durations for NF-04, with source.",
+          "context_collection": "agentium-showcase-intervention-history",
+          "top_k": 5,
+          "latency_profile": "balanced"
+        },
+        "pipeline": "collection_inventory",
+        "seconds": 15.118972832999134
+      },
+      {
+        "request": {
+          "query": "Report planned and actual durations for NF-04, with source.",
+          "context_collection": "agentium-showcase-intervention-history",
+          "top_k": 5,
+          "latency_profile": "balanced"
+        },
+        "pipeline": "collection_inventory",
+        "seconds": 14.882998082997801
+      },
+      {
+        "request": {
+          "query": "Report planned and actual durations for NF-04, with source.",
+          "context_collection": "agentium-showcase-intervention-history",
+          "top_k": 5,
+          "latency_profile": "balanced"
+        },
+        "pipeline": "collection_inventory",
+        "seconds": 15.290125792002073
+      },
+      {
+        "request": {
+          "query": "Report planned and actual durations for NF-04, with source.",
+          "context_collection": "agentium-showcase-intervention-history",
+          "top_k": 5,
+          "latency_profile": "balanced"
+        },
+        "pipeline": "collection_inventory",
+        "seconds": 14.546216833005019
+      }
+    ]
+  },
+  "after": {
+    "status": "completed",
+    "output": {
+      "draft": "NF-04 had a planned duration of 30 minutes and an actual duration of 55 minutes, per the NorthForge synthetic intervention history dataset.\n\n- [tool: ws.ws-brd.northforge_history] [id: 503f8bb1-0d46-54ab-9f9b-d0ac83572de6] \"NF-04 Planned duration: 30 minutes. Actual duration: 55 minutes. Cause: not supplied. Equipment: not supplied.\" (northforge-intervention-history.md, chunk 0)",
+      "approved": true,
+      "rejected": false,
+      "decision_status": "accepted"
+    },
+    "assertions": {
+      "verdict": "passed",
+      "assertions": [
+        {
+          "id": "uses-history-tool",
+          "passed": true,
+          "path_found": true,
+          "evidence_basis": "invocation_ledger",
+          "invocation_ids": [
+            "83acf9f1-ab46-4dc0-90c0-b4864cc342a8"
+          ]
+        },
+        {
+          "id": "planned-30",
+          "passed": true,
+          "path_found": true
+        },
+        {
+          "id": "actual-55",
+          "passed": true,
+          "path_found": true
+        },
+        {
+          "id": "preserves-nf04-id",
+          "passed": true,
+          "path_found": true
+        }
+      ]
+    },
+    "review": "harness_accepted_not_human",
+    "seconds": 60.956215666999924,
+    "run_id": "4e515aa6-4228-4cf2-a6a0-728067ad4761",
+    "retrieval_calls": [
+      {
+        "request": {
+          "query": "Report planned and actual durations for NF-04, with source.",
+          "context_collection": "agentium-showcase-intervention-history",
+          "top_k": 5,
+          "latency_profile": "balanced"
+        },
+        "pipeline": "hybrid",
+        "seconds": 22.17119529199408
+      }
+    ],
+    "provider_calls": [
+      {
+        "model": "gpt-5-2025-08-07",
+        "usage": {
+          "total_tokens": 869,
+          "provider_calls": 1,
+          "measurement_source": "provider_reported",
+          "measurement_coverage": "complete",
+          "providers": [
+            "openai"
+          ],
+          "calls": [
+            {
+              "provider": "openai",
+              "model": "gpt-5",
+              "total_tokens": 869,
+              "prompt_tokens": 632,
+              "completion_tokens": 237
+            }
+          ],
+          "prompt_tokens": 632,
+          "completion_tokens": 237
+        }
+      },
+      {
+        "model": "gpt-5-2025-08-07",
+        "usage": {
+          "total_tokens": 2867,
+          "provider_calls": 1,
+          "measurement_source": "provider_reported",
+          "measurement_coverage": "complete",
+          "providers": [
+            "openai"
+          ],
+          "calls": [
+            {
+              "provider": "openai",
+              "model": "gpt-5",
+              "total_tokens": 2867,
+              "prompt_tokens": 1732,
+              "completion_tokens": 1135
+            }
+          ],
+          "prompt_tokens": 1732,
+          "completion_tokens": 1135
+        }
+      },
+      {
+        "model": "gpt-5-2025-08-07",
+        "usage": {
+          "total_tokens": 2374,
+          "provider_calls": 1,
+          "measurement_source": "provider_reported",
+          "measurement_coverage": "complete",
+          "providers": [
+            "openai"
+          ],
+          "calls": [
+            {
+              "provider": "openai",
+              "model": "gpt-5",
+              "total_tokens": 2374,
+              "prompt_tokens": 1358,
+              "completion_tokens": 1016
+            }
+          ],
+          "prompt_tokens": 1358,
+          "completion_tokens": 1016
+        }
+      }
+    ]
+  }
+}

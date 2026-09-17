@@ -1,0 +1,23 @@
+The bundle contains this ref:
+0f06b4eb5f6bcd728a95ad85bc030792a7bab999 refs/heads/demo/agentic
+The bundle requires this ref:
+d5c8b93db1a3d4ad1ed06076bba171165046d842 
+The bundle uses this hash algorithm: sha1
+/tmp/capture-scope-0f06b4eb.bundle is okay
+From /tmp/capture-scope-0f06b4eb.bundle
+ * branch              demo/agentic -> FETCH_HEAD
+Updating d5c8b93d..0f06b4eb
+Fast-forward
+ docs/design/brd-system-ui-reference-lock.md        |    5 +
+ .../capture-scope-routing-2026-09-17/README.md     |   20 +
+ .../capture-scope-routing-2026-09-17/build.log     |   26 +-
+ .../chat-en-dark-390.png                           |  Bin 0 -> 41926 bytes
+ .../chat-fr-light-390.png                          |  Bin 0 -> 42012 bytes
+ .../capture-scope-routing-2026-09-17/unit.log      | 3028 ++++++++++----------
+ frontend-ng/src/app/core/i18n/chat.dict.ts         |    4 +-
+ .../src/app/features/chat/chat-panel.component.ts  |    6 +
+ 8 files changed, 1560 insertions(+), 1529 deletions(-)
+ create mode 100644 docs/evidence/capture-scope-routing-2026-09-17/chat-en-dark-390.png
+ create mode 100644 docs/evidence/capture-scope-routing-2026-09-17/chat-fr-light-390.png
+?? .agentium-source-sha
+644 41

@@ -1,0 +1,27 @@
+{
+  "sha": "37056391d6cc315c72495f973fb6fe0e2072ed68",
+  "source_report": "document-locators-37056391.json",
+  "checksums": {
+    "excel": {
+      "filename": "history.xlsx",
+      "sha256": "061c4266decaecfc86bf05ed2eaace673ae31e98cb93a499499393eab1bfb92d",
+      "matches_uploaded_original": true
+    },
+    "pdf": {
+      "filename": "Invoice_INV-8834_Sample.pdf",
+      "sha256": "12c6befcde7eb5a4206af365be0bfa01294a28da5e152893d28223f38602135a",
+      "matches_uploaded_original": true
+    }
+  },
+  "missing_sheet": {
+    "status": 404,
+    "detail": "HTTP 404 /documents/b563926c-8123-5b92-8893-d1f67b1f86e9/rich-preview?collection_name=qa-document-locators-37056391&filename=history.xlsx&sheet_name=Missing+sheet&cell_range=N830%3AO831: Referenced worksheet not found"
+  },
+  "native_pdf": {
+    "retrieved_page": 1,
+    "invoice": "INV-8834",
+    "amount_present": "9,860.00 QAR",
+    "original_verified": true,
+    "ocr_executed": false
+  }
+}

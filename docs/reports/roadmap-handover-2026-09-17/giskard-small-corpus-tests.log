@@ -1,0 +1,67 @@
+............................................                             [100%]
+=============================== warnings summary ===============================
+app/tests/api/test_evaluation_campaigns.py: 327 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag/backend/.venv/lib/python3.14/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+app/tests/api/test_evaluation_campaigns.py: 27 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/systems/flow_publication.py:376: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/api/test_evaluation_campaigns.py: 45 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/systems/flow_workbench.py:411: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    started_at=datetime.utcnow(),
+
+app/tests/api/test_evaluation_campaigns.py: 66 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/audit_logger.py:61: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+app/tests/api/test_evaluation_campaigns.py: 21 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/workspace_jobs.py:33: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/api/test_evaluation_campaigns.py: 21 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/workspace_jobs.py:117: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+app/tests/api/test_evaluation_campaigns.py: 10 warnings
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/evaluation/campaigns.py:368: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    campaign.completed_at = datetime.utcnow()
+
+app/tests/api/test_evaluation_campaigns.py::test_missing_worker_is_terminal_and_cancels_unexecuted_cases
+app/tests/api/test_evaluation_campaigns.py::test_missing_worker_is_terminal_and_cancels_unexecuted_cases
+app/tests/api/test_evaluation_campaigns.py::test_worker_failure_preserves_completed_run_and_cancels_pending_retry_is_new_attempt
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/evaluation/campaigns.py:255: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    run.status, run.error, run.completed_at = "cancelled", reason, datetime.utcnow()
+
+app/tests/api/test_evaluation_campaigns.py::test_campaign_worker_dispatches_canonical_runs_once_and_persists_verdict
+app/tests/api/test_evaluation_campaigns.py::test_worker_failure_preserves_completed_run_and_cancels_pending_retry_is_new_attempt
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/evaluation/campaigns.py:390: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    job.status, job.stage, job.started_at = "running", "canonical_runs", datetime.utcnow()
+
+app/tests/api/test_evaluation_campaigns.py::test_campaign_worker_dispatches_canonical_runs_once_and_persists_verdict
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/evaluation/campaigns.py:405: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    job.progress, job.completed_at = 100, datetime.utcnow()
+
+app/tests/api/test_evaluation_campaigns.py::test_worker_failure_preserves_completed_run_and_cancels_pending_retry_is_new_attempt
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/evaluation/campaigns.py:415: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    job.completed_at = datetime.utcnow()
+
+app/tests/api/test_evaluation_campaigns.py::test_raget_repeated_request_returns_same_job[0]
+app/tests/api/test_evaluation_campaigns.py::test_raget_repeated_request_returns_same_job[1]
+app/tests/api/test_evaluation_campaigns.py::test_testset_generation_still_requires_eight_chunks
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/evaluation/campaigns.py:464: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    job.status, job.stage, job.started_at = "running", "loading_corpus", datetime.utcnow()
+
+app/tests/api/test_evaluation_campaigns.py::test_raget_repeated_request_returns_same_job[0]
+app/tests/api/test_evaluation_campaigns.py::test_testset_generation_still_requires_eight_chunks
+app/tests/api/test_evaluation_campaigns.py::test_changed_model_refused_before_loading_corpus
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/evaluation/campaigns.py:535: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    job.completed_at = datetime.utcnow()
+
+app/tests/api/test_evaluation_campaigns.py::test_raget_repeated_request_returns_same_job[1]
+  /Users/thibaudishacian/Developer/DATATEGY/papAI/omnirag-brd-roadmap/backend/app/services/evaluation/campaigns.py:522: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    job.completed_at = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+44 passed, 531 warnings in 2.46s

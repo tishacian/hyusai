@@ -1,0 +1,15 @@
+agentium-worker-recipes agentium-worker:37056391d6cc Up 48 seconds
+agentium-worker-cpu agentium-worker:37056391d6cc Up 48 seconds
+agentium-p4-maintenance agentium-worker:37056391d6cc Up 48 seconds
+agentium-backend agentium-backend:37056391d6cc Up 48 seconds (health: starting)
+agentium-beat agentium-worker:37056391d6cc Up 48 seconds
+agentium-frontend agentium-frontend:37056391d6cc Up 48 seconds (healthy)
+agentium-sftp af7ef7a728e8 Up 7 days (healthy)
+agentium-rabbitmq rabbitmq:4.1-management Up 7 days (healthy)
+qdrant qdrant/qdrant:v1.12.5-unprivileged Up 7 days (healthy)
+agentium-minio minio/minio:RELEASE.2025-04-22T22-12-26Z Up 7 days (healthy)
+agentium-livekit-agent agentium-livekit-agent:local Up 7 days (healthy)
+agentium-livekit livekit/livekit-server:v1.12.0 Up 7 days
+agentium-kc quay.io/keycloak/keycloak:26.1.4 Up 7 days (healthy)
+agentium-pg 7ad98329d513 Up 7 days (healthy)
+0

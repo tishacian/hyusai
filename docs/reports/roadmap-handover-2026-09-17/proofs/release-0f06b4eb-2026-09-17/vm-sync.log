@@ -1,0 +1,16 @@
+From bitbucket.org:datategy-root/omnirag
+ * branch              demo/agentic -> FETCH_HEAD
+   d5c8b93d..0f06b4eb  demo/agentic -> origin/demo/agentic
+Updating d5c8b93d..0f06b4eb
+Fast-forward
+ docs/design/brd-system-ui-reference-lock.md        |    5 +
+ .../capture-scope-routing-2026-09-17/README.md     |   20 +
+ .../capture-scope-routing-2026-09-17/build.log     |   26 +-
+ .../chat-en-dark-390.png                           |  Bin 0 -> 41926 bytes
+ .../chat-fr-light-390.png                          |  Bin 0 -> 42012 bytes
+ .../capture-scope-routing-2026-09-17/unit.log      | 3028 ++++++++++----------
+ frontend-ng/src/app/core/i18n/chat.dict.ts         |    4 +-
+ .../src/app/features/chat/chat-panel.component.ts  |    6 +
+ 8 files changed, 1560 insertions(+), 1529 deletions(-)
+ create mode 100644 docs/evidence/capture-scope-routing-2026-09-17/chat-en-dark-390.png
+ create mode 100644 docs/evidence/capture-scope-routing-2026-09-17/chat-fr-light-390.png

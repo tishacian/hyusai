@@ -1,0 +1,9 @@
+Traceback (most recent call last):
+  File "/tmp/qualify-ocr-bb46.py", line 18, in <module>
+    client=Client('https://agentium.papai.ai/api/v1','/root/.attestation-username','/root/.attestation-password')
+  File "/opt/agentium-protected-runner/repos/omnirag/scripts/qualification/observability_live.py", line 45, in __init__
+    login = self.call("/auth/login", {"email": Path(username_file).read_text().strip(),
+        "password": Path(password_file).read_text().strip(), "remember_me": False})
+  File "/opt/agentium-protected-runner/repos/omnirag/scripts/qualification/observability_live.py", line 64, in call
+    raise RuntimeError(f"HTTP {error.code} {path}: {str(detail)[:1200]}") from None
+RuntimeError: HTTP 401 /auth/login: Invalid user credentials

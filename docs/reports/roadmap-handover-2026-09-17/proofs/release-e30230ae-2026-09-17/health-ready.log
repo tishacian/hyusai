@@ -1,0 +1,6 @@
+/agentium-backend agentium-backend:e30230aea3f5 running healthy
+/agentium-worker-cpu agentium-worker:e30230aea3f5 running
+/agentium-worker-recipes agentium-worker:e30230aea3f5 running
+/agentium-frontend agentium-frontend:e30230aea3f5 running healthy
+/agentium-p4-maintenance agentium-worker:e30230aea3f5 running
+/agentium-beat agentium-worker:e30230aea3f5 running

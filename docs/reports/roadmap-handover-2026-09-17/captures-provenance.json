@@ -1,0 +1,18 @@
+{
+  "deployed_sha": "e30230aea3f58518bbe2219a5b2dbbdd757bab2f",
+  "current_capture_origin": "/tmp/iteration-canaries-20260917T055551Z.lgzwS6/playwright-output",
+  "current_captures": {
+    "23-observability-evidence--13cc4-ection-retain-the-exact-Run-chromium/quality-chart.png": "quality-e302.png",
+    "23-observability-evidence--13cc4-ection-retain-the-exact-Run-chromium/run-investigation.png": "run-e302.png",
+    "23-observability-evidence--13cc4-ection-retain-the-exact-Run-chromium/invocation-audit.png": "invocation-e302.png",
+    "20-hypervisor-v2-canary-Hy-28da9-tonal-ledger-facets-honesty-chromium/hypervisor-v2-canary.png": "hypervisor-e302.png",
+    "17-experience-studio-canar-cd889-al-application-from-scratch-chromium/studio-fr-light-desktop.png": "studio-e302.png",
+    "16-experience-work-canary--dc30f--app-without-cockpit-chrome-chromium/work-fr-light-desktop.png": "work-e302.png"
+  },
+  "historical_captures": {
+    "pih-flow-18741.png": "18741f94",
+    "capture-source-447997.png": "447997ee",
+    "dataops-result-4baa.png": "4baa9f5d"
+  },
+  "hypervisor_note": "Real deployed V2 with temporary feature activation in canary; original setting restored."
+}

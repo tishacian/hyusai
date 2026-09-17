@@ -1,0 +1,154 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+    - button "PIH Document Summary"
+    - button "PIH Document Summary System"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=design&lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Create
+    - link "Monitor":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=design&lens=operate&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Monitor
+    - link "Improve":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=design&lens=steer&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Improve
+    - link "Administer":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=design&lens=govern&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Create
+  - navigation:
+    - link "Business application":
+      - /url: /create/apps
+      - generic: Business application
+    - link "Systems":
+      - /url: /systems
+      - generic: Systems
+    - link "Capabilities":
+      - /url: /capabilities
+      - generic: Capabilities
+    - link "Skills":
+      - /url: /skills
+      - generic: Skills
+    - link "Knowledge":
+      - /url: /knowledge
+      - generic: Knowledge
+    - link "Data & Models":
+      - /url: /data
+      - generic: Data & Models
+    - link "Flow builder":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Flow builder
+    - generic: In PIH Document Summary System
+    - link "Overview":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=overview
+      - generic: Overview
+    - link "Runs":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=runs
+      - generic: Runs
+    - link "Design":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=design
+      - generic: Design
+    - link "Context":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=context
+      - generic: Context
+- main:
+  - generic: Systems · System · VIEWED FROM Create
+  - heading "PIH Document Summary System" [active] [level=1]
+  - generic: Ready
+  - generic: Configure, run and refine this AI system.
+  - link "Operator Runner":
+    - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/run?capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+    - text: Operator Runner
+  - button "Run now":
+    - text: Run now
+  - link "Open in Work":
+    - /url: /work?lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+  - button "Chat":
+    - text: Chat
+  - button "Settings":
+    - text: Settings
+  - generic "Return on decision — coming when Outcome.value is priced.":
+    - generic: ROI
+    - generic: —
+  - generic "Unit cost per run — coming with cost accounting.":
+    - generic: Cost
+    - generic: —
+  - generic "Composite quality score (latest evaluation).":
+    - generic: Yield
+    - generic: 100%
+  - generic "Runs":
+    - generic: Runs
+    - generic: "3"
+  - tablist "System facets":
+    - tab "Overview"
+    - tab "Runs"
+    - tab "Design" [selected]
+    - tab "Context"
+  - tabpanel "Design":
+    - status:
+      - strong: Draft r3 · Published v1.
+      - text: This view describes the draft. Published executions keep their version until you explicitly publish.
+    - generic: Saved Flow
+    - paragraph: 3 nodes · 3 connections
+    - link "Open in flow builder":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - text: Open in flow builder
+    - heading "Triggers" [level=3]
+    - generic: manual
+    - generic: Transaction excerpts
+    - heading "Steps" [level=3]:
+      - text: Steps
+    - generic: 3 nodes · 3 connections
+    - list:
+      - generic: "1"
+      - generic: Transaction excerpts
+      - generic: source
+      - paragraph: source.manual
+      - generic: "2"
+      - generic: PIH Document Summary Demo
+      - generic: task
+      - paragraph: ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.demo_pih_spark089_summary
+      - generic: "3"
+      - generic: Factual summary
+      - generic: sink
+      - paragraph: output
+    - heading "Bound skills" [level=3]
+    - link "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.demo_pih_spark089_summary":
+      - /url: /skills/ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.demo_pih_spark089_summary?capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+  - generic "Settings"
+  - generic "Chat"
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Create · Depth 3/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: System
+- document

@@ -1,0 +1,154 @@
+- link "Aller au contenu principal":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portefeuille"
+    - button "PIH Document Summary"
+    - button "PIH Document Summary System"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Thème : Clair · cliquer → Sombre"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Compte · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Navigation principale":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Créer":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=design&lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Créer
+    - link "Suivre":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=design&lens=operate&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Suivre
+    - link "Améliorer":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=design&lens=steer&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Améliorer
+    - link "Administrer":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=design&lens=govern&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Administrer
+  - button "Aller à…":
+    - generic: Aller à…
+- complementary "Sommaire":
+  - generic: Sommaire
+  - generic: Créer
+  - navigation:
+    - link "Application métier":
+      - /url: /create/apps
+      - generic: Application métier
+    - link "Systèmes":
+      - /url: /systems
+      - generic: Systèmes
+    - link "Capabilities":
+      - /url: /capabilities
+      - generic: Capabilities
+    - link "Skills":
+      - /url: /skills
+      - generic: Skills
+    - link "Connaissances":
+      - /url: /knowledge
+      - generic: Connaissances
+    - link "Données & modèles":
+      - /url: /data
+      - generic: Données & modèles
+    - link "Flow builder":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - generic: Flow builder
+    - generic: Dans PIH Document Summary System
+    - link "Aperçu":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=overview
+      - generic: Aperçu
+    - link "Exécutions":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=runs
+      - generic: Exécutions
+    - link "Conception":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=design
+      - generic: Conception
+    - link "Contexte":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57?facet=context
+      - generic: Contexte
+- main:
+  - generic: Systems · System · VU DEPUIS Créer
+  - heading "PIH Document Summary System" [level=1]
+  - generic: Ready
+  - generic: Configure, run and refine this AI system.
+  - link "Operator Runner":
+    - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/run?capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+    - text: Operator Runner
+  - button "Run now":
+    - text: Run now
+  - link "Ouvrir dans Work":
+    - /url: /work?lens=build&capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+  - button "Chat":
+    - text: Chat
+  - button "Settings":
+    - text: Settings
+  - generic "Return on decision — coming when Outcome.value is priced.":
+    - generic: ROI
+    - generic: —
+  - generic "Unit cost per run — coming with cost accounting.":
+    - generic: Cost
+    - generic: —
+  - generic "Composite quality score (latest evaluation).":
+    - generic: Yield
+    - generic: 100%
+  - generic "Runs":
+    - generic: Runs
+    - generic: "3"
+  - tablist "System facets":
+    - tab "Aperçu"
+    - tab "Runs"
+    - tab "Conception" [selected]
+    - tab "Contexte"
+  - tabpanel "Conception" [active]:
+    - status:
+      - strong: Draft r3 · Version publiée v1.
+      - text: Cette vue décrit le draft. Les exécutions publiées conservent leur version jusqu’à une publication explicite.
+    - generic: Flow enregistré
+    - paragraph: 3 nœuds · 3 connexions
+    - link "Ouvrir le Flow builder":
+      - /url: /systems/a021f6c3-fed5-4940-a3e1-53d5a7617f57/flow?capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742
+      - text: Ouvrir le Flow builder
+    - heading "Déclencheurs" [level=3]
+    - generic: manual
+    - generic: Transaction excerpts
+    - heading "Étapes" [level=3]:
+      - text: Étapes
+    - generic: 3 nœuds · 3 connexions
+    - list:
+      - generic: "1"
+      - generic: Transaction excerpts
+      - generic: source
+      - paragraph: source.manual
+      - generic: "2"
+      - generic: PIH Document Summary Demo
+      - generic: task
+      - paragraph: ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.demo_pih_spark089_summary
+      - generic: "3"
+      - generic: Factual summary
+      - generic: sink
+      - paragraph: output
+    - heading "Skills liées" [level=3]
+    - link "ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.demo_pih_spark089_summary":
+      - /url: /skills/ws.e2ed9e40-5fa6-4e32-8948-3e1220134fd3.demo_pih_spark089_summary?capabilityId=8dd69fb7-e54b-4b01-9607-a2684cd1a742&systemId=a021f6c3-fed5-4940-a3e1-53d5a7617f57
+  - generic "Settings"
+  - generic "Chat"
+- contentinfo:
+  - generic: Système opérationnel
+  - generic: Zone · Créer · Profondeur 3/5
+  - generic: ⌘K
+  - text: Commande
+  - generic "⌘Z dézoomer (Portefeuille › Capability › Système › Exécution › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: System
+- document
