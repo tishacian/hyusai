@@ -264,3 +264,24 @@ def test_same_digest_on_another_uri_and_repeated_receipt_do_not_inflate_provenan
 def test_unrelated_decisions_are_never_attached_by_system_only():
     unrelated = decision(scope="system", target_id="system", rationale={"run_id": "another"})
     assert run_mandate(run(), decisions=[unrelated], invocations=[])["events"] == []
+
+
+def test_postcheck_decision_proves_a_block_only_with_matching_persisted_stop():
+    item = run(status="failed", error="membrane_valve_breach:cost_measurement_unavailable")
+    breach = decision(kind="policy_breach", status="applied", rationale={
+        "run_id": "run", "hard_abort": True, "mode": "enforce",
+        "breaches": ["cost_measurement_unavailable"],
+    })
+    value = run_mandate(item, decisions=[breach], invocations=[])
+    assert value["events"][0]["status"] == "blocked"
+    assert value["counts"]["blocked"] == 1
+    assert value["facets"]["valves"]["state"] == "breached"
+    for status, error, abort in [
+        ("completed", None, True),
+        ("failed", "unrelated_error", True),
+        ("failed", "membrane_valve_breach:latency", True),
+        ("failed", "membrane_valve_breach:cost_measurement_unavailable", False),
+    ]:
+        item.status, item.error = status, error
+        breach.rationale["hard_abort"] = abort
+        assert run_mandate(item, decisions=[breach], invocations=[])["counts"]["blocked"] == 0
