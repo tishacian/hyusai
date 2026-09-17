@@ -84,8 +84,8 @@ Une invocation absente affiche une explication et une reprise de lecture.
 
 La [capture réelle du contrôle NorthForge](../../evidence/release-ab15d204-2026-09-17/invocation.png)
 illustre ce parcours. Les preuves détaillées sont techniques ; elles n'établissent
-ni validation humaine ni valeur économique. La carte de résultat confond encore
-valeur absente et zéro : ce point reste à corriger.
+ni validation humaine ni valeur économique. La distinction valeur absente/zéro
+est livrée dans 4baa9f5d, décrite ci-dessous.
 
 As an operator, I can open a recorded operation from its Run timeline, inspect
 its input/output/trace, and return to the same Run and System. The authorized
@@ -94,3 +94,25 @@ shows an unavailable state and a retry action. Reload and browser history keep
 the selected operation. This does not imply human approval or economic impact.
 
 [Release, real browser evidence and remaining scope](../../evidence/release-ab15d204-2026-09-17/README.md).
+
+
+## Lire une valeur et un coût sans inventer d’impact — livré sur 4baa9f5d
+
+En tant qu’opérateur, je distingue une valeur absente, une estimation et une
+valeur déclarée. L’absence n’affiche ni zéro ni efficacité calculée. Les coûts
+issus du tarif d’une Skill portent « Calculé » ; la facturation fournisseur
+reste non vérifiée. Le détail conserve l’invocation et sa provenance.
+
+Le [nouveau Run NorthForge](../../evidence/release-4baa9f5d-2026-09-17/new-run.png)
+montre 0,012 $ de coût enregistré, une valeur absente et trois opérations.
+Le contrôle numérique réussi ne devient ni une validation humaine ni une économie.
+La carte reste lisible en [français clair](../../evidence/release-4baa9f5d-2026-09-17/fr-light.png),
+[anglais sombre](../../evidence/release-4baa9f5d-2026-09-17/en-dark.png) et
+[sur écran étroit](../../evidence/release-4baa9f5d-2026-09-17/fr-narrow.png).
+
+As an operator, I can distinguish missing, estimated and declared value.
+Missing value does not imply zero or measured efficiency. Skill-tariff costs say
+“Calculated”; supplier billing remains unverified. The ledger links to each
+recorded operation. A passed numerical check does not imply human validation or
+verified savings. The real FR/EN, light/dark and narrow-screen checks are retained
+in the [release evidence](../../evidence/release-4baa9f5d-2026-09-17/README.md).

@@ -1,0 +1,73 @@
+The bundle contains this ref:
+4baa9f5d1487161770c715ee393dd92eb3c8ddb3 refs/heads/demo/agentic
+The bundle requires this ref:
+c19d30e8133c1a728b9e834a98fc135cda171bda
+The bundle uses this hash algorithm: sha1
+/tmp/outcome-responsive-4baa9f5d.bundle is okay
+From /tmp/outcome-responsive-4baa9f5d.bundle
+ * branch              demo/agentic -> FETCH_HEAD
+Updating c19d30e8..4baa9f5d
+Fast-forward
+ docs/design/brd-system-ui-reference-lock.md        |  17 ++
+ .../outcome-card-responsive-2026-09-17/README.md   |  13 ++
+ .../outcome-card-responsive-2026-09-17/build.log   | 107 ++++++++++
+ .../outcome-card-responsive-2026-09-17/chrome.log  |   5 +
+ .../outcome-card-responsive-2026-09-17/i18n.log    |   5 +
+ .../outcome-card-responsive-2026-09-17/nav.log     |   5 +
+ .../outcome-card-responsive-2026-09-17/unit.log    |  25 +++
+ .../evidence/release-c19d30e8-2026-09-17/README.md |  28 +++
+ .../backend-build-info.json                        |   6 +
+ .../release-c19d30e8-2026-09-17/before-card.txt    |  15 ++
+ .../release-c19d30e8-2026-09-17/before.png         | Bin 0 -> 86563 bytes
+ .../release-c19d30e8-2026-09-17/canaries.log       |  19 ++
+ .../release-c19d30e8-2026-09-17/en-dark-dom.txt    | 215 +++++++++++++++++++++
+ .../release-c19d30e8-2026-09-17/en-dark.png        | Bin 0 -> 61928 bytes
+ .../fr-narrow-before.png                           | Bin 0 -> 33927 bytes
+ .../frontend-build-info.json                       |   5 +
+ .../release-c19d30e8-2026-09-17/health-ready.log   |   6 +
+ .../release-c19d30e8-2026-09-17/home-http.log      |   1 +
+ .../release-c19d30e8-2026-09-17/pre-switch.log     |   3 +
+ .../public-verification.log                        |   3 +
+ .../quicktime-status.txt                           |   4 +
+ .../retained-outcome.json                          |  13 ++
+ .../release-c19d30e8-2026-09-17/runner-sync.log    |  73 +++++++
+ .../runner-verified.log                            |   4 +
+ .../release-c19d30e8-2026-09-17/runtime-health.log |   7 +
+ .../release-c19d30e8-2026-09-17/switch.log         |  14 ++
+ .../release-c19d30e8-2026-09-17/vm-build.log       |   9 +
+ .../release-c19d30e8-2026-09-17/worker-sdk.log     |  11 ++
+ .../tests/23-observability-evidence-canary.spec.ts |  11 ++
+ frontend-ng/src/app/core/i18n/runs.dict.ts         |   8 +-
+ .../cockpit/run-outcome-card.component.spec.ts     |   5 +
+ .../shared/cockpit/run-outcome-card.component.ts   |   3 +-
+ 32 files changed, 635 insertions(+), 5 deletions(-)
+ create mode 100644 docs/evidence/outcome-card-responsive-2026-09-17/README.md
+ create mode 100644 docs/evidence/outcome-card-responsive-2026-09-17/build.log
+ create mode 100644 docs/evidence/outcome-card-responsive-2026-09-17/chrome.log
+ create mode 100644 docs/evidence/outcome-card-responsive-2026-09-17/i18n.log
+ create mode 100644 docs/evidence/outcome-card-responsive-2026-09-17/nav.log
+ create mode 100644 docs/evidence/outcome-card-responsive-2026-09-17/unit.log
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/README.md
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/backend-build-info.json
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/before-card.txt
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/before.png
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/canaries.log
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/en-dark-dom.txt
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/en-dark.png
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/fr-narrow-before.png
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/frontend-build-info.json
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/health-ready.log
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/home-http.log
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/pre-switch.log
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/public-verification.log
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/quicktime-status.txt
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/retained-outcome.json
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/runner-sync.log
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/runner-verified.log
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/runtime-health.log
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/switch.log
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/vm-build.log
+ create mode 100644 docs/evidence/release-c19d30e8-2026-09-17/worker-sdk.log
+?? .agentium-source-sha
+644 41
+4baa9f5d1487161770c715ee393dd92eb3c8ddb3

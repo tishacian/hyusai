@@ -1,0 +1,7 @@
+/agentium-backend agentium-backend:4baa9f5d1487 running healthy
+/agentium-worker-cpu agentium-worker:4baa9f5d1487 running
+/agentium-worker-recipes agentium-worker:4baa9f5d1487 running
+/agentium-frontend agentium-frontend:4baa9f5d1487 running healthy
+/agentium-p4-maintenance agentium-worker:4baa9f5d1487 running
+/agentium-beat agentium-worker:4baa9f5d1487 running
+BACKEND_STARTUP_ERRORS=0

@@ -6907,3 +6907,20 @@ reload, return/history and an unavailable invocation with retry. The retained
 Run keeps its historical execution SHA. No R1 decision or published System changed.
 The outcome-card absent-value display, video and R0 human baseline remain open.
 [Evidence](../evidence/release-ab15d204-2026-09-17/README.md).
+
+
+### 2026-09-17 — qualified and responsive outcome readouts (c19d30e8 → 4baa9f5d)
+
+Final deployed revision `4baa9f5d1487161770c715ee393dd92eb3c8ddb3`, pushed
+`demo/agentic`, three VM-built immutable images at `4baa9f5d1487`.
+Immediate rollback `c19d30e8133c`; no migration, flag activation or NAWA change.
+1,503 frontend tests, 19 backend cost/provenance tests (unchanged backend),
+i18n 8,057 keys, navigation/chrome/build pass. Idle workers, storage, healthy
+services, both public revisions and HTTP 200 verified. Carakai: 10 passed,
+2 intentional skips; worker SDK offline fixture passed, not a provider campaign.
+The intermediate c19d30e8 overflow is retained in its release evidence.
+Final real FR/EN, light/dark, 390 px and keyboard checks pass for the outcome card.
+New Work Run 5369c2b1 completes on 4baa9f5d with exact NorthForge numerical output;
+PIH configuration/Flow and Quality → Run → passage are inspected. Retained R1
+reviews are untouched. Generic PIH Design summary, video and R0 human acceptance
+remain open. [Final evidence](../evidence/release-4baa9f5d-2026-09-17/README.md).

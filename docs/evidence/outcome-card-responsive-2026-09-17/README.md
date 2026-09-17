@@ -9,5 +9,6 @@ Small negative declarations preserve their inequality below display precision.
 1,503 frontend tests, i18n, navigation, UI chrome and production build pass.
 Backend unchanged from c19d30e8's 19 cost/provenance tests. The existing live
 observability canary additionally checks each readout's width at 390 px.
-The release must still record the live canary and final real browser captures.
+The [4baa9f5d release](../release-4baa9f5d-2026-09-17/README.md) records
+the passing live canary and final real browser captures.
 See the existing [reference lock](../../design/brd-system-ui-reference-lock.md#run-outcome-card--17-september).
