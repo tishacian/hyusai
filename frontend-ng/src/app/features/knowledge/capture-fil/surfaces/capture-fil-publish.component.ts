@@ -12,6 +12,7 @@ import { firstValueFrom } from 'rxjs';
 import { ApiService } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
+import { CapturePublishedChatComponent } from '../../capture-published-chat.component';
 import { CaptureEngine } from '../capture-engine';
 import { composePublicationName } from '../capture-templates';
 
@@ -35,7 +36,7 @@ const CUSTOM_DESTINATION = '__custom__';
   selector: 'app-capture-fil-publish',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent, DocumentPreviewComponent],
+  imports: [GlyphComponent, DocumentPreviewComponent, CapturePublishedChatComponent],
   template: `
     <div style="display:flex; flex-direction:column; gap:18px; max-width:720px;">
       <div>
@@ -116,6 +117,10 @@ const CUSTOM_DESTINATION = '__custom__';
             <ck-glyph name="arrow-right" [size]="14" color="currentColor" /> {{ i18n.t('capture.publish.back_dashboard') }}
           </button>
         </div>
+        <app-capture-published-chat
+          [collection]="published()?.collection || ''"
+          [proposalId]="engine.proposalId() || ''"
+        />
       } @else {
         <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:20px; display:flex; flex-direction:column; gap:16px;">
           <label style="display:flex; flex-direction:column; gap:6px;">

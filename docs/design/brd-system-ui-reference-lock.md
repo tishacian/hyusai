@@ -69,3 +69,20 @@ and existing publication controls. A failed draft read shows a retry, never a
 fabricated RAG pipeline. Overview and historical Runs retain published identity.
 FR/EN copy names the version distinction before the node list. No branding,
 fonts, palette or new dependencies change.
+
+
+The live 390 px capture on 18741f94 exposed the shared object header covering the
+summary after scroll. Preserve the same identity/actions and Cockpit tokens;
+return the header to document flow below 768 px or at viewport heights up to
+600 px. Desktop sticky behavior remains. This follows the existing responsive
+layout and accessibility target, without hiding actions or changing NAWA tokens.
+
+
+## Capture publication → fresh conversation — 17 September
+
+Reuse the existing publication success surface and ChatPanel, with a single next
+question action and the actual collection name. The interview remains separate;
+no prompt is submitted automatically. Existing Context creation supplies the
+collection and the standard chat owns citations, Runs and source inspection.
+The same small component serves both Capture surfaces. Keep Cockpit tokens and
+published source actions; no NAWA branding changes or additional orchestration.

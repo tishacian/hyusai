@@ -629,6 +629,13 @@ export const CAPTURE_FR = {
   'capture.publish.intro':
     'La fiche acceptée devient un document indexé. Choisissez le titre final, la catégorie et la collection de destination, puis publiez.',
   'capture.publish.published': 'Fiche publiée',
+  'capture.publish.chat_scope': 'Posez une nouvelle question à partir de la collection « {collection} ».',
+  'capture.publish.chat_open': 'Interroger les connaissances publiées',
+  'capture.publish.chat_opening': 'Ouverture…',
+  'capture.publish.chat_close': 'Fermer cette conversation',
+  'capture.publish.chat_failed': 'La conversation n’a pas pu être ouverte sur cette collection. Réessayez ; vos connaissances publiées sont conservées.',
+  'capture.publish.chat_context': 'Capture publiée · {collection}',
+
   'capture.publish.published_body': '« {title} » est désormais dans la base de connaissances',
   'capture.publish.open': 'Ouvrir la fiche publiée',
   'capture.publish.export_pdf': 'Exporter le PDF',
@@ -1781,6 +1788,13 @@ export const CAPTURE_EN: Record<keyof typeof CAPTURE_FR, string> = {
   'capture.publish.intro':
     'The accepted record becomes an indexed document. Choose the final title, the category and the destination collection, then publish.',
   'capture.publish.published': 'Record published',
+  'capture.publish.chat_scope': 'Ask a new question using the “{collection}” collection.',
+  'capture.publish.chat_open': 'Ask about the published knowledge',
+  'capture.publish.chat_opening': 'Opening…',
+  'capture.publish.chat_close': 'Close this conversation',
+  'capture.publish.chat_failed': 'The conversation could not be opened on this collection. Try again; your published knowledge is preserved.',
+  'capture.publish.chat_context': 'Published Capture · {collection}',
+
   'capture.publish.published_body': '“{title}” is now in the knowledge base',
   'capture.publish.open': 'Open the published record',
   'capture.publish.export_pdf': 'Export PDF',

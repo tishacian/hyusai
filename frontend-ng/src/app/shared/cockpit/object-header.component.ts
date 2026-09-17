@@ -45,7 +45,6 @@ export interface CkObjectKpi {
       [style.border]="'1px solid var(--ck-stroke-2, rgba(255,255,255,0.06))'"
       [style.borderRadius.px]="8"
       [style.marginBottom.px]="12"
-      [style.position]="'sticky'"
       [style.top.px]="0"
       [style.zIndex]="5"
       [style.backdropFilter]="'blur(6px)'"
@@ -149,6 +148,13 @@ export interface CkObjectKpi {
       }
     </header>
   `,
+  styles: [`
+    header { position: sticky; }
+    /* Wrapped identity/actions must not cover the object being inspected. */
+    @media (max-width: 767px), (max-height: 600px) {
+      header { position: static; }
+    }
+  `],
 })
 export class CkObjectHeaderComponent {
   @Input() eyebrow = '';
