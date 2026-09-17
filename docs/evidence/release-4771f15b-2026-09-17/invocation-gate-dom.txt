@@ -1,0 +1,83 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/65e3acad-3c06-46b2-893b-8139d706851b?lens=build
+      - generic: Create
+    - link "Monitor":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/65e3acad-3c06-46b2-893b-8139d706851b?lens=operate
+      - generic: Monitor
+    - link "Improve":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/65e3acad-3c06-46b2-893b-8139d706851b?lens=steer
+      - generic: Improve
+    - link "Administer":
+      - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3/invocations/65e3acad-3c06-46b2-893b-8139d706851b?lens=govern
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Operate
+  - navigation:
+    - link "Runs":
+      - /url: /runs
+      - generic: Runs
+    - link "Observability":
+      - /url: /observability
+      - generic: Observability
+    - link "Intelligence":
+      - /url: /intelligence
+      - generic: Intelligence
+    - link "Missions":
+      - /url: /tasks
+      - generic: Missions
+- main:
+  - generic: Runs · Skill invocation · VIEWED FROM Operate
+  - heading "Invocation 65e3acad-3c0" [active] [level=1]
+  - generic: One concrete execution of a catalog Skill inside a Run.
+  - link "Back to Run":
+    - /url: /runs/9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3
+  - generic "Status":
+    - generic: Status
+    - generic: —
+  - generic "Latency":
+    - generic: Latency
+    - generic: —
+  - generic "Cost":
+    - generic: Cost
+    - generic: —
+  - generic "Skill version":
+    - generic: Skill version
+    - generic: —
+  - generic: SkillInvocation perspectives are not enabled for this workspace.
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Operate · Depth 1/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Agentium
+- document

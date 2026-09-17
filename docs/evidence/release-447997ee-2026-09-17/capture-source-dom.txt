@@ -1,0 +1,163 @@
+- link "Skip to main content":
+  - /url: "#main-content"
+- banner:
+  - generic: Agentium
+  - generic: OS · v0.4.0
+  - navigation:
+    - button "Portfolio"
+  - link "Work ↗":
+    - /url: /work
+  - generic "Diagnostics"
+  - button "Chat":
+    - generic: Chat
+  - 'button "Theme: Dark · click → System"':
+  - button "Workspace · Agentium Showcase":
+    - generic: AS
+    - generic: Agentium Showcase
+  - button "Account · thibaud.ishacian@datategy.net":
+    - generic: TI
+- complementary:
+  - navigation "Primary navigation":
+    - link "Impact":
+      - /url: /hypervisor
+      - generic: Impact
+    - link "Create":
+      - /url: /create
+      - generic: Create
+    - link "Monitor":
+      - /url: /runs
+      - generic: Monitor
+    - link "Improve":
+      - /url: /steering
+      - generic: Improve
+    - link "Administer":
+      - /url: /governance
+      - generic: Administer
+  - button "Jump to…":
+    - generic: Jump to…
+- complementary "Summary":
+  - generic: Summary
+  - generic: Create
+  - navigation:
+    - link "Business application":
+      - /url: /create/apps
+      - generic: Business application
+    - link "Systems":
+      - /url: /systems
+      - generic: Systems
+    - link "Capabilities":
+      - /url: /capabilities
+      - generic: Capabilities
+    - link "Skills":
+      - /url: /skills
+      - generic: Skills
+    - link "Knowledge":
+      - /url: /knowledge
+      - generic: Knowledge
+    - link "Data & Models":
+      - /url: /data
+      - generic: Data & Models
+    - link "Scratchpad":
+      - /url: /orchestration
+      - generic: Scratchpad
+- main:
+  - generic: Knowledge · Collection
+  - heading "Synthetic Capture inventory QA 4479" [level=1]
+  - generic: A knowledge base is a pool of context that one or more Systems can cite at run time.
+  - button "Guide":
+    - text: Guide
+  - button "Table facts":
+    - text: Table facts
+  - button "Bindings":
+    - text: Bindings
+  - generic "Source documents ingested into this collection.":
+    - generic: Docs
+    - generic: "1"
+  - generic "Vector chunks currently indexed.":
+    - generic: Chunks
+    - generic: "1"
+  - generic "Systems consuming this knowledge base.":
+    - generic: Bindings
+    - generic: "0"
+  - generic "Underlying vector database type.":
+    - generic: Vector DB
+    - generic: qdrant
+  - generic: No system uses this collection yet. Create or update a context to make it available in Capture.
+  - region "Source indexing":
+    - heading "Source indexing" [level=2]
+    - button "Refresh"
+    - paragraph: No indexing attempt is recorded for this collection.
+  - tablist "Knowledge facets":
+    - tab "Overview"
+    - tab "Sources" [selected]
+    - tab "Chunks"
+    - tab "Graph"
+    - tab "Structure"
+    - tab "Facts"
+    - tab "OCR"
+    - tab "Table facts"
+    - button "More":
+      - text: More
+  - tabpanel "Sources":
+    - generic: Search sources
+    - searchbox "Search sources"
+    - generic: Kind
+    - combobox "Kind":
+      - option "All kinds" [selected]
+      - option "text (1)"
+    - generic: Extension
+    - combobox "Extension":
+      - option "All ext." [selected]
+      - option "md (1)"
+    - generic: Status
+    - combobox "Status":
+      - option "All status" [selected]
+      - option "ready (1)"
+    - generic: Sort
+    - combobox "Sort":
+      - option "Filename" [selected]
+      - option "Chunks"
+      - option "Indexed"
+      - option "Status"
+      - option "Kind"
+    - button "Toggle sort direction":
+    - generic: 1 filtered / 1 total sources
+    - button "Apply":
+      - text: Apply
+    - table:
+      - rowgroup:
+        - row "Filename Chunks Type Uploaded Preview":
+          - columnheader "Filename"
+          - columnheader "Chunks"
+          - columnheader "Type"
+          - columnheader "Uploaded"
+          - columnheader "Preview"
+      - rowgroup:
+        - row "capture-9d3500c7.md 1 text/markdown 2026-09-17":
+          - cell "capture-9d3500c7.md"
+          - cell "1"
+          - cell "text/markdown"
+          - cell "2026-09-17"
+          - cell:
+            - button "Preview source document":
+    - generic: 1–1 / 1
+    - button "Previous page" [disabled]:
+    - button "Next page" [disabled]:
+  - dialog "capture-9d3500c7.md":
+    - paragraph: Source document
+    - heading "capture-9d3500c7.md" [level=2]
+    - button "Open":
+      - text: Open
+    - button "Close preview" [active]:
+    - generic: "# QA Capture continuity R2INV4479 Objectif : Recette technique synthétique du passage Capture vers une connaissance publiée. Ne pas utiliser comme consigne réelle. ## Correction de la recette La correction de la recette concerne la recette synthétique R2INV4479. - La pression nominale est fixée à 6 bar. - Il est important de noter que cette donnée est fictive et sert uniquement à tester la correction avant publication. - Aucune intervention réelle n'est autorisée."
+- contentinfo:
+  - generic: System operational
+  - generic: Zone · Create · Depth 1/5
+  - generic: ⌘K
+  - text: Command
+  - generic "⌘Z zoom out (Portfolio › Capability › System › Run › Skill)":
+    - generic: ⌘Z
+    - text: Zoom
+  - generic: v0.4.0 · build 1
+- status: Agentium
+- document

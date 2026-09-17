@@ -19,4 +19,4 @@ editing permission are reported explicitly rather than claimed as coverage.
 [Full frontend](frontend.log): 1,495 passed. [FR/EN](i18n.log), [navigation](nav.log),
 [chrome](chrome.log), [production build](build.log): passed. Backend code is
 unchanged from the 318-test qualified 447997ee release. Live deployment and
-post-fix browser verification remain to be recorded.
+post-fix browser verification are recorded in the [4771f15b release](../release-4771f15b-2026-09-17/README.md).

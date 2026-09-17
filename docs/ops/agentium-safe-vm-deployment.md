@@ -6860,3 +6860,19 @@ Chrome smoke verified Operational Analysis → exact new Run and Quality → pro
 but exposed Work-to-Studio/System-stage URL encoding defects. Fix pending.
 R0 human sessions and closure decision remain open; no R1 decision was changed.
 [Evidence and current screenshots](../evidence/release-447997ee-2026-09-17/README.md).
+
+
+### 2026-09-17 — preserve Work/System query context (4771f15b)
+
+Deployed pushed `demo/agentic` SHA `4771f15b2d54051f7b7611e74ae446cad44bc70d`,
+VM-built immutable tag `4771f15b2d54`; rollback `447997ee62c2`.
+No migration, feature switch or native NAWA edit. Local frontend: 1,495 tests,
+FR/EN/nav/chrome/build passed; backend unchanged from qualified 447997ee.
+Three images, idle workers, storage, healthy runtime, exact frontend/backend SHA,
+HTTP 200 and zero startup exception matches verified. Worker SDK fixture passed.
+Carakai: 10 passed, 2 intentional skips; extended Work-to-Studio check passed.
+Chrome confirms Work ↔ Studio, System preset links, and new numerical Run
+9b73e4e5-083b-4a8c-b47b-0e52bbbebdf3 with exact runtime revision.
+The timeline-to-invocation shortcut still targets a disabled perspective; the
+canonical Run audit is readable. That defect, video and human R0 sessions remain
+open. No R1 decision changed. [Evidence](../evidence/release-4771f15b-2026-09-17/README.md).

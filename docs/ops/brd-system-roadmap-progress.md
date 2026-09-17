@@ -2,9 +2,9 @@
 
 ## Current delivery status — 17 September 2026
 
-- **Live application: `447997ee` on `demo/agentic`.** The
-  [release evidence](../evidence/release-447997ee-2026-09-17/README.md) records
-  318 backend tests, 1,493 frontend tests, three VM images, exact public SHA,
+- **Live application: `4771f15b` on `demo/agentic`.** The
+  [release evidence](../evidence/release-4771f15b-2026-09-17/README.md) records
+  1,495 frontend tests (backend unchanged from the prior 318-test qualification), three VM images, exact public SHA,
   healthy services and **10 carakai passes, 2 intentional skips**.
 - A new isolated Capture passes absence-before-publication, text amendment,
   explicitly technical review, publication, source inventory (one source/one
@@ -13,8 +13,9 @@
   UI handoff, voice, five repetitions and human acceptance remain open.
 - Authenticated Chrome QA now verifies a new Operational Analysis result and
   its exact Run, PIH execution settings, and Quality heatmap → historical Run →
-  passage. It also exposes broken Work → Studio and System stage links caused
-  by encoded query delimiters. Their correction is prepared, not yet deployed.
+  passage. Work → Studio and System stage query encoding is corrected and verified live.
+  The operation-timeline shortcut still opens a disabled invocation perspective;
+  its recorded audit remains readable in the parent Run. This is the next repair.
 - The real rank-1 Excel citation `A830:O831` now exposes its values through O,
   verified against the same retained job, retrieved hit and original checksum.
   Cited windows expand to at most 40×40, favoring the selection over context.
