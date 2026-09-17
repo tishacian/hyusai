@@ -6951,3 +6951,17 @@ passes with mocked providers. Rollback: 18741f94fb6c. No migration or flag chang
 [Release record](../evidence/release-def0b3cc-2026-09-17/README.md) records the
 successful narrow Design check and failed live Capture sourced-answer test.
 The latter remains open for correction; it is not a successful R2 qualification.
+
+
+### 17 September — d05e84b1 retrieval-to-synthesis correction
+
+`demo/agentic` serves `d05e84b15c53e9a12dc92a9cab6f765be648fead`.
+All three images were built on the VM (04:22:20–04:31:11 UTC), then switched
+with idle durable jobs and workers. Exact public frontend/backend SHA, health,
+zero startup exceptions and 10 carakai passes / 2 intentional exclusions verified.
+Rollback: `0f06b4eb5f6b`. No migration, permission, flag or native NAWA theme change.
+
+The fresh hybrid Capture Run now cites the actual 6-bar passage; a second Run
+acknowledges an absent serial number. The preceding actual Giskard/OpenAI report
+remains attributed to 0f06b4eb. [Release evidence and retained Runs](../evidence/release-d05e84b1-2026-09-17/README.md).
+Browser smoke awaits reconnection; R0 baseline, video and owner decision remain open.

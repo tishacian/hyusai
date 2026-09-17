@@ -24,11 +24,13 @@ retried. Workspace source permissions still apply; publication grants no access.
 
 ## Live acceptance status
 
-On 0f06b4eb the same question retrieves the actual 6-bar passage from only the
-published collection, and the UI names that scope correctly. Synthesis still
-fails because a second filter misreads the hybrid rank score as a cosine
-similarity. The [actual Run and diagnosis](../evidence/release-0f06b4eb-2026-09-17/README.md)
-are preserved. Removing that duplicate filter is under qualification. This is
-not yet a successful end-to-end Capture or voice demonstration.
+On d05e84b1, the original hybrid question succeeds in a fresh API conversation:
+6 bar, the exact published passage and its canonical Run. A separate question
+about the serial number correctly acknowledges that it is absent. Retrieval
+and synthesis keep the selected collection and its accepted evidence.
 
-![Actual answer after successful retrieval](../evidence/release-0f06b4eb-2026-09-17/capture-retrieval-empty.png)
+[Actual answers, sources and release gates](../evidence/release-d05e84b1-2026-09-17/README.md).
+The authenticated browser smoke awaits reconnection; no new screenshot or video
+is claimed. These checks do not establish five complete Capture repetitions or
+a spoken correction. The [earlier failure](../evidence/release-0f06b4eb-2026-09-17/README.md)
+is retained for comparison.

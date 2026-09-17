@@ -2,19 +2,20 @@
 
 ## Current delivery status — 17 September 2026
 
-- **Live application: `0f06b4eb` on `demo/agentic`.** The
-  [release evidence](../evidence/release-0f06b4eb-2026-09-17/README.md) records
+- **Live application: `d05e84b1` on `demo/agentic`.** The
+  [release evidence](../evidence/release-d05e84b1-2026-09-17/README.md) records
   exact public SHA, healthy images, **10 carakai passes and 2 intentional skips**.
-- The actual Giskard RAGET campaign completed on the configured OpenAI `gpt-5`
+- On 0f06b4eb, the actual Giskard RAGET campaign completed on the configured OpenAI `gpt-5`
   provider: three cases × two versions, eight judge calls, linked canonical Runs.
   Both versions are semantically correct; native checks distinguish missing
   citations. The absent-serial baseline fails a brittle lexical assertion despite
   correctly acknowledging absence. Comparability remains explicitly limited.
-- Capture now retrieves the exact published passage in its selected collection.
-  The same UI question still fails at synthesis: a duplicate cosine threshold
-  drops its hybrid rank score. The retained Run proves the boundary; the fix is
-  being qualified. The earlier successful direct handoff remains historical.
-  Voice, five complete repetitions and human acceptance remain open.
+- Capture now carries the actual published passage through synthesis. The new
+  hybrid Run `7c2dca09` answers 6 bar and cites its exact document in the selected
+  collection. The absent-serial Run `201a5ac4` acknowledges missing information;
+  a separate C-HAH Run also succeeds. The old failed Runs remain unchanged.
+  These are API conversations; manual browser smoke awaits reconnection. Voice,
+  five complete repetitions and human acceptance remain open.
 - Authenticated Chrome QA now verifies a new Operational Analysis result and
   its exact Run, PIH execution settings, and Quality heatmap → historical Run →
   passage. Work → Studio and System stage query encoding is corrected and verified live.

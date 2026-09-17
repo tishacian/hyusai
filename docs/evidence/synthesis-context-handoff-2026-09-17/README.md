@@ -18,5 +18,6 @@ code all four pass. The LLM in this test is a recorder, not provider qualificati
 
 Local gates: 137 backend tests; 1,512 frontend tests; i18n (8,077 keys), nav-links,
 UI chrome and production build pass. Existing build/deprecation warnings remain.
-Live same-question verification and carakai checks on the new candidate remain
-pending; do not attribute the earlier actual Giskard campaign to this new code.
+Live hybrid same-question verification and carakai checks now pass on
+[d05e84b1](../release-d05e84b1-2026-09-17/README.md). Browser smoke awaits
+reconnection. The earlier actual Giskard campaign remains attributed to 0f06b4eb.
