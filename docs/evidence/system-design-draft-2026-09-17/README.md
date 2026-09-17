@@ -23,6 +23,6 @@ observability canary additionally compares Design with canonical draft node labe
 and version identity. Backend unchanged; no dependency or migration added.
 
 [Reference lock](../../design/brd-system-ui-reference-lock.md#system-design--draftpublication-boundary-17-september).
-Live deployment and final screenshots must be recorded separately before this
-correction is described as qualified in production. Retained R1 decisions and
-all published versions remain untouched.
+[Live deployment and real screenshots](../release-18741f94-2026-09-17/README.md)
+verify the desktop correction. The 390 px shared sticky header remains a layout
+limitation. Retained R1 decisions and all published versions remain untouched.

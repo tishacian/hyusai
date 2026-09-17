@@ -4,12 +4,12 @@
 
 **R0 reste ouvert.** Les gates techniques sont documentés ; la recette manuelle
 authentifiée a corrigé les liens défectueux et distingue désormais valeur absente et zéro.
-Les dix sessions de baseline et la vidéo restent à faire. Le résumé Design PIH
-affiche encore un pipeline générique différent du Flow réel ; ce point est consigné.
-Dernier runtime attesté : `4baa9f5d1487161770c715ee393dd92eb3c8ddb3`
+Les dix sessions de baseline et la vidéo restent à faire. Design PIH distingue
+désormais draft r3 et publication v1 ; son en-tête à 390 px reste à corriger.
+Dernier runtime attesté : `18741f94fb6ced627c53701c0b469685618b852d`
 sur `demo/agentic`. Bascule, identités publiques frontend/backend et santé
 vérifiées ; canaries : **10 réussis, 2 exclusions prévues**. Voir les
-[preuves de qualification](../evidence/release-4baa9f5d-2026-09-17/README.md).
+[preuves de qualification](../evidence/release-18741f94-2026-09-17/README.md).
 Ce document référence les vérifications consignées ; il ne vaut pas recette humaine.
 
 Périmètre : [sortie R0 de la roadmap](../agentium-delivery-roadmap.md),
@@ -20,12 +20,12 @@ historiques ; le [statut courant](brd-system-roadmap-progress.md) fait référen
 
 | Critère R0 | Preuve conservée | État |
 |---|---|---|
-| Gates locaux du candidat 4baa9f5d | [Qualification locale et images](../evidence/release-4baa9f5d-2026-09-17/README.md) : 1 503 tests frontend ; 19 tests backend coûts/provenance sur c19d30e8, backend inchangé depuis ; i18n 8 057 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
-| Build VM, stockage, santé et identité du runtime | [Release 4baa9f5d](../evidence/release-4baa9f5d-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour 4baa9f5d |
-| Canaries requis, dont Work, Studio et accès au Run | [Log carakai 4baa9f5d](../evidence/release-4baa9f5d-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour 4baa9f5d |
+| Gates locaux du candidat 18741f94 | [Qualification locale et images](../evidence/release-18741f94-2026-09-17/README.md) : 1 506 tests frontend ; 19 tests backend coûts/provenance sur c19d30e8, backend inchangé depuis ; i18n 8 068 clés, liens, chrome et build réussis | Prouvé localement pour ce candidat |
+| Build VM, stockage, santé et identité du runtime | [Release 18741f94](../evidence/release-18741f94-2026-09-17/README.md) : trois images immuables ; SHA public exact côté frontend et backend ; HTTP 200 | Prouvé pour 18741f94 |
+| Canaries requis, dont Work, Studio et accès au Run | [Log carakai 18741f94](../evidence/release-18741f94-2026-09-17/canaries.log) : 10 réussis, 2 contrats locaux volontairement ignorés | Prouvé pour 18741f94 |
 | Exemple Showcase reproductible et configuration consignée | [Inventaire R0](brd-system-roadmap-progress.md#r0-live-qualification--16-september-2026) : System, Experience, Flow publié et binding ; [recette](agentium-r0-acceptance.md) : quatre ordres NorthForge, 120/155/+35 minutes, trois retards, NF-04 +25 | Vérifié dans Chrome : nouveau Run 5369c2b1 sur 4baa9f5d, chiffres attendus et lien exact ; ancien Run 9b73e4e5 inchangé |
-| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Prouvé historiquement ; ces cinq exécutions ne sont pas attribuées à 4baa9f5d |
-| Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Work ↔ Studio, invocation et fil d’Ariane corrigés ; [nouveaux résultat, Run, PIH et Quality](../evidence/release-4baa9f5d-2026-09-17/README.md) ; absence/zéro corrigé ; résumé Design générique PIH à aligner |
+| Répétitions et résultat honnête | [Runtime 7532d449](../evidence/runtime-7532d449-2026-09-16/README.md) : cinq répétitions réussies, paire concurrente, redémarrage gracieux, replay sans doublon et absence d'approbation/confiance inventée | Cinq nouvelles exécutions réussies sur 18741f94 : [réponses conservées](../evidence/release-18741f94-2026-09-17/sequential.json). Concurrence et redémarrage restent historiques |
+| Parcours manuels, liens et captures actualisées | [Work → Run](../evidence/roadmap-r0-2026-09-16/manual-work-path.md) sur e09bde5c ; [24 captures Work/Studio](../evidence/roadmap-r0-2026-09-16/README.md) sur 196164eb ; [capture du Run](../evidence/runtime-7532d449-2026-09-16/run.png) sur 7532d449 | Work ↔ Studio, invocation et fil d’Ariane corrigés ; [nouveaux résultat, Run, PIH et Quality](../evidence/release-18741f94-2026-09-17/README.md) ; absence/zéro corrigé ; Design et Flow r3 alignés ; en-tête à 390 px à corriger |
 | Baseline métier/développeur | [Fiche et consignes](agentium-r0-acceptance.md#baseline-avec-les-participants--à-exécuter) ; aucune session renseignée | 0/5 métier, 0/5 développeur |
 | Décision du responsable | Aucune décision de clôture enregistrée | En attente des éléments précédents |
 
@@ -50,8 +50,8 @@ l'invocation ouvre son audit autorisé et conserve le System et le Run, y compri
 après rechargement et retour arrière. L'absence est explicite et peut être relue.
 Sur 4baa9f5d, la carte affiche — pour la valeur absente et son efficacité, et
 qualifie les coûts calculés. Les trois parcours ont été ouverts : nouvelle exécution
-Work, Flow/configuration PIH, Quality → Run → passages. Le résumé Design PIH
-reste générique et différent de son Flow. Les [captures](../evidence/release-4baa9f5d-2026-09-17/README.md)
+Work, Flow/configuration PIH, Quality → Run → passages. Sur 18741f94, Design lit le même draft r3 que le Flow Builder et affiche
+explicitement la version publiée v1 ; aucune version n’a été remplacée. Les [captures](../evidence/release-18741f94-2026-09-17/README.md)
 sont actualisées ; la vidéo n'a pas été réalisée (commande QuickTime désactivée).
 
 ## Actions restantes
@@ -64,8 +64,10 @@ sont actualisées ; la vidéo n'a pas été réalisée (commande QuickTime désa
   depuis Work → résultat → Run → contrôle numérique ; Flow et paramètres PIH
   ouverts sans mutation ; Quality → Run sélectionné → passages examinés. Captures
   et contexte dans la release. Les essais historiques restent attribués à leur SHA.
-- [ ] **Aligner le résumé Design PIH sur le Flow réel.** La page affiche quatre
-  étapes RAG génériques alors que le Flow contient déclencheur → Skill → sortie.
+- [x] **Aligner le résumé Design PIH sur le Flow réel.** Vérifié sur 18741f94 :
+  même draft r3, trois nœuds et trois connexions, publication v1 distincte.
+- [ ] **Libérer le contenu sur écran étroit.** À 390 px, l’en-tête fixe masque
+  le résumé lors du défilement ; la recette étroite de cette route reste ouverte.
 - [ ] **Enregistrer la courte vidéo.** QuickTime désactivé ; proposition de
   capture alternative en attente de réponse. Aucune vidéo annoncée comme faite.
 - [ ] **Conduire les dix sessions humaines.** Cinq participants métier et cinq
