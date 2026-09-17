@@ -6977,3 +6977,16 @@ six services healthy, exact public frontend/backend revisions; carakai 10 pass,
 [Evidence and actual generation review](../evidence/release-1e374c3c-2026-09-17/README.md).
 The fresh proposal remains unapplied because its test questions contain oracle
 answers. Old R1 Runs/human gates are untouched. R0 human acceptance remains open.
+
+
+### 2026-09-17 — R1 fair inputs and factual retrieval, e30230ae
+
+Pushed `demo/agentic` SHA `e30230aea3f58518bbe2219a5b2dbbdd757bab2f` is deployed.
+Three immutable images built on the VM; idle jobs/workers before the switch;
+exact public frontend/backend identities, healthy services and zero startup errors.
+Carakai: 10 passes, 2 intentional exclusions. Rollback: `1e374c3c1b71`.
+No migration, permission, flag or NAWA theme change. The unchanged generated
+history case now retrieves the actual 30/55-minute source in one call and passes.
+Local engine review was simulated; production R1 decisions remain untouched.
+[Release evidence](../evidence/release-e30230ae-2026-09-17/README.md).
+R0 human sessions/video and complete R1 acceptance remain open.
