@@ -7044,3 +7044,15 @@ with two intentional local-contract skips.
 [Release evidence and captures](../evidence/release-428e596e-2026-09-18/README.md).
 The operator should still hard-reload and qualify drag, keyboard, persistence,
 narrow/full-screen and light/dark behavior on the desktop.
+
+
+### 2026-09-18 — chat drag performance, 701cecc2
+
+Live drag latency was corrected by moving pointer resize handlers outside
+Angular Zone, coalescing width writes to animation frames and disabling child
+pointer events during drag. Revision `701cecc2e587139bd290b5166c8d3f658ea75b2e`
+was deployed from three immutable VM images at tag `701cecc2e587`; rollback is
+`428e596e2e89`. No migration, workspace flag or NAWA theme change occurred.
+Storage check, exact public revision, HTTP 200, zero backend exception matches
+and carakai 10/10 canaries passed with two intentional local-contract skips.
+[Release evidence](../evidence/release-701cecc2-2026-09-18/README.md).
