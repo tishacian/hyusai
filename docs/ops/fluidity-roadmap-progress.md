@@ -1,7 +1,7 @@
 # Fluidité — état de livraison
 
 Base: `demo/agentic` @ `d9290569b4dbd4e9adcd39c985d06f6c3452a3b9`.
-Deployed release: `d82ffeba9ce2dd380e372a8c7bbd20f45ef39116`.
+Deployed release: `428e596e2e8965840655c1047c09d3ab07bd1876`.
 
 ## Livré dans cette tranche
 
@@ -9,6 +9,7 @@ Deployed release: `d82ffeba9ce2dd380e372a8c7bbd20f45ef39116`.
 
 - Le contexte est dérivé des routes canoniques `System`, `Run` et `SkillInvocation`, y compris le nœud focalisé.
 - Le compagnon latéral affiche l’objet actif, permet de l’ouvrir et de l’épingler.
+- Le panneau rapide est redimensionnable en continu à la souris ou au clavier ; la largeur reste persistée localement.
 - Chaque tour capture sa référence d’objet ; la reprise réseau rejoue exactement cette référence.
 - Le serveur borne et valide `object_context`, résout le System du Run, applique les contrôles de visibilité et dérive la portée pilote depuis un Run visible.
 - La session, la portée, les derniers tours et leurs références reprennent après rechargement, par workspace.

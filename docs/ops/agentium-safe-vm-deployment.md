@@ -7030,3 +7030,17 @@ canaries passed 10/10 with two intentional local-contract skips.
 [Release evidence and canary artifacts](../evidence/release-d82ffeba-2026-09-18/README.md).
 The operator still needs a hard-reloaded authenticated browser check of the new
 object-context chip; no SPARK-089 correction/comparison qualification is claimed.
+
+
+### 2026-09-18 — resizable chat panel, 428e596e
+
+Pushed `demo/agentic` SHA `428e596e2e8965840655c1047c09d3ab07bd1876` is
+deployed. Three immutable images were built on `omnirag-demo` under
+`428e596e2e89`; rollback is `d82ffeba9ce2`. No migration, workspace flag or
+NAWA theme change was made. Storage check, exact backend revision, HTTP 200,
+zero backend exception matches and healthy frontend passed. Carakai source and
+SHA marker were advanced to the same revision; iteration canaries passed 10/10
+with two intentional local-contract skips.
+[Release evidence and captures](../evidence/release-428e596e-2026-09-18/README.md).
+The operator should still hard-reload and qualify drag, keyboard, persistence,
+narrow/full-screen and light/dark behavior on the desktop.
