@@ -287,6 +287,23 @@ test('hiding the conversation list wins over its flex display', async () => {
   }
 });
 
+test('advanced chat controls start compact and expand without changing the session', async () => {
+  const { injector, component } = makeHarness();
+  try {
+    await Promise.resolve();
+    const active = component.activeChatSessionId();
+    assert.equal(component.advancedControlsOpen(), false);
+    assert.equal(component.advancedControlsVisible(), false);
+
+    component.toggleAdvancedControls();
+    assert.equal(component.advancedControlsOpen(), true);
+    assert.equal(component.advancedControlsVisible(), true);
+    assert.equal(component.activeChatSessionId(), active);
+  } finally {
+    injector.destroy();
+  }
+});
+
 test('a late open-session response from A cannot restore its messages in B', async () => {
   const { injector, component, workspace, api } = makeHarness();
   try {

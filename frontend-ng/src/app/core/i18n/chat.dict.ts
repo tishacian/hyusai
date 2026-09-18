@@ -245,6 +245,8 @@ export const CHAT_FR = {
     'Le sélecteur heuristique choisit le modèle de raisonnement pour chaque question',
   'chat.controls.auto': 'Auto',
   'chat.controls.clear': 'Effacer la conversation',
+  'chat.controls.hide': 'Masquer les réglages',
+  'chat.controls.show': 'Afficher les réglages',
   // --- Retrieval mode picker -----------------------------------------
   'chat.rag.auto_hint': 'Utiliser le défaut du workspace',
   'chat.rag.naive': 'Naïve',
@@ -892,6 +894,8 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   'chat.controls.reasoning_auto_hint': 'Heuristic selector picks the template per query',
   'chat.controls.auto': 'Auto',
   'chat.controls.clear': 'Clear conversation',
+  'chat.controls.hide': 'Hide settings',
+  'chat.controls.show': 'Show settings',
   // --- Retrieval mode picker -----------------------------------------
   'chat.rag.auto_hint': 'Use workspace default',
   'chat.rag.naive': 'Naive',
