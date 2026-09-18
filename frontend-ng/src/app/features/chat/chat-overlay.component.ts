@@ -46,6 +46,8 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       [eyebrow]="i18n.t('titlebar.chat.tooltip')"
       [title]="title()"
       [width]="panelWidth()"
+      [resizable]="!overlay.narrow() && !expanded()"
+      resizeStorageKey="agentium.chat-panel-width"
     >
       @if (overlay.isOpen()) {
         <div class="chat-overlay-frame" [class.sentinel-chat-overlay]="sentinelShowcase()" [class.adoption-companion]="overlay.adoption.enabled()">
@@ -198,9 +200,12 @@ export class ChatOverlayComponent {
   );
 
   readonly panelWidth = computed<string>(() => {
-    if (this.overlay.adoption.enabled() && (this.overlay.expanded() || this.overlay.narrow())) return '100vw';
+    if (this.expanded()) return '100vw';
+    if (this.overlay.narrow()) return '100vw';
     return isSentinelShowcaseProfile(this.activeProfile()) ? '680px' : '560px';
   });
+
+  readonly expanded = computed(() => this.overlay.adoption.enabled() && this.overlay.expanded());
 
   readonly sentinelShowcase = computed<boolean>(() => isSentinelShowcaseProfile(this.activeProfile()));
 

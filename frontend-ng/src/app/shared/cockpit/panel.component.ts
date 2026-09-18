@@ -17,6 +17,7 @@ import {
 import { GlyphComponent } from './glyph.component';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { I18nService } from '@app/core/i18n.service';
+import { CK_PANEL_MAX_WIDTH, CK_PANEL_MIN_WIDTH, clampPanelWidth } from './panel-resize';
 
 export type CkPanelPosition = 'side' | 'bottom' | 'floating';
 
@@ -99,7 +100,7 @@ let panelCounter = 0;
         [style.bottom]="position === 'bottom' ? '0' : 'auto'"
         [style.left]="position === 'side' ? 'auto' : (position === 'bottom' ? '0' : '50%')"
         [style.transform]="position === 'floating' ? 'translate(50%, -50%)' : 'none'"
-        [style.width]="position === 'side' ? width : (position === 'bottom' ? '100%' : width)"
+        [style.width]="position === 'side' ? effectiveWidth : (position === 'bottom' ? '100%' : effectiveWidth)"
         [style.maxWidth]="'100vw'"
         [style.boxSizing]="'border-box'"
         [style.height]="position === 'bottom' ? height : (position === 'side' ? '100vh' : 'auto')"
@@ -115,6 +116,21 @@ let panelCounter = 0;
         [style.zIndex]="modal || position === 'floating' ? 1400 : 40"
         [style.animation]="enterAnim"
       >
+        @if (resizable && position === 'side') {
+          <button
+            type="button"
+            role="separator"
+            class="panel-resize-handle"
+            aria-orientation="vertical"
+            [attr.aria-label]="i18n.t('chat.overlay.resize')"
+            [attr.aria-valuemin]="CK_PANEL_MIN_WIDTH"
+            [attr.aria-valuemax]="maxWidth"
+            [attr.aria-valuenow]="manualWidth || parseWidth(width)"
+            [title]="i18n.t('chat.overlay.resize')"
+            (pointerdown)="startResize($event)"
+            (keydown)="resizeFromKeyboard($event)"
+          ></button>
+        }
         <header
           [style.display]="'flex'"
           [style.alignItems]="'center'"
@@ -201,6 +217,38 @@ let panelCounter = 0;
       from { opacity: 0; }
       to   { opacity: 1; }
     }
+    .panel-resize-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -6px;
+      width: 13px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      cursor: ew-resize;
+      touch-action: none;
+      z-index: 2;
+    }
+    .panel-resize-handle::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 5px;
+      width: 3px;
+      height: 52px;
+      border-radius: 999px;
+      background: var(--ck-stroke-2, rgba(255, 255, 255, 0.14));
+      opacity: 0;
+      transform: translateY(-50%);
+      transition: opacity 140ms ease;
+    }
+    .panel-resize-handle:hover::after,
+    .panel-resize-handle:focus-visible::after { opacity: 1; }
+    .panel-resize-handle:focus-visible {
+      outline: 2px solid var(--ck-signal-cool, #67d5f6);
+      outline-offset: -2px;
+    }
   `],
 })
 export class CkPanelComponent implements OnInit, OnDestroy {
@@ -225,6 +273,13 @@ export class CkPanelComponent implements OnInit, OnDestroy {
   @Input() width = '420px';
   @Input() height = '320px';
   @Input() modal = false;
+  @Input() resizable = false;
+  @Input() resizeStorageKey = '';
+
+  readonly CK_PANEL_MIN_WIDTH = CK_PANEL_MIN_WIDTH;
+  manualWidth = 0;
+  private resizeStartX = 0;
+  private resizeStartWidth = 0;
 
   private readonly panelHost = inject(PanelHostService);
   private readonly document = inject(DOCUMENT);
@@ -234,6 +289,7 @@ export class CkPanelComponent implements OnInit, OnDestroy {
   private previousFocus: HTMLElement | null = null;
 
   ngOnInit(): void {
+    this.restoreWidth();
     this.syncRegistration();
   }
 
@@ -277,6 +333,87 @@ export class CkPanelComponent implements OnInit, OnDestroy {
     queueMicrotask(() => {
       if (target.isConnected) target.focus();
     });
+  }
+
+  get effectiveWidth(): string {
+    if (this.resizable && this.manualWidth) return `${this.manualWidth}px`;
+    return this.width;
+  }
+
+  get maxWidth(): number {
+    const viewport = this.document.defaultView?.innerWidth || CK_PANEL_MAX_WIDTH;
+    return Math.min(CK_PANEL_MAX_WIDTH, Math.round(viewport * 0.92));
+  }
+
+  parseWidth(value: string): number {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : CK_PANEL_MIN_WIDTH;
+  }
+
+  private restoreWidth(): void {
+    if (!this.resizable || !this.resizeStorageKey) return;
+    const stored = Number.parseInt(
+      this.document.defaultView?.localStorage?.getItem(this.resizeStorageKey) || '',
+      10,
+    );
+    if (Number.isFinite(stored)) {
+      this.manualWidth = clampPanelWidth(stored, CK_PANEL_MIN_WIDTH, this.maxWidth);
+    }
+  }
+
+  private saveWidth(): void {
+    if (!this.resizeStorageKey || !this.manualWidth) return;
+    try {
+      this.document.defaultView?.localStorage?.setItem(
+        this.resizeStorageKey,
+        String(this.manualWidth),
+      );
+    } catch {
+      // Storage is an enhancement; resizing still works for this session.
+    }
+  }
+
+  startResize(event: PointerEvent): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const target = event.currentTarget as HTMLElement;
+    this.resizeStartX = event.clientX;
+    this.resizeStartWidth = this.manualWidth || this.parseWidth(this.width);
+    target.setPointerCapture(event.pointerId);
+    target.addEventListener('pointermove', this.onResizePointerMove);
+    target.addEventListener('pointerup', this.onResizePointerUp);
+    target.addEventListener('pointercancel', this.onResizePointerUp);
+  }
+
+  private readonly onResizePointerMove = (event: PointerEvent): void => {
+    // The side panel is anchored right: moving left increases its width.
+    this.manualWidth = clampPanelWidth(
+      this.resizeStartWidth + this.resizeStartX - event.clientX,
+      CK_PANEL_MIN_WIDTH,
+      this.maxWidth,
+    );
+  };
+
+  private readonly onResizePointerUp = (event: PointerEvent): void => {
+    const target = event.currentTarget as HTMLElement;
+    target.removeEventListener('pointermove', this.onResizePointerMove);
+    target.removeEventListener('pointerup', this.onResizePointerUp);
+    target.removeEventListener('pointercancel', this.onResizePointerUp);
+    if (target.hasPointerCapture?.(event.pointerId)) target.releasePointerCapture(event.pointerId);
+    this.saveWidth();
+  };
+
+  resizeFromKeyboard(event: KeyboardEvent): void {
+    const current = this.manualWidth || this.parseWidth(this.width);
+    const next = event.key === 'ArrowLeft' ? current + 32
+      : event.key === 'ArrowRight' ? current - 32
+      : event.key === 'Home' ? this.maxWidth
+      : event.key === 'End' ? CK_PANEL_MIN_WIDTH
+      : current;
+    if (next === current) return;
+    event.preventDefault();
+    this.manualWidth = clampPanelWidth(next, CK_PANEL_MIN_WIDTH, this.maxWidth);
+    this.saveWidth();
   }
 
   get enterAnim(): string {

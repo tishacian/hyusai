@@ -58,6 +58,7 @@ const pureSpecs = [
   'src/app/core/navigation.catalog.spec.ts',
   'src/app/core/navigation.routes.spec.ts',
   'src/app/core/i18n.lexicon.spec.ts',
+  'src/app/shared/cockpit/panel-resize.spec.ts',
   'src/app/core/theme-preference.spec.ts',
   'src/app/core/platform-brand.spec.ts',
   'src/app/core/brand-appearance.spec.ts',

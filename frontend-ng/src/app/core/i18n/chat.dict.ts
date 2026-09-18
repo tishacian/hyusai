@@ -19,6 +19,7 @@ export const CHAT_FR = {
   'chat.uploading': 'Envoi des fichiers…',
   'chat.empty': 'Démarrez une conversation pour voir les réponses ici.',
   'chat.overlay.hint': 'Panneau rapide',
+  'chat.overlay.resize': 'Glisser ou utiliser les flèches pour redimensionner',
   'chat.overlay.expand': 'Plein écran',
   'chat.overlay.expand.hint': 'Ouvrir ce chat en vue plein écran',
   // --- Recommendation draft drawer ---------------------------------
@@ -672,6 +673,7 @@ export const CHAT_EN: Record<keyof typeof CHAT_FR, string> = {
   'chat.uploading': 'Uploading files…',
   'chat.empty': 'Start a conversation to see answers here.',
   'chat.overlay.hint': 'Quick panel',
+  'chat.overlay.resize': 'Drag or use arrow keys to resize',
   'chat.overlay.expand': 'Full screen',
   'chat.overlay.expand.hint': 'Open this chat as a full-page workspace view',
   // --- Recommendation draft drawer ---------------------------------
