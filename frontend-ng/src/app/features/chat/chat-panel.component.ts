@@ -2176,6 +2176,9 @@ const STEP_ICONS: Record<string, string> = {
         linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.010)),
         rgba(2, 7, 14, 0.72);
     }
+    .chat-history-panel[hidden] {
+      display: none;
+    }
     .chat-history-head {
       display: flex;
       align-items: center;

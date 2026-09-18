@@ -271,6 +271,22 @@ test('the conversation list can be hidden and shown without losing the current s
   }
 });
 
+test('hiding the conversation list wins over its flex display', async () => {
+  const { injector, component } = makeHarness();
+  try {
+    component.toggleChatHistory();
+    assert.equal(component.chatHistoryOpen(), false);
+    assert.match(
+      await import('node:fs').then(({ readFileSync }) =>
+        readFileSync('src/app/features/chat/chat-panel.component.ts', 'utf8'),
+      ),
+      /\.chat-history-panel\[hidden\]\s*\{\s*display:\s*none;/,
+    );
+  } finally {
+    injector.destroy();
+  }
+});
+
 test('a late open-session response from A cannot restore its messages in B', async () => {
   const { injector, component, workspace, api } = makeHarness();
   try {
