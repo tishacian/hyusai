@@ -7068,3 +7068,14 @@ flag or NAWA theme change occurred. Storage, public revision, HTTP 200, zero
 backend exception matches and carakai 10/10 passed with two intentional
 local-contract skips.
 [Release evidence](../evidence/release-f313a03a-2026-09-18/README.md).
+
+
+### 2026-09-18 — hidden conversation rail honored, c6119850
+
+Revision `c6119850dd100ca5f26f13a1af51619ed554ce53` is deployed from immutable
+images at `c6119850dd10`; rollback is `f313a03a39f8`. The panel's flex display
+no longer overrides the hidden state, so the conversation column really
+disappears and leaves the reopen rail. No migration, flag, or NAWA theme
+change. Storage, exact public revision, HTTP 200, zero backend exception
+matches, and 10/10 carakai canaries passed with two intentional local-contract
+skips. [Release evidence](../evidence/release-c6119850-2026-09-18/README.md).
