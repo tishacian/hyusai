@@ -132,6 +132,7 @@ class AssistantTurnResult:
     finish_reason: str | None = None
     usage: dict[str, Any] = field(default_factory=dict)
     config: dict[str, Any] = field(default_factory=dict)
+    object_context: dict[str, Any] | None = None
 
     def as_payload(self) -> dict[str, Any]:
         """Serialize to the wire/event shape shared by every surface."""
@@ -147,6 +148,7 @@ class AssistantTurnResult:
             "finish_reason": self.finish_reason,
             "usage": dict(self.usage),
             "config": dict(self.config),
+            "object_context": dict(self.object_context or {}),
         }
 
 
@@ -263,6 +265,14 @@ def _load_history(db: DBSession, *, session_id: str, limit: int) -> list[dict[st
 # ---------------------------------------------------------------------------
 def _session_context_brief(session_context: Mapping[str, Any]) -> str:
     """Render the surface-supplied context, minus payloads exposed via tools."""
+    object_context = session_context.get("object_context")
+    if isinstance(object_context, Mapping):
+        scalars = {
+            key: str(object_context.get(key) or "")
+            for key in ("type", "id", "system_id", "run_id", "node_id", "facet")
+            if object_context.get(key) is not None
+        }
+        return json.dumps(scalars, ensure_ascii=False, sort_keys=True) if scalars else ""
     scalars = {
         str(key): value
         for key, value in session_context.items()
@@ -298,7 +308,10 @@ def build_system_prompt(
         lines.append(f"Always answer in this locale: {config.locale}.")
     brief = _session_context_brief(session_context)
     if brief:
-        lines.append(f"Session context provided by the surface: {brief}")
+        lines.append(
+            "Open object context provided by the surface (verify it with tools): "
+            + brief
+        )
     lines.append(
         "Tools are the only source of truth about this workspace. Chain several of "
         "them when needed, ask a clarifying question when the request is ambiguous, "
@@ -406,6 +419,14 @@ async def answer_assistant_turn(
         raise AssistantInputInvalidError("An assistant turn needs a non-empty text")
 
     session_context = dict(session_context or {})
+    raw_object_context = session_context.get("object_context")
+    object_context = None
+    if isinstance(raw_object_context, Mapping):
+        object_context = {
+            key: str(raw_object_context.get(key) or "")[:128]
+            for key in ("type", "id", "system_id", "run_id", "node_id", "facet")
+            if raw_object_context.get(key) is not None
+        }
     config = resolve_assistant_config(workspace, known_tools=KNOWN_TOOLS)
     client = build_model_client(config)
 
@@ -570,6 +591,7 @@ async def answer_assistant_turn(
         tool_records=tool_records,
         surface=surface,
         config=config,
+        object_context=object_context,
     )
 
     return AssistantTurnResult(
@@ -588,6 +610,7 @@ async def answer_assistant_turn(
             "knowledge_scope": config.knowledge_scope,
             "allowed_tools": sorted(config.allowed_tools),
         },
+        object_context=object_context,
     )
 
 
@@ -601,6 +624,7 @@ def _persist_turn(
     tool_records: list[ToolCallRecord],
     surface: str,
     config: AssistantConfig,
+    object_context: dict[str, Any] | None,
 ) -> str:
     """Append the user/assistant pair to the thread and return the answer id."""
     now = datetime.utcnow()
@@ -616,7 +640,11 @@ def _persist_turn(
             role="user",
             content=utterance,
             timestamp=now,
-            meta_data={"surface": surface, "engine": "assistant"},
+            meta_data={
+                "surface": surface,
+                "engine": "assistant",
+                "object_context": object_context or {},
+            },
         )
     )
     db.add(
@@ -629,6 +657,7 @@ def _persist_turn(
             meta_data={
                 "surface": surface,
                 "engine": "assistant",
+                "object_context": object_context or {},
                 "model": config.model,
                 "citations": citations,
                 "tool_calls": [

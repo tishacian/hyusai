@@ -128,6 +128,26 @@ async def test_list_systems_only_returns_systems_of_this_workspace(db_session):
     assert result["systems"][0]["flow_sha256"] is None
 
 
+async def test_inspect_system_explains_when_no_dispatch_surface_exists(db_session):
+    workspace, user = _subject(db_session, allowed_tools=["inspect_system"])
+    db_session.add(
+        System(id="sys-inspect", workspace_id=workspace.id, name="Inspect", objective="o")
+    )
+    db_session.commit()
+
+    result = await execute_tool(
+        _ctx(db_session, workspace, user),
+        "inspect_system",
+        {"system_id": "sys-inspect"},
+    )
+
+    assert result["ok"] is True
+    assert result["dispatch_readiness"] == {
+        "checked": False,
+        "reason": "No dispatch surface is declared for this System.",
+    }
+
+
 async def test_get_run_status_hides_a_run_from_another_workspace(db_session):
     workspace, user = _subject(db_session, allowed_tools=["get_run_status"])
     other = Workspace(id="ws-foreign-run", name="Foreign", slug="foreign-run", settings={})

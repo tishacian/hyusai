@@ -13,6 +13,11 @@ import { I18nService } from "@app/core/i18n.service";
 import { NavigationProfileService } from "@app/core/navigation-profile.service";
 import { NavLinkDirective } from "@app/shared/cockpit";
 import { AssistantPilotService } from "./assistant-pilot.service";
+import {
+  AssistantObjectContextService,
+  type AssistantObjectContext,
+} from "./assistant-object-context.service";
+import type { NavLinkInput } from "@app/core/navigation.catalog";
 
 @Component({
   selector: "app-assistant-pilot",
@@ -20,6 +25,21 @@ import { AssistantPilotService } from "./assistant-pilot.service";
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, NavLinkDirective, JsonPipe],
   template: ` <section class="pilot" [attr.aria-label]="t('companion')">
+    @if (activeContext(); as context) {
+      <div class="object-context">
+        <div>
+          <span>{{ t("object_context." + context.type) }}</span>
+          <strong>{{ context.id }}</strong>
+          @if (context.node_id) {
+            <small>· {{ context.node_id }}</small>
+          }
+        </div>
+        <a [navLink]="contextLink(context)">{{ t("object_context.open") }}</a>
+        <button type="button" (click)="togglePin(context)">
+          {{ isPinned(context) ? t("object_context.unpin") : t("object_context.pin") }}
+        </button>
+      </div>
+    }
     <fieldset [disabled]="pilot.busy()">
       <legend>{{ t("scope") }}</legend>
       <p>{{ t("scope_hint") }}</p>
@@ -46,6 +66,11 @@ import { AssistantPilotService } from "./assistant-pilot.service";
     <div class="turns" aria-live="polite" aria-relevant="additions">
       @for (turn of pilot.turns(); track $index) {
         <article>
+          @if (turn.object_context; as context) {
+            <p class="turn-context">
+              {{ t("object_context." + context.type) }} · {{ context.id }}
+            </p>
+          }
           <p class="question">{{ turn.question }}</p>
           <p class="answer">{{ turn.response.answer }}</p>
           @if (turn.response.finish_reason === "tool_turn_limit") {
@@ -200,6 +225,38 @@ import { AssistantPilotService } from "./assistant-pilot.service";
       .question {
         font-weight: 600;
       }
+      .object-context {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.55rem 0.65rem;
+        border: 1px solid var(--ck-stroke-2);
+        border-radius: 0.4rem;
+        background: var(--ck-bg-panel);
+        font-size: 0.78rem;
+      }
+      .object-context > div {
+        min-width: 0;
+        flex: 1;
+      }
+      .object-context strong,
+      .object-context small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .object-context span {
+        display: block;
+        text-transform: uppercase;
+        font-size: 0.65rem;
+        letter-spacing: 0.04em;
+        opacity: 0.75;
+      }
+      .turn-context {
+        margin: 0 0 0.2rem;
+        font-size: 0.72rem;
+        opacity: 0.75;
+      }
       .evidence {
         padding: 0.6rem;
         margin: 0.6rem 0;
@@ -245,12 +302,20 @@ export class AssistantPilotComponent {
     );
   });
   readonly initialSystemId = input<string | null>(null);
+  private readonly objectContext = inject(AssistantObjectContextService);
+  readonly activeContext = this.objectContext.effective;
   prompt = "";
   constructor() {
     this.pilot.load();
     effect(() => {
       const id = this.initialSystemId();
       if (id) this.pilot.select([id]);
+    });
+    effect(() => {
+      const context = this.activeContext();
+      if (context?.system_id && !this.pilot.systemIds().includes(context.system_id)) {
+        this.pilot.select([...this.pilot.systemIds(), context.system_id]);
+      }
     });
   }
   t(key: string): string {
@@ -263,7 +328,25 @@ export class AssistantPilotComponent {
     );
   }
   submit(): void {
-    this.pilot.send(this.prompt);
+    this.pilot.send(this.prompt, this.activeContext());
     this.prompt = "";
+  }
+
+  isPinned(context: AssistantObjectContext | null): boolean {
+    return this.objectContext.isPinned(context);
+  }
+
+  togglePin(context: AssistantObjectContext | null): void {
+    if (!context) return;
+    if (this.objectContext.isPinned(context)) this.objectContext.unpin();
+    else this.objectContext.pin(context);
+  }
+
+  contextLink(context: AssistantObjectContext): NavLinkInput {
+    if (context.type === "system") return { type: "system", ref: context.id };
+    if (context.type === "run") return { type: "run", ref: context.id };
+    if (context.run_id)
+      return { type: "skill_invocation", ref: context.id, runId: context.run_id };
+    return { type: "system", ref: context.system_id || context.id };
   }
 }

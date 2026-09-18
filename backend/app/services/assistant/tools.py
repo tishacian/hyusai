@@ -685,6 +685,16 @@ async def _preview_service(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
 async def _inspect_system(ctx, args):
     system = visible_system(ctx, _text_arg(args, "system_id", limit=64))
     row = _system_row(ctx, system)
+    from app.services.systems.dispatch_readiness import system_dispatch_readiness
+    readiness = system_dispatch_readiness(ctx.db, system=system, workspace=ctx.workspace)
+    row["dispatch_readiness"] = (
+        readiness
+        if readiness.get("surfaces")
+        else {
+            "checked": False,
+            "reason": "No dispatch surface is declared for this System.",
+        }
+    )
     try:
         _, _, _, contract = flow_publication.published_run_evidence(ctx.db, system=system, workspace=ctx.workspace)
         row["execution_contract"] = contract
