@@ -13,6 +13,7 @@ import {
   computed,
   inject,
   signal,
+  NgZone,
 } from '@angular/core';
 import { GlyphComponent } from './glyph.component';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -249,6 +250,13 @@ let panelCounter = 0;
       outline: 2px solid var(--ck-signal-cool, #67d5f6);
       outline-offset: -2px;
     }
+    .panel-resizing {
+      will-change: width;
+      user-select: none;
+    }
+    .panel-resizing > :not(.panel-resize-handle) {
+      pointer-events: none;
+    }
   `],
 })
 export class CkPanelComponent implements OnInit, OnDestroy {
@@ -278,11 +286,16 @@ export class CkPanelComponent implements OnInit, OnDestroy {
 
   readonly CK_PANEL_MIN_WIDTH = CK_PANEL_MIN_WIDTH;
   manualWidth = 0;
+  resizing = false;
+  private dragWidth = 0;
   private resizeStartX = 0;
   private resizeStartWidth = 0;
+  private resizeFrame = 0;
+  private resizeRoot: HTMLElement | null = null;
 
   private readonly panelHost = inject(PanelHostService);
   private readonly document = inject(DOCUMENT);
+  private readonly ngZone = inject(NgZone);
   readonly i18n = inject(I18nService);
   private readonly id = `ck-panel-${++panelCounter}`;
   private registered = false;
@@ -336,6 +349,7 @@ export class CkPanelComponent implements OnInit, OnDestroy {
   }
 
   get effectiveWidth(): string {
+    if (this.resizing && this.dragWidth) return `${this.dragWidth}px`;
     if (this.resizable && this.manualWidth) return `${this.manualWidth}px`;
     return this.width;
   }
@@ -377,21 +391,35 @@ export class CkPanelComponent implements OnInit, OnDestroy {
     if (event.button !== 0) return;
     event.preventDefault();
     const target = event.currentTarget as HTMLElement;
+    const root = target.parentElement as HTMLElement;
     this.resizeStartX = event.clientX;
     this.resizeStartWidth = this.manualWidth || this.parseWidth(this.width);
+    this.dragWidth = this.resizeStartWidth;
+    this.resizing = true;
+    this.resizeRoot = root;
+    root.classList.add('panel-resizing');
     target.setPointerCapture(event.pointerId);
-    target.addEventListener('pointermove', this.onResizePointerMove);
-    target.addEventListener('pointerup', this.onResizePointerUp);
-    target.addEventListener('pointercancel', this.onResizePointerUp);
+    this.ngZone.runOutsideAngular(() => {
+      target.addEventListener('pointermove', this.onResizePointerMove);
+      target.addEventListener('pointerup', this.onResizePointerUp);
+      target.addEventListener('pointercancel', this.onResizePointerUp);
+    });
   }
 
   private readonly onResizePointerMove = (event: PointerEvent): void => {
     // The side panel is anchored right: moving left increases its width.
-    this.manualWidth = clampPanelWidth(
+    this.dragWidth = clampPanelWidth(
       this.resizeStartWidth + this.resizeStartX - event.clientX,
       CK_PANEL_MIN_WIDTH,
       this.maxWidth,
     );
+    if (this.resizeFrame || !this.resizeRoot) return;
+    const root = this.resizeRoot;
+    const width = this.dragWidth;
+    this.resizeFrame = this.document.defaultView?.requestAnimationFrame(() => {
+      this.resizeFrame = 0;
+      if (root.isConnected) root.style.width = `${width}px`;
+    }) || 0;
   };
 
   private readonly onResizePointerUp = (event: PointerEvent): void => {
@@ -400,7 +428,21 @@ export class CkPanelComponent implements OnInit, OnDestroy {
     target.removeEventListener('pointerup', this.onResizePointerUp);
     target.removeEventListener('pointercancel', this.onResizePointerUp);
     if (target.hasPointerCapture?.(event.pointerId)) target.releasePointerCapture(event.pointerId);
-    this.saveWidth();
+    if (this.resizeFrame && this.document.defaultView) {
+      this.document.defaultView.cancelAnimationFrame(this.resizeFrame);
+      this.resizeFrame = 0;
+    }
+    if (this.resizeRoot?.isConnected && this.dragWidth) {
+      this.resizeRoot.style.width = `${this.dragWidth}px`;
+    }
+    this.resizeRoot?.classList.remove('panel-resizing');
+    this.resizeRoot = null;
+    this.resizing = false;
+    const width = this.dragWidth;
+    this.ngZone.run(() => {
+      this.manualWidth = width;
+      this.saveWidth();
+    });
   };
 
   resizeFromKeyboard(event: KeyboardEvent): void {
