@@ -1,0 +1,43 @@
+{
+  "schema_version": 2,
+  "kind": "experience_studio_lifecycle_canary",
+  "claim": "US-8-STUDIO-LIFECYCLE",
+  "outcome": "passed",
+  "tested_revision": "d82ffeba9ce2dd380e372a8c7bbd20f45ef39116",
+  "generated_at": "2026-09-18T13:09:04.774Z",
+  "target": {
+    "workspace_sha256": "45113274648b2c89b422c9971105fc5d7e3794e92f1f6fe6c9b458df91bc2411",
+    "experience_sha256": "5e63df66b6af3882a91301e6d40ec6fcabbe3bff96d7c2af67d3ee6ad89f3b1a",
+    "system_sha256": "e008caf04a47261ce57ca72538d1259f823e7757d61d40064345d6caa9d76627",
+    "release_sha256": "31394a281a1799fbd531052eb0d7949e052d539f4ce387ded3f03c4dedb283d6"
+  },
+  "checks": {
+    "wizard_three_steps": true,
+    "real_experience_created": true,
+    "compatible_ingress_linked": true,
+    "staged_binding_finalized": true,
+    "explicit_admin_audience": true,
+    "editor_opened": true,
+    "explicit_save_persisted": true,
+    "ready_check_passed": true,
+    "release_created": true,
+    "release_absent_from_work_before_deploy": true,
+    "release_and_deployment_separate": true,
+    "keyboard_roving_focus": true,
+    "modal_focus_trap_and_restore": true,
+    "mobile_456_no_clipping": true,
+    "mobile_320_no_clipping": true,
+    "workspace_switcher_mobile_contained": true,
+    "shell_inert_behind_wizard": true,
+    "accessibility_matrix": 12,
+    "wcag_aa_axe": true,
+    "reduced_motion": true,
+    "reflow_320_css_px": true,
+    "reviewer": "not_configured",
+    "pilot_deployment": "not_requested",
+    "rollback": "not_requested",
+    "second_release_sha256": null,
+    "work_render": "not_requested",
+    "cleanup": "retained_released"
+  }
+}

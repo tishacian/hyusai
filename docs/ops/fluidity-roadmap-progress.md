@@ -1,6 +1,7 @@
 # Fluidité — état de livraison
 
 Base: `demo/agentic` @ `d9290569b4dbd4e9adcd39c985d06f6c3452a3b9`.
+Deployed release: `d82ffeba9ce2dd380e372a8c7bbd20f45ef39116`.
 
 ## Livré dans cette tranche
 
@@ -36,4 +37,4 @@ Les tests backend ont été exécutés dans un environnement Python 3.11 isolé,
 - F4/F5: lignes de dossiers reliées aux Runs, puis vues actualisables et éditions figées avec provenance par point.
 - F6: formulaires d’appel dérivés du contrat publié et qualification sur Work, conversation et API.
 
-Aucun déploiement ni activation client n’a eu lieu dans cette tranche.
+`d82ffeba` est déployé sur `omnirag-demo` sans migration, flag ou modification du thème NAWA. Les canaries carakai passent (10 réussis, 2 exclusions locales prévues). Le contrôle navigateur authentifié après hard reload reste à faire par un opérateur.

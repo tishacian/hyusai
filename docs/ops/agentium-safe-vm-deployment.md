@@ -7016,3 +7016,17 @@ Previous compatible image tag: `43a33dcd8cc8`. Pre-mandate workers are not a
 compatible rollback for newly published frozen-policy contracts. Do not restore
 the backup over later writes. [Release evidence, actual screenshots and URLs](../evidence/release-6f6d10c0-2026-09-17/README.md).
 R0 human acceptance and complete Rx qualification remain separate.
+
+
+### 2026-09-18 — assistant object context, d82ffeba
+
+Pushed `demo/agentic` SHA `d82ffeba9ce2dd380e372a8c7bbd20f45ef39116` is
+deployed. Three immutable images were built on `omnirag-demo` under
+`d82ffeba9ce2`; rollback is `6f6d10c04c62`. No migration, workspace flag or
+NAWA theme change was made. Storage check, exact backend revision, HTTP 200,
+healthy backend/frontend containers and zero backend exception matches passed.
+Carakai source and SHA marker were advanced to the same revision; iteration
+canaries passed 10/10 with two intentional local-contract skips.
+[Release evidence and canary artifacts](../evidence/release-d82ffeba-2026-09-18/README.md).
+The operator still needs a hard-reloaded authenticated browser check of the new
+object-context chip; no SPARK-089 correction/comparison qualification is claimed.
