@@ -7056,3 +7056,15 @@ was deployed from three immutable VM images at tag `701cecc2e587`; rollback is
 Storage check, exact public revision, HTTP 200, zero backend exception matches
 and carakai 10/10 canaries passed with two intentional local-contract skips.
 [Release evidence](../evidence/release-701cecc2-2026-09-18/README.md).
+
+
+### 2026-09-18 — collapsible conversation history, f313a03a
+
+Revision `f313a03a39f842c5da3ff86dcb9ac22c42edc1ec` is deployed from three
+immutable images at tag `f313a03a39f8`; rollback is `701cecc2e587`. The chat
+conversation list can now be hidden to a 38 px count rail and reopened without
+changing the active session; the preference is local. No migration, workspace
+flag or NAWA theme change occurred. Storage, public revision, HTTP 200, zero
+backend exception matches and carakai 10/10 passed with two intentional
+local-contract skips.
+[Release evidence](../evidence/release-f313a03a-2026-09-18/README.md).
