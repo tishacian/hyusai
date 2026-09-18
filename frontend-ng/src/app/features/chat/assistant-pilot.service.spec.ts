@@ -25,6 +25,11 @@ function harness() {
       {
         provide: ApiService,
         useValue: {
+          get: () => ({
+            subscribe() {
+              // Discovery is not needed by this service-level harness.
+            },
+          }),
           post: (path: string, body: any, options: any) => {
             const response = new Subject();
             posts.push({ path, body, response, options });
@@ -75,6 +80,45 @@ test("network recovery retains the exact idempotency request and session", () =>
   pilot.send("Explain this result");
   assert.equal(posts[2].body.session_id, "session-one");
   assert.deepEqual(posts[2].body.system_ids, ["system-one"]);
+});
+
+test("each pilot turn snapshots and retries its object context", () => {
+  const { pilot, posts } = harness();
+  const objectContext = { type: "run" as const, id: "run-42", run_id: "run-42" };
+  pilot.send("Explain this run", objectContext);
+  assert.deepEqual(posts[0].body.session_context, { object_context: objectContext });
+  posts[0].response.error({ status: 0 });
+  pilot.retry();
+  assert.deepEqual(posts[1].body.session_context, { object_context: objectContext });
+  posts[1].response.next(answer);
+  posts[1].response.complete();
+  assert.deepEqual(pilot.turns()[0].object_context, objectContext);
+});
+
+test("a reload restores the session, scope, answers and object references", () => {
+  const store = new Map<string, string>();
+  (globalThis as { sessionStorage?: Storage }).sessionStorage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+    removeItem: (key: string) => void store.delete(key),
+  } as Storage;
+  const { pilot } = harness();
+  pilot.select(["system-one"]);
+  const objectContext = { type: "system" as const, id: "sys-42", system_id: "sys-42" };
+  pilot.send("Explain this System", objectContext);
+  pilot.turns.set([
+    { question: "Explain this System", response: answer, object_context: objectContext },
+  ]);
+  pilot["sessionId"] = "session-one";
+  pilot["persist"]();
+  pilot.turns.set([]);
+  pilot["sessionId"] = undefined;
+  pilot.systemIds.set([]);
+  pilot.load();
+
+  assert.equal(pilot.turns()[0].object_context?.id, "sys-42");
+  assert.equal(pilot.turns()[0].response.answer, answer.answer);
+  assert.deepEqual(pilot.systemIds(), ["system-one"]);
 });
 
 test("workspace changes discard late responses and scope changes do not share memory", () => {

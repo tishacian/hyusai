@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from "@angular/core";
 import { ApiService } from "@app/core/api.service";
 import { WorkspaceService } from "@app/core/workspace.service";
+import type { AssistantObjectContext } from "./assistant-object-context.service";
 
 export interface PilotSystem {
   system_id: string;
@@ -27,6 +28,12 @@ export interface PilotTurn {
   answer: string;
   tool_calls: PilotEvidence[];
   finish_reason?: string;
+  object_context?: AssistantObjectContext | null;
+}
+interface StoredTurn {
+  question: string;
+  response: PilotTurn;
+  object_context?: AssistantObjectContext;
 }
 interface Request {
   text: string;
@@ -34,6 +41,7 @@ interface Request {
   session_id?: string;
   surface: "pilot";
   request_id: string;
+  session_context: { object_context?: AssistantObjectContext };
 }
 @Injectable({ providedIn: "root" })
 export class AssistantPilotService {
@@ -41,13 +49,14 @@ export class AssistantPilotService {
   private readonly workspace = inject(WorkspaceService);
   readonly systems = signal<PilotSystem[]>([]);
   readonly systemIds = signal<string[]>([]);
-  readonly turns = signal<{ question: string; response: PilotTurn }[]>([]);
+  readonly turns = signal<StoredTurn[]>([]);
   readonly busy = signal(false);
   readonly error = signal<
     "failed" | "unavailable_pilot" | "decision_changed" | null
   >(null);
   readonly retryRequest = signal<Request | null>(null);
   private sessionId: string | undefined;
+  private retryObjectContext: AssistantObjectContext | undefined;
   constructor() {
     this.workspace.registerContextReset(() => {
       this.reset();
@@ -57,6 +66,7 @@ export class AssistantPilotService {
   }
   load(): void {
     const scope = this.workspace.captureRequestScope();
+    if (scope.workspaceSlug) this.restore(scope.workspaceSlug);
     this.api
       .get<{
         systems: PilotSystem[];
@@ -78,15 +88,17 @@ export class AssistantPilotService {
     if (next.join("|") === this.systemIds().join("|")) return;
     this.reset();
     this.systemIds.set(next);
+    this.persist();
   }
   reset(): void {
     this.sessionId = undefined;
     this.turns.set([]);
     this.error.set(null);
     this.retryRequest.set(null);
+    this.retryObjectContext = undefined;
     this.busy.set(false);
   }
-  send(text: string): void {
+  send(text: string, objectContext?: AssistantObjectContext | null): void {
     if (!text.trim() || this.busy() || this.retryRequest()) return;
     this.execute({
       text: text.trim(),
@@ -94,13 +106,16 @@ export class AssistantPilotService {
       session_id: this.sessionId,
       surface: "pilot",
       request_id: crypto.randomUUID(),
-    });
+      session_context: objectContext ? { object_context: objectContext } : {},
+    }, objectContext || undefined);
+    this.retryObjectContext = objectContext || undefined;
   }
   retry(): void {
     const request = this.retryRequest();
-    if (request && !this.busy()) this.execute(request);
+    if (request && !this.busy())
+      this.execute(request, this.retryObjectContext);
   }
-  private execute(request: Request): void {
+  private execute(request: Request, objectContext?: AssistantObjectContext): void {
     const scope = this.workspace.captureRequestScope();
     this.busy.set(true);
     this.error.set(null);
@@ -115,10 +130,11 @@ export class AssistantPilotService {
           this.sessionId = response.session_id;
           this.turns.update((turns) => [
             ...turns,
-            { question: request.text, response },
+            { question: request.text, response, object_context: objectContext },
           ]);
           this.retryRequest.set(null);
           this.busy.set(false);
+          this.persist();
         },
         error: (error) => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
@@ -170,6 +186,7 @@ export class AssistantPilotService {
           );
           this.busy.set(false);
           this.error.set(null);
+          this.persist();
         },
         error: () => {
           if (this.workspace.isRequestScopeCurrent(scope)) {
@@ -178,5 +195,42 @@ export class AssistantPilotService {
           }
         },
       });
+  }
+
+  private restore(workspaceSlug: string): void {
+    if (this.sessionId || this.turns().length) return;
+    try {
+      const raw = globalThis.sessionStorage?.getItem(
+        `agentium.assistant-pilot.${workspaceSlug}`,
+      );
+      if (!raw) return;
+      const value = JSON.parse(raw) as {
+        session_id?: string;
+        system_ids?: string[];
+        turns?: StoredTurn[];
+      };
+      this.sessionId = value.session_id;
+      this.systemIds.set(value.system_ids || []);
+      this.turns.set((value.turns || []).slice(-20));
+    } catch {
+      // A malformed or unavailable browser store is not worth losing a new turn.
+    }
+  }
+
+  private persist(): void {
+    try {
+      const scope = this.workspace.captureRequestScope();
+      if (!scope.workspaceSlug) return;
+      globalThis.sessionStorage?.setItem(
+        `agentium.assistant-pilot.${scope.workspaceSlug}`,
+        JSON.stringify({
+          session_id: this.sessionId,
+          system_ids: this.systemIds(),
+          turns: this.turns().slice(-20),
+        }),
+      );
+    } catch {
+      // Keep conversation working even when browser storage is full or blocked.
+    }
   }
 }

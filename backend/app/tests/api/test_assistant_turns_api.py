@@ -11,6 +11,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import assistant as assistant_endpoint
+from app.models.run import Run
+from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.assistant import MAX_SESSION_CONTEXT_CHARS
@@ -24,7 +26,7 @@ class FakeToolClient:
         self.calls: list[dict] = []
 
     async def complete_with_tools(self, model, messages, *, tools=None, **kwargs):
-        self.calls.append({"tools": tools})
+        self.calls.append({"tools": tools, "prompt": messages[0]["content"]})
         return self.script.pop(0)
 
 
@@ -140,6 +142,7 @@ def test_a_turn_returns_the_full_render_contract(db_session, monkeypatch):
         "finish_reason",
         "usage",
         "config",
+        "object_context",
     }
     assert body["answer"] == "Ouvrez un ticket ITSD."
     assert body["surface"] == "text"
@@ -151,6 +154,7 @@ def test_a_turn_returns_the_full_render_contract(db_session, monkeypatch):
         "knowledge_scope": "itsd",
         "allowed_tools": ["search_knowledge"],
     }
+    assert body["object_context"] == {}
     assert body["citations"] == [
         {
             "index": 1,
@@ -288,3 +292,73 @@ def test_a_session_context_within_the_ceiling_is_accepted(db_session, monkeypatc
     )
 
     assert response.status_code == 200
+
+
+def test_a_run_object_context_is_authorized_and_derives_pilot_scope(db_session, monkeypatch):
+    workspace, user = _seed(db_session)
+    db_session.add(System(id="system-open", workspace_id=workspace.id, name="Open System"))
+    db_session.flush()
+    db_session.add(
+        Run(
+            id="run-open",
+            workspace_id=workspace.id,
+            system_id="system-open",
+            initiated_by_user_id=user.id,
+            trigger="manual",
+            status="completed",
+        )
+    )
+    db_session.commit()
+    client = FakeToolClient([
+        {"content": "This run completed.", "tool_calls": [], "finish_reason": "stop", "usage": {}}
+    ])
+    monkeypatch.setattr(assistant_engine, "build_model_client", lambda config: client)
+
+    response = _client(db_session, workspace, user).post(
+        "/assistant/turns",
+        json={
+            "text": "Explain this run",
+            "surface": "pilot",
+            "request_id": "context-run-open",
+            "system_ids": [],
+            "session_context": {
+                "object_context": {
+                    "type": "run",
+                    "id": "run-open",
+                    "run_id": "run-open",
+                    "node_id": "summary",
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["object_context"] == {
+        "type": "run",
+        "id": "run-open",
+        "system_id": "system-open",
+        "run_id": "run-open",
+        "node_id": "summary",
+    }
+    assert "Open object context" in client.calls[0].get("prompt", "")
+
+
+def test_an_object_context_from_another_workspace_is_rejected(db_session):
+    workspace, user = _seed(db_session)
+    other = Workspace(id="ws-other", name="Other", slug="other")
+    other_system = System(id="system-other", workspace_id=other.id, name="Other System")
+    db_session.add_all([other, other_system])
+    db_session.commit()
+
+    response = _client(db_session, workspace, user).post(
+        "/assistant/turns",
+        json={
+            "text": "Explain this system",
+            "surface": "pilot",
+            "request_id": "context-other",
+            "system_ids": [],
+            "session_context": {"object_context": {"type": "system", "id": "system-other"}},
+        },
+    )
+
+    assert response.status_code == 404

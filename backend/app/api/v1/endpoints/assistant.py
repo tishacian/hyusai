@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+from dataclasses import replace
 from uuid import uuid4
 from sqlalchemy.exc import IntegrityError
 from app.models.assistant_request import AssistantRequest
@@ -19,6 +20,7 @@ from app.services.assistant.tools import (
     execute_tool,
     AssistantToolError,
     _list_systems,
+    _visible_run,
 )
 from app.services.assistant.config import resolve_assistant_config
 from typing import Any
@@ -41,6 +43,7 @@ from app.services.assistant import (
 router = APIRouter()
 
 MAX_TEXT_CHARS = 8000
+OBJECT_CONTEXT_TYPES = frozenset({"system", "run", "skill_invocation"})
 
 
 class AssistantTurnRequest(BaseModel):
@@ -102,6 +105,64 @@ def scope_context(db, user, workspace, system_ids, *, surface="pilot"):
     return ctx
 
 
+def _bounded_context_text(value: Any, limit: int = 128) -> str:
+    return str(value or "").strip()[:limit]
+
+
+def _validated_object_context(ctx, body: AssistantTurnRequest) -> dict[str, str] | None:
+    raw = body.session_context.get("object_context")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise HTTPException(422, "object_context must be an object")
+
+    object_type = _bounded_context_text(raw.get("type"), 32)
+    object_id = _bounded_context_text(raw.get("id"), 64)
+    run_id = _bounded_context_text(raw.get("run_id"), 64)
+    system_id = _bounded_context_text(raw.get("system_id"), 64)
+    node_id = _bounded_context_text(raw.get("node_id"), 128)
+    facet = _bounded_context_text(raw.get("facet"), 64)
+    if object_type not in OBJECT_CONTEXT_TYPES or not object_id:
+        raise HTTPException(422, "Invalid object_context type or identifier")
+
+    unrestricted = replace(ctx, system_ids=None)
+    if object_type == "system":
+        system_id = object_id
+    else:
+        run_id = run_id or object_id
+        try:
+            run = _visible_run(unrestricted, run_id)
+        except AssistantToolError as exc:
+            raise HTTPException(404, exc.as_result()) from exc
+        resolved_system = str(run.system_id or "")
+        if not resolved_system:
+            raise HTTPException(422, "This Run has no System scope")
+        if system_id and system_id != resolved_system:
+            raise HTTPException(422, "object_context System does not match its Run")
+        system_id = resolved_system
+
+    try:
+        visible_system(unrestricted, system_id)
+    except AssistantToolError as exc:
+        raise HTTPException(404, exc.as_result()) from exc
+
+    scope = body.system_ids
+    if scope is not None and system_id not in scope:
+        if scope:
+            raise HTTPException(404, "The open object is outside the selected System scope")
+        body.system_ids = [system_id]
+
+    normalized = {"type": object_type, "id": object_id, "system_id": system_id}
+    if run_id:
+        normalized["run_id"] = run_id
+    if node_id:
+        normalized["node_id"] = node_id
+    if facet:
+        normalized["facet"] = facet
+    body.session_context = {**body.session_context, "object_context": normalized}
+    return normalized
+
+
 @router.get("/systems")
 async def discover_systems(
     workspace: Workspace = Depends(get_current_workspace),
@@ -120,7 +181,10 @@ async def create_assistant_turn(
     db: DBSession = Depends(get_db),
 ) -> dict[str, Any]:
     # Validate every identifier before claiming a request or returning cached content.
-    scope_context(db, user, workspace, body.system_ids, surface=body.surface)
+    ctx = scope_context(db, user, workspace, body.system_ids, surface=body.surface)
+    object_context = _validated_object_context(ctx, body)
+    if object_context:
+        scope_context(db, user, workspace, body.system_ids, surface=body.surface)
     if body.surface == "pilot" and (body.request_id is None or body.system_ids is None):
         raise HTTPException(422, "The pilot requires request_id and explicit System scope")
     receipt = None
