@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "commit_sha": "428e596e2e8965840655c1047c09d3ab07bd1876",
+  "outcome": "passed",
+  "claims": {
+    "LOT6-SYSTEM360-PERSPECTIVES": "passed"
+  },
+  "ci": {
+    "server_url": "",
+    "project_id": "",
+    "pipeline_id": "",
+    "job_id": "",
+    "job_url": "",
+    "commit_sha": "428e596e2e8965840655c1047c09d3ab07bd1876",
+    "ref": "iteration-gate",
+    "ref_protected": "false"
+  },
+  "checks": {
+    "build_revision": true,
+    "unique_marker_discovery": true,
+    "four_distinct_projections": true,
+    "invariant_identity_header_breadcrumb_tabs": true,
+    "ui_value_matches_api_per_lens": true,
+    "governance_coverage_matches_authorized_runs": true,
+    "deep_link_reload_history_and_facet": true,
+    "workspace_switch_purges_object": true,
+    "explicit_missing_state": true,
+    "explicit_restricted_state": true
+  },
+  "build_info": {
+    "backend": {
+      "service": "backend",
+      "revision": "428e596e2e8965840655c1047c09d3ab07bd1876",
+      "revision_verified": true,
+      "version": "1.0.0-demo"
+    },
+    "frontend": {
+      "service": "frontend",
+      "revision": "428e596e2e8965840655c1047c09d3ab07bd1876",
+      "revision_verified": true
+    }
+  },
+  "playwright_runtime": {
+    "candidate_sha": "428e596e2e8965840655c1047c09d3ab07bd1876",
+    "chromium_executable_sha256": "696170a79640ec5b50c7518140ace06c69a49cfb295bf527d4a85e26a12b89a7",
+    "installed_lock_sha256": "9f032a6ea69ee77cc5061963039b89f1bd72164c6dfb0f87064af1b87e84f797",
+    "kind": "agentium_playwright_runtime",
+    "package_lock_sha256": "cfded9c960a9db04bdb4ac9646140211852e1e6b92d1adb42a0002e6fae95685",
+    "paths_serialized": false,
+    "playwright_cli_sha256": "79e23e6a249176295b8490567daa7717448a75866d6ea6f6b296ff3d23305c69",
+    "result": "passed",
+    "schema_version": 1
+  },
+  "kind": "runner",
+  "runner": "playwright",
+  "suite": "frontend-ng/e2e/tests/11-system360-canary.spec.ts"
+}
