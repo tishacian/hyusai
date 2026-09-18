@@ -252,6 +252,25 @@ test('a late session create from A cannot select, store or render the A session 
   }
 });
 
+test('the conversation list can be hidden and shown without losing the current session', async () => {
+  const { injector, component } = makeHarness();
+  try {
+    await Promise.resolve();
+    const active = component.activeChatSessionId();
+    assert.equal(component.chatHistoryOpen(), true);
+
+    component.toggleChatHistory();
+    assert.equal(component.chatHistoryOpen(), false);
+    assert.equal(component.activeChatSessionId(), active);
+
+    component.toggleChatHistory();
+    assert.equal(component.chatHistoryOpen(), true);
+    assert.equal(component.activeChatSessionId(), active);
+  } finally {
+    injector.destroy();
+  }
+});
+
 test('a late open-session response from A cannot restore its messages in B', async () => {
   const { injector, component, workspace, api } = makeHarness();
   try {
