@@ -498,8 +498,25 @@ const STEP_ICONS: Record<string, string> = {
     RunMandateComponent,
   ],
   template: `
-    <div class="chat-history-shell" [class.chat-history-embed]="compact()">
-      <aside class="chat-history-panel" [hidden]="compact()">
+    <div
+      class="chat-history-shell"
+      [class.chat-history-embed]="compact()"
+      [class.chat-history-collapsed]="!compact() && !chatHistoryOpen()"
+    >
+      @if (!compact() && !chatHistoryOpen()) {
+        <button
+          type="button"
+          class="chat-history-expand"
+          [title]="i18n.t('chat.history.show')"
+          [attr.aria-label]="i18n.t('chat.history.show')"
+          [attr.aria-expanded]="false"
+          (click)="toggleChatHistory()"
+        >
+          <app-icon name="message-square" [size]="15" />
+          <span>{{ chatSessions().length }}</span>
+        </button>
+      }
+      <aside class="chat-history-panel" [hidden]="compact() || !chatHistoryOpen()">
         <div class="chat-history-head">
           <div>
             <div class="chat-history-kicker">{{ i18n.t('chat.history.title') }}</div>
@@ -507,15 +524,27 @@ const STEP_ICONS: Record<string, string> = {
               {{ i18n.t('chat.history.count', { count: chatSessions().length }) }}
             </div>
           </div>
-          <button
-            type="button"
-            class="chat-history-new"
-            [title]="i18n.t('chat.history.new')"
-            [disabled]="creatingChatSession"
-            (click)="createNewChat()"
-          >
-            <app-icon name="plus" [size]="14" />
-          </button>
+          <div class="chat-history-tools">
+            <button
+              type="button"
+              class="chat-history-toggle"
+              [title]="i18n.t('chat.history.hide')"
+              [attr.aria-label]="i18n.t('chat.history.hide')"
+              [attr.aria-expanded]="true"
+              (click)="toggleChatHistory()"
+            >
+              <app-icon name="chevron-left" [size]="14" />
+            </button>
+            <button
+              type="button"
+              class="chat-history-new"
+              [title]="i18n.t('chat.history.new')"
+              [disabled]="creatingChatSession"
+              (click)="createNewChat()"
+            >
+              <app-icon name="plus" [size]="14" />
+            </button>
+          </div>
         </div>
         <div class="chat-history-search">
           <app-icon name="search" [size]="12" />
@@ -2114,6 +2143,27 @@ const STEP_ICONS: Record<string, string> = {
     .chat-history-shell.chat-history-embed .chat-history-panel {
       display: none;
     }
+    .chat-history-expand {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 38px;
+      flex: 0 0 38px;
+      min-height: 0;
+      border: 0;
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.010)),
+        rgba(2, 7, 14, 0.72);
+      color: rgba(148, 163, 184, 0.9);
+      font: 700 10px/1 var(--ck-font-mono, ui-monospace, monospace);
+    }
+    .chat-history-expand:hover {
+      color: rgba(226, 232, 240, 1);
+      background-color: rgba(255, 255, 255, 0.045);
+    }
     .chat-history-panel {
       display: flex;
       flex-direction: column;
@@ -2133,6 +2183,27 @@ const STEP_ICONS: Record<string, string> = {
       gap: 10px;
       padding: 12px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .chat-history-tools {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .chat-history-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      color: rgba(226, 232, 240, 0.86);
+      background: rgba(255, 255, 255, 0.045);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: 140ms ease;
+    }
+    .chat-history-toggle:hover {
+      color: rgba(226, 232, 240, 1);
+      background: rgba(255, 255, 255, 0.08);
     }
     .chat-history-kicker {
       color: rgba(125, 211, 252, 0.88);
@@ -3333,6 +3404,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private chatSessionId: string | null = null;
   private chatSessionSignature: string | null = null;
   private readonly selectedSessionStorageBaseKey = 'agentium:selected-chat-session-id';
+  private readonly chatHistoryStorageKey = 'agentium:chat-history-open';
   private readonly activeDeepRetrievalPolls = new Set<string>();
   private readonly activeHitlMessagePolls = new Set<string>();
   private chatWorkspaceGeneration = 0;
@@ -3340,6 +3412,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private readonly chatPollingTimers = new Set<ReturnType<typeof setTimeout>>();
   private chatDestroyed = false;
   creatingChatSession = false;
+  readonly chatHistoryOpen = signal(this.readStoredChatHistoryOpen());
   readonly chatSessions = signal<ChatSessionSummary[]>([]);
   readonly chatSessionsLoading = signal(false);
   readonly activeChatSessionId = signal<string | null>(null);
@@ -4183,6 +4256,24 @@ export class ChatPanelComponent implements AfterViewInit {
 
   isActiveSession(session: ChatSessionSummary): boolean {
     return this.activeChatSessionId() === session.id;
+  }
+
+  toggleChatHistory(): void {
+    const next = !this.chatHistoryOpen();
+    this.chatHistoryOpen.set(next);
+    try {
+      globalThis.localStorage?.setItem(this.chatHistoryStorageKey, String(next));
+    } catch {
+      // The collapse still works for this tab when storage is unavailable.
+    }
+  }
+
+  private readStoredChatHistoryOpen(): boolean {
+    try {
+      return globalThis.localStorage?.getItem(this.chatHistoryStorageKey) !== 'false';
+    } catch {
+      return true;
+    }
   }
 
   private storeSelectedSessionId(
