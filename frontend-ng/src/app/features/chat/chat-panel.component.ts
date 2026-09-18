@@ -643,7 +643,25 @@ const STEP_ICONS: Record<string, string> = {
         </div>
       }
 
-      @if (showAdvancedChatControls()) {
+      @if (showAdvancedChatControls() && !advancedControlsOpen()) {
+        <div class="chat-control-bar chat-control-collapsed">
+          <button
+            type="button"
+            class="chat-control-expand"
+            [title]="i18n.t('chat.controls.show')"
+            (click)="toggleAdvancedControls()"
+          >
+            <app-icon name="sliders-horizontal" [size]="13" />
+            <span>{{ chatRuntimeLabel() }}</span>
+            @if (voiceConversationActive()) {
+              <span class="chat-control-live">voice</span>
+            }
+            <app-icon name="chevron-down" [size]="13" />
+          </button>
+        </div>
+      }
+
+      @if (advancedControlsVisible()) {
       <!-- Toolbar -->
       <div class="chat-control-bar">
         <div class="chat-control-main">
@@ -771,6 +789,14 @@ const STEP_ICONS: Record<string, string> = {
           </div>
         </div>
         <div class="chat-control-actions">
+          <button
+            type="button"
+            class="chat-control-toggle"
+            [title]="i18n.t('chat.controls.hide')"
+            (click)="toggleAdvancedControls()"
+          >
+            <app-icon name="chevron-up" [size]="14" />
+          </button>
           @if (ttsEnabled() && ttsSpeaking()) {
             <button
               type="button"
@@ -805,7 +831,7 @@ const STEP_ICONS: Record<string, string> = {
       </div>
       }
 
-      @if (showAdvancedChatControls()) {
+      @if (advancedControlsVisible()) {
       <app-voice-controls
         [runtimeOptions]="voiceControlRuntimeOptions()"
         [provider]="voiceProvider()"
@@ -865,7 +891,7 @@ const STEP_ICONS: Record<string, string> = {
       }
       }
 
-      @if (showAdvancedChatControls() && effectiveChatActions().length) {
+      @if (advancedControlsVisible() && effectiveChatActions().length) {
         <div class="action-surface-bar">
           <span class="action-surface-label">
             <app-icon name="zap" [size]="12" />
@@ -2494,6 +2520,42 @@ const STEP_ICONS: Record<string, string> = {
       gap: 6px;
       flex-shrink: 0;
     }
+    .chat-control-collapsed {
+      align-items: center;
+      padding: 4px 8px;
+    }
+    .chat-control-expand,
+    .chat-control-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 28px;
+      padding: 0 8px;
+      border-radius: 8px;
+      color: rgba(177, 190, 210, 0.86);
+      background: rgba(255, 255, 255, 0.045);
+      transition: 140ms ease;
+    }
+    .chat-control-expand {
+      max-width: 100%;
+      overflow: hidden;
+      font: 650 11px/1 var(--ck-font-mono, ui-monospace, monospace);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .chat-control-expand:hover,
+    .chat-control-toggle:hover {
+      color: rgba(232, 239, 250, 1);
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .chat-control-toggle {
+      padding: 0 7px;
+    }
+    .chat-control-live {
+      color: var(--ck-signal-pos);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
     .chat-mode-chip {
       display: inline-flex;
       align-items: center;
@@ -3408,6 +3470,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private chatSessionSignature: string | null = null;
   private readonly selectedSessionStorageBaseKey = 'agentium:selected-chat-session-id';
   private readonly chatHistoryStorageKey = 'agentium:chat-history-open';
+  private readonly advancedControlsStorageKey = 'agentium:chat-advanced-controls-open';
   private readonly activeDeepRetrievalPolls = new Set<string>();
   private readonly activeHitlMessagePolls = new Set<string>();
   private chatWorkspaceGeneration = 0;
@@ -3498,6 +3561,10 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
   readonly showAdvancedChatControls = computed(() =>
     !this.isDemoMode() && (!this.executiveMode() || this.traceOpen()),
+  );
+  readonly advancedControlsOpen = signal(this.readStoredAdvancedControlsOpen());
+  readonly advancedControlsVisible = computed(() =>
+    this.showAdvancedChatControls() && this.advancedControlsOpen(),
   );
   readonly chatRuntimeLabel = computed(() =>
     this.isDemoMode()
@@ -4271,11 +4338,29 @@ export class ChatPanelComponent implements AfterViewInit {
     }
   }
 
+  toggleAdvancedControls(): void {
+    const next = !this.advancedControlsOpen();
+    this.advancedControlsOpen.set(next);
+    try {
+      globalThis.localStorage?.setItem(this.advancedControlsStorageKey, String(next));
+    } catch {
+      // The toggle still works for this tab when storage is unavailable.
+    }
+  }
+
   private readStoredChatHistoryOpen(): boolean {
     try {
       return globalThis.localStorage?.getItem(this.chatHistoryStorageKey) !== 'false';
     } catch {
       return true;
+    }
+  }
+
+  private readStoredAdvancedControlsOpen(): boolean {
+    try {
+      return globalThis.localStorage?.getItem(this.advancedControlsStorageKey) === 'true';
+    } catch {
+      return false;
     }
   }
 
