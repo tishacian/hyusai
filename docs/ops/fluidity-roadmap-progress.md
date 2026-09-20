@@ -1,7 +1,7 @@
 # Fluidité — état de livraison
 
 Base: `demo/agentic` @ `d9290569b4dbd4e9adcd39c985d06f6c3452a3b9`.
-Deployed release: `c6119850dd100ca5f26f13a1af51619ed554ce53`.
+Deployed release: `1b4142496f70d88ba34b56147be2a09baa872488`.
 
 ## Livré dans cette tranche
 
