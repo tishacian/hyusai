@@ -7079,3 +7079,15 @@ disappears and leaves the reopen rail. No migration, flag, or NAWA theme
 change. Storage, exact public revision, HTTP 200, zero backend exception
 matches, and 10/10 carakai canaries passed with two intentional local-contract
 skips. [Release evidence](../evidence/release-c6119850-2026-09-18/README.md).
+
+
+### 2026-09-18 — compact advanced chat controls, 1b414249
+
+Revision `1b4142496f70d88ba34b56147be2a09baa872488` is deployed from three
+immutable images at tag `1b4142496f70`; rollback is `c6119850dd10`. The model,
+source, retrieval, reasoning, voice and action controls now start compact in a
+single row and expand on explicit request; the preference is local. No
+migration, workspace flag, or NAWA theme change occurred. Storage, public
+revision, HTTP 200, zero backend exception matches, and carakai 10/10 passed
+with two intentional local-contract skips.
+[Release evidence](../evidence/release-1b414249-2026-09-18/README.md).
