@@ -94,6 +94,14 @@ function setup(initial = flow()) {
   return { api, destroyRef, service, store };
 }
 
+test('validation submits the same tree save hashes', () => {
+  const { api, destroyRef, service, store } = setup();
+  const serializer = new FlowSerializerService();
+  service.validateNow();
+  assert.deepEqual(api.calls[0].flow, serializer.annotateSidecars(store.snapshot()));
+  destroyRef.destroy();
+});
+
 test('fingerprint is deterministic across object key order', () => {
   assert.equal(
     flowValidationFingerprint({ b: 2, a: { z: 1, y: [3, undefined] } }),

@@ -159,6 +159,23 @@ function cloneFlow(flow: CanonicalFlow): CanonicalFlow {
 
 /** Explicit NULL/empty is a real legacy persisted state. A missing field or a
  * partially-shaped payload is a protocol failure and must stay fail-closed. */
+/** Same semantic JSON the backend hashes: sorted keys, array order kept. */
+function stableFlowJson(value: unknown): string {
+  const visit = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(visit);
+    if (item && typeof item === 'object') {
+      const source = item as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(source).sort()) {
+        if (source[key] !== undefined) out[key] = visit(source[key]);
+      }
+      return out;
+    }
+    return item;
+  };
+  return JSON.stringify(visit(value));
+}
+
 function canonicalPersistedFlow(value: unknown): CanonicalFlow | null {
   if (value === null) return { nodes: [], edges: [] };
   if (value === undefined) return null;
@@ -596,7 +613,23 @@ export class FlowPersistenceService {
     this.hydrationReady.set(true);
     this.errored.set(false);
     this.lastRevision = this.store.revision();
+    this.alignHashedBody(flow);
     return true;
+  }
+
+  /** Execute compares the validation hash to the saved hash. The editor
+   * projects a normalized, sidecar-annotated tree; an automation created
+   * before that projection was stored would stay locked forever. Persist
+   * that tree once so the two bodies are the same. */
+  private alignHashedBody(persisted: CanonicalFlow): void {
+    const projected = this.serializer.annotateSidecars(this.store.snapshot());
+    if (projected.variant !== 'automation_v1' && persisted.variant !== 'automation_v1') {
+      return;
+    }
+    if (stableFlowJson(persisted) === stableFlowJson(projected)) return;
+    const sid = this.systemId();
+    if (!sid || !this.publicationMode() || this.saving()) return;
+    this.saveServerDraft(sid, 'autosave');
   }
 
   markHydrationFailed(message: string): void {

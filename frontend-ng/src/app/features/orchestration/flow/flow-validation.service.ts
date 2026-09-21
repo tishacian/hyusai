@@ -19,6 +19,7 @@ import {
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
 import { I18nService } from '@app/core/i18n.service';
+import { FlowSerializerService } from '@app/core/flow-serializer.service';
 import { FlowStore } from './flow.store';
 
 export type FlowServerValidationState =
@@ -64,6 +65,7 @@ export function flowValidationFingerprint(value: unknown): string {
 export class FlowValidationService {
   private readonly i18n = inject(I18nService);
   private readonly store = inject(FlowStore);
+  private readonly serializer = inject(FlowSerializerService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService, { optional: true });
   private readonly destroyRef = inject(DestroyRef);
@@ -154,8 +156,11 @@ export class FlowValidationService {
     if (!systemId) return;
 
     const revision = this.store.revision();
-    const flow = this.store.snapshot();
-    const fingerprint = flowValidationFingerprint(flow);
+    const snapshot = this.store.snapshot();
+    // Save hashes annotateSidecars(snapshot). Validate the same tree, or the
+    // returned flow_sha256 never equals savedFlowSha256 and Execute stays locked.
+    const flow = this.serializer.annotateSidecars(snapshot);
+    const fingerprint = flowValidationFingerprint(snapshot);
     this.lastObservedKey = this.captureKey(systemId, revision, fingerprint);
     const requestSequence = ++this.sequence;
     const scope = this.workspace?.captureRequestScope() ?? null;
