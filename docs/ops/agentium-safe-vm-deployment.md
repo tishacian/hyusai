@@ -7091,3 +7091,18 @@ migration, workspace flag, or NAWA theme change occurred. Storage, public
 revision, HTTP 200, zero backend exception matches, and carakai 10/10 passed
 with two intentional local-contract skips.
 [Release evidence](../evidence/release-1b414249-2026-09-18/README.md).
+
+
+### 2026-09-21 — automation-first draft, 8ffa3de9
+
+Revision `8ffa3de92b75314fabf8be4d138de2ba03c82ed6` is deployed from three
+immutable images at tag `8ffa3de92b75`; rollback is `1b4142496f70`. Create now
+opens with a New automation composer that creates a canonical System draft,
+seeds `Trigger → Agent → Output`, opens Flow directly, exposes four palette
+primitives and keeps Run primary without publication. The backend contract
+proves draft admission through the canonical draft-test path. No migration,
+workspace flag, or NAWA theme change occurred. Storage, public revision, HTTP
+200, zero backend exception matches, and carakai 10/10 passed with two
+intentional local-contract skips.
+[Release evidence](../evidence/release-8ffa3de9-2026-09-21/README.md).
+The SPARK-365 process-owner run remains the human acceptance gate.
