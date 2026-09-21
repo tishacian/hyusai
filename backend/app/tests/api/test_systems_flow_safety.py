@@ -21,11 +21,15 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import systems
 from app.models.audit import AuditLog
+from app.models.run import Run
+from app.models.skill import Skill
 from app.models.system import System
+from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.chains import version_service
+from app.services.systems import flow_publication as publication_service
 from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 
 
@@ -334,6 +338,99 @@ def test_create_active_empty_flow_requires_explicit_intent(db_session) -> None:
     assert accepted.status_code == 200
     assert accepted.json()["status"] == "active"
     assert accepted.json()["flow_definition"] == _empty_flow()
+
+
+def test_automation_first_draft_is_canonical_and_runnable_without_publication(
+    db_session,
+) -> None:
+    workspace = Workspace(
+        id="ws-automation-first",
+        name="Automation first",
+        slug="automation-first",
+        settings={},
+    )
+    user = User(
+        id="user-automation-first",
+        username="automation-first@example.invalid",
+        email="automation-first@example.invalid",
+        role="admin",
+    )
+    skill = Skill(
+        id="skill-automation-llm",
+        workspace_id=workspace.id,
+        slug="llm_rag_answer_v1",
+        version="1",
+        name="RAG Answer",
+        input_schema={"type": "object", "required": ["query"], "properties": {"query": {"type": "string"}}},
+        output_schema={"type": "object", "properties": {"answer": {"type": "string"}}},
+        execution={"mode": "sync"},
+    )
+    db_session.add_all([workspace, user, skill])
+    db_session.commit()
+
+    flow = {
+        "source": "flow",
+        "schema_version": 3,
+        "variant": "automation_v1",
+        "nodes": [
+            {
+                "id": "trigger",
+                "type": "source",
+                "kind": "source",
+                "label": "Trigger",
+                "outputs": [{"name": "transcript", "schema": "string"}],
+                "config": {"ingress_kind": "manual"},
+            },
+            {
+                "id": "agent",
+                "type": "skill",
+                "kind": "task",
+                "label": "Agent",
+                "config": {
+                    "skill_slug": skill.slug,
+                    "skill_id": skill.id,
+                    "inputs_map": {"query": "run.transcript"},
+                },
+            },
+            {"id": "output", "type": "sink", "kind": "sink", "label": "Output"},
+        ],
+        "edges": [
+            {"from": "trigger", "to": "agent", "kind": "data", "from_port": "transcript"},
+            {"from": "agent", "to": "output", "kind": "data"},
+        ],
+    }
+    client = _client(db_session, workspace, user)
+    response = client.post(
+        "/systems",
+        json={
+            "name": "SPARK-365 meeting minutes",
+            "objective": "Draft meeting minutes for review",
+            "status": "draft",
+            "skill_ids": [skill.id],
+            "flow_definition": flow,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "draft"
+    assert body["flow_definition"]["variant"] == "automation_v1"
+    draft = db_session.query(SystemFlowDraft).filter_by(system_id=body["id"]).one()
+    run = publication_service.create_draft_test_run(
+        db_session,
+        system_id=body["id"],
+        workspace=workspace,
+        user_id=user.id,
+        input_ref={"transcript": "Speaker one: hello"},
+        expected_draft_revision=draft.revision,
+        expected_flow_sha256=draft.flow_sha256,
+        ingress_id="trigger",
+        ingress_kind="manual",
+    )
+    assert run.system_id == body["id"]
+    assert run.input_ref["transcript"] == "Speaker one: hello"
+    assert run.input_ref["_ingress"]["ingress_id"] == "trigger"
+    assert run.status in {"pending", "running"}
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,35 @@
 
   <div class="xp-hub">
     @if (canEdit()) {
+      <form class="xp-automation" (ngSubmit)="createAutomation()">
+        <div class="xp-automation-head">
+          <h2>{{ i18n.t('experience.hub.automation.title') }}</h2>
+          <span>{{ i18n.t('experience.hub.automation.shape') }}</span>
+        </div>
+        <input
+          type="text"
+          [(ngModel)]="automationPrompt"
+          name="automation-prompt"
+          [placeholder]="i18n.t('experience.hub.composer.placeholder')"
+          [disabled]="automationCreating()"
+          autocomplete="off"
+        />
+        <footer>
+          <p>{{ i18n.t('experience.hub.automation.body') }}</p>
+          <button
+            type="submit"
+            [disabled]="automationCreating()"
+          >
+            {{ automationCreating() ? i18n.t('experience.hub.automation.loading') : i18n.t('experience.hub.automation.cta') }}
+          </button>
+        </footer>
+        @if (automationError(); as error) {
+          <p class="xp-automation-error" role="alert">{{ i18n.t(error) }}</p>
+        }
+      </form>
+    }
+
+    @if (canEdit()) {
     <div class="xp-intents">
       @for (intent of intents; track intent.titleKey) {
         <article class="xp-card">

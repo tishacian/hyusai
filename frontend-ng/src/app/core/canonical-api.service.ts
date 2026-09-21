@@ -1863,12 +1863,18 @@ export class CanonicalApiService {
 
   createSystem(
     body: Partial<System>,
-    opts?: { flow_write_intent?: 'replace_active_flow' },
+    opts?: {
+      flow_write_intent?: 'replace_active_flow';
+      propagateErrors?: boolean;
+    },
   ): Observable<System | null> {
     const query = opts?.flow_write_intent
       ? `?flow_write_intent=${encodeURIComponent(opts.flow_write_intent)}`
       : '';
-    return this.api.post<System>(`/systems${query}`, body).pipe(catchError(() => of(null)));
+    return this.api.post<System>(`/systems${query}`, body).pipe(
+      catchError((error: unknown) =>
+        opts?.propagateErrors ? throwError(() => error) : of(null)),
+    );
   }
 
   updateSystem(
