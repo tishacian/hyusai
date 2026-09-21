@@ -216,7 +216,11 @@ const PUBLICATION_HYDRATION_CODES = new Set([
         (clear)="requestClear()"
       >
         @if (persistence.hydrationReady()) {
-          <app-flow-run-controls flowToolbarActions (openVersions)="versionsOpen.set(true)" />
+          <app-flow-run-controls
+            flowToolbarActions
+            [compact]="automationMode()"
+            (openVersions)="versionsOpen.set(true)"
+          />
         }
       </app-flow-toolbar>
 
@@ -330,7 +334,8 @@ const PUBLICATION_HYDRATION_CODES = new Set([
           @if (paletteOpen() && !focusMode()) {
             <app-flow-palette
               class="flow-builder__palette"
-              [items]="palette"
+              [items]="automationMode() ? automationPalette() : palette"
+              [simpleMode]="automationMode()"
               [context]="paletteContext()"
               [flowSkillSlugs]="flowSkillSlugs()"
               [nodeCount]="store.nodeCount()"
@@ -593,6 +598,29 @@ export class FlowBuilderComponent {
   protected readonly builderRoot = viewChild<ElementRef<HTMLElement>>('builderRoot');
 
   protected readonly palette: PaletteItem[] = DEFAULT_PALETTE;
+  protected readonly automationMode = computed(() =>
+    this.store.snapshot().variant === 'automation_v1',
+  );
+  protected readonly automationPalette = computed<PaletteItem[]>(() => {
+    const agent = this.store.nodes().find((node) => node.id === 'agent');
+    const agentItem: PaletteItem | null = agent ? {
+      type: 'skill',
+      kind: 'task',
+      label: 'Agent',
+      description: String(agent.data?.['description'] || 'Run the AI step'),
+      icon: 'bot',
+      tone: 'cyan',
+      inputs: agent.inputs,
+      outputs: agent.outputs,
+      config: agent.config as Record<string, unknown>,
+      data: agent.data,
+    } : null;
+    const primitives = DEFAULT_PALETTE.filter((item) =>
+      item.label === 'Trigger' || item.label === 'Decision' || item.label === 'Output');
+    return agentItem
+      ? [primitives[0], agentItem, primitives[1], primitives[2]]
+      : primitives;
+  });
   protected readonly systemId = signal<string | null>(null);
   protected readonly system = signal<System | null>(null);
   protected readonly paletteOpen = signal(true);

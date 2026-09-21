@@ -17,6 +17,7 @@ import {
   Component,
   computed,
   effect,
+  input,
   inject,
   output,
   untracked,
@@ -44,15 +45,17 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
         {{ run.executionSurfaceLabel() }} · {{ run.runtimeModeLabel() }}
       </span>
 
-      <button
-        type="button"
-        class="ck-run__btn"
-        (click)="run.simulate()"
-        [title]="i18n.t('flow.run.simulate.hint')"
-        [attr.aria-label]="i18n.t('flow.run.simulate')"
-      >
-        <app-icon name="play-circle" [size]="14" /><span>{{ i18n.t('flow.run.simulate') }}</span>
-      </button>
+      @if (!compact()) {
+        <button
+          type="button"
+          class="ck-run__btn"
+          (click)="run.simulate()"
+          [title]="i18n.t('flow.run.simulate.hint')"
+          [attr.aria-label]="i18n.t('flow.run.simulate')"
+        >
+          <app-icon name="play-circle" [size]="14" /><span>{{ i18n.t('flow.run.simulate') }}</span>
+        </button>
+      }
 
       <button
         type="button"
@@ -71,48 +74,54 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
         }
       </button>
 
-      <button
-        type="button"
-        class="ck-run__btn"
-        [class.is-on]="run.debugMode() !== 'off'"
-        [disabled]="!run.canDebug() && run.debugMode() === 'off'"
-        (click)="onCycleDebug()"
-        [title]="debugTitle()"
-        [attr.aria-label]="i18n.t('flow.run.debug.aria')"
-      >
-        <app-icon name="bug" [size]="14" /><span>{{
-          i18n.t('flow.run.debug', { mode: run.debugMode() })
-        }}</span>
-        @if (breakpointCount() > 0) {
-          <span class="ck-run__count">{{ breakpointCount() }}</span>
-        }
-      </button>
+      @if (!compact()) {
+        <button
+          type="button"
+          class="ck-run__btn"
+          [class.is-on]="run.debugMode() !== 'off'"
+          [disabled]="!run.canDebug() && run.debugMode() === 'off'"
+          (click)="onCycleDebug()"
+          [title]="debugTitle()"
+          [attr.aria-label]="i18n.t('flow.run.debug.aria')"
+        >
+          <app-icon name="bug" [size]="14" /><span>{{
+            i18n.t('flow.run.debug', { mode: run.debugMode() })
+          }}</span>
+          @if (breakpointCount() > 0) {
+            <span class="ck-run__count">{{ breakpointCount() }}</span>
+          }
+        </button>
+      }
 
-      <button
-        type="button"
-        class="ck-run__btn"
-        [disabled]="!run.canReplay()"
-        (click)="run.replayRun()"
-        [title]="i18n.t('flow.run.replay.hint')"
-        [attr.aria-label]="i18n.t('flow.run.replay.aria')"
-      >
-        <app-icon name="history" [size]="14" /><span>{{ i18n.t('flow.run.replay') }}</span>
-      </button>
+      @if (!compact()) {
+        <button
+          type="button"
+          class="ck-run__btn"
+          [disabled]="!run.canReplay()"
+          (click)="run.replayRun()"
+          [title]="i18n.t('flow.run.replay.hint')"
+          [attr.aria-label]="i18n.t('flow.run.replay.aria')"
+        >
+          <app-icon name="history" [size]="14" /><span>{{ i18n.t('flow.run.replay') }}</span>
+        </button>
+      }
 
-      <button
-        type="button"
-        class="ck-run__btn"
-        [disabled]="!run.canUseSystemActions()"
-        (click)="onVersions()"
-        [title]="
-          run.canUseSystemActions()
-            ? i18n.t('flow.run.versions.hint')
-            : i18n.t('flow.run.versions.blocked')
-        "
-        [attr.aria-label]="i18n.t('flow.run.versions')"
-      >
-        <app-icon name="git-commit" [size]="14" /><span>{{ i18n.t('flow.run.versions') }}</span>
-      </button>
+      @if (!compact()) {
+        <button
+          type="button"
+          class="ck-run__btn"
+          [disabled]="!run.canUseSystemActions()"
+          (click)="onVersions()"
+          [title]="
+            run.canUseSystemActions()
+              ? i18n.t('flow.run.versions.hint')
+              : i18n.t('flow.run.versions.blocked')
+          "
+          [attr.aria-label]="i18n.t('flow.run.versions')"
+        >
+          <app-icon name="git-commit" [size]="14" /><span>{{ i18n.t('flow.run.versions') }}</span>
+        </button>
+      }
 
       <button
         type="button"
@@ -245,6 +254,7 @@ export class FlowRunControlsComponent {
   readonly i18n = inject(I18nService);
   private readonly store = inject(FlowStore);
   private readonly toastr = inject(ToastrService);
+  readonly compact = input(false);
 
   /** Asks the shell to open the Versions drawer (gated on a saved System). */
   readonly openVersions = output<void>();

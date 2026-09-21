@@ -162,6 +162,31 @@ const MOST_USED_LIMIT = 5;
         />
       </label>
 
+      @if (simpleMode()) {
+        <div class="ck-flow-palette__body">
+          @if (rankedMode()) {
+            @for (item of rankedItems(); track itemKey(item); let i = $index) {
+              <ng-container
+                *ngTemplateOutlet="
+                  row;
+                  context: {
+                    $implicit: item,
+                    active: i === activeIndex(),
+                    optionId: optionId(item, i),
+                    comboboxOption: true,
+                  }
+                "
+              />
+            } @empty {
+              <p class="ck-flow-palette__empty" role="status">{{ rankedEmptyMessage() }}</p>
+            }
+          } @else {
+            @for (item of items(); track itemKey(item)) {
+              <ng-container *ngTemplateOutlet="row; context: { $implicit: item }" />
+            }
+          }
+        </div>
+      } @else {
       @if (catalog.state() === 'loading') {
         <p class="ck-flow-palette__empty" role="status">
           {{ i18n.t('flow.palette.catalog.loading') }}
@@ -376,6 +401,7 @@ const MOST_USED_LIMIT = 5;
           }
         </div>
       }
+      }
 
       <!-- P3 SEAM: extra groups may still project here. -->
       <ng-content select="[flowPaletteExtra]" />
@@ -397,6 +423,8 @@ export class FlowPaletteComponent {
   /** An empty graph has exactly one sensible next move, so the structural
    * primitives open themselves rather than hiding behind a disclosure. */
   readonly nodeCount = input(0);
+  /** Automation-first mode: the shell supplies the four visible primitives. */
+  readonly simpleMode = input(false);
 
   readonly add = output<PaletteItem>();
   readonly clearContext = output<void>();
@@ -415,7 +443,7 @@ export class FlowPaletteComponent {
    * summariser are both answers to "what goes here". */
   private readonly allItems = computed<PaletteItem[]>(() => [
     ...this.items(),
-    ...this.catalog.skillItems(),
+    ...(this.simpleMode() ? [] : this.catalog.skillItems()),
   ]);
 
   private readonly connectable = computed<PaletteItem[]>(() => {
@@ -495,6 +523,7 @@ export class FlowPaletteComponent {
   }
 
   protected headingCount(): string {
+    if (this.simpleMode()) return String(this.items().length);
     if (this.rankedMode()) return String(this.ranked().length);
     const group = this.openGroup();
     if (group) return String(group.items.length);

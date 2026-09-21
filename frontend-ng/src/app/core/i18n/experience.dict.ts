@@ -125,7 +125,15 @@ export const EXPERIENCE_FR = {
   'experience.adoption.nav.govern': "Administrer",
 
   'experience.hub.eyebrow': 'Créer',
-  'experience.hub.title': 'Que mettez-vous entre les mains de vos utilisateurs ?',
+  'experience.hub.title': 'Quelle automatisation voulez-vous lancer ?',
+  'experience.hub.automation.title': 'Nouvelle automation',
+  'experience.hub.automation.shape': 'Déclencheur → Agent → Sortie',
+  'experience.hub.automation.body':
+    'Le brouillon s’exécute immédiatement. La publication et les détails techniques viennent après le premier run.',
+  'experience.hub.automation.cta': 'Créer l’automation',
+  'experience.hub.automation.loading': 'Création…',
+  'experience.hub.automation.error':
+    'Aucun modèle d’agent n’est disponible dans ce workspace. Vérifiez le portail de modèles.',
   'experience.hub.composer.placeholder':
     'Décrivez ce que vous voulez créer — « une application de validation des notes de frais »',
   'experience.hub.composer.submit': 'Générer un brouillon',
@@ -1159,7 +1167,15 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.adoption.nav.govern': "Administer",
 
   'experience.hub.eyebrow': 'Create',
-  'experience.hub.title': 'What are you putting in your users’ hands?',
+  'experience.hub.title': 'What automation should run?',
+  'experience.hub.automation.title': 'New automation',
+  'experience.hub.automation.shape': 'Trigger → Agent → Output',
+  'experience.hub.automation.body':
+    'The draft runs immediately. Publishing and technical details come after the first run.',
+  'experience.hub.automation.cta': 'Create automation',
+  'experience.hub.automation.loading': 'Creating…',
+  'experience.hub.automation.error':
+    'No agent model is available in this workspace. Check the model portal.',
   'experience.hub.composer.placeholder':
     'Describe what you want to create — “an expense-report validation app for finance”',
   'experience.hub.composer.submit': 'Generate a draft',

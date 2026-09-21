@@ -29,6 +29,7 @@ const pureSpecs = [
   'src/app/features/mandate/mandate-editor.vm.spec.ts',
   'src/app/features/systems/system-mandate-coverage.vm.spec.ts',
   'src/app/features/experience/work/work-decision.spec.ts',
+  'src/app/features/experience/hub/automation-draft.model.spec.ts',
   'src/app/features/observability/observability-labels.spec.ts',
   'src/app/features/observability/observability-chart.vm.spec.ts',
   'src/app/features/orchestration/flow/agent-loop-inspector.vm.spec.ts',

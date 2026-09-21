@@ -4,6 +4,87 @@
   gap: 28px;
 }
 
+.xp-automation {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid color-mix(in oklab, var(--ck-signal-cool, #67d5f6) 26%, transparent);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in oklab, var(--ck-signal-cool, #67d5f6) 10%, transparent), transparent 58%),
+    var(--ck-bg-panel);
+}
+
+.xp-automation-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.xp-automation h2 {
+  margin: 0;
+  color: var(--ck-fg-1);
+  font-size: 18px;
+}
+
+.xp-automation-head span {
+  color: var(--ck-fg-4);
+  font-family: var(--ck-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.xp-automation input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 8px;
+  background: var(--ck-bg-inset);
+  color: var(--ck-fg-1);
+  font-size: 14px;
+}
+
+.xp-automation input:focus {
+  outline: 2px solid var(--ck-signal-cool);
+  outline-offset: 1px;
+}
+
+.xp-automation footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.xp-automation footer p {
+  margin: 0;
+  color: var(--ck-fg-3);
+  font-size: 12px;
+}
+
+.xp-automation button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ck-signal-cool);
+  color: var(--ck-on-signal);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.xp-automation button:disabled {
+  opacity: 0.6;
+}
+
+.xp-automation-error {
+  margin: 0;
+  color: var(--ck-signal-danger);
+  font-size: 12px;
+}
+
 .xp-intents {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
