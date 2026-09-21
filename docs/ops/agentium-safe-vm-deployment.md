@@ -7106,3 +7106,15 @@ workspace flag, or NAWA theme change occurred. Storage, public revision, HTTP
 intentional local-contract skips.
 [Release evidence](../evidence/release-8ffa3de9-2026-09-21/README.md).
 The SPARK-365 process-owner run remains the human acceptance gate.
+
+### 2026-09-21 — draft hash alignment, ce842f7a
+
+Revision `ce842f7a21222ae17d6ef4d30f5de37468205c9e` is deployed from three
+immutable images at tag `ce842f7a2122`; rollback is `8ffa3de92b75`.
+`validate-flow` now submits the same sidecar-annotated tree that the draft
+save hashes. An `automation_v1` draft whose stored body differs is rewritten
+once on open so Execute can leave the hash-refresh lock. No migration,
+workspace flag, or NAWA theme change occurred. Storage, public revision
+`revision_verified=true`, HTTP 200, zero backend exception matches, and
+carakai 10/10 passed with two intentional local-contract skips. The SPARK-365
+process-owner run still requires a hard reload.
