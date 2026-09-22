@@ -2317,6 +2317,12 @@ export class CanonicalApiService {
     return this.api.post(`/systems/${encodeURIComponent(systemId)}/automation-review/${encodeURIComponent(reviewId)}/compare`, { run_id: runId });
   }
 
+  automationDossiers(systemId: string): Observable<{
+    rows: Array<{ name: string; slug: string; version: number; run_status?: string | null; waiting: boolean; proof: string }>;
+  }> {
+    return this.api.get(`/systems/${encodeURIComponent(systemId)}/automation-dossiers`);
+  }
+
   automationWorkJob(systemId: string): Observable<{
     objective: { status?: string; text?: string | null };
     convention: { status?: string; value_per_unit?: number | null; currency?: string | null; unit?: string | null };

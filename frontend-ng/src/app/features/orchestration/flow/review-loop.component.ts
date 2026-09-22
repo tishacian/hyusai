@@ -169,6 +169,8 @@ export class ReviewLoopComponent implements OnInit {
         this.runs.set(state.runs ?? []);
         this.review.set(state.review ? { ...state.review, run_id: state.review.run_id } : null);
         if (state.review?.note) this.note.set(state.review.note);
+        const later = (state.runs ?? []).find((run) => run.id !== state.review?.run_id);
+        if (later) this.laterId.set(later.id);
       },
       error: () => this.fail(),
     });

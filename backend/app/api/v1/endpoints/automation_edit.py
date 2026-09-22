@@ -22,13 +22,14 @@ from app.db.base import get_db
 from app.models.capability import Capability
 from app.models.automation_review import AutomationReview
 from app.models.run import Run, SkillInvocation
+from app.models.tabular import TabularDataset
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import automation_edit, automation_portfolio, automation_review
+from app.services import automation_dossiers, automation_edit, automation_portfolio, automation_review
 from app.services.model_plane.workspace_config import get_routing
 from app.services.systems.preparation_diagnostic import (
     caller_run_right,
@@ -588,3 +589,45 @@ async def automation_review_compare(
     db.commit()
     db.refresh(row)
     return {**_review_public(row), "same_object": True, "later_status": compared["later_status"]}
+
+
+@router.get("/{system_id}/automation-dossiers")
+async def automation_dossier_table(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Dataset versions as business rows. An older version stays in the list."""
+
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    datasets = (
+        db.query(TabularDataset)
+        .filter(TabularDataset.workspace_id == workspace.id, TabularDataset.status != "deleted")
+        .order_by(TabularDataset.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    run_ids = [row.run_id for row in datasets if isinstance(row.run_id, str)]
+    runs = (
+        db.query(Run).filter(Run.id.in_(run_ids), Run.workspace_id == workspace.id).all()
+        if run_ids
+        else []
+    )
+    return {
+        "rows": automation_dossiers.dossier_rows(
+            [
+                {
+                    "name": row.name,
+                    "slug": row.slug,
+                    "version": row.version,
+                    "status": row.status,
+                    "system_id": row.system_id,
+                    "run_id": row.run_id,
+                }
+                for row in datasets
+            ],
+            {row.id: {"system_id": row.system_id, "status": row.status} for row in runs},
+        )
+    }
