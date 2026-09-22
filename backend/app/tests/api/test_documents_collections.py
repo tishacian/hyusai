@@ -2524,3 +2524,55 @@ def test_ingest_retry_real_dispatch_failure_does_not_execute_inline_or_overwrite
     db_session.refresh(job)
     assert job.status == "completed"
     assert job.result["stage"] == "ready" and job.result["chunk_count"] == 12
+
+
+def test_a_request_cannot_choose_faiss_on_a_qdrant_deployment(monkeypatch, db_session):
+    """The request parameter used to bypass the FAISS suppression entirely.
+
+    On Kubernetes the FAISS directory is per-pod and ephemeral, so a caller
+    reaching it wrote an index that differed between replicas and vanished on
+    restart. Documents accepted, vectors unfindable, no error raised.
+    """
+
+    from app.api.v1.endpoints.documents import _resolve_document_vector_db_type
+
+    monkeypatch.setattr(settings, "default_vector_db_type", "qdrant")
+    ws = Workspace(id="ws-vdb-guard", name="Guard", slug="vdb-guard")
+    db_session.add(ws)
+    db_session.commit()
+
+    assert _resolve_document_vector_db_type(ws, "faiss") == "qdrant"
+    assert _resolve_document_vector_db_type(ws, None) == "qdrant"
+    assert _resolve_document_vector_db_type(ws, "qdrant") == "qdrant"
+
+
+def test_a_faiss_deployment_still_gets_faiss(monkeypatch, db_session):
+    """Only the request is closed. A deployment configured for FAISS keeps it."""
+
+    from app.api.v1.endpoints.documents import _resolve_document_vector_db_type
+
+    monkeypatch.setattr(settings, "default_vector_db_type", "faiss")
+    ws = Workspace(id="ws-vdb-legacy", name="Legacy", slug="vdb-legacy")
+    db_session.add(ws)
+    db_session.commit()
+
+    assert _resolve_document_vector_db_type(ws, None) == "faiss"
+    assert _resolve_document_vector_db_type(ws, "faiss") == "faiss"
+
+
+def test_an_unknown_vector_db_type_is_a_client_error(monkeypatch, db_session):
+    """It used to reach the factory and surface as a 500."""
+
+    import pytest
+    from fastapi import HTTPException
+
+    from app.api.v1.endpoints.documents import _resolve_document_vector_db_type
+
+    monkeypatch.setattr(settings, "default_vector_db_type", "qdrant")
+    ws = Workspace(id="ws-vdb-bad", name="Bad", slug="vdb-bad")
+    db_session.add(ws)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        _resolve_document_vector_db_type(ws, "pinecone")
+    assert exc.value.status_code == 400
