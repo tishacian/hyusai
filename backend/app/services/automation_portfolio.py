@@ -9,6 +9,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from sqlalchemy import or_
+from sqlalchemy.orm import Session as DBSession
+
+from app.api.v1.endpoints.capabilities import serialize_value_basis
+from app.models.capability import Capability
+from app.models.run import Run, SkillInvocation
+from app.models.system import System
+from app.models.system_version import SystemVersion
+
 
 class AutomationPortfolioRefusal(Exception):
     def __init__(self, code: str, message: str):
@@ -92,6 +101,102 @@ def job_explanation(
             "proof": None,
         }
     return run_package(job, run, convention=convention, proof=proof)
+
+
+def invocation_proof(db: DBSession, run: Run) -> dict[str, Any]:
+    sap = None
+    citations = []
+    for item in db.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).all():
+        output = item.output_ref if isinstance(item.output_ref, dict) else {}
+        if item.skill_slug == "sap_create_po_v1":
+            sap = {"sealed": output.get("sealed") is True, "called": output.get("called") is True}
+        source = output.get("source") if item.skill_slug == "semantic_search_v1" else None
+        if isinstance(source, str) and source:
+            citations.append({"source": source})
+    return {"sap": sap, "citations": citations}
+
+
+def list_job_explanations(db: DBSession, workspace: Any) -> list[dict[str, Any]]:
+    """Published automations in one workspace, with proof only from a published run."""
+
+    systems = (
+        db.query(System)
+        .filter(
+            System.workspace_id == workspace.id,
+            System.status == "active",
+            System.published_flow_version_id.isnot(None),
+        )
+        .order_by(System.name.asc(), System.id.asc())
+        .all()
+    )
+    cards = []
+    for system in systems:
+        version = (
+            db.query(SystemVersion)
+            .filter(
+                SystemVersion.id == system.published_flow_version_id,
+                SystemVersion.system_id == system.id,
+            )
+            .one_or_none()
+        )
+        flow = version.flow_definition if version is not None and isinstance(version.flow_definition, dict) else {}
+        if not isinstance(flow, dict) or flow.get("variant") != "automation_v1" or version is None:
+            continue
+        try:
+            job = work_job(
+                {
+                    "id": system.id,
+                    "name": system.name,
+                    "status": system.status,
+                    "objective": system.objective,
+                },
+                variant="automation_v1",
+                published_version_id=version.id,
+                flow_sha256=version.flow_sha256,
+            )
+        except AutomationPortfolioRefusal:
+            continue
+        capability = (
+            db.query(Capability).filter(Capability.id == system.capability_id).one_or_none()
+            if system.capability_id
+            else None
+        )
+        convention = serialize_value_basis(
+            capability.value_basis if capability is not None else None,
+            default_unit=capability.output_unit if capability is not None else None,
+        )
+        run = (
+            db.query(Run)
+            .filter(
+                Run.workspace_id == workspace.id,
+                Run.system_id == system.id,
+                Run.flow_sha256 == version.flow_sha256,
+                or_(Run.execution_surface.is_(None), Run.execution_surface != "draft_test"),
+            )
+            .order_by(Run.started_at.desc())
+            .first()
+        )
+        if run is None:
+            cards.append(job_explanation(job, convention))
+            continue
+        try:
+            cards.append(
+                job_explanation(
+                    job,
+                    convention,
+                    run={
+                        "id": run.id,
+                        "system_id": run.system_id,
+                        "status": run.status,
+                        "flow_sha256": run.flow_sha256,
+                        "execution_surface": run.execution_surface,
+                    },
+                    proof=invocation_proof(db, run),
+                )
+            )
+        except AutomationPortfolioRefusal:
+            cards.append(job_explanation(job, convention))
+    return cards
 
 
 def run_package(

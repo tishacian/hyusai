@@ -27,6 +27,7 @@ from app.models.system import System
 from app.models.user import User
 from app.models.value_loop import ValueMeasurement, ValueScenario
 from app.models.workspace import Workspace
+from app.services import automation_portfolio
 from app.services.catalog_visibility import visible_capabilities, workspace_catalog_policy
 from app.services.decision_access import readable_decisions
 from app.services.decisions import InvalidTransition
@@ -362,6 +363,17 @@ async def list_value_bases(
             for capability in caps
         ]
     }
+
+
+@router.get("/automation-explanations")
+async def automation_explanations(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Objective, convention, gap and proof for each published automation."""
+
+    return {"items": automation_portfolio.list_job_explanations(db, workspace)}
 
 
 @router.get("/series")

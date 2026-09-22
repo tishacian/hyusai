@@ -1,3 +1,4 @@
+import { HypervisorAutomationComponent } from './hypervisor-automation.component';
 import { OperationalObjectiveComponent } from '@app/features/systems/operational-objective.component';
 import {
   ChangeDetectionStrategy,
@@ -121,6 +122,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
   imports: [
     NgTemplateOutlet,
     PageFrameComponent,
+    HypervisorAutomationComponent,
     OperationalObjectiveComponent,
     NavLinkDirective,
     KbdComponent,
@@ -175,6 +177,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         <ck-tabs [active]="activeFacet()" (activeChange)="onFacetChange($event)">
         <ck-tab id="synthese" [label]="i18n.t('nav.facet.synthese')">
 <app-operational-objective />
+        <app-hypervisor-automation />
         <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
         @if (!series()) {
           <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>

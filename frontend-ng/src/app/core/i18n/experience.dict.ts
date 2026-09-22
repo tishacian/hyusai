@@ -322,6 +322,7 @@ export const EXPERIENCE_FR = {
   'experience.work.open': 'Ouvrir',
   'experience.work.automation.section': 'Automatisations publiées',
   'experience.work.automation.export': 'Exporter le dossier de l’exécution',
+  'experience.work.automation.run': 'Lancer l’exécution publiée',
   'experience.work.studio': 'Gérer les applications',
   'experience.work.empty.title': 'Aucune application pour le moment',
   'experience.work.empty.description':
@@ -1365,6 +1366,7 @@ export const EXPERIENCE_EN: Record<keyof typeof EXPERIENCE_FR, string> = {
   'experience.work.open': 'Open',
   'experience.work.automation.section': 'Published automations',
   'experience.work.automation.export': 'Export the run package',
+  'experience.work.automation.run': 'Run the published automation',
   'experience.work.studio': 'Manage applications',
   'experience.work.empty.title': 'No application yet',
   'experience.work.empty.description': 'Applications shared with you will show up here.',
