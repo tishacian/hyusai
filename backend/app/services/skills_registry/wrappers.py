@@ -37,6 +37,7 @@ from app.services.evaluation.judge import (
 from app.services.rag.project_references import (
     extract_query_project_codes,
     numeric_project_candidates,
+    using_workspace_id_project_scheme,
 )
 from app.services.skills_registry.binding import (
     SkillBindingError,
@@ -6178,6 +6179,25 @@ async def _chat_agentic_plan_v1(
     query = str(payload.get("query") or "")
     history = payload.get("conversation_history")
     has_history = bool(isinstance(history, (list, tuple)) and history)
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    with using_workspace_id_project_scheme(str(workspace_id) if workspace_id else None):
+        return await _chat_agentic_plan_v1_ungated(
+            payload,
+            ctx,
+            query=query,
+            history=history,
+            has_history=has_history,
+        )
+
+
+async def _chat_agentic_plan_v1_ungated(
+    payload: dict[str, Any],
+    ctx: dict[str, Any],
+    *,
+    query: str,
+    history: Any,
+    has_history: bool,
+) -> dict[str, Any]:
     known_project_codes = _authoritative_query_project_codes(query, payload, ctx)
     deterministic_plan = _deterministic_single_project_plan(
         query,

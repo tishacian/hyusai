@@ -99,13 +99,17 @@ def reports_absence(text: Any) -> bool:
     return bool(_ANSWER_ABSENCE_RE.search(str(text or "")))
 
 
-def extract_salient_entities(*texts: Any) -> dict[str, list[str]]:
+def extract_salient_entities(
+    *texts: Any,
+    scheme: str | None = None,
+) -> dict[str, list[str]]:
     """Extract project/machine references, line positions and document names.
 
     ``documents`` are dropped when one of the texts reports an absence: they
     describe the scope the turn already searched without finding an answer, and
     re-anchoring a failed scope is how a session stays locked on the wrong
-    machine family.
+    machine family.  Project/machine codes follow the active project-reference
+    scheme (Andritz only); line positions stay a sibling grammar.
     """
     references: list[str] = []
     positions: list[str] = []
@@ -116,7 +120,7 @@ def extract_salient_entities(*texts: Any) -> dict[str, list[str]]:
         if not text:
             continue
         absent = absent or reports_absence(text)
-        for term in project_reference_terms(text):
+        for term in project_reference_terms(text, scheme=scheme):
             if term not in references:
                 references.append(term)
         for term in line_position_terms(text):
@@ -203,6 +207,6 @@ def anchor_terms(entities: Mapping[str, Any] | None, *, limit: int = 2) -> list[
     return terms
 
 
-def has_reference(text: str) -> bool:
+def has_reference(text: str, *, scheme: str | None = None) -> bool:
     """Whether the text already carries its own project/machine reference."""
-    return bool(project_reference_terms(str(text or "")))
+    return bool(project_reference_terms(str(text or ""), scheme=scheme))

@@ -48,7 +48,10 @@ from app.services.notice_wave_state import (
     restore_notice_wave_baseline,
 )
 from app.services.object_store import get_object_store
-from app.services.rag.project_references import derive_project_reference
+from app.services.rag.project_references import (
+    derive_project_reference,
+    project_reference_scheme,
+)
 from app.services.worker_dispatch import dispatch_worker_job
 
 DEFAULT_NOTICE_COLLECTION = "andritz-notices-techniques-spl-pilot"
@@ -792,7 +795,10 @@ def build_notice_wave_plan(
     items: list[NoticeWaveItem] = []
     seen_deposit_identities: set[str] = set()
     for deposit in deposits:
-        project_metadata = derive_project_reference(str(deposit.filename or ""))
+        project_metadata = derive_project_reference(
+            str(deposit.filename or ""),
+            scheme=project_reference_scheme(workspace),
+        )
         if not _selected(
             project_metadata=project_metadata,
             filename=str(deposit.filename or ""),

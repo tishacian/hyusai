@@ -111,9 +111,10 @@ def _workspace_family(workspace: Workspace) -> str:
     return workspace_family(workspace)
 
 
-# Canonical families that opt into the industrial layer (project/equipment
-# guardrails + ``industrial_answer_policy``). The universal default never
-# carries the "project" concept.
+# Canonical families that opt into the generic industrial layer (project
+# isolation + ``industrial_answer_policy``). This is not the Andritz
+# identifier grammar: BBA120 / Needlepunch codes stay in the Andritz
+# workspace only. The universal default never carries the "project" concept.
 INDUSTRIAL_FAMILIES = {
     WorkspaceFamily.andritz.value,
     WorkspaceFamily.industrial.value,

@@ -48,7 +48,12 @@ from app.services.secure_deposit_sftp import (
 
 
 def _workspace_user(db_session):
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(
+        id="ws-andritz",
+        name="Andritz",
+        slug="andritz",
+        settings={"family": "andritz", "features": {"secure_deposit": True}},
+    )
     user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
@@ -1373,7 +1378,7 @@ async def test_promote_zip_rejects_supported_file_count_over_limit(db_session, m
 def test_extract_andritz_project_reference_supports_letter_suffix(
     source, expected_code, expected_position
 ):
-    reference = _extract_andritz_project_reference(source)
+    reference = _extract_andritz_project_reference(source, scheme="andritz")
     assert reference["project_code"] == expected_code
     assert reference["project_position"] == expected_position
     assert reference["initial_buyer_code"] == expected_code[:3]
@@ -1390,7 +1395,7 @@ def test_extract_andritz_project_reference_supports_letter_suffix(
     ],
 )
 def test_extract_andritz_project_reference_rejects_non_codes(source):
-    assert _extract_andritz_project_reference(source) == {}
+    assert _extract_andritz_project_reference(source, scheme="andritz") == {}
 
 
 def test_direct_needlepunch_document_metadata_keeps_structural_project_identity():
@@ -1405,6 +1410,7 @@ def test_direct_needlepunch_document_metadata_keeps_structural_project_identity(
         document_name="Needlepunch__TTN17829J.pdf",
         extension="pdf",
         source_deposit_file_id="deposit-61035-manual",
+        scheme="andritz",
     )
 
     assert metadata["project_code"] == "61035"
@@ -1428,9 +1434,23 @@ def test_direct_needlepunch_document_metadata_rejects_deeper_numeric_part_refere
         document_name="TTN17829J.pdf",
         extension="pdf",
         source_deposit_file_id="deposit-invalid-structure",
+        scheme="andritz",
     )
 
     assert "project_code" not in metadata
+
+
+def test_archive_metadata_does_not_invent_andritz_codes_without_scheme():
+    metadata = _archive_document_metadata(
+        deposit_filename="Manual_BBA120.zip",
+        archive_path="Manual_BBA120/Operator manual/Chapter 01.pdf",
+        document_name="Manual_BBA120__Operator manual__Chapter 01.pdf",
+        extension="pdf",
+    )
+
+    assert "project_code" not in metadata
+    assert "machine" not in metadata
+    assert "project_reference_kind" not in metadata
 
 
 def test_safe_filename_strips_paths_and_unsafe_characters():

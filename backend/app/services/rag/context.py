@@ -53,7 +53,10 @@ from app.services.rag.project_inventory import (
     build_project_inventory,
     query_targets_projects,
 )
-from app.services.rag.project_references import extract_query_project_codes
+from app.services.rag.project_references import (
+    extract_query_project_codes,
+    using_workspace_id_project_scheme,
+)
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
     clarification_from_policy,
@@ -2936,7 +2939,8 @@ async def retrieve_rag_context(
     from app.services.embedding.embedder import capture_embedding_provider_usage
     from app.services.evaluation.judge import provider_usage_evidence
 
-    with capture_embedding_provider_usage() as embedding_usage:
+    workspace_id = str(request.get("workspace_id") or "") or None
+    with using_workspace_id_project_scheme(workspace_id), capture_embedding_provider_usage() as embedding_usage:
         result = await _retrieve_rag_context(
             request,
             doc_svc=doc_svc,

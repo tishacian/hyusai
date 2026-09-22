@@ -32,6 +32,7 @@ from app.services.rag.project_references import (
     extract_query_project_codes,
     numeric_project_candidates,
     project_reference_terms,
+    using_workspace_id_project_scheme,
 )
 from app.services.rag.retrieval_policy import RetrievalPolicy
 from app.services.rag.source_facets import expanded_terms_for_query, score_source_family_match
@@ -1764,6 +1765,25 @@ def _build_retrieval_plan(
 
 
 def plan_corpus(
+    *,
+    db: DBSession,
+    profile: Mapping[str, Any],
+    query: str,
+    request: Mapping[str, Any] | None = None,
+    retrieval_policy: RetrievalPolicy | None = None,
+) -> CorpusPlan:
+    workspace_id = str(profile.get("workspace_id") or "") or None
+    with using_workspace_id_project_scheme(workspace_id, db=db):
+        return _plan_corpus_ungated(
+            db=db,
+            profile=profile,
+            query=query,
+            request=request,
+            retrieval_policy=retrieval_policy,
+        )
+
+
+def _plan_corpus_ungated(
     *,
     db: DBSession,
     profile: Mapping[str, Any],

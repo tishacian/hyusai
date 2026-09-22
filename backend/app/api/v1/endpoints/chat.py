@@ -25,6 +25,7 @@ from app.api.v1.endpoints.knowledge_capture import (
     authorize_chat_correction,
 )
 from app.core.auth import get_current_user, get_current_workspace
+from app.services.rag.project_references import using_workspace_project_scheme
 from app.core.config import settings
 from app.core.errors import ValidationError
 from app.core.iam.dependencies import require_app_entitlement
@@ -95,7 +96,22 @@ from app.services.workspace_calendar import calendar_context_for_chat, handle_ca
 from app.services.workspace_maps import handle_map_chat_query
 
 logger = get_logger(__name__)
-router = APIRouter(dependencies=[Depends(require_app_entitlement(CHAT_APP))])
+
+
+def _bind_workspace_project_scheme(
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """Keep Andritz identifier grammar off unless this workspace is Andritz."""
+    with using_workspace_project_scheme(workspace):
+        yield
+
+
+router = APIRouter(
+    dependencies=[
+        Depends(require_app_entitlement(CHAT_APP)),
+        Depends(_bind_workspace_project_scheme),
+    ]
+)
 query_validator = QueryValidator()
 response_validator = ResponseValidator()
 

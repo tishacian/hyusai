@@ -1547,18 +1547,20 @@ def _query_project_references(
     question: str,
     *,
     known_codes: list[str] | tuple[str, ...] | set[str] | None = None,
+    scheme: str | None = None,
 ) -> list[str]:
     """Return canonical projects without promoting arbitrary numeric/part identifiers."""
-    return extract_query_project_codes(question, known_codes=known_codes)[:5]
+    return extract_query_project_codes(question, known_codes=known_codes, scheme=scheme)[:5]
 
 
 def _query_exact_references(
     question: str,
     *,
     known_codes: list[str] | tuple[str, ...] | set[str] | None = None,
+    scheme: str | None = None,
 ) -> list[str]:
     """Combine project identity with non-project technical IDs for exact ranking."""
-    refs = _query_project_references(question, known_codes=known_codes)
+    refs = _query_project_references(question, known_codes=known_codes, scheme=scheme)
     for match in _TECHNICAL_REFERENCE_RE.findall(str(question or "").upper()):
         compact = _compact_reference_text(match).upper()
         if compact and compact not in refs:

@@ -1,3 +1,5 @@
+import pytest
+
 from app.services.industrial_answer_profile import (
     DEFAULT_INDUSTRIAL_ANSWER_PROFILES,
     answer_policy_prompt,
@@ -6,6 +8,13 @@ from app.services.industrial_answer_profile import (
     resolve_answer_profile,
 )
 from app.services.rag.corpus_planner import classify_intent
+from app.services.rag.project_references import ANDRITZ_PROJECT_SCHEME, bind_project_reference_scheme
+
+
+@pytest.fixture(autouse=True)
+def andritz_project_scheme():
+    with bind_project_reference_scheme(ANDRITZ_PROJECT_SCHEME):
+        yield
 
 
 def test_resolve_transversal_inventory_requires_exhaustive_retrieval():

@@ -33,7 +33,12 @@ from app.services.object_store import get_object_store
 
 
 def _seed_operator(db_session):
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(
+        id="ws-andritz",
+        name="Andritz",
+        slug="andritz",
+        settings={"family": "andritz"},
+    )
     user = User(id="user-operator", username="operator", email="operator@example.test")
     link = DepositAccessLink(
         id="link-needlepunch",
@@ -166,6 +171,52 @@ def test_plan_classifies_structural_paths_and_never_scans_deeper_numbers(db_sess
     assert by_id["deeper-number"].reason == "invalid_needlepunch_project_path"
     assert by_id["range-mismatch"].reason == "invalid_needlepunch_project_path"
     assert plan.disposition_counts == {"eligible": 1, "unsupported": 2}
+
+
+def test_plan_does_not_apply_andritz_grammar_on_generic_workspace(db_session):
+    workspace = Workspace(
+        id="ws-generic-notices",
+        name="Generic",
+        slug="generic-notices",
+        settings={"family": "generic"},
+    )
+    user = User(id="user-generic", username="operator", email="generic@example.test")
+    link = DepositAccessLink(
+        id="link-generic-needlepunch",
+        workspace_id=workspace.id,
+        created_by_user_id=user.id,
+        label="Needlepunch SFTP",
+        access_id="generic-needlepunch-sftp",
+        password_hash="not-used-by-importer",
+        status="active",
+        max_file_size_mb=4096,
+        allowed_extensions=[],
+    )
+    db_session.add_all([workspace, user])
+    db_session.flush()
+    db_session.add(link)
+    db_session.flush()
+    _add_deposit(
+        db_session,
+        workspace=workspace,
+        link=link,
+        file_id="valid-61001-generic",
+        path=(
+            "Notices_Techniques_Needlepunch/60000-69999/"
+            "61001CdFreudenberg USA du 22 05 2003/manual.pdf"
+        ),
+    )
+    db_session.commit()
+
+    plan = build_notice_wave_plan(
+        db_session,
+        workspace=workspace,
+        project_range="60000-69999",
+    )
+
+    assert plan.items[0].project_metadata == {}
+    assert plan.items[0].disposition == "unsupported"
+    assert plan.items[0].reason == "invalid_needlepunch_project_path"
 
 
 def test_plan_prefix_is_confined_and_covered_by_hash(db_session):

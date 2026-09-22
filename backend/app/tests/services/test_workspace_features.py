@@ -6,6 +6,7 @@ from app.services.systems.flow_publication import (
 from app.services.systems.flow_publication import (
     flow_publication_enabled,
 )
+from app.services.rag.project_references import project_reference_scheme
 from app.services.workspace_features import (
     DEFAULT_ON_FEATURES,
     chat_document_upload_enabled,
@@ -40,6 +41,12 @@ def test_stamped_generic_blocks_substring_match():
     # out of the Andritz specialization.
     workspace = _workspace(slug="andritz-test", settings={"family": "generic"})
     assert workspace_family(workspace) == "generic"
+
+
+def test_andritz_project_scheme_follows_stamped_family_only():
+    assert project_reference_scheme(_workspace(settings={"family": "andritz"})) == "andritz"
+    assert project_reference_scheme(_workspace(settings={"family": "industrial"})) == ""
+    assert project_reference_scheme(_workspace(slug="andritz")) == ""
 
 
 def test_feature_enabled_settings_override_wins():

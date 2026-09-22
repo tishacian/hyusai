@@ -79,19 +79,21 @@ def test_build_plan_flag_gating(monkeypatch):
 
 
 def test_build_plan_carries_both_needlepunch_project_references(monkeypatch):
+    from app.services.rag.project_references import bind_project_reference_scheme
+
     monkeypatch.setattr(settings, "rag_comparative_decompose_enabled", True)
     monkeypatch.setattr(cr, "is_comparative_query", lambda _query: True)
 
-    plan = build_comparative_plan("Compare 61038 et 61001", latency_profile="deep")
+    with bind_project_reference_scheme("andritz"):
+        plan = build_comparative_plan("Compare 61038 et 61001", latency_profile="deep")
+        french_plan = build_comparative_plan(
+            "Comparaison entre 61038 et 61001",
+            latency_profile="deep",
+        )
 
     assert plan is not None
     assert plan.references == ("61038", "61001")
     assert plan.subqueries == ("61038", "61001")
-
-    french_plan = build_comparative_plan(
-        "Comparaison entre 61038 et 61001",
-        latency_profile="deep",
-    )
     assert french_plan is not None
     assert french_plan.references == ("61038", "61001")
     assert french_plan.subqueries == ("61038", "61001")
