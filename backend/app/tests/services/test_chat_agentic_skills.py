@@ -13,6 +13,7 @@ import time
 
 import pytest
 
+from app.services.rag.project_references import bind_project_reference_scheme
 from app.services.skills_registry import wrappers
 from app.services.skills_registry.seed import SEED_SKILLS
 
@@ -250,6 +251,14 @@ async def test_plan_shortcuts_simple_single_project_lookup_without_llm(
         )
 
     monkeypatch.setattr(wrappers, "_route_llm_complete", _unexpected_model_call)
+    # The planner resolves the tenant from a workspace row to decide whether
+    # the Andritz identifier grammar applies. These cases exercise Andritz
+    # codes (BAO100, BCX200) and have no row, so bind the tenant they test.
+    monkeypatch.setattr(
+        wrappers,
+        "using_workspace_id_project_scheme",
+        lambda _workspace_id, **_kwargs: bind_project_reference_scheme("andritz"),
+    )
 
     out = await wrappers._chat_agentic_plan_v1(
         {"query": query, "model": "gpt-4o-mini"},
@@ -1681,11 +1690,14 @@ def test_coerce_plan_preserves_genuine_clarify():
 
 
 def test_coerce_plan_demotes_clarify_for_authoritative_bare_numeric_project():
-    out = wrappers._coerce_plan(
-        {"action": "clarify", "clarifying_question": "Quel projet ?"},
-        "61038",
-        known_project_codes={"61038"},
-    )
+    # A unit below the planner's workspace bind: bind the Andritz tenant
+    # whose numeric project grammar this case exercises.
+    with bind_project_reference_scheme("andritz"):
+        out = wrappers._coerce_plan(
+            {"action": "clarify", "clarifying_question": "Quel projet ?"},
+            "61038",
+            known_project_codes={"61038"},
+        )
     assert out["action"] == "answer"
 
 
@@ -1711,11 +1723,14 @@ def test_coerce_plan_demotes_reject_oos_on_project_code():
 
 
 def test_coerce_plan_demotes_reject_oos_for_authoritative_bare_numeric_project():
-    out = wrappers._coerce_plan(
-        {"action": "reject_oos"},
-        "61038",
-        known_project_codes={"61038"},
-    )
+    # A unit below the planner's workspace bind: bind the Andritz tenant
+    # whose numeric project grammar this case exercises.
+    with bind_project_reference_scheme("andritz"):
+        out = wrappers._coerce_plan(
+            {"action": "reject_oos"},
+            "61038",
+            known_project_codes={"61038"},
+        )
     assert out["action"] == "answer"
 
 
@@ -1734,6 +1749,8 @@ async def test_agentic_plan_validates_bare_numeric_project_in_bound_collection(
         id="ws-agentic-numeric5",
         name="Andritz numeric5",
         slug="andritz-numeric5",
+        # The stamped family, not the slug, is what arms the identifier grammar.
+        settings={"family": "andritz"},
     )
     db_session.add(workspace)
     db_session.flush()
