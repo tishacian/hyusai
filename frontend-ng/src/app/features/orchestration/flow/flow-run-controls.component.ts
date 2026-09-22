@@ -65,7 +65,7 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
         [disabled]="!run.canExecute() || run.executing()"
         (click)="run.openInputEditor()"
         [title]="executeTitle()"
-        [attr.aria-label]="i18n.t('flow.run.execute.aria')"
+        [attr.aria-label]="i18n.t(compact() ? 'flow.run.execute.automation' : 'flow.run.execute.aria')"
       >
         @if (run.executing()) {
           <app-icon name="loader-2" [size]="14" class="ck-run__spin" /><span>{{
