@@ -2232,6 +2232,18 @@ export class CanonicalApiService {
     return this.api.post<Run>(`/systems/${systemId}/flow-draft/test-runs`, payload);
   }
 
+  automationTurn(
+    systemId: string,
+    message: string,
+  ): Observable<{
+    intent: string;
+    verified: boolean;
+    read: { nodes: Array<{ id: string; type: string }>; hash: string };
+    run: { id: string; status: string } | null;
+  }> {
+    return this.api.post(`/systems/${encodeURIComponent(systemId)}/automation-turn`, { message });
+  }
+
   /** Execute the exact local Builder snapshot without saving it as a draft or
    * moving the published pointer. The server binds the request to the digest
    * returned by `validateSystemFlow`. */
