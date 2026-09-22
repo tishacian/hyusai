@@ -10,6 +10,7 @@ import {
 import { JsonPipe } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { I18nService } from "@app/core/i18n.service";
+import { CanonicalApiService } from "@app/core/canonical-api.service";
 import { NavigationProfileService } from "@app/core/navigation-profile.service";
 import { NavLinkDirective } from "@app/shared/cockpit";
 import { AssistantPilotService } from "./assistant-pilot.service";
@@ -62,6 +63,9 @@ import type { NavLinkInput } from "@app/core/navigation.catalog";
       @if (!pilot.systemIds().length) {
         <p>{{ t("empty_scope") }}</p>
       }
+      @if (proofText()) {
+        <p role="status">{{ proofText() }}</p>
+      }
     </fieldset>
     <div class="turns" aria-live="polite" aria-relevant="additions">
       @for (turn of pilot.turns(); track $index) {
@@ -82,6 +86,9 @@ import type { NavLinkInput } from "@app/core/navigation.catalog";
               <p>
                 {{ call.ok ? "✓" : "!" }} {{ call.error || call.result.status }}
               </p>
+              @if (call.name === "read_automation_proof") {
+                <p>{{ toolProofLine(call.result) }}</p>
+              }
               @if (canInspect()) {
                 @if (call.result.system_id; as id) {
                   <a [navLink]="{ type: 'system', lens: 'build', ref: id }">{{
@@ -303,7 +310,10 @@ export class AssistantPilotComponent {
   });
   readonly initialSystemId = input<string | null>(null);
   private readonly objectContext = inject(AssistantObjectContextService);
+  private readonly canonical = inject(CanonicalApiService);
   readonly activeContext = this.objectContext.effective;
+  readonly proofText = signal("");
+  private proofTicket = 0;
   prompt = "";
   constructor() {
     this.pilot.load();
@@ -317,9 +327,34 @@ export class AssistantPilotComponent {
         this.pilot.select([...this.pilot.systemIds(), context.system_id]);
       }
     });
+    effect(() => {
+      const ids = this.pilot.systemIds();
+      const ticket = ++this.proofTicket;
+      if (ids.length !== 1) {
+        this.proofText.set("");
+        return;
+      }
+      const systemId = ids[0];
+      this.canonical.automationProof(systemId).subscribe({
+        next: (proof) => {
+          if (ticket === this.proofTicket) this.proofText.set(this.automationProofLine(proof));
+        },
+        error: () => {
+          if (ticket === this.proofTicket) this.proofText.set(this.i18n.t("flow.proof.absent"));
+        },
+      });
+    });
   }
   t(key: string): string {
     return this.i18n.t("experience.adoption." + key);
+  }
+  automationProofLine(proof: { status?: string } | null | undefined): string {
+    return this.i18n.t(proof?.status === "present" ? "flow.proof.present" : "flow.proof.absent");
+  }
+  toolProofLine(result: { [key: string]: unknown }): string {
+    const proof = result["proof"];
+    if (!proof || typeof proof !== "object") return this.automationProofLine(null);
+    return this.automationProofLine(proof as { status?: string });
   }
   toggle(id: string): void {
     const ids = this.pilot.systemIds();
