@@ -2,7 +2,7 @@
 
 ## Porte 0 — Le premier objet est une automation
 
-Status: **deployed, awaiting the SPARK-365 human run.**
+Status: **live. Archive the generated SPARK-365 System and Run URLs in the release evidence.**
 
 Done:
 
@@ -25,9 +25,12 @@ Acceptance still required:
 
 ## Porte 1 — Deux verbes seulement
 
-Next. Keep **Run** and **Publish** as the two primary verbs in automation mode.
-Versions, hash, manifest and technical details remain available after the run,
-not before it.
+Status: **deployed, awaiting hardReload visual confirmation.**
+
+Automation mode now shows **Run** directly and keeps **Publish** as the second
+labelled verb. Save, Operate, More, runtime jargon, draft revision and hash are
+removed from the primary bar. Autosave and the explicit publication review
+remain unchanged.
 
 ## Porte 2 — Blocs gouvernés
 
