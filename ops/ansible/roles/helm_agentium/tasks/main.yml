@@ -11,6 +11,41 @@
   ansible.builtin.set_fact:
     agentium_kubeconfig_file: "{{ agentium_kubeconfig | default(lookup('env', 'KUBECONFIG'), true) }}"
 
+# A kubeconfig proves nothing about which cluster it addresses, and a
+# laptop config holds many. When the run names the expected cluster, resolve
+# the current context to its cluster and compare before anything is applied.
+# Read as YAML rather than shelled out to kubectl: the deploy image has helm
+# and ansible, not kubectl.
+- name: Read the kubeconfig this run would use
+  ansible.builtin.slurp:
+    src: "{{ agentium_kubeconfig_file }}"
+  register: agentium_kubeconfig_raw
+  when: agentium_expected_cluster | default('') | length > 0
+
+- name: Resolve the cluster behind the current context
+  vars:
+    agentium_kubeconfig_doc: "{{ agentium_kubeconfig_raw.content | b64decode | from_yaml }}"
+    agentium_context_name: "{{ agentium_kubeconfig_doc['current-context'] | default('') }}"
+    agentium_context_entry: >-
+      {{ agentium_kubeconfig_doc.contexts | default([])
+         | selectattr('name', 'equalto', agentium_context_name)
+         | map(attribute='context') | first | default({}, true) }}
+  ansible.builtin.set_fact:
+    agentium_current_cluster: "{{ agentium_context_entry.cluster | default('') }}"
+  when: agentium_expected_cluster | default('') | length > 0
+
+- name: Refuse to deploy to a cluster this run does not name
+  ansible.builtin.assert:
+    that:
+      - agentium_current_cluster == agentium_expected_cluster
+    fail_msg: >-
+      This kubeconfig points at
+      "{{ agentium_current_cluster | default('', true) or 'no resolvable cluster' }}"
+      but the run expects "{{ agentium_expected_cluster }}". Deploying would
+      change the wrong cluster.
+    success_msg: "Cluster {{ agentium_expected_cluster }} confirmed."
+  when: agentium_expected_cluster | default('') | length > 0
+
 - name: Build Helm --values argv
   ansible.builtin.set_fact:
     agentium_helm_values_args: []
