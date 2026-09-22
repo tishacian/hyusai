@@ -7131,3 +7131,18 @@ review are unchanged. No migration, workspace flag, or NAWA theme change
 occurred. Storage, public revision, HTTP 200, zero backend exception matches,
 and carakai 10/10 passed with two intentional local-contract skips.
 [Release evidence](../evidence/release-d4a75119-2026-09-22/README.md).
+
+
+### 2026-09-22 — preparation provider and rights, ab96ff7c
+
+Revision `ab96ff7c81fdbd6a4f4485dca466caca3fcb8bd1` is deployed from three
+immutable images at tag `ab96ff7c81fd`; rollback is `3fd6fb26243c`. The
+preparation panel treats a named routing provider as a performed check and
+reads the caller’s run authority for rights. A refusal blocks rights. Any
+other authority error leaves that check unperformed. The runner stays
+unchecked. No migration, workspace flag, or NAWA theme change occurred.
+Storage, public revision `revision_verified=true`, HTTP 200, zero backend
+exception matches in the switch window, and carakai 10 passed with two
+intentional skips.
+[Release evidence](../evidence/release-ab96ff7c-2026-09-22/README.md).
+
