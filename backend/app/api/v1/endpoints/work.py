@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
@@ -16,9 +16,13 @@ from app.core.auth import get_current_user, get_current_workspace
 from app.core.iam.dependencies import current_membership
 from app.core.iam.roles import WORKSPACE_ADMIN, is_admin_template, normalize_role_template
 from app.db.base import get_db
+from app.api.v1.endpoints.capabilities import serialize_value_basis
+from app.models.capability import Capability
 from app.models.decision import Decision
-from app.models.run import Run
+from app.models.run import Run, SkillInvocation
 from app.models.system import System
+from app.models.system_version import SystemVersion
+from app.services import automation_portfolio
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.chat_execution_policy import migration_059_system_id
@@ -206,8 +210,161 @@ async def list_work_apps(
     return {
         "experiences": [
             experience_service.serialize_work_catalog_item(*item) for item in rows
-        ]
+        ],
+        "automation_jobs": _automation_job_cards(db, workspace),
     }
+
+
+def _invocation_proof(db: DBSession, run: Run) -> dict[str, Any]:
+    sap = None
+    citations = []
+    for item in db.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).all():
+        output = item.output_ref if isinstance(item.output_ref, dict) else {}
+        if item.skill_slug == "sap_create_po_v1":
+            sap = {"sealed": output.get("sealed") is True, "called": output.get("called") is True}
+        source = output.get("source") if item.skill_slug == "semantic_search_v1" else None
+        if isinstance(source, str) and source:
+            citations.append({"source": source})
+    return {"sap": sap, "citations": citations}
+
+
+def _automation_job_cards(db: DBSession, workspace: Workspace) -> list[dict[str, Any]]:
+    systems = (
+        db.query(System)
+        .filter(
+            System.workspace_id == workspace.id,
+            System.status == "active",
+            System.published_flow_version_id.isnot(None),
+        )
+        .order_by(System.name.asc(), System.id.asc())
+        .all()
+    )
+    cards = []
+    for system in systems:
+        version = (
+            db.query(SystemVersion)
+            .filter(
+                SystemVersion.id == system.published_flow_version_id,
+                SystemVersion.system_id == system.id,
+            )
+            .one_or_none()
+        )
+        flow = version.flow_definition if version is not None and isinstance(version.flow_definition, dict) else {}
+        if not isinstance(flow, dict) or flow.get("variant") != "automation_v1" or version is None:
+            continue
+        try:
+            job = automation_portfolio.work_job(
+                {
+                    "id": system.id,
+                    "name": system.name,
+                    "status": system.status,
+                    "objective": system.objective,
+                },
+                variant="automation_v1",
+                published_version_id=version.id,
+                flow_sha256=version.flow_sha256,
+            )
+        except automation_portfolio.AutomationPortfolioRefusal:
+            continue
+        capability = (
+            db.query(Capability).filter(Capability.id == system.capability_id).one_or_none()
+            if system.capability_id
+            else None
+        )
+        convention = serialize_value_basis(
+            capability.value_basis if capability is not None else None,
+            default_unit=capability.output_unit if capability is not None else None,
+        )
+        run = (
+            db.query(Run)
+            .filter(
+                Run.workspace_id == workspace.id,
+                Run.system_id == system.id,
+                Run.flow_sha256 == version.flow_sha256,
+                or_(Run.execution_surface.is_(None), Run.execution_surface != "draft_test"),
+            )
+            .order_by(Run.started_at.desc())
+            .first()
+        )
+        if run is None:
+            cards.append(automation_portfolio.job_explanation(job, convention))
+            continue
+        try:
+            cards.append(
+                automation_portfolio.job_explanation(
+                    job,
+                    convention,
+                    run={
+                        "id": run.id,
+                        "system_id": run.system_id,
+                        "status": run.status,
+                        "flow_sha256": run.flow_sha256,
+                        "execution_surface": run.execution_surface,
+                    },
+                    proof=_invocation_proof(db, run),
+                )
+            )
+        except automation_portfolio.AutomationPortfolioRefusal:
+            cards.append(automation_portfolio.job_explanation(job, convention))
+    return cards
+
+
+@router.get("/automation-jobs/{system_id}")
+async def get_automation_job(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    _enforce_consume(db, user=user, workspace=workspace)
+    for card in _automation_job_cards(db, workspace):
+        if card["job"].get("system_id") == system_id:
+            return card
+    raise HTTPException(404, "Automation not found")
+
+
+@router.get("/automation-jobs/{system_id}/package")
+async def export_automation_package(
+    system_id: str,
+    run_id: str = Query(min_length=1, max_length=36),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_enabled(workspace)
+    _enforce_consume(db, user=user, workspace=workspace)
+    card = next(
+        (item for item in _automation_job_cards(db, workspace) if item["job"].get("system_id") == system_id),
+        None,
+    )
+    if card is None:
+        raise HTTPException(404, "Automation not found")
+    run = (
+        db.query(Run)
+        .filter(Run.id == run_id, Run.system_id == system_id, Run.workspace_id == workspace.id)
+        .one_or_none()
+    )
+    if run is None:
+        raise HTTPException(404, "Run not found")
+    try:
+        return automation_portfolio.run_package(
+            card["job"],
+            {
+                "id": run.id,
+                "system_id": run.system_id,
+                "status": run.status,
+                "flow_sha256": run.flow_sha256,
+                "execution_surface": run.execution_surface,
+            },
+            convention=card["convention"] if card["convention"].get("status") != "absent" else None,
+            proof=_invocation_proof(db, run),
+        )
+    except automation_portfolio.AutomationPortfolioRefusal as refusal:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": refusal.code, "message": refusal.message},
+        ) from refusal
 
 
 @router.get("/{slug}")
