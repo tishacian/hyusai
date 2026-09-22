@@ -28,19 +28,26 @@ Default-on capabilities (absence means enabled):
 - ``experience_studio_v1`` — authoring surface split from the ``experience_v1``
   Work runtime. Absence preserves the pre-split rollout; an explicit ``false``
   keeps published applications usable while hiding authoring.
+- ``adoption_experience_v1`` — the product rail and home. Showcase proved it;
+  an explicit ``false`` is the only opt-out.
+- ``hypervisor_v2`` — the ledger at ``/hypervisor``. An explicit ``false``
+  keeps the previous page.
+- ``system_360_projection_v1`` — workspace half of the lens gate. A System
+  still needs ``settings.experience.system_360_canary = "v1"`` before any
+  lens is served, so graduating the workspace flag does not open the slice.
 
-Everything else stays an explicit opt-in flag. The ones that look ready but are
-not, with the reason they remain flags:
+These stay explicit opt-ins. Graduating them would move the F3–F6 contract
+(object continuity, a published call, a versioned connection) or fire a side
+effect the workspace did not configure:
 
 - ``flow_workbench_v1`` — dispatch still rides ``BackgroundTasks`` with no
   request idempotency, so previews of real-effect Skills are not resumable.
 - ``flow_v3_dag_authoritative`` — flips the walker for already-published
-  ``schema_version>=3`` / ``io_mode=strict`` graphs; an execution-semantics
-  change needs the orchestrated rollout, not a default.
+  ``schema_version>=3`` / ``io_mode=strict`` graphs.
+- ``enable_event_triggers`` — delivers events; the deployment-wide switch
+  stays off.
 - ``navigation_telemetry_v2`` — additive ``navigation.transition`` events
   (Lot 6). Off until a workspace opts in; v1 ``navigation.resolved`` stays on.
-- ``system_360_projection_v1`` — vertical slice, additionally gated per System
-  by ``settings.experience.system_360_canary``.
 - ``workspace_experience_v2`` / ``app_entitlements_v1`` — navigation ownership
   and entitlement grants, named in the product-compliance contract.
 - ``rpa_bridge`` / ``sap_hana_connector`` / ``mcp_connector`` / ``model_portal_beta``
@@ -62,12 +69,15 @@ KNOWN_FAMILIES = frozenset(family.value for family in WorkspaceFamily)
 #: resolver takes the key from the caller, not from this set.
 DEFAULT_ON_FEATURES: frozenset[str] = frozenset(
     {
+        "adoption_experience_v1",
         "chat_document_upload",
         "cockpit_nav_v5",
         "cockpit_router_axes_v3",
         "cockpit_router_axes_v4",
         "experience_studio_v1",
         "flow_publication_v1",
+        "hypervisor_v2",
+        "system_360_projection_v1",
     }
 )
 

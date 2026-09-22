@@ -1,7 +1,7 @@
 import { Injectable, computed, effect, inject, signal } from "@angular/core";
 import { Subject, EMPTY, concatMap, catchError, tap } from "rxjs";
 import { ApiService } from "./api.service";
-import { WorkspaceService } from "./workspace.service";
+import { WorkspaceService, workspaceSettingFeature } from "./workspace.service";
 import { HelpService, type Persona } from "./help.service";
 
 export type AdoptionStep = "example" | "question" | "source" | "result";
@@ -20,13 +20,8 @@ export class AdoptionService {
   private readonly api = inject(ApiService);
   private readonly workspace = inject(WorkspaceService);
   private readonly help = inject(HelpService);
-  readonly enabled = computed(
-    () =>
-      (
-        this.workspace.current()?.settings?.["features"] as
-          | Record<string, unknown>
-          | undefined
-      )?.["adoption_experience_v1"] === true,
+  readonly enabled = computed(() =>
+    workspaceSettingFeature(this.workspace.current(), "adoption_experience_v1", true),
   );
   readonly progress = signal<AdoptionProgress | null>(null);
   readonly error = signal(false);

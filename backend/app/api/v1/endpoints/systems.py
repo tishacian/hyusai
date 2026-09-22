@@ -1194,15 +1194,14 @@ async def get_system(
 def _system_360_enabled(workspace: Workspace, system: System) -> bool:
     """Literal-boolean, marker-based gate for the Showcase vertical slice."""
 
-    workspace_settings = workspace.settings if isinstance(workspace.settings, dict) else {}
-    features = workspace_settings.get("features")
-    features = features if isinstance(features, dict) else {}
+    from app.services.workspace_features import graduated_feature_enabled
+
     system_settings = system.settings if isinstance(system.settings, dict) else {}
     experience = system_settings.get("experience")
     experience = experience if isinstance(experience, dict) else {}
     return bool(
-        features.get("cockpit_router_axes_v4") is True
-        and features.get("system_360_projection_v1") is True
+        graduated_feature_enabled(workspace, "cockpit_router_axes_v4")
+        and graduated_feature_enabled(workspace, "system_360_projection_v1")
         and experience.get("system_360_canary") == "v1"
     )
 

@@ -760,6 +760,7 @@ async def _semantic_search_v1(
         ),
         "document_chunks_retrieved": metrics.get("document_chunks_retrieved"),
         "stage_timings": metrics.get("stage_timings"),
+        **_cited_passage(results),
     }
     calls = usage_accumulator.get("calls") or []
     if calls:
@@ -772,6 +773,20 @@ async def _semantic_search_v1(
         # Defensive: an unknown retrieval implementation is not proof of zero.
         output.update(provider_usage_evidence(usage_accumulator))
     return output
+
+
+def _cited_passage(results: list[Any]) -> dict[str, str]:
+    """The first hit as the passage the reader can check, and where it came from."""
+    first = results[0] if results and isinstance(results[0], dict) else {}
+    meta = first.get("metadata") if isinstance(first.get("metadata"), dict) else {}
+    source = ""
+    for key in ("document_id", "source", "filename", "document_filename", "title"):
+        value = meta.get(key)
+        if isinstance(value, str) and value.strip():
+            source = value.strip()
+            break
+    content = first.get("content")
+    return {"passage": content if isinstance(content, str) else "", "source": source}
 
 
 def _merge_multi_hop_searches(

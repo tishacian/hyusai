@@ -36,6 +36,7 @@ const pureSpecs = [
   'src/app/features/orchestration/flow/flow-foblex.adapter.spec.ts',
   'src/app/features/orchestration/flow/flow-preconnect.spec.ts',
   'src/app/features/orchestration/flow/flow-builder-ui-contract.spec.ts',
+  'src/app/features/orchestration/flow/automation-palette.spec.ts',
   'src/app/features/orchestration/flow/flow-keyboard-target.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-recipe.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-recipe-ui-contract.spec.ts',

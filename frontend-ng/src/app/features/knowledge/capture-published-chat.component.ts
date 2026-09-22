@@ -45,7 +45,7 @@ export class CapturePublishedChatComponent implements OnChanges {
   readonly i18n = inject(I18nService);
   private readonly api = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
-  readonly enabled = computed(() => workspaceSettingFeature(this.workspace.current(), 'adoption_experience_v1'));
+  readonly enabled = computed(() => workspaceSettingFeature(this.workspace.current(), 'adoption_experience_v1', true));
   readonly contextId = signal<string | null>(null);
   readonly busy = signal(false);
   readonly failed = signal(false);

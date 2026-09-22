@@ -1339,13 +1339,11 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     return isObjectLens(lens) ? lens : 'build';
   });
   readonly system360Enabled = computed(() => {
-    const workspaceSettings = asRecord(this.workspace.current()?.settings) ?? {};
-    const features = asRecord(workspaceSettings['features']) ?? {};
     const systemSettings = asRecord(this.systemSnapshot()?.settings) ?? {};
     const experience = asRecord(systemSettings['experience']) ?? {};
     return (
-      features['cockpit_router_axes_v4'] === true &&
-      features['system_360_projection_v1'] === true &&
+      workspaceSettingFeature(this.workspace.current(), 'cockpit_router_axes_v4', true) &&
+      workspaceSettingFeature(this.workspace.current(), 'system_360_projection_v1', true) &&
       experience['system_360_canary'] === 'v1'
     );
   });

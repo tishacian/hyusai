@@ -144,5 +144,5 @@ test('experience_v1 Build verb opens the Create hub', () => {
   const rail = injector.get(SideRailComponent);
   const build = rail.visibleVerbs().find((verb) => verb.key === 'build')!;
   assert.equal(rail.routeFor(build), '/create');
-  assert.equal(rail.verbLabel(build), 'nav.build.create');
+  assert.equal(rail.verbLabel(build), 'experience.adoption.nav.build');
 });

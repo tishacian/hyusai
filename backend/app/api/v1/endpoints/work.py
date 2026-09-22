@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
 
@@ -246,12 +246,30 @@ async def list_work_validations(
     except experience_service.ExperienceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
     origin = f"experience:{identity['slug']}"
+    bound_system_ids = {
+        str(item.get("system_id"))
+        for item in (release.bindings_snapshot or [])
+        if isinstance(item, dict) and item.get("system_id")
+    }
+    # The queue is the paused Run itself. A decision on a bound System counts
+    # even when Work did not start it. Scheduled ticks stay out: they are not
+    # someone's approval.
+    membership = [
+        Run.input_ref["_ingress"]["adapter"]["origin"].as_string() == origin,
+    ]
+    if bound_system_ids:
+        membership.append(
+            and_(
+                Run.system_id.in_(bound_system_ids),
+                or_(Run.trigger.is_(None), Run.trigger != "scheduler"),
+            )
+        )
     rows = (
         db.query(Run)
         .filter(
             Run.workspace_id == workspace.id,
             Run.status == "hitl_pending",
-            Run.input_ref["_ingress"]["adapter"]["origin"].as_string() == origin,
+            or_(*membership),
         )
         .order_by(Run.started_at.desc())
         .yield_per(100)

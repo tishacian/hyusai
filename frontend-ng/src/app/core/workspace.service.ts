@@ -468,7 +468,7 @@ export class WorkspaceService {
     );
   });
   readonly hypervisorV2Enabled = computed(() =>
-    workspaceSettingFeature(this.current(), 'hypervisor_v2'),
+    workspaceSettingFeature(this.current(), 'hypervisor_v2', true),
   );
   /** Studio can roll out independently; absence preserves the pre-split flag. */
   readonly experienceStudioV1Enabled = computed(() => {

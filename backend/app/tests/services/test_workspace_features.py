@@ -95,12 +95,15 @@ def test_flow_publication_honours_an_explicit_workspace_opt_out():
 
 def test_graduated_features_are_declared_for_audit():
     assert DEFAULT_ON_FEATURES == {
+        "adoption_experience_v1",
         "chat_document_upload",
         "cockpit_nav_v5",
         "cockpit_router_axes_v3",
         "cockpit_router_axes_v4",
         "experience_studio_v1",
         FLOW_PUBLICATION_FEATURE,
+        "hypervisor_v2",
+        "system_360_projection_v1",
     }
     for feature in DEFAULT_ON_FEATURES:
         assert graduated_feature_enabled(_workspace(settings={}), feature)
