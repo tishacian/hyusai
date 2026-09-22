@@ -7173,3 +7173,15 @@ workspace flag or NAWA theme change. Storage, public revision
 switch window, and carakai 10 passed with two intentional skips.
 [Release evidence](../evidence/release-76a7e9db-2026-09-22/README.md).
 
+
+### 2026-09-22 — frozen chart and shared proof, 3f2b300f
+
+Revision `3f2b300fa0e8c466d697f2659607a7abd7e7a450` is deployed from three
+immutable images at tag `3f2b300fa0e8`; rollback is `76a7e9dbab3b`. No
+migration. A frozen chart point opens its dossier and a result only when the
+proof is present. Work, the conversation tool and the API read one proof
+identity. No workspace flag or NAWA theme change. Storage, public revision
+`revision_verified=true`, HTTP 200, zero backend exception matches in the
+switch window, and carakai 10 passed with two intentional skips.
+[Release evidence](../evidence/release-3f2b300f-2026-09-22/README.md).
+
