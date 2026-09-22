@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from app.models.workspace import Workspace
+from app.services.workspace_features import workspace_family
 
 GroundingMode = Literal["strict", "balanced"]
 
@@ -173,7 +174,24 @@ _ANDRITZ_FACT_TERMS = (
     "piece",
 )
 
-_WORKSPACE_FACT_TERMS = _SENTINEL_FACT_TERMS + _ANDRITZ_FACT_TERMS
+
+
+def _workspace_fact_terms(workspace: Workspace | None) -> tuple[str, ...]:
+    """The vocabulary that marks a question as being about this workspace.
+
+    The Andritz list used to apply to every tenant, and matching is by
+    substring, so its three-letter series codes fired inside ordinary words:
+    "ara" in "caractère", "ava" in "avancement". Paired with any evidence or
+    state term, that forced a turn into strict source-bound grounding, and a
+    tenant with no matching corpus got "insufficient context" where a balanced
+    answer was expected. The list is that customer's nomenclature, so it
+    applies only to the workspace stamped with that family. Passed explicitly
+    rather than read from ambient state, because the workspace is in hand here.
+    """
+
+    if workspace is not None and workspace_family(workspace) == "andritz":
+        return _SENTINEL_FACT_TERMS + _ANDRITZ_FACT_TERMS
+    return _SENTINEL_FACT_TERMS
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -215,7 +233,9 @@ def _contains_any(normalized: str, terms: tuple[str, ...]) -> bool:
     return any(term in normalized for term in terms)
 
 
-def _query_requires_workspace_grounding(query: str) -> bool:
+def _query_requires_workspace_grounding(
+    query: str, fact_terms: tuple[str, ...] = _SENTINEL_FACT_TERMS
+) -> bool:
     """Return whether a turn should remain source-bound."""
     normalized = _normalise_chat_text(query)
     if not normalized:
@@ -223,7 +243,7 @@ def _query_requires_workspace_grounding(query: str) -> bool:
 
     has_general_assist = _contains_any(normalized, _GENERAL_ASSIST_TERMS)
     has_evidence_or_state = _contains_any(normalized, _DOCUMENTARY_STRICT_TERMS + _STATE_TERMS)
-    has_workspace_fact = _contains_any(normalized, _WORKSPACE_FACT_TERMS)
+    has_workspace_fact = _contains_any(normalized, fact_terms)
 
     if has_general_assist and not has_evidence_or_state:
         return False
@@ -238,12 +258,18 @@ def _query_requires_documentary_grounding(query: str) -> bool:
     return _contains_any(normalized, _DOCUMENTARY_STRICT_TERMS + _STATE_TERMS)
 
 
-def _strict_guard_override_reason(*, query: str, strict_guard: str, context_id: str | None) -> str | None:
+def _strict_guard_override_reason(
+    *,
+    query: str,
+    strict_guard: str,
+    context_id: str | None,
+    fact_terms: tuple[str, ...] = _SENTINEL_FACT_TERMS,
+) -> str | None:
     guard = (strict_guard or "default").strip().lower()
     if guard == "default":
         if context_id:
             return "selected_context_requires_sources"
-        if _query_requires_workspace_grounding(query):
+        if _query_requires_workspace_grounding(query, fact_terms):
             return "workspace_fact_or_sensitive_state"
         return None
 
@@ -357,6 +383,7 @@ def resolve_grounding_policy(
         query=query,
         strict_guard=strict_guard,
         context_id=context_id,
+        fact_terms=_workspace_fact_terms(workspace),
     )
     if override_reason:
         mode = "strict"
