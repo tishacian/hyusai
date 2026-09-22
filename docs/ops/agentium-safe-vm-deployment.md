@@ -7222,3 +7222,15 @@ HTTP 200, zero backend exception matches in the switch window, and carakai
 10 passed with two intentional skips.
 [Release evidence](../evidence/release-0dd15330-2026-09-22/README.md).
 
+
+### 2026-09-22 — edit plan reaches the catalog, 76d4d97e
+
+Revision `76d4d97e8784c0b693c6b198c4d854686f828906` is deployed from three
+immutable images at tag `76d4d97e8784`; rollback is `a715fc2f1643`. No
+migration. An automation edit on gpt-5 keeps the workspace reasoning pin, and
+one edge object is read as a single edge. No workspace flag or NAWA theme
+change. Storage, public revision `revision_verified=true`, HTTP 200, zero
+backend exception matches in the switch window, and carakai 10 passed with
+two intentional skips.
+[Release evidence](../evidence/release-76d4d97e-2026-09-22/README.md).
+

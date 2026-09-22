@@ -1,7 +1,7 @@
 # Fluidité — état de livraison
 
-Image en production : `0dd15330570dd2c1755a17282426af75ce2b4fc8` (`revision_verified: true`).
-Rollback image : `c629f5af5237`.
+Image en production : `76d4d97e8784c0b693c6b198c4d854686f828906` (`revision_verified: true`).
+Rollback image : `a715fc2f1643`.
 
 Ces pourcentages sont des estimations de complétude par critère de sortie, pas une mesure automatique. Les portes automation-first ne ferment pas F1–F6.
 
@@ -10,7 +10,7 @@ Ces pourcentages sont des estimations de complétude par critère de sortie, pas
 - Porte 0 — environ 80 %. Le run SPARK-365 `8591bc37` sur `d4a75119` n’a pas produit de minutes. Sur `5eabc862`, un nouveau brouillon Trigger → Agent → Output (`0c7393e2`, run `b8d02ddb`, skill `workspace_llm_v1`) a produit des minutes. Le compte est encore le builder, pas un process owner. La porte reste ouverte.
 - Porte 1 — fermée sur les noms visibles. Sur `ae35157b`, Run et Publish (ou Application une fois publié) portent le même nom accessible. Workbench, Server draft et Test draft sont absents.
 - Porte 2 — fermée sur le scope défini. Retrieval cité, écriture SAP scellée, pause humaine, file de décision.
-- Boucle d’édition — environ 90 %. Lecture, patch lié au hash, read-back et test de brouillon sont en ligne.
+- Boucle d’édition — la phrase de sortie a produit, sur `76d4d97e`, la relecture `retrieve`, `approval`, `sap_write` et l’arête `decided_by` sur `0c7393e2`. Le brouillon n’est pas publié. Deux essais sans personne (`e85ab13c`, `e3a5ae54`) s’arrêtent sur l’approbation ; l’écriture SAP n’est pas appelée. Le drapeau scellé n’a pas été observé.
 - Porte 3 — le produit est en place. Work et Hypervisor montrent l’automation publiée. L’absence de convention et d’écart reste affichée tant qu’aucun tarif métier n’est déclaré. Ce manque n’est pas une vague de développement.
 
 ## F1–F6
