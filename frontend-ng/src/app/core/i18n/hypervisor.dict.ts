@@ -134,6 +134,8 @@ export const HYPERVISOR_FR = {
 
   // --- V2 Grand Livre --------------------------------------------------------
   'hypervisor.v2.page.eyebrow': 'Hypervisor · Grand Livre',
+  'hypervisor.v2.automation.title': 'Automatisations publiées',
+  'hypervisor.v2.automation.open': 'Ouvrir le dossier',
   'hypervisor.v2.page.title': 'Portefeuille instrumenté',
   'hypervisor.v2.page.title.30d': 'Ce que le portefeuille a rendu ce mois',
   'hypervisor.v2.page.title.90d': 'Ce que le portefeuille a rendu ce trimestre',
@@ -600,6 +602,8 @@ export const HYPERVISOR_EN: Record<keyof typeof HYPERVISOR_FR, string> = {
 
   // --- V2 ledger -------------------------------------------------------------
   'hypervisor.v2.page.eyebrow': 'Hypervisor · Ledger',
+  'hypervisor.v2.automation.title': 'Published automations',
+  'hypervisor.v2.automation.open': 'Open the package',
   'hypervisor.v2.page.title': 'Instrumented portfolio',
   'hypervisor.v2.page.title.30d': 'What the portfolio returned this month',
   'hypervisor.v2.page.title.90d': 'What the portfolio returned this quarter',

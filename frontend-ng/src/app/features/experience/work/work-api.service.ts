@@ -12,7 +12,7 @@ export type WorkResolveResult =
   | { kind: 'unavailable' };
 
 export interface WorkAutomationJob {
-  job: { system_id: string; name?: string | null };
+  job: { system_id: string; name?: string | null; flow_sha256?: string };
   objective: { status?: string; text?: string | null };
   convention: { status?: string; value_per_unit?: number | null; currency?: string | null; unit?: string | null };
   gap: { status?: string };

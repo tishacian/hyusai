@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { automationJobLines } from '@app/features/orchestration/flow/automation-job';
 import { WorkApiService, type WorkAutomationJob } from './work-api.service';
@@ -20,6 +21,9 @@ import { WorkApiService, type WorkAutomationJob } from './work-api.service';
         <p>{{ shown.convention ? i18n.t('flow.automation.work.convention', { rate: shown.convention }) : i18n.t('flow.automation.work.convention.absent') }}</p>
         <p>{{ shown.gap ? i18n.t('flow.automation.work.gap', { gap: shown.gap }) : i18n.t('flow.automation.work.gap.absent') }}</p>
         <p>{{ shown.proof ? i18n.t('flow.automation.work.proof', { run: shown.proof }) : i18n.t('flow.automation.work.proof.absent') }}</p>
+        <button type="button" [disabled]="running()" (click)="runPublished()">
+          {{ i18n.t('experience.work.automation.run') }}
+        </button>
         <button type="button" [disabled]="!shown.proof || exporting()" (click)="exportPackage()">
           {{ i18n.t('experience.work.automation.export') }}
         </button>
@@ -39,12 +43,15 @@ import { WorkApiService, type WorkAutomationJob } from './work-api.service';
 export class WorkAutomationComponent {
   readonly i18n = inject(I18nService);
   private readonly api = inject(WorkApiService);
+  private readonly canonical = inject(CanonicalApiService);
   private readonly route = inject(ActivatedRoute);
   protected readonly name = signal('');
   protected readonly missing = signal(false);
   protected readonly exporting = signal(false);
+  protected readonly running = signal(false);
   protected readonly lines = signal<ReturnType<typeof automationJobLines> | null>(null);
   private runId: string | null = null;
+  private flowSha = '';
   private systemId = '';
 
   constructor() {
@@ -53,6 +60,19 @@ export class WorkAutomationComponent {
     this.api.automation(systemId).subscribe({
       next: (card) => this.show(card),
       error: () => this.missing.set(true),
+    });
+  }
+
+  protected runPublished(): void {
+    if (!this.flowSha || this.running()) return;
+    this.running.set(true);
+    this.canonical.triggerRun(this.systemId, {
+      trigger: 'manual',
+      input_ref: { transcript: this.name() || 'Published automation' },
+      expected_flow_sha256: this.flowSha,
+    }).subscribe({
+      next: (run) => this.wait(run.id),
+      error: () => this.running.set(false),
     });
   }
 
@@ -76,7 +96,24 @@ export class WorkAutomationComponent {
 
   private show(card: WorkAutomationJob): void {
     this.name.set(card.job.name ?? '');
+    this.flowSha = card.job.flow_sha256 ?? '';
     this.runId = card.proof?.run_id ?? null;
     this.lines.set(automationJobLines(card));
+  }
+
+  private wait(runId: string, attempt = 0): void {
+    this.canonical.getRun(runId).subscribe((run) => {
+      if (attempt < 40 && (!run || run.status === 'pending' || run.status === 'running')) {
+        setTimeout(() => this.wait(runId, attempt + 1), 1500);
+        return;
+      }
+      this.api.automation(this.systemId).subscribe({
+        next: (card) => {
+          this.show(card);
+          this.running.set(false);
+        },
+        error: () => this.running.set(false),
+      });
+    });
   }
 }

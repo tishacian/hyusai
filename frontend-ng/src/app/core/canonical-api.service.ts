@@ -2502,6 +2502,18 @@ export class CanonicalApiService {
       .pipe(catchError(() => of(null)));
   }
 
+  hypervisorAutomationExplanations(): Observable<{
+    items: Array<{
+      job: { system_id: string; name?: string | null };
+      objective: { status?: string; text?: string | null };
+      convention: { status?: string; value_per_unit?: number | null; currency?: string | null; unit?: string | null };
+      gap: { status?: string };
+      proof: { run_id?: string } | null;
+    }>;
+  }> {
+    return this.api.get('/hypervisor/automation-explanations');
+  }
+
   hypervisorSeries(window: HypervisorSeriesWindow = '30d'): Observable<HypervisorSeriesResponse | null> {
     return this.api
       .get<HypervisorSeriesResponse>('/hypervisor/series', { window })
