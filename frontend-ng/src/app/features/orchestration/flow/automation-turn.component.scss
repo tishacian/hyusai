@@ -1,0 +1,28 @@
+.automation-turn {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  background: var(--ck-bg-raised, rgba(255, 255, 255, 0.04));
+
+  label {
+    font-weight: 600;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  textarea {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    font: inherit;
+  }
+
+  button {
+    justify-self: start;
+  }
+}

@@ -46,9 +46,49 @@ After Porte 1:
 - Retrieval block returning the cited passage and original;
 - Work approval queue backed by the same paused Run decision.
 
+## Boucle — Éditer le Flow déjà gouverné
+
+Status: **steps 1–5 in code, not deployed.** The catalog refuses an eighth block. A patch is applied only against the hash just read, and a save that is not that patch fails. An explanation cannot patch, a run cannot edit, and there is no publish or approve tool. The turn reuses the existing draft test: a Retrieve cites or says there is no passage, and a SAP write without Approval stays sealed. The automation Flow page shows what was read, whether the save matched the patch, and the run when the intention allows one. This sits after Porte 2 and before Porte 3. It does not import the five Sim blocks, and it does not start publication, the Work job, or the Hypervisor export.
+
+A chat turn on an automation may only explain the Flow, edit it, run the draft, or ask for a clarification. An edit only adds, links, or removes blocks that already exist in the automation palette. It does not invent a node type.
+
+Closed catalog. Each entry is a node the engine already runs. The `edit` tool schema accepts only these types. Any other slug is a refusal.
+
+| Block | Contract already in place |
+|---|---|
+| Trigger | Input `transcript`. |
+| Agent | `workspace_llm_v1`. Instruction and transcript. No knowledge base. |
+| Decision | Branch on a condition. |
+| Approval | Human gate. Output `decided_by`. |
+| Retrieve | `semantic_search_v1`. Outputs `passage` and `source`. |
+| SAP write | `sap_create_po_v1`. With no person: `sealed`, `called: false`. |
+| Output | The Flow result. |
+
+Out of scope: Sim blocks `start_trigger`, `function`, `agent`, `condition`, `response`; the NAWA Copilot source, its prompt, and its OpenRouter transport; publication, the Work job, and the Hypervisor export (those stay Porte 3); unlocking SAP, RPA, or HANA without the human `decided_by` already required.
+
+The loop, ten steps maximum. Changes already verified stay. The turn stops after that.
+
+1. **Intention.** Classify the message as `explain`, `edit`, `run`, `edit_and_run`, or `clarify`. Only `edit` and `edit_and_run` receive the write tool. Only `run` and `edit_and_run` receive the test. `explain` and `clarify` only read.
+2. **Read.** Read the current draft: nodes, edges, revision, hash. No write on a Flow that was not just read.
+3. **Patch.** A list of adds, updates, and removals, plus the edges. Existing identifiers are kept. When Approval and SAP write are both in the graph, Approval comes first and `decided_by` links them.
+4. **Read back.** Save, read again, compare nodes and edges to what was sent. If the hash changed between the read and the write, abandon and read again. If the save differs, fail and do not claim it is done.
+5. **Draft test.** Only when the intention allows it. Reuse the existing draft test, not a new engine. The shown result is the run: passage and source, or `sealed` / `called`, or the Approval pause.
+
+Tools: everyone can read the draft and the catalog. `edit` and `edit_and_run` can patch. `run` and `edit_and_run` can start the draft. There is no Publish tool and no tool that approves in place of a person. The Work queue remains the only place `decided_by` is set.
+
+Build order. Each step ships alone. The next step starts only when the previous one fails closed.
+
+1. The catalog and the refusal. Describe the seven blocks and fail a patch that asks for an eighth. No model call.
+2. Read and read-back. A mechanical patch, a save, a comparison. Fail if the graph moved in between.
+3. Intention in front of the tools. An explanation cannot call the patch. A run request cannot edit.
+4. The draft test on this loop. A Retrieve cites or says there is no passage. A SAP write without Approval stays sealed.
+5. The chat on the automation Flow page. The turn shows what was read, patched, and verified, and the run when there is one.
+
+Exit: a sentence such as “add a cited search, then an approval before the SAP write” produces a draft whose read-back shows Retrieve, Approval, and SAP write, with `decided_by` linked. The test with no person leaves the write sealed. Publication has not moved.
+
 ## Porte 3 — Work et portefeuille
 
-After Porte 2:
+After the edit loop:
 
 - published automation becomes a Work job;
 - Hypervisor explains objective, convention, gap and proof;

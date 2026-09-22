@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     admin,
     agents,
     apps,
+    automation_edit,
     assistant,
     audit,
     auth,
@@ -128,6 +129,7 @@ api_router.include_router(
 )
 api_router.include_router(work.router, prefix="/work", tags=["work"])
 api_router.include_router(flow_publication.router, prefix="/systems", tags=["flow-publication"])
+api_router.include_router(automation_edit.router, prefix="/systems", tags=["automation-edit"])
 api_router.include_router(mandates.router, tags=["mandates"])
 api_router.include_router(flow_ingresses.router, prefix="/systems", tags=["flow-ingresses"])
 api_router.include_router(flow_runner.router, prefix="/systems", tags=["flow-runner"])

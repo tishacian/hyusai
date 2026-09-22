@@ -49,6 +49,7 @@ import {
 import { FlowOutlineComponent } from './flow-outline.component';
 import { FlowInspectorComponent } from './flow-inspector.component';
 import { FlowPaletteComponent } from './flow-palette.component';
+import { AutomationTurnComponent } from './automation-turn.component';
 import { FlowToolbarComponent } from './flow-toolbar.component';
 import { FlowManifestService } from './flow-manifest.service';
 import { FlowPersistenceService } from './flow-persistence.service';
@@ -133,6 +134,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     FlowOutlineComponent,
     FlowInspectorComponent,
     FlowPaletteComponent,
+    AutomationTurnComponent,
     FlowToolbarComponent,
     FlowRunControlsComponent,
     FlowTerminalComponent,
@@ -225,6 +227,13 @@ const PUBLICATION_HYDRATION_CODES = new Set([
           />
         }
       </app-flow-toolbar>
+
+      @if (automationMode() && systemId(); as automationSystemId) {
+        <app-automation-turn
+          [systemId]="automationSystemId"
+          (saved)="reloadAutomationDraft()"
+        />
+      }
 
       @if (loadState() === 'ready' && persistence.hydrationReady()) {
         @if (persistence.publicationMode() && !automationMode()) {
@@ -872,6 +881,32 @@ export class FlowBuilderComponent {
       );
       this.loadState.set('error');
     }
+  }
+
+  protected reloadAutomationDraft(): void {
+    const sid = this.systemId();
+    if (!sid) return;
+    const scope = this.workspace.captureRequestScope();
+    this.canonical
+      .getSystemStrict(sid)
+      .pipe(
+        switchMap((sys) =>
+          this.canonical.getSystemFlowState(sid).pipe(map((flowState) => ({ sys, flowState }))),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: ({ sys, flowState }) => {
+          if (!this.workspace.isRequestScopeCurrent(scope)) return;
+          if (this.persistence.hydratePublicationState(sys, flowState)) {
+            this.run.acknowledgeAuthoritativeHydration();
+            this.validation.bindSystem(sys.id);
+            this.validation.validateNow();
+            this.system.set(sys);
+          }
+        },
+        error: () => undefined,
+      });
   }
 
   protected hydrateFromSystem(sid: string): void {
