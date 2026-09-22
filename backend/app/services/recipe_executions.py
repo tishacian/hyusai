@@ -362,6 +362,17 @@ def ensure_env_ready(
             )
             db.commit()
             return None
+    # Last line of defence. A ready row whose interpreter is still missing
+    # would otherwise reach Popen and raise FileNotFoundError out of the task,
+    # leaving the execution stuck in running until the redelivery fails it.
+    if not env_python(env.workspace_id, env.fingerprint).exists():
+        finalize_execution(
+            execution,
+            status="failed",
+            error="recipe_env_missing_after_build",
+        )
+        db.commit()
+        return None
     return env
 
 

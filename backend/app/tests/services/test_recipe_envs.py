@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import datetime, timedelta
 from uuid import uuid4
 
@@ -274,6 +275,65 @@ def test_build_env_concurrent_claim_waits(db_session, workspace, envs_root, monk
     with pytest.raises(RecipeError) as exc:
         build_env(db_session, env.id)
     assert exc.value.code == "RECIPE_ENV_BUILD_TIMEOUT"
+
+
+def test_ready_row_with_no_interpreter_is_rebuilt_not_launched(
+    db_session, workspace, envs_root
+):
+    """A worker restart on an ephemeral cache leaves the row lying.
+
+    The row is a record of the cache, not the cache. On Kubernetes the worker
+    keeps its envs on a per-pod volume, so a restart empties the disk while the
+    row still says ``ready``. Claiming only pending/evicted/failed rows meant
+    the rebuild never fired and the run launched an interpreter that was not
+    there, dying with FileNotFoundError out of the task.
+    """
+
+    spec = build_env_spec()
+    env = resolve_env(db_session, workspace_id=workspace.id, spec=spec)
+    db_session.commit()
+    built = build_env(db_session, env.id)
+    assert built.status == "ready"
+
+    # The pod restarted: the row survives, its directory does not.
+    shutil.rmtree(recipe_envs.env_dir(workspace.id, built.fingerprint))
+    assert not recipe_envs.env_python(workspace.id, built.fingerprint).exists()
+    assert built.status == "ready"
+
+    rebuilt = build_env(db_session, env.id)
+
+    assert rebuilt.status == "ready"
+    assert recipe_envs.env_python(workspace.id, rebuilt.fingerprint).exists()
+
+
+def test_a_ready_row_settled_by_another_pod_still_builds_here(
+    db_session, workspace, envs_root, monkeypatch
+):
+    """Waiting on a shared row is not the same as having the bytes.
+
+    With a cache per pod, the pod that did not build sees the row settle to
+    ``ready`` and used to proceed on an empty disk. It must claim again and
+    build its own copy.
+    """
+
+    spec = build_env_spec()
+    env = resolve_env(db_session, workspace_id=workspace.id, spec=spec)
+    env.status = "building"  # another pod holds the claim
+    db_session.commit()
+
+    def settle_as_the_other_pod(db, env_id):
+        row = db.query(PythonEnv).filter(PythonEnv.id == env_id).first()
+        row.status = "ready"  # its filesystem, not ours
+        db.commit()
+        db.refresh(row)
+        return row
+
+    monkeypatch.setattr(recipe_envs, "_wait_for_env", settle_as_the_other_pod)
+
+    result = build_env(db_session, env.id)
+
+    assert result.status == "ready"
+    assert recipe_envs.env_python(workspace.id, result.fingerprint).exists()
 
 
 def test_reclaim_stale_builds(db_session, workspace):
