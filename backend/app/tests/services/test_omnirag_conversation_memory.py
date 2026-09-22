@@ -64,7 +64,9 @@ def test_real_questions_are_not_followups():
         assert _is_meta_followup(query, _HISTORY) is False, query
 
 
-def test_new_project_reference_is_not_misclassified_as_meta_followup():
+def test_new_project_reference_is_not_misclassified_as_meta_followup(andritz_tenant):
+    # Andritz codes are only project references for the Andritz tenant, and
+    # this unit sits below the bind production performs at every entry point.
     for query in [
         "résume BAO100",
         "Resume BCX200",
