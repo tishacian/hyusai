@@ -3,7 +3,7 @@
 # chart cannot see Metal. A workspace can still switch provider from the portal.
 ollama:
   enabled: true
-  chatModel: qwen2.5:3b
+  chatModel: qwen3.5:4b
   embedModel: nomic-embed-text
   embedDimension: 768
 

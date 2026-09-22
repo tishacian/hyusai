@@ -3,7 +3,7 @@
 # same server so a local install does not add a second inference process.
 set -eu
 
-CHAT="${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen2.5:3b}"
+CHAT="${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen3.5:4b}"
 EMBED="${AGENTIUM_OLLAMA_EMBED_MODEL:-nomic-embed-text}"
 
 ollama serve &
