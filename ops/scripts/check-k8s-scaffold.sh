@@ -50,9 +50,9 @@ tpl_sized="$(grep -cE '^ +cpu: ' /tmp/agentium-helm.yaml || true)"
 tpl_pdbs="$(grep -c 'kind: PodDisruptionBudget' /tmp/agentium-helm.yaml || true)"
 [ "$tpl_pdbs" = "4" ] \
   || fail "postgres, qdrant, minio and rabbitmq each need a PodDisruptionBudget (got $tpl_pdbs)"
-for svc in agentium-pg agentium-qdrant agentium-minio agentium-rabbitmq; do
-  awk -v s="name: $svc" '$0 ~ s {f=1} f && /livenessProbe:/ {print; exit}' \
-    /tmp/agentium-helm.yaml | grep -q livenessProbe \
+for svc in postgres qdrant minio rabbitmq; do
+  helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+    --show-only "templates/$svc.yaml" | grep -q 'livenessProbe:' \
     || fail "$svc must declare a liveness probe"
 done
 if grep -qE '^resources: \{\}' "$ROOT/ops/helm/agentium/values.yaml"; then
