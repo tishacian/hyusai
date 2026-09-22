@@ -178,6 +178,13 @@ def resolve_flow_execution(
                 runtime_mode="dag_overlay",
                 reason="graph_owned_config_requires_compatibility_dag",
             )
+        # An automation is the graph: Trigger, Agent, Output. The sequential
+        # walker ignores that graph and runs whatever skill happens to be bound.
+        if canonical.get("variant") == "automation_v1":
+            return FlowExecutionResolution(
+                runtime_mode="dag_overlay",
+                reason="automation_graph",
+            )
 
     return FlowExecutionResolution(
         runtime_mode="sequential_legacy",

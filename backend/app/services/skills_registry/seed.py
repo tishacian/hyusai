@@ -2121,6 +2121,25 @@ SEED_SKILLS: List[Dict[str, Any]] = [
             "completion": {"type": "string"},
         }},
     },
+    {
+        "slug": "workspace_llm_v1",
+        "version": "1",
+        "name": "Workspace LLM",
+        "description": "Drafts from an instruction and the run input, using the workspace model. No knowledge base.",
+        "type": "llm",
+        "provider": "internal",
+        "certification_level": "production",
+        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.0, "currency": "USD"},
+        "input_schema": {"type": "object", "properties": {
+            "instruction": {"type": "string"},
+            "prompt": {"type": "string"},
+            "transcript": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "completion": {"type": "string"},
+        }},
+    },
     # ---- Mission Room assistant skills --------------------------------------
     # These carry a bound wrapper and are invoked by the assistant action pack
     # (`app/services/actions/executor.py`). They were never declared here, so
@@ -2429,6 +2448,20 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "confidence_threshold": 0.65,
         "sla": {"max_latency_ms": 8000, "fast_answer_target_ms": 4500},
         "roi_model": {"type": "time_saved_plus_decision_quality"},
+    },
+    {
+        "slug": "automation_author",
+        "name": "Automation draft",
+        "tier": "universal",
+        "description": "Drafts text from an instruction and the run input. Does not search a knowledge base.",
+        "input_unit": "transcript",
+        "output_unit": "draft",
+        "skill_slugs": ["workspace_llm_v1"],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.0, "currency": "USD"},
+        "value_per_outcome": 0.0,
+        "confidence_threshold": 0.0,
+        "sla": {"max_latency_ms": 60000},
+        "roi_model": {"type": "time_saved"},
     },
     {
         "slug": "intelligent_qa",
@@ -3158,6 +3191,7 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "voice_tandem_oracle_v1": "Voice",
     "voice_transcribe_v1": "Voice",
     "voice_tts_v1": "Voice",
+    "workspace_llm_v1": "LLM",
 }
 
 
