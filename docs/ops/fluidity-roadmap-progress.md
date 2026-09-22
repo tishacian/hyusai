@@ -1,7 +1,7 @@
 # Fluidité — état de livraison
 
-Image en production : `76a7e9dbab3b3d1844e7c2cf4d6e09fce77e1544` (`revision_verified: true`).
-Rollback image : `b14fe69d7f59`.
+Image en production : `3f2b300fa0e8c466d697f2659607a7abd7e7a450` (`revision_verified: true`).
+Rollback image : `76a7e9dbab3b`.
 
 Ces pourcentages sont des estimations de complétude par critère de sortie, pas une mesure automatique. Les portes automation-first ne ferment pas F1–F6.
 
@@ -19,8 +19,8 @@ Ces pourcentages sont des estimations de complétude par critère de sortie, pas
 - F2 — environ 60 %. Sur `ab96ff7c`, l’automation `0c7393e2` dit pas prêt. Le modèle, le fournisseur nommé par le routage (`openai`) et la source sont prêts, l’indexation est sans objet, et les droits de l’appelant sont prêts. L’exécutant reste « contrôle non effectué » : aucun battement de cœur du worker n’existe à lire. F2 n’est pas close.
 - F3 — la boucle est en ligne sur `b14fe69d`. Sur l’automation `0c7393e2` : réserve « VAT is still open », relecture trigger / agent / output, correction confirmée sur ce hash, comparaison avec le résultat suivant `b63de11e` en gardant le même objet. L’import SPARK-089 complet n’est pas cette preuve.
 - F4 — la table est en ligne sur `76a7e9db`. Chaque version de dataset reste une ligne, avec preuve présente ou absente. Sur Nawa, « Subscriber base — cleaned » garde la version 6 et la version 7. Aucune de ces lignes n’attendait une personne.
-- F5 — environ 40 %. Les graphiques et le portefeuille automation existent. Il manque le contrat graphique figé et le chemin point, dossier, Run.
-- F6 — environ 30 %. Work et le paquet de run existent. La même permission et la même preuve sur Work, conversation et API ne sont pas qualifiées.
+- F5 — le graphique figé est en ligne sur `3f2b300f`. Le point « Subscriber base — cleaned · 6 » n’a pas de résultat. Le point version 7 ouvre le dossier et le résultat completed.
+- F6 — Work dit « même preuve : présente » sur l’automation publiée `df04a96a`. L’API renvoie la même identité : présente, écriture scellée et non appelée, convention et écart absents, une source. L’outil de conversation lit cette identité. Un tour de conversation n’a pas été envoyé.
 
 ## Trace connue
 
