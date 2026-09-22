@@ -115,10 +115,8 @@ def _workspace_family(workspace: Workspace) -> str:
 # isolation + ``industrial_answer_policy``). This is not the Andritz
 # identifier grammar: BBA120 / Needlepunch codes stay in the Andritz
 # workspace only. The universal default never carries the "project" concept.
-INDUSTRIAL_FAMILIES = {
-    WorkspaceFamily.andritz.value,
-    WorkspaceFamily.industrial.value,
-}
+# Defined with the other family notions; re-exported here for existing callers.
+from app.services.workspace_features import INDUSTRIAL_FAMILIES  # noqa: E402
 
 
 def _profile_by_key(settings: dict[str, Any], key: Optional[str]) -> dict[str, Any]:
@@ -319,8 +317,7 @@ def _workspace_chat_flow_definition(
         try:
             from app.agents.procurement_agent import BALANCED_GROUNDING_APPENDIX, SYSTEM_PROMPT
             from app.services.industrial_answer_profile import (
-                default_answer_policy,
-                industrial_answer_policy,
+                answer_policy_for_family,
             )
             from app.services.system_prompts import SYSTEM_PROMPT_TEMPLATES, SystemPromptType
 
@@ -349,8 +346,7 @@ def _workspace_chat_flow_definition(
                 "Provide a clear factual response based on the context."
             )
             from app.services.industrial_answer_profile import (
-                default_answer_policy,
-                industrial_answer_policy,
+                answer_policy_for_family,
             )
 
         # The universal default carries the domain-neutral answer policy; the
@@ -358,7 +354,7 @@ def _workspace_chat_flow_definition(
         # industrial families (Andritz maps onto it). This keeps the "project"
         # concept out of every other workspace and the showcase.
         is_industrial = str(profile.get("family") or "") in INDUSTRIAL_FAMILIES
-        answer_policy = industrial_answer_policy() if is_industrial else default_answer_policy()
+        answer_policy = answer_policy_for_family(profile.get("family"))
         answer_shaping_instructions = [
             'Start with the direct factual answer or synthesis; do not open with discovery phrases such as "I found" or "the documents indicate".',
             "Use numeric source ids after the answer when workspace sources exist; do not emit raw filename references as citations.",
