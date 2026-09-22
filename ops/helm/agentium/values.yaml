@@ -32,6 +32,9 @@ backend:
 
 worker:
   enabled: true
+  # The recipe env cache is node-local and rebuilds itself. Size it for the
+  # service's own quota plus the pip cache that shares the directory.
+  recipeEnvsSizeLimit: 14Gi
   queues: cpu
   concurrency: 2
   beat: "1"
@@ -66,6 +69,8 @@ postgres:
 
 minio:
   enabled: true
+  rootUser: agentium
+  initImage: minio/mc:RELEASE.2025-04-16T18-13-26Z
   image: minio/minio:RELEASE.2025-04-22T22-12-26Z
   persistence:
     enabled: true
@@ -145,6 +150,18 @@ secret:
 
 existingSecret: ""
 
+# Artifact store. "s3" points the application at object storage instead of a
+# filesystem, which is what lets backend, worker and maintenance share it
+# without a ReadWriteMany volume. The endpoint is the in-cluster MinIO by
+# default and is the only line to change for OVH Object Storage, Ceph or any
+# other S3 implementation.
+objectStore:
+  backend: s3
+  bucket: agentium-artifacts
+  endpointUrl: http://agentium-minio:9000
+  accessKey: agentium-app
+  policyName: agentium-app-policy
+
 # Requests are what the scheduler reserves; memory limits are what stop one
 # container taking a node down with it. CPU limits are deliberately absent:
 # CPU is compressible, and throttling a request path costs more than it
@@ -157,8 +174,8 @@ resources:
     requests: {cpu: 500m, memory: 1Gi}
     limits: {memory: 4Gi}
   worker:
-    requests: {cpu: 500m, memory: 2Gi}
-    limits: {memory: 6Gi}
+    requests: {cpu: 500m, memory: 2Gi, ephemeral-storage: 14Gi}
+    limits: {memory: 6Gi, ephemeral-storage: 16Gi}
   p4Maintenance:
     requests: {cpu: 50m, memory: 256Mi}
     limits: {memory: 1Gi}
@@ -177,6 +194,9 @@ resources:
   minio:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
+  minioInit:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
   rabbitmq:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}

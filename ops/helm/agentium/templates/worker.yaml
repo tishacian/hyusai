@@ -33,22 +33,14 @@ spec:
             - secretRef:
                 name: {{ include "agentium.secretName" . }}
           volumeMounts:
-            - name: object-store
-              mountPath: /data/object_store
-            - name: secure-deposit
-              mountPath: /data/secure_deposit
-              readOnly: true
-            - name: faiss
-              mountPath: /data/faiss_db
             - name: recipe-envs
               mountPath: /data/recipe_envs
       volumes:
-        - name: object-store
-          emptyDir: {}
-        - name: secure-deposit
-          emptyDir: {}
-        - name: faiss
-          emptyDir: {}
+        # Content-addressed virtualenvs plus the pip cache. The service evicts
+        # them on its own against a quota and an idle TTL, so this is a cache,
+        # not state: a pod that starts empty rebuilds what it needs. Node-local
+        # on purpose, so replicas never contend for one filesystem.
         - name: recipe-envs
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: {{ .Values.worker.recipeEnvsSizeLimit }}
 {{- end }}

@@ -1,0 +1,108 @@
+{{- if and .Values.minio.enabled (eq .Values.objectStore.backend "s3") }}
+{{/*
+The chart deployed MinIO but never created a bucket or an application user, so
+an S3-backed object store had nowhere to write and only root credentials to
+write with. This Job creates the bucket and a user whose policy reaches that
+bucket and nothing else.
+
+It is deliberately smaller than docker/compose.agentium.yml's bootstrap, which
+also asserts a signed permission contract for the VM release. Re-running is
+safe: every step tolerates the object already existing.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "agentium.fullname" . }}-minio-init
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: minio-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: {{ .Values.minio.initImage | quote }}
+          {{- with .Values.resources.minioInit }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: MINIO_ENDPOINT
+              value: {{ .Values.objectStore.endpointUrl | quote }}
+            - name: MINIO_ROOT_USER
+              value: {{ .Values.minio.rootUser | quote }}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agentium.secretName" . }}
+                  key: MINIO_ROOT_PASSWORD
+            - name: MINIO_BUCKET
+              value: {{ .Values.objectStore.bucket | quote }}
+            - name: MINIO_APP_ACCESS_KEY
+              value: {{ .Values.objectStore.accessKey | quote }}
+            - name: MINIO_APP_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agentium.secretName" . }}
+                  key: OBJECT_STORE_S3_SECRET_KEY
+            - name: MINIO_APP_POLICY
+              value: {{ .Values.objectStore.policyName | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              umask 077
+
+              i=0
+              until mc alias set agentium "$MINIO_ENDPOINT" \
+                      "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1; do
+                i=$((i + 1))
+                if [ "$i" -gt 60 ]; then
+                  echo "MinIO did not answer at $MINIO_ENDPOINT" >&2
+                  exit 1
+                fi
+                sleep 5
+              done
+
+              mc mb --ignore-existing "agentium/$MINIO_BUCKET"
+
+              cat > /tmp/policy.json <<JSON
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
+                    "Resource": ["arn:aws:s3:::$MINIO_BUCKET"]
+                  },
+                  {
+                    "Effect": "Allow",
+                    "Action": [
+                      "s3:GetObject",
+                      "s3:PutObject",
+                      "s3:DeleteObject"
+                    ],
+                    "Resource": ["arn:aws:s3:::$MINIO_BUCKET/*"]
+                  }
+                ]
+              }
+              JSON
+
+              mc admin policy create agentium "$MINIO_APP_POLICY" /tmp/policy.json 2>/dev/null \
+                || mc admin policy update agentium "$MINIO_APP_POLICY" /tmp/policy.json
+              mc admin user add agentium "$MINIO_APP_ACCESS_KEY" "$MINIO_APP_SECRET_KEY" 2>/dev/null || true
+              mc admin policy attach agentium "$MINIO_APP_POLICY" --user "$MINIO_APP_ACCESS_KEY" 2>/dev/null || true
+
+              mc ls "agentium/$MINIO_BUCKET" >/dev/null
+              echo "bucket $MINIO_BUCKET and user $MINIO_APP_ACCESS_KEY are ready"
+{{- end }}
