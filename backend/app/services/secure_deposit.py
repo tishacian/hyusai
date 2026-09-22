@@ -107,22 +107,19 @@ _WORKER_PROMOTION_EXTENSIONS = (
 )
 _BULK_PROMOTION_MAX_FILES = 50
 _BULK_PROMOTION_MAX_DOCUMENTS = 200
-def enabled_workspace_slugs() -> set[str]:
-    return {
-        item.strip().lower()
-        for item in (settings.secure_deposit_enabled_workspace_slugs or "").split(",")
-        if item.strip()
-    }
-
-
 def is_workspace_enabled(workspace: Workspace) -> bool:
+    """Secure Deposit is a per-workspace capability, and only that.
+
+    It used to fall back to a comma-separated list of slugs in global config,
+    which made one customer's capability a property of the deployment. Migration
+    109 stamped what that list answered onto every workspace, so the setting is
+    now the only source of truth: a workspace differs because its use cases
+    differ, not because an environment variable names it.
+    """
+
     from app.services.workspace_features import feature_enabled
 
-    return feature_enabled(
-        workspace,
-        "secure_deposit",
-        csv_fallback=settings.secure_deposit_enabled_workspace_slugs,
-    )
+    return feature_enabled(workspace, "secure_deposit")
 
 
 def default_allowed_extensions() -> list[str]:
