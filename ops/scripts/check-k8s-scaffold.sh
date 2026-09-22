@@ -121,6 +121,17 @@ if grep -q 'agentium-frontend:local' /tmp/agentium-helm-ci.yaml; then
 fi
 grep -q 'name: agentium-lab' /tmp/agentium-helm-ci.yaml || fail "CI render must keep existingSecret"
 
+# Every job that reaches the lab must stay behind the one switch. Without
+# this, landing the track on demo/agentic would deploy on the next push.
+CI_K8S="$ROOT/.gitlab/ci/agentium-k8s.yml"
+gated="$(grep -c 'AGENTIUM_LAB_ENABLED == "true"' "$CI_K8S" || true)"
+reaching="$(grep -cE "^ +- if: '.*(OVH_APPLICATION_KEY|AGENTIUM_LAB_REGISTRY|AGENTIUM_LAB_INGRESS_URL)" "$CI_K8S" || true)"
+[ "$gated" -ge 6 ] || fail "lab jobs must stay behind AGENTIUM_LAB_ENABLED"
+[ "$gated" -eq "$reaching" ] \
+  || fail "a lab-reaching rule is missing the AGENTIUM_LAB_ENABLED gate"
+grep -q 'rules: \*ops-k8s-rules-ops-tree' "$CI_K8S" \
+  || fail "validate must stay on without the switch"
+
 export ANSIBLE_CONFIG="$ROOT/ops/ansible/ansible.cfg"
 ansible-playbook --syntax-check "$ROOT/ops/ansible/playbooks/provision-cluster.yml"
 ansible-playbook --syntax-check -i "$ROOT/ops/ansible/inventories/ci" \

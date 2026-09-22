@@ -66,6 +66,29 @@ Protected variables for the first lab apply: `OVH_ENDPOINT`,
 `terraform apply` is manual on protected `demo/agentic` until that lab has
 an explicit GO.
 
+## The lab switch
+
+`AGENTIUM_LAB_ENABLED` is the one variable that decides whether this track
+reaches a cluster. Set it to the string `true` in the project CI variables
+and nowhere else. While it is unset, `plan`, `apply`, `images`, `deploy` and
+`smoke` evaluate to `when: never`, so they are absent from the pipeline
+rather than skipped. Landing this track on `demo/agentic` therefore changes
+no deployment and adds no blocking manual job to the release pipeline.
+
+`agentium-k8s-validate` stays on without the switch. It renders Terraform,
+Helm and Ansible on the runner and contacts no cluster, so it is the
+regression guard that keeps the scaffold honest while the lab is dormant.
+Its failure is red, and it is the only k8s job that can redden a release
+pipeline.
+
+The VM release loop is untouched either way.
+`agentium-lot6-system360-production` declares its own `needs`, so it never
+waits on an ops stage. The Compose services this track adds
+(`agentium-ollama`, `agentium-vllm`) sit behind Compose profiles that
+`scripts/agentium-vm-deploy.sh` never activates, and its `up` recreates an
+explicit service list that does not name them. Nothing here starts on
+`omnirag-demo`.
+
 ## Local models
 
 Ollama and vLLM are optional and off in `values.yaml` and the lab files.
