@@ -536,7 +536,7 @@ services:
     volumes:
       - agentium_ollama:/root/.ollama
     environment:
-      AGENTIUM_OLLAMA_CHAT_MODEL: ${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen2.5:3b}
+      AGENTIUM_OLLAMA_CHAT_MODEL: ${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen3.5:4b}
       AGENTIUM_OLLAMA_EMBED_MODEL: ${AGENTIUM_OLLAMA_EMBED_MODEL:-nomic-embed-text}
     entrypoint: ["/bin/sh", "/ollama-serve.sh"]
     configs:
@@ -567,7 +567,7 @@ services:
       HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
     command:
       - --model
-      - ${AGENTIUM_VLLM_MODEL:-Qwen/Qwen2.5-3B-Instruct}
+      - ${AGENTIUM_VLLM_MODEL:-Qwen/Qwen3.5-4B}
     deploy:
       resources:
         reservations:

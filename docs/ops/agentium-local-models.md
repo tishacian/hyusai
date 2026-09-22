@@ -12,9 +12,48 @@ Changing mode does not add a runner for the Apple Neural Engine.
 | Mac GPU | Ollama 0.34+ on macOS | `http://host.docker.internal:11434` | `compose.agentium.local-mac.yml` |
 | NVIDIA | `vllm/vllm-openai:v0.19.1` | Portal node, OpenAI-compatible | Compose profile `gpu-models`, or Helm `vllm.enabled` |
 
-Chat model for the two Ollama modes: `qwen2.5:3b`. Embeddings:
-`nomic-embed-text`, dimension 768. A fresh Qdrant volume is required when
-the embedding dimension changes.
+Embeddings stay `nomic-embed-text`, dimension 768. A fresh Qdrant volume is
+required when the embedding dimension changes. Chat defaults are below.
+The cloud routing default is unchanged, and so is the Python fallback
+`ollama_default_model` (`qwen3:8b`), which applies only when no mode file
+sets `OLLAMA_DEFAULT_MODEL`.
+
+## Default chat model
+
+The three local modes serve one family, Qwen3.5-4B. The 9B sibling scores
+higher on the model card and does not fit a 16 GB Mini next to Agentium.
+These figures are the publisher's, not a measurement on our hardware. No
+token-per-second number below was timed on an M4.
+
+Quality, from the Qwen3.5-4B model card (same table for both sizes):
+
+| Bench | Qwen3.5-4B | Qwen3.5-9B |
+| --- | --- | --- |
+| MMLU-Pro | 79.1 | 82.5 |
+| GPQA Diamond | 76.2 | 81.7 |
+| IFEval | 89.8 | 91.5 |
+| LiveCodeBench v6 | 55.8 | 65.6 |
+| HMMT Feb 25 | 74.0 | 83.2 |
+| BFCL-V4 | 50.3 | 66.1 |
+
+Fit, from the Ollama library artifact sizes, against the estimated 6.6 GB
+left by the 16 GB comfort profile:
+
+| Tag | Engine | Artifact | 16 GB Mini with Agentium |
+| --- | --- | --- | --- |
+| `qwen3.5:4b-mlx` | MLX | 4.0 GB | Default for the Mac GPU mode |
+| `qwen3.5:4b` | llama.cpp | 3.4 GB | Default for the Linux container and the chart |
+| `qwen3.5:2b-mlx` | MLX | 3.1 GB | Smaller, and not the size the model card tables |
+| `qwen3.5:9b` | llama.cpp | 6.6 GB | Fills the estimated headroom before any KV cache |
+| `qwen3.5:9b-mlx` | MLX | 8.9 GB | Above that headroom |
+
+`Qwen/Qwen3.5-4B` is the Hugging Face checkpoint for vLLM. The pinned image
+`vllm/vllm-openai:v0.19.1` ships `qwen3_5.py`. Enabling vLLM still does not
+set `DEFAULT_PROVIDER`.
+
+Any name starting with `qwen3` keeps the existing 32 768-token window in
+`model_context_window`. The model card allows 262 144. That cap stays,
+because a 256k cache does not fit the Mini.
 
 ## Container
 
@@ -54,16 +93,11 @@ docker compose \
 Do not pass `compose.agentium.local.yml` in the same command. That file
 starts the Linux container and would bind host port 11434.
 
-Ollama 0.30 and later keeps two engines. A GGUF tag, including
-`qwen2.5:3b`, runs on llama.cpp through Metal. A safetensors tag runs on
-MLX, still on that GPU, still in the same Ollama process. Set
-`AGENTIUM_OLLAMA_CHAT_MODEL` to the tag you pulled. On an M4 both engines
-share the 120 GB/s ceiling. The larger MLX speedups Ollama published were
-measured on M5-class machines, whose GPU has matrix units the M4 does not.
-
-`qwen2.5:3b` in 4-bit is on the order of 2 GB. An 8B model in 4-bit is
-about 5.6 GB of weights in Apple's MLX figures, which consumes most of the
-headroom left by the 16 GB comfort profile.
+The Mac overlay asks for `qwen3.5:4b-mlx`. That tag is safetensors, so
+Ollama selects the MLX engine. On an M4, MLX uses the GPU and stops at the
+120 GB/s memory ceiling. It does not use the Neural Engine, and it does not
+see the M5 GPU matrix units. A GGUF tag on the same host would stay on
+llama.cpp Metal, which is a smaller step than leaving the Linux VM.
 
 ## NVIDIA
 

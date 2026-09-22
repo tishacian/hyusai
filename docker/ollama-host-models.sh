@@ -8,7 +8,7 @@ if ! command -v ollama >/dev/null 2>&1; then
   exit 1
 fi
 
-CHAT="${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen2.5:3b}"
+CHAT="${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen3.5:4b-mlx}"
 EMBED="${AGENTIUM_OLLAMA_EMBED_MODEL:-nomic-embed-text}"
 
 ollama pull "$CHAT"
