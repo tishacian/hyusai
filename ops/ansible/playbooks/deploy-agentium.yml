@@ -6,4 +6,5 @@
   gather_facts: false
   run_once: true
   roles:
+    - role: update_protection
     - role: helm_agentium

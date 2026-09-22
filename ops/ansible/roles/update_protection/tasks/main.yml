@@ -1,0 +1,13 @@
+---
+# Tagged always, so --tags and --skip-tags cannot step around the freeze.
+# Every playbook imports this role first; a play that reaches a later role
+# has passed the guard.
+- name: Refuse the run while this environment is frozen
+  ansible.builtin.fail:
+    msg: >-
+      update_protection is on for this inventory. Lifting it is a deliberate
+      act: clear it in the inventory that names the target and commit that
+      change, rather than overriding it for one run.
+  when: update_protection | bool
+  tags:
+    - always
