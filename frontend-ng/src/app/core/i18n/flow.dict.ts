@@ -671,11 +671,14 @@ export const FLOW_FR = {
   'flow.run.input.close': 'Fermer la fenêtre d’entrée',
   'flow.run.input.hint':
     'Saisissez l’objet JSON exposé au Flow. Les données de débogage sont injectées séparément par l’éditeur.',
+  'flow.run.input.hint.automation':
+    'Le texte est déjà préparé. Lancez, ou remplacez-le. La publication vient après.',
   'flow.run.input.prefill': 'Pré-rempli depuis le contrat du point d’entrée',
   'flow.run.input.entry': 'Point d’entrée du brouillon',
   'flow.run.input.entry.choose': 'Choisir un point d’entrée…',
   'flow.run.input.entry.authority': 'Autorité de la demande :',
   'flow.run.input.json': 'Objet JSON',
+  'flow.run.input.json.automation': 'Entrée',
   'flow.run.input.cancel': 'Annuler',
   'flow.run.input.dispatching': 'Envoi…',
   'flow.run.input.submit': 'Lancer l’exécution',
@@ -2197,11 +2200,14 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.run.input.close': 'Close the Run input editor',
   'flow.run.input.hint':
     'Enter the JSON object exposed to the Flow. Debug metadata is injected separately by the builder.',
+  'flow.run.input.hint.automation':
+    'The input is ready. Run it, or replace it. Publishing comes after.',
   'flow.run.input.prefill': 'Prefilled from the entry point contract of',
   'flow.run.input.entry': 'Draft entry point',
   'flow.run.input.entry.choose': 'Select an entry point…',
   'flow.run.input.entry.authority': 'Request authority:',
   'flow.run.input.json': 'JSON object',
+  'flow.run.input.json.automation': 'Input',
   'flow.run.input.cancel': 'Cancel',
   'flow.run.input.dispatching': 'Dispatching…',
   'flow.run.input.submit': 'Start the run',

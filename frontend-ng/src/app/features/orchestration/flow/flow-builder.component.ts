@@ -226,7 +226,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
       </app-flow-toolbar>
 
       @if (loadState() === 'ready' && persistence.hydrationReady()) {
-        @if (persistence.publicationMode()) {
+        @if (persistence.publicationMode() && !automationMode()) {
           <div class="flow-builder__publication-boundary" role="status">
             <strong>
               {{

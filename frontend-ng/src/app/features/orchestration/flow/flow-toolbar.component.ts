@@ -304,6 +304,7 @@ type PillState = SaveState | 'hold';
         [attr.aria-label]="i18n.t('flow.toolbar.operate')"
       >
         <ng-content select="[flowToolbarActions]" />
+        @if (!automationMode()) {
         <button
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
@@ -321,6 +322,7 @@ type PillState = SaveState | 'hold';
           <app-icon name="message-square" [size]="14" />
           <span>{{ i18n.t('flow.toolbar.workbench') }}</span>
         </button>
+        }
       </div>
 
       <div
