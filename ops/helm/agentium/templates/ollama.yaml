@@ -38,6 +38,10 @@ spec:
       containers:
         - name: ollama
           image: {{ .Values.ollama.image | quote }}
+          {{- with .Values.resources.ollama }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command: ["/bin/sh", "/ollama-serve.sh"]
           ports:
             - name: http

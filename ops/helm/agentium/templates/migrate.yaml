@@ -26,6 +26,10 @@ spec:
       initContainers:
         - name: wait-postgres
           image: {{ .Values.postgres.image | quote }}
+          {{- with .Values.resources.waitPostgres }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -35,6 +39,10 @@ spec:
       containers:
         - name: migrate
           image: {{ .Values.image.backend | quote }}
+          {{- with .Values.resources.migrate }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["alembic", "upgrade", "head"]
           envFrom:

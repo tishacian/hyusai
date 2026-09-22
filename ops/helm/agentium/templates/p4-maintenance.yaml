@@ -22,6 +22,10 @@ spec:
       containers:
         - name: p4-maintenance
           image: {{ .Values.image.worker | quote }}
+          {{- with .Values.resources.p4Maintenance }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "-m", "app.workers.p4_maintenance"]
           envFrom:

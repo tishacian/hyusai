@@ -22,6 +22,10 @@ spec:
       containers:
         - name: frontend
           image: {{ .Values.image.frontend | quote }}
+          {{- with .Values.resources.frontend }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http

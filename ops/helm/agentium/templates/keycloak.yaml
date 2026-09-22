@@ -21,6 +21,10 @@ spec:
       containers:
         - name: keycloak
           image: {{ .Values.keycloak.image | quote }}
+          {{- with .Values.resources.keycloak }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           args: ["start-dev"]
           ports:
             - name: http

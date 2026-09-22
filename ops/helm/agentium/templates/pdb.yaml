@@ -1,0 +1,33 @@
+{{/*
+Every stateful service here runs a single replica, so a voluntary eviction is
+data loss, not a rolling restart. These budgets make `kubectl drain` refuse
+instead of evicting, which turns a silent outage into a message.
+
+Consequence to know before a node upgrade: draining such a node now requires
+scaling the workload down deliberately first. That is the intent, and it is
+also why suspending an environment must scale before it drains.
+*/}}
+{{- $root := . -}}
+{{- range $component, $enabled := dict
+      "postgres" $root.Values.postgres.enabled
+      "qdrant" $root.Values.qdrant.enabled
+      "minio" $root.Values.minio.enabled
+      "rabbitmq" $root.Values.rabbitmq.enabled
+      "ollama" $root.Values.ollama.enabled }}
+{{- if and $enabled $root.Values.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "agentium-%s" $component }}
+  labels:
+    {{- include "agentium.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      app.kubernetes.io/component: {{ $component }}
+{{- end }}
+{{- end }}

@@ -49,9 +49,12 @@ spec:
               port: http
             periodSeconds: 15
             failureThreshold: 40
-          {{- if gt (int .Values.vllm.gpu) 0 }}
           resources:
+            requests:
+              {{- toYaml .Values.resources.vllm.requests | nindent 14 }}
             limits:
+              {{- toYaml .Values.resources.vllm.limits | nindent 14 }}
+              {{- if gt (int .Values.vllm.gpu) 0 }}
               nvidia.com/gpu: {{ .Values.vllm.gpu }}
-          {{- end }}
+              {{- end }}
 {{- end }}
