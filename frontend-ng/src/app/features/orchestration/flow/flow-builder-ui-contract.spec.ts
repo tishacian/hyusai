@@ -128,7 +128,7 @@ test('authoring is the default toolbar surface and operating is one disclosure a
     assertAccessibleName(author, key, `${key} stays on the author bar`);
   }
   // The same control now reopens the application handoff after publication.
-  assert.match(author, /\[attr\.aria-label\]="i18n\.t\(persistence\.canOpenPublishedHome\(\)\s*\? 'experience\.home\.open\.hint' : 'flow\.toolbar\.publish\.aria'\)"/);
+  assert.match(author, /\[attr\.aria-label\]="i18n\.t\(persistence\.canOpenPublishedHome\(\)\s*\? 'experience\.home\.open'\s*: automationMode\(\)\s*\? 'flow\.toolbar\.publish'\s*: 'flow\.toolbar\.publish\.aria'\)"/);
   assert.ok(FLOW_EN['flow.toolbar.publish.aria'].trim());
   assert.ok(EXPERIENCE_EN['experience.home.open.hint'].trim());
   assert.ok(EXPERIENCE_FR['experience.home.open.hint'].trim());

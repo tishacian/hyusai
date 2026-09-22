@@ -231,7 +231,10 @@ type PillState = SaveState | 'hold';
                 : persistence.publicationBlockReason() || i18n.t('flow.toolbar.publish.hint')
             "
             [attr.aria-label]="i18n.t(persistence.canOpenPublishedHome()
-              ? 'experience.home.open.hint' : 'flow.toolbar.publish.aria')"
+              ? 'experience.home.open'
+              : automationMode()
+                ? 'flow.toolbar.publish'
+                : 'flow.toolbar.publish.aria')"
           >
             <app-icon name="upload-cloud" [size]="14" />
             <span>{{ i18n.t(persistence.canOpenPublishedHome()
