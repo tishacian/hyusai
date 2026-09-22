@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from app.services.rag.project_references import extract_query_project_codes
+from app.services.workspace_features import INDUSTRIAL_FAMILIES
 
 DEFAULT_INDUSTRIAL_ANSWER_PROFILES: dict[str, dict[str, Any]] = {
     "precise_fact": {
@@ -348,6 +349,21 @@ def industrial_answer_policy() -> dict[str, Any]:
     }
 
 
+def answer_policy_for_family(family: str | None) -> dict[str, Any]:
+    """The default answer policy for a workspace family, and the only place it is decided.
+
+    Neutral everywhere; the project/equipment industrial policy only for the
+    families that opted into it. Bootstrap already seeded policies this way,
+    while chat and the policy helpers fell back to the industrial policy for
+    everyone, so a workspace with no seeded contract got project-shaped
+    profiles and could be pushed into exhaustive deep retrieval.
+    """
+
+    if str(family or "") in INDUSTRIAL_FAMILIES:
+        return industrial_answer_policy()
+    return default_answer_policy()
+
+
 def default_answer_policy() -> dict[str, Any]:
     """Domain-neutral answer policy for the universal default chat orchestration.
 
@@ -366,38 +382,99 @@ def default_answer_policy() -> dict[str, Any]:
     }
 
 
+# When a policy does not offer an industrial profile but does offer its
+# domain-neutral counterpart, the intent is the same and only the vocabulary
+# differs: "résume le dossier X" is a summary request in any workspace.
+_NEUTRAL_EQUIVALENTS = {"project_summary": "summary"}
+
+
+def _offered_profiles(answer_policy: Mapping[str, Any] | None) -> frozenset[str] | None:
+    """Profiles a policy actually offers, or None when it does not say."""
+
+    profiles = (answer_policy or {}).get("profiles") if answer_policy else None
+    if isinstance(profiles, Mapping) and profiles:
+        return frozenset(str(key) for key in profiles)
+    return None
+
+
 def resolve_answer_profile(
     query: str,
     answer_policy: Mapping[str, Any] | None = None,
     *,
     include_agentic_profiles: bool = False,
 ) -> AnswerProfileDecision:
+    """Classify a query into an answer profile the given policy offers.
+
+    The classifier is a fixed cascade of patterns, and it used to return the
+    first match whatever the policy said: a domain-neutral workspace asking
+    "which projects use a Uraca pump?" was classified ``transversal_inventory``,
+    a profile its policy does not even define, and that decision alone forced
+    exhaustive deep retrieval. A policy that declares its profiles is now
+    honoured: a match it does not offer is skipped and the cascade continues,
+    ending on the policy's own default. With no policy, or a policy that does
+    not list profiles, the cascade is unchanged.
+    """
+
     text = str(query or "").strip()
     if not text:
         return AnswerProfileDecision("insufficient_context", "empty_query")
-    if _PROJECT_SUMMARY_RE.search(text) or (
-        _PROJECT_SUMMARY_ACTION_RE.search(text) and extract_query_project_codes(text)
-    ):
-        return AnswerProfileDecision("project_summary", "project_summary_query")
-    if _COMPARISON_RE.search(text):
-        return AnswerProfileDecision("comparison", "comparison_query")
-    if _TRANSVERSAL_RE.search(text):
-        return AnswerProfileDecision("transversal_inventory", "cross_project_inventory_query", True)
-    if _EQUIPMENT_DETAIL_RE.search(text):
-        return AnswerProfileDecision("equipment_detail", "equipment_detail_query")
-    if _PART_REFERENCE_RE.search(text):
-        return AnswerProfileDecision("equipment_detail", "part_reference_query")
+
+    offered = _offered_profiles(answer_policy)
+
+    def allowed(decision: AnswerProfileDecision) -> bool:
+        return offered is None or decision.profile in offered
+
+    candidates: list[tuple[bool, AnswerProfileDecision]] = [
+        (
+            bool(
+                _PROJECT_SUMMARY_RE.search(text)
+                or (_PROJECT_SUMMARY_ACTION_RE.search(text) and extract_query_project_codes(text))
+            ),
+            AnswerProfileDecision("project_summary", "project_summary_query"),
+        ),
+        (bool(_COMPARISON_RE.search(text)), AnswerProfileDecision("comparison", "comparison_query")),
+        (
+            bool(_TRANSVERSAL_RE.search(text)),
+            AnswerProfileDecision("transversal_inventory", "cross_project_inventory_query", True),
+        ),
+        (
+            bool(_EQUIPMENT_DETAIL_RE.search(text)),
+            AnswerProfileDecision("equipment_detail", "equipment_detail_query"),
+        ),
+        (
+            bool(_PART_REFERENCE_RE.search(text)),
+            AnswerProfileDecision("equipment_detail", "part_reference_query"),
+        ),
+    ]
     # table_extract / multi_hop only shape the answer when agentic chat routing
     # is enabled. Gating them keeps the classic prompt shaping byte-for-byte
     # unchanged while ``enable_agentic_chat`` is off (zero drift pre-enablement);
     # once enabled they both classify the intent AND arm the agentic route.
     if include_agentic_profiles:
-        if _TABLE_EXTRACT_RE.search(text):
-            return AnswerProfileDecision("table_extract", "table_extract_query")
-        if _MULTIHOP_RE.search(text):
-            return AnswerProfileDecision("multi_hop", "multi_hop_query")
-    if _PRECISE_FACT_RE.search(text) or text.endswith("?"):
-        return AnswerProfileDecision("precise_fact", "precise_fact_query")
+        candidates += [
+            (
+                bool(_TABLE_EXTRACT_RE.search(text)),
+                AnswerProfileDecision("table_extract", "table_extract_query"),
+            ),
+            (bool(_MULTIHOP_RE.search(text)), AnswerProfileDecision("multi_hop", "multi_hop_query")),
+        ]
+    candidates.append(
+        (
+            bool(_PRECISE_FACT_RE.search(text) or text.endswith("?")),
+            AnswerProfileDecision("precise_fact", "precise_fact_query"),
+        )
+    )
+    for matched, decision in candidates:
+        if not matched:
+            continue
+        if allowed(decision):
+            return decision
+        equivalent = _NEUTRAL_EQUIVALENTS.get(decision.profile)
+        if equivalent and offered is not None and equivalent in offered:
+            return AnswerProfileDecision(
+                equivalent, decision.reason, decision.requires_exhaustive_retrieval
+            )
+
     default_profile = str((answer_policy or {}).get("default_answer_profile") or "precise_fact")
     return AnswerProfileDecision(default_profile, "default_answer_profile")
 
@@ -408,7 +485,7 @@ def answer_policy_prompt(
     profile_decision: Mapping[str, Any] | None,
     language: str | None = None,
 ) -> str:
-    policy = dict(answer_policy or industrial_answer_policy())
+    policy = dict(answer_policy or default_answer_policy())
     profiles = policy.get("profiles") if isinstance(policy.get("profiles"), Mapping) else {}
     profile_key = str((profile_decision or {}).get("profile") or policy.get("default_answer_profile") or "precise_fact")
     profile = profiles.get(profile_key) if isinstance(profiles, Mapping) else {}
@@ -459,7 +536,7 @@ def apply_answer_policy_to_text(
     and flags contradictions, but it does not try to fabricate missing facts.
     """
     out = str(text or "")
-    policy = answer_policy or industrial_answer_policy()
+    policy = answer_policy or default_answer_policy()
     forbidden = policy.get("forbidden_internal_terms")
     violations: list[str] = []
     if _WORKSPACE_JARGON_RE.search(out):

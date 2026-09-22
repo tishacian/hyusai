@@ -70,11 +70,12 @@ from app.services.evaluation.canonical_answer_service import (
 )
 from app.services.iam.app_entitlements import CHAT_APP
 from app.services.industrial_answer_profile import (
+    answer_policy_for_family,
     answer_policy_prompt,
     apply_answer_policy_to_text,
-    industrial_answer_policy,
     resolve_answer_profile,
 )
+from app.services.workspace_features import workspace_family
 from app.services.knowledge_capture import is_teaching_utterance
 from app.services.mission_room import (
     briefing_payload,
@@ -484,10 +485,16 @@ def _apply_workspace_chat_flow_defaults(
                 or "precise_fact",
                 "profiles": prompt_contract.get("answer_profiles"),
             }
-        if answer_policy:
-            request.answer_policy = answer_policy
+        if not answer_policy:
+            # No seeded contract. Fall back to what bootstrap seeds for this
+            # family, and write it into the request so every later step of the
+            # turn (classification, prompt, output guard) sees the same policy.
+            # The old fallback was the industrial policy for everyone, applied
+            # here and then again, independently, inside each policy helper.
+            answer_policy = answer_policy_for_family(workspace_family(workspace))
+        request.answer_policy = answer_policy
     if request.answer_profile_decision is None:
-        policy = request.answer_policy or industrial_answer_policy()
+        policy = request.answer_policy or answer_policy_for_family(workspace_family(workspace))
         decision = resolve_answer_profile(
             request.query,
             policy,

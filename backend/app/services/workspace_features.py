@@ -64,6 +64,11 @@ from typing import Any
 from app.schemas.canonical import WorkspaceFamily
 
 KNOWN_FAMILIES = frozenset(family.value for family in WorkspaceFamily)
+# Families that opted into the project/equipment answer shaping and the
+# cross-project source rejection. Everything else is domain-neutral.
+INDUSTRIAL_FAMILIES = frozenset(
+    {WorkspaceFamily.andritz.value, WorkspaceFamily.industrial.value}
+)
 
 #: Capabilities that graduated to a code default. Listed for auditability: the
 #: resolver takes the key from the caller, not from this set.
