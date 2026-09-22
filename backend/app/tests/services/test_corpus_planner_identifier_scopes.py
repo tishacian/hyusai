@@ -11,7 +11,10 @@ _PILOT_CHUNK_COUNT = 60_000
 
 
 def _pilot_collection(db_session, *, workspace_id: str, name: str, filenames: tuple[str, ...]):
-    workspace = Workspace(id=workspace_id, name=name, slug=workspace_id)
+    # An Andritz corpus: the stamped family, not the slug, arms its grammar.
+    workspace = Workspace(
+        id=workspace_id, name=name, slug=workspace_id, settings={"family": "andritz"}
+    )
     db_session.add(workspace)
     db_session.flush()
     collection = create_collection(db_session, workspace=workspace, name=name)
@@ -40,7 +43,9 @@ def _pilot_profile(workspace, collection) -> dict:
     }
 
 
-def test_source_lookup_terms_keep_identifiers_and_drop_generic_or_measurement_noise():
+def test_source_lookup_terms_keep_identifiers_and_drop_generic_or_measurement_noise(
+    andritz_tenant,
+):
     assert _source_lookup_terms([], "Que dit la notice TTN17829J ?") == {"ttn17829j"}
     assert _source_lookup_terms([], "Que dit le manuel TTN17829J ?") == {"ttn17829j"}
     assert _source_lookup_terms([], "10000 rpm") == set()
@@ -61,6 +66,7 @@ def test_large_corpus_keeps_document_identifiers_separate_from_project_identity(
         id="ws-identifier-scope",
         name="Identifier scope",
         slug="identifier-scope",
+        settings={"family": "andritz"},
     )
     db_session.add(workspace)
     db_session.flush()
@@ -271,7 +277,7 @@ def test_line_position_carried_by_a_filename_keeps_the_document_scope(db_session
     assert plan.filters["document_filename"][0] == j1_conveyor
 
 
-def test_family_only_match_no_longer_narrows_the_scope_by_itself(db_session):
+def test_family_only_match_no_longer_narrows_the_scope_by_itself(db_session, andritz_tenant):
     """A conveyor hit is a family, a jetlace hit is a document.
 
     Both documents belong to the conveyor family, so before the fix both were

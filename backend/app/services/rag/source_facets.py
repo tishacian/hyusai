@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from app.services.rag.project_references import andritz_project_scheme_active
 from app.services.rag.retrieval_policy import RetrievalPolicy
 
 
@@ -163,8 +164,19 @@ def _policy_facets(policy: RetrievalPolicy | None) -> tuple[SourceFamilyFacet, .
 
 
 def source_family_facets(policy: RetrievalPolicy | None = None) -> tuple[SourceFamilyFacet, ...]:
-    """Return default facets plus any runtime KnowledgeGuide policy facets."""
-    by_key: dict[str, SourceFamilyFacet] = {facet.key: facet for facet in DEFAULT_SOURCE_FAMILY_FACETS}
+    """Return the facets this tenant actually has.
+
+    The built-in facets are one customer's document families: spare-parts
+    lists, injector notices, pump and conveyor manuals, pneumatic cabinets,
+    with their French and English trigger words. They used to apply to every
+    workspace, so an HR tenant asking about "congé joint parental" activated
+    the spare-parts facet on "joint", had parts vocabulary injected into its
+    query expansion and parts-shaped documents boosted. They now apply only
+    under the Andritz scheme. Any tenant still gets the facets its own
+    KnowledgeGuide policy declares, which is the mechanism meant for this.
+    """
+    defaults = DEFAULT_SOURCE_FAMILY_FACETS if andritz_project_scheme_active() else ()
+    by_key: dict[str, SourceFamilyFacet] = {facet.key: facet for facet in defaults}
     for facet in _policy_facets(policy):
         if facet.key not in by_key:
             by_key[facet.key] = facet

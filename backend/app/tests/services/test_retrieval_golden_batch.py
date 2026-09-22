@@ -456,7 +456,7 @@ def test_inventory_batches_carry_positive_contract_and_keep_forbidden_route():
     assert "KUT100" not in hi_002.expected_inventory["must_exclude_projects"]
 
 
-def test_source_facets_are_family_rules_not_answer_mappings():
+def test_source_facets_are_family_rules_not_answer_mappings(andritz_tenant):
     facets = active_source_family_facets("Peux-tu retrouver la Spare Parts List du projet ACO150 ?")
     assert {facet.key for facet in facets} >= {"spare_parts_list"}
 

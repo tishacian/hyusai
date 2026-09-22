@@ -139,7 +139,7 @@ def test_policy_evidence_matches_bilingual_cleaning_alias():
     assert "comment" not in {term.lower() for term in details["groups"]}
 
 
-def test_source_family_prefers_cleaning_procedure_over_spare_list():
+def test_source_family_prefers_cleaning_procedure_over_spare_list(andritz_tenant):
     query = "Quelle procedure parle du nettoyage des cartridges d'autoclamped injector ?"
 
     procedure_score, procedure_matches = score_source_family_match(
@@ -161,7 +161,7 @@ def test_source_family_prefers_cleaning_procedure_over_spare_list():
     assert procedure_score > spare_score
 
 
-def test_fast_ledger_candidates_keep_cleaning_procedure_in_noisy_spare_scope():
+def test_fast_ledger_candidates_keep_cleaning_procedure_in_noisy_spare_scope(andritz_tenant):
     query = "Quelle procedure parle du nettoyage des cartridges d'autoclamped injector ?"
     spare_rows = [
         SimpleNamespace(

@@ -465,3 +465,21 @@ def attest_authorization_v2(monkeypatch):
         return attestation
 
     return _attest
+
+
+@pytest.fixture()
+def andritz_tenant():
+    """Run the test as the Andritz tenant, and say so.
+
+    The Andritz identifier grammar and its document-family facets apply only
+    under the Andritz scheme, which production binds from the stamped workspace
+    family at every entry point. A test that exercises that behaviour through a
+    unit below those entry points has no workspace to resolve, so it would run
+    as nobody and see the neutral behaviour. Requesting this fixture names the
+    tenant the test is about instead of leaving it to a default.
+    """
+
+    from app.services.rag.project_references import bind_project_reference_scheme
+
+    with bind_project_reference_scheme("andritz"):
+        yield
