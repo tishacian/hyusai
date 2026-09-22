@@ -7,7 +7,7 @@ Ces pourcentages sont des estimations de complétude par critère de sortie, pas
 
 ## Portes automation-first
 
-- Porte 0 — environ 80 %. Le run SPARK-365 `8591bc37` sur `d4a75119` n’a pas produit de minutes. Sur `5eabc862`, un nouveau brouillon Trigger → Agent → Output (`0c7393e2`, run `b8d02ddb`, skill `workspace_llm_v1`) a produit des minutes. Le compte connecté est `workspace_owner`. Nawa compte aussi 3 `workspace_contributor` et 2 `workspace_admin`. Aucune session de contributeur n’est disponible. La porte reste ouverte.
+- Porte 0 — environ 80 %. Le run SPARK-365 `8591bc37` sur `d4a75119` n’a pas produit de minutes. Sur `5eabc862`, un nouveau brouillon Trigger → Agent → Output (`0c7393e2`, run `b8d02ddb`, skill `workspace_llm_v1`) a produit des minutes. Le compte connecté est `workspace_owner`. Nawa compte aussi 3 `workspace_contributor` et 2 `workspace_admin`. `iam_enforced` est absent sur Nawa, et le moteur IAM global ne liste que `andritz`, donc un membre peut créer et lancer un System. Aucune session de contributeur n’est disponible. La porte reste ouverte.
 - Porte 1 — fermée sur les noms visibles. Sur `ae35157b`, Run et Publish (ou Application une fois publié) portent le même nom accessible. Workbench, Server draft et Test draft sont absents.
 - Porte 2 — fermée sur le scope défini. Retrieval cité, écriture SAP scellée, pause humaine, file de décision.
 - Boucle d’édition — critère de sortie couvert sur `0c7393e2`. La relecture montre retrieve, approval, sap_write et l’arête `decided_by`. Le brouillon n’est pas publié. Sur `65b66219`, le run `498fff50` sans personne termine l’écriture `sap_create_po_v1` avec `sealed: true`, `called: false`, raison `unattended`, puis reste en pause sur l’approbation.
