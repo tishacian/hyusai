@@ -1,0 +1,78 @@
+"""What still has to be true before an automation can be called ready.
+
+A check that was not performed is ``not_checked``. That state is not ready.
+``not_applicable`` is a check we looked at and found nothing to inspect.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+CHECKS = ("model", "provider", "source", "indexing", "rights", "worker")
+COMPLETION_SKILLS = ("workspace_llm_v1", "azure_llm_v1", "ollama_llm_v1")
+_COUNTED_AS_READY = frozenset({"ready", "not_applicable"})
+
+
+def _nodes(flow: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
+    raw = flow.get("nodes") if isinstance(flow, Mapping) else None
+    if not isinstance(raw, list):
+        return []
+    return [node for node in raw if isinstance(node, Mapping)]
+
+
+def _skill_slugs(flow: Mapping[str, Any] | None) -> list[str]:
+    slugs: list[str] = []
+    for node in _nodes(flow):
+        config = node.get("config") if isinstance(node.get("config"), Mapping) else {}
+        slug = config.get("skill_slug")
+        if isinstance(slug, str) and slug and slug not in slugs:
+            slugs.append(slug)
+    return slugs
+
+
+def _row(name: str, status: str, detail: str | None = None) -> dict[str, Any]:
+    return {"name": name, "status": status, "detail": detail}
+
+
+def preparation_diagnostic(
+    flow: Mapping[str, Any] | None,
+    *,
+    provider: str | None = None,
+    caller_can_run: bool | None = None,
+) -> dict[str, Any]:
+    """Name the six preparation checks. Do not treat a skipped check as ready."""
+
+    slugs = _skill_slugs(flow)
+    completion = next((slug for slug in COMPLETION_SKILLS if slug in slugs), None)
+    if completion:
+        model = _row("model", "ready", completion)
+    elif slugs:
+        model = _row("model", "blocked", slugs[0])
+    else:
+        model = _row("model", "not_checked")
+
+    has_source = any(node.get("kind") == "source" for node in _nodes(flow))
+    has_retrieval = "semantic_search_v1" in slugs or "llm_rag_answer_v1" in slugs
+    if caller_can_run is True:
+        rights = _row("rights", "ready")
+    elif caller_can_run is False:
+        rights = _row("rights", "blocked")
+    else:
+        rights = _row("rights", "not_checked")
+
+    checks = [
+        model,
+        _row("provider", "ready", provider) if provider else _row("provider", "not_checked"),
+        _row("source", "ready") if has_source else _row("source", "not_checked"),
+        _row("indexing", "not_checked") if has_retrieval else _row("indexing", "not_applicable"),
+        rights,
+        _row("worker", "not_checked"),
+    ]
+    names = [item["name"] for item in checks]
+    if names != list(CHECKS):
+        raise RuntimeError("preparation checks drifted")
+    return {
+        "ready": all(item["status"] in _COUNTED_AS_READY for item in checks),
+        "checks": checks,
+    }
