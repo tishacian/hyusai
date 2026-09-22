@@ -690,7 +690,12 @@ class Settings(BaseSettings):
     secure_deposit_allowed_extensions: str = (
         "pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,md,png,jpg,jpeg,tif,tiff,webp"
     )
+    # "local" keeps staged uploads on a filesystem, which only works where the
+    # API and the SFTP transport share one. "object_store" puts them in the
+    # artifact store, which is what lets them run as separate pods.
+    secure_deposit_storage_backend: str = "local"
     secure_deposit_storage_dir: str = "./data/secure_deposit"
+    secure_deposit_cache_ttl_seconds: int = 3600
     secure_deposit_archive_promotion_max_files: int = 50
     secure_deposit_sftp_host: str = "0.0.0.0"
     secure_deposit_sftp_port: int = 2222

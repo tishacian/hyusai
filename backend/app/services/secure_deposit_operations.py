@@ -62,6 +62,16 @@ def get_sftp_operations_snapshot(
     workspace: Workspace,
     stale_after_hours: int = SFTP_DEFAULT_STALE_AFTER_HOURS,
 ) -> dict[str, Any]:
+    if not _filesystem_staging():
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "SFTP reconciliation needs filesystem staging; this deployment "
+                "stages deposits in the object store"
+            ),
+        )
     partials = _scan_partials(db, workspace=workspace, stale_after_hours=stale_after_hours)
     links = _workspace_links(db, workspace.id)
     status_rows = (
@@ -109,6 +119,9 @@ def get_sftp_operations_snapshot(
 
 def run_sftp_reconciliation_job(job_id: str) -> dict[str, Any]:
     from app.db.base import SessionLocal
+
+    if not _filesystem_staging():
+        return {"status": "failed", "error": "object_store_staging_unsupported"}
 
     db = SessionLocal()
     try:
@@ -548,6 +561,21 @@ def _file_item(path: Path, *, key: str, modified_at: datetime) -> dict[str, Any]
         "size_bytes": int(stat.st_size or 0),
         "modified_at": modified_at.isoformat(),
     }
+
+
+def _filesystem_staging() -> bool:
+    """Reconciliation reads the staging tree directly, so it needs one.
+
+    On object storage there are no ``.part`` remnants to sweep, because a
+    staged object only appears once it is complete. Orphan detection would
+    still mean something, but it has to list the store rather than walk a
+    directory, and a walk that finds nothing would report a clean bill of
+    health it has not earned. Callers refuse instead, each in its own idiom.
+    """
+
+    from app.services.secure_deposit import _use_object_store
+
+    return not _use_object_store()
 
 
 def _iter_workspace_storage_files(workspace_id: str):

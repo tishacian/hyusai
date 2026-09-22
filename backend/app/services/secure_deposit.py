@@ -15,6 +15,7 @@ import os
 import re
 import secrets
 import shutil
+import time
 import tempfile
 import zipfile
 from datetime import datetime, timedelta
@@ -234,16 +235,98 @@ def _storage_path(key: str) -> Path:
     return path
 
 
+# Staged uploads live either on a filesystem or in the artifact store. The
+# filesystem is only workable where every reader shares one, which is true of
+# the Compose deployment and false of Kubernetes: the API and the SFTP
+# transport are separate pods and the storage classes are ReadWriteOnce.
+# Object storage removes the shared volume; reads materialise a local copy,
+# because previews, archives and spreadsheets all want a real path.
+_DEPOSIT_PREFIX = "secure-deposit"
+
+
+def _use_object_store() -> bool:
+    return (settings.secure_deposit_storage_backend or "local").strip().lower() == "object_store"
+
+
+def _object_key(key: str) -> str:
+    return f"{_DEPOSIT_PREFIX}/{_storage_key(key)}"
+
+
+def _cache_root() -> Path:
+    root = _storage_root() / "_cache"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _sweep_cache(ttl_seconds: int | None = None) -> None:
+    """Drop materialised copies nobody has touched lately.
+
+    Cheap and opportunistic: a staged file is immutable once written, so a
+    stale copy is never wrong, only wasted space.
+    """
+
+    ttl = settings.secure_deposit_cache_ttl_seconds if ttl_seconds is None else ttl_seconds
+    if ttl <= 0:
+        return
+    cutoff = time.time() - ttl
+    root = _cache_root()
+    for path in root.rglob("*"):
+        try:
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+        except OSError:  # noqa: PERF203 - a racing sweep is not an error
+            continue
+
+
+def _materialise(key: str) -> Path:
+    """Return a local path for a staged key, fetching it when it is remote."""
+
+    cached = _cache_root() / _storage_key(key)
+    if cached.is_file() and cached.stat().st_size > 0:
+        return cached
+    _sweep_cache()
+    get_object_store().copy_to_local(_object_key(key), cached)
+    return cached
+
+
+def _legacy_path(key: str) -> Path | None:
+    """The pre-migration filesystem copy, when one is still there.
+
+    A deployment that switches backend keeps serving deposits taken before the
+    switch instead of reporting them missing.
+    """
+
+    try:
+        path = _storage_path(key)
+    except ValueError:
+        return None
+    return path if path.is_file() else None
+
+
 def _write_staged_bytes(key: str, content: bytes) -> None:
+    if _use_object_store():
+        get_object_store().write_bytes(_object_key(key), content)
+        return
     path = _storage_path(key)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
 
 
 async def _write_staged_upload(key: str, upload: UploadFile, max_bytes: int) -> tuple[int, str]:
-    path = _storage_path(key)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=".upload-", suffix=".part", dir=str(path.parent))
+    """Stream an upload to a temp file, then commit it to whichever backend.
+
+    The temp file is not an optimisation: size and digest are only known once
+    the whole body has gone past, and refusing an oversized upload must not
+    require holding it in memory.
+    """
+
+    if _use_object_store():
+        staging_dir = _cache_root()
+    else:
+        path = _storage_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        staging_dir = path.parent
+    fd, tmp_name = tempfile.mkstemp(prefix=".upload-", suffix=".part", dir=str(staging_dir))
     tmp_path = Path(tmp_name)
     size = 0
     digest = hashlib.sha256()
@@ -258,7 +341,11 @@ async def _write_staged_upload(key: str, upload: UploadFile, max_bytes: int) -> 
                     raise HTTPException(status_code=413, detail="File is too large")
                 digest.update(chunk)
                 handle.write(chunk)
-        tmp_path.replace(path)
+        if _use_object_store():
+            get_object_store().write_file(_object_key(key), tmp_path)
+            tmp_path.unlink(missing_ok=True)
+        else:
+            tmp_path.replace(path)
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
@@ -266,13 +353,37 @@ async def _write_staged_upload(key: str, upload: UploadFile, max_bytes: int) -> 
 
 
 def _copy_staged_to_local(key: str, destination: Path) -> Path:
-    source = _storage_path(key)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, destination)
+    if _use_object_store():
+        legacy = _legacy_path(key)
+        if legacy is None:
+            get_object_store().copy_to_local(_object_key(key), destination)
+            return destination
+        shutil.copy2(legacy, destination)
+        return destination
+    shutil.copy2(_storage_path(key), destination)
     return destination
 
 
 def staged_file_path(file: DepositFile) -> Path:
+    """A real local path for a staged upload, whatever backs it.
+
+    Kept returning a ``Path`` on purpose: six modules read staged files with
+    ``zipfile``, ``openpyxl`` and friends, none of which take a stream. With
+    object storage the bytes are fetched into a local cache first. Nothing
+    carries this path across a process, so a per-process cache is sound.
+    """
+
+    if _use_object_store():
+        legacy = _legacy_path(file.object_key)
+        if legacy is not None:
+            return legacy
+        try:
+            return _materialise(file.object_key)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a staged-file miss
+            raise HTTPException(
+                status_code=409, detail=f"Staged file is missing: {file.filename}"
+            ) from exc
     path = _storage_path(file.object_key)
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=409, detail=f"Staged file is missing: {file.filename}")
@@ -1002,9 +1113,9 @@ def build_deposit_archive(
     try:
         with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
             for file in files:
-                source = _storage_path(file.object_key)
-                if not source.exists():
-                    raise HTTPException(status_code=409, detail=f"Staged file is missing: {file.filename}")
+                # Through the accessor, so the bulk download works on both
+                # backends and reports a miss the same way.
+                source = staged_file_path(file)
                 link = links_by_id.get(file.access_link_id)
                 link_label = _archive_component(link.label if link else None, "deposit-link")
                 link_access = _archive_component(link.access_id if link else file.access_link_id, file.access_link_id)
@@ -1788,9 +1899,13 @@ def record_staged_file_from_path(
         file.id,
         safe_name,
     )
-    destination = _storage_path(object_key)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(source_path), destination)
+    if _use_object_store():
+        get_object_store().write_file(_object_key(object_key), Path(source_path))
+        Path(source_path).unlink(missing_ok=True)
+    else:
+        destination = _storage_path(object_key)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source_path), destination)
     file.object_key = object_key
     db.flush()
     emit_audit_event(
