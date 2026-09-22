@@ -53,6 +53,7 @@ import { AutomationJobComponent } from './automation-job.component';
 import { PreparationPanelComponent } from './preparation-panel.component';
 import { ReviewLoopComponent } from './review-loop.component';
 import { DossierTableComponent } from './dossier-table.component';
+import { FrozenChartComponent } from './frozen-chart.component';
 import { AutomationTurnComponent } from './automation-turn.component';
 import { FlowToolbarComponent } from './flow-toolbar.component';
 import { FlowManifestService } from './flow-manifest.service';
@@ -142,6 +143,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     PreparationPanelComponent,
     ReviewLoopComponent,
     DossierTableComponent,
+    FrozenChartComponent,
     AutomationTurnComponent,
     FlowToolbarComponent,
     FlowRunControlsComponent,
@@ -240,6 +242,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
         <app-preparation-panel [systemId]="automationSystemId" />
         <app-review-loop [systemId]="automationSystemId" />
         <app-dossier-table [systemId]="automationSystemId" />
+        <app-frozen-chart [systemId]="automationSystemId" />
         <app-automation-job [systemId]="automationSystemId" />
         <app-automation-turn
           [systemId]="automationSystemId"

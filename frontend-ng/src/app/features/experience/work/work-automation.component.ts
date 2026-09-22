@@ -21,6 +21,7 @@ import { WorkApiService, type WorkAutomationJob } from './work-api.service';
         <p>{{ shown.convention ? i18n.t('flow.automation.work.convention', { rate: shown.convention }) : i18n.t('flow.automation.work.convention.absent') }}</p>
         <p>{{ shown.gap ? i18n.t('flow.automation.work.gap', { gap: shown.gap }) : i18n.t('flow.automation.work.gap.absent') }}</p>
         <p>{{ shown.proof ? i18n.t('flow.automation.work.proof', { run: shown.proof }) : i18n.t('flow.automation.work.proof.absent') }}</p>
+        <p>{{ sharedProof() }}</p>
         <button type="button" [disabled]="running()" (click)="runPublished()">
           {{ i18n.t('experience.work.automation.run') }}
         </button>
@@ -50,6 +51,7 @@ export class WorkAutomationComponent {
   protected readonly exporting = signal(false);
   protected readonly running = signal(false);
   protected readonly lines = signal<ReturnType<typeof automationJobLines> | null>(null);
+  protected readonly sharedProof = signal('');
   private runId: string | null = null;
   private flowSha = '';
   private systemId = '';
@@ -99,6 +101,12 @@ export class WorkAutomationComponent {
     this.flowSha = card.job.flow_sha256 ?? '';
     this.runId = card.proof?.run_id ?? null;
     this.lines.set(automationJobLines(card));
+    this.canonical.automationProof(this.systemId).subscribe({
+      next: (proof) => this.sharedProof.set(proof.status === 'present'
+        ? this.i18n.t('flow.proof.present')
+        : this.i18n.t('flow.proof.absent')),
+      error: () => this.sharedProof.set(this.i18n.t('flow.proof.absent')),
+    });
   }
 
   private wait(runId: string, attempt = 0): void {

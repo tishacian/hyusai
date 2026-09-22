@@ -2323,6 +2323,31 @@ export class CanonicalApiService {
     return this.api.get(`/systems/${encodeURIComponent(systemId)}/automation-dossiers`);
   }
 
+  automationChart(systemId: string): Observable<{
+    hash: string;
+    points: Array<{ id: string; name: string; version: number; proof: string; run_status?: string | null }>;
+  }> {
+    return this.api.get(`/systems/${encodeURIComponent(systemId)}/automation-chart`);
+  }
+
+  automationChartPoint(systemId: string, pointId: string): Observable<{
+    dossier: { name: string; version: number; proof: string; waiting: boolean };
+    run: { id: string; status: string } | null;
+  }> {
+    return this.api.get(`/systems/${encodeURIComponent(systemId)}/automation-chart/point`, { point_id: pointId });
+  }
+
+  automationProof(systemId: string): Observable<{
+    status: string;
+    run_id?: string | null;
+    sealed?: boolean | null;
+    called?: boolean | null;
+    convention?: string;
+    gap?: string;
+  }> {
+    return this.api.get(`/systems/${encodeURIComponent(systemId)}/automation-proof`);
+  }
+
   automationWorkJob(systemId: string): Observable<{
     objective: { status?: string; text?: string | null };
     convention: { status?: string; value_per_unit?: number | null; currency?: string | null; unit?: string | null };

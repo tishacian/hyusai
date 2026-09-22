@@ -29,6 +29,7 @@ def dossier_rows(
                 "name": item.get("name") or "",
                 "slug": item.get("slug") or "",
                 "version": int(item.get("version") or 1),
+                "run_id": run_id if same else None,
                 "run_status": status,
                 "waiting": status == "hitl_pending",
                 "proof": "present" if same else "absent",
