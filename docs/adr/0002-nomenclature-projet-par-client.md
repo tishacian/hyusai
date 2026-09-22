@@ -118,22 +118,33 @@ filtre dur.
 
 ## Risques connus, assumés à la date de cette note
 
-1. **Le défaut fermé est silencieux.** Le module ne trace rien. Un bind oublié sur le
-   workspace ANDRITZ éteint le cloisonnement projet sans erreur : pas de filtre, pas
-   d'inventaire, pas de décomposition comparative. Le mode de panne s'est déplacé d'un
-   tiers bruyant vers le client principal, discret. À instrumenter.
+1. **Le défaut fermé était silencieux — traité.** La variable de contexte porte
+   désormais une sentinelle, ce qui distingue « ce locataire n'est pas ANDRITZ » d'un
+   « personne n'a lié de schéma sur ce chemin ». Les deux échouent fermé, seul le second
+   est compté et tracé. Le compteur est exposé par `project_reference_unbound_calls()`.
 
-2. **La récupération traverse Celery, pas la variable de contexte.** Le cas est traité
-   aujourd'hui, la tâche relie le schéma. Chaque nouvelle tâche ou saut de thread est un
-   chemin non lié qui échouera fermé sans bruit.
+2. **La liaison doit atteindre l'appelant — un piège de plateforme, rencontré.** Le
+   premier bind du routeur conversationnel était une dépendance FastAPI *synchrone* à
+   `yield`. Ces dépendances tournent dans un thread de travail : la variable était posée
+   dans un thread et libérée dans un autre, l'endpoint ne la voyait jamais et le
+   démontage levait une erreur. La grammaire était donc éteinte sur toute la surface
+   conversationnelle. Seule une dépendance **asynchrone** porte une variable de contexte
+   jusqu'à l'endpoint. Gravé par un test.
 
-3. **Rien ne garantit que le workspace ANDRITZ reste stampé.** La migration 058 a
-   estampillé une fois. Un workspace restauré depuis un dump antérieur perd son stamp,
-   et sa grammaire avec.
+3. **La récupération traverse Celery, pas la variable de contexte.** Le cas est traité,
+   la tâche relie le schéma. Chaque nouvelle tâche ou saut de thread reste un chemin non
+   lié : c'est ce que le compteur du point 1 rend visible.
 
-4. **La valeur n'est pas mesurée.** Aucune ablation n'existe. On chiffrera le prochain
+4. **Rien ne garantit que le workspace ANDRITZ reste stampé.** La migration 058 a
+   estampillé une fois. Un workspace restauré depuis un dump antérieur perd son stamp, et
+   sa grammaire avec. `backend/scripts/audit_project_scheme_stamps.py` compare, par
+   workspace, la présence de codes projet dans le registre et la capacité du locataire à
+   en produire ; un écart sort en `ORPHANED` et en code de retour non nul. À appeler après
+   une restauration et après toute release touchant les réglages de workspace.
+
+5. **La valeur n'est pas mesurée.** Aucune ablation n'existe. On chiffrera le prochain
    pack sans connaître le bénéfice.
 
-5. **Le vocabulaire `source_family` reste incohérent**, indépendamment de cette note :
+6. **Le vocabulaire `source_family` reste incohérent**, indépendamment de cette note :
    plusieurs valeurs attendues par les consommateurs ne sont jamais émises par le
    producteur. Du réglage mort qui donne l'illusion d'un levier.
