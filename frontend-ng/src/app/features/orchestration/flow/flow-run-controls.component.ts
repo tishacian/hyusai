@@ -154,7 +154,9 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
         >
           <header class="ck-run-input__header">
             <div>
-              <p class="ck-run-input__eyebrow">{{ run.runtimeModeLabel() }}</p>
+              @if (!compact()) {
+                <p class="ck-run-input__eyebrow">{{ run.runtimeModeLabel() }}</p>
+              }
               <h2 id="ck-run-input-title">{{ i18n.t('flow.run.input.title') }}</h2>
             </div>
             <button
@@ -168,13 +170,15 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
             </button>
           </header>
 
-          <p class="ck-run-input__hint">{{ i18n.t('flow.run.input.hint') }}</p>
-          @if (prefillSource(); as entry) {
+          <p class="ck-run-input__hint">{{
+            i18n.t(compact() ? 'flow.run.input.hint.automation' : 'flow.run.input.hint')
+          }}</p>
+          @if (!compact() && prefillSource(); as entry) {
             <p class="ck-run-input__hint" data-testid="run-input-prefill-source">
               {{ i18n.t('flow.run.input.prefill') }} <code>{{ entry }}</code>
             </p>
           }
-          @if (run.draftTestMode()) {
+          @if (run.draftTestMode() && !compact()) {
             <label class="ck-run-input__label" for="ck-run-input-entry">
               {{ i18n.t('flow.run.input.entry') }}
             </label>
@@ -209,7 +213,7 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
             }
           }
           <label class="ck-run-input__label" for="ck-run-input-json">{{
-            i18n.t('flow.run.input.json')
+            i18n.t(compact() ? 'flow.run.input.json.automation' : 'flow.run.input.json')
           }}</label>
           <textarea
             id="ck-run-input-json"

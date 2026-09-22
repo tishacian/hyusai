@@ -4305,6 +4305,12 @@ async def _azure_openai_llm_v1(payload, ctx=None):
 
 
 async def _workspace_llm_v1(payload, ctx=None):
+    instruction = str(payload.get("instruction") or "").strip()
+    body = str(payload.get("prompt") or payload.get("transcript") or payload.get("query") or "").strip()
+    if instruction and body:
+        payload = {**payload, "prompt": f"{instruction}\n\n{body}"}
+    elif body and not str(payload.get("prompt") or "").strip():
+        payload = {**payload, "prompt": body}
     return await _configured_llm_call("workspace", payload, ctx)
 
 

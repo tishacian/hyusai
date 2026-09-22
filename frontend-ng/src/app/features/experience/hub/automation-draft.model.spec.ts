@@ -54,9 +54,17 @@ test('automation input and skill query stay linked without JSON authoring', () =
   );
 });
 
-test('the model defaults to the production RAG skill, then another LLM', () => {
-  assert.equal(selectAutomationSkill([skill, { ...skill, id: 'other', slug: 'other' }])?.slug, 'llm_rag_answer_v1');
-  assert.equal(selectAutomationSkill([{ ...skill, slug: 'workspace_llm' }])?.slug, 'workspace_llm');
+test('the model prefers the workspace LLM over retrieval', () => {
+  assert.equal(
+    selectAutomationSkill([skill, { ...skill, id: 'ws', slug: 'workspace_llm_v1' }])?.slug,
+    'workspace_llm_v1',
+  );
+  assert.equal(selectAutomationSkill([skill])?.slug, 'llm_rag_answer_v1');
   assert.equal(selectAutomationSkill([]), null);
+  const flow = automationFlow({ ...skill, id: 'ws', slug: 'workspace_llm_v1' }, 'Draft the minutes');
+  const agent = flow.nodes.find((node) => node.id === 'agent');
+  const config = agent?.config as Record<string, unknown>;
+  assert.deepEqual(config?.inputs_map, { transcript: 'run.transcript' });
+  assert.deepEqual(config?.params, { instruction: 'Draft the minutes' });
   assert.equal(automationName('  Meeting   minutes  '), 'Meeting minutes');
 });

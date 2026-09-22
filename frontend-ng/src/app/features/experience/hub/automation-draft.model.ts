@@ -14,10 +14,12 @@ export function automationName(prompt: string): string {
 }
 
 export function selectAutomationSkill(skills: readonly Skill[]): Skill | null {
+  const llm = skills.filter((skill) => skill.category === 'LLM' || skill.slug === 'workspace_llm_v1');
   return (
-    skills.find((skill) => skill.slug === 'llm_rag_answer_v1')
-    ?? skills.find((skill) => skill.category === 'LLM' && skill.runtime_status === 'bound')
-    ?? skills.find((skill) => skill.category === 'LLM')
+    llm.find((skill) => skill.slug === 'workspace_llm_v1')
+    ?? llm.find((skill) => skill.runtime_status === 'bound' && skill.slug !== 'llm_rag_answer_v1')
+    ?? llm.find((skill) => skill.slug !== 'llm_rag_answer_v1')
+    ?? llm.find((skill) => skill.slug === 'llm_rag_answer_v1')
     ?? null
   );
 }
@@ -33,7 +35,7 @@ function outputPorts(skill: Skill): NodePort[] {
   }));
 }
 
-function agentNode(skill: Skill): CanonicalFlowNode {
+function agentNode(skill: Skill, prompt: string): CanonicalFlowNode {
   return {
     id: 'agent',
     type: 'skill',
@@ -46,7 +48,12 @@ function agentNode(skill: Skill): CanonicalFlowNode {
       skill_slug: skill.slug,
       skill_id: skill.id,
       skill_category: 'LLM',
-      inputs_map: { query: 'run.transcript' },
+      inputs_map: skill.slug === 'workspace_llm_v1'
+        ? { transcript: 'run.transcript' }
+        : { query: 'run.transcript' },
+      ...(skill.slug === 'workspace_llm_v1'
+        ? { params: { instruction: prompt.trim() } }
+        : {}),
       outputs_map: {},
       ...(skill.runtime_status === 'bound' ? { runtime_ref: `skill:${skill.slug}` } : {}),
     },
@@ -58,7 +65,7 @@ function agentNode(skill: Skill): CanonicalFlowNode {
 }
 
 export function automationFlow(skill: Skill, prompt: string): CanonicalFlow {
-  const agent = agentNode(skill);
+  const agent = agentNode(skill, prompt);
   const agentOutputSchema = agent.outputs?.[0]?.schema ?? 'object';
 
   return {
