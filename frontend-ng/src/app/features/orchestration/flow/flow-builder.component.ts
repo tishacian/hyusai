@@ -81,6 +81,7 @@ import {
   isPaletteItemConnectable,
 } from './flow-preconnect';
 import { paletteItemUsage, type PaletteInsertContext } from './flow-palette.vm';
+import { automationGovernedPalette } from './automation-palette';
 import {
   DEFAULT_PALETTE,
   paletteItemToNode,
@@ -618,9 +619,10 @@ export class FlowBuilderComponent {
     } : null;
     const primitives = DEFAULT_PALETTE.filter((item) =>
       item.label === 'Trigger' || item.label === 'Decision' || item.label === 'Output');
+    const governed = automationGovernedPalette();
     return agentItem
-      ? [primitives[0], agentItem, primitives[1], primitives[2]]
-      : primitives;
+      ? [primitives[0], agentItem, primitives[1], ...governed, primitives[2]]
+      : [...primitives, ...governed];
   });
   protected readonly systemId = signal<string | null>(null);
   protected readonly system = signal<System | null>(null);

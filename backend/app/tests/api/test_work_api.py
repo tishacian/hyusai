@@ -788,6 +788,43 @@ def test_work_validations_only_project_runs_the_user_can_approve(db_session) -> 
     assert {row["id"] for row in admin_rows.json()["runs"]} == {own.id, foreign.id}
 
 
+def test_work_validations_include_a_bound_system_pause_and_skip_the_scheduler(db_session) -> None:
+    workspace, admin = _seed(db_session)
+    system, _version, _binding = _seed_binding(db_session, workspace, admin)
+    _publish(
+        _experiences_client(db_session, workspace, admin),
+        binding_key="work.reset",
+        channel="live",
+    )
+    paused = Run(
+        id="work-bound-pause",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        initiated_by_user_id=admin.id,
+        status="hitl_pending",
+        trigger="manual",
+        input_ref={},
+        checkpoints=[{"kind": "hitl_pause", "prompt": "Approve the purchase order", "decision_id": "dec-1"}],
+    )
+    scheduled = Run(
+        id="work-scheduled-pause",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        initiated_by_user_id=admin.id,
+        status="hitl_pending",
+        trigger="scheduler",
+        input_ref={},
+        checkpoints=[{"kind": "hitl_pause", "prompt": "Nightly tick"}],
+    )
+    db_session.add_all([paused, scheduled])
+    db_session.commit()
+
+    rows = _client(db_session, workspace, admin).get("/work/password-reset/validations")
+
+    assert rows.status_code == 200, rows.text
+    assert [row["id"] for row in rows.json()["runs"]] == [paused.id]
+
+
 def test_work_validations_limits_after_approval_authority(db_session) -> None:
     workspace, admin = _seed(db_session)
     system, _version, _binding = _seed_binding(db_session, workspace, admin)

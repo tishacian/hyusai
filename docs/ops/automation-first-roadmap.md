@@ -2,7 +2,11 @@
 
 ## Porte 0 — Le premier objet est une automation
 
-Status: **live. Archive the generated SPARK-365 System and Run URLs in the release evidence.**
+Status: **URLs archived. The run finished; the output is not minutes.**
+
+Evidence: `docs/evidence/porte-0-spark365-2026-09-22/README.md`.
+System `2302c304-01ee-4bbd-9514-4fc57c167b43`, Run `8591bc37-fd79-4cd1-806a-b13d3032b1b6`.
+The bound skill is `llm_rag_answer_v1` and answered with the retrieval fallback.
 
 Done:
 
@@ -25,7 +29,7 @@ Acceptance still required:
 
 ## Porte 1 — Deux verbes seulement
 
-Status: **deployed, awaiting hardReload visual confirmation.**
+Status: **deployed. Run and Publish are on the bar. The draft card still says “Test draft” and “SERVER DRAFT R2”.**
 
 Automation mode now shows **Run** directly and keeps **Publish** as the second
 labelled verb. Save, Operate, More, runtime jargon, draft revision and hash are
@@ -33,6 +37,8 @@ removed from the primary bar. Autosave and the explicit publication review
 remain unchanged.
 
 ## Porte 2 — Blocs gouvernés
+
+Status: **in progress. The automation palette can drop Approval, Retrieve and SAP write. A paused decision on a bound System appears in that Work app's queue. A scheduled tick does not.**
 
 After Porte 1:
 

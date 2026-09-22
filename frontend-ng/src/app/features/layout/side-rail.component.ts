@@ -257,7 +257,7 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
 })
 export class SideRailComponent {
   private readonly workspace = inject(WorkspaceService);
-  readonly adoptionEnabled = computed(() => workspaceSettingFeature(this.workspace.current(), 'adoption_experience_v1', false));
+  readonly adoptionEnabled = computed(() => workspaceSettingFeature(this.workspace.current(), 'adoption_experience_v1', true));
   private readonly navigation = inject(ZoomContextService);
   private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
   protected readonly i18n = inject(I18nService);

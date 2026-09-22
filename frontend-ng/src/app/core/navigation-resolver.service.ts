@@ -39,7 +39,7 @@ export class NavigationResolverService {
   private resolveGenericHome(requestedRoute: string): NavigationRedirectDecision | null {
     if (this.pathOnly(requestedRoute) !== '/') return null;
     const current = this.workspace.current();
-    const adoption = workspaceSettingFeature(current, 'adoption_experience_v1', false);
+    const adoption = workspaceSettingFeature(current, 'adoption_experience_v1', true);
     if (!adoption) {
       const profile = this.resolveBusinessProfile(requestedRoute);
       return profile || this.decision(requestedRoute,

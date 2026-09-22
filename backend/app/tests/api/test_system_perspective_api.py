@@ -151,11 +151,19 @@ def test_perspective_validates_lens_and_window(db_session):
     ).status_code == 422
 
 
-def test_perspective_requires_both_workspace_flags_and_system_marker(db_session):
+def test_perspective_honours_an_opt_out_and_still_requires_the_system_marker(db_session):
     workspace, _other, user, system, _foreign = _seed(db_session)
     client = _client(db_session, workspace, user)
 
-    workspace.settings = {"features": {"cockpit_router_axes_v4": True}}
+    workspace.settings = {"features": {"system_360_projection_v1": False}}
+    db_session.commit()
+    assert client.get(
+        f"/systems/{system.id}/perspective",
+        params={"lens": "build"},
+    ).status_code == 404
+
+    workspace.settings = {}
+    system.settings = {}
     db_session.commit()
     assert client.get(
         f"/systems/{system.id}/perspective",
