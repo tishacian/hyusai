@@ -20,7 +20,7 @@ Ces pourcentages sont des estimations de complétude par critère de sortie, pas
 - F3 — la boucle est en ligne sur `b14fe69d`. Sur l’automation `0c7393e2` : réserve « VAT is still open », relecture trigger / agent / output, correction confirmée sur ce hash, comparaison avec le résultat suivant `b63de11e` en gardant le même objet. L’import SPARK-089 complet n’est pas cette preuve.
 - F4 — sur l’image `0dd15330`, la table garde les anciennes versions. « Subscriber base — cleaned » a toujours la version 6, preuve absente, et la version 7, preuve présente. Une version ajoutée, « Published minutes awaiting a person » version 1, dit preuve présente et en attente d’une personne. Le point du graphique ouvre ce dossier et le résultat `hitl_pending`.
 - F5 — revu sur `65b66219`. Le point « Subscriber base — cleaned · 6 » dit « This point has no result. » Le point version 7 dit « Result: completed » (`01732a0d`).
-- F6 — sur `65b66219`, Work et la page Flow de `df04a96a` disent « Same proof: present. » L’API dit présente, scellée, non appelée, convention absente, écart absent, une source. La conversation n’a pas été rouverte dans ce passage.
+- F6 — sur `65b66219`, Work, la page Flow et la conversation disent « Same proof: present. » pour `df04a96a`. Le pilote montre ce système et Unpin. L’API dit présente, scellée, non appelée, convention absente, écart absent, une source.
 
 ## Trace connue
 
