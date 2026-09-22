@@ -22,6 +22,10 @@ spec:
       containers:
         - name: worker
           image: {{ .Values.image.worker | quote }}
+          {{- with .Values.resources.worker }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           envFrom:
             - configMapRef:

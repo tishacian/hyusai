@@ -145,7 +145,58 @@ secret:
 
 existingSecret: ""
 
-resources: {}
+# Requests are what the scheduler reserves; memory limits are what stop one
+# container taking a node down with it. CPU limits are deliberately absent:
+# CPU is compressible, and throttling a request path costs more than it
+# protects. These are starting points sized for the lab, not measurements.
+resources:
+  frontend:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  backend:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {memory: 4Gi}
+  worker:
+    requests: {cpu: 500m, memory: 2Gi}
+    limits: {memory: 6Gi}
+  p4Maintenance:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  migrate:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  waitPostgres:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+  postgres:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  qdrant:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 4Gi}
+  minio:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  rabbitmq:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  keycloak:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  ollama:
+    requests: {cpu: 500m, memory: 2Gi}
+    limits: {memory: 8Gi}
+  vllm:
+    requests: {cpu: 1, memory: 4Gi}
+    limits: {memory: 16Gi}
+
+# A single-replica stateful service cannot be evicted without losing data, so
+# a drain must refuse rather than proceed. Turn this off only when you have
+# decided that a node drain may take Postgres down.
+podDisruptionBudget:
+  enabled: true
+# Not consumed by any template yet. They become meaningful with the node
+# pools of the subscription model; until then they are placeholders.
 nodeSelector: {}
 tolerations: []
 affinity: {}

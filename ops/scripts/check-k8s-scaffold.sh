@@ -37,6 +37,27 @@ grep -q 'path: /health/live' /tmp/agentium-helm.yaml || fail "ingress /health/li
 grep -q 'wait-postgres' /tmp/agentium-helm.yaml || fail "migrate must wait for Postgres"
 grep -q 'post-install' /tmp/agentium-helm.yaml || fail "migrate hook must be post-install, not pre-upgrade"
 grep -q 'server-snippet' /tmp/agentium-helm.yaml || fail "hidden-path ingress snippet missing"
+
+# One rendered "image:" line per container, one "cpu:" line per container's
+# request block. A container added without requests breaks the equality, so
+# the QoS hole cannot come back unnoticed.
+tpl_containers="$(grep -cE '^ +image: ' /tmp/agentium-helm.yaml || true)"
+tpl_sized="$(grep -cE '^ +cpu: ' /tmp/agentium-helm.yaml || true)"
+[ "$tpl_containers" -gt 0 ] || fail "helm template rendered no container"
+[ "$tpl_containers" = "$tpl_sized" ] \
+  || fail "every container must declare cpu and memory requests ($tpl_sized/$tpl_containers)"
+# Single-replica stateful services must refuse a voluntary eviction.
+tpl_pdbs="$(grep -c 'kind: PodDisruptionBudget' /tmp/agentium-helm.yaml || true)"
+[ "$tpl_pdbs" = "4" ] \
+  || fail "postgres, qdrant, minio and rabbitmq each need a PodDisruptionBudget (got $tpl_pdbs)"
+for svc in agentium-pg agentium-qdrant agentium-minio agentium-rabbitmq; do
+  awk -v s="name: $svc" '$0 ~ s {f=1} f && /livenessProbe:/ {print; exit}' \
+    /tmp/agentium-helm.yaml | grep -q livenessProbe \
+    || fail "$svc must declare a liveness probe"
+done
+if grep -qE '^resources: \{\}' "$ROOT/ops/helm/agentium/values.yaml"; then
+  fail "values.yaml must not ship a resources key no template consumes"
+fi
 if grep -q 'name: agentium-ollama' /tmp/agentium-helm.yaml; then
   fail "default chart must not start Ollama"
 fi

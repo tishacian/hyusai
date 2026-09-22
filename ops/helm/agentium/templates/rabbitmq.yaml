@@ -41,6 +41,10 @@ spec:
       containers:
         - name: rabbitmq
           image: {{ .Values.rabbitmq.image | quote }}
+          {{- with .Values.resources.rabbitmq }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: amqp
               containerPort: 5672
@@ -58,6 +62,13 @@ spec:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
             initialDelaySeconds: 20
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 6
           volumeMounts:
             - name: data
               mountPath: /var/lib/rabbitmq
