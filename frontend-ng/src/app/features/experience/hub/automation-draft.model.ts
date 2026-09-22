@@ -13,15 +13,15 @@ export function automationName(prompt: string): string {
   return cleaned.length > 64 ? `${cleaned.slice(0, 61)}…` : cleaned;
 }
 
+/** Completion models only. Capture, chat and retrieval skills are not a draft. */
+const COMPLETION_SKILLS = ['workspace_llm_v1', 'azure_llm_v1', 'ollama_llm_v1'] as const;
+
 export function selectAutomationSkill(skills: readonly Skill[]): Skill | null {
-  const llm = skills.filter((skill) => skill.category === 'LLM' || skill.slug === 'workspace_llm_v1');
-  return (
-    llm.find((skill) => skill.slug === 'workspace_llm_v1')
-    ?? llm.find((skill) => skill.runtime_status === 'bound' && skill.slug !== 'llm_rag_answer_v1')
-    ?? llm.find((skill) => skill.slug !== 'llm_rag_answer_v1')
-    ?? llm.find((skill) => skill.slug === 'llm_rag_answer_v1')
-    ?? null
-  );
+  for (const slug of COMPLETION_SKILLS) {
+    const found = skills.find((skill) => skill.slug === slug);
+    if (found) return found;
+  }
+  return null;
 }
 
 function outputPorts(skill: Skill): NodePort[] {
@@ -48,10 +48,13 @@ function agentNode(skill: Skill, prompt: string): CanonicalFlowNode {
       skill_slug: skill.slug,
       skill_id: skill.id,
       skill_category: 'LLM',
-      inputs_map: skill.slug === 'workspace_llm_v1'
-        ? { transcript: 'run.transcript' }
+      inputs_map: (COMPLETION_SKILLS as readonly string[]).includes(skill.slug)
+        ? {
+            transcript: 'run.transcript',
+            instruction: 'node.config.params.instruction',
+          }
         : { query: 'run.transcript' },
-      ...(skill.slug === 'workspace_llm_v1'
+      ...((COMPLETION_SKILLS as readonly string[]).includes(skill.slug)
         ? { params: { instruction: prompt.trim() } }
         : {}),
       outputs_map: {},

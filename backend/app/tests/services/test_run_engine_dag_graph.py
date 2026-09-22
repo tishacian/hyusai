@@ -135,6 +135,19 @@ def test_a_data_plane_flow_routes_to_the_walker_that_configures_its_nodes() -> N
         "edges": [],
     }
     assert resolve_flow_execution(plain).runtime_mode == "sequential_legacy"
+    automation = {
+        "schema_version": 3,
+        "variant": "automation_v1",
+        "nodes": [
+            {"id": "trigger", "kind": "source"},
+            {"id": "agent", "kind": "task", "config": {"skill_slug": "workspace_llm_v1"}},
+            {"id": "output", "kind": "sink"},
+        ],
+        "edges": [{"from": "trigger", "to": "agent"}, {"from": "agent", "to": "output"}],
+    }
+    resolution = resolve_flow_execution(automation)
+    assert resolution.runtime_mode == "dag_overlay"
+    assert resolution.reason == "automation_graph"
 
 
 def test_the_routing_list_and_the_injection_table_name_the_same_skills() -> None:
