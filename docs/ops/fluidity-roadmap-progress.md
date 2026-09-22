@@ -15,12 +15,12 @@ Ces pourcentages sont des estimations de complétude par critère de sortie, pas
 
 ## F1–F6
 
-- F1 — l’objet épinglé survit au rechargement et au départ de la page. Sur `0dd15330`, le système `df04a96a` reste ouvert dans la conversation après un hard reload puis après `/systems`, avec Unpin et la même preuve présente.
+- F1 — l’objet épinglé survit au rechargement. Sur `65b66219`, le chat du système publié liste ce système dans son contexte, avec les autres systèmes et 16 conversations. Le thème passe de sombre à clair (`data-theme=light`) puis revient à sombre, stocké dans `agentium_theme`. La flèche gauche élargit le panneau de 560 à 592 px, stocké dans `agentium.chat-panel-width`. Un second onglet ouvert sur le run `8591bc37` lit les mêmes valeurs. L’usage répété au fil des jours n’est pas une preuve de session.
 - F2 — le panneau dit Prêt sur `c629f5af`, automation `0c7393e2`. Modèle, fournisseur `openai`, source, droits et exécutant sont prêts. L’indexation est sans objet. L’exécutant est prêt parce que deux workers Celery ont répondu.
 - F3 — la boucle est en ligne sur `b14fe69d`. Sur l’automation `0c7393e2` : réserve « VAT is still open », relecture trigger / agent / output, correction confirmée sur ce hash, comparaison avec le résultat suivant `b63de11e` en gardant le même objet. L’import SPARK-089 complet n’est pas cette preuve.
 - F4 — sur l’image `0dd15330`, la table garde les anciennes versions. « Subscriber base — cleaned » a toujours la version 6, preuve absente, et la version 7, preuve présente. Une version ajoutée, « Published minutes awaiting a person » version 1, dit preuve présente et en attente d’une personne. Le point du graphique ouvre ce dossier et le résultat `hitl_pending`.
-- F5 — le graphique figé est en ligne sur `3f2b300f`. Le point « Subscriber base — cleaned · 6 » n’a pas de résultat. Le point version 7 ouvre le dossier et le résultat completed.
-- F6 — Work, la conversation et l’API disent la même preuve sur `26928471`. Pour l’automation publiée `df04a96a`, les trois surfaces la voient présente. L’écriture reste scellée et non appelée. La convention et l’écart restent absents.
+- F5 — revu sur `65b66219`. Le point « Subscriber base — cleaned · 6 » dit « This point has no result. » Le point version 7 dit « Result: completed » (`01732a0d`).
+- F6 — sur `65b66219`, Work et la page Flow de `df04a96a` disent « Same proof: present. » L’API dit présente, scellée, non appelée, convention absente, écart absent, une source. La conversation n’a pas été rouverte dans ce passage.
 
 ## Trace connue
 
