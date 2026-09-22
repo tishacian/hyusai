@@ -4,6 +4,12 @@
 # Stages: ops_validate → ops_plan → ops_apply → ops_images → ops_deploy
 # First lab apply stays manual. Smoke failure is red; it does not roll back
 # the VM.
+#
+# Everything that reaches the lab is off until AGENTIUM_LAB_ENABLED is set to
+# the string "true" in the project CI variables. Without it, plan, apply,
+# images, deploy and smoke are absent from the pipeline, so landing this track
+# on demo/agentic changes no deployment. agentium-k8s-validate stays on: it
+# only renders Terraform, Helm and Ansible locally and touches no cluster.
 
 .ops-k8s-rules-ops-tree: &ops-k8s-rules-ops-tree
   - changes:
@@ -17,9 +23,9 @@
   - when: never
 
 .ops-k8s-rules-lab-ovh-auto: &ops-k8s-rules-lab-ovh-auto
-  - if: '$CI_COMMIT_BRANCH == "demo/agentic" && $OVH_APPLICATION_KEY && $OS_PROJECT_ID'
+  - if: '$AGENTIUM_LAB_ENABLED == "true" && $CI_COMMIT_BRANCH == "demo/agentic" && $OVH_APPLICATION_KEY && $OS_PROJECT_ID'
     when: on_success
-  - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $OVH_APPLICATION_KEY && $OS_PROJECT_ID'
+  - if: '$AGENTIUM_LAB_ENABLED == "true" && $CI_PIPELINE_SOURCE == "merge_request_event" && $OVH_APPLICATION_KEY && $OS_PROJECT_ID'
     changes:
       - ops/**/*
       - .gitlab/ci/agentium-k8s.yml
@@ -27,7 +33,7 @@
   - when: never
 
 .ops-k8s-rules-lab-ovh-manual: &ops-k8s-rules-lab-ovh-manual
-  - if: '$CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $OVH_APPLICATION_KEY && $OS_PROJECT_ID'
+  - if: '$AGENTIUM_LAB_ENABLED == "true" && $CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $OVH_APPLICATION_KEY && $OS_PROJECT_ID'
     when: manual
     allow_failure: false
   - when: never
@@ -137,7 +143,7 @@ agentium-k8s-images-lab:
     paths:
       - ops/helm/agentium/values-ci-images.yaml
   rules:
-    - if: '$CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $AGENTIUM_LAB_REGISTRY'
+    - if: '$AGENTIUM_LAB_ENABLED == "true" && $CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $AGENTIUM_LAB_REGISTRY'
       when: on_success
     - when: never
 
@@ -177,7 +183,7 @@ agentium-k8s-deploy-lab:
     - test -s "$AGENTIUM_CI_IMAGES_FILE"
     - ansible-playbook -i ops/ansible/inventories/ci ops/ansible/playbooks/deploy-agentium.yml
   rules:
-    - if: '$CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $AGENTIUM_LAB_REGISTRY'
+    - if: '$AGENTIUM_LAB_ENABLED == "true" && $CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $AGENTIUM_LAB_REGISTRY'
       when: on_success
     - when: never
 
@@ -192,6 +198,6 @@ agentium-k8s-smoke-lab:
     - test -n "$AGENTIUM_LAB_INGRESS_URL"
     - sh ops/scripts/smoke-lab-ingress.sh
   rules:
-    - if: '$CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $AGENTIUM_LAB_INGRESS_URL'
+    - if: '$AGENTIUM_LAB_ENABLED == "true" && $CI_COMMIT_BRANCH == "demo/agentic" && $CI_COMMIT_REF_PROTECTED == "true" && $AGENTIUM_LAB_INGRESS_URL'
       when: on_success
     - when: never
