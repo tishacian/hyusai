@@ -363,7 +363,21 @@ async def automation_preparation(
         flow if isinstance(flow, dict) else None,
         provider=provider_name(routing),
         caller_can_run=caller_run_right(authority_status),
+        worker_reachable=_worker_reachable(),
     )
+
+
+def _worker_reachable() -> bool | None:
+    """Ask Celery who is consuming. Silence is a performed block; a failed ask is not."""
+
+    try:
+        from app.workers.celery_app import celery_app
+        replies = celery_app.control.inspect(timeout=1.0).ping()
+    except Exception:
+        return None
+    if not replies:
+        return False
+    return True
 
 
 class ReservationBody(BaseModel):

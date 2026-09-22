@@ -56,6 +56,31 @@ def test_a_retrieval_skill_blocks_the_model_and_leaves_indexing_unchecked():
     assert report["ready"] is False
 
 
+def test_a_reachable_runner_makes_the_performed_checks_ready():
+    report = preparation_diagnostic(
+        _flow(
+            {"id": "trigger", "kind": "source"},
+            _skill("workspace_llm_v1"),
+            {"id": "output", "kind": "sink"},
+        ),
+        provider="openai",
+        caller_can_run=True,
+        worker_reachable=True,
+    )
+    worker = next(item for item in report["checks"] if item["name"] == "worker")
+    assert worker["status"] == "ready"
+    assert report["ready"] is True
+
+
+def test_a_silent_runner_is_blocked_and_an_unknown_runner_stays_unchecked():
+    blocked = preparation_diagnostic(None, worker_reachable=False)
+    unknown = preparation_diagnostic(None, worker_reachable=None)
+    assert next(item for item in blocked["checks"] if item["name"] == "worker")["status"] == "blocked"
+    assert next(item for item in unknown["checks"] if item["name"] == "worker")["status"] == "not_checked"
+    assert blocked["ready"] is False
+    assert unknown["ready"] is False
+
+
 def test_a_caller_who_cannot_run_is_a_blocked_rights_check():
     report = preparation_diagnostic(_flow({"id": "trigger", "kind": "source"}), caller_can_run=False)
     rights = next(item for item in report["checks"] if item["name"] == "rights")
