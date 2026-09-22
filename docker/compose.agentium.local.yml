@@ -1,0 +1,32 @@
+# Nominal all-local models. Use with the base file. Does not replace the
+# model portal: a workspace can still route chat to OpenAI, Azure, Anthropic,
+# or a registered vLLM node.
+#
+#   docker compose -f compose.agentium.yml -f compose.agentium.local-storage.yml -f compose.agentium.local.yml up -d
+services:
+  agentium-ollama:
+    profiles: !reset []
+
+  agentium-backend:
+    environment:
+      OLLAMA_BASE_URL: http://agentium-ollama:11434
+      DEFAULT_PROVIDER: ollama
+      OLLAMA_DEFAULT_MODEL: ${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen2.5:3b}
+      EMBEDDING_PROVIDER: ollama
+      EMBEDDING_MODEL: ${AGENTIUM_OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      EMBEDDING_DIMENSION: ${AGENTIUM_OLLAMA_EMBED_DIMENSION:-768}
+    depends_on:
+      agentium-ollama:
+        condition: service_healthy
+
+  agentium-worker-cpu:
+    environment:
+      OLLAMA_BASE_URL: http://agentium-ollama:11434
+      DEFAULT_PROVIDER: ollama
+      OLLAMA_DEFAULT_MODEL: ${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen2.5:3b}
+      EMBEDDING_PROVIDER: ollama
+      EMBEDDING_MODEL: ${AGENTIUM_OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      EMBEDDING_DIMENSION: ${AGENTIUM_OLLAMA_EMBED_DIMENSION:-768}
+    depends_on:
+      agentium-ollama:
+        condition: service_healthy

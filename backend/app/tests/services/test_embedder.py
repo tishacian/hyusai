@@ -239,3 +239,62 @@ def test_hash_provider_is_degraded_from_init():
     embedder.provider = "hash"
 
     assert embedder.is_degraded()
+
+
+def test_init_selects_ollama_embedder(monkeypatch):
+    monkeypatch.setattr(embedder_module.settings, "embedding_provider", "ollama")
+    monkeypatch.setattr(embedder_module.settings, "ollama_base_url", "http://agentium-ollama:11434")
+    monkeypatch.setattr(embedder_module.settings, "embedding_model", "nomic-embed-text")
+    monkeypatch.setattr(embedder_module.settings, "embedding_dimension", 768)
+    monkeypatch.setattr(embedder_module.settings, "openai_api_key", "")
+
+    embedder = Embedder()
+
+    assert embedder.provider == "ollama"
+    assert embedder._ollama_base == "http://agentium-ollama:11434"
+    assert embedder.get_dimension() == 768
+    assert embedder._client is None
+
+
+@pytest.mark.asyncio
+async def test_ollama_embed_posts_api_embed(monkeypatch):
+    captured: dict = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"embeddings": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, url, json):
+            captured["url"] = url
+            captured["json"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(embedder_module.httpx, "Client", FakeClient)
+    embedder = Embedder.__new__(Embedder)
+    embedder.model_name = "nomic-embed-text"
+    embedder.provider = "ollama"
+    embedder._client = None
+    embedder._local_model = None
+    embedder._ollama_base = "http://agentium-ollama:11434"
+    embedder._dimension = 3
+    embedder._hash_fallback_count = 0
+
+    result = await embedder.embed_batch(["a", "b"])
+
+    assert captured["url"] == "http://agentium-ollama:11434/api/embed"
+    assert captured["json"] == {"model": "nomic-embed-text", "input": ["a", "b"]}
+    assert result.shape == (2, 3)
+    assert not embedder.is_degraded()
