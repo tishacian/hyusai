@@ -27,6 +27,8 @@ from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import automation_edit, automation_portfolio
+from app.services.model_plane.workspace_config import get_routing
+from app.services.systems.preparation_diagnostic import preparation_diagnostic
 from app.services.model_plane.execution import (
     ModelExecutionError,
     complete_model,
@@ -316,3 +318,28 @@ async def automation_package(
         )
     except automation_portfolio.AutomationPortfolioRefusal as refusal:
         _portfolio_refusal(refusal)
+
+
+@router.get("/{system_id}/preparation")
+async def automation_preparation(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Six preparation checks. A skipped check is not ready."""
+
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    draft = (
+        db.query(SystemFlowDraft)
+        .filter(SystemFlowDraft.system_id == system.id)
+        .one_or_none()
+    )
+    flow = draft.flow_definition if draft is not None and isinstance(draft.flow_definition, dict) else system.flow_definition
+    routing = get_routing(workspace)
+    provider = routing.get("default_provider") if routing.get("source") == "workspace" else None
+    return preparation_diagnostic(
+        flow if isinstance(flow, dict) else None,
+        provider=provider if isinstance(provider, str) and provider else None,
+    )

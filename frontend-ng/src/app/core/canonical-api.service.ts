@@ -2244,6 +2244,13 @@ export class CanonicalApiService {
     return this.api.post(`/systems/${encodeURIComponent(systemId)}/automation-turn`, { message });
   }
 
+  automationPreparation(systemId: string): Observable<{
+    ready: boolean;
+    checks: Array<{ name: string; status: 'ready' | 'blocked' | 'not_checked' | 'not_applicable'; detail?: string | null }>;
+  }> {
+    return this.api.get(`/systems/${encodeURIComponent(systemId)}/preparation`);
+  }
+
   automationWorkJob(systemId: string): Observable<{
     objective: { status?: string; text?: string | null };
     convention: { status?: string; value_per_unit?: number | null; currency?: string | null; unit?: string | null };

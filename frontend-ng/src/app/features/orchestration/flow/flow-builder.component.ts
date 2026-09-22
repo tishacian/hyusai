@@ -50,6 +50,7 @@ import { FlowOutlineComponent } from './flow-outline.component';
 import { FlowInspectorComponent } from './flow-inspector.component';
 import { FlowPaletteComponent } from './flow-palette.component';
 import { AutomationJobComponent } from './automation-job.component';
+import { PreparationPanelComponent } from './preparation-panel.component';
 import { AutomationTurnComponent } from './automation-turn.component';
 import { FlowToolbarComponent } from './flow-toolbar.component';
 import { FlowManifestService } from './flow-manifest.service';
@@ -136,6 +137,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
     FlowInspectorComponent,
     FlowPaletteComponent,
     AutomationJobComponent,
+    PreparationPanelComponent,
     AutomationTurnComponent,
     FlowToolbarComponent,
     FlowRunControlsComponent,
@@ -231,6 +233,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
       </app-flow-toolbar>
 
       @if (automationMode() && systemId(); as automationSystemId) {
+        <app-preparation-panel [systemId]="automationSystemId" />
         <app-automation-job [systemId]="automationSystemId" />
         <app-automation-turn
           [systemId]="automationSystemId"
