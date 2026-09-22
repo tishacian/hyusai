@@ -98,6 +98,11 @@ validate_tf "$ROOT/ops/terraform/modules/cluster-ovh-mks"
 validate_tf "$ROOT/ops/terraform/modules/cluster-aks"
 validate_tf "$ROOT/ops/terraform/envs/lab-ovh"
 validate_tf "$ROOT/ops/terraform/envs/lab-aks"
+# The OpenStack fallback is fmt-checked above; validate it too, and
+# require the backend so no Terraform in this repo keeps local state.
+validate_tf "$ROOT/ops/instance"
+grep -q 'backend "http" {}' "$ROOT/ops/instance/versions.tf" \
+  || fail "ops/instance must keep remote, lockable state"
 validate_tf "$ROOT/ops/instance"
 
 DIGEST_A="$(printf 'a%.0s' {1..64})"

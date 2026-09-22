@@ -8,8 +8,11 @@ terraform {
     }
   }
 
-  # Remote state is an environment decision. Lab can stay local.
-  # backend "http" {}
+  # Same GitLab HTTP backend as the managed-cluster envs, for the same
+  # reason: it locks. Local state here would be the one unlocked state in
+  # the repo, and this path creates volumes that hold data.
+  # Init with ops/scripts/gitlab-tf-init.sh, or -backend-config=backend.hcl.
+  backend "http" {}
 }
 
 provider "openstack" {
