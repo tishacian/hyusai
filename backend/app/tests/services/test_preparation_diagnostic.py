@@ -1,4 +1,8 @@
-from app.services.systems.preparation_diagnostic import preparation_diagnostic
+from app.services.systems.preparation_diagnostic import (
+    caller_run_right,
+    preparation_diagnostic,
+    provider_name,
+)
 
 
 def _flow(*nodes):
@@ -56,3 +60,28 @@ def test_a_caller_who_cannot_run_is_a_blocked_rights_check():
     report = preparation_diagnostic(_flow({"id": "trigger", "kind": "source"}), caller_can_run=False)
     rights = next(item for item in report["checks"] if item["name"] == "rights")
     assert rights["status"] == "blocked"
+
+
+def test_a_named_provider_is_ready_even_when_routing_is_global():
+    assert provider_name({"default_provider": "openai", "source": "global"}) == "openai"
+    assert provider_name({"default_provider": "  "}) is None
+    assert provider_name(None) is None
+    report = preparation_diagnostic(None, provider=provider_name({"default_provider": "openai", "source": "global"}))
+    provider = next(item for item in report["checks"] if item["name"] == "provider")
+    assert provider["status"] == "ready"
+    assert provider["detail"] == "openai"
+    worker = next(item for item in report["checks"] if item["name"] == "worker")
+    assert worker["status"] == "not_checked"
+    assert report["ready"] is False
+
+
+def test_run_authority_403_blocks_rights_and_other_errors_stay_unchecked():
+    assert caller_run_right(None) is True
+    assert caller_run_right(403) is False
+    assert caller_run_right(400) is None
+    allowed = preparation_diagnostic(None, caller_can_run=caller_run_right(None))
+    refused = preparation_diagnostic(None, caller_can_run=caller_run_right(403))
+    unanswered = preparation_diagnostic(None, caller_can_run=caller_run_right(400))
+    assert next(item for item in allowed["checks"] if item["name"] == "rights")["status"] == "ready"
+    assert next(item for item in refused["checks"] if item["name"] == "rights")["status"] == "blocked"
+    assert next(item for item in unanswered["checks"] if item["name"] == "rights")["status"] == "not_checked"
