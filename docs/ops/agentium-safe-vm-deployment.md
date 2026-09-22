@@ -7198,3 +7198,15 @@ with two intentional skips. Artifacts
 `/tmp/iteration-canaries-20260922T164415Z.W74ZNC`.
 [Release evidence](../evidence/release-26928471-2026-09-22/README.md).
 
+
+### 2026-09-22 — runner reachability, c629f5af
+
+Revision `c629f5af5237a13b3b34e61e0e9f4ebcf5318a02` is deployed from three
+immutable images at tag `c629f5af5237`; rollback is `26928471cb9f`. No
+migration. Preparation asks Celery whether a worker answers. A reply marks
+the runner ready. Silence blocks it. A failed ask stays unperformed. No
+workspace flag or NAWA theme change. Storage, public revision
+`revision_verified=true`, HTTP 200, zero backend exception matches in the
+switch window, and carakai 10 passed with two intentional skips.
+[Release evidence](../evidence/release-c629f5af-2026-09-22/README.md).
+
