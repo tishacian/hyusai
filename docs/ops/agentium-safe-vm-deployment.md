@@ -7210,3 +7210,15 @@ workspace flag or NAWA theme change. Storage, public revision
 switch window, and carakai 10 passed with two intentional skips.
 [Release evidence](../evidence/release-c629f5af-2026-09-22/README.md).
 
+
+### 2026-09-22 — pinned object survives reload, 0dd15330
+
+Revision `0dd15330570dd2c1755a17282426af75ce2b4fc8` is deployed from three
+immutable images at tag `0dd15330570d`; rollback is `c629f5af5237`. No
+migration. A pinned System stays the conversation object after reload and
+after leaving its page. Workspace reset still clears the pin. No workspace
+flag or NAWA theme change. Storage, public revision `revision_verified=true`,
+HTTP 200, zero backend exception matches in the switch window, and carakai
+10 passed with two intentional skips.
+[Release evidence](../evidence/release-0dd15330-2026-09-22/README.md).
+
