@@ -1,0 +1,112 @@
+{{- if .Values.ollama.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentium-ollama
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agentium-ollama
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+spec:
+  serviceName: agentium-ollama
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: ollama
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: {{ .Values.ollama.image | quote }}
+          command: ["/bin/sh", "/ollama-serve.sh"]
+          ports:
+            - name: http
+              containerPort: 11434
+          env:
+            - name: AGENTIUM_OLLAMA_CHAT_MODEL
+              value: {{ .Values.ollama.chatModel | quote }}
+            - name: AGENTIUM_OLLAMA_EMBED_MODEL
+              value: {{ .Values.ollama.embedModel | quote }}
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - ollama show "$AGENTIUM_OLLAMA_CHAT_MODEL" >/dev/null && ollama show "$AGENTIUM_OLLAMA_EMBED_MODEL" >/dev/null
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 40
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+            - name: serve-script
+              mountPath: /ollama-serve.sh
+              subPath: ollama-serve.sh
+      volumes:
+        - name: serve-script
+          configMap:
+            name: {{ include "agentium.fullname" . }}-ollama
+            defaultMode: 0555
+        {{- if not .Values.ollama.persistence.enabled }}
+        - name: models
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.ollama.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: models
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- include "agentium.storageClassName" (list .Values.ollama.persistence.storageClass .) | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.ollama.persistence.size }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentium.fullname" . }}-ollama
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+data:
+  ollama-serve.sh: |
+    #!/bin/sh
+    set -eu
+    CHAT="${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen2.5:3b}"
+    EMBED="${AGENTIUM_OLLAMA_EMBED_MODEL:-nomic-embed-text}"
+    ollama serve &
+    pid="$!"
+    i=0
+    until ollama list >/dev/null 2>&1; do
+      i=$((i + 1))
+      if [ "$i" -gt 60 ]; then
+        printf 'ollama serve did not become ready\n' >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    ollama pull "$CHAT"
+    ollama pull "$EMBED"
+    wait "$pid"
+{{- end }}

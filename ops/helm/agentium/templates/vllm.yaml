@@ -1,0 +1,57 @@
+{{- if .Values.vllm.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentium-vllm
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: vllm
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentium-vllm
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: vllm
+  template:
+    metadata:
+      labels:
+        {{- include "agentium.labels" . | nindent 8 }}
+        app.kubernetes.io/component: vllm
+    spec:
+      containers:
+        - name: vllm
+          image: {{ .Values.vllm.image | quote }}
+          args:
+            - --model
+            - {{ .Values.vllm.model | quote }}
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            failureThreshold: 40
+          {{- if gt (int .Values.vllm.gpu) 0 }}
+          resources:
+            limits:
+              nvidia.com/gpu: {{ .Values.vllm.gpu }}
+          {{- end }}
+{{- end }}

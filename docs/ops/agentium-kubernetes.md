@@ -66,6 +66,14 @@ Protected variables for the first lab apply: `OVH_ENDPOINT`,
 `terraform apply` is manual on protected `demo/agentic` until that lab has
 an explicit GO.
 
+## Local models
+
+Ollama and vLLM are optional and off in `values.yaml` and the lab files.
+`values-local.yaml` enables Ollama only. That file sets the deployment
+default for chat and embeddings to the in-cluster server. vLLM stays off
+unless `vllm.enabled` is set; the pod then requests an NVIDIA GPU. The
+model portal still switches a workspace to another provider.
+
 ## Honesty
 
 - Missing evidence is not a zero. A rendered chart is not a running cluster.

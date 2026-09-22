@@ -37,6 +37,29 @@ grep -q 'path: /health/live' /tmp/agentium-helm.yaml || fail "ingress /health/li
 grep -q 'wait-postgres' /tmp/agentium-helm.yaml || fail "migrate must wait for Postgres"
 grep -q 'post-install' /tmp/agentium-helm.yaml || fail "migrate hook must be post-install, not pre-upgrade"
 grep -q 'server-snippet' /tmp/agentium-helm.yaml || fail "hidden-path ingress snippet missing"
+if grep -q 'name: agentium-ollama' /tmp/agentium-helm.yaml; then
+  fail "default chart must not start Ollama"
+fi
+if grep -q 'DEFAULT_PROVIDER: ollama' /tmp/agentium-helm.yaml; then
+  fail "default chart must keep the cloud routing default"
+fi
+
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  --set ollama.enabled=true \
+  > /tmp/agentium-helm-ollama.yaml
+grep -q 'name: agentium-ollama' /tmp/agentium-helm-ollama.yaml || fail "ollama service missing when enabled"
+grep -q 'nomic-embed-text' /tmp/agentium-helm-ollama.yaml || fail "ollama embed model missing"
+grep -q 'DEFAULT_PROVIDER: ollama' /tmp/agentium-helm-ollama.yaml || fail "local chart must default chat to ollama"
+grep -q 'EMBEDDING_PROVIDER: ollama' /tmp/agentium-helm-ollama.yaml || fail "local chart must default embeddings to ollama"
+
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  --set vllm.enabled=true \
+  > /tmp/agentium-helm-vllm.yaml
+grep -q 'name: agentium-vllm' /tmp/agentium-helm-vllm.yaml || fail "vllm service missing when enabled"
+grep -q 'nvidia.com/gpu' /tmp/agentium-helm-vllm.yaml || fail "vllm must request a GPU"
+if grep -q 'DEFAULT_PROVIDER: vllm' /tmp/agentium-helm-vllm.yaml; then
+  fail "enabling vllm must not replace the routing default"
+fi
 
 helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
   -f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \

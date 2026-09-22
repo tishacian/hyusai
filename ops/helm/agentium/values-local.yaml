@@ -1,0 +1,17 @@
+# Nominal local install. Same chart. Chat and embeddings go to the in-cluster
+# Ollama. A workspace can still switch provider from the model portal.
+ollama:
+  enabled: true
+  chatModel: qwen2.5:3b
+  embedModel: nomic-embed-text
+  embedDimension: 768
+
+vllm:
+  enabled: false
+
+livekit:
+  enabled: false
+sftp:
+  enabled: false
+beat:
+  enabled: false
