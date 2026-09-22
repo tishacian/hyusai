@@ -1,7 +1,7 @@
 # Fluidité — état de livraison
 
-Image en production : `c629f5af5237a13b3b34e61e0e9f4ebcf5318a02` (`revision_verified: true`).
-Rollback image : `26928471cb9f`.
+Image en production : `0dd15330570dd2c1755a17282426af75ce2b4fc8` (`revision_verified: true`).
+Rollback image : `c629f5af5237`.
 
 Ces pourcentages sont des estimations de complétude par critère de sortie, pas une mesure automatique. Les portes automation-first ne ferment pas F1–F6.
 
@@ -15,7 +15,7 @@ Ces pourcentages sont des estimations de complétude par critère de sortie, pas
 
 ## F1–F6
 
-- F1 — environ 90 %. Contexte System/Run/SkillInvocation, épingle, persistance, reprise et chat redimensionnable sont là. La recette utilisateur complète manque.
+- F1 — l’objet épinglé survit au rechargement et au départ de la page. Sur `0dd15330`, le système `df04a96a` reste ouvert dans la conversation après un hard reload puis après `/systems`, avec Unpin et la même preuve présente.
 - F2 — le panneau dit Prêt sur `c629f5af`, automation `0c7393e2`. Modèle, fournisseur `openai`, source, droits et exécutant sont prêts. L’indexation est sans objet. L’exécutant est prêt parce que deux workers Celery ont répondu.
 - F3 — la boucle est en ligne sur `b14fe69d`. Sur l’automation `0c7393e2` : réserve « VAT is still open », relecture trigger / agent / output, correction confirmée sur ce hash, comparaison avec le résultat suivant `b63de11e` en gardant le même objet. L’import SPARK-089 complet n’est pas cette preuve.
 - F4 — la table est en ligne sur `76a7e9db`. Chaque version de dataset reste une ligne, avec preuve présente ou absente. Sur Nawa, « Subscriber base — cleaned » garde la version 6 et la version 7. Aucune de ces lignes n’attendait une personne.
