@@ -68,19 +68,48 @@ export class AssistantObjectContextService {
   readonly pinned = this.pinnedContext.asReadonly();
 
   constructor() {
-    this.workspace.registerContextReset(() => this.pinnedContext.set(null));
+    this.workspace.registerContextReset(() => {
+      this.pinnedContext.set(null);
+      this.writePin(null);
+    });
+    this.pinnedContext.set(this.readPin());
   }
 
   pin(context: AssistantObjectContext | null = this.current()): void {
-    if (context) this.pinnedContext.set(context);
+    if (!context) return;
+    this.pinnedContext.set(context);
+    this.writePin(context);
   }
 
   unpin(): void {
     this.pinnedContext.set(null);
+    this.writePin(null);
   }
 
   isPinned(context: AssistantObjectContext | null): boolean {
     const pinned = this.pinnedContext();
     return !!context && !!pinned && JSON.stringify(pinned) === JSON.stringify(context);
+  }
+
+  private readPin(): AssistantObjectContext | null {
+    try {
+      const raw = globalThis.sessionStorage?.getItem('agentium.assistant-object-pin');
+      if (!raw) return null;
+      const value = JSON.parse(raw) as AssistantObjectContext;
+      if (!value || typeof value.id !== 'string') return null;
+      if (value.type !== 'system' && value.type !== 'run' && value.type !== 'skill_invocation') return null;
+      return value;
+    } catch {
+      return null;
+    }
+  }
+
+  private writePin(context: AssistantObjectContext | null): void {
+    try {
+      if (!context) globalThis.sessionStorage?.removeItem('agentium.assistant-object-pin');
+      else globalThis.sessionStorage?.setItem('agentium.assistant-object-pin', JSON.stringify(context));
+    } catch {
+      // A blocked browser store still keeps the pin for this page.
+    }
   }
 }

@@ -65,3 +65,24 @@ test('pinning preserves an object across navigation and workspace reset clears i
   switchWorkspace();
   assert.equal(context.effective()?.id, 'run-42');
 });
+
+test('a pin survives a new page load until the workspace changes', () => {
+  const store = new Map<string, string>();
+  const memory = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value); },
+    removeItem: (key: string) => { store.delete(key); },
+    clear: () => store.clear(),
+    key: (index: number) => [...store.keys()][index] ?? null,
+    get length() { return store.size; },
+  };
+  (globalThis as { sessionStorage?: Storage }).sessionStorage = memory;
+  const first = harness();
+  first.navigate('/systems/sys-42');
+  first.context.pin();
+  const second = harness();
+  assert.equal(second.context.effective()?.id, 'sys-42');
+  second.switchWorkspace();
+  const third = harness();
+  assert.equal(third.context.pinned(), null);
+});
