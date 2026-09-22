@@ -107,6 +107,7 @@ __all__ = [
     "WorkspaceAppLifecycleStepReceipt",
 ]
 
+from app.models.automation_review import AutomationReview
 from app.models.evaluation_correction import EvaluationCorrection
 from app.models.evaluation_campaign import EvaluationSuite, EvaluationCampaign
 from app.models.brd_document import BrdDocument

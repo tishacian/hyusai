@@ -2251,6 +2251,72 @@ export class CanonicalApiService {
     return this.api.get(`/systems/${encodeURIComponent(systemId)}/preparation`);
   }
 
+  automationReview(systemId: string): Observable<{
+    runs: Array<{ id: string; status: string }>;
+    review: {
+      id: string;
+      system_id: string;
+      run_id: string;
+      note: string;
+      status: string;
+      draft_hash?: string | null;
+      correction_hash?: string | null;
+      later_run_id?: string | null;
+      nodes?: Array<{ type: string }>;
+      same_object?: boolean;
+      later_status?: string;
+    } | null;
+  }> {
+    return this.api.get(`/systems/${encodeURIComponent(systemId)}/automation-review`);
+  }
+
+  automationReserve(systemId: string, runId: string, note: string): Observable<{
+    id: string;
+    note: string;
+    status: string;
+    draft_hash?: string | null;
+    run_id: string;
+    system_id: string;
+    correction_hash?: string | null;
+    later_run_id?: string | null;
+    nodes?: Array<{ type: string }>;
+    same_object?: boolean;
+    later_status?: string;
+  }> {
+    return this.api.post(`/systems/${encodeURIComponent(systemId)}/automation-review`, { run_id: runId, note });
+  }
+
+  automationReread(systemId: string, reviewId: string): Observable<{
+    id: string;
+    note: string;
+    status: string;
+    draft_hash?: string | null;
+    nodes?: Array<{ type: string }>;
+    run_id: string;
+    system_id: string;
+  }> {
+    return this.api.post(`/systems/${encodeURIComponent(systemId)}/automation-review/${encodeURIComponent(reviewId)}/reread`, {});
+  }
+
+  automationConfirmReview(systemId: string, reviewId: string, draftHash: string): Observable<{
+    id: string;
+    status: string;
+    correction_hash?: string | null;
+    draft_hash?: string | null;
+    nodes?: Array<{ type: string }>;
+  }> {
+    return this.api.post(`/systems/${encodeURIComponent(systemId)}/automation-review/${encodeURIComponent(reviewId)}/correction`, { draft_hash: draftHash });
+  }
+
+  automationCompareReview(systemId: string, reviewId: string, runId: string): Observable<{
+    same_object?: boolean;
+    later_status?: string;
+    later_run_id?: string | null;
+    status: string;
+  }> {
+    return this.api.post(`/systems/${encodeURIComponent(systemId)}/automation-review/${encodeURIComponent(reviewId)}/compare`, { run_id: runId });
+  }
+
   automationWorkJob(systemId: string): Observable<{
     objective: { status?: string; text?: string | null };
     convention: { status?: string; value_per_unit?: number | null; currency?: string | null; unit?: string | null };
