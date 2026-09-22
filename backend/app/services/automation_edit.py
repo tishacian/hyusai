@@ -48,6 +48,29 @@ def catalog() -> tuple[AutomationBlock, ...]:
     return CATALOG
 
 
+def edit_generation_options(provider: str, model: str) -> dict[str, Any]:
+    """One completion. A thinking model must keep tokens for the JSON plan.
+
+    gpt-5 spends ``max_completion_tokens`` on reasoning. The chat path already
+    pins ``openai_reasoning_effort``; this turn uses the same pin, or the
+    visible plan comes back empty.
+    """
+
+    from app.core.config import settings
+    from app.llm.providers.openai_provider import OpenAIProvider
+
+    options: dict[str, Any] = {"max_tokens": 2000}
+    if provider in {"openai", "azure_openai"}:
+        options["response_format"] = {"type": "json_object"}
+    thinking = any(
+        model == item or model.startswith(f"{item}-")
+        for item in OpenAIProvider.THINKING_MODELS
+    )
+    if thinking:
+        options["reasoning_effort"] = settings.openai_reasoning_effort or "minimal"
+    return options
+
+
 def edit_prompt(message: str, snapshot: Mapping[str, Any]) -> str:
     """Ask the workspace model for one catalog patch. The catalog check still refuses the reply."""
 

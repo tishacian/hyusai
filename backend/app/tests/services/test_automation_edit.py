@@ -7,6 +7,7 @@ from app.services.automation_edit import (
     allow_tool,
     apply_patch,
     catalog,
+    edit_generation_options,
     edit_prompt,
     execute_turn,
     plan_from_completion,
@@ -308,6 +309,24 @@ def test_fenced_model_completion_is_still_refused_outside_the_catalog():
     with pytest.raises(AutomationEditRefusal) as refusal:
         plan_from_completion(text)
     assert refusal.value.code == "block_refused"
+
+
+def test_a_thinking_model_keeps_tokens_for_the_json_plan():
+    options = edit_generation_options("openai", "gpt-5")
+    assert options["response_format"] == {"type": "json_object"}
+    assert options["max_tokens"] == 2000
+    assert options["reasoning_effort"]
+
+
+def test_a_chat_model_does_not_receive_a_reasoning_pin():
+    options = edit_generation_options("openai", "gpt-4o")
+    assert "reasoning_effort" not in options
+    assert options["response_format"] == {"type": "json_object"}
+
+
+def test_a_local_model_is_not_forced_into_json_mode():
+    options = edit_generation_options("ollama", "llama3")
+    assert options == {"max_tokens": 2000}
 
 
 def test_edit_prompt_names_the_catalog_and_not_a_publish_tool():

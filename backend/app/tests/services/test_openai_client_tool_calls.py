@@ -154,6 +154,13 @@ async def test_reasoning_models_use_completion_token_budget(monkeypatch, method,
 def test_explicit_completion_budget_wins_and_legacy_models_keep_their_limit():
     assert OpenAIClient._chat_options("gpt-5", {"max_tokens": 10000, "max_completion_tokens": 500}) == {"max_completion_tokens": 500}
     assert OpenAIClient._chat_options("gpt-4o", {"max_tokens": 500}) == {"max_tokens": 500}
+    assert OpenAIClient._chat_options(
+        "gpt-5", {"max_tokens": 2000, "reasoning_effort": "minimal", "response_format": {"type": "json_object"}}
+    ) == {
+        "max_completion_tokens": 2000,
+        "reasoning_effort": "minimal",
+        "response_format": {"type": "json_object"},
+    }
 
 
 async def test_streaming_reasoning_model_uses_same_token_budget(monkeypatch):

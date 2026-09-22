@@ -128,9 +128,7 @@ async def automation_turn(
         _refuse(db, refusal)
     try:
         execution = resolve_model_execution(workspace, provider="workspace")
-        options: dict[str, Any] = {"max_tokens": 2000}
-        if execution.provider in {"openai", "azure_openai"}:
-            options["response_format"] = {"type": "json_object"}
+        options = automation_edit.edit_generation_options(execution.provider, execution.model)
         output = await asyncio.wait_for(
             complete_model(
                 execution,
