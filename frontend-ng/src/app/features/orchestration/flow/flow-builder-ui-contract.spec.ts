@@ -161,6 +161,45 @@ test('authoring is the default toolbar surface and operating is one disclosure a
   assert.match(styles, /\.ck-flow-toolbar__panel \{[\s\S]*?display: none;[\s\S]*?flex: 1 0 100%;/);
 });
 
+test('automation mode exposes Run directly and keeps Publish as the second verb', () => {
+  const builder = source('flow-builder.component.ts');
+  const toolbar = source('flow-toolbar.component.ts');
+  const styles = source('flow-toolbar.component.scss');
+  const controls = source('flow-run-controls.component.ts');
+
+  assert.match(builder, /\[automationMode\]="automationMode\(\)"/);
+  assert.match(toolbar, /readonly automationMode = input\(false\)/);
+  assert.match(toolbar, /\[class\.is-automation\]="automationMode\(\)"/);
+  assert.match(
+    toolbar,
+    /if \(this\.automationMode\(\)\) this\.operateOpen\.set\(true\)/,
+    'Run is not hidden behind an Operate disclosure',
+  );
+
+  const hiddenInAutomation = [
+    /@if \(!automationMode\(\)\) \{\s*<button[\s\S]*?persistence\.saveNow\(\)/,
+    /@if \(!automationMode\(\)\) \{\s*<button[\s\S]*?i18n\.t\('flow\.toolbar\.operate'\)/,
+    /@if \(!automationMode\(\)\) \{\s*<button[\s\S]*?i18n\.t\('flow\.toolbar\.more'\)/,
+  ];
+  for (const pattern of hiddenInAutomation) {
+    assert.match(toolbar, pattern);
+  }
+
+  assert.match(toolbar, /persistence\.openPublicationReview\(\)/);
+  assert.match(toolbar, /flow\.toolbar\.publish/);
+  assert.match(controls, /@if \(!compact\(\)\) \{\s*<span\s+class="ck-run__runtime"/);
+  assert.match(controls, /flow\.run\.execute\.automation/);
+  assert.match(controls, /flow\.run\.input\.submit\.automation/);
+  assert.equal(FLOW_EN['flow.run.execute.automation'], 'Run');
+  assert.equal(FLOW_EN['flow.run.input.submit.automation'], 'Run');
+  assert.match(
+    FLOW_EN['flow.run.execute.automation.hint'],
+    /no template or publication required/,
+  );
+  assert.match(styles, /\.ck-flow-toolbar\.is-automation \{/);
+  assert.match(styles, /\.ck-flow-toolbar__meta,\s*\n\s*\.ck-flow-toolbar__revision \{\s*\n\s*display: none;/);
+});
+
 test('the runtime manifest is collapsed until asked for and the empty canvas offers one way in', () => {
   const builder = source('flow-builder.component.ts');
   assert.match(builder, /manifestStripOpen = signal\(false\)/);

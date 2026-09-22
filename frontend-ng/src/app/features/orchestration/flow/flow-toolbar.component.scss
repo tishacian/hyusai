@@ -223,6 +223,31 @@
   }
 }
 
+/* Automation-first keeps the primary verbs readable. Draft revision, hash and
+   node bookkeeping stay available from technical surfaces after the run. */
+.ck-flow-toolbar.is-automation {
+  .ck-flow-toolbar__meta,
+  .ck-flow-toolbar__revision {
+    display: none;
+  }
+
+  .ck-flow-toolbar__btn--wide {
+    width: auto;
+    padding: 0 10px;
+    justify-content: flex-start;
+
+    > span {
+      display: inline;
+    }
+  }
+
+  .ck-flow-toolbar__panel {
+    flex: 0 1 auto;
+    padding-top: 0;
+    border-top: 0;
+  }
+}
+
 /* Responsive compactness is automatic even when the operator has not
    explicitly collapsed the toolbar. */
 @media (max-width: 1280px) {

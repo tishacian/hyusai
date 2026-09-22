@@ -637,6 +637,9 @@ export const FLOW_FR = {
   'flow.run.simulate.hint': 'Essai à blanc côté navigateur — aucun appel au serveur',
   'flow.run.execute': 'Exécuter',
   'flow.run.execute.draft': 'Tester le brouillon',
+  'flow.run.execute.automation': 'Exécuter',
+  'flow.run.execute.automation.hint':
+    'Exécuter le brouillon maintenant — aucun modèle ni publication requis',
   'flow.run.execute.aria': 'Exécuter sur le serveur',
   'flow.run.execute.running': 'Exécution…',
   'flow.run.execute.unavailable': 'Exécution indisponible.',
@@ -677,6 +680,7 @@ export const FLOW_FR = {
   'flow.run.input.dispatching': 'Envoi…',
   'flow.run.input.submit': 'Lancer l’exécution',
   'flow.run.input.submit.draft': 'Lancer l’essai du brouillon',
+  'flow.run.input.submit.automation': 'Exécuter',
   'flow.run.input.submit.debug': 'Lancer l’exécution de débogage',
   'flow.run.execute.debug': 'Exécution de débogage',
 
@@ -2159,6 +2163,9 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.run.simulate.hint': 'Client-side dry run — no backend call',
   'flow.run.execute': 'Execute',
   'flow.run.execute.draft': 'Test draft',
+  'flow.run.execute.automation': 'Run',
+  'flow.run.execute.automation.hint':
+    'Run the draft now — no template or publication required',
   'flow.run.execute.aria': 'Execute on backend',
   'flow.run.execute.running': 'Running…',
   'flow.run.execute.unavailable': 'Execute unavailable.',
@@ -2199,6 +2206,7 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   'flow.run.input.dispatching': 'Dispatching…',
   'flow.run.input.submit': 'Start the run',
   'flow.run.input.submit.draft': 'Start draft test-run',
+  'flow.run.input.submit.automation': 'Run',
   'flow.run.input.submit.debug': 'Start debug run',
   'flow.run.execute.debug': 'Debug run',
 

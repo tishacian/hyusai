@@ -37,6 +37,7 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
   styleUrl: './flow-run-controls.component.scss',
   template: `
     <div class="ck-run" role="group" [attr.aria-label]="i18n.t('flow.run.aria')">
+      @if (!compact()) {
       <span
         class="ck-run__runtime"
         [attr.data-mode]="run.runtimeMode() ?? 'unknown'"
@@ -44,6 +45,7 @@ import { ingressPrefillText, resolveIngressNode } from './flow-ingress-prefill';
       >
         {{ run.executionSurfaceLabel() }} · {{ run.runtimeModeLabel() }}
       </span>
+      }
 
       @if (!compact()) {
         <button
@@ -297,6 +299,11 @@ export class FlowRunControlsComponent {
   }
 
   protected executeTitle(): string {
+    if (this.compact()) {
+      return this.run.canExecute()
+        ? this.i18n.t('flow.run.execute.automation.hint')
+        : this.run.executionBlockReason() ?? this.i18n.t('flow.run.execute.unavailable');
+    }
     if (!this.run.canExecute()) {
       return this.run.executionBlockReason() ?? this.i18n.t('flow.run.execute.unavailable');
     }
@@ -308,6 +315,11 @@ export class FlowRunControlsComponent {
   }
 
   protected executeLabel(dialog = false): string {
+    if (this.compact()) {
+      return this.i18n.t(
+        dialog ? 'flow.run.input.submit.automation' : 'flow.run.execute.automation',
+      );
+    }
     if (this.run.debugMode() !== 'off') {
       return this.i18n.t(dialog ? 'flow.run.input.submit.debug' : 'flow.run.execute.debug');
     }
