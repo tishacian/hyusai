@@ -88,7 +88,7 @@ Exit: a sentence such as “add a cited search, then an approval before the SAP 
 
 ## Porte 3 — Work et portefeuille
 
-Status: **Work catalogue slice live on `bf150e5cca37`.** A published `automation_v1` is listed in Work. A draft is refused. Opening it shows objective, convention, gap and proof; an absent convention stays absent, a draft test is not proof, and the export does not copy source text. The Hypervisor screen still shows its existing value basis.
+Status: **live on `5eabc862212b`.** Work lists the published automation. Hypervisor states the objective, the absent convention, the absent gap, and the published run. The export is that run’s package: `published_manual`, SAP write sealed and not called, citation by source id, no source text. A draft test is still refused.
 
 After the edit loop:
 
