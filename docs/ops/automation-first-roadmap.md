@@ -88,7 +88,7 @@ Exit: a sentence such as “add a cited search, then an approval before the SAP 
 
 ## Porte 3 — Work et portefeuille
 
-Status: **Work catalogue slice in code, not deployed.** A published `automation_v1` is listed in Work. A draft is refused. Opening it shows objective, convention, gap and proof; an absent convention stays absent, a draft test is not proof, and the export does not copy source text. The Hypervisor screen still shows its existing value basis.
+Status: **Work catalogue slice live on `bf150e5cca37`.** A published `automation_v1` is listed in Work. A draft is refused. Opening it shows objective, convention, gap and proof; an absent convention stays absent, a draft test is not proof, and the export does not copy source text. The Hypervisor screen still shows its existing value basis.
 
 After the edit loop:
 
