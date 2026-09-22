@@ -24,7 +24,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "109_secure_deposit_workspace_flag"
+revision = "109_secure_deposit_ws_flag"
 down_revision = "108_flow_draft_control_policy"
 branch_labels = None
 depends_on = None
