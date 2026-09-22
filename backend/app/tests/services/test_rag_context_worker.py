@@ -2515,6 +2515,18 @@ async def test_retrieve_rag_context_filters_other_projects_for_missing_exact_pro
     )
     monkeypatch.setattr(rag_context, "_effective_guides_for_profile", lambda _profile: [guide])
 
+    # retrieve_rag_context resolves the tenant from a workspace row to decide
+    # whether the Andritz identifier grammar applies. This unit test has no such
+    # row, so the scheme would resolve empty, COL100 would never be a project
+    # code and the cross-project filter this test exists for would never arm.
+    from app.services.rag.project_references import bind_project_reference_scheme
+
+    monkeypatch.setattr(
+        rag_context,
+        "using_workspace_id_project_scheme",
+        lambda _workspace_id, **_kwargs: bind_project_reference_scheme("andritz"),
+    )
+
     result = await retrieve_rag_context(
         {
             "query": "Liste de garniture de la carde 1 du projet COL100",
