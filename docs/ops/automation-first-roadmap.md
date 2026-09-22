@@ -48,7 +48,7 @@ After Porte 1:
 
 ## Boucle — Éditer le Flow déjà gouverné
 
-Status: **steps 1–5 in code, not deployed.** The catalog refuses an eighth block. A patch is applied only against the hash just read, and a save that is not that patch fails. An explanation cannot patch, a run cannot edit, and there is no publish or approve tool. The turn reuses the existing draft test: a Retrieve cites or says there is no passage, and a SAP write without Approval stays sealed. The automation Flow page shows what was read, whether the save matched the patch, and the run when the intention allows one. This sits after Porte 2 and before Porte 3. It does not import the five Sim blocks, and it does not start publication, the Work job, or the Hypervisor export.
+Status: **steps 1–5 live on `91fa7a054557`.** The catalog refuses an eighth block. A patch is applied only against the hash just read, and a save that is not that patch fails. An explanation cannot patch, a run cannot edit, and there is no publish or approve tool. The turn reuses the existing draft test: a Retrieve cites or says there is no passage, and a SAP write without Approval stays sealed. The automation Flow page shows what was read, whether the save matched the patch, and the run when the intention allows one. This sits after Porte 2 and before Porte 3. It does not import the five Sim blocks, and it does not start publication, the Work job, or the Hypervisor export.
 
 A chat turn on an automation may only explain the Flow, edit it, run the draft, or ask for a clarification. An edit only adds, links, or removes blocks that already exist in the automation palette. It does not invent a node type.
 
