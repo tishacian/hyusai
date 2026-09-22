@@ -20,6 +20,7 @@ from app.api.v1.endpoints.systems import (
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.capability import Capability
+from app.models.automation_review import AutomationReview
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
@@ -27,7 +28,7 @@ from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import automation_edit, automation_portfolio
+from app.services import automation_edit, automation_portfolio, automation_review
 from app.services.model_plane.workspace_config import get_routing
 from app.services.systems.preparation_diagnostic import (
     caller_run_right,
@@ -362,3 +363,228 @@ async def automation_preparation(
         provider=provider_name(routing),
         caller_can_run=caller_run_right(authority_status),
     )
+
+
+class ReservationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str = Field(min_length=1, max_length=36)
+    note: str = Field(min_length=1, max_length=500)
+
+
+class RereadConfirmBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    draft_hash: str = Field(min_length=1, max_length=64)
+
+
+class CompareBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str = Field(min_length=1, max_length=36)
+
+
+def _refuse_review(db: DBSession, refusal: automation_review.AutomationReviewRefusal) -> None:
+    db.rollback()
+    raise HTTPException(status_code=422, detail={"code": refusal.code, "message": refusal.message}) from refusal
+
+
+def _draft_flow(db: DBSession, system: System) -> dict[str, Any] | None:
+    draft = (
+        db.query(SystemFlowDraft)
+        .filter(SystemFlowDraft.system_id == system.id)
+        .one_or_none()
+    )
+    flow = draft.flow_definition if draft is not None and isinstance(draft.flow_definition, dict) else system.flow_definition
+    return flow if isinstance(flow, dict) else None
+
+
+def _run_on_system(db: DBSession, *, system: System, run_id: str) -> Run:
+    run = (
+        db.query(Run)
+        .filter(Run.id == run_id, Run.system_id == system.id, Run.workspace_id == system.workspace_id)
+        .one_or_none()
+    )
+    if run is None:
+        raise HTTPException(404, "Result not found on this automation")
+    return run
+
+
+def _review_row(db: DBSession, *, system: System, review_id: str) -> AutomationReview:
+    row = (
+        db.query(AutomationReview)
+        .filter(
+            AutomationReview.id == review_id,
+            AutomationReview.system_id == system.id,
+            AutomationReview.workspace_id == system.workspace_id,
+        )
+        .one_or_none()
+    )
+    if row is None:
+        raise HTTPException(404, "Reservation not found on this automation")
+    return row
+
+
+def _review_public(row: AutomationReview) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "system_id": row.system_id,
+        "run_id": row.run_id,
+        "note": row.note,
+        "status": row.status,
+        "draft_hash": row.draft_hash,
+        "correction_hash": row.correction_hash,
+        "later_run_id": row.later_run_id,
+    }
+
+
+def _recent_runs(db: DBSession, system: System) -> list[dict[str, Any]]:
+    rows = (
+        db.query(Run)
+        .filter(Run.system_id == system.id, Run.workspace_id == system.workspace_id)
+        .order_by(Run.started_at.desc())
+        .limit(8)
+        .all()
+    )
+    return [{"id": row.id, "status": row.status, "system_id": row.system_id} for row in rows]
+
+
+@router.get("/{system_id}/automation-review")
+async def automation_review_state(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """The latest reservation on this automation, and its recent results."""
+
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    row = (
+        db.query(AutomationReview)
+        .filter(AutomationReview.system_id == system.id, AutomationReview.workspace_id == workspace.id)
+        .order_by(AutomationReview.created_at.desc())
+        .first()
+    )
+    public = _review_public(row) if row else None
+    if row is not None and row.later_run_id and public is not None:
+        later = (
+            db.query(Run)
+            .filter(Run.id == row.later_run_id, Run.system_id == system.id, Run.workspace_id == workspace.id)
+            .one_or_none()
+        )
+        if later is not None:
+            public["same_object"] = True
+            public["later_status"] = later.status
+    return {"runs": _recent_runs(db, system), "review": public}
+
+
+@router.post("/{system_id}/automation-review")
+async def automation_review_reserve(
+    system_id: str,
+    body: ReservationBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    run = _run_on_system(db, system=system, run_id=body.run_id)
+    try:
+        reserved = automation_review.reserve(
+            system.id,
+            {"id": run.id, "system_id": run.system_id},
+            body.note,
+        )
+    except automation_review.AutomationReviewRefusal as refusal:
+        _refuse_review(db, refusal)
+    row = AutomationReview(
+        workspace_id=workspace.id,
+        system_id=reserved["system_id"],
+        run_id=reserved["run_id"],
+        note=reserved["note"],
+        status=reserved["status"],
+        created_by_user_id=user.id,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _review_public(row)
+
+
+@router.post("/{system_id}/automation-review/{review_id}/reread")
+async def automation_review_reread(
+    system_id: str,
+    review_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    row = _review_row(db, system=system, review_id=review_id)
+    try:
+        seen = automation_review.reread(_review_public(row), _draft_flow(db, system))
+    except automation_edit.AutomationEditRefusal as refusal:
+        _refuse(db, refusal)
+    except automation_review.AutomationReviewRefusal as refusal:
+        _refuse_review(db, refusal)
+    row.status = seen["status"]
+    row.draft_hash = seen["draft_hash"]
+    row.correction_hash = None
+    row.later_run_id = None
+    db.commit()
+    db.refresh(row)
+    return {**_review_public(row), "nodes": seen["nodes"]}
+
+
+@router.post("/{system_id}/automation-review/{review_id}/correction")
+async def automation_review_confirm(
+    system_id: str,
+    review_id: str,
+    body: RereadConfirmBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    row = _review_row(db, system=system, review_id=review_id)
+    try:
+        confirmed = automation_review.confirm_correction(_review_public(row), _draft_flow(db, system), body.draft_hash)
+    except automation_edit.AutomationEditRefusal as refusal:
+        _refuse(db, refusal)
+    except automation_review.AutomationReviewRefusal as refusal:
+        _refuse_review(db, refusal)
+    row.status = confirmed["status"]
+    row.correction_hash = confirmed["correction_hash"]
+    db.commit()
+    db.refresh(row)
+    return {**_review_public(row), "nodes": confirmed["nodes"]}
+
+
+@router.post("/{system_id}/automation-review/{review_id}/compare")
+async def automation_review_compare(
+    system_id: str,
+    review_id: str,
+    body: CompareBody,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    row = _review_row(db, system=system, review_id=review_id)
+    later = _run_on_system(db, system=system, run_id=body.run_id)
+    try:
+        compared = automation_review.compare(
+            _review_public(row),
+            {"id": later.id, "system_id": later.system_id, "status": later.status},
+        )
+    except automation_review.AutomationReviewRefusal as refusal:
+        _refuse_review(db, refusal)
+    row.status = "compared"
+    row.later_run_id = compared["later_run_id"]
+    db.commit()
+    db.refresh(row)
+    return {**_review_public(row), "same_object": True, "later_status": compared["later_status"]}
