@@ -7160,3 +7160,16 @@ backend exception matches in the switch window, and carakai 10 passed with
 two intentional skips.
 [Release evidence](../evidence/release-b14fe69d-2026-09-22/README.md).
 
+
+### 2026-09-22 — dossier versions and proof, 76a7e9db
+
+Revision `76a7e9dbab3b3d1844e7c2cf4d6e09fce77e1544` is deployed from three
+immutable images at tag `76a7e9dbab3b`; rollback is `b14fe69d7f59`. No
+migration. The automation Flow page lists dataset versions as business rows.
+An older version stays beside the newer one. A run from another system is not
+attached as proof. A paused run is labelled as waiting for a person. No
+workspace flag or NAWA theme change. Storage, public revision
+`revision_verified=true`, HTTP 200, zero backend exception matches in the
+switch window, and carakai 10 passed with two intentional skips.
+[Release evidence](../evidence/release-76a7e9db-2026-09-22/README.md).
+
