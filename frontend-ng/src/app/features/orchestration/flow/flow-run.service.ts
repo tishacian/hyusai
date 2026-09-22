@@ -1035,6 +1035,8 @@ export class FlowRunService {
       latency_ms?: number;
       error?: string;
       chosen_branch?: string;
+      sealed?: boolean;
+      called?: boolean;
       resolution?: 'matched' | 'defaulted' | 'no_match' | 'unroutable' | 'error';
       reason?: string;
       outcome?: Run['outcome'];
@@ -1073,12 +1075,15 @@ export class FlowRunService {
         const tag = (data.node_kind ?? 'NODE').toUpperCase();
         const latency = data.latency_ms != null ? ` · ${Math.round(data.latency_ms)}ms` : '';
         const branch = data.chosen_branch ? ` · branch=${data.chosen_branch}` : '';
+        const sealed = data.sealed === true && data.called === false
+          ? ` · ${this.i18n.t('flow.proof.sealed')}`
+          : '';
         const tone: RunLogEntry['tone'] =
           data.status === 'failed' ? 'neg' : data.status === 'completed' ? 'pos' : 'info';
         this.push({
           tone,
           tag,
-          text: `◼ ${data.label ?? data.node_id ?? 'node'}${data.status ? ` · ${data.status}` : ''}${latency}${branch}${
+          text: `◼ ${data.label ?? data.node_id ?? 'node'}${data.status ? ` · ${data.status}` : ''}${latency}${branch}${sealed}${
             data.error ? ` · ${data.error.slice(0, 80)}` : ''
           }`,
         });

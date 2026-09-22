@@ -1003,6 +1003,79 @@ async def resume_run_dag(
 # ---------------------------------------------------------------------------
 # Core walker
 # ---------------------------------------------------------------------------
+def _waits_on(graph: DagGraph, node_id: str, paused_id: str) -> bool:
+    """True when ``paused_id`` sits on some path into ``node_id``."""
+
+    seen: set[str] = set()
+    stack = [node_id]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        for edge in graph.in_edges.get(current, []):
+            if edge.source == paused_id:
+                return True
+            stack.append(edge.source)
+    return False
+
+
+def unattended_sap_writes(graph: DagGraph, state: WalkerState, paused_id: str) -> list[str]:
+    """SAP writes whose only open input is ``decided_by`` from the paused gate.
+
+    The gate parks the run before that edge can fire. Those writes still have
+    to show sealed and not called. They are not marked done, so a later person
+    can resume the same node.
+    """
+
+    found: list[str] = []
+    for edge in graph.out_edges.get(paused_id, []):
+        if edge.from_port != "decided_by" or edge.to_port != "decided_by":
+            continue
+        node = graph.nodes.get(edge.target)
+        if node is None or node.skill_slug != "sap_create_po_v1" or node.id in state.done:
+            continue
+        others = [item for item in graph.in_edges.get(node.id, []) if item.source != paused_id]
+        if all(item.source in state.done for item in others):
+            found.append(node.id)
+    return found
+
+
+async def _show_unattended_write(
+    db: DBSession,
+    run: Run,
+    graph: DagGraph,
+    state: WalkerState,
+    paused_id: str,
+    *,
+    control,
+) -> None:
+    """Finish nodes that do not wait on the gate, then seal the linked write."""
+
+    for _ in range(20):
+        ready = [
+            nid
+            for nid, pending in state.pending_counts.items()
+            if pending == 0
+            and nid not in state.done
+            and nid != paused_id
+            and not _waits_on(graph, nid, paused_id)
+        ]
+        if not ready:
+            break
+        for nid in ready:
+            outcome = await _execute_node(db, run, graph.nodes[nid], graph, state, control=control)
+            outcome = _apply_runtime_output_contract(db, run, graph.nodes[nid], outcome)
+            if outcome.get("membrane_blocked") or outcome.get("terminal_error") or outcome.get("pause"):
+                return
+            _settle_node(graph, state, nid, outcome)
+    for node_id in unattended_sap_writes(graph, state, paused_id):
+        try:
+            await _execute_node(db, run, graph.nodes[node_id], graph, state, control=control)
+        except Exception:
+            logger.warning("unattended sap write could not be sealed", run_id=run.id, node_id=node_id)
+
+
 async def _walk(
     db: DBSession,
     run: Run,
@@ -1061,6 +1134,9 @@ async def _walk(
                 if outcome.get("pause"):
                     if outcome.get("wait_subflow"):
                         return _emit_subflow_pause(db, run, state, outcome)
+                    await _show_unattended_write(
+                        db, run, graph, state, nid, control=control
+                    )
                     return _emit_hitl_pause(db, run, state, outcome)
                 if _should_debug_pause(graph, state, nid):
                     return _emit_debug_pause(db, run, state, nid)
@@ -1082,6 +1158,9 @@ async def _walk(
             if outcome.get("pause"):
                 if outcome.get("wait_subflow"):
                     return _emit_subflow_pause(db, run, state, outcome)
+                await _show_unattended_write(
+                    db, run, graph, state, nid, control=control
+                )
                 return _emit_hitl_pause(db, run, state, outcome)
             if _should_debug_pause(graph, state, nid):
                 return _emit_debug_pause(db, run, state, nid)
@@ -4414,6 +4493,10 @@ def _summarise_node_execution(
                 summary["cost"] = float(inv.cost)
             if inv.error:
                 summary["error"] = inv.error[:240]
+            output = inv.output_ref if isinstance(inv.output_ref, dict) else {}
+            if "sealed" in output:
+                summary["sealed"] = output.get("sealed") is True
+                summary["called"] = output.get("called") is True
     return summary
 
 
