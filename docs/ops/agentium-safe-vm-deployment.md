@@ -7185,3 +7185,16 @@ identity. No workspace flag or NAWA theme change. Storage, public revision
 switch window, and carakai 10 passed with two intentional skips.
 [Release evidence](../evidence/release-3f2b300f-2026-09-22/README.md).
 
+
+### 2026-09-22 — conversation proof, 26928471
+
+Revision `26928471cb9f1163c1d24170da04dfd2f8b0a55e` is deployed from three
+immutable images at tag `26928471cb9f`; rollback is `3f2b300fa0e8`. No
+migration. The conversation shows the same proof sentence as Work and the
+API when one system is in scope. No workspace flag or NAWA theme change.
+Storage and public revision `revision_verified=true` were checked. Backend
+exception matches in the switch window stayed at zero. Carakai 10 passed
+with two intentional skips. Artifacts
+`/tmp/iteration-canaries-20260922T164415Z.W74ZNC`.
+[Release evidence](../evidence/release-26928471-2026-09-22/README.md).
+
