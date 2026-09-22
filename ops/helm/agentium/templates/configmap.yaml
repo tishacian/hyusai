@@ -19,3 +19,11 @@ data:
   QDRANT_HOST: agentium-qdrant
   MINIO_HOST: agentium-minio
   KEYCLOAK_HOST: agentium-kc
+  {{- if .Values.ollama.enabled }}
+  OLLAMA_BASE_URL: http://agentium-ollama:11434
+  DEFAULT_PROVIDER: ollama
+  OLLAMA_DEFAULT_MODEL: {{ .Values.ollama.chatModel | quote }}
+  EMBEDDING_PROVIDER: ollama
+  EMBEDDING_MODEL: {{ .Values.ollama.embedModel | quote }}
+  EMBEDDING_DIMENSION: {{ .Values.ollama.embedDimension | quote }}
+  {{- end }}

@@ -104,6 +104,28 @@ sftp:
 beat:
   enabled: false
 
+# Local model server. Off on the lab chart. values-local.yaml turns it on
+# and points chat + embeddings at it. The model portal can still route a
+# workspace to a cloud provider.
+ollama:
+  enabled: false
+  image: ollama/ollama:0.34.2
+  chatModel: qwen2.5:3b
+  embedModel: nomic-embed-text
+  embedDimension: 768
+  persistence:
+    enabled: true
+    size: 20Gi
+    storageClass: ""
+
+# NVIDIA-only OpenAI-compatible server. The portal already lists vLLM as an
+# engine. Leave this off on a Mac and on a CPU node pool.
+vllm:
+  enabled: false
+  image: vllm/vllm-openai:v0.19.1
+  model: Qwen/Qwen2.5-3B-Instruct
+  gpu: 1
+
 # Application env that is not secret. Secrets go in existingSecret or
 # the generated Secret when createSecret is true.
 config:
