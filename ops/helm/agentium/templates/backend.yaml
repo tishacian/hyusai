@@ -41,13 +41,6 @@ spec:
             {{- with .Values.backend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          volumeMounts:
-            - name: object-store
-              mountPath: /data/object_store
-            - name: secure-deposit
-              mountPath: /data/secure_deposit
-            - name: faiss
-              mountPath: /data/faiss_db
           livenessProbe:
             httpGet:
               path: /health/live
@@ -58,13 +51,6 @@ spec:
               path: /health/live
               port: http
             initialDelaySeconds: 10
-      volumes:
-        - name: object-store
-          emptyDir: {}
-        - name: secure-deposit
-          emptyDir: {}
-        - name: faiss
-          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

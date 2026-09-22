@@ -19,6 +19,16 @@ data:
   QDRANT_HOST: agentium-qdrant
   MINIO_HOST: agentium-minio
   KEYCLOAK_HOST: agentium-kc
+  # The chart used to set no storage path at all, so the application fell back
+  # to its relative defaults and never wrote into the volumes mounted for it.
+  {{- if ne .Values.objectStore.backend "s3" }}
+  {{- fail "objectStore.backend must be s3: backend, worker and maintenance all write the artifact store, and this chart has no ReadWriteMany volume to share between them" }}
+  {{- end }}
+  OBJECT_STORE_BACKEND: {{ .Values.objectStore.backend | quote }}
+  OBJECT_STORE_S3_BUCKET: {{ .Values.objectStore.bucket | quote }}
+  OBJECT_STORE_S3_ENDPOINT_URL: {{ .Values.objectStore.endpointUrl | quote }}
+  OBJECT_STORE_S3_ACCESS_KEY: {{ .Values.objectStore.accessKey | quote }}
+  RECIPE_ENVS_PATH: /data/recipe_envs
   {{- if .Values.ollama.enabled }}
   OLLAMA_BASE_URL: http://agentium-ollama:11434
   DEFAULT_PROVIDER: ollama

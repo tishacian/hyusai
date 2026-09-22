@@ -58,6 +58,29 @@ done
 if grep -qE '^resources: \{\}' "$ROOT/ops/helm/agentium/values.yaml"; then
   fail "values.yaml must not ship a resources key no template consumes"
 fi
+
+# The artifact store is S3, so no pod mounts a shared filesystem for it. The
+# emptyDirs that used to stand in for one were never written to anyway: the
+# chart set no storage path, so the application used its relative defaults.
+grep -q 'OBJECT_STORE_BACKEND: "s3"' /tmp/agentium-helm.yaml \
+  || fail "the chart must configure the S3 artifact store"
+grep -q 'OBJECT_STORE_S3_ENDPOINT_URL' /tmp/agentium-helm.yaml \
+  || fail "the S3 endpoint must be configured"
+for target in /data/object_store /data/faiss_db /data/secure_deposit; do
+  if grep -q "mountPath: $target" /tmp/agentium-helm.yaml; then
+    fail "$target must not be mounted: it cannot be shared ReadWriteOnce"
+  fi
+done
+grep -q 'mountPath: /data/recipe_envs' /tmp/agentium-helm.yaml \
+  || fail "the worker still needs its node-local recipe env cache"
+grep -q 'ephemeral-storage' /tmp/agentium-helm.yaml \
+  || fail "the worker must reserve room for that cache on the node"
+grep -q 'minio-init' /tmp/agentium-helm.yaml \
+  || fail "nothing creates the bucket and the scoped application user"
+if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+     --set objectStore.backend=local >/dev/null 2>&1; then
+  fail "a local artifact store must be refused, not silently configured"
+fi
 if grep -q 'name: agentium-ollama' /tmp/agentium-helm.yaml; then
   fail "default chart must not start Ollama"
 fi
