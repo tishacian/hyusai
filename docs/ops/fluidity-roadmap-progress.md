@@ -1,15 +1,14 @@
 # Fluidité — état de livraison
 
-Image en production : `5eabc862212b5c79de704a088dd33fb438745634` (`revision_verified: true`).
-HEAD `demo/agentic` : `0bb6579d` (documentation seulement, pas une image).
-Rollback image : `bf150e5cca37`.
+Image en production : `ae35157bf8a667f19bb4eeaa2825331f08c72955` (`revision_verified: true`).
+Rollback image : `5eabc862212b`.
 
 Ces pourcentages sont des estimations de complétude par critère de sortie, pas une mesure automatique. Les portes automation-first ne ferment pas F1–F6.
 
 ## Portes automation-first
 
 - Porte 0 — environ 80 %. Le run SPARK-365 `8591bc37` sur `d4a75119` n’a pas produit de minutes. Sur `5eabc862`, un nouveau brouillon Trigger → Agent → Output (`0c7393e2`, run `b8d02ddb`, skill `workspace_llm_v1`) a produit des minutes. Le compte est encore le builder, pas un process owner. La porte reste ouverte.
-- Porte 1 — environ 95 %. Sur `5eabc862`, Run et Application sont visibles ; Workbench, Server draft et Test draft ont disparu. Restent le nom accessible « Execute on backend » et, avant publication, « Review and publish server draft ».
+- Porte 1 — fermée sur les noms visibles. Sur `ae35157b`, Run et Publish (ou Application une fois publié) portent le même nom accessible. Workbench, Server draft et Test draft sont absents.
 - Porte 2 — fermée sur le scope défini. Retrieval cité, écriture SAP scellée, pause humaine, file de décision.
 - Boucle d’édition — environ 90 %. Lecture, patch lié au hash, read-back et test de brouillon sont en ligne.
 - Porte 3 — environ 80 %. Work et Hypervisor montrent l’automation publiée. La convention de valeur et l’écart mesuré sont encore absents, et l’interface le dit.
