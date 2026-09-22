@@ -833,13 +833,40 @@ def get_voice_runtime_provider(
     raise ValueError(f"Unknown voice runtime provider: {resolved}")
 
 
-def _provider_status(slug: str, workspace_slug: str | None = None) -> str:
+def _realtime_allowed(workspace: Any | None, workspace_slug: str | None) -> bool:
+    """Whether OpenAI Realtime is on for this tenant.
+
+    This was the one per-customer capability still read from a raw global slug
+    list, so a workspace could not opt in through its own settings the way
+    every other capability does. With a workspace in hand it now goes through
+    ``feature_enabled``: the workspace flag wins when present, and the global
+    list stays the fallback, so no workspace changes behaviour until someone
+    sets the flag. The two older call shapes keep their exact meaning: a bare
+    slug is checked against the list, and no tenant at all is not gated.
+    """
+
+    if workspace is not None:
+        from app.services.workspace_features import feature_enabled
+
+        return feature_enabled(
+            workspace,
+            "openai_realtime",
+            csv_fallback=settings.openai_realtime_enabled_workspace_slugs,
+        )
+    if workspace_slug:
+        return workspace_slug in set(_split_csv(settings.openai_realtime_enabled_workspace_slugs))
+    return True
+
+
+def _provider_status(
+    slug: str, workspace_slug: str | None = None, workspace: Any | None = None
+) -> str:
     if slug == "cascade_openai":
         return "bound" if settings.openai_api_key else "unconfigured"
     if slug == "openai_realtime":
         if not settings.openai_realtime_enabled:
             return "disabled"
-        if workspace_slug and workspace_slug not in set(_split_csv(settings.openai_realtime_enabled_workspace_slugs)):
+        if not _realtime_allowed(workspace, workspace_slug):
             return "workspace_disabled"
         return "bound" if settings.openai_api_key else "unconfigured"
     if slug == "local_stt":
@@ -853,7 +880,9 @@ def _provider_status(slug: str, workspace_slug: str | None = None) -> str:
     return "unknown"
 
 
-def _provider_descriptor(slug: str, workspace_slug: str | None = None) -> Dict[str, Any]:
+def _provider_descriptor(
+    slug: str, workspace_slug: str | None = None, workspace: Any | None = None
+) -> Dict[str, Any]:
     provider = get_voice_runtime_provider(slug, workspace_settings={"voice_runtime": {"allowed_providers": [slug]}})
     descriptions = {
         "cascade_openai": "Reliable fallback lane: recorded chunks -> STT -> Agentium oracle -> segmented TTS.",
@@ -865,7 +894,7 @@ def _provider_descriptor(slug: str, workspace_slug: str | None = None) -> Dict[s
     }
     return {
         "slug": slug,
-        "status": _provider_status(slug, workspace_slug=workspace_slug),
+        "status": _provider_status(slug, workspace_slug=workspace_slug, workspace=workspace),
         "description": descriptions.get(slug, ""),
         "requires_gpu": slug in {"local_realtime", "realtime_gpu"},
         "transport": "webrtc" if slug == "openai_realtime" else "backend_ws",
@@ -896,7 +925,10 @@ def list_voice_runtime_providers(workspace: Any | None = None) -> Dict[str, Any]
         "allowed_providers": allowed,
         "fallback_providers": fallback_voice_providers(workspace_settings),
         "events": list(VOICE_EVENTS),
-        "providers": [_provider_descriptor(slug, workspace_slug=workspace_slug) for slug in allowed],
+        "providers": [
+            _provider_descriptor(slug, workspace_slug=workspace_slug, workspace=workspace)
+            for slug in allowed
+        ],
         "decision_rule": (
             "Use realtime providers only when user tests improve fluency without reducing "
             "capture precision, transcript quality, auditability or governance."
@@ -929,10 +961,12 @@ def build_openai_realtime_session(
     return session
 
 
-def _ensure_openai_realtime_enabled(workspace_slug: str | None = None) -> None:
+def _ensure_openai_realtime_enabled(
+    workspace_slug: str | None = None, workspace: Any | None = None
+) -> None:
     if not settings.openai_realtime_enabled:
         raise VoiceProviderUnavailable("OpenAI Realtime is disabled for this environment")
-    if workspace_slug and workspace_slug not in set(_split_csv(settings.openai_realtime_enabled_workspace_slugs)):
+    if not _realtime_allowed(workspace, workspace_slug):
         raise VoiceProviderNotAllowed("OpenAI Realtime is not enabled for this workspace")
     if not settings.openai_api_key:
         raise VoiceProviderUnavailable("OpenAI API key not configured")
@@ -942,8 +976,9 @@ async def create_openai_realtime_client_secret(
     *,
     workspace_slug: str | None,
     session: Dict[str, Any],
+    workspace: Any | None = None,
 ) -> Dict[str, Any]:
-    _ensure_openai_realtime_enabled(workspace_slug)
+    _ensure_openai_realtime_enabled(workspace_slug, workspace)
     url = f"{settings.openai_realtime_api_base.rstrip('/')}/realtime/client_secrets"
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -960,8 +995,9 @@ async def create_openai_realtime_call(
     workspace_slug: str | None,
     sdp: str,
     session: Dict[str, Any],
+    workspace: Any | None = None,
 ) -> str:
-    _ensure_openai_realtime_enabled(workspace_slug)
+    _ensure_openai_realtime_enabled(workspace_slug, workspace)
     if not settings.voice_realtime_webrtc_enabled:
         raise VoiceProviderUnavailable("OpenAI Realtime WebRTC proxy is disabled for this environment")
     url = f"{settings.openai_realtime_api_base.rstrip('/')}/realtime/calls"

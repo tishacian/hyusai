@@ -222,7 +222,11 @@ async def realtime_client_secret(
                 "transport": req.transport,
             },
         )
-        token = await create_openai_realtime_client_secret(workspace_slug=permission.workspace.slug, session=session)
+        token = await create_openai_realtime_client_secret(
+            workspace_slug=permission.workspace.slug,
+            session=session,
+            workspace=permission.workspace,
+        )
         return {"provider": provider, "session": session, "client_secret": token}
     except VoiceProviderError as exc:
         status = 403 if isinstance(exc, VoiceProviderNotAllowed) else 503
@@ -261,6 +265,7 @@ async def realtime_call(
             workspace_slug=permission.workspace.slug,
             sdp=req.sdp,
             session=session,
+            workspace=permission.workspace,
         )
         return Response(answer_sdp, media_type="application/sdp")
     except VoiceProviderError as exc:
