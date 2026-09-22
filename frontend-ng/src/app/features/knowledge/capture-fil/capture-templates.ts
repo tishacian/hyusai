@@ -99,8 +99,8 @@ const OPPORTUNITIES_TOPIC: CaptureTemplatePlanTopic = {
 const DISTRIBUTION_OPTIONS: CaptureTemplateFieldOption[] = [
   { value: 'project_manager', label: 'Project manager' },
   { value: 'head_of_site_management', label: 'Head of site management' },
-  { value: 'customer_care_manager', label: 'Customer Care Manager — P. Saffioti' },
-  { value: 'global_service_director', label: 'Global Service Director — N. Pirard-Branche' },
+  { value: 'customer_care_manager', label: 'Customer Care Manager' },
+  { value: 'global_service_director', label: 'Global Service Director' },
   { value: 'service_coordinator', label: 'Service coordinator' },
   { value: 'quality', label: 'Quality' },
   { value: 'spare_parts', label: 'Spare Parts' },
