@@ -7118,3 +7118,16 @@ workspace flag, or NAWA theme change occurred. Storage, public revision
 `revision_verified=true`, HTTP 200, zero backend exception matches, and
 carakai 10/10 passed with two intentional local-contract skips. The SPARK-365
 process-owner run still requires a hard reload.
+
+
+### 2026-09-22 — Porte 1 Run/Publish, d4a75119
+
+Revision `d4a75119faa4a50ced08a959505023dc2fac3db5` is deployed from three
+immutable images at tag `d4a75119faa4`; rollback is `ce842f7a2122`.
+Automation mode exposes Run directly, labels both the action and dialog Run,
+hides runtime jargon, manual Save, Operate and More, and keeps Publish as the
+second labelled verb. Existing autosave, draft hashing and explicit publication
+review are unchanged. No migration, workspace flag, or NAWA theme change
+occurred. Storage, public revision, HTTP 200, zero backend exception matches,
+and carakai 10/10 passed with two intentional local-contract skips.
+[Release evidence](../evidence/release-d4a75119-2026-09-22/README.md).
