@@ -1,41 +1,28 @@
 # Fluidité — état de livraison
 
-Base: `demo/agentic` @ `d9290569b4dbd4e9adcd39c985d06f6c3452a3b9`.
-Deployed release: `d4a75119faa4a50ced08a959505023dc2fac3db5`.
+Image en production : `5eabc862212b5c79de704a088dd33fb438745634` (`revision_verified: true`).
+HEAD `demo/agentic` : `0bb6579d` (documentation seulement, pas une image).
+Rollback image : `bf150e5cca37`.
 
-## Livré dans cette tranche
+Ces pourcentages sont des estimations de complétude par critère de sortie, pas une mesure automatique. Les portes automation-first ne ferment pas F1–F6.
 
-### F1 — Le compagnon comprend l’objet ouvert
+## Portes automation-first
 
-- Le contexte est dérivé des routes canoniques `System`, `Run` et `SkillInvocation`, y compris le nœud focalisé.
-- Le compagnon latéral affiche l’objet actif, permet de l’ouvrir et de l’épingler.
-- Le panneau rapide est redimensionnable en continu à la souris ou au clavier ; la largeur reste persistée localement.
-- Chaque tour capture sa référence d’objet ; la reprise réseau rejoue exactement cette référence.
-- Le serveur borne et valide `object_context`, résout le System du Run, applique les contrôles de visibilité et dérive la portée pilote depuis un Run visible.
-- La session, la portée, les derniers tours et leurs références reprennent après rechargement, par workspace.
-- Le changement de workspace retire l’épinglage et isole les conversations.
+- Porte 0 — environ 80 %. Le run SPARK-365 `8591bc37` sur `d4a75119` n’a pas produit de minutes. Sur `5eabc862`, un nouveau brouillon Trigger → Agent → Output (`0c7393e2`, run `b8d02ddb`, skill `workspace_llm_v1`) a produit des minutes. Le compte est encore le builder, pas un process owner. La porte reste ouverte.
+- Porte 1 — environ 95 %. Sur `5eabc862`, Run et Application sont visibles ; Workbench, Server draft et Test draft ont disparu. Restent le nom accessible « Execute on backend » et, avant publication, « Review and publish server draft ».
+- Porte 2 — fermée sur le scope défini. Retrieval cité, écriture SAP scellée, pause humaine, file de décision.
+- Boucle d’édition — environ 90 %. Lecture, patch lié au hash, read-back et test de brouillon sont en ligne.
+- Porte 3 — environ 80 %. Work et Hypervisor montrent l’automation publiée. La convention de valeur et l’écart mesuré sont encore absents, et l’interface le dit.
 
-### F2 — Premier diagnostic de préparation
+## F1–F6
 
-- `inspect_system` inclut désormais la projection existante `dispatch_readiness`.
-- Un System sans surface déclarée affiche « contrôle non effectué » et la raison ; il n’est pas marqué prêt par défaut.
-- Les refus de publication/ingress gardent leur code, leur message et leurs surfaces concernées.
+- F1 — environ 90 %. Contexte System/Run/SkillInvocation, épingle, persistance, reprise et chat redimensionnable sont là. La recette utilisateur complète manque.
+- F2 — environ 25 %. `dispatch_readiness` évite un faux « prêt ». Le diagnostic modèle, provider, source, indexation, droits et worker n’est pas un parcours.
+- F3 — environ 45 %. BRD, brouillon, gouvernance et exécution existent. La boucle résultat, réserve, correction relue et comparaison sans perte d’objet n’est pas close.
+- F4 — environ 40 %. Le job Work d’une automation existe. Il manque la table générique ligne métier, version de dataset, Run, preuve.
+- F5 — environ 40 %. Les graphiques et le portefeuille automation existent. Il manque le contrat graphique figé et le chemin point, dossier, Run.
+- F6 — environ 30 %. Work et le paquet de run existent. La même permission et la même preuve sur Work, conversation et API ne sont pas qualifiées.
 
-## Vérifications
+## Trace connue
 
-- `frontend-ng/scripts/run-unit.mjs`: 1 557 tests passés.
-- `frontend-ng/scripts/check-i18n.mjs`: OK.
-- `frontend-ng/scripts/check-nav-links.mjs --fail-closed`: OK.
-- `frontend-ng/scripts/check-ui-chrome.mjs`: OK.
-- `frontend-ng` production build: OK.
-- Backend targeted tests: 31 passed (`test_assistant_turns_api.py`, `test_assistant_tools.py`).
-
-Les tests backend ont été exécutés dans un environnement Python 3.11 isolé, sans modifier `poetry.lock`.
-
-## Reste
-
-- F3: relier le nouveau contexte au parcours complet SPARK-089, notamment correction relue et comparaison sans perte d’objet.
-- F4/F5: lignes de dossiers reliées aux Runs, puis vues actualisables et éditions figées avec provenance par point.
-- F6: formulaires d’appel dérivés du contrat publié et qualification sur Work, conversation et API.
-
-`d82ffeba` est déployé sur `omnirag-demo` sans migration, flag ou modification du thème NAWA. Les canaries carakai passent (10 réussis, 2 exclusions locales prévues). Le contrôle navigateur authentifié après hard reload reste à faire par un opérateur.
+Le 22 septembre 2026 à 11:09:30Z, pendant les lectures Hypervisor du canari Showcase, le backend a journalisé `Task exception was never retrieved` : `httpx2.AsyncClient.aclose` lève `RuntimeError: Event loop is closed`. La pile reste dans `httpx2` / `httpcore2` / `anyio`. Aucune frame applicative. Les requêtes autour restent en 200, et les conteneurs restent healthy. Ce n’est pas un zéro exception sur la fenêtre. Le correctif n’est pas identifié sans un client applicatif à fermer.

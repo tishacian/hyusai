@@ -268,8 +268,10 @@ async def automation_work_job(
 ):
     system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
-    job, convention = _published_automation(db, system)
-    return automation_portfolio.job_explanation(job, convention)
+    for card in automation_portfolio.list_job_explanations(db, workspace):
+        if card["job"].get("system_id") == system.id:
+            return card
+    _published_automation(db, system)
 
 
 @router.get("/{system_id}/automation-package")
