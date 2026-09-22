@@ -29,7 +29,7 @@ from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import automation_dossiers, automation_edit, automation_portfolio, automation_review
+from app.services import automation_chart, automation_dossiers, automation_edit, automation_portfolio, automation_proof, automation_review
 from app.services.model_plane.workspace_config import get_routing
 from app.services.systems.preparation_diagnostic import (
     caller_run_right,
@@ -602,6 +602,10 @@ async def automation_dossier_table(
 
     system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    return {"rows": _workspace_dossier_rows(db, workspace)}
+
+
+def _workspace_dossier_rows(db: DBSession, workspace: Workspace) -> list[dict[str, Any]]:
     datasets = (
         db.query(TabularDataset)
         .filter(TabularDataset.workspace_id == workspace.id, TabularDataset.status != "deleted")
@@ -615,19 +619,67 @@ async def automation_dossier_table(
         if run_ids
         else []
     )
-    return {
-        "rows": automation_dossiers.dossier_rows(
-            [
-                {
-                    "name": row.name,
-                    "slug": row.slug,
-                    "version": row.version,
-                    "status": row.status,
-                    "system_id": row.system_id,
-                    "run_id": row.run_id,
-                }
-                for row in datasets
-            ],
-            {row.id: {"system_id": row.system_id, "status": row.status} for row in runs},
-        )
-    }
+    return automation_dossiers.dossier_rows(
+        [
+            {
+                "name": row.name,
+                "slug": row.slug,
+                "version": row.version,
+                "status": row.status,
+                "system_id": row.system_id,
+                "run_id": row.run_id,
+            }
+            for row in datasets
+        ],
+        {row.id: {"system_id": row.system_id, "status": row.status} for row in runs},
+    )
+
+
+def _proof_card(db: DBSession, workspace: Workspace, system: System) -> dict[str, Any] | None:
+    for card in automation_portfolio.list_job_explanations(db, workspace):
+        if card["job"].get("system_id") == system.id:
+            return card
+    return None
+
+
+@router.get("/{system_id}/automation-chart")
+async def automation_chart_view(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    return automation_chart.freeze_chart(_workspace_dossier_rows(db, workspace))
+
+
+@router.get("/{system_id}/automation-chart/point")
+async def automation_chart_point(
+    system_id: str,
+    point_id: str = Query(min_length=1, max_length=240),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    chart = automation_chart.freeze_chart(_workspace_dossier_rows(db, workspace))
+    try:
+        return automation_chart.open_point(chart, point_id)
+    except automation_chart.AutomationChartRefusal as refusal:
+        raise HTTPException(status_code=422, detail={"code": refusal.code, "message": refusal.message}) from refusal
+
+
+@router.get("/{system_id}/automation-proof")
+async def automation_proof_view(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """The proof Work, the conversation and this API are allowed to show."""
+
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    return automation_proof.proof_identity(_proof_card(db, workspace, system))

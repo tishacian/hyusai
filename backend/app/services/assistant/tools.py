@@ -718,6 +718,14 @@ async def _read_operational_metrics(ctx, args):
     return _ok(**operational_metrics(ctx.db, user=ctx.user, workspace=ctx.workspace, system=system))
 
 
+async def _read_automation_proof(ctx, args):
+    system = visible_system(ctx, _text_arg(args, "system_id", limit=64))
+    from app.services.automation_portfolio import list_job_explanations
+    from app.services.automation_proof import proof_identity
+    card = next((item for item in list_job_explanations(ctx.db, ctx.workspace) if item["job"].get("system_id") == system.id), None)
+    return _ok(surface="conversation", proof=proof_identity(card))
+
+
 async def _inspect_correction_context(ctx, args):
     from app.services.evaluation.corrections import context_payload
     from app.services.systems.flow_publication import FlowPublicationError
@@ -885,6 +893,7 @@ for _name, _description, _handler, _properties, _required, _authorization in (
     ("inspect_system", "Explain a System's published input contract and open its design for a proposed improvement.", _inspect_system, {"system_id": {"type": "string"}}, ["system_id"], "system.read"),
     ("compare_runs", "Compare two to ten authorized Runs in the active System scope, with their execution evidence.", _compare_runs, {"run_ids": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 10}}, ["run_ids"], "run.read"),
     ("read_operational_metrics", "Read operational objectives, measured activity and costs with provenance. Missing evidence is not zero or verified savings.", _read_operational_metrics, {"system_id": {"type": "string"}}, ["system_id"], "system.read+run.read"),
+    ("read_automation_proof", "Read the same automation proof Work and the API show. A missing proof stays absent.", _read_automation_proof, {"system_id": {"type": "string"}}, ["system_id"], "system.read"),
 ):
     TOOLS[_name] = AssistantTool(_name, _description, {"type": "object", "properties": _properties, "required": _required}, _handler, False, _authorization)
 

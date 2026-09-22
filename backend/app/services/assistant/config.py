@@ -39,6 +39,7 @@ DEFAULT_ALLOWED_TOOLS: tuple[str, ...] = (
     "inspect_system",
     "compare_runs",
     "read_operational_metrics",
+    "read_automation_proof",
 )
 
 DEFAULT_MAX_TOOL_TURNS = 4
