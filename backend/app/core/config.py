@@ -164,9 +164,13 @@ class Settings(BaseSettings):
     document_ocr_openai_enrich_min_chars: int = 24
     document_ocr_openai_enrich_min_confidence: float = 0.45
 
-    # Embeddings
+    # Embeddings. "ollama" calls the same Ollama server as chat (/api/embed).
+    # "openai" stays the deployment default. A local Compose overlay switches both.
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
+    # 0 = take the width of the first Ollama vector. Set it when the index
+    # must be created before the first call (nomic-embed-text is 768).
+    embedding_dimension: int = 0
 
     # RAG: HAH/C-HAH backend pipelines (multi-pass on DocumentService; see pipeline_retrieval.py)
     rag_hah_chah_enabled: bool = True

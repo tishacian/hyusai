@@ -51,7 +51,20 @@ docker compose \
   up -d agentium-rabbitmq agentium-backend agentium-worker-cpu
 ```
 
-Never add the local-storage overlay on a VM. Use `AGENTIUM_ENV_FILE` to point
+Never add the local-storage overlay on a VM. For a nominal all-local model
+path (Ollama chat + embeddings, still switchable from the model portal), add
+`compose.agentium.local.yml`. vLLM is the `gpu-models` profile and needs an
+NVIDIA GPU; it is not started by that overlay.
+
+```bash
+docker compose \
+  -f compose.agentium.yml \
+  -f compose.agentium.local-storage.yml \
+  -f compose.agentium.local.yml \
+  up -d
+```
+
+Use `AGENTIUM_ENV_FILE` to point
 to a non-committed env file. On the demo VM, use
 `scripts/agentium-vm-deploy.sh storage-check` and follow
 `docs/ops/agentium-safe-vm-deployment.md`; `migrate` and `up` run that
