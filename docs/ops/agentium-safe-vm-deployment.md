@@ -7234,3 +7234,16 @@ backend exception matches in the switch window, and carakai 10 passed with
 two intentional skips.
 [Release evidence](../evidence/release-76d4d97e-2026-09-22/README.md).
 
+
+### 2026-09-22 — unattended write stays sealed, 65b66219
+
+Revision `65b662192e752e6d15408f72098d88730c239844` is deployed from three
+immutable images at tag `65b662192e75`; rollback is `76d4d97e8784`. No
+migration. When an approval pauses a run, a linked SAP write still executes
+once with no person and stays sealed and not called. The node is left
+unfinished so a later decision can resume it. No workspace flag or NAWA
+theme change. Storage, public revision `revision_verified=true`, HTTP 200,
+zero backend exception matches in the switch window, and carakai 10 passed
+with two intentional skips.
+[Release evidence](../evidence/release-65b66219-2026-09-22/README.md).
+
