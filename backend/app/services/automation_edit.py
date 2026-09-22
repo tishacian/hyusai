@@ -82,6 +82,7 @@ def edit_prompt(message: str, snapshot: Mapping[str, Any]) -> str:
         "You edit one automation draft. Reply with one JSON object and nothing else. "
         "Keys are intent and patch. intent is explain, clarify, edit, run, or edit_and_run. "
         "patch may contain add, update, remove, and edges. "
+        "edges is an array of objects, each with from, to, from_port and to_port. "
         "Each added or updated block has id and type, and type is only one of: "
         + "; ".join(lines)
         + ". When the patch adds sap_write and approval, include an edge whose from_port and to_port are decided_by. "
@@ -108,6 +109,8 @@ def required_skill_slugs(flow: Mapping[str, Any]) -> list[str]:
 
 def _items(patch: Mapping[str, Any], key: str) -> list[Mapping[str, Any]]:
     raw = patch.get(key) or []
+    if isinstance(raw, Mapping):
+        raw = [raw]
     if not isinstance(raw, list) or any(not isinstance(item, Mapping) for item in raw):
         raise AutomationEditRefusal("patch_invalid", f"{key} must be a list of objects")
     return list(raw)

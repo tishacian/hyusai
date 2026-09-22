@@ -62,6 +62,31 @@ def test_patch_places_retrieve_approval_and_sap_write_with_decided_by():
     assert accepted["edges"][0]["from_port"] == "decided_by"
 
 
+def test_one_edge_object_is_read_as_a_single_edge():
+    accepted = validate_patch(
+        {
+            "add": [
+                {"id": "approval", "type": "approval"},
+                {"id": "sap", "type": "sap_write"},
+            ],
+            "edges": {
+                "from": "approval",
+                "to": "sap",
+                "from_port": "decided_by",
+                "to_port": "decided_by",
+            },
+        }
+    )
+    assert accepted["edges"] == [
+        {
+            "from": "approval",
+            "to": "sap",
+            "from_port": "decided_by",
+            "to_port": "decided_by",
+        }
+    ]
+
+
 def test_eighth_block_type_is_refused():
     for block_type in ("function", "start_trigger", "condition", "response", "rpa_dispatch_v1"):
         with pytest.raises(AutomationEditRefusal) as refusal:
