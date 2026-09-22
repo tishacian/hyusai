@@ -1,19 +1,36 @@
-"""Canonical Andritz project-reference parsing.
+"""Andritz project-reference parsing, gated on the Andritz workspace.
 
-Project identifiers are source-aware.  Historical SPL references are compact
-alpha-numeric tokens (for example ``BAO100`` or ``ELM001Y``), while the
-Needlepunch deposit uses five-digit identifiers whose meaning comes from the
-deposit directory structure.  A bare five-digit number is deliberately not a
-project reference during ingestion.
+The identifier grammar (compact SPL tokens such as ``BAO100`` / ``BBA120``,
+and Needlepunch five-digit folder codes) is a client-specific scheme.  It
+must not invent ``andritz_project`` identities on generic, industrial,
+sentinel_ci or any other workspace.
+
+Callers pass ``scheme="andritz"`` or bind it from a stamped
+``Workspace.settings.family`` via :func:`using_workspace_project_scheme`.
+An omitted scheme reads a ContextVar that defaults to empty, so a missed
+bind fails closed instead of leaking the grammar to every tenant.
+
+Project isolation itself (``reject_cross_project_sources``, ``project`` in
+preserve types) stays a generic industrial capability and does not depend
+on this parser.
 """
 from __future__ import annotations
 
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
+ANDRITZ_PROJECT_SCHEME = "andritz"
 NEEDLEPUNCH_DEPOSIT_PREFIX = "Notices_Techniques_Needlepunch"
+
+# Missed bind must never revive the Andritz grammar for another tenant.
+_PROJECT_REFERENCE_SCHEME: ContextVar[str] = ContextVar(
+    "project_reference_scheme",
+    default="",
+)
 
 # Kept public so metadata helpers that look for a *second* machine reference
 # can share the exact legacy grammar without defining a competing regex.
@@ -64,6 +81,78 @@ _MEASUREMENT_AFTER_RE = re.compile(
 def _fold(value: Any) -> str:
     text = unicodedata.normalize("NFKD", str(value or ""))
     return "".join(char for char in text if not unicodedata.combining(char))
+
+
+def project_reference_scheme(workspace: Any) -> str:
+    """Return ``andritz`` only when the workspace family is stamped Andritz."""
+
+    from app.services.workspace_features import workspace_family
+
+    if workspace_family(workspace) == ANDRITZ_PROJECT_SCHEME:
+        return ANDRITZ_PROJECT_SCHEME
+    return ""
+
+
+def current_project_reference_scheme() -> str:
+    return _PROJECT_REFERENCE_SCHEME.get()
+
+
+def _active_scheme(scheme: str | None) -> str:
+    if scheme is not None:
+        return str(scheme)
+    return current_project_reference_scheme()
+
+
+def andritz_project_scheme_active(scheme: str | None = None) -> bool:
+    return _active_scheme(scheme) == ANDRITZ_PROJECT_SCHEME
+
+
+@contextmanager
+def bind_project_reference_scheme(scheme: str) -> Iterator[str]:
+    """Bind the active project-reference scheme for this task."""
+
+    resolved = str(scheme or "")
+    token = _PROJECT_REFERENCE_SCHEME.set(resolved)
+    try:
+        yield resolved
+    finally:
+        _PROJECT_REFERENCE_SCHEME.reset(token)
+
+
+@contextmanager
+def using_workspace_project_scheme(workspace: Any) -> Iterator[str]:
+    """Bind the scheme that belongs to ``workspace`` (empty when not Andritz)."""
+
+    with bind_project_reference_scheme(project_reference_scheme(workspace)) as resolved:
+        yield resolved
+
+
+@contextmanager
+def using_workspace_id_project_scheme(
+    workspace_id: str | None,
+    *,
+    db: Any = None,
+) -> Iterator[str]:
+    """Resolve a workspace row and bind its scheme. Missing id fails closed."""
+
+    workspace = None
+    owns_db = False
+    session = db
+    if workspace_id:
+        if session is None:
+            from app.db.base import SessionLocal
+
+            session = SessionLocal()
+            owns_db = True
+        try:
+            from app.models.workspace import Workspace
+
+            workspace = session.query(Workspace).filter(Workspace.id == str(workspace_id)).first()
+        finally:
+            if owns_db and session is not None:
+                session.close()
+    with using_workspace_project_scheme(workspace) as resolved:
+        yield resolved
 
 
 def _looks_like_needlepunch_path(value: str | None) -> bool:
@@ -128,12 +217,19 @@ def _needlepunch_reference(value: str | None) -> tuple[bool, dict[str, str]]:
     }
 
 
-def derive_project_reference(*values: str | None) -> dict[str, str]:
+def derive_project_reference(
+    *values: str | None,
+    scheme: str | None = None,
+) -> dict[str, str]:
     """Derive canonical project metadata from trusted source values.
 
     Needlepunch paths take precedence and fail closed.  If no value declares a
     Needlepunch source, the long-standing alpha-numeric grammar is preserved.
+    Both grammars run only when the Andritz scheme is active.
     """
+
+    if not andritz_project_scheme_active(scheme):
+        return {}
 
     needlepunch_references: list[dict[str, str]] = []
     for value in values:
@@ -216,9 +312,15 @@ def _numeric_project_matches(text: str) -> list[re.Match[str]]:
     ]
 
 
-def numeric_project_candidates(text: str) -> tuple[str, ...]:
+def numeric_project_candidates(
+    text: str,
+    *,
+    scheme: str | None = None,
+) -> tuple[str, ...]:
     """Return unvalidated standalone numeric5 tokens in source order."""
 
+    if not andritz_project_scheme_active(scheme):
+        return ()
     return tuple(
         dict.fromkeys(match.group(1) for match in _numeric_project_matches(str(text or "")))
     )[:8]
@@ -227,6 +329,8 @@ def numeric_project_candidates(text: str) -> tuple[str, ...]:
 def extract_query_project_codes(
     text: str,
     known_codes: Iterable[str] | None = None,
+    *,
+    scheme: str | None = None,
 ) -> list[str]:
     """Extract canonical project codes from a user query, in source order.
 
@@ -234,7 +338,11 @@ def extract_query_project_codes(
     numeric Needlepunch code must either be an exact member of ``known_codes``
     (the authoritative collection facet) or appear in strong project-oriented
     language.  Embedded numbers and obvious measurements are rejected.
+    Both grammars run only when the Andritz scheme is active.
     """
+
+    if not andritz_project_scheme_active(scheme):
+        return []
 
     query = str(text or "")
     known = _normalise_known_codes(known_codes)
@@ -261,17 +369,26 @@ def extract_query_project_codes(
 def project_reference_terms(
     text: str,
     known_codes: Iterable[str] | None = None,
+    *,
+    scheme: str | None = None,
 ) -> tuple[str, ...]:
     """Tuple form used by retrieval policy and ranking consumers."""
 
-    return tuple(extract_query_project_codes(text, known_codes=known_codes))
+    return tuple(extract_query_project_codes(text, known_codes=known_codes, scheme=scheme))
 
 
 __all__ = [
+    "ANDRITZ_PROJECT_SCHEME",
     "LEGACY_PROJECT_REFERENCE_RE",
     "NEEDLEPUNCH_DEPOSIT_PREFIX",
+    "andritz_project_scheme_active",
+    "bind_project_reference_scheme",
+    "current_project_reference_scheme",
     "derive_project_reference",
     "extract_query_project_codes",
     "numeric_project_candidates",
+    "project_reference_scheme",
     "project_reference_terms",
+    "using_workspace_id_project_scheme",
+    "using_workspace_project_scheme",
 ]

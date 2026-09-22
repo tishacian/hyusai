@@ -15,8 +15,15 @@ from app.services.rag import context as rag_context
 from app.services.rag import corpus_planner as rag_corpus_planner
 from app.services.rag.context import get_retrieval_profile, retrieve_rag_context
 from app.services.rag.corpus_planner import classify_intent, is_catalogue_query, plan_corpus
+from app.services.rag.project_references import ANDRITZ_PROJECT_SCHEME, bind_project_reference_scheme
 from app.services.rag.retrieval_policy import RetrievalPolicy
 from app.services.rag.summary_artifacts import rebuild_summary_index_artifact
+
+
+@pytest.fixture(autouse=True)
+def andritz_project_scheme():
+    with bind_project_reference_scheme(ANDRITZ_PROJECT_SCHEME):
+        yield
 
 
 class FakeDocumentService:
@@ -974,7 +981,12 @@ def test_scoped_dense_naive_uses_single_pass_hybrid_unless_dense_only_requested(
 def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
-    workspace = Workspace(id="ws-planner-golden-spl", name="Planner Golden SPL", slug="planner-golden")
+    workspace = Workspace(
+        id="ws-planner-golden-spl",
+        name="Planner Golden SPL",
+        slug="planner-golden",
+        settings={"family": "andritz"},
+    )
     db_session.add(workspace)
     db_session.commit()
     spl_collection = create_collection(db_session, workspace=workspace, name="Dense SPL")
@@ -1109,7 +1121,12 @@ def test_large_collection_balanced_scopes_project_code_from_document_names(db_se
     """
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
-    workspace = Workspace(id="ws-planner-large-docnames", name="Planner Large DocNames", slug="planner-large-docnames")
+    workspace = Workspace(
+        id="ws-planner-large-docnames",
+        name="Planner Large DocNames",
+        slug="planner-large-docnames",
+        settings={"family": "andritz"},
+    )
     db_session.add(workspace)
     db_session.commit()
     collection = create_collection(db_session, workspace=workspace, name="Dense SPL DocNames")
@@ -1157,6 +1174,7 @@ def test_large_collection_validates_bare_numeric_project_from_source_metadata(
         id="ws-planner-numeric5",
         name="Planner numeric5",
         slug="planner-numeric5",
+        settings={"family": "andritz"},
     )
     db_session.add(workspace)
     db_session.flush()
@@ -1302,7 +1320,12 @@ def test_deep_planner_bounds_large_collection_ledger_load(db_session, monkeypatc
     """
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
-    workspace = Workspace(id="ws-deep-bound", name="Deep Bound", slug="deep-bound")
+    workspace = Workspace(
+        id="ws-deep-bound",
+        name="Deep Bound",
+        slug="deep-bound",
+        settings={"family": "andritz"},
+    )
     db_session.add(workspace)
     db_session.commit()
 

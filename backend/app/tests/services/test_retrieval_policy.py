@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
+from app.services.rag.project_references import ANDRITZ_PROJECT_SCHEME, bind_project_reference_scheme
 from app.services.rag.corpus_planner import (
     _fast_ledger_candidate_rows,
     _infer_filters,
@@ -19,6 +22,13 @@ from app.services.rag.retrieval_policy import (
     score_result_with_policy,
 )
 from app.services.rag.source_facets import score_source_family_match
+
+
+@pytest.fixture
+def andritz_project_scheme():
+    with bind_project_reference_scheme(ANDRITZ_PROJECT_SCHEME):
+        yield
+
 
 POLICY_GUIDE = SimpleNamespace(
     markdown="""# Guide
@@ -191,7 +201,7 @@ def _ledger_row(filename: str, project_code: str):
     )
 
 
-def test_broad_project_scope_falls_back_when_code_not_an_indexed_project_code():
+def test_broad_project_scope_falls_back_when_code_not_an_indexed_project_code(andritz_project_scheme):
     # Regression guard (CU250S-2): the query code appears only inside filenames;
     # the documents carry a *parent* project_code in metadata. A project_code
     # filter built from the query code would match zero chunks in Qdrant and trip
@@ -210,7 +220,7 @@ def test_broad_project_scope_falls_back_when_code_not_an_indexed_project_code():
     assert confidence > 0.0
 
 
-def test_broad_project_scope_keeps_real_indexed_project_code():
+def test_broad_project_scope_keeps_real_indexed_project_code(andritz_project_scheme):
     # A genuine project question (AKK200 is itself an indexed project_code) keeps
     # the broad project_code scope so dense ranking can surface content-bearing
     # documents the filename allowlist would otherwise drop.
@@ -225,7 +235,7 @@ def test_broad_project_scope_keeps_real_indexed_project_code():
     assert filters.get("project_code") == ["AKK200"]
 
 
-def test_corpus_planner_uses_authoritative_numeric_project_metadata():
+def test_corpus_planner_uses_authoritative_numeric_project_metadata(andritz_project_scheme):
     rows = [
         _ledger_row("needlepunch__61038__manual.pdf", project_code="61038"),
         _ledger_row("needlepunch__61001__manual.pdf", project_code="61001"),
@@ -238,7 +248,7 @@ def test_corpus_planner_uses_authoritative_numeric_project_metadata():
     assert "project_code=61038" in reasons
 
 
-def test_corpus_planner_does_not_promote_part_or_measurement_references():
+def test_corpus_planner_does_not_promote_part_or_measurement_references(andritz_project_scheme):
     rows = [
         _ledger_row("needlepunch__61038__TTN17829J.pdf", project_code="61038"),
         _ledger_row("needlepunch__61001__V10234.pdf", project_code="61001"),
@@ -249,7 +259,23 @@ def test_corpus_planner_does_not_promote_part_or_measurement_references():
         assert "project_code" not in filters, query
 
 
-def test_corpus_planner_does_not_self_authorise_numeric_machine_metadata():
+def test_generic_scheme_does_not_infer_andritz_project_code_from_filename():
+    row = SimpleNamespace(
+        filename="Manual_BBA120.pdf",
+        normalized_name="Manual_BBA120.pdf",
+        source_kind="pdf",
+        extension="pdf",
+        mime_type="application/pdf",
+        chunk_count=1,
+        source_metadata={},
+    )
+
+    filters, _, _ = _infer_filters("résume le projet BBA120", [row])
+
+    assert "project_code" not in filters
+
+
+def test_corpus_planner_does_not_self_authorise_numeric_machine_metadata(andritz_project_scheme):
     row = SimpleNamespace(
         filename="machine__61038__manual.pdf",
         normalized_name="machine__61038__manual.pdf",
@@ -265,7 +291,7 @@ def test_corpus_planner_does_not_self_authorise_numeric_machine_metadata():
     assert "project_code" not in filters
 
 
-def test_policy_adds_dynamic_project_reference_variants():
+def test_policy_adds_dynamic_project_reference_variants(andritz_project_scheme):
     policy = retrieval_policy_from_guides([POLICY_GUIDE])
 
     variants = query_variants_from_policy("Liste de garniture du projet COL100", policy)
@@ -347,7 +373,7 @@ def test_policy_can_request_clarification_for_broad_configured_facet():
     assert clarification["facet"] == "sensor"
 
 
-def test_policy_filters_other_projects_when_exact_project_reference_missing():
+def test_policy_filters_other_projects_when_exact_project_reference_missing(andritz_project_scheme):
     policy = retrieval_policy_from_guides([POLICY_GUIDE])
 
     chunks, scores, metadatas, constraints = filter_aligned_to_required_terms(
@@ -366,7 +392,7 @@ def test_policy_filters_other_projects_when_exact_project_reference_missing():
     assert constraints["filtered_chunks_removed"] == 2
 
 
-def test_policy_filters_needlepunch_project_by_exact_numeric_code():
+def test_policy_filters_needlepunch_project_by_exact_numeric_code(andritz_project_scheme):
     policy = retrieval_policy_from_guides([POLICY_GUIDE])
 
     chunks, scores, metadatas, constraints = filter_aligned_to_required_terms(
@@ -383,7 +409,7 @@ def test_policy_filters_needlepunch_project_by_exact_numeric_code():
     assert constraints["required_terms"] == ["61038"]
 
 
-def test_policy_recognises_bare_numeric_only_from_candidate_project_codes():
+def test_policy_recognises_bare_numeric_only_from_candidate_project_codes(andritz_project_scheme):
     policy = retrieval_policy_from_guides([POLICY_GUIDE])
 
     chunks, _, metadatas, constraints = filter_aligned_to_required_terms(
@@ -399,7 +425,7 @@ def test_policy_recognises_bare_numeric_only_from_candidate_project_codes():
     assert constraints["required_terms"] == ["61038"]
 
 
-def test_cross_project_log_only_reports_without_filtering():
+def test_cross_project_log_only_reports_without_filtering(andritz_project_scheme):
     from dataclasses import replace
 
     policy = replace(
@@ -460,10 +486,13 @@ def test_machine_reference_extraction_excludes_project_code():
     from app.services.secure_deposit import _extract_machine_reference
 
     assert _extract_machine_reference(
-        "NU1569/BBA120/manual.pdf", exclude="NU1569"
+        "NU1569/BBA120/manual.pdf", exclude="NU1569", scheme="andritz"
     ) == {"machine": "BBA120"}
-    assert _extract_machine_reference("NU1569/manual.pdf", exclude="NU1569") == {}
-    assert _extract_machine_reference(None) == {}
+    assert _extract_machine_reference(
+        "NU1569/manual.pdf", exclude="NU1569", scheme="andritz"
+    ) == {}
+    assert _extract_machine_reference(None, scheme="andritz") == {}
+    assert _extract_machine_reference("NU1569/BBA120/manual.pdf", exclude="NU1569") == {}
 
 
 # --- Document-discovery intent detection -----------------------------------

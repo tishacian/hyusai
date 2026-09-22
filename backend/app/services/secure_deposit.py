@@ -48,7 +48,9 @@ from app.services.object_store import get_object_store
 from app.services.rag.document_service import DocumentService
 from app.services.rag.project_references import (
     LEGACY_PROJECT_REFERENCE_RE,
+    andritz_project_scheme_active,
     derive_project_reference,
+    using_workspace_project_scheme,
 )
 from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.worker_dispatch import dispatch_worker_job
@@ -778,19 +780,29 @@ def _archive_document_name(
     return _unique_archive_name(_bounded_archive_document_name(flattened), used)
 
 
-def _extract_andritz_project_reference(*values: str | None) -> dict[str, str]:
+def _extract_andritz_project_reference(
+    *values: str | None,
+    scheme: str | None = None,
+) -> dict[str, str]:
     """Compatibility wrapper around the canonical source-aware resolver."""
 
-    return derive_project_reference(*values)
+    return derive_project_reference(*values, scheme=scheme)
 
 
-def _extract_machine_reference(*values: str | None, exclude: str | None = None) -> dict[str, str]:
+def _extract_machine_reference(
+    *values: str | None,
+    exclude: str | None = None,
+    scheme: str | None = None,
+) -> dict[str, str]:
     """First series reference (e.g. BBA120) distinct from the project code.
 
     Conservative on purpose: archive paths usually carry the machine/series as
     a second alphanum reference next to the project code; anything fuzzier
-    belongs in a knowledge guide, not in payload metadata.
+    belongs in a knowledge guide, not in payload metadata.  The series grammar
+    is Andritz-only; other workspaces fail closed.
     """
+    if not andritz_project_scheme_active(scheme):
+        return {}
     for value in values:
         for match in LEGACY_PROJECT_REFERENCE_RE.finditer(str(value or "")):
             reference = f"{match.group(1).upper()}{match.group(2)}{(match.group(3) or '').upper()}"
@@ -827,6 +839,7 @@ def _archive_document_metadata(
     document_name: str,
     extension: str | None,
     source_deposit_file_id: str | None = None,
+    scheme: str | None = None,
 ) -> dict[str, Any]:
     archive_name = PurePosixPath(str(deposit_filename or "")).name if deposit_filename else None
     metadata: dict[str, Any] = {
@@ -837,13 +850,21 @@ def _archive_document_metadata(
         "source_deposit_file_id": source_deposit_file_id,
         "inner_document_path": archive_path,
     }
-    metadata.update(derive_project_reference(deposit_filename, archive_path, document_name))
+    metadata.update(
+        derive_project_reference(
+            deposit_filename,
+            archive_path,
+            document_name,
+            scheme=scheme,
+        )
+    )
     if archive_path:
         metadata.update(
             _extract_machine_reference(
                 archive_path,
                 document_name,
                 exclude=str(metadata.get("project_code") or "") or None,
+                scheme=scheme,
             )
         )
     return {key: value for key, value in metadata.items() if value is not None}
@@ -1888,6 +1909,24 @@ async def promote_file_to_collection(
     user: User,
     collection_slug: str,
 ) -> DepositFile:
+    with using_workspace_project_scheme(workspace):
+        return await _promote_file_to_collection(
+            db,
+            deposit_file=deposit_file,
+            workspace=workspace,
+            user=user,
+            collection_slug=collection_slug,
+        )
+
+
+async def _promote_file_to_collection(
+    db: DBSession,
+    *,
+    deposit_file: DepositFile,
+    workspace: Workspace,
+    user: User,
+    collection_slug: str,
+) -> DepositFile:
     if deposit_file.workspace_id != workspace.id:
         raise HTTPException(status_code=404, detail="Deposit file not found")
     if deposit_file.status != "received":
@@ -2112,6 +2151,24 @@ def promote_files_to_collection_batch(
     Dispatching one job per deposit file would therefore re-ingest the same
     growing collection repeatedly.
     """
+    with using_workspace_project_scheme(workspace):
+        return _promote_files_to_collection_batch(
+            db,
+            deposit_files=deposit_files,
+            workspace=workspace,
+            user=user,
+            collection_slug=collection_slug,
+        )
+
+
+def _promote_files_to_collection_batch(
+    db: DBSession,
+    *,
+    deposit_files: list[DepositFile],
+    workspace: Workspace,
+    user: User,
+    collection_slug: str,
+) -> dict[str, Any]:
     if len(deposit_files) > _BULK_PROMOTION_MAX_FILES:
         raise HTTPException(
             status_code=422,

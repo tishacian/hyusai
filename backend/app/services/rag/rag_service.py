@@ -138,6 +138,41 @@ async def answer(
     except Exception as exc:  # noqa: BLE001 - the orchestrator still applies the same policy before search.
         logger.warning("rag_service.answer: retrieval budget preflight failed", error=str(exc))
 
+    from app.services.rag.project_references import using_workspace_id_project_scheme
+
+    try:
+        with using_workspace_id_project_scheme(workspace_id):
+            return await _answer_with_orchestrator(
+                orchestrator,
+                request_dict,
+                rag_mode_override=rag_mode_override,
+                prompt_type=prompt_type,
+                token_sink=token_sink,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("rag_service.answer: orchestrator stream failed", error=str(exc))
+        return {
+            "id": None,
+            "answer": "",
+            "citations": [],
+            "reasoning_trace": None,
+            "decision_steps": [],
+            "meta": {
+                "rag_mode": rag_mode_override,
+                "prompt_type": prompt_type,
+                "error": str(exc),
+            },
+        }
+
+
+async def _answer_with_orchestrator(
+    orchestrator,
+    request_dict: Dict[str, Any],
+    *,
+    rag_mode_override: Optional[str],
+    prompt_type: Optional[str],
+    token_sink: Optional[Callable[[str], None]],
+) -> Dict[str, Any]:
     text_parts: List[str] = []
     reasoning_trace: Any = None
     sources: Any = None

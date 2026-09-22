@@ -116,19 +116,23 @@ def test_prioritise_exact_project_reference_matches_before_near_codes():
 
 
 def test_project_ranking_resolver_distinguishes_needlepunch_from_part_references():
-    assert _query_project_references("résume le projet 61038") == ["61038"]
-    assert _query_project_references("61038", known_codes={"61038"}) == ["61038"]
-    assert _query_project_references("notice TTN17829J") == []
-    assert _query_project_references("variante V10234") == []
-    assert _query_project_references("vitesse 10000 rpm", known_codes={"10000"}) == []
+    assert _query_project_references("résume le projet 61038", scheme="andritz") == ["61038"]
+    assert _query_project_references("61038", known_codes={"61038"}, scheme="andritz") == ["61038"]
+    assert _query_project_references("notice TTN17829J", scheme="andritz") == []
+    assert _query_project_references("variante V10234", scheme="andritz") == []
+    assert _query_project_references("vitesse 10000 rpm", known_codes={"10000"}, scheme="andritz") == []
     # A digit-first part number is exact-rankable but never a project identity.
-    assert _query_project_references("la toile 2310PW") == []
+    assert _query_project_references("la toile 2310PW", scheme="andritz") == []
+    assert _query_project_references("résume le projet 61038") == []
 
 
 def test_query_exact_references_accepts_digit_first_part_numbers():
     assert _query_exact_references("la toile du convoyeur J1 est la 2310PW") == ["2310PW"]
     assert _query_exact_references("on monte la 2030B puis la 2040B") == ["2030B", "2040B"]
-    assert _query_exact_references("notice AVA200 pour la 7310D") == ["AVA200", "7310D"]
+    assert _query_exact_references("notice AVA200 pour la 7310D", scheme="andritz") == [
+        "AVA200",
+        "7310D",
+    ]
 
 
 def test_query_exact_references_rejects_measurements_years_and_page_numbers():
@@ -183,7 +187,10 @@ def test_prioritise_exact_needlepunch_project_metadata():
         },
     ]
 
-    out = _prioritise_exact_project_reference_matches(rows, "résume 61038")
+    from app.services.rag.project_references import bind_project_reference_scheme
+
+    with bind_project_reference_scheme("andritz"):
+        out = _prioritise_exact_project_reference_matches(rows, "résume 61038")
 
     assert out[0]["metadata"]["project_code"] == "61038"
 

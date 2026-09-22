@@ -31,6 +31,11 @@ from app.services.knowledge_collections import (
     update_collection_status,
 )
 from app.services.object_store import get_object_store
+from app.services.rag.project_references import (
+    derive_project_reference,
+    project_reference_scheme,
+    using_workspace_project_scheme,
+)
 from app.services.secure_deposit import (
     _read_supported_archive_documents,
     _unique_archive_name,
@@ -152,13 +157,9 @@ def _normalize_project_token(token: str) -> str:
     return re.sub(r"[\s_]+", "", (token or "").upper())
 
 
-def _project_code_from_filename(filename: str) -> str | None:
+def _project_code_from_filename(filename: str, *, scheme: str | None = None) -> str | None:
     name = (filename or "").split("/")[-1]
-    stem = name.rsplit(".", 1)[0] if "." in name else name
-    match = re.search(r"([A-Z]{3})[\s_]?(\d{2,4})", stem.upper())
-    if not match:
-        return None
-    return f"{match.group(1)}{match.group(2)}"
+    return derive_project_reference(name, scheme=scheme).get("project_code") or None
 
 
 def get_wave_ledger(workspace: Workspace, *, collection_slug: str) -> dict[str, Any]:
@@ -211,8 +212,9 @@ def resolve_archives_for_projects(
 ) -> list[str]:
     tokens = {_normalize_project_token(token) for token in projects if token}
     matches: list[tuple[float, str]] = []
+    scheme = project_reference_scheme(workspace)
     for row in list_spl_zip_deposits(db, workspace_id=workspace.id):
-        code = _project_code_from_filename(str(row.filename or ""))
+        code = _project_code_from_filename(str(row.filename or ""), scheme=scheme)
         if not code:
             continue
         if _normalize_project_token(code) not in tokens:
@@ -715,6 +717,28 @@ def copy_collection_documents(
 
 
 def execute_wave_plan(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    plan: WavePlan,
+    allow_repromote: bool = True,
+    limits: WaveLimits | None = None,
+    document_ocr: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    with using_workspace_project_scheme(workspace):
+        return _execute_wave_plan(
+            db,
+            workspace=workspace,
+            user=user,
+            plan=plan,
+            allow_repromote=allow_repromote,
+            limits=limits,
+            document_ocr=document_ocr,
+        )
+
+
+def _execute_wave_plan(
     db: DBSession,
     *,
     workspace: Workspace,

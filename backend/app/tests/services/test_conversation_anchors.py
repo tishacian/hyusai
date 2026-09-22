@@ -6,6 +6,9 @@ from app.services.rag.conversation_anchors import (
     line_position_terms,
     session_document_anchors,
 )
+from app.services.rag.project_references import ANDRITZ_PROJECT_SCHEME, bind_project_reference_scheme
+
+ANDRITZ = ANDRITZ_PROJECT_SCHEME
 
 
 def test_line_position_terms_separate_stations_from_machine_and_part_numbers():
@@ -62,6 +65,7 @@ def test_extract_salient_entities_finds_references_and_documents():
     entities = extract_salient_entities(
         "Quelle est la procédure de maintenance pour AKK200 ?",
         "Voir spare part list ACO150.pdf, machine BBA 120.",
+        scheme=ANDRITZ,
     )
     assert "AKK200" in entities["references"]
     assert "ACO150" in entities["references"]
@@ -70,7 +74,7 @@ def test_extract_salient_entities_finds_references_and_documents():
 
 
 def test_extract_salient_entities_finds_contextual_needlepunch_reference():
-    entities = extract_salient_entities("Résume le projet 61038")
+    entities = extract_salient_entities("Résume le projet 61038", scheme=ANDRITZ)
 
     assert entities["references"] == ["61038"]
 
@@ -80,6 +84,7 @@ def test_extract_salient_entities_rejects_french_article_measurement():
         "Résume le projet 61035",
         "Le remplacement est recommandé tous les 16 000 heures [1].",
         "TTN17829J.pdf",
+        scheme=ANDRITZ,
     )
 
     assert entities == {
@@ -90,7 +95,7 @@ def test_extract_salient_entities_rejects_french_article_measurement():
 
 
 def test_extract_salient_entities_preserves_real_legacy_reference():
-    entities = extract_salient_entities("Résume BAO100", "Voir TTN17829J.pdf")
+    entities = extract_salient_entities("Résume BAO100", "Voir TTN17829J.pdf", scheme=ANDRITZ)
 
     assert entities["references"] == ["BAO100"]
     assert any("TTN17829J.pdf" in document for document in entities["documents"])
@@ -122,6 +127,11 @@ def test_history_augmented_query_uses_precomputed_entities():
 
 
 def test_history_augmented_query_falls_back_to_history_scan():
+    with bind_project_reference_scheme(ANDRITZ):
+        _assert_history_augmented_query_falls_back_to_history_scan()
+
+
+def _assert_history_augmented_query_falls_back_to_history_scan():
     request = {
         "query": "et pour celle-ci ?",
         "context": {
@@ -145,7 +155,8 @@ def test_history_augmented_query_skips_when_query_has_own_reference():
             "salient_entities": {"references": ["AKK200"], "documents": []},
         },
     }
-    assert _history_augmented_query(request) == "et pour ACO150, même question ?"
+    with bind_project_reference_scheme(ANDRITZ):
+        assert _history_augmented_query(request) == "et pour ACO150, même question ?"
 
 
 def test_history_augmented_query_keeps_numeric_project_for_possessive_followup():
@@ -168,6 +179,7 @@ def test_history_augmented_query_does_not_carry_measurement_as_reference():
     entities = extract_salient_entities(
         "Résume le projet 61035",
         "La périodicité indiquée est de tous les 16 000 heures [1].",
+        scheme=ANDRITZ,
     )
     request = {
         "query": "Et ses pièces ?",
@@ -202,7 +214,17 @@ def test_history_augmented_query_untouched_without_followup_signal():
 
 
 def test_has_reference():
-    assert has_reference("voir ACO150 svp")
-    assert has_reference("résume 61038")
-    assert not has_reference("vitesse 10000 rpm")
-    assert not has_reference("et pour cette machine ?")
+    assert has_reference("voir ACO150 svp", scheme=ANDRITZ)
+    assert has_reference("résume 61038", scheme=ANDRITZ)
+    assert not has_reference("vitesse 10000 rpm", scheme=ANDRITZ)
+    assert not has_reference("et pour cette machine ?", scheme=ANDRITZ)
+
+
+def test_andritz_references_are_not_anchors_without_scheme():
+    entities = extract_salient_entities(
+        "Quelle est la procédure de maintenance pour AKK200 ?",
+        "Voir spare part list ACO150.pdf, machine BBA 120.",
+    )
+    assert entities["references"] == []
+    assert not has_reference("voir ACO150 svp")
+    assert not has_reference("résume le projet BBA120")

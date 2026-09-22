@@ -67,6 +67,7 @@ from app.db.base import SessionLocal
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import normalize_source_name
+from app.services.rag.project_references import using_workspace_project_scheme
 from app.services.secure_deposit import _extract_andritz_project_reference
 
 # Reuse the reconcile script's Qdrant plumbing verbatim so collection
@@ -513,20 +514,21 @@ def main() -> None:
                 f"=== project_code backfill [{mode}/{target}] workspace={workspace.slug} "
                 f"collections={len(collections)} ==="
             )
-            for collection in collections:
-                if args.qdrant:
-                    result = qdrant_fill_collection(client, collection, args.apply)
-                    for key in (
-                        "blank_docs", "blank_points", "fill_docs", "fill_points",
-                        "no_code_docs", "no_code_points", "flagged_docs",
-                    ):
-                        totals[key] += result[key]
-                    _print_qdrant_result(result, args.apply)
-                else:
-                    result = backfill_collection(db, client, collection, args.apply)
-                    for key in ("blank", "fill_qdrant", "fill_path", "no_code", "conflict", "disagree", "blank_after"):
-                        totals[key] += result[key]
-                    _print_result(result, args.apply)
+            with using_workspace_project_scheme(workspace):
+                for collection in collections:
+                    if args.qdrant:
+                        result = qdrant_fill_collection(client, collection, args.apply)
+                        for key in (
+                            "blank_docs", "blank_points", "fill_docs", "fill_points",
+                            "no_code_docs", "no_code_points", "flagged_docs",
+                        ):
+                            totals[key] += result[key]
+                        _print_qdrant_result(result, args.apply)
+                    else:
+                        result = backfill_collection(db, client, collection, args.apply)
+                        for key in ("blank", "fill_qdrant", "fill_path", "no_code", "conflict", "disagree", "blank_after"):
+                            totals[key] += result[key]
+                        _print_result(result, args.apply)
 
         if args.qdrant:
             print(
