@@ -616,6 +616,7 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'help-guide', parent: 'work', route: '/help/:guideId', label: 'Help guide' },
   { id: 'work-getting-started', parent: 'work', route: '/work/getting-started', label: 'Getting started' },
   { id: 'work-pr-to-po', parent: 'work', route: '/work/pr-to-po', label: 'PR to PO Studio' },
+  { id: 'work-automation', parent: 'work', route: '/work/automation/:systemId', label: 'Published automation' },
   { id: 'work-page', parent: 'work', route: '/work/:slug/:pageId', label: 'Work page' },
   { id: 'connector-models-redirect', parent: 'resources', route: '/connectors/models', label: 'Models & providers redirect' },
   { id: 'governance-audit', parent: 'governance', route: '/governance/audit', label: 'Audit' },

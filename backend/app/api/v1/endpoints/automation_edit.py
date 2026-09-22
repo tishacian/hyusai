@@ -15,6 +15,7 @@ from app.api.v1.endpoints.systems import (
     _actor_display_name,
     _enforce_system_admin,
     _enforce_system_read,
+    _enforce_system_run_authority,
 )
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
@@ -28,7 +29,11 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import automation_edit, automation_portfolio
 from app.services.model_plane.workspace_config import get_routing
-from app.services.systems.preparation_diagnostic import preparation_diagnostic
+from app.services.systems.preparation_diagnostic import (
+    caller_run_right,
+    preparation_diagnostic,
+    provider_name,
+)
 from app.services.model_plane.execution import (
     ModelExecutionError,
     complete_model,
@@ -338,8 +343,22 @@ async def automation_preparation(
     )
     flow = draft.flow_definition if draft is not None and isinstance(draft.flow_definition, dict) else system.flow_definition
     routing = get_routing(workspace)
-    provider = routing.get("default_provider") if routing.get("source") == "workspace" else None
+    try:
+        _enforce_system_run_authority(
+            db,
+            user=user,
+            workspace=workspace,
+            system=system,
+            execution_source="systems_run_api",
+            # Same live policy as a run. An empty contract skips the publication
+            # row lock, which a preparation read must not take.
+            execution_contract={},
+        )
+        authority_status = None
+    except HTTPException as exc:
+        authority_status = exc.status_code
     return preparation_diagnostic(
         flow if isinstance(flow, dict) else None,
-        provider=provider if isinstance(provider, str) and provider else None,
+        provider=provider_name(routing),
+        caller_can_run=caller_run_right(authority_status),
     )

@@ -35,6 +35,32 @@ def _row(name: str, status: str, detail: str | None = None) -> dict[str, Any]:
     return {"name": name, "status": status, "detail": detail}
 
 
+def provider_name(routing: Mapping[str, Any] | None) -> str | None:
+    """The provider ``get_routing`` named. An empty name was not a check."""
+
+    if not isinstance(routing, Mapping):
+        return None
+    provider = routing.get("default_provider")
+    if isinstance(provider, str) and provider.strip():
+        return provider.strip()
+    return None
+
+
+def caller_run_right(status_code: int | None) -> bool | None:
+    """Map the run authority onto the rights check.
+
+    ``None`` means the authority allowed this caller. ``403`` is a refusal.
+    Any other status did not answer the rights question, so the check stays
+    unperformed.
+    """
+
+    if status_code is None:
+        return True
+    if status_code == 403:
+        return False
+    return None
+
+
 def preparation_diagnostic(
     flow: Mapping[str, Any] | None,
     *,
