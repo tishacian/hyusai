@@ -126,7 +126,13 @@ def test_build_wave_plan_dry_run(db_session, monkeypatch, tmp_path):
     from app.models.workspace import Workspace
     from app.services.secure_deposit import create_link
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(
+        id="ws-andritz",
+        name="Andritz",
+        slug="andritz",
+        # The stamped family, not the slug, is what arms the identifier grammar.
+        settings={"family": "andritz", "features": {"secure_deposit": True}},
+    )
     user = __import__("app.models.user", fromlist=["User"]).User(
         id="user-1",
         username="thib",
@@ -185,7 +191,13 @@ def test_build_v2_wave_plans_splits_akk200(db_session, monkeypatch, tmp_path):
     from app.models.workspace import Workspace
     from app.services.secure_deposit import create_link
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(
+        id="ws-andritz",
+        name="Andritz",
+        slug="andritz",
+        # The stamped family, not the slug, is what arms the identifier grammar.
+        settings={"family": "andritz", "features": {"secure_deposit": True}},
+    )
     user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
@@ -255,7 +267,13 @@ def test_build_wave_plan_allows_solo_archive_over_wave_doc_limit(db_session, mon
     from app.models.workspace import Workspace
     from app.services.secure_deposit import create_link
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(
+        id="ws-andritz",
+        name="Andritz",
+        slug="andritz",
+        # The stamped family, not the slug, is what arms the identifier grammar.
+        settings={"family": "andritz", "features": {"secure_deposit": True}},
+    )
     user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
@@ -316,7 +334,13 @@ def test_build_v3_wave_plans_isolates_large_archive(db_session, monkeypatch, tmp
     from app.services.secure_deposit import create_link
     from app.services.spl_wave_importer import record_wave_ledger
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(
+        id="ws-andritz",
+        name="Andritz",
+        slug="andritz",
+        # The stamped family, not the slug, is what arms the identifier grammar.
+        settings={"family": "andritz", "features": {"secure_deposit": True}},
+    )
     user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
@@ -422,7 +446,13 @@ def test_build_v3_archive_wave_plan_targets_exact_archive(db_session, monkeypatc
     from app.services.secure_deposit import create_link
     from app.services.spl_wave_importer import record_wave_ledger
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(
+        id="ws-andritz",
+        name="Andritz",
+        slug="andritz",
+        # The stamped family, not the slug, is what arms the identifier grammar.
+        settings={"family": "andritz", "features": {"secure_deposit": True}},
+    )
     user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
@@ -522,7 +552,13 @@ def test_v3_archive_wave_prefers_received_duplicate_over_rejected(db_session, mo
         lambda _db, job: setattr(job, "celery_task_id", "fake-task-id") or "fake-task-id",
     )
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(
+        id="ws-andritz",
+        name="Andritz",
+        slug="andritz",
+        # The stamped family, not the slug, is what arms the identifier grammar.
+        settings={"family": "andritz", "features": {"secure_deposit": True}},
+    )
     user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
@@ -706,7 +742,13 @@ def test_execute_wave_plan_collision_guard_no_clobber(db_session, monkeypatch, t
         lambda _db, _job: "fake-task-id",
     )
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(
+        id="ws-andritz",
+        name="Andritz",
+        slug="andritz",
+        # The stamped family, not the slug, is what arms the identifier grammar.
+        settings={"family": "andritz", "features": {"secure_deposit": True}},
+    )
     user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()
@@ -809,7 +851,13 @@ def test_execute_wave_plan_reindexes_existing_archive_documents(db_session, monk
         lambda _db, job: setattr(job, "celery_task_id", "fake-task-id") or "fake-task-id",
     )
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(
+        id="ws-andritz",
+        name="Andritz",
+        slug="andritz",
+        # The stamped family, not the slug, is what arms the identifier grammar.
+        settings={"family": "andritz", "features": {"secure_deposit": True}},
+    )
     user = User(id="user-1", username="thib", email="operator@example.test")
     db_session.add_all([workspace, user])
     db_session.flush()

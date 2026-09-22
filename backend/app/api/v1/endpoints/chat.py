@@ -98,10 +98,18 @@ from app.services.workspace_maps import handle_map_chat_query
 logger = get_logger(__name__)
 
 
-def _bind_workspace_project_scheme(
+async def _bind_workspace_project_scheme(
     workspace: Workspace = Depends(get_current_workspace),
 ):
-    """Keep Andritz identifier grammar off unless this workspace is Andritz."""
+    """Keep Andritz identifier grammar off unless this workspace is Andritz.
+
+    Async on purpose, and it is not a style preference. FastAPI runs a *sync*
+    generator dependency through a threadpool: the ContextVar is set in one
+    worker thread and reset in another, so the endpoint never observes the
+    bind and the teardown raises "Token was created in a different Context".
+    An async generator runs in the request's own task, which is the only form
+    that makes a ContextVar bind visible downstream.
+    """
     with using_workspace_project_scheme(workspace):
         yield
 

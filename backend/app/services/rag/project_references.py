@@ -27,10 +27,18 @@ ANDRITZ_PROJECT_SCHEME = "andritz"
 NEEDLEPUNCH_DEPOSIT_PREFIX = "Notices_Techniques_Needlepunch"
 
 # Missed bind must never revive the Andritz grammar for another tenant.
+#
+# The default is a sentinel, not the empty string, so the two situations stay
+# distinguishable: "this tenant is not Andritz" is a normal answer, while
+# "nobody bound a scheme on this path" is a bug that silently disables project
+# scoping for the one customer that depends on it. Both fail closed; only the
+# second is reported.
+_UNBOUND_SCHEME = "\x00unbound"
 _PROJECT_REFERENCE_SCHEME: ContextVar[str] = ContextVar(
     "project_reference_scheme",
-    default="",
+    default=_UNBOUND_SCHEME,
 )
+_unbound_call_count = 0
 
 # Kept public so metadata helpers that look for a *second* machine reference
 # can share the exact legacy grammar without defining a competing regex.
@@ -94,13 +102,52 @@ def project_reference_scheme(workspace: Any) -> str:
 
 
 def current_project_reference_scheme() -> str:
-    return _PROJECT_REFERENCE_SCHEME.get()
+    """The bound scheme, or empty when nothing bound one."""
+
+    raw = _PROJECT_REFERENCE_SCHEME.get()
+    return "" if raw == _UNBOUND_SCHEME else raw
+
+
+def project_reference_unbound_calls() -> int:
+    """How many parses ran on a path that bound no scheme, since import."""
+
+    return _unbound_call_count
+
+
+def reset_project_reference_unbound_calls() -> None:
+    global _unbound_call_count
+    _unbound_call_count = 0
+
+
+def _report_unbound_call() -> None:
+    """A parse with no bind is a missing call site, and it is silent otherwise.
+
+    Failing closed protects other tenants, but it also turns off project
+    scoping for Andritz with no filter, no inventory, no comparative
+    decomposition and no error. Counting it makes that alertable; the log is
+    rate limited because a hot path must not become a log flood.
+    """
+
+    global _unbound_call_count
+    _unbound_call_count += 1
+    if _unbound_call_count == 1 or _unbound_call_count % 500 == 0:
+        from app.core.logging import get_logger
+
+        get_logger(__name__).warning(
+            "Project reference parsed with no bound scheme; "
+            "the call site is missing a workspace bind",
+            unbound_calls=_unbound_call_count,
+        )
 
 
 def _active_scheme(scheme: str | None) -> str:
     if scheme is not None:
         return str(scheme)
-    return current_project_reference_scheme()
+    raw = _PROJECT_REFERENCE_SCHEME.get()
+    if raw == _UNBOUND_SCHEME:
+        _report_unbound_call()
+        return ""
+    return raw
 
 
 def andritz_project_scheme_active(scheme: str | None = None) -> bool:
@@ -384,6 +431,8 @@ __all__ = [
     "andritz_project_scheme_active",
     "bind_project_reference_scheme",
     "current_project_reference_scheme",
+    "project_reference_unbound_calls",
+    "reset_project_reference_unbound_calls",
     "derive_project_reference",
     "extract_query_project_codes",
     "numeric_project_candidates",
