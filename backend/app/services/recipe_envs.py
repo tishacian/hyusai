@@ -362,7 +362,14 @@ def _claim_env_build(db: DBSession, env_id: str) -> Optional[PythonEnv]:
             message="The Python environment no longer exists.",
             status_code=404,
         )
-    if env.status in {"pending", "evicted", "failed"}:
+    claimable = env.status in {"pending", "evicted", "failed"}
+    # A row can say "ready" while its directory is gone: the worker restarted
+    # on an ephemeral cache, or this replica never built it. The interpreter on
+    # disk is the truth, and the row is only a record of it, so treat that case
+    # as evicted and rebuild rather than launch something that is not there.
+    if not claimable and env.status == "ready":
+        claimable = not env_python(env.workspace_id, env.fingerprint).exists()
+    if claimable:
         env.status = "building"
         env.build_error = None
         db.commit()
@@ -378,13 +385,28 @@ def build_env(db: DBSession, env_id: str) -> PythonEnv:
     Concurrency: the first caller claims ``building`` under a row lock and
     performs the pip work; concurrent callers wait on the status. A crashed
     builder leaves ``building`` behind — the waiter times out and the sweep /
-    next explicit build reclaims it via ``reclaim_stale_builds``.
+    next explicit build reclaims it via ``reclaim_stale_builds``. A waiter that
+    settles on a ``ready`` row it cannot see on disk claims once more and
+    builds its own copy.
     """
 
     claimed = _claim_env_build(db, env_id)
-    if claimed is None:
-        return _wait_for_env(db, env_id)
-    return _perform_env_build(db, claimed)
+    if claimed is not None:
+        return _perform_env_build(db, claimed)
+
+    settled = _wait_for_env(db, env_id)
+    # The row is shared between workers; the cache underneath it need not be.
+    # A concurrent builder can settle the row "ready" from its own filesystem
+    # while this process still has nothing to run. Claim once more: the claim
+    # now treats a ready row with no interpreter as evicted, so this builds a
+    # local copy instead of waiting forever on someone else's.
+    if settled.status == "ready" and not env_python(
+        settled.workspace_id, settled.fingerprint
+    ).exists():
+        reclaimed = _claim_env_build(db, env_id)
+        if reclaimed is not None:
+            return _perform_env_build(db, reclaimed)
+    return settled
 
 
 def _wait_for_env(db: DBSession, env_id: str) -> PythonEnv:
