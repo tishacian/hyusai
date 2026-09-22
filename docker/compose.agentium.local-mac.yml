@@ -1,0 +1,29 @@
+# Mac GPU mode. Ollama 0.34 or newer runs on macOS, outside this Compose
+# project, so the M4 GPU is visible through Metal. A GGUF tag such as
+# qwen2.5:3b uses llama.cpp Metal. A safetensors tag uses Ollama's MLX
+# engine in the same process. Pull models with ./ollama-host-models.sh.
+# Do not combine this file with compose.agentium.local.yml.
+#
+#   docker compose -f compose.agentium.yml -f compose.agentium.local-storage.yml -f compose.agentium.local-mac.yml up -d
+services:
+  agentium-backend:
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:${AGENTIUM_OLLAMA_HOST_PORT:-11434}
+      DEFAULT_PROVIDER: ollama
+      OLLAMA_DEFAULT_MODEL: ${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen2.5:3b}
+      EMBEDDING_PROVIDER: ollama
+      EMBEDDING_MODEL: ${AGENTIUM_OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      EMBEDDING_DIMENSION: ${AGENTIUM_OLLAMA_EMBED_DIMENSION:-768}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  agentium-worker-cpu:
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:${AGENTIUM_OLLAMA_HOST_PORT:-11434}
+      DEFAULT_PROVIDER: ollama
+      OLLAMA_DEFAULT_MODEL: ${AGENTIUM_OLLAMA_CHAT_MODEL:-qwen2.5:3b}
+      EMBEDDING_PROVIDER: ollama
+      EMBEDDING_MODEL: ${AGENTIUM_OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      EMBEDDING_DIMENSION: ${AGENTIUM_OLLAMA_EMBED_DIMENSION:-768}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

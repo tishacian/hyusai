@@ -1,6 +1,7 @@
-# Nominal all-local models. Use with the base file. Does not replace the
-# model portal: a workspace can still route chat to OpenAI, Azure, Anthropic,
-# or a registered vLLM node.
+# Container mode. One Linux Ollama serves chat and embeddings. On a Mac that
+# process sees the ARM CPU. For the M4 GPU, use compose.agentium.local-mac.yml
+# instead, and do not combine the two files. The model portal can still route
+# a workspace to OpenAI, Azure, Anthropic, or a registered vLLM node.
 #
 #   docker compose -f compose.agentium.yml -f compose.agentium.local-storage.yml -f compose.agentium.local.yml up -d
 services:
