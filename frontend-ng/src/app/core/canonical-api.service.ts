@@ -2244,6 +2244,15 @@ export class CanonicalApiService {
     return this.api.post(`/systems/${encodeURIComponent(systemId)}/automation-turn`, { message });
   }
 
+  automationWorkJob(systemId: string): Observable<{
+    objective: { status?: string; text?: string | null };
+    convention: { status?: string; value_per_unit?: number | null; currency?: string | null; unit?: string | null };
+    gap: { status?: string };
+    proof: { run_id?: string } | null;
+  }> {
+    return this.api.get(`/systems/${encodeURIComponent(systemId)}/automation-work-job`);
+  }
+
   /** Execute the exact local Builder snapshot without saving it as a draft or
    * moving the published pointer. The server binds the request to the digest
    * returned by `validateSystemFlow`. */

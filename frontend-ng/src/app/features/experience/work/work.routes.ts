@@ -16,6 +16,11 @@ export const workRoutes: Routes = [
   },
   { path: 'pr-to-po/desk', redirectTo: 'pr-to-po', pathMatch: 'full' },
   {
+    path: 'automation/:systemId',
+    loadComponent: () =>
+      import('./work-automation.component').then((m) => m.WorkAutomationComponent),
+  },
+  {
     path: ':slug/:pageId',
     loadComponent: () =>
       import('./work-shell.component').then((m) => m.WorkShellComponent),

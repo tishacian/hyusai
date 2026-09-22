@@ -11,8 +11,16 @@ export type WorkResolveResult =
   | { kind: 'missing' }
   | { kind: 'unavailable' };
 
+export interface WorkAutomationJob {
+  job: { system_id: string; name?: string | null };
+  objective: { status?: string; text?: string | null };
+  convention: { status?: string; value_per_unit?: number | null; currency?: string | null; unit?: string | null };
+  gap: { status?: string };
+  proof: { run_id?: string; status?: string; sap?: { sealed?: boolean; called?: boolean } | null } | null;
+}
+
 export type WorkListResult =
-  | { kind: 'ok'; items: WorkCatalogItem[] }
+  | { kind: 'ok'; items: WorkCatalogItem[]; jobs: WorkAutomationJob[] }
   | { kind: 'unavailable' };
 
 export type WorkValidationsResult =
@@ -25,9 +33,24 @@ export class WorkApiService {
   private readonly canonical = inject(CanonicalApiService);
 
   listExperiences(): Observable<WorkListResult> {
-    return this.api.get<{ experiences: WorkCatalogItem[] }>('/work').pipe(
-      map((body) => ({ kind: 'ok' as const, items: body.experiences ?? [] })),
+    return this.api.get<{ experiences: WorkCatalogItem[]; automation_jobs?: WorkAutomationJob[] }>('/work').pipe(
+      map((body) => ({
+        kind: 'ok' as const,
+        items: body.experiences ?? [],
+        jobs: body.automation_jobs ?? [],
+      })),
       catchError(() => of({ kind: 'unavailable' as const })),
+    );
+  }
+
+  automation(systemId: string): Observable<WorkAutomationJob> {
+    return this.api.get<WorkAutomationJob>(`/work/automation-jobs/${encodeURIComponent(systemId)}`);
+  }
+
+  automationPackage(systemId: string, runId: string): Observable<Record<string, unknown>> {
+    return this.api.get<Record<string, unknown>>(
+      `/work/automation-jobs/${encodeURIComponent(systemId)}/package`,
+      { run_id: runId },
     );
   }
 

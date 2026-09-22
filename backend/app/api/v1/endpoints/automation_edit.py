@@ -6,19 +6,27 @@ import asyncio
 import copy
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session as DBSession
 
-from app.api.v1.endpoints.systems import _actor_display_name, _enforce_system_admin
+from app.api.v1.endpoints.capabilities import serialize_value_basis
+from app.api.v1.endpoints.systems import (
+    _actor_display_name,
+    _enforce_system_admin,
+    _enforce_system_read,
+)
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
+from app.models.capability import Capability
+from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.system_flow_draft import SystemFlowDraft
+from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import automation_edit
+from app.services import automation_edit, automation_portfolio
 from app.services.model_plane.execution import (
     ModelExecutionError,
     complete_model,
@@ -212,3 +220,97 @@ async def automation_turn(
         "verified": result["verified"],
         "run": result["run"],
     }
+
+
+def _portfolio_refusal(refusal: automation_portfolio.AutomationPortfolioRefusal) -> None:
+    raise HTTPException(
+        status_code=422,
+        detail={"code": refusal.code, "message": refusal.message},
+    ) from refusal
+
+
+def _published_automation(db: DBSession, system: System) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    version = (
+        db.query(SystemVersion)
+        .filter(SystemVersion.id == system.published_flow_version_id, SystemVersion.system_id == system.id)
+        .one_or_none()
+        if system.published_flow_version_id
+        else None
+    )
+    flow = version.flow_definition if version is not None and isinstance(version.flow_definition, dict) else {}
+    try:
+        job = automation_portfolio.work_job(
+            {"id": system.id, "name": system.name, "status": system.status, "objective": system.objective},
+            variant=flow.get("variant") if isinstance(flow, dict) else None,
+            published_version_id=version.id if version is not None else None,
+            flow_sha256=version.flow_sha256 if version is not None else None,
+        )
+    except automation_portfolio.AutomationPortfolioRefusal as refusal:
+        _portfolio_refusal(refusal)
+    capability = (
+        db.query(Capability).filter(Capability.id == system.capability_id).one_or_none()
+        if system.capability_id
+        else None
+    )
+    convention = serialize_value_basis(
+        capability.value_basis if capability is not None else None,
+        default_unit=capability.output_unit if capability is not None else None,
+    )
+    return job, convention
+
+
+@router.get("/{system_id}/automation-work-job")
+async def automation_work_job(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    job, convention = _published_automation(db, system)
+    return automation_portfolio.job_explanation(job, convention)
+
+
+@router.get("/{system_id}/automation-package")
+async def automation_package(
+    system_id: str,
+    run_id: str = Query(min_length=1, max_length=36),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
+    _enforce_system_read(db, user=user, workspace=workspace, system=system)
+    job, convention = _published_automation(db, system)
+    run = (
+        db.query(Run)
+        .filter(Run.id == run_id, Run.system_id == system.id, Run.workspace_id == workspace.id)
+        .one_or_none()
+    )
+    if run is None:
+        raise HTTPException(404, "Run not found")
+    sap = None
+    citations = []
+    for item in db.query(SkillInvocation).filter(SkillInvocation.run_id == run.id).all():
+        output = item.output_ref if isinstance(item.output_ref, dict) else {}
+        if item.skill_slug == "sap_create_po_v1":
+            sap = {"sealed": output.get("sealed") is True, "called": output.get("called") is True}
+        source = output.get("source") if item.skill_slug == "semantic_search_v1" else None
+        if isinstance(source, str) and source:
+            citations.append({"source": source})
+    try:
+        return automation_portfolio.run_package(
+            job,
+            {
+                "id": run.id,
+                "system_id": run.system_id,
+                "status": run.status,
+                "flow_sha256": run.flow_sha256,
+                "execution_surface": run.execution_surface,
+            },
+            convention=convention,
+            proof={"sap": sap, "citations": citations},
+        )
+    except automation_portfolio.AutomationPortfolioRefusal as refusal:
+        _portfolio_refusal(refusal)

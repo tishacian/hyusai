@@ -12,7 +12,7 @@ import { Router, RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
-import { WorkApiService } from './work-api.service';
+import { WorkApiService, type WorkAutomationJob } from './work-api.service';
 import {
   canEditExperience,
   catalogLaunchHref,
@@ -95,7 +95,7 @@ import {
             </app-empty-state>
           }
           @default {
-            @if (items().length === 0) {
+            @if (items().length === 0 && jobs().length === 0) {
               <app-empty-state
                 icon="layers"
                 size="lg"
@@ -109,7 +109,8 @@ import {
                   </a>
                 }
               </app-empty-state>
-            } @else {
+            }
+            @if (items().length > 0) {
               <div class="xp-work-grid">
                 @for (item of items(); track item.experience.id) {
                   <a class="xp-work-card" [routerLink]="launchHref(item)">
@@ -124,6 +125,18 @@ import {
                     </div>
                     <h2>{{ identity(item).name }}</h2>
                     <p>{{ identity(item).description || patternLabel(item.experience.pattern) }}</p>
+                    <span class="xp-work-open">{{ i18n.t('experience.work.open') }} →</span>
+                  </a>
+                }
+              </div>
+            }
+            @if (jobs().length > 0) {
+              <h2>{{ i18n.t('experience.work.automation.section') }}</h2>
+              <div class="xp-work-automation">
+                @for (job of jobs(); track job.job.system_id) {
+                  <a class="xp-work-automation-card" [routerLink]="['/work/automation', job.job.system_id]">
+                    <h2>{{ job.job.name }}</h2>
+                    <p>{{ job.objective.text || i18n.t('flow.automation.work.objective.absent') }}</p>
                     <span class="xp-work-open">{{ i18n.t('experience.work.open') }} →</span>
                   </a>
                 }
@@ -152,6 +165,7 @@ export class WorkLauncherComponent {
 
   readonly state = signal<'loading' | 'ready' | 'error'>('loading');
   readonly allItems = signal<WorkCatalogItem[]>([]);
+  readonly jobs = signal<WorkAutomationJob[]>([]);
   readonly query = signal('');
   readonly hasQuery = computed(() => this.query().trim().length > 0);
   readonly studioLink = studioHref(null);
@@ -187,6 +201,7 @@ export class WorkLauncherComponent {
         return;
       }
       this.allItems.set(result.items);
+      this.jobs.set(result.jobs);
       this.state.set('ready');
     });
   }
