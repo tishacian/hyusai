@@ -790,8 +790,7 @@ def provenance_boost_score(metadata: Mapping[str, Any] | None) -> int:
             boost += 4
             break
     source_kind = str(metadata.get("source_kind") or metadata.get("source_type") or "").strip().lower()
-    source_family = str(metadata.get("source_family") or "").strip().lower()
-    if source_kind in {"official", "manual", "notice", "pdf"} or source_family in {"official", "validated_source"}:
+    if source_kind in {"official", "manual", "notice", "pdf"}:
         boost += 2
     return min(boost, 6)
 

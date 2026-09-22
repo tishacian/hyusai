@@ -1339,12 +1339,9 @@ class QdrantVectorDB(VectorDBBase):
                     str(payload.get("extension") or "").strip().lower() == "pdf"
                     or filename.lower().endswith(".pdf")
                 )
-                is_manual = source_family in {
-                    "pump_manual",
-                    "supplier_manual",
-                    "operating_manual",
-                    "operator_manual",
-                } or bool(
+                # "operating_manual" is the only manual family the deposit
+                # classifier emits; the other names it used to list never were.
+                is_manual = source_family == "operating_manual" or bool(
                     re.search(
                         r"\b(manual|manuel|notice|service|operating|operation|montage)\b",
                         f"{document_haystack} {content[:1200].lower()}",

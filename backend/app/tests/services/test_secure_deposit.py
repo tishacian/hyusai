@@ -20,10 +20,10 @@ from app.services import secure_deposit as secure_deposit_service
 from app.services import secure_deposit_sftp
 from app.services.knowledge_collections import document_manifest_key
 from app.services.object_store import get_object_store
+from app.services.rag.project_references import derive_project_reference
 from app.services.secure_deposit import (
     SFTP_AUTH_AUDIT_PROFILE_RELEASE_A_CANARY,
     _archive_document_metadata,
-    _extract_andritz_project_reference,
     authenticate_link,
     build_deposit_archive,
     build_file_preview,
@@ -1378,7 +1378,7 @@ async def test_promote_zip_rejects_supported_file_count_over_limit(db_session, m
 def test_extract_andritz_project_reference_supports_letter_suffix(
     source, expected_code, expected_position
 ):
-    reference = _extract_andritz_project_reference(source, scheme="andritz")
+    reference = derive_project_reference(source, scheme="andritz")
     assert reference["project_code"] == expected_code
     assert reference["project_position"] == expected_position
     assert reference["initial_buyer_code"] == expected_code[:3]
@@ -1395,7 +1395,7 @@ def test_extract_andritz_project_reference_supports_letter_suffix(
     ],
 )
 def test_extract_andritz_project_reference_rejects_non_codes(source):
-    assert _extract_andritz_project_reference(source, scheme="andritz") == {}
+    assert derive_project_reference(source, scheme="andritz") == {}
 
 
 def test_direct_needlepunch_document_metadata_keeps_structural_project_identity():

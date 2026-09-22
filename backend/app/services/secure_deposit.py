@@ -780,15 +780,6 @@ def _archive_document_name(
     return _unique_archive_name(_bounded_archive_document_name(flattened), used)
 
 
-def _extract_andritz_project_reference(
-    *values: str | None,
-    scheme: str | None = None,
-) -> dict[str, str]:
-    """Compatibility wrapper around the canonical source-aware resolver."""
-
-    return derive_project_reference(*values, scheme=scheme)
-
-
 def _extract_machine_reference(
     *values: str | None,
     exclude: str | None = None,
