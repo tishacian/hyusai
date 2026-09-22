@@ -38,7 +38,7 @@ remain unchanged.
 
 ## Porte 2 — Blocs gouvernés
 
-Status: **in progress. The automation palette can drop Approval, Retrieve and SAP write. A paused decision on a bound System appears in that Work app's queue. A scheduled tick does not.**
+Status: **closed on Nawa, 22 Sep 2026.** Retrieve returned a cited passage and document `a11da396-f296-5e64-9b90-4d58a5574eb9` (run `b3c8e9ad-769d-434c-9f0b-520515302e42`). SAP write stayed sealed, `called: false`, reason `unattended` (run `700d208c-f917-4b84-8143-85e50a2e59be`). That same pause is the decidable card on [Porte 2 approvals](https://agentium.papai.ai/work/porte-2-approval/validations).
 
 After Porte 1:
 
