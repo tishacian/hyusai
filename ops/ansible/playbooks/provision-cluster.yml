@@ -3,16 +3,19 @@
   hosts: kube_cluster
   become: true
   roles:
+    - role: update_protection
     - role: kubernetes_node
 
 - name: Initialise the first control plane
   hosts: kube_control_plane[0]
   become: true
   roles:
+    - role: update_protection
     - role: kubernetes_control_plane
 
 - name: Join workers
   hosts: kube_workers
   become: true
   roles:
+    - role: update_protection
     - role: kubernetes_worker

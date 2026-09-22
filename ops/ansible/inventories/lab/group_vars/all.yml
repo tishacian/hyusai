@@ -1,3 +1,6 @@
+# Freeze switch. true makes every playbook refuse to run against this
+# inventory. Production sets it true and clears it deliberately.
+update_protection: false
 kubernetes_version: "1.31.1"
 pod_network_cidr: "10.244.0.0/16"
 helm_version: "3.16.4"
@@ -11,3 +14,6 @@ agentium_values_file: "{{ playbook_dir }}/../../helm/agentium/values.yaml"
 agentium_extra_values_file: ""
 agentium_ci_images_file: "{{ lookup('env', 'AGENTIUM_CI_IMAGES_FILE') | default('', true) }}"
 agentium_kubeconfig: "{{ lookup('env', 'KUBECONFIG') | default('', true) }}"
+# Empty means "do not check". CI fills it from the Terraform cluster_name
+# output so a deploy cannot land on a cluster the apply did not create.
+agentium_expected_cluster: "{{ lookup('env', 'AGENTIUM_EXPECTED_CLUSTER') | default('', true) }}"

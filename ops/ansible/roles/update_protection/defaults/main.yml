@@ -1,0 +1,5 @@
+---
+# Off everywhere by default. An environment that must not be changed by a
+# routine run sets this to true in its own inventory, never on the command
+# line, so the freeze is reviewable in git.
+update_protection: false
