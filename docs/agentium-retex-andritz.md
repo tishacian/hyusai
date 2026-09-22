@@ -141,7 +141,9 @@ offre ?*
 ### Une variable de contexte ne traverse pas n'importe quoi
 
 Le schéma de nomenclature est porté par une variable de contexte liée à chaque
-point d'entrée. Trois comportements de plateforme ont été vérifiés :
+point d'entrée. Les trois premiers cas ont été vérifiés par un test contre les
+versions installées ; le dernier découle de la construction, la tâche tournant
+dans un autre processus.
 
 | Situation | Liaison visible en aval |
 | --- | --- |
