@@ -1,7 +1,7 @@
 # Fluidité — état de livraison
 
-Image en production : `ae35157bf8a667f19bb4eeaa2825331f08c72955` (`revision_verified: true`).
-Rollback image : `5eabc862212b`.
+Image en production : `3fd6fb26243c869a67fe150d4e4ccc6aaef98a0e` (`revision_verified: true`).
+Rollback image : `ae35157bf8a6`.
 
 Ces pourcentages sont des estimations de complétude par critère de sortie, pas une mesure automatique. Les portes automation-first ne ferment pas F1–F6.
 
@@ -16,7 +16,7 @@ Ces pourcentages sont des estimations de complétude par critère de sortie, pas
 ## F1–F6
 
 - F1 — environ 90 %. Contexte System/Run/SkillInvocation, épingle, persistance, reprise et chat redimensionnable sont là. La recette utilisateur complète manque.
-- F2 — environ 25 %. `dispatch_readiness` évite un faux « prêt ». Le diagnostic modèle, provider, source, indexation, droits et worker n’est pas un parcours.
+- F2 — environ 40 %. Le parcours de préparation est visible sur le Flow et nomme modèle, fournisseur, source, indexation, droits et exécutant. Un contrôle non fait reste « non effectué » et n’est pas prêt. Le fournisseur du workspace, les droits de l’appelant et l’exécutant ne sont pas encore contrôlés.
 - F3 — environ 45 %. BRD, brouillon, gouvernance et exécution existent. La boucle résultat, réserve, correction relue et comparaison sans perte d’objet n’est pas close.
 - F4 — environ 40 %. Le job Work d’une automation existe. Il manque la table générique ligne métier, version de dataset, Run, preuve.
 - F5 — environ 40 %. Les graphiques et le portefeuille automation existent. Il manque le contrat graphique figé et le chemin point, dossier, Run.
