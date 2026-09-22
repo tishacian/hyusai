@@ -177,8 +177,17 @@ agentium-k8s-deploy-lab:
         exit 1
       fi
       echo "$KUBECONFIG" > /tmp/kubeconfig.path
+    - |
+      # The apply job publishes the cluster it created. Hand it to the
+      # playbook so the deploy refuses a kubeconfig for anything else.
+      if [ -s "$CI_PROJECT_DIR/ops/ci-cluster-name" ]; then
+        tr -d '[:space:]' < "$CI_PROJECT_DIR/ops/ci-cluster-name" > /tmp/expected-cluster
+      else
+        printf '%s' "${AGENTIUM_LAB_CLUSTER_NAME:-}" > /tmp/expected-cluster
+      fi
   script:
     - export KUBECONFIG="$(cat /tmp/kubeconfig.path)"
+    - export AGENTIUM_EXPECTED_CLUSTER="$(cat /tmp/expected-cluster)"
     - test -s "$KUBECONFIG"
     - test -s "$AGENTIUM_CI_IMAGES_FILE"
     - ansible-playbook -i ops/ansible/inventories/ci ops/ansible/playbooks/deploy-agentium.yml
