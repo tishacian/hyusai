@@ -300,6 +300,18 @@ async def list_work_validations(
             and checkpoint.get("kind") == "hitl_pause"
             and checkpoint.get("decision_id")
         }
+        decision_status = {
+            row.id: row.status
+            for row in db.query(Decision.id, Decision.status)
+            .filter(
+                Decision.id.in_(decision_ids),
+                or_(
+                    Decision.workspace_id == workspace.id,
+                    Decision.workspace_id.is_(None),
+                ),
+            )
+            .all()
+        } if decision_ids else {}
         managed_decision_ids = {
             row[0]
             for row in db.query(Decision.id)
@@ -366,6 +378,8 @@ async def list_work_validations(
                         "prompt": checkpoint.get("prompt"),
                         "decision_id": checkpoint.get("decision_id"),
                         "decision_title": checkpoint.get("decision_title"),
+                        "decision_status": decision_status.get(checkpoint.get("decision_id")),
+                        "expires_at": checkpoint.get("expires_at"),
                     },
                 }
             )
