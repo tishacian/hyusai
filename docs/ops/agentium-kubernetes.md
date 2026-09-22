@@ -69,10 +69,12 @@ an explicit GO.
 ## Local models
 
 Ollama and vLLM are optional and off in `values.yaml` and the lab files.
-`values-local.yaml` enables Ollama only. That file sets the deployment
-default for chat and embeddings to the in-cluster server. vLLM stays off
-unless `vllm.enabled` is set; the pod then requests an NVIDIA GPU. The
-model portal still switches a workspace to another provider.
+`values-local.yaml` is the container mode: chat and embeddings default to
+the in-cluster Ollama. vLLM stays off unless `vllm.enabled` is set; the pod
+then requests an NVIDIA GPU and the routing default stays unchanged. The
+Mac GPU path is not a chart: Metal is a macOS process, see
+`docs/ops/agentium-local-models.md`. The model portal still switches a
+workspace to another provider.
 
 ## Honesty
 

@@ -51,10 +51,11 @@ docker compose \
   up -d agentium-rabbitmq agentium-backend agentium-worker-cpu
 ```
 
-Never add the local-storage overlay on a VM. For a nominal all-local model
-path (Ollama chat + embeddings, still switchable from the model portal), add
-`compose.agentium.local.yml`. vLLM is the `gpu-models` profile and needs an
-NVIDIA GPU; it is not started by that overlay.
+Never add the local-storage overlay on a VM. Local model modes are mutually
+exclusive and still switchable from the model portal. The contract is
+`docs/ops/agentium-local-models.md`.
+
+Container mode (Linux Ollama, CPU inside Docker on a Mac):
 
 ```bash
 docker compose \
@@ -63,6 +64,20 @@ docker compose \
   -f compose.agentium.local.yml \
   up -d
 ```
+
+Mac GPU mode (Ollama 0.34+ on macOS, Metal; GGUF uses llama.cpp, safetensors
+uses MLX). Pull the models on the host first with `./ollama-host-models.sh`.
+
+```bash
+docker compose \
+  -f compose.agentium.yml \
+  -f compose.agentium.local-storage.yml \
+  -f compose.agentium.local-mac.yml \
+  up -d
+```
+
+vLLM is the `gpu-models` profile and needs an NVIDIA GPU. It does not replace
+the routing default.
 
 Use `AGENTIUM_ENV_FILE` to point
 to a non-committed env file. On the demo VM, use

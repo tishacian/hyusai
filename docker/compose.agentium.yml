@@ -520,9 +520,10 @@ services:
       retries: 10
       start_period: 60s
 
-  # Nominal local models. Off unless the profile or compose.agentium.local.yml
-  # is used. One Ollama serves chat and embeddings. vLLM stays on gpu-models:
-  # it wants an NVIDIA GPU and is not the Mac path.
+  # Linux Ollama. Off unless the local-models profile or
+  # compose.agentium.local.yml is used. On a Mac this container sees the ARM
+  # CPU only. The M4 GPU path is compose.agentium.local-mac.yml (host Ollama).
+  # vLLM stays on gpu-models and wants an NVIDIA GPU.
   agentium-ollama:
     image: ollama/ollama:0.34.2
     container_name: agentium-ollama

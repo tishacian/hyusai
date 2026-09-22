@@ -1,5 +1,6 @@
-# Nominal local install. Same chart. Chat and embeddings go to the in-cluster
-# Ollama. A workspace can still switch provider from the model portal.
+# Container mode for a local cluster. Chat and embeddings go to the in-cluster
+# Ollama (Linux). A Mac GPU uses compose.agentium.local-mac.yml instead: this
+# chart cannot see Metal. A workspace can still switch provider from the portal.
 ollama:
   enabled: true
   chatModel: qwen2.5:3b
