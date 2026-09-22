@@ -7146,3 +7146,17 @@ exception matches in the switch window, and carakai 10 passed with two
 intentional skips.
 [Release evidence](../evidence/release-ab96ff7c-2026-09-22/README.md).
 
+
+### 2026-09-22 — automation reservation loop, b14fe69d
+
+Revision `b14fe69d7f596bd2be6f7d4112e6430460aa6a5e` is deployed from three
+immutable images at tag `b14fe69d7f59`; rollback is `ab96ff7c81fd`. Migration
+`109_automation_review` adds `automation_reviews`. The data-plane dump is
+`/srv/agentium-data/automation-review-deployments/2026-09-22-b14fe69d7f59`.
+A reservation stays on its automation through a draft reread and a comparison;
+a result from another automation is refused. No workspace flag or NAWA theme
+change. Storage, public revision `revision_verified=true`, HTTP 200, zero
+backend exception matches in the switch window, and carakai 10 passed with
+two intentional skips.
+[Release evidence](../evidence/release-b14fe69d-2026-09-22/README.md).
+
