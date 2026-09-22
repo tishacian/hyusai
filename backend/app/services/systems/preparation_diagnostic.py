@@ -66,6 +66,7 @@ def preparation_diagnostic(
     *,
     provider: str | None = None,
     caller_can_run: bool | None = None,
+    worker_reachable: bool | None = None,
 ) -> dict[str, Any]:
     """Name the six preparation checks. Do not treat a skipped check as ready."""
 
@@ -93,7 +94,9 @@ def preparation_diagnostic(
         _row("source", "ready") if has_source else _row("source", "not_checked"),
         _row("indexing", "not_checked") if has_retrieval else _row("indexing", "not_applicable"),
         rights,
-        _row("worker", "not_checked"),
+        _row("worker", "ready") if worker_reachable is True else (
+            _row("worker", "blocked") if worker_reachable is False else _row("worker", "not_checked")
+        ),
     ]
     names = [item["name"] for item in checks]
     if names != list(CHECKS):
