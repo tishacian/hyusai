@@ -18,6 +18,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   input,
   output,
@@ -44,6 +45,7 @@ type PillState = SaveState | 'hold';
     <div
       class="ck-flow-toolbar"
       [class.is-compact]="compact()"
+      [class.is-automation]="automationMode()"
       role="toolbar"
       [attr.aria-label]="i18n.t('flow.toolbar.aria')"
     >
@@ -190,6 +192,7 @@ type PillState = SaveState | 'hold';
 
         <!-- P4 persistence controls — single source of truth via
              FlowPersistenceService (manual save also bound to Ctrl/Cmd+S). -->
+        @if (!automationMode()) {
         <button
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide ck-flow-toolbar__btn--accent"
@@ -215,6 +218,7 @@ type PillState = SaveState | 'hold';
               : i18n.t('flow.toolbar.save')
           }}</span>
         </button>
+        }
         @if (persistence.publicationMode()) {
           <button
             type="button"
@@ -254,6 +258,7 @@ type PillState = SaveState | 'hold';
 
         <span class="ck-flow-toolbar__sep"></span>
 
+        @if (!automationMode()) {
         <button
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
@@ -269,6 +274,8 @@ type PillState = SaveState | 'hold';
             i18n.t('flow.toolbar.operate')
           }}</span>
         </button>
+        }
+        @if (!automationMode()) {
         <button
           type="button"
           class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide"
@@ -283,6 +290,7 @@ type PillState = SaveState | 'hold';
             i18n.t('flow.toolbar.more')
           }}</span>
         </button>
+        }
       </div>
 
       <!-- Operate group: running the Flow, not authoring it. The shell projects
@@ -499,6 +507,8 @@ export class FlowToolbarComponent {
   readonly canInspect = input(false);
   readonly focusMode = input(false);
   readonly compact = input(false);
+  /** Automation-first mode: Run is visible directly and autosave replaces Save. */
+  readonly automationMode = input(false);
   readonly workbenchOpen = input(false);
   readonly workbenchAvailable = input(false);
   /** Canvas-only viewport controls are inert while the accessible Outline is
@@ -513,6 +523,12 @@ export class FlowToolbarComponent {
    *  control inside stays exactly one click from the closed state. */
   protected readonly operateOpen = signal(false);
   protected readonly moreOpen = signal(false);
+
+  constructor() {
+    effect(() => {
+      if (this.automationMode()) this.operateOpen.set(true);
+    });
+  }
 
   protected readonly controlsDisabled = computed(
     () => this.persistence.actionsDisabled() || !this.hydrationReady(),

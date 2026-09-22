@@ -197,6 +197,7 @@ const PUBLICATION_HYDRATION_CODES = new Set([
         [canInspect]="!!store.selectedNode()"
         [focusMode]="focusMode()"
         [compact]="toolbarCompact()"
+        [automationMode]="automationMode()"
         [workbenchOpen]="workbenchOpen()"
         [workbenchAvailable]="!!systemId()"
         [canvasActive]="surfaceMode() === 'canvas'"
