@@ -683,7 +683,6 @@ class Settings(BaseSettings):
     ml_registry_uri: str = ""
 
     # Secure Deposit — public drop links backed by workspace membership.
-    secure_deposit_enabled_workspace_slugs: str = "andritz"
     secure_deposit_public_base_url: Optional[str] = None
     secure_deposit_session_secret: str = ""
     secure_deposit_session_ttl_seconds: int = 7200
