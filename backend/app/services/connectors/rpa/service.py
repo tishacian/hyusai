@@ -51,11 +51,7 @@ class EncryptionNotConfigured(RuntimeError):
 def is_workspace_enabled(workspace: "Workspace") -> bool:
     from app.services.workspace_features import feature_enabled
 
-    return feature_enabled(
-        workspace,
-        FEATURE_FLAG,
-        csv_fallback="agentium-showcase",
-    )
+    return feature_enabled(workspace, FEATURE_FLAG)
 
 
 def _connectors(workspace: "Workspace") -> dict[str, Any]:

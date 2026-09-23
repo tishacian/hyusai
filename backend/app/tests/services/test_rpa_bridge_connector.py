@@ -28,8 +28,9 @@ def _mock_db():
     return db
 
 
-def test_feature_gate_csv_fallback_and_settings():
-    assert rpa_service.is_workspace_enabled(_workspace(slug="agentium-showcase"))
+def test_feature_gate_is_the_workspace_setting_only():
+    # The showcase slug used to be enough; migration 111 froze it onto the row.
+    assert not rpa_service.is_workspace_enabled(_workspace(slug="agentium-showcase"))
     assert not rpa_service.is_workspace_enabled(_workspace(slug="other-ws"))
     enabled = _workspace(
         slug="other-ws",

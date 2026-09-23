@@ -107,8 +107,22 @@ _STATE_TERMS = (
     "prochaine",
 )
 
-_SENTINEL_FACT_TERMS = (
+# Platform vocabulary: a question naming these is about the workspace itself.
+_BASE_FACT_TERMS = (
     "workspace",
+    "agenda",
+    "réunion",
+    "reunion",
+    "décision",
+    "decision",
+    "prod",
+    "run",
+)
+
+# The Sentinel CI domain. It used to be the base list of every tenant, and
+# matching is by substring, so "port" fired inside "rapport", "important" and
+# "support": any such question elsewhere was pushed into strict grounding.
+_SENTINEL_DOMAIN_TERMS = (
     "sentinel",
     "s3",
     "nord",
@@ -124,20 +138,17 @@ _SENTINEL_FACT_TERMS = (
     "osint",
     "sécurité",
     "securite",
-    "agenda",
-    "réunion",
-    "reunion",
-    "décision",
-    "decision",
     "nawa",
     "cacao",
     "port",
     "cargo",
     "navire",
     "carte",
-    "prod",
-    "run",
 )
+
+# What every tenant matched before the split, kept as the default argument of
+# the two helpers below for callers that pass no workspace vocabulary.
+_SENTINEL_FACT_TERMS = _BASE_FACT_TERMS + _SENTINEL_DOMAIN_TERMS
 
 _ANDRITZ_FACT_TERMS = (
     "andritz",
@@ -185,13 +196,23 @@ def _workspace_fact_terms(workspace: Workspace | None) -> tuple[str, ...]:
     state term, that forced a turn into strict source-bound grounding, and a
     tenant with no matching corpus got "insufficient context" where a balanced
     answer was expected. The list is that customer's nomenclature, so it
-    applies only to the workspace stamped with that family. Passed explicitly
-    rather than read from ambient state, because the workspace is in hand here.
+    applies only to the workspace stamped with that family. The Sentinel CI
+    domain had the same problem one level down: it was every tenant's base.
+    Passed explicitly rather than read from ambient state, because the
+    workspace is in hand here.
     """
 
-    if workspace is not None and workspace_family(workspace) == "andritz":
+    if workspace is None:
+        return _SENTINEL_FACT_TERMS  # no tenant: the historical default
+    family = workspace_family(workspace)
+    if family == "andritz":
+        # Andritz has answered with both lists since the start ("carte" is a
+        # circuit board there). Keep that union so its grounding does not
+        # drift; prune it only against the Andritz golden set.
         return _SENTINEL_FACT_TERMS + _ANDRITZ_FACT_TERMS
-    return _SENTINEL_FACT_TERMS
+    if family == "sentinel_ci":
+        return _SENTINEL_FACT_TERMS
+    return _BASE_FACT_TERMS
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
