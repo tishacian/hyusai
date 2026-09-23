@@ -196,11 +196,6 @@
       "kind": "fixture",
       "why": "PIH / SPARK-089 rules inside the generic BRD generation prompt; needs the SPARK-089 evaluation to move."
     },
-    "backend/app/services/skills_registry/wrappers.py": {
-      "count": 24,
-      "kind": "fixture",
-      "why": "Sentinel CI demo summary skill and the Andritz chat v3 wrappers sit in the shared wrapper table."
-    },
     "backend/app/services/spl_wave_importer.py": {
       "count": 2,
       "kind": "adapter",
@@ -230,6 +225,16 @@
       "count": 1,
       "kind": "family",
       "why": "Industrial families set."
+    },
+    "backend/app/tenants/andritz/chat_prompts.py": {
+      "count": 6,
+      "kind": "adapter",
+      "why": "Andritz wording of the grounded-answer and agentic-chat prompts, selected by family."
+    },
+    "backend/app/tenants/sentinel_ci/demo_skills.py": {
+      "count": 18,
+      "kind": "adapter",
+      "why": "Sentinel CI scripted demo skills, selected by family."
     },
     "frontend-ng/src/app/app.routes.ts": {
       "count": 3,

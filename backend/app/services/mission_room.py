@@ -7707,6 +7707,9 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
     settings = dict(workspace.settings or {})
     settings.update(
         {
+            # The family is what selects the Sentinel CI adapters (app.tenants);
+            # a workspace seeded after migration 058 would otherwise be generic.
+            "family": "sentinel_ci",
             "demo_profile": "government_mission_room",
             "default_route": MISSION_ROOM_ROUTE,
             "hide_provider_details": True,

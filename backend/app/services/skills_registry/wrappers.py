@@ -27,6 +27,7 @@ from types import SimpleNamespace
 from typing import Any, Mapping, Optional
 
 from app.core.logging import get_logger
+from app.tenants import family_hook
 from app.services.evaluation.judge import (
     contractual_zero_token_usage,
     new_provider_usage_accumulator,
@@ -486,7 +487,11 @@ async def _llm_rag_answer_v1(
         )
         model = _model_name(payload.get("model"), ctx.get("default_model"))
         prompt = _build_grounded_answer_prompt(
-            query, passages, lang_target, payload.get("answer_profile")
+            query,
+            passages,
+            lang_target,
+            payload.get("answer_profile"),
+            family=_ctx_workspace_family(ctx),
         )
         answer_text = ""
         try:
@@ -3055,266 +3060,87 @@ async def _briefing_priorities_v1(
             db.close()
 
 
-def _load_prefet_report_text() -> str:
-    from pathlib import Path
+def _ctx_workspace_family(ctx: Optional[dict[str, Any]]) -> str:
+    """The stamped family of the workspace a skill runs for.
 
-    candidates = [
-        Path(__file__).resolve().parents[3]
-        / "docs"
-        / "demo-data"
-        / "sentinel-ci-kb"
-        / "rapport-prefet-nawa-2026-05-10.md",
-        Path(__file__).resolve().parents[2]
-        / ".."
-        / "docs"
-        / "demo-data"
-        / "sentinel-ci-kb"
-        / "rapport-prefet-nawa-2026-05-10.md",
-    ]
-    for path in candidates:
-        if path.exists():
-            return path.read_text(encoding="utf-8")
-    return ""
+    The run engine puts it in ``ctx``. A caller that did not (a direct
+    invocation from an action or a service) gets it read once from the
+    workspace row and cached in ``ctx``, so a family adapter never silently
+    falls back to generic because of how the skill was reached.
+    """
+
+    from app.services.workspace_features import workspace_family
+
+    if not isinstance(ctx, dict):
+        return "generic"
+    family = ctx.get("workspace_family")
+    if isinstance(family, str) and family:
+        return family
+    workspace_id = ctx.get("workspace_id")
+    if not workspace_id:
+        return "generic"
+    from app.models.workspace import Workspace
+
+    db = ctx.get("db")
+    owns_db = db is None
+    if owns_db:
+        from app.db.base import SessionLocal
+
+        db = SessionLocal()
+    try:
+        settings = db.query(Workspace.settings).filter(Workspace.id == workspace_id).scalar()
+    except Exception:  # noqa: BLE001 - resolution failure means no adapter
+        settings = None
+    finally:
+        if owns_db:
+            db.close()
+    family = workspace_family(SimpleNamespace(settings=settings))
+    ctx["workspace_family"] = family
+    return family
+
+
+_DEMO_SKILL_UNAVAILABLE = {
+    "status": "unavailable",
+    "error": "demo_skill_outside_its_family",
+    "detail": (
+        "This skill returns a scripted demonstration for another workspace family "
+        "and has no generic implementation."
+    ),
+}
+
+
+async def _family_demo_skill(
+    name: str, payload: dict[str, Any], ctx: Optional[dict[str, Any]]
+) -> dict[str, Any]:
+    """Run a family's scripted demo skill, or refuse for any other workspace.
+
+    These catalogue entries read as generic ("Draft Email") but only a demo
+    family provides an implementation; elsewhere they answered with that
+    family's scenario content. They now say plainly that they are unavailable.
+    """
+
+    implementation = family_hook(_ctx_workspace_family(ctx), "demo_skills", name)
+    if implementation is None:
+        return dict(_DEMO_SKILL_UNAVAILABLE)
+    return await implementation(payload, ctx)
 
 
 async def _summarize_long_document_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    document_id = str(payload.get("document_id") or "report-prefet-nawa-2026-05-10")
-    focus_topics = list(
-        payload.get("focus_topics") or ["cacao", "diversification", "infrastructures"]
-    )
-    report_text = _load_prefet_report_text()
-    citations = [
-        {
-            "source_id": "src-prefet-nawa-report-001",
-            "document_id": document_id,
-            "title": "Rapport Prefet Nawa — 10 mai 2026",
-            "sent_at": "2026-05-10",
-            "pages": 70,
-        }
-    ]
-    key_topics = [
-        topic for topic in focus_topics if topic.lower() in report_text.lower()
-    ] or focus_topics
-    summary_lines = [
-        "Monsieur le Vice Premier Ministre, synthese des derniers echanges avec le Prefet de Nawa (rapport du 10 mai, ~70 pages) :",
-        "- Contexte : region Nawa / Soubre, filiere cacao dominante, pression sur prix FCFA et infrastructures.",
-        "- Points saillants : besoin de sechoirs, routes secondaires, electrifiation et diversification cultures.",
-        "- Risques : volatilite prix export, dependance monoculture, fenetre climatique.",
-        "- Recommandations prefet : transformation locale a court terme, montee en charge cooperative, financement mixte.",
-    ]
-    if "cacao" in report_text.lower():
-        summary_lines.append(
-            "- Emergence cacao : sections filiere et chiffrage publics confirment un gap transformation ~4,2-6,8 Mds FCFA."
-        )
-    return {
-        "status": "ready",
-        "summary_markdown": "\n".join(summary_lines),
-        "key_topics": key_topics,
-        "citations": citations,
-        "document_id": document_id,
-    }
+    return await _family_demo_skill("summarize_long_document", payload, ctx)
 
 
 async def _generate_recommendations_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    topic = str(payload.get("topic") or "cacao_diversification")
-    chiffrage = bool(payload.get("chiffrage", True))
-    options = [
-        {
-            "label": "Petite industrie transformation + diversification cultures",
-            "summary": "Unité locale de transformation cacao + ananas/culture de couverture ; impact emploi Soubre.",
-            "cost_estimate": "4,2 Mds FCFA" if chiffrage else None,
-            "infra_required": ["Sechoirs", "Mini-usine", "Routes secondaires"],
-            "confidence": 0.78,
-        },
-        {
-            "label": "Cooperative regionale renforcee",
-            "summary": "Montee en charge cooperative existante, formation qualite export et tracabilite.",
-            "cost_estimate": "1,6 Mds FCFA" if chiffrage else None,
-            "infra_required": ["Centres de collecte", "Formation"],
-            "confidence": 0.71,
-        },
-        {
-            "label": "PPP infrastructure sechoirs",
-            "summary": "Partenariat public-prive sur sechoirs solaires ; partage risque prix.",
-            "cost_estimate": "6,8 Mds FCFA" if chiffrage else None,
-            "infra_required": ["Sechoirs solaires", "Electrification"],
-            "confidence": 0.66,
-        },
-    ]
-    return {
-        "status": "ready",
-        "topic": topic,
-        "options": options,
-        "sources": [
-            {
-                "source_id": "src-prefet-nawa-report-001",
-                "document_id": "report-prefet-nawa-2026-05-10",
-            }
-        ],
-        "human_validation_required": True,
-    }
+    return await _family_demo_skill("generate_recommendations", payload, ctx)
 
 
 async def _draft_email_v1(
     payload: dict[str, Any], ctx: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    template_kind = str(payload.get("template_kind") or "customs_priority")
-    target_id = str(payload.get("target_id") or "")
-    context_refs = list(payload.get("context_refs") or [])
-    if template_kind == "customs_priority":
-        return {
-            "status": "draft",
-            "template_kind": template_kind,
-            "subject": (
-                "Priorisation dedouanement — composants drones Aerostar Dynamics, "
-                "Centre Formation Drones Napié (cargo-abidjan-supply-001)"
-            ),
-            "recipient": "Direction generale des Douanes — Cellule Port Abidjan",
-            "body_markdown": (
-                "Monsieur le Directeur,\n\n"
-                "Je vous prie de bien vouloir accorder une priorisation de traitement a la cargaison "
-                "**MV ATLANTIC TRADER** (ref. cargo-abidjan-supply-001, IMO 9876543) : composants drones "
-                "Aerostar Dynamics importes depuis la cote Est des Etats-Unis (hangars de formation, "
-                "terrains d'apprentissage, laboratoires de cartographie) destines au "
-                "**Centre International de Formation aux Métiers des Drones de Napié** "
-                "(ref. proj-drone-centre-napie, region Poro / Nord ; investissement 100 M USD / 60 Mds FCFA ; "
-                "alignement Côte d'Ivoire Innovation 2030).\n\n"
-                "Le retard actuel (de l'ordre de 120 jours sur la sequence ouverture du centre) impacte le "
-                "calendrier de demarrage des formations FAA et la perception institutionnelle du projet sur zone.\n\n"
-                "Merci de me confirmer la fenetre de dedouanement envisagee.\n\n"
-                "Bien cordialement,\nCabinet Vice Premier Ministre"
-            ),
-            "sources": [
-                {"source_id": "src-maritime-paa-001"},
-                {"source_id": "src-cabinet-brief-001", "project_id": "proj-drone-centre-napie"},
-                {
-                    "source_id": "src-abidjan-net-drone-napie-2025-07-16",
-                    "title": "Abidjan.net — Lancement Centre Formation Drones Napié (16/07/2025)",
-                    "kind": "rss_news_ci",
-                },
-            ],
-            "requires_validation": True,
-        }
-    if template_kind == "customs_derogation":
-        return {
-            "status": "draft",
-            "template_kind": template_kind,
-            "subject": (
-                "Demande de derogation operationnelle — cargaison composants drones "
-                "Centre Formation Napié (MV Atlantic Trader)"
-            ),
-            "recipient": "Direction generale des Douanes — Chef de la cellule portuaire Abidjan",
-            "body_markdown": (
-                "Monsieur le Chef de la cellule douaniere,\n\n"
-                "Faisant suite au proces-verbal de non-conformite declarative du 18 mai 2026 "
-                "(ref. DGD-CI/CPA/PV-2026-05-018, page 2), je vous saisis pour solliciter une "
-                "**derogation operationnelle ciblee** au benefice du cargo MV ATLANTIC TRADER "
-                "(IMO 9876543, MMSI 627012345, ref. cargo-abidjan-supply-001).\n\n"
-                "**Le cargo MV Atlantic Trader est distinct du lot non conforme** (LOT-INTRA-IMP-2026-05-018). "
-                "Sa cargaison — composants drones AerostarDynamics (hangars de formation, terrains "
-                "d'apprentissage, laboratoires de cartographie), importes depuis la cote Est des Etats-Unis — "
-                "est exclusivement destinee au **Centre International de Formation aux Métiers des Drones "
-                "de Napié** (ref. proj-drone-centre-napie, region Poro / Nord ; partenariat Agence de "
-                "Developpement Regional du Poro, Aerostar Dynamics et CEPICI ; alignement Côte d'Ivoire "
-                "Innovation 2030 ; investissement 100 M USD / 60 Mds FCFA ; cf. Abidjan.net, "
-                "16 juillet 2025).\n\n"
-                "Le gel temporaire du couloir d'entree Vridi, motive par la non-conformite d'un **autre** lot, "
-                "affecte par effet collateral la cargaison drones Napié sans qu'aucune anomalie declarative "
-                "n'ait ete relevee a son encontre.\n\n"
-                "Au vu :\n"
-                "- de la distinction documentaire claire entre les deux lots ;\n"
-                "- du calendrier de livraison engageant l'ouverture du Centre Formation Drones de Napié "
-                "(retard cumule de l'ordre de 120 jours en Q2 2026) ;\n"
-                "- et de l'absence totale de non-conformite sur le lot drones Napié,\n\n"
-                "je sollicite votre accord pour une derogation operationnelle permettant le dedouanement "
-                "anticipe du cargo MV Atlantic Trader sous reserve des controles physiques habituels.\n\n"
-                "Demande advisory soumise a validation Cabinet et a confirmation du ministere de l'Economie "
-                "avant transmission officielle.\n\n"
-                "Bien cordialement,\nCabinet Vice Premier Ministre"
-            ),
-            "sources": [
-                {
-                    "source_id": "customs-record-non-conformite-2026-05",
-                    "title": "PV douanes - non conformite declarative (18 mai)",
-                    "kind": "customs_pv",
-                    "page": 2,
-                },
-                {"source_id": "src-maritime-paa-001"},
-                {"source_id": "src-cabinet-brief-001", "project_id": "proj-drone-centre-napie"},
-                {
-                    "source_id": "src-abidjan-net-drone-napie-2025-07-16",
-                    "title": "Abidjan.net — Lancement Centre Formation Drones Napié (16/07/2025)",
-                    "kind": "rss_news_ci",
-                },
-            ],
-            "context_refs": context_refs,
-            "requires_validation": True,
-            "advisory_only": True,
-            "target_id": target_id or "cargo-abidjan-supply-001",
-        }
-    if template_kind == "strategic_report_long":
-        return {
-            "status": "draft",
-            "template_kind": template_kind,
-            "subject": "Rapport strategique - Diversification cacao region Nawa (anacarde transformee)",
-            "recipient": "Cabinet Vice Premier Ministre + Ministere Economie + Ministere Agriculture",
-            "body_markdown": (
-                "# Rapport strategique - Diversification cacao region Nawa\n\n"
-                "## Synthese executive\n"
-                "L'option **anacarde transformee** ressort prioritaire (note Banque mondiale 2024, "
-                "Reuters 2025, EUDR). Chiffrage indicatif : 4,2 - 6,8 Mds FCFA.\n\n"
-                "## Classement des 7 cultures evaluees\n"
-                "1. Anacarde transformee (prioritaire)\n"
-                "2. Cooperative cacao tracable (court terme)\n"
-                "3. Hevea (complement)\n"
-                "4. Banane premium (niche)\n"
-                "5. PPP sechoirs solaires (infrastructure)\n"
-                "6. Palmier a huile RSPO (risque EUDR)\n"
-                "7. Statu quo (non recommande)\n\n"
-                "## Citations\n"
-                "- Banque mondiale - Note climat-developpement 2024\n"
-                "- Reglement europeen anti-deforestation (EUDR)\n"
-                "- Reuters 2025 - filiere cajou Cote d'Ivoire\n"
-                "- Rapport Prefet Nawa - 10 mai 2026 (pp. 42-58)\n\n"
-                "Document **advisory-only** soumis a validation Conseil des Ministres."
-            ),
-            "sources": [
-                {"source_id": "report-prefet-nawa-2026-05-10"},
-                {"source_id": "sentinel-ci-anacarde-diversification-v1"},
-                {"source_id": "src-banque-mondiale-2024"},
-                {"source_id": "src-eudr-2023"},
-                {"source_id": "src-reuters-cajou-2025"},
-            ],
-            "context_refs": context_refs,
-            "requires_validation": True,
-            "advisory_only": True,
-            "target_id": target_id,
-        }
-    return {
-        "status": "draft",
-        "template_kind": template_kind,
-        "subject": "Rapport de diversification cacao — region Nawa (arbitrage cabinet)",
-        "recipient": "Ministere de l'Economie — Direction filieres",
-        "body_markdown": (
-            "# Rapport de diversification cacao — Nawa\n\n"
-            "## Contexte\nSuite au rapport Prefet Nawa (10 mai) et aux echanges a Soubre.\n\n"
-            "## Option recommandee\nPetite industrie de transformation + diversification cultures.\n\n"
-            "## Chiffrage indicatif\n4,2 a 6,8 milliards FCFA (ordres de grandeur publics).\n\n"
-            "## Prochaines etapes\nArbitrage cabinet, puis RDV ministere de l'Economie."
-        ),
-        "sources": [
-            {
-                "source_id": "src-prefet-nawa-report-001",
-                "document_id": "report-prefet-nawa-2026-05-10",
-            }
-        ],
-        "requires_validation": True,
-        "target_id": target_id,
-    }
+    return await _family_demo_skill("draft_email", payload, ctx)
 
 
 async def _causal_drill_v1(
@@ -5502,11 +5328,23 @@ def _citations_from_passages(passages: list[dict[str, Any]]) -> list[dict[str, A
     return citations
 
 
+_GENERIC_GROUNDED_ANSWER_PREAMBLE = (
+    "Tu es un assistant specialise dans des reponses factuelles, precises et "
+    "completes. Reponds a la question en t'appuyant sur les extraits de contexte "
+    "ci-dessous, issus des documents de ce workspace. Ces extraits peuvent etre "
+    "dans une autre langue et contenir des tableaux HTML : EXTRAIS les valeurs "
+    "chiffrees, references et specifications pertinentes meme lorsqu'elles "
+    "figurent dans un tableau ou dans une autre langue, et traduis-les si besoin. "
+)
+
+
 def _build_grounded_answer_prompt(
     query: str,
     passages: list[dict[str, Any]],
     lang_target: Optional[str],
     answer_profile: Optional[str],
+    *,
+    family: str = "generic",
 ) -> str:
     """Grounded synthesis prompt: extract a complete factual answer from passages.
 
@@ -5539,15 +5377,12 @@ def _build_grounded_answer_prompt(
             f"{str(passage.get('content') or '')[:passage_limit]}"
         )
     context_text = "\n\n".join(blocks)
+    # The persona and corpus framing are the family's; the rules below are not.
+    preamble = family_hook(
+        family, "chat_prompts", "GROUNDED_ANSWER_PREAMBLE", _GENERIC_GROUNDED_ANSWER_PREAMBLE
+    )
     return (
-        "Tu es un assistant technique industriel Andritz, specialise dans des "
-        "reponses factuelles, precises et completes. Reponds a la question en "
-        "t'appuyant sur les extraits de contexte ci-dessous, issus de notices "
-        "techniques. Ces extraits sont souvent en anglais ou en allemand et "
-        "contiennent des tableaux HTML : EXTRAIS les valeurs chiffrees, references "
-        "et specifications pertinentes meme lorsqu'elles figurent dans un tableau "
-        "ou dans une autre langue, et traduis-les si besoin (ex. Arbeitsbreite = "
-        "largeur de travail, Produktionsgeschwindigkeit = vitesse de production). "
+        f"{preamble}"
         "Cite chaque fait avec son repere [n]. N'invente JAMAIS une valeur absente "
         "du contexte. N'ajoute aucun equipement, type, modele ou usage par analogie "
         "avec des installations similaires : un item non explicitement atteste par "
@@ -5622,7 +5457,19 @@ def _merge_passages(
     return merged
 
 
-def _build_plan_prompt(query: str, history: Any) -> str:
+_GENERIC_PLAN_PERSONA = "Tu es le planificateur d'un agent de chat documentaire. "
+_GENERIC_PLAN_IDENTIFIER_EXAMPLES = (
+    "(ex: un code projet, une reference produit, un identifiant de document)"
+)
+_GENERIC_PLAN_DOMAIN = "le domaine et les sources de ce workspace"
+
+
+def _build_plan_prompt(query: str, history: Any, *, family: str = "generic") -> str:
+    persona = family_hook(family, "chat_prompts", "PLAN_PERSONA", _GENERIC_PLAN_PERSONA)
+    examples = family_hook(
+        family, "chat_prompts", "PLAN_IDENTIFIER_EXAMPLES", _GENERIC_PLAN_IDENTIFIER_EXAMPLES
+    )
+    domain = family_hook(family, "chat_prompts", "PLAN_DOMAIN", _GENERIC_PLAN_DOMAIN)
     history_lines = ""
     if isinstance(history, (list, tuple)) and history:
         rendered = []
@@ -5635,7 +5482,7 @@ def _build_plan_prompt(query: str, history: Any) -> str:
                 rendered.append(turn)
         history_lines = "\n".join(rendered)
     return (
-        "Tu es le planificateur d'un agent de chat industriel Andritz. Analyse la requete "
+        f"{persona}Analyse la requete "
         "et l'historique, puis reponds en JSON STRICT (aucun texte hors JSON), avec ces cles:\n"
         '{"action": one of answer|clarify|reject_oos, "mode": one of fast|balanced|deep, '
         '"answer_profile": short label, "scope_hint": the CONCRETE search scope '
@@ -5648,12 +5495,10 @@ def _build_plan_prompt(query: str, history: Any) -> str:
         '"sub_queries": [liste de 2 a 4 sous-questions autonomes]}\n'
         "Regles STRICTES:\n"
         "- action=answer par defaut, et OBLIGATOIREMENT answer des qu'un code projet / "
-        "identifiant machine / reference est present (ex: AKK200, CU250S-2, D.60, "
-        "Qualiscan QMS-12, URACA, Etachrom, SINAMICS).\n"
+        f"identifiant machine / reference est present {examples}.\n"
         "- action=clarify UNIQUEMENT si la requete est reellement ambigue ET sans aucun "
         "ancrage (ni code projet, ni identifiant, ni contexte d'historique).\n"
-        "- action=reject_oos UNIQUEMENT si la requete n'a AUCUN rapport avec l'industrie "
-        "Andritz (machines, pompes, cartes, variateurs, documentation technique). "
+        f"- action=reject_oos UNIQUEMENT si la requete n'a AUCUN rapport avec {domain}. "
         "NE JAMAIS rejeter sur la base de la LANGUE (une question valide en allemand/anglais "
         "reste valide). NE JAMAIS rejeter si un equipement/systeme/projet connu est cite.\n"
         "- mode=deep OBLIGATOIRE pour les questions transversales / inventaire / enumeration "
@@ -5944,12 +5789,16 @@ def _coerce_sub_queries(parsed: dict[str, Any], query: str, answer_profile: str)
     return cleaned[:4]
 
 
+_GENERIC_OUT_OF_SCOPE_REASON = "Hors du perimetre de ce workspace."
+
+
 def _coerce_plan(
     parsed: dict[str, Any],
     query: str,
     *,
     has_history: bool = False,
     known_project_codes: set[str] | None = None,
+    family: str = "generic",
 ) -> dict[str, Any]:
     """Coerce a (possibly partial/garbage) plan dict into the frozen contract.
 
@@ -6072,7 +5921,12 @@ def _coerce_plan(
     # oos_reason only survives when the action is still reject_oos (a demoted
     # reject_oos must not leak a stale refusal reason into an answer plan).
     oos_reason = (
-        _as_str("oos_reason", "Hors du perimetre Andritz.") if action == "reject_oos" else ""
+        _as_str(
+            "oos_reason",
+            family_hook(family, "chat_prompts", "OUT_OF_SCOPE_REASON", _GENERIC_OUT_OF_SCOPE_REASON),
+        )
+        if action == "reject_oos"
+        else ""
     )
 
     answer_profile = _as_str("answer_profile", "technical")
@@ -6208,7 +6062,8 @@ async def _chat_agentic_plan_v1_ungated(
     if deterministic_plan is not None:
         return deterministic_plan
     model = _model_name(payload.get("model"), ctx.get("default_model"))
-    prompt = _build_plan_prompt(query, history)
+    family = _ctx_workspace_family(ctx)
+    prompt = _build_plan_prompt(query, history, family=family)
     completion = ""
     try:
         completion = await _route_llm_complete(prompt, model, ctx)
@@ -6221,19 +6076,38 @@ async def _chat_agentic_plan_v1_ungated(
         query,
         has_history=has_history,
         known_project_codes=known_project_codes,
+        family=family,
     )
 
 
+_GENERIC_SELF_CORRECT_PERSONA = "Tu es le reacteur d'auto-correction (1 passe) d'un agent de chat documentaire.\n"
+_GENERIC_SELF_CORRECT_ESCALATE_GUIDANCE = (
+    "Approfondis et re-ancre la reponse sur les sources du workspace ; "
+    "supprime toute affirmation non etayee."
+)
+
+
 def _build_self_correct_prompt(
-    query: str, draft: str, action: str, composite: Any, hallucination_rate: Any
+    query: str,
+    draft: str,
+    action: str,
+    composite: Any,
+    hallucination_rate: Any,
+    *,
+    family: str = "generic",
 ) -> str:
     guidance = {
-        "escalate_deep": "Approfondis et re-ancre la reponse sur les sources industrielles Andritz ; supprime toute affirmation non etayee.",
+        "escalate_deep": family_hook(
+            family,
+            "chat_prompts",
+            "SELF_CORRECT_ESCALATE_GUIDANCE",
+            _GENERIC_SELF_CORRECT_ESCALATE_GUIDANCE,
+        ),
         "translate": "Reformule la reponse dans la langue cible attendue de l'utilisateur, sans changer le fond.",
         "declare_partial": "Conserve uniquement ce qui est etaye, et declare explicitement les limites / l'incertitude restante.",
     }[action]
     return (
-        "Tu es le reacteur d'auto-correction (1 passe) d'un agent de chat industriel Andritz.\n"
+        f"{family_hook(family, 'chat_prompts', 'SELF_CORRECT_PERSONA', _GENERIC_SELF_CORRECT_PERSONA)}"
         f"Action de reparation choisie: {action}. Consigne: {guidance}\n"
         f"Signaux qualite — composite(0-100)={composite} ; hallucination_rate(0-1)={hallucination_rate}.\n"
         "Re-genere une MEILLEURE reponse et reponds en JSON STRICT (aucun texte hors JSON):\n"
@@ -6374,7 +6248,9 @@ async def _chat_self_correct_v1(
         }
 
     # translate / declare_partial — bounded transform of the EXISTING draft only.
-    prompt = _build_self_correct_prompt(query, draft, action, composite, hallucination_rate)
+    prompt = _build_self_correct_prompt(
+        query, draft, action, composite, hallucination_rate, family=_ctx_workspace_family(ctx)
+    )
     answer = draft
     try:
         completion = await _route_llm_complete(prompt, model, ctx)
