@@ -29,6 +29,31 @@ helm lint "$ROOT/ops/helm/agentium"
 
 helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
   > /tmp/agentium-helm.yaml
+grep -q 'name: DATABASE_URL' /tmp/agentium-helm.yaml \
+  || fail "backend must receive DATABASE_URL, not a host the process never reads"
+grep -q 'name: CELERY_BROKER_URL' /tmp/agentium-helm.yaml \
+  || fail "workers must receive CELERY_BROKER_URL"
+grep -q 'KEYCLOAK_URL:' /tmp/agentium-helm.yaml \
+  || fail "pods must receive KEYCLOAK_URL"
+grep -q 'CELERY_QUEUES: "cpu,recipes"' /tmp/agentium-helm.yaml \
+  || fail "the only worker must also listen on the recipes queue"
+grep -q -- '--import-realm' /tmp/agentium-helm.yaml \
+  || fail "keycloak must import the realm its readiness probe requests"
+cmp -s "$ROOT/backend/keycloak/realm-export.json" \
+  "$ROOT/ops/helm/agentium/files/realm-export.json" \
+  || fail "chart realm export drifted from backend/keycloak/realm-export.json"
+for app in backend worker migrate p4-maintenance; do
+  if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+       --show-only "templates/${app}.yaml" | grep -q 'MINIO_ROOT_PASSWORD'; then
+    fail "$app must not receive the MinIO root password"
+  fi
+done
+
+# Admin kubeconfig and the plan stay inside the pipeline. Project members
+# must not be able to download them.
+access_none="$(grep -c 'access: none' "$ROOT/.gitlab/ci/agentium-k8s.yml" || true)"
+[ "$access_none" -ge 2 ] || fail "tfplan and kubeconfig artifacts must set access: none"
+
 grep -q 'name: agentium-backend' /tmp/agentium-helm.yaml || fail "backend missing from helm template"
 grep -q 'name: agentium-frontend' /tmp/agentium-helm.yaml || fail "frontend missing from helm template"
 grep -q 'name: agentium-worker' /tmp/agentium-helm.yaml || fail "worker missing from helm template"

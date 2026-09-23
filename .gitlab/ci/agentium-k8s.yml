@@ -74,8 +74,11 @@ agentium-k8s-plan-lab-ovh:
     - ops/scripts/gitlab-tf-init.sh ops/terraform/envs/lab-ovh agentium-lab-ovh
     - terraform -chdir=ops/terraform/envs/lab-ovh plan -input=false -out=tfplan
   artifacts:
+    # The plan can carry resource attributes. Later jobs still receive it;
+    # project members cannot download it.
+    access: none
     when: always
-    expire_in: 7 days
+    expire_in: 1 day
     paths:
       - ops/terraform/envs/lab-ovh/tfplan
   rules: *ops-k8s-rules-lab-ovh-auto
@@ -104,6 +107,9 @@ agentium-k8s-apply-lab-ovh:
     - terraform -chdir=ops/terraform/envs/lab-ovh output -raw storage_class > ops/ci-storage-class
     - terraform -chdir=ops/terraform/envs/lab-ovh output -raw cluster_name > ops/ci-cluster-name
   artifacts:
+    # Admin kubeconfig. Later jobs still receive it; project members cannot
+    # download it.
+    access: none
     expire_in: 1 day
     paths:
       - ops/ci-kubeconfig

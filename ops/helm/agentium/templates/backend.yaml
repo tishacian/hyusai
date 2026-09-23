@@ -33,9 +33,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "agentium.fullname" . }}-config
-            - secretRef:
-                name: {{ include "agentium.secretName" . }}
           env:
+            {{- include "agentium.appSecretEnv" . | nindent 12 }}
             - name: AGENTIUM_BACKEND_WORKERS
               value: {{ .Values.backend.workers | quote }}
             {{- with .Values.backend.extraEnv }}
