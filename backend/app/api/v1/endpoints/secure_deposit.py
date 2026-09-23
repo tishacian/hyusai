@@ -49,6 +49,7 @@ from app.services.secure_deposit import (
 from app.services.secure_deposit_operations import (
     SFTP_DEFAULT_STALE_AFTER_HOURS,
     SFTP_RECONCILIATION_JOB_KIND,
+    _filesystem_staging,
     get_sftp_operations_snapshot,
 )
 from app.services.workspace_jobs import create_workspace_job, dispatch_workspace_job, serialize_job
@@ -291,6 +292,14 @@ def run_sftp_reconciliation(
     _enforce(db, user=user, workspace=workspace, resource_kind="deposit_file", action="operate")
     if body.mode == "quarantine" and not body.confirm_from_job_id:
         raise HTTPException(status_code=422, detail="confirm_from_job_id is required for quarantine")
+    if not _filesystem_staging():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "SFTP reconciliation needs filesystem staging; this deployment "
+                "stages deposits in the object store"
+            ),
+        )
     actor = user.email or user.username or user.id
     job = create_workspace_job(
         db,

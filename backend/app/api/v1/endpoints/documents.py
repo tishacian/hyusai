@@ -193,12 +193,56 @@ class RetrievalArtifactJobRequest(BaseModel):
     dry_run: bool = False
 
 
+_DOCUMENT_VECTOR_DB_TYPES = {"qdrant", "chroma", "faiss"}
+
+
 def _resolve_document_vector_db_type(
     workspace: Workspace,
     requested_type: Optional[str] = None,
+    *,
+    destructive: bool = False,
 ) -> str:
+    """Resolve the store for one document call; the request cannot pick FAISS.
+
+    The request parameter used to win outright, bypassing
+    ``resolve_vector_db_type`` whose whole purpose is to stop FAISS being
+    chosen for an automatic path. That was reachable on every document
+    endpoint that takes ``vector_db_type``. It matters on Kubernetes, where the
+    FAISS directory is per-pod and ephemeral: the index written there differs
+    between replicas and disappears on restart, so the documents are accepted
+    and their vectors are never found again, with no error anywhere.
+
+    A deployment whose own configured default is FAISS still gets FAISS. Only
+    the caller can no longer ask for it.
+    """
+
     app_settings = get_resolved_settings(workspace_id=workspace.id)
-    return (requested_type or "").strip().lower() or resolve_vector_db_type(app_settings)
+    resolved = resolve_vector_db_type(app_settings)
+    requested = (requested_type or "").strip().lower()
+    if not requested:
+        return resolved
+    if requested not in _DOCUMENT_VECTOR_DB_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "UNSUPPORTED_VECTOR_DB_TYPE", "vector_db_type": requested},
+        )
+    if requested == "faiss" and resolved != "faiss":
+        if destructive:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "FAISS_STORE_NOT_CONFIGURED",
+                    "vector_db_type": requested,
+                    "message": "This deployment does not use FAISS. Refusing to delete from another store.",
+                },
+            )
+        logger.warning(
+            "Ignoring a requested FAISS vector store",
+            workspace_id=workspace.id,
+            resolved=resolved,
+        )
+        return resolved
+    return requested
 
 
 def _attach_collection_job_diagnostics(payload: dict, jobs: list[WorkerJob]) -> dict:
@@ -2028,7 +2072,7 @@ async def clear_all_documents(
                 status_code=400,
                 detail="confirm_collection_name must exactly match collection_name.",
             )
-        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type, destructive=True)
 
         doc_service = DocumentService(
             collection_name=collection_name, vector_db_type=db_type, workspace_slug=workspace.slug
@@ -2069,7 +2113,7 @@ async def delete_document(
 ):
     """Delete a document and its chunks"""
     try:
-        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type, destructive=True)
 
         doc_service = DocumentService(
             collection_name=collection_name, vector_db_type=db_type, workspace_slug=workspace.slug
@@ -2783,7 +2827,7 @@ async def delete_collection(
 
         collection_name = unquote(collection_name)
 
-        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type, destructive=True)
         row = (
             db.query(KnowledgeCollection)
             .filter(
