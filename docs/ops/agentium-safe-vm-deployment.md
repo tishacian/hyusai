@@ -7258,3 +7258,17 @@ revision `revision_verified=true`, HTTP 200, zero backend exception matches
 in the switch window, and carakai 10 passed with two intentional skips.
 Artifacts `/tmp/iteration-canaries-20260923T063455Z.s82bo8`.
 
+### 2026-09-23 — reservation on the open system, 61a1eb77
+
+Revision `61a1eb77d99a628a2baff6aaac8c61f642a4ab69` is deployed from three
+immutable images at tag `61a1eb77d99a`; rollback is `131058025183`. No
+migration. The Flow reservation is shown for the open system, not only for
+an automation. Storage, public revision `revision_verified=true`, HTTP 200,
+zero backend exception matches in the switch window, and carakai 10 passed
+with two intentional skips. Artifacts
+`/tmp/iteration-canaries-20260923T110011Z.DnnRSw`. On Nawa, SPARK-089
+`cd696462` shows the reservation and keeps that system in the address. The
+saved note is on run `95f2e6e5`. Reread stops with `block_refused` because
+the draft block `t_extract` is outside the automation catalog.
+
+
