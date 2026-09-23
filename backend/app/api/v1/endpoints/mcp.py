@@ -9,9 +9,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services.connectors.mcp import client as mcp_client
 from app.services.connectors.mcp import preview as mcp_preview
 from app.services.connectors.mcp import read as mcp_read
@@ -20,6 +21,21 @@ from app.services.connectors.mcp import write as mcp_write
 from app.services.connectors.mcp.errors import McpError
 
 router = APIRouter()
+
+
+def _is_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> bool:
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
+        .first()
+    )
+    return bool(membership) and is_admin_template(getattr(membership, "role_template", None), membership.role)
+
+
+def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> None:
+    """Server definitions carry the endpoint and the token URL the shared secret goes to."""
+    if not _is_workspace_admin(db, user, workspace):
+        raise HTTPException(status_code=403, detail={"code": "WORKSPACE_PERMISSION_DENIED"})
 
 
 class McpSharedAuthUpsert(BaseModel):
@@ -104,6 +120,7 @@ async def put_mcp_servers(
     db: DBSession = Depends(get_db),
 ):
     _require_enabled(workspace)
+    _require_workspace_admin(db, user, workspace)
     try:
         payload: dict = {
             "servers": [item.model_dump(exclude_unset=True) for item in body.servers],
@@ -125,6 +142,7 @@ async def put_mcp_server(
     db: DBSession = Depends(get_db),
 ):
     _require_enabled(workspace)
+    _require_workspace_admin(db, user, workspace)
     payload = body.model_dump(exclude_unset=True)
     payload["id"] = server_id
     try:
@@ -205,17 +223,21 @@ async def invoke_mcp_server(
     body: McpInvokeRequest,
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     """One allow-listed write ``tools/call``, live only with ``sap_write_unsealed``.
 
     With the flag off the response is the sealed envelope — same shape the
     approval gate shows — and no connection is opened, so the server does not
     even need to be attached. Every unsealed call lands in the audit ledger.
+    Only a workspace administrator's call is attended: this route has no
+    approval gate, so for anyone else the write stays sealed.
     """
     _require_enabled(workspace)
     unsealed = mcp_write.workspace_write_unsealed(workspace)
+    attended = _is_workspace_admin(db, user, workspace)
     try:
-        server = mcp_service.resolve_server(workspace, server_id) if unsealed else None
+        server = mcp_service.resolve_server(workspace, server_id) if unsealed and attended else None
         if body.commit and body.tool.strip() == mcp_write.BAPI_CREATE:
             out = mcp_write.create_and_commit_po(
                 server,
@@ -223,6 +245,7 @@ async def invoke_mcp_server(
                 arguments=body.arguments,
                 unsealed=unsealed,
                 blocked_tools=body.disabled_tools,
+                attended=attended,
             )
         else:
             out = mcp_write.invoke_write_tool(
@@ -232,6 +255,7 @@ async def invoke_mcp_server(
                 arguments=body.arguments,
                 unsealed=unsealed,
                 blocked_tools=body.disabled_tools,
+                attended=attended,
             )
     except Exception as exc:  # noqa: BLE001
         _raise_mcp(exc)

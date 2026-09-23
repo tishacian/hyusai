@@ -27,6 +27,7 @@ import logging
 from typing import Any, Iterable, Mapping, Optional
 
 from app.services.connectors.mcp import client as mcp_client
+from app.services.connectors.mcp.errors import McpCallFailed, McpUnreachable
 from app.services.connectors.mcp.preview import classify_kind, gateway_refusal
 from app.services.connectors.mcp.read import compose_write_sealed
 
@@ -65,6 +66,10 @@ UNATTENDED_BLOCK = (
     "automatic branch). The envelope carries the exact payload that would be sent."
 )
 SYSTEM_ACTOR_PREFIX = "system:"
+UNKNOWN_OUTCOME = "unknown"
+# A BAPI RETURN row of these types means SAP did not do what was asked:
+# E error, A abort (the LUW is gone), X exit.
+FAILURE_MESSAGE_TYPES = frozenset({"E", "A", "X"})
 
 
 def human_decided(actor: Any) -> bool:
@@ -74,9 +79,14 @@ def human_decided(actor: Any) -> bool:
 
 
 def workspace_write_unsealed(workspace: Any) -> bool:
-    from app.services.workspace_features import feature_enabled
+    """Live writes need the flag set to the boolean ``true``, nothing else.
 
-    return feature_enabled(workspace, WRITE_FLAG)
+    ``bool()`` would read "false", "0", "off" or ``{"enabled": false}`` as
+    unsealed; a malformed value must keep the write sealed.
+    """
+    settings = getattr(workspace, "settings", None)
+    features = settings.get("features") if isinstance(settings, Mapping) else None
+    return isinstance(features, Mapping) and features.get(WRITE_FLAG) is True
 
 
 def _reject_testrun(node: Any, path: str = "arguments") -> None:
@@ -137,14 +147,30 @@ def bapi_po_number(payload: Any) -> str:
 
 
 def sap_write_verdict(tool: str, payload: Any) -> tuple[bool, list[dict[str, str]]]:
-    """Never branch on the MCP transport flag; read the SAP payload itself."""
+    """Never branch on the MCP transport flag; read the SAP payload itself.
+
+    Only a reply SAP can be read from counts: a non-object reply (text from
+    the gateway) proves nothing and is a failure, and so is an abort or exit
+    row, not only an error one. A create must also name its PO.
+    """
+    if not isinstance(payload, Mapping):
+        return False, [
+            {"type": "E", "id": "", "number": "", "message": "SAP reply is not a readable BAPI payload"}
+        ]
     messages = bapi_return_messages(payload)
     if messages:
-        return not any(row["type"] == "E" for row in messages), messages
-    refused = gateway_refusal(payload)
-    if refused:
-        return False, [{"type": "E", "id": "", "number": "", "message": refused}]
-    return True, []
+        ok = not any(row["type"] in FAILURE_MESSAGE_TYPES for row in messages)
+    else:
+        refused = gateway_refusal(payload)
+        if refused:
+            return False, [{"type": "E", "id": "", "number": "", "message": refused}]
+        ok = True
+    if ok and tool == BAPI_CREATE and not bapi_po_number(payload):
+        messages = messages + [
+            {"type": "E", "id": "", "number": "", "message": "BAPI_PO_CREATE1 returned no PO number"}
+        ]
+        ok = False
+    return ok, messages
 
 
 def normalized_blocked_tools(blocked_tools: Any) -> frozenset[str]:
@@ -196,7 +222,7 @@ def invoke_write_tool(
     unsealed: bool,
     blocked_tools: Iterable[str] | None = None,
     sealed_block: str = FLAG_OFF_BLOCK,
-    attended: bool = True,
+    attended: bool = False,
 ) -> dict[str, Any]:
     """One allow-listed write. Blocked, sealed or live — in that order.
 
@@ -205,7 +231,12 @@ def invoke_write_tool(
     here, so the allow-list, the TESTRUN ban, the rollback rule and the
     flag are enforced once. ``attended=False`` says no human decided this
     write (gate TTL, scheduler, automatic branch): it stays sealed whatever
-    the flag says.
+    the flag says. It is the default: a caller has to state that a person
+    decided, never the other way round.
+
+    A transport failure is not a failed write: SAP may have done it. The
+    envelope then says ``outcome: unknown`` and ``needs_reconciliation``, and
+    nobody should retry it blind.
     """
     name = str(tool or "").strip()
     if not name:
@@ -240,12 +271,33 @@ def invoke_write_tool(
         return sealed
     if not isinstance(server, Mapping):
         raise ValueError("a resolved server is required for an unsealed write")
-    called = mcp_client.call_tool(
-        server,
-        contract_tool=name,
-        arguments=args,
-        timeout_s=WRITE_TIMEOUT_S,
-    )
+    try:
+        called = mcp_client.call_tool(
+            server,
+            contract_tool=name,
+            arguments=args,
+            timeout_s=WRITE_TIMEOUT_S,
+        )
+    except (McpUnreachable, McpCallFailed) as exc:
+        rolled_back = _rollback(server) if name == BAPI_CREATE else False
+        return {
+            "ok": True,
+            "sealed": False,
+            "called": True,
+            "blocked": False,
+            "kind": "write",
+            "server_id": server_id,
+            "tool": name,
+            "arguments": args,
+            "sap_ok": False,
+            "outcome": UNKNOWN_OUTCOME,
+            "needs_reconciliation": True,
+            "error": {"code": exc.code, "message": str(exc)},
+            "messages": [{"type": "E", "id": "", "number": "", "message": f"outcome unknown: {exc}"}],
+            "po_number": "",
+            "rolled_back": rolled_back,
+            "result": None,
+        }
     raw = called.get("result")
     sap_ok, messages = sap_write_verdict(name, raw)
     rolled_back = False
@@ -263,6 +315,7 @@ def invoke_write_tool(
         "tool": called.get("tool") or name,
         "arguments": args,
         "sap_ok": sap_ok,
+        "outcome": "done" if sap_ok else "failed",
         "messages": messages,
         "po_number": bapi_po_number(raw),
         "rolled_back": rolled_back,
@@ -279,8 +332,16 @@ def audit_write(
     server_id: str,
     out: Mapping[str, Any],
     run_id: str | None = None,
+    run_actor: str | None = None,
+    context: Mapping[str, Any] | None = None,
 ) -> None:
-    """Every write that left the platform lands in the ledger, whoever asked."""
+    """Every write that left the platform lands in the ledger, whoever asked.
+
+    ``actor`` is the person who decided the write; ``run_actor`` the run that
+    carried it out. ``context`` adds what identifies the business object (PR,
+    item, decision). A call whose outcome is unknown is recorded like any
+    other: that row is what a reconciliation starts from.
+    """
     from app.services.audit_logger import emit_audit_event
 
     calls = out.get("calls")
@@ -296,9 +357,18 @@ def audit_write(
             "rolled_back": row.get("rolled_back"),
             "messages": row.get("messages"),
             "duration_ms": row.get("duration_ms"),
+            "outcome": row.get("outcome"),
         }
+        if row.get("needs_reconciliation"):
+            details["needs_reconciliation"] = True
+            details["error"] = row.get("error")
         if run_id:
             details["run_id"] = run_id
+        if run_actor:
+            details["run_actor"] = run_actor
+        for key, value in (context or {}).items():
+            if value not in (None, ""):
+                details[key] = value
         emit_audit_event(
             workspace_id=str(workspace_id),
             event_type="mcp.write.invoked",
@@ -329,7 +399,7 @@ def create_and_commit_po(
     unsealed: bool,
     blocked_tools: Iterable[str] | None = None,
     sealed_block: str = FLAG_OFF_BLOCK,
-    attended: bool = True,
+    attended: bool = False,
 ) -> dict[str, Any]:
     """``BAPI_PO_CREATE1`` then ``BAPI_TRANSACTION_COMMIT`` — two calls or nothing.
 
@@ -360,11 +430,22 @@ def create_and_commit_po(
         unsealed=unsealed,
         blocked_tools=blocked_tools,
         sealed_block=sealed_block,
+        attended=attended,
     )
     out["calls"].append(commit)
     committed = bool(commit.get("called")) and bool(commit.get("sap_ok"))
     out["committed"] = committed
     out["messages"] = list(create.get("messages") or []) + list(commit.get("messages") or [])
+    if commit.get("outcome") == UNKNOWN_OUTCOME:
+        # SAP may have committed. Keep the number the create returned: it is
+        # the only handle a reconciliation has, and a rollback now could not
+        # tell anyone which way it went.
+        out["sap_ok"] = False
+        out["committed"] = False
+        out["outcome"] = UNKNOWN_OUTCOME
+        out["needs_reconciliation"] = True
+        out["error"] = commit.get("error")
+        return out
     if not committed:
         out["sap_ok"] = False
         out["po_number"] = ""
