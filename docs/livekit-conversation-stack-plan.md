@@ -679,9 +679,10 @@ Etat implementation P3 guardrails :
 - `/api/v1/livekit/config` expose un statut non secret :
   `scale.mode`, `scale.redis_configured`, `turn.mode`, `agents.mode` et
   `governance`.
-- `LIVEKIT_EGRESS_ENABLED=false` et
-  `LIVEKIT_RECORDING_ALLOWED_WORKSPACE_SLUGS=` restent les valeurs par defaut ;
-  il n'y a pas de retention audio brute par defaut.
+- `LIVEKIT_EGRESS_ENABLED=false` reste la valeur par defaut ; il n'y a pas de
+  retention audio brute par defaut. La liste
+  `LIVEKIT_RECORDING_ALLOWED_WORKSPACE_SLUGS`, affichee mais jamais appliquee,
+  a ete retiree (migration 111).
 
 Reference LiveKit : le mode distribue requiert Redis comme store partage et bus
 de messages ; sans bloc `redis:`, LiveKit reste en single-node.

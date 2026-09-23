@@ -76,7 +76,7 @@ def human_decided(actor: Any) -> bool:
 def workspace_write_unsealed(workspace: Any) -> bool:
     from app.services.workspace_features import feature_enabled
 
-    return feature_enabled(workspace, WRITE_FLAG, csv_fallback="")
+    return feature_enabled(workspace, WRITE_FLAG)
 
 
 def _reject_testrun(node: Any, path: str = "arguments") -> None:

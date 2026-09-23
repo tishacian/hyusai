@@ -49,19 +49,22 @@ def test_andritz_project_scheme_follows_stamped_family_only():
     assert project_reference_scheme(_workspace(slug="andritz")) == ""
 
 
-def test_feature_enabled_settings_override_wins():
+def test_feature_enabled_reads_the_workspace_setting():
     workspace = _workspace(slug="other", settings={"features": {"secure_deposit": True}})
-    assert feature_enabled(workspace, "secure_deposit", csv_fallback="andritz")
+    assert feature_enabled(workspace, "secure_deposit")
 
     disabled = _workspace(slug="andritz", settings={"features": {"secure_deposit": False}})
-    assert not feature_enabled(disabled, "secure_deposit", csv_fallback="andritz")
+    assert not feature_enabled(disabled, "secure_deposit")
 
 
-def test_feature_enabled_csv_fallback_is_exact_match():
-    assert feature_enabled(_workspace(slug="andritz"), "x", csv_fallback="andritz, other")
-    assert feature_enabled(_workspace(slug="Andritz"), "x", csv_fallback="andritz")
-    assert not feature_enabled(_workspace(slug="andritz-test"), "x", csv_fallback="andritz")
-    assert not feature_enabled(_workspace(slug="andritz"), "x", csv_fallback="")
+def test_feature_enabled_never_consults_the_slug():
+    """There is no fallback list to pass any more: the signature refuses one."""
+
+    import inspect
+
+    assert list(inspect.signature(feature_enabled).parameters) == ["workspace", "feature"]
+    assert not feature_enabled(_workspace(slug="andritz"), "x")
+    assert not feature_enabled(_workspace(slug="agentium-showcase"), "rpa_bridge")
 
 
 def test_chat_document_upload_enabled_by_default():
@@ -111,6 +114,8 @@ def test_graduated_features_are_declared_for_audit():
         FLOW_PUBLICATION_FEATURE,
         "hypervisor_v2",
         "system_360_projection_v1",
+        "iam_enforced",
+        "voice_realtime_stt",
     }
     for feature in DEFAULT_ON_FEATURES:
         assert graduated_feature_enabled(_workspace(settings={}), feature)

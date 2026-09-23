@@ -84,10 +84,6 @@ def _parse_metadata(value: Any) -> Dict[str, Any]:
     return decoded if isinstance(decoded, dict) else {}
 
 
-def _csv_slugs(value: str) -> list[str]:
-    return sorted({item.strip().lower() for item in (value or "").split(",") if item.strip()})
-
-
 class LiveKitService:
     """Small LiveKit API facade that avoids importing the Go server repo."""
 
@@ -102,7 +98,6 @@ class LiveKitService:
         )
 
     def public_config(self) -> Dict[str, Any]:
-        recording_allowed_workspaces = _csv_slugs(settings.livekit_recording_allowed_workspace_slugs)
         redis_configured = bool((settings.livekit_redis_address or "").strip())
         return {
             "enabled": bool(settings.livekit_enabled),
@@ -124,7 +119,6 @@ class LiveKitService:
             "governance": {
                 "egress_enabled": bool(settings.livekit_egress_enabled),
                 "recording_default": "disabled",
-                "recording_allowed_workspace_slugs": recording_allowed_workspaces,
                 "raw_audio_retention": "disabled",
             },
             "topics": {
@@ -577,6 +571,7 @@ class LiveKitService:
         metadata: Dict[str, Any],
         destination_identity: Optional[str] = None,
         voice_session_start: Optional[Dict[str, Any]] = None,
+        workspace: Any | None = None,
     ) -> LiveKitAgentDispatchResult:
         if not settings.livekit_agent_dispatch_url:
             return LiveKitAgentDispatchResult(
@@ -640,7 +635,9 @@ class LiveKitService:
                 ),
                 "workspace_slug": metadata.get("workspace_slug"),
                 "session_start": session_start,
-                "realtime_stt": self.realtime_stt_payload(session_start, metadata),
+                "realtime_stt": self.realtime_stt_payload(
+                    session_start, metadata, workspace=workspace
+                ),
             }
         try:
             payload = await self._post_agent_dispatch(settings.livekit_agent_dispatch_url, body)
@@ -659,38 +656,40 @@ class LiveKitService:
                 fallback_reason=str(exc),
             )
 
-    def realtime_stt_enabled(self, workspace_slug: Optional[str]) -> bool:
+    def realtime_stt_enabled(self, workspace: Any | None) -> bool:
         """Whether the LiveKit sidecar should stream STT via gpt-realtime-whisper.
 
-        Gated by the dedicated master switch and an optional workspace allowlist.
-        An empty allowlist means every LiveKit-capable workspace is eligible once
-        the master switch is on.
+        Gated by the dedicated master switch, then by the workspace: eligible
+        unless its ``features.voice_realtime_stt`` is false. The global slug
+        allowlist this replaced was frozen onto the rows by migration 111.
         """
         if not settings.voice_realtime_stt_enabled:
             return False
-        allow = _csv_slugs(settings.voice_realtime_stt_workspace_slugs)
-        if allow and str(workspace_slug or "").strip().lower() not in allow:
-            return False
-        return True
+        if workspace is None:
+            return True
+        from app.services.workspace_features import graduated_feature_enabled
+
+        return graduated_feature_enabled(workspace, "voice_realtime_stt")
 
     def realtime_stt_payload(
         self,
         session_start: Optional[Dict[str, Any]],
         metadata: Optional[Dict[str, Any]],
+        *,
+        workspace: Any | None = None,
     ) -> Dict[str, Any]:
         """Realtime STT config carried to the sidecar in the dispatch body.
 
         A per-session ``session_start.realtime_stt`` boolean overrides the
         settings-derived default (so a workspace can force it on/off without an
-        env change); otherwise the master switch + allowlist decide.
+        env change); otherwise the master switch and the workspace flag decide.
         """
         start = session_start if isinstance(session_start, dict) else {}
-        meta = metadata if isinstance(metadata, dict) else {}
         requested = start.get("realtime_stt")
         if isinstance(requested, bool):
             enabled = requested
         else:
-            enabled = self.realtime_stt_enabled(meta.get("workspace_slug"))
+            enabled = self.realtime_stt_enabled(workspace)
         if not enabled:
             return {"enabled": False}
         return {

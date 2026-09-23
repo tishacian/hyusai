@@ -39,7 +39,7 @@ FEATURE_FLAG = "model_portal_beta"
 
 
 def _require_enabled(workspace: Workspace) -> None:
-    if not feature_enabled(workspace, FEATURE_FLAG, csv_fallback="agentium-showcase"):
+    if not feature_enabled(workspace, FEATURE_FLAG):
         raise HTTPException(
             status_code=403,
             detail={"code": "MODEL_PORTAL_DISABLED", "message": "Model portal is not enabled for this workspace"},
