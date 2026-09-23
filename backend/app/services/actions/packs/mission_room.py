@@ -125,16 +125,16 @@ async def run_mission_room_handler(
     user: Any,
     manifest: Any,
     text: str,
-    knowledge_scope: Optional[str],
+    knowledge_scope: str | None,
     ctx: dict[str, Any],
     octave_contract: bool,
     effects: list[dict[str, Any]],
     sources: list[dict[str, Any]],
     content: str,
     extra: dict[str, Any],
-    awaiting_to_set: Optional[dict[str, Any]],
+    awaiting_to_set: dict[str, Any] | None,
     awaiting_to_clear: bool,
-) -> tuple[str, list[dict[str, Any]], Optional[dict[str, Any]], bool]:
+) -> tuple[str, list[dict[str, Any]], dict[str, Any] | None, bool]:
     """Run one Mission Room handler; returns what it rebinds for the epilogue.
 
     ``effects`` and ``extra`` are mutated in place, as they were in the executor.

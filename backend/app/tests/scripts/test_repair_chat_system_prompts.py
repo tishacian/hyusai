@@ -33,7 +33,9 @@ def _with_legacy_prompt(flow: dict) -> dict:
 
 def _chat_workspace(db_session, *, family: str | None, slug: str) -> tuple[Workspace, str]:
     settings = {"family": family} if family else {}
-    workspace = Workspace(id=str(uuid4()), name=slug, slug=f"{slug}-{uuid4().hex[:6]}", settings=settings)
+    workspace = Workspace(
+        id=str(uuid4()), name=slug, slug=f"{slug}-{uuid4().hex[:6]}", settings=settings
+    )
     db_session.add(workspace)
     db_session.commit()
     system = ensure_workspace_chat_system_default(db_session, workspace.id)
@@ -88,10 +90,14 @@ def test_the_repair_republishes_only_what_it_should(db_session):
     assert _by_slug(plan, unstamped)["status"] == "skipped_family_unstamped"
     assert "Andritz experts" in _runtime_prompt(db_session, generic)  # dry run wrote nothing
 
-    versions_before = db_session.query(SystemVersion).filter(SystemVersion.system_id == generic_system).count()
+    versions_before = (
+        db_session.query(SystemVersion).filter(SystemVersion.system_id == generic_system).count()
+    )
     applied = repair.run(db_session, workspace_ids=ids, apply=True, actor=repair.ACTOR)
     assert _by_slug(applied, generic)["applied"] is True
-    after = db_session.query(SystemVersion).filter(SystemVersion.system_id == generic_system).count()
+    after = (
+        db_session.query(SystemVersion).filter(SystemVersion.system_id == generic_system).count()
+    )
     assert after == versions_before + 1  # one new published version, history kept
 
     runtime = _runtime_prompt(db_session, generic)
@@ -116,15 +122,26 @@ def test_a_customised_prompt_and_an_unreviewed_draft_are_left_alone(db_session):
     for node in flow["nodes"]:
         if node.get("id") == "skill.fast_answer":
             node["data"]["prompt_contract"]["system_prompt"] = "Our own prompt."
-    draft = db_session.query(SystemFlowDraft).filter(SystemFlowDraft.system_id == customised_id).one()
+    draft = (
+        db_session.query(SystemFlowDraft).filter(SystemFlowDraft.system_id == customised_id).one()
+    )
     draft, _ = flow_publication.save_draft(
-        db_session, system_id=customised_id, workspace=customised, flow_definition=flow,
-        expected_revision=draft.revision, actor="operator@example.test",
+        db_session,
+        system_id=customised_id,
+        workspace=customised,
+        flow_definition=flow,
+        expected_revision=draft.revision,
+        actor="operator@example.test",
     )
     flow_publication.publish_draft(
-        db_session, system_id=customised_id, workspace=customised,
-        expected_draft_revision=draft.revision, expected_published_version_id=system.published_flow_version_id,
-        message="custom", breaking_change_intent="acknowledged", actor="operator@example.test",
+        db_session,
+        system_id=customised_id,
+        workspace=customised,
+        expected_draft_revision=draft.revision,
+        expected_published_version_id=system.published_flow_version_id,
+        message="custom",
+        breaking_change_intent="acknowledged",
+        actor="operator@example.test",
     )
     # Another operator has unpublished work in progress.
     other = db_session.get(System, drafted_id)
@@ -132,12 +149,18 @@ def test_a_customised_prompt_and_an_unreviewed_draft_are_left_alone(db_session):
     pending["description"] = "work in progress"
     draft = db_session.query(SystemFlowDraft).filter(SystemFlowDraft.system_id == drafted_id).one()
     flow_publication.save_draft(
-        db_session, system_id=drafted_id, workspace=drafted, flow_definition=pending,
-        expected_revision=draft.revision, actor="operator@example.test",
+        db_session,
+        system_id=drafted_id,
+        workspace=drafted,
+        flow_definition=pending,
+        expected_revision=draft.revision,
+        actor="operator@example.test",
     )
     db_session.commit()
 
-    report = repair.run(db_session, workspace_ids=[customised.id, drafted.id], apply=True, actor=repair.ACTOR)
+    report = repair.run(
+        db_session, workspace_ids=[customised.id, drafted.id], apply=True, actor=repair.ACTOR
+    )
     custom_entry = _by_slug(report, customised)
     assert custom_entry["status"] == "publish"
     assert "skill.fast_answer.system_prompt" not in custom_entry["changed_slots"]
@@ -150,11 +173,21 @@ def test_repaired_flow_touches_only_exact_legacy_values():
     flow = {
         "prompt_contract": {"base_system_prompt": repair.LEGACY_SYSTEM_PROMPT},
         "nodes": [
-            {"id": "runtime.prompt_assembly", "data": {"prompt_contract": {"base_system_prompt": repair.LEGACY_SYSTEM_PROMPT + " "}}},
-            {"id": "skill.fast_answer", "data": {"prompt_contract": {"system_prompt": repair.LEGACY_SYSTEM_PROMPT}}},
+            {
+                "id": "runtime.prompt_assembly",
+                "data": {
+                    "prompt_contract": {"base_system_prompt": repair.LEGACY_SYSTEM_PROMPT + " "}
+                },
+            },
+            {
+                "id": "skill.fast_answer",
+                "data": {"prompt_contract": {"system_prompt": repair.LEGACY_SYSTEM_PROMPT}},
+            },
         ],
     }
     repaired, changed = repair.repaired_flow(flow, "industrial")
     assert changed == ["prompt_contract.base_system_prompt", "skill.fast_answer.system_prompt"]
     assert repaired["nodes"][0]["data"]["prompt_contract"]["base_system_prompt"].endswith(" ")
-    assert flow["prompt_contract"]["base_system_prompt"] == repair.LEGACY_SYSTEM_PROMPT  # input untouched
+    assert (
+        flow["prompt_contract"]["base_system_prompt"] == repair.LEGACY_SYSTEM_PROMPT
+    )  # input untouched
