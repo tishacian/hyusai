@@ -7271,4 +7271,18 @@ with two intentional skips. Artifacts
 saved note is on run `95f2e6e5`. Reread stops with `block_refused` because
 the draft block `t_extract` is outside the automation catalog.
 
+### 2026-09-23 — indexed search is a preparation check, 1d27134c
+
+Revision `1d27134c116b684a3a80c5aba6f6d25e7721f4f3` is deployed from three
+immutable images at tag `1d27134c116b`; rollback is `61a1eb77d99a`. No
+migration. A draft that retrieves is ready on indexing only when the
+workspace already has chunks. Storage, public revision
+`revision_verified=true`, HTTP 200, zero backend exception matches in the
+switch window, and carakai 10 passed with two intentional skips. Artifacts
+`/tmp/iteration-canaries-20260923T113048Z.3I7kKT`. On Nawa, automation
+`0c7393e2` reports ready: model `workspace_llm_v1`, provider `openai`,
+source, indexing `documents, itsd-knowledge, po-invoice-recon-demo`, rights,
+and a worker that answered.
+
+
 
