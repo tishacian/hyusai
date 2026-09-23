@@ -357,12 +357,39 @@ async def automation_preparation(
         authority_status = None
     except HTTPException as exc:
         authority_status = exc.status_code
+    indexed: bool | None = None
+    index_detail: str | None = None
+    try:
+        indexed, index_detail = _indexed_collections(db, workspace)
+    except Exception:
+        indexed = None
     return preparation_diagnostic(
         flow if isinstance(flow, dict) else None,
         provider=provider_name(routing),
         caller_can_run=caller_run_right(authority_status),
         worker_reachable=_worker_reachable(),
+        indexed=indexed,
+        index_detail=index_detail,
     )
+
+
+def _indexed_collections(db: DBSession, workspace: Workspace) -> tuple[bool, str | None]:
+    """Whether this workspace has chunks a search can read. An empty result was looked at."""
+
+    from app.models.knowledge_collection import KnowledgeCollection
+
+    rows = (
+        db.query(KnowledgeCollection.slug)
+        .filter(
+            KnowledgeCollection.workspace_id == workspace.id,
+            KnowledgeCollection.chunk_count > 0,
+        )
+        .order_by(KnowledgeCollection.slug.asc())
+        .all()
+    )
+    if not rows:
+        return False, None
+    return True, ", ".join(row.slug for row in rows[:3])
 
 
 def _worker_reachable() -> bool | None:
