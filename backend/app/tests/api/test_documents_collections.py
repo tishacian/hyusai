@@ -2545,6 +2545,15 @@ def test_a_request_cannot_choose_faiss_on_a_qdrant_deployment(monkeypatch, db_se
     assert _resolve_document_vector_db_type(ws, None) == "qdrant"
     assert _resolve_document_vector_db_type(ws, "qdrant") == "qdrant"
 
+    from fastapi import HTTPException
+
+    import pytest
+
+    with pytest.raises(HTTPException) as refused:
+        _resolve_document_vector_db_type(ws, "faiss", destructive=True)
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "FAISS_STORE_NOT_CONFIGURED"
+
 
 def test_a_faiss_deployment_still_gets_faiss(monkeypatch, db_session):
     """Only the request is closed. A deployment configured for FAISS keeps it."""
