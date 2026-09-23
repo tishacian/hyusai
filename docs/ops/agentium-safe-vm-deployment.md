@@ -7362,6 +7362,22 @@ Sentinel CI, « priorités du jour », « posture sécurité du jour » and
 registry, and « oui » opened the customs draft. Octocity answered the first
 two the same way. No live SAP purchase order was created.
 
+### 2026-09-23 — one PR item, one purchase order, 8fea4c5b
+
+Revision `8fea4c5b07ead1483e5507e7794fcc66089a830f` is the merge of pull
+request 55, deployed from three immutable images at tag `8fea4c5b07ea`;
+rollback is `ac34fe05e8f9`. Migration `112_sap_write_intents` ran after the
+data-plane window
+`/srv/agentium-data/sap-write-intents-deployments/2026-09-23-8fea4c5b07ea`
+(`.ready`). It created `sap_write_intents`. Alembic head is that revision.
+The table is empty. `sap_po_reconciliation` is absent on every workspace, so
+the pre-create SAP read stays off. Nawa `sap_write_unsealed` remains the
+boolean `true`. Storage, public revision `revision_verified=true`, HTTP 200,
+zero backend exception matches in the switch window, and carakai 10 passed
+with two intentional skips. Artifacts
+`/tmp/iteration-canaries-20260923T212703Z.p40n4D`. No purchase order was
+created, and no second approval was replayed.
+
 
 
 
