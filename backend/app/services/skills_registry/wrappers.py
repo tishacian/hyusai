@@ -27,7 +27,6 @@ from types import SimpleNamespace
 from typing import Any, Mapping, Optional
 
 from app.core.logging import get_logger
-from app.tenants import family_hook
 from app.services.evaluation.judge import (
     contractual_zero_token_usage,
     new_provider_usage_accumulator,
@@ -45,6 +44,7 @@ from app.services.skills_registry.binding import (
     SkillCallable,
     is_workspace_skill_slug,
 )
+from app.tenants import family_hook
 
 logger = get_logger(__name__)
 

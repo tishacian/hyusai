@@ -18,7 +18,12 @@ import pytest
 from app.models.workspace import Workspace
 from app.services.skills_registry import wrappers as w
 
-FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "tenant_prompts" / "andritz_chat_prompts.json"
+FIXTURE = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "tenant_prompts"
+    / "andritz_chat_prompts.json"
+)
 CASES = json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
@@ -39,7 +44,9 @@ def test_andritz_self_correct_prompt_is_unchanged(case):
 
 def test_andritz_out_of_scope_reason_is_unchanged():
     (case,) = CASES["coerce_oos"]
-    plan = w._coerce_plan(*case["args"], has_history=False, known_project_codes=[], family="andritz")
+    plan = w._coerce_plan(
+        *case["args"], has_history=False, known_project_codes=[], family="andritz"
+    )
     assert plan == case["expected"]
 
 
@@ -68,7 +75,7 @@ def test_the_rules_are_shared_only_the_framing_differs():
     args = CASES["grounded"][0]["args"]
     andritz = w._build_grounded_answer_prompt(*args, family="andritz")
     generic = w._build_grounded_answer_prompt(*args, family="generic")
-    rules = andritz[andritz.index("Cite chaque fait"):]
+    rules = andritz[andritz.index("Cite chaque fait") :]
     assert generic.endswith(rules)
 
 
@@ -78,7 +85,10 @@ def test_the_family_comes_from_ctx_or_from_the_workspace_row(db_session):
     assert w._ctx_workspace_family(None) == "generic"
 
     workspace = Workspace(
-        id=str(uuid4()), name="Stamped", slug=f"stamped-{uuid4().hex[:6]}", settings={"family": "andritz"}
+        id=str(uuid4()),
+        name="Stamped",
+        slug=f"stamped-{uuid4().hex[:6]}",
+        settings={"family": "andritz"},
     )
     db_session.add(workspace)
     db_session.commit()

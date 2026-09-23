@@ -18,7 +18,10 @@ import pytest
 from app.agents import procurement_agent as agent
 
 FIXTURE = (
-    Path(__file__).resolve().parents[1] / "fixtures" / "tenant_prompts" / "andritz_chat_agent_prompts.json"
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "tenant_prompts"
+    / "andritz_chat_agent_prompts.json"
 )
 GOLDEN = json.loads(FIXTURE.read_text(encoding="utf-8"))
 
@@ -27,7 +30,9 @@ def test_andritz_system_prompt_is_unchanged():
     assert agent.default_system_prompt("andritz") == GOLDEN["system_prompt"]
 
 
-@pytest.mark.parametrize("case", GOLDEN["rag_user_prompt"], ids=lambda c: str(sorted(c["kwargs"].items())[1:3]))
+@pytest.mark.parametrize(
+    "case", GOLDEN["rag_user_prompt"], ids=lambda c: str(sorted(c["kwargs"].items())[1:3])
+)
 def test_andritz_rag_user_prompt_is_unchanged(case):
     assert agent._build_rag_user_prompt(**case["kwargs"], family="andritz") == case["expected"]
 
@@ -44,14 +49,18 @@ def test_other_families_keep_the_rule_without_the_customer(family):
 
 def test_only_andritz_buffers_the_answer_tail(monkeypatch):
     families = {"ws-andritz": "andritz", "ws-other": "generic"}
-    monkeypatch.setattr(agent, "_workspace_family_for_slug", lambda slug: families.get(slug, "generic"))
+    monkeypatch.setattr(
+        agent, "_workspace_family_for_slug", lambda slug: families.get(slug, "generic")
+    )
 
     other = agent._answer_tail_filter("ws-other", "Quelle est la vitesse ?")
     assert other.feed("Premier morceau. ") == "Premier morceau. "  # streamed at once
     assert other.flush() == ""
 
     andritz = agent._answer_tail_filter("ws-andritz", "Quelle est la vitesse ?")
-    emitted = andritz.feed("Réponse. ") + andritz.feed("Pour plus d'informations, contactez Andritz.")
+    emitted = andritz.feed("Réponse. ") + andritz.feed(
+        "Pour plus d'informations, contactez Andritz."
+    )
     emitted += andritz.flush()
     assert emitted == "Réponse."
 
