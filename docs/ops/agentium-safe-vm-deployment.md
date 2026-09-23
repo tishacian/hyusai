@@ -7301,6 +7301,32 @@ secure deposit: `/api/v1/sftp/health` is `enabled: true` for workspace
 `andritz`, and `/api/v1/sftp/operations` returns 23 links, 44167 received
 files, 317 promoted, 940 rejected.
 
+### 2026-09-23 — tenant-neutral boundaries, df19f4a0
+
+Revision `df19f4a033491cf7bc63247b4250b7178a0e9d84` is the merge of pull
+request 52, deployed from three immutable images at tag `df19f4a03349`;
+rollback is `c67ecc0ede29`. Before the build, 511 old app image tags were
+removed because the root disk had 12G free. The tags kept were the live
+image `c67ecc0ede29`, the previous rollback `1d27134c116b`, and
+`demo-agentic`. Volumes were not pruned, and the `demo-agentic` tag was not
+moved. Migration `111_freeze_ws_slug_fallbacks` ran after the data-plane
+window `/srv/agentium-data/slug-fallbacks-deployments/2026-09-23-df19f4a03349`
+(`.ready`). Alembic head is that revision. Every workspace is marked. Andritz
+has `iam_enforced` and `openai_realtime` true. Nawa and the other previously
+open workspaces have `iam_enforced` false. Showcase keeps `model_portal_beta`,
+`rpa_bridge` and `sap_hana_connector` true. `voice_realtime_stt` stayed
+absent. Secure deposit values were not rewritten. Storage, public revision
+`revision_verified=true`, HTTP 200, zero backend exception matches in the
+switch window, and carakai 10 passed with two intentional skips. Artifacts
+`/tmp/iteration-canaries-20260923T180444Z.Obgu2o`. On the live API, Andritz
+`/api/v1/iam/matrix` reports enforcement true, Nawa and the showcase report
+false, the showcase model portal, RPA and HANA configs answer 200, and Andritz
+`/api/v1/sftp/health` is still enabled. The Nawa page reloaded on this
+revision. No contributor session was opened, so a member creating a System
+was not replayed. `IAM_ENFORCED_WORKSPACE_SLUGS` and
+`OPENAI_REALTIME_ENABLED_WORKSPACE_SLUGS` remain `andritz` in the VM env;
+after this migration they are unread.
+
 
 
 

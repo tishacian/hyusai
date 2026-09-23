@@ -1,13 +1,13 @@
 # Fluidité — état de livraison
 
-Image en production : `c67ecc0ede2989f6e965434d65756b4a55ced5a6` (`revision_verified: true`).
-Rollback image : `1d27134c116b`.
+Image en production : `df19f4a033491cf7bc63247b4250b7178a0e9d84` (`revision_verified: true`).
+Rollback image : `c67ecc0ede29`.
 
 Ces pourcentages sont des estimations de complétude par critère de sortie, pas une mesure automatique. Les portes automation-first ne ferment pas F1–F6.
 
 ## Portes automation-first
 
-- Porte 0 — environ 80 %. Le run SPARK-365 `8591bc37` sur `d4a75119` n’a pas produit de minutes. Sur `5eabc862`, un nouveau brouillon Trigger → Agent → Output (`0c7393e2`, run `b8d02ddb`, skill `workspace_llm_v1`) a produit des minutes. Le compte connecté est `workspace_owner` sur chacun des workspaces qu’il peut ouvrir : nawa, andritz, agentium-showcase, sentinel-ci, octocity-mission-room, test et test2. Nawa compte aussi 3 `workspace_contributor` et 2 `workspace_admin`. Deux contributeurs sont `active` et ont déjà une connexion ; le troisième est `pending` et n’a jamais ouvert de session. Aucun n’est un compte de test. Leurs trois Systems sur Nawa sont « Company Policy Qa Demo », « QA » et « QA2 », pas des minutes. Aucun autre workspace n’a non plus de minutes créées par un membre. `iam_enforced` est absent sur Nawa, et le moteur IAM global ne liste que `andritz`, donc un membre peut créer et lancer un System. La session ouverte n’est pas la leur. La porte reste ouverte.
+- Porte 0 — environ 80 %. Le run SPARK-365 `8591bc37` sur `d4a75119` n’a pas produit de minutes. Sur `5eabc862`, un nouveau brouillon Trigger → Agent → Output (`0c7393e2`, run `b8d02ddb`, skill `workspace_llm_v1`) a produit des minutes. Le compte connecté est `workspace_owner` sur chacun des workspaces qu’il peut ouvrir : nawa, andritz, agentium-showcase, sentinel-ci, octocity-mission-room, test et test2. Nawa compte aussi 3 `workspace_contributor` et 2 `workspace_admin`. Deux contributeurs sont `active` et ont déjà une connexion ; le troisième est `pending` et n’a jamais ouvert de session. Aucun n’est un compte de test. Leurs trois Systems sur Nawa sont « Company Policy Qa Demo », « QA » et « QA2 », pas des minutes. Aucun autre workspace n’a non plus de minutes créées par un membre. Depuis `df19f4a0`, `iam_enforced` est `false` explicite sur Nawa et `true` sur Andritz. Un membre peut toujours créer et lancer un System sur Nawa. La session ouverte n’est pas la leur : aucun contributeur n’a été connecté pour cette release. La porte reste ouverte.
 - Porte 1 — fermée sur les noms visibles. Sur `ae35157b`, Run et Publish (ou Application une fois publié) portent le même nom accessible. Workbench, Server draft et Test draft sont absents.
 - Porte 2 — fermée sur le scope défini. Retrieval cité, écriture SAP scellée, pause humaine, file de décision.
 - Boucle d’édition — critère de sortie couvert, revu sur les données de l’image `1d27134c`. Le brouillon de `0c7393e2` a toujours retrieve, approval, sap_write et l’arête `decided_by`. Il reste en brouillon, publication version 1. Le run `498fff50` est encore en pause. L’écriture `sap_create_po_v1` est `sealed: true`, `called: false`, raison `unattended`.
