@@ -213,6 +213,38 @@ def compose_write_blocked(
     }
 
 
+def compose_write_refused(
+    *,
+    server_id: str,
+    tool: str,
+    arguments: Mapping[str, Any],
+    reason: str,
+    detail: str = "",
+    po_number: str = "",
+    intent_id: str | None = None,
+) -> dict[str, Any]:
+    """The idempotency record refused the write; nothing left the platform."""
+    return {
+        "ok": False,
+        "sealed": False,
+        "called": False,
+        "blocked": True,
+        "kind": "write",
+        "reason": reason,
+        "detail": detail,
+        "server_id": server_id,
+        "tool": tool,
+        "contract_tool": tool,
+        "arguments": dict(arguments),
+        "sap_ok": False,
+        "messages": [{"type": "E", "id": "", "number": "", "message": detail}] if detail else [],
+        "po_number": po_number,
+        "rolled_back": False,
+        "intent_id": intent_id,
+        "result": {"blocked": True, "called": False, "reason": reason, "tool": tool},
+    }
+
+
 def invoke_write_tool(
     server: Optional[Mapping[str, Any]],
     *,
