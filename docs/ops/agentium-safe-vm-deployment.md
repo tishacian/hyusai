@@ -7343,6 +7343,25 @@ on Nawa did not open a draft. Greetings on Nawa and Andritz finished without
 « contactez Andritz ». Existing chat Systems still keep the prompt stored in
 their contract.
 
+### 2026-09-23 — mission-room pack, SAP write rule, chat prompts, ac34fe05
+
+Revision `ac34fe05e8f9f9ff36851a1ada49263e330a2c61` is the merge of pull
+request 54, deployed from three immutable images at tag `ac34fe05e8f9`;
+rollback is `043ec722d7b4`. No migration. Before the switch, Nawa
+`sap_write_unsealed` was the boolean `true`, and the families of Andritz and
+Sentinel CI were already stamped. Storage, public revision
+`revision_verified=true`, HTTP 200, zero backend exception matches in the
+switch window, and carakai 10 passed with two intentional skips. Artifacts
+`/tmp/iteration-canaries-20260923T203842Z.AzVRVu`. The prompt repair dry run
+planned 16 publishes and left Andritz as `nothing_to_replace`. Apply published
+those 16 versions. A second run publishes nothing. Nawa chat System
+`b4c17ff2` version 3 no longer contains the legacy Andritz sentence; versions
+1 and 2 still do. Andritz stays on version 2, which still contains it. On
+Sentinel CI, « priorités du jour », « posture sécurité du jour » and
+« montre le trafic maritime » then « oui » answered through the action
+registry, and « oui » opened the customs draft. Octocity answered the first
+two the same way. No live SAP purchase order was created.
+
 
 
 
