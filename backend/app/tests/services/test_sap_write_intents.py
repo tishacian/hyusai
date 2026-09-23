@@ -36,7 +36,12 @@ CREATE = {
     "pr_id": PR,
     "supplier": "1000000018",
     "pr_type": "ZNPR",
-    "pr": {"PurchaseRequisition": PR, "PurchaseRequisitionItem": "10", "Plant": "1000", "PurchaseRequisitionPrice": "4.50"},
+    "pr": {
+        "PurchaseRequisition": PR,
+        "PurchaseRequisitionItem": "10",
+        "Plant": "1000",
+        "PurchaseRequisitionPrice": "4.50",
+    },
 }
 
 
@@ -51,7 +56,11 @@ def estate(db_session, monkeypatch):
     db_session.add(workspace)
     db_session.commit()
     monkeypatch.setattr(mcp_service, "is_workspace_enabled", lambda _ws: True)
-    monkeypatch.setattr(mcp_service, "resolve_server", lambda _ws, server_id: {"id": server_id, "url": "http://mock"})
+    monkeypatch.setattr(
+        mcp_service,
+        "resolve_server",
+        lambda _ws, server_id: {"id": server_id, "url": "http://mock"},
+    )
     events: list[dict] = []
     import app.services.audit_logger as audit_logger
 
@@ -78,9 +87,16 @@ def _transport(monkeypatch, replies):
 def _approved_run(db_session, workspace, run_id):
     db_session.add(
         Decision(
-            id=str(uuid4()), workspace_id=workspace.id, scope="run", target_id=run_id,
-            kind="hitl_approval", status="accepted", title="Approve PO",
-            approved_by="buyer@nawa.test", approved_at=datetime.utcnow(), human_confirmed_by="user-buyer",
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            scope="run",
+            target_id=run_id,
+            kind="hitl_approval",
+            status="accepted",
+            title="Approve PO",
+            approved_by="buyer@nawa.test",
+            approved_at=datetime.utcnow(),
+            human_confirmed_by="user-buyer",
         )
     )
     db_session.commit()
@@ -93,7 +109,9 @@ async def _create(db_session, workspace, run_id):
 
 
 def _intent(db_session, workspace):
-    return db_session.query(SapWriteIntent).filter(SapWriteIntent.workspace_id == workspace.id).one()
+    return (
+        db_session.query(SapWriteIntent).filter(SapWriteIntent.workspace_id == workspace.id).one()
+    )
 
 
 def _creates(calls):
@@ -104,7 +122,9 @@ def _creates(calls):
 
 
 @pytest.mark.asyncio
-async def test_a_second_approval_of_the_same_item_does_not_create_a_second_po(db_session, monkeypatch, estate):
+async def test_a_second_approval_of_the_same_item_does_not_create_a_second_po(
+    db_session, monkeypatch, estate
+):
     workspace, events = estate
     calls = _transport(monkeypatch, {mcp_write.BAPI_CREATE: CREATED})
     first = await _create(db_session, workspace, "run-1")
@@ -137,7 +157,8 @@ async def test_a_known_failure_lets_the_next_approval_try_again(db_session, monk
 async def test_an_unknown_outcome_blocks_every_later_approval(db_session, monkeypatch, estate):
     workspace, _events = estate
     calls = _transport(
-        monkeypatch, {mcp_write.BAPI_CREATE: CREATED, mcp_write.BAPI_COMMIT: McpUnreachable("timed out")}
+        monkeypatch,
+        {mcp_write.BAPI_CREATE: CREATED, mcp_write.BAPI_COMMIT: McpUnreachable("timed out")},
     )
     unsure = await _create(db_session, workspace, "run-1")
     assert unsure["outcome"] == "unknown" and unsure["needs_reconciliation"] is True
@@ -150,13 +171,19 @@ async def test_an_unknown_outcome_blocks_every_later_approval(db_session, monkey
 
 
 @pytest.mark.asyncio
-async def test_a_claim_in_flight_refuses_and_a_stale_one_becomes_unknown(db_session, monkeypatch, estate):
+async def test_a_claim_in_flight_refuses_and_a_stale_one_becomes_unknown(
+    db_session, monkeypatch, estate
+):
     workspace, _events = estate
     calls = _transport(monkeypatch, {mcp_write.BAPI_CREATE: CREATED})
     db_session.add(
         SapWriteIntent(
-            workspace_id=workspace.id, pr_id=PR, pr_item="10", status=PENDING,
-            created_at=datetime.utcnow(), updated_at=datetime.utcnow(),
+            workspace_id=workspace.id,
+            pr_id=PR,
+            pr_item="10",
+            status=PENDING,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
         )
     )
     db_session.commit()
@@ -200,13 +227,19 @@ async def test_an_operator_resolution_decides_what_happens_next(db_session, monk
 
 def _reconciling(db_session, workspace):
     workspace.settings = {
-        "features": {"mcp_connector": True, "sap_write_unsealed": True, "sap_po_reconciliation": True}
+        "features": {
+            "mcp_connector": True,
+            "sap_write_unsealed": True,
+            "sap_po_reconciliation": True,
+        }
     }
     db_session.commit()
 
 
 @pytest.mark.asyncio
-async def test_with_the_flag_an_existing_sap_po_is_recorded_and_refused(db_session, monkeypatch, estate):
+async def test_with_the_flag_an_existing_sap_po_is_recorded_and_refused(
+    db_session, monkeypatch, estate
+):
     workspace, _events = estate
     _reconciling(db_session, workspace)
     calls = _transport(monkeypatch, {mcp_write.BAPI_CREATE: CREATED})
@@ -220,7 +253,9 @@ async def test_with_the_flag_an_existing_sap_po_is_recorded_and_refused(db_sessi
     refused = await _create(db_session, workspace, "run-1")
     assert refused["reason"] == intents.ALREADY_ORDERED and refused["po_number"] == "4500111222"
     assert reads[0]["tool"] == mcp_read.LIVE_PO_ITEM
-    assert reads[0]["filter"] == f"PurchaseRequisition eq '{PR}' and PurchaseRequisitionItem eq '10'"
+    assert (
+        reads[0]["filter"] == f"PurchaseRequisition eq '{PR}' and PurchaseRequisitionItem eq '10'"
+    )
     intent = _intent(db_session, workspace)
     assert intent.status == COMMITTED and intent.resolved_by == "sap_read"
     assert _creates(calls) == []
@@ -241,7 +276,9 @@ async def test_with_the_flag_an_unreadable_sap_refuses_the_write(db_session, mon
 
 
 @pytest.mark.asyncio
-async def test_with_the_flag_an_unknown_sap_does_not_show_is_retried_with_a_reference(db_session, monkeypatch, estate):
+async def test_with_the_flag_an_unknown_sap_does_not_show_is_retried_with_a_reference(
+    db_session, monkeypatch, estate
+):
     workspace, _events = estate
     _transport(monkeypatch, {mcp_write.BAPI_CREATE: McpUnreachable("timed out")})
     await _create(db_session, workspace, "run-1")
@@ -254,7 +291,10 @@ async def test_with_the_flag_an_unknown_sap_does_not_show_is_retried_with_a_refe
     assert retried["committed"] is True
     intent = _intent(db_session, workspace)
     header = calls[0][1]["import"]
-    assert header["POHEADER"]["COLLECT_NO"] == intent.reference and header["POHEADERX"]["COLLECT_NO"] == "X"
+    assert (
+        header["POHEADER"]["COLLECT_NO"] == intent.reference
+        and header["POHEADERX"]["COLLECT_NO"] == "X"
+    )
 
 
 @pytest.mark.asyncio
@@ -275,14 +315,28 @@ def test_a_run_with_an_unknown_write_does_not_complete(db_session, monkeypatch):
     system, capability, _policy, run = _running_engine_run(db_session)
     monkeypatch.setattr("app.services.evaluation.auto_eval.schedule_eval", lambda _run_id: None)
     invocation = SkillInvocation(
-        id=str(uuid4()), run_id=run.id, skill_slug="sap_create_po_v1", status="completed",
-        output_ref={"sap_ok": False, "outcome": "unknown", "needs_reconciliation": True, "intent_id": "int-1"},
+        id=str(uuid4()),
+        run_id=run.id,
+        skill_slug="sap_create_po_v1",
+        status="completed",
+        output_ref={
+            "sap_ok": False,
+            "outcome": "unknown",
+            "needs_reconciliation": True,
+            "intent_id": "int-1",
+        },
     )
     db_session.add(invocation)
     db_session.commit()
     _finalize_run(
-        db_session, run, system=system, capability=capability, control=None,
-        invocations=[invocation], duration_ms=1.0, last_output={"audited": True},
+        db_session,
+        run,
+        system=system,
+        capability=capability,
+        control=None,
+        invocations=[invocation],
+        duration_ms=1.0,
+        last_output={"audited": True},
     )
     assert run.status == "failed"
     assert run.error.startswith("external_write_outcome_unknown")
@@ -294,8 +348,18 @@ def test_the_retry_node_does_not_repeat_an_external_write(db_session):
 
     db_session.add_all(
         [
-            Skill(id=str(uuid4()), slug="t_external_write", name="w", execution={"retryable": False, "idempotent": False}),
-            Skill(id=str(uuid4()), slug="t_llm_answer", name="a", execution={"retryable": True, "idempotent": False}),
+            Skill(
+                id=str(uuid4()),
+                slug="t_external_write",
+                name="w",
+                execution={"retryable": False, "idempotent": False},
+            ),
+            Skill(
+                id=str(uuid4()),
+                slug="t_llm_answer",
+                name="a",
+                execution={"retryable": True, "idempotent": False},
+            ),
         ]
     )
     db_session.commit()
