@@ -1339,12 +1339,30 @@ def _finalize_run(
         and isinstance(last_output, dict)
         and last_output.get("_status") == "failed"
     )
-    run.status = "failed" if terminal_failure else "completed"
-    if terminal_failure:
+    # An external write whose outcome is unknown (the call left, no answer came
+    # back) is never a completed run, whatever the Flow did afterwards: SAP may
+    # hold the effect, and "completed" would invite a blind rerun.
+    unknown_write = next(
+        (
+            invocation
+            for invocation in invocations
+            if isinstance(invocation.output_ref, dict)
+            and invocation.output_ref.get("needs_reconciliation")
+        ),
+        None,
+    )
+    run.status = "failed" if terminal_failure or unknown_write is not None else "completed"
+    if terminal_failure or unknown_write is not None:
         derived.decision = "failed"
         derived.value = 0.0
         derived.efficiency = None
+    if terminal_failure:
         run.error = str(last_output.get("_error") or "unhandled_task_failure")[:4000]
+    elif unknown_write is not None:
+        run.error = (
+            "external_write_outcome_unknown: needs reconciliation "
+            f"(skill {unknown_write.skill_slug}, intent {unknown_write.output_ref.get('intent_id')})"
+        )[:4000]
     run.completed_at = datetime.utcnow()
     run.duration_ms = duration_ms
     run.decision = derived.decision

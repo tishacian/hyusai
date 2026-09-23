@@ -113,6 +113,13 @@ transport donne une issue `unknown` qui garde le numéro de PO ; le journal nomm
 décideur, la DA, le poste et la décision. Reste pour le lot 4b ce qui demande une
 migration ou une republication de flow : la clé d'idempotence et la réconciliation.
 
+Lot 4b : une création de PO réserve une ligne `sap_write_intents` par (workspace, DA,
+poste) avant d'appeler SAP ; seul un échec connu laisse une nouvelle approbation
+rappeler SAP. Une issue inconnue bloque le poste jusqu'à ce qu'une lecture de SAP ou un
+opérateur (`scripts/sap_write_intents.py`) tranche. La lecture de SAP avant écriture et
+la référence dans la PO restent derrière `sap_po_reconciliation`, désactivé par défaut,
+tant que le filtre OData n'est pas vérifié sur le client SAP du client.
+
 ### D5 — Une feuille de route par lots livrables — **Acté**
 
 Pas de branche unique pour toute la feuille de route : chaque lot est une unité qui se
@@ -126,7 +133,7 @@ relit, se déploie et se retire seule. Chaque lot met à jour cet ADR.
 | **2** | Work comme application de workspace : page d'accueil, `features/nawa`, habillages NAWA du shell et du chat, export brandé | lot 1 déployé | `client-app` hors `features/<client>` = 0 |
 | **3** | contrat de valeur du portfolio : responsable, indicateur, unité, cible, période, convention, source, approbation | définition produit | saisie gouvernée en place |
 | **4** | sûreté de l'action SAP PO (D4) | — | fait en partie : cinq propriétés corrigées et testées (voir D7) |
-| **4b** | clé d'idempotence par poste de DA, lecture SAP avant écriture, `select_pr` qui écarte une DA dont la porte est ouverte | lot 4 déployé | un doublon de porte ne crée qu'une PO |
+| **4b** | intention d'écriture par poste de DA (migration 112), lecture SAP avant écriture et référence `COLLECT_NO` derrière `sap_po_reconciliation`, run en échec sur issue inconnue, pas de retry d'une écriture | lot 4 déployé | fait : deux approbations d'un même poste ne créent qu'une PO ; drapeau à activer après un test en QA |
 | — | framework d'actions ; contrat BRD générique | deuxième action ; deuxième BRD | — |
 
 Porte 0 (un contributeur NAWA crée et lance un System) se ferme en parallèle : c'est

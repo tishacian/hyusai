@@ -112,3 +112,5 @@ from app.models.evaluation_correction import EvaluationCorrection
 from app.models.evaluation_campaign import EvaluationSuite, EvaluationCampaign
 from app.models.brd_document import BrdDocument
 from app.models.brd_proposal import BrdProposal
+
+from app.models.sap_write_intent import SapWriteIntent

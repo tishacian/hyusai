@@ -3029,6 +3029,18 @@ async def _run_retry(
                 }
             return {"output": output}
         last_error = invocation.error
+        if attempt < max_attempts and not _skill_is_retryable(db, slug):
+            # The Skill says a second call is not safe (an external write). A
+            # retry would repeat an effect the first call may already have had.
+            return {
+                "output": {
+                    **_passthrough_without_recipe(last_output),
+                    "_error": last_error,
+                    "_status": "failed",
+                    "_retry_attempts": attempt,
+                    "_retry_refused": "skill_not_idempotent",
+                }
+            }
         if attempt < max_attempts and backoff_ms > 0:
             await asyncio.sleep(backoff_ms / 1000.0)
     return {
@@ -3039,6 +3051,22 @@ async def _run_retry(
             "_retry_attempts": max_attempts,
         }
     }
+
+
+def _skill_is_retryable(db: DBSession, slug: str) -> bool:
+    """False only when the Skill declares itself neither retryable nor idempotent.
+
+    That pair marks an external effect (an SAP write, a calendar event). A
+    Skill that is merely non-idempotent but retryable, such as an LLM answer,
+    keeps its retries.
+    """
+    from app.models.skill import Skill
+
+    skill = db.query(Skill).filter(Skill.slug == slug).first()
+    execution = getattr(skill, "execution", None)
+    if not isinstance(execution, dict):
+        return True
+    return not (execution.get("retryable") is False and execution.get("idempotent") is False)
 
 
 async def _run_loop(
