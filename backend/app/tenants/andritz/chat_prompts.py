@@ -22,17 +22,15 @@ GROUNDED_ANSWER_PREAMBLE = (
 
 PLAN_PERSONA = "Tu es le planificateur d'un agent de chat industriel Andritz. "
 PLAN_IDENTIFIER_EXAMPLES = (
-    "(ex: AKK200, CU250S-2, D.60, "
-    "Qualiscan QMS-12, URACA, Etachrom, SINAMICS)"
+    "(ex: AKK200, CU250S-2, D.60, Qualiscan QMS-12, URACA, Etachrom, SINAMICS)"
 )
-PLAN_DOMAIN = (
-    "l'industrie "
-    "Andritz (machines, pompes, cartes, variateurs, documentation technique)"
-)
+PLAN_DOMAIN = "l'industrie Andritz (machines, pompes, cartes, variateurs, documentation technique)"
 
 OUT_OF_SCOPE_REASON = "Hors du perimetre Andritz."
 
-SELF_CORRECT_PERSONA = "Tu es le reacteur d'auto-correction (1 passe) d'un agent de chat industriel Andritz.\n"
+SELF_CORRECT_PERSONA = (
+    "Tu es le reacteur d'auto-correction (1 passe) d'un agent de chat industriel Andritz.\n"
+)
 SELF_CORRECT_ESCALATE_GUIDANCE = (
     "Approfondis et re-ancre la reponse sur les sources industrielles Andritz ; "
     "supprime toute affirmation non etayee."

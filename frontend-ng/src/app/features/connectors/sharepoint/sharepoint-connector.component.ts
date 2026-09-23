@@ -128,7 +128,7 @@ type UiMode = 'guest_link' | 'oauth';
               </div>
               <p class="text-[11px] text-gray-400 leading-relaxed">
                 Sharing URL + OTP mail + Authenticator. Capture the session locally, upload the JSON.
-                Works even when the tenant locks consent (type Andritz).
+                Works even when the tenant locks user consent.
               </p>
             </button>
           </div>
@@ -247,7 +247,7 @@ type UiMode = 'guest_link' | 'oauth';
                 [ngModel]="sessionKey()"
                 (ngModelChange)="onSessionKeyChange($event)"
                 name="session_key"
-                placeholder="andritz-partage-externe"
+                placeholder="partage-externe-client"
                 class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm"
               />
             </div>

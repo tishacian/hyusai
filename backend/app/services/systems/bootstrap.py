@@ -315,7 +315,10 @@ def _workspace_chat_flow_definition(
 ) -> dict[str, object]:
     def prompt_contract() -> dict[str, object]:
         try:
-            from app.agents.procurement_agent import BALANCED_GROUNDING_APPENDIX, default_system_prompt
+            from app.agents.procurement_agent import (
+                BALANCED_GROUNDING_APPENDIX,
+                default_system_prompt,
+            )
             from app.services.industrial_answer_profile import (
                 answer_policy_for_family,
             )

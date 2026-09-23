@@ -229,7 +229,7 @@ def _registry(*, budget_ok: bool, listed: list[dict[str, Any]]) -> Dict[str, Ski
     async def audit(inp: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
         # The real skill raises without an event_type; the fake keeps that contract.
         assert inp.get("event_type") == "procurement.pr_to_po", inp
-        assert inp.get("details") == {"source": "nawa_pr_to_po"}
+        assert inp.get("details") == {"source": "pr_to_po_flow"}
         return {"id": "audit-pr-to-po", "status": "recorded"}
 
     return {
@@ -314,7 +314,7 @@ def test_audit_node_reaches_its_event_type_in_overlay_mode() -> None:
     for io_mode in ("overlay", "strict"):
         payload = apply_inputs_map(audit["config"], node_pool, upstream, io_mode=io_mode)
         assert payload["event_type"] == "procurement.pr_to_po", io_mode
-        assert payload["details"] == {"source": "nawa_pr_to_po"}, io_mode
+        assert payload["details"] == {"source": "pr_to_po_flow"}, io_mode
 
 
 def test_format_dossier_node_declares_a_managed_env() -> None:
