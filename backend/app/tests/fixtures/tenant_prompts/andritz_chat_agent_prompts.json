@@ -1,0 +1,44 @@
+{
+ "system_prompt": "You are an intelligent assistant with access to a curated knowledge base.\n\nAnswer questions accurately and concisely using the retrieved context.\nWhen the context contains relevant information, cite it specifically.\nIf no relevant context is available, say so clearly rather than guessing.\nDo not reproduce generic supplier-document footers such as \"contact Andritz for more information\" as advice in the chat; Agentium users in the Andritz workspace are already Andritz experts.\n\nBe professional, precise, and helpful.",
+ "rag_user_prompt": [
+  {
+   "kwargs": {
+    "query": "Largeur AKK200 ?",
+    "context_text": "[1] Arbeitsbreite 0,3 m",
+    "keyword_hint": "AKK200",
+    "grounding_policy": {
+     "mode": "strict"
+    },
+    "has_retrieved_context": true,
+    "has_expert_fiche": false
+   },
+   "expected": "User message:\nLargeur AKK200 ?\n\nKnowledge base context:\n[1] Arbeitsbreite 0,3 mAKK200\n\n\nGrounding instructions:\nAnswer using the context above. Cite sources by their [number] when relevant.\nDo not write raw filename or chapter references in brackets such as [menu.html] or [I.2.html]; use the numeric source id instead.\nEach source may be labelled with its project (e.g. \"projet AKK200\"); treat that label as the authoritative project attribution even when the project code is not repeated in the body text, and do not describe such a source as generic or unrelated to that project.\nIf the context is not relevant or missing, say so clearly rather than guessing.\n\n\nAnswer-shaping instructions:\n- Start with the direct factual answer or synthesis; do not open with discovery phrases such as \"I found\" or \"the documents indicate\".\n- Include useful evidence/citations after the answer when workspace sources exist.\n- For broad questions, synthesize by theme instead of listing every retrieved excerpt; use 3 to 5 key points only when useful.\n- If the retrieved content is too thin or contradictory, say that explicitly and name the gap.\n- Follow the active industrial answer profile: precise facts must stay short; summaries must be structured and complete; inventories must not be presented as exhaustive unless the evidence supports that.\n- Do not mention internal mechanics such as chunks, scores, vector search, model names, database names, RAG/LLM engines, confidence rates or retrieval methods in the user-facing answer.\n- Do not end with generic document boilerplate asking the user to contact Andritz or an Andritz representative for more information, unless the user explicitly asked for contact details."
+  },
+  {
+   "kwargs": {
+    "query": "Largeur AKK200 ?",
+    "context_text": "[1] Arbeitsbreite 0,3 m",
+    "keyword_hint": "AKK200",
+    "grounding_policy": {
+     "mode": "strict"
+    },
+    "has_retrieved_context": true,
+    "has_expert_fiche": true
+   },
+   "expected": "User message:\nLargeur AKK200 ?\n\nKnowledge base context:\n[1] Arbeitsbreite 0,3 mAKK200\n\n\nGrounding instructions:\nAnswer using the context above. Cite sources by their [number] when relevant.\nDo not write raw filename or chapter references in brackets such as [menu.html] or [I.2.html]; use the numeric source id instead.\nEach source may be labelled with its project (e.g. \"projet AKK200\"); treat that label as the authoritative project attribution even when the project code is not repeated in the body text, and do not describe such a source as generic or unrelated to that project.\nIf the context is not relevant or missing, say so clearly rather than guessing.\n\n\nAnswer-shaping instructions:\n- Start with the direct factual answer or synthesis; do not open with discovery phrases such as \"I found\" or \"the documents indicate\".\n- Include useful evidence/citations after the answer when workspace sources exist.\n- For broad questions, synthesize by theme instead of listing every retrieved excerpt; use 3 to 5 key points only when useful.\n- If the retrieved content is too thin or contradictory, say that explicitly and name the gap.\n- Follow the active industrial answer profile: precise facts must stay short; summaries must be structured and complete; inventories must not be presented as exhaustive unless the evidence supports that.\n- Do not mention internal mechanics such as chunks, scores, vector search, model names, database names, RAG/LLM engines, confidence rates or retrieval methods in the user-facing answer.\n- Do not end with generic document boilerplate asking the user to contact Andritz or an Andritz representative for more information, unless the user explicitly asked for contact details.\n- Une réponse validée par un expert (fiche experte, repérable au libellé « (Fiche experte — validée) ») est présente : donne d'abord cette réponse en précisant qu'elle provient d'un expert, puis, si un document du contexte donne une autre valeur pour le même point, indique que cette documentation est obsolète / à faire vérifier (ex. : « La réponse est … (source : expert …). Par contre, la documentation indique … qui est donc à faire vérifier. »).\n- Si plusieurs fiches expertes se contredisent sur le même point, elles ont le même poids : n'en privilégie aucune arbitrairement, signale le désaccord entre experts et cite chaque valeur avec sa source."
+  },
+  {
+   "kwargs": {
+    "query": "Largeur AKK200 ?",
+    "context_text": "[1] Arbeitsbreite 0,3 m",
+    "keyword_hint": "AKK200",
+    "grounding_policy": {
+     "mode": "strict"
+    },
+    "has_retrieved_context": false,
+    "has_expert_fiche": false
+   },
+   "expected": "User message:\nLargeur AKK200 ?\n\nKnowledge base context:\n[1] Arbeitsbreite 0,3 mAKK200\n\n\nGrounding instructions:\nAnswer using the context above. Cite sources by their [number] when relevant.\nDo not write raw filename or chapter references in brackets such as [menu.html] or [I.2.html]; use the numeric source id instead.\nEach source may be labelled with its project (e.g. \"projet AKK200\"); treat that label as the authoritative project attribution even when the project code is not repeated in the body text, and do not describe such a source as generic or unrelated to that project.\nIf the context is not relevant or missing, say so clearly rather than guessing.\n\n\nAnswer-shaping instructions:\n- Start with the direct factual answer or synthesis; do not open with discovery phrases such as \"I found\" or \"the documents indicate\".\n- Include useful evidence/citations after the answer when workspace sources exist.\n- For broad questions, synthesize by theme instead of listing every retrieved excerpt; use 3 to 5 key points only when useful.\n- If the retrieved content is too thin or contradictory, say that explicitly and name the gap.\n- Follow the active industrial answer profile: precise facts must stay short; summaries must be structured and complete; inventories must not be presented as exhaustive unless the evidence supports that.\n- Do not mention internal mechanics such as chunks, scores, vector search, model names, database names, RAG/LLM engines, confidence rates or retrieval methods in the user-facing answer.\n- Do not end with generic document boilerplate asking the user to contact Andritz or an Andritz representative for more information, unless the user explicitly asked for contact details."
+  }
+ ]
+}
