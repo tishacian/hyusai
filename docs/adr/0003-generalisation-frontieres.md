@@ -91,6 +91,16 @@ générique attend un deuxième BRD réel. D'ici là, les propriétés de sûret
 humaine nommée) se vérifient sur l'action PO existante : elles relèvent de la
 frontière de confiance, pas de la généralisation.
 
+### D6 — Les adapters vivent sous `app/tenants/<famille>` — **Acté** (lot 1b)
+
+Le code générique ne nomme jamais un client : il demande un crochet par son nom,
+`family_hook(famille, module, nom, défaut)`, et le paquet de la famille le fournit.
+Une famille sans ce crochet, et tout workspace `generic`, reçoit le comportement
+générique. Le moteur de run place la famille estampillée dans le contexte des skills ;
+un appel qui ne passe pas par lui la relit une fois sur la ligne du workspace. Un
+adapter qui reprend un comportement existant le garde à l'octet près, épinglé par une
+fixture capturée avant le changement.
+
 ### D5 — Une feuille de route par lots livrables — **Acté**
 
 Pas de branche unique pour toute la feuille de route : chaque lot est une unité qui se
@@ -99,7 +109,8 @@ relit, se déploie et se retire seule. Chaque lot met à jour cet ADR.
 | Lot | Contenu | Déclencheur | Critère de fin |
 |---|---|---|---|
 | **1** | D1, D2, D3 ; vocabulaire Sentinel CI réservé à sa famille ; libellés NAWA retirés du catalogue de skills | — | contrat vert, 0 liste de slugs |
-| **1b** | sortir les 9 `fixture` : exécuteur d'actions, table des wrappers, prompt BRD, agent procurement, flow PR → PO, scénarios de `core/workspace-experience.ts`, client SharePoint, deux placeholders | lot 1 déployé | `fixture` = 0 |
+| **1b** | sortir les `fixture` : prompts partagés du chat, skills de démo, hygiène de l'agent de chat, flow PR → PO, client SharePoint, placeholders | lot 1 déployé | fait : 9 → 2 (voir métriques) |
+| **1c** | handlers des packs Mission Room (AYA, OCTAVE) hors de l'exécuteur partagé ; canaris de `core/workspace-experience.ts` servis par le déploiement | lot 1b déployé | `demo` hors `app/tenants` et seeds = 0, `fixture` = 1 (BRD) |
 | **2** | Work comme application de workspace : page d'accueil, `features/nawa`, habillages NAWA du shell et du chat, export brandé | lot 1 déployé | `client-app` hors `features/<client>` = 0 |
 | **3** | contrat de valeur du portfolio : responsable, indicateur, unité, cible, période, convention, source, approbation | définition produit | saisie gouvernée en place |
 | **4** | sûreté de l'action SAP PO (D4) | — | propriétés vérifiées et testées |
@@ -114,14 +125,21 @@ une validation, pas du développement.
 
 Mesurées sur la branche du lot 1, code exécutable seulement :
 
-| Indicateur | Avant | Après lot 1 |
-|---|---|---|
-| Listes de slugs dans la configuration ou en dur | 7 | **0** |
-| Workspaces nouveaux gouvernés par défaut | non | **oui** |
-| Fichiers `fixture` / occurrences | — | 9 / 77 |
-| Fichiers `client-app` / occurrences | — | 25 / 753 |
-| Fichiers `demo` / occurrences | — | 9 / 203 |
-| Fichiers `adapter` / occurrences | — | 37 / 254 |
+| Indicateur | Avant | Après lot 1 | Après lot 1b |
+|---|---|---|---|
+| Listes de slugs dans la configuration ou en dur | 7 | **0** | 0 |
+| Workspaces nouveaux gouvernés par défaut | non | **oui** | oui |
+| Fichiers `fixture` / occurrences | — | 9 / 77 | **2 / 15** |
+| Fichiers `client-app` / occurrences | — | 25 / 753 | 25 / 753 |
+| Fichiers `demo` / occurrences | — | 9 / 203 | 10 / 220 |
+| Fichiers `adapter` / occurrences | — | 37 / 254 | 40 / 283 |
+
+Lot 1b : six fichiers sortent réellement (`wrappers.py`, l'agent de chat, le flow
+PR → PO, le client SharePoint, deux composants). Les identifiants déplacés vivent
+désormais dans trois adapters de `app/tenants`. L'exécuteur d'actions est **reclassé**
+`demo`, pas nettoyé : ses handlers sont l'implémentation des packs Mission Room, et
+remplacer ses seules chaînes « Nawa » en laissant le reste du scénario aurait trompé le
+compteur. Restent en `fixture` le prompt BRD (D4) et les canaris frontend (lot 1c).
 
 Le lot 1b se mesure à `fixture`, le lot 2 à `client-app` ; les chiffres viennent de
 la baseline, pas d'une estimation.

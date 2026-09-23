@@ -1269,7 +1269,7 @@ interface AssistantProfileDraft {
                   class="ag-field font-mono"
                   [(ngModel)]="actionSettingsDraft.enabled_packs_text"
                   [disabled]="!canEdit()"
-                  placeholder="andritz_industrial_v1, sentinel_ci_aya_v1"
+                  placeholder="global_voice_v1, pack_id_v1"
                 />
               </label>
               <label class="block">

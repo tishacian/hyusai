@@ -26,6 +26,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -570,6 +571,11 @@ def _build_initial_ctx(
     max_runtime_s = max(1.0, min(44.0, max_runtime_s))
     run_deadline_monotonic = time.monotonic() + max_runtime_s
     workspace_slug = db.query(Workspace.slug).filter(Workspace.id == run.workspace_id).scalar()
+    workspace_settings = (
+        db.query(Workspace.settings).filter(Workspace.id == run.workspace_id).scalar()
+    )
+    from app.services.workspace_features import workspace_family
+
     return {
         "system_id": system.id,
         "capability_id": capability.id if capability else None,
@@ -581,6 +587,9 @@ def _build_initial_ctx(
         # Tenant identity is server-owned. ``Run.input_ref`` is caller input
         # on the public Systems API and must never select a physical corpus.
         "workspace_slug": workspace_slug,
+        # Server-owned like the slug: skills pick a family adapter from it
+        # (app.tenants), never from the slug.
+        "workspace_family": workspace_family(SimpleNamespace(settings=workspace_settings)),
         "session_id": input_ref.get("session_id"),
         "user_id": run.initiated_by_user_id,
         "knowledge_scope": input_ref.get("knowledge_scope"),

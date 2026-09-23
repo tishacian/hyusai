@@ -1148,7 +1148,12 @@ def test_chat_stream_registry_priority_summary(db_session, monkeypatch):
         name="SENTINEL-CI",
         slug="sentinel-ci",
         mode="demo",
-        settings={"actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]}},
+        settings={
+            # The live workspace carries the family migration 058 stamped; it is
+            # what selects the Sentinel CI demo skills behind the AYA drafts.
+            "family": "sentinel_ci",
+            "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]},
+        },
     )
     db_session.add(workspace)
     db_session.commit()
@@ -1178,7 +1183,12 @@ def test_chat_stream_registry_maritime_then_oui_draft(db_session, monkeypatch):
         name="SENTINEL-CI",
         slug="sentinel-ci",
         mode="demo",
-        settings={"actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]}},
+        settings={
+            # The live workspace carries the family migration 058 stamped; it is
+            # what selects the Sentinel CI demo skills behind the AYA drafts.
+            "family": "sentinel_ci",
+            "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]},
+        },
     )
     db_session.add(workspace)
     db_session.commit()
@@ -1220,7 +1230,12 @@ def test_chat_stream_registry_next_meeting_navigates_agenda(db_session, monkeypa
         name="SENTINEL-CI",
         slug="sentinel-ci",
         mode="demo",
-        settings={"actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]}},
+        settings={
+            # The live workspace carries the family migration 058 stamped; it is
+            # what selects the Sentinel CI demo skills behind the AYA drafts.
+            "family": "sentinel_ci",
+            "actions": {"enabled_packs": ["global_voice_v1", "sentinel_ci_aya_v1"]},
+        },
     )
     db_session.add(workspace)
     db_session.commit()

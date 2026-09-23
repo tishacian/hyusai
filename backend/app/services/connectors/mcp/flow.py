@@ -1,4 +1,4 @@
-"""PR to PO DAG — the one runtime for the NAWA procurement agent.
+"""PR to PO DAG — the one runtime for the procurement agent (first run by NAWA).
 
 Skills stay Skills; the walker does not learn MCP. Every SAP write on this
 graph rides the flag-gated write gate (``connectors.mcp.write``): sealed
@@ -52,10 +52,10 @@ DECIDED_BY_REF: dict[str, Any] = {
     "required": False,
 }
 
-#: The ledger row every tick ends on — NAWA's own audit, never SAP.
+#: The ledger row every tick ends on — Agentium's own audit, never SAP.
 AUDIT_PARAMS: dict[str, Any] = {
     "event_type": "procurement.pr_to_po",
-    "details": {"source": "nawa_pr_to_po"},
+    "details": {"source": "pr_to_po_flow"},
 }
 
 
@@ -289,11 +289,11 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "id": "hitl.approve_po",
                 "kind": "hitl",
                 "type": "policy",
-                "label": "Approve PO in NAWA",
+                "label": "Approve PO in Agentium",
                 "position": {"x": 2680, "y": 80},
                 "data": {
                     "description": (
-                        "Human gate in NAWA, not SAP. Upstream is the package. "
+                        "Human gate in Agentium, not SAP. Upstream is the package. "
                         "Approving runs BAPI_PO_CREATE1 + COMMIT through the write gate "
                         "(sealed unless the workspace is unsealed); rejecting discards."
                     )
@@ -409,7 +409,7 @@ def pr_to_po_flow() -> dict[str, Any]:
                 "task.audit",
                 "Audit ledger",
                 "audit_log_v1",
-                description="audit_log_v1 — NAWA ledger, not SAP.",
+                description="audit_log_v1 — Agentium ledger, not SAP.",
                 params=AUDIT_PARAMS,
                 # ``config.params`` only reaches a skill as strict-mode defaults;
                 # the published run executes in ``dag_overlay``, where an unmapped

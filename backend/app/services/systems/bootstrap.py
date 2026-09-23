@@ -315,12 +315,17 @@ def _workspace_chat_flow_definition(
 ) -> dict[str, object]:
     def prompt_contract() -> dict[str, object]:
         try:
-            from app.agents.procurement_agent import BALANCED_GROUNDING_APPENDIX, SYSTEM_PROMPT
+            from app.agents.procurement_agent import (
+                BALANCED_GROUNDING_APPENDIX,
+                default_system_prompt,
+            )
             from app.services.industrial_answer_profile import (
                 answer_policy_for_family,
             )
             from app.services.system_prompts import SYSTEM_PROMPT_TEMPLATES, SystemPromptType
 
+            # The family's wording of the supplier-footer rule, not another's.
+            SYSTEM_PROMPT = default_system_prompt(profile.get("family"))
             factual_template = SYSTEM_PROMPT_TEMPLATES.get(SystemPromptType.FACTUAL, "")
         except Exception:  # noqa: BLE001 - seed must never fail because prompt modules changed.
             SYSTEM_PROMPT = (

@@ -1,11 +1,6 @@
 {
   "_comment": "Ratchet for backend/app/tests/infra/test_tenant_neutral_contract.py. Counts are exact; see docs/adr/0003-generalisation-frontieres.md.",
   "files": {
-    "backend/app/agents/procurement_agent.py": {
-      "count": 13,
-      "kind": "fixture",
-      "why": "Andritz contact-boilerplate stripping runs for every tenant."
-    },
     "backend/app/api/v1/endpoints/admin.py": {
       "count": 2,
       "kind": "adapter",
@@ -53,8 +48,8 @@
     },
     "backend/app/services/actions/executor.py": {
       "count": 17,
-      "kind": "fixture",
-      "why": "The generic executor branches on Sentinel CI demo seed ids (evt-prefet-nawa)."
+      "kind": "demo",
+      "why": "Mission-room pack handlers (Sentinel CI AYA, Octocity OCTAVE) scripted inside the shared executor. Reachable only through those packs; the handlers move with their pack (lot 1c), not string by string."
     },
     "backend/app/services/actions/registry.py": {
       "count": 39,
@@ -126,16 +121,6 @@
       "kind": "demo",
       "why": "PIH hydro rows for the HANA seed and the connector's in-memory fallback."
     },
-    "backend/app/services/connectors/mcp/flow.py": {
-      "count": 4,
-      "kind": "fixture",
-      "why": "The shared PR to PO flow carries NAWA labels and source names."
-    },
-    "backend/app/services/connectors/sharepoint_otp/client_msal.py": {
-      "count": 1,
-      "kind": "fixture",
-      "why": "Andritz tenant host named in the generic SharePoint client."
-    },
     "backend/app/services/experience/bindings.py": {
       "count": 2,
       "kind": "adapter",
@@ -194,12 +179,7 @@
     "backend/app/services/skills_registry/brd_generation.py": {
       "count": 3,
       "kind": "fixture",
-      "why": "PIH / SPARK-089 rules inside the generic BRD generation prompt; needs the SPARK-089 evaluation to move."
-    },
-    "backend/app/services/skills_registry/wrappers.py": {
-      "count": 24,
-      "kind": "fixture",
-      "why": "Sentinel CI demo summary skill and the Andritz chat v3 wrappers sit in the shared wrapper table."
+      "why": "PIH / SPARK-089 rules inside the generic BRD generation prompt. Moves with the generic BRD contract, once a second real BRD exists (ADR 0003 D4), with the SPARK-089 evaluation."
     },
     "backend/app/services/spl_wave_importer.py": {
       "count": 2,
@@ -230,6 +210,21 @@
       "count": 1,
       "kind": "family",
       "why": "Industrial families set."
+    },
+    "backend/app/tenants/andritz/answer_hygiene.py": {
+      "count": 5,
+      "kind": "adapter",
+      "why": "Andritz contact-footer hygiene for the shared chat agent, selected by family."
+    },
+    "backend/app/tenants/andritz/chat_prompts.py": {
+      "count": 6,
+      "kind": "adapter",
+      "why": "Andritz wording of the grounded-answer and agentic-chat prompts, selected by family."
+    },
+    "backend/app/tenants/sentinel_ci/demo_skills.py": {
+      "count": 18,
+      "kind": "adapter",
+      "why": "Sentinel CI scripted demo skills, selected by family."
     },
     "frontend-ng/src/app/app.routes.ts": {
       "count": 3,
@@ -264,7 +259,7 @@
     "frontend-ng/src/app/core/workspace-experience.ts": {
       "count": 12,
       "kind": "fixture",
-      "why": "Andritz critical scenarios exported from core."
+      "why": "Shadow-evaluation canaries keyed on live customer slugs, shipped in every bundle. The deployment should serve that list (lot 1c)."
     },
     "frontend-ng/src/app/features/chat/chat-panel.component.ts": {
       "count": 37,
@@ -275,11 +270,6 @@
       "count": 4,
       "kind": "adapter",
       "why": "Client360, an Andritz capability."
-    },
-    "frontend-ng/src/app/features/connectors/sharepoint/sharepoint-connector.component.ts": {
-      "count": 2,
-      "kind": "fixture",
-      "why": "Andritz named in shared connector copy and placeholder."
     },
     "frontend-ng/src/app/features/experience/work/pr-to-po-studio.component.ts": {
       "count": 1,
@@ -415,11 +405,6 @@
       "count": 3,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
-    },
-    "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts": {
-      "count": 1,
-      "kind": "fixture",
-      "why": "Customer pack ids as an input placeholder shown to every tenant."
     }
   }
 }
