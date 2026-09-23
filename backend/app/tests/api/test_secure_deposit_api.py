@@ -57,7 +57,7 @@ def _touch_now(path) -> None:
 
 
 def test_public_deposit_session_token_cannot_list_another_access_id(db_session):
-    workspace = Workspace(id="ws-public-session", name="Public Session", slug="andritz")
+    workspace = Workspace(id="ws-public-session", name="Public Session", slug="andritz", settings={"features": {"secure_deposit": True}})
     user = User(id="user-public-session", email="owner@datategy.net", username="owner")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -269,7 +269,7 @@ def test_promote_deposit_zip_returns_queued_worker_payload(db_session, monkeypat
     monkeypatch.setattr(settings, "secure_deposit_archive_promotion_max_files", 50)
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz", settings={"features": {"secure_deposit": True}})
     user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -324,7 +324,7 @@ def test_promote_deposit_spreadsheet_returns_queued_worker_payload(db_session, m
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz", settings={"features": {"secure_deposit": True}})
     user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -381,7 +381,7 @@ def test_browse_deposit_zip_archive_lists_folders_and_members(db_session, monkey
     monkeypatch.setattr(secure_deposit, "_enforce_file_read", lambda *args, **kwargs: None)
     monkeypatch.setattr("app.services.secure_deposit.is_workspace_enabled", lambda workspace: True)
 
-    workspace = Workspace(id="ws-zip", name="Zip", slug="zip")
+    workspace = Workspace(id="ws-zip", name="Zip", slug="zip", settings={"features": {"secure_deposit": True}})
     user = User(id="user-zip", email="zip@datategy.net", username="zip")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -428,7 +428,7 @@ def test_browse_deposit_zip_member_preview_and_download(db_session, monkeypatch,
     monkeypatch.setattr(secure_deposit, "_enforce_file_read", lambda *args, **kwargs: None)
     monkeypatch.setattr("app.services.secure_deposit.is_workspace_enabled", lambda workspace: True)
 
-    workspace = Workspace(id="ws-zip-preview", name="Zip", slug="zip-preview")
+    workspace = Workspace(id="ws-zip-preview", name="Zip", slug="zip-preview", settings={"features": {"secure_deposit": True}})
     user = User(id="user-zip-preview", email="zip@datategy.net", username="zip")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -484,7 +484,7 @@ def test_browse_deposit_zip_member_rejects_unsafe_path(db_session, monkeypatch, 
     monkeypatch.setattr(secure_deposit, "_enforce_file_read", lambda *args, **kwargs: None)
     monkeypatch.setattr("app.services.secure_deposit.is_workspace_enabled", lambda workspace: True)
 
-    workspace = Workspace(id="ws-zip-unsafe", name="Zip", slug="zip-unsafe")
+    workspace = Workspace(id="ws-zip-unsafe", name="Zip", slug="zip-unsafe", settings={"features": {"secure_deposit": True}})
     user = User(id="user-zip-unsafe", email="zip@datategy.net", username="zip")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -525,7 +525,7 @@ def test_download_deposit_archive_handles_large_synthetic_queue_without_mutation
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
-    workspace = Workspace(id="ws-archive-download", name="Archive Download", slug="andritz")
+    workspace = Workspace(id="ws-archive-download", name="Archive Download", slug="andritz", settings={"features": {"secure_deposit": True}})
     user = User(id="user-archive-download", email="archive-download@datategy.net", username="archive-download")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -616,7 +616,7 @@ def test_bulk_promote_supported_documents_uses_one_worker_job(db_session, monkey
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz", settings={"features": {"secure_deposit": True}})
     user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -726,7 +726,7 @@ def test_bulk_promote_with_missing_id_is_atomic_and_read_only(db_session, monkey
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
-    workspace = Workspace(id="ws-bulk-missing", name="Bulk Missing", slug="andritz")
+    workspace = Workspace(id="ws-bulk-missing", name="Bulk Missing", slug="andritz", settings={"features": {"secure_deposit": True}})
     user = User(id="user-bulk-missing", email="bulk-missing@datategy.net", username="bulk-missing")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -791,7 +791,7 @@ def test_bulk_promote_rejects_oversized_selection_before_lookup_or_mutation(db_s
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
-    workspace = Workspace(id="ws-bulk-limit", name="Bulk Limit", slug="andritz")
+    workspace = Workspace(id="ws-bulk-limit", name="Bulk Limit", slug="andritz", settings={"features": {"secure_deposit": True}})
     user = User(id="user-bulk-limit", email="bulk-limit@datategy.net", username="bulk-limit")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -857,7 +857,7 @@ def test_deposit_indexing_assist_recommends_and_summarizes_collection(db_session
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
     monkeypatch.setattr("app.services.secure_deposit.is_workspace_enabled", lambda workspace: True)
 
-    workspace = Workspace(id="ws-assist", name="Assist", slug="assist")
+    workspace = Workspace(id="ws-assist", name="Assist", slug="assist", settings={"features": {"secure_deposit": True}})
     user = User(id="user-assist", email="operator@example.test", username="operator")
     collection = KnowledgeCollection(
         id="collection-assist",
@@ -956,7 +956,7 @@ def test_deposit_indexing_assist_unknown_file_is_advisory_and_read_only(db_sessi
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
     monkeypatch.setattr("app.services.secure_deposit.is_workspace_enabled", lambda workspace: True)
 
-    workspace = Workspace(id="ws-assist-unknown", name="Assist Unknown", slug="andritz")
+    workspace = Workspace(id="ws-assist-unknown", name="Assist Unknown", slug="andritz", settings={"features": {"secure_deposit": True}})
     user = User(id="user-assist-unknown", email="assist-unknown@example.test", username="assist-unknown")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -1032,7 +1032,7 @@ def test_sftp_operations_lists_active_sidecar_upload(db_session, monkeypatch, tm
     monkeypatch.setattr(settings, "secure_deposit_sftp_temp_dir", str(temp_dir))
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz", settings={"features": {"secure_deposit": True}})
     user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -1075,7 +1075,7 @@ def test_sftp_reconciliation_dry_run_then_quarantine(db_session, monkeypatch, tm
     monkeypatch.setattr(settings, "worker_eager_mode", True)
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz", settings={"features": {"secure_deposit": True}})
     user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()
@@ -1140,6 +1140,33 @@ def test_sftp_reconciliation_dry_run_then_quarantine(db_session, monkeypatch, tm
     assert "deposit.sftp.orphan.quarantined" in event_types
 
 
+def test_object_store_reconciliation_is_refused_before_a_job(db_session, monkeypatch, tmp_path):
+    storage = tmp_path / "secure-deposit"
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(storage))
+    monkeypatch.setattr(settings, "secure_deposit_storage_backend", "object_store")
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+
+    workspace = Workspace(
+        id="ws-object-reconcile",
+        name="Object",
+        slug="object-reconcile",
+        settings={"features": {"secure_deposit": True}},
+    )
+    user = User(id="user-object-reconcile", email="operator@example.test", username="thib")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+
+    response = _client(db_session, workspace, user).post(
+        "/sftp/operations/reconcile", json={"mode": "dry_run", "stale_after_hours": 24}
+    )
+
+    assert response.status_code == 409
+    assert "object store" in response.json()["detail"]
+    assert db_session.query(WorkspaceJob).filter(WorkspaceJob.kind == "sftp_reconciliation").count() == 0
+
+
 def test_sftp_quarantine_skips_partial_that_became_recent(db_session, monkeypatch, tmp_path):
     storage = tmp_path / "secure-deposit"
     temp_dir = storage / "_sftp_uploads"
@@ -1149,7 +1176,7 @@ def test_sftp_quarantine_skips_partial_that_became_recent(db_session, monkeypatc
     monkeypatch.setattr(settings, "worker_eager_mode", True)
     monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
 
-    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz", settings={"features": {"secure_deposit": True}})
     user = User(id="user-1", email="operator@example.test", username="thib")
     db_session.add_all([workspace, user])
     db_session.commit()

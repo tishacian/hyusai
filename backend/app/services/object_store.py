@@ -102,6 +102,29 @@ class ObjectStore:
             out.write(content)
         return clean
 
+    def write_file(self, key: str, source: Path) -> str:
+        """Store a local file without reading it into memory.
+
+        ``write_bytes`` is fine for the derived text this store mostly holds,
+        but an uploaded deposit can be a hundred megabytes, and the caller
+        already has it on disk after streaming it through a hash.
+        """
+
+        clean = _clean_key(key)
+        if self.backend == "local":
+            path = self._local_path(clean)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, path)
+            return clean
+        fs = self._fsspec()
+        remote = self._remote_key(clean)
+        parent = str(PurePosixPath(remote).parent)
+        if parent and parent != ".":
+            fs.makedirs(parent, exist_ok=True)
+        with source.open("rb") as src, fs.open(remote, "wb") as out:
+            shutil.copyfileobj(src, out)
+        return clean
+
     def write_text(self, key: str, content: str) -> str:
         return self.write_bytes(key, content.encode("utf-8"))
 
