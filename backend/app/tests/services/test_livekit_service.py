@@ -24,7 +24,6 @@ def _enable_livekit(monkeypatch):
     monkeypatch.setattr(settings, "livekit_turn_mode", "external_or_none")
     monkeypatch.setattr(settings, "livekit_agents_mode", "sidecar_http_bridge")
     monkeypatch.setattr(settings, "livekit_egress_enabled", False)
-    monkeypatch.setattr(settings, "livekit_recording_allowed_workspace_slugs", "")
 
 
 def test_livekit_public_config_is_disabled_by_default(monkeypatch):
@@ -48,7 +47,6 @@ def test_livekit_public_config_exposes_p3_scale_and_governance_without_secrets(m
     monkeypatch.setattr(settings, "livekit_turn_mode", "turn_tls_required")
     monkeypatch.setattr(settings, "livekit_agents_mode", "native_agents_planned")
     monkeypatch.setattr(settings, "livekit_egress_enabled", True)
-    monkeypatch.setattr(settings, "livekit_recording_allowed_workspace_slugs", "andritz, sentinel-ci, andritz")
 
     config = LiveKitService().public_config()
 
@@ -57,7 +55,8 @@ def test_livekit_public_config_exposes_p3_scale_and_governance_without_secrets(m
     assert config["agents"]["mode"] == "native_agents_planned"
     assert config["governance"]["egress_enabled"] is True
     assert config["governance"]["recording_default"] == "disabled"
-    assert config["governance"]["recording_allowed_workspace_slugs"] == ["andritz", "sentinel-ci"]
+    # The slug list it used to advertise was never enforced anywhere.
+    assert "recording_allowed_workspace_slugs" not in config["governance"]
     assert "agentium-livekit-redis" not in json.dumps(config)
 
 
@@ -441,3 +440,36 @@ async def test_livekit_agent_dispatch_falls_back_when_url_missing(monkeypatch):
     assert result.status == "not_configured"
     assert result.mode == "data_only_fallback"
     assert "LIVEKIT_AGENT_DISPATCH_URL" in (result.fallback_reason or "")
+
+
+def _stt_workspace(features=None):
+    return Workspace(
+        id="ws-stt",
+        name="STT",
+        slug="andritz",
+        settings={"features": features} if features is not None else {},
+    )
+
+
+def test_realtime_stt_needs_the_deployment_switch_first(monkeypatch):
+    monkeypatch.setattr(settings, "voice_realtime_stt_enabled", False)
+
+    assert LiveKitService().realtime_stt_enabled(_stt_workspace({"voice_realtime_stt": True})) is False
+
+
+def test_realtime_stt_then_follows_the_workspace_not_its_slug(monkeypatch):
+    """Absence keeps meaning eligible, as an empty allowlist did; false opts out."""
+
+    monkeypatch.setattr(settings, "voice_realtime_stt_enabled", True)
+    service = LiveKitService()
+
+    assert service.realtime_stt_enabled(_stt_workspace()) is True
+    assert service.realtime_stt_enabled(_stt_workspace({"voice_realtime_stt": False})) is False
+    assert service.realtime_stt_enabled(None) is True
+    assert service.realtime_stt_payload({}, {"workspace_slug": "andritz"}, workspace=_stt_workspace(
+        {"voice_realtime_stt": False}
+    )) == {"enabled": False}
+    # A per-session boolean still wins over the workspace default.
+    assert service.realtime_stt_payload(
+        {"realtime_stt": True}, {}, workspace=_stt_workspace({"voice_realtime_stt": False})
+    )["enabled"] is True
