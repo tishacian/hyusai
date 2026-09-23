@@ -1,0 +1,425 @@
+{
+  "_comment": "Ratchet for backend/app/tests/infra/test_tenant_neutral_contract.py. Counts are exact; see docs/adr/0003-generalisation-frontieres.md.",
+  "files": {
+    "backend/app/agents/procurement_agent.py": {
+      "count": 13,
+      "kind": "fixture",
+      "why": "Andritz contact-boilerplate stripping runs for every tenant."
+    },
+    "backend/app/api/v1/endpoints/admin.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Sentinel CI report rebuild, gated on the sentinel_ci family."
+    },
+    "backend/app/api/v1/endpoints/audit.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Customer application ids in the audit surface list."
+    },
+    "backend/app/api/v1/endpoints/auth.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Andritz migration marker."
+    },
+    "backend/app/api/v1/endpoints/chat.py": {
+      "count": 4,
+      "kind": "adapter",
+      "why": "Andritz migration marker and provenance-bound retrieval, selected by family."
+    },
+    "backend/app/cli/build_voice_glossary.py": {
+      "count": 2,
+      "kind": "tooling",
+      "why": "Command-line example."
+    },
+    "backend/app/cli/migrate_faiss_to_qdrant.py": {
+      "count": 1,
+      "kind": "tooling",
+      "why": "Command-line example."
+    },
+    "backend/app/main.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Andritz FSE System ensured at startup."
+    },
+    "backend/app/schemas/canonical.py": {
+      "count": 4,
+      "kind": "family",
+      "why": "WorkspaceFamily values."
+    },
+    "backend/app/services/actions/contracts.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Action pack identifiers."
+    },
+    "backend/app/services/actions/executor.py": {
+      "count": 17,
+      "kind": "fixture",
+      "why": "The generic executor branches on Sentinel CI demo seed ids (evt-prefet-nawa)."
+    },
+    "backend/app/services/actions/registry.py": {
+      "count": 39,
+      "kind": "adapter",
+      "why": "The andritz_industrial_v1 action pack and the sentinel_ci branch, declared inline."
+    },
+    "backend/app/services/andritz_agentic_rollout.py": {
+      "count": 17,
+      "kind": "adapter",
+      "why": "Andritz agentic rollout control."
+    },
+    "backend/app/services/capture_report_export.py": {
+      "count": 23,
+      "kind": "adapter",
+      "why": "Andritz-branded PDF/DOCX export. Branding should come from the workspace (lot 2)."
+    },
+    "backend/app/services/capture_report_templates.py": {
+      "count": 9,
+      "kind": "adapter",
+      "why": "Andritz knowledge-sheet template id."
+    },
+    "backend/app/services/capture_templates.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Andritz FSE report collection."
+    },
+    "backend/app/services/catalog_visibility.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Catalogue visibility by family."
+    },
+    "backend/app/services/chat_agentic_contract.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Andritz decision contract revision."
+    },
+    "backend/app/services/chat_execution_policy.py": {
+      "count": 31,
+      "kind": "adapter",
+      "why": "Andritz agentic defaults and its retrieval contract, selected by family."
+    },
+    "backend/app/services/chat_grounding.py": {
+      "count": 5,
+      "kind": "adapter",
+      "why": "Andritz and Sentinel CI vocabularies, selected by family."
+    },
+    "backend/app/services/client360_chat.py": {
+      "count": 4,
+      "kind": "adapter",
+      "why": "Client360, an Andritz capability."
+    },
+    "backend/app/services/client360_contract.py": {
+      "count": 3,
+      "kind": "adapter",
+      "why": "Client360, an Andritz capability."
+    },
+    "backend/app/services/client360_pdr.py": {
+      "count": 6,
+      "kind": "adapter",
+      "why": "Client360, an Andritz capability."
+    },
+    "backend/app/services/client360_spl_adapter.py": {
+      "count": 4,
+      "kind": "adapter",
+      "why": "Client360, an Andritz capability."
+    },
+    "backend/app/services/connectors/hana/demo_rows.py": {
+      "count": 133,
+      "kind": "demo",
+      "why": "PIH hydro rows for the HANA seed and the connector's in-memory fallback."
+    },
+    "backend/app/services/connectors/mcp/flow.py": {
+      "count": 4,
+      "kind": "fixture",
+      "why": "The shared PR to PO flow carries NAWA labels and source names."
+    },
+    "backend/app/services/connectors/sharepoint_otp/client_msal.py": {
+      "count": 1,
+      "kind": "fixture",
+      "why": "Andritz tenant host named in the generic SharePoint client."
+    },
+    "backend/app/services/experience/bindings.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Experience keys of customer applications."
+    },
+    "backend/app/services/experience/dual_run_seeds.py": {
+      "count": 22,
+      "kind": "demo",
+      "why": "Lot 8 dual-run seeds."
+    },
+    "backend/app/services/experience/keys.py": {
+      "count": 10,
+      "kind": "adapter",
+      "why": "Experience keys of customer applications."
+    },
+    "backend/app/services/mission_room.py": {
+      "count": 30,
+      "kind": "demo",
+      "why": "Sentinel CI mission-room scenario content."
+    },
+    "backend/app/services/mission_room_knowledge_sync.py": {
+      "count": 2,
+      "kind": "demo",
+      "why": "Sentinel CI knowledge sync."
+    },
+    "backend/app/services/notice_wave_importer.py": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Andritz notice importer."
+    },
+    "backend/app/services/rag/project_references.py": {
+      "count": 13,
+      "kind": "adapter",
+      "why": "Andritz project-reference grammar (ADR 0002)."
+    },
+    "backend/app/services/rag/retrieval_golden.py": {
+      "count": 1,
+      "kind": "demo",
+      "why": "Andritz golden dataset path."
+    },
+    "backend/app/services/rag/source_facets.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Andritz source families (ADR 0002)."
+    },
+    "backend/app/services/secure_deposit.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Andritz project scheme binding (ADR 0002)."
+    },
+    "backend/app/services/sentinel_ci_reports.py": {
+      "count": 8,
+      "kind": "demo",
+      "why": "Sentinel CI report pre-render."
+    },
+    "backend/app/services/skills_registry/brd_generation.py": {
+      "count": 3,
+      "kind": "fixture",
+      "why": "PIH / SPARK-089 rules inside the generic BRD generation prompt; needs the SPARK-089 evaluation to move."
+    },
+    "backend/app/services/skills_registry/wrappers.py": {
+      "count": 24,
+      "kind": "fixture",
+      "why": "Sentinel CI demo summary skill and the Andritz chat v3 wrappers sit in the shared wrapper table."
+    },
+    "backend/app/services/spl_wave_importer.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Andritz SPL importer."
+    },
+    "backend/app/services/surface_catalog.py": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Andritz Client360 surface label."
+    },
+    "backend/app/services/systems/bootstrap.py": {
+      "count": 17,
+      "kind": "adapter",
+      "why": "Andritz FSE System bootstrap, selected by family."
+    },
+    "backend/app/services/workspace_app_manifests.py": {
+      "count": 21,
+      "kind": "adapter",
+      "why": "Application manifests selected by workspace family."
+    },
+    "backend/app/services/workspace_calendar.py": {
+      "count": 4,
+      "kind": "demo",
+      "why": "Sentinel CI calendar seed event inside the calendar service."
+    },
+    "backend/app/services/workspace_features.py": {
+      "count": 1,
+      "kind": "family",
+      "why": "Industrial families set."
+    },
+    "frontend-ng/src/app/app.routes.ts": {
+      "count": 3,
+      "kind": "client-app",
+      "why": "Routes of customer applications (lot 2)."
+    },
+    "frontend-ng/src/app/core/i18n/chrome.dict.ts": {
+      "count": 4,
+      "kind": "adapter",
+      "why": "Labels of customer applications."
+    },
+    "frontend-ng/src/app/core/i18n/experience.dict.ts": {
+      "count": 8,
+      "kind": "adapter",
+      "why": "Labels of customer applications."
+    },
+    "frontend-ng/src/app/core/i18n/governance.dict.ts": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Labels of customer applications."
+    },
+    "frontend-ng/src/app/core/i18n/runs.dict.ts": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Labels of customer applications."
+    },
+    "frontend-ng/src/app/core/navigation.catalog.ts": {
+      "count": 5,
+      "kind": "client-app",
+      "why": "Navigation entries of customer applications (lot 2)."
+    },
+    "frontend-ng/src/app/core/workspace-experience.ts": {
+      "count": 12,
+      "kind": "fixture",
+      "why": "Andritz critical scenarios exported from core."
+    },
+    "frontend-ng/src/app/features/chat/chat-panel.component.ts": {
+      "count": 37,
+      "kind": "client-app",
+      "why": "NAWA Studio skin inside the shared chat panel (lot 2)."
+    },
+    "frontend-ng/src/app/features/client360/client360-page.component.ts": {
+      "count": 4,
+      "kind": "adapter",
+      "why": "Client360, an Andritz capability."
+    },
+    "frontend-ng/src/app/features/connectors/sharepoint/sharepoint-connector.component.ts": {
+      "count": 2,
+      "kind": "fixture",
+      "why": "Andritz named in shared connector copy and placeholder."
+    },
+    "frontend-ng/src/app/features/experience/work/pr-to-po-studio.component.ts": {
+      "count": 1,
+      "kind": "client-app",
+      "why": "Work lands on the NAWA Studio (lot 2)."
+    },
+    "frontend-ng/src/app/features/experience/work/work.scss": {
+      "count": 143,
+      "kind": "client-app",
+      "why": "NAWA Studio styles in the Work shell (lot 2)."
+    },
+    "frontend-ng/src/app/features/knowledge/capture-fil/capture-fil-shell.component.ts": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Andritz FSE capture templates."
+    },
+    "frontend-ng/src/app/features/knowledge/capture-fil/capture-templates.ts": {
+      "count": 1,
+      "kind": "adapter",
+      "why": "Andritz FSE capture templates."
+    },
+    "frontend-ng/src/app/features/knowledge/capture-fil/fse-system-resolve.ts": {
+      "count": 2,
+      "kind": "adapter",
+      "why": "Andritz FSE capture templates."
+    },
+    "frontend-ng/src/app/features/mission-room/mission-room.component.ts": {
+      "count": 1,
+      "kind": "demo",
+      "why": "Sentinel CI mission room."
+    },
+    "frontend-ng/src/app/features/mission-room/mission-room.presentation.ts": {
+      "count": 2,
+      "kind": "demo",
+      "why": "Sentinel CI mission room."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-assistant.component.scss": {
+      "count": 82,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-assistant.component.ts": {
+      "count": 51,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-assistant.service.ts": {
+      "count": 3,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-catalog-view.ts": {
+      "count": 2,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-conversation.ts": {
+      "count": 6,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-engine.ts": {
+      "count": 12,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-inbound-queue.ts": {
+      "count": 1,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-intake.ts": {
+      "count": 1,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-itsd-catalog.component.scss": {
+      "count": 58,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-itsd-catalog.component.ts": {
+      "count": 47,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-itsd.model.ts": {
+      "count": 16,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-itsd.service.ts": {
+      "count": 14,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-password-reset.component.scss": {
+      "count": 87,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-password-reset.component.ts": {
+      "count": 62,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-preview.ts": {
+      "count": 1,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-run-fixtures.ts": {
+      "count": 16,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-run-projection.ts": {
+      "count": 9,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-theme-toggle.component.ts": {
+      "count": 6,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa-theme.scss": {
+      "count": 87,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa.routes.ts": {
+      "count": 3,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts": {
+      "count": 1,
+      "kind": "fixture",
+      "why": "Customer pack ids as an input placeholder shown to every tenant."
+    }
+  }
+}
