@@ -7247,3 +7247,14 @@ zero backend exception matches in the switch window, and carakai 10 passed
 with two intentional skips.
 [Release evidence](../evidence/release-65b66219-2026-09-22/README.md).
 
+
+### 2026-09-23 — tenant-neutral defaults, 13105802
+
+Revision `1310580251831e4897c34b78b03d1c2a895981f0` is deployed from three
+immutable images at tag `131058025183`; rollback is `65b662192e75`. No
+migration. Andritz vocabulary and the industrial chat policy stay on the
+Andritz workspace. No workspace flag or NAWA theme change. Storage, public
+revision `revision_verified=true`, HTTP 200, zero backend exception matches
+in the switch window, and carakai 10 passed with two intentional skips.
+Artifacts `/tmp/iteration-canaries-20260923T063455Z.s82bo8`.
+
