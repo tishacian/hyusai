@@ -233,17 +233,43 @@ _ZNPR_CREATE = {
 
 
 @pytest.mark.asyncio
-async def test_dag_writes_leave_only_when_a_person_decided(monkeypatch):
-    """Flag on: the human's identity on the gate unseals create and discard;
+async def test_dag_writes_leave_only_when_a_person_decided(monkeypatch, db_session):
+    """Flag on: the person who settled the run's gate unseals create and discard;
     a TTL expiry (``system:gate_ttl``) or a snapshot without ``decided_by``
-    composes the same envelope, sealed. The budget branch is never attended."""
-    workspace = _enabled_workspace(sap_write_unsealed=True)
-    db = MagicMock()
-    monkeypatch.setattr(
-        wrappers, "_calendar_db_and_workspace", lambda payload, ctx=None: (db, workspace)
+    composes the same envelope, sealed. The budget branch is never attended.
+
+    Real rows, not a mock session: attendance is a settled Decision of the run
+    and a create claims a PR-item intent, and a mock answers every query."""
+    from datetime import datetime
+
+    from app.models.decision import Decision
+    from app.models.workspace import Workspace
+
+    workspace = Workspace(
+        id="ws-1",
+        slug="nawa-dag",
+        name="NAWA",
+        settings={"features": {"mcp_connector": True, "sap_write_unsealed": True}},
     )
+    db_session.add(workspace)
+    for decision_id, status in (("dec-accept", "accepted"), ("dec-reject", "rejected")):
+        db_session.add(
+            Decision(
+                id=decision_id,
+                workspace_id="ws-1",
+                scope="run",
+                target_id="run-1" if status == "accepted" else "run-2",
+                kind="hitl_approval",
+                status=status,
+                title="HITL approval",
+                approved_by="buyer@nawa.test",
+                approved_at=datetime.utcnow(),
+                human_confirmed_by="user-buyer",
+            )
+        )
+    db_session.commit()
     called = _unsealed_transport(monkeypatch)
-    ctx = {"db": db, "workspace_id": "ws-1", "run_id": "run-1"}
+    ctx = {"db": db_session, "workspace_id": "ws-1", "run_id": "run-1"}
 
     human = await wrappers._sap_create_po_v1({**_ZNPR_CREATE, "decided_by": "buyer@nawa.test"}, ctx)
     assert human["called"] is True
@@ -263,14 +289,15 @@ async def test_dag_writes_leave_only_when_a_person_decided(monkeypatch):
         assert expired["arguments"]["import"]["POHEADER"]["DOC_TYPE"] == "ZLPO"
     assert called == []
 
+    reject_ctx = {**ctx, "run_id": "run-2"}
     rejected = await wrappers._sap_handle_rejection_v1(
-        {"pr_id": "2000276449", "decided_by": "buyer@nawa.test"}, ctx
+        {"pr_id": "2000276449", "decided_by": "buyer@nawa.test"}, reject_ctx
     )
     assert rejected["called"] is True
     assert called == ["fi_DiscardFromPurchasing"]
     called.clear()
     expired_reject = await wrappers._sap_handle_rejection_v1(
-        {"pr_id": "2000276449", "decided_by": "system:gate_ttl"}, ctx
+        {"pr_id": "2000276449", "decided_by": "system:gate_ttl"}, reject_ctx
     )
     assert expired_reject["sealed"] is True
     assert expired_reject["reason"] == "unattended"
