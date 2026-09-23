@@ -117,7 +117,9 @@ def find_existing_po(workspace: Any, pr_id: str, pr_item: str) -> tuple[str | No
     return None, None
 
 
-def _refusal(reason: str, detail: str, *, intent: SapWriteIntent | None = None, po_number: str = "") -> IntentClaim:
+def _refusal(
+    reason: str, detail: str, *, intent: SapWriteIntent | None = None, po_number: str = ""
+) -> IntentClaim:
     return IntentClaim(
         refusal={
             "reason": reason,
@@ -159,7 +161,11 @@ def begin_create(
     pr = str(pr_id or "").strip()
     item = normalize_item(pr_item)
     existing = _row(db, workspace.id, pr, item)
-    if existing is not None and existing.status == PENDING and existing.updated_at < now - STALE_PENDING:
+    if (
+        existing is not None
+        and existing.status == PENDING
+        and existing.updated_at < now - STALE_PENDING
+    ):
         existing.status = UNKNOWN
         existing.error = {"reason": "stale_pending", "since": existing.updated_at.isoformat()}
         existing.updated_at = now
@@ -168,13 +174,25 @@ def begin_create(
     if reconciliation_enabled(workspace):
         po_number, error = find_existing_po(workspace, pr, item)
         if error:
-            return _refusal(RECONCILIATION_UNAVAILABLE, f"SAP could not be read before the write: {error}", intent=existing)
+            return _refusal(
+                RECONCILIATION_UNAVAILABLE,
+                f"SAP could not be read before the write: {error}",
+                intent=existing,
+            )
         if po_number:
             if existing is None:
                 existing = SapWriteIntent(
-                    workspace_id=workspace.id, pr_id=pr, pr_item=item, status=COMMITTED,
-                    server_id=server_id, tool=tool, run_id=run_id, decision_id=decision_id,
-                    decided_by=decided_by, created_at=now, updated_at=now,
+                    workspace_id=workspace.id,
+                    pr_id=pr,
+                    pr_item=item,
+                    status=COMMITTED,
+                    server_id=server_id,
+                    tool=tool,
+                    run_id=run_id,
+                    decision_id=decision_id,
+                    decided_by=decided_by,
+                    created_at=now,
+                    updated_at=now,
                 )
                 db.add(existing)
             existing.status = COMMITTED
@@ -182,7 +200,9 @@ def begin_create(
             existing.resolved_by = "sap_read"
             existing.updated_at = now
             db.commit()
-            return _refusal(ALREADY_ORDERED, f"SAP already has PO {po_number} for this PR item", intent=existing)
+            return _refusal(
+                ALREADY_ORDERED, f"SAP already has PO {po_number} for this PR item", intent=existing
+            )
         if existing is not None and existing.status == UNKNOWN:
             # SAP shows no PO for the item: the unknown call did not commit.
             existing.status = FAILED
@@ -192,9 +212,17 @@ def begin_create(
 
     if existing is not None:
         if existing.status == COMMITTED:
-            return _refusal(ALREADY_ORDERED, f"PO {existing.po_number or '?'} was already created for this PR item", intent=existing)
+            return _refusal(
+                ALREADY_ORDERED,
+                f"PO {existing.po_number or '?'} was already created for this PR item",
+                intent=existing,
+            )
         if existing.status == PENDING:
-            return _refusal(WRITE_IN_PROGRESS, "Another approval of this PR item is calling SAP", intent=existing)
+            return _refusal(
+                WRITE_IN_PROGRESS,
+                "Another approval of this PR item is calling SAP",
+                intent=existing,
+            )
         if existing.status == UNKNOWN:
             return _refusal(
                 NEEDS_RECONCILIATION,
@@ -223,15 +251,28 @@ def begin_create(
         )
         db.commit()
         if claimed != 1:
-            return _refusal(WRITE_IN_PROGRESS, "Another approval of this PR item claimed it first", intent=existing)
+            return _refusal(
+                WRITE_IN_PROGRESS,
+                "Another approval of this PR item claimed it first",
+                intent=existing,
+            )
         db.refresh(existing)
         return IntentClaim(intent=existing)
 
     intent = SapWriteIntent(
-        workspace_id=workspace.id, pr_id=pr, pr_item=item, status=PENDING,
-        server_id=server_id, tool=tool, run_id=run_id, decision_id=decision_id,
-        decided_by=decided_by, reference=reference_for(run_id, decision_id),
-        attempts=1, created_at=now, updated_at=now,
+        workspace_id=workspace.id,
+        pr_id=pr,
+        pr_item=item,
+        status=PENDING,
+        server_id=server_id,
+        tool=tool,
+        run_id=run_id,
+        decision_id=decision_id,
+        decided_by=decided_by,
+        reference=reference_for(run_id, decision_id),
+        attempts=1,
+        created_at=now,
+        updated_at=now,
     )
     try:
         with db.begin_nested():
@@ -243,7 +284,9 @@ def begin_create(
     return IntentClaim(intent=intent)
 
 
-def settle(db: Any, intent: SapWriteIntent, out: Mapping[str, Any], *, now: datetime | None = None) -> None:
+def settle(
+    db: Any, intent: SapWriteIntent, out: Mapping[str, Any], *, now: datetime | None = None
+) -> None:
     """Record what the create's envelope says happened."""
 
     now = now or datetime.utcnow()
@@ -264,7 +307,9 @@ def settle(db: Any, intent: SapWriteIntent, out: Mapping[str, Any], *, now: date
     db.commit()
 
 
-def fail(db: Any, intent: SapWriteIntent, error: BaseException, *, now: datetime | None = None) -> None:
+def fail(
+    db: Any, intent: SapWriteIntent, error: BaseException, *, now: datetime | None = None
+) -> None:
     """The write raised before anything reached SAP: a known failure."""
 
     intent.status = FAILED

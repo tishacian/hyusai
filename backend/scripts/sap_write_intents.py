@@ -36,7 +36,9 @@ from app.services.connectors.mcp import intents  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     listing = sub.add_parser("list", help="Show intents")
     listing.add_argument("--status", choices=INTENT_STATUSES)
@@ -75,7 +77,9 @@ def run(db: Any, args: argparse.Namespace) -> dict[str, Any]:
             query = query.filter(SapWriteIntent.status == args.status)
         if args.workspace_id:
             query = query.filter(SapWriteIntent.workspace_id == args.workspace_id)
-        return {"intents": [_row(row) for row in query.order_by(SapWriteIntent.updated_at.desc()).all()]}
+        return {
+            "intents": [_row(row) for row in query.order_by(SapWriteIntent.updated_at.desc()).all()]
+        }
     intent = db.query(SapWriteIntent).filter(SapWriteIntent.id == args.intent_id).first()
     if intent is None:
         raise SystemExit(f"no intent {args.intent_id}")
@@ -87,7 +91,12 @@ def run(db: Any, args: argparse.Namespace) -> dict[str, Any]:
         workspace_id=intent.workspace_id,
         event_type="mcp.write.intent_resolved",
         actor=args.actor,
-        details={"intent_id": intent.id, "from": before, "to": intent.status, "po_number": intent.po_number},
+        details={
+            "intent_id": intent.id,
+            "from": before,
+            "to": intent.status,
+            "po_number": intent.po_number,
+        },
     )
     return {"resolved": _row(intent), "from": before}
 
