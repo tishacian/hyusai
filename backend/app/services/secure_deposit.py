@@ -272,20 +272,41 @@ def _sweep_cache(ttl_seconds: int | None = None) -> None:
     root = _cache_root()
     for path in root.rglob("*"):
         try:
-            if path.is_file() and path.stat().st_mtime < cutoff:
+            if path.is_file() and not path.name.endswith(".partial") and path.stat().st_mtime < cutoff:
                 path.unlink(missing_ok=True)
         except OSError:  # noqa: PERF203 - a racing sweep is not an error
             continue
 
 
 def _materialise(key: str) -> Path:
-    """Return a local path for a staged key, fetching it when it is remote."""
+    """Return a local path for a staged key, fetching it when it is remote.
+
+    A cache hit refreshes its mtime so the sweep does not delete a file that
+    a later open still needs. A fetch lands in a temporary file and replaces
+    the cache path only when the byte count matches the object.
+    """
 
     cached = _cache_root() / _storage_key(key)
     if cached.is_file() and cached.stat().st_size > 0:
+        os.utime(cached, None)
         return cached
     _sweep_cache()
-    get_object_store().copy_to_local(_object_key(key), cached)
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{cached.name}.", suffix=".partial", dir=cached.parent)
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        store = get_object_store()
+        remote = _object_key(key)
+        store.copy_to_local(remote, tmp)
+        expected = store.size(remote)
+        actual = tmp.stat().st_size
+        if actual <= 0 or (expected is not None and actual != expected):
+            raise OSError("incomplete secure deposit cache copy")
+        os.replace(tmp, cached)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
     return cached
 
 

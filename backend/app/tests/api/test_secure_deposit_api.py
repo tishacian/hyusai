@@ -1140,6 +1140,33 @@ def test_sftp_reconciliation_dry_run_then_quarantine(db_session, monkeypatch, tm
     assert "deposit.sftp.orphan.quarantined" in event_types
 
 
+def test_object_store_reconciliation_is_refused_before_a_job(db_session, monkeypatch, tmp_path):
+    storage = tmp_path / "secure-deposit"
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(storage))
+    monkeypatch.setattr(settings, "secure_deposit_storage_backend", "object_store")
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+
+    workspace = Workspace(
+        id="ws-object-reconcile",
+        name="Object",
+        slug="object-reconcile",
+        settings={"features": {"secure_deposit": True}},
+    )
+    user = User(id="user-object-reconcile", email="operator@example.test", username="thib")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+
+    response = _client(db_session, workspace, user).post(
+        "/sftp/operations/reconcile", json={"mode": "dry_run", "stale_after_hours": 24}
+    )
+
+    assert response.status_code == 409
+    assert "object store" in response.json()["detail"]
+    assert db_session.query(WorkspaceJob).filter(WorkspaceJob.kind == "sftp_reconciliation").count() == 0
+
+
 def test_sftp_quarantine_skips_partial_that_became_recent(db_session, monkeypatch, tmp_path):
     storage = tmp_path / "secure-deposit"
     temp_dir = storage / "_sftp_uploads"

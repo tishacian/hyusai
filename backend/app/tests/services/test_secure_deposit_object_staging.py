@@ -13,9 +13,11 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 
 from app.core.config import settings
 from app.models.secure_deposit import DepositFile
+
 from app.services import secure_deposit as sd
 from app.services.object_store import ObjectStore
 
@@ -61,7 +63,9 @@ def test_a_second_read_reuses_the_materialised_copy(object_staging):
     second = sd.staged_file_path(_deposit(key))
 
     assert second == first
-    assert second.stat().st_mtime_ns == stamp  # not refetched
+    assert second.stat().st_ino == first.stat().st_ino
+    assert second.read_bytes() == b"body"
+    assert second.stat().st_mtime_ns >= stamp
 
 
 def test_a_deposit_taken_before_the_switch_is_still_served(object_staging):
@@ -94,6 +98,39 @@ def test_copy_to_local_works_on_both_backends(object_staging, tmp_path):
     sd._copy_staged_to_local(key, destination)
 
     assert destination.read_bytes() == b"payload"
+
+
+def test_a_short_download_does_not_become_the_cached_file(object_staging, monkeypatch):
+    key = "workspaces/ws-1/secure-deposit/acc-1/file-short/manual.txt"
+    sd._write_staged_bytes(key, b"complete body")
+
+    def short_copy(_key, destination):
+        destination.write_bytes(b"no")
+        return destination
+
+    monkeypatch.setattr(object_staging, "copy_to_local", short_copy)
+    with pytest.raises(HTTPException):
+        sd.staged_file_path(_deposit(key))
+
+    cached = sd._cache_root() / key
+    assert not cached.exists()
+    assert list(cached.parent.glob("*.partial")) == []
+
+
+def test_reading_a_cached_file_keeps_it_past_the_sweep(object_staging):
+    import os
+    import time
+
+    key = "workspaces/ws-1/secure-deposit/acc-1/file-touch/old.txt"
+    sd._write_staged_bytes(key, b"kept")
+    cached = sd.staged_file_path(_deposit(key))
+    os.utime(cached, (time.time() - 7200, time.time() - 7200))
+
+    sd.staged_file_path(_deposit(key))
+    sd._sweep_cache(ttl_seconds=3600)
+
+    assert cached.exists()
+    assert cached.read_bytes() == b"kept"
 
 
 def test_the_sweep_drops_stale_copies_only(object_staging):

@@ -199,6 +199,8 @@ _DOCUMENT_VECTOR_DB_TYPES = {"qdrant", "chroma", "faiss"}
 def _resolve_document_vector_db_type(
     workspace: Workspace,
     requested_type: Optional[str] = None,
+    *,
+    destructive: bool = False,
 ) -> str:
     """Resolve the store for one document call; the request cannot pick FAISS.
 
@@ -225,6 +227,15 @@ def _resolve_document_vector_db_type(
             detail={"code": "UNSUPPORTED_VECTOR_DB_TYPE", "vector_db_type": requested},
         )
     if requested == "faiss" and resolved != "faiss":
+        if destructive:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "FAISS_STORE_NOT_CONFIGURED",
+                    "vector_db_type": requested,
+                    "message": "This deployment does not use FAISS. Refusing to delete from another store.",
+                },
+            )
         logger.warning(
             "Ignoring a requested FAISS vector store",
             workspace_id=workspace.id,
@@ -2061,7 +2072,7 @@ async def clear_all_documents(
                 status_code=400,
                 detail="confirm_collection_name must exactly match collection_name.",
             )
-        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type, destructive=True)
 
         doc_service = DocumentService(
             collection_name=collection_name, vector_db_type=db_type, workspace_slug=workspace.slug
@@ -2102,7 +2113,7 @@ async def delete_document(
 ):
     """Delete a document and its chunks"""
     try:
-        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type, destructive=True)
 
         doc_service = DocumentService(
             collection_name=collection_name, vector_db_type=db_type, workspace_slug=workspace.slug
@@ -2816,7 +2827,7 @@ async def delete_collection(
 
         collection_name = unquote(collection_name)
 
-        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type, destructive=True)
         row = (
             db.query(KnowledgeCollection)
             .filter(
