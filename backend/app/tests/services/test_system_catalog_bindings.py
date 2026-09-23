@@ -25,6 +25,7 @@ from app.services.system_catalog_bindings import (
     resolve_persisted_system_catalog_bindings,
     resolve_system_catalog_bindings,
 )
+from app.tests.iam_baseline import OPEN_IAM_FEATURES
 from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 
 
@@ -32,6 +33,7 @@ def _workspace(db, key: str, settings: dict | None = None) -> Workspace:
     merged = dict(settings or {})
     merged["features"] = {
         **LEGACY_FLOW_AUTHORITY["features"],
+        **OPEN_IAM_FEATURES,
         **(merged.get("features") or {}),
     }
     row = Workspace(

@@ -14,12 +14,13 @@ from app.models.workspace import Workspace
 from app.services.flow_contracts import canonical_sha256
 from app.services.run_engine.execution_contract import canonical_flow_sha256
 from app.services.systems import flow_publication
+from app.tests.iam_baseline import OPEN_IAM_FEATURES
 
 
 def _fixture(db, *, published_model="model-approved", live_model="model-denied"):
     suffix = uuid4().hex[:10]
     workspace = Workspace(id=f"mandate-http-ws-{suffix}", slug=f"mandate-http-{suffix}", name="Mandate HTTP",
-                          settings={"features": {"flow_publication_v1": True},
+                          settings={"features": {"flow_publication_v1": True, **OPEN_IAM_FEATURES},
                                     "llm_portal": {"routing": {"default_model": published_model}}})
     user = User(id=f"mandate-http-admin-{suffix}", username=f"mandate-admin-{suffix}", role="admin")
     flow = {"schema_version": 3, "nodes": [

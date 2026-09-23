@@ -42,7 +42,7 @@ KINDS = {"adapter", "family", "fixture", "demo", "client-app", "tooling"}
 def _docstring_lines(tree: ast.AST) -> set[int]:
     lines: set[int] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         body = node.body
         if (
@@ -99,7 +99,11 @@ def _baseline() -> dict[str, dict]:
 
 
 def test_every_baseline_entry_has_a_known_kind():
-    unknown = {path: entry.get("kind") for path, entry in _baseline().items() if entry.get("kind") not in KINDS}
+    unknown = {
+        path: entry.get("kind")
+        for path, entry in _baseline().items()
+        if entry.get("kind") not in KINDS
+    }
     assert not unknown, unknown
 
 
