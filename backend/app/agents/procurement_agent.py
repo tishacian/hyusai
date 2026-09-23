@@ -6,7 +6,6 @@ Full execution streaming pipeline with real-time SSE decision_step events.
 import asyncio
 import re
 import time
-import unicodedata
 from collections.abc import Mapping
 from typing import Any, AsyncGenerator
 
@@ -67,42 +66,7 @@ _LENGTH_DETAIL_RE = re.compile(
 
 _CITATION_RE = re.compile(r"\[(\d{1,2})\]")
 
-_ANDRITZ_CONTACT_QUERY_RE = re.compile(
-    r"\b("
-    r"contact|contacter|contactez|coordonn[ée]es|support|assistance|"
-    r"repr[ée]sentant|email|e-mail|mail|t[ée]l[ée]phone|phone|qui\s+appeler"
-    r")\b",
-    re.IGNORECASE,
-)
 
-_ANDRITZ_CONTACT_FOOTER_RE = re.compile(
-    r"""
-    (?:\s*(?:[-*]\s*)?)?
-    (?:
-        (?:
-            (?:si\s+vous\s+(?:souhaitez|voulez|avez\s+besoin\s+de)[^\n.!?]{0,180})
-            |(?:pour\s+(?:plus|toute|davantage)[^\n.!?]{0,180})
-            |(?:for\s+(?:more|additional|further)[^\n.!?]{0,180})
-            |(?:if\s+you\s+(?:need|want|would\s+like)[^\n.!?]{0,180})
-        )
-        (?:merci\s+de\s+|veuillez\s+|please\s+)?
-        (?:contacter|contactez|contact|sollicitez|adressez-vous\s+a|reach\s+out\s+to)
-        [^\n.!?]{0,240}\bandritz\b[^\n.!?]*
-        |
-        (?:merci\s+de\s+|veuillez\s+|please\s+)?
-        (?:contacter|contactez|contact|sollicitez|adressez-vous\s+a|reach\s+out\s+to)
-        [^\n.!?]{0,240}\bandritz\b[^\n.!?]{0,120}
-        \b(?:information|informations|renseignement|renseignements|details|support|assistance|representant)\b
-        [^\n.!?]*
-    )
-    (?:\s*\[\d{1,2}\])?
-    [.!?]?
-    \s*$
-    """,
-    re.IGNORECASE | re.VERBOSE,
-)
-
-_ANDRITZ_CONTACT_STREAM_TAIL_CHARS = 480
 
 # A turn is only treated as a standalone (retrieval) question when it carries
 # enough signal. Very short pronoun/instruction-only turns in an ongoing
@@ -187,65 +151,58 @@ def _cited_source_indices(text: str) -> set[int]:
     return {int(match) for match in _CITATION_RE.findall(text or "")}
 
 
-def _fold_for_policy(text: str) -> str:
-    folded = unicodedata.normalize("NFKD", text or "")
-    return "".join(ch for ch in folded if not unicodedata.combining(ch)).lower()
-
-
-def _query_requests_contact_info(query: str) -> bool:
-    return bool(_ANDRITZ_CONTACT_QUERY_RE.search(_fold_for_policy(query)))
-
-
-def _strip_andritz_contact_boilerplate(text: str, *, allow_contact_answer: bool = False) -> str:
-    """Remove supplier-document contact footers from generated chat answers.
-
-    Andritz manuals often contain public-facing closing boilerplate such as
-    "contact Andritz for more information". In Agentium the users are already
-    Andritz experts, so that footer is noise when copied as a final next step.
-    We only strip it from the tail and keep explicit contact-answer turns.
-    """
-
-    if allow_contact_answer:
-        return text
-    stripped = (text or "").rstrip()
-    if not stripped:
-        return text or ""
-    previous = None
-    while stripped and stripped != previous:
-        previous = stripped
-        stripped = _ANDRITZ_CONTACT_FOOTER_RE.sub("", stripped).rstrip()
-    return stripped
-
-
-class _AndritzContactBoilerplateStreamFilter:
-    """Hold a small response tail so copied contact footers never flash in chat."""
-
-    def __init__(self, *, enabled: bool = True, tail_chars: int = _ANDRITZ_CONTACT_STREAM_TAIL_CHARS):
-        self.enabled = enabled
-        self.tail_chars = tail_chars
-        self._tail = ""
+class _PassThroughAnswerFilter:
+    """Default answer-tail filter: streams every chunk as it comes."""
 
     def feed(self, chunk: str) -> str:
-        if not chunk:
-            return ""
-        if not self.enabled:
-            return chunk
-        self._tail += chunk
-        if len(self._tail) <= self.tail_chars:
-            return ""
-        flush_to = len(self._tail) - self.tail_chars
-        safe = self._tail[:flush_to]
-        self._tail = self._tail[flush_to:]
-        return safe
+        return chunk or ""
 
     def flush(self) -> str:
-        if not self.enabled:
-            tail = self._tail
-            self._tail = ""
-            return tail
-        clean_tail = _strip_andritz_contact_boilerplate(self._tail)
-        self._tail = ""
-        return clean_tail
+        return ""
+
+
+_FAMILY_CACHE_TTL_S = 300.0
+_family_by_slug: dict[str, tuple[float, str]] = {}
+
+
+def _workspace_family_for_slug(workspace_slug: str | None) -> str:
+    """Stamped family of the workspace a chat request runs for.
+
+    The slug in the request is server-owned. The family changes rarely, so it
+    is cached briefly per process instead of queried on every turn.
+    """
+
+    slug = str(workspace_slug or "").strip()
+    if not slug:
+        return "generic"
+    now = time.monotonic()
+    cached = _family_by_slug.get(slug)
+    if cached and now - cached[0] < _FAMILY_CACHE_TTL_S:
+        return cached[1]
+    from types import SimpleNamespace
+
+    from app.db.base import SessionLocal
+    from app.models.workspace import Workspace
+    from app.services.workspace_features import workspace_family
+
+    try:
+        with SessionLocal() as db:
+            settings_blob = db.query(Workspace.settings).filter(Workspace.slug == slug).scalar()
+    except Exception:  # noqa: BLE001 - no adapter rather than a failed turn
+        return "generic"
+    family = workspace_family(SimpleNamespace(settings=settings_blob))
+    _family_by_slug[slug] = (now, family)
+    return family
+
+
+def _answer_tail_filter(workspace_slug: str | None, query: str) -> Any:
+    """The family's answer-tail filter, or a pass-through one."""
+
+    from app.tenants import family_hook
+
+    factory = family_hook(_workspace_family_for_slug(workspace_slug), "answer_hygiene", "answer_tail_filter")
+    return factory(query) if factory is not None else _PassThroughAnswerFilter()
+
 
 # Generic/placeholder document titles that carry no information for an end
 # user. When the extracted title matches one of these we fall back to the
@@ -706,14 +663,31 @@ def _retrieval_synthesis_brief(
     ]
     return "\n".join(lines)
 
-SYSTEM_PROMPT = """You are an intelligent assistant with access to a curated knowledge base.
+_GENERIC_SYSTEM_PROMPT_FOOTER_RULE = (
+    'Do not reproduce generic supplier-document footers such as "contact the supplier for more information" '
+    "as advice in the chat; the workspace users are already domain experts."
+)
+_SYSTEM_PROMPT_TEMPLATE = """You are an intelligent assistant with access to a curated knowledge base.
 
 Answer questions accurately and concisely using the retrieved context.
 When the context contains relevant information, cite it specifically.
 If no relevant context is available, say so clearly rather than guessing.
-Do not reproduce generic supplier-document footers such as "contact Andritz for more information" as advice in the chat; Agentium users in the Andritz workspace are already Andritz experts.
+{footer_rule}
 
 Be professional, precise, and helpful."""
+
+
+def default_system_prompt(family: str | None = None) -> str:
+    """The chat system prompt, with the supplier-footer rule of the family."""
+
+    from app.tenants import family_hook
+
+    rule = family_hook(family, "answer_hygiene", "SYSTEM_PROMPT_FOOTER_RULE", _GENERIC_SYSTEM_PROMPT_FOOTER_RULE)
+    return _SYSTEM_PROMPT_TEMPLATE.format(footer_rule=rule)
+
+
+# The generic prompt, for importers that do not know the workspace.
+SYSTEM_PROMPT = default_system_prompt()
 
 BALANCED_GROUNDING_APPENDIX = """Grounding policy for this turn:
 - Use the retrieved context first whenever it contains the answer, and lead with the answer itself.
@@ -750,6 +724,20 @@ def _system_prompt_with_grounding(base_prompt: str, grounding_policy: dict[str, 
     return f"{base_prompt}\n\n{BALANCED_GROUNDING_APPENDIX}"
 
 
+_GENERIC_ANSWER_SHAPING_FOOTER_RULE = (
+    "- Do not end with generic document boilerplate asking the user to contact the supplier or a "
+    "representative for more information, unless the user explicitly asked for contact details."
+)
+
+
+def _answer_shaping_footer_rule(family: str | None) -> str:
+    from app.tenants import family_hook
+
+    return family_hook(
+        family, "answer_hygiene", "ANSWER_SHAPING_FOOTER_RULE", _GENERIC_ANSWER_SHAPING_FOOTER_RULE
+    )
+
+
 def _build_rag_user_prompt(
     *,
     query: str,
@@ -762,6 +750,7 @@ def _build_rag_user_prompt(
     retrieval_summary: str = "",
     answer_policy_prompt: str = "",
     has_expert_fiche: bool = False,
+    family: str | None = None,
 ) -> str:
     if grounding_policy.get("mode") == "balanced" and not has_retrieved_context:
         fallback_disclaimer = (
@@ -827,7 +816,7 @@ If the context is not relevant or missing, say so clearly rather than guessing."
         "- If the retrieved content is too thin or contradictory, say that explicitly and name the gap.",
         "- Follow the active industrial answer profile: precise facts must stay short; summaries must be structured and complete; inventories must not be presented as exhaustive unless the evidence supports that.",
         "- Do not mention internal mechanics such as chunks, scores, vector search, model names, database names, RAG/LLM engines, confidence rates or retrieval methods in the user-facing answer.",
-        "- Do not end with generic document boilerplate asking the user to contact Andritz or an Andritz representative for more information, unless the user explicitly asked for contact details.",
+        _answer_shaping_footer_rule(family),
     ]
     if has_expert_fiche:
         answer_shaping_lines.append(
@@ -967,7 +956,10 @@ class OmniRAGAgent(BaseAgent):
         temperature = request.get("temperature", 0.3)
         custom_system_prompt = request.get("system_prompt")
         grounding_policy = _grounding_policy_from_request(request)
-        system_prompt = _system_prompt_with_grounding(custom_system_prompt or SYSTEM_PROMPT, grounding_policy)
+        family = _workspace_family_for_slug(request.get("workspace_slug"))
+        system_prompt = _system_prompt_with_grounding(
+            custom_system_prompt or default_system_prompt(family), grounding_policy
+        )
         pipeline_start = time.time()
 
         # Conversation memory: recent turns (incl. the previous assistant
@@ -1506,6 +1498,7 @@ class OmniRAGAgent(BaseAgent):
                     language=request.get("response_language"),
                 ),
                 has_expert_fiche=has_expert_fiche,
+                family=family,
             )
 
         await asyncio.sleep(0.03)
@@ -1567,9 +1560,7 @@ class OmniRAGAgent(BaseAgent):
             max_output_tokens = 4000 if wants_more_detail else 2000
         sequence = 0
         accumulated = ""
-        stream_filter = _AndritzContactBoilerplateStreamFilter(
-            enabled=not _query_requests_contact_info(query)
-        )
+        stream_filter = _answer_tail_filter(request.get("workspace_slug"), query)
         try:
             llm = self._get_llm()
             async for chunk_text in llm.stream_complete(

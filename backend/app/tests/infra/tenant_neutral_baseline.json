@@ -1,11 +1,6 @@
 {
   "_comment": "Ratchet for backend/app/tests/infra/test_tenant_neutral_contract.py. Counts are exact; see docs/adr/0003-generalisation-frontieres.md.",
   "files": {
-    "backend/app/agents/procurement_agent.py": {
-      "count": 13,
-      "kind": "fixture",
-      "why": "Andritz contact-boilerplate stripping runs for every tenant."
-    },
     "backend/app/api/v1/endpoints/admin.py": {
       "count": 2,
       "kind": "adapter",
@@ -225,6 +220,11 @@
       "count": 1,
       "kind": "family",
       "why": "Industrial families set."
+    },
+    "backend/app/tenants/andritz/answer_hygiene.py": {
+      "count": 5,
+      "kind": "adapter",
+      "why": "Andritz contact-footer hygiene for the shared chat agent, selected by family."
     },
     "backend/app/tenants/andritz/chat_prompts.py": {
       "count": 6,
