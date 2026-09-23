@@ -50,3 +50,24 @@ def test_an_andritz_series_code_is_meaningless_elsewhere():
     query = "selon nos documents, statut de la série BBA120"
     assert resolve_grounding_policy(query=query, workspace=_workspace("generic"))["mode"] == "balanced"
     assert resolve_grounding_policy(query=query, workspace=_workspace("andritz"))["mode"] == "strict"
+
+
+REPORT_QUERY = "selon nos documents, que dit le rapport actuel ?"
+
+
+@pytest.mark.parametrize("family", ["generic", "industrial"])
+def test_the_sentinel_domain_no_longer_decides_for_other_tenants(family):
+    """"port" is a Sentinel term, and it sits inside "rapport"."""
+
+    assert resolve_grounding_policy(query=REPORT_QUERY, workspace=_workspace(family))["mode"] == "balanced"
+
+
+@pytest.mark.parametrize("family", ["sentinel_ci", "andritz"])
+def test_the_tenants_that_had_the_sentinel_list_keep_it(family):
+    assert resolve_grounding_policy(query=REPORT_QUERY, workspace=_workspace(family))["mode"] == "strict"
+
+
+def test_platform_vocabulary_still_grounds_every_tenant():
+    query = "selon nos documents, quelle est la décision actuelle ?"
+    for family in ("generic", "industrial", "sentinel_ci", "andritz"):
+        assert resolve_grounding_policy(query=query, workspace=_workspace(family))["mode"] == "strict", family

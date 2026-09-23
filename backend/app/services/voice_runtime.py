@@ -836,26 +836,18 @@ def get_voice_runtime_provider(
 def _realtime_allowed(workspace: Any | None, workspace_slug: str | None) -> bool:
     """Whether OpenAI Realtime is on for this tenant.
 
-    This was the one per-customer capability still read from a raw global slug
-    list, so a workspace could not opt in through its own settings the way
-    every other capability does. With a workspace in hand it now goes through
-    ``feature_enabled``: the workspace flag wins when present, and the global
-    list stays the fallback, so no workspace changes behaviour until someone
-    sets the flag. The two older call shapes keep their exact meaning: a bare
-    slug is checked against the list, and no tenant at all is not gated.
+    The workspace's own ``features.openai_realtime`` flag decides. It used to
+    fall back to a global slug list, which migration 111 froze onto the rows it
+    named before the list was removed. A bare slug therefore no longer answers
+    anything: without the workspace there is no flag to read, so it is refused
+    rather than guessed. No tenant at all is still not gated, as before.
     """
 
     if workspace is not None:
         from app.services.workspace_features import feature_enabled
 
-        return feature_enabled(
-            workspace,
-            "openai_realtime",
-            csv_fallback=settings.openai_realtime_enabled_workspace_slugs,
-        )
-    if workspace_slug:
-        return workspace_slug in set(_split_csv(settings.openai_realtime_enabled_workspace_slugs))
-    return True
+        return feature_enabled(workspace, "openai_realtime")
+    return not workspace_slug
 
 
 def _provider_status(

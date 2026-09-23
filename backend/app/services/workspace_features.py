@@ -2,7 +2,10 @@
 
 Families and feature flags historically lived in global config CSVs plus
 substring matches on the workspace slug/name ("andritz" in slug). Migration
-058 stamps the legacy result once; runtime settings are now the source of
+058 stamped the legacy family once, and migrations 110 and 111 froze the last
+per-feature slug lists onto the rows they named. There is no global fallback
+any more: ``feature_enabled`` takes no list, so a customer cannot become a
+property of the deployment again. Runtime settings are the only source of
 truth:
 
 - ``settings["family"]`` — canonical stamped family (``WorkspaceFamily``)
@@ -35,6 +38,14 @@ Default-on capabilities (absence means enabled):
 - ``system_360_projection_v1`` — workspace half of the lens gate. A System
   still needs ``settings.experience.system_360_canary = "v1"`` before any
   lens is served, so graduating the workspace flag does not open the slice.
+- ``iam_enforced`` — the role manifests decide, deny by default. A new
+  workspace starts governed: a contributor can draft and test, publication and
+  sensitive configuration need an explicit role. Migration 111 wrote an
+  explicit ``false`` on every workspace that was open before it, so none of
+  them changed; opening a new one is a recorded decision, not an omission.
+- ``voice_realtime_stt`` — eligibility for LiveKit realtime transcription. The
+  deployment switch still has to be on; ``false`` keeps a workspace on the
+  batch path.
 
 These stay explicit opt-ins. Graduating them would move the F3–F6 contract
 (object continuity, a published call, a versioned connection) or fire a side
@@ -83,6 +94,8 @@ DEFAULT_ON_FEATURES: frozenset[str] = frozenset(
         "flow_publication_v1",
         "hypervisor_v2",
         "system_360_projection_v1",
+        "iam_enforced",
+        "voice_realtime_stt",
     }
 )
 
@@ -100,19 +113,16 @@ def workspace_family(workspace: Any) -> str:
     return WorkspaceFamily.generic.value
 
 
-def feature_enabled(workspace: Any, feature: str, *, csv_fallback: str = "") -> bool:
-    """Per-workspace feature toggle with the legacy global CSV as fallback.
+def feature_enabled(workspace: Any, feature: str) -> bool:
+    """Per-workspace opt-in toggle: on only when the workspace says so.
 
-    ``workspace.settings["features"][feature]`` wins when present; otherwise
-    the slug is matched (exact, case-insensitive) against the comma-separated
-    global config value the flag historically used.
+    ``workspace.settings["features"][feature]`` decides; absence is off. The
+    slug is never consulted, which is why this takes no fallback list.
     """
     features = _workspace_settings(workspace).get("features")
     if isinstance(features, Mapping) and feature in features:
         return bool(features[feature])
-    slug = str(getattr(workspace, "slug", "") or "").strip().lower()
-    allowed = {item.strip().lower() for item in str(csv_fallback or "").split(",") if item.strip()}
-    return slug in allowed
+    return False
 
 
 def graduated_feature_enabled(workspace: Any, feature: str) -> bool:

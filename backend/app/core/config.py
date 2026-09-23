@@ -318,8 +318,9 @@ class Settings(BaseSettings):
     voice_runtime_fallback_providers: str = "cascade_openai"
     voice_realtime_default_transport: str = "backend_ws"
     voice_realtime_webrtc_enabled: bool = False
+    # Deployment switch. Which workspace may use it is the workspace's own
+    # ``features.openai_realtime`` flag.
     openai_realtime_enabled: bool = False
-    openai_realtime_enabled_workspace_slugs: str = "andritz"
     openai_realtime_model: str = "gpt-realtime-2"
     openai_realtime_transcribe_model: str = "gpt-realtime-whisper"
     openai_realtime_translate_model: str = "gpt-realtime-translate"
@@ -327,12 +328,11 @@ class Settings(BaseSettings):
     openai_realtime_ephemeral_ttl_seconds: int = 600
     # Realtime streaming STT for Knowledge Capture via the LiveKit sidecar
     # (gpt-realtime-whisper on the LiveKit PCM track). Master switch separate
-    # from the WebRTC speech-to-speech lane (openai_realtime_enabled). When the
-    # allowlist is empty every LiveKit-capable workspace gets it once the master
-    # switch is on; delay tunes the latency/accuracy tradeoff
-    # (minimal|low|medium|high|xhigh).
+    # from the WebRTC speech-to-speech lane (openai_realtime_enabled). Once the
+    # master switch is on every LiveKit-capable workspace gets it unless its
+    # ``features.voice_realtime_stt`` is false; delay tunes the latency/accuracy
+    # tradeoff (minimal|low|medium|high|xhigh).
     voice_realtime_stt_enabled: bool = False
-    voice_realtime_stt_workspace_slugs: str = ""
     voice_realtime_stt_delay: str = "low"
     # gpt-realtime-whisper has no OpenAI turn_detection, so the sidecar detects
     # end-of-turn from the PCM and commits manually. These tune that silence VAD
@@ -395,7 +395,6 @@ class Settings(BaseSettings):
     livekit_turn_mode: str = "external_or_none"
     livekit_agents_mode: str = "sidecar_http_bridge"
     livekit_egress_enabled: bool = False
-    livekit_recording_allowed_workspace_slugs: str = ""
 
     # Domain-aware transcript rewrite on the capture voice loop's `improved`/`final`
     # stages. A hybrid glossary (workspace KB-derived + live plan topics + retrieved
@@ -513,11 +512,10 @@ class Settings(BaseSettings):
     # client demands deeper history without re-migration.
     custom_chain_version_window: int = 500
 
-    # Transverse IAM engine rollout. Dry-run/evaluate is available everywhere;
-    # enforcement is active when ``iam_generic_engine`` is true or when the
-    # current workspace slug is listed here.
+    # Transverse IAM engine rollout. Dry-run/evaluate is available everywhere.
+    # Enforcement is the workspace default (``features.iam_enforced``, absent
+    # means enforced); true here enforces it even where a workspace opted out.
     iam_generic_engine: bool = False
-    iam_enforced_workspace_slugs: str = "andritz"
 
     # P4 is double-gated: this global kill switch and an explicit per-System
     # settings.features.subflow_celery=true opt-in must both be present.

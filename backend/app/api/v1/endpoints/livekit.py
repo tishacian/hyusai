@@ -179,6 +179,7 @@ async def livekit_agent_dispatch(
             metadata=metadata,
             destination_identity=req.destination_identity,
             voice_session_start=req.voice_session_start,
+            workspace=permission.workspace,
         )
         events = []
         if sidecar.mode == "data_only_fallback":

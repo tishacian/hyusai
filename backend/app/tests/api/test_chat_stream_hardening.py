@@ -849,8 +849,14 @@ def test_chat_stream_vigie_defaults_to_balanced_grounding(db_session, monkeypatc
 def test_chat_stream_vigie_balanced_request_stays_strict_for_workspace_facts(
     db_session, monkeypatch
 ):
+    # Migration 058 stamped the live workspace with its family; the Sentinel CI
+    # vocabulary that makes this question a workspace fact belongs to it.
     workspace = Workspace(
-        id="ws-vigie-grounding-strict", name="SENTINEL-CI", slug="sentinel-ci", mode="demo"
+        id="ws-vigie-grounding-strict",
+        name="SENTINEL-CI",
+        slug="sentinel-ci",
+        mode="demo",
+        settings={"family": "sentinel_ci"},
     )
     db_session.add(workspace)
     db_session.commit()

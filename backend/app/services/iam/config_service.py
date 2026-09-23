@@ -17,21 +17,20 @@ DEFAULT_ROLE_FLAGS: Dict[str, Any] = {
 }
 
 
-def enforced_workspace_slugs() -> set[str]:
-    raw = settings.iam_enforced_workspace_slugs or ""
-    return {slug.strip() for slug in raw.split(",") if slug.strip()}
-
-
 def is_iam_enforced_for_workspace(workspace: Workspace) -> bool:
-    from app.services.workspace_features import feature_enabled
+    """Whether the role manifests decide for this workspace.
+
+    Enforced unless the workspace carries an explicit ``iam_enforced: false``.
+    Migration 111 wrote that ``false`` on every workspace that was open before
+    it, so the default only governs workspaces created since: a new workspace
+    starts governed instead of open by omission. ``iam_generic_engine`` still
+    enforces everywhere, including on those opt-outs.
+    """
+    from app.services.workspace_features import graduated_feature_enabled
 
     return bool(
         settings.iam_generic_engine
-        or feature_enabled(
-            workspace,
-            "iam_enforced",
-            csv_fallback=settings.iam_enforced_workspace_slugs,
-        )
+        or graduated_feature_enabled(workspace, "iam_enforced")
     )
 
 

@@ -1,43 +1,36 @@
-"""OpenAI Realtime follows the per-workspace flag like every other capability.
+"""OpenAI Realtime follows the per-workspace flag, and nothing else.
 
-It was the last per-customer capability still read from a raw global slug list,
-so a workspace could not opt in or out through its own settings. The list stays
-as the fallback, so nothing changes until a workspace sets the flag.
+It was the last per-customer capability read from a raw global slug list.
+Migration 111 froze that list onto the workspaces it named, so the workspace's
+own ``features.openai_realtime`` is now the only answer.
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
-from app.core.config import settings
 from app.services.voice_runtime import _realtime_allowed
-
-
-@pytest.fixture(autouse=True)
-def _listed(monkeypatch):
-    monkeypatch.setattr(settings, "openai_realtime_enabled_workspace_slugs", "andritz")
 
 
 def _ws(slug, features=None):
     return SimpleNamespace(slug=slug, settings={"features": features} if features is not None else {})
 
 
-def test_the_older_call_shapes_keep_their_exact_meaning():
-    assert _realtime_allowed(None, None) is True  # no tenant, no tenant gate
-    assert _realtime_allowed(None, "andritz") is True
+def test_no_tenant_is_still_not_gated():
+    assert _realtime_allowed(None, None) is True
+
+
+def test_a_bare_slug_no_longer_answers():
+    """Without the workspace there is no flag to read, so it is refused."""
+
+    assert _realtime_allowed(None, "andritz") is False
     assert _realtime_allowed(None, "acme") is False
 
 
-def test_without_a_flag_the_global_list_still_decides():
-    assert _realtime_allowed(_ws("andritz"), "andritz") is True
-    assert _realtime_allowed(_ws("acme"), "acme") is False
+def test_the_slug_that_used_to_be_listed_is_not_special():
+    assert _realtime_allowed(_ws("andritz"), "andritz") is False
 
 
-def test_a_workspace_can_now_opt_in_through_its_own_settings():
+def test_a_workspace_opts_in_and_out_through_its_own_settings():
     assert _realtime_allowed(_ws("acme", {"openai_realtime": True}), "acme") is True
-
-
-def test_and_can_opt_out_even_if_the_list_names_it():
     assert _realtime_allowed(_ws("andritz", {"openai_realtime": False}), "andritz") is False
