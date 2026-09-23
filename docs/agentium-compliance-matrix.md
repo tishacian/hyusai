@@ -10,7 +10,7 @@ Source contract: [`config/agentium/product-compliance.v1.json`](../config/agenti
 |---:|---|---|---|---|---|---|---|---|
 | 0 | `LOT0-BASELINE-CONTRACT` — Workspace experience baseline is explicit and regression-tested | `governance` | ✅ 1/1 required | — | — | ✅ 2/2 required | `playwright`, `pytest` | 🟠 Static verified |
 | 1 | `LOT1-STABILITY-CONTRACT` — Workspace navigation remains stable across retries, rails and switches | `frontend` | ✅ 5/5 required | — | ✅ 2/2 required | ✅ 4/4 required | `node` | 🟠 Static verified |
-| 2 | `LOT2-WORKSPACE-EXPERIENCE-RESOLVER` — Workspace experience resolver is flagged, shadowed and fail-closed | `frontend` | ✅ 2/2 required | — | ✅ 1/1 required | ✅ 2/2 required | `node` | 🟠 Static verified |
+| 2 | `LOT2-WORKSPACE-EXPERIENCE-RESOLVER` — Workspace experience resolver is flagged, shadowed and fail-closed | `frontend` | ✅ 3/3 required | — | ✅ 1/1 required | ✅ 2/2 required | `node` | 🟠 Static verified |
 | 3 | `LOT3-COCKPIT-AXES` — Cockpit lenses preserve object identity and hierarchy | `frontend` | ✅ 2/2 required | — | ✅ 1/1 required | ✅ 1/1 required | `node` | 🟠 Static verified |
 | 4 | `LOT4-SHOWCASE-CANARY-DISCOVERY` — Showcase canary discovers the live graph instead of a fixed slug | `governance` | ✅ 1/1 required | — | — | ✅ 1/1 required | `playwright` | 🟠 Static verified |
 | 4 | `LOT4-BUSINESS-SHELL-MISSION-EXTENSION` — Andritz shell and Mission Room are resolver-owned extensions | `full_stack` | ✅ 2/2 required | ✅ 1/1 required | ✅ 1/1 required | ✅ 3/3 required | `node`, `pytest` | 🟠 Static verified |
@@ -62,6 +62,7 @@ The workspace header survives retry, one resolver owns redirects, the expanded r
 A pure V2 resolver is gated behind one flag, compared with an independent legacy oracle, and observed through privacy-safe rollout evidence. Mental model: §5bis, §34, §38.
 
 - **implementation / PASS** — [Pure workspace experience model](../frontend-ng/src/app/core/workspace-experience.ts)
+- **implementation / PASS** — [Rollout canaries the shadow gate must prove](../frontend-ng/src/app/core/workspace-experience-canaries.ts)
 - **implementation / PASS** — [Passive shadow runtime](../frontend-ng/src/app/core/workspace-experience-shadow.service.ts)
 - **frontend / PASS** — [Feature-flag integration boundary](../frontend-ng/src/app/core/navigation-profile.service.ts)
 - **tests / PASS** — [Resolver parity and evidence gates](../frontend-ng/src/app/core/workspace-experience.spec.ts)

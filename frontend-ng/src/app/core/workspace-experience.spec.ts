@@ -1,14 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  ANDRITZ_CRITICAL_SCENARIOS,
   BUSINESS_PRIMARY_SURFACE_IDS,
   FULL_COCKPIT_VERBS,
-  MISSION_ROOM_CRITICAL_SCENARIOS,
   MISSION_ROOM_NAVIGATION_KEYS,
-  SHOWCASE_PORTFOLIO_SCENARIO,
   WORKSPACE_EXPERIENCE_ADAPTERS,
-  WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS,
   WORKSPACE_EXPERIENCE_RESOLVER_VERSION,
   WORKSPACE_APP_REPAIR_ROUTE,
   WORKSPACE_APP_UNAVAILABLE_ROUTE,
@@ -27,6 +23,12 @@ import {
   type WorkspaceExperienceInput,
   type WorkspaceExperienceV2,
 } from './workspace-experience';
+import {
+  ANDRITZ_CRITICAL_SCENARIOS,
+  MISSION_ROOM_CRITICAL_SCENARIOS,
+  SHOWCASE_PORTFOLIO_SCENARIO,
+  WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS,
+} from './workspace-experience-canaries';
 import type {
   WorkspaceAppRuntimeMissionRoom,
   WorkspaceAppRuntimeProjection,
@@ -1162,7 +1164,7 @@ test('explanations require complete non-empty governance and exactly one exact m
   });
   const evidence = completeCriticalEvidence();
   evidence[0] = createWorkspaceExperienceEvidence(value, duplicateComparison);
-  const gate = evaluateWorkspaceExperienceRolloutGate(evidence);
+  const gate = evaluateWorkspaceExperienceRolloutGate(evidence, WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS);
   assert.equal(gate.allowed, false);
   assert.ok(gate.blockers.some((blocker) =>
     blocker.code === 'unexplained_divergence' && blocker.scenarioKey === duplicateComparison.scenarioKey));
@@ -1179,7 +1181,7 @@ test('explanations require complete non-empty governance and exactly one exact m
   assert.equal(duplicateOnMatch.status, 'match');
   assert.equal(duplicateOnMatch.explanationState, 'invalid');
   evidence[0] = createWorkspaceExperienceEvidence(value, duplicateOnMatch);
-  assert.ok(evaluateWorkspaceExperienceRolloutGate(evidence).blockers.some((blocker) =>
+  assert.ok(evaluateWorkspaceExperienceRolloutGate(evidence, WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS).blockers.some((blocker) =>
     blocker.code === 'unexplained_divergence' && blocker.scenarioKey === duplicateOnMatch.scenarioKey));
 });
 
@@ -1318,13 +1320,13 @@ test('exported critical matrices are complete and produce parity', () => {
 
 test('rollout gate opens only with one current valid observed proof per critical scenario', () => {
   const complete = completeCriticalEvidence();
-  assert.deepEqual(evaluateWorkspaceExperienceRolloutGate(complete), { allowed: true, blockers: [] });
+  assert.deepEqual(evaluateWorkspaceExperienceRolloutGate(complete, WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS), { allowed: true, blockers: [] });
 
-  const missing = evaluateWorkspaceExperienceRolloutGate(complete.slice(1));
+  const missing = evaluateWorkspaceExperienceRolloutGate(complete.slice(1), WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS);
   assert.equal(missing.allowed, false);
   assert.ok(missing.blockers.some((blocker) => blocker.code === 'missing_evidence'));
 
-  const duplicate = evaluateWorkspaceExperienceRolloutGate([...complete, complete[0]]);
+  const duplicate = evaluateWorkspaceExperienceRolloutGate([...complete, complete[0]], WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS);
   assert.ok(duplicate.blockers.some((blocker) => blocker.code === 'duplicate_evidence'));
 });
 
@@ -1355,7 +1357,7 @@ test('rollout gate blocks wrong versions, stale epoch, unknown adapter and missi
   ]);
   const result = evaluateWorkspaceExperienceRolloutGate(complete.map((item) =>
     replacements.get(`${item.workspaceSlug}::${item.scenarioKey}`) || item,
-  ));
+  ), WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS);
   assert.equal(result.allowed, false);
   assert.ok(result.blockers.some((blocker) => blocker.code === 'invalid_resolver_version'));
   assert.ok(result.blockers.some((blocker) => blocker.code === 'stale_workspace_epoch'));
@@ -1385,7 +1387,7 @@ test('rollout gate blocks an expired explanation and an unexplained divergence',
     }],
   });
   complete[0] = createWorkspaceExperienceEvidence(baseScenario.input, expired);
-  const result = evaluateWorkspaceExperienceRolloutGate(complete);
+  const result = evaluateWorkspaceExperienceRolloutGate(complete, WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS);
   assert.equal(result.allowed, false);
   assert.ok(result.blockers.some((blocker) => blocker.code === 'unexplained_divergence'));
   assert.ok(result.blockers.some((blocker) => blocker.code === 'expired_explanation'));
@@ -1417,7 +1419,7 @@ test('rollout gate rejects tampered comparison identities and internally inconsi
   };
   complete.splice(0, 3, matchWithDiffs, explainedWithoutExactProof, mismatchedIdentity);
 
-  const result = evaluateWorkspaceExperienceRolloutGate(complete);
+  const result = evaluateWorkspaceExperienceRolloutGate(complete, WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS);
   assert.equal(result.allowed, false);
   assert.ok(result.blockers.some((blocker) =>
     blocker.code === 'comparison_error' && blocker.scenarioKey === matchWithDiffs.scenarioKey));

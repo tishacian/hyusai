@@ -3,7 +3,6 @@ import type { NavigationRedirectDecision } from './navigation-telemetry.service'
 import { privacySafeNavigationRoute } from './navigation-telemetry.service';
 import { NavigationProfileService } from './navigation-profile.service';
 import {
-  WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS,
   WORKSPACE_EXPERIENCE_EVIDENCE_SCHEMA_VERSION,
   WORKSPACE_EXPERIENCE_RESOLVER_VERSION,
   compareWorkspaceExperienceWithMissionNavigation,
@@ -17,6 +16,7 @@ import {
   type WorkspaceExperienceEvidence,
   type WorkspaceExperienceInput,
 } from './workspace-experience';
+import { WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS } from './workspace-experience-canaries';
 import {
   WorkspaceService,
   type WorkspaceInfo,
@@ -85,6 +85,7 @@ export class WorkspaceExperienceShadowService implements OnDestroy {
   readonly reports = this.reportsState.asReadonly();
   readonly gate = computed(() => evaluateWorkspaceExperienceRolloutGate(
     this.validSealedEvidence().map((item) => item.evidence),
+    WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS,
   ));
 
   constructor() {
