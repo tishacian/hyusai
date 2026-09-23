@@ -238,9 +238,12 @@ const PUBLICATION_HYDRATION_CODES = new Set([
         }
       </app-flow-toolbar>
 
+      @if (systemId(); as boundSystemId) {
+        <app-review-loop [systemId]="boundSystemId" />
+      }
+
       @if (automationMode() && systemId(); as automationSystemId) {
         <app-preparation-panel [systemId]="automationSystemId" />
-        <app-review-loop [systemId]="automationSystemId" />
         <app-dossier-table [systemId]="automationSystemId" />
         <app-frozen-chart [systemId]="automationSystemId" />
         <app-automation-job [systemId]="automationSystemId" />
