@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from app.agents.procurement_agent import (
-    _AndritzContactBoilerplateStreamFilter,
     SYSTEM_PROMPT,
     _assemble_context_and_sources,
     _build_rag_user_prompt,
     _grounding_policy_from_request,
-    _strip_andritz_contact_boilerplate,
     _system_prompt_with_grounding,
+    default_system_prompt,
+)
+from app.tenants.andritz.answer_hygiene import (
+    ContactBoilerplateStreamFilter as _AndritzContactBoilerplateStreamFilter,
+)
+from app.tenants.andritz.answer_hygiene import (
+    strip_contact_boilerplate as _strip_andritz_contact_boilerplate,
 )
 
 
@@ -100,7 +105,8 @@ def test_rag_prompt_forbids_generic_andritz_contact_footer():
         has_retrieved_context=True,
     )
 
-    assert "contact Andritz" in SYSTEM_PROMPT
+    assert "contact Andritz" in default_system_prompt("andritz")
+    assert "Andritz" not in SYSTEM_PROMPT
     assert "Do not end with generic document boilerplate" in prompt
 
 

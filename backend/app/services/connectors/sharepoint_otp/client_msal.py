@@ -59,7 +59,7 @@ then issued by the *resource* tenant, which is what SharePoint expects."""
 class MsalAppConfig:
     client_id: str
     tenant_host: str
-    """E.g. ``andritz.sharepoint.com``. Used to scope the access token."""
+    """E.g. ``contoso.sharepoint.com``. Used to scope the access token."""
     authority: str = DEFAULT_AUTHORITY_COMMON
 
     @property
