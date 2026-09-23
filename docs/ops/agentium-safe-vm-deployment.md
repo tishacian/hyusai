@@ -7284,5 +7284,23 @@ switch window, and carakai 10 passed with two intentional skips. Artifacts
 source, indexing `documents, itsd-knowledge, po-invoice-recon-demo`, rights,
 and a worker that answered.
 
+### 2026-09-23 — secure deposit workspace flag, c67ecc0e
+
+Revision `c67ecc0ede2989f6e965434d65756b4a55ced5a6` is the merge of pull
+request 50, deployed from three immutable images at tag `c67ecc0ede29`;
+rollback is `1d27134c116b`. Migration `110_secure_deposit_ws_flag` ran after
+the data-plane window
+`/srv/agentium-data/secure-deposit-flag-deployments/2026-09-23-c67ecc0ede29`
+(`.ready`). Alembic head is that revision. Andritz had no explicit
+`secure_deposit` value; the migration wrote `true` and marked the row.
+Storage, public revision `revision_verified=true`, HTTP 200, zero backend
+exception matches in the switch window, and carakai 10 passed with two
+intentional skips. Artifacts
+`/tmp/iteration-canaries-20260923T151851Z.HD2wcC`. Andritz still sees its
+secure deposit: `/api/v1/sftp/health` is `enabled: true` for workspace
+`andritz`, and `/api/v1/sftp/operations` returns 23 links, 44167 received
+files, 317 promoted, 940 rejected.
+
+
 
 
