@@ -56,6 +56,27 @@ def test_a_retrieval_skill_blocks_the_model_and_leaves_indexing_unchecked():
     assert report["ready"] is False
 
 
+def test_an_inspected_index_is_ready_and_an_empty_one_is_blocked():
+    present = preparation_diagnostic(
+        _flow(
+            {"id": "trigger", "kind": "source"},
+            _skill("workspace_llm_v1"),
+            _skill("semantic_search_v1"),
+        ),
+        provider="openai",
+        caller_can_run=True,
+        worker_reachable=True,
+        indexed=True,
+        index_detail="documents",
+    )
+    by_name = {item["name"]: item for item in present["checks"]}
+    assert by_name["indexing"] == {"name": "indexing", "status": "ready", "detail": "documents"}
+    assert present["ready"] is True
+    empty = preparation_diagnostic(_flow(_skill("semantic_search_v1")), indexed=False)
+    assert next(item for item in empty["checks"] if item["name"] == "indexing")["status"] == "blocked"
+    assert empty["ready"] is False
+
+
 def test_a_reachable_runner_makes_the_performed_checks_ready():
     report = preparation_diagnostic(
         _flow(

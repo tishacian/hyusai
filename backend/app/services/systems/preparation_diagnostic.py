@@ -67,6 +67,8 @@ def preparation_diagnostic(
     provider: str | None = None,
     caller_can_run: bool | None = None,
     worker_reachable: bool | None = None,
+    indexed: bool | None = None,
+    index_detail: str | None = None,
 ) -> dict[str, Any]:
     """Name the six preparation checks. Do not treat a skipped check as ready."""
 
@@ -81,6 +83,14 @@ def preparation_diagnostic(
 
     has_source = any(node.get("kind") == "source" for node in _nodes(flow))
     has_retrieval = "semantic_search_v1" in slugs or "llm_rag_answer_v1" in slugs
+    if not has_retrieval:
+        indexing = _row("indexing", "not_applicable")
+    elif indexed is True:
+        indexing = _row("indexing", "ready", index_detail)
+    elif indexed is False:
+        indexing = _row("indexing", "blocked", index_detail)
+    else:
+        indexing = _row("indexing", "not_checked")
     if caller_can_run is True:
         rights = _row("rights", "ready")
     elif caller_can_run is False:
@@ -92,7 +102,7 @@ def preparation_diagnostic(
         model,
         _row("provider", "ready", provider) if provider else _row("provider", "not_checked"),
         _row("source", "ready") if has_source else _row("source", "not_checked"),
-        _row("indexing", "not_checked") if has_retrieval else _row("indexing", "not_applicable"),
+        indexing,
         rights,
         _row("worker", "ready") if worker_reachable is True else (
             _row("worker", "blocked") if worker_reachable is False else _row("worker", "not_checked")
