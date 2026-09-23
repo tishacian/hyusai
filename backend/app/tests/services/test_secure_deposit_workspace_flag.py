@@ -2,7 +2,7 @@
 
 The capability used to fall back to a comma-separated list of slugs in global
 config, which made one customer's feature a property of the deployment.
-Migration 109 stamps what that list answered onto every workspace so the
+Migration 110 stamps what that list answered onto every workspace so the
 setting can become the only source of truth.
 """
 
@@ -22,7 +22,7 @@ MIGRATION = (
     Path(__file__).resolve().parents[3]
     / "alembic"
     / "versions"
-    / "109_secure_deposit_workspace_flag.py"
+    / "110_secure_deposit_workspace_flag.py"
 )
 
 
@@ -45,9 +45,9 @@ def test_a_workspace_that_was_named_by_the_old_list_is_no_longer_special():
 
 
 def _load_migration(monkeypatch, bind):
-    spec = importlib.util.spec_from_file_location("migration_109_unit", MIGRATION)
+    spec = importlib.util.spec_from_file_location("migration_110_unit", MIGRATION)
     module = importlib.util.module_from_spec(spec)
-    sys.modules["migration_109_unit"] = module
+    sys.modules["migration_110_unit"] = module
     spec.loader.exec_module(module)
 
     class _Op:

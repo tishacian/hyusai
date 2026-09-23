@@ -24,13 +24,13 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "109_secure_deposit_ws_flag"
-down_revision = "108_flow_draft_control_policy"
+revision = "110_secure_deposit_ws_flag"
+down_revision = "109_automation_review"
 branch_labels = None
 depends_on = None
 
 FEATURE = "secure_deposit"
-MARKER_KEY = "_migration_109_secure_deposit_flag"
+MARKER_KEY = "_migration_110_secure_deposit_flag"
 # The shipped default. A deployment that narrowed or widened the list through
 # the environment is honoured when the variable is still present at migrate
 # time; otherwise this frozen value is what the fallback would have answered.
