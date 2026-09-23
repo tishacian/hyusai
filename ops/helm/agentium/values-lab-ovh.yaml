@@ -19,6 +19,9 @@ postgres:
   persistence:
     storageClass: csi-cinder-high-speed
 minio:
+  # The MinIO root credential lives here, not in agentium-lab: every application
+  # pod loads that Secret whole. See docs/ops/agentium-kubernetes.md.
+  existingRootSecret: agentium-lab-minio-root
   persistence:
     storageClass: csi-cinder-high-speed
 qdrant:

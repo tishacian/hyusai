@@ -1,4 +1,5 @@
 {{- if .Values.keycloak.enabled }}
+{{- $persist := and .Values.keycloak.persistence.enabled .Values.postgres.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,6 +19,42 @@ spec:
         {{- include "agentium.labels" . | nindent 8 }}
         app.kubernetes.io/component: keycloak
     spec:
+      {{- if $persist }}
+      # Keycloak keeps its state in Postgres, as the VM does, but in a database
+      # of its own so Alembic and create_all never see its tables. Without
+      # this it ran on the container's embedded store: every restart dropped
+      # the users and imported the realm again.
+      initContainers:
+        - name: keycloak-db
+          image: {{ .Values.postgres.image | quote }}
+          {{- with .Values.resources.waitPostgres }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: agentium-pg
+            - name: PGUSER
+              value: {{ .Values.postgres.user | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.postgres.database | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agentium.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            - name: KC_DATABASE
+              value: {{ .Values.keycloak.persistence.database | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              until pg_isready -q; do sleep 2; done
+              if ! psql -tAc "SELECT 1 FROM pg_database WHERE datname = '$KC_DATABASE'" | grep -q 1; then
+                psql -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$KC_DATABASE\""
+              fi
+      {{- end }}
       containers:
         - name: keycloak
           image: {{ .Values.keycloak.image | quote }}
@@ -25,6 +62,9 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          # The import runs only when the realm does not exist yet. Once
+          # Keycloak persists, later edits to the realm file do not apply to a
+          # running lab; change the realm in Keycloak itself.
           args: ["start-dev", "--import-realm"]
           ports:
             - name: http
@@ -32,6 +72,34 @@ spec:
           env:
             - name: KC_HTTP_RELATIVE_PATH
               value: {{ .Values.keycloak.httpRelativePath | quote }}
+            {{- if $persist }}
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: {{ printf "jdbc:postgresql://agentium-pg:5432/%s" .Values.keycloak.persistence.database | quote }}
+            - name: KC_DB_USERNAME
+              value: {{ .Values.postgres.user | quote }}
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agentium.secretName" . }}
+                  key: POSTGRES_PASSWORD
+            {{- end }}
+            # Resolved by Keycloak from the realm file's ${...} placeholders,
+            # so the client secret the backend holds is the one the realm gets
+            # and neither is written into the ConfigMap.
+            - name: AGENTIUM_REALM_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agentium.secretName" . }}
+                  key: KEYCLOAK_CLIENT_SECRET
+            {{- if .Values.keycloak.bootstrapAdmin.email }}
+            - name: AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agentium.secretName" . }}
+                  key: AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD
+            {{- end }}
           readinessProbe:
             httpGet:
               path: {{ printf "%srealms/papai-org" .Values.keycloak.httpRelativePath | quote }}
@@ -48,6 +116,34 @@ spec:
           configMap:
             name: agentium-kc-realm
 ---
+{{- /*
+The realm file is backend/keycloak/realm-export.json, kept identical by
+ops/scripts/check-k8s-scaffold.sh. That file is the local development realm:
+it ships demo accounts with known passwords, an admin whose temporary
+password anyone reaching /kc could replace first, and a placeholder client
+secret. None of that may reach a cluster behind a public ingress, so the
+chart derives the lab realm from it here instead of forking the file.
+*/}}
+{{- $realm := .Files.Get "files/realm-export.json" | fromJson }}
+{{- if hasKey $realm "Error" }}
+{{- fail (printf "files/realm-export.json is not valid JSON: %v" $realm.Error) }}
+{{- end }}
+{{- $_ := unset $realm "users" }}
+{{- $appUrl := include "agentium.appUrl" . }}
+{{- range $client := $realm.clients }}
+{{- if eq $client.clientId "core-service" }}
+{{- $_ := set $client "redirectUris" (list (printf "%s/*" $appUrl)) }}
+{{- $_ := set $client "webOrigins" (list $appUrl) }}
+{{- else if eq $client.clientId "core-resource-server" }}
+{{- $_ := set $client "secret" "${AGENTIUM_REALM_CLIENT_SECRET}" }}
+{{- end }}
+{{- end }}
+{{- with .Values.keycloak.bootstrapAdmin.email }}
+{{- $credential := dict "type" "password" "value" "${AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD}" "temporary" false }}
+{{- $roles := dict "core-service" (list "organization_admin") }}
+{{- $admin := dict "username" . "email" . "enabled" true "emailVerified" true "credentials" (list $credential) "clientRoles" $roles }}
+{{- $_ := set $realm "users" (list $admin) }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -57,7 +153,7 @@ metadata:
     app.kubernetes.io/component: keycloak
 data:
   realm.json: |
-{{ .Files.Get "files/realm-export.json" | indent 4 }}
+{{ toPrettyJson $realm | indent 4 }}
 ---
 apiVersion: v1
 kind: Service

@@ -47,7 +47,55 @@ for app in backend worker migrate p4-maintenance; do
        --show-only "templates/${app}.yaml" | grep -q 'MINIO_ROOT_PASSWORD'; then
     fail "$app must not receive the MinIO root password"
   fi
+  # The application Secret is loaded whole: API keys and client secrets reach
+  # the pods that way, not through a list someone has to keep in sync.
+  helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+    -f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
+    --show-only "templates/${app}.yaml" \
+    | grep -A1 -- '- secretRef:' | grep -q 'name: agentium-lab$' \
+    || fail "$app must load the whole application Secret through envFrom"
 done
+# The generated root password sits in a Secret of its own, and only MinIO and
+# its init Job read it.
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  --show-only templates/secret.yaml \
+  | awk '/^  name: /{name=$2} /MINIO_ROOT_PASSWORD:/{print name}' \
+  | grep -qv -- '-minio-root$' \
+  && fail "the MinIO root password must not sit in the application Secret"
+for app in minio minio-init; do
+  helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+    -f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
+    --show-only "templates/${app}.yaml" | grep -q 'name: agentium-lab-minio-root' \
+    || fail "$app must read the MinIO root password from minio.existingRootSecret"
+done
+if helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+     -f "$ROOT/ops/helm/agentium/values-lab-ovh.yaml" \
+     --set minio.existingRootSecret= >/dev/null 2>&1; then
+  fail "without a generated Secret, a missing minio.existingRootSecret must be refused"
+fi
+
+# The chart imports a realm derived from the development one, never the
+# development accounts or its placeholder client secret.
+for denied in alice-demo bob-demo change-me-in-production '"users"'; do
+  if grep -qF -- "$denied" /tmp/agentium-helm.yaml; then
+    fail "the imported realm must not carry $denied"
+  fi
+done
+# shellcheck disable=SC2016 # a literal Keycloak placeholder, not a shell variable
+grep -qF '"secret": "${AGENTIUM_REALM_CLIENT_SECRET}"' /tmp/agentium-helm.yaml \
+  || fail "the realm client secret must come from the application Secret"
+grep -qF '"http://agentium.example/*"' /tmp/agentium-helm.yaml \
+  || fail "the realm redirect URIs must follow ingress.host"
+grep -q 'name: KC_DB$' /tmp/agentium-helm.yaml \
+  || fail "keycloak must persist to Postgres, or every restart loses its users"
+helm template agentium "$ROOT/ops/helm/agentium" --namespace agentium \
+  --set keycloak.bootstrapAdmin.email=ops@example.test \
+  > /tmp/agentium-helm-bootstrap.yaml
+grep -qF '"username": "ops@example.test"' /tmp/agentium-helm-bootstrap.yaml \
+  || fail "bootstrapAdmin.email must create the first organization admin"
+# shellcheck disable=SC2016 # a literal Keycloak placeholder, not a shell variable
+grep -qF '"value": "${AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD}"' /tmp/agentium-helm-bootstrap.yaml \
+  || fail "the bootstrap admin password must come from the application Secret"
 
 # Admin kubeconfig and the plan stay inside the pipeline. Project members
 # must not be able to download them.

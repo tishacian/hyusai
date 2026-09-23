@@ -73,6 +73,9 @@ postgres:
 minio:
   enabled: true
   rootUser: agentium
+  # Secret holding MINIO_ROOT_PASSWORD, apart from the application Secret that
+  # every application pod loads whole. Required when createSecret is false.
+  existingRootSecret: ""
   initImage: minio/mc:RELEASE.2025-04-16T18-13-26Z
   image: minio/minio:RELEASE.2025-04-22T22-12-26Z
   persistence:
@@ -92,6 +95,19 @@ keycloak:
   enabled: true
   image: quay.io/keycloak/keycloak:26.1.4
   httpRelativePath: /kc/
+  # Keycloak state in a Postgres database of its own. Off means the embedded
+  # dev store: users and realm edits are lost on every restart.
+  persistence:
+    enabled: true
+    database: keycloak
+  # Browser URL of the web app, for the realm's redirect URIs and the backend's
+  # action-email links. Empty derives it from ingress.host and ingress.tls.
+  appUrl: ""
+  # The imported realm carries no user. Set an email to create one
+  # organization admin at first import; its password is the
+  # AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD key of the application Secret.
+  bootstrapAdmin:
+    email: ""
 
 ingress:
   enabled: true
@@ -150,6 +166,8 @@ secret:
   AGENTIUM_RABBITMQ_PASSWORD: guest
   AGENTIUM_MINIO_ROOT_PASSWORD: change-me-minio-password
   OBJECT_STORE_S3_SECRET_KEY: change-me-agentium-app-password
+  KEYCLOAK_CLIENT_SECRET: change-me-keycloak-client-secret
+  AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD: change-me-bootstrap-admin
 
 existingSecret: ""
 
