@@ -200,6 +200,14 @@ test('automation mode exposes Run directly and keeps Publish as the second verb'
   assert.match(styles, /\.ck-flow-toolbar__meta,\s*\n\s*\.ck-flow-toolbar__revision \{\s*\n\s*display: none;/);
 });
 
+test('a reservation stays on the open system, including one that is not an automation', () => {
+  const builder = source('flow-builder.component.ts');
+  assert.match(
+    builder,
+    /@if \(systemId\(\); as boundSystemId\) \{\s*<app-review-loop \[systemId\]="boundSystemId" \/>/,
+  );
+});
+
 test('the runtime manifest is collapsed until asked for and the empty canvas offers one way in', () => {
   const builder = source('flow-builder.component.ts');
   assert.match(builder, /manifestStripOpen = signal\(false\)/);
