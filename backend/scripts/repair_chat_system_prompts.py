@@ -78,7 +78,9 @@ ACTOR = "system:chat-prompt-repair"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--workspace-id", action="append", default=[])
     parser.add_argument("--apply", action="store_true", help="Publish the repaired Flows")
     parser.add_argument("--actor", default=ACTOR)
@@ -101,7 +103,9 @@ def _prompt_slots(flow: dict[str, Any]) -> list[tuple[str, dict[str, Any], str]]
         if not isinstance(node_contract, dict):
             continue
         if node.get("id") == "runtime.prompt_assembly":
-            slots.append(("runtime.prompt_assembly.base_system_prompt", node_contract, "base_system_prompt"))
+            slots.append(
+                ("runtime.prompt_assembly.base_system_prompt", node_contract, "base_system_prompt")
+            )
         elif node.get("id") == "skill.fast_answer":
             slots.append(("skill.fast_answer.system_prompt", node_contract, "system_prompt"))
     return slots
@@ -143,7 +147,9 @@ def plan_system(db: Any, workspace: Workspace, system: System) -> dict[str, Any]
     entry["publication"] = publication
     if publication:
         version = (
-            db.query(SystemVersion).filter(SystemVersion.id == system.published_flow_version_id).first()
+            db.query(SystemVersion)
+            .filter(SystemVersion.id == system.published_flow_version_id)
+            .first()
             if system.published_flow_version_id
             else None
         )
@@ -169,7 +175,9 @@ def plan_system(db: Any, workspace: Workspace, system: System) -> dict[str, Any]
     return entry
 
 
-def apply_entry(db: Any, workspace: Workspace, system: System, entry: dict[str, Any], *, actor: str) -> None:
+def apply_entry(
+    db: Any, workspace: Workspace, system: System, entry: dict[str, Any], *, actor: str
+) -> None:
     repaired = entry.pop("_repaired", None)
     if entry["status"] == "legacy_mirror_update":
         system.flow_definition = repaired
@@ -217,7 +225,11 @@ def run(db: Any, *, workspace_ids: list[str], apply: bool, actor: str) -> dict[s
             except Exception as exc:  # noqa: BLE001 - one refusal must not stop the estate
                 db.rollback()
                 entry["applied"] = False
-                entry["error"] = {"type": type(exc).__name__, "code": getattr(exc, "code", None), "message": str(exc)}
+                entry["error"] = {
+                    "type": type(exc).__name__,
+                    "code": getattr(exc, "code", None),
+                    "message": str(exc),
+                }
         entry.pop("_repaired", None)
         entries.append(entry)
     summary: dict[str, int] = {}

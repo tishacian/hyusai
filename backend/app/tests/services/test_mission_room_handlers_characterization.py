@@ -76,7 +76,9 @@ def _normalise(value: Any) -> Any:
 
 
 def _fake_skill_factory(calls: list[dict[str, Any]]):
-    async def fake_invoke_skill(slug: str, payload: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    async def fake_invoke_skill(
+        slug: str, payload: dict[str, Any], ctx: dict[str, Any]
+    ) -> dict[str, Any]:
         calls.append({"slug": slug, "payload": payload})
         return {
             "status": "ready",
@@ -87,7 +89,12 @@ def _fake_skill_factory(calls: list[dict[str, Any]]):
             "body_markdown": f"[{slug}] corps",
             "priorities": [{"id": "p1", "title": "Priorite", "summary": "s"}],
             "cockpit": {"decision_sentence": "decision"},
-            "next_event": {"id": "evt-next", "title": "Prochain", "time": "11:00", "location": "Lieu"},
+            "next_event": {
+                "id": "evt-next",
+                "title": "Prochain",
+                "time": "11:00",
+                "location": "Lieu",
+            },
             "sources": [],
         }
 
@@ -147,7 +154,10 @@ def test_mission_room_handler_is_unchanged(db_session, monkeypatch, pack, manife
     if os.environ.get("MISSION_ROOM_CAPTURE") == "1":
         captured = json.loads(CAPTURE.read_text(encoding="utf-8")) if CAPTURE.exists() else {}
         captured[key] = outcome
-        CAPTURE.write_text(json.dumps(captured, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        CAPTURE.write_text(
+            json.dumps(captured, ensure_ascii=False, indent=1, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         return
     expected = json.loads(CAPTURE.read_text(encoding="utf-8"))[key]
     assert outcome == expected

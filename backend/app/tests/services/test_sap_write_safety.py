@@ -54,16 +54,18 @@ def _transport(monkeypatch, replies: dict) -> list[str]:
 # --- the flag fails closed ---------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "value", ["true", "false", "0", "off", 1, {"enabled": True}, ["x"], None]
-)
+@pytest.mark.parametrize("value", ["true", "false", "0", "off", 1, {"enabled": True}, ["x"], None])
 def test_only_a_boolean_true_unseals(value):
-    workspace = Workspace(id="w", slug="w", name="w", settings={"features": {"sap_write_unsealed": value}})
+    workspace = Workspace(
+        id="w", slug="w", name="w", settings={"features": {"sap_write_unsealed": value}}
+    )
     assert mcp_write.workspace_write_unsealed(workspace) is False
 
 
 def test_the_boolean_true_unseals():
-    workspace = Workspace(id="w", slug="w", name="w", settings={"features": {"sap_write_unsealed": True}})
+    workspace = Workspace(
+        id="w", slug="w", name="w", settings={"features": {"sap_write_unsealed": True}}
+    )
     assert mcp_write.workspace_write_unsealed(workspace) is True
 
 
@@ -88,7 +90,15 @@ def _setup(db_session, monkeypatch):
     return workspace, events
 
 
-def _decision(db_session, workspace, run_id, *, status="accepted", approved_by="buyer@example.test", confirmed=True):
+def _decision(
+    db_session,
+    workspace,
+    run_id,
+    *,
+    status="accepted",
+    approved_by="buyer@example.test",
+    confirmed=True,
+):
     decision = Decision(
         id=str(uuid4()),
         workspace_id=workspace.id,
@@ -142,7 +152,9 @@ def test_a_decision_of_another_person_or_unconfirmed_stays_sealed(db_session, mo
 
 def test_an_accepted_decision_goes_live_and_the_ledger_names_the_person(db_session, monkeypatch):
     workspace, events = _setup(db_session, monkeypatch)
-    calls = _transport(monkeypatch, {mcp_write.BAPI_CREATE: CREATED, mcp_write.BAPI_COMMIT: COMMITTED})
+    calls = _transport(
+        monkeypatch, {mcp_write.BAPI_CREATE: CREATED, mcp_write.BAPI_COMMIT: COMMITTED}
+    )
     decision = _decision(db_session, workspace, "run-4")
     out = _write(db_session, workspace, "run-4", "buyer@example.test")
     assert out["committed"] is True and out["po_number"] == "4500999001"
@@ -160,7 +172,11 @@ def test_a_rejection_write_needs_a_rejected_decision(db_session, monkeypatch):
     _decision(db_session, workspace, "run-5", status="accepted")
     ctx = {"db": db_session, "workspace_id": workspace.id, "run_id": "run-5"}
     gated = wrappers._gated_write(
-        {"decided_by": "buyer@example.test"}, ctx, statuses=wrappers._REJECTED_DECISION, pr_id="1", pr_item="10"
+        {"decided_by": "buyer@example.test"},
+        ctx,
+        statuses=wrappers._REJECTED_DECISION,
+        pr_id="1",
+        pr_item="10",
     )
     assert gated["attended"] is False
 
@@ -180,7 +196,10 @@ def test_a_create_timeout_is_an_unknown_outcome_on_the_ledger(db_session, monkey
 
 
 def test_a_commit_timeout_keeps_the_po_number_it_may_have_committed(monkeypatch):
-    _transport(monkeypatch, {mcp_write.BAPI_CREATE: CREATED, mcp_write.BAPI_COMMIT: McpUnreachable("timed out")})
+    _transport(
+        monkeypatch,
+        {mcp_write.BAPI_CREATE: CREATED, mcp_write.BAPI_COMMIT: McpUnreachable("timed out")},
+    )
     out = mcp_write.create_and_commit_po(
         _server(), server_id="bapi_po", arguments={"tables": {}}, unsealed=True, attended=True
     )
@@ -233,7 +252,12 @@ def _client(db_session, workspace, user):
 
 
 def _member(db_session, workspace, role):
-    user = User(id=str(uuid4()), username=f"{role}-{uuid4().hex[:4]}", email=f"{role}@example.test", is_active=True)
+    user = User(
+        id=str(uuid4()),
+        username=f"{role}-{uuid4().hex[:4]}",
+        email=f"{role}@example.test",
+        is_active=True,
+    )
     db_session.add(user)
     db_session.add(WorkspaceMember(user_id=user.id, workspace_id=workspace.id, role=role))
     db_session.commit()
@@ -242,11 +266,19 @@ def _member(db_session, workspace, role):
 
 def test_a_member_cannot_repoint_a_server_or_write_live(db_session, monkeypatch):
     workspace, _events = _setup(db_session, monkeypatch)
-    calls = _transport(monkeypatch, {mcp_write.BAPI_CREATE: CREATED, mcp_write.BAPI_COMMIT: COMMITTED})
+    calls = _transport(
+        monkeypatch, {mcp_write.BAPI_CREATE: CREATED, mcp_write.BAPI_COMMIT: COMMITTED}
+    )
     member = _member(db_session, workspace, "member")
     client = _client(db_session, workspace, member)
 
-    assert client.put("/mcp/servers/bapi_po", json={"id": "bapi_po", "url": "http://evil", "oauth_token_url": "http://evil/token"}).status_code == 403
+    assert (
+        client.put(
+            "/mcp/servers/bapi_po",
+            json={"id": "bapi_po", "url": "http://evil", "oauth_token_url": "http://evil/token"},
+        ).status_code
+        == 403
+    )
     out = client.post(
         "/mcp/servers/bapi_po/invoke",
         json={"tool": mcp_write.BAPI_CREATE, "arguments": {"tables": {}}, "commit": True},
@@ -257,11 +289,17 @@ def test_a_member_cannot_repoint_a_server_or_write_live(db_session, monkeypatch)
 
 def test_an_admin_invoke_is_attended(db_session, monkeypatch):
     workspace, _events = _setup(db_session, monkeypatch)
-    calls = _transport(monkeypatch, {mcp_write.BAPI_CREATE: CREATED, mcp_write.BAPI_COMMIT: COMMITTED})
+    calls = _transport(
+        monkeypatch, {mcp_write.BAPI_CREATE: CREATED, mcp_write.BAPI_COMMIT: COMMITTED}
+    )
     admin = _member(db_session, workspace, "admin")
-    out = _client(db_session, workspace, admin).post(
-        "/mcp/servers/bapi_po/invoke",
-        json={"tool": mcp_write.BAPI_CREATE, "arguments": {"tables": {}}, "commit": True},
-    ).json()
+    out = (
+        _client(db_session, workspace, admin)
+        .post(
+            "/mcp/servers/bapi_po/invoke",
+            json={"tool": mcp_write.BAPI_CREATE, "arguments": {"tables": {}}, "commit": True},
+        )
+        .json()
+    )
     assert out["committed"] is True
     assert calls == [mcp_write.BAPI_CREATE, mcp_write.BAPI_COMMIT]
