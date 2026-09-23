@@ -14,11 +14,10 @@ data:
   POSTGRES_DB: {{ .Values.postgres.database | quote }}
   POSTGRES_USER: {{ .Values.postgres.user | quote }}
   RABBITMQ_DEFAULT_USER: {{ .Values.rabbitmq.user | quote }}
-  DATABASE_HOST: agentium-pg
-  RABBITMQ_HOST: agentium-rabbitmq
   QDRANT_HOST: agentium-qdrant
-  MINIO_HOST: agentium-minio
-  KEYCLOAK_HOST: agentium-kc
+  # Issuer and JWKS base. Paths in the app append /realms/<realm>/...
+  KEYCLOAK_URL: {{ printf "http://agentium-kc:8080%s" (trimSuffix "/" .Values.keycloak.httpRelativePath) | quote }}
+  KEYCLOAK_URL_INTERNAL: {{ printf "http://agentium-kc:8080%s" (trimSuffix "/" .Values.keycloak.httpRelativePath) | quote }}
   # The chart used to set no storage path at all, so the application fell back
   # to its relative defaults and never wrote into the volumes mounted for it.
   {{- if ne .Values.objectStore.backend "s3" }}

@@ -25,7 +25,7 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          args: ["start-dev"]
+          args: ["start-dev", "--import-realm"]
           ports:
             - name: http
               containerPort: 8080
@@ -38,6 +38,26 @@ spec:
               port: http
             initialDelaySeconds: 40
             periodSeconds: 15
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import/realm.json
+              subPath: realm.json
+              readOnly: true
+      volumes:
+        - name: realm
+          configMap:
+            name: agentium-kc-realm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agentium-kc-realm
+  labels:
+    {{- include "agentium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+data:
+  realm.json: |
+{{ .Files.Get "files/realm-export.json" | indent 4 }}
 ---
 apiVersion: v1
 kind: Service
