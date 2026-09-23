@@ -231,8 +231,15 @@
             "path": "frontend-ng/src/app/core/workspace-experience.ts",
             "contains": [
               "WORKSPACE_EXPERIENCE_SCHEMA_VERSION = 2",
-              "Independent legacy UI anchors",
-              "MISSION_ROOM_CRITICAL_SCENARIOS"
+              "Independent legacy UI anchors"
+            ]
+          },
+          {
+            "label": "Rollout canaries the shadow gate must prove",
+            "path": "frontend-ng/src/app/core/workspace-experience-canaries.ts",
+            "contains": [
+              "MISSION_ROOM_CRITICAL_SCENARIOS",
+              "WORKSPACE_EXPERIENCE_CRITICAL_SCENARIOS"
             ]
           },
           {
