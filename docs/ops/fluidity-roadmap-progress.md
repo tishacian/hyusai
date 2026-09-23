@@ -19,8 +19,8 @@ Ces pourcentages sont des estimations de complétude par critère de sortie, pas
 - F2 — fermée sur `1d27134c`, automation `0c7393e2`. Les six contrôles sont prêts : modèle `workspace_llm_v1`, fournisseur `openai`, source, indexation, droits, exécutant. L’indexation est prête parce que Nawa a déjà des chunks (`documents`, `itsd-knowledge`, `po-invoice-recon-demo`). L’exécutant est prêt parce que Celery a répondu. Le panneau dit Prêt.
 - F3 — la réserve est sur l’objet. Sur `61a1eb77`, le Flow de `SPARK-089 summary` (`cd696462`) affiche Réserve. La note « The proposed grade is still missing. » est sur le run `95f2e6e5`, et l’adresse reste ce système. La relecture s’arrête volontairement : `t_extract` est hors catalogue d’automation, donc la correction comparée ne se fait pas sur ce graphe. Le document `e2d7e8ce` et les cinq cas « Human review required » restent la preuve d’import.
 - F4 — revu sur l’image courante. La version 6 de « Subscriber base — cleaned » n’a pas de preuve. La version 7 est `completed` (`01732a0d`). « Published minutes awaiting a person » version 1 a une preuve et attend une personne (`827e12b7`, `hitl_pending`).
-- F5 — revu sur l’image courante. Le point version 6 n’a pas de résultat. Le point version 7 ouvre le run `completed` `01732a0d`. Le hash du graphique est inchangé.
-- F6 — Work, relu sur `1d27134c`, affiche « Same proof: present. », « No value convention is declared. » et « No measured gap. » pour `df04a96a`, run `827e12b7`. L’API dit présente, scellée, non appelée, une source. La page Flow et la conversation avaient déjà le même texte sur `65b66219`. La convention et l’écart restent absents.
+- F5 — sur le Flow de `df04a96a`, le point « Subscriber base — cleaned · 6 » dit « This point has no result. » Le point version 7 dit « Result: completed ». Le hash du graphique est inchangé.
+- F6 — sur le même Flow, « Same proof: present. Write sealed, not called. », « No value convention is declared. », « No measured gap. », preuve du run `827e12b7`. Work et le pilote disent la même preuve. L’API dit présente, scellée, non appelée, une source.
 
 ## Trace connue
 
