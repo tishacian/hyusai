@@ -53,11 +53,11 @@ spec:
               containerPort: 9001
           env:
             - name: MINIO_ROOT_USER
-              value: agentium
+              value: {{ .Values.minio.rootUser | quote }}
             - name: MINIO_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "agentium.secretName" . }}
+                  name: {{ include "agentium.minioRootSecretName" . }}
                   key: MINIO_ROOT_PASSWORD
           readinessProbe:
             httpGet:

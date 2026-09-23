@@ -30,6 +30,50 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 {{- end -}}
 {{- end -}}
 
+{{/*
+The MinIO root credential lives in its own Secret. The application Secret is
+loaded whole into every application pod, so anything in it reaches them; the
+root password must not be in it.
+*/}}
+{{- define "agentium.minioRootSecretName" -}}
+{{- if .Values.minio.existingRootSecret -}}
+{{- .Values.minio.existingRootSecret -}}
+{{- else if .Values.createSecret -}}
+{{- printf "%s-minio-root" (include "agentium.fullname" .) -}}
+{{- else -}}
+{{- fail "minio.existingRootSecret is required when createSecret is false: the MinIO root password must not live in the application Secret" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+An existing application Secret that still carries the MinIO root password
+would hand it to every application pod. Refuse the release. lookup is empty
+under `helm template`, so this only bites on a real install or upgrade.
+*/}}
+{{- define "agentium.assertAppSecretScoped" -}}
+{{- if .Values.existingSecret -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace .Values.existingSecret -}}
+{{- $data := dict -}}
+{{- if $existing -}}
+{{- $data = default dict $existing.data -}}
+{{- end -}}
+{{- range $key := list "MINIO_ROOT_PASSWORD" "AGENTIUM_MINIO_ROOT_PASSWORD" -}}
+{{- if hasKey $data $key -}}
+{{- fail (printf "Secret %s holds %s. Move it to minio.existingRootSecret: every application pod loads that Secret whole." $.Values.existingSecret $key) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Public URL of the web app, as a browser reaches it through the ingress. */}}
+{{- define "agentium.appUrl" -}}
+{{- if .Values.keycloak.appUrl -}}
+{{- trimSuffix "/" .Values.keycloak.appUrl -}}
+{{- else -}}
+{{- printf "%s://%s" (ternary "https" "http" (not (empty .Values.ingress.tls))) .Values.ingress.host -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "agentium.imagePullSecrets" -}}
 {{- if .Values.imagePullSecrets }}
 imagePullSecrets:
@@ -42,8 +86,11 @@ imagePullSecrets:
 {{/*
 Connection URLs the process actually reads. The password is expanded by the
 kubelet from a secret key already required by Postgres or RabbitMQ, so it
-never lands in the ConfigMap. The MinIO root password is not here: the
-application uses OBJECT_STORE_S3_SECRET_KEY only.
+never lands in the ConfigMap; it must be URL-safe. Application pods also load
+the application Secret whole through envFrom, which is how API keys and
+client secrets reach them. The keys named here are the ones a pod cannot run
+without, so a Secret missing one fails at pod creation instead of at the
+first request.
 */}}
 {{- define "agentium.appSecretEnv" -}}
 - name: POSTGRES_PASSWORD

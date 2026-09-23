@@ -48,6 +48,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "agentium.fullname" . }}-config
+            - secretRef:
+                name: {{ include "agentium.secretName" . }}
           env:
             {{- include "agentium.appSecretEnv" . | nindent 12 }}
 {{- end }}

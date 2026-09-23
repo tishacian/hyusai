@@ -29,7 +29,7 @@ validate → terraform plan → terraform apply (manual lab)
 | `agentium-pg` | StatefulSet + Service | on (lab). Turn off when using an external DB |
 | `agentium-minio` | StatefulSet + Service | on |
 | `agentium-qdrant` | StatefulSet + Service | on |
-| `agentium-kc` | Deployment + Service | on |
+| `agentium-kc` | Deployment + Service | on, state in the Postgres database `keycloak` |
 | `agentium-beat` | — | later (`beat` profile) |
 | `agentium-sftp` | — | later (`sftp` profile) |
 | `agentium-livekit*` | — | later (`realtime` profiles) |
@@ -50,6 +50,57 @@ Ingress paths copy `deploy/nginx/agentium-container-frontend.conf`:
 
 Lab/prod values set `createSecret: false` and `existingSecret`. Placeholders
 in `values.yaml` exist only so `helm template` works locally.
+
+## Secrets
+
+Two Secrets, because the first one is loaded whole into the application
+pods: that is how API keys and client secrets reach them, and it is also why
+the MinIO root password cannot live there.
+
+| Secret | Read by | Keys |
+|---|---|---|
+| `existingSecret` (lab: `agentium-lab`) | backend, worker, migrate, p4-maintenance through `envFrom`; Postgres, RabbitMQ and Keycloak by key | required: `POSTGRES_PASSWORD`, `RABBITMQ_DEFAULT_PASS`, `OBJECT_STORE_S3_SECRET_KEY`, `KEYCLOAK_CLIENT_SECRET`; `AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD` when `keycloak.bootstrapAdmin.email` is set; then every application key the deployment uses (`OPENAI_API_KEY`, `SECURE_DEPOSIT_SESSION_SECRET`, `SMTP_PASSWORD`, …) |
+| `minio.existingRootSecret` (lab: `agentium-lab-minio-root`) | MinIO and its init Job only | `MINIO_ROOT_PASSWORD` |
+
+```bash
+# Env files kept outside the repository, one KEY=value per line.
+kubectl -n agentium create secret generic agentium-lab --from-env-file=agentium-lab.env
+kubectl -n agentium create secret generic agentium-lab-minio-root \
+  --from-env-file=agentium-lab-minio-root.env
+```
+
+- An install or upgrade whose application Secret still holds
+  `MINIO_ROOT_PASSWORD` is refused. The check uses `lookup`, so
+  `helm template` cannot see it; only a release against the cluster does.
+- The Postgres and RabbitMQ passwords are spliced into `DATABASE_URL` and
+  `CELERY_BROKER_URL` as they are. Keep them URL-safe: no `@`, `/`, `:`,
+  `#` or `%`.
+
+## Keycloak
+
+The realm is derived at render time from `backend/keycloak/realm-export.json`,
+which the chart copy must match byte for byte. That file is the development
+realm, so the chart changes three things before import:
+
+- no users: the demo accounts and the `admin` account are dropped;
+- `core-service` redirect URIs and web origins point at the app URL
+  (`keycloak.appUrl`, otherwise `ingress.host` with `https` when
+  `ingress.tls` is set), which is also `APP_PUBLIC_URL` for the backend;
+- the `core-resource-server` secret becomes `${AGENTIUM_REALM_CLIENT_SECRET}`,
+  which Keycloak resolves at import from `KEYCLOAK_CLIENT_SECRET`, the value
+  the backend uses for its admin calls.
+
+The first organization admin comes from `keycloak.bootstrapAdmin.email` at
+first install, with `AGENTIUM_BOOTSTRAP_ADMIN_PASSWORD` in the application
+Secret. Keycloak keeps its state in the Postgres database `keycloak`, created
+by an init container, not in the application database. `--import-realm` only
+acts when the realm does not exist yet: later edits to the realm file or to
+`bootstrapAdmin` do not reach a running lab.
+
+Not covered yet: the development realm does not grant the
+`core-resource-server` service account the `realm-management` roles that
+signup and password reset call. Grant them in Keycloak until the realm file
+does.
 
 ## GitLab
 
@@ -104,3 +155,5 @@ workspace to another provider.
 - Missing evidence is not a zero. A rendered chart is not a running cluster.
 - `helm template` / `terraform validate` prove the scaffold, not a release.
 - Sealed writes, image digests, and the VM deploy policy are unchanged.
+- The chart has not been installed on a cluster yet. The realm's `${...}`
+  placeholders rely on Keycloak's documented import substitution.
