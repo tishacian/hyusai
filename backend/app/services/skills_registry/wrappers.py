@@ -1432,6 +1432,7 @@ def _mcp_write(
     workspace flag says. It is the default. The ledger signs a live write with
     ``decided_by`` and keeps the run as ``run_actor``.
     """
+    from app.services.connectors.mcp import intents as mcp_intents
     from app.services.connectors.mcp import service as mcp_service
     from app.services.connectors.mcp import write as mcp_write
 
@@ -1441,32 +1442,72 @@ def _mcp_write(
         if not mcp_service.is_workspace_enabled(workspace):
             raise ValueError("mcp_unconfigured: MCP connector is not enabled for this workspace")
         unsealed = mcp_write.workspace_write_unsealed(workspace)
-        server = (
-            mcp_service.resolve_server(workspace, server_id) if unsealed and attended else None
-        )
-        blocked = payload.get("disabled_tools")
-        if commit:
-            out = mcp_write.create_and_commit_po(
-                server,
+        run_actor, run_id = _mcp_write_ctx(ctx)
+        context = dict(audit_context or {})
+        intent = None
+        if unsealed and attended and tool in _PO_CREATE_TOOLS and context.get("pr_id"):
+            # One create per PR item: claim it before SAP is called, so a second
+            # approval of the same item meets this row instead of SAP.
+            claim = mcp_intents.begin_create(
+                db,
+                workspace,
+                pr_id=str(context["pr_id"]),
+                pr_item=str(context.get("pr_item") or ""),
+                run_id=run_id,
+                decision_id=context.get("decision_id"),
+                decided_by=decided_by,
                 server_id=server_id,
-                arguments=arguments,
-                unsealed=unsealed,
-                blocked_tools=blocked,
-                sealed_block=sealed_block or mcp_write.FLAG_OFF_BLOCK,
-                attended=attended,
+                tool=tool,
             )
-        else:
-            out = mcp_write.invoke_write_tool(
+            if claim.refusal is not None:
+                refused = mcp_write.compose_write_refused(
+                    server_id=server_id, tool=tool, arguments=arguments, **claim.refusal
+                )
+                from app.services.audit_logger import emit_audit_event
+
+                emit_audit_event(
+                    workspace_id=str(workspace.id),
+                    event_type="mcp.write.refused",
+                    actor=str(decided_by or run_actor),
+                    details={
+                        "server_id": server_id,
+                        "tool": tool,
+                        "reason": claim.refusal["reason"],
+                        "intent_id": claim.refusal.get("intent_id"),
+                        "po_number": claim.refusal.get("po_number"),
+                        "run_id": run_id,
+                        **{k: v for k, v in context.items() if v not in (None, "")},
+                    },
+                )
+                return refused
+            intent = claim.intent
+            context["intent_id"] = intent.id
+            if tool == mcp_write.BAPI_CREATE and mcp_intents.reconciliation_enabled(workspace):
+                arguments = mcp_intents.with_reference(arguments, intent.reference)
+        blocked = payload.get("disabled_tools")
+        try:
+            server = (
+                mcp_service.resolve_server(workspace, server_id) if unsealed and attended else None
+            )
+            out = _mcp_write_call(
+                mcp_write,
                 server,
+                commit=commit,
                 server_id=server_id,
                 tool=tool,
                 arguments=arguments,
                 unsealed=unsealed,
-                blocked_tools=blocked,
-                sealed_block=sealed_block or mcp_write.FLAG_OFF_BLOCK,
+                blocked=blocked,
+                sealed_block=sealed_block,
                 attended=attended,
             )
-        run_actor, run_id = _mcp_write_ctx(ctx)
+        except Exception as exc:
+            if intent is not None:
+                mcp_intents.fail(db, intent, exc)
+            raise
+        if intent is not None:
+            mcp_intents.settle(db, intent, out)
+            out["intent_id"] = intent.id
         mcp_write.audit_write(
             str(workspace.id),
             actor=str(decided_by) if attended and decided_by else run_actor,
@@ -1474,12 +1515,50 @@ def _mcp_write(
             out=out,
             run_id=run_id,
             run_actor=run_actor,
-            context=audit_context,
+            context=context,
         )
         return out
     finally:
         if owns_db:
             db.close()
+
+
+_PO_CREATE_TOOLS = frozenset({"BAPI_PO_CREATE1", "post_A_PurchaseOrder"})
+
+
+def _mcp_write_call(
+    mcp_write: Any,
+    server: Any,
+    *,
+    commit: bool,
+    server_id: str,
+    tool: str,
+    arguments: Mapping[str, Any],
+    unsealed: bool,
+    blocked: Any,
+    sealed_block: str,
+    attended: bool,
+) -> dict[str, Any]:
+    if commit:
+        return mcp_write.create_and_commit_po(
+            server,
+            server_id=server_id,
+            arguments=arguments,
+            unsealed=unsealed,
+            blocked_tools=blocked,
+            sealed_block=sealed_block or mcp_write.FLAG_OFF_BLOCK,
+            attended=attended,
+        )
+    return mcp_write.invoke_write_tool(
+        server,
+        server_id=server_id,
+        tool=tool,
+        arguments=arguments,
+        unsealed=unsealed,
+        blocked_tools=blocked,
+        sealed_block=sealed_block or mcp_write.FLAG_OFF_BLOCK,
+        attended=attended,
+    )
 
 
 _ACCEPTED_DECISION = frozenset({"accepted", "applied"})
@@ -1557,6 +1636,11 @@ _MCP_WRITE_VERDICT_KEYS = (
     "called",
     "blocked",
     "reason",
+    "detail",
+    "outcome",
+    "needs_reconciliation",
+    "intent_id",
+    "error",
     "sap_block",
     "sap_ok",
     "po_number",
