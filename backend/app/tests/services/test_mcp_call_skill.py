@@ -158,7 +158,8 @@ async def test_free_write_tool_rides_the_gate_not_the_transport(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_free_write_tool_unsealed_is_audited_with_the_run(monkeypatch):
+async def test_free_write_tool_stays_sealed_even_with_the_flag_on(monkeypatch):
+    """No approval gate stands behind a free ``mcp_call_v1``: it never goes live."""
     workspace = _enabled_workspace(sap_write_unsealed=True)
     db = MagicMock()
     monkeypatch.setattr(
@@ -172,29 +173,20 @@ async def test_free_write_tool_unsealed_is_audited_with_the_run(monkeypatch):
     monkeypatch.setattr(
         mcp_service, "resolve_server", lambda _ws, server_id: {"id": server_id, "url": "http://mock"}
     )
-    monkeypatch.setattr(
-        mcp_client,
-        "call_tool",
-        lambda server, **kwargs: {
-            "ok": True,
-            "result": {"tables": {"RETURN": []}},
-            "server_id": server["id"],
-            "tool": kwargs["contract_tool"],
-            "contract_tool": kwargs["contract_tool"],
-            "credential_source": "workspace",
-            "duration_ms": 3,
-        },
-    )
+    def _no_socket(server, **kwargs):
+        raise AssertionError("a free write must not reach SAP")
+
+    monkeypatch.setattr(mcp_client, "call_tool", _no_socket)
     events: list[dict] = []
     monkeypatch.setattr(audit_logger, "emit_audit_event", lambda **kwargs: events.append(kwargs))
     out = await wrappers._mcp_call_v1(
         {"server_id": "bapi_po", "tool": "BAPI_TRANSACTION_COMMIT", "arguments": {"import": {"WAIT": "X"}}},
         {"db": db, "workspace_id": "ws-1", "run_id": "run-9"},
     )
-    assert out["called"] is True
-    assert out["sap_ok"] is True
-    assert events[0]["actor"] == "run:run-9"
-    assert events[0]["details"]["run_id"] == "run-9"
+    assert out["called"] is False
+    assert out["sealed"] is True
+    assert out["reason"] == "unattended"
+    assert events == []  # nothing left the platform, so nothing to ledger
 
 
 def _unsealed_transport(monkeypatch) -> list[str]:
