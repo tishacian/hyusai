@@ -40,8 +40,7 @@ def test_allow_list_refuses_everything_else(monkeypatch):
     for tool in ("BAPI_PO_CHANGE", "delete_A_PurchaseOrder", "get_A_PurchaseOrder", ""):
         with pytest.raises(ValueError):
             mcp_write.invoke_write_tool(
-                _server(), server_id="bapi_po", tool=tool, arguments={}, unsealed=True
-            )
+                _server(), server_id="bapi_po", tool=tool, arguments={}, unsealed=True, attended=True)
 
 
 def test_testrun_is_banned_at_any_depth(monkeypatch):
@@ -62,8 +61,7 @@ def test_testrun_is_banned_at_any_depth(monkeypatch):
                 server_id="bapi_po",
                 tool="BAPI_PO_CREATE1",
                 arguments=arguments,
-                unsealed=True,
-            )
+                unsealed=True, attended=True)
         # The ban holds on the sealed path too: a sealed envelope carrying
         # TESTRUN would be approved by a human and replayed verbatim later.
         with pytest.raises(ValueError, match="TESTRUN is banned"):
@@ -102,8 +100,7 @@ def test_unsealed_write_requires_a_resolved_server():
             server_id="bapi_po",
             tool="BAPI_TRANSACTION_COMMIT",
             arguments={"import": {"WAIT": "X"}},
-            unsealed=True,
-        )
+            unsealed=True, attended=True)
 
 
 def _fake_call(responses: dict[str, dict], captured: list[dict]):
@@ -140,8 +137,7 @@ def test_unsealed_create_success_reads_return_and_po_number(monkeypatch):
         server_id="bapi_po",
         tool="BAPI_PO_CREATE1",
         arguments={"tables": {}},
-        unsealed=True,
-    )
+        unsealed=True, attended=True)
     assert out["sealed"] is False
     assert out["called"] is True
     assert out["sap_ok"] is True
@@ -174,8 +170,7 @@ def test_failed_create_rolls_back_immediately(monkeypatch):
         server_id="bapi_po",
         tool="BAPI_PO_CREATE1",
         arguments={"tables": {}},
-        unsealed=True,
-    )
+        unsealed=True, attended=True)
     assert out["sap_ok"] is False
     assert out["rolled_back"] is True
     assert out["po_number"] == ""
@@ -203,8 +198,7 @@ def test_commit_and_discard_do_not_roll_back(monkeypatch):
         server_id="bapi_po",
         tool="BAPI_TRANSACTION_COMMIT",
         arguments={"import": {"WAIT": "X"}},
-        unsealed=True,
-    )
+        unsealed=True, attended=True)
     assert committed["sap_ok"] is True
     assert committed["rolled_back"] is False
     discarded = mcp_write.invoke_write_tool(
@@ -212,8 +206,7 @@ def test_commit_and_discard_do_not_roll_back(monkeypatch):
         server_id="sap",
         tool="fi_DiscardFromPurchasing",
         arguments={"PurchaseRequisition": "2000276449", "PurchaseRequisitionItem": "20"},
-        unsealed=True,
-    )
+        unsealed=True, attended=True)
     assert discarded["sap_ok"] is True
     assert discarded["tool"] == "fi_DiscardFromPurchasing"
     assert len(captured) == 2
@@ -235,8 +228,7 @@ def test_gateway_refusal_reads_as_sap_error(monkeypatch):
         server_id="sap",
         tool="fi_DiscardFromPurchasing",
         arguments={"PurchaseRequisition": "1", "PurchaseRequisitionItem": "10"},
-        unsealed=True,
-    )
+        unsealed=True, attended=True)
     assert out["sap_ok"] is False
     assert out["messages"][0]["message"] == "Not authorized"
 
@@ -340,8 +332,7 @@ def test_create_and_commit_is_two_calls_or_nothing(monkeypatch):
         ),
     )
     out = mcp_write.create_and_commit_po(
-        _server(), server_id="bapi_po", arguments={"tables": {}}, unsealed=True
-    )
+        _server(), server_id="bapi_po", arguments={"tables": {}}, unsealed=True, attended=True)
     assert out["sap_ok"] is True
     assert out["committed"] is True
     assert out["po_number"] == "4500382540"
@@ -368,8 +359,7 @@ def test_create_and_commit_stops_on_a_failed_create(monkeypatch):
         ),
     )
     out = mcp_write.create_and_commit_po(
-        _server(), server_id="bapi_po", arguments={"tables": {}}, unsealed=True
-    )
+        _server(), server_id="bapi_po", arguments={"tables": {}}, unsealed=True, attended=True)
     assert out["sap_ok"] is False
     assert out["committed"] is False
     assert out["rolled_back"] is True
@@ -395,8 +385,7 @@ def test_create_and_commit_rolls_back_a_blocked_commit(monkeypatch):
         server_id="bapi_po",
         arguments={"tables": {}},
         unsealed=True,
-        blocked_tools=["BAPI_TRANSACTION_COMMIT"],
-    )
+        blocked_tools=["BAPI_TRANSACTION_COMMIT"], attended=True)
     assert out["sap_ok"] is False
     assert out["committed"] is False
     assert out["po_number"] == ""

@@ -14,6 +14,8 @@ Every file that still carries identifiers is listed in
 - ``demo``: scripted demo content living among services. Moves to seeds.
 - ``client-app``: a customer application or skin inside the product shell.
 - ``tooling``: command-line examples.
+- ``canary``: the live workspaces a rollout must prove, kept apart from the
+  generic code that evaluates them.
 
 The counts must match exactly. A file that gains identifiers fails; a file
 that loses some also fails until its entry is lowered, so a cleanup cannot be
@@ -36,7 +38,7 @@ BASELINE = Path(__file__).with_name("tenant_neutral_baseline.json")
 
 IDENTIFIERS = re.compile(r"(?<![a-z])(nawa|andritz|pih)(?![a-z])|spark-?0?89", re.IGNORECASE)
 WEB_COMMENTS = re.compile(r"/\*.*?\*/|<!--.*?-->|(?<![:\w])//[^\n]*", re.DOTALL)
-KINDS = {"adapter", "family", "fixture", "demo", "client-app", "tooling"}
+KINDS = {"adapter", "family", "fixture", "demo", "client-app", "tooling", "canary"}
 
 
 def _docstring_lines(tree: ast.AST) -> set[int]:

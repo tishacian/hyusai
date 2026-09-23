@@ -1418,14 +1418,19 @@ def _mcp_write(
     arguments: Mapping[str, Any],
     sealed_block: str = "",
     commit: bool = False,
-    attended: bool = True,
+    attended: bool = False,
+    decided_by: str | None = None,
+    audit_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Every skill-side SAP write rides the same gate as the HTTP invoke route.
 
-    ``attended`` is the DAG's proof that a person decided this write. A gate
-    settled by ``system:gate_ttl``, a scheduler run, an automatic branch or a
-    flow snapshot that never learnt ``decided_by`` all come through with
-    ``attended=False`` and stay sealed whatever the workspace flag says.
+    ``attended`` is the proof that a person decided this write: a settled
+    approval Decision of the run, not a label in the payload. A gate settled
+    by ``system:gate_ttl``, a scheduler run, an automatic branch, a free
+    ``mcp_call_v1`` or a flow snapshot that never learnt ``decided_by`` all
+    come through with ``attended=False`` and stay sealed whatever the
+    workspace flag says. It is the default. The ledger signs a live write with
+    ``decided_by`` and keeps the run as ``run_actor``.
     """
     from app.services.connectors.mcp import service as mcp_service
     from app.services.connectors.mcp import write as mcp_write
@@ -1461,9 +1466,15 @@ def _mcp_write(
                 sealed_block=sealed_block or mcp_write.FLAG_OFF_BLOCK,
                 attended=attended,
             )
-        actor, run_id = _mcp_write_ctx(ctx)
+        run_actor, run_id = _mcp_write_ctx(ctx)
         mcp_write.audit_write(
-            str(workspace.id), actor=actor, server_id=server_id, out=out, run_id=run_id
+            str(workspace.id),
+            actor=str(decided_by) if attended and decided_by else run_actor,
+            server_id=server_id,
+            out=out,
+            run_id=run_id,
+            run_actor=run_actor,
+            context=audit_context,
         )
         return out
     finally:
@@ -1471,11 +1482,74 @@ def _mcp_write(
             db.close()
 
 
-def _gate_attended(payload: Mapping[str, Any]) -> bool:
-    """The DAG hands the HITL node's ``decided_by`` to the write it authorises."""
+_ACCEPTED_DECISION = frozenset({"accepted", "applied"})
+_REJECTED_DECISION = frozenset({"rejected"})
+
+
+def _gate_decision(
+    payload: Mapping[str, Any],
+    ctx: Optional[dict[str, Any]],
+    *,
+    statuses: frozenset[str],
+) -> Any:
+    """The settled approval Decision that authorises this write, or None.
+
+    The DAG hands the HITL node's ``decided_by`` to the write, but a label in a
+    payload proves nothing: whoever authors a Flow can map or default it. The
+    write is attended only when this run carries an approval Decision settled
+    the expected way, confirmed by a signed-in person, by that same person.
+    TTL expiry and the watchdog never confirm, so they stay sealed.
+    """
+
+    from app.models.decision import Decision
     from app.services.connectors.mcp.write import human_decided
 
-    return human_decided(payload.get("decided_by"))
+    decided_by = str(payload.get("decided_by") or "").strip()
+    run_id = str((ctx or {}).get("run_id") or "").strip()
+    if not human_decided(decided_by) or not run_id:
+        return None
+    db, workspace = _calendar_db_and_workspace(dict(payload), ctx)
+    owns_db = not (ctx or {}).get("db")
+    try:
+        return (
+            db.query(Decision)
+            .filter(
+                Decision.workspace_id == workspace.id,
+                Decision.scope == "run",
+                Decision.target_id == run_id,
+                Decision.kind == "hitl_approval",
+                Decision.status.in_(sorted(statuses)),
+                Decision.human_confirmed_by.isnot(None),
+                Decision.approved_by == decided_by,
+            )
+            .order_by(Decision.approved_at.desc())
+            .first()
+        )
+    finally:
+        if owns_db:
+            db.close()
+
+
+def _gated_write(
+    payload: Mapping[str, Any],
+    ctx: Optional[dict[str, Any]],
+    *,
+    statuses: frozenset[str],
+    pr_id: str,
+    pr_item: str,
+) -> dict[str, Any]:
+    """``attended``, ``decided_by`` and the ledger context of a gated write."""
+
+    decision = _gate_decision(payload, ctx, statuses=statuses)
+    return {
+        "attended": decision is not None,
+        "decided_by": str(payload.get("decided_by") or "").strip() or None,
+        "audit_context": {
+            "pr_id": pr_id,
+            "pr_item": pr_item,
+            "decision_id": getattr(decision, "id", None),
+        },
+    }
 
 
 _MCP_WRITE_VERDICT_KEYS = (
@@ -1532,7 +1606,9 @@ async def _mcp_invoke(
         raise ValueError("arguments._side_effect is not allowed; the write-set is code")
     # A free tool name that is not a read is a write: it goes through the one
     # gate (allow-list, TESTRUN ban, flag, rollback, ledger) — never straight
-    # to the transport.
+    # to the transport. No approval gate stands behind a free call, so it is
+    # never attended and stays sealed: a live write takes the dedicated skill
+    # behind a HITL node.
     if classify_kind(contract_tool) != "read":
         return _mcp_write_trace(
             _mcp_write(
@@ -1541,6 +1617,7 @@ async def _mcp_invoke(
                 server_id=server_id,
                 tool=contract_tool,
                 arguments=arguments,
+                attended=False,
             )
         )
     db, workspace = _calendar_db_and_workspace(payload, ctx)
@@ -1898,7 +1975,7 @@ async def _sap_create_po_v1(
                 ),
                 sealed_block=SAP_CREATE_BLOCK,
                 commit=True,
-                attended=_gate_attended(payload),
+                **_gated_write(payload, ctx, statuses=_ACCEPTED_DECISION, pr_id=pr_id, pr_item=item),
             )
         )
     body = create_po_request_body(
@@ -1923,7 +2000,7 @@ async def _sap_create_po_v1(
             tool=LIVE_CREATE_PO,
             arguments={"requestBody": body},
             sealed_block=HIKMA_CREATE_BLOCK,
-            attended=_gate_attended(payload),
+            **_gated_write(payload, ctx, statuses=_ACCEPTED_DECISION, pr_id=pr_id, pr_item=item),
         )
     )
 
@@ -1949,7 +2026,7 @@ async def _sap_handle_rejection_v1(
             server_id="sap",
             tool=LIVE_DISCARD,
             arguments=discard_arguments(pr_id, item),
-            attended=_gate_attended(payload),
+            **_gated_write(payload, ctx, statuses=_REJECTED_DECISION, pr_id=pr_id, pr_item=item),
         )
     )
 

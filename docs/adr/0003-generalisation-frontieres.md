@@ -101,6 +101,18 @@ un appel qui ne passe pas par lui la relit une fois sur la ligne du workspace. U
 adapter qui reprend un comportement existant le garde à l'octet près, épinglé par une
 fixture capturée avant le changement.
 
+### D7 — Une écriture SAP en direct exige une décision réelle — **Acté** (lot 4)
+
+L'audit du chemin PR → PO a trouvé qu'un libellé dans le payload suffisait à rendre
+une écriture « validée », qu'un drapeau mal formé la descellait, qu'un timeout ou une
+réponse illisible passait pour un succès, et que le journal signait au nom du run.
+Corrigé : une écriture en direct exige une `Decision` `hitl_approval` du run, réglée
+dans le sens attendu, confirmée par une personne connectée, par cette même personne ;
+le défaut est « non validé » partout ; seul le booléen `true` descelle ; une panne de
+transport donne une issue `unknown` qui garde le numéro de PO ; le journal nomme le
+décideur, la DA, le poste et la décision. Reste pour le lot 4b ce qui demande une
+migration ou une republication de flow : la clé d'idempotence et la réconciliation.
+
 ### D5 — Une feuille de route par lots livrables — **Acté**
 
 Pas de branche unique pour toute la feuille de route : chaque lot est une unité qui se
@@ -110,10 +122,11 @@ relit, se déploie et se retire seule. Chaque lot met à jour cet ADR.
 |---|---|---|---|
 | **1** | D1, D2, D3 ; vocabulaire Sentinel CI réservé à sa famille ; libellés NAWA retirés du catalogue de skills | — | contrat vert, 0 liste de slugs |
 | **1b** | sortir les `fixture` : prompts partagés du chat, skills de démo, hygiène de l'agent de chat, flow PR → PO, client SharePoint, placeholders | lot 1 déployé | fait : 9 → 2 (voir métriques) |
-| **1c** | handlers des packs Mission Room (AYA, OCTAVE) hors de l'exécuteur partagé ; canaris de `core/workspace-experience.ts` servis par le déploiement | lot 1b déployé | `demo` hors `app/tenants` et seeds = 0, `fixture` = 1 (BRD) |
+| **1c** | handlers Mission Room hors de l'exécuteur partagé ; canaris sortis du résolveur ; prompts de chat persistés réparés | lot 1b déployé | fait : exécuteur sans client, `fixture` = 1 (BRD) |
 | **2** | Work comme application de workspace : page d'accueil, `features/nawa`, habillages NAWA du shell et du chat, export brandé | lot 1 déployé | `client-app` hors `features/<client>` = 0 |
 | **3** | contrat de valeur du portfolio : responsable, indicateur, unité, cible, période, convention, source, approbation | définition produit | saisie gouvernée en place |
-| **4** | sûreté de l'action SAP PO (D4) | — | propriétés vérifiées et testées |
+| **4** | sûreté de l'action SAP PO (D4) | — | fait en partie : cinq propriétés corrigées et testées (voir D7) |
+| **4b** | clé d'idempotence par poste de DA, lecture SAP avant écriture, `select_pr` qui écarte une DA dont la porte est ouverte | lot 4 déployé | un doublon de porte ne crée qu'une PO |
 | — | framework d'actions ; contrat BRD générique | deuxième action ; deuxième BRD | — |
 
 Porte 0 (un contributeur NAWA crée et lance un System) se ferme en parallèle : c'est
@@ -133,6 +146,14 @@ Mesurées sur la branche du lot 1, code exécutable seulement :
 | Fichiers `client-app` / occurrences | — | 25 / 753 | 25 / 753 |
 | Fichiers `demo` / occurrences | — | 9 / 203 | 10 / 220 |
 | Fichiers `adapter` / occurrences | — | 37 / 254 | 40 / 283 |
+
+Lot 1c : l'exécuteur d'actions partagé (2134 → 603 lignes) ne nomme plus aucun client :
+les 25 handlers Mission Room sont partis tels quels vers
+`app/services/actions/packs/mission_room.py`, épinglés par une capture des 54 cas
+handler × pack. Les packs OCTAVE étant des copies des packs AYA, c'est un pack produit,
+pas un adapter de famille. Les canaris du rollout de navigation vivent dans
+`core/workspace-experience-canaries.ts` (catégorie `canary`). Il ne reste qu'une
+`fixture` : le prompt BRD (D4).
 
 Lot 1b : six fichiers sortent réellement (`wrappers.py`, l'agent de chat, le flow
 PR → PO, le client SharePoint, deux composants). Les identifiants déplacés vivent
