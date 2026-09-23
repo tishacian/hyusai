@@ -1,7 +1,7 @@
 # Fluidité — état de livraison
 
-Image en production : `1310580251831e4897c34b78b03d1c2a895981f0` (`revision_verified: true`).
-Rollback image : `65b662192e75`.
+Image en production : `61a1eb77d99a628a2baff6aaac8c61f642a4ab69` (`revision_verified: true`).
+Rollback image : `131058025183`.
 
 Ces pourcentages sont des estimations de complétude par critère de sortie, pas une mesure automatique. Les portes automation-first ne ferment pas F1–F6.
 
@@ -17,7 +17,7 @@ Ces pourcentages sont des estimations de complétude par critère de sortie, pas
 
 - F1 — l’objet épinglé survit au rechargement. Sur `65b66219`, le chat du système publié liste ce système dans son contexte, avec les autres systèmes et 16 conversations. Le thème passe de sombre à clair (`data-theme=light`) puis revient à sombre, stocké dans `agentium_theme`. La flèche gauche élargit le panneau de 560 à 592 px, stocké dans `agentium.chat-panel-width`. Un second onglet ouvert sur le run `8591bc37` lit les mêmes valeurs. L’usage répété au fil des jours n’est pas une preuve de session.
 - F2 — pas fermée. Revu le 23 septembre sur `13105802`, automation `0c7393e2`. Le modèle (`workspace_llm_v1`), le fournisseur `openai`, la source, les droits et l’exécutant sont prêts. L’exécutant est un vrai contrôle : Celery a répondu. L’indexation est `not_checked`, parce que le brouillon contient `semantic_search_v1` et qu’aucun index n’est inspecté. `not_checked` ne compte pas comme prêt, donc le panneau n’est pas Prêt. Le constat « indexation sans objet » du `c629f5af` décrivait le brouillon d’alors, avant cette recherche.
-- F3 — le document retenu `pih-spark089.docx` (`e2d7e8ce`) est ouvert sur `/skills` avec FR-1, FR-2 et FR-3. La proposition a créé le draft `SPARK-089 summary` (`cd696462`, statut `draft`). Après rafraîchissement, les cinq cas disent « Human review required », dont `case-hitl-accepted` (`ea54e844`). L’adresse garde `brd_document=e2d7e8ce`. La boucle de réserve de `0c7393e2` reste une autre preuve.
+- F3 — sur `61a1eb77`, le Flow de `SPARK-089 summary` (`cd696462`) affiche Réserve. La note « The proposed grade is still missing. » est enregistrée sur le run `95f2e6e5`, et l’adresse reste ce système. La relecture s’arrête : le brouillon contient `t_extract`, hors catalogue d’automation. Le document `e2d7e8ce` et les cinq cas « Human review required » restent la preuve d’import. La comparaison de `0c7393e2` reste une autre preuve.
 - F4 — sur l’image `0dd15330`, la table garde les anciennes versions. « Subscriber base — cleaned » a toujours la version 6, preuve absente, et la version 7, preuve présente. Une version ajoutée, « Published minutes awaiting a person » version 1, dit preuve présente et en attente d’une personne. Le point du graphique ouvre ce dossier et le résultat `hitl_pending`.
 - F5 — revu sur `65b66219`. Le point « Subscriber base — cleaned · 6 » dit « This point has no result. » Le point version 7 dit « Result: completed » (`01732a0d`).
 - F6 — sur `65b66219`, Work, la page Flow et la conversation disent « Same proof: present. » pour `df04a96a`. Le pilote montre ce système et Unpin. L’API dit présente, scellée, non appelée, convention absente, écart absent, une source.
