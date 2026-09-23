@@ -7327,6 +7327,22 @@ was not replayed. `IAM_ENFORCED_WORKSPACE_SLUGS` and
 `OPENAI_REALTIME_ENABLED_WORKSPACE_SLUGS` remain `andritz` in the VM env;
 after this migration they are unread.
 
+### 2026-09-23 — tenant fixtures leave the shared engine, 043ec722
+
+Revision `043ec722d7b494474274bef35c90353ceeefa8d6` is the merge of pull
+request 53, deployed from three immutable images at tag `043ec722d7b4`;
+rollback is `df19f4a03349`. No migration. Before the switch, `andritz` was
+already family `andritz` and `sentinel-ci` was already family `sentinel_ci`.
+Storage, public revision `revision_verified=true`, HTTP 200, zero backend
+exception matches in the switch window, and carakai 10 passed with two
+intentional skips. Artifacts
+`/tmp/iteration-canaries-20260923T193254Z.3FvyzH`. On Sentinel CI, the chat
+sentence « prépare un courrier de priorisation dédouanement » completed run
+`bb04aff7` through the action registry and opened a draft. The same sentence
+on Nawa did not open a draft. Greetings on Nawa and Andritz finished without
+« contactez Andritz ». Existing chat Systems still keep the prompt stored in
+their contract.
+
 
 
 
