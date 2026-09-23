@@ -29,6 +29,10 @@ data:
   OBJECT_STORE_S3_ENDPOINT_URL: {{ .Values.objectStore.endpointUrl | quote }}
   OBJECT_STORE_S3_ACCESS_KEY: {{ .Values.objectStore.accessKey | quote }}
   RECIPE_ENVS_PATH: /data/recipe_envs
+  # Staged deposits go to the artifact store too, so the API and a future SFTP
+  # pod never need to share a filesystem. Reads materialise a local copy.
+  SECURE_DEPOSIT_STORAGE_BACKEND: object_store
+  SECURE_DEPOSIT_STORAGE_DIR: /tmp/secure-deposit
   {{- if .Values.ollama.enabled }}
   OLLAMA_BASE_URL: http://agentium-ollama:11434
   DEFAULT_PROVIDER: ollama
