@@ -46,10 +46,10 @@
       "kind": "adapter",
       "why": "Action pack identifiers."
     },
-    "backend/app/services/actions/executor.py": {
+    "backend/app/services/actions/packs/mission_room.py": {
       "count": 17,
       "kind": "demo",
-      "why": "Mission-room pack handlers (Sentinel CI AYA, Octocity OCTAVE) scripted inside the shared executor. Reachable only through those packs; the handlers move with their pack (lot 1c), not string by string."
+      "why": "Mission Room pack handlers (Sentinel CI AYA and its Octocity OCTAVE copy) and their scripted scenario, moved verbatim out of the shared executor."
     },
     "backend/app/services/actions/registry.py": {
       "count": 39,
