@@ -93,15 +93,21 @@ def test_grounding_guard_forces_strict_for_context_and_workspace_facts():
         workspace=workspace,
         context_id="ctx-1",
     )
-    fact_policy = resolve_grounding_policy(
-        query="Combien de documents sécurité SENTINEL-CI sont indexés aujourd'hui ?",
-        workspace=workspace,
+    sentinel = _workspace(
+        {
+            "family": "sentinel_ci",
+            "chat": {"grounding": {"default_mode": "balanced", "allowed_modes": ["strict", "balanced"]}},
+        }
     )
+    sentinel_query = "Combien de documents sécurité SENTINEL-CI sont indexés aujourd'hui ?"
+    fact_policy = resolve_grounding_policy(query=sentinel_query, workspace=sentinel)
 
     assert context_policy["mode"] == "strict"
     assert context_policy["reason"] == "selected_context_requires_sources"
     assert fact_policy["mode"] == "strict"
     assert fact_policy["reason"] == "workspace_fact_or_sensitive_state"
+    # The Sentinel vocabulary is that family's; another tenant is not bound by it.
+    assert resolve_grounding_policy(query=sentinel_query, workspace=workspace)["mode"] == "balanced"
 
 
 def test_grounding_vigie_compat_without_config_remains_balanced():
