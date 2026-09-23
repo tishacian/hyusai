@@ -99,13 +99,10 @@ def upgrade() -> None:
     bind = op.get_bind()
     workspaces = _workspaces_table()
     lists = [
-        (feature, _listed(env_var, default), shape)
-        for feature, env_var, default, shape in FREEZES
+        (feature, _listed(env_var, default), shape) for feature, env_var, default, shape in FREEZES
     ]
 
-    rows = bind.execute(
-        sa.select(workspaces.c.id, workspaces.c.slug, workspaces.c.settings)
-    ).all()
+    rows = bind.execute(sa.select(workspaces.c.id, workspaces.c.slug, workspaces.c.settings)).all()
     for row in rows:
         mapping = row._mapping
         settings = _as_settings(mapping["settings"])
@@ -134,9 +131,7 @@ def upgrade() -> None:
             marker["replaced_features"] = raw_features
         settings[MARKER_KEY] = marker
         bind.execute(
-            sa.update(workspaces)
-            .where(workspaces.c.id == mapping["id"])
-            .values(settings=settings)
+            sa.update(workspaces).where(workspaces.c.id == mapping["id"]).values(settings=settings)
         )
 
 
@@ -164,7 +159,5 @@ def downgrade() -> None:
             else:
                 settings.pop("features", None)
         bind.execute(
-            sa.update(workspaces)
-            .where(workspaces.c.id == mapping["id"])
-            .values(settings=settings)
+            sa.update(workspaces).where(workspaces.c.id == mapping["id"]).values(settings=settings)
         )

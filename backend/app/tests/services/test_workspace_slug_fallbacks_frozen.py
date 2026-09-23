@@ -99,13 +99,19 @@ def _run(monkeypatch, rows, *, downgrade=False):
             module.downgrade()
         result = {
             r._mapping["id"]: (r._mapping["slug"], r._mapping["settings"])
-            for r in bind.execute(sa.select(workspaces.c.id, workspaces.c.slug, workspaces.c.settings))
+            for r in bind.execute(
+                sa.select(workspaces.c.id, workspaces.c.slug, workspaces.c.settings)
+            )
         }
     return module, result
 
 
 def _listed(value, default):
-    return {item.strip().lower() for item in (value if value is not None else default).split(",") if item.strip()}
+    return {
+        item.strip().lower()
+        for item in (value if value is not None else default).split(",")
+        if item.strip()
+    }
 
 
 def _old_answers(slug, workspace_settings, env):
@@ -126,7 +132,8 @@ def _old_answers(slug, workspace_settings, env):
             "iam_enforced", _listed(env.get("IAM_ENFORCED_WORKSPACE_SLUGS"), "andritz")
         ),
         "openai_realtime": old_opt_in(
-            "openai_realtime", _listed(env.get("OPENAI_REALTIME_ENABLED_WORKSPACE_SLUGS"), "andritz")
+            "openai_realtime",
+            _listed(env.get("OPENAI_REALTIME_ENABLED_WORKSPACE_SLUGS"), "andritz"),
         ),
         "voice_realtime_stt": stt_old,
         "model_portal_beta": old_opt_in("model_portal_beta", {"agentium-showcase"}),
@@ -151,8 +158,16 @@ def _new_answers(slug, workspace_settings, monkeypatch):
 ROWS = [
     {"id": "w-andritz", "slug": "andritz", "settings": {}},
     {"id": "w-nawa", "slug": "nawa", "settings": {"mode": "builder"}},
-    {"id": "w-showcase", "slug": "agentium-showcase", "settings": {"features": {"rpa_bridge": False}}},
-    {"id": "w-decided", "slug": "acme", "settings": {"features": {"iam_enforced": True, "openai_realtime": True}}},
+    {
+        "id": "w-showcase",
+        "slug": "agentium-showcase",
+        "settings": {"features": {"rpa_bridge": False}},
+    },
+    {
+        "id": "w-decided",
+        "slug": "acme",
+        "settings": {"features": {"iam_enforced": True, "openai_realtime": True}},
+    },
     {"id": "w-malformed", "slug": "legacy", "settings": {"features": ["not", "an", "object"]}},
     {"id": "w-null", "slug": "empty", "settings": None},
 ]
@@ -162,7 +177,10 @@ ROWS = [
     "env",
     [
         {},
-        {"IAM_ENFORCED_WORKSPACE_SLUGS": "nawa,andritz", "OPENAI_REALTIME_ENABLED_WORKSPACE_SLUGS": ""},
+        {
+            "IAM_ENFORCED_WORKSPACE_SLUGS": "nawa,andritz",
+            "OPENAI_REALTIME_ENABLED_WORKSPACE_SLUGS": "",
+        },
         {"VOICE_REALTIME_STT_WORKSPACE_SLUGS": "andritz"},
     ],
     ids=["shipped-defaults", "widened-iam-and-no-realtime", "stt-allowlist"],
@@ -194,4 +212,6 @@ def test_the_downgrade_removes_exactly_what_it_wrote(monkeypatch):
     _module, rows = _run(monkeypatch, ROWS, downgrade=True)
 
     for row in ROWS:
-        assert rows[row["id"]][1] == (row["settings"] if row["settings"] is not None else {}), row["id"]
+        assert rows[row["id"]][1] == (row["settings"] if row["settings"] is not None else {}), row[
+            "id"
+        ]

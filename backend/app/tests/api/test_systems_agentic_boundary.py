@@ -18,6 +18,7 @@ from app.services.chat_execution_policy import (
     ANDRITZ_MIGRATION_MARKER,
     ANDRITZ_MIGRATION_REVISION,
 )
+from app.tests.iam_baseline import OPEN_IAM_FEATURES
 from app.tests.publication_baseline import LEGACY_FLOW_AUTHORITY
 
 
@@ -26,7 +27,10 @@ def _workspace(db_session, *, slug: str) -> Workspace:
         id=str(uuid4()),
         name=slug,
         slug=slug,
-        settings={"family": "andritz", **LEGACY_FLOW_AUTHORITY},
+        settings={
+            "family": "andritz",
+            "features": {**LEGACY_FLOW_AUTHORITY["features"], **OPEN_IAM_FEATURES},
+        },
     )
     db_session.add(row)
     db_session.flush()
@@ -58,7 +62,7 @@ def _managed_system(db_session, workspace: Workspace) -> System:
     )
     workspace.settings = {
         "family": "andritz",
-        **LEGACY_FLOW_AUTHORITY,
+        "features": {**LEGACY_FLOW_AUTHORITY["features"], **OPEN_IAM_FEATURES},
         ANDRITZ_MIGRATION_MARKER: {
             "revision": ANDRITZ_MIGRATION_REVISION,
             "schema": 1,

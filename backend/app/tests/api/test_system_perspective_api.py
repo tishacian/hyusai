@@ -11,6 +11,7 @@ from app.models.system import System
 from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
+from app.tests.iam_baseline import OPEN_IAM_FEATURES
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -27,6 +28,7 @@ def _seed(db_session) -> tuple[Workspace, Workspace, User, System, System]:
         "features": {
             "cockpit_router_axes_v4": True,
             "system_360_projection_v1": True,
+            **OPEN_IAM_FEATURES,
         }
     }
     workspace = Workspace(id="ws-perspective-api", slug="perspective-api", name="Perspective", settings=enabled)

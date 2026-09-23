@@ -17,6 +17,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.run_engine.execution_contract import canonical_flow_sha256
 from app.services.systems import flow_publication
+from app.tests.iam_baseline import OPEN_IAM_FEATURES
 
 
 def _flow() -> dict[str, Any]:
@@ -54,7 +55,7 @@ def _seed(db_session, *, enabled: bool = True):
         id="ws-ingress-api",
         slug="ingress-api",
         name="Ingress API",
-        settings={"features": {"flow_publication_v1": enabled}},
+        settings={"features": {"flow_publication_v1": enabled, **OPEN_IAM_FEATURES}},
     )
     admin = User(
         id="user-ingress-admin",

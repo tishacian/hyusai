@@ -23,6 +23,7 @@ from app.models.workspace import Workspace
 from app.services import flow_contracts
 from app.services.run_engine.execution_contract import canonical_flow_sha256
 from app.services.systems import flow_publication
+from app.tests.iam_baseline import OPEN_IAM_FEATURES
 
 
 def _flow(label: str) -> dict[str, Any]:
@@ -82,7 +83,7 @@ def _seed(db_session, *, enabled: bool = True, status: str = "active"):
         id="ws-publication",
         slug="flow-publication",
         name="Flow publication",
-        settings={"features": {"flow_publication_v1": enabled}},
+        settings={"features": {"flow_publication_v1": enabled, **OPEN_IAM_FEATURES}},
     )
     user = User(
         id="user-publication",
