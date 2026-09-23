@@ -1,7 +1,7 @@
 # Fluidité — état de livraison
 
-Image en production : `df19f4a033491cf7bc63247b4250b7178a0e9d84` (`revision_verified: true`).
-Rollback image : `c67ecc0ede29`.
+Image en production : `043ec722d7b494474274bef35c90353ceeefa8d6` (`revision_verified: true`).
+Rollback image : `df19f4a03349`.
 
 Ces pourcentages sont des estimations de complétude par critère de sortie, pas une mesure automatique. Les portes automation-first ne ferment pas F1–F6.
 
