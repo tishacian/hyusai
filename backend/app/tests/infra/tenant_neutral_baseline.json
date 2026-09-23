@@ -256,10 +256,10 @@
       "kind": "client-app",
       "why": "Navigation entries of customer applications (lot 2)."
     },
-    "frontend-ng/src/app/core/workspace-experience.ts": {
+    "frontend-ng/src/app/core/workspace-experience-canaries.ts": {
       "count": 12,
-      "kind": "fixture",
-      "why": "Shadow-evaluation canaries keyed on live customer slugs, shipped in every bundle. The deployment should serve that list (lot 1c)."
+      "kind": "canary",
+      "why": "The live workspaces the workspace-experience shadow gate must prove before the resolver rolls out."
     },
     "frontend-ng/src/app/features/chat/chat-panel.component.ts": {
       "count": 37,
