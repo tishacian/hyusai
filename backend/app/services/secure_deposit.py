@@ -113,7 +113,7 @@ def is_workspace_enabled(workspace: Workspace) -> bool:
 
     It used to fall back to a comma-separated list of slugs in global config,
     which made one customer's capability a property of the deployment. Migration
-    109 stamped what that list answered onto every workspace, so the setting is
+    110 stamped what that list answered onto every workspace, so the setting is
     now the only source of truth: a workspace differs because its use cases
     differ, not because an environment variable names it.
     """
