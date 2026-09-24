@@ -2121,6 +2121,45 @@ SEED_SKILLS: List[Dict[str, Any]] = [
             "completion": {"type": "string"},
         }},
     },
+    # Explicit provider Skills (b3a50bac): new bindings name the provider they
+    # call, where the historical azure_llm_v1 label also covers public OpenAI
+    # and environment credentials. Prompt templates reuse these wrappers.
+    {
+        "slug": "openai_llm_v1",
+        "version": "1",
+        "name": "OpenAI LLM",
+        "description": "LLM call through the workspace's OpenAI provider configuration.",
+        "type": "llm",
+        "provider": "openai",
+        "certification_level": "production",
+        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["prompt"], "properties": {
+            "prompt": {"type": "string"},
+            "model": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "completion": {"type": "string"},
+        }},
+    },
+    {
+        "slug": "azure_openai_llm_v1",
+        "version": "1",
+        "name": "Azure OpenAI deployment LLM",
+        "description": "LLM call through the workspace's Azure OpenAI deployment. New Azure bindings use this Skill.",
+        "type": "llm",
+        "provider": "azure_openai",
+        "certification_level": "production",
+        "execution": {"mode": "stream", "timeout_ms": 60_000, "retryable": True, "idempotent": False},
+        "pricing": {"unit": "per_1k_tokens", "unit_price": 0.01, "currency": "USD"},
+        "input_schema": {"type": "object", "required": ["prompt"], "properties": {
+            "prompt": {"type": "string"},
+            "model": {"type": "string"},
+        }},
+        "output_schema": {"type": "object", "properties": {
+            "completion": {"type": "string"},
+        }},
+    },
     {
         "slug": "workspace_llm_v1",
         "version": "1",
@@ -3090,6 +3129,8 @@ SKILL_CATEGORIES: Dict[str, str] = {
     "action_plan_status_v1": "Analysis",
     "audit_log_v1": "Governance",
     "azure_llm_v1": "LLM",
+    "openai_llm_v1": "LLM",
+    "azure_openai_llm_v1": "LLM",
     "briefing_priorities_v1": "Analysis",
     "calendar_cancel_event_v1": "Connections",
     "calendar_create_event_v1": "Connections",
