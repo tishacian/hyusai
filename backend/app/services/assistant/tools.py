@@ -722,7 +722,7 @@ async def _read_automation_proof(ctx, args):
     system = visible_system(ctx, _text_arg(args, "system_id", limit=64))
     from app.services.automation_portfolio import list_job_explanations
     from app.services.automation_proof import proof_identity
-    card = next((item for item in list_job_explanations(ctx.db, ctx.workspace) if item["job"].get("system_id") == system.id), None)
+    card = next((item for item in list_job_explanations(ctx.db, ctx.workspace, ctx.user) if item["job"].get("system_id") == system.id), None)
     return _ok(surface="conversation", proof=proof_identity(card))
 
 
