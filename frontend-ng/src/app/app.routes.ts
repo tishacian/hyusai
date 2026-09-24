@@ -5,6 +5,8 @@ import { CLIENT_APPLICATION_ROUTES } from './core/client-application-routes';
 import { loginGuard } from './core/login.guard';
 import { navigationProfileGuard } from './core/navigation-profile.guard';
 import { workspaceHydrationGuard } from './core/workspace-hydration.guard';
+import { WORKSPACE_EPOCH, workspaceEpochResolver } from './core/workspace-route-reuse.strategy';
+import { workspaceSwitchGuard } from './core/workspace-switch.guard';
 import { WorkspaceService } from './core/workspace.service';
 import { workspaceAppAdminGuard } from './features/governance/workspace-app-admin.guard';
 import { experienceV1Guard } from './features/experience/experience.guard';
@@ -42,8 +44,12 @@ export const routes: Routes = [
   },
   {
     path: '',
-    canActivate: [authGuard],
+    canActivate: [authGuard, workspaceSwitchGuard],
     canActivateChild: [navigationProfileGuard],
+    // A workspace switch may land on the current URL: the shell guard must
+    // still run, and the epoch it resolves is what recreates the page.
+    runGuardsAndResolvers: 'always',
+    resolve: { [WORKSPACE_EPOCH]: workspaceEpochResolver },
     loadComponent: () =>
       import('./features/layout/shell.component').then((m) => m.ShellComponent),
     children: [

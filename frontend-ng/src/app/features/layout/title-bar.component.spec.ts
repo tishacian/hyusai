@@ -1,14 +1,15 @@
 import '@angular/compiler';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Injector, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Injector, runInInjectionContext, signal } from '@angular/core';
+import { type Navigation, type NavigationBehaviorOptions, Router } from '@angular/router';
 import { Subject, of } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { AuthApiService } from '@app/core/auth-api.service';
 import { AuthBootstrapService } from '@app/core/auth-bootstrap.service';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
+import { experienceUnsavedChangesGuard } from '@app/features/experience/experience.guard';
 import { I18nService } from '@app/core/i18n.service';
 import { ThemeService } from '@app/core/theme.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
@@ -17,6 +18,7 @@ import {
   type WorkspaceContextTransition,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
+import { type PendingChangesSummary, WorkspaceSwitchService } from '@app/core/workspace-switch.service';
 import { AuthStore } from '@app/store/auth.store';
 import { TitleBarComponent } from './title-bar.component';
 
@@ -31,6 +33,7 @@ class WorkspaceStub {
   private slug = 'andritz';
   private epoch = 3;
   private readonly resetters = new Set<(transition: WorkspaceContextTransition) => void>();
+  settings: Record<string, unknown> | undefined;
 
   readonly workspaces = () => [
     { id: 'workspace-andritz', slug: 'andritz', name: 'Andritz', role: 'member' },
@@ -38,6 +41,7 @@ class WorkspaceStub {
   ];
   readonly currentSlug = () => this.slug;
   readonly contextEpoch = () => this.epoch;
+  readonly current = () => ({ settings: this.settings });
 
   captureRequestScope(): WorkspaceRequestScope {
     return Object.freeze({ workspaceSlug: this.slug, workspaceId: `workspace-${this.slug}`, epoch: this.epoch });
@@ -71,8 +75,116 @@ class WorkspaceStub {
   }
 }
 
-test('TitleBar drops A telemetry atomically and reloads only B after a workspace switch', async () => {
+interface RecordedNavigation {
+  readonly url: string;
+  readonly extras: NavigationBehaviorOptions;
+  settled: boolean;
+  settle(accepted: boolean): void;
+}
+
+/** Records each navigation and lets a test play the guards the real router would run. */
+class RouterStub {
+  url = '/systems/system-1?facet=runs';
+  readonly events = new Subject<unknown>();
+  readonly navigations: RecordedNavigation[] = [];
+  aborted = 0;
+
+  readonly navigate = () => Promise.resolve(true);
+
+  readonly navigateByUrl = (url: string, extras: NavigationBehaviorOptions = {}) =>
+    new Promise<boolean>((resolve) => {
+      const navigation: RecordedNavigation = {
+        url,
+        extras,
+        settled: false,
+        settle: (accepted) => {
+          navigation.settled = true;
+          if (accepted) this.url = url;
+          resolve(accepted);
+        },
+      };
+      this.navigations.push(navigation);
+    });
+
+  readonly currentNavigation = (): Navigation | null => {
+    const navigation = this.navigations.at(-1);
+    if (!navigation || navigation.settled) return null;
+    return {
+      extras: navigation.extras,
+      abort: () => {
+        this.aborted += 1;
+        navigation.settle(false);
+      },
+    } as unknown as Navigation;
+  };
+
+  /** The shell guard, once every CanDeactivate guard of A has passed. */
+  exitAccepted(switcher: WorkspaceSwitchService): void {
+    assert.equal(switcher.commit(this.currentNavigation()), true);
+    this.navigations.at(-1)!.settle(true);
+  }
+
+  /** The Studio editor guard, with unsaved changes. */
+  exitRefused(injector: Injector, summary: PendingChangesSummary): void {
+    const editor = {
+      pendingChanges: () => summary,
+      confirmDiscardChanges: () => assert.fail('a workspace switch never opens confirm()'),
+    };
+    const allowed = runInInjectionContext(injector, () =>
+      experienceUnsavedChangesGuard(editor, null as never, null as never, null as never),
+    );
+    assert.equal(allowed, false);
+    this.navigations.at(-1)!.settle(false);
+  }
+}
+
+function harness(options: { api?: unknown } = {}) {
   const workspace = new WorkspaceStub();
+  const router = new RouterStub();
+  const resolved = signal<'light' | 'dark'>('dark');
+  const injector = Injector.create({
+    providers: [
+      TitleBarComponent,
+      WorkspaceSwitchService,
+      { provide: WorkspaceService, useValue: workspace },
+      {
+        provide: ApiService,
+        useValue: options.api ?? { get: () => new Subject<TelemetrySnapshot>().asObservable() },
+      },
+      { provide: ThemeService, useValue: { mode: signal('dark'), resolved, setMode: () => undefined } },
+      { provide: AuthStore, useValue: { email: () => null, clear: () => undefined } },
+      {
+        provide: ChatOverlayService,
+        useValue: { isOpen: () => false, open: () => undefined, close: () => undefined },
+      },
+      {
+        provide: I18nService,
+        useValue: {
+          locale: signal('en'),
+          t: (key: string, params?: Record<string, unknown>) => (params ? `${key} ${JSON.stringify(params)}` : key),
+          setLocale: () => undefined,
+        },
+      },
+      { provide: AuthBootstrapService, useValue: { markInvalid: () => undefined } },
+      { provide: TokenStorageService, useValue: { getRefreshToken: () => null, clear: () => undefined } },
+      { provide: AuthApiService, useValue: { logout: () => of(null) } },
+      { provide: Router, useValue: router },
+      { provide: ToastrService, useValue: { success: () => undefined, error: () => undefined } },
+    ],
+  });
+  const titleBar = injector.get(TitleBarComponent);
+  const view = titleBar as unknown as {
+    pendingFor(slug: string): boolean;
+    suspendedFor(slug: string): { label: string; count: number } | null;
+    unsavedReason(state: { label: string; count: number }): string;
+    switchNotice(): { name: string; location: string; previous: { slug: string; name: string } | null } | null;
+    emblem(): string | null;
+    emblemIsKeyed(): boolean;
+  };
+  return { injector, workspace, router, resolved, titleBar, view, switcher: injector.get(WorkspaceSwitchService) };
+}
+
+test('TitleBar drops A telemetry atomically and reloads only B after a workspace switch', async () => {
   const responses: Subject<TelemetrySnapshot>[] = [];
   const requestedSlugs: Array<string | null | undefined> = [];
   const api = {
@@ -88,40 +200,9 @@ test('TitleBar drops A telemetry atomically and reloads only B after a workspace
       return response.asObservable();
     },
   };
-  const injector = Injector.create({
-    providers: [
-      TitleBarComponent,
-      { provide: WorkspaceService, useValue: workspace },
-      { provide: ApiService, useValue: api },
-      { provide: ThemeService, useValue: { mode: signal('dark'), setMode: () => undefined } },
-      { provide: AuthStore, useValue: { email: () => null, clear: () => undefined } },
-      {
-        provide: ChatOverlayService,
-        useValue: { isOpen: () => false, open: () => undefined, close: () => undefined },
-      },
-      {
-        provide: I18nService,
-        useValue: { locale: signal('en'), t: (key: string) => key, setLocale: () => undefined },
-      },
-      { provide: AuthBootstrapService, useValue: { markInvalid: () => undefined } },
-      {
-        provide: TokenStorageService,
-        useValue: { getRefreshToken: () => null, clear: () => undefined },
-      },
-      { provide: AuthApiService, useValue: { logout: () => of(null) } },
-      {
-        provide: Router,
-        useValue: { navigate: () => Promise.resolve(true), navigateByUrl: () => Promise.resolve(true) },
-      },
-      {
-        provide: ToastrService,
-        useValue: { success: () => undefined, error: () => undefined },
-      },
-    ],
-  });
+  const { injector, workspace, titleBar } = harness({ api });
 
   try {
-    const titleBar = injector.get(TitleBarComponent);
     const telemetryHarness = titleBar as unknown as { refreshTelemetry(): void };
 
     // The constructor's timer(0) has not had a macrotask opportunity yet.
@@ -165,112 +246,153 @@ test('TitleBar drops A telemetry atomically and reloads only B after a workspace
 });
 
 test('TitleBar commits B only after the guarded exit from A succeeds', async () => {
-  const workspace = new WorkspaceStub();
-  const navigations: string[] = [];
-  const resolveNavigation: Array<(accepted: boolean) => void> = [];
-  const injector = Injector.create({
-    providers: [
-      TitleBarComponent,
-      { provide: WorkspaceService, useValue: workspace },
-      { provide: ApiService, useValue: { get: () => new Subject<TelemetrySnapshot>().asObservable() } },
-      { provide: ThemeService, useValue: { mode: signal('dark'), setMode: () => undefined } },
-      { provide: AuthStore, useValue: { email: () => null, clear: () => undefined } },
-      {
-        provide: ChatOverlayService,
-        useValue: { isOpen: () => false, open: () => undefined, close: () => undefined },
-      },
-      {
-        provide: I18nService,
-        useValue: { locale: signal('en'), t: (key: string) => key, setLocale: () => undefined },
-      },
-      { provide: AuthBootstrapService, useValue: { markInvalid: () => undefined } },
-      { provide: TokenStorageService, useValue: { getRefreshToken: () => null, clear: () => undefined } },
-      { provide: AuthApiService, useValue: { logout: () => of(null) } },
-      {
-        provide: Router,
-        useValue: {
-          navigate: () => Promise.resolve(true),
-          navigateByUrl: (url: string) => {
-            navigations.push(url);
-            return new Promise<boolean>((resolve) => resolveNavigation.push(resolve));
-          },
-        },
-      },
-      { provide: ToastrService, useValue: { success: () => undefined, error: () => undefined } },
-    ],
-  });
-
+  const { injector, workspace, router, titleBar, switcher } = harness();
   try {
-    const titleBar = injector.get(TitleBarComponent);
-    const cancelled = titleBar.selectWorkspace('sentinel-ci');
+    const refused = titleBar.selectWorkspace('sentinel-ci');
     assert.equal(workspace.currentSlug(), 'andritz', 'A remains active while CanDeactivate is pending');
-    assert.deepEqual(navigations, ['/hypervisor']);
-    resolveNavigation[0]!(false);
-    await cancelled;
-    assert.equal(workspace.currentSlug(), 'andritz', 'cancelling CanDeactivate keeps A intact');
+    router.exitRefused(injector, { label: 'PR to PO', count: 3, discard: () => undefined });
+    await refused;
+    assert.equal(workspace.currentSlug(), 'andritz', 'a refused exit keeps A intact');
 
     const accepted = titleBar.selectWorkspace('sentinel-ci');
     assert.equal(workspace.currentSlug(), 'andritz');
-    resolveNavigation[1]!(true);
-    await Promise.resolve();
-    assert.equal(workspace.currentSlug(), 'sentinel-ci', 'B is published only after the guarded exit');
-    assert.deepEqual(navigations, ['/hypervisor', '/hypervisor', '/']);
-    resolveNavigation[2]!(true);
+    router.exitAccepted(switcher);
     await accepted;
+    assert.equal(workspace.currentSlug(), 'sentinel-ci', 'B is published only after the guarded exit');
+    assert.deepEqual(
+      router.navigations.map((navigation) => navigation.url),
+      ['/systems', '/systems'],
+      'one navigation per attempt, never through /hypervisor',
+    );
   } finally {
     injector.destroy();
   }
 });
 
-/** A TitleBar wired to a fixed workspace payload and a controllable theme. */
-function brandHarness(settings: Record<string, unknown> | undefined) {
-  const workspace = new WorkspaceStub() as unknown as WorkspaceStub & {
-    current(): { settings?: Record<string, unknown> };
-  };
-  (workspace as unknown as { current: () => unknown }).current = () => ({ settings });
-  const resolved = signal<'light' | 'dark'>('dark');
-  const injector = Injector.create({
-    providers: [
-      TitleBarComponent,
-      { provide: WorkspaceService, useValue: workspace },
-      { provide: ApiService, useValue: { get: () => new Subject<TelemetrySnapshot>().asObservable() } },
-      {
-        provide: ThemeService,
-        useValue: { mode: signal('dark'), resolved, setMode: () => undefined },
-      },
-      { provide: AuthStore, useValue: { email: () => null, clear: () => undefined } },
-      {
-        provide: ChatOverlayService,
-        useValue: { isOpen: () => false, open: () => undefined, close: () => undefined },
-      },
-      {
-        provide: I18nService,
-        useValue: { locale: signal('en'), t: (key: string) => key, setLocale: () => undefined },
-      },
-      { provide: AuthBootstrapService, useValue: { markInvalid: () => undefined } },
-      {
-        provide: TokenStorageService,
-        useValue: { getRefreshToken: () => null, clear: () => undefined },
-      },
-      { provide: AuthApiService, useValue: { logout: () => of(null) } },
-      {
-        provide: Router,
-        useValue: { navigate: () => Promise.resolve(true), navigateByUrl: () => Promise.resolve(true) },
-      },
-      { provide: ToastrService, useValue: { success: () => undefined, error: () => undefined } },
-    ],
-  });
-  const titleBar = injector.get(TitleBarComponent) as unknown as {
-    emblem(): string | null;
-    emblemIsKeyed(): boolean;
-  };
-  return { titleBar, resolved, injector };
-}
+test('TitleBar switches with a single replaceUrl navigation to the same surface', async () => {
+  const { injector, workspace, router, titleBar, view, switcher } = harness();
+  try {
+    titleBar.workspaceMenuOpen.set(true);
+    const switching = titleBar.selectWorkspace('sentinel-ci');
+    assert.equal(router.navigations.length, 1);
+    const [navigation] = router.navigations;
+    assert.equal(navigation.url, '/systems', 'the object id and its facet are dropped');
+    assert.equal(navigation.extras.replaceUrl, true);
+    assert.equal(navigation.extras.onSameUrlNavigation, 'reload');
+
+    router.exitAccepted(switcher);
+    await switching;
+
+    assert.equal(workspace.currentSlug(), 'sentinel-ci');
+    assert.equal(titleBar.workspaceMenuOpen(), false, 'the menu closes on success');
+    assert.deepEqual(view.switchNotice(), {
+      name: 'Sentinel CI',
+      location: 'experience.adoption.nav.build › Systems',
+      previous: { slug: 'andritz', name: 'Andritz' },
+    });
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('TitleBar treats the current URL as a destination, not a failure', async () => {
+  const { injector, workspace, router, titleBar, switcher } = harness();
+  try {
+    router.url = '/hypervisor';
+    const switching = titleBar.selectWorkspace('sentinel-ci');
+    assert.deepEqual(router.navigations.map((navigation) => navigation.url), ['/hypervisor']);
+    assert.equal(router.navigations[0].extras.onSameUrlNavigation, 'reload');
+
+    router.exitAccepted(switcher);
+    await switching;
+
+    assert.equal(workspace.currentSlug(), 'sentinel-ci');
+    assert.equal(switcher.state().phase, 'switched');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('TitleBar keeps the menu open while the switch is pending, and Escape cancels it', async () => {
+  const focused: string[] = [];
+  const previousDocument = globalThis.document;
+  globalThis.document = {
+    getElementById: (id: string) => ({ focus: () => focused.push(id) }),
+  } as unknown as Document;
+  const { injector, workspace, router, titleBar, view } = harness();
+  try {
+    titleBar.workspaceMenuOpen.set(true);
+    const switching = titleBar.selectWorkspace('sentinel-ci');
+    assert.equal(view.pendingFor('sentinel-ci'), true, 'the chosen row reads « Ouverture… »');
+
+    titleBar.closeMenus();
+    titleBar.toggleWorkspaceMenu(new Event('click'));
+    assert.equal(titleBar.workspaceMenuOpen(), true, 'neither an outside click nor the toggle closes it');
+
+    titleBar.onEscape();
+    await switching;
+    await Promise.resolve();
+
+    assert.equal(router.aborted, 1, 'Escape aborts the navigation');
+    assert.equal(workspace.currentSlug(), 'andritz');
+    assert.equal(titleBar.workspaceMenuOpen(), false);
+    assert.deepEqual(focused, ['tb-workspace-toggle'], 'focus returns to the selector');
+  } finally {
+    injector.destroy();
+    globalThis.document = previousDocument;
+  }
+});
+
+test('TitleBar shows the refusal and its reason inside the menu', async () => {
+  const { injector, workspace, router, titleBar, view, switcher } = harness();
+  try {
+    let discarded = 0;
+    titleBar.workspaceMenuOpen.set(true);
+    const refused = titleBar.selectWorkspace('sentinel-ci');
+    router.exitRefused(injector, { label: 'PR to PO', count: 3, discard: () => (discarded += 1) });
+    await refused;
+
+    assert.equal(titleBar.workspaceMenuOpen(), true, 'the menu stays open on the refusal');
+    const suspended = view.suspendedFor('sentinel-ci');
+    assert.ok(suspended);
+    assert.equal(
+      view.unsavedReason(suspended),
+      'workspace.switch.unsaved_other {"label":"PR to PO","count":3}',
+    );
+
+    const retried = titleBar.discardAndSwitch();
+    assert.equal(discarded, 1, '« Abandonner et changer » discards first');
+    router.exitAccepted(switcher);
+    await retried;
+    assert.equal(workspace.currentSlug(), 'sentinel-ci');
+    assert.equal(titleBar.workspaceMenuOpen(), false);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('« Rester ici » keeps A and closes the menu', async () => {
+  const { injector, workspace, router, titleBar, switcher } = harness();
+  try {
+    titleBar.workspaceMenuOpen.set(true);
+    const refused = titleBar.selectWorkspace('sentinel-ci');
+    router.exitRefused(injector, { label: 'PR to PO', count: 1, discard: () => assert.fail('the draft is kept') });
+    await refused;
+
+    titleBar.stayHere();
+
+    assert.equal(workspace.currentSlug(), 'andritz');
+    assert.equal(switcher.state().phase, 'cancelled');
+    assert.equal(titleBar.workspaceMenuOpen(), false);
+    assert.equal(router.navigations.length, 1);
+  } finally {
+    injector.destroy();
+  }
+});
 
 test('a tenant without a light variant shows the same emblem in both themes', () => {
-  const { titleBar, resolved, injector } = brandHarness({
-    platform_brand: { label: 'Acme', emblem: '/assets/acme/mark.png', home: '/acme' },
-  });
+  const { workspace, resolved, view: titleBar, injector } = harness();
+  workspace.settings = { platform_brand: { label: 'Acme', emblem: '/assets/acme/mark.png', home: '/acme' } };
   try {
     assert.equal(titleBar.emblem(), '/assets/acme/mark.png');
     assert.equal(titleBar.emblemIsKeyed(), false, 'the softening radius stays on');
@@ -283,14 +405,15 @@ test('a tenant without a light variant shows the same emblem in both themes', ()
 });
 
 test('a declared light variant is swapped in on the light theme, live', () => {
-  const { titleBar, resolved, injector } = brandHarness({
+  const { workspace, resolved, view: titleBar, injector } = harness();
+  workspace.settings = {
     platform_brand: {
       label: 'NAWA',
       emblem: '/assets/nawa/nawa-logo.png',
       emblem_light: '/assets/nawa/nawa-logo-transparent.png',
       home: '/nawa/itsd',
     },
-  });
+  };
   try {
     assert.equal(titleBar.emblem(), '/assets/nawa/nawa-logo.png');
     assert.equal(titleBar.emblemIsKeyed(), false);
@@ -314,7 +437,7 @@ test('a declared light variant is swapped in on the light theme, live', () => {
 });
 
 test('a workspace with no brand at all keeps the Agentium mark', () => {
-  const { titleBar, resolved, injector } = brandHarness(undefined);
+  const { resolved, view: titleBar, injector } = harness();
   try {
     assert.equal(titleBar.emblem(), null);
     resolved.set('light');
