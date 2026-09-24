@@ -2262,9 +2262,10 @@ export class CanonicalApiService {
       draft_hash?: string | null;
       correction_hash?: string | null;
       later_run_id?: string | null;
-      nodes?: Array<{ type: string }>;
+      nodes?: Array<{ type: string; editable?: boolean }>;
       same_object?: boolean;
       later_status?: string;
+      ran_correction?: boolean | null;
     } | null;
   }> {
     return this.api.get(`/systems/${encodeURIComponent(systemId)}/automation-review`);
@@ -2291,7 +2292,7 @@ export class CanonicalApiService {
     note: string;
     status: string;
     draft_hash?: string | null;
-    nodes?: Array<{ type: string }>;
+    nodes?: Array<{ type: string; editable?: boolean }>;
     run_id: string;
     system_id: string;
   }> {
@@ -2311,6 +2312,7 @@ export class CanonicalApiService {
   automationCompareReview(systemId: string, reviewId: string, runId: string): Observable<{
     same_object?: boolean;
     later_status?: string;
+    ran_correction?: boolean | null;
     later_run_id?: string | null;
     status: string;
   }> {
