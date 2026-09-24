@@ -9,17 +9,33 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services.connectors.rpa import service as rpa_service
 
 router = APIRouter()
 
 
+def _is_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> bool:
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
+        .first()
+    )
+    return bool(membership) and is_admin_template(getattr(membership, "role_template", None), membership.role)
+
+
+def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> None:
+    if not _is_workspace_admin(db, user, workspace):
+        raise HTTPException(status_code=403, detail={"code": "WORKSPACE_PERMISSION_DENIED"})
+
+
 class RpaConfigUpdate(BaseModel):
     base_url: str = Field(..., min_length=1, max_length=1024)
     auth_token: Optional[str] = Field(default=None, max_length=2048)
+    auth_token_encrypted: Optional[str] = Field(default=None, max_length=4096)
     job_mapping: Optional[dict[str, str]] = None
     callback_webhook_url: Optional[str] = Field(default=None, max_length=1024)
 
@@ -58,8 +74,19 @@ async def put_rpa_config(
     db: DBSession = Depends(get_db),
 ):
     _require_enabled(workspace)
+    _require_workspace_admin(db, user, workspace)
+    if body.auth_token_encrypted is not None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "WORKSPACE_SECRET_WRITE_ONLY",
+                "message": "A connector secret is set on its connector, not as an encrypted field",
+                "fields": ["auth_token_encrypted"],
+            },
+        )
     try:
-        return rpa_service.set_config(db, workspace, body.model_dump(exclude_unset=True))
+        payload = body.model_dump(exclude_unset=True, exclude={"auth_token_encrypted"})
+        return rpa_service.set_config(db, workspace, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -68,8 +95,10 @@ async def put_rpa_config(
 async def test_rpa_connection(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     _require_enabled(workspace)
+    _require_workspace_admin(db, user, workspace)
     config = rpa_service.get_config(workspace, include_secrets=True)
     try:
         return rpa_service.test_connection(config)
