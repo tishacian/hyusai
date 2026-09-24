@@ -17,19 +17,10 @@
 }
 
 .ck-label {
-  font-family: var(--ck-font-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-family: var(--ck-font-sans);
+  font-size: 12px;
+  line-height: 16px;
   color: var(--ck-fg-4);
-}
-
-.ck-label-sm {
-  font-family: var(--ck-font-mono);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ck-fg-5);
 }
 
 /* ---------- Hairlines ---------- */
@@ -76,14 +67,14 @@
 /* ---------- Semantic tones ---------- */
 /* Colour only — the caller keeps its own shape. Replaces the hard-coded
    `bg-emerald-500/10 text-emerald-300 ring-emerald-500/25` triplets, which
-   only ever had a dark value. Pair with `.ck-pill` for the canonical
-   uppercase status chip, or use alone on a chip that has its own metrics. */
+   only ever had a dark value. Pair with `.ck-pill` for the canonical status
+   chip, or use alone on a chip that has its own metrics. */
 .ck-tone-ok      { color: var(--ck-status-ok-fg);      background: var(--ck-status-ok-bg);      border: 1px solid var(--ck-status-ok-line); }
 .ck-tone-warn    { color: var(--ck-status-warn-fg);    background: var(--ck-status-warn-bg);    border: 1px solid var(--ck-status-warn-line); }
 .ck-tone-neg     { color: var(--ck-status-neg-fg);     background: var(--ck-status-neg-bg);     border: 1px solid var(--ck-status-neg-line); }
 .ck-tone-info    { color: var(--ck-status-info-fg);    background: var(--ck-status-info-bg);    border: 1px solid var(--ck-status-info-line); }
 .ck-tone-neutral { color: var(--ck-status-neutral-fg); background: var(--ck-status-neutral-bg); border: 1px solid var(--ck-status-neutral-line); }
-.ck-tone-preview { color: var(--ck-status-preview-fg); background: var(--ck-status-preview-bg); border: 1px solid var(--ck-status-preview-line); }
+.ck-tone-preview { color: var(--ck-status-preview-fg); background: var(--ck-status-preview-bg); border: 1px dashed var(--ck-status-preview-line); }
 
 .ck-pill {
   display: inline-flex;
@@ -91,10 +82,10 @@
   gap: 6px;
   padding: 2px 8px;
   border-radius: var(--ck-radius-sm);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.10em;
-  text-transform: uppercase;
+  font-family: var(--ck-font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -107,7 +98,9 @@
   background: var(--ck-cta-bg);
   color: var(--ck-cta-fg);
   border: 1px solid transparent;
-  transition: background var(--ck-dur-fast) var(--ck-ease-out);
+  transition:
+    background var(--ck-dur-fast) var(--ck-ease-out),
+    transform var(--ck-dur-fast) var(--ck-ease-out);
 }
 .ck-cta:hover { background: var(--ck-cta-bg-hover); }
 
@@ -115,7 +108,9 @@
   background: var(--ck-tint-faint);
   color: var(--ck-fg-2);
   border: 1px solid var(--ck-stroke-2);
-  transition: background var(--ck-dur-fast) var(--ck-ease-out);
+  transition:
+    background var(--ck-dur-fast) var(--ck-ease-out),
+    transform var(--ck-dur-fast) var(--ck-ease-out);
 }
 .ck-btn-quiet:hover { background: var(--ck-tint-soft); color: var(--ck-fg-1); }
 
@@ -123,28 +118,29 @@
   color: var(--ck-status-info-fg);
   background: var(--ck-status-info-bg);
   border: 1px solid var(--ck-status-info-line);
-  transition: border-color var(--ck-dur-fast) var(--ck-ease-out);
+  transition:
+    border-color var(--ck-dur-fast) var(--ck-ease-out),
+    transform var(--ck-dur-fast) var(--ck-ease-out);
 }
 .ck-btn-accent:hover { border-color: var(--ck-stroke-hot); }
 
-/* ---------- Hero ambient — touches Concept B ---------- */
-/* Subtle radial gradient reserved for executive surfaces (Hypervisor hero,
-   Steering header, balance-sheet net-value tile). Never apply to dense
-   list/table views. */
-.ck-hero-ambient {
-  position: relative;
-  isolation: isolate;
+/* ---------- Motion ---------- */
+/* The only three movements: a zone home enters, a button is pressed, a
+   summary item is hovered. Nothing moves on the rail, the ⌘K palette, or a
+   zone or workspace change. */
+@keyframes ck-enter {
+  from { opacity: 0; transform: translateY(8px); }
 }
-.ck-hero-ambient::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse at 30% 20%, rgba(125, 211, 252, 0.06), transparent 60%),
-    radial-gradient(ellipse at 80% 70%, rgba(167, 139, 250, 0.04), transparent 55%);
-}
+.ck-enter { animation: ck-enter var(--ck-dur-med) var(--ck-ease-out) both; }
+
+.ck-press { transition: transform var(--ck-dur-fast) var(--ck-ease-out); }
+.ck-press:active:not(:disabled),
+.ck-cta:active:not(:disabled),
+.ck-btn-quiet:active:not(:disabled),
+.ck-btn-accent:active:not(:disabled) { transform: scale(0.97); }
+
+.ck-wash { transition: background-color var(--ck-dur-fast) var(--ck-ease-out); }
+.ck-wash:hover { background-color: var(--ck-tint-soft); }
 
 /* ---------- Ambient grid (faint 48px graph paper background) ---------- */
 .ck-ambient-grid {
@@ -176,22 +172,13 @@
   height: 6px;
   border-radius: 50%;
   background: var(--ck-signal-pos);
-  /* Touches Concept B: double box-shadow (close + far) for richer glow. */
-  box-shadow:
-    0 0 6px var(--ck-signal-pos),
-    0 0 14px var(--ck-signal-pos);
   animation: ck-live-pulse 1.6s var(--ck-ease-in-out) infinite;
 }
-.ck-live-dot.cool   { background: var(--ck-signal-cool);   box-shadow: 0 0 6px var(--ck-signal-cool),   0 0 14px var(--ck-signal-cool); }
-.ck-live-dot.violet { background: var(--ck-signal-violet); box-shadow: 0 0 6px var(--ck-signal-violet), 0 0 14px var(--ck-signal-violet); }
-.ck-live-dot.warn   { background: var(--ck-signal-warn);   box-shadow: 0 0 6px var(--ck-signal-warn),   0 0 14px var(--ck-signal-warn); }
-.ck-live-dot.neg    { background: var(--ck-signal-neg);    box-shadow: 0 0 6px var(--ck-signal-neg),    0 0 14px var(--ck-signal-neg); }
-.ck-live-dot.neutral { background: var(--ck-fg-4); box-shadow: none; animation: none; }
-
-/* ---------- Crosshair signal ---------- */
-.ck-glow-cool   { filter: drop-shadow(0 0 6px var(--ck-signal-cool)); }
-.ck-glow-pos    { filter: drop-shadow(0 0 6px var(--ck-signal-pos)); }
-.ck-glow-violet { filter: drop-shadow(0 0 6px var(--ck-signal-violet)); }
+.ck-live-dot.cool   { background: var(--ck-signal-cool); }
+.ck-live-dot.violet { background: var(--ck-signal-violet); }
+.ck-live-dot.warn   { background: var(--ck-signal-warn); }
+.ck-live-dot.neg    { background: var(--ck-signal-neg); }
+.ck-live-dot.neutral { background: var(--ck-fg-4); animation: none; }
 
 /* ---------- Scrollbar (cockpit-flavored) ---------- */
 .ck-scroll {
@@ -255,4 +242,9 @@
 @media (prefers-reduced-motion: reduce) {
   .ck-live-dot { animation: none; }
   .ck-rail-flyout { transition: none; }
+  .ck-enter { animation: none; }
+  .ck-press:active:not(:disabled),
+  .ck-cta:active:not(:disabled),
+  .ck-btn-quiet:active:not(:disabled),
+  .ck-btn-accent:active:not(:disabled) { transform: none; }
 }

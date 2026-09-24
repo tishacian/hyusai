@@ -135,7 +135,7 @@ interface SkillsScope {
         }
 
         <!-- Portfolio summary -->
-        <section class="ck-surface rounded-md ck-hero-ambient relative overflow-hidden" style="padding:20px 24px;">
+        <section class="ck-surface rounded-md relative overflow-hidden" style="padding:20px 24px;">
           <div class="ck-mono flex items-center gap-2" style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:14px;">
             <ck-glyph name="ledger" [size]="12" />
             {{ i18n.t('skills.list.totals') }}
