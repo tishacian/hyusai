@@ -1,7 +1,9 @@
 import { ChangeDetectionStrategy, Component, inject, input, OnInit, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { laterResults, reviewRefusalKey } from './review-loop.vm';
 
 interface ReviewRow {
   id: string;
@@ -12,7 +14,8 @@ interface ReviewRow {
   later_run_id?: string | null;
   later_status?: string;
   same_object?: boolean;
-  nodes?: Array<{ type: string }>;
+  ran_correction?: boolean | null;
+  nodes?: Array<{ type: string; editable?: boolean }>;
   run_id: string;
 }
 
@@ -61,6 +64,11 @@ interface ReviewRow {
         }
         @if (row.same_object) {
           <p role="status">{{ i18n.t('flow.review.same') }} {{ i18n.t('flow.review.later', { status: row.later_status || '' }) }}</p>
+          @if (row.ran_correction === true) {
+            <p>{{ i18n.t('flow.review.ran_correction') }}</p>
+          } @else if (row.ran_correction === false) {
+            <p>{{ i18n.t('flow.review.other_draft') }}</p>
+          }
         }
       }
     </section>
@@ -95,8 +103,7 @@ export class ReviewLoopComponent implements OnInit {
   }
 
   protected laterRuns(): Array<{ id: string; status: string }> {
-    const current = this.review()?.run_id;
-    return this.runs().filter((run) => run.id !== current);
+    return laterResults(this.runs(), this.review()?.run_id);
   }
 
   protected blocks(row: ReviewRow): string {
@@ -114,7 +121,7 @@ export class ReviewLoopComponent implements OnInit {
         this.review.set({ ...row, run_id: row.run_id });
         this.busy.set(false);
       },
-      error: () => this.fail(),
+      error: (error: unknown) => this.fail(error),
     });
   }
 
@@ -128,7 +135,7 @@ export class ReviewLoopComponent implements OnInit {
         this.review.set({ ...row, ...seen, same_object: false });
         this.busy.set(false);
       },
-      error: () => this.fail(),
+      error: (error: unknown) => this.fail(error),
     });
   }
 
@@ -144,7 +151,7 @@ export class ReviewLoopComponent implements OnInit {
         if (later) this.laterId.set(later.id);
         this.busy.set(false);
       },
-      error: () => this.fail(),
+      error: (error: unknown) => this.fail(error),
     });
   }
 
@@ -156,10 +163,15 @@ export class ReviewLoopComponent implements OnInit {
     this.error.set('');
     this.canonical.automationCompareReview(this.systemId(), row.id, later).subscribe({
       next: (compared) => {
-        this.review.set({ ...row, ...compared, same_object: compared.same_object === true });
+        this.review.set({
+          ...row,
+          ...compared,
+          same_object: compared.same_object === true,
+          ran_correction: compared.ran_correction ?? null,
+        });
         this.busy.set(false);
       },
-      error: () => this.fail(),
+      error: (error: unknown) => this.fail(error),
     });
   }
 
@@ -169,15 +181,16 @@ export class ReviewLoopComponent implements OnInit {
         this.runs.set(state.runs ?? []);
         this.review.set(state.review ? { ...state.review, run_id: state.review.run_id } : null);
         if (state.review?.note) this.note.set(state.review.note);
-        const later = (state.runs ?? []).find((run) => run.id !== state.review?.run_id);
+        const later = this.laterRuns()[0];
         if (later) this.laterId.set(later.id);
       },
-      error: () => this.fail(),
+      error: (error: unknown) => this.fail(error),
     });
   }
 
-  private fail(): void {
+  private fail(error?: unknown): void {
     this.busy.set(false);
-    this.error.set(this.i18n.t('flow.review.error'));
+    const code = error instanceof HttpErrorResponse ? error.error?.detail?.code : '';
+    this.error.set(this.i18n.t(reviewRefusalKey(code)));
   }
 }
