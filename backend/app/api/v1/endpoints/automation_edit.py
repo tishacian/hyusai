@@ -516,6 +516,9 @@ async def automation_review_state(
         if later is not None:
             public["same_object"] = True
             public["later_status"] = later.status
+            public["ran_correction"] = automation_review.ran_correction(
+                row.correction_hash, later.flow_sha256
+            )
     return {"runs": _recent_runs(db, system), "review": public}
 
 
@@ -565,8 +568,6 @@ async def automation_review_reread(
     row = _review_row(db, system=system, review_id=review_id)
     try:
         seen = automation_review.reread(_review_public(row), _draft_flow(db, system))
-    except automation_edit.AutomationEditRefusal as refusal:
-        _refuse(db, refusal)
     except automation_review.AutomationReviewRefusal as refusal:
         _refuse_review(db, refusal)
     row.status = seen["status"]
@@ -590,10 +591,14 @@ async def automation_review_confirm(
     system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
     row = _review_row(db, system=system, review_id=review_id)
+    reserved = _run_on_system(db, system=system, run_id=row.run_id)
     try:
-        confirmed = automation_review.confirm_correction(_review_public(row), _draft_flow(db, system), body.draft_hash)
-    except automation_edit.AutomationEditRefusal as refusal:
-        _refuse(db, refusal)
+        confirmed = automation_review.confirm_correction(
+            _review_public(row),
+            _draft_flow(db, system),
+            body.draft_hash,
+            reserved_flow_sha256=reserved.flow_sha256,
+        )
     except automation_review.AutomationReviewRefusal as refusal:
         _refuse_review(db, refusal)
     row.status = confirmed["status"]
@@ -615,11 +620,19 @@ async def automation_review_compare(
     system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
     row = _review_row(db, system=system, review_id=review_id)
+    reserved = _run_on_system(db, system=system, run_id=row.run_id)
     later = _run_on_system(db, system=system, run_id=body.run_id)
     try:
         compared = automation_review.compare(
             _review_public(row),
-            {"id": later.id, "system_id": later.system_id, "status": later.status},
+            {
+                "id": later.id,
+                "system_id": later.system_id,
+                "status": later.status,
+                "started_at": later.started_at,
+                "flow_sha256": later.flow_sha256,
+            },
+            reserved_started_at=reserved.started_at,
         )
     except automation_review.AutomationReviewRefusal as refusal:
         _refuse_review(db, refusal)
@@ -627,7 +640,12 @@ async def automation_review_compare(
     row.later_run_id = compared["later_run_id"]
     db.commit()
     db.refresh(row)
-    return {**_review_public(row), "same_object": True, "later_status": compared["later_status"]}
+    return {
+        **_review_public(row),
+        "same_object": True,
+        "later_status": compared["later_status"],
+        "ran_correction": compared["ran_correction"],
+    }
 
 
 @router.get("/{system_id}/automation-dossiers")
