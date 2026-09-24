@@ -57,6 +57,7 @@ async def test_invalid_file_type():
             os.unlink(temp_path)
 
 
+@pytest.mark.usefixtures("require_qdrant")
 @pytest.mark.asyncio
 async def test_very_long_query():
     """Test handling of very long query"""
@@ -81,6 +82,7 @@ async def test_very_long_query():
             os.unlink(temp_path)
 
 
+@pytest.mark.usefixtures("require_qdrant")
 @pytest.mark.asyncio
 async def test_special_characters_in_query():
     """Test handling of special characters in query"""
@@ -115,6 +117,7 @@ async def test_special_characters_in_query():
             os.unlink(temp_path)
 
 
+@pytest.mark.usefixtures("require_qdrant")
 @pytest.mark.asyncio
 async def test_unicode_content():
     """Test handling of unicode content"""
@@ -195,6 +198,7 @@ async def test_zero_top_k():
             os.unlink(temp_path)
 
 
+@pytest.mark.usefixtures("require_qdrant")
 @pytest.mark.asyncio
 async def test_very_large_top_k():
     """Test search with very large top_k"""
