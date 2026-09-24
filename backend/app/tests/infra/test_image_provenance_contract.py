@@ -70,8 +70,11 @@ def test_an_image_with_transformers_carries_the_torchvision_it_assumes() -> None
         if "transformers" not in dockerfile:
             continue
 
+        # Other pip options (the demo constraints file) may sit between the
+        # package line and the index; the index is what makes the pair.
         cpu_install = re.search(
             r"(?m)^RUN pip install --no-cache-dir (?P<packages>[\w\s.=<>-]+?)\s*\\\s*\n"
+            r"(?:\s*--(?!index-url)[\w-]+=\S+\s*\\\s*\n)*"
             r"\s*--index-url=" + re.escape(TORCH_CPU_INDEX),
             dockerfile,
         )
