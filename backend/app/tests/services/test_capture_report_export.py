@@ -1,4 +1,8 @@
-"""Unit tests for branded Andritz capture report export (PDF / DOCX)."""
+"""Unit tests for the branded capture report export (PDF / DOCX).
+
+The brand is the workspace's: Andritz's from its family adapter, any other
+workspace's own name on neutral colours (ADR 0003 lot 2).
+"""
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -6,10 +10,14 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.capture_report_export import (
-    ANDRITZ_LOGO,
+    DEFAULT_BRAND,
+    NEUTRAL_PRIMARY,
+    _branded_html,
     build_capture_report_export,
     export_urls_for_proposal,
+    report_brand_for,
 )
+from app.tenants.andritz.capture_report import REPORT_BRAND as ANDRITZ_BRAND
 
 
 def _proposal(**overrides):
@@ -60,7 +68,47 @@ def test_export_urls_for_proposal():
 
 
 def test_andritz_logo_shipped_with_backend():
-    assert ANDRITZ_LOGO.is_file(), f"missing logo at {ANDRITZ_LOGO}"
+    assert ANDRITZ_BRAND.logo.is_file(), f"missing logo at {ANDRITZ_BRAND.logo}"
+
+
+def _html(brand):
+    return _branded_html(
+        markdown="# Rapport\n\nTexte",
+        title="Rapport",
+        header={},
+        doc_ref="P APG EX70 004 01",
+        type_label="Weekly site report",
+        brand=brand,
+    )
+
+
+def test_an_andritz_workspace_exports_under_the_andritz_brand():
+    workspace = SimpleNamespace(name="Andritz", settings={"family": "andritz"})
+    brand = report_brand_for(workspace)
+    assert brand == ANDRITZ_BRAND
+    page = _html(brand)
+    assert 'alt="ANDRITZ"' in page
+    assert "#003366" in page and "Field Service Excellence" in page
+    assert 'content: "ANDRITZ · P APG EX70 004 01 · page "' in page
+
+
+def test_another_workspace_exports_under_its_own_name():
+    workspace = SimpleNamespace(
+        name="Nawa",
+        settings={"family": "generic", "platform_brand": {"label": "NAWA", "emblem": "/x.png"}},
+    )
+    brand = report_brand_for(workspace)
+    assert brand.label == "NAWA" and brand.primary == NEUTRAL_PRIMARY and brand.logo is None
+    page = _html(brand)
+    assert "ANDRITZ" not in page and "Field Service Excellence" not in page
+    assert '<div class="logo-text">NAWA</div>' in page
+    unbranded = report_brand_for(SimpleNamespace(name="Showcase", settings={}))
+    assert unbranded.label == "Showcase"
+
+
+def test_a_brand_label_cannot_break_out_of_the_page_footer():
+    page = _html(DEFAULT_BRAND.__class__(label='Evil" } body { color: red', primary="#111111", accent="#222222"))
+    assert 'content: "Evil\\" } body { color: red · ' in page
 
 
 def test_build_pdf_export_returns_pdf_bytes():
