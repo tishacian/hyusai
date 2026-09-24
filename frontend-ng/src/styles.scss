@@ -24,14 +24,12 @@
 :root {
   --accent: #00bcd4;
   --accent-soft: rgba(0, 188, 212, 0.12);
-  --accent-violet: #8b5cf6;
-  --accent-indigo: #6366f1;
 
-  --radius-xs: 3px;
+  --radius-xs: 4px;
   --radius-sm: 4px;
   --radius: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  --radius-lg: 10px;
+  --radius-xl: 10px;
 
   /* light surface tokens */
   --bg-app: #f8fafc;
@@ -46,15 +44,17 @@
 }
 
 .dark {
-  --bg-app: #0a0e1a;
-  --bg-card: #111827;
-  --bg-muted: #0f1420;
-  --bg-raised: #1a1f2e;
-  --border-default: rgba(255, 255, 255, 0.06);
-  --border-active: rgba(0, 188, 212, 0.55);
-  --text-primary: #e2e8f0;
-  --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
+  --accent: var(--ck-primary);
+  --accent-soft: rgba(31, 184, 204, 0.12);
+  --bg-app: var(--ck-bg-base);
+  --bg-card: var(--ck-bg-panel);
+  --bg-muted: var(--ck-bg-inset);
+  --bg-raised: var(--ck-bg-panel-hi);
+  --border-default: var(--ck-stroke-2);
+  --border-active: rgba(31, 184, 204, 0.55);
+  --text-primary: var(--ck-fg-1);
+  --text-secondary: var(--ck-fg-3);
+  --text-muted: var(--ck-fg-4);
 }
 
 /* ============================================================================
@@ -81,31 +81,15 @@ body {
   overflow-x: hidden;
 }
 
-/* ============================================================================
-   Mesh gradient background — animated, subtle
-   ============================================================================ */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image: radial-gradient(at 20% 10%, rgba(0, 188, 212, 0.18) 0px, transparent 45%),
-    radial-gradient(at 80% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 40%),
-    radial-gradient(at 10% 80%, rgba(99, 102, 241, 0.12) 0px, transparent 45%),
-    radial-gradient(at 85% 85%, rgba(0, 188, 212, 0.1) 0px, transparent 40%);
-  opacity: 0.85;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--ck-font-display);
+  font-weight: 600;
 }
-
-.dark body::before {
-  opacity: 1;
-}
-
-/*
- * The old `body::after` film-grain (SVG noise + mix-blend-mode: overlay plein
- * écran) forçait une couche GPU permanente et plombait le compositor sans
- * bénéfice visuel réel : supprimé au profit du mesh gradient seul.
- */
 
 app-root {
   position: relative;
@@ -479,9 +463,6 @@ html:not(.dark) {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
-  }
-  body::before {
-    animation: none;
   }
   .gradient-title,
   .header-underline::after,
