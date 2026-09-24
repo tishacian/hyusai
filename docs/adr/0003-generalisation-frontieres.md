@@ -54,7 +54,7 @@ son compte exact et une catégorie :
 | `family` | les noms de famille canoniques | reste |
 | `tooling` | exemples en ligne de commande | reste |
 | `fixture` | contenu ou règle d'un client dans un module générique | **0** |
-| `demo` | contenu de démo scénarisé parmi les services | déplacé vers les seeds |
+| `demo` | contenu de démo scénarisé | vit sous `app/seeds/` ; seule exception, le scénario du pack Mission Room (4 fichiers déclarés) |
 | `client-app` | application client, dans son dossier `features/<client>/` | lot 2 : hors de ce dossier = **0** |
 | `composition` | les deux listes des applications client d'un build : leurs surfaces (`core/client-applications.ts`) et leurs routes (`core/client-application-routes.ts`) | une ligne par application |
 
@@ -187,7 +187,23 @@ Mesurées sur la branche du lot 1, code exécutable seulement :
 | Fichiers `client-app` hors `features/<client>` | — | 5 | 5 | **0** |
 | Fichiers `composition` / occurrences | — | — | — | 2 / 8 |
 | Fichiers `demo` / occurrences | — | 9 / 203 | 10 / 220 | 10 / 220 |
+| Fichiers `demo` hors `app/seeds/` | — | — | — | 10 → **4** (pack Mission Room) |
 | Fichiers `adapter` / occurrences | — | 37 / 254 | 40 / 283 | 40 / 263 |
+
+Demo → seeds : le contenu de démo scénarisé quitte les services génériques pour
+`backend/app/seeds/`. Y sont passés :
+
+- les lignes HANA de démo ;
+- les seeds Experience dual-run (les migrations 090 à 092 gardent leur chemin
+  d'import par un ré-export) ;
+- les événements du calendrier Sentinel CI ;
+- le rapport du Préfet et le texte du rapport stratégique ;
+- le jeu golden par défaut.
+
+Les services lisent ces modules et ne portent plus le contenu. Le contrat l'exige.
+Restent en `demo` hors seeds les quatre fichiers du pack Mission Room (Sentinel CI
+AYA, sa copie Octocity) : ils sortiront quand le pack tournera sur le provider
+générique `workspace_objects_v1`.
 
 Lot 2 : le shell produit ne porte plus ni application ni habillage client.
 
