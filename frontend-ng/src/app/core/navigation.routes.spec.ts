@@ -15,6 +15,16 @@ import {
 
 const APP_DIR = join(process.cwd(), 'src', 'app');
 const APP_ROUTES = join(APP_DIR, 'app.routes.ts');
+/** Customer applications declare the route they own in their own folder. */
+const CLIENT_APP_DESCRIPTORS = readdirSync(join(APP_DIR, 'features'))
+  .map((folder) => join(APP_DIR, 'features', folder))
+  .filter((dir) => statSync(dir).isDirectory())
+  .flatMap((dir) => readdirSync(dir).filter((name) => name.endsWith('.app.ts')).map((name) => join(dir, name)));
+
+/** Top-level paths: app.routes.ts plus the customer applications it mounts. */
+function appRoutePaths(): string[] {
+  return [APP_ROUTES, ...CLIENT_APP_DESCRIPTORS].flatMap((file) => declaredPaths(file));
+}
 
 /** Shells and internals that are not Cockpit chrome destinations (plan A.2). */
 const NAMED_EXEMPTIONS = [
@@ -71,7 +81,7 @@ function walk(dir: string, acc: string[] = []): string[] {
 
 /** Absolute patterns declared by the Router (app + feature modules). */
 function routerPatterns(): string[] {
-  const appPaths = declaredPaths(APP_ROUTES);
+  const appPaths = appRoutePaths();
   const patterns = new Set<string>();
   for (const path of appPaths) {
     patterns.add(path ? `/${path}` : '/');
@@ -159,7 +169,7 @@ function isCatalogued(pattern: string): boolean {
 
 test('every catalogued surface route is reachable through a declared route', () => {
   const roots = new Set(
-    declaredPaths(APP_ROUTES).map((path) => path.split('/')[0]).filter(Boolean),
+    appRoutePaths().map((path) => path.split('/')[0]).filter(Boolean),
   );
   const unreachable = AGENTIUM_SURFACE_ROUTES.filter((surface) => {
     const root = pathOnly(surface.route).split('/').filter(Boolean)[0] ?? '';

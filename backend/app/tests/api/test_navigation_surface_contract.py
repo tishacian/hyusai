@@ -22,6 +22,9 @@ from app.api.v1.endpoints.audit import _NAVIGATION_SURFACES
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CATALOGUE = REPO_ROOT / "frontend-ng" / "src" / "app" / "core" / "navigation.catalog.ts"
+# Customer applications declare their catalogue surfaces in their own folder
+# (features/<customer>/<customer>.app.ts); the catalogue spreads them in.
+CLIENT_APP_DESCRIPTORS = REPO_ROOT / "frontend-ng" / "src" / "app" / "features"
 
 # The catalogue is a TypeScript array of object literals; each entry opens with
 # its id at a fixed indentation. Parsing that is enough to compare two lists of
@@ -37,6 +40,8 @@ def _catalogue_surfaces() -> set[str]:
     if not CATALOGUE.exists():  # pragma: no cover - only outside a full checkout
         pytest.skip(f"navigation catalogue not found at {CATALOGUE}")
     ids = set(_ENTRY_ID.findall(CATALOGUE.read_text(encoding="utf-8")))
+    for descriptor in sorted(CLIENT_APP_DESCRIPTORS.glob("*/*.app.ts")):
+        ids |= set(_ENTRY_ID.findall(descriptor.read_text(encoding="utf-8")))
     assert len(ids) > 20, "the catalogue parser stopped matching entries"
     return ids
 

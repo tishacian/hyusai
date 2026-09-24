@@ -3215,10 +3215,10 @@ const STEP_ICONS: Record<string, string> = {
       background: color-mix(in oklab, var(--ck-signal-pos) 88%, black) !important;
     }
 
-    /* --- NAWA Studio skin. The PR to PO Studio wraps this panel in
-           .xp-studio-portal; inside it the chat drops the cockpit cyan and takes
-           the Studio charter (coral accent, sage ok-green, warm charcoal
-           surfaces) so the portal reads as one surface with the Studio. The
+    /* --- Studio skin. The Agent Studio wraps this panel in .xp-studio-portal;
+           inside it the chat drops the cockpit cyan and takes the Studio
+           tokens (--studio-*), which the Studio derives from the workspace
+           appearance, so the portal reads as one surface with the Studio. The
            .ck-chat-* hooks exist for skins like this one; they carry no style
            of their own. Last in the sheet on purpose: the skin must outrank
            the light-theme remaps at equal specificity. --- */
@@ -3229,56 +3229,56 @@ const STEP_ICONS: Record<string, string> = {
       border: 1px solid color-mix(in srgb, #ffffff 16%, transparent);
       background: linear-gradient(
         135deg,
-        color-mix(in srgb, var(--nawa-accent, #e8543a) 82%, #ffd9c9),
-        var(--nawa-accent, #e8543a)
+        color-mix(in srgb, var(--studio-accent) 82%, var(--studio-fg)),
+        var(--studio-accent)
       );
-      color: #1a0b07;
+      color: var(--studio-on-accent);
       font-weight: 500;
       padding: 12px 18px;
       font-size: 0.95rem;
       line-height: 1.55;
-      box-shadow: 0 14px 34px color-mix(in srgb, var(--nawa-accent, #e8543a) 28%, transparent);
+      box-shadow: 0 14px 34px color-mix(in srgb, var(--studio-accent) 28%, transparent);
     }
     :host-context(.xp-studio-portal) .ck-chat-assistant-bubble {
-      border: 1px solid var(--nawa-line, rgba(245, 242, 239, 0.1));
-      background: var(--nawa-surface-2, #1d1d1d);
-      color: var(--nawa-fg, #f5f2ef);
+      border: 1px solid var(--studio-line);
+      background: var(--studio-surface-2);
+      color: var(--studio-fg);
       padding: 14px 18px;
       font-size: 0.95rem;
       line-height: 1.65;
       box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
     }
     :host-context(.xp-studio-portal) .ck-chat-progress {
-      border: 1px solid color-mix(in srgb, var(--nawa-accent, #e8543a) 32%, transparent);
+      border: 1px solid color-mix(in srgb, var(--studio-accent) 32%, transparent);
       background:
         radial-gradient(
           140px 60px at 0% 50%,
-          color-mix(in srgb, var(--nawa-accent, #e8543a) 14%, transparent),
+          color-mix(in srgb, var(--studio-accent) 14%, transparent),
           transparent 70%
         ),
-        var(--nawa-surface-2, #1d1d1d);
-      color: var(--nawa-fg, #f5f2ef);
+        var(--studio-surface-2);
+      color: var(--studio-fg);
       box-shadow: none;
     }
     :host-context(.xp-studio-portal) .ck-chat-input-bar {
-      border-top-color: var(--nawa-line, rgba(245, 242, 239, 0.1));
-      background: color-mix(in srgb, var(--nawa-bg, #070707) 72%, transparent);
+      border-top-color: var(--studio-line);
+      background: color-mix(in srgb, var(--studio-bg) 72%, transparent);
       padding: 14px 16px;
       gap: 10px;
     }
     :host-context(.xp-studio-portal) .ck-chat-input {
-      border-color: var(--nawa-line, rgba(245, 242, 239, 0.12));
-      background: var(--nawa-surface-2, #1d1d1d);
-      color: var(--nawa-fg, #f5f2ef);
-      caret-color: var(--nawa-accent, #e8543a);
+      border-color: var(--studio-line);
+      background: var(--studio-surface-2);
+      color: var(--studio-fg);
+      caret-color: var(--studio-accent);
       min-height: 52px;
       padding: 14px 16px;
       border-radius: 14px;
       font-size: 0.95rem;
       line-height: 1.5;
       transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
-      /* The 2px Tailwind ring reads harsh on the warm charcoal — swap it for
-         a soft coral halo on focus below. */
+      /* The 2px Tailwind ring reads harsh on the Studio surfaces — swap it for
+         a soft accent halo on focus below. */
       --tw-ring-color: transparent;
     }
     :host-context(.xp-studio-portal) .ck-chat-input-bar button:not(.ck-chat-send) {
@@ -3287,55 +3287,55 @@ const STEP_ICONS: Record<string, string> = {
       border-radius: 14px;
     }
     :host-context(.xp-studio-portal) .ck-chat-input::placeholder {
-      color: var(--nawa-fg-dim, rgba(245, 242, 239, 0.55));
+      color: var(--studio-fg-dim);
     }
     :host-context(.xp-studio-portal) .ck-chat-input:focus {
-      border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 55%, transparent);
-      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 5%, var(--nawa-surface-2, #1d1d1d));
+      border-color: color-mix(in srgb, var(--studio-accent) 55%, transparent);
+      background: color-mix(in srgb, var(--studio-accent) 5%, var(--studio-surface-2));
       box-shadow:
-        0 0 0 3px color-mix(in srgb, var(--nawa-accent, #e8543a) 18%, transparent),
-        0 12px 30px color-mix(in srgb, var(--nawa-accent, #e8543a) 12%, transparent);
+        0 0 0 3px color-mix(in srgb, var(--studio-accent) 18%, transparent),
+        0 12px 30px color-mix(in srgb, var(--studio-accent) 12%, transparent);
     }
     :host-context(.xp-studio-portal) .ck-chat-send {
       border: 1px solid transparent;
-      background: var(--nawa-accent, #e8543a);
-      color: #140806;
+      background: var(--studio-accent);
+      color: var(--studio-on-accent);
       font-weight: 600;
       min-height: 52px;
       border-radius: 14px;
       padding-inline: 18px;
-      box-shadow: 0 10px 24px color-mix(in srgb, var(--nawa-accent, #e8543a) 35%, transparent);
+      box-shadow: 0 10px 24px color-mix(in srgb, var(--studio-accent) 35%, transparent);
     }
     :host-context(.xp-studio-portal) .ck-chat-send:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 86%, #ffffff);
+      background: color-mix(in srgb, var(--studio-accent) 86%, #ffffff);
     }
     :host-context(.xp-studio-portal) .ck-chat-empty-mark {
-      border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 30%, transparent);
-      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 10%, var(--nawa-surface, #141414));
-      box-shadow: 0 0 32px color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
+      border-color: color-mix(in srgb, var(--studio-accent) 30%, transparent);
+      background: color-mix(in srgb, var(--studio-accent) 10%, var(--studio-surface));
+      box-shadow: 0 0 32px color-mix(in srgb, var(--studio-accent) 22%, transparent);
     }
     :host-context(.xp-studio-portal) .ck-chat-empty-title {
-      color: var(--nawa-fg, #f5f2ef);
+      color: var(--studio-fg);
     }
     :host-context(.xp-studio-portal) .ck-chat-empty-hint {
-      color: var(--nawa-fg-dim, rgba(245, 242, 239, 0.64));
+      color: var(--studio-fg-dim);
     }
     :host-context(.xp-studio-portal) .ck-chat-trace-summary {
-      border-color: color-mix(in srgb, var(--nawa-accent, #e8543a) 22%, transparent);
-      background: color-mix(in srgb, var(--nawa-accent, #e8543a) 6%, var(--nawa-surface, #141414));
+      border-color: color-mix(in srgb, var(--studio-accent) 22%, transparent);
+      background: color-mix(in srgb, var(--studio-accent) 6%, var(--studio-surface));
     }
     :host-context(.xp-studio-portal) ck-thinking-orb {
       border-radius: 999px;
-      filter: drop-shadow(0 0 9px color-mix(in srgb, var(--nawa-accent, #e8543a) 45%, transparent));
+      filter: drop-shadow(0 0 9px color-mix(in srgb, var(--studio-accent) 45%, transparent));
     }
     :host-context(.xp-studio-portal) .text-cyan-400,
     :host-context(.xp-studio-portal) .text-cyan-300,
     :host-context(.xp-studio-portal) .text-sky-300 {
-      color: var(--nawa-accent, #e8543a);
+      color: var(--studio-accent);
     }
     :host-context(.xp-studio-portal) .text-emerald-400,
     :host-context(.xp-studio-portal) .text-emerald-300 {
-      color: var(--nawa-ok, #8fd0a8);
+      color: var(--studio-ok);
     }
   `],
 })
