@@ -105,7 +105,9 @@ def test_chat_run_ledger_enriches_capability_outcome_and_invocations(db_session)
 
     assert result["capability_slug"] == "workspace_assistant"
     assert run.capability_id == "cap-workspace-assistant"
-    assert run.decision == "approved"
+    # A completed chat turn is not an approval (7532d449): without a
+    # confidence or a person's decision the outcome states none.
+    assert run.decision is None
     assert run.value_source == "auto"
     assert run.value_estimated and run.value_estimated > 0
     assert run.cost_internal and run.cost_internal > 0
