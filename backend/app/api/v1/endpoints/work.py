@@ -208,7 +208,7 @@ async def list_work_apps(
         "experiences": [
             experience_service.serialize_work_catalog_item(*item) for item in rows
         ],
-        "automation_jobs": automation_portfolio.list_job_explanations(db, workspace),
+        "automation_jobs": automation_portfolio.list_job_explanations(db, workspace, user),
     }
 
 
@@ -221,7 +221,7 @@ async def get_automation_job(
 ):
     _require_enabled(workspace)
     _enforce_consume(db, user=user, workspace=workspace)
-    for card in automation_portfolio.list_job_explanations(db, workspace):
+    for card in automation_portfolio.list_job_explanations(db, workspace, user):
         if card["job"].get("system_id") == system_id:
             return card
     raise HTTPException(404, "Automation not found")
@@ -238,7 +238,7 @@ async def export_automation_package(
     _require_enabled(workspace)
     _enforce_consume(db, user=user, workspace=workspace)
     card = next(
-        (item for item in automation_portfolio.list_job_explanations(db, workspace) if item["job"].get("system_id") == system_id),
+        (item for item in automation_portfolio.list_job_explanations(db, workspace, user) if item["job"].get("system_id") == system_id),
         None,
     )
     if card is None:
@@ -261,7 +261,7 @@ async def export_automation_package(
                 "execution_surface": run.execution_surface,
             },
             convention=card["convention"] if card["convention"].get("status") != "absent" else None,
-            proof=automation_portfolio.invocation_proof(db, run),
+            proof={**automation_portfolio.invocation_proof(db, run), "gap": card["gap"]},
         )
     except automation_portfolio.AutomationPortfolioRefusal as refusal:
         raise HTTPException(

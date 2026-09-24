@@ -10,10 +10,16 @@ from app.services.projection_integrity import invocation_cost_is_measured
 from app.services.system_perspective import _is_showcase_seed_payload
 
 
-def operational_metrics(db, *, user, workspace, system):
-    objective = (system.settings or {}).get("operational_objective")
+def operational_metrics(db, *, user, workspace, system, objective=None, now=None):
+    """Measures over the objective's period; ``objective`` defaults to the System's.
+
+    A value contract passes its own indicator, target and period (and a clock
+    in tests); the System's operational objective stays the default.
+    """
+    if objective is None:
+        objective = (system.settings or {}).get("operational_objective")
     target = OperationalObjective.model_validate(objective) if objective else None
-    now = datetime.utcnow()
+    now = now or datetime.utcnow()
     start = datetime.combine(target.period_start, time.min) if target else now - timedelta(days=30)
     end = datetime.combine(target.period_end, time.min) if target else now
     rows = (
