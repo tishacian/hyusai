@@ -6,7 +6,7 @@ import os
 from app.services.rag.document_service import DocumentService
 
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("require_qdrant")]
 
 
 @pytest.fixture

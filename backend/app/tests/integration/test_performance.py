@@ -29,6 +29,7 @@ def performance_documents():
             os.unlink(doc_path)
 
 
+@pytest.mark.usefixtures("require_qdrant")
 @pytest.mark.asyncio
 async def test_ingestion_performance(performance_documents):
     """Benchmark document ingestion performance"""
@@ -52,6 +53,7 @@ async def test_ingestion_performance(performance_documents):
     assert avg_time < 5.0, f"Average ingestion time {avg_time}s is too slow"
 
 
+@pytest.mark.usefixtures("require_qdrant")
 @pytest.mark.asyncio
 async def test_search_performance(performance_documents):
     """Benchmark search performance"""
@@ -101,6 +103,7 @@ async def test_search_performance(performance_documents):
     assert avg_hybrid_time < 2.0, f"Hybrid search too slow: {avg_hybrid_time}s"
 
 
+@pytest.mark.usefixtures("require_qdrant")
 @pytest.mark.asyncio
 async def test_concurrent_operations():
     """Test concurrent document operations"""
