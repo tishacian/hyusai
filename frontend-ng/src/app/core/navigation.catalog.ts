@@ -1,5 +1,6 @@
 import type { CkGlyphName } from '@app/shared/cockpit';
 import type { WorkspaceMode } from '@app/core/workspace.service';
+import { CLIENT_APPLICATION_SURFACES } from './client-applications';
 
 /** A projection that can be applied to a hierarchy object. */
 export type ObjectLens = 'build' | 'operate' | 'steer' | 'govern';
@@ -261,21 +262,11 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     apiPrefix: '/api/v1/client360',
     status: 'canonical',
     audience: 'workspace-user',
-    description: 'Explainable spare-parts potential, mail drafts and impact tracking for Andritz.',
+    description: 'Explainable spare-parts potential, mail drafts and impact tracking.',
   },
-  {
-    id: 'nawa-itsd',
-    label: 'Nawa ITSD',
-    route: '/nawa/itsd',
-    routeAliases: ['/nawa/itsd/password-reset'],
-    lens: 'operate',
-    object: 'Workbench',
-    scope: 'workspace',
-    apiPrefix: '/api/v1/runs',
-    status: 'canonical',
-    audience: 'workspace-user',
-    description: 'IT automation use-case catalogue and the Password Reset simulation bench.',
-  },
+  // Surfaces of the customer applications this build carries, declared in
+  // their own features/<customer>/<customer>.surfaces.ts.
+  ...CLIENT_APPLICATION_SURFACES,
   {
     id: 'workspace-chat',
     label: 'Workspace Chat Focus',

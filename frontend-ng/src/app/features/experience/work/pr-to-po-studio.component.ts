@@ -12,6 +12,7 @@ import { RouterLink } from '@angular/router';
 import { Subscription, of, timer } from 'rxjs';
 import { catchError, switchMap, takeWhile } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
+import { appearanceStyles } from '@app/core/brand-appearance';
 import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -101,7 +102,7 @@ const RAIL_TOOLS: readonly RailTool[] = [
   imports: [CommonModule, RouterLink, ChatPanelComponent, ThinkingOrbComponent],
   styleUrl: './work.scss',
   template: `
-    <div class="xp-work xp-studio" data-theme="dark" data-studio="nawa">
+    <div class="xp-work xp-studio" data-brand-scope data-theme="dark" [ngStyle]="brandStyles()">
       <header class="xp-studio-bar">
         <div class="xp-studio-brand">
           <ck-thinking-orb [state]="busy() ? 'working' : 'listening'" [size]="20" />
@@ -596,6 +597,15 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
   private readonly workApi = inject(WorkApiService);
   readonly i18n = inject(I18nService);
   readonly workspace = inject(WorkspaceService);
+  /**
+   * The Studio wears the workspace appearance, always in the dark: the palette
+   * and accent a workspace declares in platform_brand.appearance, else the
+   * product's dark tokens. work.scss derives every --studio-* token from them.
+   */
+  readonly brandStyles = computed(() => {
+    const brand = this.workspace.current()?.settings?.['platform_brand'] as Record<string, unknown> | undefined;
+    return appearanceStyles(brand?.['appearance'], 'dark');
+  });
 
   private readonly context = factoryRuntimeContext();
   private pollSub: Subscription | null = null;

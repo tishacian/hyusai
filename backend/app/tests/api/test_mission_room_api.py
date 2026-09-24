@@ -53,8 +53,12 @@ def test_mission_room_overview_is_workspace_scoped(db_session):
     assert body["kpis"]["press_alerts"] == 16
 
 
-def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
+def test_mission_room_navigation_cockpit_and_search_are_audited(db_session, monkeypatch):
     workspace = _mission_room_workspace()
+    # The cockpit and the assertion below read the rolling demo clock at two
+    # moments; pinned to the minute the test starts, they cannot straddle one.
+    monkeypatch.setenv("SENTINEL_DEMO_DATE", resolve_demo_date(workspace).isoformat())
+    monkeypatch.setenv("SENTINEL_DEMO_TIME", resolve_demo_time(workspace).strftime("%H:%M"))
     user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
     db_session.add_all([workspace, user])
     db_session.commit()

@@ -16,6 +16,7 @@ def proof_identity(card: Mapping[str, Any] | None) -> dict[str, Any]:
         "called": None,
         "sources": [],
         "convention": "absent",
+        "contract": None,
         "gap": "absent",
     }
     if not isinstance(card, Mapping):
@@ -25,6 +26,7 @@ def proof_identity(card: Mapping[str, Any] | None) -> dict[str, Any]:
         convention = card.get("convention") if isinstance(card.get("convention"), Mapping) else {}
         gap = card.get("gap") if isinstance(card.get("gap"), Mapping) else {}
         empty["convention"] = convention.get("status") or "absent"
+        empty["contract"] = _contract_sha(convention)
         empty["gap"] = gap.get("status") or "absent"
         return empty
     sap = proof.get("sap") if isinstance(proof.get("sap"), Mapping) else None
@@ -43,8 +45,17 @@ def proof_identity(card: Mapping[str, Any] | None) -> dict[str, Any]:
         "called": sap.get("called") is True if sap else None,
         "sources": sources,
         "convention": convention.get("status") or "absent",
+        "contract": _contract_sha(convention),
         "gap": gap.get("status") or "absent",
     }
+
+
+def _contract_sha(convention: Mapping[str, Any]) -> str | None:
+    """The approved value contract a card shows, so two surfaces cannot show two."""
+
+    contract = convention.get("contract") if isinstance(convention.get("contract"), Mapping) else {}
+    sha = contract.get("content_sha256")
+    return sha if isinstance(sha, str) and sha else None
 
 
 def same_proof(*cards: Mapping[str, Any] | None) -> bool:

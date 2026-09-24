@@ -2,6 +2,7 @@ import { MandateEditorComponent } from '@app/features/mandate/mandate-editor.com
 import { SystemMandateComponent } from '@app/features/mandate/system-mandate.component';
 import { SystemMandateCoverageComponent } from './system-mandate-coverage.component';
 import { OperationalObjectiveComponent } from '@app/features/systems/operational-objective.component';
+import { ValueContractComponent } from '@app/features/systems/value-contract.component';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink, type UrlTree } from '@angular/router';
@@ -139,6 +140,7 @@ interface ContextConfigRow {
     SystemPerspectiveComponent,
     SystemValueLoopComponent,
     OperationalObjectiveComponent,
+    ValueContractComponent,
     SystemMandateComponent,
     SystemMandateCoverageComponent,
     MandateEditorComponent,
@@ -246,6 +248,9 @@ interface ContextConfigRow {
           }
         } @else {
 <app-operational-objective [systemId]="systemId" />
+        @if (systemId) {
+          <app-value-contract [systemId]="systemId" />
+        }
         @if (system360Enabled()) {
           <app-system-perspective
             [lens]="activeObjectLens()"

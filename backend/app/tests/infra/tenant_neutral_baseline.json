@@ -61,11 +61,6 @@
       "kind": "adapter",
       "why": "Andritz agentic rollout control."
     },
-    "backend/app/services/capture_report_export.py": {
-      "count": 23,
-      "kind": "adapter",
-      "why": "Andritz-branded PDF/DOCX export. Branding should come from the workspace (lot 2)."
-    },
     "backend/app/services/capture_report_templates.py": {
       "count": 9,
       "kind": "adapter",
@@ -216,6 +211,11 @@
       "kind": "adapter",
       "why": "Andritz contact-footer hygiene for the shared chat agent, selected by family."
     },
+    "backend/app/tenants/andritz/capture_report.py": {
+      "count": 3,
+      "kind": "adapter",
+      "why": "The Andritz brand on exported capture reports (lot 2)."
+    },
     "backend/app/tenants/andritz/chat_prompts.py": {
       "count": 6,
       "kind": "adapter",
@@ -226,10 +226,15 @@
       "kind": "adapter",
       "why": "Sentinel CI scripted demo skills, selected by family."
     },
-    "frontend-ng/src/app/app.routes.ts": {
-      "count": 3,
-      "kind": "client-app",
-      "why": "Routes of customer applications (lot 2)."
+    "frontend-ng/src/app/core/client-application-routes.ts": {
+      "count": 4,
+      "kind": "composition",
+      "why": "The one list of customer application routes this build carries (lot 2)."
+    },
+    "frontend-ng/src/app/core/client-applications.ts": {
+      "count": 4,
+      "kind": "composition",
+      "why": "The one list of customer application surfaces this build carries (lot 2)."
     },
     "frontend-ng/src/app/core/i18n/chrome.dict.ts": {
       "count": 4,
@@ -251,35 +256,15 @@
       "kind": "adapter",
       "why": "Labels of customer applications."
     },
-    "frontend-ng/src/app/core/navigation.catalog.ts": {
-      "count": 5,
-      "kind": "client-app",
-      "why": "Navigation entries of customer applications (lot 2)."
-    },
     "frontend-ng/src/app/core/workspace-experience-canaries.ts": {
       "count": 12,
       "kind": "canary",
       "why": "The live workspaces the workspace-experience shadow gate must prove before the resolver rolls out."
     },
-    "frontend-ng/src/app/features/chat/chat-panel.component.ts": {
-      "count": 37,
-      "kind": "client-app",
-      "why": "NAWA Studio skin inside the shared chat panel (lot 2)."
-    },
     "frontend-ng/src/app/features/client360/client360-page.component.ts": {
       "count": 4,
       "kind": "adapter",
       "why": "Client360, an Andritz capability."
-    },
-    "frontend-ng/src/app/features/experience/work/pr-to-po-studio.component.ts": {
-      "count": 1,
-      "kind": "client-app",
-      "why": "Work lands on the NAWA Studio (lot 2)."
-    },
-    "frontend-ng/src/app/features/experience/work/work.scss": {
-      "count": 143,
-      "kind": "client-app",
-      "why": "NAWA Studio styles in the Work shell (lot 2)."
     },
     "frontend-ng/src/app/features/knowledge/capture-fil/capture-fil-shell.component.ts": {
       "count": 2,
@@ -401,8 +386,18 @@
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
+    "frontend-ng/src/app/features/nawa/nawa.app.ts": {
+      "count": 3,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
     "frontend-ng/src/app/features/nawa/nawa.routes.ts": {
       "count": 3,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa.surfaces.ts": {
+      "count": 5,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
     }

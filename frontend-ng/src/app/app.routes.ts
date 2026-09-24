@@ -1,6 +1,7 @@
 import { inject } from '@angular/core';
-import { Routes } from '@angular/router';
+import { Route, Routes } from '@angular/router';
 import { authGuard } from './core/auth.guard';
+import { CLIENT_APPLICATION_ROUTES } from './core/client-application-routes';
 import { loginGuard } from './core/login.guard';
 import { navigationProfileGuard } from './core/navigation-profile.guard';
 import { workspaceHydrationGuard } from './core/workspace-hydration.guard';
@@ -21,14 +22,17 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/deposit/deposit-portal.component').then((m) => m.DepositPortalComponent),
   },
-  {
-    // White-labelled customer app: it owns the whole page, so it is mounted
-    // outside the Agentium shell. Business stakeholders must see the Nawa brand
-    // only, never the platform title bar, side rail or workspace switcher.
-    path: 'nawa',
-    canActivate: [authGuard, workspaceHydrationGuard],
-    loadChildren: () => import('./features/nawa/nawa.routes').then((m) => m.nawaRoutes),
-  },
+  // White-labelled customer applications own the whole page, so they are
+  // mounted outside the Agentium shell: business stakeholders see the
+  // customer's brand only, never the platform title bar, side rail or
+  // workspace switcher. core/client-application-routes.ts lists them.
+  ...CLIENT_APPLICATION_ROUTES.map(
+    (app): Route => ({
+      path: app.path,
+      canActivate: [authGuard, workspaceHydrationGuard],
+      loadChildren: app.loadChildren,
+    }),
+  ),
   {
     // Business launcher: no cockpit chrome. Same hydration + flag gate as /create.
     path: 'work',

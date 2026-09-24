@@ -12,7 +12,11 @@ Every file that still carries identifiers is listed in
 - ``family``: the canonical family names themselves.
 - ``fixture``: a customer's content or rule inside a generic module. Goes to 0.
 - ``demo``: scripted demo content living among services. Moves to seeds.
-- ``client-app``: a customer application or skin inside the product shell.
+- ``client-app``: a customer application, which lives in its own
+  ``features/<customer>/`` folder (lot 2).
+- ``composition``: the two lists of the customer applications a build carries,
+  their surfaces (``core/client-applications.ts``) and their routes
+  (``core/client-application-routes.ts``).
 - ``tooling``: command-line examples.
 - ``canary``: the live workspaces a rollout must prove, kept apart from the
   generic code that evaluates them.
@@ -38,7 +42,8 @@ BASELINE = Path(__file__).with_name("tenant_neutral_baseline.json")
 
 IDENTIFIERS = re.compile(r"(?<![a-z])(nawa|andritz|pih)(?![a-z])|spark-?0?89", re.IGNORECASE)
 WEB_COMMENTS = re.compile(r"/\*.*?\*/|<!--.*?-->|(?<![:\w])//[^\n]*", re.DOTALL)
-KINDS = {"adapter", "family", "fixture", "demo", "client-app", "tooling", "canary"}
+KINDS = {"adapter", "family", "fixture", "demo", "client-app", "composition", "tooling", "canary"}
+CLIENT_APP_HOME = re.compile(r"^frontend-ng/src/app/features/([a-z0-9-]+)/")
 
 
 def _docstring_lines(tree: ast.AST) -> set[int]:
@@ -131,6 +136,30 @@ def test_customer_identifiers_only_where_the_baseline_says():
     for path in sorted(set(baseline) - set(current)):
         problems.append(f"{path} no longer names any customer: remove its baseline entry.")
     assert not problems, "\n".join(problems)
+
+
+def test_customer_applications_stay_in_their_own_folder():
+    """Lot 2: the product shell carries no customer application or skin.
+
+    A customer application lives in ``features/<customer>/``; the shell reaches
+    it only through the two composition lists.
+    """
+
+    baseline = _baseline()
+    outside = sorted(
+        path
+        for path, entry in baseline.items()
+        if entry["kind"] == "client-app"
+        and not (
+            (home := CLIENT_APP_HOME.match(path)) and IDENTIFIERS.fullmatch(home.group(1))
+        )
+    )
+    assert not outside, outside
+    compositions = sorted(path for path, entry in baseline.items() if entry["kind"] == "composition")
+    assert compositions == [
+        "frontend-ng/src/app/core/client-application-routes.ts",
+        "frontend-ng/src/app/core/client-applications.ts",
+    ], compositions
 
 
 def test_no_setting_lists_workspace_slugs():

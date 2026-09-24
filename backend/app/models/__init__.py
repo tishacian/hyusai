@@ -114,3 +114,4 @@ from app.models.brd_document import BrdDocument
 from app.models.brd_proposal import BrdProposal
 
 from app.models.sap_write_intent import SapWriteIntent
+from app.models.value_contract import ValueContract

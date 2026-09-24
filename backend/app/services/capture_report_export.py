@@ -1,14 +1,21 @@
-"""Branded Andritz export (PDF / DOCX) for capture / FSE intervention reports.
+"""Branded export (PDF / DOCX) for capture / FSE intervention reports.
 
 On-demand rendering from an existing proposal + session plan. Does not alter
 publication, indexing, or object-store flows — the markdown fiche remains the
 canonical KB artefact; PDF/DOCX are presentation derivatives.
+
+The brand comes from the workspace (ADR 0003 lot 2): its family's report brand
+when the family declares one (``app.tenants.<family>.capture_report``, which
+is where the Andritz mark, blue and programme line live), else the workspace's
+own name on neutral colours. Before, every workspace exported an Andritz
+report.
 """
 from __future__ import annotations
 
 import html
 import io
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Literal, Mapping, Optional, Tuple
 
@@ -24,12 +31,53 @@ logger = get_logger(__name__)
 
 ExportFormat = Literal["pdf", "docx"]
 
-RESOURCES_DIR = Path(__file__).resolve().parents[1] / "resources" / "andritz"
-ANDRITZ_LOGO = RESOURCES_DIR / "andritz.png"
 
-# Andritz institutional blue (close to historical EX70 covers).
-_ANDRITZ_BLUE = "#003366"
-_ANDRITZ_ACCENT = "#0055A4"
+
+@dataclass(frozen=True)
+class ReportBrand:
+    """Who an exported report speaks for: name, mark and colours."""
+
+    label: str
+    primary: str
+    accent: str
+    #: Line under the mark, such as a service programme; empty for none.
+    program: str = ""
+    logo: Optional[Path] = None
+
+
+NEUTRAL_PRIMARY = "#1f2937"
+NEUTRAL_ACCENT = "#0e7490"
+DEFAULT_BRAND = ReportBrand(label="Agentium", primary=NEUTRAL_PRIMARY, accent=NEUTRAL_ACCENT)
+
+
+def report_brand_for(workspace: Any) -> ReportBrand:
+    """The family's report brand, else the workspace's own name on neutral colours."""
+
+    from app.services.workspace_features import workspace_family
+    from app.tenants import family_hook
+
+    brand = family_hook(workspace_family(workspace), "capture_report", "REPORT_BRAND")
+    if isinstance(brand, ReportBrand):
+        return brand
+    settings = getattr(workspace, "settings", None)
+    platform = settings.get("platform_brand") if isinstance(settings, Mapping) else None
+    label = platform.get("label") if isinstance(platform, Mapping) else None
+    label = str(label or getattr(workspace, "name", "") or DEFAULT_BRAND.label).strip()
+    return ReportBrand(label=label or DEFAULT_BRAND.label, primary=NEUTRAL_PRIMARY, accent=NEUTRAL_ACCENT)
+
+
+def _logo(brand: ReportBrand) -> Optional[Path]:
+    return brand.logo if brand.logo is not None and brand.logo.is_file() else None
+
+
+def _css_string(text: str) -> str:
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _rgb(hex_colour: str):
+    from docx.shared import RGBColor  # type: ignore
+
+    return RGBColor.from_string(hex_colour.lstrip("#").upper())
 
 
 def export_urls_for_proposal(proposal_id: str) -> Dict[str, str]:
@@ -45,8 +93,10 @@ def build_capture_report_export(
     proposal: KnowledgeUpdateProposal,
     session: Optional[ExpertCaptureSession],
     fmt: ExportFormat,
+    brand: Optional[ReportBrand] = None,
 ) -> Tuple[bytes, str, str]:
     """Return ``(bytes, media_type, filename)`` for the requested format."""
+    brand = brand or DEFAULT_BRAND
     payload = proposal.proposal if isinstance(proposal.proposal, Mapping) else {}
     markdown = str(
         payload.get("report_markdown")
@@ -76,6 +126,7 @@ def build_capture_report_export(
             header=header,
             doc_ref=doc_ref,
             type_label=type_label,
+            brand=brand,
         )
         return content, "application/pdf", f"{stem}.pdf"
 
@@ -86,6 +137,7 @@ def build_capture_report_export(
             header=header,
             doc_ref=doc_ref,
             type_label=type_label,
+            brand=brand,
         )
         return (
             content,
@@ -148,10 +200,11 @@ def _branded_html(
     header: Mapping[str, Any],
     doc_ref: str,
     type_label: str,
+    brand: ReportBrand = DEFAULT_BRAND,
 ) -> str:
-    logo_uri = ""
-    if ANDRITZ_LOGO.is_file():
-        logo_uri = ANDRITZ_LOGO.resolve().as_uri()
+    logo = _logo(brand)
+    logo_uri = logo.resolve().as_uri() if logo is not None else ""
+    label = html.escape(brand.label)
 
     cartouche_cells = "".join(
         f"<tr><th>{html.escape(label)}</th><td>{html.escape(value)}</td></tr>"
@@ -161,7 +214,12 @@ def _branded_html(
     meta_line = " · ".join(meta_bits)
     body = _markdown_to_html_body(markdown)
     logo_block = (
-        f'<img class="logo" src="{logo_uri}" alt="ANDRITZ" />' if logo_uri else '<div class="logo-text">ANDRITZ</div>'
+        f'<img class="logo" src="{logo_uri}" alt="{label}" />' if logo_uri else f'<div class="logo-text">{label}</div>'
+    )
+    program_block = (
+        f'<div style="font-weight:700; color:{brand.primary};">{html.escape(brand.program)}</div>'
+        if brand.program
+        else ""
     )
 
     return f"""<!doctype html>
@@ -174,7 +232,7 @@ def _branded_html(
     size: A4;
     margin: 16mm 14mm 18mm 14mm;
     @bottom-center {{
-      content: "ANDRITZ · {html.escape(doc_ref or 'Rapport intervention')} · page " counter(page);
+      content: "{_css_string(brand.label)} · {_css_string(doc_ref or 'Rapport intervention')} · page " counter(page);
       font-size: 8pt;
       color: #667788;
     }}
@@ -189,7 +247,7 @@ def _branded_html(
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 3px solid {_ANDRITZ_BLUE};
+    border-bottom: 3px solid {brand.primary};
     padding-bottom: 6mm;
     margin-bottom: 6mm;
   }}
@@ -198,7 +256,7 @@ def _branded_html(
     font-weight: 800;
     font-size: 18pt;
     letter-spacing: 0.12em;
-    color: {_ANDRITZ_BLUE};
+    color: {brand.primary};
   }}
   .banner-meta {{
     text-align: right;
@@ -206,18 +264,18 @@ def _branded_html(
     color: #445566;
   }}
   h1 {{
-    color: {_ANDRITZ_BLUE};
+    color: {brand.primary};
     font-size: 16pt;
     margin: 0 0 3mm;
   }}
   h2 {{
-    color: {_ANDRITZ_ACCENT};
+    color: {brand.accent};
     font-size: 12pt;
     margin-top: 7mm;
     border-bottom: 1px solid #c5d0dc;
     padding-bottom: 1.5mm;
   }}
-  h3 {{ color: {_ANDRITZ_BLUE}; font-size: 11pt; margin-top: 5mm; }}
+  h3 {{ color: {brand.primary}; font-size: 11pt; margin-top: 5mm; }}
   table.cartouche {{
     border-collapse: collapse;
     width: 100%;
@@ -227,7 +285,7 @@ def _branded_html(
   table.cartouche th {{
     width: 32%;
     background: #e8eef5;
-    color: {_ANDRITZ_BLUE};
+    color: {brand.primary};
     text-align: left;
     padding: 3px 6px;
     border: 1px solid #b8c6d6;
@@ -243,7 +301,7 @@ def _branded_html(
     font-size: 9.5pt;
   }}
   th, td {{ border: 1px solid #c3cbd6; padding: 3px 6px; text-align: left; }}
-  th {{ background: #eaf1fb; color: {_ANDRITZ_BLUE}; }}
+  th {{ background: #eaf1fb; color: {brand.primary}; }}
   ul, ol {{ margin: 2mm 0 2mm 5mm; }}
   p {{ margin: 2mm 0; }}
 </style>
@@ -252,7 +310,7 @@ def _branded_html(
   <div class="banner">
     {logo_block}
     <div class="banner-meta">
-      <div style="font-weight:700; color:{_ANDRITZ_BLUE};">Field Service Excellence</div>
+      {program_block}
       <div>{html.escape(meta_line)}</div>
     </div>
   </div>
@@ -271,6 +329,7 @@ def _build_pdf(
     header: Mapping[str, Any],
     doc_ref: str,
     type_label: str,
+    brand: ReportBrand = DEFAULT_BRAND,
 ) -> bytes:
     html_doc = _branded_html(
         markdown=markdown,
@@ -278,11 +337,13 @@ def _build_pdf(
         header=header,
         doc_ref=doc_ref,
         type_label=type_label,
+        brand=brand,
     )
     try:
         from weasyprint import HTML  # type: ignore
 
-        base = str(RESOURCES_DIR if RESOURCES_DIR.is_dir() else Path(__file__).resolve().parents[3])
+        logo = _logo(brand)
+        base = str(logo.parent if logo is not None else Path(__file__).resolve().parents[3])
         return HTML(string=html_doc, base_url=base).write_pdf()
     except Exception as exc:  # noqa: BLE001
         logger.info("capture_report_export.weasyprint_unavailable", error=str(exc))
@@ -329,6 +390,7 @@ def _build_docx(
     header: Mapping[str, Any],
     doc_ref: str,
     type_label: str,
+    brand: ReportBrand = DEFAULT_BRAND,
 ) -> bytes:
     from docx import Document  # type: ignore
     from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
@@ -342,34 +404,34 @@ def _build_docx(
     section.right_margin = Inches(0.75)
 
     # Banner
-    if ANDRITZ_LOGO.is_file():
-        try:
-            doc.add_picture(str(ANDRITZ_LOGO), width=Inches(1.6))
-        except Exception as exc:  # noqa: BLE001
-            logger.info("capture_report_export.logo_embed_failed", error=str(exc))
-            p = doc.add_paragraph()
-            run = p.add_run("ANDRITZ")
-            run.bold = True
-            run.font.size = Pt(16)
-            run.font.color.rgb = RGBColor(0x00, 0x33, 0x66)
-    else:
+    def _label_mark() -> None:
         p = doc.add_paragraph()
-        run = p.add_run("ANDRITZ")
+        run = p.add_run(brand.label)
         run.bold = True
         run.font.size = Pt(16)
-        run.font.color.rgb = RGBColor(0x00, 0x33, 0x66)
+        run.font.color.rgb = _rgb(brand.primary)
+
+    logo = _logo(brand)
+    if logo is not None:
+        try:
+            doc.add_picture(str(logo), width=Inches(1.6))
+        except Exception as exc:  # noqa: BLE001
+            logger.info("capture_report_export.logo_embed_failed", error=str(exc))
+            _label_mark()
+    else:
+        _label_mark()
 
     meta = doc.add_paragraph()
     meta.alignment = WD_ALIGN_PARAGRAPH.LEFT
     meta_run = meta.add_run(
-        " · ".join(bit for bit in ("Field Service Excellence", type_label, doc_ref) if bit)
+        " · ".join(bit for bit in (brand.program, type_label, doc_ref) if bit)
     )
     meta_run.font.size = Pt(9)
     meta_run.font.color.rgb = RGBColor(0x44, 0x55, 0x66)
 
     heading = doc.add_heading(title, level=1)
     for run in heading.runs:
-        run.font.color.rgb = RGBColor(0x00, 0x33, 0x66)
+        run.font.color.rgb = _rgb(brand.primary)
 
     # Cartouche table
     rows = _cartouche_rows(header)
@@ -383,7 +445,7 @@ def _build_docx(
     _append_markdown_to_docx(doc, markdown)
 
     footer = section.footer.paragraphs[0] if section.footer.paragraphs else section.footer.add_paragraph()
-    footer.text = f"ANDRITZ · {doc_ref or 'Rapport intervention'}"
+    footer.text = f"{brand.label} · {doc_ref or 'Rapport intervention'}"
     if footer.runs:
         footer.runs[0].font.size = Pt(8)
         footer.runs[0].font.color.rgb = RGBColor(0x66, 0x77, 0x88)

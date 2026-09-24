@@ -55,7 +55,8 @@ son compte exact et une catégorie :
 | `tooling` | exemples en ligne de commande | reste |
 | `fixture` | contenu ou règle d'un client dans un module générique | **0** |
 | `demo` | contenu de démo scénarisé parmi les services | déplacé vers les seeds |
-| `client-app` | application ou habillage client dans le shell produit | lot 2 |
+| `client-app` | application client, dans son dossier `features/<client>/` | lot 2 : hors de ce dossier = **0** |
+| `composition` | les deux listes des applications client d'un build : leurs surfaces (`core/client-applications.ts`) et leurs routes (`core/client-application-routes.ts`) | une ligne par application |
 
 Le compte est un cliquet : un fichier qui gagne un identifiant échoue, un nouveau
 fichier échoue, et un fichier qui en perd échoue tant que son entrée n'est pas
@@ -123,6 +124,35 @@ liste les DA : son `PurchasingDocument` dit si une PO le référence déjà. La 
 version lisait les postes de PO sur `sap`, alors que ce serveur ne les sert pas ; une
 réponse sans le poste ou sans ce champ refuse l'écriture.
 
+### D8 — Une automation a un contrat de valeur, approuvé par son responsable — **Acté** (lot 3)
+
+La valeur d'une automation était dispersée : l'objectif opérationnel du System
+(responsable en texte libre, sans approbation ni historique) et la base de valeur de la
+Capability (partagée entre Systems, `measured` déclaré par l'auteur, sans journal). Une
+automation neuve n'avait pas de Capability, sa convention restait donc absente, et
+aucun code ne produisait d'écart.
+
+- **Le contrat.** Un contrat par automation (`value_contracts`, migration 114) : le
+  responsable (un membre du workspace), l'indicateur et son unité, la cible, la période
+  (1 à 90 jours, fin exclue), la convention (valeur d'une unité métier, devise), la
+  source (accord, document, mesure ou estimation, avec sa référence) et l'approbation.
+- **Les révisions.** Chaque proposition est une nouvelle révision, écrite contre la
+  dernière (compare-and-set). En approuver une remplace l'approuvée précédente, une
+  proposition en attente est retirée par la suivante, et l'historique reste lisible.
+- **Qui fait quoi.** Proposer est un acte d'administration du System, comme l'objectif
+  opérationnel. Approuver ou refuser appartient au responsable que la proposition nomme,
+  même s'il l'a proposée, et sur les termes exacts qu'il a lus. Aucune nouvelle paire
+  IAM n'est créée.
+- **Ce que lisent les cartes.** Work, Hypervisor, Flow, l'export et la conversation ne
+  lisent que le contrat approuvé. L'objectif et la base de valeur restent pour leurs
+  écrans et pré-remplissent la proposition. L'identité de preuve porte le hash du
+  contrat affiché.
+- **L'écart.** C'est la mesure opérationnelle de l'indicateur moins la cible sur la
+  période, montrée une fois la période finie et la preuve complète ; pendant la période,
+  un avancement. `human_waits`, instantané de file, ne peut pas porter de cible.
+  L'écart n'est jamais converti en argent : la convention est nommée, et l'impact
+  économique reste à attester par la boucle de valeur.
+
 ### D5 — Une feuille de route par lots livrables — **Acté**
 
 Pas de branche unique pour toute la feuille de route : chaque lot est une unité qui se
@@ -133,8 +163,8 @@ relit, se déploie et se retire seule. Chaque lot met à jour cet ADR.
 | **1** | D1, D2, D3 ; vocabulaire Sentinel CI réservé à sa famille ; libellés NAWA retirés du catalogue de skills | — | contrat vert, 0 liste de slugs |
 | **1b** | sortir les `fixture` : prompts partagés du chat, skills de démo, hygiène de l'agent de chat, flow PR → PO, client SharePoint, placeholders | lot 1 déployé | fait : 9 → 2 (voir métriques) |
 | **1c** | handlers Mission Room hors de l'exécuteur partagé ; canaris sortis du résolveur ; prompts de chat persistés réparés | lot 1b déployé | fait : exécuteur sans client, `fixture` = 1 (BRD) |
-| **2** | Work comme application de workspace : page d'accueil, `features/nawa`, habillages NAWA du shell et du chat, export brandé | lot 1 déployé | `client-app` hors `features/<client>` = 0 |
-| **3** | contrat de valeur du portfolio : responsable, indicateur, unité, cible, période, convention, source, approbation | définition produit | saisie gouvernée en place |
+| **2** | Work comme application de workspace : page d'accueil, `features/nawa`, habillages NAWA du shell et du chat, export brandé | lot 1 déployé | fait : `client-app` hors `features/<client>` = 0 (migration 113) |
+| **3** | contrat de valeur du portfolio : responsable, indicateur, unité, cible, période, convention, source, approbation | définition produit (D8) | fait : saisie gouvernée en place (migration 114) |
 | **4** | sûreté de l'action SAP PO (D4) | — | fait en partie : cinq propriétés corrigées et testées (voir D7) |
 | **4b** | intention d'écriture par poste de DA (migration 112), lecture SAP avant écriture et référence `COLLECT_NO` derrière `sap_po_reconciliation`, run en échec sur issue inconnue, pas de retry d'une écriture | lot 4 déployé | fait : deux approbations d'un même poste ne créent qu'une PO ; drapeau à activer après un test en QA |
 | — | framework d'actions ; contrat BRD générique | deuxième action ; deuxième BRD | — |
@@ -148,14 +178,39 @@ une validation, pas du développement.
 
 Mesurées sur la branche du lot 1, code exécutable seulement :
 
-| Indicateur | Avant | Après lot 1 | Après lot 1b |
-|---|---|---|---|
-| Listes de slugs dans la configuration ou en dur | 7 | **0** | 0 |
-| Workspaces nouveaux gouvernés par défaut | non | **oui** | oui |
-| Fichiers `fixture` / occurrences | — | 9 / 77 | **2 / 15** |
-| Fichiers `client-app` / occurrences | — | 25 / 753 | 25 / 753 |
-| Fichiers `demo` / occurrences | — | 9 / 203 | 10 / 220 |
-| Fichiers `adapter` / occurrences | — | 37 / 254 | 40 / 283 |
+| Indicateur | Avant | Après lot 1 | Après lot 1b | Après lot 2 |
+|---|---|---|---|---|
+| Listes de slugs dans la configuration ou en dur | 7 | **0** | 0 | 0 |
+| Workspaces nouveaux gouvernés par défaut | non | **oui** | oui | oui |
+| Fichiers `fixture` / occurrences | — | 9 / 77 | **2 / 15** | 1 / 3 |
+| Fichiers `client-app` / occurrences | — | 25 / 753 | 25 / 753 | 22 / 572, tous dans `features/nawa` |
+| Fichiers `client-app` hors `features/<client>` | — | 5 | 5 | **0** |
+| Fichiers `composition` / occurrences | — | — | — | 2 / 8 |
+| Fichiers `demo` / occurrences | — | 9 / 203 | 10 / 220 | 10 / 220 |
+| Fichiers `adapter` / occurrences | — | 37 / 254 | 40 / 283 | 40 / 263 |
+
+Lot 2 : le shell produit ne porte plus ni application ni habillage client.
+
+- **Habillage.** Le PR → PO Agent Studio et son chat portaient un skin NAWA écrit
+  dans les styles partagés de Work et du chat. Ils portent maintenant l'apparence du
+  workspace (`platform_brand.appearance`, toujours en sombre), comme le shell et le
+  lanceur Work. La migration 113 déclare sur `nawa` l'allure qu'avait le skin : la
+  palette `graphite` et l'accent `#e8543a`. Cette apparence habille aussi le shell et
+  le lanceur Work de NAWA ; l'application `/nawa/itsd` garde son thème.
+- **Application.** La route et la surface de catalogue NAWA vivent dans
+  `features/nawa/` (`nawa.app.ts`, `nawa.surfaces.ts`). Le routeur et le catalogue
+  les lisent dans les deux listes de `composition`, sans nommer de client. Deux listes
+  et non une : un catalogue qui importe la route paresseuse d'une application fait
+  résoudre ses composants par le bundler.
+- **Page d'accueil.** Celle de NAWA (`navigation_profile.default_route: /nawa/itsd`)
+  se résout toujours par sa surface ; un test le vérifie.
+- **Export brandé.** Work et NAWA n'en ont pas. Le seul export brandé, le rapport de
+  capture, sortait en Andritz pour tout workspace ayant la capture de connaissances.
+  Il prend maintenant la marque du workspace : celle de sa famille
+  (`app/tenants/andritz/capture_report.py`), sinon le nom du workspace sur des
+  couleurs neutres. Le rapport Andritz est inchangé.
+- Le contrat exécute le critère : toute entrée `client-app` vit dans
+  `features/<client>/`, et les deux seuls fichiers `composition` sont ces deux listes.
 
 Lot 1c : l'exécuteur d'actions partagé (2134 → 603 lignes) ne nomme plus aucun client :
 les 25 handlers Mission Room sont partis tels quels vers

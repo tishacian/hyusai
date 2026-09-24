@@ -35,7 +35,7 @@ from app.models.system import System
 from app.models.user import Message, User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
-from app.services.capture_report_export import build_capture_report_export
+from app.services.capture_report_export import build_capture_report_export, report_brand_for
 from app.services.capture_templates import (
     get_capture_template,
     list_capture_templates,
@@ -2457,9 +2457,10 @@ async def export_capture_proposal_document(
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ) -> Response:
-    """Branded Andritz PDF/DOCX derivative of a finalized capture report.
+    """Branded PDF/DOCX derivative of a finalized capture report.
 
-    Does not mutate publication or indexing — pure on-demand render.
+    The brand is the workspace's (``report_brand_for``). Does not mutate
+    publication or indexing — pure on-demand render.
     """
     try:
         proposal, session = _load_proposal_with_session(
@@ -2479,6 +2480,7 @@ async def export_capture_proposal_document(
             proposal=proposal,
             session=session,
             fmt=format,
+            brand=report_brand_for(workspace),
         )
     except ValueError as exc:
         raise _http_error_from_value_error(exc) from exc
