@@ -416,42 +416,47 @@
   font-size: 11px;
 }
 
-/* ————— NAWA Studio skin — the theme the Agent Studio wears ————— */
+/* ————— Studio skin — the workspace appearance, always dark —————
+   The Studio root carries data-brand-scope, data-theme="dark" and the
+   workspace appearance (platform_brand.appearance), so these tokens follow the
+   workspace's palette and accent. A workspace that declares none wears the
+   product's dark tokens. Status colours stay the product's signals. */
 
-.xp-work[data-studio='nawa'] {
-  --nawa-bg: #070707;
-  --nawa-surface: #141414;
-  --nawa-surface-2: #1d1d1d;
-  --nawa-line: rgba(245, 242, 239, 0.1);
-  --nawa-fg: #f5f2ef;
-  --nawa-fg-dim: rgba(245, 242, 239, 0.64);
-  --nawa-accent: #e8543a;
-  --nawa-ok: #8fd0a8;
-  --nawa-warn: #d9a21b;
-  --nawa-read: #8fd0a8;
-  --nawa-derive: #c8c0b8;
+.xp-work.xp-studio {
+  --studio-bg: var(--ck-bg-base);
+  --studio-surface: var(--ck-bg-panel);
+  --studio-surface-2: color-mix(in srgb, var(--ck-bg-panel-hi) 97%, var(--ck-fg-1));
+  --studio-line: color-mix(in srgb, var(--ck-fg-1) 10%, transparent);
+  --studio-fg: var(--ck-fg-1);
+  --studio-fg-dim: color-mix(in srgb, var(--ck-fg-1) 64%, transparent);
+  --studio-accent: var(--xp-app-accent, var(--ck-cta-bg));
+  --studio-on-accent: var(--xp-on-accent, var(--ck-cta-fg));
+  --studio-ok: color-mix(in srgb, var(--ck-signal-pos) 60%, var(--ck-fg-1));
+  --studio-warn: var(--ck-signal-warn);
+  --studio-read: var(--studio-ok);
+  --studio-derive: color-mix(in srgb, var(--ck-fg-1) 76%, transparent);
   min-height: 100dvh;
   background:
-    radial-gradient(1200px 480px at 12% -10%, rgba(232, 84, 58, 0.22), transparent 55%),
-    radial-gradient(900px 420px at 92% 8%, rgba(143, 208, 168, 0.08), transparent 50%),
-    var(--nawa-bg);
-  color: var(--nawa-fg);
+    radial-gradient(1200px 480px at 12% -10%, color-mix(in srgb, var(--studio-accent) 22%, transparent), transparent 55%),
+    radial-gradient(900px 420px at 92% 8%, color-mix(in srgb, var(--studio-ok) 8%, transparent), transparent 50%),
+    var(--studio-bg);
+  color: var(--studio-fg);
 }
 
-.xp-work[data-studio='nawa'] .xp-work-btn {
-  border-color: var(--nawa-line);
-  color: var(--nawa-fg);
+.xp-work.xp-studio .xp-work-btn {
+  border-color: var(--studio-line);
+  color: var(--studio-fg);
 }
 
-.xp-work[data-studio='nawa'] .xp-work-btn-primary {
-  background: var(--nawa-accent);
+.xp-work.xp-studio .xp-work-btn-primary {
+  background: var(--studio-accent);
   border-color: transparent;
-  color: #140806;
+  color: var(--studio-on-accent);
 }
 
 .xp-studio-kicker {
   margin: 0 0 8px;
-  color: var(--nawa-accent);
+  color: var(--studio-accent);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -460,7 +465,7 @@
 
 .xp-studio-note {
   margin: 0;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -474,10 +479,10 @@
 
 .xp-studio-chip {
   padding: 6px 10px;
-  border: 1px solid var(--nawa-line);
+  border: 1px solid var(--studio-line);
   border-radius: 999px;
   background: transparent;
-  color: var(--nawa-fg);
+  color: var(--studio-fg);
   font-size: 12px;
   cursor: pointer;
 }
@@ -485,12 +490,12 @@
 .xp-studio-chip:hover,
 .xp-studio-chip:focus-visible,
 .xp-studio-chip[data-active='true'] {
-  border-color: var(--nawa-accent);
-  color: var(--nawa-accent);
+  border-color: var(--studio-accent);
+  color: var(--studio-accent);
 }
 
 .xp-studio-chip[data-active='true'] {
-  background: color-mix(in srgb, var(--nawa-accent) 12%, transparent);
+  background: color-mix(in srgb, var(--studio-accent) 12%, transparent);
 }
 
 /* The chat portal: the conversation panel skinned as part of the Studio.
@@ -502,12 +507,12 @@
   max-height: 36rem;
   margin: 0 0 24px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--nawa-accent) 26%, var(--nawa-line));
+  border: 1px solid color-mix(in srgb, var(--studio-accent) 26%, var(--studio-line));
   border-radius: 16px;
   background:
-    radial-gradient(680px 220px at 6% 0%, rgba(232, 84, 58, 0.12), transparent 62%),
-    radial-gradient(520px 200px at 96% 100%, rgba(143, 208, 168, 0.06), transparent 55%),
-    color-mix(in srgb, var(--nawa-surface) 92%, transparent);
+    radial-gradient(680px 220px at 6% 0%, color-mix(in srgb, var(--studio-accent) 12%, transparent), transparent 62%),
+    radial-gradient(520px 200px at 96% 100%, color-mix(in srgb, var(--studio-ok) 6%, transparent), transparent 55%),
+    color-mix(in srgb, var(--studio-surface) 92%, transparent);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
   animation: studio-rise 420ms ease both;
 }
@@ -518,7 +523,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px 10px;
-  border-bottom: 1px solid var(--nawa-line);
+  border-bottom: 1px solid var(--studio-line);
 }
 
 .xp-studio-portal-head {
@@ -530,7 +535,7 @@
 .xp-studio-portal-head ck-thinking-orb {
   flex: 0 0 auto;
   border-radius: 999px;
-  filter: drop-shadow(0 0 9px color-mix(in srgb, var(--nawa-accent) 45%, transparent));
+  filter: drop-shadow(0 0 9px color-mix(in srgb, var(--studio-accent) 45%, transparent));
 }
 
 .xp-studio-portal app-chat-panel {
@@ -545,11 +550,11 @@
 }
 
 @keyframes studio-pulse {
-  0%, 100% { border-color: var(--nawa-line); }
-  50% { border-color: color-mix(in srgb, var(--nawa-accent) 55%, var(--nawa-line)); }
+  0%, 100% { border-color: var(--studio-line); }
+  50% { border-color: color-mix(in srgb, var(--studio-accent) 55%, var(--studio-line)); }
 }
 
-/* ————— NAWA Agent Studio ————— */
+/* ————— Agent Studio ————— */
 
 .xp-studio {
   display: flex;
@@ -566,8 +571,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 26px;
-  border-bottom: 1px solid var(--nawa-line);
-  background: color-mix(in srgb, var(--nawa-bg) 86%, transparent);
+  border-bottom: 1px solid var(--studio-line);
+  background: color-mix(in srgb, var(--studio-bg) 86%, transparent);
   backdrop-filter: blur(16px);
 }
 
@@ -586,16 +591,16 @@
 
 .xp-studio-brand p {
   margin: 2px 0 0;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 12px;
 }
 
 .xp-studio-modes {
   display: inline-flex;
   padding: 3px;
-  border: 1px solid var(--nawa-line);
+  border: 1px solid var(--studio-line);
   border-radius: 99px;
-  background: var(--nawa-surface);
+  background: var(--studio-surface);
 }
 
 .xp-studio-modes button {
@@ -603,15 +608,15 @@
   border: 0;
   border-radius: 99px;
   background: transparent;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 13px;
   cursor: pointer;
   transition: background 160ms ease, color 160ms ease;
 }
 
 .xp-studio-modes button[data-active='true'] {
-  background: var(--nawa-accent);
-  color: #16100e;
+  background: var(--studio-accent);
+  color: var(--studio-on-accent);
   font-weight: 600;
 }
 
@@ -623,17 +628,17 @@
 
 .xp-studio-badge {
   padding: 5px 12px;
-  border: 1px solid var(--nawa-line);
+  border: 1px solid var(--studio-line);
   border-radius: 99px;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .xp-studio-badge[data-live='true'] {
-  border-color: color-mix(in srgb, var(--nawa-ok) 60%, var(--nawa-line));
-  color: var(--nawa-ok);
+  border-color: color-mix(in srgb, var(--studio-ok) 60%, var(--studio-line));
+  color: var(--studio-ok);
 }
 
 .xp-studio-body {
@@ -658,11 +663,11 @@
   justify-content: space-between;
   margin-bottom: 20px;
   padding: 22px 24px;
-  border: 1px solid var(--nawa-line);
+  border: 1px solid var(--studio-line);
   border-radius: 16px;
   background:
-    radial-gradient(520px 200px at 8% -30%, rgba(232, 84, 58, 0.18), transparent 60%),
-    var(--nawa-surface);
+    radial-gradient(520px 200px at 8% -30%, color-mix(in srgb, var(--studio-accent) 18%, transparent), transparent 60%),
+    var(--studio-surface);
 }
 
 .xp-studio-hero h2 {
@@ -683,14 +688,14 @@
 .xp-studio-result {
   margin-bottom: 20px;
   padding: 16px 20px;
-  border: 1px solid color-mix(in srgb, var(--nawa-ok) 55%, var(--nawa-line));
+  border: 1px solid color-mix(in srgb, var(--studio-ok) 55%, var(--studio-line));
   border-radius: 14px;
-  background: color-mix(in srgb, var(--nawa-ok) 8%, var(--nawa-surface));
+  background: color-mix(in srgb, var(--studio-ok) 8%, var(--studio-surface));
 }
 
 .xp-studio-result h3 {
   margin: 0 0 8px;
-  color: var(--nawa-ok);
+  color: var(--studio-ok);
   font-size: 14px;
 }
 
@@ -713,7 +718,7 @@
 }
 
 .xp-studio-result span {
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 13px;
 }
 
@@ -727,32 +732,32 @@
 }
 
 .xp-studio-nodes > li {
-  border: 1px solid var(--nawa-line);
+  border: 1px solid var(--studio-line);
   border-radius: 14px;
-  background: var(--nawa-surface);
+  background: var(--studio-surface);
   transition: border-color 180ms ease;
 }
 
 .xp-studio-nodes > li[data-status='running'] {
-  border-color: color-mix(in srgb, var(--nawa-accent) 65%, var(--nawa-line));
+  border-color: color-mix(in srgb, var(--studio-accent) 65%, var(--studio-line));
   animation: studio-pulse 1.6s ease infinite;
 }
 
 .xp-studio-nodes > li[data-status='done'] {
-  border-color: color-mix(in srgb, var(--nawa-ok) 40%, var(--nawa-line));
+  border-color: color-mix(in srgb, var(--studio-ok) 40%, var(--studio-line));
 }
 
 .xp-studio-nodes > li[data-status='warn'] {
-  border-color: color-mix(in srgb, var(--nawa-warn) 55%, var(--nawa-line));
+  border-color: color-mix(in srgb, var(--studio-warn) 55%, var(--studio-line));
 }
 
 .xp-studio-nodes > li[data-status='error'] {
-  border-color: color-mix(in srgb, var(--nawa-accent) 80%, var(--nawa-line));
+  border-color: color-mix(in srgb, var(--studio-accent) 80%, var(--studio-line));
 }
 
 .xp-studio-nodes > li[data-status='waiting'] {
-  border-color: color-mix(in srgb, var(--nawa-warn) 70%, var(--nawa-line));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--nawa-warn) 30%, transparent);
+  border-color: color-mix(in srgb, var(--studio-warn) 70%, var(--studio-line));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--studio-warn) 30%, transparent);
 }
 
 .xp-studio-node-head {
@@ -775,15 +780,15 @@
   justify-content: center;
   width: 24px;
   height: 24px;
-  border: 1px solid var(--nawa-line);
+  border: 1px solid var(--studio-line);
   border-radius: 50%;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 11px;
 }
 
 li[data-status='done'] .xp-studio-node-index {
-  border-color: var(--nawa-ok);
-  color: var(--nawa-ok);
+  border-color: var(--studio-ok);
+  color: var(--studio-ok);
 }
 
 .xp-studio-node-name {
@@ -801,7 +806,7 @@ li[data-status='done'] .xp-studio-node-index {
 }
 
 .xp-studio-node-name em {
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 12px;
   font-style: normal;
 }
@@ -816,58 +821,58 @@ li[data-status='done'] .xp-studio-node-index {
 }
 
 .xp-studio-node-kind[data-kind='read'] {
-  background: color-mix(in srgb, var(--nawa-read) 18%, transparent);
-  color: var(--nawa-read);
+  background: color-mix(in srgb, var(--studio-read) 18%, transparent);
+  color: var(--studio-read);
 }
 
 .xp-studio-node-kind[data-kind='derive'] {
-  background: color-mix(in srgb, var(--nawa-derive) 18%, transparent);
-  color: var(--nawa-derive);
+  background: color-mix(in srgb, var(--studio-derive) 18%, transparent);
+  color: var(--studio-derive);
 }
 
 .xp-studio-node-kind[data-kind='gate'] {
-  background: color-mix(in srgb, var(--nawa-warn) 20%, transparent);
-  color: var(--nawa-warn);
+  background: color-mix(in srgb, var(--studio-warn) 20%, transparent);
+  color: var(--studio-warn);
 }
 
 .xp-studio-node-kind[data-kind='write'] {
-  background: color-mix(in srgb, var(--nawa-accent) 20%, transparent);
-  color: var(--nawa-accent);
+  background: color-mix(in srgb, var(--studio-accent) 20%, transparent);
+  color: var(--studio-accent);
 }
 
 .xp-studio-node-status {
   flex: none;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 12px;
 }
 
 li[data-status='done'] .xp-studio-node-status {
-  color: var(--nawa-ok);
+  color: var(--studio-ok);
 }
 
 li[data-status='error'] .xp-studio-node-status {
-  color: var(--nawa-accent);
+  color: var(--studio-accent);
 }
 
 li[data-status='warn'] .xp-studio-node-status,
 li[data-status='waiting'] .xp-studio-node-status {
-  color: var(--nawa-warn);
+  color: var(--studio-warn);
 }
 
 .xp-studio-node-detail {
   padding: 4px 16px 16px;
-  border-top: 1px solid var(--nawa-line);
+  border-top: 1px solid var(--studio-line);
 }
 
 .xp-studio-call {
   margin-top: 10px;
-  border: 1px solid var(--nawa-line);
+  border: 1px solid var(--studio-line);
   border-radius: 10px;
-  background: var(--nawa-surface-2);
+  background: var(--studio-surface-2);
 }
 
 .xp-studio-call[data-blocked='true'] {
-  border-color: color-mix(in srgb, var(--nawa-warn) 60%, var(--nawa-line));
+  border-color: color-mix(in srgb, var(--studio-warn) 60%, var(--studio-line));
 }
 
 .xp-studio-call summary {
@@ -885,11 +890,11 @@ li[data-status='waiting'] .xp-studio-node-status {
 }
 
 .xp-studio-call summary span[data-kind='write'] {
-  color: var(--nawa-accent);
+  color: var(--studio-accent);
 }
 
 .xp-studio-call summary span[data-kind='read'] {
-  color: var(--nawa-read);
+  color: var(--studio-read);
 }
 
 .xp-studio-call summary b {
@@ -897,16 +902,16 @@ li[data-status='waiting'] .xp-studio-node-status {
 }
 
 .xp-studio-call summary b[data-ok='false'] {
-  color: var(--nawa-accent);
+  color: var(--studio-accent);
 }
 
 .xp-studio-call summary b[data-ok='true'] {
-  color: var(--nawa-ok);
+  color: var(--studio-ok);
 }
 
 .xp-studio-call > p {
   margin: 8px 12px 4px;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -918,7 +923,7 @@ li[data-status='waiting'] .xp-studio-node-status {
   overflow: auto;
   max-height: 320px;
   border-radius: 8px;
-  background: var(--nawa-bg);
+  background: var(--studio-bg);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -932,17 +937,17 @@ li[data-status='waiting'] .xp-studio-node-status {
 
 .xp-studio-card {
   padding: 16px 18px;
-  border: 1px solid color-mix(in srgb, var(--nawa-warn) 45%, var(--nawa-line));
+  border: 1px solid color-mix(in srgb, var(--studio-warn) 45%, var(--studio-line));
   border-radius: 14px;
-  background: var(--nawa-surface-2);
+  background: var(--studio-surface-2);
 }
 
 .xp-studio-card[data-decision='approved'] {
-  border-color: color-mix(in srgb, var(--nawa-ok) 50%, var(--nawa-line));
+  border-color: color-mix(in srgb, var(--studio-ok) 50%, var(--studio-line));
 }
 
 .xp-studio-card[data-decision='rejected'] {
-  border-color: var(--nawa-line);
+  border-color: var(--studio-line);
   opacity: 0.75;
 }
 
@@ -960,7 +965,7 @@ li[data-status='waiting'] .xp-studio-node-status {
 
 .xp-studio-card > header p {
   margin: 0;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 12px;
 }
 
@@ -978,7 +983,7 @@ li[data-status='waiting'] .xp-studio-node-status {
 }
 
 .xp-studio-card dt {
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 10.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -991,7 +996,7 @@ li[data-status='waiting'] .xp-studio-node-status {
 
 .xp-studio-warn {
   margin: 10px 0 0;
-  color: var(--nawa-warn);
+  color: var(--studio-warn);
   font-size: 12.5px;
 }
 
@@ -1004,7 +1009,7 @@ li[data-status='waiting'] .xp-studio-node-status {
 .xp-studio-provenance li {
   position: relative;
   padding: 2px 0 2px 16px;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 12px;
 }
 
@@ -1012,11 +1017,11 @@ li[data-status='waiting'] .xp-studio-node-status {
   content: '↳';
   position: absolute;
   left: 0;
-  color: var(--nawa-accent);
+  color: var(--studio-accent);
 }
 
 .xp-studio-card details summary {
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 12px;
   cursor: pointer;
 }
@@ -1027,7 +1032,7 @@ li[data-status='waiting'] .xp-studio-node-status {
   overflow: auto;
   max-height: 280px;
   border-radius: 8px;
-  background: var(--nawa-bg);
+  background: var(--studio-bg);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -1036,14 +1041,14 @@ li[data-status='waiting'] .xp-studio-node-status {
   margin: 12px 0 0;
   padding: 10px 12px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--nawa-accent) 12%, transparent);
-  color: var(--nawa-accent);
+  background: color-mix(in srgb, var(--studio-accent) 12%, transparent);
+  color: var(--studio-accent);
   font-size: 13px;
 }
 
 .xp-studio-outcome[data-ok='true'] {
-  background: color-mix(in srgb, var(--nawa-ok) 12%, transparent);
-  color: var(--nawa-ok);
+  background: color-mix(in srgb, var(--studio-ok) 12%, transparent);
+  color: var(--studio-ok);
 }
 
 .xp-studio-approve-all {
@@ -1061,8 +1066,8 @@ li[data-status='waiting'] .xp-studio-node-status {
 }
 
 .xp-studio-chips .xp-studio-chip[data-write='true'] {
-  border-color: color-mix(in srgb, var(--nawa-accent) 55%, transparent);
-  color: var(--nawa-accent);
+  border-color: color-mix(in srgb, var(--studio-accent) 55%, transparent);
+  color: var(--studio-accent);
   font-weight: 600;
 }
 
@@ -1080,11 +1085,11 @@ li[data-status='waiting'] .xp-studio-node-status {
     margin: 0;
     padding: 12px 16px;
     border-radius: 16px 16px 4px 16px;
-    background: linear-gradient(135deg, var(--nawa-accent), color-mix(in srgb, var(--nawa-accent) 72%, #7a2c1c));
+    background: linear-gradient(135deg, var(--studio-accent), color-mix(in srgb, var(--studio-accent) 72%, #7a2c1c));
     color: #fff;
     font-size: 0.95rem;
     line-height: 1.55;
-    box-shadow: 0 12px 30px color-mix(in srgb, var(--nawa-accent) 22%, transparent);
+    box-shadow: 0 12px 30px color-mix(in srgb, var(--studio-accent) 22%, transparent);
   }
 
   .xp-studio-dialog-row {
@@ -1099,7 +1104,7 @@ li[data-status='waiting'] .xp-studio-node-status {
     display: inline-flex;
     margin-bottom: 6px;
     border-radius: 999px;
-    filter: drop-shadow(0 0 9px color-mix(in srgb, var(--nawa-accent) 45%, transparent));
+    filter: drop-shadow(0 0 9px color-mix(in srgb, var(--studio-accent) 45%, transparent));
   }
 
   .xp-studio-dialog-agent {
@@ -1107,8 +1112,8 @@ li[data-status='waiting'] .xp-studio-node-status {
     min-width: 0;
     padding: 14px 18px;
     border-radius: 16px 16px 16px 4px;
-    border: 1px solid var(--nawa-line);
-    background: color-mix(in srgb, var(--nawa-surface) 88%, #000);
+    border: 1px solid var(--studio-line);
+    background: color-mix(in srgb, var(--studio-surface) 88%, #000);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
     display: flex;
     flex-direction: column;
@@ -1121,7 +1126,7 @@ li[data-status='waiting'] .xp-studio-node-status {
     }
 
     details {
-      border: 1px solid var(--nawa-line);
+      border: 1px solid var(--studio-line);
       border-radius: 10px;
       padding: 6px 10px;
 
@@ -1149,28 +1154,28 @@ li[data-status='waiting'] .xp-studio-node-status {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    color: var(--nawa-fg-dim);
+    color: var(--studio-fg-dim);
     font-size: 0.85rem;
   }
 
   .xp-studio-dialog-ok {
-    color: var(--nawa-ok);
+    color: var(--studio-ok);
     font-weight: 600;
   }
 
   .xp-studio-dialog-blocked,
   .xp-studio-dialog-err {
-    color: var(--nawa-warn);
+    color: var(--studio-warn);
     font-weight: 600;
   }
 
   .xp-studio-dialog-sealed,
   .xp-studio-dialog-cancelled {
-    color: var(--nawa-fg-dim);
+    color: var(--studio-fg-dim);
   }
 
   .xp-studio-dialog-msg {
-    color: var(--nawa-fg-dim);
+    color: var(--studio-fg-dim);
     font-size: 0.82rem;
   }
 }
@@ -1179,14 +1184,14 @@ li[data-status='waiting'] .xp-studio-node-status {
   position: sticky;
   top: 86px;
   padding: 18px;
-  border: 1px solid var(--nawa-line);
+  border: 1px solid var(--studio-line);
   border-radius: 16px;
-  background: var(--nawa-surface);
+  background: var(--studio-surface);
 }
 
 .xp-studio-rail h3 {
   margin: 0 0 10px;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1212,17 +1217,17 @@ li[data-status='waiting'] .xp-studio-node-status {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--nawa-fg-dim);
+  background: var(--studio-fg-dim);
 }
 
 .xp-studio-servers li[data-configured='true'] i {
-  background: var(--nawa-ok);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--nawa-ok) 60%, transparent);
+  background: var(--studio-ok);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--studio-ok) 60%, transparent);
 }
 
 .xp-studio-servers code {
   margin-left: auto;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 11px;
 }
 
@@ -1238,7 +1243,7 @@ li[data-status='waiting'] .xp-studio-node-status {
   align-items: center;
   justify-content: space-between;
   padding: 6px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--nawa-line) 60%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--studio-line) 60%, transparent);
 }
 
 .xp-studio-tools code {
@@ -1249,17 +1254,17 @@ li[data-status='waiting'] .xp-studio-node-status {
 }
 
 .xp-studio-tools li[data-write='true'] code {
-  color: var(--nawa-accent);
+  color: var(--studio-accent);
 }
 
 .xp-studio-tools li[data-off='true'] code {
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   text-decoration: line-through;
 }
 
 .xp-studio-tools li > span {
   flex: none;
-  color: var(--nawa-fg-dim);
+  color: var(--studio-fg-dim);
   font-size: 10.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1270,9 +1275,9 @@ li[data-status='waiting'] .xp-studio-node-status {
   width: 34px;
   height: 19px;
   padding: 2px;
-  border: 1px solid var(--nawa-line);
+  border: 1px solid var(--studio-line);
   border-radius: 99px;
-  background: var(--nawa-surface-2);
+  background: var(--studio-surface-2);
   cursor: pointer;
   transition: background 160ms ease;
 }
@@ -1282,16 +1287,16 @@ li[data-status='waiting'] .xp-studio-node-status {
   width: 13px;
   height: 13px;
   border-radius: 50%;
-  background: var(--nawa-fg-dim);
+  background: var(--studio-fg-dim);
   transition: transform 160ms ease, background 160ms ease;
 }
 
 .xp-studio-toggle[aria-checked='true'] {
-  background: color-mix(in srgb, var(--nawa-ok) 30%, var(--nawa-surface-2));
+  background: color-mix(in srgb, var(--studio-ok) 30%, var(--studio-surface-2));
 }
 
 .xp-studio-toggle[aria-checked='true'] b {
-  background: var(--nawa-ok);
+  background: var(--studio-ok);
   transform: translateX(15px);
 }
 
@@ -1322,7 +1327,7 @@ li[data-status='waiting'] .xp-studio-node-status {
 .adoption-work-links a {min-height:2.5rem;padding:.55rem .85rem;border:1px solid currentColor;border-radius:.4rem;text-decoration:none;}
 .adoption-work-links a:focus-visible {outline:2px solid currentColor;outline-offset:3px;}
 
-/* Generated Work surfaces opt in; native NAWA components retain their own skin. */
+/* Generated Work surfaces and the Agent Studio opt in; native client components retain their own skin. */
 .xp-work-brand-image { max-width:140px; max-height:40px; object-fit:contain; }
 .xp-work[data-brand-scope] {
   .xp-work-card, .xp-work-intro { border-radius:var(--ck-radius-lg); }

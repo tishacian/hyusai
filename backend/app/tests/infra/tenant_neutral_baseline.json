@@ -226,10 +226,10 @@
       "kind": "adapter",
       "why": "Sentinel CI scripted demo skills, selected by family."
     },
-    "frontend-ng/src/app/app.routes.ts": {
-      "count": 3,
-      "kind": "client-app",
-      "why": "Routes of customer applications (lot 2)."
+    "frontend-ng/src/app/core/client-applications.ts": {
+      "count": 6,
+      "kind": "composition",
+      "why": "The one list of customer applications this build carries (lot 2)."
     },
     "frontend-ng/src/app/core/i18n/chrome.dict.ts": {
       "count": 4,
@@ -251,35 +251,15 @@
       "kind": "adapter",
       "why": "Labels of customer applications."
     },
-    "frontend-ng/src/app/core/navigation.catalog.ts": {
-      "count": 5,
-      "kind": "client-app",
-      "why": "Navigation entries of customer applications (lot 2)."
-    },
     "frontend-ng/src/app/core/workspace-experience-canaries.ts": {
       "count": 12,
       "kind": "canary",
       "why": "The live workspaces the workspace-experience shadow gate must prove before the resolver rolls out."
     },
-    "frontend-ng/src/app/features/chat/chat-panel.component.ts": {
-      "count": 37,
-      "kind": "client-app",
-      "why": "NAWA Studio skin inside the shared chat panel (lot 2)."
-    },
     "frontend-ng/src/app/features/client360/client360-page.component.ts": {
       "count": 4,
       "kind": "adapter",
       "why": "Client360, an Andritz capability."
-    },
-    "frontend-ng/src/app/features/experience/work/pr-to-po-studio.component.ts": {
-      "count": 1,
-      "kind": "client-app",
-      "why": "Work lands on the NAWA Studio (lot 2)."
-    },
-    "frontend-ng/src/app/features/experience/work/work.scss": {
-      "count": 143,
-      "kind": "client-app",
-      "why": "NAWA Studio styles in the Work shell (lot 2)."
     },
     "frontend-ng/src/app/features/knowledge/capture-fil/capture-fil-shell.component.ts": {
       "count": 2,
@@ -398,6 +378,11 @@
     },
     "frontend-ng/src/app/features/nawa/nawa-theme.scss": {
       "count": 87,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa.app.ts": {
+      "count": 8,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
