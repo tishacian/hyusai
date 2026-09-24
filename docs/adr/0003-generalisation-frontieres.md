@@ -124,6 +124,35 @@ liste les DA : son `PurchasingDocument` dit si une PO le référence déjà. La 
 version lisait les postes de PO sur `sap`, alors que ce serveur ne les sert pas ; une
 réponse sans le poste ou sans ce champ refuse l'écriture.
 
+### D8 — Une automation a un contrat de valeur, approuvé par son responsable — **Acté** (lot 3)
+
+La valeur d'une automation était dispersée : l'objectif opérationnel du System
+(responsable en texte libre, sans approbation ni historique) et la base de valeur de la
+Capability (partagée entre Systems, `measured` déclaré par l'auteur, sans journal). Une
+automation neuve n'avait pas de Capability, sa convention restait donc absente, et
+aucun code ne produisait d'écart.
+
+- **Le contrat.** Un contrat par automation (`value_contracts`, migration 114) : le
+  responsable (un membre du workspace), l'indicateur et son unité, la cible, la période
+  (1 à 90 jours, fin exclue), la convention (valeur d'une unité métier, devise), la
+  source (accord, document, mesure ou estimation, avec sa référence) et l'approbation.
+- **Les révisions.** Chaque proposition est une nouvelle révision, écrite contre la
+  dernière (compare-and-set). En approuver une remplace l'approuvée précédente, une
+  proposition en attente est retirée par la suivante, et l'historique reste lisible.
+- **Qui fait quoi.** Proposer est un acte d'administration du System, comme l'objectif
+  opérationnel. Approuver ou refuser appartient au responsable que la proposition nomme,
+  même s'il l'a proposée, et sur les termes exacts qu'il a lus. Aucune nouvelle paire
+  IAM n'est créée.
+- **Ce que lisent les cartes.** Work, Hypervisor, Flow, l'export et la conversation ne
+  lisent que le contrat approuvé. L'objectif et la base de valeur restent pour leurs
+  écrans et pré-remplissent la proposition. L'identité de preuve porte le hash du
+  contrat affiché.
+- **L'écart.** C'est la mesure opérationnelle de l'indicateur moins la cible sur la
+  période, montrée une fois la période finie et la preuve complète ; pendant la période,
+  un avancement. `human_waits`, instantané de file, ne peut pas porter de cible.
+  L'écart n'est jamais converti en argent : la convention est nommée, et l'impact
+  économique reste à attester par la boucle de valeur.
+
 ### D5 — Une feuille de route par lots livrables — **Acté**
 
 Pas de branche unique pour toute la feuille de route : chaque lot est une unité qui se
@@ -135,7 +164,7 @@ relit, se déploie et se retire seule. Chaque lot met à jour cet ADR.
 | **1b** | sortir les `fixture` : prompts partagés du chat, skills de démo, hygiène de l'agent de chat, flow PR → PO, client SharePoint, placeholders | lot 1 déployé | fait : 9 → 2 (voir métriques) |
 | **1c** | handlers Mission Room hors de l'exécuteur partagé ; canaris sortis du résolveur ; prompts de chat persistés réparés | lot 1b déployé | fait : exécuteur sans client, `fixture` = 1 (BRD) |
 | **2** | Work comme application de workspace : page d'accueil, `features/nawa`, habillages NAWA du shell et du chat, export brandé | lot 1 déployé | fait : `client-app` hors `features/<client>` = 0 (migration 113) |
-| **3** | contrat de valeur du portfolio : responsable, indicateur, unité, cible, période, convention, source, approbation | définition produit | saisie gouvernée en place |
+| **3** | contrat de valeur du portfolio : responsable, indicateur, unité, cible, période, convention, source, approbation | définition produit (D8) | fait : saisie gouvernée en place (migration 114) |
 | **4** | sûreté de l'action SAP PO (D4) | — | fait en partie : cinq propriétés corrigées et testées (voir D7) |
 | **4b** | intention d'écriture par poste de DA (migration 112), lecture SAP avant écriture et référence `COLLECT_NO` derrière `sap_po_reconciliation`, run en échec sur issue inconnue, pas de retry d'une écriture | lot 4 déployé | fait : deux approbations d'un même poste ne créent qu'une PO ; drapeau à activer après un test en QA |
 | — | framework d'actions ; contrat BRD générique | deuxième action ; deuxième BRD | — |
