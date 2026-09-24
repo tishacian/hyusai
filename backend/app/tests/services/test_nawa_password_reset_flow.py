@@ -944,9 +944,12 @@ async def test_the_flow_writes_a_ledger_entry_the_governance_screens_can_read(
     assert (await execute_run_dag(run.id))["status"] == "completed"
 
     db_session.expire_all()
+    # The platform also journals its own work around a run (the automatic
+    # evaluation job: workspace_job.created / .failed without a worker). The
+    # flow's ledger is the ITSD events, and there must be exactly one.
     rows = (
         db_session.query(AuditLog)
-        .filter(AuditLog.workspace_id == workspace.id)
+        .filter(AuditLog.workspace_id == workspace.id, AuditLog.event_type.like("itsd.%"))
         .order_by(AuditLog.timestamp.desc())
         .all()
     )
