@@ -10,7 +10,18 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 
 from app.db.base import Base
 
@@ -24,9 +35,7 @@ CONTRACT_STATUSES = (PROPOSED, APPROVED, REJECTED, SUPERSEDED, WITHDRAWN)
 
 class ValueContract(Base):
     __tablename__ = "value_contracts"
-    __table_args__ = (
-        UniqueConstraint("system_id", "revision", name="uq_value_contract_revision"),
-    )
+    __table_args__ = (UniqueConstraint("system_id", "revision", name="uq_value_contract_revision"),)
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False, index=True)

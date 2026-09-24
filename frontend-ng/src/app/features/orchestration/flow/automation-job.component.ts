@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, input, OnInit, signal } fro
 import { HttpErrorResponse } from '@angular/common/http';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
-import { automationJobLines, type AutomationJobView } from './automation-job';
+import { automationJobLines, jobLineText, type AutomationJobView, type JobLine } from './automation-job';
 
 @Component({
   selector: 'app-automation-job',
@@ -15,8 +15,9 @@ import { automationJobLines, type AutomationJobView } from './automation-job';
         <p role="status">{{ i18n.t('flow.automation.work.unpublished') }}</p>
       } @else if (lines(); as shown) {
         <p>{{ shown.objective ? i18n.t('flow.automation.work.objective', { text: shown.objective }) : i18n.t('flow.automation.work.objective.absent') }}</p>
-        <p>{{ shown.convention ? i18n.t('flow.automation.work.convention', { rate: shown.convention }) : i18n.t('flow.automation.work.convention.absent') }}</p>
-        <p>{{ shown.gap ? i18n.t('flow.automation.work.gap', { gap: shown.gap }) : i18n.t('flow.automation.work.gap.absent') }}</p>
+        @for (line of shown.value; track $index) {
+          <p>{{ lineText(line) }}</p>
+        }
         <p>{{ shown.proof ? i18n.t('flow.automation.work.proof', { run: shown.proof }) : i18n.t('flow.automation.work.proof.absent') }}</p>
       }
     </section>
@@ -37,6 +38,7 @@ import { automationJobLines, type AutomationJobView } from './automation-job';
 export class AutomationJobComponent implements OnInit {
   readonly systemId = input.required<string>();
   readonly i18n = inject(I18nService);
+  protected readonly lineText = (line: JobLine): string => jobLineText(this.i18n.t, line);
   private readonly canonical = inject(CanonicalApiService);
   protected readonly unpublished = signal(false);
   protected readonly lines = signal<ReturnType<typeof automationJobLines> | null>(null);

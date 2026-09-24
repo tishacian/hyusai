@@ -17,6 +17,8 @@ from app.api.v1.endpoints.systems import (
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
 from app.models.system import System
+from app.models.system_flow_draft import SystemFlowDraft
+from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.value_contract import ValueContractDecision, ValueContractProposal
@@ -26,7 +28,9 @@ router = APIRouter()
 
 
 def _system_or_404(db: DBSession, *, system_id: str, workspace: Workspace) -> System:
-    system = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
+    system = (
+        db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
+    )
     if system is None:
         raise HTTPException(404, "System not found")
     return system
@@ -40,6 +44,24 @@ def _can_propose(db: DBSession, *, user: User, workspace: Workspace, system: Sys
             raise
         return False
     return True
+
+
+def _is_automation(db: DBSession, system: System) -> bool:
+    """A contract belongs to an automation: its draft, published or stored flow says so."""
+
+    flows = [system.flow_definition]
+    draft = db.query(SystemFlowDraft).filter(SystemFlowDraft.system_id == system.id).one_or_none()
+    if draft is not None:
+        flows.append(draft.flow_definition)
+    if system.published_flow_version_id:
+        version = (
+            db.query(SystemVersion)
+            .filter(SystemVersion.id == system.published_flow_version_id)
+            .one_or_none()
+        )
+        if version is not None:
+            flows.append(version.flow_definition)
+    return any(isinstance(flow, dict) and flow.get("variant") == "automation_v1" for flow in flows)
 
 
 def _refuse(db: DBSession, error: value_contracts.ValueContractError) -> None:
@@ -57,6 +79,7 @@ def _state(db: DBSession, *, user: User, workspace: Workspace, system: System) -
     convention, gap = value_contracts.card_value(db, user=user, workspace=workspace, system=system)
     return {
         "system_id": system.id,
+        "automation": _is_automation(db, system),
         "latest_revision": history[0].revision if history else 0,
         "current": value_contracts.public(db, current),
         "pending": value_contracts.public(db, waiting),
@@ -138,7 +161,13 @@ async def approve_value_contract(
     db: DBSession = Depends(get_db),
 ):
     return await _decide(
-        db, system_id=system_id, revision=revision, body=body, workspace=workspace, user=user, approve=True
+        db,
+        system_id=system_id,
+        revision=revision,
+        body=body,
+        workspace=workspace,
+        user=user,
+        approve=True,
     )
 
 
@@ -152,5 +181,11 @@ async def reject_value_contract(
     db: DBSession = Depends(get_db),
 ):
     return await _decide(
-        db, system_id=system_id, revision=revision, body=body, workspace=workspace, user=user, approve=False
+        db,
+        system_id=system_id,
+        revision=revision,
+        body=body,
+        workspace=workspace,
+        user=user,
+        approve=False,
     )
