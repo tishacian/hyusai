@@ -51,11 +51,6 @@
       "kind": "demo",
       "why": "PIH hydro rows for the HANA seed and the connector's in-memory fallback."
     },
-    "backend/app/seeds/retrieval_golden.py": {
-      "count": 1,
-      "kind": "demo",
-      "why": "Default golden retrieval batch: the Andritz SPL dense set."
-    },
     "backend/app/seeds/sentinel_calendar.py": {
       "count": 4,
       "kind": "demo",
@@ -160,6 +155,11 @@
       "count": 13,
       "kind": "adapter",
       "why": "Andritz project-reference grammar (ADR 0002)."
+    },
+    "backend/app/services/rag/retrieval_golden.py": {
+      "count": 1,
+      "kind": "tooling",
+      "why": "Evaluation harness default: the Andritz golden retrieval batch (never imported by runtime retrieval)."
     },
     "backend/app/services/rag/source_facets.py": {
       "count": 2,

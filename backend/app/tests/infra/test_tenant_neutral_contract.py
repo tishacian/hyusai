@@ -18,7 +18,7 @@ Every file that still carries identifiers is listed in
 - ``composition``: the two lists of the customer applications a build carries,
   their surfaces (``core/client-applications.ts``) and their routes
   (``core/client-application-routes.ts``).
-- ``tooling``: command-line examples.
+- ``tooling``: command-line examples and evaluation-harness defaults.
 - ``canary``: the live workspaces a rollout must prove, kept apart from the
   generic code that evaluates them.
 

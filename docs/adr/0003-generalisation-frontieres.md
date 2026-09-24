@@ -52,7 +52,7 @@ son compte exact et une catégorie :
 |---|---|---|
 | `adapter` | code qu'une famille, un pack ou un manifest sélectionne volontairement | reste |
 | `family` | les noms de famille canoniques | reste |
-| `tooling` | exemples en ligne de commande | reste |
+| `tooling` | exemples en ligne de commande, défauts de l'outillage d'évaluation | reste |
 | `fixture` | contenu ou règle d'un client dans un module générique | **0** |
 | `demo` | contenu de démo scénarisé | vit sous `app/seeds/` ; seule exception, le scénario du pack Mission Room (4 fichiers déclarés) |
 | `client-app` | application client, dans son dossier `features/<client>/` | lot 2 : hors de ce dossier = **0** |
@@ -197,8 +197,11 @@ Demo → seeds : le contenu de démo scénarisé quitte les services générique
 - les seeds Experience dual-run (les migrations 090 à 092 gardent leur chemin
   d'import par un ré-export) ;
 - les événements du calendrier Sentinel CI ;
-- le rapport du Préfet et le texte du rapport stratégique ;
-- le jeu golden par défaut.
+- le rapport du Préfet et le texte du rapport stratégique.
+
+Le jeu golden par défaut reste dans l'évaluateur, reclassé `tooling` : c'est un défaut
+d'outillage d'évaluation, pas du contenu de démo, et le garde-fou anti-surapprentissage
+interdit qu'un autre module le nomme.
 
 Les services lisent ces modules et ne portent plus le contenu. Le contrat l'exige.
 Restent en `demo` hors seeds les quatre fichiers du pack Mission Room (Sentinel CI
