@@ -354,6 +354,8 @@ async def test_assistant_answer_carries_exactly_result_as_payload(db_session, vo
         "finish_reason",
         "usage",
         "config",
+        # The turn keeps the object the person had open (d82ffeba).
+        "object_context",
     }
 
 
