@@ -184,7 +184,7 @@ export const RESOURCES_FR = {
   'resources.connectors.banner.before': 'Seuls les connecteurs marqués',
   'resources.connectors.banner.connected': 'connecté',
   'resources.connectors.banner.after':
-    "(pastille verte) sont câblés de bout en bout. Les autres stockent la configuration localement pour la feuille de route — aucun appel runtime n'est effectué.",
+    "(pastille verte) sont câblés de bout en bout. Les autres gardent leur configuration sur le serveur, secrets en écriture seule ; aucune exécution ne s'en sert encore.",
   'resources.connectors.banner.request': 'Demander',
 
   // --- /resources — portal errors & toasts -------------------------
@@ -378,36 +378,48 @@ export const RESOURCES_FR = {
   'connectors.setup.connect': 'Configurer la connexion',
   'connectors.action.configure': 'Configurer',
   'connectors.action.test': 'Tester',
+  'connectors.action.testing': 'Test…',
+  'connectors.action.saving': 'Enregistrement…',
   'connectors.action.clear': 'Effacer',
-  'connectors.drawer.fallback_title': 'Connecteur',
+  'connectors.action.clear_confirm': "Confirmer l'effacement",
   'connectors.drawer.setup_fallback_title': 'Configuration du connecteur',
-  'connectors.drawer.live.before': "Point d'accès backend actif sur",
-  'connectors.drawer.live.after': 'Enregistrez la configuration puis lancez',
-  'connectors.drawer.live.test': 'Tester la connexion',
-  'connectors.drawer.coming':
-    'Adaptateur backend pas encore livré — la configuration est enregistrée localement pour la préremplir et migrer plus tard.',
-  'connectors.drawer.local':
-    "La configuration est stockée localement. L'adaptateur backend la reprendra automatiquement une fois enregistré.",
+  'connectors.drawer.server':
+    'La configuration est enregistrée sur le serveur, pour tout le workspace. Les secrets sont en écriture seule : une fois enregistrés, ils ne sont plus jamais affichés.',
+  'connectors.drawer.admin_only':
+    'Seul un administrateur du workspace peut modifier ou tester ce connecteur.',
   'connectors.drawer.planned':
-    'Adaptateur planifié. Le brouillon de configuration est enregistré localement pour la revue de démonstration.',
-  'connectors.drawer.draft':
-    'Le brouillon de configuration est stocké dans ce navigateur pour la démonstration du workspace courant.',
+    "Adaptateur planifié : rien n'est enregistré pour ce connecteur tant qu'il n'est pas livré.",
+  'connectors.drawer.expected_fields': 'Champs attendus',
+  'connectors.drawer.nothing_to_set': "Ce connecteur n'a rien à configurer ici.",
+  'connectors.drawer.unavailable':
+    "L'état de ce connecteur n'a pas pu être chargé. Rechargez la page pour réessayer.",
+  'connectors.secret.set': 'Secret défini',
+  'connectors.secret.replace': 'Remplacer',
+  'connectors.secret.replace_label': 'Remplacer {field}',
+  'connectors.secret.keep': 'Garder le secret actuel',
+  'connectors.secret.write_only':
+    "Écriture seule : la valeur ne sera plus affichée après l'enregistrement.",
+  'connectors.test.unavailable': 'Test indisponible',
+  'connectors.test.unavailable_hint':
+    "Aucun test réel n'existe encore pour ce connecteur : rien ne serait contacté.",
+  'connectors.test.save_first':
+    "Enregistrez d'abord : le test porte sur la configuration enregistrée.",
+  'connectors.test.checked_at': 'Contrôlé à {time}',
+  'connectors.test.failed': "Le test n'a pas pu être lancé.",
+  'connectors.test.status.connected': 'Connecté',
+  'connectors.test.status.auth_failed': 'Authentification refusée',
+  'connectors.test.status.unreachable': 'Service injoignable',
+  'connectors.test.status.not_configured':
+    'Configuration incomplète : enregistrez les champs requis et le secret.',
+  'connectors.test.status.unsupported': "Aucun test réel n'existe pour ce connecteur.",
+  'connectors.test.status.error': 'Le service a répondu par une erreur',
   'connectors.workspace.fallback': 'workspace courant',
+  'connectors.load_failed': "Impossible de charger l'état des connecteurs.",
   'connectors.toast.title': 'Connecteur',
-  'connectors.toast.saved': 'Configuration {name} enregistrée',
-  'connectors.toast.cleared': 'Configuration {name} effacée',
   'connectors.toast.setup_saved': 'Configuration {name} enregistrée',
   'connectors.toast.setup_cleared': 'Configuration {name} effacée',
-  'connectors.toast.connection_test': 'Test de connexion',
-  'connectors.toast.connector_test': 'Test du connecteur',
-  'connectors.toast.reachable': '{name} joignable',
-  'connectors.toast.unreachable': '{name} est injoignable — vérifiez le backend',
-  'connectors.toast.simulated': 'Test simulé',
-  'connectors.toast.no_adapter':
-    "{name} n'a pas encore d'adaptateur actif. La configuration est stockée localement.",
-  'connectors.toast.planned':
-    "L'adaptateur {name} est planifié. Le brouillon de configuration est prêt.",
-  'connectors.toast.shape_ok': 'Structure de configuration {name} validée',
+  'connectors.toast.save_failed': "Impossible d'enregistrer la configuration {name}",
+  'connectors.toast.clear_failed': "Impossible d'effacer la configuration {name}",
 
   // --- /apps — page --------------------------------------------------
   'apps.eyebrow': 'Gouverner · Apps',
@@ -684,7 +696,7 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'resources.connectors.banner.before': 'Only connectors marked',
   'resources.connectors.banner.connected': 'connected',
   'resources.connectors.banner.after':
-    '(green pulse) are wired end-to-end. Others store configuration locally for the roadmap — no runtime calls are made.',
+    '(green pulse) are wired end-to-end. Others keep their setup on the server, secrets write-only; no run uses them yet.',
   'resources.connectors.banner.request': 'Request',
 
   // --- /resources — portal errors & toasts -------------------------
@@ -878,35 +890,45 @@ export const RESOURCES_EN: Record<keyof typeof RESOURCES_FR, string> = {
   'connectors.setup.connect': 'Set up connection',
   'connectors.action.configure': 'Configure',
   'connectors.action.test': 'Test',
+  'connectors.action.testing': 'Testing…',
+  'connectors.action.saving': 'Saving…',
   'connectors.action.clear': 'Clear',
-  'connectors.drawer.fallback_title': 'Connector',
+  'connectors.action.clear_confirm': 'Confirm clear',
   'connectors.drawer.setup_fallback_title': 'Connector setup',
-  'connectors.drawer.live.before': 'Backend endpoint live at',
-  'connectors.drawer.live.after': 'Save configuration then hit',
-  'connectors.drawer.live.test': 'Test connection',
-  'connectors.drawer.coming':
-    'Backend adapter not shipped yet — configuration is saved locally so you can pre-fill it and migrate later.',
-  'connectors.drawer.local':
-    'Configuration is stored locally. Backend adapter will pick it up automatically once registered.',
+  'connectors.drawer.server':
+    'The setup is stored on the server, for the whole workspace. Secrets are write-only: once saved, they are never shown again.',
+  'connectors.drawer.admin_only': 'Only a workspace admin can change or test this connector.',
   'connectors.drawer.planned':
-    'Adapter planned. The setup draft is saved locally for showcase review.',
-  'connectors.drawer.draft':
-    'Setup draft is stored in this browser for the current workspace showcase.',
+    'Planned adapter: nothing is stored for this connector until it ships.',
+  'connectors.drawer.expected_fields': 'Expected fields',
+  'connectors.drawer.nothing_to_set': 'This connector has nothing to set up here.',
+  'connectors.drawer.unavailable':
+    'The state of this connector could not be loaded. Reload the page to try again.',
+  'connectors.secret.set': 'Secret set',
+  'connectors.secret.replace': 'Replace',
+  'connectors.secret.replace_label': 'Replace {field}',
+  'connectors.secret.keep': 'Keep the current secret',
+  'connectors.secret.write_only': 'Write-only: the value is never shown again once saved.',
+  'connectors.test.unavailable': 'No test available',
+  'connectors.test.unavailable_hint':
+    'No real test exists for this connector yet: nothing would be contacted.',
+  'connectors.test.save_first': 'Save first: the test runs on the saved setup.',
+  'connectors.test.checked_at': 'Checked at {time}',
+  'connectors.test.failed': 'The test could not be run.',
+  'connectors.test.status.connected': 'Connected',
+  'connectors.test.status.auth_failed': 'Authentication refused',
+  'connectors.test.status.unreachable': 'Service unreachable',
+  'connectors.test.status.not_configured':
+    'Incomplete setup: save the required fields and the secret.',
+  'connectors.test.status.unsupported': 'No real test exists for this connector.',
+  'connectors.test.status.error': 'The service answered with an error',
   'connectors.workspace.fallback': 'current workspace',
+  'connectors.load_failed': "Could not load the connectors' state.",
   'connectors.toast.title': 'Connector',
-  'connectors.toast.saved': '{name} configuration saved',
-  'connectors.toast.cleared': '{name} configuration cleared',
   'connectors.toast.setup_saved': '{name} setup saved',
   'connectors.toast.setup_cleared': '{name} setup cleared',
-  'connectors.toast.connection_test': 'Connection test',
-  'connectors.toast.connector_test': 'Connector test',
-  'connectors.toast.reachable': '{name} reachable',
-  'connectors.toast.unreachable': '{name} is unreachable — check the backend',
-  'connectors.toast.simulated': 'Simulated test',
-  'connectors.toast.no_adapter':
-    "{name} doesn't have a live adapter yet. Config is stored locally.",
-  'connectors.toast.planned': '{name} adapter is planned. Setup draft is ready.',
-  'connectors.toast.shape_ok': '{name} setup shape validated',
+  'connectors.toast.save_failed': 'Could not save the {name} setup',
+  'connectors.toast.clear_failed': 'Could not clear the {name} setup',
 
   // --- /apps — page --------------------------------------------------
   'apps.eyebrow': 'Govern · Apps',

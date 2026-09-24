@@ -23,6 +23,7 @@ export type ConnectorCategory = 'microsoft' | 'channels' | 'data-storage';
 export interface ConnectorField {
   key: string;
   label: string;
+  /** `password` marks a secret: sent to the server once, never read back. */
   type: 'text' | 'url' | 'password' | 'email' | 'number';
   placeholder?: string;
   required?: boolean;
@@ -77,7 +78,8 @@ export const CONNECTORS: ConnectorDef[] = [
     version: 'Graph API v1.0',
     status: 'available',
     fields: [
-      { key: 'webhook_url', label: 'Incoming webhook URL', type: 'url', placeholder: 'https://outlook.office.com/webhook/…' },
+      // An incoming-webhook URL is the credential: whoever holds it can post.
+      { key: 'webhook_url', label: 'Incoming webhook URL', type: 'password', placeholder: 'https://outlook.office.com/webhook/…' },
       { key: 'tenant_id', label: 'Tenant ID', type: 'text', placeholder: 'contoso.onmicrosoft.com' },
       { key: 'bot_id', label: 'Bot app ID', type: 'text' },
     ],
@@ -380,20 +382,14 @@ export function appById(id: string): AppDef | undefined {
 
 // ─── Local persistence helpers ───────────────────────────────────────────────
 
-const CONNECTORS_LS_KEY = 'agentium:connectors:v1';
 const APPS_LS_KEY = 'agentium:apps:v1';
 function scopedLocalStorageKey(baseKey: string, workspaceSlug: string | null): string | null {
   const slug = workspaceSlug?.trim();
   return slug ? `${baseKey}:${encodeURIComponent(slug)}` : null;
 }
 
-/** Consume the pre-Lot-1 tenant-ambiguous value once. Sensitive callers
- * discard it; non-sensitive preference callers may migrate it. */
-function readWorkspaceValue(
-  baseKey: string,
-  workspaceSlug: string | null,
-  migrateLegacy: boolean,
-): string | null {
+/** Adopt the pre-Lot-1 tenant-ambiguous value once, into the active workspace. */
+function readWorkspaceValue(baseKey: string, workspaceSlug: string | null): string | null {
   const key = scopedLocalStorageKey(baseKey, workspaceSlug);
   if (!key) return null;
   const scoped = localStorage.getItem(key);
@@ -401,54 +397,14 @@ function readWorkspaceValue(
   const legacy = localStorage.getItem(baseKey);
   if (legacy === null) return null;
   localStorage.removeItem(baseKey);
-  if (!migrateLegacy) return null;
   localStorage.setItem(key, legacy);
   return legacy;
-}
-
-export function readConnectorConfig(
-  workspaceSlug: string | null,
-  id: string,
-): Record<string, string> {
-  try {
-    // Connector values can contain credentials.  The legacy key has no
-    // provenance, so assigning it to whichever workspace happens to be active
-    // at upgrade time would be a cross-tenant secret disclosure. Discard it.
-    const raw = readWorkspaceValue(CONNECTORS_LS_KEY, workspaceSlug, false);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed?.[id] ?? {};
-  } catch {
-    return {};
-  }
-}
-
-export function writeConnectorConfig(
-  workspaceSlug: string | null,
-  id: string,
-  values: Record<string, string>,
-): void {
-  try {
-    const key = scopedLocalStorageKey(CONNECTORS_LS_KEY, workspaceSlug);
-    if (!key) return;
-    const raw = readWorkspaceValue(CONNECTORS_LS_KEY, workspaceSlug, false);
-    const all = raw ? JSON.parse(raw) : {};
-    all[id] = values;
-    localStorage.setItem(key, JSON.stringify(all));
-  } catch {
-    /* quota — ignore */
-  }
-}
-
-export function hasConnectorConfig(workspaceSlug: string | null, id: string): boolean {
-  const cfg = readConnectorConfig(workspaceSlug, id);
-  return Object.values(cfg).some((v) => typeof v === 'string' && v.trim().length > 0);
 }
 
 export function readAppToggles(workspaceSlug: string | null): Record<string, boolean> {
   try {
     // App toggles are non-sensitive user preferences; preserve them once.
-    const raw = readWorkspaceValue(APPS_LS_KEY, workspaceSlug, true);
+    const raw = readWorkspaceValue(APPS_LS_KEY, workspaceSlug);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
