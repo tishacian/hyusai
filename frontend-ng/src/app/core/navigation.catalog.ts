@@ -265,7 +265,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'Explainable spare-parts potential, mail drafts and impact tracking.',
   },
   // Surfaces of the customer applications this build carries, declared in
-  // their own features/<customer>/<customer>.app.ts.
+  // their own features/<customer>/<customer>.surfaces.ts.
   ...CLIENT_APPLICATION_SURFACES,
   {
     id: 'workspace-chat',

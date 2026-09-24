@@ -14,8 +14,9 @@ Every file that still carries identifiers is listed in
 - ``demo``: scripted demo content living among services. Moves to seeds.
 - ``client-app``: a customer application, which lives in its own
   ``features/<customer>/`` folder (lot 2).
-- ``composition``: the one module that lists the customer applications a build
-  carries (``core/client-applications.ts``).
+- ``composition``: the two lists of the customer applications a build carries,
+  their surfaces (``core/client-applications.ts``) and their routes
+  (``core/client-application-routes.ts``).
 - ``tooling``: command-line examples.
 - ``canary``: the live workspaces a rollout must prove, kept apart from the
   generic code that evaluates them.
@@ -141,7 +142,7 @@ def test_customer_applications_stay_in_their_own_folder():
     """Lot 2: the product shell carries no customer application or skin.
 
     A customer application lives in ``features/<customer>/``; the shell reaches
-    it only through the single composition module.
+    it only through the two composition lists.
     """
 
     baseline = _baseline()
@@ -155,7 +156,10 @@ def test_customer_applications_stay_in_their_own_folder():
     )
     assert not outside, outside
     compositions = sorted(path for path, entry in baseline.items() if entry["kind"] == "composition")
-    assert compositions == ["frontend-ng/src/app/core/client-applications.ts"], compositions
+    assert compositions == [
+        "frontend-ng/src/app/core/client-application-routes.ts",
+        "frontend-ng/src/app/core/client-applications.ts",
+    ], compositions
 
 
 def test_no_setting_lists_workspace_slugs():

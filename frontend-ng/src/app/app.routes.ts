@@ -1,7 +1,7 @@
 import { inject } from '@angular/core';
 import { Route, Routes } from '@angular/router';
 import { authGuard } from './core/auth.guard';
-import { CLIENT_APPLICATION_ROUTES } from './core/client-applications';
+import { CLIENT_APPLICATION_ROUTES } from './core/client-application-routes';
 import { loginGuard } from './core/login.guard';
 import { navigationProfileGuard } from './core/navigation-profile.guard';
 import { workspaceHydrationGuard } from './core/workspace-hydration.guard';
@@ -25,7 +25,7 @@ export const routes: Routes = [
   // White-labelled customer applications own the whole page, so they are
   // mounted outside the Agentium shell: business stakeholders see the
   // customer's brand only, never the platform title bar, side rail or
-  // workspace switcher. core/client-applications.ts lists them.
+  // workspace switcher. core/client-application-routes.ts lists them.
   ...CLIENT_APPLICATION_ROUTES.map(
     (app): Route => ({
       path: app.path,

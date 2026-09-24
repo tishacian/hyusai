@@ -61,11 +61,6 @@
       "kind": "adapter",
       "why": "Andritz agentic rollout control."
     },
-    "backend/app/services/capture_report_export.py": {
-      "count": 23,
-      "kind": "adapter",
-      "why": "Andritz-branded PDF/DOCX export. Branding should come from the workspace (lot 2)."
-    },
     "backend/app/services/capture_report_templates.py": {
       "count": 9,
       "kind": "adapter",
@@ -216,6 +211,11 @@
       "kind": "adapter",
       "why": "Andritz contact-footer hygiene for the shared chat agent, selected by family."
     },
+    "backend/app/tenants/andritz/capture_report.py": {
+      "count": 3,
+      "kind": "adapter",
+      "why": "The Andritz brand on exported capture reports (lot 2)."
+    },
     "backend/app/tenants/andritz/chat_prompts.py": {
       "count": 6,
       "kind": "adapter",
@@ -226,10 +226,15 @@
       "kind": "adapter",
       "why": "Sentinel CI scripted demo skills, selected by family."
     },
-    "frontend-ng/src/app/core/client-applications.ts": {
-      "count": 6,
+    "frontend-ng/src/app/core/client-application-routes.ts": {
+      "count": 4,
       "kind": "composition",
-      "why": "The one list of customer applications this build carries (lot 2)."
+      "why": "The one list of customer application routes this build carries (lot 2)."
+    },
+    "frontend-ng/src/app/core/client-applications.ts": {
+      "count": 4,
+      "kind": "composition",
+      "why": "The one list of customer application surfaces this build carries (lot 2)."
     },
     "frontend-ng/src/app/core/i18n/chrome.dict.ts": {
       "count": 4,
@@ -382,12 +387,17 @@
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
     "frontend-ng/src/app/features/nawa/nawa.app.ts": {
-      "count": 8,
+      "count": 3,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
     },
     "frontend-ng/src/app/features/nawa/nawa.routes.ts": {
       "count": 3,
+      "kind": "client-app",
+      "why": "The NAWA application inside the product bundle (lot 2)."
+    },
+    "frontend-ng/src/app/features/nawa/nawa.surfaces.ts": {
+      "count": 5,
       "kind": "client-app",
       "why": "The NAWA application inside the product bundle (lot 2)."
     }
