@@ -11,12 +11,12 @@ second approval of the same item may call SAP again:
 - ``failed``: yes. SAP refused or the create was rolled back.
 
 With the workspace flag ``sap_po_reconciliation`` (off by default, strict
-boolean like ``sap_write_unsealed``) the create also reads SAP first: an
-existing PO item for the PR item is recorded and refused, an unreadable SAP
-refuses the write, and an unknown intent SAP shows no PO for becomes a failure
-that may be retried. The create then carries a reference in
-``POHEADER.COLLECT_NO`` so the PO can be found from the intent. The read filter
-has to be confirmed against the customer's SAP before the flag goes on.
+boolean like ``sap_write_unsealed``) the create also reads SAP first: the PR
+item is read by key and its ``PurchasingDocument`` says whether a PO already
+references it. A PO found is recorded and refused, an unreadable SAP refuses
+the write, and an unknown intent SAP shows no PO for becomes a failure that
+may be retried. The create then carries a reference in ``POHEADER.COLLECT_NO``
+so the PO can be found from the intent.
 """
 
 from __future__ import annotations
@@ -24,9 +24,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Mapping
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 
@@ -85,36 +86,66 @@ def with_reference(arguments: Mapping[str, Any], reference: str) -> dict[str, An
     return body
 
 
-def po_item_lookup_arguments(pr_id: str, pr_item: str) -> dict[str, str]:
-    pr = str(pr_id or "").replace("'", "")
-    item = normalize_item(pr_item).replace("'", "")
+def pr_item_key_arguments(pr_id: str, pr_item: str) -> dict[str, str]:
     return {
-        "filter": f"PurchaseRequisition eq '{pr}' and PurchaseRequisitionItem eq '{item}'",
-        "select": "PurchaseOrder,PurchaseOrderItem,PurchaseRequisition,PurchaseRequisitionItem",
-        "top": "5",
+        "PurchaseRequisition": str(pr_id or "").strip(),
+        "PurchaseRequisitionItem": normalize_item(pr_item),
     }
 
 
+def _keyed_item(raw: Any, pr_id: str) -> Mapping[str, Any] | None:
+    """The PR item a keyed read returned, whatever envelope the gateway used."""
+
+    candidates: list[Mapping[str, Any]] = []
+    if isinstance(raw, Mapping):
+        candidates.append(raw)
+        for key in ("d", "data", "result"):
+            inner = raw.get(key)
+            if isinstance(inner, Mapping):
+                candidates.append(inner)
+                results = inner.get("results")
+                if isinstance(results, list) and len(results) == 1:
+                    candidates.extend(row for row in results if isinstance(row, Mapping))
+    for row in candidates:
+        if str(row.get("PurchaseRequisition") or "").strip() == pr_id:
+            return row
+    return None
+
+
 def find_existing_po(workspace: Any, pr_id: str, pr_item: str) -> tuple[str | None, str | None]:
-    """(PO number or None, error or None) from SAP's own PO items."""
+    """(PO number or None, error or None) from the PR item SAP holds.
+
+    SAP stamps ``PurchasingDocument`` on a requisition item once a PO references
+    it, and the approved-PR list already filters on that field. The item is read
+    by key on the server that lists the requisitions, so a create that did commit
+    is seen on the system it committed to. A reply without the item, or without
+    the field, is an error: no PO is believed only when SAP says so.
+    """
     from app.services.connectors.mcp import read as mcp_read
     from app.services.connectors.mcp import service as mcp_service
 
+    pr = str(pr_id or "").strip()
+    item = normalize_item(pr_item)
     try:
         server = mcp_service.resolve_server(workspace, READ_SERVER_ID)
         out = mcp_read.read_rows(
             server,
-            tool=mcp_read.LIVE_PO_ITEM,
-            arguments=po_item_lookup_arguments(pr_id, pr_item),
-            fields=["PurchaseOrder", "PurchaseRequisition", "PurchaseRequisitionItem"],
+            tool=mcp_read.LIVE_PR_ITEM_BY_KEY,
+            arguments=pr_item_key_arguments(pr, item),
         )
     except Exception as exc:  # noqa: BLE001 - an unreadable SAP refuses the write
         return None, f"{type(exc).__name__}: {exc}"
-    for record in out.get("records") or []:
-        number = str(record.get("PurchaseOrder") or "").strip()
-        if number:
-            return number, None
-    return None, None
+    row = _keyed_item(out.get("result"), pr)
+    if row is None:
+        return None, f"SAP did not return PR item {pr}/{item}"
+    fields = {str(key).lower(): value for key, value in row.items()}
+    returned_item = fields.get("purchaserequisitionitem")
+    if returned_item not in (None, "") and normalize_item(returned_item) != item:
+        return None, f"SAP returned PR item {returned_item} for {pr}/{item}"
+    if "purchasingdocument" not in fields:
+        return None, f"SAP did not return PurchasingDocument for PR item {pr}/{item}"
+    number = str(fields["purchasingdocument"] or "").strip()
+    return (number or None), None
 
 
 def _refusal(
