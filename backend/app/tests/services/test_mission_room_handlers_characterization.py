@@ -17,6 +17,7 @@ import asyncio
 import json
 import os
 import re
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,17 @@ from app.services.mission_room import (
 )
 
 CAPTURE = Path(__file__).resolve().parents[1] / "fixtures" / "mission_room_handlers.json"
+#: The day the capture was taken on. The handlers read the Mission Room demo
+#: clock (meeting dates, the daily summary) and the strategic report stamps
+#: ``date.today()`` into the text its id hashes, so the replay pins both; left
+#: rolling, the capture stops matching the next day.
+CAPTURE_DAY = "2026-09-23"
+
+
+class _CaptureDay(date):
+    @classmethod
+    def today(cls) -> date:
+        return date.fromisoformat(CAPTURE_DAY)
 GENERIC_HANDLERS = {
     "voice_loop_stop",
     "voice_repeat",
@@ -102,6 +114,8 @@ def _fake_skill_factory(calls: list[dict[str, Any]]):
 
 
 def _run(db_session, monkeypatch, pack: str, manifest) -> dict[str, Any]:
+    monkeypatch.setenv("SENTINEL_DEMO_DATE", CAPTURE_DAY)
+    monkeypatch.setattr("app.services.sentinel_ci_reports.date", _CaptureDay)
     if pack == "sentinel":
         ensure_sentinel_ci_workspace(db_session)
         slug = SENTINEL_WORKSPACE_SLUG
