@@ -236,26 +236,34 @@ def _reconciling(db_session, workspace):
     db_session.commit()
 
 
+def _pr_item(purchasing_document="", item="10"):
+    """What SAP answers to a keyed read of the PR item."""
+    return {
+        "d": {
+            "PurchaseRequisition": PR,
+            "PurchaseRequisitionItem": item,
+            "PurchasingDocument": purchasing_document,
+        }
+    }
+
+
+def _reads(calls):
+    return [args for tool, args in calls if tool == mcp_read.LIVE_PR_ITEM_BY_KEY]
+
+
 @pytest.mark.asyncio
 async def test_with_the_flag_an_existing_sap_po_is_recorded_and_refused(
     db_session, monkeypatch, estate
 ):
     workspace, _events = estate
     _reconciling(db_session, workspace)
-    calls = _transport(monkeypatch, {mcp_write.BAPI_CREATE: CREATED})
-    reads: list[dict] = []
-
-    def read_rows(server, *, tool, arguments=None, fields=None):
-        reads.append({"tool": tool, **(arguments or {})})
-        return {"records": [{"PurchaseOrder": "4500111222", "PurchaseRequisition": PR}]}
-
-    monkeypatch.setattr(mcp_read, "read_rows", read_rows)
+    calls = _transport(
+        monkeypatch,
+        {mcp_read.LIVE_PR_ITEM_BY_KEY: _pr_item("4500111222"), mcp_write.BAPI_CREATE: CREATED},
+    )
     refused = await _create(db_session, workspace, "run-1")
     assert refused["reason"] == intents.ALREADY_ORDERED and refused["po_number"] == "4500111222"
-    assert reads[0]["tool"] == mcp_read.LIVE_PO_ITEM
-    assert (
-        reads[0]["filter"] == f"PurchaseRequisition eq '{PR}' and PurchaseRequisitionItem eq '10'"
-    )
+    assert _reads(calls) == [{"PurchaseRequisition": PR, "PurchaseRequisitionItem": "10"}]
     intent = _intent(db_session, workspace)
     assert intent.status == COMMITTED and intent.resolved_by == "sap_read"
     assert _creates(calls) == []
@@ -265,14 +273,36 @@ async def test_with_the_flag_an_existing_sap_po_is_recorded_and_refused(
 async def test_with_the_flag_an_unreadable_sap_refuses_the_write(db_session, monkeypatch, estate):
     workspace, _events = estate
     _reconciling(db_session, workspace)
-    calls = _transport(monkeypatch, {})
-
-    def read_rows(server, **_kwargs):
-        raise McpUnreachable("sap read down")
-
-    monkeypatch.setattr(mcp_read, "read_rows", read_rows)
+    calls = _transport(
+        monkeypatch, {mcp_read.LIVE_PR_ITEM_BY_KEY: McpUnreachable("sap read down")}
+    )
     refused = await _create(db_session, workspace, "run-1")
-    assert refused["reason"] == intents.RECONCILIATION_UNAVAILABLE and calls == []
+    assert refused["reason"] == intents.RECONCILIATION_UNAVAILABLE
+    assert _creates(calls) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"d": {"PurchaseRequisition": PR, "PurchaseRequisitionItem": "10"}},
+        _pr_item("", item="20"),
+        {"d": {"PurchaseRequisition": "2000000001", "PurchasingDocument": ""}},
+        {"d": {}},
+    ],
+    ids=["no-purchasing-document", "another-item", "another-pr", "empty"],
+)
+async def test_with_the_flag_a_reply_that_does_not_show_the_item_refuses(
+    db_session, monkeypatch, estate, reply
+):
+    workspace, _events = estate
+    _reconciling(db_session, workspace)
+    calls = _transport(
+        monkeypatch, {mcp_read.LIVE_PR_ITEM_BY_KEY: reply, mcp_write.BAPI_CREATE: CREATED}
+    )
+    refused = await _create(db_session, workspace, "run-1")
+    assert refused["reason"] == intents.RECONCILIATION_UNAVAILABLE
+    assert _creates(calls) == []
 
 
 @pytest.mark.asyncio
@@ -285,12 +315,14 @@ async def test_with_the_flag_an_unknown_sap_does_not_show_is_retried_with_a_refe
     assert _intent(db_session, workspace).status == UNKNOWN
 
     _reconciling(db_session, workspace)
-    monkeypatch.setattr(mcp_read, "read_rows", lambda server, **_kwargs: {"records": []})
-    calls = _transport(monkeypatch, {mcp_write.BAPI_CREATE: CREATED})
+    calls = _transport(
+        monkeypatch,
+        {mcp_read.LIVE_PR_ITEM_BY_KEY: _pr_item("", item="00010"), mcp_write.BAPI_CREATE: CREATED},
+    )
     retried = await _create(db_session, workspace, "run-2")
     assert retried["committed"] is True
     intent = _intent(db_session, workspace)
-    header = calls[0][1]["import"]
+    header = next(args for tool, args in calls if tool == mcp_write.BAPI_CREATE)["import"]
     assert (
         header["POHEADER"]["COLLECT_NO"] == intent.reference
         and header["POHEADERX"]["COLLECT_NO"] == "X"
