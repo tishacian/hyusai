@@ -1,9 +1,10 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, computed, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthStore } from '@app/store/auth.store';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { WorkspaceSwitchService } from '@app/core/workspace-switch.service';
 import { ThemeService } from '@app/core/theme.service';
 import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -127,8 +128,10 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
         <label class="business-workspace">
           <span class="sr-only">{{ i18n.t('titlebar.workspace') }}</span>
           <select
+            #workspaceSelect
             [ngModel]="workspace.currentSlug()"
-            (ngModelChange)="selectWorkspace($event)"
+            (ngModelChange)="selectWorkspace($event, workspaceSelect)"
+            [attr.aria-busy]="switchState().phase === 'pending' ? 'true' : null"
             [title]="i18n.t('workspace.business.switch')"
           >
             @for (ws of workspace.workspaces(); track ws.id) {
@@ -147,6 +150,36 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
         </a>
       </div>
     </header>
+
+    @if (switchState(); as state) {
+      @if (state.phase === 'pending') {
+        <p class="business-switch" role="status">
+          {{ i18n.t('workspace.switch.opening_named', { name: workspaceName(state.slug) }) }}
+        </p>
+      } @else if (state.phase === 'suspended') {
+        <div class="business-switch" role="alert" (click)="$event.stopPropagation()">
+          <p class="business-switch-title">{{ i18n.t('workspace.switch.suspended_title') }}</p>
+          <p>{{ unsavedReason(state) }}</p>
+          <div class="business-switch-actions">
+            <button type="button" (click)="stayHere()">{{ i18n.t('workspace.switch.stay') }}</button>
+            <button type="button" class="business-switch-discard" (click)="discardAndSwitch()">
+              {{ i18n.t('workspace.switch.discard') }}
+            </button>
+          </div>
+        </div>
+      } @else if (state.phase === 'failed') {
+        <p class="business-switch" role="alert">{{ i18n.t('workspace.switch.failed') }}</p>
+      } @else if (state.phase === 'switched') {
+        <div class="business-switch" role="status" (click)="$event.stopPropagation()">
+          <p class="business-switch-title">{{ i18n.t('workspace.switch.done', { name: workspaceName(state.slug) }) }}</p>
+          @if (state.previousSlug; as previous) {
+            <button type="button" class="business-switch-back" (click)="switchBack(previous)">
+              {{ i18n.t('workspace.switch.back', { name: workspaceName(previous) }) }}
+            </button>
+          }
+        </div>
+      }
+    }
   `,
   styles: [`
     :host { display: contents; }
@@ -290,6 +323,54 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
     :host-context([data-theme="light"]) .business-workspace select {
       color-scheme: light;
     }
+    .business-switch {
+      position: fixed;
+      top: 58px;
+      right: 16px;
+      z-index: 60;
+      display: grid;
+      gap: 8px;
+      max-width: min(320px, calc(100vw - 32px));
+      padding: 12px 14px;
+      border: 1px solid var(--ck-stroke-3);
+      border-radius: 6px;
+      background: var(--ck-bg-panel-hi);
+      box-shadow: var(--ck-shadow-popover);
+      color: var(--ck-fg-2);
+      font-size: 12px;
+      line-height: 16px;
+    }
+    .business-switch-title {
+      color: var(--ck-fg-1);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .business-switch-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .business-switch-actions button {
+      flex: 1 1 auto;
+      min-height: 28px;
+      padding: 0 10px;
+      border: 1px solid var(--ck-stroke-3);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--ck-fg-1);
+      cursor: pointer;
+    }
+    .business-switch-actions .business-switch-discard {
+      border-color: var(--ck-signal-neg);
+      color: var(--ck-signal-neg);
+    }
+    .business-switch-back {
+      justify-self: start;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--ck-signal-cool);
+      cursor: pointer;
+    }
     .business-account {
       max-width: 210px;
       color: var(--ck-fg-2);
@@ -391,6 +472,8 @@ export class BusinessShellHeaderComponent {
   protected readonly theme = inject(ThemeService);
   protected readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
+  private readonly switcher = inject(WorkspaceSwitchService);
+  protected readonly switchState = this.switcher.state;
 
   private static readonly THEME_GLYPHS: Record<'system' | 'light' | 'dark', CkGlyphName> = {
     light: 'crosshair',
@@ -424,28 +507,45 @@ export class BusinessShellHeaderComponent {
       .join('') || 'A';
   });
 
-  async selectWorkspace(slug: string): Promise<void> {
-    if (
-      !slug
-      || slug === this.workspace.currentSlug()
-      || !this.workspace.workspaces().some((workspace) => workspace.slug === slug)
-    ) {
-      return;
-    }
-    const leftCurrentWorkspace = await this.router.navigateByUrl('/hypervisor', { replaceUrl: true });
-    if (!leftCurrentWorkspace || !this.workspace.switchWorkspace(slug)) return;
-    const route = this.navigation.businessShellActive()
-      ? this.navigation.effective().defaultRoute
-      : '/hypervisor';
-    const currentPath = (this.router.url || '/').split('?')[0].split('#')[0];
-    if (currentPath === route.split('?')[0].split('#')[0]) {
-      // Angular reuses the current component on a same-URL navigation. A hard
-      // reload is required here so no tenant-owned page state survives while
-      // keeping the user on the same semantic surface.
-      window.location.reload();
-      return;
-    }
-    await this.router.navigateByUrl(route, { replaceUrl: true });
+  /** A native select already shows the choice: put it back unless B is on screen. */
+  async selectWorkspace(slug: string, select: HTMLSelectElement): Promise<void> {
+    const outcome = await this.switcher.switch(slug);
+    if (outcome.phase !== 'switched') select.value = this.workspace.currentSlug() ?? '';
+  }
+
+  stayHere(): void {
+    this.switcher.cancel();
+  }
+
+  discardAndSwitch(): void {
+    void this.switcher.discardAndSwitch();
+  }
+
+  switchBack(slug: string): void {
+    void this.switcher.switch(slug);
+  }
+
+  @HostListener('document:click')
+  dismissSwitch(): void {
+    if (this.switchState().phase === 'pending') return;
+    this.switcher.cancel();
+    this.switcher.dismiss();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (!this.switcher.cancel()) this.switcher.dismiss();
+  }
+
+  protected workspaceName(slug: string): string {
+    return this.workspace.workspaces().find((workspace) => workspace.slug === slug)?.name ?? slug;
+  }
+
+  protected unsavedReason({ label, count }: { label: string; count: number }): string {
+    return this.i18n.t(
+      count === 1 ? 'workspace.switch.unsaved_one' : 'workspace.switch.unsaved_other',
+      { label, count },
+    );
   }
 
   exitPreview(): void {

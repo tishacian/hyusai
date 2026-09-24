@@ -16,6 +16,7 @@ import { HelpTooltipComponent } from '@app/shared/cockpit';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import type { PendingChangesSummary } from '@app/core/workspace-switch.service';
 import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
 import { canEditExperienceStudio, canReleaseExperienceStudio } from '../experience-access';
 import { ExperienceRuntimeHostComponent } from '../runtime/runtime-host.component';
@@ -1383,6 +1384,7 @@ export class ExperienceEditorComponent implements OnDestroy {
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
   private editGeneration = 0;
+  private savedGeneration = 0;
   private saveQueued = false;
   private publishRequested = false;
   private loadGeneration = 0;
@@ -1516,6 +1518,29 @@ export class ExperienceEditorComponent implements OnDestroy {
   confirmDiscardChanges(): boolean {
     return !this.hasPendingChanges()
       || globalThis.confirm(this.i18n.t('experience.editor.discard_confirm'));
+  }
+
+  pendingChanges(): PendingChangesSummary | null {
+    if (!this.hasPendingChanges()) return null;
+    const edits = this.saved() ? 0 : Math.max(1, this.editGeneration - this.savedGeneration);
+    const metadata = this.metadataDirty() || this.metadataBusy() ? 1 : 0;
+    return {
+      label: this.name() || this.detail()?.name || '',
+      count: Math.max(1, edits + metadata),
+      discard: () => this.discardPendingChanges(),
+    };
+  }
+
+  private discardPendingChanges(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    this.saveQueued = false;
+    this.publishRequested = false;
+    this.savedGeneration = this.editGeneration;
+    this.saving.set(false);
+    this.saved.set(true);
+    this.metadataBusy.set(false);
+    this.metadataDirty.set(false);
   }
 
   @HostListener('window:beforeunload', ['$event'])
@@ -2436,6 +2461,7 @@ export class ExperienceEditorComponent implements OnDestroy {
           return;
         }
         this.refreshReady(id);
+        this.savedGeneration = generation;
         this.saved.set(true);
         if (this.publishRequested) {
           this.publishRequested = false;
@@ -2544,6 +2570,7 @@ export class ExperienceEditorComponent implements OnDestroy {
           : document.pages[0]?.id ?? null;
         this.selection.set(pageId ? { kind: 'page', pageId } : null);
         this.editGeneration += 1;
+        this.savedGeneration = this.editGeneration;
         this.saveQueued = false;
         this.saved.set(true);
         this.ready.set(null);
@@ -2878,6 +2905,7 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.previewRole.set('workspace_viewer');
     this.previewGroup.set('');
     this.editGeneration = 0;
+    this.savedGeneration = 0;
     this.saved.set(false);
     if (id) this.load(id);
   }
@@ -2926,6 +2954,7 @@ export class ExperienceEditorComponent implements OnDestroy {
     this.bindingKeys.set(row.draft?.binding_keys ?? row.binding_keys ?? []);
     const doc = this.api.draftDocument(row);
     this.stack.set(emptyStack(doc));
+    this.savedGeneration = this.editGeneration;
     this.saved.set(true);
     const requested = this.requestedPageId();
     const first = doc.pages.find((page) => page.id === requested)?.id ?? doc.pages[0]?.id;
