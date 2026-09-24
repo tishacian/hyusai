@@ -6,7 +6,7 @@ import {
   Route,
   convertToParamMap,
 } from '@angular/router';
-import { WorkspaceRouteReuseStrategy } from './workspace-route-reuse.strategy';
+import { WORKSPACE_EPOCH, WorkspaceRouteReuseStrategy } from './workspace-route-reuse.strategy';
 
 function snapshot(routeConfig: Route | null, params: Record<string, string>): ActivatedRouteSnapshot {
   return {
@@ -85,6 +85,18 @@ test('Experience Studio editor is recreated when its application id changes', ()
     ),
     true,
   );
+});
+
+test('the same route is not reused from one workspace epoch to the next', () => {
+  const strategy = new WorkspaceRouteReuseStrategy();
+  const routeConfig: Route = { path: 'hypervisor' };
+  const underShell = (epoch: number) => ({
+    ...snapshot(routeConfig, {}),
+    parent: { data: { [WORKSPACE_EPOCH]: epoch } },
+  }) as unknown as ActivatedRouteSnapshot;
+
+  assert.equal(strategy.shouldReuseRoute(underShell(4), underShell(3)), false);
+  assert.equal(strategy.shouldReuseRoute(underShell(4), underShell(4)), true);
 });
 
 test('unrelated parameterized routes keep Angular default reuse semantics', () => {

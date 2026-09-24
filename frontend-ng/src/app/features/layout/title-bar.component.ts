@@ -10,7 +10,16 @@ import { ApiService } from '@app/core/api.service';
 import { ThemeService, type ThemeMode } from '@app/core/theme.service';
 import { TokenStorageService } from '@app/core/token-storage.service';
 import { WorkspaceService } from '@app/core/workspace.service';
-import { agentiumSurfaceRoute, navigationLeafUrl, navigationSurfaceUrl } from '@app/core/navigation.catalog';
+import { WorkspaceSwitchService, type WorkspaceSwitchState } from '@app/core/workspace-switch.service';
+import {
+  COCKPIT_VERBS,
+  cockpitVerbSections,
+  matchAgentiumSurface,
+  navigationLeafUrl,
+  navigationRouteContext,
+  navigationSectionNaming,
+  navigationSurfaceUrl,
+} from '@app/core/navigation.catalog';
 import { platformBrand } from '@app/core/platform-brand';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import { AuthStore } from '@app/store/auth.store';
@@ -231,6 +240,18 @@ const THEME_ICONS: Record<ThemeMode, string> = {
           <ck-glyph class="tb-workspace-arrow" name="arrow-down" [size]="10" color="var(--ck-fg-4)" />
         </button>
 
+        @if (!workspaceMenuOpen() && switchNotice(); as notice) {
+          <div class="tb-popover tb-ws-notice" role="status" data-testid="workspace-switch-notice">
+            <p class="tb-ws-notice-title">{{ i18n.t('workspace.switch.done', { name: notice.name }) }}</p>
+            <p class="tb-ws-notice-line">{{ notice.location }}</p>
+            @if (notice.previous; as previous) {
+              <button type="button" class="tb-ws-back" (click)="switchBack(previous.slug)">
+                {{ i18n.t('workspace.switch.back', { name: previous.name }) }}
+              </button>
+            }
+          </div>
+        }
+
         @if (workspaceMenuOpen()) {
           <div
             id="tb-workspace-popover"
@@ -249,41 +270,58 @@ const THEME_ICONS: Record<ThemeMode, string> = {
           >
             <div class="ck-label" [style.padding]="'4px 8px 6px'">{{ i18n.t('titlebar.workspaces') }}</div>
             @for (ws of workspaceService.workspaces(); track ws.id) {
-              <button
-                type="button"
-                (click)="selectWorkspace(ws.slug)"
-                [style.display]="'flex'"
-                [style.alignItems]="'center'"
-                [style.gap.px]="8"
-                [style.width]="'100%'"
-                [style.padding]="'6px 8px'"
-                [style.background]="ws.slug === workspaceService.currentSlug() ? 'rgba(125,211,252,0.06)' : 'transparent'"
-                [style.border]="'1px solid transparent'"
-                [style.borderRadius.px]="4"
-                [style.color]="'var(--ck-fg-1)'"
-                [style.cursor]="'pointer'"
-                [style.textAlign]="'left'"
-              >
-                <span
-                  [style.display]="'inline-flex'"
+              <div class="tb-ws-item" [class.tb-ws-item-suspended]="!!suspendedFor(ws.slug)">
+                <button
+                  type="button"
+                  (click)="selectWorkspace(ws.slug)"
+                  [class.tb-ws-pending]="pendingFor(ws.slug)"
+                  [attr.aria-busy]="pendingFor(ws.slug) ? 'true' : null"
+                  [style.display]="'flex'"
                   [style.alignItems]="'center'"
-                  [style.justifyContent]="'center'"
-                  [style.width.px]="22"
-                  [style.height.px]="22"
-                  [style.borderRadius.px]="3"
-                  [style.fontSize.px]="10"
-                  [style.fontWeight]="600"
-                  [style.color]="'var(--ck-on-signal)'"
-                  [style.background]="'var(--ck-signal-cool)'"
-                >{{ workspaceInitial(ws.name) }}</span>
-                <div [style.flex]="'1 1 auto'" [style.minWidth]="'0'">
-                  <div [style.fontSize.px]="12" [style.color]="'var(--ck-fg-1)'" [style.overflow]="'hidden'" [style.textOverflow]="'ellipsis'" [style.whiteSpace]="'nowrap'">{{ ws.name }}</div>
-                  <div class="ck-mono" [style.fontSize.px]="9" [style.color]="'var(--ck-fg-4)'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.12em'">{{ ws.role }}</div>
-                </div>
-                @if (ws.slug === workspaceService.currentSlug()) {
-                  <ck-glyph name="check" [size]="12" color="var(--ck-signal-cool)" />
+                  [style.gap.px]="8"
+                  [style.width]="'100%'"
+                  [style.padding]="'6px 8px'"
+                  [style.background]="ws.slug === workspaceService.currentSlug() ? 'rgba(125,211,252,0.06)' : 'transparent'"
+                  [style.border]="'1px solid transparent'"
+                  [style.borderRadius.px]="4"
+                  [style.color]="'var(--ck-fg-1)'"
+                  [style.cursor]="'pointer'"
+                  [style.textAlign]="'left'"
+                >
+                  <span
+                    [style.display]="'inline-flex'"
+                    [style.alignItems]="'center'"
+                    [style.justifyContent]="'center'"
+                    [style.width.px]="22"
+                    [style.height.px]="22"
+                    [style.borderRadius.px]="3"
+                    [style.fontSize.px]="10"
+                    [style.fontWeight]="600"
+                    [style.color]="'var(--ck-on-signal)'"
+                    [style.background]="'var(--ck-signal-cool)'"
+                  >{{ workspaceInitial(ws.name) }}</span>
+                  <div [style.flex]="'1 1 auto'" [style.minWidth]="'0'">
+                    <div [style.fontSize.px]="12" [style.color]="'var(--ck-fg-1)'" [style.overflow]="'hidden'" [style.textOverflow]="'ellipsis'" [style.whiteSpace]="'nowrap'">{{ ws.name }}</div>
+                    <div class="ck-mono" [style.fontSize.px]="9" [style.color]="'var(--ck-fg-4)'" [style.textTransform]="'uppercase'" [style.letterSpacing]="'0.12em'">{{ ws.role }}</div>
+                  </div>
+                  @if (pendingFor(ws.slug)) {
+                    <span class="tb-ws-status"><app-icon name="loader-2" [size]="12" />{{ i18n.t('workspace.switch.opening') }}</span>
+                  } @else if (suspendedFor(ws.slug)) {
+                    <span class="tb-ws-status tb-ws-status-warn">{{ i18n.t('workspace.switch.suspended') }}</span>
+                  } @else if (ws.slug === workspaceService.currentSlug()) {
+                    <ck-glyph name="check" [size]="12" color="var(--ck-signal-cool)" />
+                  }
+                </button>
+                @if (suspendedFor(ws.slug); as suspended) {
+                  <p class="tb-ws-note" role="alert">{{ unsavedReason(suspended) }}</p>
+                  <div class="tb-ws-actions">
+                    <button type="button" class="tb-ws-action" (click)="stayHere()">{{ i18n.t('workspace.switch.stay') }}</button>
+                    <button type="button" class="tb-ws-action tb-ws-action-discard" (click)="discardAndSwitch()">{{ i18n.t('workspace.switch.discard') }}</button>
+                  </div>
+                } @else if (failedFor(ws.slug)) {
+                  <p class="tb-ws-note" role="alert">{{ i18n.t('workspace.switch.failed') }}</p>
                 }
-              </button>
+              </div>
             }
             <div class="ck-hairline-h" [style.margin]="'6px 4px'"></div>
             @if (workspaceService.current(); as cur) {
@@ -551,6 +589,77 @@ const THEME_ICONS: Record<ThemeMode, string> = {
       max-width: calc(100vw - 16px);
     }
 
+    .tb-ws-item-suspended {
+      margin: 2px 0;
+      padding-bottom: 8px;
+      border: 1px solid var(--ck-stroke-3);
+      border-radius: 6px;
+      background: var(--ck-bg-panel);
+    }
+    .tb-ws-pending { box-shadow: inset 2px 0 0 var(--ck-signal-cool); }
+    .tb-ws-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+      font-size: 11px;
+      color: var(--ck-fg-3);
+    }
+    .tb-ws-status-warn { color: var(--ck-signal-warn); }
+    .tb-ws-note {
+      margin: 2px 8px 0;
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--ck-fg-2);
+    }
+    .tb-ws-actions {
+      display: flex;
+      gap: 6px;
+      margin: 8px 8px 0;
+    }
+    .tb-ws-action {
+      flex: 1 1 auto;
+      height: 28px;
+      padding: 0 10px;
+      border: 1px solid var(--ck-stroke-3);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--ck-fg-1);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .tb-ws-action-discard {
+      border-color: var(--ck-signal-neg);
+      color: var(--ck-signal-neg);
+    }
+    .tb-ws-notice {
+      z-index: 60;
+      padding: 12px 14px;
+      border: 1px solid var(--ck-stroke-3);
+      border-radius: 6px;
+      background: var(--ck-bg-panel-hi);
+      box-shadow: var(--ck-shadow-popover);
+    }
+    .tb-ws-notice-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ck-fg-1);
+    }
+    .tb-ws-notice-line {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--ck-fg-3);
+    }
+    .tb-ws-back {
+      margin-top: 8px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--ck-signal-cool);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
     .tb-diagnostics-icon { display: none; }
     .tb-diagnostics { position: relative; flex: 0 0 auto; font-size: 12px; }
     .tb-diagnostics summary {
@@ -658,6 +767,19 @@ export class TitleBarComponent {
   protected readonly authStore = inject(AuthStore);
   protected readonly chatOverlay = inject(ChatOverlayService);
   protected readonly i18n = inject(I18nService);
+  private readonly switcher = inject(WorkspaceSwitchService);
+  /** « Vous êtes dans B — Zone › Surface · Revenir à A », once B is on screen. */
+  protected readonly switchNotice = computed(() => {
+    const state = this.switcher.state();
+    if (state.phase !== 'switched') return null;
+    const workspaces = this.workspaceService.workspaces();
+    const previous = workspaces.find((workspace) => workspace.slug === state.previousSlug);
+    return {
+      name: workspaces.find((workspace) => workspace.slug === state.slug)?.name ?? state.slug,
+      location: this.locationLabel(state.url),
+      previous: previous ? { slug: previous.slug, name: previous.name } : null,
+    };
+  });
   private readonly authBootstrap = inject(AuthBootstrapService);
   private readonly tokenStorage = inject(TokenStorageService);
   private readonly authApi = inject(AuthApiService);
@@ -801,10 +923,16 @@ export class TitleBarComponent {
   @HostListener('document:click')
   closeMenus(): void {
     this.userMenuOpen.set(false);
-    this.workspaceMenuOpen.set(false);
+    this.closeWorkspaceMenu();
   }
   @HostListener('document:keydown.escape')
   onEscape(): void {
+    if (this.switcher.cancel()) {
+      this.workspaceMenuOpen.set(false);
+      this.focusWorkspaceToggle();
+      return;
+    }
+    this.switcher.dismiss();
     const restoreId = this.workspaceMenuOpen()
       ? 'tb-workspace-toggle'
       : this.userMenuOpen()
@@ -817,7 +945,7 @@ export class TitleBarComponent {
 
   toggleUserMenu(ev: Event): void {
     ev.stopPropagation();
-    this.workspaceMenuOpen.set(false);
+    this.closeWorkspaceMenu();
     const open = !this.userMenuOpen();
     this.userMenuOpen.set(open);
     if (open) this.focusPopover('tb-user-popover');
@@ -826,9 +954,25 @@ export class TitleBarComponent {
   toggleWorkspaceMenu(ev: Event): void {
     ev.stopPropagation();
     this.userMenuOpen.set(false);
-    const open = !this.workspaceMenuOpen();
-    this.workspaceMenuOpen.set(open);
-    if (open) this.focusPopover('tb-workspace-popover');
+    if (this.workspaceMenuOpen()) {
+      this.closeWorkspaceMenu();
+      return;
+    }
+    this.switcher.dismiss();
+    this.workspaceMenuOpen.set(true);
+    this.focusPopover('tb-workspace-popover');
+  }
+
+  /** A switch in progress keeps the menu open; a suspended one is abandoned. */
+  private closeWorkspaceMenu(): void {
+    if (this.switcher.state().phase === 'pending') return;
+    this.switcher.cancel();
+    this.switcher.dismiss();
+    this.workspaceMenuOpen.set(false);
+  }
+
+  private focusWorkspaceToggle(): void {
+    queueMicrotask(() => globalThis.document?.getElementById('tb-workspace-toggle')?.focus());
   }
 
   openUserMenu(ev: Event): void {
@@ -872,8 +1016,68 @@ export class TitleBarComponent {
   }
 
   async selectWorkspace(slug: string): Promise<void> {
+    if (slug === this.workspaceService.currentSlug()) {
+      this.closeWorkspaceMenu();
+      return;
+    }
+    this.settle(await this.switcher.switch(slug));
+  }
+
+  async discardAndSwitch(): Promise<void> {
+    this.settle(await this.switcher.discardAndSwitch());
+  }
+
+  stayHere(): void {
+    this.switcher.cancel();
     this.workspaceMenuOpen.set(false);
-    await this.activateWorkspace(slug, '/');
+    this.focusWorkspaceToggle();
+  }
+
+  async switchBack(slug: string): Promise<void> {
+    this.workspaceMenuOpen.set(true);
+    this.focusWorkspaceToggle();
+    this.settle(await this.switcher.switch(slug));
+  }
+
+  protected pendingFor(slug: string): boolean {
+    const state = this.switcher.state();
+    return state.phase === 'pending' && state.slug === slug;
+  }
+
+  protected suspendedFor(slug: string): Extract<WorkspaceSwitchState, { phase: 'suspended' }> | null {
+    const state = this.switcher.state();
+    return state.phase === 'suspended' && state.slug === slug ? state : null;
+  }
+
+  protected failedFor(slug: string): boolean {
+    const state = this.switcher.state();
+    return state.phase === 'failed' && state.slug === slug;
+  }
+
+  protected unsavedReason({ label, count }: { label: string; count: number }): string {
+    return this.i18n.t(
+      count === 1 ? 'workspace.switch.unsaved_one' : 'workspace.switch.unsaved_other',
+      { label, count },
+    );
+  }
+
+  /** The menu closes only once B is on screen. */
+  private settle(outcome: WorkspaceSwitchState): void {
+    if (outcome.phase === 'switched') this.workspaceMenuOpen.set(false);
+  }
+
+  private locationLabel(url: string): string {
+    const context = navigationRouteContext(url);
+    const zone = this.i18n.t(`experience.adoption.nav.${context.lens}`);
+    const surface = matchAgentiumSurface(context.path);
+    const verb = COCKPIT_VERBS.find((item) => item.key === context.lens);
+    const section = surface && verb
+      ? cockpitVerbSections(verb, { experienceStudio: true }).find((item) => item.surfaceId === surface.id)
+      : undefined;
+    if (!section) return zone;
+    const naming = navigationSectionNaming(section, url);
+    const label = this.i18n.t(naming.i18nKey);
+    return `${zone} › ${label === naming.i18nKey ? naming.label : label}`;
   }
 
   openCreateForm(): void {
@@ -890,12 +1094,13 @@ export class TitleBarComponent {
         this.creating.set(false);
         this.newWorkspaceName = '';
         this.showCreateForm.set(false);
-        this.workspaceMenuOpen.set(false);
         this.toastr.success(
           this.i18n.t('titlebar.workspace.created.body', { name: ws.name }),
           this.i18n.t('titlebar.workspace.created.title'),
         );
-        void this.activateWorkspace(ws.slug, `/workspace/${encodeURIComponent(ws.slug)}/settings`);
+        void this.switcher
+          .switch(ws.slug, `/workspace/${encodeURIComponent(ws.slug)}/settings`)
+          .then((outcome) => this.settle(outcome));
       },
       error: () => {
         this.creating.set(false);
@@ -905,24 +1110,6 @@ export class TitleBarComponent {
         );
       },
     });
-  }
-
-  private async activateWorkspace(slug: string, destination: string): Promise<boolean> {
-    if (
-      !slug
-      || slug === this.workspaceService.currentSlug()
-      || !this.workspaceService.workspaces().some((workspace) => workspace.slug === slug)
-    ) {
-      return false;
-    }
-    // CanDeactivate runs while the old workspace is still the sole active
-    // context. Only a successful exit may publish the next tenant.
-    const leftCurrentWorkspace = await this.router.navigateByUrl(
-      agentiumSurfaceRoute('hypervisor'),
-      { replaceUrl: true },
-    );
-    if (!leftCurrentWorkspace || !this.workspaceService.switchWorkspace(slug)) return false;
-    return this.router.navigateByUrl(destination, { replaceUrl: true });
   }
 
   logout(): void {

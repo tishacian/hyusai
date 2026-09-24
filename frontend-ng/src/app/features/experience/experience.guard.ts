@@ -2,6 +2,7 @@ import { inject } from '@angular/core';
 import { CanActivateFn, CanDeactivateFn, Router } from '@angular/router';
 import { catchError, map, of } from 'rxjs';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { type PendingChangesSummary, WorkspaceSwitchService } from '@app/core/workspace-switch.service';
 import { canAccessExperienceStudio, canEditExperienceStudio } from './experience-access';
 
 export const experienceV1Guard: CanActivateFn = () => {
@@ -44,8 +45,15 @@ export const experienceStudioGuard = studioGuard(false);
 export const experienceStudioEditGuard = studioGuard(true);
 
 export interface ExperiencePendingChanges {
+  pendingChanges(): PendingChangesSummary | null;
   confirmDiscardChanges(): boolean;
 }
 
 export const experienceUnsavedChangesGuard: CanDeactivateFn<ExperiencePendingChanges> =
-  (component) => component.confirmDiscardChanges();
+  (component) => {
+    const pending = component.pendingChanges();
+    if (!pending) return true;
+    // A workspace switch shows the refusal in its own menu, never in confirm().
+    if (inject(WorkspaceSwitchService).suspend(pending)) return false;
+    return component.confirmDiscardChanges();
+  };
