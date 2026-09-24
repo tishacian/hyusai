@@ -165,7 +165,7 @@ type TierFilter = 'all' | 'universal' | 'industry' | 'client';
 
         <!-- Drill-down panel -->
         @if (selected(); as cap) {
-          <section class="ck-surface rounded-md ck-hero-ambient relative overflow-hidden" style="padding:24px 28px;">
+          <section class="ck-surface rounded-md relative overflow-hidden" style="padding:24px 28px;">
             <div class="flex items-start justify-between gap-4 mb-4">
               <div>
                 <div class="ck-mono flex items-center gap-2" style="font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);">

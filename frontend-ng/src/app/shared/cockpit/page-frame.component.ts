@@ -37,9 +37,10 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
               <div class="ck-page-title" [style.display]="'flex'" [style.alignItems]="'baseline'" [style.gap.px]="12">
                 <h1
                   tabindex="-1"
-                  [style.fontFamily]="'var(--ck-font-sans)'"
-                  [style.fontSize.px]="28"
-                  [style.fontWeight]="500"
+                  [style.fontFamily]="'var(--ck-font-display)'"
+                  [style.fontSize.px]="24"
+                  [style.lineHeight.px]="32"
+                  [style.fontWeight]="600"
                   [style.letterSpacing]="'0'"
                   [style.color]="'var(--ck-fg-1)'"
                   [style.margin]="'0'"
@@ -91,10 +92,6 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
     @media (max-width: 640px) {
       .ck-page-frame {
         padding: 18px 14px 32px;
-      }
-
-      .ck-page-title h1 {
-        font-size: 24px !important;
       }
 
       .ck-page-actions {

@@ -88,7 +88,6 @@ interface Template {
 
       <!-- Quick-start composer -->
       <section
-        class="ck-hero-ambient"
         [style.position]="'relative'"
         [style.padding]="'22px 24px'"
         [style.background]="'var(--ck-bg-panel)'"
@@ -101,9 +100,9 @@ interface Template {
           <ck-live-dot tone="cool" />
         </div>
         <h2
-          [style.fontFamily]="'var(--ck-font-sans)'"
+          [style.fontFamily]="'var(--ck-font-display)'"
           [style.fontSize.px]="20"
-          [style.fontWeight]="500"
+          [style.fontWeight]="600"
           [style.letterSpacing]="'-0.01em'"
           [style.color]="'var(--ck-fg-1)'"
           [style.margin]="'0 0 6px 0'"
@@ -211,9 +210,9 @@ interface Template {
         >
           <div [style.display]="'inline-flex'" [style.color]="'var(--ck-signal-cool)'"><ck-glyph name="cube" [size]="24" /></div>
           <h3
-            [style.fontFamily]="'var(--ck-font-sans)'"
+            [style.fontFamily]="'var(--ck-font-display)'"
             [style.fontSize.px]="18"
-            [style.fontWeight]="500"
+            [style.fontWeight]="600"
             [style.color]="'var(--ck-fg-1)'"
             [style.margin]="'12px 0 6px 0'"
           >{{ i18n.t('systems.empty') }}</h3>

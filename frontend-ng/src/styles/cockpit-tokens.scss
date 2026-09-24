@@ -1,49 +1,121 @@
 /* ============================================================================
-   AGENTIUM — Cockpit Design Tokens (Hybrid A+B)
+   AGENTIUM — Cockpit Design Tokens v2
    --------------------------------------------------------------------------
    Operating System for Intelligence.
-   Base: Concept A (Instrument Panel) — dense cockpit, precision, tabular nums.
-   Touches: Concept B (Living Organism) — generous glows, radial ambient on hero.
+   Two fonts, five colour roles and no violet, a strict 4 px spacing scale,
+   three radii and no pill, no halo.
    --------------------------------------------------------------------------
-   Drives every cockpit-grade surface (chrome, hypervisor, steering, run, …).
-   Coexists with the legacy Tailwind tokens in styles.scss; the cockpit grammar
-   only uses --ck-* variables to remain isolated and easily themable.
+   Drives every cockpit-grade surface (chrome, hypervisor, steering, run, …)
+   and Work. Coexists with the legacy Tailwind tokens in styles.scss; the
+   cockpit grammar only uses --ck-* variables to remain isolated and easily
+   themable.
    ============================================================================ */
 
+/* Type, radii, spacing and motion: the same in both themes. */
+:root {
+  /* ---- TYPE STACKS ----
+     Display for titles, loaded at 600 only. Sans for text. Mono for
+     identifiers and code, never for ambiance. */
+  --ck-font-display: "Space Grotesk", "IBM Plex Sans", -apple-system, "Helvetica Neue", system-ui, sans-serif;
+  --ck-font-sans:    "IBM Plex Sans", -apple-system, "Helvetica Neue", system-ui, sans-serif;
+  --ck-font-mono:    "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* ---- RADII (chip, button, card; no pill) ---- */
+  --ck-radius-sm: 4px;
+  --ck-radius-md: 6px;
+  --ck-radius-lg: 10px;
+  --ck-radius-xl: var(--ck-radius-lg);
+
+  /* ---- SPACING (4 px scale; the suffix counts steps of 4) ---- */
+  --ck-space-1:  4px;
+  --ck-space-2:  8px;
+  --ck-space-3:  12px;
+  --ck-space-4:  16px;
+  --ck-space-6:  24px;
+  --ck-space-8:  32px;
+  --ck-space-12: 48px;
+  --ck-space-16: 64px;
+  --ck-space-24: 96px;
+
+  /* ---- MOTION ----
+     Three movements and no more (see the motion helpers in
+     cockpit-utilities.scss). Reduced motion stops all of them. */
+  --ck-ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ck-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ck-dur-fast:    120ms;
+  --ck-dur-med:     200ms;
+  --ck-dur-slow:    var(--ck-dur-med);
+
+  /* ---- GLOWS ----
+     There is no halo. The names stay because components still reference
+     them, and the value is a transparent shadow rather than `none` so a glow
+     listed after another shadow keeps the whole `box-shadow` valid. */
+  --ck-glow-cool:    0 0 0 transparent;
+  --ck-glow-pos:     0 0 0 transparent;
+  --ck-glow-violet:  0 0 0 transparent;
+  --ck-glow-warn:    0 0 0 transparent;
+  --ck-glow-neg:     0 0 0 transparent;
+
+  /* ---- LAYOUT ---- */
+  --ck-rail-w:        56px;
+  --ck-titlebar-h:    48px;
+  --ck-commandbar-h:  28px;
+
+  /* ---- ICONS (Phosphor duotone secondary layer) ---- */
+  --ck-icon-duotone-secondary: 0.2;
+}
+
+/* ============================================================================
+   Colour roles — dark, the default.
+   The light block below lists the same colour tokens in the same order
+   (aliases excepted), so a theme changes by editing values only.
+   ============================================================================ */
 :root,
 [data-brand-scope][data-theme="dark"] {
-  /* ---- SURFACES (deep cockpit blacks) ---- */
-  --ck-bg-void:      #05070a;
-  --ck-bg-base:      #07090c;
-  --ck-bg-panel:     #0c1014;
-  --ck-bg-panel-hi:  #11161c;
+  /* ---- SURFACES ---- */
+  --ck-bg-void:      #0a0d11;   /* chrome */
+  --ck-bg-base:      #0d1116;   /* canvas */
+  --ck-bg-panel:     #121820;   /* cards */
+  --ck-bg-panel-hi:  #182029;   /* relief: menus, hover, selection */
   --ck-bg-inset:     #0a0d11;
-  --ck-bg-code:      #050709;
+  --ck-bg-code:      #0a0d11;
 
-  /* ---- STROKES ---- */
+  /* ---- STROKES (light hairlines at 4, 8 and 14 %) ---- */
   --ck-stroke-1:     rgba(255, 255, 255, 0.04);
   --ck-stroke-2:     rgba(255, 255, 255, 0.08);
   --ck-stroke-3:     rgba(255, 255, 255, 0.14);
-  --ck-stroke-hot:   rgba(125, 211, 252, 0.32);
+  --ck-stroke-hot:   rgba(31, 184, 204, 0.32);
   /* Alias kept because a dozen call sites already reference it; without a
      definition the whole `border:` declaration was invalid and no border
      rendered at all. It means "the default hairline". */
   --ck-stroke-soft:  var(--ck-stroke-2);
 
-  /* ---- TEXT ---- */
+  /* ---- TEXT ----
+     Text for titles and active labels, secondary for body copy and meta.
+     `-2` is the strong tier between them; the fainter tiers name the
+     secondary, so every caption stays AA on every surface. */
   --ck-fg-1:         #f2f5f8;
   --ck-fg-2:         #c8cdd4;
-  --ck-fg-3:         #8891a0;
-  --ck-fg-4:         #7b8391;   /* AA: >=4.5:1 on dark panels (secondary/caption text) */
-  --ck-fg-5:         #606874;   /* faint tier: >=3:1 (large/bold text, UI elements, borders) */
+  --ck-fg-3:         #a0a9b5;
+  --ck-fg-4:         var(--ck-fg-3);
+  --ck-fg-5:         var(--ck-fg-3);
 
-  /* ---- SIGNALS (semantic palette) ---- */
+  /* ---- PRIMARY (filled button, links, selection, focus) ---- */
+  --ck-primary:       #1fb8cc;
+  --ck-primary-hover: #199fb1;
+
+  /* ---- ACCENT (link hover, emphasis) ---- */
+  --ck-copper:        #d98c5f;
+
+  /* ---- SIGNALS ----
+     Colours for states only. `cool` names the primary, `violet` the neutral
+     secondary and `ice` the text: no role is violet. */
   --ck-signal-pos:    #34d399;
   --ck-signal-neg:    #ef5a6f;
   --ck-signal-warn:   #f5b84a;
-  --ck-signal-cool:   #7dd3fc;
-  --ck-signal-violet: #a78bfa;
-  --ck-signal-ice:    #e0f2fe;
+  --ck-signal-cool:   var(--ck-primary);
+  --ck-signal-violet: var(--ck-fg-3);
+  --ck-signal-ice:    var(--ck-fg-1);
 
   /* ---- STATUS TRIOS (semantic, theme-aware) ----
      One trio per meaning: `-fg` for text and icons, `-bg` for the soft pill
@@ -64,40 +136,34 @@
   --ck-status-neg-bg:       rgba(239, 90, 111, 0.10);
   --ck-status-neg-line:     rgba(239, 90, 111, 0.25);
 
-  --ck-status-info-fg:      #7dd3fc;
-  --ck-status-info-bg:      rgba(125, 211, 252, 0.10);
-  --ck-status-info-line:    rgba(125, 211, 252, 0.25);
+  --ck-status-info-fg:      #8ec5e6;
+  --ck-status-info-bg:      rgba(142, 197, 230, 0.10);
+  --ck-status-info-line:    rgba(142, 197, 230, 0.25);
 
-  /* Maturity, not health: a capability shipped as beta / preview. Violet so it
-     never reads as "ready" (info) nor as "degraded" (warn). */
-  --ck-status-preview-fg:   #a78bfa;
-  --ck-status-preview-bg:   rgba(167, 139, 250, 0.10);
-  --ck-status-preview-line: rgba(167, 139, 250, 0.25);
+  /* Maturity, not health: a capability shipped as beta / preview. Neutral,
+     and `.ck-tone-preview` dashes its ring, so it never reads as "ready"
+     (info) nor as "degraded" (warn). */
+  --ck-status-preview-fg:   var(--ck-fg-3);
+  --ck-status-preview-bg:   var(--ck-tint-faint);
+  --ck-status-preview-line: var(--ck-stroke-3);
 
   --ck-status-neutral-fg:   var(--ck-fg-3);
   --ck-status-neutral-bg:   var(--ck-tint-faint);
   --ck-status-neutral-line: var(--ck-stroke-2);
 
   /* ---- CALL TO ACTION (the one filled button per screen) ---- */
-  --ck-cta-bg:       #00bcd4;
-  --ck-cta-bg-hover: #00a0b4;
+  --ck-cta-bg:       var(--ck-primary);
+  --ck-cta-bg-hover: var(--ck-primary-hover);
   --ck-cta-fg:       var(--ck-on-signal);
 
-  /* ---- GLOWS (touches Concept B: generous halos on live surfaces) ---- */
-  --ck-glow-cool:    0 0 32px rgba(125, 211, 252, 0.32);
-  --ck-glow-pos:     0 0 32px rgba(52, 211, 153, 0.28);
-  --ck-glow-violet:  0 0 32px rgba(167, 139, 250, 0.30);
-  --ck-glow-warn:    0 0 28px rgba(245, 184, 74, 0.28);
-  --ck-glow-neg:     0 0 28px rgba(239, 90, 111, 0.30);
-
   /* ---- SHADOWS (depth, panels, popovers) ----
-     Dark cockpit: deep diffuse black. On light these get softened
-     in the `[data-theme="light"]` block below so panels don't read as
-     "punched out" on warm paper. Consumers MUST use var(--ck-shadow-*)
-     rather than inlining `rgba(0,0,0,0.5)` so the theme travels. */
+     Only floating layers cast a shadow: menus, tooltips, the chat overlay.
+     A card lies flat on its hairline and lifts 1 px only when it opens
+     something. Consumers MUST use var(--ck-shadow-*) rather than inlining
+     `rgba(0,0,0,0.5)` so the theme travels. */
   --ck-shadow-panel:   0 20px 60px rgba(0, 0, 0, 0.50);
   --ck-shadow-popover: 0 18px 40px rgba(0, 0, 0, 0.45);
-  --ck-shadow-card:    0 6px 18px rgba(0, 0, 0, 0.35);
+  --ck-shadow-card:    0 1px 2px rgba(0, 0, 0, 0.40);
   /* Scrim beneath overlays (panels, modals, palette). */
   --ck-scrim:          rgba(0, 0, 0, 0.45);
   /* Blocking modals (publish, run input) sit above the whole builder, so they
@@ -108,38 +174,13 @@
   /* Text color to render on top of a saturated signal background
      (ck-tag variant="solid", primary signal buttons). Dark theme →
      bright signal bg → dark text reads best. Flipped on light. */
-  --ck-on-signal: #05070a;
+  --ck-on-signal: #0a0d11;
 
   /* Subtle tint for faintly-accented surfaces (neutral soft tag bg,
      hover washes, empty-state wells). Dark theme uses a white wash;
      light theme swaps to a black wash below. */
   --ck-tint-faint: rgba(255, 255, 255, 0.04);
   --ck-tint-soft:  rgba(255, 255, 255, 0.06);
-
-  /* ---- TYPE STACKS ---- */
-  --ck-font-sans: "Inter Tight", "Inter", -apple-system, "Helvetica Neue", system-ui, sans-serif;
-  --ck-font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-
-  /* ---- RADII ---- */
-  --ck-radius-sm: 4px;
-  --ck-radius-md: 6px;
-  --ck-radius-lg: 10px;
-  --ck-radius-xl: 14px;
-
-  /* ---- MOTION ---- */
-  --ck-ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
-  --ck-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --ck-dur-fast:    120ms;
-  --ck-dur-med:     240ms;
-  --ck-dur-slow:    520ms;
-
-  /* ---- LAYOUT ---- */
-  --ck-rail-w:        56px;
-  --ck-titlebar-h:    48px;
-  --ck-commandbar-h:  28px;
-
-  /* ---- ICONS (Phosphor duotone secondary layer) ---- */
-  --ck-icon-duotone-secondary: 0.2;
 
   /* ---- ALIASES ----
      Names that call sites invented and that were never declared here. An
@@ -158,7 +199,7 @@
   --ck-bg-raised:      var(--ck-bg-panel-hi);
   --ck-bg-focus:       var(--ck-bg-panel-hi);
   --ck-bg-sunken:      var(--ck-bg-inset);
-  --ck-accent:         var(--ck-signal-cool);
+  --ck-accent:         var(--ck-primary);
   --ck-pos:            var(--ck-signal-pos);
   --ck-neg:            var(--ck-signal-neg);
   --ck-warn:           var(--ck-signal-warn);
@@ -168,91 +209,102 @@
 }
 
 /* ============================================================================
-   Light variant — papier-chaud overrides for `[data-theme="light"]` and
-   the legacy `:not(.dark)` class to remain backward compatible during the
-   migration window.
+   Colour roles — light. Same tokens, same order as the dark block. Only the
+   lightness changes: the primary and the copper keep their hue, and neither
+   #ffffff nor #000000 appears. The legacy `:not(.dark)` class stays backward
+   compatible during the migration window.
    ============================================================================ */
 html:not(.dark),
 [data-theme="light"] {
-  --ck-bg-void:     #e8e6df;
-  --ck-bg-base:     #f4f2eb;
-  --ck-bg-panel:    #fafaf6;
-  --ck-bg-panel-hi: #ffffff;
-  --ck-bg-inset:    #efede6;
-  --ck-bg-code:     #1a1c20;
+  /* ---- SURFACES ---- */
+  --ck-bg-void:     #e9ecef;
+  --ck-bg-base:     #f2f4f6;
+  --ck-bg-panel:    #f8f9fa;
+  --ck-bg-panel-hi: #fcfcfd;
+  --ck-bg-inset:    #edf0f2;
+  --ck-bg-code:     #121820;   /* code stays dark */
 
-  --ck-stroke-1:    rgba(0, 0, 0, 0.06);
-  --ck-stroke-2:    rgba(0, 0, 0, 0.10);
-  --ck-stroke-3:    rgba(0, 0, 0, 0.18);
-  --ck-stroke-hot:  rgba(14, 116, 144, 0.40);
+  /* ---- STROKES ---- */
+  --ck-stroke-1:    rgba(21, 26, 33, 0.06);
+  --ck-stroke-2:    rgba(21, 26, 33, 0.10);
+  --ck-stroke-3:    rgba(21, 26, 33, 0.18);
+  --ck-stroke-hot:  rgba(10, 116, 131, 0.40);
 
-  --ck-fg-1:        #0a0c10;
-  --ck-fg-2:        #2a2f36;
-  --ck-fg-3:        #5c6370;
-  --ck-fg-4:        #656b78;   /* AA: >=4.5:1 on light panels (secondary/caption text) */
-  --ck-fg-5:        #868d99;   /* faint tier: >=3:1 on panel surfaces */
+  /* ---- TEXT ---- */
+  --ck-fg-1:        #151a21;
+  --ck-fg-2:        #2f3742;
+  --ck-fg-3:        #525c69;
+  --ck-fg-4:        var(--ck-fg-3);
+  --ck-fg-5:        var(--ck-fg-3);
 
-  --ck-signal-pos:    #0e9f6e;
-  --ck-signal-neg:    #d93a52;
-  --ck-signal-warn:   #c27803;
-  --ck-signal-cool:   #0e7490;
-  --ck-signal-violet: #7c3aed;
-  --ck-signal-ice:    #0c4a6e;
+  /* ---- PRIMARY ----
+     The dark primary fails AA under light text; this one keeps its hue and
+     darkens instead of flipping to dark text, which would read as disabled. */
+  --ck-primary:       #0a7483;
+  --ck-primary-hover: #08606c;
 
-  /* Status trios on paper: the tint stays at the same weight, the foreground
-     drops to the dark-saturated tone so text keeps AA on a light pill. */
-  --ck-status-ok-fg:     #0e9f6e;
-  --ck-status-ok-bg:     rgba(14, 159, 110, 0.10);
-  --ck-status-ok-line:   rgba(14, 159, 110, 0.28);
+  /* ---- ACCENT ---- */
+  --ck-copper:        #9c5026;
 
-  --ck-status-warn-fg:   #a35c00;
-  --ck-status-warn-bg:   rgba(194, 120, 3, 0.12);
-  --ck-status-warn-line: rgba(194, 120, 3, 0.30);
+  /* ---- SIGNALS ---- */
+  --ck-signal-pos:    #0c6e4c;
+  --ck-signal-neg:    #b02e43;
+  --ck-signal-warn:   #845000;
+  --ck-signal-cool:   var(--ck-primary);
+  --ck-signal-violet: var(--ck-fg-3);
+  --ck-signal-ice:    #1a4b70;
 
-  --ck-status-neg-fg:    #c22a41;
-  --ck-status-neg-bg:    rgba(217, 58, 82, 0.10);
-  --ck-status-neg-line:  rgba(217, 58, 82, 0.28);
+  /* ---- STATUS TRIOS ----
+     The tint keeps the dark theme's weight and the foreground drops to a dark
+     tone, so text keeps AA on its pill. */
+  --ck-status-ok-fg:     #0c6e4c;
+  --ck-status-ok-bg:     rgba(12, 110, 76, 0.10);
+  --ck-status-ok-line:   rgba(12, 110, 76, 0.28);
 
-  --ck-status-info-fg:   #0e7490;
-  --ck-status-info-bg:   rgba(14, 116, 144, 0.10);
-  --ck-status-info-line: rgba(14, 116, 144, 0.28);
+  --ck-status-warn-fg:   #845000;
+  --ck-status-warn-bg:   rgba(132, 80, 0, 0.12);
+  --ck-status-warn-line: rgba(132, 80, 0, 0.30);
 
-  --ck-status-preview-fg:   #6d28d9;
-  --ck-status-preview-bg:   rgba(124, 58, 237, 0.10);
-  --ck-status-preview-line: rgba(124, 58, 237, 0.28);
+  --ck-status-neg-fg:    #b02e43;
+  --ck-status-neg-bg:    rgba(176, 46, 67, 0.10);
+  --ck-status-neg-line:  rgba(176, 46, 67, 0.28);
 
-  /* Cyan-500 on white paper fails AA under white text; the CTA darkens
-     instead of flipping to dark text, which would read as disabled. */
-  --ck-cta-bg:       #0e7490;
-  --ck-cta-bg-hover: #0b5c73;
-  --ck-cta-fg:       #ffffff;
+  --ck-status-info-fg:   #215e8c;
+  --ck-status-info-bg:   rgba(33, 94, 140, 0.10);
+  --ck-status-info-line: rgba(33, 94, 140, 0.28);
 
-  /* Glows are noisy on light surfaces — disable them by default. */
-  --ck-glow-cool:    0 0 0 transparent;
-  --ck-glow-pos:     0 0 0 transparent;
-  --ck-glow-violet:  0 0 0 transparent;
-  --ck-glow-warn:    0 0 0 transparent;
-  --ck-glow-neg:     0 0 0 transparent;
+  --ck-status-preview-fg:   var(--ck-fg-3);
+  --ck-status-preview-bg:   var(--ck-tint-faint);
+  --ck-status-preview-line: var(--ck-stroke-3);
 
-  /* Softened shadows on warm paper — a 50 % black shadow would shout;
-     we drop the alpha to keep panels grounded without bruising. */
-  --ck-shadow-panel:   0 18px 48px rgba(17, 24, 39, 0.14), 0 2px 6px rgba(17, 24, 39, 0.08);
-  --ck-shadow-popover: 0 12px 32px rgba(17, 24, 39, 0.12), 0 2px 4px rgba(17, 24, 39, 0.06);
-  --ck-shadow-card:    0 4px 12px rgba(17, 24, 39, 0.08);
-  /* Scrim — stays dark-ish so the overlay reads as "modal" even on paper. */
-  --ck-scrim:          rgba(17, 24, 39, 0.28);
-  --ck-scrim-strong:   rgba(17, 24, 39, 0.42);
-  --ck-shadow-modal:   0 24px 60px rgba(17, 24, 39, 0.18), 0 2px 8px rgba(17, 24, 39, 0.10);
+  --ck-status-neutral-fg:   var(--ck-fg-3);
+  --ck-status-neutral-bg:   var(--ck-tint-faint);
+  --ck-status-neutral-line: var(--ck-stroke-2);
 
-  /* On light the signal tones are already dark-saturated (see the
-     --ck-signal-* block above — #0e9f6e, #0e7490…), so white text on
-     top of a solid pill is the only legible combo. */
-  --ck-on-signal: #ffffff;
+  /* ---- CALL TO ACTION ---- */
+  --ck-cta-bg:       var(--ck-primary);
+  --ck-cta-bg-hover: var(--ck-primary-hover);
+  --ck-cta-fg:       var(--ck-on-signal);
 
-  /* Tints flip to a black wash so neutral-soft pills & hovers stay
-     visible against the warm paper. */
-  --ck-tint-faint: rgba(17, 24, 39, 0.05);
-  --ck-tint-soft:  rgba(17, 24, 39, 0.08);
+  /* ---- SHADOWS ----
+     Inked in the text colour and softened: a 50 % black shadow would shout
+     on a light surface. */
+  --ck-shadow-panel:   0 18px 48px rgba(21, 26, 33, 0.14), 0 2px 6px rgba(21, 26, 33, 0.08);
+  --ck-shadow-popover: 0 12px 32px rgba(21, 26, 33, 0.12), 0 2px 4px rgba(21, 26, 33, 0.06);
+  --ck-shadow-card:    0 4px 12px rgba(21, 26, 33, 0.08);
+  /* Scrim — stays dark so the overlay still reads as modal. */
+  --ck-scrim:          rgba(21, 26, 33, 0.28);
+  --ck-scrim-strong:   rgba(21, 26, 33, 0.42);
+  --ck-shadow-modal:   0 24px 60px rgba(21, 26, 33, 0.18), 0 2px 8px rgba(21, 26, 33, 0.10);
+
+  /* On light the signal tones are dark (#0c6e4c, #0a7483…), so light text
+     on a solid pill is the only legible combo. */
+  --ck-on-signal: #f8fafb;
+
+  /* Tints flip to an ink wash so neutral-soft pills and hovers stay visible
+     on the light surfaces. */
+  --ck-tint-faint: rgba(21, 26, 33, 0.05);
+  --ck-tint-soft:  rgba(21, 26, 33, 0.08);
 }
 
 /* Generic branded scopes only. Native client themes keep their existing cascade. */
@@ -268,7 +320,7 @@ html:not(.dark),
   --ck-bg-raised:      var(--ck-bg-panel-hi);
   --ck-bg-focus:       var(--ck-bg-panel-hi);
   --ck-bg-sunken:      var(--ck-bg-inset);
-  --ck-accent:         var(--ck-signal-cool);
+  --ck-accent:         var(--ck-primary);
   --ck-pos:            var(--ck-signal-pos);
   --ck-neg:            var(--ck-signal-neg);
   --ck-warn:           var(--ck-signal-warn);
