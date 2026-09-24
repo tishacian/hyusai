@@ -118,7 +118,10 @@ poste) avant d'appeler SAP ; seul un échec connu laisse une nouvelle approbatio
 rappeler SAP. Une issue inconnue bloque le poste jusqu'à ce qu'une lecture de SAP ou un
 opérateur (`scripts/sap_write_intents.py`) tranche. La lecture de SAP avant écriture et
 la référence dans la PO restent derrière `sap_po_reconciliation`, désactivé par défaut,
-tant que le filtre OData n'est pas vérifié sur le client SAP du client.
+jusqu'à un test en QA. La lecture est celle du poste de DA par clé sur le serveur qui
+liste les DA : son `PurchasingDocument` dit si une PO le référence déjà. La première
+version lisait les postes de PO sur `sap`, alors que ce serveur ne les sert pas ; une
+réponse sans le poste ou sans ce champ refuse l'écriture.
 
 ### D5 — Une feuille de route par lots livrables — **Acté**
 
