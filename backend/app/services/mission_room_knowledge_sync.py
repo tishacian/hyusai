@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
+from app.seeds.sentinel_reports import PREFET_REPORT_NAME
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.models.knowledge_collection import KnowledgeCollection
@@ -246,9 +247,9 @@ def _external_demo_documents() -> dict[str, dict[str, str]]:
         SENTINEL_CUSTOMS_RECORDS_COLLECTION: {},
         SENTINEL_SECURITY_BRIEFS_COLLECTION: {},
     }
-    report_path = repo_root / "docs" / "demo-data" / "sentinel-ci-kb" / "rapport-prefet-nawa-2026-05-10.md"
+    report_path = repo_root / "docs" / "demo-data" / "sentinel-ci-kb" / f"{PREFET_REPORT_NAME}.md"
     if report_path.exists():
-        docs["sentinel-ci-ministerial-briefs"]["rapport-prefet-nawa-2026-05-10.md"] = report_path.read_text(encoding="utf-8")
+        docs["sentinel-ci-ministerial-briefs"][f"{PREFET_REPORT_NAME}.md"] = report_path.read_text(encoding="utf-8")
     anacarde_path = backend_root / "resources" / "sentinel_ci_guides" / "sentinel-ci-anacarde-diversification-v1.md"
     if anacarde_path.exists():
         docs["sentinel-ci-ministerial-briefs"]["sentinel-ci-anacarde-diversification-v1.md"] = anacarde_path.read_text(encoding="utf-8")

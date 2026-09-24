@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.services.connectors.hana import service as hana_service
-from app.services.connectors.hana.demo_rows import TABLE_EQUIPMENT, TABLE_ORDERS
+from app.seeds.hana_demo_rows import TABLE_EQUIPMENT, TABLE_ORDERS
 
 
 def test_preview_falls_back_to_demo_tables(monkeypatch):

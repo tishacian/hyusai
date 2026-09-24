@@ -41,6 +41,31 @@
       "kind": "family",
       "why": "WorkspaceFamily values."
     },
+    "backend/app/seeds/experience_dual_run.py": {
+      "count": 22,
+      "kind": "demo",
+      "why": "Lot 8 dual-run Experience seeds (migrations 090-092 import them through the old path)."
+    },
+    "backend/app/seeds/hana_demo_rows.py": {
+      "count": 133,
+      "kind": "demo",
+      "why": "PIH hydro rows for the HANA seed and the connector's in-memory fallback."
+    },
+    "backend/app/seeds/retrieval_golden.py": {
+      "count": 1,
+      "kind": "demo",
+      "why": "Default golden retrieval batch: the Andritz SPL dense set."
+    },
+    "backend/app/seeds/sentinel_calendar.py": {
+      "count": 4,
+      "kind": "demo",
+      "why": "Sentinel CI institutional calendar seed events."
+    },
+    "backend/app/seeds/sentinel_reports.py": {
+      "count": 5,
+      "kind": "demo",
+      "why": "Sentinel CI Prefet report and strategic report text."
+    },
     "backend/app/services/actions/contracts.py": {
       "count": 2,
       "kind": "adapter",
@@ -111,20 +136,10 @@
       "kind": "adapter",
       "why": "Client360, an Andritz capability."
     },
-    "backend/app/services/connectors/hana/demo_rows.py": {
-      "count": 133,
-      "kind": "demo",
-      "why": "PIH hydro rows for the HANA seed and the connector's in-memory fallback."
-    },
     "backend/app/services/experience/bindings.py": {
       "count": 2,
       "kind": "adapter",
       "why": "Experience keys of customer applications."
-    },
-    "backend/app/services/experience/dual_run_seeds.py": {
-      "count": 22,
-      "kind": "demo",
-      "why": "Lot 8 dual-run seeds."
     },
     "backend/app/services/experience/keys.py": {
       "count": 10,
@@ -136,11 +151,6 @@
       "kind": "demo",
       "why": "Sentinel CI mission-room scenario content."
     },
-    "backend/app/services/mission_room_knowledge_sync.py": {
-      "count": 2,
-      "kind": "demo",
-      "why": "Sentinel CI knowledge sync."
-    },
     "backend/app/services/notice_wave_importer.py": {
       "count": 1,
       "kind": "adapter",
@@ -151,11 +161,6 @@
       "kind": "adapter",
       "why": "Andritz project-reference grammar (ADR 0002)."
     },
-    "backend/app/services/rag/retrieval_golden.py": {
-      "count": 1,
-      "kind": "demo",
-      "why": "Andritz golden dataset path."
-    },
     "backend/app/services/rag/source_facets.py": {
       "count": 2,
       "kind": "adapter",
@@ -165,11 +170,6 @@
       "count": 2,
       "kind": "adapter",
       "why": "Andritz project scheme binding (ADR 0002)."
-    },
-    "backend/app/services/sentinel_ci_reports.py": {
-      "count": 8,
-      "kind": "demo",
-      "why": "Sentinel CI report pre-render."
     },
     "backend/app/services/skills_registry/brd_generation.py": {
       "count": 3,
@@ -195,11 +195,6 @@
       "count": 21,
       "kind": "adapter",
       "why": "Application manifests selected by workspace family."
-    },
-    "backend/app/services/workspace_calendar.py": {
-      "count": 4,
-      "kind": "demo",
-      "why": "Sentinel CI calendar seed event inside the calendar service."
     },
     "backend/app/services/workspace_features.py": {
       "count": 1,
