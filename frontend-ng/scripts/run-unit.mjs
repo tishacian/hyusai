@@ -62,6 +62,7 @@ const pureSpecs = [
   'src/app/core/workspace-view-context.spec.ts',
   'src/app/core/navigation.catalog.spec.ts',
   'src/app/core/navigation.routes.spec.ts',
+  'src/app/core/client-applications.spec.ts',
   'src/app/core/i18n.lexicon.spec.ts',
   'src/app/shared/cockpit/panel-resize.spec.ts',
   'src/app/core/theme-preference.spec.ts',

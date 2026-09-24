@@ -1,25 +1,13 @@
-import type { LoadChildrenCallback } from '@angular/router';
-import { NAWA_ROUTE, NAWA_SURFACES } from '@app/features/nawa/nawa.app';
+import { NAWA_SURFACES } from '@app/features/nawa/nawa.surfaces';
 import type { AgentiumSurfaceRoute } from './navigation.catalog';
 
 /**
- * The customer applications this build carries, and the product's only list
- * of them.
+ * The catalogue surfaces of the customer applications this build carries.
  *
- * A customer application lives in `features/<customer>/` and describes itself
- * in a dependency-free `<customer>.app.ts`: the route it owns and its catalogue
- * surfaces. The router mounts the routes outside the Agentium shell and the
- * navigation catalogue lists the surfaces; neither names a customer. Adding an
- * application adds one import here (kind `composition` in the tenant-neutral
- * baseline), nothing in the shell.
+ * A customer application lives in `features/<customer>/` and declares its
+ * surfaces in `<customer>.surfaces.ts`, pure data; the navigation catalogue
+ * spreads them in and names no customer. Its route is listed apart, in
+ * client-application-routes.ts (kind `composition` in the tenant-neutral
+ * baseline).
  */
-
-export interface ClientApplicationRoute {
-  /** The first URL segment the application owns. */
-  readonly path: string;
-  readonly loadChildren: LoadChildrenCallback;
-}
-
-export const CLIENT_APPLICATION_ROUTES: readonly ClientApplicationRoute[] = [NAWA_ROUTE];
-
 export const CLIENT_APPLICATION_SURFACES: readonly AgentiumSurfaceRoute[] = [...NAWA_SURFACES];
