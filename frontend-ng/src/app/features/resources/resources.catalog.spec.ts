@@ -3,9 +3,7 @@ import { test } from 'node:test';
 import {
   CONNECTORS,
   readAppToggles,
-  readConnectorConfig,
   writeAppToggle,
-  writeConnectorConfig,
 } from './resources.catalog';
 
 class StorageStub {
@@ -28,7 +26,7 @@ class StorageStub {
   }
 }
 
-test('connector configs and app toggles are isolated by active workspace', () => {
+test('app toggles are isolated by active workspace', () => {
   const previousStorage = globalThis.localStorage;
   const storage = new StorageStub();
   Object.defineProperty(globalThis, 'localStorage', {
@@ -37,38 +35,22 @@ test('connector configs and app toggles are isolated by active workspace', () =>
   });
 
   try {
-    // Simulate an upgrade where the legacy connector value came from A but B
-    // happens to be the last active workspace. Its provenance is unknowable.
     storage.setItem('agentium_workspace_slug', 'sentinel-ci');
-    storage.setItem('agentium:connectors:v1', JSON.stringify({
-      sharepoint: { site_url: 'https://andritz.example' },
-    }));
     storage.setItem('agentium:apps:v1', JSON.stringify({ sql_query: true }));
 
-    assert.deepEqual(readConnectorConfig('sentinel-ci', 'sharepoint'), {});
     assert.deepEqual(readAppToggles('sentinel-ci'), { sql_query: true });
-    assert.equal(storage.getItem('agentium:connectors:v1'), null, 'legacy connector data is removed');
     assert.equal(storage.getItem('agentium:apps:v1'), null, 'legacy app state is removed');
 
-    writeConnectorConfig('sentinel-ci', 'sharepoint', { site_url: 'https://sentinel.example' });
     writeAppToggle('sentinel-ci', 'sql_query', false);
 
     storage.setItem('agentium_workspace_slug', 'andritz');
-    assert.deepEqual(readConnectorConfig('andritz', 'sharepoint'), {});
     assert.deepEqual(readAppToggles('andritz'), {});
-    writeConnectorConfig('andritz', 'sharepoint', { site_url: 'https://andritz-new.example' });
     writeAppToggle('andritz', 'sql_query', true);
 
     storage.setItem('agentium_workspace_slug', 'sentinel-ci');
-    assert.deepEqual(readConnectorConfig('sentinel-ci', 'sharepoint'), {
-      site_url: 'https://sentinel.example',
-    });
     assert.deepEqual(readAppToggles('sentinel-ci'), { sql_query: false });
 
     storage.setItem('agentium_workspace_slug', 'andritz');
-    assert.deepEqual(readConnectorConfig('andritz', 'sharepoint'), {
-      site_url: 'https://andritz-new.example',
-    });
     assert.deepEqual(readAppToggles('andritz'), { sql_query: true });
   } finally {
     if (previousStorage) {
@@ -91,4 +73,16 @@ test('CONNECTORS has one generic MCP card, not SAP posting or HIKMA', () => {
   const mcp = CONNECTORS.find((row) => row.id === 'mcp');
   assert.equal(mcp?.backendPrefix, 'mcp');
   assert.equal(mcp?.category, 'data-storage');
+});
+
+test('every credential field of the catalog is typed as a secret', () => {
+  // The drawer sends `password` fields write-only and never reads them back.
+  const credential = /secret|token|password|api_key|webhook_url/;
+  const mistyped = CONNECTORS.flatMap((connector) =>
+    connector.fields
+      .filter((field) => credential.test(field.key) && field.type !== 'password')
+      .map((field) => `${connector.id}.${field.key}`),
+  );
+  const webhookFieldsOnOurSide = ['telegram.webhook_url', 'rpa_bridge.callback_webhook_url'];
+  assert.deepEqual(mistyped.filter((field) => !webhookFieldsOnOurSide.includes(field)), []);
 });

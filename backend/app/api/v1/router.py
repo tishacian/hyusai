@@ -19,6 +19,7 @@ from app.api.v1.endpoints import (
     catalog_curation,
     chat,
     client360,
+    connectors,
     contexts,
     control_plane,
     datasets,
@@ -113,6 +114,7 @@ api_router.include_router(sharepoint.router, prefix="/sharepoint", tags=["sharep
 api_router.include_router(hana.router, prefix="/hana", tags=["hana"])
 api_router.include_router(rpa.router, prefix="/rpa", tags=["rpa"])
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
+api_router.include_router(connectors.router, prefix="/connectors", tags=["connectors"])
 api_router.include_router(apps.router, prefix="/workspaces", tags=["apps"])
 api_router.include_router(model_portal.router, prefix="/models", tags=["model-portal"])
 

@@ -36,6 +36,7 @@ from app.schemas.adoption import ExperienceProgressUpdate
 from app.schemas.brand_appearance import PlatformBrand
 from app.schemas.canonical import WorkspaceFamily, WorkspaceMode
 from app.services.actions.contracts import normalize_workspace_action_pack_settings
+from app.services.connectors.generic import SETTINGS_KEY as GENERIC_CONNECTORS_KEY
 from app.services.email import render_mfa_email, send_email
 from app.services.iam.app_entitlements import (
     APP_ENTITLEMENTS_FEATURE,
@@ -1010,6 +1011,7 @@ def _settings_with_managed_workspace_fields_preserved(
         ),
         (WORKSPACE_GATE_KEY, "LOT7_PROJECTION_ROLLOUT_STATE_MANAGED"),
         (WORKSPACE_APP_ROLLOUT_STATE_KEY, "LOT9_WORKSPACE_APP_ROLLOUT_STATE_MANAGED"),
+        (GENERIC_CONNECTORS_KEY, "GENERIC_CONNECTORS_MANAGED"),
     )
     for field, code in managed_top_level_fields:
         current_has_field = field in current_settings
@@ -1215,6 +1217,17 @@ def _settings_with_managed_workspace_fields_preserved(
     return next_settings
 
 
+def _public_workspace_settings(settings: object) -> dict:
+    """Workspace settings as any member reads them.
+
+    Connector secrets are write-only: ``/connectors`` reports whether they
+    are set, and the workspace payload never carries them.
+    """
+    public = dict(settings) if isinstance(settings, Mapping) else {}
+    public.pop(GENERIC_CONNECTORS_KEY, None)
+    return public
+
+
 @router.post("/workspaces", status_code=201, response_model=WorkspaceDetail)
 async def create_workspace(
     body: WorkspaceCreate,
@@ -1254,7 +1267,7 @@ async def create_workspace(
         is_active=workspace.is_active,
         member_count=1,
         created_at=workspace.created_at,
-        settings=workspace.settings or {},
+        settings=_public_workspace_settings(workspace.settings),
         effective_features=_effective_workspace_features(db, workspace),
         mode=getattr(workspace, "mode", "executive") or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
@@ -1291,7 +1304,7 @@ async def list_workspaces(user: User = Depends(get_current_user), db: DBSession 
                     ),
                     "member_count": member_count,
                     "created_at": ws.created_at.isoformat() if ws.created_at else None,
-                    "settings": ws.settings or {},
+                    "settings": _public_workspace_settings(ws.settings),
                     "effective_features": _effective_workspace_features(db, ws),
                     "mode": getattr(ws, "mode", "executive") or "executive",
                     "app_entitlements": list_member_app_entitlements(db, m),
@@ -1323,7 +1336,7 @@ async def get_workspace(
         member_count=member_count,
         created_at=workspace.created_at,
         deleted_at=workspace.deleted_at,
-        settings=workspace.settings or {},
+        settings=_public_workspace_settings(workspace.settings),
         effective_features=_effective_workspace_features(db, workspace),
         mode=getattr(workspace, "mode", "executive") or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
@@ -1416,7 +1429,7 @@ async def update_workspace(
         is_active=workspace.is_active,
         member_count=member_count,
         created_at=workspace.created_at,
-        settings=workspace.settings or {},
+        settings=_public_workspace_settings(workspace.settings),
         effective_features=_effective_workspace_features(db, workspace),
         mode=getattr(workspace, "mode", "executive") or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
@@ -1464,7 +1477,7 @@ async def update_workspace_mode(
         is_active=workspace.is_active,
         member_count=member_count,
         created_at=workspace.created_at,
-        settings=workspace.settings or {},
+        settings=_public_workspace_settings(workspace.settings),
         effective_features=_effective_workspace_features(db, workspace),
         mode=workspace.mode or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
