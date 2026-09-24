@@ -23,6 +23,7 @@ __all__ = [
     "hana",
     "rpa",
     "mcp",
+    "connectors",
     "apps",
     "systems",
     "capabilities",
