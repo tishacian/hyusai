@@ -3,7 +3,7 @@
 Creates three tables (equipment, open/closed maintenance orders, spare parts)
 with realistic PIH hydro rows. Idempotent: DROP (ignore missing) → CREATE → INSERT.
 
-Row data lives in ``app.services.connectors.hana.demo_rows`` (shared with the
+Row data lives in ``app.seeds.hana_demo_rows`` (shared with the
 in-memory HANA fallback).
 
 Credentials (never commit secrets):
@@ -43,7 +43,7 @@ except ImportError as exc:  # pragma: no cover - operator env
         "hdbcli is required. Install with: pip install 'hdbcli>=2.20'"
     ) from exc
 
-from app.services.connectors.hana.demo_rows import (
+from app.seeds.hana_demo_rows import (
     EQUIPMENT_ROWS,
     ORDER_ROWS,
     PART_ROWS,

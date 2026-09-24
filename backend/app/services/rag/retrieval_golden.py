@@ -12,13 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.seeds.retrieval_golden import DEFAULT_GOLDEN_BATCH
 
-DEFAULT_GOLDEN_BATCH = (
-    Path(__file__).resolve().parents[2]
-    / "resources"
-    / "retrieval_golden"
-    / "andritz_spl_dense.json"
-)
+
 
 
 def _parse_expected_inventory(raw: Any) -> dict[str, Any] | None:

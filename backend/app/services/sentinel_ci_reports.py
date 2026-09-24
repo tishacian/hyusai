@@ -27,6 +27,12 @@ from sqlalchemy.orm import Session as DBSession
 from app.core.logging import get_logger
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.seeds.sentinel_reports import (
+    DEFAULT_CONTEXT_REFS,
+    PREFET_REPORT_NAME,
+    PREFET_REPORT_TITLE,
+    strategic_report_markdown,
+)
 from app.services.audit_logger import emit_audit_event
 from app.services.object_store import get_object_store
 
@@ -35,14 +41,9 @@ logger = get_logger(__name__)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PREFET_REPORT_MARKDOWN = (
-    REPO_ROOT / "docs" / "demo-data" / "sentinel-ci-kb" / "rapport-prefet-nawa-2026-05-10.md"
-)
+PREFET_REPORT_MARKDOWN = REPO_ROOT / "docs" / "demo-data" / "sentinel-ci-kb" / f"{PREFET_REPORT_NAME}.md"
 PREFET_REPORT_PDF = (
-    Path(__file__).resolve().parents[1]
-    / "resources"
-    / "sentinel_ci_reports"
-    / "rapport-prefet-nawa-2026-05-10.pdf"
+    Path(__file__).resolve().parents[1] / "resources" / "sentinel_ci_reports" / f"{PREFET_REPORT_NAME}.pdf"
 )
 STRATEGIC_REPORTS_PREFIX = "sentinel-ci/reports"
 
@@ -168,8 +169,8 @@ def build_prefet_report_pdf(*, force: bool = False) -> dict[str, Any]:
             "hash": md_hash,
             "size_bytes": PREFET_REPORT_PDF.stat().st_size,
         }
-    html = _markdown_to_html(markdown_text, title="Rapport Prefet de Nawa - 10 mai 2026")
-    pdf_bytes = _render_pdf_bytes(html, title="Rapport Prefet de Nawa - 10 mai 2026")
+    html = _markdown_to_html(markdown_text, title=PREFET_REPORT_TITLE)
+    pdf_bytes = _render_pdf_bytes(html, title=PREFET_REPORT_TITLE)
     PREFET_REPORT_PDF.write_bytes(pdf_bytes)
     hash_path.write_text(md_hash, encoding="utf-8")
     return {
@@ -183,7 +184,7 @@ def build_prefet_report_pdf(*, force: bool = False) -> dict[str, Any]:
 def ensure_prefet_report_in_object_store(db: DBSession, workspace: Workspace) -> dict[str, Any]:
     """Copy the prebuilt Prefet PDF into the workspace object store on boot."""
     build = build_prefet_report_pdf()
-    object_key = f"{STRATEGIC_REPORTS_PREFIX}/{workspace.id}/rapport-prefet-nawa-2026-05-10.pdf"
+    object_key = f"{STRATEGIC_REPORTS_PREFIX}/{workspace.id}/{PREFET_REPORT_NAME}.pdf"
     store = get_object_store()
     if not store.exists(object_key) or build["status"] == "generated":
         store.write_bytes(object_key, PREFET_REPORT_PDF.read_bytes())
@@ -201,61 +202,10 @@ def _strategic_report_markdown(
     *, workspace: Workspace, topic: str, context_refs: list[str], length: str
 ) -> str:
     today = date.today().isoformat()
-    refs = "\n".join(f"- {ref}" for ref in context_refs) or "- report-prefet-nawa-2026-05-10\n- sentinel-ci-anacarde-diversification-v1"
-    return f"""# Rapport strategique - {topic}
-
-**Date**: {today}
-**Workspace**: {workspace.slug}
-**Theme**: {topic}
-**Longueur cible**: {length}
-
-## Contexte
-
-Synthese consolidee sur la diversification du cacao en region Nawa, avec
-focus anacarde transformee. Sources mobilisees :
-
-{refs}
-
-## Recommandation principale
-
-L'option **diversification anacarde transformee** combine :
-
-- Filiere immediatement substituable (climat et sols compatibles)
-- Marche export structure (UE, Inde, Vietnam)
-- Compatibilite reglement europeen anti-deforestation
-- Chiffrage indicatif : 4,2 a 6,8 Mds FCFA (ordre de grandeur public)
-
-## Classement des options
-
-| Rang | Option | Cout indicatif (Mds FCFA) | Compatibilite EUDR | Impact emploi |
-|------|--------|---------------------------|--------------------|---------------|
-| 1 | Anacarde transformee | 4,2 - 6,8 | Tres haut | Eleve |
-| 2 | Cooperative cacao renforcee | 1,6 | Moyen | Moyen |
-| 3 | PPP sechoirs solaires | 6,8 | Eleve | Eleve |
-| 4 | Hevea diversification | 5,4 | Moyen | Moyen |
-| 5 | Palmier a huile (RSPO) | 7,2 | Faible | Eleve |
-| 6 | Banane premium | 3,0 | Moyen | Faible |
-| 7 | Statu quo | 0,0 | Faible | Faible |
-
-## Indicateurs cockpit suggeres
-
-- Volume anacarde transforme localement (% production)
-- Part export anacarde vs export brut cacao
-- Emplois directs transformation (Soubre)
-- Conformite EUDR (taux audits passes)
-
-## Citations
-
-- Banque mondiale - Note climat-developpement Cote d'Ivoire (2024)
-- Reglement europeen anti-deforestation 2023/1115 (EUDR)
-- Reuters - filiere cajou Cote d'Ivoire, chute prix producteur (2025)
-- Rapport Prefet Nawa - 10 mai 2026, pp. 42-58
-
-## Validation requise
-
-Document advisory-only. Validation Cabinet + ministere de l'Economie
-necessaire avant exposition publique.
-"""
+    refs = "\n".join(f"- {ref}" for ref in context_refs) or DEFAULT_CONTEXT_REFS
+    return strategic_report_markdown(
+        today=today, workspace_slug=workspace.slug, topic=topic, refs=refs, length=length
+    )
 
 
 def generate_strategic_report(

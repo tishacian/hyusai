@@ -350,7 +350,7 @@ def _quoted_ident(name: str) -> str:
 
 
 def _demo_tables() -> list[dict[str, str]]:
-    from app.services.connectors.hana.demo_rows import (
+    from app.seeds.hana_demo_rows import (
         TABLE_EQUIPMENT,
         TABLE_ORDERS,
         TABLE_PARTS,

@@ -10,7 +10,7 @@ import sqlite3
 import time
 from typing import Any, Mapping, Optional
 
-from app.services.connectors.hana.demo_rows import (
+from app.seeds.hana_demo_rows import (
     EQUIPMENT_ROWS,
     ORDER_ROWS,
     PART_ROWS,

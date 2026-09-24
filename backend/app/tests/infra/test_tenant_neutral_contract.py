@@ -11,7 +11,8 @@ Every file that still carries identifiers is listed in
 - ``adapter``: code a customer family, pack or manifest selects on purpose.
 - ``family``: the canonical family names themselves.
 - ``fixture``: a customer's content or rule inside a generic module. Goes to 0.
-- ``demo``: scripted demo content living among services. Moves to seeds.
+- ``demo``: scripted demo content. It lives under ``app/seeds/``; the only
+  exceptions are the declared scenario files of the Mission Room pack.
 - ``client-app``: a customer application, which lives in its own
   ``features/<customer>/`` folder (lot 2).
 - ``composition``: the two lists of the customer applications a build carries,
@@ -160,6 +161,34 @@ def test_customer_applications_stay_in_their_own_folder():
         "frontend-ng/src/app/core/client-application-routes.ts",
         "frontend-ng/src/app/core/client-applications.ts",
     ], compositions
+
+
+SEEDS_HOME = "backend/app/seeds/"
+# The Mission Room pack (Sentinel CI AYA, its Octocity copy) still carries its
+# scenario in its own modules. They leave when the pack runs on the generic
+# workspace_objects_v1 provider; this list can only shrink.
+PACK_SCENARIOS = frozenset(
+    {
+        "backend/app/services/mission_room.py",
+        "backend/app/services/actions/packs/mission_room.py",
+        "frontend-ng/src/app/features/mission-room/mission-room.component.ts",
+        "frontend-ng/src/app/features/mission-room/mission-room.presentation.ts",
+    }
+)
+
+
+def test_demo_content_lives_in_the_seeds():
+    """Services read seeds; they do not carry scripted demo content."""
+
+    baseline = _baseline()
+    outside = sorted(
+        path
+        for path, entry in baseline.items()
+        if entry["kind"] == "demo" and not path.startswith(SEEDS_HOME) and path not in PACK_SCENARIOS
+    )
+    assert not outside, outside
+    cleaned = sorted(path for path in PACK_SCENARIOS if baseline.get(path, {}).get("kind") != "demo")
+    assert not cleaned, f"no longer pack scenarios, remove them from PACK_SCENARIOS: {cleaned}"
 
 
 def test_no_setting_lists_workspace_slugs():
