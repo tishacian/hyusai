@@ -655,6 +655,7 @@ export type CockpitSectionKey =
   | 'skills'
   | 'knowledge'
   | 'data'
+  | 'models'
   | 'flows'
   | 'runs'
   | 'observability'
@@ -885,18 +886,6 @@ function section(
   };
 }
 
-/**
- * The data plane is one entry in the Build menu, not two. Datasets and
- * models are a single lineage (a model is fitted on a dataset and scores
- * into another) and land in the platform the same way — as what a System's
- * runs produced and, once published, as a Skill. `/data` and `/models` stay
- * distinct routes so deep links hold; the rail paints the entry active on
- * both.
- */
-function dataPlaneSection(): CockpitSection {
-  return section('data', 'Data & Models', 'table', 'data', 'dataset', ['/data', '/models']);
-}
-
 export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'hypervisor',
@@ -922,7 +911,8 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       section('capabilities', 'Capabilities', 'focus', 'capabilities', 'capability', undefined, true),
       section('skills', 'Skills', 'bolt', 'skills', 'skill', undefined, true),
       section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
-      dataPlaneSection(),
+      section('data', 'Data', 'table', 'data', 'dataset'),
+      section('models', 'Models', 'chart', 'models', 'model'),
       section('flows', 'Flow builder', 'flow', 'orchestration', 'flow', undefined, true),
     ],
   },

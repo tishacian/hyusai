@@ -21,13 +21,15 @@
  *     shortcuts (one `document` listener, cleaned up on destroy) so nothing
  *     double-fires: Ctrl/Cmd+S save, Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z and
  *     Ctrl+Y redo, Delete/Backspace removes the selected node (ignored inside
- *     fields, controls, dialogs and ARIA interaction surfaces). The shell no
- *     longer binds any shortcuts.
+ *     fields, controls, dialogs and ARIA interaction surfaces). Undo and redo
+ *     are left to the breadcrumb's zoom while the focus is in the chrome
+ *     around the builder. The shell no longer binds any shortcuts.
  *
  * This service is deliberately self-contained: it does not edit the shell.
  */
 import {
   DestroyRef,
+  ElementRef,
   Injectable,
   computed,
   effect,
@@ -58,7 +60,10 @@ import {
   FlowValidationService,
   flowValidationFingerprint,
 } from './flow-validation.service';
-import { blocksFlowDeleteShortcut } from './flow-keyboard-target.vm';
+import {
+  blocksFlowDeleteShortcut,
+  yieldsFlowHistoryShortcut,
+} from './flow-keyboard-target.vm';
 import { emptyScratchFlow } from './flow.types';
 import {
   clearWorkspaceFlowDraft,
@@ -208,6 +213,8 @@ export class FlowPersistenceService {
   private readonly toastr = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly workspace = inject(WorkspaceService);
+  /** `<app-flow-builder>`, which provides this service. */
+  private readonly host = inject(ElementRef<HTMLElement>);
 
   /** The System this builder is bound to, or `null` for the scratchpad. */
   readonly systemId = signal<string | null>(null);
@@ -1511,19 +1518,22 @@ export class FlowPersistenceService {
     const mod = event.metaKey || event.ctrlKey;
     if (mod) {
       const key = event.key.toLowerCase();
-      if (editable && (key === 'z' || key === 'y')) return;
+      const chrome = yieldsFlowHistoryShortcut(event.target, this.host.nativeElement);
+      if ((editable || chrome) && (key === 'z' || key === 'y')) return;
       if (key === 's') {
         event.preventDefault();
         this.saveNow();
       } else if (key === 'z') {
-        if (this.actionsDisabled()) return;
+        // Claimed even while a write holds the history: an unclaimed ⌘Z
+        // reaches the breadcrumb, which zooms out of the canvas.
         event.preventDefault();
+        if (this.actionsDisabled()) return;
         if (event.shiftKey) this.store.redo();
         else this.store.undo();
       } else if (key === 'y') {
-        if (this.actionsDisabled()) return;
         // Windows-style redo.
         event.preventDefault();
+        if (this.actionsDisabled()) return;
         this.store.redo();
       }
       return;

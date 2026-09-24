@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   FLOW_DELETE_BLOCK_SELECTOR,
   blocksFlowDeleteShortcut,
+  yieldsFlowHistoryShortcut,
 } from './flow-keyboard-target.vm';
 
 function target(matches: boolean): EventTarget {
@@ -47,4 +48,31 @@ test('closest-based guard covers a nested icon inside a button or dialog', () =>
   assert.equal(blocksFlowDeleteShortcut(nested), true);
   assert.match(received, /button/);
   assert.match(received, /\[role="dialog"\]/);
+});
+
+class FocusNode {
+  constructor(readonly parent: FocusNode | null = null) {}
+
+  contains(other: unknown): boolean {
+    for (let node = other as FocusNode | null; node; node = node.parent) {
+      if (node === this) return true;
+    }
+    return false;
+  }
+}
+
+test('undo and redo yield only to a focus outside the builder and its ancestors', () => {
+  const body = new FocusNode();
+  const main = new FocusNode(body);
+  const builder = new FocusNode(main);
+  const canvas = new FocusNode(builder);
+  const sommaire = new FocusNode(body);
+  const host = builder as unknown as EventTarget;
+
+  for (const focused of [canvas, builder, main, body]) {
+    assert.equal(yieldsFlowHistoryShortcut(focused as unknown as EventTarget, host), false);
+  }
+  assert.equal(yieldsFlowHistoryShortcut(sommaire as unknown as EventTarget, host), true);
+  assert.equal(yieldsFlowHistoryShortcut(null, host), false);
+  assert.equal(yieldsFlowHistoryShortcut(sommaire as unknown as EventTarget, null), false);
 });
