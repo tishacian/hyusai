@@ -104,7 +104,7 @@ const SIGNAL_RUN_STATUS = /^Run ([a-z0-9_]+)$/;
 
         <!-- Hero Balance Sheet -->
         <section
-          class="ck-surface ck-hero-ambient rounded-md relative overflow-hidden"
+          class="ck-surface rounded-md relative overflow-hidden"
           style="padding: 32px; min-height:200px;"
         >
           <div class="ck-ambient-grid" style="position:absolute; inset:0; opacity:0.3; pointer-events:none;"></div>

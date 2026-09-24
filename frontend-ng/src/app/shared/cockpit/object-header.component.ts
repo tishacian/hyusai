@@ -76,7 +76,8 @@ export interface CkObjectKpi {
             [style.flexWrap]="'wrap'"
           >
             <h1
-              [style.fontSize.px]="20"
+              [style.fontSize.px]="24"
+              [style.lineHeight.px]="32"
               [style.fontWeight]="600"
               [style.margin]="'0'"
               [style.color]="'var(--ck-fg-1, #e7eef7)'"

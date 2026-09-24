@@ -254,7 +254,7 @@ import { measuredImpactDelta } from '@app/features/hypervisor/hypervisor-impact'
           </div>
 
           <!-- Projection -->
-          <div class="ck-surface rounded-md ck-hero-ambient relative overflow-hidden" style="padding:22px 24px;">
+          <div class="ck-surface rounded-md relative overflow-hidden" style="padding:22px 24px;">
             <div class="flex items-center gap-2 mb-5">
               <ck-glyph name="telemetry" [size]="14" />
               <h3 class="ck-mono" style="font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:var(--ck-fg-2);">
