@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@ang
 import { Router } from '@angular/router';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
-import { automationJobLines, type AutomationJobView } from '@app/features/orchestration/flow/automation-job';
+import { automationJobLines, jobLineText, type AutomationJobView, type JobLine } from '@app/features/orchestration/flow/automation-job';
 
 @Component({
   selector: 'app-hypervisor-automation',
@@ -16,8 +16,9 @@ import { automationJobLines, type AutomationJobView } from '@app/features/orches
           <article>
             <h4>{{ row.name }}</h4>
             <p>{{ row.objective ? i18n.t('flow.automation.work.objective', { text: row.objective }) : i18n.t('flow.automation.work.objective.absent') }}</p>
-            <p>{{ row.convention ? i18n.t('flow.automation.work.convention', { rate: row.convention }) : i18n.t('flow.automation.work.convention.absent') }}</p>
-            <p>{{ row.gap ? i18n.t('flow.automation.work.gap', { gap: row.gap }) : i18n.t('flow.automation.work.gap.absent') }}</p>
+            @for (line of row.value; track $index) {
+              <p>{{ lineText(line) }}</p>
+            }
             <p>{{ row.proof ? i18n.t('flow.automation.work.proof', { run: row.proof }) : i18n.t('flow.automation.work.proof.absent') }}</p>
             <button type="button" (click)="open(row.id)">{{ i18n.t('hypervisor.v2.automation.open') }}</button>
           </article>
@@ -28,9 +29,10 @@ import { automationJobLines, type AutomationJobView } from '@app/features/orches
 })
 export class HypervisorAutomationComponent implements OnInit {
   readonly i18n = inject(I18nService);
+  protected readonly lineText = (line: JobLine): string => jobLineText(this.i18n.t, line);
   private readonly canonical = inject(CanonicalApiService);
   private readonly router = inject(Router);
-  protected readonly rows = signal<Array<{ id: string; name: string; objective: string; convention: string; gap: string; proof: string }>>([]);
+  protected readonly rows = signal<Array<{ id: string; name: string; objective: string; value: JobLine[]; proof: string }>>([]);
 
   protected open(systemId: string): void {
     const path = ['', 'work', 'automation', systemId].join('/');

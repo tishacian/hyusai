@@ -373,7 +373,7 @@ async def automation_explanations(
 ):
     """Objective, convention, gap and proof for each published automation."""
 
-    return {"items": automation_portfolio.list_job_explanations(db, workspace)}
+    return {"items": automation_portfolio.list_job_explanations(db, workspace, user)}
 
 
 @router.get("/series")

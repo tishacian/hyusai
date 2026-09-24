@@ -73,6 +73,7 @@ from app.api.v1.endpoints import (
     telemetry,
     traces,
     value_loop,
+    value_contracts,
     visual_intelligence,
     voice,
     webcam_proxy,
@@ -136,6 +137,7 @@ api_router.include_router(flow_runner.router, prefix="/systems", tags=["flow-run
 api_router.include_router(flow_workbench.router, prefix="/systems", tags=["flow-workbench"])
 api_router.include_router(flow_diffs.router, prefix="/systems", tags=["flow-diffs"])
 api_router.include_router(value_loop.router,    prefix="/systems",       tags=["value-loop"])
+api_router.include_router(value_contracts.router, prefix="/systems", tags=["value-contract"])
 api_router.include_router(capabilities.router,  prefix="/capabilities",  tags=["capabilities"])
 api_router.include_router(skills.router,        prefix="/skills",        tags=["skills"])
 api_router.include_router(runs.router,          prefix="/runs",          tags=["runs"])
