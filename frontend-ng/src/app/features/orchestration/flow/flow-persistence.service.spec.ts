@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DestroyRef,
+  ElementRef,
   Injector,
   signal,
   ɵChangeDetectionScheduler as ChangeDetectionScheduler,
@@ -246,6 +247,24 @@ class ManualEffectScheduler {
   }
 }
 
+/** Just enough of a DOM node to tell where the keyboard focus sits. */
+class FocusNode {
+  constructor(readonly parent: FocusNode | null = null) {}
+
+  contains(other: unknown): boolean {
+    for (let node = other as FocusNode | null; node; node = node.parent) {
+      if (node === this) return true;
+    }
+    return false;
+  }
+}
+
+const body = new FocusNode();
+const shellMain = new FocusNode(body);
+const builderHost = new FocusNode(shellMain);
+const canvasNode = new FocusNode(builderHost);
+const sommaireLink = new FocusNode(body);
+
 function flow(label: string): CanonicalFlow {
   return {
     schema_version: 3,
@@ -319,6 +338,7 @@ interface Harness {
   toastErrors: string[];
   destroyRef: DestroyRefStub;
   effects: ManualEffectScheduler;
+  keydown(event: KeyboardEvent): void;
   cleanup(): void;
 }
 
@@ -333,6 +353,7 @@ function makeHarness(systemId: string | null = null): Harness {
   const toastErrors: string[] = [];
   const effects = new ManualEffectScheduler();
   const validation = new ValidationStub();
+  const keydownListeners: Array<(event: KeyboardEvent) => void> = [];
 
   const previousStorage = globalThis.localStorage;
   const previousDocument = globalThis.document;
@@ -340,7 +361,12 @@ function makeHarness(systemId: string | null = null): Harness {
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
   Object.defineProperty(globalThis, 'document', {
     configurable: true,
-    value: { addEventListener() {}, removeEventListener() {} },
+    value: {
+      addEventListener: (type: string, listener: (event: KeyboardEvent) => void) => {
+        if (type === 'keydown') keydownListeners.push(listener);
+      },
+      removeEventListener() {},
+    },
   });
   Object.defineProperty(globalThis, 'location', {
     configurable: true,
@@ -355,6 +381,7 @@ function makeHarness(systemId: string | null = null): Harness {
       { provide: CanonicalApiService, useValue: canonical },
       { provide: WorkspaceService, useValue: workspace },
       { provide: DestroyRef, useValue: destroyRef },
+      { provide: ElementRef, useValue: new ElementRef(builderHost) },
       {
         provide: ChangeDetectionScheduler,
         useValue: { notify() {}, runningTick: false },
@@ -417,6 +444,9 @@ function makeHarness(systemId: string | null = null): Harness {
     toastErrors,
     destroyRef,
     effects,
+    keydown: (event) => {
+      for (const listener of keydownListeners) listener(event);
+    },
     cleanup: () => {
       destroyRef.destroy();
       if (previousStorage) {
@@ -1408,5 +1438,64 @@ test('matching mandate and flow retain the existing published application handof
     );
     assert.equal(harness.service.draftMatchesPublished(), true);
     assert.equal(harness.service.canOpenPublishedHome(), true);
+  } finally { harness.cleanup(); }
+});
+
+function undoKey(target: FocusNode): { event: KeyboardEvent; prevented: () => boolean } {
+  let prevented = false;
+  const event = {
+    key: 'z',
+    metaKey: true,
+    ctrlKey: false,
+    shiftKey: false,
+    target,
+    preventDefault: () => { prevented = true; },
+  } as unknown as KeyboardEvent;
+  return { event, prevented: () => prevented };
+}
+
+test('⌘Z on the canvas undoes and marks the event handled', () => {
+  const harness = makeHarness();
+  try {
+    harness.service.hydrateScratch();
+    // A click on the bare canvas leaves the focus on the shell main or body.
+    for (const focused of [canvasNode, builderHost, shellMain, body]) {
+      harness.store.addNode({ type: 'task', label: 'added' });
+      const edited = harness.store.nodeCount();
+      const key = undoKey(focused);
+      harness.keydown(key.event);
+      assert.equal(key.prevented(), true);
+      assert.equal(harness.store.nodeCount(), edited - 1);
+    }
+  } finally { harness.cleanup(); }
+});
+
+test('⌘Z on the canvas stays there while a write holds the history', () => {
+  const harness = makeHarness();
+  try {
+    persistWorkspaceFlowDraft(harness.storage, 'workspace-a', flow('draft-a'), 1);
+    harness.service.hydrateScratch();
+    harness.store.addNode({ type: 'task', label: 'added' });
+    harness.service.promoteToSystem('System A');
+    assert.equal(harness.service.actionsDisabled(), true);
+    const edited = harness.store.nodeCount();
+    const key = undoKey(canvasNode);
+    harness.keydown(key.event);
+    assert.equal(key.prevented(), true);
+    assert.equal(harness.store.nodeCount(), edited);
+  } finally { harness.cleanup(); }
+});
+
+test('a ⌘Z from the chrome around the builder is left to the breadcrumb', () => {
+  const harness = makeHarness();
+  try {
+    harness.service.hydrateScratch();
+    harness.store.addNode({ type: 'task', label: 'added' });
+    const edited = harness.store.nodeCount();
+    const key = undoKey(sommaireLink);
+    harness.keydown(key.event);
+    assert.equal(key.prevented(), false);
+    assert.equal(harness.store.nodeCount(), edited);
+    assert.equal(harness.store.canUndo(), true);
   } finally { harness.cleanup(); }
 });

@@ -288,6 +288,7 @@ test('experience studio adds one Create entry and keeps the zone catalogues', ()
     'skills',
     'knowledge',
     'data',
+    'models',
     'flows',
   ]);
 
@@ -299,24 +300,32 @@ test('experience studio adds one Create entry and keeps the zone catalogues', ()
     'skills',
     'knowledge',
     'data',
+    'models',
     'flows',
   ]);
   assert.equal(matchCockpitVerb('/create')?.key, 'build');
   assert.equal(matchCockpitVerb('/create/apps')?.key, 'build');
 });
 
-test('the data plane is one Build entry that owns both of its routes', () => {
+test('Data and Models are two Build entries, only one of them active', () => {
   const build = COCKPIT_VERBS.find((verb) => verb.key === 'build')!;
-  const keys = build.sections!.map((section) => section.key);
-  assert.equal(keys.filter((key) => key === 'data').length, 1);
-  assert.equal(keys.includes('models' as never), false);
-  const entry = build.sections!.find((section) => section.key === 'data')!;
-  assert.equal(entry.label, 'Data & Models');
-  assert.equal(entry.route, '/data');
-  assert.deepEqual(entry.matches, ['/data', '/models']);
-  // Deep links to a model card still resolve to a catalogued surface.
-  assert.equal(agentiumSurfaceById('models')?.route, '/models');
-  assert.equal(navigationRouteContext('/models/m-1?scope=models').scope, null);
+  const entries = build.sections!.filter((section) => ['data', 'models'].includes(section.key));
+  assert.deepEqual(
+    entries.map((section) => [section.key, section.label, section.route, section.scopeType]),
+    [
+      ['data', 'Data', '/data', 'dataset'],
+      ['models', 'Models', '/models', 'model'],
+    ],
+  );
+  const claims = (path: string) => build.sections!
+    .filter((section) => (section.matches ?? [section.route])
+      .some((match) => path === match || path.startsWith(match + '/')))
+    .map((section) => section.key);
+  assert.deepEqual(claims('/data'), ['data']);
+  assert.deepEqual(claims('/data/ds-1'), ['data']);
+  assert.deepEqual(claims('/models'), ['models']);
+  assert.deepEqual(claims('/models/m-1'), ['models']);
+  assert.equal(navigationRouteContext('/models/m-1?scope=models').scope, 'models');
 });
 
 test('Lot 6 orphan leaves are catalogued', () => {

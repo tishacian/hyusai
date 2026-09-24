@@ -41,8 +41,8 @@ const SCOPE_ORDER: CockpitScopeType[] = [
  *   - Filters itself against `ZoomContextService` so scope types already
  *     resolved by the breadcrumb disappear (e.g. inside a Capability the
  *     `Capabilities` item hides).
- *   - A click never resets the canvas context; clicking the already-active
- *     item is a no-op.
+ *   - A click never resets the canvas context; the already-active item
+ *     leads back to its list, or to the top of the list itself.
  *
  * Under `cockpit_nav_v5` this is the **zone sommaire**: stable width, no
  * ancestry filter, no self-hide (I1, I7). The object ladder stays on the
@@ -75,7 +75,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
                 class="ck-mini-item"
                 [class.ck-mini-item-active]="isSectionActive(s)"
                 [attr.aria-current]="isSectionActive(s) ? 'page' : null"
-                (click)="onItemClick($event, s)"
+                (click)="onItemClick(s)"
               >
                 @if (isSectionActive(s)) {
                   <span class="ck-mini-active-bar" aria-hidden="true"></span>
@@ -417,10 +417,6 @@ export class MiniRailComponent {
     return base;
   }
 
-  /**
-   * Clicking the already-active scope is a **no-op** — the Object Index
-   * never resets the canvas context, even if the user clicks twice.
-   */
   readonly systemBranch = computed(() => {
     if (!this.stableLayout()) return null;
     const systemId = this.navigation.systemId();
@@ -451,12 +447,29 @@ export class MiniRailComponent {
     return { type: 'system', ref: systemId, facet: facet.id };
   }
 
-  onItemClick(ev: MouseEvent, s: CockpitSection): void {
-    if (this.isSectionActive(s)) {
-      ev.preventDefault();
-      ev.stopPropagation();
+  /**
+   * From a child the active item's link leads back to its list. On the list
+   * itself the router ignores that same-URL navigation, so the item brings
+   * the page back to its top and the focus back to its title instead.
+   */
+  onItemClick(s: CockpitSection): void {
+    if (this.isSectionActive(s) && this.routeFor(s).split('?')[0] === this.currentPath()) {
+      this.returnToTop();
       return;
     }
     this.telemetry?.registerTrigger('minirail');
+  }
+
+  private returnToTop(): void {
+    const main = document.getElementById('main-content');
+    if (!main) return;
+    main.scrollTop = 0;
+    const heading = main.querySelector<HTMLElement>('h1');
+    if (heading) {
+      if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
+      heading.focus({ preventScroll: true });
+    } else {
+      main.focus({ preventScroll: true });
+    }
   }
 }

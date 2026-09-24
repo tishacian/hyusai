@@ -111,12 +111,16 @@ export class SemanticZoomBreadcrumbComponent {
    * We deliberately skip the shortcut when the user is typing in an input,
    * textarea, select, or contenteditable element so native undo/redo keeps
    * working inside forms and the chat composer.
+   *
+   * `window` hears the key after every `document` listener, so a ⌘Z the Flow
+   * canvas has already turned into an undo arrives here `defaultPrevented`.
    */
   @HostListener('window:keydown', ['$event'])
   onZoomKey(ev: KeyboardEvent): void {
     if (ev.key !== 'z' && ev.key !== 'Z') return;
     if (!(ev.metaKey || ev.ctrlKey)) return;
     if (ev.altKey) return;
+    if (ev.defaultPrevented) return;
 
     // Two guards, not one: `ev.target` can be stale on Safari after a
     // focus change, so we also consult `document.activeElement`. If
