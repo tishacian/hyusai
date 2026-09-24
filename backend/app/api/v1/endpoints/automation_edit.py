@@ -10,7 +10,6 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session as DBSession
 
-from app.api.v1.endpoints.capabilities import serialize_value_basis
 from app.api.v1.endpoints.systems import (
     _actor_display_name,
     _enforce_system_admin,
@@ -19,7 +18,6 @@ from app.api.v1.endpoints.systems import (
 )
 from app.core.auth import get_current_user, get_current_workspace
 from app.db.base import get_db
-from app.models.capability import Capability
 from app.models.automation_review import AutomationReview
 from app.models.run import Run, SkillInvocation
 from app.models.tabular import TabularDataset
@@ -29,7 +27,7 @@ from app.models.system_flow_draft import SystemFlowDraft
 from app.models.system_version import SystemVersion
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.services import automation_chart, automation_dossiers, automation_edit, automation_portfolio, automation_proof, automation_review
+from app.services import automation_chart, automation_dossiers, automation_edit, automation_portfolio, automation_proof, automation_review, value_contracts
 from app.services.model_plane.workspace_config import get_routing
 from app.services.systems.preparation_diagnostic import (
     caller_run_right,
@@ -236,7 +234,7 @@ def _portfolio_refusal(refusal: automation_portfolio.AutomationPortfolioRefusal)
     ) from refusal
 
 
-def _published_automation(db: DBSession, system: System) -> tuple[dict[str, Any], dict[str, Any] | None]:
+def _published_automation(db: DBSession, system: System) -> dict[str, Any]:
     version = (
         db.query(SystemVersion)
         .filter(SystemVersion.id == system.published_flow_version_id, SystemVersion.system_id == system.id)
@@ -254,16 +252,7 @@ def _published_automation(db: DBSession, system: System) -> tuple[dict[str, Any]
         )
     except automation_portfolio.AutomationPortfolioRefusal as refusal:
         _portfolio_refusal(refusal)
-    capability = (
-        db.query(Capability).filter(Capability.id == system.capability_id).one_or_none()
-        if system.capability_id
-        else None
-    )
-    convention = serialize_value_basis(
-        capability.value_basis if capability is not None else None,
-        default_unit=capability.output_unit if capability is not None else None,
-    )
-    return job, convention
+    return job
 
 
 @router.get("/{system_id}/automation-work-job")
@@ -275,7 +264,7 @@ async def automation_work_job(
 ):
     system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
-    for card in automation_portfolio.list_job_explanations(db, workspace):
+    for card in automation_portfolio.list_job_explanations(db, workspace, user):
         if card["job"].get("system_id") == system.id:
             return card
     _published_automation(db, system)
@@ -291,7 +280,8 @@ async def automation_package(
 ):
     system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
-    job, convention = _published_automation(db, system)
+    job = _published_automation(db, system)
+    convention, gap = value_contracts.card_value(db, user=user, workspace=workspace, system=system)
     run = (
         db.query(Run)
         .filter(Run.id == run_id, Run.system_id == system.id, Run.workspace_id == workspace.id)
@@ -319,7 +309,7 @@ async def automation_package(
                 "execution_surface": run.execution_surface,
             },
             convention=convention,
-            proof={"sap": sap, "citations": citations},
+            proof={"sap": sap, "citations": citations, "gap": gap},
         )
     except automation_portfolio.AutomationPortfolioRefusal as refusal:
         _portfolio_refusal(refusal)
@@ -692,8 +682,8 @@ def _workspace_dossier_rows(db: DBSession, workspace: Workspace) -> list[dict[st
     )
 
 
-def _proof_card(db: DBSession, workspace: Workspace, system: System) -> dict[str, Any] | None:
-    for card in automation_portfolio.list_job_explanations(db, workspace):
+def _proof_card(db: DBSession, workspace: Workspace, system: System, user: User) -> dict[str, Any] | None:
+    for card in automation_portfolio.list_job_explanations(db, workspace, user):
         if card["job"].get("system_id") == system.id:
             return card
     return None
@@ -739,4 +729,4 @@ async def automation_proof_view(
 
     system = _system_or_404(db, system_id=system_id, workspace_id=workspace.id)
     _enforce_system_read(db, user=user, workspace=workspace, system=system)
-    return automation_proof.proof_identity(_proof_card(db, workspace, system))
+    return automation_proof.proof_identity(_proof_card(db, workspace, system, user))

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
-import { automationJobLines } from '@app/features/orchestration/flow/automation-job';
+import { automationJobLines, jobLineText, type JobLine } from '@app/features/orchestration/flow/automation-job';
 import { WorkApiService, type WorkAutomationJob } from './work-api.service';
 
 @Component({
@@ -18,8 +18,9 @@ import { WorkApiService, type WorkAutomationJob } from './work-api.service';
       } @else if (lines(); as shown) {
         <h1>{{ name() }}</h1>
         <p>{{ shown.objective ? i18n.t('flow.automation.work.objective', { text: shown.objective }) : i18n.t('flow.automation.work.objective.absent') }}</p>
-        <p>{{ shown.convention ? i18n.t('flow.automation.work.convention', { rate: shown.convention }) : i18n.t('flow.automation.work.convention.absent') }}</p>
-        <p>{{ shown.gap ? i18n.t('flow.automation.work.gap', { gap: shown.gap }) : i18n.t('flow.automation.work.gap.absent') }}</p>
+        @for (line of shown.value; track $index) {
+          <p>{{ lineText(line) }}</p>
+        }
         <p>{{ shown.proof ? i18n.t('flow.automation.work.proof', { run: shown.proof }) : i18n.t('flow.automation.work.proof.absent') }}</p>
         <p>{{ sharedProof() }}</p>
         <button type="button" [disabled]="running()" (click)="runPublished()">
@@ -43,6 +44,7 @@ import { WorkApiService, type WorkAutomationJob } from './work-api.service';
 })
 export class WorkAutomationComponent {
   readonly i18n = inject(I18nService);
+  protected readonly lineText = (line: JobLine): string => jobLineText(this.i18n.t, line);
   private readonly api = inject(WorkApiService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly route = inject(ActivatedRoute);

@@ -1,7 +1,9 @@
 """A published automation is a Work job. A draft is not a portfolio proof.
 
 The package names the objective, the value convention, the gap and the run.
-An absent convention stays absent. Source text is not copied into the file.
+The convention and the gap come from the automation's approved value contract
+(ADR 0003 lot 3); without one they stay absent. Source text is not copied into
+the file.
 """
 
 from __future__ import annotations
@@ -12,8 +14,6 @@ from typing import Any
 from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
-from app.api.v1.endpoints.capabilities import serialize_value_basis
-from app.models.capability import Capability
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.models.system_version import SystemVersion
@@ -59,9 +59,9 @@ def work_job(
 
 
 def _convention(raw: Mapping[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(raw, Mapping) or raw.get("status") not in {"declared", "measured"}:
+    if not isinstance(raw, Mapping) or raw.get("status") not in {"approved", "declared", "measured"}:
         return {"status": "absent"}
-    return {
+    shown = {
         "status": raw.get("status"),
         "unit": raw.get("unit"),
         "currency": raw.get("currency"),
@@ -69,6 +69,9 @@ def _convention(raw: Mapping[str, Any] | None) -> dict[str, Any]:
         "declared_by": raw.get("declared_by"),
         "declared_at": raw.get("declared_at"),
     }
+    if isinstance(raw.get("contract"), Mapping):
+        shown["contract"] = dict(raw["contract"])
+    return shown
 
 
 def _citations(run_id: str, proof: Mapping[str, Any]) -> list[dict[str, str]]:
@@ -89,18 +92,24 @@ def job_explanation(
     *,
     run: Mapping[str, Any] | None = None,
     proof: Mapping[str, Any] | None = None,
+    gap: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The four lines Hypervisor and Work may show. No run means no proof."""
+    """The four lines Hypervisor and Work may show. No run means no proof.
+
+    The gap is the contract's, measured over its period: it does not wait for
+    a run of the published version.
+    """
 
     if run is None:
         return {
             "job": dict(job),
             "objective": {"status": job.get("objective_status"), "text": job.get("objective")},
             "convention": _convention(convention),
-            "gap": {"status": "absent"},
+            "gap": dict(gap) if isinstance(gap, Mapping) else {"status": "absent"},
             "proof": None,
         }
-    return run_package(job, run, convention=convention, proof=proof)
+    evidence = {**dict(proof or {}), **({"gap": dict(gap)} if isinstance(gap, Mapping) else {})}
+    return run_package(job, run, convention=convention, proof=evidence)
 
 
 def invocation_proof(db: DBSession, run: Run) -> dict[str, Any]:
@@ -116,8 +125,13 @@ def invocation_proof(db: DBSession, run: Run) -> dict[str, Any]:
     return {"sap": sap, "citations": citations}
 
 
-def list_job_explanations(db: DBSession, workspace: Any) -> list[dict[str, Any]]:
-    """Published automations in one workspace, with proof only from a published run."""
+def list_job_explanations(db: DBSession, workspace: Any, user: Any = None) -> list[dict[str, Any]]:
+    """Published automations in one workspace, with proof only from a published run.
+
+    ``user`` is whose evidence measures the gap: runs they cannot read make the
+    measure incomplete, never silently smaller. Without one the gap is absent.
+    """
+    from app.services import value_contracts
 
     systems = (
         db.query(System)
@@ -156,14 +170,8 @@ def list_job_explanations(db: DBSession, workspace: Any) -> list[dict[str, Any]]
             )
         except AutomationPortfolioRefusal:
             continue
-        capability = (
-            db.query(Capability).filter(Capability.id == system.capability_id).one_or_none()
-            if system.capability_id
-            else None
-        )
-        convention = serialize_value_basis(
-            capability.value_basis if capability is not None else None,
-            default_unit=capability.output_unit if capability is not None else None,
+        convention, gap = value_contracts.card_value(
+            db, user=user, workspace=workspace, system=system
         )
         run = (
             db.query(Run)
@@ -177,7 +185,7 @@ def list_job_explanations(db: DBSession, workspace: Any) -> list[dict[str, Any]]
             .first()
         )
         if run is None:
-            cards.append(job_explanation(job, convention))
+            cards.append(job_explanation(job, convention, gap=gap))
             continue
         try:
             cards.append(
@@ -192,10 +200,11 @@ def list_job_explanations(db: DBSession, workspace: Any) -> list[dict[str, Any]]
                         "execution_surface": run.execution_surface,
                     },
                     proof=invocation_proof(db, run),
+                    gap=gap,
                 )
             )
         except AutomationPortfolioRefusal:
-            cards.append(job_explanation(job, convention))
+            cards.append(job_explanation(job, convention, gap=gap))
     return cards
 
 
