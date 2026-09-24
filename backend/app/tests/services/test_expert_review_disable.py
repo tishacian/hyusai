@@ -45,6 +45,10 @@ class _FakeDocumentService:
         _FakeDocumentService.captured = dict(document_metadata or {})
         return {"document_id": "doc-autopublish", "chunks_processed": 2, "status": "success"}
 
+    async def get_document_count(self) -> int:
+        # Publication records the collection's vector total in its source ledger.
+        return 2
+
 
 def _seed_workspace_user(db_session, *, ws_id: str, slug: str, user_id: str, settings=None):
     workspace = Workspace(id=ws_id, name=ws_id, slug=slug, settings=settings or {})
