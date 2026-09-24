@@ -653,6 +653,16 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         notes="MCP connector: multi-server registry, tools/list (capped), tools/call via Skills.",
     ),
     SurfaceMetadata(
+        "/api/v1/connectors",
+        "Governance",
+        "Connector",
+        "canonical",
+        "admin",
+        "Connectors",
+        ("/connectors", "/resources"),
+        notes="Catalog connectors without a page of their own: write-only secrets, live test.",
+    ),
+    SurfaceMetadata(
         "/api/v1/workspaces",
         "Governance",
         "Governance",

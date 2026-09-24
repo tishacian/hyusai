@@ -39,11 +39,14 @@ import {
   CONNECTOR_CATEGORIES,
   CONNECTORS,
   ConnectorDef,
-  hasConnectorConfig,
   readAppToggles,
-  readConnectorConfig,
-  writeConnectorConfig,
 } from './resources.catalog';
+import {
+  GenericConnectorDrawerComponent,
+  genericConnectorMap,
+  type GenericConnectorConfig,
+  type GenericConnectorList,
+} from '../connectors/generic-connector-drawer.component';
 import {
   DistributionBucket,
   DistributionResponse,
@@ -106,6 +109,7 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
     EmptyStateComponent,
     StatusPulseComponent,
     DrawerComponent,
+    GenericConnectorDrawerComponent,
   ],
   template: `
     <app-section-header
@@ -1020,89 +1024,15 @@ const TAB_IDS: Tab[] = ['models', 'providers', 'serving', 'connectors'];
     }
 
     <!-- Connector config drawer -->
-    <app-drawer
+    <app-generic-connector-drawer
       [open]="drawerOpen()"
-      [title]="active()?.name ?? i18n.t('connectors.drawer.fallback_title')"
-      [subtitle]="active()?.version ?? ''"
-      [icon]="active()?.icon ?? 'plug'"
+      [connector]="active()"
+      [config]="activeConnectorConfig()"
+      [canConfigure]="connectorsCanConfigure()"
       [width]="440"
       (close)="closeDrawer()"
-    >
-      @if (active(); as c) {
-        <div class="space-y-5">
-          <p class="text-xs text-gray-400 leading-relaxed">{{ catalogDescription(c) }}</p>
-
-          @if (c.backendPrefix) {
-            <div class="rounded-md bg-emerald-500/5 ring-1 ring-emerald-500/20 p-3 flex items-start gap-2">
-              <app-icon name="check-circle-2" [size]="14" class="text-emerald-400 mt-0.5 shrink-0" />
-              <div class="text-[11px] text-emerald-200/90 leading-relaxed">
-                {{ i18n.t('connectors.drawer.live.before') }}
-                <span class="font-mono text-emerald-300">/api/v1/{{ c.backendPrefix }}</span>.
-                {{ i18n.t('connectors.drawer.live.after') }} <span class="font-semibold">{{ i18n.t('connectors.drawer.live.test') }}</span>.
-              </div>
-            </div>
-          } @else if (c.status === 'coming-soon') {
-            <div class="rounded-md bg-amber-500/5 ring-1 ring-amber-500/20 p-3 flex items-start gap-2">
-              <app-icon name="clock" [size]="14" class="text-amber-400 mt-0.5 shrink-0" />
-              <div class="text-[11px] text-amber-200/90 leading-relaxed">
-                {{ i18n.t('connectors.drawer.coming') }}
-              </div>
-            </div>
-          } @else {
-            <div class="rounded-md bg-cyan-500/5 ring-1 ring-cyan-500/20 p-3 flex items-start gap-2">
-              <app-icon name="info" [size]="14" class="text-cyan-400 mt-0.5 shrink-0" />
-              <div class="text-[11px] text-cyan-200/90 leading-relaxed">
-                {{ i18n.t('connectors.drawer.local') }}
-              </div>
-            </div>
-          }
-
-          <form (ngSubmit)="saveConnector()" class="space-y-4">
-            @for (f of c.fields; track f.key) {
-              <div>
-                <label class="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">
-                  {{ f.label }}
-                  @if (f.required) {
-                    <span class="text-red-400">*</span>
-                  }
-                </label>
-                <input
-                  [type]="f.type"
-                  [value]="draftValues[f.key] || ''"
-                  (input)="onFieldInput(f.key, $event)"
-                  [placeholder]="f.placeholder ?? ''"
-                  [required]="!!f.required"
-                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm"
-                />
-              </div>
-            }
-
-            <div class="flex items-center gap-2 pt-2">
-              <button
-                type="submit"
-                class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 text-white text-sm font-medium transition"
-              >
-                <app-icon name="save" [size]="14" /> {{ i18n.t('common.save') }}
-              </button>
-              <button
-                type="button"
-                (click)="testConnector()"
-                class="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-gray-200 text-sm ring-1 ring-white/10 transition"
-              >
-                <app-icon name="zap" [size]="14" /> {{ i18n.t('connectors.action.test') }}
-              </button>
-              <button
-                type="button"
-                (click)="clearConnector()"
-                class="ml-auto inline-flex items-center gap-1.5 px-3 py-2 rounded text-red-300 hover:bg-red-500/10 text-sm transition"
-              >
-                <app-icon name="trash-2" [size]="14" /> {{ i18n.t('connectors.action.clear') }}
-              </button>
-            </div>
-          </form>
-        </div>
-      }
-    </app-drawer>
+      (changed)="onConnectorChanged($event)"
+    />
 
     <!-- Create serving instance drawer -->
     <app-drawer
@@ -1250,7 +1180,12 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
 
   readonly active = signal<ConnectorDef | null>(null);
   readonly drawerOpen = signal(false);
-  draftValues: Record<string, string> = {};
+  readonly connectorConfigs = signal<Record<string, GenericConnectorConfig>>({});
+  readonly connectorsCanConfigure = signal(false);
+  readonly activeConnectorConfig = computed(() => {
+    const connector = this.active();
+    return connector ? this.connectorConfigs()[connector.id] ?? null : null;
+  });
 
   readonly createOpen = signal(false);
   readonly createNode = signal<ServingNode | null>(null);
@@ -1266,7 +1201,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   nodeDraft = { name: '', base_url: '', token: '' };
 
   private readonly appsVersion = signal(0);
-  private readonly connectorsVersion = signal(0);
 
   readonly providers = computed(() => {
     const set = new Set<string>();
@@ -1296,12 +1230,9 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   readonly visibleConnectors = computed(() =>
     CONNECTORS.filter((c) => this.isConnectorVisible(c)),
   );
-  readonly connectorsActive = computed(() => {
-    this.connectorsVersion();
-    return this.visibleConnectors().filter(
-      (c) => c.status === 'active' || hasConnectorConfig(this.workspace.currentSlug(), c.id),
-    ).length;
-  });
+  readonly connectorsActive = computed(
+    () => this.visibleConnectors().filter((c) => c.status === 'active' || this.isConfigured(c.id)).length,
+  );
   readonly connectorsAvailable = computed(
     () => this.visibleConnectors().filter((c) => c.status !== 'coming-soon').length,
   );
@@ -1419,7 +1350,8 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     this.createNode.set(null);
     this.drawerOpen.set(false);
     this.active.set(null);
-    this.draftValues = {};
+    this.connectorConfigs.set({});
+    this.connectorsCanConfigure.set(false);
     this.loading.set(false);
   }
 
@@ -1774,6 +1706,25 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     if (this.showPortalTabs()) {
       this.loadPortalData();
     }
+    this.loadConnectors();
+  }
+
+  private loadConnectors(): void {
+    const request = this.workspaceView.captureRequest();
+    this.api
+      .get<GenericConnectorList>('/connectors', undefined, { workspaceSlug: request.scope.workspaceSlug })
+      .subscribe({
+        next: (list) => {
+          if (!this.workspaceView.isCurrent(request)) return;
+          this.connectorConfigs.set(genericConnectorMap(list));
+          this.connectorsCanConfigure.set(list?.can_configure === true);
+        },
+        error: () => {
+          if (!this.workspaceView.isCurrent(request)) return;
+          this.connectorConfigs.set({});
+          this.connectorsCanConfigure.set(false);
+        },
+      });
   }
 
   private loadPortalData(): void {
@@ -2105,8 +2056,7 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
   }
 
   isConfigured(id: string): boolean {
-    this.connectorsVersion();
-    return hasConnectorConfig(this.workspace.currentSlug(), id);
+    return this.connectorConfigs()[id]?.configured === true;
   }
 
   openConnector(c: ConnectorDef): void {
@@ -2131,7 +2081,6 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
       return;
     }
     this.active.set(c);
-    this.draftValues = { ...readConnectorConfig(this.workspace.currentSlug(), c.id) };
     this.drawerOpen.set(true);
   }
 
@@ -2152,72 +2101,8 @@ export class ResourcesPageComponent implements OnInit, OnDestroy {
     this.drawerOpen.set(false);
   }
 
-  onFieldInput(key: string, ev: Event): void {
-    const input = ev.target as HTMLInputElement;
-    this.draftValues = { ...this.draftValues, [key]: input.value };
-  }
-
-  saveConnector(): void {
-    const c = this.active();
-    if (!c) return;
-    writeConnectorConfig(this.workspace.currentSlug(), c.id, this.draftValues);
-    this.connectorsVersion.update((v) => v + 1);
-    this.toast.success(
-      this.i18n.t('connectors.toast.saved', { name: c.name }),
-      this.i18n.t('connectors.toast.title'),
-    );
-    this.drawerOpen.set(false);
-  }
-
-  testConnector(): void {
-    const c = this.active();
-    if (!c) return;
-    if (c.backendPrefix === 'sharepoint' || c.backendPrefix === 'sftp') {
-      this.api.get(`/${c.backendPrefix}/health`).subscribe({
-        next: () =>
-          this.toast.success(
-            this.i18n.t('connectors.toast.reachable', { name: c.name }),
-            this.i18n.t('connectors.toast.connection_test'),
-          ),
-        error: () =>
-          this.toast.error(
-            this.i18n.t('connectors.toast.unreachable', { name: c.name }),
-            this.i18n.t('connectors.toast.connection_test'),
-          ),
-      });
-      return;
-    }
-    if (c.backendPrefix === 'hana' || c.backendPrefix === 'rpa') {
-      this.api.post(`/${c.backendPrefix}/test`, {}).subscribe({
-        next: () =>
-          this.toast.success(
-            this.i18n.t('connectors.toast.reachable', { name: c.name }),
-            this.i18n.t('connectors.toast.connection_test'),
-          ),
-        error: () =>
-          this.toast.error(
-            this.i18n.t('connectors.toast.unreachable', { name: c.name }),
-            this.i18n.t('connectors.toast.connection_test'),
-          ),
-      });
-      return;
-    }
-    this.toast.info(
-      this.i18n.t('connectors.toast.no_adapter', { name: c.name }),
-      this.i18n.t('connectors.toast.simulated'),
-    );
-  }
-
-  clearConnector(): void {
-    const c = this.active();
-    if (!c) return;
-    this.draftValues = {};
-    writeConnectorConfig(this.workspace.currentSlug(), c.id, {});
-    this.connectorsVersion.update((v) => v + 1);
-    this.toast.info(
-      this.i18n.t('connectors.toast.cleared', { name: c.name }),
-      this.i18n.t('connectors.toast.title'),
-    );
+  onConnectorChanged(config: GenericConnectorConfig): void {
+    this.connectorConfigs.update((configs) => ({ ...configs, [config.id]: config }));
   }
 
   modelName(m: ModelInfo): string {

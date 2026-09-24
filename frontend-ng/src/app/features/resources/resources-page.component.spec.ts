@@ -12,6 +12,7 @@ import { EN_DICT } from '@app/core/i18n.dict';
 import { WorkspaceService, type WorkspaceRequestScope, type WorkspaceContextTransition } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { ResourcesPageComponent } from './resources-page.component';
+import { CONNECTORS } from './resources.catalog';
 import type { ModelCatalogEntry } from '@app/core/model-catalog';
 
 const openai: ModelCatalogEntry = { provider: 'openai', model: 'gpt-mini', status: 'active', configured: true, discovered: true, runtime_available: true, compatibility: 'text_generation' };
@@ -221,6 +222,30 @@ test('Skill creation keeps Govern context and model parameters in the query, not
       create: 'llm', modelWorkspace: 'workspace-1',
     });
   } finally { h.close(); }
+});
+
+test('connector state comes from the server, and none of it reaches browser storage', () => {
+  const writes: string[] = [];
+  const storage = { length: 0, key: () => null, getItem: () => null, setItem: (key: string) => void writes.push(key), removeItem() {}, clear() {} };
+  const previous = { localStorage: globalThis.localStorage, sessionStorage: globalThis.sessionStorage };
+  for (const name of ['localStorage', 'sessionStorage'] as const) Object.defineProperty(globalThis, name, { configurable: true, value: storage });
+  const h = harness(); try {
+    const smtp = { id: 'smtp', values: { host: 'smtp.example.test' }, secrets_set: { password: true }, configured: true, testable: true };
+    h.responses.set('/connectors', { can_configure: true, connectors: [smtp] });
+    h.component.refresh();
+    assert.equal(h.component.isConfigured('smtp'), true); assert.equal(h.component.connectorsCanConfigure(), true);
+    h.component.openConnector(CONNECTORS.find((c) => c.id === 'smtp')!);
+    assert.deepEqual(h.component.activeConnectorConfig(), smtp);
+    h.workspace.switch();
+    assert.deepEqual(h.component.connectorConfigs(), {}); assert.equal(h.component.drawerOpen(), false);
+    assert.deepEqual(writes, []);
+  } finally {
+    h.close();
+    for (const name of ['localStorage', 'sessionStorage'] as const) {
+      if (previous[name]) Object.defineProperty(globalThis, name, { configurable: true, value: previous[name] });
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
 });
 
 test('invocation evidence links preserve Govern as a query parameter', () => {

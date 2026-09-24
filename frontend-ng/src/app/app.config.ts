@@ -13,6 +13,7 @@ import { IdlePreloadStrategy } from './core/idle-preload.strategy';
 import { HelpService } from './core/help.service';
 import { NavigationTelemetryService } from './core/navigation-telemetry.service';
 import { WorkspaceRouteReuseStrategy } from './core/workspace-route-reuse.strategy';
+import { purgeRetiredConnectorStorage } from './features/connectors/connector-storage';
 
 Chart.register(...registerables);
 
@@ -43,6 +44,11 @@ export const appConfig: ApplicationConfig = {
       multi: true,
       useFactory: (svc: NavigationTelemetryService) => () => svc.start(),
       deps: [NavigationTelemetryService],
+    },
+    {
+      provide: APP_INITIALIZER,
+      multi: true,
+      useFactory: () => () => purgeRetiredConnectorStorage(),
     },
     provideToastr({
       positionClass: 'toast-top-right',
