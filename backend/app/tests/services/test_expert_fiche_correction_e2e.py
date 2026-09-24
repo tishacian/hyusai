@@ -65,6 +65,10 @@ async def test_chat_correction_publish_propagates_expert_fiche_metadata(db_sessi
             captured["document_metadata"] = dict(document_metadata or {})
             return {"document_id": "doc-e2e-fiche", "chunks_processed": 2, "status": "success"}
 
+        async def get_document_count(self) -> int:
+            # Publication records the collection's vector total in its source ledger.
+            return 2
+
     monkeypatch.setattr("app.services.rag.document_service.DocumentService", FakeDocumentService)
 
     proposal, _session = create_chat_correction_proposal(
