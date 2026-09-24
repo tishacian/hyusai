@@ -24,9 +24,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Mapping
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 

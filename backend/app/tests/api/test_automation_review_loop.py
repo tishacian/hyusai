@@ -34,13 +34,26 @@ def _brd_flow(instruction: str) -> dict:
     return {
         "nodes": [
             {"id": "src_pih", "type": "source", "kind": "source"},
-            {"id": "t_extract", "type": "task", "kind": "task", "config": {"skill_slug": "@extract_facts"}},
-            {"id": "t_passage", "type": "task", "kind": "task", "config": {"skill_slug": "@select_passages"}},
+            {
+                "id": "t_extract",
+                "type": "task",
+                "kind": "task",
+                "config": {"skill_slug": "@extract_facts"},
+            },
+            {
+                "id": "t_passage",
+                "type": "task",
+                "kind": "task",
+                "config": {"skill_slug": "@select_passages"},
+            },
             {
                 "id": "t_synth",
                 "type": "task",
                 "kind": "task",
-                "config": {"skill_slug": "@synthesize_summary", "params": {"instruction": instruction}},
+                "config": {
+                    "skill_slug": "@synthesize_summary",
+                    "params": {"instruction": instruction},
+                },
             },
             {"id": "h_review", "type": "hitl", "kind": "hitl"},
             {"id": "sink_out", "type": "sink", "kind": "sink"},
