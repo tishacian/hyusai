@@ -69,9 +69,21 @@ def estate(db_session):
             }
         },
     )
-    admin = User(id=str(uuid4()), username=f"admin-{uuid4().hex[:6]}", email=f"admin-{uuid4().hex[:6]}@example.test")
-    owner = User(id=str(uuid4()), username=f"owner-{uuid4().hex[:6]}", email=f"owner-{uuid4().hex[:6]}@example.test")
-    outsider = User(id=str(uuid4()), username=f"out-{uuid4().hex[:6]}", email=f"out-{uuid4().hex[:6]}@example.test")
+    admin = User(
+        id=str(uuid4()),
+        username=f"admin-{uuid4().hex[:6]}",
+        email=f"admin-{uuid4().hex[:6]}@example.test",
+    )
+    owner = User(
+        id=str(uuid4()),
+        username=f"owner-{uuid4().hex[:6]}",
+        email=f"owner-{uuid4().hex[:6]}@example.test",
+    )
+    outsider = User(
+        id=str(uuid4()),
+        username=f"out-{uuid4().hex[:6]}",
+        email=f"out-{uuid4().hex[:6]}@example.test",
+    )
     db_session.add_all([workspace, capability, admin, owner, outsider])
     db_session.flush()
     db_session.add(system)
@@ -99,7 +111,14 @@ def estate(db_session):
         ]
     )
     db_session.commit()
-    return {"workspace": workspace, "system": system, "admin": admin, "owner": owner, "outsider": outsider, "version": version}
+    return {
+        "workspace": workspace,
+        "system": system,
+        "admin": admin,
+        "owner": owner,
+        "outsider": outsider,
+        "version": version,
+    }
 
 
 def _proposal(owner_id: str, **overrides) -> ValueContractProposal:
@@ -175,7 +194,15 @@ def _card(db_session, estate, user=None):
         {"convention": {"value_per_unit": 6, "currency": "euro", "unit": "PO"}},
         {"source": {"kind": "rumour", "reference": "x"}},
     ],
-    ids=["queue-snapshot", "period-too-long", "empty-period", "percent-over-100", "negative-value", "currency", "source-kind"],
+    ids=[
+        "queue-snapshot",
+        "period-too-long",
+        "empty-period",
+        "percent-over-100",
+        "negative-value",
+        "currency",
+        "source-kind",
+    ],
 )
 def test_terms_that_cannot_be_measured_or_trusted_are_refused(overrides):
     with pytest.raises(ValidationError):
@@ -252,9 +279,17 @@ def test_revisions_keep_their_history(db_session, estate):
     rejected = _decide(db_session, estate, replaced, approve=False)
     last = _decide(db_session, estate, _propose(db_session, estate, target=80, expected_revision=3))
 
-    statuses = {row.revision: row.status for row in value_contracts.revisions(db_session, estate["system"].id)}
+    statuses = {
+        row.revision: row.status
+        for row in value_contracts.revisions(db_session, estate["system"].id)
+    }
     assert statuses == {1: SUPERSEDED, 2: WITHDRAWN, 3: REJECTED, 4: APPROVED}
-    assert first.revision == 1 and waiting.revision == 2 and rejected.revision == 3 and last.revision == 4
+    assert (
+        first.revision == 1
+        and waiting.revision == 2
+        and rejected.revision == 3
+        and last.revision == 4
+    )
     assert value_contracts.approved(db_session, estate["system"].id).target == 80
 
 
@@ -275,8 +310,12 @@ def test_during_the_period_the_card_shows_progress_not_a_gap(db_session, estate)
     contract = _approved(db_session, estate)
     _runs(db_session, estate, 3)
     gap = value_contracts.measured_gap(
-        db_session, user=estate["admin"], workspace=estate["workspace"], system=estate["system"],
-        contract=contract, now=datetime(2026, 9, 15),
+        db_session,
+        user=estate["admin"],
+        workspace=estate["workspace"],
+        system=estate["system"],
+        contract=contract,
+        now=datetime(2026, 9, 15),
     )
     assert gap["status"] == "in_progress" and gap["value"] == 3 and gap["target"] == 50
     assert "delta" not in gap
@@ -287,8 +326,12 @@ def test_after_the_period_the_gap_is_measured_against_the_target(db_session, est
     _runs(db_session, estate, 3)
     _runs(db_session, estate, 1, status="failed")
     gap = value_contracts.measured_gap(
-        db_session, user=estate["admin"], workspace=estate["workspace"], system=estate["system"],
-        contract=contract, now=datetime(2026, 10, 2),
+        db_session,
+        user=estate["admin"],
+        workspace=estate["workspace"],
+        system=estate["system"],
+        contract=contract,
+        now=datetime(2026, 10, 2),
     )
     assert gap["status"] == "measured"
     assert gap["value"] == 3 and gap["delta"] == -2 and gap["unit"] == "runs"
@@ -297,8 +340,12 @@ def test_after_the_period_the_gap_is_measured_against_the_target(db_session, est
 def test_before_the_period_nothing_is_measured(db_session, estate):
     contract = _approved(db_session, estate)
     gap = value_contracts.measured_gap(
-        db_session, user=estate["admin"], workspace=estate["workspace"], system=estate["system"],
-        contract=contract, now=datetime(2026, 8, 20),
+        db_session,
+        user=estate["admin"],
+        workspace=estate["workspace"],
+        system=estate["system"],
+        contract=contract,
+        now=datetime(2026, 8, 20),
     )
     assert gap["status"] == "not_started"
 
@@ -306,8 +353,12 @@ def test_before_the_period_nothing_is_measured(db_session, estate):
 def test_a_period_without_evidence_is_not_comparable(db_session, estate):
     contract = _approved(db_session, estate, indicator="human_validation_rate", target=90)
     gap = value_contracts.measured_gap(
-        db_session, user=estate["admin"], workspace=estate["workspace"], system=estate["system"],
-        contract=contract, now=datetime(2026, 10, 2),
+        db_session,
+        user=estate["admin"],
+        workspace=estate["workspace"],
+        system=estate["system"],
+        contract=contract,
+        now=datetime(2026, 10, 2),
     )
     assert gap["status"] == "not_comparable" and gap["reason"] == "not_measured"
 
@@ -316,8 +367,12 @@ def test_the_gap_is_never_turned_into_money(db_session, estate):
     contract = _approved(db_session, estate, target=5)
     _runs(db_session, estate, 3)
     gap = value_contracts.measured_gap(
-        db_session, user=estate["admin"], workspace=estate["workspace"], system=estate["system"],
-        contract=contract, now=datetime(2026, 10, 2),
+        db_session,
+        user=estate["admin"],
+        workspace=estate["workspace"],
+        system=estate["system"],
+        contract=contract,
+        now=datetime(2026, 10, 2),
     )
     assert not {"value_estimated", "currency", "saving", "amount"} & set(gap)
 
@@ -337,13 +392,18 @@ async def test_the_panel_state_offers_a_prefilled_proposal_to_an_administrator(d
     auth = {"workspace": estate["workspace"], "db": db_session}
     state = await endpoint.get_value_contract(estate["system"].id, user=estate["admin"], **auth)
     assert state["can_propose"] is True and state["latest_revision"] == 0
-    assert {row["user_id"] for row in state["owner_options"]} == {estate["admin"].id, estate["owner"].id}
+    assert {row["user_id"] for row in state["owner_options"]} == {
+        estate["admin"].id,
+        estate["owner"].id,
+    }
     assert state["prefill"]["indicator"] == "completed_volume" and state["prefill"]["target"] == 50
     assert state["prefill"]["convention"] == {"value_per_unit": 6, "currency": "EUR", "unit": "PO"}
     assert state["prefill"]["source"] == {"kind": "document", "reference": "Purchasing plan 2026"}
 
     viewer = await endpoint.get_value_contract(estate["system"].id, user=estate["owner"], **auth)
-    assert viewer["can_propose"] is False and viewer["owner_options"] == [] and viewer["prefill"] == {}
+    assert (
+        viewer["can_propose"] is False and viewer["owner_options"] == [] and viewer["prefill"] == {}
+    )
 
 
 @pytest.mark.asyncio
@@ -372,15 +432,21 @@ async def test_the_owner_approves_through_the_endpoint(db_session, estate):
     assert as_owner["can_decide"] is True
     with pytest.raises(HTTPException) as refused:
         await endpoint.approve_value_contract(
-            estate["system"].id, 1, ValueContractDecision(content_sha256=pending["content_sha256"]),
-            user=estate["admin"], **auth,
+            estate["system"].id,
+            1,
+            ValueContractDecision(content_sha256=pending["content_sha256"]),
+            user=estate["admin"],
+            **auth,
         )
     assert refused.value.status_code == 403
     assert refused.value.detail["code"] == "value_contract_owner_only"
 
     done = await endpoint.approve_value_contract(
-        estate["system"].id, 1, ValueContractDecision(content_sha256=pending["content_sha256"]),
-        user=estate["owner"], **auth,
+        estate["system"].id,
+        1,
+        ValueContractDecision(content_sha256=pending["content_sha256"]),
+        user=estate["owner"],
+        **auth,
     )
     assert done["current"]["revision"] == 1 and done["current"]["status"] == APPROVED
     assert done["pending"] is None and done["convention"]["status"] == "approved"

@@ -287,7 +287,9 @@ def decide(
 def public(db: DBSession, contract: ValueContract | None) -> dict[str, Any] | None:
     if contract is None:
         return None
-    ids = {contract.owner_user_id, contract.proposed_by_user_id, contract.decided_by_user_id} - {None}
+    ids = {contract.owner_user_id, contract.proposed_by_user_id, contract.decided_by_user_id} - {
+        None
+    }
     users = {row.id: row for row in db.query(User).filter(User.id.in_(ids)).all()} if ids else {}
     return {
         "revision": contract.revision,
@@ -316,7 +318,10 @@ def prefill(db: DBSession, system: System) -> dict[str, Any]:
             if objective.get(key):
                 draft[key] = objective.get(key)
         if objective.get("comparison_reference"):
-            draft["source"] = {"kind": "document", "reference": objective.get("comparison_reference")}
+            draft["source"] = {
+                "kind": "document",
+                "reference": objective.get("comparison_reference"),
+            }
     capability = (
         db.query(Capability).filter(Capability.id == system.capability_id).one_or_none()
         if system.capability_id
@@ -327,7 +332,9 @@ def prefill(db: DBSession, system: System) -> dict[str, Any]:
         draft["convention"] = {
             "value_per_unit": basis.get("value_per_unit"),
             "currency": basis.get("currency") or "EUR",
-            "unit": basis.get("unit") or (capability.output_unit if capability is not None else "") or "",
+            "unit": basis.get("unit")
+            or (capability.output_unit if capability is not None else "")
+            or "",
         }
     return draft
 
@@ -399,7 +406,9 @@ def measured_gap(
             "period_start": contract.period_start.isoformat(),
             "period_end": contract.period_end.isoformat(),
             "owner": contract.owner_user_id,
-            "comparison_reference": str((contract.source or {}).get("reference") or "value contract"),
+            "comparison_reference": str(
+                (contract.source or {}).get("reference") or "value contract"
+            ),
         },
         now=now,
     )
@@ -427,4 +436,3 @@ def card_value(
         card_convention(db, contract),
         measured_gap(db, user=user, workspace=workspace, system=system, contract=contract, now=now),
     )
-

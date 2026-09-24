@@ -39,6 +39,7 @@ const pureSpecs = [
   'src/app/features/orchestration/flow/automation-palette.spec.ts',
   'src/app/features/orchestration/flow/automation-turn.spec.ts',
   'src/app/features/orchestration/flow/automation-job.spec.ts',
+  'src/app/features/systems/value-contract.vm.spec.ts',
   'src/app/features/orchestration/flow/review-loop.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-keyboard-target.vm.spec.ts',
   'src/app/features/orchestration/flow/flow-recipe.vm.spec.ts',
