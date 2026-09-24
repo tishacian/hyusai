@@ -7393,6 +7393,24 @@ synthesis description was corrected, the draft was reread and confirmed, and
 draft run `003706b9` is `hitl_pending` and was not approved. The panel says
 the later result ran the corrected draft.
 
+### 2026-09-24 — workspace appearance and value contracts, f852f9a7
+
+Revision `f852f9a7be53f9901706f7211893bbb381b847bd` is the merge of pull
+request 58. That pull request carried lot 2 and, because lot 3 had been
+merged into the same branch, lot 3 as well. Three immutable images at tag
+`f852f9a7be53`; rollback is `5831d9bfc277`. Migrations
+`113_nawa_studio_appearance` and `114_value_contracts` ran after the
+data-plane window
+`/srv/agentium-data/workspace-appearance-deployments/2026-09-24-f852f9a7be53`
+(`.ready`). Alembic head is `114_value_contracts`. Nawa had no appearance;
+the migration wrote palette `graphite` and accent `#e8543a`. The value
+contract table is empty. No contract was proposed. Storage, public revision
+`revision_verified=true`, HTTP 200, zero backend exception matches in the
+switch window, and carakai 10 passed with two intentional skips. Artifacts
+`/tmp/iteration-canaries-20260924T105439Z.wMQmay`. The browser session was
+gone after the switch, so the NAWA screens were not recaptured. The before
+shots remain in `docs/evidence/nawa-before-lot2-2026-09-24/`.
+
 
 
 
