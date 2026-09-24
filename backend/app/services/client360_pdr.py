@@ -3663,6 +3663,135 @@ def _client360_mail_ai_config(db: DBSession, workspace: Workspace) -> dict[str, 
     }
 
 
+CLIENT360_SMTP_ENV_MASTER_KEY = "CLIENT360_SMTP_FERNET_KEY"
+CLIENT360_SMTP_ENV_MASTER_KEY_FALLBACK = "HANA_CONNECTOR_FERNET_KEY"
+_SMTP_ENVELOPE_VERSION = 1
+
+
+def _smtp_env_master_key() -> str:
+    return (
+        os.environ.get(CLIENT360_SMTP_ENV_MASTER_KEY)
+        or os.environ.get(CLIENT360_SMTP_ENV_MASTER_KEY_FALLBACK)
+        or ""
+    ).strip()
+
+
+def _smtp_fernet_from_env():
+    raw = _smtp_env_master_key()
+    if not raw:
+        return None
+    import base64
+
+    try:
+        key = raw.encode("ascii")
+        if len(base64.urlsafe_b64decode(key)) != 32:
+            raise ValueError("expected 32 bytes after base64 decode")
+    except Exception as exc:
+        raise ValueError(
+            f"{CLIENT360_SMTP_ENV_MASTER_KEY} is not a valid urlsafe base64 Fernet key: {exc}"
+        ) from exc
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    raw_master = base64.urlsafe_b64decode(key)
+    derived = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b"client360_smtp:v1",
+        info=b"client360_smtp",
+    ).derive(raw_master)
+    return Fernet(base64.urlsafe_b64encode(derived))
+
+
+def _encrypt_smtp_password(plaintext: str) -> str:
+    import base64
+
+    payload = plaintext.encode("utf-8")
+    fernet = _smtp_fernet_from_env()
+    if fernet is None:
+        _logger.warning(
+            "%s not set; persisting Client360 SMTP password in PLAINTEXT. "
+            "Set %s or %s to a urlsafe-base64 Fernet key before going to production.",
+            CLIENT360_SMTP_ENV_MASTER_KEY,
+            CLIENT360_SMTP_ENV_MASTER_KEY,
+            CLIENT360_SMTP_ENV_MASTER_KEY_FALLBACK,
+        )
+        return json.dumps(
+            {
+                "v": _SMTP_ENVELOPE_VERSION,
+                "plaintext": base64.b64encode(payload).decode("ascii"),
+            }
+        )
+    return json.dumps(
+        {
+            "v": _SMTP_ENVELOPE_VERSION,
+            "ciphertext": fernet.encrypt(payload).decode("ascii"),
+        }
+    )
+
+
+def _decrypt_smtp_password(blob: str) -> str:
+    import base64
+
+    if not blob:
+        return ""
+    try:
+        envelope = json.loads(blob)
+    except Exception:
+        return blob
+    if not isinstance(envelope, dict) or "v" not in envelope:
+        return blob
+    if "plaintext" in envelope:
+        return base64.b64decode(envelope["plaintext"]).decode("utf-8")
+    if "ciphertext" in envelope:
+        fernet = _smtp_fernet_from_env()
+        if fernet is None:
+            raise ValueError(
+                f"{CLIENT360_SMTP_ENV_MASTER_KEY} required to decrypt but is not set."
+            )
+        return fernet.decrypt(envelope["ciphertext"].encode("ascii")).decode("utf-8")
+    raise ValueError(f"Unknown SMTP password envelope keys={sorted(envelope)}")
+
+
+def _smtp_stored_password(smtp: dict[str, Any]) -> str:
+    blob = smtp.get("password_encrypted")
+    if blob:
+        return _decrypt_smtp_password(str(blob))
+    return _safe_text(smtp.get("password"))
+
+
+def reencrypt_workspace_smtp_password(settings: Any) -> tuple[dict[str, Any], bool]:
+    """Move a leftover SMTP password into ``password_encrypted`` and seal it."""
+    current = dict(settings) if isinstance(settings, dict) else {}
+    mail = dict(_as_dict(current.get("client360_pdr_mail")))
+    smtp = dict(_as_dict(mail.get("smtp")))
+    if not smtp:
+        return current, False
+    blob = str(smtp.get("password_encrypted") or "")
+    leftover = _safe_text(smtp.get("password"))
+    changed = False
+    if leftover:
+        smtp["password_encrypted"] = _encrypt_smtp_password(leftover)
+        smtp.pop("password", None)
+        changed = True
+    elif blob and _smtp_env_master_key():
+        try:
+            envelope = json.loads(blob)
+        except Exception:
+            envelope = {}
+        if isinstance(envelope, dict) and "plaintext" in envelope:
+            token = _decrypt_smtp_password(blob)
+            if token:
+                smtp["password_encrypted"] = _encrypt_smtp_password(token)
+                changed = True
+    if not changed:
+        return current, False
+    mail["smtp"] = smtp
+    current["client360_pdr_mail"] = mail
+    return current, True
+
+
 def _client360_mail_settings(workspace: Workspace) -> dict[str, Any]:
     workspace_settings = _as_dict(getattr(workspace, "settings", None))
     return _as_dict(workspace_settings.get("client360_pdr_mail"))
@@ -3704,7 +3833,7 @@ def _resolve_client360_smtp_config(
     if smtp:
         if not _safe_bool(smtp.get("enabled"), True):
             return None, "smtp_disabled", smtp
-        password = _safe_text(smtp.get("password")) or _password_from_env(
+        password = _smtp_stored_password(smtp) or _password_from_env(
             smtp.get("password_env_var")
         )
         cfg = SmtpDeliveryConfig(
@@ -3756,7 +3885,7 @@ def client360_mail_settings_payload(workspace: Workspace) -> dict[str, Any]:
     smtp = _client360_smtp_settings(workspace)
     cfg, disabled_reason, _raw = _resolve_client360_smtp_config(workspace)
     password_configured = bool(
-        _safe_text(smtp.get("password")) or _password_from_env(smtp.get("password_env_var"))
+        _smtp_stored_password(smtp) or _password_from_env(smtp.get("password_env_var"))
     )
     if not smtp:
         password_configured = bool(settings.smtp_password)
@@ -3810,11 +3939,15 @@ def patch_client360_mail_settings(
     for key in allowed:
         if key in patch and patch[key] is not None:
             smtp[key] = patch[key]
+    if patch.get("password_encrypted") is not None:
+        raise ValueError("password_encrypted is write-only; set password")
     password = _safe_text(patch.get("password"))
     if password:
-        smtp["password"] = password
+        smtp["password_encrypted"] = _encrypt_smtp_password(password)
+        smtp.pop("password", None)
     elif patch.get("clear_password"):
         smtp.pop("password", None)
+        smtp.pop("password_encrypted", None)
     if "port" in smtp:
         smtp["port"] = _safe_int(smtp.get("port"), 465)
     if "enabled" in smtp:

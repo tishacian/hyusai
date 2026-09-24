@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from uuid import uuid4
 
@@ -333,6 +334,10 @@ def test_client360_smtp_settings_are_workspace_scoped_and_mask_secret(db_session
     assert masked["ssl"] is True
     assert masked["starttls"] is False
     assert "password" not in masked
+    smtp = workspace.settings["client360_pdr_mail"]["smtp"]
+    assert "password" not in smtp
+    assert "password_encrypted" in smtp
+    assert "secret-test" not in json.dumps(workspace.settings)
 
 
 def test_client360_mail_settings_payload_exposes_default_system_prompt(db_session) -> None:
