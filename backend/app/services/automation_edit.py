@@ -298,26 +298,65 @@ def _project(node_id: str, block: AutomationBlock) -> dict[str, Any]:
     }
 
 
-def read_draft(flow: Mapping[str, Any]) -> dict[str, Any]:
-    """Nodes, edges, and the hash a later write must repeat. Nothing is saved."""
+def _foreign_type(node: Mapping[str, Any]) -> str:
+    """How a block the palette does not run is named when a person reads it."""
+
+    config = node.get("config") if isinstance(node.get("config"), Mapping) else {}
+    slug = config.get("skill_slug")
+    if isinstance(slug, str) and slug.strip("@"):
+        return slug.strip("@")
+    for key in ("type", "kind"):
+        value = node.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return "block"
+
+
+def read_graph(flow: Mapping[str, Any]) -> dict[str, Any]:
+    """Every node, the draft hash, and which blocks an edit may change. Nothing is saved.
+
+    Reading is not editing: a reservation rereads any System's draft, including
+    blocks the palette does not run (a BRD extraction, say). ``editable`` names
+    the blocks an automation turn may patch; :func:`read_draft` refuses a draft
+    with any other block before a write.
+    """
 
     graph = canonical_flow(flow)
     nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
     edges = graph.get("edges") if isinstance(graph.get("edges"), list) else []
-    unknown = [node.get("id") for node in nodes if isinstance(node, Mapping) and _node_type(node) is None]
+    read = []
+    for node in nodes:
+        if not isinstance(node, Mapping):
+            continue
+        block_type = _node_type(node)
+        read.append(
+            {
+                "id": node.get("id"),
+                "type": block_type or _foreign_type(node),
+                "editable": block_type is not None,
+            }
+        )
+    return {
+        "nodes": read,
+        "edges": [_edge_key(edge) for edge in edges if isinstance(edge, Mapping)],
+        "hash": canonical_flow_sha256(graph),
+    }
+
+
+def read_draft(flow: Mapping[str, Any]) -> dict[str, Any]:
+    """Nodes, edges, and the hash a later write must repeat. Nothing is saved."""
+
+    seen = read_graph(flow)
+    unknown = [node["id"] for node in seen["nodes"] if not node["editable"]]
     if unknown:
         raise AutomationEditRefusal(
             "block_refused",
             f"Draft contains a block outside the automation catalog: {unknown[0]!r}",
         )
     return {
-        "nodes": [
-            {"id": node.get("id"), "type": _node_type(node)}
-            for node in nodes
-            if isinstance(node, Mapping)
-        ],
-        "edges": [_edge_key(edge) for edge in edges if isinstance(edge, Mapping)],
-        "hash": canonical_flow_sha256(graph),
+        "nodes": [{"id": node["id"], "type": node["type"]} for node in seen["nodes"]],
+        "edges": seen["edges"],
+        "hash": seen["hash"],
     }
 
 
