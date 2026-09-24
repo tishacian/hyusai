@@ -60,3 +60,65 @@ test('breadcrumb renders only graph-proven nodes with their canonical labels and
   breadcrumb.goto(breadcrumb.levels()[1]);
   assert.deepEqual(navigations, ['/capabilities/cap-1?lens=steer']);
 });
+
+test('a ⌘Z another surface already handled does not zoom out', () => {
+  const navigations: string[] = [];
+  const injector = Injector.create({
+    providers: [
+      SemanticZoomBreadcrumbComponent,
+      {
+        provide: ZoomContextService,
+        useValue: {
+          nodes: () => [
+            { key: 'portfolio', id: 'workspace', label: 'Portfolio', href: '/hypervisor' },
+            { key: 'system', id: 'sys-1', label: 'Contract Risk Copilot', href: '/systems/sys-1' },
+          ],
+          route: () => ({ selectedType: 'system' }),
+          deepestResolvedType: () => 'system',
+          navV5Enabled: () => true,
+        },
+      },
+      {
+        provide: Router,
+        useValue: {
+          navigate: () => undefined,
+          navigateByUrl: (url: string) => navigations.push(url),
+        },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  const breadcrumb = injector.get(SemanticZoomBreadcrumbComponent);
+  const zoomOut = (defaultPrevented: boolean) => {
+    const calls: string[] = [];
+    const event = {
+      key: 'z',
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      defaultPrevented,
+      target: null,
+      preventDefault: () => calls.push('preventDefault'),
+      stopPropagation: () => calls.push('stopPropagation'),
+    } as unknown as KeyboardEvent;
+    breadcrumb.onZoomKey(event);
+    return calls;
+  };
+
+  const previousDocument = globalThis.document;
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { activeElement: null } });
+  try {
+    assert.deepEqual(zoomOut(true), []);
+    assert.deepEqual(navigations, []);
+
+    assert.deepEqual(zoomOut(false), ['preventDefault', 'stopPropagation']);
+    assert.deepEqual(navigations, ['/hypervisor']);
+  } finally {
+    if (previousDocument) {
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
+    } else {
+      Reflect.deleteProperty(globalThis, 'document');
+    }
+  }
+});
