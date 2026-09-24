@@ -7378,6 +7378,21 @@ with two intentional skips. Artifacts
 `/tmp/iteration-canaries-20260923T212703Z.p40n4D`. No purchase order was
 created, and no second approval was replayed.
 
+### 2026-09-24 — BRD reread and PR-item reconcile, 5831d9bf
+
+Revision `5831d9bfc277a90d99428e88d54d985f007c2140` is the merge of pull
+request 56, deployed from three immutable images at tag `5831d9bfc277`;
+rollback is `8fea4c5b07ea`. No migration. `sap_po_reconciliation` stays
+absent. Storage, public revision `revision_verified=true`, HTTP 200, zero
+backend exception matches in the switch window, and carakai 10 passed with
+two intentional skips. Artifacts
+`/tmp/iteration-canaries-20260924T064932Z.otgx8A`. On Nawa, SPARK-089
+`cd696462` still carries document `e2d7e8ce` and the note on run `95f2e6e5`.
+Reread lists the BRD blocks. Confirming the unchanged draft is refused. The
+synthesis description was corrected, the draft was reread and confirmed, and
+draft run `003706b9` is `hitl_pending` and was not approved. The panel says
+the later result ran the corrected draft.
+
 
 
 
