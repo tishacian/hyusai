@@ -1,4 +1,5 @@
 import copy
+import importlib.util
 
 import pytest
 from scripts.showcase_operational_analysis import (
@@ -10,7 +11,17 @@ from scripts.showcase_operational_analysis import (
     experience_document,
 )
 
+# The recipe computes with Polars, a declared runtime dependency
+# (requirements.txt). Without it the run fails on the import before the
+# reference check these tests are about, so they skip instead of passing or
+# failing for that reason.
+requires_polars = pytest.mark.skipif(
+    importlib.util.find_spec("polars") is None,
+    reason="polars is not installed (backend/requirements.txt)",
+)
 
+
+@requires_polars
 def test_the_published_recipe_calculates_the_fixed_reference():
     result = calculate({})
     assert result["stats"] == EXPECTED
@@ -25,6 +36,7 @@ def test_the_published_recipe_calculates_the_fixed_reference():
     )
 
 
+@requires_polars
 def test_the_reference_check_catches_a_wrong_number_or_absent_answer():
     with pytest.raises(ValueError):
         check({"stats": {**EXPECTED, "overrun_minutes": 34}, "answer": "All good"})
@@ -187,6 +199,7 @@ def test_full_showcase_reseed_preserves_operational_publication_and_draft(db_ses
     assert db_session.query(SystemVersion).filter_by(system_id=system.id).count() == versions_before
 
 
+@requires_polars
 @pytest.mark.parametrize("verdict", ["accepted", "rejected", "regression"])
 async def test_published_example_requires_review_after_the_reference_check(db_session, monkeypatch, verdict):
     from app.models.decision import Decision
