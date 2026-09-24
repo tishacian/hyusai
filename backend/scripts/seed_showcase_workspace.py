@@ -1513,7 +1513,7 @@ def ensure_policies(db: DBSession, workspace: Workspace) -> dict[str, Any]:
             id=str(uuid4()),
             workspace_id=workspace.id,
             name="Translation Suite sovereign guardrail",
-            scope="capability",
+            scope="system",
             max_cost_per_decision=1_200.0,
             max_latency_ms=36 * 60 * 60 * 1000,
             mandatory_hitl_if_confidence_below=0.94,
@@ -2127,7 +2127,9 @@ def flow_translation_suite() -> dict[str, Any]:
             "translation_memory_retrieve_v1",
             "Retrieve reviewed bilingual examples from sovereign translation memory.",
             agent_identity="agent.translation.memory",
-            config={"embedding_model": "BAAI/bge-m3", "k_examples": 2},
+            # ``model`` names the binding the sovereign guardrail allows; the
+            # mandate only authorizes models a node or the System declares.
+            config={"model": "embedding:bge-m3", "embedding_model": "BAAI/bge-m3", "k_examples": 2},
         ),
         task(
             "label_resolve",
@@ -2159,7 +2161,7 @@ def flow_translation_suite() -> dict[str, Any]:
             "translation_j2450_qa_v1",
             "Run seven SAE J2450 QA agents plus supervisor convergence.",
             agent_identity="agent.translation.qa_supervisor",
-            config={"limit_qa_loop": 5, "severity_policy": "no_error"},
+            config={"model": "sovereign-qa:gpt-oss-120b", "limit_qa_loop": 5, "severity_policy": "no_error"},
         ),
         task(
             "post_guards",
@@ -2562,6 +2564,40 @@ def flow_contract_risk_system360() -> dict[str, Any]:
     }
 
 
+def _ensure_mandate_collections(db: DBSession, workspace: Workspace) -> None:
+    """The collections the Contract mandate names exist before it is published.
+
+    Publication checks every collection a mandate allows against the workspace
+    catalog (MANDATE_REFERENCE_UNAVAILABLE otherwise); the knowledge step that
+    fills them runs after the Systems.
+    """
+
+    create_or_get_collection(
+        db,
+        workspace=workspace,
+        name="Showcase documents",
+        description="Default document collection of the showcase workspace.",
+        slug="documents",
+    )
+    ensure_notices_collection(db, workspace)
+
+
+def _bind_system_control_policy(key: str, system: System, policies: dict[str, Any]) -> None:
+    """Point a System's control policy at that System before its Flow is published.
+
+    Runtime and publication honour only a system-scoped policy that targets the
+    System (``engine._load_control_policy``, ``flow_publication``): a policy
+    bound at capability or portfolio scope was silently ignored at runtime, and
+    since the mandate lot it stops publication with FLOW_POLICY_BINDING_INVALID.
+    """
+
+    policy = {"contract": policies.get("contract_control"), "translation": policies.get("translation_control")}.get(key)
+    if policy is None:
+        return
+    policy.scope = "system"
+    policy.target_id = system.id
+
+
 def ensure_systems(
     db: DBSession,
     workspace: Workspace,
@@ -2569,6 +2605,7 @@ def ensure_systems(
     policies: dict[str, Any],
 ) -> dict[str, System]:
     workspace = _lock_workspace_for_seed(db, workspace.id)
+    _ensure_mandate_collections(db, workspace)
     specs = [
         {"key": "operational_analysis", "name": "Operational Analysis", "objective": "Explain a synthetic delay from exact Python/Polars calculations; do not claim economic savings.",
          "capability": "showcase_operational_analysis", "flow": flow_operational_analysis(), "prompt": "analytical", "retrieval": "hybrid"},
@@ -2707,7 +2744,6 @@ def ensure_systems(
             continue
         cap = capabilities[spec["capability"]]
         if spec["key"] == "translation":
-            policies["translation_control"].target_id = cap.id
             policies["translation_adaptive"].target_id = cap.id
         payload = {
             "objective": spec["objective"],
@@ -2848,8 +2884,6 @@ def ensure_systems(
                 if spec["key"] == "translation"
                 else policies["contract_control"].id
                 if spec["key"] == "contract"
-                else policies["control"].id
-                if spec["key"] == "compliance"
                 else None
             ),
             "adaptive_policy_id": policies["translation_adaptive"].id
@@ -2906,6 +2940,7 @@ def ensure_systems(
                 if getattr(system, key) != value:
                     setattr(system, key, value)
                     system_changed = True
+            _bind_system_control_policy(spec["key"], system, policies)
             flow_result = flow_publication.reconcile_system_flow(
                 db,
                 system=system,
@@ -2929,6 +2964,8 @@ def ensure_systems(
                 id=str(uuid4()), workspace_id=workspace.id, name=spec["name"], **payload
             )
             db.add(system)
+            db.flush()
+            _bind_system_control_policy(spec["key"], system, policies)
             db.flush()
             flow_publication.initialize_new_system_publication_if_enabled(
                 db,
