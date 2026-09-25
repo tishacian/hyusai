@@ -24,6 +24,7 @@ from app.core.settings_manager import get_settings_manager
 from app.db.base import Base, SessionLocal, engine
 from app.seed_knowledge_base import seed_knowledge_base
 from app.services.rag.sparse_backends import sparse_runtime_config
+from app.services.workspace_secrets import warn_unencrypted_connector_secrets
 
 setup_logging(settings.log_level)
 logger = get_logger(__name__)
@@ -62,6 +63,7 @@ async def lifespan(app: FastAPI):
 
     get_settings_manager(create_if_missing=startup_reconciliation_enabled)
     logger.info("Settings manager initialized")
+    warn_unencrypted_connector_secrets()
 
     orchestrator = AgentOrchestrator()
     set_orchestrator(orchestrator)
