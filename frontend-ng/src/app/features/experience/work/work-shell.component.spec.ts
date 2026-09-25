@@ -1,5 +1,7 @@
 import '@angular/compiler';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { DefaultUrlSerializer, UrlTree } from '@angular/router';
 import { WorkShellComponent } from './work-shell.component';
@@ -113,4 +115,21 @@ test('Work editor links preserve the application ID and release context as route
 
   Object.assign(shell, { activePage: () => 'validations', releaseId: () => null, releaseNumber: () => null });
   assert.deepEqual(shell.studioLink().queryParams, { returnTo: '/work/operational-analysis/validations' });
+});
+
+test('Work chrome exposes the shared bar and hides the creator hand-off from readers', () => {
+  const root = join(process.cwd(), 'src/app/features/experience/work');
+  const shellSource = readFileSync(join(root, 'work-shell.component.ts'), 'utf8');
+  const barSource = readFileSync(join(root, 'work-bar.component.ts'), 'utf8');
+  const studioSource = readFileSync(join(root, 'pr-to-po-studio.component.ts'), 'utf8');
+  const scss = readFileSync(join(root, 'work.scss'), 'utf8');
+  assert.match(shellSource, /app-work-bar/);
+  assert.match(shellSource, /app-work-app-header/);
+  assert.match(barSource, /xp-work-global-bar/);
+  assert.match(barSource, /showCreator/);
+  assert.match(barSource, /canEditExperience/);
+  assert.match(scss, /height:\s*48px/);
+  assert.match(studioSource, /app-work-app-header/);
+  assert.match(studioSource, /back_apps|experience\.work\.back/);
+  assert.equal((studioSource.match(/ck-thinking-orb/g) || []).length, 1);
 });

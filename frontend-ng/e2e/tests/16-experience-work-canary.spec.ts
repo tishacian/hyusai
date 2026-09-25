@@ -154,7 +154,7 @@ test.describe('US-8 — Experience /work canary', () => {
 // canonical publication, arithmetic and authorization are tested by the backend suite.
 test.describe('Adoption local contract', () => {
   test.skip(process.env['E2E_ADOPTION_MOCKED'] !== '1', 'Set E2E_ADOPTION_MOCKED=1 for the local adoption fixture');
-  test('keeps a non-modal companion through navigation and serves bilingual guides', async ({page},testInfo) => {
+  test('keeps the shared chat overlay through navigation and serves bilingual guides', async ({page},testInfo) => {
     test.setTimeout(90_000);
     const workspace={id:'adoption-fixture',slug:'agentium-showcase',name:'Agentium Showcase · local fixture',mode:'portfolio',role:'owner',role_template:'workspace_owner',settings:{features:{experience_v1:true,adoption_experience_v1:true,hypervisor_v2:true}}};
     const user={id:'adoption-user',username:'adoption',email:'adoption@example.test',role:'admin',is_active:true,workspaces:[workspace]};

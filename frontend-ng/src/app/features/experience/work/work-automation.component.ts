@@ -5,42 +5,49 @@ import { I18nService } from '@app/core/i18n.service';
 import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus';
 import { automationJobLines, jobLineText, type JobLine } from '@app/features/orchestration/flow/automation-job';
 import { WorkApiService, type WorkAutomationJob } from './work-api.service';
+import { WorkBarComponent } from './work-bar.component';
+import { WorkAppHeaderComponent } from './work-app-header.component';
+import { returnToFromParams } from './work-return';
 
 @Component({
   selector: 'app-work-automation',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [RouterLink, WorkBarComponent, WorkAppHeaderComponent],
+  styleUrl: './work.scss',
   template: `
-    <section class="xp-work-automation-detail">
-      <a routerLink="/work">{{ i18n.t('experience.work.back') }}</a>
-      @if (missing()) {
-        <p role="alert">{{ i18n.t('experience.work.not_found.title') }}</p>
-      } @else if (lines(); as shown) {
-        <h1>{{ name() }}</h1>
-        <p>{{ shown.objective ? i18n.t('flow.automation.work.objective', { text: shown.objective }) : i18n.t('flow.automation.work.objective.absent') }}</p>
-        @for (line of shown.value; track $index) {
-          <p>{{ lineText(line) }}</p>
+    <div class="xp-work" data-brand-scope data-theme="light">
+      <app-work-bar [appContext]="name() || null" />
+      <app-work-app-header
+        [title]="name() || i18n.t('experience.work.automation.section')"
+        [eyebrow]="i18n.t('experience.work.eyebrow.automation')"
+        [identifier]="systemId || null"
+        [status]="running() ? i18n.t('experience.work.automation.running') : null"
+        [returnTo]="cockpitReturnTo()"
+        defaultBackKey="experience.work.back_apps"
+      >
+        @if (lines(); as shown) {
+          <button type="button" class="xp-work-btn xp-work-btn-primary" [disabled]="running()" (click)="runPublished()">
+            {{ i18n.t('experience.work.automation.run') }}
+          </button>
+          <button type="button" class="xp-work-btn" [disabled]="!shown.proof || exporting()" (click)="exportPackage()">
+            {{ i18n.t('experience.work.automation.export') }}
+          </button>
         }
-        <p>{{ shown.proof ? i18n.t('flow.automation.work.proof', { run: shown.proof }) : i18n.t('flow.automation.work.proof.absent') }}</p>
-        <p>{{ sharedProof() }}</p>
-        <button type="button" [disabled]="running()" (click)="runPublished()">
-          {{ i18n.t('experience.work.automation.run') }}
-        </button>
-        <button type="button" [disabled]="!shown.proof || exporting()" (click)="exportPackage()">
-          {{ i18n.t('experience.work.automation.export') }}
-        </button>
-      }
-    </section>
-  `,
-  styles: `
-    .xp-work-automation-detail {
-      display: grid;
-      gap: 8px;
-      max-width: 40rem;
-      margin: 24px auto;
-      padding: 16px;
-    }
+      </app-work-app-header>
+      <section class="xp-work-main xp-work-automation-detail" role="main" aria-labelledby="work-app-title">
+        @if (missing()) {
+          <p role="alert">{{ i18n.t('experience.work.not_found.title') }}</p>
+        } @else if (lines(); as shown) {
+          <p>{{ shown.objective ? i18n.t('flow.automation.work.objective', { text: shown.objective }) : i18n.t('flow.automation.work.objective.absent') }}</p>
+          @for (line of shown.value; track $index) {
+            <p>{{ lineText(line) }}</p>
+          }
+          <p>{{ shown.proof ? i18n.t('flow.automation.work.proof', { run: shown.proof }) : i18n.t('flow.automation.work.proof.absent') }}</p>
+          <p>{{ sharedProof() }}</p>
+        }
+      </section>
+    </div>
   `,
 })
 export class WorkAutomationComponent {
@@ -57,13 +64,15 @@ export class WorkAutomationComponent {
   protected readonly running = signal(false);
   protected readonly lines = signal<ReturnType<typeof automationJobLines> | null>(null);
   protected readonly sharedProof = signal('');
+  protected readonly cockpitReturnTo = signal<string | null>(null);
   private runId: string | null = null;
   private flowSha = '';
-  private systemId = '';
+  protected systemId = '';
 
   constructor() {
     const systemId = this.route.snapshot.paramMap.get('systemId') ?? '';
     this.systemId = systemId;
+    this.cockpitReturnTo.set(returnToFromParams(this.route.snapshot.queryParamMap.get('returnTo')));
     this.api.automation(systemId).subscribe({
       next: (card) => this.show(card),
       error: () => {

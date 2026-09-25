@@ -1,12 +1,11 @@
 import { NgStyle } from '@angular/common';
 import { ThemeService } from '@app/core/theme.service';
-import { platformBrand } from '@app/core/platform-brand';
 import { appearanceStyles } from '@app/core/brand-appearance';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { NavLinkDirective } from '@app/shared/cockpit';
-import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { AdoptionService } from '@app/core/adoption.service';
 import { AdoptionJourneyComponent } from './adoption-journey.component';
+import { WorkBarComponent } from './work-bar.component';
 import { ChangeDetectionStrategy, Component, computed, ElementRef, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
@@ -28,28 +27,17 @@ import {
   selector: 'app-work-launcher',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgStyle, RouterLink, EmptyStateComponent, AdoptionJourneyComponent, NavLinkDirective],
+  imports: [NgStyle, RouterLink, EmptyStateComponent, AdoptionJourneyComponent, NavLinkDirective, WorkBarComponent],
   styleUrl: './work.scss',
   template: `
-    <div class="xp-work xp-work-launcher" data-brand-scope [attr.data-theme]="theme.resolved()" [ngStyle]="brandStyles()">
-      <header class="xp-work-bar xp-work-global-bar">
-        <div class="xp-work-brand-line">
-          @if (brand(); as identity) { <img class="xp-work-brand-image" [src]="theme.resolved() === 'light' ? identity.emblemLight || identity.emblem : identity.emblem" alt="" /> } @else { <span class="xp-work-logo" aria-hidden="true">◇</span> }
-          <strong>{{ workspace.brandName() }}</strong>
-          <span class="xp-work-divider" aria-hidden="true"></span>
-          <span>{{ workspace.current()?.name }}</span>
-        </div>
-        <label class="xp-work-search">
-          <span class="sr-only">{{ i18n.t('experience.work.search') }}</span>
-          <input
-            type="search"
-            [placeholder]="i18n.t('experience.work.search')"
-            [value]="query()"
-            (input)="query.set(inputValue($event))"
-          />
-        </label>
-      @if (adoption.enabled()) { <button type="button" class="xp-work-btn" (click)="companion.open({ pilot: true })">{{ i18n.t('experience.adoption.companion') }}</button> }
-</header>
+    <div class="xp-work xp-work-launcher" data-brand-scope data-theme="light" [ngStyle]="brandStyles()">
+      <app-work-bar
+        [showSearch]="true"
+        [searchQuery]="query()"
+        [creatorHref]="canEdit() ? studioLink : null"
+        creatorLabelKey="experience.work.studio"
+        (searchChange)="query.set($event)"
+      />
       <section class="xp-work-main xp-work-home" role="main" aria-labelledby="work-launcher-title">
         <div class="xp-work-intro">
           <div>
@@ -64,12 +52,6 @@ import {
               </p>
             }
           </div>
-          @if (canEdit()) {
-            <a class="xp-work-studio-link" [routerLink]="studioLink">
-              <span>{{ i18n.t('experience.work.author') }}</span>
-              {{ i18n.t('experience.work.studio') }} →
-            </a>
-          }
         </div>
 
         @if (adoption.enabled()) {
@@ -150,7 +132,6 @@ import {
   `,
 })
 export class WorkLauncherComponent {
-  readonly companion = inject(ChatOverlayService);
   readonly adoption = inject(AdoptionService);
   readonly profile = inject(NavigationProfileService);
   private readonly api = inject(WorkApiService);
@@ -158,10 +139,9 @@ export class WorkLauncherComponent {
   private readonly host = inject(ElementRef<HTMLElement>);
   readonly workspace = inject(WorkspaceService);
   readonly theme = inject(ThemeService);
-  readonly brand = computed(() => platformBrand(this.workspace.current()?.settings));
   readonly brandStyles = computed(() => {
     const brand = this.workspace.current()?.settings?.['platform_brand'] as Record<string, unknown> | undefined;
-    return appearanceStyles(brand?.['appearance'], this.theme.resolved());
+    return appearanceStyles(brand?.['appearance'], 'light');
   });
   readonly i18n = inject(I18nService);
 
@@ -217,10 +197,6 @@ export class WorkLauncherComponent {
           ?? (globalThis.history?.state as Record<string, unknown> | null),
       ),
     });
-  }
-
-  inputValue(event: Event): string {
-    return (event.target as HTMLInputElement).value;
   }
 
   identity(item: WorkCatalogItem): WorkIdentity {
