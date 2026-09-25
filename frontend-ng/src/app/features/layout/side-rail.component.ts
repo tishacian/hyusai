@@ -154,7 +154,7 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
         background: var(--ck-bg-panel-hi);
       }
       .ck-rail-item:focus-visible {
-        outline: 2px solid var(--ck-signal-cool);
+        outline: 2px solid var(--ck-primary);
         outline-offset: 2px;
       }
       .ck-rail-item-active {

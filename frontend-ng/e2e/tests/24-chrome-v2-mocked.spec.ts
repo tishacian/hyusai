@@ -244,6 +244,74 @@ test.describe('L1 — swallowed gestures', () => {
   });
 });
 
+// --- L3 — Focus de route sur le titre ---------------------------------------
+
+test.describe('L3 — route focus on the title', () => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1', 'Set E2E_CHROME_V2_MOCKED=1 to run the mocked chrome net.');
+    test.skip(!localOnly(testInfo), 'This mocked chrome net is local-only; set E2E_BASE_URL=http://localhost:4200.');
+    await mockCockpit(page);
+    // Impact is hidden in builder mode; L3 needs all three zones.
+    const operatorWorkspace = { ...workspace, mode: 'operator' };
+    await page.route('**/api/v1/auth/workspaces', async (route) => json(route, [operatorWorkspace]));
+    await page.route(`**/api/v1/auth/workspaces/${WORKSPACE_SLUG}`, async (route) => json(route, operatorWorkspace));
+    await page.route('**/api/v1/auth/me', async (route) => {
+      return json(route, {
+        id: 'user-chrome-v2',
+        username: 'chrome',
+        email: 'chrome@example.test',
+        role: 'admin',
+        is_active: true,
+        mfa_enabled: false,
+        workspaces: [operatorWorkspace],
+      });
+    });
+  });
+
+  test('Enter on a rail item focuses the h1 without a ring; Tab shows a 2px ring', async ({ page }) => {
+    await page.goto('/systems');
+    const title = page.locator('#main-content h1').first();
+    await expect(title).toBeVisible({ timeout: 30_000 });
+
+    const operate = page.locator('app-side-rail').getByRole('link', { name: /Monitor|Suivre|Operate/i });
+    await operate.focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/runs(\?|$)/);
+
+    const h1 = page.locator('#main-content h1').first();
+    await expect.poll(async () => h1.evaluate((el) => document.activeElement === el)).toBe(true);
+    expect(await h1.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe('none');
+
+    const status = page.locator('.shell-route-status');
+    await expect(status).toHaveAttribute('role', 'status');
+    await expect.poll(async () => (await status.textContent())?.trim() ?? '').not.toBe('');
+
+    await page.keyboard.press('Tab');
+    const ring = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return null;
+      const style = getComputedStyle(el);
+      return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
+    });
+    expect(ring?.outlineStyle).not.toBe('none');
+    expect(ring?.outlineWidth).toBe('2px');
+  });
+
+  test('axe-core finds no violations on Impact, Create and Monitor', async ({ page }) => {
+    const AxeBuilder = (await import('@axe-core/playwright')).default;
+
+    for (const path of ['/hypervisor', '/systems', '/runs'] as const) {
+      await page.goto(path);
+      await expect(page.locator('#main-content h1').first()).toBeVisible({ timeout: 30_000 });
+      // Same WCAG AA tag set as the accessibility matrix canary — not best-practice extras.
+      const results = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(results.violations, `${path}: ${results.violations.map((v) => v.id).join(', ')}`).toEqual([]);
+    }
+  });
+});
+
 // --- L4 — Tokens v2 and fonts -----------------------------------------------
 
 const enabled = process.env['E2E_CHROME_V2_MOCKED'] === '1';

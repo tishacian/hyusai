@@ -532,7 +532,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
     }
 
     .tb :where(a, button, summary):focus-visible {
-      outline: 2px solid var(--ck-signal-cool);
+      outline: 2px solid var(--ck-primary);
       outline-offset: 2px;
     }
 

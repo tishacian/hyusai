@@ -259,11 +259,27 @@ app-root {
   }
 }
 
-/* Focus ring — cyan */
-.focus-ring:focus-visible,
-.focus-ring:focus {
+/* Route focus (L3): programmatic focus on tabindex=-1 must not paint a
+   ring. Chromium still matches :focus-visible after keyboard-driven nav,
+   so both states are cleared. A single keyboard ring uses the primary. */
+[tabindex="-1"]:focus,
+[tabindex="-1"]:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px rgba(0, 188, 212, 0.45);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ck-primary);
+  outline-offset: 2px;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--ck-primary);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.focus-ring:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
 }
 
 /* Skeleton shimmer */
