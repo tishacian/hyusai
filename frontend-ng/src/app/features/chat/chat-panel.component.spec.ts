@@ -33,6 +33,7 @@ import type { HierarchyObjectType } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { REGISTERED_LUCIDE_ICONS } from '@app/shared/ui/icon-registry';
 import { ChatPanelComponent } from './chat-panel.component';
+import { ChatOverlayService } from './chat-overlay.service';
 
 class WorkspaceStub {
   private slug = 'andritz';
@@ -199,6 +200,10 @@ function makeHarness() {
       { provide: PermissionsService, useValue: { refresh: () => of(null), can: () => false } },
       { provide: AssistantEffectsService, useValue: { handleActionEffect: () => undefined } },
       { provide: I18nService, useValue: { locale: () => 'fr', t: (key: string) => key } },
+      {
+        provide: ChatOverlayService,
+        useValue: { linkedLabel: () => null },
+      },
       { provide: ChangeDetectorRef, useValue: { markForCheck: () => undefined } },
       {
         provide: ChangeDetectionScheduler,

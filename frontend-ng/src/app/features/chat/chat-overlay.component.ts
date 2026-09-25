@@ -1,7 +1,16 @@
 import { AssistantPilotComponent } from './assistant-pilot.component';
-import { ChangeDetectionStrategy, Component, HostListener, computed, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  HostListener,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { Router } from '@angular/router';
 import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
+import { NavLinkDirective } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { navigationLeafUrl } from '@app/core/navigation.catalog';
@@ -22,39 +31,47 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
  * chat workspace. Mounted once inside `ShellComponent` so the chat is
  * reachable from any view without tearing down context.
  *
- * Lifecycle is driven by `ChatOverlayService`:
- *  - `open()` from the title-bar icon, the global ⌘J shortcut, or a
- *    command palette command → `isOpen.set(true)`.
- *  - `close()` from the panel close button, Escape (via `PanelHostService`)
- *    or another explicit call.
- *
- * The panel embeds `<app-chat-workspace [inline]="true">` in compact
- * layout: dropzone collapsible above the chat instead of the two-column
- * layout used on the full-screen `/chat` route.
+ * L11 keeps `app-chat-workspace` alive across close/reopen (`retainContent`)
+ * so an in-flight stream is not aborted (`chat.toast.stream_lost`).
  */
 @Component({
   selector: 'app-chat-overlay',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CkPanelComponent, IconComponent, ChatWorkspaceComponent, AssistantPilotComponent],
+  imports: [
+    CkPanelComponent,
+    IconComponent,
+    ChatWorkspaceComponent,
+    AssistantPilotComponent,
+    NavLinkDirective,
+  ],
   template: `
     <ck-panel
       [open]="overlay.isOpen()"
+      [retainContent]="everOpened()"
       (openChange)="onOpenChange($event)"
       position="side"
       [modal]="overlay.blocksPage()"
-      [eyebrow]="i18n.t('titlebar.chat.tooltip')"
+      [eyebrow]="i18n.t('chat.overlay.eyebrow')"
       [title]="title()"
       [width]="panelWidth()"
       [resizable]="!overlay.narrow() && !expanded()"
       resizeStorageKey="agentium.chat-panel-width"
     >
-      @if (overlay.isOpen()) {
-        <div class="chat-overlay-frame" [class.sentinel-chat-overlay]="sentinelShowcase()" [class.adoption-companion]="overlay.adoption.enabled()">
-          <div class="chat-overlay-toolbar">
-            <span class="chat-overlay-hint">
-              {{ i18n.t('chat.overlay.hint') }}
-            </span>
+      <div class="chat-overlay-frame" [class.sentinel-chat-overlay]="sentinelShowcase()" [class.adoption-companion]="overlay.adoption.enabled()">
+        <div class="chat-overlay-toolbar">
+          <span class="chat-overlay-hint">
+            {{ i18n.t('chat.overlay.hint') }}
+          </span>
+          <div class="chat-overlay-toolbar-actions">
+            <a
+              [navLink]="{ surface: 'conversations' }"
+              class="chat-overlay-history"
+              data-testid="chat-overlay-history"
+              (click)="overlay.close()"
+            >
+              {{ i18n.t('chat.overlay.history') }}
+            </a>
             @if (pilotAvailable()) {
               <button
                 type="button"
@@ -65,20 +82,22 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                 {{ i18n.t(overlay.pilot() ? 'experience.adoption.pilot.back' : 'experience.adoption.pilot.switch') }}
               </button>
             }
-            @if (!overlay.adoption.enabled() || !overlay.narrow()) { <button
-              type="button"
-              class="chat-overlay-expand"
-              (click)="expandToWorkspaceChat()"
-              [title]="i18n.t('chat.overlay.expand.hint')"
-            >
-              <app-icon name="maximize" [size]="13" />
-              {{ i18n.t(overlay.adoption.enabled() && overlay.expanded() ? 'experience.adoption.reduce' : 'chat.overlay.expand') }}
-            </button>
+            @if (!overlay.adoption.enabled() || !overlay.narrow()) {
+              <button
+                type="button"
+                class="chat-overlay-expand"
+                (click)="expandToWorkspaceChat()"
+                [title]="i18n.t('chat.overlay.expand.hint')"
+              >
+                <app-icon name="maximize" [size]="13" />
+                {{ i18n.t(overlay.adoption.enabled() && overlay.expanded() ? 'experience.adoption.reduce' : 'chat.overlay.expand') }}
+              </button>
             }
           </div>
-          @if (pilotAvailable() && overlay.pilot()) {
-            <app-assistant-pilot [initialSystemId]="overlay.preselectedSystemId()" />
-          } @else {
+        </div>
+        @if (pilotAvailable() && overlay.pilot()) {
+          <app-assistant-pilot [initialSystemId]="overlay.preselectedSystemId()" />
+        } @else {
           <app-chat-workspace
             [inline]="true"
             [startMode]="overlay.startMode()"
@@ -87,17 +106,17 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [assistantProfileKey]="overlay.assistantProfile()"
             [initialPrompt]="overlay.initialPrompt()"
             [autoStartVoiceLoop]="overlay.autoStartVoiceLoop()"
+            [resumeSessionId]="overlay.sessionId()"
           />
-          }
-        </div>
-      }
+        }
+        <footer class="chat-overlay-footer" data-testid="chat-overlay-footer">
+          {{ i18n.t('chat.overlay.footer') }}
+        </footer>
+      </div>
     </ck-panel>
   `,
   styles: [`
     :host { display: contents; }
-    /* The ck-panel paints its own shell; we just make sure the workspace
-       fills the entire panel body (which defaults to 18px padding).
-       We override by pulling the workspace flush with the panel edges. */
     :host ::ng-deep ck-panel > div[role="complementary"] > div:last-child {
       padding: 0 !important;
     }
@@ -116,8 +135,13 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       flex: 0 0 auto;
       min-height: 34px;
       padding: 6px 10px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-      background: rgba(255, 255, 255, 0.018);
+      border-bottom: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.06));
+      background: var(--ck-tint-faint, rgba(255, 255, 255, 0.018));
+    }
+    .chat-overlay-toolbar-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
     .chat-overlay-hint {
       color: var(--ck-fg-4, rgba(177, 190, 210, 0.68));
@@ -125,44 +149,56 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       letter-spacing: 0.16em;
       text-transform: uppercase;
     }
+    .chat-overlay-history {
+      color: var(--ck-fg-3);
+      font: 700 10px/1 var(--ck-font-mono, ui-monospace, monospace);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      text-decoration: underline;
+    }
     .chat-overlay-expand {
       display: inline-flex;
       align-items: center;
       gap: 6px;
       min-height: 24px;
       padding: 0 8px;
-      border-radius: 7px;
-      border: 1px solid rgba(103, 213, 246, 0.18);
-      background: rgba(34, 211, 238, 0.08);
-      color: rgb(207, 250, 254);
+      border-radius: 3px;
+      border: 1px solid var(--ck-stroke-2);
+      background: var(--ck-bg-inset);
+      color: var(--ck-fg-1);
       font-size: 11px;
       font-weight: 700;
       transition: 140ms ease;
     }
     .chat-overlay-expand:hover {
-      border-color: rgba(103, 213, 246, 0.36);
-      background: rgba(34, 211, 238, 0.14);
-      color: rgb(245, 248, 252);
+      border-color: var(--ck-stroke-hot, rgba(103, 213, 246, 0.36));
+      background: var(--ck-bg-raised);
     }
-    .adoption-companion .chat-overlay-expand {color:var(--ck-fg-1);background:var(--ck-bg-panel);border-color:var(--ck-stroke-2);min-height:32px;}
-    .adoption-companion .chat-overlay-hint {color:var(--ck-fg-3);}
+    .adoption-companion .chat-overlay-expand {
+      color: var(--ck-fg-1);
+      background: var(--ck-bg-panel);
+      border-color: var(--ck-stroke-2);
+      min-height: 32px;
+    }
+    .adoption-companion .chat-overlay-hint { color: var(--ck-fg-3); }
     .sentinel-chat-overlay .chat-overlay-expand {
       border-color: rgba(101, 214, 110, 0.28);
-      background:
-        linear-gradient(135deg, rgba(101, 214, 110, 0.10), rgba(242, 140, 56, 0.06)),
-        rgba(7, 14, 11, 0.76);
+      background: rgba(7, 14, 11, 0.76);
       color: #d9ffdf;
     }
-    .sentinel-chat-overlay .chat-overlay-expand:hover {
-      border-color: rgba(242, 140, 56, 0.38);
-      background:
-        linear-gradient(135deg, rgba(101, 214, 110, 0.14), rgba(242, 140, 56, 0.10)),
-        rgba(8, 18, 13, 0.86);
-      color: #fff6e8;
-    }
-    .chat-overlay-frame app-chat-workspace {
+    .chat-overlay-frame app-chat-workspace,
+    .chat-overlay-frame app-assistant-pilot {
       flex: 1 1 auto;
       min-height: 0;
+    }
+    .chat-overlay-footer {
+      flex: 0 0 auto;
+      padding: 8px 12px;
+      border-top: 1px solid var(--ck-stroke-2);
+      color: var(--ck-fg-4);
+      font: 700 9px/1.3 var(--ck-font-mono, ui-monospace, monospace);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
     }
   `],
 })
@@ -171,6 +207,15 @@ export class ChatOverlayComponent {
   protected readonly i18n = inject(I18nService);
   private readonly workspace = inject(WorkspaceService);
   private readonly router = inject(Router);
+
+  /** Once true, ck-panel keeps the workspace mounted across close/reopen. */
+  readonly everOpened = signal(false);
+
+  constructor() {
+    effect(() => {
+      if (this.overlay.isOpen()) this.everOpened.set(true);
+    });
+  }
 
   readonly activeProfile = computed<Record<string, unknown> | null>(() => {
     const settings = this.workspace.current()?.settings as Record<string, unknown> | undefined;
@@ -183,15 +228,18 @@ export class ChatOverlayComponent {
   });
 
   readonly title = computed<string>(() => {
-    // Read locale so the title re-renders when the user toggles FR/EN.
     this.i18n.locale();
+    const linked = this.overlay.linkedLabel();
+    if (linked) {
+      return this.i18n.t('chat.overlay.title.linked', { name: linked });
+    }
     const profile = this.activeProfile();
     if (profile?.['label']) return `Interroger ${profile['label']}`;
     switch (this.overlay.startMode()) {
       case 'drop':   return this.i18n.t('palette.hint.drop_files');
       case 'system': return this.i18n.t('palette.hint.chat_system');
       case 'quick':
-      default:       return this.i18n.t('palette.hint.ask');
+      default:       return this.i18n.t('chat.overlay.title');
     }
   });
 
@@ -254,12 +302,6 @@ export class ChatOverlayComponent {
     });
   }
 
-  /**
-   * Global keyboard shortcut: ⌘J (macOS) / Ctrl+J (Linux/Windows).
-   * We override the browser default (⌘J opens Downloads on Chrome) —
-   * acceptable for an SPA since the overlay is a more productive use of
-   * that shortcut for this surface.
-   */
   @HostListener('window:keydown', ['$event'])
   onKey(ev: KeyboardEvent): void {
     const isMod = ev.metaKey || ev.ctrlKey;
@@ -268,9 +310,6 @@ export class ChatOverlayComponent {
       if (this.overlay.isOpen()) {
         this.overlay.close();
       } else {
-        // Match TitleBar.openChat — open immediately, refresh in the
-        // background so ⌘J never feels gated on the workspace HTTP
-        // round-trip.
         this.overlay.open({ mode: 'quick' });
         this.workspace.refreshCurrentWorkspace().subscribe({
           next: () => undefined,

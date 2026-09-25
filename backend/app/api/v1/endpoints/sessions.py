@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional, Tuple
+from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.iam.dependencies import require_app_entitlement
@@ -64,6 +65,37 @@ def _context_signature(context: Optional[Dict[str, Any]]) -> Optional[str]:
         context.get("knowledge_scope") or "workspace-scope",
     ]
     return "|".join(str(part) for part in parts)[:512]
+
+
+def _normalize_linked_object(raw: Any) -> Optional[Dict[str, Any]]:
+    """Persist overlay/system linkage as ``meta_data.linked_object``."""
+    if not isinstance(raw, dict):
+        return None
+    linked_type = str(raw.get("type") or "").strip()[:64]
+    linked_id = str(raw.get("id") or "").strip()[:128]
+    if not linked_type or not linked_id:
+        return None
+    label = str(raw.get("label") or "").strip()[:256] or linked_id
+    lens_raw = raw.get("lens")
+    lens = str(lens_raw).strip()[:64] if lens_raw else None
+    payload: Dict[str, Any] = {
+        "type": linked_type,
+        "id": linked_id,
+        "label": label,
+    }
+    if lens:
+        payload["lens"] = lens
+    return payload
+
+
+def _session_meta_from_context(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    meta = dict(context) if isinstance(context, dict) else {}
+    linked = _normalize_linked_object(meta.get("linked_object"))
+    if linked:
+        meta["linked_object"] = linked
+    elif "linked_object" in meta:
+        meta.pop("linked_object", None)
+    return meta
 
 
 def _serialize_message(message: Message) -> Dict[str, Any]:
@@ -232,7 +264,7 @@ async def create_session(
             title=(session.title or "").strip()[:500] or None,
             status="active",
             context_signature=(session.context_signature or _context_signature(session.context)),
-            meta_data=session.context or {},
+            meta_data=_session_meta_from_context(session.context),
         )
         db.add(db_session)
         db.commit()
@@ -252,6 +284,9 @@ async def list_sessions(
     status: str = Query(default="active"),
     include_admin: bool = Query(default=False),
     member_user_id: Optional[str] = Query(default=None, alias="user_id"),
+    q: Optional[str] = Query(default=None),
+    linked_type: Optional[str] = Query(default=None),
+    linked_id: Optional[str] = Query(default=None),
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
@@ -260,6 +295,8 @@ async def list_sessions(
 
     Workspace admins may pass ``include_admin=true`` to browse every member's
     sessions (read-only); ``user_id`` then narrows the list to one member.
+    ``q`` searches titles; ``linked_type`` / ``linked_id`` filter
+    ``meta_data.linked_object``.
     """
     try:
         admin = include_admin and _is_workspace_admin(db, user, workspace)
@@ -278,6 +315,17 @@ async def list_sessions(
                 base_query = base_query.filter(SessionModel.status == "active")
         else:
             base_query = base_query.filter(SessionModel.status != "deleted")
+        needle = (q or "").strip()
+        if needle:
+            base_query = base_query.filter(func.lower(SessionModel.title).like(f"%{needle.lower()}%"))
+        linked_type_norm = (linked_type or "").strip()
+        linked_id_norm = (linked_id or "").strip()
+        if linked_type_norm or linked_id_norm:
+            linked = SessionModel.meta_data["linked_object"]
+            if linked_type_norm:
+                base_query = base_query.filter(linked["type"].as_string() == linked_type_norm)
+            if linked_id_norm:
+                base_query = base_query.filter(linked["id"].as_string() == linked_id_norm)
         sessions = (
             base_query.order_by(SessionModel.last_activity.desc())
             .offset(effective_offset)
@@ -295,6 +343,9 @@ async def list_sessions(
                 details={
                     "status": status,
                     "member_user_id": member_user_id,
+                    "q": needle or None,
+                    "linked_type": linked_type_norm or None,
+                    "linked_id": linked_id_norm or None,
                     "returned": len(sessions),
                 },
             )

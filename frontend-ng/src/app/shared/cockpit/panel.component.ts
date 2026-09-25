@@ -88,13 +88,14 @@ let panelCounter = 0;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [A11yModule, GlyphComponent],
   template: `
-    @if (open) {
+    @if (open || retainContent) {
       <div
         [attr.role]="modal || position === 'floating' ? 'dialog' : 'complementary'"
         [attr.aria-modal]="modal || position === 'floating' ? 'true' : null"
         [attr.aria-label]="title || 'Panel'"
-        [cdkTrapFocus]="modal || position === 'floating'"
-        [cdkTrapFocusAutoCapture]="modal || position === 'floating'"
+        [attr.aria-hidden]="open ? null : 'true'"
+        [cdkTrapFocus]="open && (modal || position === 'floating')"
+        [cdkTrapFocusAutoCapture]="open && (modal || position === 'floating')"
         [style.position]="'fixed'"
         [style.top]="position === 'side' ? '0' : (position === 'bottom' ? 'auto' : '50%')"
         [style.right]="position === 'side' ? '0' : (position === 'bottom' ? '0' : '50%')"
@@ -112,10 +113,10 @@ let panelCounter = 0;
         [style.border]="position === 'floating' ? '1px solid var(--ck-stroke-2, rgba(255,255,255,0.08))' : 'initial'"
         [style.borderRadius.px]="position === 'floating' ? 10 : 0"
         [style.boxShadow]="'var(--ck-shadow-panel)'"
-        [style.display]="'flex'"
+        [style.display]="open ? 'flex' : 'none'"
         [style.flexDirection]="'column'"
         [style.zIndex]="modal || position === 'floating' ? 1400 : 40"
-        [style.animation]="enterAnim"
+        [style.animation]="open ? enterAnim : 'none'"
       >
         @if (resizable && position === 'side') {
           <button
@@ -188,7 +189,7 @@ let panelCounter = 0;
           <ng-content />
         </div>
       </div>
-      @if (position === 'floating') {
+      @if (open && position === 'floating') {
         <div
           [style.position]="'fixed'"
           [style.inset]="'0'"
@@ -283,6 +284,8 @@ export class CkPanelComponent implements OnInit, OnDestroy {
   @Input() modal = false;
   @Input() resizable = false;
   @Input() resizeStorageKey = '';
+  /** Keep projected content mounted while closed (chat overlay stream survival). */
+  @Input() retainContent = false;
 
   readonly CK_PANEL_MIN_WIDTH = CK_PANEL_MIN_WIDTH;
   manualWidth = 0;

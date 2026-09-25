@@ -38,6 +38,10 @@ export class ChatOverlayService {
   readonly assistantProfile = signal<string | null>(null);
   readonly initialPrompt = signal<string | null>(null);
   readonly autoStartVoiceLoop = signal(false);
+  /** Resume a durable session when opened from Conversations › Reprendre. */
+  readonly sessionId = signal<string | null>(null);
+  /** Display label for « Conversation · Liée à {objet} ». */
+  readonly linkedLabel = signal<string | null>(null);
 
   constructor() {
     this.workspace.registerContextReset(() => this.reset());
@@ -63,6 +67,8 @@ export class ChatOverlayService {
     initialPrompt?: string | null;
     autoStartVoiceLoop?: boolean;
     pilot?: boolean;
+    sessionId?: string | null;
+    linkedLabel?: string | null;
   }): void {
     let mode = options?.mode ?? 'quick';
     this.pilot.set(!!options?.pilot);
@@ -77,6 +83,8 @@ export class ChatOverlayService {
     this.assistantProfile.set(options?.assistantProfile ?? null);
     this.initialPrompt.set(options?.initialPrompt ?? null);
     this.autoStartVoiceLoop.set(!!options?.autoStartVoiceLoop);
+    this.sessionId.set(options?.sessionId ?? null);
+    this.linkedLabel.set(options?.linkedLabel ?? null);
     this.isOpen.set(true);
   }
 
@@ -94,6 +102,8 @@ export class ChatOverlayService {
     this.assistantProfile.set(null);
     this.initialPrompt.set(null);
     this.autoStartVoiceLoop.set(false);
+    this.sessionId.set(null);
+    this.linkedLabel.set(null);
   }
 
   toggle(): void {

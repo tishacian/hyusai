@@ -253,6 +253,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'Synchronous chat surface with workspace and system context.',
   },
   {
+    id: 'conversations',
+    label: 'Conversations',
+    route: '/conversations',
+    lens: 'operate',
+    object: 'Workbench',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/sessions',
+    status: 'canonical',
+    audience: 'workspace-user',
+    description: 'Suivre history of chat conversations for the workspace.',
+  },
+  {
     id: 'client360-pdr',
     label: 'Client360 PDR',
     route: '/client360',
@@ -624,7 +636,7 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'data-doc', parent: 'data', route: '/data/:datasetId', label: 'Dataset' },
   { id: 'model-doc', parent: 'models', route: '/models/:modelId', label: 'Model' },
   { id: 'context-doc', parent: 'contexts', route: '/steering/contexts/:contextId', label: 'Context' },
-  { id: 'conversation-doc', parent: 'chat', route: '/conversations/:conversationId', label: 'Conversation' },
+  { id: 'conversation-doc', parent: 'conversations', route: '/conversations/:conversationId', label: 'Conversation' },
   { id: 'preset-doc', parent: 'presets', route: '/presets/:presetId', label: 'Preset' },
   { id: 'mission-room-agenda', parent: 'mission-room', route: '/hypervisor/mission-room/agenda', label: 'Mission Room agenda' },
   { id: 'mission-room-monitor', parent: 'mission-room', route: '/hypervisor/mission-room/monitor', label: 'Mission Room monitor' },
@@ -810,7 +822,7 @@ const HIERARCHY_SURFACE_IDS: Record<HierarchyObjectType, string> = {
   model: 'models',
   context: 'contexts',
   // Conversation and Studio app use path-shaped URLs, not surface/ref.
-  conversation: 'chat',
+  conversation: 'conversations',
   business_app: 'create-apps',
 };
 
@@ -983,6 +995,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       section('observability', 'Observability', 'telemetry', 'observability', 'surface'),
       section('intelligence', 'Intelligence', 'pulse', 'intelligence', 'surface'),
       section('missions', 'Missions', 'play', 'tasks', 'surface'),
+      section('conversations', 'Conversations', 'layers', 'conversations', 'surface'),
       CLIENT360_SECTION,
     ],
   },

@@ -102,7 +102,6 @@ export class GovernanceShellComponent {
   readonly tabs: Tab[] = [
     { labelKey: 'governance.shell.audit',        glyph: 'ledger', route: '/governance/audit' },
     { labelKey: 'governance.shell.experiences',  glyph: 'layers', route: '/governance/experiences', experienceGovernance: true },
-    { labelKey: 'governance.shell.chat_history', glyph: 'ledger', route: '/governance/chat-history', adminOnly: true },
     { labelKey: 'governance.shell.canonical',    glyph: 'focus',  route: '/governance/canonical-answers' },
     { labelKey: 'governance.shell.access',       glyph: 'focus',  route: '/governance/access' },
     { labelKey: 'governance.shell.blueprints',   glyph: 'layers', route: '/governance/blueprints' },

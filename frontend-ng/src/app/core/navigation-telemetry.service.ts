@@ -111,6 +111,8 @@ const NAVIGATION_PRIVACY_TEMPLATES = [
   '/governance/audit',
   '/governance/experiences',
   '/governance/access',
+  '/conversations',
+  '/conversations/:conversationId',
   '/governance/chat-history',
   '/governance/surface-map',
   '/governance/blueprints',

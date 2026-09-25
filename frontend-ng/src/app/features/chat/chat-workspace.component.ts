@@ -26,7 +26,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { TagComponent } from '@app/shared/cockpit';
 import { ChatPanelComponent } from './chat-panel.component';
 import { ThinkingOrbComponent } from '@app/shared/cockpit';
-import { type ChatStartMode } from './chat-overlay.service';
+import { type ChatStartMode, ChatOverlayService } from './chat-overlay.service';
 
 /**
  * Shape of the docmeta payload returned by
@@ -337,6 +337,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [assistantProfileKey]="assistantProfileKey()"
             [initialPrompt]="initialPrompt()"
             [autoStartVoiceLoop]="autoStartVoiceLoop()"
+            [resumeSessionId]="resumeSessionId()"
           />
         </section>
       </div>
@@ -820,6 +821,7 @@ export class ChatWorkspaceComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly overlay = inject(ChatOverlayService);
   private readonly navigationProfile = inject(NavigationProfileService);
   private readonly router = inject(Router);
   private readonly navigation = inject(ZoomContextService);
@@ -842,6 +844,8 @@ export class ChatWorkspaceComponent implements OnInit {
   readonly initialPrompt = input<string | null>(null);
   /** When true, open the chat in persistent session voice loop mode. */
   readonly autoStartVoiceLoop = input(false);
+  /** Open an existing durable session (Conversations › Reprendre). */
+  readonly resumeSessionId = input<string | null>(null);
 
   readonly systems = signal<System[]>([]);
   readonly selectedSystemId = signal<string | null>(null);
@@ -983,11 +987,13 @@ export class ChatWorkspaceComponent implements OnInit {
         if (this.selectedSystemId() && !systems.some((system) => system.id === this.selectedSystemId())) {
           this.selectedSystemId.set(null);
         }
+        this.syncLinkedLabel();
       },
       error: () => {
         if (!this.isWorkspaceContinuationCurrent(scope, generation)) return;
         this.systems.set([]);
         this.selectedSystemId.set(null);
+        this.syncLinkedLabel();
       },
     });
     this.workspaceSubscriptions.add(subscription);
@@ -996,6 +1002,20 @@ export class ChatWorkspaceComponent implements OnInit {
   onSystemChange(id: string | null): void {
     if (this.businessSurface()) return;
     this.selectedSystemId.set(id && this.systems().some((system) => system.id === id) ? id : null);
+    this.syncLinkedLabel();
+  }
+
+  private syncLinkedLabel(): void {
+    if (!this.inline()) return;
+    const selected = this.selectedSystem();
+    if (selected?.name) {
+      this.overlay.linkedLabel.set(selected.name);
+      return;
+    }
+    if (!this.overlay.linkedLabel() && this.overlay.preselectedSystemId()) {
+      const preset = this.systems().find((system) => system.id === this.overlay.preselectedSystemId());
+      if (preset?.name) this.overlay.linkedLabel.set(preset.name);
+    }
   }
 
   openFlowBuilder(): void {

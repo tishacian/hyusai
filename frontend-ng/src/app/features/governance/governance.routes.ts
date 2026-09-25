@@ -1,4 +1,5 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { Router, Routes } from '@angular/router';
 import { experienceGovernanceGuard } from './experience-governance.guard';
 import { workspaceAppAdminGuard } from './workspace-app-admin.guard';
 
@@ -27,8 +28,7 @@ export const governanceRoutes: Routes = [
       },
       {
         path: 'chat-history',
-        loadComponent: () =>
-          import('./chat-history.component').then((m) => m.ChatHistoryComponent),
+        redirectTo: () => inject(Router).parseUrl('/conversations?facet=workspace'),
       },
       {
         path: 'surface-map',
