@@ -7,10 +7,11 @@ import { NavLinkDirective } from '@app/shared/cockpit';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { AdoptionService } from '@app/core/adoption.service';
 import { AdoptionJourneyComponent } from './adoption-journey.component';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, ElementRef, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { I18nService } from '@app/core/i18n.service';
+import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkApiService, type WorkAutomationJob } from './work-api.service';
 import {
@@ -154,6 +155,7 @@ export class WorkLauncherComponent {
   readonly profile = inject(NavigationProfileService);
   private readonly api = inject(WorkApiService);
   private readonly router = inject(Router);
+  private readonly host = inject(ElementRef<HTMLElement>);
   readonly workspace = inject(WorkspaceService);
   readonly theme = inject(ThemeService);
   readonly brand = computed(() => platformBrand(this.workspace.current()?.settings));
@@ -194,6 +196,7 @@ export class WorkLauncherComponent {
     this.api.listExperiences().subscribe((result) => {
       if (result.kind !== 'ok') {
         this.state.set('error');
+        queueMicrotask(() => this.focusRouteTarget());
         return;
       }
       if (result.items.length === 1 && !this.adoption.enabled()) {
@@ -203,6 +206,16 @@ export class WorkLauncherComponent {
       this.allItems.set(result.items);
       this.jobs.set(result.jobs);
       this.state.set('ready');
+      queueMicrotask(() => this.focusRouteTarget());
+    });
+  }
+
+  private focusRouteTarget(): void {
+    focusAfterRoute(this.host.nativeElement, {
+      focus: navigationFocusFromState(
+        this.router.lastSuccessfulNavigation?.extras?.state
+          ?? (globalThis.history?.state as Record<string, unknown> | null),
+      ),
     });
   }
 
