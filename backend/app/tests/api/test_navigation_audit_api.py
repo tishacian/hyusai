@@ -182,6 +182,9 @@ def test_navigation_resolved_canonicalizes_all_dynamic_path_segments(db_session)
         ("navigation_resolver", "legacy_hypervisor_object_lens"),
         ("navigation_resolver", "legacy_focus_query"),
         ("navigation_resolver", "legacy_tab_query"),
+        ("navigation_resolver", "legacy_system_id_query"),
+        ("navigation_resolver", "legacy_mission_room_path"),
+        ("navigation_resolver", "legacy_theme_query"),
         ("navigation_resolver", "workspace_mode_home"),
     ),
 )
