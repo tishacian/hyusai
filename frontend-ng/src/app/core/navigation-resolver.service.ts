@@ -340,9 +340,11 @@ export class NavigationResolverService {
       : '';
     if (!rawQuery) return path;
     const params = new URLSearchParams(rawQuery);
-    const sorted = [...params.entries()]
-      .filter(([, v]) => v)
-      .sort(([a], [b]) => a.localeCompare(b));
+    const sorted: Array<[string, string]> = [];
+    params.forEach((v, k) => {
+      if (v) sorted.push([k, v]);
+    });
+    sorted.sort(([a], [b]) => a.localeCompare(b));
     if (!sorted.length) return path;
     const query = new URLSearchParams(sorted).toString();
     return `${path}?${query}`;
