@@ -20,6 +20,7 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
+import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus';
 import { canEditExperienceStudio } from '../experience-access';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
@@ -257,6 +258,7 @@ export class WorkShellComponent {
   readonly adoption = inject(AdoptionService);
   readonly companion = inject(ChatOverlayService);
   @ViewChild('workMain') private workMain?: ElementRef<HTMLElement>;
+  private readonly host = inject(ElementRef<HTMLElement>);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly api = inject(WorkApiService);
@@ -511,10 +513,19 @@ export class WorkShellComponent {
         ? this.i18n.t('experience.work.validations')
         : page ? this.pageTitle(page.title) : '',
     );
-    queueMicrotask(() => this.workMain?.nativeElement.focus());
+    queueMicrotask(() => this.focusRouteTarget());
     if (replaceInvalid && requested !== active) {
       void this.router.navigateByUrl(workPageHref(this.slug(), active), { replaceUrl: true });
     }
+  }
+
+  private focusRouteTarget(): void {
+    focusAfterRoute(this.host.nativeElement, {
+      focus: navigationFocusFromState(
+        this.router.lastSuccessfulNavigation?.extras?.state
+          ?? (globalThis.history?.state as Record<string, unknown> | null),
+      ),
+    });
   }
 
   private watchValidations(slug: string, needsQueue: boolean): void {

@@ -19,6 +19,7 @@ import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draf
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { missionRoomUsesImmersiveShell } from '@app/features/mission-room/mission-room.extension';
 import { I18nService } from '@app/core/i18n.service';
+import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus';
 
 /**
  * Cockpit shell — assembles the title bar, side rail and command bar
@@ -263,15 +264,18 @@ export class ShellComponent {
   }
 
   onRouteActivate(main: HTMLElement): void {
+    // After keyboard activation the originating rail link can reclaim focus in
+    // the same turn; wait a frame so the title keeps the route focus.
     queueMicrotask(() => {
-      const heading = main.querySelector<HTMLElement>('h1');
-      if (heading) {
-        if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
-        heading.focus({ preventScroll: true });
-      } else {
-        main.focus({ preventScroll: true });
-      }
-      this.routeAnnouncement.set(heading?.textContent?.trim() || document.title || this.currentPath());
+      requestAnimationFrame(() => {
+        const focus = navigationFocusFromState(
+          this.router.lastSuccessfulNavigation?.extras?.state
+            ?? (globalThis.history?.state as Record<string, unknown> | null),
+        );
+        const heading = main.querySelector<HTMLElement>('h1');
+        focusAfterRoute(main, { focus });
+        this.routeAnnouncement.set(heading?.textContent?.trim() || document.title || this.currentPath());
+      });
     });
   }
 }
