@@ -84,7 +84,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
   },
   {
     id: 'mission-room',
-    label: 'Mission Room',
+    label: 'Impact presentation (legacy)',
     route: '/hypervisor/mission-room/cockpit',
     routeAliases: ['/hypervisor/mission-room/:view'],
     lens: 'hypervisor',
@@ -94,7 +94,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     status: 'canonical',
     audience: 'workspace-user',
     description:
-      'Executive government cockpit for briefing, projects, open intelligence, map and recommendation actions.',
+      'Legacy Mission Room paths redirect into Impact presentation and views.',
   },
   {
     id: 'systems',
@@ -638,8 +638,8 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'context-doc', parent: 'contexts', route: '/steering/contexts/:contextId', label: 'Context' },
   { id: 'conversation-doc', parent: 'conversations', route: '/conversations/:conversationId', label: 'Conversation' },
   { id: 'preset-doc', parent: 'presets', route: '/presets/:presetId', label: 'Preset' },
-  { id: 'mission-room-agenda', parent: 'mission-room', route: '/hypervisor/mission-room/agenda', label: 'Mission Room agenda' },
-  { id: 'mission-room-monitor', parent: 'mission-room', route: '/hypervisor/mission-room/monitor', label: 'Mission Room monitor' },
+  { id: 'mission-room-agenda', parent: 'mission-room', route: '/hypervisor/mission-room/agenda', label: 'Impact agenda (legacy)' },
+  { id: 'mission-room-monitor', parent: 'mission-room', route: '/hypervisor/mission-room/monitor', label: 'Impact map (legacy)' },
   { id: 'workspace-list', parent: 'workspace-admin', route: '/workspace', label: 'Workspace picker' },
   { id: 'workspace-chat-page', parent: 'workspace-chat', route: '/workspace/:slug/chat', label: 'Workspace chat' },
   { id: 'workspace-chat-knowledge', parent: 'workspace-admin', route: '/workspace/:slug/chat-knowledge', label: 'Chat knowledge settings' },
@@ -831,6 +831,9 @@ const NAVIGATION_QUERY_KEYS = new Set([
   'scope',
   'tab',
   'facet',
+  'theme',
+  'view',
+  'eventId',
   'focus',
   'doc',
   'capabilityId',
@@ -1149,11 +1152,34 @@ export function systemFacetForChild(child: HierarchyObjectType | null): string |
   return null;
 }
 
-export function navigationZoneSurfaceUrl(section: CockpitSection, lens: CockpitLens): string {
+export function navigationZoneSurfaceUrl(
+  section: CockpitSection,
+  lens: CockpitLens,
+  currentUrl?: string,
+): string {
+  const impactKeys = impactQueryForPath(section.route, currentUrl);
   return appendNavigationQuery(section.route, {
     lens: lensQueryForPath(section.route, lens),
     facet: section.facet ?? null,
+    ...impactKeys,
   });
+}
+
+/** Theme / view / eventId stay on Impact links only; dropped on zone change. */
+function impactQueryForPath(
+  path: string,
+  currentUrl?: string,
+): Record<'theme' | 'view' | 'eventId', string | null> {
+  const empty = { theme: null, view: null, eventId: null };
+  if (pathOnly(path) !== agentiumSurfaceRoute('hypervisor')) return empty;
+  if (!currentUrl) return empty;
+  const current = navigationRouteContext(currentUrl);
+  if (current.path !== agentiumSurfaceRoute('hypervisor')) return empty;
+  return {
+    theme: current.query['theme'] ?? null,
+    view: current.query['view'] ?? null,
+    eventId: current.query['eventId'] ?? null,
+  };
 }
 
 export function matchCockpitVerb(path: string): CockpitVerb | null {
@@ -1441,6 +1467,7 @@ export function resolveNavLink(
         : current.runId,
       skillRef: current.selectedType === 'skill' ? null : current.skillRef,
       doc: current.query['doc'] ?? null,
+      ...impactQueryForPath(current.path, context.currentUrl),
     }),
     replaceUrl: true,
   };

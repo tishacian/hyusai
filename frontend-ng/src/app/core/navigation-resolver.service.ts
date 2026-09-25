@@ -4,9 +4,9 @@ import type { NavigationRedirectDecision } from './navigation-telemetry.service'
 import { WorkspaceService, workspaceSettingFeature } from './workspace.service';
 import { agentiumSurfaceRoute, matchAgentiumSurface } from './navigation.catalog';
 import {
-  MISSION_ROOM_EXTENSION,
-  missionRoomExtensionState,
-} from '@app/features/mission-room/mission-room.extension';
+  missionRoomImpactTarget,
+  missionRoomImpactUrl,
+} from '@app/features/mission-room/mission-room-redirects';
 import { arrivalProvenanceState } from '@app/shared/cockpit/arrival-provenance';
 
 const DEFAULT_BUSINESS_ROUTE = agentiumSurfaceRoute('chat');
@@ -28,11 +28,11 @@ export class NavigationResolverService {
       this.resolveGenericHome(requestedRoute) ||
       this.resolveLegacyHypervisorObjectLens(requestedRoute) ||
       this.resolveLegacyQueryAliases(requestedRoute) ||
+      this.resolvePresentationThemeAlias(requestedRoute) ||
       this.resolveBusinessProfile(requestedRoute) ||
       this.resolveModeHome(requestedRoute) ||
       this.resolveStaleWorkspaceAppUnavailable(requestedRoute) ||
-      this.resolveUnavailableWorkspaceExtension(requestedRoute) ||
-      this.resolveDemoEntrypoint(requestedRoute) ||
+      this.resolveMissionRoomCompat(requestedRoute) ||
       this.resolveWorkspaceEntrypoint(requestedRoute)
     );
   }
@@ -51,7 +51,7 @@ export class NavigationResolverService {
     const profileSettings = current?.settings?.['navigation_profile'] as Record<string, unknown> | undefined;
     const configured = this.absoluteRoute(profileSettings?.['default_route'] || current?.settings?.['default_route']);
     if (configured && this.pathOnly(configured) !== '/' && matchAgentiumSurface(configured)) {
-      const policy = this.resolveBusinessProfile(configured) || this.resolveUnavailableWorkspaceExtension(configured);
+      const policy = this.resolveBusinessProfile(configured) || this.resolveMissionRoomCompat(configured);
       if (!policy) return this.decision(requestedRoute, configured, 'workspace_default_route');
     }
     if (this.workspace.experienceV1Enabled()) {
@@ -242,19 +242,41 @@ export class NavigationResolverService {
     return this.decision(requestedRoute, resolvedRoute, 'business_profile_disallowed');
   }
 
-  private resolveUnavailableWorkspaceExtension(
+  /** L13a: Mission Room paths become Impact query params (replaceUrl via guard). */
+  private resolveMissionRoomCompat(
     requestedRoute: string,
   ): NavigationRedirectDecision | null {
     const path = this.pathOnly(requestedRoute);
-    if (
-      path !== MISSION_ROOM_EXTENSION.routeRoot
-      && !path.startsWith(`${MISSION_ROOM_EXTENSION.routeRoot}/`)
-    ) return null;
-    if (missionRoomExtensionState(this.workspace.current()).enabled) return null;
+    const target = missionRoomImpactTarget(path);
+    if (!target) return null;
+    if (target.openPalette && typeof window !== 'undefined') {
+      queueMicrotask(() => {
+        window.dispatchEvent(new CustomEvent('ck:command-palette:open'));
+      });
+    }
+    const resolved = missionRoomImpactUrl(path);
+    if (!resolved) return null;
+    return this.decision(requestedRoute, resolved, 'legacy_mission_room_path');
+  }
+
+  /** L13a: `?theme=mission` rewrites to `?theme=presentation`. */
+  private resolvePresentationThemeAlias(
+    requestedRoute: string,
+  ): NavigationRedirectDecision | null {
+    const path = this.pathOnly(requestedRoute);
+    if (path !== agentiumSurfaceRoute('hypervisor') && path !== '/') return null;
+    const rawQuery = requestedRoute.includes('?')
+      ? requestedRoute.slice(requestedRoute.indexOf('?') + 1).split('#')[0]
+      : '';
+    const params = new URLSearchParams(rawQuery);
+    if (params.get('theme') !== 'mission') return null;
+    params.set('theme', 'presentation');
+    const query = params.toString();
+    const resolvedPath = path === '/' ? agentiumSurfaceRoute('hypervisor') : path;
     return this.decision(
       requestedRoute,
-      agentiumSurfaceRoute('hypervisor'),
-      'workspace_extension_unavailable',
+      query ? `${resolvedPath}?${query}` : resolvedPath,
+      'legacy_theme_query',
     );
   }
 
@@ -270,32 +292,6 @@ export class NavigationResolverService {
       experience?.homeRoute || agentiumSurfaceRoute('hypervisor'),
       'workspace_default_route',
     );
-  }
-
-  private resolveDemoEntrypoint(requestedRoute: string): NavigationRedirectDecision | null {
-    if (
-      !this.workspace.isDemoMode() ||
-      this.pathOnly(requestedRoute) !== agentiumSurfaceRoute('hypervisor')
-    ) return null;
-    // Explicit v4 (not the graduated default) keeps Hypervisor as Portfolio.
-    // Demo workspaces without the stored flag still bounce to Mission Room.
-    if (this.axesV4Enabled()) return null;
-
-    const configuredDefault = this.absoluteRoute(
-      this.workspace.current()?.settings?.['default_route'],
-    );
-    const extension = missionRoomExtensionState(this.workspace.current());
-    const safeConfiguredDefault = configuredDefault && (
-      extension.enabled || !this.isMissionRoomRoute(configuredDefault)
-    ) ? configuredDefault : null;
-    const resolvedRoute = safeConfiguredDefault || (
-      extension.enabled ? MISSION_ROOM_EXTENSION.defaultRoute : agentiumSurfaceRoute('hypervisor')
-    );
-    const resolvedPath = this.pathOnly(resolvedRoute);
-    // `/` is the Angular alias of `/hypervisor`; redirecting between the two
-    // would form a cross-owner loop even though neither URL is textually equal.
-    if (resolvedPath === '/' || resolvedPath === agentiumSurfaceRoute('hypervisor')) return null;
-    return this.decision(requestedRoute, resolvedRoute, 'workspace_default_route');
   }
 
   private resolveWorkspaceEntrypoint(requestedRoute: string): NavigationRedirectDecision | null {
@@ -334,7 +330,22 @@ export class NavigationResolverService {
   }
 
   private routesAreEquivalent(left: string, right: string): boolean {
-    return this.pathOnly(left) === this.pathOnly(right);
+    return this.normalizeRoute(left) === this.normalizeRoute(right);
+  }
+
+  private normalizeRoute(value: string): string {
+    const path = this.pathOnly(value);
+    const rawQuery = value.includes('?')
+      ? value.slice(value.indexOf('?') + 1).split('#')[0]
+      : '';
+    if (!rawQuery) return path;
+    const params = new URLSearchParams(rawQuery);
+    const sorted = [...params.entries()]
+      .filter(([, v]) => v)
+      .sort(([a], [b]) => a.localeCompare(b));
+    if (!sorted.length) return path;
+    const query = new URLSearchParams(sorted).toString();
+    return `${path}?${query}`;
   }
 
   private absoluteRoute(value: unknown): string | null {
@@ -363,13 +374,5 @@ export class NavigationResolverService {
 
   private axesV4Enabled(): boolean {
     return workspaceSettingFeature(this.workspace.current(), 'cockpit_router_axes_v4', true);
-  }
-
-  private isMissionRoomRoute(value: string): boolean {
-    const path = this.pathOnly(value);
-    return (
-      path === MISSION_ROOM_EXTENSION.routeRoot ||
-      path.startsWith(`${MISSION_ROOM_EXTENSION.routeRoot}/`)
-    );
   }
 }

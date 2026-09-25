@@ -571,13 +571,13 @@ interface EntityBar {
       }
       .viz-spark .line {
         fill: none;
-        stroke: var(--sentinel-accent, #42d99b);
+        stroke: var(--sentinel-accent, var(--ck-signal-pos));
         stroke-width: 1.8;
         stroke-linecap: round;
         stroke-linejoin: round;
       }
       .viz-spark .dot {
-        fill: var(--sentinel-accent, #42d99b);
+        fill: var(--sentinel-accent, var(--ck-signal-pos));
         stroke: var(--mission-bg-base, #050b10);
         stroke-width: 1.2;
       }
@@ -639,7 +639,7 @@ interface EntityBar {
         position: absolute;
         inset: 0;
         right: auto;
-        background: linear-gradient(90deg, var(--sentinel-accent, #42d99b), rgba(66, 217, 155, 0.55));
+        background: linear-gradient(90deg, var(--sentinel-accent, var(--ck-signal-pos)), color-mix(in srgb, var(--ck-signal-pos) 55%, transparent));
         border-radius: inherit;
         transition: width var(--mission-dur-fast, 200ms) var(--mission-ease-out, ease-out);
       }

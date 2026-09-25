@@ -187,3 +187,45 @@ test('command palette drops A index and rejects an old dynamic command after A�
 
   palette.ngOnDestroy();
 });
+
+test('Thème Présentation opens /hypervisor?theme=presentation', () => {
+  const workspace = new WorkspaceStub();
+  const canonical = new CanonicalStub();
+  const navigations: string[] = [];
+  const injector = Injector.create({
+    providers: [
+      CommandPaletteComponent,
+      { provide: WorkspaceService, useValue: workspace },
+      { provide: CanonicalApiService, useValue: canonical },
+      { provide: ChatOverlayService, useValue: { open: () => undefined } },
+      { provide: Router, useValue: { navigateByUrl: (url: string) => navigations.push(url) } },
+      {
+        provide: ZoomContextService,
+        useValue: { objectUrl: navigationObjectUrl },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+      {
+        provide: ChangeDetectionScheduler,
+        useValue: { notify() {}, runningTick: false },
+      },
+      {
+        provide: EffectScheduler,
+        useValue: { add() {}, schedule() {}, flush() {}, remove() {} },
+      },
+    ],
+  });
+  const palette = injector.get(CommandPaletteComponent);
+  palette.ngOnInit();
+  canonical.capabilities[0].next([]);
+  canonical.runs[0].next([]);
+  canonical.skills[0].next([]);
+  canonical.systems[0].next([]);
+
+  palette.query.set('presentation');
+  const command = palette.results().find((item) => item.id === 'theme.presentation');
+  assert.ok(command);
+  assert.equal(command.route, '/hypervisor?theme=presentation');
+  palette.go(command);
+  assert.deepEqual(navigations, ['/hypervisor?theme=presentation']);
+  palette.ngOnDestroy();
+});

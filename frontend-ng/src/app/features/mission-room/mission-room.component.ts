@@ -2877,7 +2877,7 @@ export class MissionRailComponent {
         --mission-accent: #7dd3fc;
         --mission-accent-wash: rgba(125, 211, 252, 0.1);
         --mission-orange: #7dd3fc;
-        --mission-trust: #42d99b;
+        --mission-trust: var(--ck-signal-pos);
         background:
           linear-gradient(90deg, rgba(125, 211, 252, 0.035) 1px, transparent 1px),
           linear-gradient(180deg, rgba(125, 211, 252, 0.025) 1px, transparent 1px),

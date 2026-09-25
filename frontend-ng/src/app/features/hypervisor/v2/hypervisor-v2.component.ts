@@ -123,7 +123,11 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
   selector: 'app-hypervisor-v2',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '[class.hv2-enter]': 'entering()' },
+  host: {
+    '[class.hv2-enter]': 'entering()',
+    '[class.hv2-theme-presentation]': 'presentationTheme()',
+    '[attr.data-testid]': '"hypervisor-v2"',
+  },
   imports: [
     NgTemplateOutlet,
     PageFrameComponent,
@@ -143,10 +147,13 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     FilterChipComponent,
   ],
   template: `
+    @if (presentationTheme()) {
+      <div class="hv2-presentation-liseré" aria-hidden="true" data-testid="hypervisor-presentation-lisere"></div>
+    }
     <ck-page-frame
-      [eyebrow]="i18n.t('hypervisor.v2.page.eyebrow')"
+      [eyebrow]="pageEyebrow()"
       [title]="pageTitle()"
-      [description]="pageSummary()"
+      [description]="presentationTheme() ? '' : pageSummary()"
     >
       @if (arrivalChipLabel(); as chip) {
         <ck-filter-chip
@@ -158,23 +165,43 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         />
       }
       <div actions class="hv2-actions">
-        <div class="hv2-switch" role="tablist">
-          @for (view of views(); track view.id) {
-            <button
-              type="button"
-              role="tab"
-              class="ck-mono"
-              [attr.data-testid]="'hypervisor-v2-view-' + view.id"
-              [attr.aria-selected]="view.id === activeViewId()"
-              [class.hv2-switch-on]="view.id === activeViewId()"
-              (click)="selectView(view.id)"
-            >{{ viewLabel(view) }}</button>
-          }
-        </div>
-        <button type="button" class="hv2-text-btn" (click)="customizeOpen.set(true)">
-          {{ i18n.t('hypervisor.v2.customize') }}
-          <ck-kbd>⌘E</ck-kbd>
-        </button>
+        @if (presentationTheme()) {
+          <button
+            type="button"
+            class="hv2-text-btn"
+            data-testid="hypervisor-quit-presentation"
+            (click)="exitPresentationTheme()"
+          >
+            {{ i18n.t('hypervisor.v2.theme.quit') }}
+            <ck-kbd>{{ i18n.t('hypervisor.v2.theme.quit_kbd') }}</ck-kbd>
+          </button>
+        } @else {
+          <div class="hv2-switch" role="tablist">
+            @for (view of views(); track view.id) {
+              <button
+                type="button"
+                role="tab"
+                class="ck-mono"
+                [attr.data-testid]="'hypervisor-v2-view-' + view.id"
+                [attr.aria-selected]="view.id === activeViewId()"
+                [class.hv2-switch-on]="view.id === activeViewId()"
+                (click)="selectView(view.id)"
+              >{{ viewLabel(view) }}</button>
+            }
+          </div>
+          <button
+            type="button"
+            class="hv2-text-btn"
+            data-testid="hypervisor-enter-presentation"
+            (click)="enterPresentationTheme()"
+          >
+            {{ i18n.t('hypervisor.v2.theme.present') }}
+          </button>
+          <button type="button" class="hv2-text-btn" (click)="customizeOpen.set(true)">
+            {{ i18n.t('hypervisor.v2.customize') }}
+            <ck-kbd>⌘E</ck-kbd>
+          </button>
+        }
       </div>
 
       @if (loading()) {
@@ -190,13 +217,16 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       } @else {
         <div data-testid="hypervisor-v2-facets">
         @if (activeFacet() === 'synthese') {
-<app-operational-objective />
-        <app-hypervisor-automation />
-        <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
-        @if (!series()) {
-          <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
-        } @else {
-          <div class="hv2-page">
+          @if (presentationTheme()) {
+            <ng-container [ngTemplateOutlet]="presentationTpl"></ng-container>
+          } @else {
+            <app-operational-objective />
+            <app-hypervisor-automation />
+            <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
+            @if (!series()) {
+              <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
+            } @else {
+              <div class="hv2-page">
             <ck-chart-tip
               [open]="pageTipOpen()"
               [title]="pageTipTitle()"
@@ -476,6 +506,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           </div>
         }
         }
+        }
 
         @if (activeFacet() === 'registre') {
           <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
@@ -717,6 +748,75 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
         <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker_none') }}</div>
         <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.decision.empty') }}</p>
       }
+    </ng-template>
+
+    <ng-template #presentationTpl>
+      <div class="hv2-presentation" data-testid="hypervisor-presentation">
+        @if (!series()) {
+          <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p>
+        } @else {
+          <div class="hv2-presentation-kpis">
+            <div class="hv2-presentation-kpi">
+              <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.systems') }}</div>
+              <div class="hv2-presentation-num ck-tnum">{{ series()!.register.length }}</div>
+            </div>
+            <div class="hv2-presentation-kpi">
+              <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.runs') }}</div>
+              <div class="hv2-presentation-num ck-tnum">{{ presentationRuns() }}</div>
+            </div>
+            <div class="hv2-presentation-kpi">
+              <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.cost') }}</div>
+              <div class="hv2-presentation-num ck-tnum">{{ costFact() }}</div>
+            </div>
+            <div class="hv2-presentation-kpi">
+              <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.theme.kpi.decisions') }}</div>
+              <div
+                class="hv2-presentation-num ck-tnum"
+                [class.hv2-presentation-warn]="proposedDecisions().length > 0"
+              >{{ proposedDecisions().length }}</div>
+            </div>
+          </div>
+          <p class="hv2-presentation-summary">{{ pageSummary() }}</p>
+          <div class="hv2-presentation-columns">
+            <article class="hv2-card" data-testid="hypervisor-presentation-decide">
+              <header class="hv2-card-head">
+                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.theme.decide.title') }}</h3>
+                <a class="hv2-link" [navLink]="decisionsFacetLink()">{{ i18n.t('hypervisor.v2.theme.decide.open') }}</a>
+              </header>
+              @if (presentationDecideRows().length === 0) {
+                <p class="hv2-muted">{{ i18n.t('hypervisor.v2.theme.decide.empty') }}</p>
+              } @else {
+                <ul class="hv2-presentation-list">
+                  @for (row of presentationDecideRows(); track row.id) {
+                    <li>
+                      <span>{{ row.label }}</span>
+                      <span class="ck-mono hv2-muted">{{ row.meta }}</span>
+                    </li>
+                  }
+                </ul>
+              }
+            </article>
+            <article class="hv2-card" data-testid="hypervisor-presentation-watch">
+              <header class="hv2-card-head">
+                <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.theme.watch.title') }}</h3>
+                <a class="hv2-link" [navLink]="registreFacetLink()">{{ i18n.t('hypervisor.v2.theme.watch.open') }}</a>
+              </header>
+              @if (presentationWatchRows().length === 0) {
+                <p class="hv2-muted">{{ i18n.t('hypervisor.v2.theme.watch.empty') }}</p>
+              } @else {
+                <ul class="hv2-presentation-list">
+                  @for (row of presentationWatchRows(); track row.id) {
+                    <li>
+                      <span>{{ row.label }}</span>
+                      <span class="hv2-presentation-status" [attr.data-tone]="row.tone">{{ row.status }}</span>
+                    </li>
+                  }
+                </ul>
+              }
+            </article>
+          </div>
+        }
+      </div>
     </ng-template>
 
     <ng-template #leaderTpl let-id="id" let-num="num">
@@ -974,7 +1074,36 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     </ck-panel>
   `,
   styles: [`
-    :host { display: block; color: var(--ck-fg-1); }
+    :host { display: block; color: var(--ck-fg-1); position: relative; }
+    :host.hv2-theme-presentation { --hv2-presentation-mark: var(--sentinel-accent, #65d66e); }
+    :host.hv2-theme-presentation ::ng-deep .ck-label {
+      color: var(--hv2-presentation-mark) !important;
+    }
+    .hv2-presentation-liseré {
+      height: 2px;
+      margin: -8px -32px 16px;
+      background: var(--hv2-presentation-mark, var(--sentinel-accent, #65d66e));
+    }
+    :host.hv2-theme-presentation .hv2-monument { font-size: 112px; }
+    :host.hv2-theme-presentation .hv2-presentation-num { font-size: 56px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; color: var(--ck-fg-1); }
+    :host.hv2-theme-presentation .hv2-presentation-warn { color: var(--ck-signal-warn, #f1b45a); }
+    .hv2-presentation { display: flex; flex-direction: column; gap: 28px; }
+    .hv2-presentation-kpis {
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px;
+      padding: 8px 0 4px;
+    }
+    .hv2-presentation-kpi { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+    .hv2-presentation-summary { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ck-fg-2); max-width: 52rem; }
+    .hv2-presentation-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .hv2-presentation-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+    .hv2-presentation-list li {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+      font-size: 14px; color: var(--ck-fg-1);
+    }
+    .hv2-presentation-status { font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .hv2-presentation-status[data-tone='neg'] { color: var(--ck-signal-neg, #f06476); }
+    .hv2-presentation-status[data-tone='warn'] { color: var(--ck-signal-warn, #f1b45a); }
+    .hv2-presentation-status[data-tone='pos'] { color: var(--ck-signal-pos); }
     .hv2-actions, .hv2-list-row, .hv2-block-row, .hv2-btn-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .hv2-stack { display: flex; flex-direction: column; gap: 20px; }
     .hv2-switch { display: flex; gap: 4px; padding: 4px; background: var(--ck-bg-panel); border: 1px solid var(--ck-stroke-2); border-radius: 8px; }
@@ -1209,6 +1338,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly canEdit = signal(false);
   readonly activeViewId = signal('direction');
   readonly activeFacet = signal<HypervisorFacetId>('synthese');
+  readonly presentationTheme = signal(false);
   readonly focusCapabilityId = signal<string | null>(null);
   readonly series = signal<HypervisorSeriesView | null>(null);
   readonly bases = signal<HypervisorValueBasisItem[]>([]);
@@ -1460,6 +1590,8 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       const facet = params.get('facet');
       this.activeFacet.set(isHypervisorFacet(facet) ? facet : 'synthese');
       this.focusCapabilityId.set(params.get('capabilityId'));
+      const theme = params.get('theme');
+      this.presentationTheme.set(theme === 'presentation');
     });
     this.reload();
   }
@@ -1553,7 +1685,40 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'e') {
       event.preventDefault();
       this.customizeOpen.set(true);
+      return;
     }
+    if (event.key === 'Escape' && this.presentationTheme() && this.canExitPresentationTheme()) {
+      event.preventDefault();
+      this.exitPresentationTheme();
+    }
+  }
+
+  enterPresentationTheme(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { theme: 'presentation' },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  exitPresentationTheme(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { theme: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /** Escape exits only when no menu, panel or tooltip is open. */
+  private canExitPresentationTheme(): boolean {
+    if (this.customizeOpen() || this.pageTipOpen()) return false;
+    if (typeof document === 'undefined') return true;
+    if (document.querySelector('[role="menu"], [role="listbox"], [aria-expanded="true"]')) {
+      return false;
+    }
+    return true;
   }
 
   onFacetChange(id: string): void {
@@ -1573,6 +1738,14 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   basesFacetLink(): NavLinkInput {
     return { facet: 'bases' };
+  }
+
+  decisionsFacetLink(): NavLinkInput {
+    return { facet: 'decisions' };
+  }
+
+  registreFacetLink(): NavLinkInput {
+    return { facet: 'registre' };
   }
 
   systemLink(row: HypervisorRegisterRow): NavLinkInput {
@@ -1604,8 +1777,68 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   // --- Page frame ---------------------------------------------------------
 
+  pageEyebrow(): string {
+    if (this.presentationTheme()) {
+      return this.i18n.t('hypervisor.v2.theme.eyebrow');
+    }
+    return this.i18n.t('hypervisor.v2.page.eyebrow');
+  }
+
   pageTitle(): string {
+    if (this.presentationTheme()) {
+      return this.i18n.t('hypervisor.v2.theme.title');
+    }
     return this.i18n.t(`hypervisor.v2.page.title.${viewPeriod(this.activeView())}`);
+  }
+
+  presentationRuns(): string {
+    const view = this.series();
+    if (!view) return '—';
+    const total = availableNumber(view.unitsTotal);
+    if (total == null) {
+      const summed = view.register.reduce((sum, row) => sum + (availableNumber(row.runs) ?? 0), 0);
+      return this.formatNumber(summed, 0);
+    }
+    return this.formatNumber(total, 0);
+  }
+
+  presentationDecideRows(): Array<{ id: string; label: string; meta: string }> {
+    this.i18n.locale();
+    const rows: Array<{ id: string; label: string; meta: string }> = [];
+    for (const item of this.proposedDecisions().slice(0, 5)) {
+      rows.push({
+        id: item.id,
+        label: item.title,
+        meta: this.formatDate(item.created_at, true),
+      });
+    }
+    for (const group of this.recommendationGroups().slice(0, 5 - rows.length)) {
+      rows.push({
+        id: group.item.id,
+        label: group.item.title,
+        meta: group.count > 1 ? `×${group.count}` : '',
+      });
+    }
+    return rows;
+  }
+
+  presentationWatchRows(): Array<{ id: string; label: string; status: string; tone: 'neg' | 'warn' | 'pos' }> {
+    this.i18n.locale();
+    const stale = this.staleRows().slice(0, 5).map((row) => ({
+      id: row.systemId,
+      label: row.name,
+      status: this.i18n.t('hypervisor.v2.theme.watch.stale'),
+      tone: 'warn' as const,
+    }));
+    if (stale.length) return stale;
+    return this.registerRows().slice(0, 5).map((row) => ({
+      id: row.systemId,
+      label: row.name,
+      status: row.outsideDenominator
+        ? this.i18n.t('hypervisor.v2.theme.watch.outside')
+        : this.i18n.t('hypervisor.v2.theme.watch.ready'),
+      tone: row.outsideDenominator ? 'neg' as const : 'pos' as const,
+    }));
   }
 
   pageSummary(): string {

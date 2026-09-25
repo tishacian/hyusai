@@ -257,7 +257,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
         border: 1px solid rgba(101, 214, 110, 0.32);
         border-radius: var(--ck-radius-sm);
         background: rgba(101, 214, 110, 0.08);
-        color: var(--sentinel-accent, #65d66e);
+        color: var(--ck-primary);
         font-family: var(--ck-font-mono);
         font-size: 10px;
         letter-spacing: 0.18em;

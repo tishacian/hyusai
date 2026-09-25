@@ -355,7 +355,7 @@ test('an unsafe or self-referential business default falls back to chat', () => 
   assert.equal(expectTerminal(resolver, resolver.resolve('/runs')).resolvedRoute, '/chat');
 });
 
-test('demo hypervisor resolves once to the configured default route', () => {
+test('demo hypervisor stays on Portfolio (no Mission Room bounce)', () => {
   const { resolver } = makeHarness({
     mode: 'demo',
     settings: {
@@ -365,11 +365,12 @@ test('demo hypervisor resolves once to the configured default route', () => {
     },
   });
 
-  assert.deepEqual(expectTerminal(resolver, resolver.resolve('/hypervisor')), {
-    requestedRoute: '/hypervisor',
-    resolvedRoute: '/hypervisor/mission-room/cockpit',
+  assert.equal(resolver.resolve('/hypervisor'), null);
+  assert.deepEqual(expectTerminal(resolver, resolver.resolve('/hypervisor/mission-room/cockpit')), {
+    requestedRoute: '/hypervisor/mission-room/cockpit',
+    resolvedRoute: '/hypervisor?theme=presentation',
     owner: 'navigation_resolver',
-    reason: 'workspace_default_route',
+    reason: 'legacy_mission_room_path',
   });
 });
 
@@ -441,7 +442,7 @@ test('legacy focus, tab, and system_id queries rewrite to the v5 grammar', () =>
   assert.equal(resolver.resolve('/steering/review-queue?systemId=sys-a'), null);
 });
 
-test('Mission Room fallback and deep links require the workspace extension', () => {
+test('Mission Room deep links redirect into Impact query params', () => {
   const disabled = makeHarness({
     mode: 'demo',
     settings: { features: { cockpit_router_axes_v4: false } },
@@ -449,9 +450,9 @@ test('Mission Room fallback and deep links require the workspace extension', () 
   assert.equal(disabled.resolve('/hypervisor'), null);
   assert.deepEqual(disabled.resolve('/hypervisor/mission-room/cockpit'), {
     requestedRoute: '/hypervisor/mission-room/cockpit',
-    resolvedRoute: '/hypervisor',
+    resolvedRoute: '/hypervisor?theme=presentation',
     owner: 'navigation_resolver',
-    reason: 'workspace_extension_unavailable',
+    reason: 'legacy_mission_room_path',
   });
 
   const enabled = makeHarness({
@@ -461,11 +462,11 @@ test('Mission Room fallback and deep links require the workspace extension', () 
       mission_room: { enabled: true },
     },
   }).resolver;
+  assert.equal(enabled.resolve('/hypervisor'), null);
   assert.equal(
-    expectTerminal(enabled, enabled.resolve('/hypervisor')).resolvedRoute,
-    '/hypervisor/mission-room/cockpit',
+    expectTerminal(enabled, enabled.resolve('/hypervisor/mission-room/cockpit')).resolvedRoute,
+    '/hypervisor?theme=presentation',
   );
-  assert.equal(enabled.resolve('/hypervisor/mission-room/cockpit'), null);
 
   const explicit = makeHarness({
     mode: 'demo',
@@ -474,10 +475,11 @@ test('Mission Room fallback and deep links require the workspace extension', () 
       default_route: '/intelligence',
     },
   }).resolver;
-  assert.equal(expectTerminal(explicit, explicit.resolve('/hypervisor')).resolvedRoute, '/intelligence');
+  // L13a: demo no longer bounces /hypervisor to default_route Mission Room.
+  assert.equal(explicit.resolve('/hypervisor'), null);
 });
 
-test('a stale Mission Room default cannot loop while the extension is disabled', () => {
+test('a stale Mission Room default cannot loop; deep links resolve to Impact', () => {
   const { resolver } = makeHarness({
     mode: 'demo',
     settings: {
@@ -489,8 +491,19 @@ test('a stale Mission Room default cannot loop while the extension is disabled',
   assert.equal(resolver.resolve('/hypervisor'), null);
   assert.equal(
     expectTerminal(resolver, resolver.resolve('/hypervisor/mission-room/cockpit')).resolvedRoute,
-    '/hypervisor',
+    '/hypervisor?theme=presentation',
   );
+});
+
+test('theme=mission rewrites to theme=presentation on Impact', () => {
+  const { resolver } = makeHarness({});
+  assert.deepEqual(resolver.resolve('/hypervisor?theme=mission'), {
+    requestedRoute: '/hypervisor?theme=mission',
+    resolvedRoute: '/hypervisor?theme=presentation',
+    owner: 'navigation_resolver',
+    reason: 'legacy_theme_query',
+  });
+  assert.equal(resolver.resolve('/hypervisor?theme=presentation'), null);
 });
 
 test('business policy resolves a Mission Room deep link directly to its terminal surface', () => {

@@ -222,6 +222,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   private get viewCommands(): CommandItem[] {
     const commands: CommandItem[] = [
     { id: 'view.hypervisor', label: this.i18n.t('palette.view.hypervisor'), hint: this.i18n.t('palette.view.hypervisor.hint'), tone: 'cool', kind: 'view', route: agentiumSurfaceRoute('hypervisor'), keywords: 'dashboard balance overview portfolio' },
+    { id: 'theme.presentation', label: this.i18n.t('palette.theme.presentation'), hint: this.i18n.t('palette.theme.presentation.hint'), tone: 'pos', kind: 'view', route: `${agentiumSurfaceRoute('hypervisor')}?theme=presentation`, keywords: 'presentation theme present impact sentinel mission' },
     { id: 'view.steering', label: this.i18n.t('palette.view.steering'), hint: this.i18n.t('palette.view.steering.hint'), tone: 'violet', kind: 'view', route: agentiumSurfaceRoute('steering'), keywords: 'levers policy control governance' },
     { id: 'view.review-queue', label: this.i18n.t('palette.view.review_queue'), hint: this.i18n.t('palette.view.review_queue.hint'), tone: 'warn', kind: 'view', route: agentiumSurfaceRoute('review-queue'), keywords: 'review eval evaluation queue triage hallucination threshold' },
     { id: 'view.eval-thresholds', label: this.i18n.t('palette.view.eval_thresholds'), hint: this.i18n.t('palette.view.eval_thresholds.hint'), tone: 'violet', kind: 'view', route: `${agentiumSurfaceRoute('presets')}/evaluation`, keywords: 'evaluation thresholds preset composite hallucination' },

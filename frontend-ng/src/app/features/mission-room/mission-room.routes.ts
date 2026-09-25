@@ -1,55 +1,55 @@
 import { inject } from '@angular/core';
-import { Router, Routes, type CanMatchFn } from '@angular/router';
-import { WorkspaceService } from '@app/core/workspace.service';
-import { missionRoomExtensionState } from './mission-room.extension';
+import { Router, Routes, type RedirectFunction } from '@angular/router';
+import { missionRoomImpactTarget } from './mission-room-redirects';
 
-export const specializedMissionRoomRouteGuard: CanMatchFn = () => {
-  const state = missionRoomExtensionState(inject(WorkspaceService).current());
-  return state.enabled && !state.genericProvider
-    ? true
-    : inject(Router).parseUrl('/hypervisor/mission-room/cockpit');
+function impactTree(
+  queryParams: Readonly<Record<string, string>> = {},
+): ReturnType<Router['createUrlTree']> {
+  return inject(Router).createUrlTree(['/hypervisor'], { queryParams: { ...queryParams } });
+}
+
+function redirectImpact(queryParams: Record<string, string> = {}): RedirectFunction {
+  return () => impactTree(queryParams);
+}
+
+const redirectMeeting: RedirectFunction = (route) => {
+  const eventId = route.params['event_id'];
+  return impactTree({
+    view: 'reunion',
+    ...(typeof eventId === 'string' && eventId ? { eventId } : {}),
+  });
+};
+
+const redirectLegacyView: RedirectFunction = (route) => {
+  const view = route.params['view'];
+  const target = missionRoomImpactTarget(
+    typeof view === 'string' ? `/hypervisor/mission-room/${view}` : '/hypervisor/mission-room',
+  );
+  return impactTree(target?.queryParams ?? {});
+};
+
+/** `/recherche` → Impact + open the command palette (fiche proposition). */
+const redirectRecherche: RedirectFunction = () => {
+  if (typeof window !== 'undefined') {
+    queueMicrotask(() => {
+      window.dispatchEvent(new CustomEvent('ck:command-palette:open'));
+    });
+  }
+  return impactTree();
 };
 
 /**
  * Feature-local routes for the Mission Room workspace extension.
  *
- * The parent route remains `/hypervisor/mission-room`, so every public URL is
- * identical to the pre-extraction route table.
+ * L13a: every public URL redirects into Impact (`/hypervisor`) with replaceUrl
+ * semantics (Angular route redirects replace the history entry). Components
+ * stay in the folder for L13b data reuse; they are no longer activated here.
  */
 export const missionRoomRoutes: Routes = [
-  {
-    path: '',
-    loadComponent: () =>
-      import('./mission-room-extension-host.component').then(
-        (m) => m.MissionRoomExtensionHostComponent,
-      ),
-    children: [
-      { path: '', redirectTo: 'cockpit', pathMatch: 'full' },
-      {
-        path: 'securite/monitor',
-        canMatch: [specializedMissionRoomRouteGuard],
-        loadComponent: () =>
-          import('./security-monitor.component').then((m) => m.SecurityMonitorComponent),
-      },
-      {
-        path: 'veille-sociale',
-        canMatch: [specializedMissionRoomRouteGuard],
-        loadComponent: () =>
-          import('./social-pulse-page.component').then((m) => m.SocialPulsePageComponent),
-      },
-      {
-        path: 'agenda/meeting/:event_id',
-        canMatch: [specializedMissionRoomRouteGuard],
-        loadComponent: () =>
-          import('./vp-meeting.component').then((m) => m.VpMeetingComponent),
-      },
-      {
-        path: ':view',
-        loadComponent: () =>
-          import('./mission-room-provider-host.component').then(
-            (m) => m.MissionRoomProviderHostComponent,
-          ),
-      },
-    ],
-  },
+  { path: '', pathMatch: 'full', redirectTo: redirectImpact({ theme: 'presentation' }) },
+  { path: 'securite/monitor', redirectTo: redirectImpact({ view: 'securite' }) },
+  { path: 'veille-sociale', redirectTo: redirectImpact({ view: 'veille' }) },
+  { path: 'agenda/meeting/:event_id', redirectTo: redirectMeeting },
+  { path: 'recherche', redirectTo: redirectRecherche },
+  { path: ':view', redirectTo: redirectLegacyView },
 ];

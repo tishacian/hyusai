@@ -55,6 +55,8 @@ export type NavigationRedirectReason =
   | 'legacy_focus_query'
   | 'legacy_tab_query'
   | 'legacy_system_id_query'
+  | 'legacy_mission_room_path'
+  | 'legacy_theme_query'
   | 'workspace_mode_home'
   | 'workspace_settings_entrypoint';
 
