@@ -157,7 +157,10 @@ def warn_unencrypted_connector_secrets() -> list[str]:
     # Each connector's _fernet_from_env reads these, in this order.
     master_keys = (
         ("SAP HANA", (hana_service.ENV_MASTER_KEY,)),
-        ("RPA Bridge", (rpa_service.ENV_MASTER_KEY,)),
+        (
+            "RPA Bridge",
+            (rpa_service.ENV_MASTER_KEY, rpa_service.ENV_MASTER_KEY_FALLBACK),
+        ),
         ("MCP", (mcp_service.ENV_MASTER_KEY, mcp_service.ENV_MASTER_KEY_FALLBACK)),
         (
             "model portal",

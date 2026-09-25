@@ -150,8 +150,8 @@ def test_startup_names_each_connector_that_stores_secrets_in_clear(monkeypatch, 
     value = "configured-key-value-never-logged"
     monkeypatch.setenv("HANA_CONNECTOR_FERNET_KEY", value)
     with caplog.at_level(logging.WARNING, logger="app.services.workspace_secrets"):
-        assert warn_unencrypted_connector_secrets() == ["RPA Bridge"]
-    assert len(caplog.records) == 1
+        assert warn_unencrypted_connector_secrets() == []
+    assert caplog.records == []
     assert value not in caplog.text
 
 
