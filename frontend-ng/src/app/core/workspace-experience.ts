@@ -122,6 +122,9 @@ export interface WorkspaceExperienceRouteResolution {
     | 'legacy_hypervisor_object_lens'
     | 'legacy_focus_query'
     | 'legacy_tab_query'
+    | 'legacy_system_id_query'
+    | 'legacy_mission_room_path'
+    | 'legacy_theme_query'
     | 'workspace_mode_home'
     | 'workspace_settings_entrypoint';
 }
@@ -1781,11 +1784,11 @@ function semanticQueryKeysFromRoute(route: string): string[] {
   const query = route.includes('?') ? route.slice(route.indexOf('?') + 1).split('#')[0] : '';
   if (!query) return [];
   const keys: string[] = [];
-  for (const key of new URLSearchParams(query).keys()) {
-    // Closed allowlist: capture semantic presence without retaining a value or
-    // arbitrary user-controlled query name.
+  // Closed allowlist: capture semantic presence without retaining a value or
+  // arbitrary user-controlled query name. Prefer forEach — DOM lib omits keys().
+  new URLSearchParams(query).forEach((_value, key) => {
     if (key === 'systemId') keys.push(key);
-  }
+  });
   return normalizeSemanticQueryKeys(keys);
 }
 

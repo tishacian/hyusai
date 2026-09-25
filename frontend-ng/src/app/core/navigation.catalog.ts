@@ -1263,9 +1263,9 @@ export function navigationRouteContext(value: string, parseLens = true): Cockpit
   const rawQuery = url.includes('?') ? url.slice(url.indexOf('?') + 1).split('#')[0] : '';
   const params = new URLSearchParams(rawQuery);
   const query: Record<string, string> = {};
-  for (const [key, item] of params.entries()) {
+  params.forEach((item, key) => {
     if (NAVIGATION_QUERY_KEYS.has(key) && item) query[key] = item;
-  }
+  });
   const tabAlias = params.get('tab');
   if (!query['facet'] && tabAlias) query['facet'] = tabAlias;
   const capabilityAlias = params.get('capability_id');
@@ -1399,9 +1399,9 @@ function queryFromRoute(route: string): Record<string, string> {
   if (!route.includes('?')) return {};
   const params = new URLSearchParams(route.slice(route.indexOf('?') + 1).split('#')[0]);
   const query: Record<string, string> = {};
-  for (const [key, item] of params.entries()) {
+  params.forEach((item, key) => {
     if (NAVIGATION_QUERY_KEYS.has(key) && item) query[key] = item;
-  }
+  });
   return query;
 }
 

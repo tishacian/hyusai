@@ -130,9 +130,9 @@ export class AdministrerHomeComponent {
     if (!section.route.includes('?')) return null;
     const params = new URLSearchParams(section.route.slice(section.route.indexOf('?') + 1));
     const out: Record<string, string> = {};
-    for (const [key, value] of params.entries()) {
+    params.forEach((value, key) => {
       if (value) out[key] = value;
-    }
+    });
     return Object.keys(out).length ? out : null;
   }
 }
