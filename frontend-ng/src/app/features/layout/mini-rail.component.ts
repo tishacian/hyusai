@@ -5,18 +5,16 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
 import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import {
   COCKPIT_VERBS,
   cockpitVerbSections,
-  isObjectLens,
   navigationSectionNaming,
-  objectFacetsFor,
-  systemFacetForChild,
   type CockpitScopeType,
   type CockpitSection,
+  type CockpitSectionGroup,
   type CockpitVerb,
   type NavLinkInput,
-  type ObjectFacet,
 } from '@app/core/navigation.catalog';
 
 /**
@@ -33,21 +31,13 @@ const SCOPE_ORDER: CockpitScopeType[] = [
   'skill',
 ];
 
+const GROUP_ORDER: CockpitSectionGroup[] = ['workspace', 'integrations', 'governance'];
+
 /**
  * Mini-rail — **Object Index** (scope switcher), not a navigation bar.
  *
- * Role (docs/mental-model.md §5bis.4):
- *   - Answers *"what type of object am I exploring right now, inside the
- *     current breadcrumb scope?"* — never *"where do I go next?"*.
- *   - Filters itself against `ZoomContextService` so scope types already
- *     resolved by the breadcrumb disappear (e.g. inside a Capability the
- *     `Capabilities` item hides).
- *   - A click never resets the canvas context; the already-active item
- *     leads back to its list, or to the top of the list itself.
- *
- * Under `cockpit_nav_v5` this is the **zone sommaire**: stable width, no
- * ancestry filter, no self-hide (I1, I7). The object ladder stays on the
- * breadcrumb; the facet branch arrives in L6.3.
+ * Under `cockpit_nav_v5` this is the **zone sommaire**: always 208 px, fixed
+ * order per zone, adoption vocabulary, no System facet branch (L8).
  */
 @Component({
   selector: 'app-mini-rail',
@@ -55,67 +45,76 @@ const SCOPE_ORDER: CockpitScopeType[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, GlyphComponent, NavLinkDirective],
   host: {
-    '[class.ck-mini-rail-stable]': 'stableLayout() && (visibleSections().length > 0 || !!systemBranch() || hiddenByMode())',
+    '[class.ck-mini-rail-stable]': 'stableLayout() && !!activeVerb()',
   },
   template: `
     @if (activeVerb(); as verb) {
-      @if (visibleSections().length > 0 || systemBranch() || hiddenByMode()) {
-        <aside class="ck-mini-rail" [attr.aria-label]="i18n.t(stableLayout() ? 'nav.sommaire' : 'nav.object_index')">
-          <header class="ck-mini-head">
-            <span class="ck-mini-eyebrow">{{ i18n.t(stableLayout() ? 'nav.sommaire' : 'nav.scope') }}</span>
-            <span class="ck-mini-verb">{{ verbLabel(verb) }}</span>
-            @if (!stableLayout() && scopeSuffix()) {
-              <span class="ck-mini-scope" [title]="scopeSuffixFull()">{{ scopeSuffix() }}</span>
-            }
-          </header>
+      <aside class="ck-mini-rail" [attr.aria-label]="i18n.t(stableLayout() ? 'nav.sommaire' : 'nav.object_index')">
+        <header class="ck-mini-head">
+          @if (!stableLayout()) {
+            <span class="ck-mini-eyebrow">{{ i18n.t('nav.scope') }}</span>
+          }
+          <span class="ck-mini-verb">{{ verbLabel(verb) }}</span>
+          @if (stableLayout()) {
+            <p class="ck-mini-phrase">{{ zonePhrase(verb) }}</p>
+          }
+          @if (!stableLayout() && scopeSuffix()) {
+            <span class="ck-mini-scope" [title]="scopeSuffixFull()">{{ scopeSuffix() }}</span>
+          }
+        </header>
 
-          <nav class="ck-mini-nav">
-            @if (hiddenByMode()) {
-              <p class="ck-mini-hidden" data-testid="sommaire-hidden-by-mode">{{ i18n.t('nav.sommaire.hidden_by_mode') }}</p>
-            }
-            @for (s of visibleSections(); track s.key) {
-              <a
-                [routerLink]="routeTreeFor(s)"
-                class="ck-mini-item"
-                [class.ck-mini-item-active]="isSectionActive(s)"
-                [attr.aria-current]="isSectionActive(s) ? 'page' : null"
-                (click)="onItemClick(s)"
-              >
-                @if (isSectionActive(s)) {
-                  <span class="ck-mini-active-bar" aria-hidden="true"></span>
-                }
-                <span class="ck-mini-glyph" aria-hidden="true">
-                  <ck-glyph [name]="s.glyph" [size]="14" />
-                </span>
-                <span class="ck-mini-label">{{ sectionLabel(s) }}</span>
-              </a>
-            }
-            @if (systemBranch(); as branch) {
-              <span class="ck-mini-group">{{ i18n.t('nav.sommaire.in_system', { name: branch.name }) }}</span>
-              @for (facet of branch.facets; track facet.id) {
+        <nav class="ck-mini-nav">
+          @if (hiddenByMode()) {
+            <p class="ck-mini-hidden" data-testid="sommaire-hidden-by-mode">{{ i18n.t('nav.sommaire.hidden_by_mode') }}</p>
+          }
+          @for (entry of navEntries(); track entry.track) {
+            @if (entry.kind === 'group') {
+              <span class="ck-mini-group">{{ i18n.t('nav.sommaire.group.' + entry.group) }}</span>
+            } @else if (entry.kind === 'separator') {
+              <hr class="ck-mini-sep" />
+            } @else {
+              @if (entry.section.facet; as facet) {
                 <a
                   [navLink]="facetLink(facet)"
                   navTrigger="minirail"
                   class="ck-mini-item"
-                  [class.ck-mini-item-active]="branch.activeId === facet.id"
-                  [attr.aria-current]="branch.activeId === facet.id ? 'page' : null"
+                  [class.ck-mini-item-active]="isSectionActive(entry.section)"
+                  [class.ck-mini-item-action]="entry.section.role === 'action'"
+                  [attr.aria-current]="isSectionActive(entry.section) ? 'page' : null"
                 >
-                  @if (branch.activeId === facet.id) {
+                  @if (isSectionActive(entry.section)) {
                     <span class="ck-mini-active-bar" aria-hidden="true"></span>
                   }
                   <span class="ck-mini-glyph" aria-hidden="true">
-                    <ck-glyph [name]="facet.glyph" [size]="14" />
+                    <ck-glyph [name]="entry.section.glyph" [size]="14" />
                   </span>
-                  <span class="ck-mini-label">{{ i18n.t(facet.i18nKey) }}</span>
+                  <span class="ck-mini-label">{{ sectionLabel(entry.section) }}</span>
+                </a>
+              } @else {
+                <a
+                  [routerLink]="routeTreeFor(entry.section)"
+                  class="ck-mini-item"
+                  [class.ck-mini-item-active]="isSectionActive(entry.section)"
+                  [class.ck-mini-item-action]="entry.section.role === 'action'"
+                  [attr.aria-current]="isSectionActive(entry.section) ? 'page' : null"
+                  (click)="onItemClick(entry.section)"
+                >
+                  @if (isSectionActive(entry.section)) {
+                    <span class="ck-mini-active-bar" aria-hidden="true"></span>
+                  }
+                  <span class="ck-mini-glyph" aria-hidden="true">
+                    <ck-glyph [name]="entry.section.glyph" [size]="14" />
+                  </span>
+                  <span class="ck-mini-label">{{ sectionLabel(entry.section) }}</span>
                 </a>
               }
             }
-            @if (stableLayout() && visibleSections().length === 0 && !systemBranch()) {
-              <p class="ck-mini-empty">{{ i18n.t('nav.sommaire.empty') }}</p>
-            }
-          </nav>
-        </aside>
-      }
+          }
+          @if (stableLayout() && visibleSections().length === 0 && !hiddenByMode()) {
+            <p class="ck-mini-empty">{{ i18n.t('nav.sommaire.empty') }}</p>
+          }
+        </nav>
+      </aside>
     }
   `,
   styles: [
@@ -144,26 +143,28 @@ const SCOPE_ORDER: CockpitScopeType[] = [
       .ck-mini-head {
         display: flex;
         flex-direction: column;
-        gap: 3px;
-        padding: 0 6px 8px;
-        border-bottom: 1px dashed var(--ck-stroke-2);
+        gap: 4px;
+        padding: 0 6px 10px;
+        border-bottom: 1px solid var(--ck-copper);
       }
       .ck-mini-eyebrow {
-        font-family: var(--ck-font-mono);
-        font-size: 9px;
-        letter-spacing: 0.22em;
-        text-transform: uppercase;
-        color: var(--ck-signal-cool);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        color: var(--ck-fg-4);
       }
       .ck-mini-verb {
-        font-size: 11px;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: var(--ck-fg-2);
+        font-size: 13px;
+        letter-spacing: 0.01em;
+        color: var(--ck-fg-1);
         font-weight: 600;
       }
+      .ck-mini-phrase {
+        margin: 0;
+        font-size: 11px;
+        line-height: 1.35;
+        color: var(--ck-fg-3);
+      }
       .ck-mini-scope {
-        font-family: var(--ck-font-mono);
         font-size: 10px;
         color: var(--ck-fg-4);
         line-height: 1.4;
@@ -174,10 +175,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
 
       .ck-mini-empty {
         margin: 8px 6px 0;
-        font-family: var(--ck-font-mono);
-        font-size: 10px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        font-size: 11px;
         color: var(--ck-fg-4);
       }
       .ck-mini-hidden {
@@ -197,12 +195,15 @@ const SCOPE_ORDER: CockpitScopeType[] = [
         gap: 1px;
       }
       .ck-mini-group {
-        font-family: var(--ck-font-mono);
-        font-size: 9px;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.04em;
         color: var(--ck-fg-4);
-        padding: 10px 10px 4px;
+        padding: 12px 10px 4px;
+      }
+      .ck-mini-sep {
+        border: 0;
+        border-top: 1px solid var(--ck-stroke-2);
+        margin: 8px 6px;
       }
       .ck-mini-item {
         position: relative;
@@ -229,8 +230,11 @@ const SCOPE_ORDER: CockpitScopeType[] = [
         outline-offset: 2px;
       }
       .ck-mini-item-active {
-        color: var(--ck-signal-cool);
-        background: rgba(125, 211, 252, 0.06);
+        color: var(--ck-primary);
+        background: color-mix(in srgb, var(--ck-primary) 8%, transparent);
+      }
+      .ck-mini-item-action {
+        color: var(--ck-fg-2);
       }
       .ck-mini-active-bar {
         position: absolute;
@@ -239,8 +243,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
         bottom: 6px;
         width: 2px;
         border-radius: 2px;
-        background: var(--ck-signal-cool);
-        box-shadow: var(--ck-glow-cool);
+        background: var(--ck-primary);
       }
       .ck-mini-glyph {
         width: 16px;
@@ -282,6 +285,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
         }
 
         .ck-mini-group,
+        .ck-mini-sep,
         .ck-mini-item {
           flex: 0 0 auto;
         }
@@ -289,6 +293,14 @@ const SCOPE_ORDER: CockpitScopeType[] = [
         .ck-mini-group {
           align-self: center;
           padding: 0 6px;
+        }
+
+        .ck-mini-sep {
+          align-self: stretch;
+          width: 0;
+          margin: 4px 2px;
+          border-top: 0;
+          border-left: 1px solid var(--ck-stroke-2);
         }
 
         .ck-mini-item {
@@ -309,6 +321,7 @@ export class MiniRailComponent {
   private readonly navigation = inject(ZoomContextService);
   private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
   private readonly workspace = inject(WorkspaceService);
+  private readonly profile = inject(NavigationProfileService, { optional: true });
   protected readonly i18n = inject(I18nService);
 
   readonly currentPath = computed(() => this.navigation.route().path);
@@ -345,6 +358,7 @@ export class MiniRailComponent {
     if (!verb) return [];
     const sections = cockpitVerbSections(verb, {
       experienceStudio: this.navigation.experienceStudioV1Enabled(),
+      client360: this.profile?.businessSurfaceEnabled('client360-pdr') === true,
     });
     if (!sections.length) return [];
     if (this.stableLayout()) return sections;
@@ -360,6 +374,38 @@ export class MiniRailComponent {
       const idx = SCOPE_ORDER.indexOf(s.scopeType);
       return idx === -1 || idx > cutoff;
     });
+  });
+
+  readonly navEntries = computed(() => {
+    const sections = this.visibleSections();
+    const entries: Array<
+      | { kind: 'group'; group: CockpitSectionGroup; track: string }
+      | { kind: 'separator'; track: string }
+      | { kind: 'item'; section: CockpitSection; track: string }
+    > = [];
+    let lastGroup: CockpitSectionGroup | undefined;
+    let sawAction = false;
+    const grouped = sections.some((section) => section.group);
+    const ordered = grouped
+      ? [...sections].sort((left, right) => {
+          const li = GROUP_ORDER.indexOf(left.group!);
+          const ri = GROUP_ORDER.indexOf(right.group!);
+          return (li === -1 ? 99 : li) - (ri === -1 ? 99 : ri);
+        })
+      : sections;
+
+    for (const section of ordered) {
+      if (section.role === 'action' && !sawAction) {
+        entries.push({ kind: 'separator', track: 'sep-action' });
+        sawAction = true;
+      }
+      if (section.group && section.group !== lastGroup) {
+        lastGroup = section.group;
+        entries.push({ kind: 'group', group: section.group, track: `group-${section.group}` });
+      }
+      entries.push({ kind: 'item', section, track: section.key });
+    }
+    return entries;
   });
 
   /**
@@ -394,17 +440,26 @@ export class MiniRailComponent {
   });
 
   verbLabel(verb: CockpitVerb): string {
-    return verb.key === 'build' && (this.stableLayout() || this.navigation.experienceStudioV1Enabled())
-      ? this.i18n.t('nav.build.create')
-      : this.i18n.t('nav.' + verb.key);
+    return this.i18n.t('experience.adoption.nav.' + verb.key);
+  }
+
+  zonePhrase(verb: CockpitVerb): string {
+    return this.i18n.t('nav.sommaire.phrase.' + verb.key);
   }
 
   isSectionActive(s: CockpitSection): boolean {
+    if (!s) return false;
     if (this.stableLayout()) {
       const path = this.currentPath();
       const route = s.route.split('?')[0];
       const patterns = s.matches ?? [route];
-      return patterns.some((m) => path === m || path.startsWith(m + '/'));
+      const pathMatch = patterns.some((m) => path === m || path.startsWith(m + '/'));
+      if (!pathMatch) return false;
+      if (s.facet) {
+        const facet = this.navigation.route().query['facet'] || 'synthese';
+        return facet === s.facet;
+      }
+      return true;
     }
     // While a detail graph is hydrating every scope URL is intentionally a
     // no-op to protect ancestry; do not consequently paint every section as
@@ -419,6 +474,13 @@ export class MiniRailComponent {
     return patterns.some((m) => path === m || path.startsWith(m + '/'));
   }
 
+  /** Active on a child object (not the list itself) → show « ↰ Liste ». */
+  isInsideObject(s: CockpitSection): boolean {
+    if (!this.isSectionActive(s) || s.facet) return false;
+    const listPath = this.routeFor(s).split('?')[0];
+    return this.currentPath() !== listPath && this.currentPath().startsWith(listPath + '/');
+  }
+
   routeFor(s: CockpitSection): string {
     return this.navigation.urlForScope(s);
   }
@@ -428,45 +490,20 @@ export class MiniRailComponent {
   }
 
   sectionLabel(s: CockpitSection): string {
-    // Name the destination this item actually links to, not the section in
-    // the abstract: the Flow entry reads "Scratchpad" while it opens one.
+    if (this.isInsideObject(s)) {
+      return this.i18n.t('nav.sommaire.back_to_list');
+    }
     const naming = navigationSectionNaming(s, this.routeFor(s));
-    // Translate first, fall back to the resolved label when the dict has no
-    // entry for this key (long-tail verbs like "flows", "missions", etc. are
-    // defined in the nav.* surface).
     const translated = this.i18n.t(naming.i18nKey);
     const base = translated === naming.i18nKey ? naming.label : translated;
+    if (s.role === 'action' && naming.i18nKey === 'nav.flows.scratchpad') {
+      return `+ ${base}`;
+    }
     return base;
   }
 
-  readonly systemBranch = computed(() => {
-    if (!this.stableLayout()) return null;
-    const systemId = this.navigation.systemId();
-    if (!systemId) return null;
-    const lens = this.navigation.lens();
-    const objectLens = isObjectLens(lens) ? lens : 'operate';
-    const facets = objectFacetsFor('system', objectLens);
-    if (!facets.length) return null;
-    const selected = this.navigation.route().selectedType;
-    const activeId = selected === 'system'
-      ? (this.navigation.route().query['facet'] || 'overview')
-      : systemFacetForChild(this.navigation.deepestResolvedType());
-    return {
-      systemId,
-      name: this.navigation.systemLabel() || 'System',
-      facets,
-      activeId,
-    };
-  });
-
-  facetLink(facet: ObjectFacet): NavLinkInput {
-    const systemId = this.navigation.systemId();
-    if (!systemId) return { facet: facet.id };
-    const route = this.navigation.route();
-    if (route.selectedType === 'system' && route.selectedRef === systemId) {
-      return { facet: facet.id };
-    }
-    return { type: 'system', ref: systemId, facet: facet.id };
+  facetLink(facet: string): NavLinkInput {
+    return { facet };
   }
 
   /**

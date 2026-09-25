@@ -661,6 +661,8 @@ export type CockpitSectionKey =
   | 'observability'
   | 'intelligence'
   | 'missions'
+  | 'conversations'
+  | 'client360'
   | 'levers'
   | 'contexts'
   | 'review'
@@ -672,7 +674,16 @@ export type CockpitSectionKey =
   | 'presets'
   | 'business_apps'
   | 'certified'
-  | 'integrations';
+  | 'integrations'
+  | 'synthese'
+  | 'registre'
+  | 'couts'
+  | 'bases'
+  | 'decisions'
+  | 'journal';
+
+/** Administrer sommaire groups (L8 structure; destinations fill in L12). */
+export type CockpitSectionGroup = 'workspace' | 'integrations' | 'governance';
 
 export interface CockpitSection {
   key: CockpitSectionKey;
@@ -684,6 +695,12 @@ export interface CockpitSection {
   scopeType: CockpitScopeType;
   /** The target canvas consumes the routed hierarchy instead of going global. */
   ancestryAware: boolean;
+  /** Impact facet (`?facet=`), navigated with replaceUrl. */
+  facet?: string;
+  /** Administrer group heading. */
+  group?: CockpitSectionGroup;
+  /** Action row after a separator (Créer › Nouveau flux). */
+  role?: 'action';
 }
 
 export interface CockpitVerb {
@@ -886,6 +903,24 @@ function section(
   };
 }
 
+function hypervisorSection(facet: ObjectFacet): CockpitSection {
+  return {
+    key: facet.id as CockpitSectionKey,
+    label: facet.id,
+    glyph: facet.glyph,
+    surfaceId: 'hypervisor',
+    route: agentiumSurfaceRoute('hypervisor'),
+    matches: ['/hypervisor'],
+    scopeType: 'surface',
+    ancestryAware: false,
+    facet: facet.id,
+  };
+}
+
+const CLIENT360_SECTION: CockpitSection = {
+  ...section('client360', 'Client360', 'focus', 'client360-pdr', 'surface'),
+};
+
 export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'hypervisor',
@@ -895,6 +930,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     primarySurfaceId: 'hypervisor',
     primaryRoute: agentiumSurfaceRoute('hypervisor'),
     matches: surfaceRootsForLens('hypervisor'),
+    // Populated after HYPERVISOR_FACETS (see assignHypervisorSections).
     sections: [],
     hiddenInModes: ['builder'],
   },
@@ -913,7 +949,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       section('knowledge', 'Knowledge', 'layers', 'knowledge', 'knowledge'),
       section('data', 'Data', 'table', 'data', 'dataset'),
       section('models', 'Models', 'chart', 'models', 'model'),
-      section('flows', 'Flow builder', 'flow', 'orchestration', 'flow', undefined, true),
+      { ...section('flows', 'Flow builder', 'flow', 'orchestration', 'flow', undefined, true), role: 'action' },
     ],
   },
   {
@@ -929,6 +965,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
       section('observability', 'Observability', 'telemetry', 'observability', 'surface'),
       section('intelligence', 'Intelligence', 'pulse', 'intelligence', 'surface'),
       section('missions', 'Missions', 'play', 'tasks', 'surface'),
+      CLIENT360_SECTION,
     ],
   },
   {
@@ -955,20 +992,20 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     primaryRoute: agentiumSurfaceRoute('governance'),
     matches: surfaceRootsForLens('govern'),
     sections: [
-      section('audit', 'Governance', 'shield', 'governance', 'surface'),
       // `/workspace` is the registry-owned entry alias resolved to the active slug.
-      { ...section('workspace', 'Workspace settings', 'sliders', 'workspace-admin', 'surface'), route: '/workspace' },
-      section('apps', 'Apps', 'bolt', 'apps', 'app'),
-      section('resources', 'Resources', 'orbit', 'resources', 'surface'),
-      section('connectors', 'Connectors', 'layers', 'connectors', 'connector'),
-      section('presets', 'Presets', 'sliders', 'presets', 'preset'),
+      { ...section('workspace', 'Workspace settings', 'sliders', 'workspace-admin', 'surface'), route: '/workspace', group: 'workspace' },
+      { ...section('presets', 'Presets', 'sliders', 'presets', 'preset'), group: 'workspace' },
+      { ...section('apps', 'Apps', 'bolt', 'apps', 'app'), group: 'integrations' },
+      { ...section('resources', 'Resources', 'orbit', 'resources', 'surface'), group: 'integrations' },
+      { ...section('connectors', 'Connectors', 'layers', 'connectors', 'connector'), group: 'integrations' },
+      { ...section('audit', 'Governance', 'shield', 'governance', 'surface'), group: 'governance' },
     ],
   },
 ];
 
 const CREATE_STUDIO_SECTION = section(
   'business_apps',
-  'Business application',
+  'Business applications',
   'orbit',
   'create-apps',
   'app',
@@ -981,9 +1018,12 @@ export const LENS_MATCHES: Record<CockpitLens, string[]> = COCKPIT_VERBS.reduce(
 
 export function cockpitVerbSections(
   verb: CockpitVerb,
-  flags: { experienceStudio?: boolean } = {},
+  flags: { experienceStudio?: boolean; client360?: boolean } = {},
 ): CockpitSection[] {
-  const sections = verb.sections ?? [];
+  let sections = verb.sections ?? [];
+  if (verb.key === 'operate' && !flags.client360) {
+    sections = sections.filter((item) => item.key !== 'client360');
+  }
   if (verb.key === 'build' && flags.experienceStudio) {
     return [CREATE_STUDIO_SECTION, ...sections];
   }
@@ -1061,6 +1101,11 @@ export const HYPERVISOR_FACETS: readonly ObjectFacet[] = [
   { id: 'journal', i18nKey: 'nav.facet.journal', glyph: 'pulse' },
 ];
 
+{
+  const hypervisor = COCKPIT_VERBS.find((verb) => verb.key === 'hypervisor');
+  if (hypervisor) hypervisor.sections = HYPERVISOR_FACETS.map(hypervisorSection);
+}
+
 export type HypervisorFacetId = (typeof HYPERVISOR_FACETS)[number]['id'];
 
 export function isHypervisorFacet(value: string | null | undefined): value is HypervisorFacetId {
@@ -1076,6 +1121,7 @@ export function systemFacetForChild(child: HierarchyObjectType | null): string |
 export function navigationZoneSurfaceUrl(section: CockpitSection, lens: CockpitLens): string {
   return appendNavigationQuery(section.route, {
     lens: lensQueryForPath(section.route, lens),
+    facet: section.facet ?? null,
   });
 }
 
@@ -1403,9 +1449,9 @@ export function navigationLensUrl(
   });
 }
 
-/** What the Flow entry opens when no System is in scope: an unattached graph
+/** What the Flow action opens with no System in scope: an unattached graph
  *  that belongs to nobody until it is promoted. */
-export const SCRATCHPAD_SECTION_LABEL = 'Scratchpad';
+export const SCRATCHPAD_SECTION_LABEL = 'Nouveau flux';
 
 export interface NavigationSectionNaming {
   /** Dictionary key, so a locale can still override the resolved wording. */
@@ -1417,16 +1463,21 @@ export interface NavigationSectionNaming {
 /**
  * How a section should be named once its destination is known.
  *
- * Only the Flow entry is destination-dependent: it resolves either to a
- * System's graph or, with no System in scope, to the scratchpad. Naming it
- * from the catalog alone would promise a builder for a specific System and
- * then open an empty canvas, so the wording follows `resolvedUrl` — the exact
- * URL the rail is about to link to — rather than the static label.
+ * The Flow action is destination-dependent: it resolves either to a System's
+ * graph or, with no System in scope, to the free draft (« Nouveau flux »).
+ * Impact facets use `nav.facet.*`.
  */
 export function navigationSectionNaming(
   section: CockpitSection,
   resolvedUrl: string,
 ): NavigationSectionNaming {
+  if (section.facet) {
+    const facet = HYPERVISOR_FACETS.find((item) => item.id === section.facet);
+    return {
+      i18nKey: facet?.i18nKey ?? `nav.facet.${section.facet}`,
+      label: section.label,
+    };
+  }
   if (section.key === 'flows' && pathOnly(resolvedUrl) === section.route) {
     return { i18nKey: 'nav.flows.scratchpad', label: SCRATCHPAD_SECTION_LABEL };
   }

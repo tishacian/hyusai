@@ -153,8 +153,8 @@ export class ZoomContextService implements OnDestroy {
   );
   readonly skillLabel = computed(() => this.node('skill')?.label ?? null);
 
-  zoneI18nKey(): 'nav.build.create' | `nav.${CockpitLens}` {
-    return this.lens() === 'build' ? 'nav.build.create' : `nav.${this.lens()}`;
+  zoneI18nKey(): `experience.adoption.nav.${CockpitLens}` {
+    return `experience.adoption.nav.${this.lens()}`;
   }
 
   private workspaceMode(): string | undefined {
@@ -226,9 +226,7 @@ export class ZoomContextService implements OnDestroy {
 
   urlForScope(section: CockpitSection): string {
     if (this.navV5Enabled()) {
-      if (section.key === 'flows' && this.systemId()) {
-        return navigationLeafUrl('system-flow', { systemId: this.systemId()! }, this.linkOptions({}));
-      }
+      // L8: Créer › « + Nouveau flux » is always the free draft, not a System graph.
       return navigationZoneSurfaceUrl(section, this.lens());
     }
     if (!this.axesV3Enabled()) {

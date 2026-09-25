@@ -38,8 +38,6 @@ import {
   CkChartTipComponent,
   CkChartUnitDotsComponent,
   CkPanelComponent,
-  CkTabComponent,
-  CkTabsComponent,
   KbdComponent,
   NavLinkDirective,
   PageFrameComponent,
@@ -128,8 +126,6 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     KbdComponent,
     TagComponent,
     CkPanelComponent,
-    CkTabsComponent,
-    CkTabComponent,
     CkChartRadialDaysComponent,
     CkChartSankeyFlowComponent,
     CkChartStreamComponent,
@@ -175,9 +171,8 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           </div>
         </section>
       } @else {
-        <div class="hv2-facets" data-testid="hypervisor-v2-facets">
-        <ck-tabs [active]="activeFacet()" (activeChange)="onFacetChange($event)">
-        <ck-tab id="synthese" [label]="i18n.t('nav.facet.synthese')">
+        <div data-testid="hypervisor-v2-facets">
+        @if (activeFacet() === 'synthese') {
 <app-operational-objective />
         <app-hypervisor-automation />
         <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
@@ -463,18 +458,18 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             }
           </div>
         }
-        </ck-tab>
+        }
 
-        <ck-tab id="registre" [label]="i18n.t('nav.facet.registre')">
+        @if (activeFacet() === 'registre') {
           <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
           @if (series()) {
             <ng-container [ngTemplateOutlet]="registerTpl" [ngTemplateOutletContext]="{ testid: 'hypervisor-v2-register-registre' }"></ng-container>
           } @else {
             <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
           }
-        </ck-tab>
+        }
 
-        <ck-tab id="couts" [label]="i18n.t('nav.facet.couts')">
+        @if (activeFacet() === 'couts') {
           <ng-container [ngTemplateOutlet]="legendTpl"></ng-container>
           <div class="hv2-stack">
             @if (series(); as view) {
@@ -507,13 +502,13 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               <p class="ck-mono hv2-muted">{{ i18n.t('hypervisor.v2.empty') }}</p><a [navLink]="{leaf:'help-guide',params:{guideId:'value'}}">{{i18n.t('experience.adoption.help')}}</a>
             }
           </div>
-        </ck-tab>
+        }
 
-        <ck-tab id="bases" [label]="i18n.t('nav.facet.bases')">
+        @if (activeFacet() === 'bases') {
           <ng-container [ngTemplateOutlet]="basesTpl"></ng-container>
-        </ck-tab>
+        }
 
-        <ck-tab id="decisions" [label]="i18n.t('nav.facet.decisions')">
+        @if (activeFacet() === 'decisions') {
           <div class="hv2-stack">
             <article class="hv2-card">
               <header class="hv2-card-head">
@@ -581,9 +576,9 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               }
             </article>
           </div>
-        </ck-tab>
+        }
 
-        <ck-tab id="journal" [label]="i18n.t('nav.facet.journal')">
+        @if (activeFacet() === 'journal') {
           <article class="hv2-card">
             <h3 class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.journal.title') }}</h3>
             @if (series(); as view) {
@@ -604,8 +599,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
               }
             </ul>
           </article>
-        </ck-tab>
-        </ck-tabs>
+        }
         </div>
       }
     </ck-page-frame>

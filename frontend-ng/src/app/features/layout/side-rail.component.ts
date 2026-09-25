@@ -244,8 +244,12 @@ export class SideRailComponent {
   }
 
   private fallbackRoute(v: CockpitVerb): string {
-    if (v.key === 'build' && this.workspace.experienceStudioV1Enabled()) {
-      return agentiumSurfaceRoute('create');
+    if (v.key === 'build') {
+      // Home of Créer = first sommaire entry (Applications métier when studio is on).
+      if (this.workspace.experienceStudioV1Enabled()) {
+        return agentiumSurfaceRoute('create-apps');
+      }
+      return v.primaryRoute;
     }
     if (v.key === 'hypervisor' && this.navigation.axesV4Enabled()) {
       return v.primaryRoute;
