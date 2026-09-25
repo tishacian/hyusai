@@ -1,0 +1,433 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-25T06:10:03.349Z",
+  "rules": {
+    "font": "banned font",
+    "violet": "banned violet",
+    "pill": "banned pill radius",
+    "halo": "banned glow halo"
+  },
+  "files": {
+    "src/app/features/account/security.component.ts": {
+      "pill": 2
+    },
+    "src/app/features/apps/apps-page.component.ts": {
+      "pill": 2
+    },
+    "src/app/features/auth/auth-shell.component.ts": {
+      "violet": 6,
+      "pill": 6,
+      "halo": 5
+    },
+    "src/app/features/auth/password-reset.component.ts": {
+      "pill": 2,
+      "halo": 2
+    },
+    "src/app/features/auth/signin.component.ts": {
+      "pill": 3,
+      "halo": 6
+    },
+    "src/app/features/auth/signup.component.ts": {
+      "pill": 2,
+      "halo": 2
+    },
+    "src/app/features/capabilities/capabilities.component.ts": {
+      "violet": 7,
+      "halo": 1
+    },
+    "src/app/features/capabilities/catalog-curation.component.ts": {
+      "violet": 1
+    },
+    "src/app/features/chat/chat-panel.component.ts": {
+      "pill": 24,
+      "halo": 4
+    },
+    "src/app/features/chat/chat-workspace.component.ts": {
+      "violet": 2,
+      "pill": 2,
+      "halo": 1
+    },
+    "src/app/features/connectors/sftp/sftp-connector.component.ts": {
+      "font": 1,
+      "violet": 3,
+      "halo": 1
+    },
+    "src/app/features/contexts/context-view.component.ts": {
+      "violet": 1
+    },
+    "src/app/features/data/data-list.component.ts": {
+      "pill": 3
+    },
+    "src/app/features/data/data-view.component.ts": {
+      "violet": 4,
+      "pill": 2
+    },
+    "src/app/features/data/viz/bar-list.component.ts": {
+      "pill": 2
+    },
+    "src/app/features/data/viz/curve-chart.component.ts": {
+      "violet": 5
+    },
+    "src/app/features/experience/runtime/runtime-blocks.ts": {
+      "violet": 4
+    },
+    "src/app/features/experience/runtime/runtime.scss": {
+      "pill": 2
+    },
+    "src/app/features/experience/runtime/v0_1/runtime-blocks.ts": {
+      "violet": 2
+    },
+    "src/app/features/experience/studio/studio.scss": {
+      "pill": 3
+    },
+    "src/app/features/experience/work/work.scss": {
+      "pill": 8,
+      "halo": 2
+    },
+    "src/app/features/governance/access-roles.component.ts": {
+      "pill": 1,
+      "halo": 1
+    },
+    "src/app/features/governance/audit-logs.component.ts": {
+      "pill": 1,
+      "halo": 1
+    },
+    "src/app/features/governance/chat-history.component.ts": {
+      "pill": 8,
+      "halo": 1
+    },
+    "src/app/features/governance/experience-governance.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/governance/workspace-app-lifecycle.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/governance/workspace-blueprints.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/hypervisor/hypervisor.component.ts": {
+      "violet": 8,
+      "pill": 1
+    },
+    "src/app/features/hypervisor/v2/hypervisor-v2.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/intelligence/news-lab.component.ts": {
+      "pill": 5
+    },
+    "src/app/features/knowledge/capture-fil/anchor-chip.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/knowledge/capture-fil/capture-presentation.ts": {
+      "violet": 2
+    },
+    "src/app/features/knowledge/capture-fil/le-fil-session.component.ts": {
+      "violet": 10,
+      "pill": 8
+    },
+    "src/app/features/knowledge/capture-fil/report-provenance.component.ts": {
+      "violet": 5,
+      "pill": 21,
+      "halo": 1
+    },
+    "src/app/features/knowledge/capture-fil/surfaces/capture-fil-finalize.component.ts": {
+      "violet": 1
+    },
+    "src/app/features/knowledge/capture-fil/surfaces/capture-fil-plan.component.ts": {
+      "violet": 3
+    },
+    "src/app/features/knowledge/capture-fil/triage-dialog.component.ts": {
+      "violet": 1,
+      "pill": 1
+    },
+    "src/app/features/knowledge/embedding-map.component.ts": {
+      "violet": 1,
+      "halo": 1
+    },
+    "src/app/features/knowledge/knowledge-base.component.ts": {
+      "violet": 1,
+      "halo": 1
+    },
+    "src/app/features/knowledge/knowledge-view.component.ts": {
+      "violet": 1,
+      "halo": 1
+    },
+    "src/app/features/layout/business-shell-header.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/layout/command-palette.component.ts": {
+      "violet": 6
+    },
+    "src/app/features/layout/mini-rail.component.ts": {
+      "halo": 1
+    },
+    "src/app/features/layout/side-rail.component.ts": {
+      "halo": 1
+    },
+    "src/app/features/layout/title-bar.component.ts": {
+      "violet": 2
+    },
+    "src/app/features/mandate/run-mandate.component.css": {
+      "violet": 1,
+      "pill": 2
+    },
+    "src/app/features/models/model-playground.component.ts": {
+      "pill": 2
+    },
+    "src/app/features/models/model-train.component.ts": {
+      "pill": 3
+    },
+    "src/app/features/models/model-view.component.ts": {
+      "violet": 3,
+      "pill": 4
+    },
+    "src/app/features/models/models-list.component.ts": {
+      "pill": 3
+    },
+    "src/app/features/nawa/nawa-assistant.component.scss": {
+      "pill": 2
+    },
+    "src/app/features/nawa/nawa-itsd-catalog.component.scss": {
+      "pill": 2
+    },
+    "src/app/features/nawa/nawa-password-reset.component.scss": {
+      "pill": 1,
+      "halo": 2
+    },
+    "src/app/features/nawa/nawa-theme.scss": {
+      "pill": 1
+    },
+    "src/app/features/observability/performance-dashboard.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/observability/quality-dashboard.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/observability/workspace-monitor.component.ts": {
+      "violet": 4,
+      "pill": 3
+    },
+    "src/app/features/orchestration/flow/flow-canvas.component.scss": {
+      "violet": 6,
+      "pill": 1
+    },
+    "src/app/features/orchestration/flow/flow-decision-bindings.component.scss": {
+      "violet": 2,
+      "halo": 1
+    },
+    "src/app/features/orchestration/flow/flow-ingress-editor.component.scss": {
+      "halo": 1
+    },
+    "src/app/features/orchestration/flow/flow-inspector.component.scss": {
+      "violet": 10,
+      "pill": 3,
+      "halo": 1
+    },
+    "src/app/features/orchestration/flow/flow-manifest-strip.component.scss": {
+      "pill": 1
+    },
+    "src/app/features/orchestration/flow/flow-node.component.scss": {
+      "violet": 8,
+      "pill": 5,
+      "halo": 5
+    },
+    "src/app/features/orchestration/flow/flow-node.component.ts": {
+      "violet": 3
+    },
+    "src/app/features/orchestration/flow/flow-outline.component.scss": {
+      "pill": 2
+    },
+    "src/app/features/orchestration/flow/flow-palette.component.scss": {
+      "violet": 4,
+      "pill": 2
+    },
+    "src/app/features/orchestration/flow/flow-publication-panel.component.scss": {
+      "pill": 1
+    },
+    "src/app/features/orchestration/flow/flow-recipe-workshop.component.scss": {
+      "pill": 2,
+      "halo": 1
+    },
+    "src/app/features/orchestration/flow/flow-run-controls.component.scss": {
+      "pill": 2,
+      "halo": 2
+    },
+    "src/app/features/orchestration/flow/flow-schema-editor.component.scss": {
+      "violet": 2,
+      "halo": 1
+    },
+    "src/app/features/orchestration/flow/flow-terminal.component.scss": {
+      "violet": 3,
+      "pill": 2,
+      "halo": 2
+    },
+    "src/app/features/orchestration/flow/flow-toolbar.component.scss": {
+      "pill": 3
+    },
+    "src/app/features/orchestration/flow/flow-train-workshop.component.scss": {
+      "pill": 4,
+      "halo": 1
+    },
+    "src/app/features/orchestration/flow/flow-transform-workshop.component.scss": {
+      "pill": 4,
+      "halo": 3
+    },
+    "src/app/features/orchestration/flow/flow-trigger-controls.component.scss": {
+      "pill": 1
+    },
+    "src/app/features/orchestration/flow/flow-validation-strip.component.scss": {
+      "pill": 3,
+      "halo": 1
+    },
+    "src/app/features/orchestration/flow/flow-versions.component.scss": {
+      "pill": 2
+    },
+    "src/app/features/orchestration/flow/flow.types.ts": {
+      "violet": 5
+    },
+    "src/app/features/orchestration/flow/manifest-fields.component.scss": {
+      "pill": 1,
+      "halo": 1
+    },
+    "src/app/features/presets/preset-view.component.ts": {
+      "violet": 1
+    },
+    "src/app/features/presets/presets-list.component.ts": {
+      "violet": 1,
+      "pill": 1
+    },
+    "src/app/features/resources/resources-page.component.ts": {
+      "violet": 3,
+      "pill": 2
+    },
+    "src/app/features/runs/run-view.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/settings/rag-settings.component.ts": {
+      "pill": 4,
+      "halo": 1
+    },
+    "src/app/features/skills/skills.component.ts": {
+      "violet": 3,
+      "pill": 1
+    },
+    "src/app/features/steering/steering.component.ts": {
+      "violet": 3
+    },
+    "src/app/features/systems/flow-runner.component.ts": {
+      "halo": 1
+    },
+    "src/app/features/systems/system-builder.component.ts": {
+      "violet": 9,
+      "pill": 1,
+      "halo": 2
+    },
+    "src/app/features/systems/system-mandate-coverage.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/systems/system-value-loop.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/systems/system-view.component.ts": {
+      "violet": 5,
+      "pill": 4
+    },
+    "src/app/features/systems/systems-grid.component.ts": {
+      "violet": 1
+    },
+    "src/app/features/tasks/tasks-page.component.ts": {
+      "pill": 4
+    },
+    "src/app/features/workspace-app-runtime/workspace-app-unavailable.component.ts": {
+      "pill": 1,
+      "halo": 1
+    },
+    "src/app/features/workspace/chat-knowledge-settings.component.ts": {
+      "pill": 2,
+      "halo": 3
+    },
+    "src/app/features/workspace/danger.component.ts": {
+      "pill": 1
+    },
+    "src/app/features/workspace/general.component.ts": {
+      "pill": 9
+    },
+    "src/app/features/workspace/members.component.ts": {
+      "pill": 2,
+      "halo": 1
+    },
+    "src/app/shared/cockpit/help-tooltip.component.ts": {
+      "pill": 1
+    },
+    "src/app/shared/cockpit/impact-preview.component.ts": {
+      "violet": 1
+    },
+    "src/app/shared/cockpit/live-dot.component.ts": {
+      "violet": 3
+    },
+    "src/app/shared/cockpit/micro-bar.component.ts": {
+      "violet": 3
+    },
+    "src/app/shared/cockpit/object-header.component.ts": {
+      "violet": 4
+    },
+    "src/app/shared/cockpit/panel.component.ts": {
+      "pill": 1
+    },
+    "src/app/shared/cockpit/run-outcome-card.component.ts": {
+      "pill": 1
+    },
+    "src/app/shared/cockpit/runtime-status-badge.component.ts": {
+      "violet": 1
+    },
+    "src/app/shared/cockpit/stat-readout.component.ts": {
+      "violet": 3
+    },
+    "src/app/shared/cockpit/tag.component.ts": {
+      "violet": 5
+    },
+    "src/app/shared/document-preview/document-preview.component.ts": {
+      "font": 1,
+      "halo": 2
+    },
+    "src/app/shared/ui/code-editor.component.ts": {
+      "halo": 1
+    },
+    "src/app/shared/ui/column-spark.component.ts": {
+      "violet": 2
+    },
+    "src/app/shared/ui/data-table.component.ts": {
+      "violet": 4,
+      "pill": 2
+    },
+    "src/app/shared/ui/empty-state.component.ts": {
+      "pill": 1
+    },
+    "src/app/shared/ui/section-header.component.ts": {
+      "pill": 1
+    },
+    "src/app/shared/ui/skeleton.component.ts": {
+      "pill": 1
+    },
+    "src/app/shared/voice/voice-controls.component.ts": {
+      "pill": 2,
+      "halo": 2
+    },
+    "src/styles.scss": {
+      "violet": 2,
+      "halo": 7
+    },
+    "src/styles/cockpit-tokens.scss": {
+      "violet": 6,
+      "halo": 5
+    },
+    "src/styles/cockpit-utilities.scss": {
+      "violet": 2,
+      "pill": 1
+    },
+    "src/styles/mission-tokens.scss": {
+      "pill": 2,
+      "halo": 4
+    }
+  }
+}
