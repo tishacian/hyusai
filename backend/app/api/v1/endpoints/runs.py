@@ -85,6 +85,7 @@ from app.services.run_outcome_provenance import (
     record_operator_outcome_override,
     run_measurement_provenance,
 )
+from app.services.workspace_secrets import public_checkpoint
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -214,7 +215,7 @@ def _row(r: Run, *, db: DBSession) -> Dict[str, Any]:
             public["result_held"] = True
             checkpoints.append(public)
         else:
-            checkpoints.append(checkpoint)
+            checkpoints.append(public_checkpoint(checkpoint))
     return {
         "id": r.id,
         "system_id": r.system_id,
@@ -1397,7 +1398,7 @@ async def _run_event_stream(
                 ts = cp.get("t")
                 if isinstance(ts, str):
                     replayed_ts.add(ts)
-                public_cp = cp
+                public_cp = public_checkpoint(cp)
                 if (
                     run.status == "hitl_pending"
                     and cp.get("kind") == "hitl_pause"
@@ -1455,7 +1456,7 @@ async def _run_event_stream(
                     continue
                 if isinstance(ts, str):
                     replayed_ts.add(ts)
-                yield _sse_format(event.get("kind", "event"), event)
+                yield _sse_format(event.get("kind", "event"), public_checkpoint(event))
                 if event.get("kind") in ("run_end", "hitl_pause", "debug_pause", "subflow_wait"):
                     break
             else:
@@ -1484,7 +1485,7 @@ async def _run_event_stream(
                             continue
                         if isinstance(ts, str):
                             replayed_ts.add(ts)
-                        public_cp = cp
+                        public_cp = public_checkpoint(cp)
                         if status == "hitl_pending" and cp.get("kind") == "hitl_pause" and cp.get("membrane_egress") is True:
                             public_cp = {key: value for key, value in cp.items() if key != "state"}
                             public_cp["result_held"] = True
