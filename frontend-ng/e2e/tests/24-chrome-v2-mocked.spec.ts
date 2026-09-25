@@ -336,3 +336,34 @@ test.describe('Chrome v2 — mocked', () => {
     expect(fontRequests.filter((url) => /family=(?:Inter|JetBrains)|\/s\/(?:inter|intertight|jetbrainsmono)\//i.test(url))).toEqual([]);
   });
 });
+
+// --- L5 — Visual guardrails (cliquet) + reduced-motion orb -----------------
+
+test.describe('L5 — chrome ratchet / reduced-motion orb', () => {
+  test.use({ locale: 'fr-FR', colorScheme: 'dark' });
+  test.skip(!enabled, 'Set E2E_CHROME_V2_MOCKED=1 to run the mocked chrome safety net');
+
+  test('reduced-motion freezes the auth thinking orb across 500 ms', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.addInitScript(() => {
+      localStorage.removeItem('agentium_token');
+      localStorage.removeItem('agentium_workspace_slug');
+      localStorage.setItem('agentium_locale', 'en');
+      localStorage.setItem('agentium_theme', 'dark');
+    });
+    await page.route('**/api/v1/**', async (route) => {
+      const method = route.request().method();
+      if (method === 'GET') return json(route, {});
+      return json(route, { ok: true });
+    });
+
+    await page.goto('/auth/signin');
+    const canvas = page.locator('ck-thinking-orb canvas').first();
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+    const first = await canvas.evaluate((node) => (node as HTMLCanvasElement).toDataURL('image/png'));
+    await page.waitForTimeout(500);
+    const second = await canvas.evaluate((node) => (node as HTMLCanvasElement).toDataURL('image/png'));
+    expect(second).toBe(first);
+  });
+});
