@@ -339,6 +339,24 @@ test('axes v4 sends Hypervisor to Portfolio while object lenses keep the selecte
   assert.equal(navigation.nodes()[0].href, '/hypervisor');
 });
 
+test('Impact from a System carries arrival provenance in history.state', () => {
+  const { navigation, router } = graphHarness(
+    '/systems/sys-real?lens=operate&facet=runs',
+    { axesV4: true },
+  );
+
+  assert.equal(navigation.urlForLens('hypervisor', '/wrong'), '/hypervisor');
+  const state = navigation.arrivalStateForLens('hypervisor');
+  assert.ok(state);
+  const provenance = (state as Record<string, { kind: string; systemId?: string; label?: string; backUrl?: string }>)
+    .ckArrivalProvenance;
+  assert.equal(provenance.kind, 'system');
+  assert.equal(provenance.systemId, 'sys-real');
+  assert.equal(provenance.label, 'Contract Risk Copilot');
+  assert.equal(provenance.backUrl, router.url);
+  assert.equal(navigation.arrivalStateForLens('operate'), null);
+});
+
 test('the selected System path rejects a Run query from another branch', () => {
   const router = new RouterStub('/systems/system-b?runId=run-from-a&systemId=system-a&capabilityId=cap-a&lens=operate');
   const workspace = new WorkspaceStub();

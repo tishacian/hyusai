@@ -38,6 +38,7 @@ export const SIDE_RAIL_TOOLTIP_ID = 'ck-rail-tooltip';
         @for (v of visibleVerbs(); track v.key) {
           <a
             [routerLink]="routeTreeFor(v)"
+            [state]="lensNavState(v)"
             class="ck-rail-item"
             [class.ck-rail-item-active]="isActive(v)"
             [attr.aria-label]="verbLabel(v)"
@@ -241,6 +242,11 @@ export class SideRailComponent {
   routeTreeFor(v: CockpitVerb): UrlTree {
     const fallback = this.fallbackRoute(v);
     return this.navigation.urlTreeForLens(v.key, fallback);
+  }
+
+  /** UX-006: Impact from a System carries provenance in history.state. */
+  lensNavState(v: CockpitVerb): Record<string, unknown> | undefined {
+    return this.navigation.arrivalStateForLens(v.key) ?? undefined;
   }
 
   private fallbackRoute(v: CockpitVerb): string {

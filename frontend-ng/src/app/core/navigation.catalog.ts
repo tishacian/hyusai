@@ -767,6 +767,10 @@ export type NavLinkInput =
       surface: string;
       lens?: CockpitLens | null;
       facet?: string | null;
+      /** Override ancestry systemId (L10 catalog links). */
+      systemId?: string | null;
+      /** Extra non-catalog query (`since`, `component`, …). */
+      params?: Record<string, string | null | undefined>;
     }
   | {
       leaf: string;
@@ -1266,6 +1270,26 @@ function appendNavigationQuery(
   return query ? `${path}?${query}` : path;
 }
 
+/** Append non-catalog query keys (e.g. `since`, `component`) to a catalog URL. */
+function appendExtraQuery(
+  url: string,
+  values: Readonly<Record<string, string | null | undefined>>,
+): string {
+  const qIndex = url.indexOf('?');
+  const path = qIndex >= 0 ? url.slice(0, qIndex) : url;
+  const params = new URLSearchParams(qIndex >= 0 ? url.slice(qIndex + 1) : '');
+  let changed = false;
+  for (const [key, value] of Object.entries(values)) {
+    if (value) {
+      params.set(key, value);
+      changed = true;
+    }
+  }
+  if (!changed) return url;
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 function lensQueryForPath(path: string, lens: CockpitLens | null | undefined): CockpitLens | null {
   if (!lens) return null;
   return matchAgentiumSurface(path)?.lens === lens ? null : lens;
@@ -1363,14 +1387,17 @@ export function resolveNavLink(
     };
   }
   if ('surface' in input) {
-    return {
-      url: navigationSurfaceUrl(input.surface, {
-        ...context.ancestry,
-        lens,
-        facet: input.facet,
-      }),
-      replaceUrl: false,
-    };
+    const systemId = input.systemId !== undefined ? input.systemId : context.ancestry.systemId;
+    let url = navigationSurfaceUrl(input.surface, {
+      ...context.ancestry,
+      systemId,
+      lens,
+      facet: input.facet,
+    });
+    if (input.params) {
+      url = appendExtraQuery(url, input.params);
+    }
+    return { url, replaceUrl: false };
   }
   if ('leaf' in input) {
     return {

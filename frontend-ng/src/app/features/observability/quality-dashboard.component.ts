@@ -12,9 +12,10 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Subject, takeUntil } from 'rxjs';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
 import { observabilityText, observabilityNumber } from './observability-labels';
+import { observabilitySystemId } from './observability-facets';
 import { QualityEvidenceChartsComponent } from './quality-evidence-charts.component';
 import { BaseChartDirective } from 'ng2-charts';
 import type { ChartConfiguration, ChartData } from 'chart.js';
@@ -22,7 +23,7 @@ import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
-import { navigationSurfaceUrl } from '@app/core/navigation.catalog';
+import type { NavLinkInput } from '@app/core/navigation.catalog';
 import {
   CanonicalApiService,
   type EvaluationComponentHealthResponse,
@@ -75,7 +76,6 @@ const PALETTE = {
   imports: [
     NavLinkDirective,
     FormsModule,
-    RouterLink,
     BaseChartDirective,
     QualityEvidenceChartsComponent,
     IconComponent,
@@ -224,7 +224,7 @@ const PALETTE = {
         </div>
 
         <a
-          [routerLink]="reviewQueueHref" [queryParams]="{system_id: systemFilter() || null, since: period()}"
+          [navLink]="reviewQueueLink()"
           class="ck-mono"
           [style.display]="'inline-flex'"
           [style.alignItems]="'center'"
@@ -282,8 +282,7 @@ const PALETTE = {
         <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(auto-fit, minmax(170px, 1fr))'" [style.gap.px]="10">
           @for (item of componentHealthItems(); track item.component) {
             <a
-              [routerLink]="reviewQueueHref"
-              [queryParams]="{ component: item.component, system_id: systemFilter() || null, since: period() }"
+              [navLink]="reviewQueueLink(item.component)"
               [style.display]="'block'"
               [style.textDecoration]="'none'"
               [style.padding.px]="12"
@@ -501,7 +500,7 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly cancel = new Subject<void>();
-  readonly systemFilter = signal(this.route.snapshot.queryParamMap.get('system_id') || '');
+  readonly systemFilter = signal(observabilitySystemId(this.route.snapshot.queryParamMap));
   readonly period = signal(this.route.snapshot.queryParamMap.get('since') === '30d' ? '30d' : '7d');
   readonly systems = signal<Array<{id:string;name:string}>>([]);
   readonly loadError = signal(false);
@@ -511,8 +510,17 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
   private readonly workspace = inject(WorkspaceService);
   private readonly zone = inject(NgZone);
   private readonly toast = inject(ToastrService);
-  /** Review queue keeps its own `component` filter; not part of the nav grammar. */
-  protected readonly reviewQueueHref = navigationSurfaceUrl('review-queue');
+
+  reviewQueueLink(component?: string): NavLinkInput {
+    return {
+      surface: 'review-queue',
+      systemId: this.systemFilter() || null,
+      params: {
+        since: this.period(),
+        ...(component ? { component } : {}),
+      },
+    };
+  }
 
   chartsReady = signal(false);
   loading = signal(false);
@@ -814,7 +822,7 @@ export class QualityDashboardComponent implements OnInit, OnDestroy {
   }
   setScope(systemId:string,since:string):void {
     this.systemFilter.set(systemId);this.period.set(since==='30d'?'30d':'7d');
-    void this.router.navigate([],{relativeTo:this.route,queryParams:{system_id:systemId||null,since:this.period()},queryParamsHandling:'merge',replaceUrl:true});
+    void this.router.navigate([],{relativeTo:this.route,queryParams:{systemId:systemId||null,system_id:null,since:this.period()},queryParamsHandling:'merge',replaceUrl:true});
   }
   ngOnDestroy():void { this.cancel.next();this.cancel.complete(); }
   ngOnInit(): void {

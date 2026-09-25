@@ -359,6 +359,7 @@ test('demo hypervisor resolves once to the configured default route', () => {
   const { resolver } = makeHarness({
     mode: 'demo',
     settings: {
+      features: { cockpit_router_axes_v4: false },
       default_route: '/hypervisor/mission-room/cockpit',
       mission_room: { enabled: true },
     },
@@ -372,7 +373,7 @@ test('demo hypervisor resolves once to the configured default route', () => {
   });
 });
 
-test('axes v4 owns legacy hypervisor object links and keeps Hypervisor at Portfolio', () => {
+test('axes v4 strips legacy hypervisor object lens and stays on the object', () => {
   const { resolver } = makeHarness({
     mode: 'demo',
     settings: {
@@ -382,12 +383,12 @@ test('axes v4 owns legacy hypervisor object links and keeps Hypervisor at Portfo
     },
   });
 
-  assert.deepEqual(resolver.resolve('/systems/system-42?lens=hypervisor&facet=runs'), {
-    requestedRoute: '/systems/system-42?lens=hypervisor&facet=runs',
-    resolvedRoute: '/hypervisor',
-    owner: 'navigation_resolver',
-    reason: 'legacy_hypervisor_object_lens',
-  });
+  const decision = resolver.resolve('/systems/system-42?lens=hypervisor&facet=runs');
+  assert.equal(decision?.requestedRoute, '/systems/system-42?lens=hypervisor&facet=runs');
+  assert.equal(decision?.resolvedRoute, '/systems/system-42?facet=runs');
+  assert.equal(decision?.owner, 'navigation_resolver');
+  assert.equal(decision?.reason, 'legacy_hypervisor_object_lens');
+  assert.ok(decision?.state);
   assert.equal(resolver.resolve('/systems/system-42?lens=operate'), null);
   assert.equal(resolver.resolve('/hypervisor'), null);
 });
@@ -413,8 +414,10 @@ test('builder + nav v5 sends Portfolio home to /create (D4)', () => {
   assert.equal(resolver.resolve('/systems/sys-1'), null);
 });
 
-test('legacy focus and tab queries rewrite to the v5 grammar', () => {
-  const { resolver } = makeHarness({});
+test('legacy focus, tab, and system_id queries rewrite to the v5 grammar', () => {
+  const { resolver } = makeHarness({
+    settings: { features: { cockpit_router_axes_v4: false } },
+  });
 
   assert.deepEqual(resolver.resolve('/capabilities?focus=cap-a&lens=operate'), {
     requestedRoute: '/capabilities?focus=cap-a&lens=operate',
@@ -429,10 +432,20 @@ test('legacy focus and tab queries rewrite to the v5 grammar', () => {
     reason: 'legacy_tab_query',
   });
   assert.equal(resolver.resolve('/resources?facet=providers'), null);
+  assert.deepEqual(resolver.resolve('/steering/review-queue?system_id=sys-a&since=7d'), {
+    requestedRoute: '/steering/review-queue?system_id=sys-a&since=7d',
+    resolvedRoute: '/steering/review-queue?since=7d&systemId=sys-a',
+    owner: 'navigation_resolver',
+    reason: 'legacy_system_id_query',
+  });
+  assert.equal(resolver.resolve('/steering/review-queue?systemId=sys-a'), null);
 });
 
 test('Mission Room fallback and deep links require the workspace extension', () => {
-  const disabled = makeHarness({ mode: 'demo' }).resolver;
+  const disabled = makeHarness({
+    mode: 'demo',
+    settings: { features: { cockpit_router_axes_v4: false } },
+  }).resolver;
   assert.equal(disabled.resolve('/hypervisor'), null);
   assert.deepEqual(disabled.resolve('/hypervisor/mission-room/cockpit'), {
     requestedRoute: '/hypervisor/mission-room/cockpit',
@@ -443,7 +456,10 @@ test('Mission Room fallback and deep links require the workspace extension', () 
 
   const enabled = makeHarness({
     mode: 'demo',
-    settings: { mission_room: { enabled: true } },
+    settings: {
+      features: { cockpit_router_axes_v4: false },
+      mission_room: { enabled: true },
+    },
   }).resolver;
   assert.equal(
     expectTerminal(enabled, enabled.resolve('/hypervisor')).resolvedRoute,
@@ -453,7 +469,10 @@ test('Mission Room fallback and deep links require the workspace extension', () 
 
   const explicit = makeHarness({
     mode: 'demo',
-    settings: { default_route: '/intelligence' },
+    settings: {
+      features: { cockpit_router_axes_v4: false },
+      default_route: '/intelligence',
+    },
   }).resolver;
   assert.equal(expectTerminal(explicit, explicit.resolve('/hypervisor')).resolvedRoute, '/intelligence');
 });
@@ -461,7 +480,10 @@ test('Mission Room fallback and deep links require the workspace extension', () 
 test('a stale Mission Room default cannot loop while the extension is disabled', () => {
   const { resolver } = makeHarness({
     mode: 'demo',
-    settings: { default_route: '/hypervisor/mission-room/cockpit' },
+    settings: {
+      features: { cockpit_router_axes_v4: false },
+      default_route: '/hypervisor/mission-room/cockpit',
+    },
   });
 
   assert.equal(resolver.resolve('/hypervisor'), null);

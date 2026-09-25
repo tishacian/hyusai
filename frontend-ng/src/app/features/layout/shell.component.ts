@@ -15,11 +15,18 @@ import { CommandBarComponent } from './command-bar.component';
 import { CommandPaletteComponent } from './command-palette.component';
 import { BusinessShellHeaderComponent } from './business-shell-header.component';
 import { CkPanelHostComponent } from '@app/shared/cockpit/panel.component';
+import { FilterChipComponent } from '@app/shared/cockpit/filter-chip.component';
+import {
+  arrivalProvenanceLabel,
+  arrivalProvenanceIsForward,
+  readArrivalProvenance,
+} from '@app/shared/cockpit/arrival-provenance';
 import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draft-drawer.component';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { missionRoomUsesImmersiveShell } from '@app/features/mission-room/mission-room.extension';
 import { I18nService } from '@app/core/i18n.service';
 import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus';
+import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
 
 /**
  * Cockpit shell — assembles the title bar, side rail and command bar
@@ -40,6 +47,7 @@ import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus
     CommandPaletteComponent,
     BusinessShellHeaderComponent,
     CkPanelHostComponent,
+    FilterChipComponent,
     AssistantDraftDrawerComponent,
   ],
   template: `
@@ -111,6 +119,18 @@ import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus
             [style.overflow]="immersiveWorkspaceApp() ? 'hidden' : 'auto'"
             [style.background]="'var(--ck-bg-base)'"
           >
+            @if (seeInImpactLabel(); as chip) {
+              <div class="shell-arrival">
+                <ck-filter-chip
+                  kind="provenance"
+                  [label]="chip"
+                  [href]="impactHref"
+                  [forward]="true"
+                  testId="see-in-impact"
+                  (navigate)="openImpact()"
+                />
+              </div>
+            }
             <router-outlet (activate)="onRouteActivate(mainContent)" />
           </main>
         </div>
@@ -159,6 +179,11 @@ import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus
 
     .shell-main {
       min-width: 0;
+    }
+
+    .shell-arrival {
+      display: flex;
+      padding: 12px 32px 0;
     }
 
     .shell-main:focus {
@@ -256,11 +281,24 @@ export class ShellComponent {
     return missionRoomUsesImmersiveShell(workspace, path);
   });
 
+  readonly impactHref = agentiumSurfaceRoute('hypervisor');
+  /** UX-010: after stripping `?lens=hypervisor`, offer « Voir dans Impact ». */
+  readonly seeInImpactLabel = computed(() => {
+    this.url();
+    const provenance = readArrivalProvenance();
+    if (!provenance || !arrivalProvenanceIsForward(provenance)) return null;
+    return arrivalProvenanceLabel(provenance, (key, params) => this.i18n.t(key, params));
+  });
+
   constructor() {
     // The guard establishes the workspace before the shell is activated. This
     // call only releases an initial deferred audit event; it never resolves or
     // initiates navigation.
     this.navigationTelemetry.flushDeferred();
+  }
+
+  openImpact(): void {
+    void this.router.navigateByUrl(this.impactHref);
   }
 
   onRouteActivate(main: HTMLElement): void {

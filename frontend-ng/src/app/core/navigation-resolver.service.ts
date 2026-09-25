@@ -7,6 +7,7 @@ import {
   MISSION_ROOM_EXTENSION,
   missionRoomExtensionState,
 } from '@app/features/mission-room/mission-room.extension';
+import { arrivalProvenanceState } from '@app/shared/cockpit/arrival-provenance';
 
 const DEFAULT_BUSINESS_ROUTE = agentiumSurfaceRoute('chat');
 
@@ -61,7 +62,10 @@ export class NavigationResolverService {
       current?.mode === 'builder' ? agentiumSurfaceRoute('create') : agentiumSurfaceRoute('hypervisor'), 'workspace_mode_home');
   }
 
-  /** Axes v4 makes Hypervisor a Portfolio destination, never an object lens. */
+  /**
+   * Axes v4: `?lens=hypervisor` on an object is not a Portfolio jump (UX-010).
+   * Stay on the object, strip `lens`, keep other params, attach « Voir dans Impact ».
+   */
   private resolveLegacyHypervisorObjectLens(
     requestedRoute: string,
   ): NavigationRedirectDecision | null {
@@ -71,12 +75,19 @@ export class NavigationResolverService {
     const rawQuery = requestedRoute.includes('?')
       ? requestedRoute.slice(requestedRoute.indexOf('?') + 1).split('#')[0]
       : '';
-    if (new URLSearchParams(rawQuery).get('lens') !== 'hypervisor') return null;
-    return this.decision(
+    const params = new URLSearchParams(rawQuery);
+    if (params.get('lens') !== 'hypervisor') return null;
+    params.delete('lens');
+    const query = params.toString();
+    const resolvedRoute = query ? `${path}?${query}` : path;
+    if (resolvedRoute === requestedRoute) return null;
+    return {
       requestedRoute,
-      agentiumSurfaceRoute('hypervisor'),
-      'legacy_hypervisor_object_lens',
-    );
+      resolvedRoute,
+      owner: 'navigation_resolver',
+      reason: 'legacy_hypervisor_object_lens',
+      state: arrivalProvenanceState({ kind: 'see_in_impact' }),
+    };
   }
 
   /** Builder + `cockpit_nav_v5`: Portfolio home is `/create` (D4). */
@@ -88,7 +99,7 @@ export class NavigationResolverService {
     return this.decision(requestedRoute, agentiumSurfaceRoute('create'), 'workspace_mode_home');
   }
 
-  /** `?focus=` / `?tab=` become object paths and `?facet=` (L6.1). */
+  /** `?focus=` / `?tab=` / `?system_id=` become object paths, `?facet=`, `?systemId=` (L6.1 / L10). */
   private resolveLegacyQueryAliases(
     requestedRoute: string,
   ): NavigationRedirectDecision | null {
@@ -119,6 +130,20 @@ export class NavigationResolverService {
         resolvedRoute,
         owner: 'navigation_resolver',
         reason: 'legacy_tab_query',
+      };
+    }
+    const legacySystemId = params.get('system_id');
+    if (legacySystemId && !params.get('systemId')) {
+      params.set('systemId', legacySystemId);
+      params.delete('system_id');
+      const query = params.toString();
+      const resolvedRoute = query ? `${path}?${query}` : path;
+      if (resolvedRoute === requestedRoute) return null;
+      return {
+        requestedRoute,
+        resolvedRoute,
+        owner: 'navigation_resolver',
+        reason: 'legacy_system_id_query',
       };
     }
     return null;
@@ -337,7 +362,7 @@ export class NavigationResolverService {
   }
 
   private axesV4Enabled(): boolean {
-    return workspaceSettingFeature(this.workspace.current(), 'cockpit_router_axes_v4', false);
+    return workspaceSettingFeature(this.workspace.current(), 'cockpit_router_axes_v4', true);
   }
 
   private isMissionRoomRoute(value: string): boolean {

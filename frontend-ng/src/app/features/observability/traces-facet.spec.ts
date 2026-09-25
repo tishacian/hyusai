@@ -19,9 +19,12 @@ test('traces facet opens a run with Observability › Traces provenance and neve
     if (key === 'runs.provenance.from_observability_traces') {
       return 'Depuis Observabilité › Traces';
     }
+    if (key === 'nav.provenance.chip') {
+      return '↰ Depuis Observabilité › Traces · Revenir';
+    }
     return key;
   });
-  assert.equal(label, 'Depuis Observabilité › Traces');
+  assert.equal(label, '↰ Depuis Observabilité › Traces · Revenir');
 
   // Guardrail: the facet contract is `/runs`, not the deprecated alias.
   const apiPath = '/runs';

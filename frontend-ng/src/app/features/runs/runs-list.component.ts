@@ -13,7 +13,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, distinctUntilChanged, map } from 'rxjs';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
-import { HelpTooltipComponent, NavLinkDirective, PageFrameComponent } from '@app/shared/cockpit';
+import { HelpTooltipComponent, FilterChipComponent, NavLinkDirective, PageFrameComponent } from '@app/shared/cockpit';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
@@ -33,6 +33,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
     EmptyStateComponent,
     PageFrameComponent,
     HelpTooltipComponent,
+    FilterChipComponent,
     NavLinkDirective,
     RouterLink,
   ],
@@ -46,20 +47,20 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
       <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
         @if (navigation.navV5Enabled() && (filterCapabilityId() || filterSystemId())) {
           @if (filterCapabilityId(); as capId) {
-            <button
-              type="button"
-              class="ck-mono inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] uppercase"
-              style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2); color:var(--ck-fg-2);"
-              (click)="clearListFilter('capabilityId')"
-            >{{ i18n.t('nav.filter.clear_capability', { name: capId }) }} ×</button>
+            <ck-filter-chip
+              kind="filter"
+              [label]="capId"
+              testId="runs-filter-capability"
+              (dismiss)="clearListFilter('capabilityId')"
+            />
           }
           @if (filterSystemId(); as sysId) {
-            <button
-              type="button"
-              class="ck-mono inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] uppercase"
-              style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2); color:var(--ck-fg-2);"
-              (click)="clearListFilter('systemId')"
-            >{{ i18n.t('nav.filter.clear_system', { name: sysId }) }} ×</button>
+            <ck-filter-chip
+              kind="filter"
+              [label]="sysId"
+              testId="runs-filter-system"
+              (dismiss)="clearListFilter('systemId')"
+            />
             <a
               [navLink]="{ type: 'system', ref: sysId }"
               class="ck-mono text-[10px] uppercase"

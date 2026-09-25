@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { CanActivateChildFn, Router } from '@angular/router';
+import { CanActivateChildFn, RedirectCommand, Router } from '@angular/router';
 import { catchError, map, of } from 'rxjs';
 import { NavigationResolverService } from './navigation-resolver.service';
 import { NavigationTelemetryService } from './navigation-telemetry.service';
@@ -16,7 +16,11 @@ export const navigationProfileGuard: CanActivateChildFn = (_route, state) => {
   const execute = (resolution: ReturnType<NavigationResolverService['resolve']>) => {
     if (!resolution) return true;
     navigationTelemetry.registerRedirect(resolution);
-    return router.parseUrl(resolution.resolvedRoute);
+    const tree = router.parseUrl(resolution.resolvedRoute);
+    if (resolution.state) {
+      return new RedirectCommand(tree, { replaceUrl: true, state: resolution.state });
+    }
+    return tree;
   };
 
   const observeThenExecute = (

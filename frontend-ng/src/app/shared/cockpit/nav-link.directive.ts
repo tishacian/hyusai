@@ -28,6 +28,8 @@ export class NavLinkDirective {
 
   readonly navLink = input.required<NavLinkInput>();
   readonly navTrigger = input<NavigationTransitionTrigger>('inpage');
+  /** Optional `history.state` (L10 provenance). Not encoded in the URL. */
+  readonly navState = input<Record<string, unknown> | null>(null);
 
   readonly href = computed(() => this.navigation.resolveLink(this.navLink()).url);
 
@@ -47,6 +49,10 @@ export class NavLinkDirective {
     event.preventDefault();
     const resolved = this.navigation.resolveLink(this.navLink());
     this.telemetry.registerTrigger(this.navTrigger());
-    void this.router.navigateByUrl(resolved.url, { replaceUrl: resolved.replaceUrl });
+    const state = this.navState();
+    void this.router.navigateByUrl(resolved.url, {
+      replaceUrl: resolved.replaceUrl,
+      ...(state ? { state } : {}),
+    });
   }
 }
