@@ -9,8 +9,8 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, type ParamMap } from '@angular/router';
-import { NavLinkDirective } from '@app/shared/cockpit';
+import { ActivatedRoute, Router, type ParamMap } from '@angular/router';
+import { FilterChipComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { map } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import {
@@ -26,6 +26,20 @@ import {
   TagComponent,
 } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
+import { observabilitySystemId } from '@app/features/observability/observability-facets';
+
+type ReviewStatus = 'proposed' | 'accepted' | 'rejected' | 'all';
+type ReviewFacet = 'open' | 'accepted' | 'rejected' | 'all';
+
+function facetFromStatus(status: ReviewStatus): ReviewFacet {
+  return status === 'proposed' ? 'open' : status;
+}
+
+function statusFromFacet(facet: string | null): ReviewStatus {
+  if (facet === 'open' || facet === 'proposed') return 'proposed';
+  if (facet === 'accepted' || facet === 'rejected' || facet === 'all') return facet;
+  return 'proposed';
+}
 
 /**
  * Steering · Review queue — Vague E / E1.
@@ -51,7 +65,7 @@ import { I18nService } from '@app/core/i18n.service';
   selector: 'app-steering-review-queue',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, NavLinkDirective, PageFrameComponent, GlyphComponent, TagComponent],
+  imports: [FormsModule, NavLinkDirective, FilterChipComponent, PageFrameComponent, GlyphComponent, TagComponent],
   template: `
     <ck-page-frame
       [eyebrow]="i18n.t('steering.review.eyebrow')"
@@ -85,6 +99,14 @@ import { I18nService } from '@app/core/i18n.service';
                 </button>
               }
             </div>
+            @if (systemFilter(); as systemId) {
+              <ck-filter-chip
+                kind="filter"
+                [label]="systemId"
+                testId="review-queue-system-filter"
+                (dismiss)="clearSystemFilter()"
+              />
+            }
             @if (componentFilter(); as component) {
               <span class="ck-mono" style="font-size:10px; color:var(--ck-signal-cool); padding:4px 8px; border:1px solid var(--ck-signal-cool); border-radius:3px;">
                 {{ i18n.t('steering.review.component_chip', { component: component.toUpperCase() }) }}
@@ -454,13 +476,14 @@ import { I18nService } from '@app/core/i18n.service';
 export class SteeringReviewQueueComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly toast = inject(ToastrService);
   readonly i18n = inject(I18nService);
 
   readonly items = signal<ReviewQueueItem[]>([]);
   readonly loading = signal(false);
   readonly pendingId = signal<string | null>(null);
-  readonly status = signal<'proposed' | 'accepted' | 'rejected' | 'all'>('proposed');
+  readonly status = signal<ReviewStatus>('proposed');
   readonly componentFilter = signal<string | null>(null);
   readonly systemFilter = signal<string | null>(null);
   readonly sinceFilter = signal<string | null>(null);
@@ -522,12 +545,19 @@ export class SteeringReviewQueueComponent implements OnInit {
 
   private setScopeFromQuery(params: ParamMap): void {
     const component = params.get('component')?.trim().toLowerCase().replace(/[-\s]/g, '_') || null;
-    const system = params.get('system_id')?.trim() || null;
+    const system = observabilitySystemId(params).trim() || null;
     const since = params.get('since')?.trim() || null;
-    if (this.componentFilter() === component && this.systemFilter() === system && this.sinceFilter() === since) return;
+    const nextStatus = statusFromFacet(params.get('facet'));
+    const scopeUnchanged =
+      this.componentFilter() === component
+      && this.systemFilter() === system
+      && this.sinceFilter() === since
+      && this.status() === nextStatus;
+    if (scopeUnchanged) return;
     this.componentFilter.set(component);
     this.systemFilter.set(system);
     this.sinceFilter.set(since);
+    this.status.set(nextStatus);
     this.items.set([]);
     this.refresh();
   }
@@ -561,13 +591,26 @@ export class SteeringReviewQueueComponent implements OnInit {
       });
   }
 
-  setStatus(s: 'proposed' | 'accepted' | 'rejected' | 'all'): void {
+  setStatus(s: ReviewStatus): void {
     if (this.status() === s) return;
-    this.status.set(s);
     // Drop the deeplink highlight — the user explicitly moved away
     // from the filter the toast sent them to.
     this.focusedDecisionId.set(null);
-    this.refresh();
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: facetFromStatus(s) },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  clearSystemFilter(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { systemId: null, system_id: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   accept(item: ReviewQueueItem): void {

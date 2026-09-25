@@ -54,6 +54,7 @@ export type NavigationRedirectReason =
   | 'legacy_hypervisor_object_lens'
   | 'legacy_focus_query'
   | 'legacy_tab_query'
+  | 'legacy_system_id_query'
   | 'workspace_mode_home'
   | 'workspace_settings_entrypoint';
 
@@ -62,6 +63,8 @@ export interface NavigationRedirectDecision {
   resolvedRoute: string;
   owner: 'navigation_resolver';
   reason: Exclude<NavigationRedirectReason, 'direct' | 'angular_route_redirect'>;
+  /** Optional `history.state` for the redirect (L10 provenance). */
+  state?: Record<string, unknown>;
 }
 
 export interface NavigationResolvedDetails {

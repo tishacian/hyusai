@@ -53,7 +53,10 @@ test('opening a skill from the trace carries Depuis la trace {id} provenance', (
     if (key === 'runs.provenance.from_trace') {
       return `Depuis la trace ${params?.['id']}`;
     }
+    if (key === 'nav.provenance.chip') {
+      return `↰ ${params?.['from']} · Revenir`;
+    }
     return key;
   });
-  assert.equal(label, 'Depuis la trace run-abcdef12');
+  assert.equal(label, '↰ Depuis la trace run-abcdef12 · Revenir');
 });

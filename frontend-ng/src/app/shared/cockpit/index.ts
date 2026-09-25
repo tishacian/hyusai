@@ -27,6 +27,17 @@ export {
   type CkObjectKpiTone,
 } from './object-header.component';
 export { NavLinkDirective } from './nav-link.directive';
+export { FilterChipComponent } from './filter-chip.component';
+export {
+  ARRIVAL_PROVENANCE_KEY,
+  arrivalProvenanceIsForward,
+  arrivalProvenanceFromLabel,
+  arrivalProvenanceLabel,
+  arrivalProvenanceState,
+  readArrivalProvenance,
+  type ArrivalProvenance,
+  type ArrivalProvenanceKind,
+} from './arrival-provenance';
 export { CkBackLinkComponent } from './back-link.component';
 export {
   CkPanelComponent,

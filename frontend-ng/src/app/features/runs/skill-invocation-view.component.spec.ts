@@ -261,10 +261,15 @@ test('SkillInvocation shows Depuis la trace {id} when arrival provenance is pres
           provide: I18nService,
           useValue: {
             locale: () => 'fr',
-            t: (key: string, params?: Record<string, string>) =>
-              key === 'runs.provenance.from_trace'
-                ? `Depuis la trace ${params?.['id']}`
-                : key,
+            t: (key: string, params?: Record<string, string>) => {
+              if (key === 'runs.provenance.from_trace') {
+                return `Depuis la trace ${params?.['id']}`;
+              }
+              if (key === 'nav.provenance.chip') {
+                return `↰ ${params?.['from']} · Revenir`;
+              }
+              return key;
+            },
           },
         },
         { provide: ZoomContextService, useValue: { navV5Enabled: () => false, zoneI18nKey: () => 'nav.operate' } },
@@ -272,7 +277,7 @@ test('SkillInvocation shows Depuis la trace {id} when arrival provenance is pres
     });
     const view = injector.get(SkillInvocationViewComponent);
     view.ngOnInit();
-    assert.equal(view.arrivalChipLabel(), 'Depuis la trace run-trace-9');
+    assert.equal(view.arrivalChipLabel(), '↰ Depuis la trace run-trace-9 · Revenir');
     assert.equal(view.arrivalBackHref(), '/runs/run-trace-9?facet=trace');
     view.ngOnDestroy();
   } finally {

@@ -38,6 +38,7 @@ import {
   CkChartTipComponent,
   CkChartUnitDotsComponent,
   CkPanelComponent,
+  FilterChipComponent,
   KbdComponent,
   NavLinkDirective,
   PageFrameComponent,
@@ -50,6 +51,12 @@ import {
   type CkStreamPeak,
   type CkStreamSeries,
 } from '@app/shared/cockpit';
+import {
+  arrivalProvenanceLabel,
+  arrivalProvenanceState,
+  readArrivalProvenance,
+  type ArrivalProvenance,
+} from '@app/shared/cockpit/arrival-provenance';
 import { easeOutProgress, prefersReducedMotion } from '@app/shared/cockpit/charts/chart-interact';
 import {
   STALE_AFTER_DAYS,
@@ -133,6 +140,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     CkChartUnitDotsComponent,
     CkChartPulseComponent,
     CkChartTipComponent,
+    FilterChipComponent,
   ],
   template: `
     <ck-page-frame
@@ -140,6 +148,15 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       [title]="pageTitle()"
       [description]="pageSummary()"
     >
+      @if (arrivalChipLabel(); as chip) {
+        <ck-filter-chip
+          kind="provenance"
+          [label]="chip"
+          [href]="arrivalBackHref()"
+          testId="impact-arrival-provenance"
+          (navigate)="onArrivalBack()"
+        />
+      }
       <div actions class="hv2-actions">
         <div class="hv2-switch" role="tablist">
           @for (view of views(); track view.id) {
@@ -740,7 +757,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                   [attr.data-system-id]="row.systemId"
                   [class.hv2-row-outside]="row.outsideDenominator"
                   [class.hv2-row-lit]="hoverSystem() === row.systemId"
-                  [class.hv2-row-flash]="flashSystem() === row.systemId"
+                  [class.hv2-row-flash]="flashSystem() === row.systemId || cameFromSystem() === row.systemId"
                   [style.--stagger]="i"
                   (pointerenter)="onSystemHover(row.systemId)"
                   (pointerleave)="onSystemHover(null)"
@@ -749,7 +766,12 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                     <div class="hv2-system">
                       <span class="hv2-glyph ck-mono" [attr.data-health]="row.health">{{ row.initials }}</span>
                       <div>
-                        <div class="hv2-system-name">{{ row.name }}</div>
+                        <div class="hv2-system-name">
+                          {{ row.name }}
+                          @if (cameFromSystem() === row.systemId) {
+                            <span class="ck-mono hv2-came-from">{{ i18n.t('nav.provenance.came_from') }}</span>
+                          }
+                        </div>
                         <div class="ck-mono hv2-system-meta"><span class="hv2-up">{{ runsWord(row) }}</span> · {{ runsLabel(row) }}</div>
                       </div>
                     </div>
@@ -778,7 +800,13 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                     <td class="ck-mono ck-tnum hv2-num" [class.hv2-teal]="row.valueDeclared.state === 'available'">{{ rowValue(row) }}</td>
                   }
                   <td class="hv2-arrow-col">
-                    <a class="hv2-arrow" [navLink]="systemLink(row)" [attr.aria-label]="i18n.t('hypervisor.v2.register.open_system')" [title]="i18n.t('hypervisor.v2.register.open_system')">→</a>
+                    <a
+                      class="hv2-arrow"
+                      [navLink]="systemLink(row)"
+                      [navState]="registreProvenanceState()"
+                      [attr.aria-label]="i18n.t('hypervisor.v2.register.open_system')"
+                      [title]="i18n.t('hypervisor.v2.register.open_system')"
+                    >→</a>
                   </td>
                 </tr>
               }
@@ -1069,7 +1097,8 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     .hv2-arrow { color: var(--ck-fg-3); text-decoration: none; font-size: 14px; }
     .hv2-arrow:hover { color: var(--ck-fg-1); }
     .hv2-system { display: flex; align-items: center; gap: 10px; }
-    .hv2-system-name { font-size: 13px; font-weight: 500; color: var(--ck-fg-1); }
+    .hv2-system-name { font-size: 13px; font-weight: 500; color: var(--ck-fg-1); display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .hv2-came-from { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ck-signal-cool); font-weight: 500; }
     .hv2-system-meta { font-size: 10px; color: var(--ck-fg-3); margin-top: 2px; }
     .hv2-up { text-transform: uppercase; letter-spacing: 0.08em; }
     .hv2-result-value { font-size: 12px; color: var(--ck-fg-1); }
@@ -1199,6 +1228,17 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly hoverDay = signal<number | null>(null);
   readonly hoverSystem = signal<string | null>(null);
   readonly flashSystem = signal<string | null>(null);
+  readonly cameFromSystem = signal<string | null>(null);
+  readonly arrival = signal<ArrivalProvenance | null>(null);
+  readonly arrivalChipLabel = computed(() => {
+    const provenance = this.arrival();
+    if (!provenance || provenance.kind === 'see_in_impact') return null;
+    if (provenance.kind !== 'system' && provenance.kind !== 'object' && provenance.kind !== 'impact_registre') {
+      return null;
+    }
+    return arrivalProvenanceLabel(provenance, (key, params) => this.i18n.t(key, params));
+  });
+  readonly arrivalBackHref = computed(() => this.arrival()?.backUrl || '');
   readonly entering = signal(false);
   readonly monumentValue = signal('');
   readonly pageTipOpen = signal(false);
@@ -1411,6 +1451,11 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   private monumentRaf = 0;
 
   ngOnInit(): void {
+    const provenance = readArrivalProvenance();
+    this.arrival.set(provenance);
+    if (provenance?.kind === 'system' || provenance?.kind === 'object') {
+      this.cameFromSystem.set(provenance.systemId || null);
+    }
     this.routeSub = this.route.queryParamMap.subscribe((params) => {
       const facet = params.get('facet');
       this.activeFacet.set(isHypervisorFacet(facet) ? facet : 'synthese');
@@ -1532,6 +1577,18 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   systemLink(row: HypervisorRegisterRow): NavLinkInput {
     return { type: 'system', ref: row.systemId };
+  }
+
+  registreProvenanceState(): Record<string, ArrivalProvenance> {
+    return arrivalProvenanceState({
+      kind: 'impact_registre',
+      backUrl: this.router.url,
+    });
+  }
+
+  onArrivalBack(): void {
+    const back = this.arrival()?.backUrl;
+    if (back) void this.router.navigateByUrl(back);
   }
 
   horsDeclareLink(): NavLinkInput | null {
@@ -2309,6 +2366,10 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       if (this.series()) this.painted = true;
       this.syncMonument(firstPaint);
       if (firstPaint) this.beginEntrance();
+      const cameFrom = this.cameFromSystem();
+      if (cameFrom && firstPaint) {
+        queueMicrotask(() => this.onSystemClick(cameFrom));
+      }
     });
   }
 

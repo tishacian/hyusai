@@ -33,6 +33,7 @@ import {
 } from './navigation.catalog';
 import { I18nService } from './i18n.service';
 import { WorkspaceService, workspaceSettingFeature, type WorkspaceRequestScope } from './workspace.service';
+import { arrivalProvenanceState } from '@app/shared/cockpit/arrival-provenance';
 
 export type ZoomHierarchyKey =
   | 'portfolio'
@@ -267,6 +268,23 @@ export class ZoomContextService implements OnDestroy {
 
   urlTreeForLens(targetLens: CockpitDestination, fallbackRoute: string): UrlTree {
     return this.router.parseUrl(this.urlForLens(targetLens, fallbackRoute));
+  }
+
+  /**
+   * `history.state` when leaving an object toward Impact (UX-006).
+   * Side rail / verb nav attach this; the URL stays Portfolio (`urlForLens`).
+   */
+  arrivalStateForLens(targetLens: CockpitDestination): Record<string, unknown> | null {
+    if (!this.axesV4Enabled() || targetLens !== 'hypervisor') return null;
+    const route = this.route();
+    if (route.selectedType !== 'system' || !route.selectedRef) return null;
+    const label = this.node('system')?.label || route.selectedRef;
+    return arrivalProvenanceState({
+      kind: 'system',
+      label,
+      systemId: route.selectedRef,
+      backUrl: this.router.url || route.url,
+    });
   }
 
   urlForScope(section: CockpitSection): string {
