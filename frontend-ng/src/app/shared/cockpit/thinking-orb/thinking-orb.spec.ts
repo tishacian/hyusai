@@ -7,6 +7,8 @@
  * Without them, a version bump would only be caught by looking at the screen.
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { MODE_DRAWS } from './vendor/engine/registry';
 import { resolvePreset, STATE_TO_MODE } from './vendor/presets';
@@ -83,4 +85,27 @@ test('resolving a preset twice hands back the cached tuning', () => {
   // The render loop resolves on every input change; recomputing the scaled
   // profiles each time would allocate inside an animation frame.
   assert.equal(resolvePreset('searching', 20), resolvePreset('searching', 20));
+});
+
+test('prefers-reduced-motion pins a single representative frame', () => {
+  // thinking-orb.component.ts paints frame(0.6) once when reduced motion is
+  // on — no requestAnimationFrame loop. The painter at that instant must be
+  // deterministic so two captures 500 ms apart stay identical.
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/shared/cockpit/thinking-orb/thinking-orb.component.ts'),
+    'utf8',
+  );
+  assert.match(source, /prefers-reduced-motion:\s*reduce/);
+  const reducedBlock = source.match(/if\s*\(\s*reduced\s*\)\s*\{([\s\S]*?)\n\s*\}/);
+  assert.ok(reducedBlock, 'missing reduced-motion branch');
+  assert.match(reducedBlock[1], /frame\(\s*0\.6\s*\)/);
+  assert.doesNotMatch(reducedBlock[1], /requestAnimationFrame/);
+
+  const { mode, opts } = resolvePreset('working', 64);
+  const first = fakeContext();
+  const second = fakeContext();
+  MODE_DRAWS[mode](first.ctx, 64, 0.6, true, opts);
+  MODE_DRAWS[mode](second.ctx, 64, 0.6, true, opts);
+  assert.deepEqual(first.arcs, second.arcs, 'the reduced-motion frame drifted');
+  assert.deepEqual(first.inks, second.inks, 'the reduced-motion ink drifted');
 });
