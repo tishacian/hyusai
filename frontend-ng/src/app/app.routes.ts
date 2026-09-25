@@ -174,6 +174,11 @@ export const routes: Routes = [
           import('./features/chat/chat-workspace.component').then((m) => m.ChatWorkspaceComponent),
       },
       {
+        path: 'conversations',
+        loadChildren: () =>
+          import('./features/chat/conversations.routes').then((m) => m.conversationsRoutes),
+      },
+      {
         path: 'client360',
         loadChildren: () =>
           import('./features/client360/client360.routes').then((m) => m.client360Routes),

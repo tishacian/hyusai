@@ -62,7 +62,7 @@ export const I18N_DOMAINS = {
     en: CHROME_EN,
   },
   capture: { prefixes: ['capture'], fr: CAPTURE_FR, en: CAPTURE_EN },
-  chat: { prefixes: ['chat'], fr: CHAT_FR, en: CHAT_EN },
+  chat: { prefixes: ['chat', 'conversations'], fr: CHAT_FR, en: CHAT_EN },
   systems: { prefixes: ['systems'], fr: SYSTEMS_FR, en: SYSTEMS_EN },
   runs: { prefixes: ['runs'], fr: RUNS_FR, en: RUNS_EN },
   flow: { prefixes: ['flow'], fr: FLOW_FR, en: FLOW_EN },

@@ -60,6 +60,7 @@ import {
   type CkOrbState,
 } from '@app/shared/cockpit';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { ChatOverlayService } from './chat-overlay.service';
 import {
   SharedVoiceOracleStep,
   SharedVoiceRuntimeOption,
@@ -3392,6 +3393,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly workspace = inject(WorkspaceService);
+  private readonly overlay = inject(ChatOverlayService);
   private readonly permissions = inject(PermissionsService);
   private readonly assistantEffects = inject(AssistantEffectsService);
   readonly i18n = inject(I18nService);
@@ -7082,8 +7084,18 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   private currentChatSessionContext(): Record<string, unknown> {
+    const systemId = this.systemId();
+    const linkedLabel = this.overlay.linkedLabel();
+    const linked_object = systemId
+      ? {
+          type: 'system',
+          id: systemId,
+          label: linkedLabel || systemId,
+          lens: 'operate',
+        }
+      : undefined;
     return {
-      system_id: this.systemId(),
+      system_id: systemId,
       context_id: this.contextId(),
       context_mode: this.contextId() ? this.sessionDocsMode() : null,
       assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
@@ -7091,6 +7103,7 @@ export class ChatPanelComponent implements AfterViewInit {
       knowledge_scope: this.knowledgeScopeOverride() || this.activeKnowledgeScope(),
       source_selection: this.selectedSource(),
       created_from: 'chat_panel',
+      ...(linked_object ? { linked_object } : {}),
     };
   }
 

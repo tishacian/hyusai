@@ -1,7 +1,7 @@
 import '@angular/compiler';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Injector } from '@angular/core';
+import { Injector, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { Subject, of } from 'rxjs';
@@ -19,7 +19,11 @@ import {
   type WorkspaceContextTransition,
   type WorkspaceRequestScope,
 } from '@app/core/workspace.service';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ChatWorkspaceComponent } from './chat-workspace.component';
+import { ChatOverlayService } from './chat-overlay.service';
+import { AdoptionService } from '@app/core/adoption.service';
 
 class WorkspaceStub {
   private slug = 'andritz';
@@ -41,6 +45,10 @@ class WorkspaceStub {
   registerContextReset(resetter: (transition: WorkspaceContextTransition) => void): () => void {
     this.resetters.add(resetter);
     return () => this.resetters.delete(resetter);
+  }
+
+  refreshCurrentWorkspace() {
+    return of(null);
   }
 
   switchWorkspace(): void {
@@ -100,6 +108,7 @@ function makeHarness() {
   const workspace = new WorkspaceStub();
   const http = new HttpStub();
   const canonical = new CanonicalStub();
+  const linkedLabel = signal<string | null>(null);
   const injector = Injector.create({
     providers: [
       ChatWorkspaceComponent,
@@ -118,6 +127,13 @@ function makeHarness() {
       {
         provide: ToastrService,
         useValue: { success: () => undefined, warning: () => undefined, error: () => undefined },
+      },
+      {
+        provide: ChatOverlayService,
+        useValue: {
+          linkedLabel,
+          preselectedSystemId: () => null,
+        },
       },
     ],
   });
@@ -197,4 +213,47 @@ test('a late A context creation cannot attach its id or documents to B', async (
   } finally {
     injector.destroy();
   }
+});
+
+test('closing then reopening the overlay keeps the in-flight session id', () => {
+  const workspace = new WorkspaceStub();
+  const injector = Injector.create({
+    providers: [
+      ChatOverlayService,
+      { provide: WorkspaceService, useValue: workspace },
+      { provide: AdoptionService, useValue: { enabled: () => false } },
+    ],
+  });
+  try {
+    const overlay = injector.get(ChatOverlayService);
+    overlay.open({ mode: 'quick', sessionId: 'sess-alive' });
+    assert.equal(overlay.isOpen(), true);
+    assert.equal(overlay.sessionId(), 'sess-alive');
+    overlay.close();
+    assert.equal(overlay.isOpen(), false);
+    // Session survives close so reopen does not recreate the conversation.
+    assert.equal(overlay.sessionId(), 'sess-alive');
+    overlay.open({ mode: 'quick', sessionId: 'sess-alive' });
+    assert.equal(overlay.isOpen(), true);
+    assert.equal(overlay.sessionId(), 'sess-alive');
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('overlay template keeps Historique link and retainContent (no destroy-on-close)', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/features/chat/chat-overlay.component.ts'),
+    'utf8',
+  );
+  assert.match(source, /data-testid="chat-overlay-history"/);
+  assert.match(source, /surface:\s*'conversations'/);
+  assert.match(source, /retainContent/);
+  assert.doesNotMatch(source, /@if \(overlay\.isOpen\(\)\)/);
+  const panel = readFileSync(
+    join(process.cwd(), 'src/app/shared/cockpit/panel.component.ts'),
+    'utf8',
+  );
+  assert.match(panel, /retainContent/);
+  assert.match(panel, /open \|\| retainContent/);
 });

@@ -220,7 +220,7 @@ test('an unflagged workspace keeps the historical Operate section set', () => {
   });
   assert.deepEqual(
     injector.get(MiniRailComponent).visibleSections().map((section) => section.key),
-    ['runs', 'observability', 'intelligence', 'missions'],
+    ['runs', 'observability', 'intelligence', 'missions', 'conversations'],
   );
 });
 
@@ -411,7 +411,7 @@ test('nav v5 Operate sommaire has no object ladder and no System facet branch', 
   assert.equal(rail.verbLabel(rail.activeVerb()!), 'experience.adoption.nav.operate');
   assert.deepEqual(
     rail.visibleSections().map((section) => section.key),
-    ['runs', 'observability', 'intelligence', 'missions', 'client360'],
+    ['runs', 'observability', 'intelligence', 'missions', 'conversations', 'client360'],
   );
   const source = readFileSync(
     join(process.cwd(), 'src/app/features/layout/mini-rail.component.ts'),

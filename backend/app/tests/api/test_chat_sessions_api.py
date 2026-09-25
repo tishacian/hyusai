@@ -447,3 +447,99 @@ def test_workspace_jobs_are_filtered_by_session_and_owner(db_session):
     assert hidden_detail.status_code == 404
     ownerless_detail = client.get("/api/v1/workspace-jobs/job-ownerless-hidden")
     assert ownerless_detail.status_code == 404
+
+
+def test_list_sessions_search_and_linked_object_filters(db_session):
+    workspace, owner, _other, admin = _seed_workspace_users(db_session)
+    db_session.add_all(
+        [
+            ChatSession(
+                id="session-pump",
+                workspace_id=workspace.id,
+                user_id=owner.id,
+                title="Pompe URACA",
+                status="active",
+                meta_data={
+                    "linked_object": {
+                        "type": "system",
+                        "id": "sys-pump",
+                        "label": "Pompe",
+                        "lens": "operate",
+                    }
+                },
+            ),
+            ChatSession(
+                id="session-other-title",
+                workspace_id=workspace.id,
+                user_id=owner.id,
+                title="Agenda réunion",
+                status="active",
+                meta_data={
+                    "linked_object": {
+                        "type": "system",
+                        "id": "sys-agenda",
+                        "label": "Agenda",
+                    }
+                },
+            ),
+        ]
+    )
+    db_session.commit()
+
+    client = _client(db_session, workspace, owner)
+    by_title = client.get("/api/v1/sessions?q=pompe")
+    assert by_title.status_code == 200
+    assert [item["id"] for item in by_title.json()["sessions"]] == ["session-pump"]
+
+    by_linked = client.get("/api/v1/sessions?linked_type=system&linked_id=sys-agenda")
+    assert by_linked.status_code == 200
+    assert [item["id"] for item in by_linked.json()["sessions"]] == ["session-other-title"]
+
+    admin_client = _client(db_session, workspace, admin)
+    admin_listed = admin_client.get(
+        "/api/v1/sessions?include_admin=true&q=pompe&linked_type=system&linked_id=sys-pump"
+    )
+    assert admin_listed.status_code == 200
+    assert [item["id"] for item in admin_listed.json()["sessions"]] == ["session-pump"]
+    audit = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.event_type == "chat.session.admin_list")
+        .order_by(AuditLog.timestamp.desc())
+        .first()
+    )
+    assert audit is not None
+    assert audit.details.get("q") == "pompe"
+    assert audit.details.get("linked_type") == "system"
+    assert audit.details.get("linked_id") == "sys-pump"
+
+
+def test_create_session_persists_linked_object(db_session):
+    workspace, owner, _other, _admin = _seed_workspace_users(db_session)
+    client = _client(db_session, workspace, owner)
+    created = client.post(
+        "/api/v1/sessions",
+        json={
+            "title": "Depuis un Système",
+            "context": {
+                "system_id": "sys-1",
+                "linked_object": {
+                    "type": "system",
+                    "id": "sys-1",
+                    "label": "Système Alpha",
+                    "lens": "operate",
+                    "noise": "drop-me",
+                },
+            },
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["meta_data"]["linked_object"] == {
+        "type": "system",
+        "id": "sys-1",
+        "label": "Système Alpha",
+        "lens": "operate",
+    }
+    assert "noise" not in body["meta_data"]["linked_object"]
+    stored = db_session.query(ChatSession).filter(ChatSession.id == body["id"]).one()
+    assert stored.meta_data["linked_object"]["label"] == "Système Alpha"
