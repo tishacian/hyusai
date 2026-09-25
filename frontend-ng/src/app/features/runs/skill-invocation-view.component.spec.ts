@@ -220,3 +220,65 @@ test('Invocation audit uses only the authorized Run payload when projections are
   view.ngOnDestroy();
   assert.equal(view.invocation(), null);
 });
+
+test('SkillInvocation shows Depuis la trace {id} when arrival provenance is present', () => {
+  const previous = (globalThis as { history?: { state?: unknown } }).history;
+  Object.defineProperty(globalThis, 'history', {
+    configurable: true,
+    value: {
+      state: {
+        ckArrivalProvenance: {
+          kind: 'trace',
+          traceId: 'run-trace-9',
+          backUrl: '/runs/run-trace-9?facet=trace',
+        },
+      },
+    },
+  });
+  try {
+    const params = new BehaviorSubject(convertToParamMap({
+      runId: 'run-trace-9',
+      invocationId: 'invocation-1',
+    }));
+    const query = new BehaviorSubject(convertToParamMap({}));
+    const injector = Injector.create({
+      providers: [
+        SkillInvocationViewComponent,
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: params.asObservable(),
+            queryParamMap: query.asObservable(),
+            snapshot: { paramMap: params.value, queryParamMap: query.value },
+          },
+        },
+        { provide: Router, useValue: { navigate: () => Promise.resolve(true), navigateByUrl: () => Promise.resolve(true) } },
+        { provide: CanonicalApiService, useValue: { getSkillInvocation: () => of(null), getRun: () => of(null) } },
+        { provide: WorkspaceService, useValue: new WorkspaceStub(false) },
+        { provide: ObjectPerspectiveStore, useValue: { loadAll: () => of(emptyBundle()) } },
+        { provide: LensService, useValue: { lens: () => 'operate' } },
+        {
+          provide: I18nService,
+          useValue: {
+            locale: () => 'fr',
+            t: (key: string, params?: Record<string, string>) =>
+              key === 'runs.provenance.from_trace'
+                ? `Depuis la trace ${params?.['id']}`
+                : key,
+          },
+        },
+        { provide: ZoomContextService, useValue: { navV5Enabled: () => false, zoneI18nKey: () => 'nav.operate' } },
+      ],
+    });
+    const view = injector.get(SkillInvocationViewComponent);
+    view.ngOnInit();
+    assert.equal(view.arrivalChipLabel(), 'Depuis la trace run-trace-9');
+    assert.equal(view.arrivalBackHref(), '/runs/run-trace-9?facet=trace');
+    view.ngOnDestroy();
+  } finally {
+    Object.defineProperty(globalThis, 'history', {
+      configurable: true,
+      value: previous,
+    });
+  }
+});

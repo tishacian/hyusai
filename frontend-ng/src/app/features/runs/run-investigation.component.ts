@@ -6,7 +6,6 @@ import { observabilityText } from '../observability/observability-labels';
 import { ApiService } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
-import { RunWaterfallComponent } from './run-waterfall.component';
 import { NavLinkDirective } from '@app/shared/cockpit';
 import { CorrectionReviewComponent } from './correction-review.component';
 import type { Run } from '@app/core/canonical-api.service';
@@ -16,7 +15,7 @@ export interface ExaminedExcerpt { id: string; text: string | null; availability
 export interface RunEvaluation { evaluation_id?: string; status: string; reason?: string; composite_score?: number | null; claim_audit?: { claims?: ExaminedClaim[] }; metadata?: { response_examined?: string; response_truncated?: boolean; excerpts?: ExaminedExcerpt[]; context_examined?: string; method?: string; [key: string]: unknown }; }
 
 @Component({
- selector: 'app-run-investigation', standalone: true, imports: [JsonPipe, CorrectionReviewComponent, RunWaterfallComponent, NavLinkDirective], changeDetection: ChangeDetectionStrategy.OnPush,
+ selector: 'app-run-investigation', standalone: true, imports: [JsonPipe, CorrectionReviewComponent, NavLinkDirective], changeDetection: ChangeDetectionStrategy.OnPush,
  template: `
  <section class="investigation" aria-labelledby="investigation-title">
   <header><h2 id="investigation-title">{{ i18n.t('runs.investigation.title') }}</h2>
@@ -58,7 +57,6 @@ export interface RunEvaluation { evaluation_id?: string; status: string; reason?
     <details><summary>{{ i18n.t('runs.investigation.method') }}</summary><p>{{code('method',evaluation()?.metadata?.method)}}</p><pre>{{ evaluation()?.metadata | json }}</pre></details>
    </aside>
   </div>
- <app-run-waterfall [run]="run()" />
  @if (evaluation()?.evaluation_id; as evaluationId) {
   <app-correction-review [run]="run()" [evaluationId]="evaluationId" />
  }

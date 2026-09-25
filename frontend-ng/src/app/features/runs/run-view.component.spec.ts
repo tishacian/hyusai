@@ -163,3 +163,75 @@ test('Run loads its projection when the effective gate activates in the same wor
   assert.equal(perspectiveLoads, 1, 'same-epoch activation reloads without route navigation');
   view.ngOnDestroy();
 });
+
+test('overview exposes Temps passé to open the trace facet and never embeds the waterfall', () => {
+  const params = new BehaviorSubject(convertToParamMap({ runId: 'run-1' }));
+  const query = new BehaviorSubject(convertToParamMap({ facet: 'overview' }));
+  const navigations: Array<{ extras?: Record<string, unknown> }> = [];
+  const injector = Injector.create({
+    providers: [
+      RunViewComponent,
+      {
+        provide: ActivatedRoute,
+        useValue: {
+          paramMap: params.asObservable(),
+          queryParamMap: query.asObservable(),
+          snapshot: { paramMap: params.value, queryParamMap: query.value },
+        },
+      },
+      {
+        provide: Router,
+        useValue: {
+          navigate: (_commands: unknown[], extras?: Record<string, unknown>) => {
+            navigations.push({ extras });
+            return Promise.resolve(true);
+          },
+        },
+      },
+      {
+        provide: CanonicalApiService,
+        useValue: {
+          getRun: () => of({
+            id: 'run-1',
+            system_id: 'sys-1',
+            status: 'completed',
+            duration_ms: 4000,
+            skill_invocations: [
+              {
+                id: 'inv-1',
+                skill_slug: 'long-skill',
+                latency_ms: 4000,
+                started_at: '2026-09-15T10:00:00Z',
+                completed_at: '2026-09-15T10:00:04Z',
+              },
+            ],
+          }),
+        },
+      },
+      { provide: WorkspaceService, useValue: new WorkspaceStub(false) },
+      { provide: ObjectPerspectiveStore, useValue: { loadAll: () => of(emptyBundle()) } },
+      { provide: LensService, useValue: { lens: () => 'operate' } },
+      { provide: ZoomContextService, useValue: {} },
+      {
+        provide: I18nService,
+        useValue: {
+          locale: () => 'fr',
+          t: (key: string, params?: Record<string, string>) =>
+            key === 'runs.detail.time_spent_meta'
+              ? `${params?.['total']} · ${params?.['longest']}`
+              : key,
+        },
+      },
+    ],
+  });
+  const view = injector.get(RunViewComponent);
+  view.ngOnInit();
+  assert.equal(view.showingTrace(), false);
+  assert.match(view.timeSpentLabel(), /long-skill/);
+  view.openTrace();
+  assert.equal(view.showingTrace(), true);
+  assert.deepEqual(navigations.at(-1)?.extras?.['queryParams'], { facet: 'trace' });
+  query.next(convertToParamMap({ facet: 'trace' }));
+  assert.equal(view.showingTrace(), true);
+  view.ngOnDestroy();
+});

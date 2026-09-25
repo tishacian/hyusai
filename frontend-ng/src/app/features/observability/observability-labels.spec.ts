@@ -18,6 +18,16 @@ test('pending, failure and unknown platform codes stay readable in both language
  }
  assert.notEqual(observabilityText(translator(OBSERVABILITY_FR),'status','pending'),observabilityText(translator(OBSERVABILITY_EN),'status','pending'));
 });
+test('four observability facet labels are localized including Traces',()=>{
+ for(const dictionary of [OBSERVABILITY_FR,OBSERVABILITY_EN]) {
+  assert.ok(dictionary['observability.tabs.operations']);
+  assert.ok(dictionary['observability.charts.page_title']);
+  assert.ok(dictionary['observability.tabs.performance']);
+  assert.ok(dictionary['observability.tabs.traces']);
+  assert.ok(!dictionary['observability.tabs.traces'].startsWith('observability.'));
+ }
+ assert.notEqual(OBSERVABILITY_FR['observability.tabs.operations'],OBSERVABILITY_EN['observability.tabs.operations']);
+});
 test('legacy server errors and limitations resolve without displaying English as French primary copy',()=>{
  const fr=translator(OBSERVABILITY_FR);
  assert.equal(observabilityText(fr,'reason','Draft changed; review it again'),OBSERVABILITY_FR['observability.codes.reason.draft_changed']);
