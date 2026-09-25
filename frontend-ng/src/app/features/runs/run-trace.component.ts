@@ -7,6 +7,7 @@ import {
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import type { Run, SkillInvocation } from '@app/core/canonical-api.service';
 import { ThinkingOrbComponent } from '@app/shared/cockpit';
 import { RunWaterfallComponent } from './run-waterfall.component';
@@ -200,6 +201,7 @@ export class RunTraceComponent {
   readonly run = input.required<Run>();
   readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
+  private readonly navigation = inject(ZoomContextService);
 
   readonly invocations = computed(() => this.run().skill_invocations || []);
   readonly summary = computed(() => traceStepSummary(this.run()));
@@ -228,12 +230,15 @@ export class RunTraceComponent {
   openInvocation(inv: SkillInvocation): void {
     if (!inv.id) return;
     const runId = this.run().id;
-    void this.router.navigate(['/runs', runId, 'invocations', inv.id], {
-      state: arrivalProvenanceState({
-        kind: 'trace',
-        traceId: runId,
-        backUrl: `/runs/${encodeURIComponent(runId)}?facet=trace`,
-      }),
-    });
+    void this.router.navigateByUrl(
+      this.navigation.objectUrl('skill_invocation', inv.id, { runId }),
+      {
+        state: arrivalProvenanceState({
+          kind: 'trace',
+          traceId: runId,
+          backUrl: `/runs/${encodeURIComponent(runId)}?facet=trace`,
+        }),
+      },
+    );
   }
 }

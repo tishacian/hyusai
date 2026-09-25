@@ -21,7 +21,7 @@ import {
 } from '@app/core/navigation.catalog';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import { AuthStore } from '@app/store/auth.store';
-import { GlyphComponent, LiveDotComponent, StatReadoutComponent } from '@app/shared/cockpit';
+import { GlyphComponent, LiveDotComponent, NavLinkDirective, StatReadoutComponent } from '@app/shared/cockpit';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.component';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
@@ -46,6 +46,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
     FormsModule,
     GlyphComponent,
     LiveDotComponent,
+    NavLinkDirective,
     StatReadoutComponent,
     IconComponent,
     RouterLink,
@@ -205,8 +206,7 @@ const THEME_ICONS: Record<ThemeMode, string> = {
             <p class="tb-telemetry-note">{{ i18n.t('titlebar.telemetry.note') }}</p>
             <a
               class="tb-telemetry-link"
-              routerLink="/observability"
-              [queryParams]="{ facet: 'traces' }"
+              [navLink]="{ surface: 'observability', facet: 'traces' }"
               data-testid="titlebar-telemetry-traces"
               (click)="closeMenus()"
             >{{ i18n.t('titlebar.telemetry.open_traces') }}</a>

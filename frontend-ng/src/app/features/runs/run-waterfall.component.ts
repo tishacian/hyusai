@@ -2,6 +2,7 @@ import {ChangeDetectionStrategy,Component,computed,inject,input} from '@angular/
 import {Router} from '@angular/router';
 import {observabilityText,observabilityNumber} from '../observability/observability-labels';
 import {I18nService} from '@app/core/i18n.service';
+import {ZoomContextService} from '@app/core/zoom-context.service';
 import type {Run} from '@app/core/canonical-api.service';
 import {NavLinkDirective} from '@app/shared/cockpit';
 import {recordedTimeline} from '../observability/observability-chart.vm';
@@ -30,17 +31,21 @@ export class RunWaterfallComponent{
   readonly fromTraceId=input<string | null>(null);
   readonly i18n=inject(I18nService);
   private readonly router=inject(Router);
+  private readonly navigation=inject(ZoomContextService);
   readonly timeline=computed(()=>recordedTimeline(this.run().skill_invocations || []));
   readonly longestIndex=computed(()=>longestTimelineRowIndex(this.timeline().rows));
 
   openFromTrace(invocationId: string): void {
     const runId = this.fromTraceId() || this.run().id;
-    void this.router.navigate(['/runs', runId, 'invocations', invocationId], {
-      state: arrivalProvenanceState({
-        kind: 'trace',
-        traceId: runId,
-        backUrl: `/runs/${encodeURIComponent(runId)}?facet=trace`,
-      }),
-    });
+    void this.router.navigateByUrl(
+      this.navigation.objectUrl('skill_invocation', invocationId, { runId }),
+      {
+        state: arrivalProvenanceState({
+          kind: 'trace',
+          traceId: runId,
+          backUrl: `/runs/${encodeURIComponent(runId)}?facet=trace`,
+        }),
+      },
+    );
   }
 }

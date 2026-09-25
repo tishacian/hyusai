@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { I18nService } from '@app/core/i18n.service';
-import { NavigationEnd, Router } from '@angular/router';
+import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import { WorkspaceMonitorComponent } from './workspace-monitor.component';
@@ -100,6 +100,7 @@ interface Tab {
 export class ObservabilityShellComponent implements OnDestroy {
   readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly urlSub: Subscription;
   private readonly url = signal(this.router.url);
 
@@ -126,7 +127,8 @@ export class ObservabilityShellComponent implements OnDestroy {
   }
 
   selectFacet(facet: ObservabilityFacet): void {
-    void this.router.navigate(['/observability'], {
+    void this.router.navigate([], {
+      relativeTo: this.route,
       queryParams: { facet },
       queryParamsHandling: 'merge',
       replaceUrl: true,

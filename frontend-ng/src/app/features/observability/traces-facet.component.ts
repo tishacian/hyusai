@@ -14,6 +14,7 @@ import {
 } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import { PageFrameComponent } from '@app/shared/cockpit';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import {
@@ -183,6 +184,7 @@ export class TracesFacetComponent implements OnDestroy {
   readonly i18n = inject(I18nService);
   private readonly api = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly navigation = inject(ZoomContextService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly subs = new Subscription();
@@ -283,11 +285,14 @@ export class TracesFacetComponent implements OnDestroy {
 
   openRun(run: Run): void {
     const backUrl = this.router.url;
-    void this.router.navigate(['/runs', run.id], {
-      state: arrivalProvenanceState({
-        kind: 'observability_traces',
-        backUrl,
-      }),
-    });
+    void this.router.navigateByUrl(
+      this.navigation.objectUrl('run', run.id),
+      {
+        state: arrivalProvenanceState({
+          kind: 'observability_traces',
+          backUrl,
+        }),
+      },
+    );
   }
 }
