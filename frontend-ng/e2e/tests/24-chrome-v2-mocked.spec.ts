@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Route, type TestInfo } from '@playwright/test';
 
 /**
@@ -334,5 +335,47 @@ test.describe('Chrome v2 — mocked', () => {
     ).toBe('#1fb8cc');
     expect(fontRequests.some((url) => url.includes('/s/spacegrotesk/'))).toBe(true);
     expect(fontRequests.filter((url) => /family=(?:Inter|JetBrains)|\/s\/(?:inter|intertight|jetbrainsmono)\//i.test(url))).toEqual([]);
+  });
+
+  test('L6 — icon rail stays 56px, tooltip on Tab, Escape closes, no link-name', async ({ page }) => {
+    await installMocks(page);
+    await page.goto('/systems');
+
+    const rail = page.locator('app-side-rail .ck-rail');
+    await expect(rail).toBeVisible({ timeout: 30_000 });
+
+    const widthAtRest = await rail.evaluate((el) => el.getBoundingClientRect().width);
+    expect(Math.round(widthAtRest)).toBe(56);
+
+    const main = page.locator('#main-content');
+    const mainXBefore = (await main.boundingBox())!.x;
+
+    await rail.hover({ position: { x: 28, y: 80 } });
+    expect(Math.round(await rail.evaluate((el) => el.getBoundingClientRect().width))).toBe(56);
+    expect((await main.boundingBox())!.x).toBe(mainXBefore);
+
+    const firstLink = page.locator('app-side-rail a.ck-rail-item').first();
+    await firstLink.focus();
+    // Keyboard focus so :focus-visible opens the tooltip immediately.
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(firstLink).toBeFocused();
+
+    const tooltip = page.locator('app-side-rail [role="tooltip"]');
+    await expect(tooltip).toBeVisible();
+    const describedBy = await firstLink.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(await tooltip.getAttribute('id')).toBe(describedBy);
+    await expect(firstLink).toHaveAttribute('aria-label', /.+/);
+
+    await page.keyboard.press('Escape');
+    await expect(tooltip).toHaveCount(0);
+    await expect(firstLink).not.toHaveAttribute('aria-describedby');
+
+    const axe = await new AxeBuilder({ page })
+      .include('app-side-rail')
+      .withRules(['link-name'])
+      .analyze();
+    expect(axe.violations).toEqual([]);
   });
 });

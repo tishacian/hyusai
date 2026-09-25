@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { RouterLink, type UrlTree } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit';
-import { WorkspaceService, workspaceSettingFeature } from '@app/core/workspace.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import {
   MISSION_ROOM_EXTENSION,
   missionRoomExtensionState,
@@ -18,19 +18,14 @@ import { COCKPIT_VERBS, agentiumSurfaceRoute, type CockpitVerb } from '@app/core
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 
+/** Unique tooltip id shared by every rail control via aria-describedby. */
+export const SIDE_RAIL_TOOLTIP_ID = 'ck-rail-tooltip';
+
 /**
- * Primary rail — 5 cockpit verbs in a compact 56px column, hybrid expand.
+ * Primary rail — 5 cockpit verbs in a fixed 56px icon column.
  *
- * Replaces the former 5-view rail + slide-over "secondary views" panel.
- * Every canonical route now lives under exactly one verb and the rail
- * becomes the single functional entry point. The semantic-zoom breadcrumb
- * in the title bar remains the single hierarchical entry point.
- *
- * Hybrid behaviour: by default the rail is 56px (icons only). When the
- * pointer enters, the rail expands to 200px after a short hold to reveal
- * labels + hints. It collapses back on leave. The second-level mini-rail
- * is rendered separately by `<app-mini-rail>` inside the content area so
- * the shell can compose layout decisions cleanly.
+ * Labels live only in aria-label + an immediate tooltip (no expand, no
+ * native title delay). Zone names always come from experience.adoption.nav.*.
  */
 @Component({
   selector: 'app-side-rail',
@@ -38,23 +33,20 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, GlyphComponent],
   template: `
-    <aside
-      class="ck-rail"
-      [class.ck-rail-readable]="adoptionEnabled()"
-      [class.ck-rail-expanded]="expanded()"
-      (mouseenter)="onEnter()"
-      (mouseleave)="onLeave()"
-      (focusin)="onFocusIn()"
-      (focusout)="onFocusOut($event)"
-    >
+    <aside class="ck-rail">
       <nav class="ck-rail-nav" [attr.aria-label]="i18n.t('nav.primary')">
         @for (v of visibleVerbs(); track v.key) {
           <a
             [routerLink]="routeTreeFor(v)"
             class="ck-rail-item"
             [class.ck-rail-item-active]="isActive(v)"
-            [title]="verbTitle(v)"
+            [attr.aria-label]="verbLabel(v)"
             [attr.aria-current]="isActive(v) ? 'page' : null"
+            [attr.aria-describedby]="tooltipKey() === v.key ? tooltipId : null"
+            (mouseenter)="onItemEnter(v.key, verbLabel(v), $event)"
+            (mouseleave)="onItemLeave($event)"
+            (focus)="onItemFocus(v.key, verbLabel(v), $event)"
+            (blur)="onItemBlur($event)"
             (click)="onVerbClick()"
           >
             @if (isActive(v)) {
@@ -62,10 +54,6 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
             }
             <span class="ck-rail-glyph" aria-hidden="true">
               <ck-glyph [name]="v.glyph" [size]="18" />
-            </span>
-            <span class="ck-rail-label">
-              <span class="ck-rail-label-name">{{ verbLabel(v) }}</span>
-              <span class="ck-rail-label-hint">{{ verbHint(v) }}</span>
             </span>
           </a>
         }
@@ -76,17 +64,27 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
           type="button"
           class="ck-rail-item ck-rail-item-ghost"
           (click)="openPalette()"
-          [title]="i18n.t('titlebar.palette') + ' · ⌘K'"
+          [attr.aria-label]="paletteLabel()"
+          [attr.aria-describedby]="tooltipKey() === 'palette' ? tooltipId : null"
+          (mouseenter)="onItemEnter('palette', paletteLabel(), $event)"
+          (mouseleave)="onItemLeave($event)"
+          (focus)="onItemFocus('palette', paletteLabel(), $event)"
+          (blur)="onItemBlur($event)"
         >
           <span class="ck-rail-glyph" aria-hidden="true">
             <ck-glyph name="crosshair" [size]="16" />
           </span>
-          <span class="ck-rail-label">
-            <span class="ck-rail-label-name">{{ i18n.t('nav.palette') }}</span>
-            <span class="ck-rail-label-hint">{{ i18n.t('nav.palette.hint') }}</span>
-          </span>
         </button>
       </div>
+
+      @if (tooltipKey()) {
+        <div
+          [id]="tooltipId"
+          class="ck-rail-tooltip"
+          role="tooltip"
+          [style.top.px]="tooltipTop()"
+        >{{ tooltipText() }}</div>
+      }
     </aside>
   `,
   styles: [
@@ -112,11 +110,7 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
         flex-direction: column;
         align-items: stretch;
         padding: 10px 0;
-        transition: width var(--ck-dur-med, 240ms) var(--ck-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
-        overflow: hidden;
-      }
-      .ck-rail-expanded {
-        width: 200px;
+        overflow: visible;
       }
 
       .ck-rail-nav {
@@ -135,7 +129,8 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
         position: relative;
         display: flex;
         align-items: center;
-        gap: 12px;
+        justify-content: center;
+        gap: 0;
         padding: 8px;
         border-radius: var(--ck-radius-md, 6px);
         color: var(--ck-fg-3);
@@ -147,7 +142,8 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
           color var(--ck-dur-fast, 120ms),
           background var(--ck-dur-fast, 120ms);
         white-space: nowrap;
-        overflow: hidden;
+        overflow: visible;
+        width: 100%;
       }
       .ck-rail-item:hover {
         color: var(--ck-fg-1);
@@ -158,10 +154,10 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
         outline-offset: 2px;
       }
       .ck-rail-item-active {
-        color: var(--ck-signal-cool);
-        background: rgba(125, 211, 252, 0.06);
+        color: var(--ck-primary);
+        background: transparent;
       }
-      .ck-rail-item-active:hover { color: var(--ck-signal-cool); }
+      .ck-rail-item-active:hover { color: var(--ck-primary); }
 
       .ck-rail-active-bar {
         position: absolute;
@@ -170,8 +166,7 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
         bottom: 8px;
         width: 2px;
         border-radius: 2px;
-        background: var(--ck-signal-cool);
-        box-shadow: var(--ck-glow-cool);
+        background: var(--ck-primary);
       }
 
       .ck-rail-glyph {
@@ -183,88 +178,42 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
         justify-content: center;
       }
 
-      .ck-rail-label {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        min-width: 0;
-        opacity: 0;
-        transform: translateX(-6px);
-        transition:
-          opacity var(--ck-dur-fast, 120ms) var(--ck-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
-          transform var(--ck-dur-fast, 120ms) var(--ck-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
-        pointer-events: none;
-      }
-      .ck-rail-expanded .ck-rail-label {
-        opacity: 1;
-        transform: translateX(0);
-        pointer-events: auto;
-      }
-      .ck-rail-label-name {
-        font-family: var(--ck-font-mono);
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: inherit;
-      }
-      .ck-rail-label-hint {
-        font-size: 10px;
-        color: var(--ck-fg-4);
-        letter-spacing: 0.02em;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
       .ck-rail-item-ghost {
         color: var(--ck-fg-4);
-        width: 100%;
-        text-align: left;
+        text-align: center;
       }
 
-      @media (min-width: 701px) {
-        :host:has(.ck-rail-readable) { width: 184px; min-width: 184px; flex-basis: 184px; }
-        .ck-rail-readable { width: 184px; }
-        .ck-rail-readable .ck-rail-label { opacity: 1; transform: none; }
-        .ck-rail-readable .ck-rail-label-hint { display: none; }
-      }
-      @media (max-width: 700px) {
-        :host {
-          width: 48px;
-          min-width: 48px;
-          flex-basis: 48px;
-        }
-
-        .ck-rail,
-        .ck-rail-expanded {
-          width: 48px;
-        }
-
-        .ck-rail-nav,
-        .ck-rail-footer {
-          padding-inline: 4px;
-        }
-
-        .ck-rail-expanded .ck-rail-label {
-          opacity: 0;
-          transform: translateX(-6px);
-          pointer-events: none;
-        }
+      .ck-rail-tooltip {
+        position: absolute;
+        left: calc(100% + 8px);
+        transform: translateY(-50%);
+        z-index: 40;
+        padding: 6px 10px;
+        background: var(--ck-bg-panel);
+        border: 1px solid var(--ck-stroke-2);
+        border-radius: var(--ck-radius-md, 6px);
+        color: var(--ck-fg-1);
+        font-family: var(--ck-font-sans);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.3;
+        white-space: nowrap;
+        pointer-events: none;
+        box-shadow: var(--ck-shadow-popover);
       }
     `,
   ],
 })
 export class SideRailComponent {
   private readonly workspace = inject(WorkspaceService);
-  readonly adoptionEnabled = computed(() => workspaceSettingFeature(this.workspace.current(), 'adoption_experience_v1', true));
   private readonly navigation = inject(ZoomContextService);
   private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
   protected readonly i18n = inject(I18nService);
 
-  readonly expanded = signal(false);
-  private expandTimer: ReturnType<typeof setTimeout> | null = null;
-  private collapseTimer: ReturnType<typeof setTimeout> | null = null;
+  readonly tooltipId = SIDE_RAIL_TOOLTIP_ID;
+  readonly tooltipKey = signal<string | null>(null);
+  readonly tooltipText = signal('');
+  readonly tooltipTop = signal(0);
 
   readonly visibleVerbs = computed(() => {
     const mode = this.workspace.mode();
@@ -275,25 +224,13 @@ export class SideRailComponent {
     return this.navigation.lens() === v.key;
   }
 
+  /** Zone name — always the adoption vocabulary (UX-042). */
   verbLabel(v: CockpitVerb): string {
-    if (this.adoptionEnabled()) return this.i18n.t('experience.adoption.nav.' + v.key);
-    return v.key === 'build' && (
-      this.navigation.navV5Enabled?.() === true || this.workspace.experienceStudioV1Enabled()
-    )
-      ? this.i18n.t('nav.build.create')
-      : this.i18n.t('nav.' + v.key);
+    return this.i18n.t('experience.adoption.nav.' + v.key);
   }
 
-  verbHint(v: CockpitVerb): string {
-    return v.key === 'build' && (
-      this.navigation.navV5Enabled?.() === true || this.workspace.experienceStudioV1Enabled()
-    )
-      ? this.i18n.t('nav.hint.build.create')
-      : this.i18n.t('nav.hint.' + v.key);
-  }
-
-  verbTitle(v: CockpitVerb): string {
-    return `${this.verbLabel(v)} — ${this.verbHint(v)}`;
+  paletteLabel(): string {
+    return this.i18n.t('titlebar.palette.tooltip');
   }
 
   routeFor(v: CockpitVerb): string {
@@ -326,51 +263,53 @@ export class SideRailComponent {
     this.telemetry?.registerTrigger('rail');
   }
 
-  onEnter(): void {
-    if (this.collapseTimer) {
-      clearTimeout(this.collapseTimer);
-      this.collapseTimer = null;
+  onItemEnter(key: string, label: string, event: MouseEvent): void {
+    this.openTooltip(key, label, event.currentTarget as HTMLElement);
+  }
+
+  onItemLeave(event: MouseEvent): void {
+    const el = event.currentTarget as HTMLElement;
+    if (el.matches(':focus-visible')) return;
+    this.closeTooltip();
+  }
+
+  onItemFocus(key: string, label: string, event: FocusEvent): void {
+    const el = event.currentTarget as HTMLElement;
+    if (el.matches(':focus-visible')) {
+      this.openTooltip(key, label, el);
     }
-    if (this.expanded()) return;
-    this.expandTimer = setTimeout(() => {
-      this.expanded.set(true);
-      this.expandTimer = null;
-    }, 220);
   }
 
-  onLeave(): void {
-    if (this.expandTimer) {
-      clearTimeout(this.expandTimer);
-      this.expandTimer = null;
-    }
-    this.collapseTimer = setTimeout(() => {
-      this.expanded.set(false);
-      this.collapseTimer = null;
-    }, 180);
-  }
-
-  onFocusIn(): void {
-    if (this.expandTimer) clearTimeout(this.expandTimer);
-    if (this.collapseTimer) clearTimeout(this.collapseTimer);
-    this.expandTimer = null;
-    this.collapseTimer = null;
-    this.expanded.set(true);
-  }
-
-  onFocusOut(event: FocusEvent): void {
-    const rail = event.currentTarget as HTMLElement | null;
-    if (rail?.contains(event.relatedTarget as Node | null)) return;
-    this.onLeave();
+  onItemBlur(event: FocusEvent): void {
+    const next = event.relatedTarget as HTMLElement | null;
+    if (next?.closest('.ck-rail-item')) return;
+    this.closeTooltip();
   }
 
   openPalette(): void {
+    this.closeTooltip();
     window.dispatchEvent(new CustomEvent('ck:command-palette:open'));
   }
 
   @HostListener('window:keydown', ['$event'])
   onKey(ev: KeyboardEvent): void {
-    if (ev.key === 'Escape' && this.expanded()) {
-      this.expanded.set(false);
+    if (ev.key === 'Escape' && this.tooltipKey()) {
+      this.closeTooltip();
     }
+  }
+
+  private openTooltip(key: string, label: string, el: HTMLElement): void {
+    const rail = el.closest('.ck-rail') as HTMLElement | null;
+    const top = rail
+      ? el.getBoundingClientRect().top - rail.getBoundingClientRect().top + el.offsetHeight / 2
+      : el.offsetTop + el.offsetHeight / 2;
+    this.tooltipKey.set(key);
+    this.tooltipText.set(label);
+    this.tooltipTop.set(top);
+  }
+
+  private closeTooltip(): void {
+    this.tooltipKey.set(null);
+    this.tooltipText.set('');
   }
 }
