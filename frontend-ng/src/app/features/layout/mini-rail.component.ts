@@ -211,7 +211,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
         background: var(--ck-bg-panel-hi);
       }
       .ck-mini-item:focus-visible {
-        outline: 2px solid var(--ck-signal-cool);
+        outline: 2px solid var(--ck-primary);
         outline-offset: 2px;
       }
       .ck-mini-item-active {
