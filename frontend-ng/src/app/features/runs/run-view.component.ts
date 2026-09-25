@@ -36,8 +36,16 @@ import { WorkspaceViewContext, type WorkspaceViewRequest } from '@app/core/works
 import { recordedModelExecution } from '@app/core/model-catalog';
 import { RunMandateComponent } from '../mandate/run-mandate.component';
 import { RunInvestigationComponent } from './run-investigation.component';
+import { RunTraceComponent } from './run-trace.component';
+import {
+  arrivalProvenanceLabel,
+  readArrivalProvenance,
+  type ArrivalProvenance,
+} from './arrival-provenance';
+import { traceStepSummary } from './run-trace.vm';
 import { invocationCost } from '@app/shared/cockpit/run-cost';
 import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
+import { observabilityNumber } from '../observability/observability-labels';
 
 @Component({
   selector: 'app-run-view',
@@ -59,6 +67,7 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
     ModelExecutionComponent,
     RunInvestigationComponent,
     RunMandateComponent,
+    RunTraceComponent,
   ],
   template: `
 
@@ -84,7 +93,29 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
           </button>
         </div>
       </ck-object-header>
-    @if (run(); as currentRun) { <app-run-mandate [runId]="currentRun.id" /><app-run-investigation [run]="currentRun" /> }
+      @if (arrivalChipLabel(); as chip) {
+        <a
+          class="arrival-chip"
+          data-testid="run-arrival-provenance"
+          [attr.href]="arrivalBackHref() || null"
+          (click)="onArrivalBack($event)"
+        >{{ chip }}</a>
+      }
+    @if (run(); as currentRun) {
+      @if (showingTrace()) {
+        <app-run-trace [run]="currentRun" />
+      } @else {
+        <app-run-mandate [runId]="currentRun.id" />
+        <button
+          type="button"
+          class="time-spent"
+          data-testid="run-time-spent"
+          (click)="openTrace()"
+        >
+          <span class="time-spent-label">{{ i18n.t('runs.detail.time_spent') }}</span>
+          <span class="time-spent-meta">{{ timeSpentLabel() }}</span>
+        </button>
+        <app-run-investigation [run]="currentRun" />
 
       <ck-tabs [active]="activePerspectiveTab()" (activeChange)="onPerspectiveTabChange($event)" [ariaLabel]="i18n.t('runs.detail.facets_aria')">
         <ck-tab id="overview" [label]="i18n.t('runs.detail.tab.overview')">
@@ -123,6 +154,8 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
           <ck-object-perspective [objectLabel]="i18n.t('runs.detail.object_label')" [lens]="activeLens()" facet="checkpoints" [perspective]="activePerspective()" [loading]="perspectivesLoading()" [error]="perspectivesError()" />
         </ck-tab>
       </ck-tabs>
+      }
+    }
     } @else {
     <ck-page-frame
       [eyebrow]="i18n.t('runs.list.eyebrow')"
@@ -177,8 +210,35 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
           [title]="i18n.t('runs.detail.not_found.title')"
           [description]="i18n.t('runs.detail.not_found.description')"
         />
+      } @else if (showingTrace()) {
+        @if (arrivalChipLabel(); as chip) {
+          <a
+            class="arrival-chip"
+            data-testid="run-arrival-provenance"
+            [attr.href]="arrivalBackHref() || null"
+            (click)="onArrivalBack($event)"
+          >{{ chip }}</a>
+        }
+        <app-run-trace [run]="run()!" />
       } @else {
+        @if (arrivalChipLabel(); as chip) {
+          <a
+            class="arrival-chip"
+            data-testid="run-arrival-provenance"
+            [attr.href]="arrivalBackHref() || null"
+            (click)="onArrivalBack($event)"
+          >{{ chip }}</a>
+        }
         <app-run-mandate [runId]="run()!.id" />
+        <button
+          type="button"
+          class="time-spent"
+          data-testid="run-time-spent"
+          (click)="openTrace()"
+        >
+          <span class="time-spent-label">{{ i18n.t('runs.detail.time_spent') }}</span>
+          <span class="time-spent-meta">{{ timeSpentLabel() }}</span>
+        </button>
         <app-run-investigation [run]="run()!" />
         <!-- Canonical Outcome card — value / cost / confidence / efficiency + decision. -->
         <div class="mb-6">
@@ -465,6 +525,53 @@ import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.com
     </ck-page-frame>
     }
   `,
+  styles: [`
+    .arrival-chip {
+      display: inline-flex;
+      align-items: center;
+      margin: 12px 32px 0;
+      font-family: var(--ck-font-mono);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ck-fg-3);
+      text-decoration: none;
+    }
+    .arrival-chip:hover { color: var(--ck-fg-1); }
+    .time-spent {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+      width: calc(100% - 64px);
+      max-width: 1480px;
+      margin: 16px 32px 0;
+      padding: 14px 16px;
+      text-align: left;
+      background: var(--ck-bg-panel);
+      border: 1px solid var(--ck-stroke-2);
+      border-radius: 6px;
+      color: var(--ck-fg-1);
+      cursor: pointer;
+    }
+    .time-spent:hover { border-color: var(--ck-stroke-3); }
+    .time-spent:focus-visible {
+      outline: 2px solid var(--ck-signal-cool);
+      outline-offset: 2px;
+    }
+    .time-spent-label {
+      font-family: var(--ck-font-mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ck-fg-2);
+    }
+    .time-spent-meta {
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      color: var(--ck-fg-3);
+    }
+  `],
 })
 export class RunViewComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
@@ -507,6 +614,22 @@ export class RunViewComponent implements OnInit, OnDestroy {
   readonly perspectivesLoading = signal(false);
   readonly perspectivesError = signal(false);
   readonly activePerspectiveTab = signal<RunPerspectiveFacet>('overview');
+  readonly showingTrace = signal(false);
+  readonly arrival = signal<ArrivalProvenance | null>(readArrivalProvenance());
+  readonly arrivalChipLabel = computed(() => {
+    const provenance = this.arrival();
+    return provenance ? arrivalProvenanceLabel(provenance, (key, params) => this.i18n.t(key, params)) : null;
+  });
+  readonly arrivalBackHref = computed(() => this.arrival()?.backUrl || '');
+  readonly timeSpentLabel = computed(() => {
+    const run = this.run();
+    if (!run) return '—';
+    const summary = traceStepSummary(run);
+    const total = `${observabilityNumber(summary.totalMs / 1000, this.i18n.locale(), 2)} s`;
+    if (!summary.longestLabel || summary.longestMs <= 0) return total;
+    const longest = `${summary.longestLabel} · ${observabilityNumber(summary.longestMs / 1000, this.i18n.locale(), 2)} s`;
+    return this.i18n.t('runs.detail.time_spent_meta', { total, longest });
+  });
   readonly projectionEnabled = computed(() => this.workspaceFeature('run_360_projection_v1'));
   readonly activeLens = computed<ObjectLens>(() => {
     const lens = this.lensService.lens();
@@ -586,6 +709,7 @@ export class RunViewComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.projectionFeatureEnabled = this.projectionEnabled();
+    this.arrival.set(readArrivalProvenance());
     this.featureRefreshSubscription = this.workspace.contextRefresh$.subscribe(
       () => this.onProjectionFeatureRefresh(),
     );
@@ -679,6 +803,7 @@ export class RunViewComponent implements OnInit, OnDestroy {
   onPerspectiveTabChange(value: string): void {
     if (!isRunPerspectiveFacet(value)) return;
     this.requestedFacet = value;
+    this.showingTrace.set(false);
     this.activePerspectiveTab.set(value);
     void this.router.navigate([], {
       relativeTo: this.route,
@@ -688,7 +813,39 @@ export class RunViewComponent implements OnInit, OnDestroy {
     });
   }
 
+  openTrace(): void {
+    this.showingTrace.set(true);
+    this.requestedFacet = 'trace';
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: 'trace' },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  onArrivalBack(event: MouseEvent): void {
+    const href = this.arrivalBackHref();
+    if (!href) return;
+    if (
+      event.defaultPrevented
+      || event.button !== 0
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+      || event.altKey
+    ) {
+      return;
+    }
+    event.preventDefault();
+    void this.router.navigateByUrl(href);
+  }
+
   private applyRequestedFacet(facet: string | null): void {
+    if (facet === 'trace') {
+      this.showingTrace.set(true);
+      return;
+    }
+    this.showingTrace.set(false);
     this.activePerspectiveTab.set(isRunPerspectiveFacet(facet) ? facet : 'overview');
   }
 
