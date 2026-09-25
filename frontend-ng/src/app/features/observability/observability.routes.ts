@@ -1,30 +1,24 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { Router, type Routes } from '@angular/router';
+import { observabilityFacetRedirectUrl } from './observability-facet-redirect';
 
+function facetRedirect(facet: 'quality' | 'performance' | 'traces') {
+  return ({ queryParams }: { queryParams: Record<string, string> }) => {
+    const target = observabilityFacetRedirectUrl(facet, queryParams);
+    return inject(Router).createUrlTree([target.path], {
+      queryParams: target.queryParams,
+    });
+  };
+}
+
+/** Facets live in `?facet=` on the shell. Legacy child paths redirect and keep query params. */
 export const observabilityRoutes: Routes = [
+  { path: 'quality', redirectTo: facetRedirect('quality') },
+  { path: 'performance', redirectTo: facetRedirect('performance') },
+  { path: 'traces', redirectTo: facetRedirect('traces') },
   {
     path: '',
     loadComponent: () =>
       import('./observability-shell.component').then((m) => m.ObservabilityShellComponent),
-    children: [
-      {
-        path: '',
-        loadComponent: () =>
-          import('./workspace-monitor.component').then((m) => m.WorkspaceMonitorComponent),
-      },
-      {
-        path: 'quality',
-        loadComponent: () =>
-          import('./quality-dashboard.component').then((m) => m.QualityDashboardComponent),
-      },
-      {
-        path: 'performance',
-        loadComponent: () =>
-          import('./performance-dashboard.component').then((m) => m.PerformanceDashboardComponent),
-      },
-      // Legacy `/observability/traces` is replaced by the canonical `/runs`
-      // browser. We keep the path so bookmarks keep working, but redirect to
-      // the new home of the execution log.
-      { path: 'traces', redirectTo: '/runs', pathMatch: 'full' },
-    ],
   },
 ];

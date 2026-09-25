@@ -37,6 +37,11 @@ import type { ObjectPerspectiveResponse } from '@app/shared/cockpit/object-persp
 import { recordedModelExecution } from '@app/core/model-catalog';
 import { ModelExecutionComponent } from '@app/shared/cockpit/model-execution.component';
 import { observabilityText } from '../observability/observability-labels';
+import {
+  arrivalProvenanceLabel,
+  readArrivalProvenance,
+  type ArrivalProvenance,
+} from './arrival-provenance';
 
 @Component({
   selector: 'app-skill-invocation-view',
@@ -68,6 +73,15 @@ import { observabilityText } from '../observability/observability-labels';
         }
       </div>
     </ck-object-header>
+
+    @if (arrivalChipLabel(); as chip) {
+      <a
+        class="arrival-chip"
+        data-testid="invocation-arrival-provenance"
+        [attr.href]="arrivalBackHref() || null"
+        (click)="onArrivalBack($event)"
+      >{{ chip }}</a>
+    }
 
     @if (modelExecution(); as model) {
       <section class="ck-surface rounded-md p-4 mb-4"><app-model-execution [resolution]="model" /></section>
@@ -102,6 +116,20 @@ import { observabilityText } from '../observability/observability-labels';
       </ck-tabs>
     }
   `,
+  styles: [`
+    .arrival-chip {
+      display: inline-flex;
+      align-items: center;
+      margin: 12px 32px 0;
+      font-family: var(--ck-font-mono);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ck-fg-3);
+      text-decoration: none;
+    }
+    .arrival-chip:hover { color: var(--ck-fg-1); }
+  `],
 })
 export class SkillInvocationViewComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
@@ -133,6 +161,12 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
     () => this.reload(),
   );
 
+  readonly arrival = signal<ArrivalProvenance | null>(null);
+  readonly arrivalChipLabel = computed(() => {
+    const provenance = this.arrival();
+    return provenance ? arrivalProvenanceLabel(provenance, (key, params) => this.i18n.t(key, params)) : null;
+  });
+  readonly arrivalBackHref = computed(() => this.arrival()?.backUrl || '');
   readonly runId = signal('');
   readonly invocationId = signal('');
   readonly invocation = signal<SkillInvocation | null>(null);
@@ -175,6 +209,7 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.projectionFeatureEnabled = this.projectionEnabled();
+    this.arrival.set(readArrivalProvenance());
     this.featureRefreshSubscription = this.workspace.contextRefresh$.subscribe(
       () => this.onProjectionFeatureRefresh(),
     );
@@ -207,6 +242,23 @@ export class SkillInvocationViewComponent implements OnInit, OnDestroy {
     this.featureRefreshSubscription?.unsubscribe();
     this.featureRefreshSubscription = null;
     this.workspaceView.destroy();
+  }
+
+  onArrivalBack(event: MouseEvent): void {
+    const href = this.arrivalBackHref();
+    if (!href) return;
+    if (
+      event.defaultPrevented
+      || event.button !== 0
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+      || event.altKey
+    ) {
+      return;
+    }
+    event.preventDefault();
+    void this.router.navigateByUrl(href);
   }
 
   onTabChange(value: string): void {
