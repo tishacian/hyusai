@@ -1,5 +1,7 @@
 import '@angular/compiler';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { Injector, runInInjectionContext, signal } from '@angular/core';
 import { type Navigation, type NavigationBehaviorOptions, Router } from '@angular/router';
@@ -34,6 +36,7 @@ class WorkspaceStub {
   private epoch = 3;
   private readonly resetters = new Set<(transition: WorkspaceContextTransition) => void>();
   settings: Record<string, unknown> | undefined;
+  modeValue: 'builder' | 'executive' | 'operator' = 'executive';
 
   readonly workspaces = () => [
     { id: 'workspace-andritz', slug: 'andritz', name: 'Andritz', role: 'member' },
@@ -41,7 +44,10 @@ class WorkspaceStub {
   ];
   readonly currentSlug = () => this.slug;
   readonly contextEpoch = () => this.epoch;
-  readonly current = () => ({ settings: this.settings });
+  readonly current = () => ({ settings: this.settings, mode: this.modeValue, name: this.workspaces().find((w) => w.slug === this.slug)?.name ?? this.slug });
+  readonly mode = () => this.modeValue;
+  readonly isBuilderMode = () => this.modeValue === 'builder';
+  readonly experienceV1Enabled = () => true;
 
   captureRequestScope(): WorkspaceRequestScope {
     return Object.freeze({ workspaceSlug: this.slug, workspaceId: `workspace-${this.slug}`, epoch: this.epoch });
@@ -151,8 +157,8 @@ function harness(options: { api?: unknown } = {}) {
         provide: ApiService,
         useValue: options.api ?? { get: () => new Subject<TelemetrySnapshot>().asObservable() },
       },
-      { provide: ThemeService, useValue: { mode: signal('dark'), resolved, setMode: () => undefined } },
-      { provide: AuthStore, useValue: { email: () => null, clear: () => undefined } },
+      { provide: ThemeService, useValue: { mode: signal('dark'), resolved, setMode: () => undefined, cycle: () => undefined } },
+      { provide: AuthStore, useValue: { email: () => null, role: () => null, clear: () => undefined } },
       {
         provide: ChatOverlayService,
         useValue: { isOpen: () => false, open: () => undefined, close: () => undefined },
@@ -161,6 +167,7 @@ function harness(options: { api?: unknown } = {}) {
         provide: I18nService,
         useValue: {
           locale: signal('en'),
+          supported: ['en', 'fr'],
           t: (key: string, params?: Record<string, unknown>) => (params ? `${key} ${JSON.stringify(params)}` : key),
           setLocale: () => undefined,
         },
@@ -178,8 +185,9 @@ function harness(options: { api?: unknown } = {}) {
     suspendedFor(slug: string): { label: string; count: number } | null;
     unsavedReason(state: { label: string; count: number }): string;
     switchNotice(): { name: string; location: string; previous: { slug: string; name: string } | null } | null;
-    emblem(): string | null;
-    emblemIsKeyed(): boolean;
+    builderChip(): { label: string; tooltip: string } | null;
+    thrpt(): string;
+    accountMenuItems: readonly string[];
   };
   return { injector, workspace, router, resolved, titleBar, view, switcher: injector.get(WorkspaceSwitchService) };
 }
@@ -390,22 +398,8 @@ test('« Rester ici » keeps A and closes the menu', async () => {
   }
 });
 
-test('a tenant without a light variant shows the same emblem in both themes', () => {
-  const { workspace, resolved, view: titleBar, injector } = harness();
-  workspace.settings = { platform_brand: { label: 'Acme', emblem: '/assets/acme/mark.png', home: '/acme' } };
-  try {
-    assert.equal(titleBar.emblem(), '/assets/acme/mark.png');
-    assert.equal(titleBar.emblemIsKeyed(), false, 'the softening radius stays on');
-    resolved.set('light');
-    assert.equal(titleBar.emblem(), '/assets/acme/mark.png', 'unchanged: the guarantee for every other tenant');
-    assert.equal(titleBar.emblemIsKeyed(), false);
-  } finally {
-    injector.destroy();
-  }
-});
-
-test('a declared light variant is swapped in on the light theme, live', () => {
-  const { workspace, resolved, view: titleBar, injector } = harness();
+test('the title bar never shows a tenant emblem image (ADR lot 2)', () => {
+  const { workspace, resolved, titleBar, injector } = harness();
   workspace.settings = {
     platform_brand: {
       label: 'NAWA',
@@ -415,34 +409,79 @@ test('a declared light variant is swapped in on the light theme, live', () => {
     },
   };
   try {
-    assert.equal(titleBar.emblem(), '/assets/nawa/nawa-logo.png');
-    assert.equal(titleBar.emblemIsKeyed(), false);
-
-    // No reload: the theme signal drives the emblem the same way it drives the
-    // token switch on `html`.
-    resolved.set('light');
-    assert.equal(titleBar.emblem(), '/assets/nawa/nawa-logo-transparent.png');
-    assert.equal(
-      titleBar.emblemIsKeyed(),
-      true,
-      'a keyed-out wordmark has no opaque corners left to round',
+    const source = readFileSync(
+      join(process.cwd(), 'src/app/features/layout/title-bar.component.ts'),
+      'utf8',
     );
-
-    resolved.set('dark');
-    assert.equal(titleBar.emblem(), '/assets/nawa/nawa-logo.png');
-    assert.equal(titleBar.emblemIsKeyed(), false);
+    assert.match(source, /tb-mark/, 'the Agentium « A » mark stays in the 56px column');
+    assert.doesNotMatch(source, /platformBrand|tb-emblem-brand|emblemIsKeyed/, 'tenant artwork left the bandeau');
+    assert.equal(titleBar.builderChip(), null);
+    resolved.set('light');
+    assert.equal(titleBar.builderChip(), null);
   } finally {
     injector.destroy();
   }
 });
 
-test('a workspace with no brand at all keeps the Agentium mark', () => {
-  const { resolved, view: titleBar, injector } = harness();
+test('a workspace with no brand keeps the Agentium mark only', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/features/layout/title-bar.component.ts'),
+    'utf8',
+  );
+  assert.match(source, />A</);
+  assert.doesNotMatch(source, /Agentium<\/span>/);
+});
+
+test('the account menu no longer offers Settings', () => {
+  const { titleBar, injector } = harness();
   try {
-    assert.equal(titleBar.emblem(), null);
-    resolved.set('light');
-    assert.equal(titleBar.emblem(), null);
-    assert.equal(titleBar.emblemIsKeyed(), false);
+    assert.deepEqual([...titleBar.accountMenuItems], ['profile', 'security', 'locale', 'theme', 'signout']);
+    const source = readFileSync(
+      join(process.cwd(), 'src/app/features/layout/title-bar.component.ts'),
+      'utf8',
+    );
+    assert.doesNotMatch(source, /navigate\('\/settings'\)/);
+    assert.doesNotMatch(source, /nav\.settings/);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('Télémétrie replaces Diagnostics and throughput uses /min from throughput_rpm', () => {
+  const { titleBar, view, injector } = harness();
+  try {
+    titleBar.telemetry.set({
+      throughput_rpm: 412,
+      latency_ms: 96,
+      yield_pct: 98,
+      runs_count: 4,
+    });
+    assert.equal(view.thrpt(), '412/min');
+    const source = readFileSync(
+      join(process.cwd(), 'src/app/features/layout/title-bar.component.ts'),
+      'utf8',
+    );
+    assert.match(source, /titlebar\.telemetry\.details/);
+    assert.match(source, /titlebar\.telemetry\.panel_title/);
+    assert.match(source, /observability.*facet.*traces|facet: 'traces'/);
+    assert.doesNotMatch(source, /Diagnostics/);
+    assert.doesNotMatch(source, / r\/m/);
+  } finally {
+    injector.destroy();
+  }
+});
+
+test('in builder mode the chip announces two hidden zones', () => {
+  const { workspace, view, injector } = harness();
+  workspace.modeValue = 'builder';
+  try {
+    const chip = view.builderChip();
+    assert.ok(chip);
+    assert.match(chip.label, /titlebar\.builder\.chip/);
+    assert.match(chip.label, /"count":2/);
+    assert.match(chip.tooltip, /titlebar\.builder\.chip_tooltip/);
+    assert.match(chip.tooltip, /hypervisor/);
+    assert.match(chip.tooltip, /steer/);
   } finally {
     injector.destroy();
   }

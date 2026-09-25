@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-25T06:10:03.349Z",
+  "generated_at": "2026-09-25T07:36:23.235Z",
   "rules": {
     "font": "banned font",
     "violet": "banned violet",
@@ -160,12 +160,6 @@
     },
     "src/app/features/layout/mini-rail.component.ts": {
       "halo": 1
-    },
-    "src/app/features/layout/side-rail.component.ts": {
-      "halo": 1
-    },
-    "src/app/features/layout/title-bar.component.ts": {
-      "violet": 2
     },
     "src/app/features/mandate/run-mandate.component.css": {
       "violet": 1,
@@ -415,7 +409,7 @@
     },
     "src/styles.scss": {
       "violet": 2,
-      "halo": 7
+      "halo": 6
     },
     "src/styles/cockpit-tokens.scss": {
       "violet": 6,

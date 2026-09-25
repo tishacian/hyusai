@@ -4,6 +4,7 @@ import { GlyphComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import {
   COCKPIT_VERBS,
   cockpitVerbSections,
@@ -54,11 +55,11 @@ const SCOPE_ORDER: CockpitScopeType[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, GlyphComponent, NavLinkDirective],
   host: {
-    '[class.ck-mini-rail-stable]': 'stableLayout() && (visibleSections().length > 0 || !!systemBranch())',
+    '[class.ck-mini-rail-stable]': 'stableLayout() && (visibleSections().length > 0 || !!systemBranch() || hiddenByMode())',
   },
   template: `
     @if (activeVerb(); as verb) {
-      @if (visibleSections().length > 0 || systemBranch()) {
+      @if (visibleSections().length > 0 || systemBranch() || hiddenByMode()) {
         <aside class="ck-mini-rail" [attr.aria-label]="i18n.t(stableLayout() ? 'nav.sommaire' : 'nav.object_index')">
           <header class="ck-mini-head">
             <span class="ck-mini-eyebrow">{{ i18n.t(stableLayout() ? 'nav.sommaire' : 'nav.scope') }}</span>
@@ -69,6 +70,9 @@ const SCOPE_ORDER: CockpitScopeType[] = [
           </header>
 
           <nav class="ck-mini-nav">
+            @if (hiddenByMode()) {
+              <p class="ck-mini-hidden" data-testid="sommaire-hidden-by-mode">{{ i18n.t('nav.sommaire.hidden_by_mode') }}</p>
+            }
             @for (s of visibleSections(); track s.key) {
               <a
                 [routerLink]="routeTreeFor(s)"
@@ -175,6 +179,16 @@ const SCOPE_ORDER: CockpitScopeType[] = [
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: var(--ck-fg-4);
+      }
+      .ck-mini-hidden {
+        margin: 4px 6px 8px;
+        padding: 8px;
+        border: 1px solid var(--ck-stroke-2);
+        border-radius: 4px;
+        background: var(--ck-bg-panel);
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--ck-fg-2);
       }
 
       .ck-mini-nav {
@@ -294,6 +308,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
 export class MiniRailComponent {
   private readonly navigation = inject(ZoomContextService);
   private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
+  private readonly workspace = inject(WorkspaceService);
   protected readonly i18n = inject(I18nService);
 
   readonly currentPath = computed(() => this.navigation.route().path);
@@ -301,6 +316,13 @@ export class MiniRailComponent {
   readonly activeVerb = computed<CockpitVerb | null>(() => {
     const lens = this.navigation.lens();
     return COCKPIT_VERBS.find((verb) => verb.key === lens) ?? null;
+  });
+
+  /** Deep link into a zone the current workspace mode hides from the rail. */
+  readonly hiddenByMode = computed(() => {
+    const verb = this.activeVerb();
+    const mode = this.workspace.mode();
+    return !!(verb?.hiddenInModes?.includes(mode));
   });
 
   /**

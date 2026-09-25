@@ -14,7 +14,10 @@ import {
 } from '@app/core/navigation.catalog';
 import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { MiniRailComponent } from './mini-rail.component';
+
+const workspaceStub = { mode: () => 'executive' as const, isBuilderMode: () => false };
 
 test('Capability scope hides its own level and routes Systems inside the same ancestry', () => {
   const lens = signal<CockpitLens>('build');
@@ -54,6 +57,7 @@ test('Capability scope hides its own level and routes Systems inside the same an
           urlForScope: (section: CockpitSection) => navigationScopeUrl(section, ancestry, lens()),
         },
       },
+      { provide: WorkspaceService, useValue: workspaceStub },
       { provide: I18nService, useValue: { t: (key: string) => key } },
     ],
   });
@@ -92,6 +96,7 @@ function createSommaire(path: string, triggers: string[]): MiniRailComponent {
         provide: NavigationTelemetryService,
         useValue: { registerTrigger: (trigger: string) => triggers.push(trigger) },
       },
+      { provide: WorkspaceService, useValue: workspaceStub },
       { provide: I18nService, useValue: { t: (key: string) => key } },
     ],
   });
@@ -200,6 +205,7 @@ test('an unflagged workspace keeps the historical Operate section set', () => {
           urlForScope: (section: CockpitSection) => section.route,
         },
       },
+      { provide: WorkspaceService, useValue: workspaceStub },
       { provide: I18nService, useValue: { t: (key: string) => key } },
     ],
   });
@@ -250,6 +256,7 @@ function railWithFlowScope(axesV3: boolean, systemId: string | null): MiniRailCo
           ),
         },
       },
+      { provide: WorkspaceService, useValue: workspaceStub },
       { provide: I18nService, useValue: { t: (key: string) => key } },
     ],
   });
@@ -309,6 +316,7 @@ test('axes v4 exposes no object index under the Portfolio-only Hypervisor destin
           urlForScope: (section: CockpitSection) => section.route,
         },
       },
+      { provide: WorkspaceService, useValue: workspaceStub },
       { provide: I18nService, useValue: { t: (key: string) => key } },
     ],
   });
@@ -343,6 +351,7 @@ test('experience studio prepends Business application to the Create catalogues',
           urlForScope: (section: CockpitSection) => section.route,
         },
       },
+      { provide: WorkspaceService, useValue: workspaceStub },
       { provide: I18nService, useValue: { t: (key: string) => key } },
     ],
   });
@@ -391,6 +400,7 @@ test('nav v5 Operate sommaire has no object ladder and exposes a System facet br
           urlForScope: (section: CockpitSection) => section.route,
         },
       },
+      { provide: WorkspaceService, useValue: workspaceStub },
       { provide: I18nService, useValue: { t: (key: string) => key } },
     ],
   });
