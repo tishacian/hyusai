@@ -46,7 +46,7 @@ test('side rail delegates every lens route to the route-owned navigation project
   assert.deepEqual(calls, [['govern', '/governance']]);
 });
 
-test('demo rail uses Mission Room home only when the extension is enabled', () => {
+test('demo rail always opens Impact Portfolio, never Mission Room', () => {
   let current = {
     mode: 'demo',
     settings: { mission_room: { enabled: true } },
@@ -79,7 +79,7 @@ test('demo rail uses Mission Room home only when the extension is enabled', () =
   const rail = injector.get(SideRailComponent);
   const hypervisor = rail.visibleVerbs().find((verb) => verb.key === 'hypervisor')!;
 
-  assert.equal(rail.routeFor(hypervisor), '/hypervisor/mission-room/cockpit');
+  assert.equal(rail.routeFor(hypervisor), '/hypervisor');
 
   current = { mode: 'demo', settings: { mission_room: { enabled: false } } };
   assert.equal(rail.routeFor(hypervisor), '/hypervisor');

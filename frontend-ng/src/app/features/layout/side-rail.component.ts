@@ -9,10 +9,6 @@ import {
 import { RouterLink, type UrlTree } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { WorkspaceService } from '@app/core/workspace.service';
-import {
-  MISSION_ROOM_EXTENSION,
-  missionRoomExtensionState,
-} from '@app/features/mission-room/mission-room.extension';
 import { I18nService } from '@app/core/i18n.service';
 import { COCKPIT_VERBS, agentiumSurfaceRoute, type CockpitVerb } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
@@ -257,16 +253,8 @@ export class SideRailComponent {
       }
       return v.primaryRoute;
     }
-    if (v.key === 'hypervisor' && this.navigation.axesV4Enabled()) {
-      return v.primaryRoute;
-    }
-    return (
-      v.key === 'hypervisor' &&
-      this.workspace.isDemoMode() &&
-      missionRoomExtensionState(this.workspace.current()).enabled
-    )
-      ? MISSION_ROOM_EXTENSION.defaultRoute
-      : v.primaryRoute;
+    // L13a: Impact always opens Portfolio — never Mission Room.
+    return v.primaryRoute;
   }
 
   onVerbClick(): void {

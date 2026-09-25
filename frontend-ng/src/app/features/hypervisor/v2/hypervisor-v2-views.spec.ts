@@ -11,6 +11,10 @@ import {
   viewDenominator,
   viewPeriod,
 } from './hypervisor-v2-views';
+import {
+  navigationZoneSurfaceUrl,
+  resolveNavLink,
+} from '@app/core/navigation.catalog';
 
 test('parseViewsPayload falls back to Direction / Operations / Conformite defaults', () => {
   const parsed = parseViewsPayload(null);
@@ -57,4 +61,55 @@ test('replaceView is a full-list replace of one id', () => {
   assert.equal(next[0]?.denominator, 'value');
   assert.equal(next[0]?.period, '30d');
   assert.equal(next[1]?.id, 'operations');
+});
+
+test('?theme=presentation survives an Impact facet change (replaceUrl)', () => {
+  const currentUrl = '/hypervisor?theme=presentation&facet=synthese';
+  const resolved = resolveNavLink(
+    { facet: 'decisions' },
+    {
+      lens: 'hypervisor',
+      ancestry: {
+        capabilityId: null,
+        systemId: null,
+        runId: null,
+        skillInvocationId: null,
+        skillRef: null,
+      },
+      currentUrl,
+    },
+  );
+  assert.equal(resolved.replaceUrl, true);
+  assert.match(resolved.url, /theme=presentation/);
+  assert.match(resolved.url, /facet=decisions/);
+});
+
+test('Impact sommaire links keep theme within the zone and drop it on zone change', () => {
+  const section = {
+    key: 'decisions' as const,
+    label: 'Décisions',
+    glyph: 'focus' as const,
+    surfaceId: 'hypervisor',
+    route: '/hypervisor',
+    scopeType: 'surface' as const,
+    ancestryAware: false,
+    facet: 'decisions',
+  };
+  assert.match(
+    navigationZoneSurfaceUrl(section, 'hypervisor', '/hypervisor?theme=presentation'),
+    /theme=presentation/,
+  );
+  const operate = {
+    key: 'runs' as const,
+    label: 'Runs',
+    glyph: 'play' as const,
+    surfaceId: 'runs',
+    route: '/runs',
+    scopeType: 'surface' as const,
+    ancestryAware: false,
+  };
+  assert.equal(
+    navigationZoneSurfaceUrl(operate, 'operate', '/hypervisor?theme=presentation'),
+    '/runs',
+  );
 });

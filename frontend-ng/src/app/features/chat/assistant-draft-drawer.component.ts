@@ -288,7 +288,7 @@ interface DraftValidationResponse {
         grid-template-rows: auto auto 1fr auto auto;
         gap: var(--mission-space-3);
         padding: var(--mission-space-5) var(--mission-space-4);
-        border-left: 1px solid var(--sentinel-accent-muted);
+        border-left: 1px solid var(--ck-stroke-2);
         background: rgba(5, 8, 12, 0.98);
         box-shadow: var(--mission-shadow-floating);
         animation: draft-slide-in var(--mission-dur-slow) var(--mission-ease-out);
@@ -385,7 +385,7 @@ interface DraftValidationResponse {
       footer { flex-wrap: wrap; }
       .eyebrow {
         display: block;
-        color: var(--sentinel-accent);
+        color: var(--ck-primary);
         font-family: var(--mission-font-mono);
         font-size: 10px;
         letter-spacing: var(--mission-tracking-micro);
@@ -415,11 +415,11 @@ interface DraftValidationResponse {
           color var(--mission-dur-fast) var(--mission-ease-out);
       }
       .icon-button:hover {
-        border-color: var(--sentinel-accent-muted);
+        border-color: var(--ck-stroke-2);
         color: var(--mission-text-primary);
       }
       .icon-button:focus-visible {
-        outline: 2px solid var(--sentinel-accent);
+        outline: 2px solid var(--ck-primary);
         outline-offset: 2px;
       }
       .draft-subject {
@@ -484,15 +484,15 @@ interface DraftValidationResponse {
           border-color var(--mission-dur-fast) var(--mission-ease-out),
           background var(--mission-dur-fast) var(--mission-ease-out);
       }
-      .action-button:hover { border-color: var(--sentinel-accent-muted); }
+      .action-button:hover { border-color: var(--ck-stroke-2); }
       .action-button:focus-visible {
-        outline: 2px solid var(--sentinel-accent);
+        outline: 2px solid var(--ck-primary);
         outline-offset: 2px;
       }
       .action-button.primary {
         border-color: rgba(101, 214, 110, 0.42);
-        background: var(--sentinel-accent-soft);
-        color: var(--sentinel-accent-strong);
+        background: var(--ck-bg-inset);
+        color: var(--ck-primary);
         font-weight: 600;
       }
       .action-button.primary:hover:not(:disabled) {

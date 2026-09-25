@@ -290,7 +290,7 @@ export class ZoomContextService implements OnDestroy {
   urlForScope(section: CockpitSection): string {
     if (this.navV5Enabled()) {
       // L8: Créer › « + Nouveau flux » is always the free draft, not a System graph.
-      return navigationZoneSurfaceUrl(section, this.lens());
+      return navigationZoneSurfaceUrl(section, this.lens(), this.route().url);
     }
     if (!this.axesV3Enabled()) {
       const systemId = section.key === 'flows' ? this.systemId() : null;
