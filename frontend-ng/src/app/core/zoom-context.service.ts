@@ -4,6 +4,7 @@ import { Subscription, filter, forkJoin, of, switchMap } from 'rxjs';
 import {
   CanonicalApiService,
   type Capability,
+  type Context,
   type Run,
   type Skill,
   type SkillInvocation,
@@ -30,9 +31,15 @@ import {
   type NavigationAncestry,
   type NavigationObjectUrlOptions,
 } from './navigation.catalog';
+import { I18nService } from './i18n.service';
 import { WorkspaceService, workspaceSettingFeature, type WorkspaceRequestScope } from './workspace.service';
 
-export type ZoomHierarchyKey = 'portfolio' | HierarchyObjectType;
+export type ZoomHierarchyKey =
+  | 'portfolio'
+  | 'business_apps'
+  | 'conversations'
+  | 'ellipsis'
+  | HierarchyObjectType;
 
 export interface ZoomGraphNode {
   key: ZoomHierarchyKey;
@@ -40,6 +47,8 @@ export interface ZoomGraphNode {
   label: string;
   sub: string;
   href: string;
+  /** Optional mono suffix (ids / slugs) rendered after the translated label. */
+  mono?: string | null;
 }
 
 export interface ZoomRouteProjection {
@@ -47,6 +56,8 @@ export interface ZoomRouteProjection {
   ancestry: NavigationAncestry;
   nodes: readonly ZoomGraphNode[];
   loading: boolean;
+  /** Soft badge for shared contexts / linked conversation objects (L9). */
+  badge: string | null;
 }
 
 interface ResolvedGraph {
@@ -82,6 +93,7 @@ export class ZoomContextService implements OnDestroy {
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly i18n = inject(I18nService);
 
   /** Visible rollout gate. Showcase enables it first, then the internal canary. */
   readonly axesV3Enabled = computed(() => {
@@ -136,6 +148,9 @@ export class ZoomContextService implements OnDestroy {
   readonly scope = computed(() => this.route().scope);
   readonly nodes = computed(() => this.projection().nodes);
   readonly loading = computed(() => this.projection().loading);
+  readonly badge = computed(() => this.projection().badge);
+  /** Crumbs shown in the title bar (middle levels collapse past four). */
+  readonly visibleNodes = computed(() => this.collapseNodes(this.nodes()));
 
   readonly capabilityId = computed(() => this.projection().ancestry.capabilityId);
   readonly systemId = computed(() => this.projection().ancestry.systemId);
@@ -163,13 +178,43 @@ export class ZoomContextService implements OnDestroy {
 
   readonly deepestResolvedType = computed<HierarchyObjectType | null>(() => {
     const nodes = this.nodes();
-    if (nodes.some((node) => node.key === 'skill_invocation')) return 'skill_invocation';
-    if (nodes.some((node) => node.key === 'skill')) return 'skill';
-    if (nodes.some((node) => node.key === 'run')) return 'run';
-    if (nodes.some((node) => node.key === 'system')) return 'system';
-    if (nodes.some((node) => node.key === 'capability')) return 'capability';
+    const order: HierarchyObjectType[] = [
+      'skill_invocation',
+      'skill',
+      'run',
+      'business_app',
+      'conversation',
+      'context',
+      'collection',
+      'dataset',
+      'model',
+      'system',
+      'capability',
+    ];
+    for (const key of order) {
+      if (nodes.some((node) => node.key === key)) return key;
+    }
     return null;
   });
+
+  /** Current depth / total for the command bar (visible crumbs). */
+  depthPair(): { depth: number; total: number } {
+    const total = Math.max(1, this.visibleNodes().length);
+    return { depth: total, total };
+  }
+
+  zoomParentHint(): string {
+    const nodes = this.nodes();
+    if (nodes.length <= 1) return this.i18n.t('nav.zoom.hint_at_top');
+    const parent = nodes[nodes.length - 2];
+    if (parent.key === 'portfolio') return this.i18n.t('nav.zoom.hint_to_portfolio');
+    const label = parent.key === 'conversations'
+      ? this.i18n.t('nav.conversations')
+      : parent.key === 'business_apps'
+        ? this.i18n.t('nav.business_apps')
+        : parent.label;
+    return this.i18n.t('nav.zoom.hint_to_parent', { parent: label });
+  }
 
   constructor() {
     this.subscriptions.add(
@@ -327,11 +372,16 @@ export class ZoomContextService implements OnDestroy {
 
   parentLabel(): string {
     const parent = this.parentNode();
-    if (parent) return parent.label;
+    if (parent) {
+      if (parent.key === 'portfolio') return this.i18n.t('nav.zoom.portfolio');
+      if (parent.key === 'conversations') return this.i18n.t('nav.conversations');
+      if (parent.key === 'business_apps') return this.i18n.t('nav.business_apps');
+      return parent.label;
+    }
     const path = this.route().path;
     const surface = matchAgentiumSurface(path);
     if (surface && pathOnly(surface.route) !== path) return surface.label;
-    return 'Portfolio';
+    return this.i18n.t('nav.zoom.portfolio');
   }
 
   parentNode(): ZoomGraphNode | null {
@@ -349,17 +399,24 @@ export class ZoomContextService implements OnDestroy {
     const generation = ++this.generation;
     const requestScope = this.workspace.captureRequestScope();
     const route = this.routeContext(url);
+    const leafType = this.leafSelectedType(route.selectedType);
     const needsGraph = Boolean(
       route.capabilityId
       || route.systemId
       || route.runId
       || route.skillInvocationId
-      || route.skillRef,
+      || route.skillRef
+      || leafType,
     );
     this.graphSubscription.unsubscribe();
     this.graphSubscription = new Subscription();
     this.state.set(this.provisional(route));
     if (!needsGraph) return;
+
+    if (leafType && route.selectedRef) {
+      this.resolveLeaf(generation, requestScope, url, route, leafType, route.selectedRef);
+      return;
+    }
 
     // The selected path object is the leaf authority. Query parameters may
     // only describe its parents (Skill) or a list scope; they can never
@@ -424,6 +481,239 @@ export class ZoomContextService implements OnDestroy {
     });
   }
 
+  private leafSelectedType(
+    selected: HierarchyObjectType | null,
+  ): Exclude<HierarchyObjectType, 'capability' | 'system' | 'run' | 'skill' | 'skill_invocation'> | null {
+    if (
+      selected === 'collection'
+      || selected === 'dataset'
+      || selected === 'model'
+      || selected === 'context'
+      || selected === 'conversation'
+      || selected === 'business_app'
+    ) {
+      return selected;
+    }
+    return null;
+  }
+
+  private resolveLeaf(
+    generation: number,
+    requestScope: WorkspaceRequestScope,
+    url: string,
+    route: CockpitRouteContext,
+    type: Exclude<HierarchyObjectType, 'capability' | 'system' | 'run' | 'skill' | 'skill_invocation'>,
+    ref: string,
+  ): void {
+    if (type === 'collection') {
+      this.graphSubscription = this.canonical.getCollection(ref).subscribe((collection) => {
+        if (!this.isCurrent(generation, requestScope, url)) return;
+        this.state.set(this.leafProjection(route, {
+          key: 'collection',
+          id: ref,
+          label: this.i18n.t('nav.zoom.collection_named', {
+            name: collection?.name || ref,
+          }),
+          href: navigationObjectUrl('collection', ref, {
+            lens: this.axesV3Enabled() ? route.lens : null,
+          }),
+        }));
+      });
+      return;
+    }
+    if (type === 'dataset') {
+      this.graphSubscription = this.canonical.getDataset(ref).subscribe((dataset) => {
+        if (!this.isCurrent(generation, requestScope, url)) return;
+        this.state.set(this.leafProjection(route, {
+          key: 'dataset',
+          id: ref,
+          label: this.i18n.t('nav.zoom.dataset_named', {
+            name: dataset?.name || ref,
+          }),
+          href: navigationObjectUrl('dataset', ref, {
+            lens: this.axesV3Enabled() ? route.lens : null,
+          }),
+        }));
+      });
+      return;
+    }
+    if (type === 'model') {
+      this.graphSubscription = this.canonical.getMlModel(ref).subscribe((model) => {
+        if (!this.isCurrent(generation, requestScope, url)) return;
+        this.state.set(this.leafProjection(route, {
+          key: 'model',
+          id: ref,
+          label: this.i18n.t('nav.zoom.model_named', {
+            name: model?.name || ref,
+            version: String(model?.version ?? 1),
+          }),
+          href: navigationObjectUrl('model', ref, {
+            lens: this.axesV3Enabled() ? route.lens : null,
+          }),
+        }));
+      });
+      return;
+    }
+    if (type === 'business_app') {
+      this.graphSubscription = this.canonical.getExperienceSummary(ref).subscribe((app) => {
+        if (!this.isCurrent(generation, requestScope, url)) return;
+        const projectedLens = this.axesV3Enabled() ? route.lens : null;
+        const nodes: ZoomGraphNode[] = [
+          this.portfolioNode(false, projectedLens),
+          {
+            key: 'business_apps',
+            id: null,
+            label: this.i18n.t('nav.business_apps'),
+            sub: '',
+            href: navigationSurfaceUrl('create-apps', { lens: projectedLens }),
+          },
+          {
+            key: 'business_app',
+            id: ref,
+            label: app?.name || ref,
+            sub: '',
+            href: navigationObjectUrl('business_app', ref, { lens: projectedLens }),
+          },
+        ];
+        this.state.set({
+          route,
+          ancestry: EMPTY_ANCESTRY,
+          nodes,
+          loading: false,
+          badge: null,
+        });
+      });
+      return;
+    }
+    if (type === 'conversation') {
+      this.graphSubscription = this.canonical.getChatSessionSummary(ref).subscribe((session) => {
+        if (!this.isCurrent(generation, requestScope, url)) return;
+        const title = session?.title || ref;
+        const systemId = session?.system_id ?? null;
+        const finish = (badge: string | null) => {
+          this.state.set({
+            route,
+            ancestry: EMPTY_ANCESTRY,
+            nodes: [
+              {
+                key: 'conversations',
+                id: null,
+                label: this.i18n.t('nav.conversations'),
+                sub: '',
+                href: '/conversations',
+              },
+              {
+                key: 'conversation',
+                id: ref,
+                label: title,
+                sub: '',
+                href: navigationObjectUrl('conversation', ref),
+              },
+            ],
+            loading: false,
+            badge,
+          });
+        };
+        if (!systemId) {
+          finish(null);
+          return;
+        }
+        this.canonical.getSystem(systemId).subscribe((system) => {
+          if (!this.isCurrent(generation, requestScope, url)) return;
+          finish(
+            system?.name
+              ? this.i18n.t('nav.zoom.linked_to', { name: system.name })
+              : null,
+          );
+        });
+      });
+      return;
+    }
+    // context
+    this.graphSubscription = forkJoin({
+      context: this.canonical.getContext(ref),
+      systems: this.canonical.listSystems(),
+    }).subscribe(({ context, systems }) => {
+      if (!this.isCurrent(generation, requestScope, url)) return;
+      this.state.set(this.contextProjection(route, ref, context, systems ?? []));
+    });
+  }
+
+  private leafProjection(
+    route: CockpitRouteContext,
+    leaf: { key: HierarchyObjectType; id: string; label: string; href: string },
+  ): ZoomRouteProjection {
+    const projectedLens = this.axesV3Enabled() ? route.lens : null;
+    return {
+      route,
+      ancestry: EMPTY_ANCESTRY,
+      nodes: [
+        this.portfolioNode(false, projectedLens),
+        {
+          key: leaf.key,
+          id: leaf.id,
+          label: leaf.label,
+          sub: '',
+          href: leaf.href,
+        },
+      ],
+      loading: false,
+      badge: null,
+    };
+  }
+
+  private contextProjection(
+    route: CockpitRouteContext,
+    ref: string,
+    context: Context | null,
+    systems: System[],
+  ): ZoomRouteProjection {
+    const projectedLens = this.axesV3Enabled() ? route.lens : null;
+    const name = context?.name || ref;
+    const leafLabel = this.i18n.t('nav.zoom.context_named', { name });
+    const leafHref = navigationObjectUrl('context', ref, { lens: projectedLens });
+    const leafNode: ZoomGraphNode = {
+      key: 'context',
+      id: ref,
+      label: leafLabel,
+      sub: '',
+      href: leafHref,
+    };
+    const linked = systems.filter((system) => system.context_id === ref);
+    const bySystemId = context?.system_id
+      ? systems.find((system) => system.id === context.system_id) ?? null
+      : null;
+    const parentSystem = bySystemId
+      ?? (linked.length === 1 ? linked[0] : null);
+    const nodes: ZoomGraphNode[] = [this.portfolioNode(false, projectedLens)];
+    let badge: string | null = null;
+    if (parentSystem) {
+      nodes.push({
+        key: 'system',
+        id: parentSystem.id,
+        label: parentSystem.name,
+        sub: this.i18n.t('nav.zoom.system'),
+        href: navigationObjectUrl('system', parentSystem.id, {
+          capabilityId: parentSystem.capability_id ?? null,
+          lens: projectedLens,
+        }),
+      });
+    } else if (linked.length > 1) {
+      badge = this.i18n.t('nav.zoom.used_by_systems', { count: String(linked.length) });
+    }
+    nodes.push(leafNode);
+    return {
+      route,
+      ancestry: {
+        ...EMPTY_ANCESTRY,
+        systemId: parentSystem?.id ?? null,
+      },
+      nodes,
+      loading: false,
+      badge,
+    };
+  }
+
   private linkOptions(options: NavigationObjectUrlOptions): NavigationObjectUrlOptions {
     const axesEnabled = this.axesV3Enabled();
     return {
@@ -478,22 +768,33 @@ export class ZoomContextService implements OnDestroy {
   }
 
   private provisional(route: CockpitRouteContext, reset = false): ZoomRouteProjection {
+    const leaf = this.leafSelectedType(route.selectedType);
     return {
       route,
       // URL refs remain visible in `route`, but they do not become scope
       // until the workspace-scoped APIs prove the graph.
       ancestry: EMPTY_ANCESTRY,
-      nodes: [this.portfolioNode(
-        reset,
-        this.axesV3Enabled() ? route.lens : null,
-      )],
+      nodes: leaf === 'conversation'
+        ? [{
+            key: 'conversations',
+            id: null,
+            label: this.i18n.t('nav.conversations'),
+            sub: '',
+            href: '/conversations',
+          }]
+        : [this.portfolioNode(
+          reset,
+          this.axesV3Enabled() ? route.lens : null,
+        )],
       loading: !reset && Boolean(
         route.capabilityId
         || route.systemId
         || route.runId
         || route.skillInvocationId
-        || route.skillRef,
+        || route.skillRef
+        || leaf,
       ),
+      badge: null,
     };
   }
 
@@ -600,7 +901,7 @@ export class ZoomContextService implements OnDestroy {
         key: 'capability',
         id: capability.id,
         label: capability.name,
-        sub: `Capability · ${capability.slug}`,
+        sub: this.i18n.t('nav.zoom.capability'),
         href: navigationObjectUrl('capability', capability.id, { lens: projectedLens }),
       });
     }
@@ -609,7 +910,7 @@ export class ZoomContextService implements OnDestroy {
         key: 'system',
         id: system.id,
         label: system.name,
-        sub: 'System',
+        sub: this.i18n.t('nav.zoom.system'),
         href: navigationObjectUrl('system', system.id, {
           capabilityId: capability?.id ?? null,
           lens: projectedLens,
@@ -617,49 +918,54 @@ export class ZoomContextService implements OnDestroy {
       });
     }
     if (run) {
+      const shortId = this.shortRef(run.id);
       nodes.push({
         key: 'run',
         id: run.id,
-        label: `Run · ${this.shortRef(run.id)}`,
-        sub: `Run · ${run.status}`,
+        label: this.i18n.t('nav.zoom.run'),
+        sub: this.i18n.t('nav.zoom.run'),
         href: navigationObjectUrl('run', run.id, {
           capabilityId: capability?.id ?? null,
           systemId: system?.id ?? run.system_id,
           lens: projectedLens,
         }),
+        mono: shortId,
       });
     }
     const runtimeInvocationId = invocation?.id;
     if (invocation && runtimeInvocationId && run) {
+      const skillName = invocation.skill_slug || invocation.skill_id || this.shortRef(runtimeInvocationId);
       nodes.push({
         key: 'skill_invocation',
         id: runtimeInvocationId,
-        label: invocation.skill_slug || invocation.skill_id || `Invocation ${this.shortRef(runtimeInvocationId)}`,
-        sub: `SkillInvocation · ${invocation.status || 'unknown'}`,
+        label: this.i18n.t('nav.zoom.skill'),
+        sub: this.i18n.t('nav.zoom.skill'),
         href: navigationObjectUrl('skill_invocation', runtimeInvocationId, {
           capabilityId: capability?.id ?? null,
           systemId: system?.id ?? run.system_id,
           runId: run.id,
           lens: projectedLens,
         }),
+        mono: skillName,
       });
     }
     if (skill) {
       nodes.push({
         key: 'skill',
         id: skill.id,
-        label: skill.name,
-        sub: `Skill · ${skill.slug}`,
+        label: this.i18n.t('nav.zoom.skill'),
+        sub: this.i18n.t('nav.zoom.skill'),
         href: navigationObjectUrl('skill', skill.slug, {
           capabilityId: capability?.id ?? null,
           systemId: system?.id ?? null,
           runId: run?.id ?? null,
           lens: projectedLens,
         }),
+        mono: skill.slug,
       });
     }
 
-    return { route, ancestry, nodes, loading: false };
+    return { route, ancestry, nodes, loading: false, badge: null };
   }
 
   private portfolioNode(
@@ -670,12 +976,28 @@ export class ZoomContextService implements OnDestroy {
     return {
       key: 'portfolio',
       id: workspace?.id ?? null,
-      label: 'Portfolio',
-      sub: workspace?.name || 'Workspace portfolio',
+      label: this.i18n.t('nav.zoom.portfolio'),
+      sub: workspace?.name || '',
       href: this.navV5Enabled() && this.workspaceMode() === 'builder'
         ? navigationSurfaceUrl('create')
         : navigationPortfolioUrl(lens, this.axesV4Enabled()),
     };
+  }
+
+  private collapseNodes(nodes: readonly ZoomGraphNode[]): ZoomGraphNode[] {
+    if (nodes.length <= 4) return [...nodes];
+    return [
+      nodes[0],
+      {
+        key: 'ellipsis',
+        id: null,
+        label: this.i18n.t('nav.zoom.ellipsis'),
+        sub: nodes.slice(1, -2).map((node) => node.label).join(' › '),
+        href: '',
+      },
+      nodes[nodes.length - 2],
+      nodes[nodes.length - 1],
+    ];
   }
 
   private node(key: HierarchyObjectType): ZoomGraphNode | null {

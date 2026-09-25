@@ -624,6 +624,7 @@ export const AGENTIUM_SURFACE_LEAVES: AgentiumSurfaceLeaf[] = [
   { id: 'data-doc', parent: 'data', route: '/data/:datasetId', label: 'Dataset' },
   { id: 'model-doc', parent: 'models', route: '/models/:modelId', label: 'Model' },
   { id: 'context-doc', parent: 'contexts', route: '/steering/contexts/:contextId', label: 'Context' },
+  { id: 'conversation-doc', parent: 'chat', route: '/conversations/:conversationId', label: 'Conversation' },
   { id: 'preset-doc', parent: 'presets', route: '/presets/:presetId', label: 'Preset' },
   { id: 'mission-room-agenda', parent: 'mission-room', route: '/hypervisor/mission-room/agenda', label: 'Mission Room agenda' },
   { id: 'mission-room-monitor', parent: 'mission-room', route: '/hypervisor/mission-room/monitor', label: 'Mission Room monitor' },
@@ -720,7 +721,13 @@ export type HierarchyObjectType =
   | 'system'
   | 'run'
   | 'skill_invocation'
-  | 'skill';
+  | 'skill'
+  | 'collection'
+  | 'dataset'
+  | 'model'
+  | 'context'
+  | 'conversation'
+  | 'business_app';
 
 export interface NavigationAncestry {
   capabilityId: string | null;
@@ -794,6 +801,13 @@ const HIERARCHY_SURFACE_IDS: Record<HierarchyObjectType, string> = {
   run: 'runs',
   skill_invocation: 'skill-invocations',
   skill: 'skills',
+  collection: 'knowledge',
+  dataset: 'data',
+  model: 'models',
+  context: 'contexts',
+  // Conversation and Studio app use path-shaped URLs, not surface/ref.
+  conversation: 'chat',
+  business_app: 'create-apps',
 };
 
 const NAVIGATION_QUERY_KEYS = new Set([
@@ -1178,6 +1192,29 @@ export function navigationRouteContext(value: string, parseLens = true): Cockpit
   } else if (segments[0] === 'skills' && segments[1]) {
     selectedType = 'skill';
     selectedRef = decodedSegment(segments[1]);
+  } else if (segments[0] === 'knowledge' && segments[1]) {
+    selectedType = 'collection';
+    selectedRef = decodedSegment(segments[1]);
+  } else if (segments[0] === 'data' && segments[1]) {
+    selectedType = 'dataset';
+    selectedRef = decodedSegment(segments[1]);
+  } else if (segments[0] === 'models' && segments[1]) {
+    selectedType = 'model';
+    selectedRef = decodedSegment(segments[1]);
+  } else if (segments[0] === 'steering' && segments[1] === 'contexts' && segments[2]) {
+    selectedType = 'context';
+    selectedRef = decodedSegment(segments[2]);
+  } else if (segments[0] === 'conversations' && segments[1]) {
+    selectedType = 'conversation';
+    selectedRef = decodedSegment(segments[1]);
+  } else if (
+    segments[0] === 'create'
+    && segments[1] === 'apps'
+    && segments[2]
+    && segments[2] !== 'new'
+  ) {
+    selectedType = 'business_app';
+    selectedRef = decodedSegment(segments[2]);
   }
 
   const capabilityId = selectedType === 'capability'
@@ -1386,6 +1423,27 @@ export function navigationObjectUrl(
       scope: options.scope,
       capabilityId: options.capabilityId,
       systemId: options.systemId,
+    });
+  }
+  if (type === 'conversation') {
+    const path = `/conversations/${encodeURIComponent(ref)}`;
+    return appendNavigationQuery(path, {
+      lens: lensQueryForPath(path, options.lens),
+      facet: options.facet,
+    });
+  }
+  if (type === 'business_app') {
+    const path = `/create/apps/${encodeURIComponent(ref)}`;
+    return appendNavigationQuery(path, {
+      lens: lensQueryForPath(path, options.lens),
+      facet: options.facet,
+    });
+  }
+  if (type === 'context') {
+    const path = `/steering/contexts/${encodeURIComponent(ref)}`;
+    return appendNavigationQuery(path, {
+      lens: lensQueryForPath(path, options.lens),
+      facet: options.facet,
     });
   }
   const path = `${agentiumSurfaceRoute(HIERARCHY_SURFACE_IDS[type])}/${encodeURIComponent(ref)}`;

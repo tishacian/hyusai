@@ -7,13 +7,31 @@ import { Subject, of } from 'rxjs';
 import {
   CanonicalApiService,
   type Capability,
+  type Context,
   type Run,
   type Skill,
   type System,
 } from './canonical-api.service';
+import { EN_DICT } from './i18n.dict';
+import { I18nService } from './i18n.service';
 import { WorkspaceService, type WorkspaceContextTransition } from './workspace.service';
 import { COCKPIT_VERBS } from './navigation.catalog';
 import { ZoomContextService } from './zoom-context.service';
+
+function i18nStub() {
+  return {
+    locale: () => 'en' as const,
+    t: (key: string, params?: Record<string, string>) => {
+      let value = EN_DICT[key as keyof typeof EN_DICT] ?? key;
+      if (params) {
+        for (const [name, item] of Object.entries(params)) {
+          value = value.replaceAll(`{${name}}`, item);
+        }
+      }
+      return value;
+    },
+  };
+}
 
 class RouterStub {
   readonly events = new Subject<unknown>();
@@ -145,6 +163,25 @@ function graphHarness(url: string, options: { axesV4?: boolean; navV5?: boolean 
             name: 'Other Skill',
           },
     ),
+    getCollection: (slug: string) => of({ slug, name: 'Policies KH' }),
+    getDataset: (id: string) => of({ id, name: 'Orders Q3', version: 2 }),
+    getMlModel: (id: string) => of({ id, name: 'Churn predictor', version: 3 }),
+    getContext: (id: string) => of({
+      id,
+      name: 'Leave policy',
+      system_id: id === 'ctx-shared' ? null : system.id,
+    } satisfies Context),
+    listSystems: () => of([
+      system,
+      { id: 'sys-b', name: 'Other System', context_id: 'ctx-shared' } satisfies System,
+      { id: 'sys-c', name: 'Third System', context_id: 'ctx-shared' } satisfies System,
+    ]),
+    getExperienceSummary: (id: string) => of({ id, name: 'Ops console' }),
+    getChatSessionSummary: (id: string) => of({
+      id,
+      title: 'PR to PO walkthrough',
+      system_id: null,
+    }),
   };
   const injector = Injector.create({
     providers: [
@@ -152,9 +189,13 @@ function graphHarness(url: string, options: { axesV4?: boolean; navV5?: boolean 
       { provide: Router, useValue: router },
       { provide: WorkspaceService, useValue: workspace },
       { provide: CanonicalApiService, useValue: canonical },
+      {
+        provide: I18nService,
+        useValue: i18nStub(),
+      },
     ],
   });
-  return { router, workspace, navigation: injector.get(ZoomContextService) };
+  return { router, workspace, navigation: injector.get(ZoomContextService), canonical };
 }
 
 test('Run deep link resolves the real Capability → System → Run graph and keeps the lens', () => {
@@ -167,12 +208,12 @@ test('Run deep link resolves the real Capability → System → Run graph and ke
   assert.equal(navigation.systemId(), 'sys-real');
   assert.equal(navigation.runId(), 'run-real');
   assert.deepEqual(
-    navigation.nodes().map((node) => [node.key, node.label]),
+    navigation.nodes().map((node) => [node.key, node.label, node.mono ?? null]),
     [
-      ['portfolio', 'Portfolio'],
-      ['capability', 'Contract Risk'],
-      ['system', 'Contract Risk Copilot'],
-      ['run', 'Run · run-real'],
+      ['portfolio', 'Portfolio', null],
+      ['capability', 'Contract Risk', null],
+      ['system', 'Contract Risk Copilot', null],
+      ['run', 'Run', 'run-real'],
     ],
   );
   for (const node of navigation.nodes()) {
@@ -257,6 +298,7 @@ test('scoped-list rail clicks are inert while canonical ancestry is still loadin
       { provide: Router, useValue: router },
       { provide: WorkspaceService, useValue: workspace },
       { provide: CanonicalApiService, useValue: canonical },
+      { provide: I18nService, useValue: i18nStub() },
     ],
   });
   const navigation = injector.get(ZoomContextService);
@@ -320,6 +362,7 @@ test('the selected System path rejects a Run query from another branch', () => {
       { provide: Router, useValue: router },
       { provide: WorkspaceService, useValue: workspace },
       { provide: CanonicalApiService, useValue: canonical },
+      { provide: I18nService, useValue: i18nStub() },
     ],
   });
   const navigation = injector.get(ZoomContextService);
@@ -351,6 +394,7 @@ test('an unflagged workspace ignores routed axes and emits legacy object links',
       { provide: Router, useValue: router },
       { provide: WorkspaceService, useValue: workspace },
       { provide: CanonicalApiService, useValue: canonical },
+      { provide: I18nService, useValue: i18nStub() },
     ],
   });
   const navigation = injector.get(ZoomContextService);
@@ -401,9 +445,73 @@ test('parentUrl is the breadcrumb parent (D6)', () => {
   assert.equal(navigation.parentUrl().split('?')[0], '/systems/sys-real');
 });
 
-test('parentUrl of a non-hierarchy object is its catalog list', () => {
+test('parent of a leaf object outside the classic ladder is the Portfolio', () => {
   const { navigation } = graphHarness('/knowledge/kb-1?lens=operate');
-  assert.equal(navigation.parentUrl().split('?')[0], '/knowledge');
+  assert.equal(navigation.parentUrl().split('?')[0], '/hypervisor');
+  assert.equal(navigation.parentLabel(), 'Portfolio');
+  assert.deepEqual(
+    navigation.nodes().map((node) => [node.key, node.label]),
+    [
+      ['portfolio', 'Portfolio'],
+      ['collection', 'Collection Policies KH'],
+    ],
+  );
+});
+
+test('a dataset or model has the Portfolio for parent', () => {
+  const data = graphHarness('/data/ds-1?lens=build');
+  assert.deepEqual(
+    data.navigation.nodes().map((node) => [node.key, node.label]),
+    [
+      ['portfolio', 'Portfolio'],
+      ['dataset', 'Dataset Orders Q3'],
+    ],
+  );
+  assert.equal(data.navigation.parentUrl().split('?')[0], '/hypervisor');
+
+  const model = graphHarness('/models/m-1?lens=build');
+  assert.deepEqual(
+    model.navigation.nodes().map((node) => [node.key, node.label]),
+    [
+      ['portfolio', 'Portfolio'],
+      ['model', 'Model Churn predictor v3'],
+    ],
+  );
+});
+
+test('a context has its System for parent when Context.system_id is set', () => {
+  const { navigation } = graphHarness('/steering/contexts/ctx-1?lens=steer');
+  assert.deepEqual(
+    navigation.nodes().map((node) => node.key),
+    ['portfolio', 'system', 'context'],
+  );
+  assert.equal(navigation.nodes()[1].label, 'Contract Risk Copilot');
+  assert.match(navigation.nodes()[2].label, /Leave policy/);
+  assert.equal(navigation.parentLabel(), 'Contract Risk Copilot');
+  assert.equal(navigation.badge(), null);
+});
+
+test('a context shared by two Systems does not invent a parent', () => {
+  const { navigation } = graphHarness('/steering/contexts/ctx-shared?lens=steer');
+  assert.deepEqual(
+    navigation.nodes().map((node) => node.key),
+    ['portfolio', 'context'],
+  );
+  assert.match(navigation.badge() ?? '', /Used by 2 Systems/);
+  assert.equal(navigation.parentLabel(), 'Portfolio');
+});
+
+test('a conversation has the Conversations › title trail without Portfolio', () => {
+  const { navigation } = graphHarness('/conversations/sess-1');
+  assert.deepEqual(
+    navigation.nodes().map((node) => [node.key, node.label]),
+    [
+      ['conversations', 'Conversations'],
+      ['conversation', 'PR to PO walkthrough'],
+    ],
+  );
+  assert.equal(navigation.parentUrl(), '/conversations');
+  assert.equal(navigation.depthPair().total, 2);
 });
 
 test('workspace reset clears synchronously and ignores the late graph from the old epoch', async () => {
@@ -430,6 +538,7 @@ test('workspace reset clears synchronously and ignores the late graph from the o
       { provide: Router, useValue: router },
       { provide: WorkspaceService, useValue: workspace },
       { provide: CanonicalApiService, useValue: canonical },
+      { provide: I18nService, useValue: i18nStub() },
     ],
   });
   const navigation = injector.get(ZoomContextService);
@@ -439,7 +548,7 @@ test('workspace reset clears synchronously and ignores the late graph from the o
   assert.equal(navigation.systemId(), null, 'A is purged before B becomes current');
   assert.deepEqual(navigation.nodes().map((node) => node.key), ['portfolio']);
   assert.equal(navigation.nodes()[0].id, null);
-  assert.equal(navigation.nodes()[0].sub, 'Workspace portfolio');
+  assert.equal(navigation.nodes()[0].sub, '');
 
   await Promise.resolve();
   assert.equal(systemReads.length, 2);

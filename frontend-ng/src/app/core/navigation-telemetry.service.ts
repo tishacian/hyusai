@@ -196,6 +196,12 @@ const DEPTH_BY_TYPE: Record<HierarchyObjectType, number> = {
   run: 4,
   skill_invocation: 5,
   skill: 5,
+  collection: 2,
+  dataset: 2,
+  model: 2,
+  context: 3,
+  conversation: 2,
+  business_app: 3,
 };
 
 /** Hierarchy depth 1–5. Zone lists and homes sit at 1 (Portfolio). */

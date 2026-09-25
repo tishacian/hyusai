@@ -189,4 +189,54 @@ test.describe.serial('Lot 6 — navigation v5 canary', () => {
     await page.screenshot({ path: screenshot, animations: 'disabled' });
     await testInfo.attach('lot6-navigation-v5-canary', { path: screenshot, contentType: 'image/png' });
   });
+
+  test('L9 leaf crumbs name the object and the command bar matches crumb count', async ({ page }) => {
+    await login(page, showcaseSlug);
+    const breadcrumb = page.locator('app-semantic-zoom-breadcrumb');
+    const commandBar = page.locator('app-command-bar');
+
+    const datasets = await api<{ datasets?: Array<{ id: string; name: string }> }>(
+      page,
+      showcaseSlug,
+      '/datasets',
+    );
+    const dataset = datasets.body.datasets?.[0];
+    if (dataset) {
+      await page.goto(`/data/${encodeURIComponent(dataset.id)}`);
+      await expect(breadcrumb).toContainText(dataset.name);
+      const crumbs = await breadcrumb.locator('li').count();
+      await expect(commandBar).toContainText(String(crumbs));
+    }
+
+    const models = await api<{ models?: Array<{ id: string; name: string; version?: number }> }>(
+      page,
+      showcaseSlug,
+      '/ml-models',
+    );
+    const model = models.body.models?.[0];
+    if (model) {
+      await page.goto(`/models/${encodeURIComponent(model.id)}`);
+      await expect(breadcrumb).toContainText(model.name);
+      const crumbs = await breadcrumb.locator('li').count();
+      await expect(commandBar).toContainText(String(crumbs));
+    }
+
+    const contexts = await api<Array<{ id: string; name: string }> | { contexts: Array<{ id: string; name: string }> }>(
+      page,
+      showcaseSlug,
+      '/contexts',
+    );
+    const context = unwrap(contexts.body, 'contexts')[0];
+    if (context) {
+      await page.goto(`/steering/contexts/${encodeURIComponent(context.id)}`);
+      await expect(breadcrumb).toContainText(context.name);
+      const crumbs = await breadcrumb.locator('li').count();
+      await expect(commandBar).toContainText(String(crumbs));
+    }
+
+    expect(
+      Boolean(dataset || model || context),
+      'Showcase needs at least one dataset, model or context for the L9 leaf canary',
+    ).toBe(true);
+  });
 });
