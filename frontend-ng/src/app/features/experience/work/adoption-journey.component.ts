@@ -13,6 +13,8 @@ import { WorkspaceService } from "@app/core/workspace.service";
 import { NavigationProfileService } from "@app/core/navigation-profile.service";
 import { ChatPanelComponent } from "@app/features/chat/chat-panel.component";
 import { NavLinkDirective } from "@app/shared/cockpit";
+import { WorkBarComponent } from "./work-bar.component";
+import { WorkAppHeaderComponent } from "./work-app-header.component";
 @Component({
   selector: "app-adoption-journey",
   standalone: true,
@@ -226,11 +228,21 @@ export class AdoptionJourneyComponent {
 @Component({
   selector: "app-adoption-page",
   standalone: true,
-  imports: [AdoptionJourneyComponent, RouterLink],
-  template: `<main style="max-width:70rem;margin:auto;padding:1rem">
-    <a [routerLink]="['/work']">{{ i18n.t("experience.adoption.back") }}</a
-    ><app-adoption-journey [full]="true" />
-  </main>`,
+  imports: [AdoptionJourneyComponent, RouterLink, WorkBarComponent, WorkAppHeaderComponent],
+  styleUrl: "./work.scss",
+  template: `
+    <div class="xp-work" data-brand-scope data-theme="light">
+      <app-work-bar />
+      <app-work-app-header
+        [title]="i18n.t('experience.adoption.resume')"
+        [eyebrow]="i18n.t('experience.work.eyebrow.getting_started')"
+        defaultBackKey="experience.work.back_apps"
+      />
+      <main class="xp-work-main" style="max-width:70rem;margin:auto;padding:1rem" role="main" aria-labelledby="work-app-title">
+        <app-adoption-journey [full]="true" />
+      </main>
+    </div>
+  `,
 })
 export class AdoptionPageComponent {
   readonly i18n = inject(I18nService);

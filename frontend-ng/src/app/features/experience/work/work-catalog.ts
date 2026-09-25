@@ -91,8 +91,9 @@ export function workIdentity(
 export function workEmblem(identity: WorkIdentity): string {
   if (identity.emblem && !/^[a-z][a-z0-9_-]{0,31}$/i.test(identity.emblem)) return identity.emblem;
   const source = identity.emblem || identity.name;
+  // Split on any non-alphanumeric (Unicode letters/digits) so "NAWA — IT" → "NI".
   return source
-    .split(/[\s_-]+/)
+    .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())

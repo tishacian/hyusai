@@ -9,7 +9,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription, of, timer } from 'rxjs';
 import { catchError, switchMap, takeWhile } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
@@ -28,6 +28,10 @@ import {
   factoryRuntimeContext,
 } from './pr-to-po-runtime';
 import { WorkApiService } from './work-api.service';
+import { WorkBarComponent } from './work-bar.component';
+import { WorkAppHeaderComponent } from './work-app-header.component';
+import { returnToFromParams } from './work-return';
+import { canEditExperience } from './work-catalog';
 import {
   BAPI_SERVER_ID,
   LIVE_BAPI_COMMIT,
@@ -101,18 +105,23 @@ const RAIL_TOOLS: readonly RailTool[] = [
   selector: 'app-pr-to-po-studio',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, RouterLink, ChatPanelComponent, ThinkingOrbComponent],
+  imports: [CommonModule, RouterLink, ChatPanelComponent, ThinkingOrbComponent, WorkBarComponent, WorkAppHeaderComponent],
   styleUrl: './work.scss',
   template: `
     <div class="xp-work xp-studio" data-brand-scope data-theme="dark" [ngStyle]="brandStyles()">
-      <header class="xp-studio-bar">
-        <div class="xp-studio-brand">
-          <ck-thinking-orb [state]="busy() ? 'working' : 'listening'" [size]="20" />
-          <div>
-            <h1>{{ i18n.t('experience.pr_to_po.studio.title') }}</h1>
-            <p>{{ i18n.t('experience.pr_to_po.studio.subtitle') }}</p>
-          </div>
-        </div>
+      <app-work-bar
+        [appContext]="i18n.t('experience.pr_to_po.studio.title')"
+        creatorLabelKey="experience.work.open_cockpit"
+        [creatorHref]="creatorHref()"
+      />
+      <app-work-app-header
+        [title]="i18n.t('experience.pr_to_po.studio.title')"
+        [eyebrow]="i18n.t('experience.work.eyebrow.app', { type: i18n.t('experience.work.pattern.other') })"
+        [description]="i18n.t('experience.pr_to_po.studio.subtitle')"
+        [returnTo]="cockpitReturnTo()"
+        defaultBackKey="experience.work.back_apps"
+      >
+        <ck-thinking-orb [state]="busy() ? 'working' : 'listening'" [size]="20" />
         <nav class="xp-studio-modes" role="tablist">
           <button
             type="button"
@@ -133,22 +142,20 @@ const RAIL_TOOLS: readonly RailTool[] = [
             {{ i18n.t('experience.pr_to_po.studio.mode.chat') }}
           </button>
         </nav>
-        <div class="xp-studio-actions">
-          <span class="xp-studio-badge" [attr.data-live]="writeUnsealed()">
-            {{
-              writeUnsealed()
-                ? i18n.t('experience.pr_to_po.studio.badge.live')
-                : i18n.t('experience.pr_to_po.studio.badge.sealed')
-            }}
-          </span>
-          @if (run(); as current) {
-            <a [routerLink]="runHref()" class="xp-work-btn xp-studio-run-link">
-              {{ i18n.t('experience.pr_to_po.studio.open_run') }}
-              <code>{{ current.id.slice(0, 8) }}</code>
-            </a>
-          }
-        </div>
-      </header>
+        <span class="xp-studio-badge" [attr.data-live]="writeUnsealed()">
+          {{
+            writeUnsealed()
+              ? i18n.t('experience.pr_to_po.studio.badge.live')
+              : i18n.t('experience.pr_to_po.studio.badge.sealed')
+          }}
+        </span>
+        @if (run(); as current) {
+          <a [routerLink]="runHref()" class="xp-work-btn xp-studio-run-link">
+            {{ i18n.t('experience.pr_to_po.studio.open_run') }}
+            <code>{{ current.id.slice(0, 8) }}</code>
+          </a>
+        }
+      </app-work-app-header>
 
       <div class="xp-studio-body">
         <main class="xp-studio-main">
@@ -169,9 +176,6 @@ const RAIL_TOOLS: readonly RailTool[] = [
                 (click)="runNow()"
                 [disabled]="busy() || gateOpen()"
               >
-                @if (busy()) {
-                  <ck-thinking-orb state="working" [size]="20" />
-                }
                 {{
                   busy()
                     ? i18n.t('experience.pr_to_po.studio.running')
@@ -210,9 +214,6 @@ const RAIL_TOOLS: readonly RailTool[] = [
                     <span class="xp-studio-node-kind" [attr.data-kind]="nodeKind(node.id)">
                       {{ i18n.t('experience.pr_to_po.studio.kind.' + nodeKind(node.id)) }}
                     </span>
-                    @if (node.status === 'running') {
-                      <ck-thinking-orb state="searching" [size]="20" />
-                    }
                     <span class="xp-studio-node-status">
                       {{ i18n.t('experience.pr_to_po.studio.status.' + node.status) }}
                     </span>
@@ -344,7 +345,6 @@ const RAIL_TOOLS: readonly RailTool[] = [
                                   {{ i18n.t('experience.pr_to_po.studio.gate.reject') }}
                                 </button>
                                 @if (deciding()) {
-                                  <ck-thinking-orb state="working" [size]="20" />
                                 }
                               </div>
                             } @else if (decision() !== 'pending') {
@@ -400,10 +400,6 @@ const RAIL_TOOLS: readonly RailTool[] = [
                   </p>
                   <div class="xp-studio-dialog-row">
                   <span class="xp-studio-dialog-avatar" aria-hidden="true">
-                    <ck-thinking-orb
-                      [state]="dialogue.stage === 'posting' || dialogue.stage === 'preparing' ? 'working' : 'composing'"
-                      [size]="20"
-                    />
                   </span>
                   <div class="xp-studio-dialog-agent">
                     @if (dialogue.stage === 'preparing' || !dialogue.proposal) {
@@ -456,7 +452,6 @@ const RAIL_TOOLS: readonly RailTool[] = [
                         </button>
                         @if (dialogue.stage === 'posting') {
                           <span class="xp-studio-dialog-wait">
-                            <ck-thinking-orb state="working" [size]="20" />
                             {{ i18n.t('experience.pr_to_po.studio.chat_write.posting') }}
                           </span>
                         }
@@ -517,7 +512,6 @@ const RAIL_TOOLS: readonly RailTool[] = [
                 <section class="xp-studio-portal xp-studio-chat">
                   <header>
                     <div class="xp-studio-portal-head">
-                      <ck-thinking-orb [state]="chatBusy() || busy() ? 'working' : 'composing'" [size]="20" />
                       <div>
                         <p class="xp-studio-kicker">{{ i18n.t('experience.pr_to_po.studio.chat.title') }}</p>
                         <p class="xp-studio-note">
@@ -601,6 +595,14 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   readonly i18n = inject(I18nService);
   readonly workspace = inject(WorkspaceService);
+  private readonly route = inject(ActivatedRoute);
+  readonly cockpitReturnTo = signal<string | null>(null);
+  readonly creatorHref = computed(() =>
+    this.workspace.experienceStudioV1Enabled()
+    && canEditExperience(this.workspace.current()?.role_template, this.workspace.isAdmin())
+      ? '/create'
+      : null,
+  );
   /**
    * The Studio wears the workspace appearance, always in the dark: the palette
    * and accent a workspace declares in platform_brand.appearance, else the
@@ -649,6 +651,7 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
   );
 
   ngOnInit(): void {
+    this.cockpitReturnTo.set(returnToFromParams(this.route.snapshot.queryParamMap.get('returnTo')));
     this.loadRail();
     this.loadSystem();
     this.loadPendingGate();

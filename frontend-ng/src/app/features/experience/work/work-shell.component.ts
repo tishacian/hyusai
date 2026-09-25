@@ -1,6 +1,5 @@
 import { appearanceLogo, appearanceStyles, brandAppearance, type BrandAppearance } from '@app/core/brand-appearance';
 import { AdoptionService } from '@app/core/adoption.service';
-import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { NgComponentOutlet, NgStyle } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -35,8 +34,11 @@ import {
   type CertifiedExperienceRenderer,
 } from '../runtime/renderer-registry';
 import { WorkApiService } from './work-api.service';
+import { WorkBarComponent } from './work-bar.component';
+import { WorkAppHeaderComponent } from './work-app-header.component';
 import { WorkDecisionContextComponent } from './work-decision-context.component';
 import { workDecisionAvailable, workDecisionKey } from './work-decision';
+import { returnToFromParams } from './work-return';
 import { RunMandateComponent } from '../../mandate/run-mandate.component';
 import {
   canEditExperience,
@@ -59,26 +61,42 @@ const POLL_MS = 8000;
   selector: 'app-work-shell',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgStyle, RouterLink, NgComponentOutlet, EmptyStateComponent, NavLinkDirective, WorkDecisionContextComponent, RunMandateComponent],
+  imports: [
+    NgStyle,
+    RouterLink,
+    NgComponentOutlet,
+    EmptyStateComponent,
+    NavLinkDirective,
+    WorkDecisionContextComponent,
+    RunMandateComponent,
+    WorkBarComponent,
+    WorkAppHeaderComponent,
+  ],
   styleUrl: './work.scss',
   template: `
     <div
       class="xp-work"
       data-brand-scope
       [ngStyle]="brandStyles()"
-      [attr.data-theme]="theme().mode"
+      [attr.data-theme]="theme().mode || 'light'"
       [style.--xp-app-accent]="appearance().accent || theme().accent || null"
       [style.--xp-on-accent]="brandStyles()['--xp-on-accent'] || theme().onAccent || null"
     >
-      <header class="xp-work-bar">
-        <div class="xp-work-brand-cluster">
-          @if (brandLogo()) { <img class="xp-work-brand-image" [src]="brandLogo()" alt="" /> } @else { <span class="xp-work-app-icon" aria-hidden="true">{{ emblem() }}</span> }
-          <div class="xp-work-brand">
-            <a routerLink="/work">{{ i18n.t('experience.work.back') }}</a>
-            <h1 id="work-app-title">{{ title() }}</h1>
-            @if (description()) { <p>{{ description() }}</p> }
-          </div>
-        </div>
+      <app-work-bar
+        [creatorHref]="canEdit() ? studioLink() : null"
+        creatorLabelKey="experience.work.edit_studio"
+        [appContext]="title()"
+      />
+      <app-work-app-header
+        [title]="title()"
+        [emblem]="brandLogo() ? null : emblem()"
+        [eyebrow]="i18n.t('experience.work.eyebrow.app', { type: i18n.t('experience.work.pattern.other') })"
+        [identifier]="slug() || null"
+        [status]="channelStatus()"
+        [description]="description() || null"
+        [returnTo]="cockpitReturnTo()"
+        [returnLabel]="cockpitReturnLabel()"
+      >
         @if (state() === 'ready') {
           <nav class="xp-work-nav" [attr.aria-label]="i18n.t('experience.work.pages')">
             @for (page of document().pages; track page.id) {
@@ -102,37 +120,16 @@ const POLL_MS = 8000;
             }
           </nav>
         }
-        <div class="xp-work-actions">
-          @if (adoption.enabled()) { <button type="button" class="xp-work-btn" (click)="companion.open({ pilot: true })">{{ i18n.t('experience.adoption.companion') }}</button> }
-          @if (locales().length > 1) {
-            <span class="xp-work-locales" role="group" [attr.aria-label]="i18n.t('experience.work.lang.label')">
-              @for (locale of locales(); track locale) {
-                <button
-                  type="button"
-                  class="xp-work-btn"
-                  [attr.aria-pressed]="i18n.locale() === locale"
-                  [class.xp-work-btn-primary]="i18n.locale() === locale"
-                  (click)="i18n.setLocale(locale)"
-                >
-                  {{ i18n.t(locale === 'fr' ? 'experience.work.lang.fr' : 'experience.work.lang.en') }}
-                </button>
-              }
-            </span>
-          }
-          @if (showCockpitLink()) {
-            <a class="xp-work-link" [routerLink]="cockpitHref()">{{ i18n.t('nav.cockpit') }}</a>
-            @if (adoption.enabled()) {
-              @for (id of boundSystemIds(); track id) {
-                <a class="xp-work-link" [navLink]="{ type: 'system', ref: id, lens: 'build', facet: 'design' }">{{ i18n.t('experience.adoption.inspect_design') }}</a>
-              }
-              <a class="xp-work-link" [navLink]="{ leaf: 'help-guide', ref: 'systems' }">{{ i18n.t('experience.adoption.build_guide') }}</a>
+        @if (showCockpitLink()) {
+          <a class="xp-work-link" [routerLink]="cockpitHref()">{{ i18n.t('nav.cockpit') }}</a>
+          @if (adoption.enabled()) {
+            @for (id of boundSystemIds(); track id) {
+              <a class="xp-work-link" [navLink]="{ type: 'system', ref: id, lens: 'build', facet: 'design' }">{{ i18n.t('experience.adoption.inspect_design') }}</a>
             }
+            <a class="xp-work-link" [navLink]="{ leaf: 'help-guide', ref: 'systems' }">{{ i18n.t('experience.adoption.build_guide') }}</a>
           }
-          @if (canEdit()) {
-            <a class="xp-work-link" [routerLink]="studioLink()">{{ i18n.t('experience.work.edit_studio') }}</a>
-          }
-        </div>
-      </header>
+        }
+      </app-work-app-header>
       <section
         #workMain
         class="xp-work-main"
@@ -256,7 +253,6 @@ const POLL_MS = 8000;
 })
 export class WorkShellComponent {
   readonly adoption = inject(AdoptionService);
-  readonly companion = inject(ChatOverlayService);
   @ViewChild('workMain') private workMain?: ElementRef<HTMLElement>;
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly route = inject(ActivatedRoute);
@@ -275,6 +271,9 @@ export class WorkShellComponent {
   readonly title = signal('');
   readonly description = signal('');
   readonly emblem = signal('A');
+  readonly channel = signal<'live' | 'pilot' | null>(null);
+  readonly cockpitReturnTo = signal<string | null>(null);
+  readonly cockpitReturnLabel = signal<string | null>(null);
   readonly renderer = signal<CertifiedExperienceRenderer | null>(null);
   readonly rawDocument = signal<unknown>({ pages: [] });
   readonly document = computed<ExperienceDocument>(() => {
@@ -339,6 +338,13 @@ export class WorkShellComponent {
       : navigationSurfaceUrl('hypervisor');
   }
 
+  channelStatus(): string | null {
+    const channel = this.channel();
+    if (channel === 'live') return this.i18n.t('experience.work.status.live');
+    if (channel === 'pilot') return this.i18n.t('experience.work.status.pilot');
+    return null;
+  }
+
   constructor() {
     let generation = 0;
     const reset = this.workspace.registerContextReset(() => {
@@ -348,6 +354,11 @@ export class WorkShellComponent {
       this.state.set('loading');
     });
     this.destroy.onDestroy(reset);
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroy)).subscribe((params) => {
+      this.cockpitReturnTo.set(returnToFromParams(params.get('returnTo')));
+      const label = params.get('returnLabel');
+      this.cockpitReturnLabel.set(label?.trim() || null);
+    });
     combineLatest([this.route.paramMap, toObservable(this.workspace.contextEpoch)])
       .pipe(takeUntilDestroyed(this.destroy)).subscribe(([params]) => {
       const slug = params.get('slug') ?? '';
@@ -464,6 +475,7 @@ export class WorkShellComponent {
     this.title.set(identity.name);
     this.description.set(identity.description);
     this.emblem.set(workEmblem(identity));
+    this.channel.set(body.channel === 'live' || body.channel === 'pilot' ? body.channel : null);
     const renderer = experienceRenderer(body.release.renderer_version);
     if (!renderer) {
       this.pinMismatch.set(true);

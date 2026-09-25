@@ -149,4 +149,7 @@ test('Work renders the immutable release identity with a legacy fallback', () =>
   assert.deepEqual(frozen, { name: 'Expenses R2', description: 'Review requests', emblem: '✓' });
   assert.equal(workEmblem(frozen), '✓');
   assert.equal(workEmblem({ name: 'Service Desk', description: '', emblem: 'service-desk' }), 'SD');
+  assert.equal(workEmblem({ name: 'NAWA — IT Help Desk', description: '', emblem: '' }), 'NI');
+  assert.equal(workEmblem({ name: 'PR to PO', description: '', emblem: '' }), 'PT');
+  assert.equal(workEmblem({ name: 'PO vs Invoice Reconciliation', description: '', emblem: '' }), 'PV');
 });
