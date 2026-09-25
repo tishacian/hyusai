@@ -27,6 +27,7 @@ from app.services.run_engine.dispatch_outbox import (
     reconcile_dispatch_outbox,
 )
 from app.services.systems import flow_workbench
+from app.services.workspace_secrets import public_checkpoint
 
 router = APIRouter()
 
@@ -228,7 +229,7 @@ def _run_payload(run: Run) -> dict[str, Any]:
         "input_ref": copy.deepcopy(run.input_ref or {}),
         "output_ref": copy.deepcopy(run.output_ref or {}),
         "error": run.error,
-        "checkpoints": copy.deepcopy(run.checkpoints or []),
+        "checkpoints": [public_checkpoint(cp) for cp in copy.deepcopy(run.checkpoints or [])],
     }
 
 
