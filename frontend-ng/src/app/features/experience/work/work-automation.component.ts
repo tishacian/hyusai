@@ -1,7 +1,8 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component, ElementRef, inject, signal } from '@angular/core';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus';
 import { automationJobLines, jobLineText, type JobLine } from '@app/features/orchestration/flow/automation-job';
 import { WorkApiService, type WorkAutomationJob } from './work-api.service';
 
@@ -48,6 +49,8 @@ export class WorkAutomationComponent {
   private readonly api = inject(WorkApiService);
   private readonly canonical = inject(CanonicalApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly host = inject(ElementRef<HTMLElement>);
   protected readonly name = signal('');
   protected readonly missing = signal(false);
   protected readonly exporting = signal(false);
@@ -63,7 +66,10 @@ export class WorkAutomationComponent {
     this.systemId = systemId;
     this.api.automation(systemId).subscribe({
       next: (card) => this.show(card),
-      error: () => this.missing.set(true),
+      error: () => {
+        this.missing.set(true);
+        queueMicrotask(() => this.focusRouteTarget());
+      },
     });
   }
 
@@ -108,6 +114,16 @@ export class WorkAutomationComponent {
         ? this.i18n.t('flow.proof.present')
         : this.i18n.t('flow.proof.absent')),
       error: () => this.sharedProof.set(this.i18n.t('flow.proof.absent')),
+    });
+    queueMicrotask(() => this.focusRouteTarget());
+  }
+
+  private focusRouteTarget(): void {
+    focusAfterRoute(this.host.nativeElement, {
+      focus: navigationFocusFromState(
+        this.router.lastSuccessfulNavigation?.extras?.state
+          ?? (globalThis.history?.state as Record<string, unknown> | null),
+      ),
     });
   }
 

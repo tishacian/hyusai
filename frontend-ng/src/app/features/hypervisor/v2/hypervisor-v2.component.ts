@@ -149,8 +149,10 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           @for (view of views(); track view.id) {
             <button
               type="button"
+              role="tab"
               class="ck-mono"
               [attr.data-testid]="'hypervisor-v2-view-' + view.id"
+              [attr.aria-selected]="view.id === activeViewId()"
               [class.hv2-switch-on]="view.id === activeViewId()"
               (click)="selectView(view.id)"
             >{{ viewLabel(view) }}</button>
