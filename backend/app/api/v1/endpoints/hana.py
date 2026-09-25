@@ -9,12 +9,27 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services.connectors.hana import service as hana_service
 
 router = APIRouter()
+
+
+def _is_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> bool:
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
+        .first()
+    )
+    return bool(membership) and is_admin_template(getattr(membership, "role_template", None), membership.role)
+
+
+def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> None:
+    if not _is_workspace_admin(db, user, workspace):
+        raise HTTPException(status_code=403, detail={"code": "WORKSPACE_PERMISSION_DENIED"})
 
 
 class HanaConfigUpdate(BaseModel):
@@ -22,6 +37,7 @@ class HanaConfigUpdate(BaseModel):
     port: int = Field(default=443, ge=1, le=65535)
     user: str = Field(..., min_length=1, max_length=256)
     password: Optional[str] = Field(default=None, max_length=512)
+    password_encrypted: Optional[str] = Field(default=None, max_length=4096)
     encrypt: bool = True
 
 
@@ -57,8 +73,18 @@ async def put_hana_config(
     db: DBSession = Depends(get_db),
 ):
     _require_enabled(workspace)
+    _require_workspace_admin(db, user, workspace)
+    if body.password_encrypted is not None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "WORKSPACE_SECRET_WRITE_ONLY",
+                "message": "A connector secret is set on its connector, not as an encrypted field",
+                "fields": ["password_encrypted"],
+            },
+        )
     try:
-        return hana_service.set_config(db, workspace, body.model_dump())
+        return hana_service.set_config(db, workspace, body.model_dump(exclude={"password_encrypted"}))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -67,8 +93,10 @@ async def put_hana_config(
 async def test_hana_connection(
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     _require_enabled(workspace)
+    _require_workspace_admin(db, user, workspace)
     config = hana_service.get_config(workspace, include_secrets=True)
     try:
         return hana_service.test_connection(config)

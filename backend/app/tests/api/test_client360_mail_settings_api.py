@@ -116,3 +116,61 @@ def test_client360_mail_settings_admin_patch_is_persisted_under_workspace_lock(
     smtp = workspace.settings["client360_pdr_mail"]["smtp"]
     assert smtp["host"] == "smtp.example.test"
     assert smtp["enabled"] is True
+
+
+def test_client360_mail_settings_encrypt_password_and_refuse_encrypted_write(
+    db_session, monkeypatch
+) -> None:
+    from cryptography.fernet import Fernet
+
+    from app.services.client360_pdr import (
+        CLIENT360_SMTP_ENV_MASTER_KEY,
+        CLIENT360_SMTP_ENV_MASTER_KEY_FALLBACK,
+        _decrypt_smtp_password,
+        client360_mail_settings_payload,
+    )
+
+    monkeypatch.delenv(CLIENT360_SMTP_ENV_MASTER_KEY, raising=False)
+    monkeypatch.setenv(CLIENT360_SMTP_ENV_MASTER_KEY_FALLBACK, Fernet.generate_key().decode())
+    workspace, owner, _contributor = _seed(db_session)
+    secret = "smtp-password-never-echoed"
+    admin = _client(db_session, workspace, owner)
+
+    written = admin.patch(
+        "/api/v1/client360/mail-settings",
+        json={"host": "smtp.example.test", "username": "bot", "password": secret},
+    )
+    assert written.status_code == 200, written.text
+    assert "password" not in written.json()["mail_settings"]
+    assert written.json()["mail_settings"]["password_configured"] is True
+    assert secret not in written.text
+
+    listed = admin.get("/api/v1/client360/mail-settings")
+    assert listed.status_code == 200
+    assert "password" not in listed.json()["mail_settings"]
+    assert secret not in listed.text
+    assert "password" not in client360_mail_settings_payload(workspace)
+
+    db_session.refresh(workspace)
+    smtp = workspace.settings["client360_pdr_mail"]["smtp"]
+    assert "password" not in smtp
+    assert "ciphertext" in smtp["password_encrypted"]
+    assert secret not in smtp["password_encrypted"]
+    assert _decrypt_smtp_password(smtp["password_encrypted"]) == secret
+
+    forged = admin.patch(
+        "/api/v1/client360/mail-settings",
+        json={"password_encrypted": "forged-envelope"},
+    )
+    assert forged.status_code == 422
+    assert forged.json()["detail"]["code"] == "WORKSPACE_SECRET_WRITE_ONLY"
+
+    omitted = admin.patch("/api/v1/client360/mail-settings", json={"from_name": "Desk"})
+    assert omitted.status_code == 200
+    db_session.refresh(workspace)
+    assert (
+        _decrypt_smtp_password(
+            workspace.settings["client360_pdr_mail"]["smtp"]["password_encrypted"]
+        )
+        == secret
+    )

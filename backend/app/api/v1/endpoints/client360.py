@@ -88,6 +88,7 @@ class Client360MailSettingsPatch(BaseModel):
     port: Optional[int] = Field(default=None, ge=1, le=65535)
     username: Optional[str] = None
     password: Optional[str] = None
+    password_encrypted: Optional[str] = None
     clear_password: Optional[bool] = None
     password_env_var: Optional[str] = None
     from_email: Optional[str] = None
@@ -913,10 +914,21 @@ def client360_mail_settings_patch(
                     "message": "Workspace admin access required",
                 },
             )
+        patch = body.model_dump(exclude_unset=True)
+        if "password_encrypted" in patch:
+            db.rollback()
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "WORKSPACE_SECRET_WRITE_ONLY",
+                    "message": "A connector secret is set on its connector, not as an encrypted field",
+                    "fields": ["password_encrypted"],
+                },
+            )
         payload = patch_client360_mail_settings(
             db,
             workspace,
-            body.model_dump(exclude_unset=True),
+            patch,
         )
         db.add(workspace)
         db.commit()
