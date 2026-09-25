@@ -2,19 +2,21 @@ import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   OnDestroy,
   OnInit,
   computed,
   inject,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Subscription, of, timer } from 'rxjs';
 import { catchError, switchMap, takeWhile } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { appearanceStyles } from '@app/core/brand-appearance';
 import { CanonicalApiService, type Run, type System } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ThinkingOrbComponent } from '@app/shared/cockpit';
 import { ChatPanelComponent } from '@app/features/chat/chat-panel.component';
@@ -595,6 +597,8 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
   private readonly canonical = inject(CanonicalApiService);
   private readonly runtime = inject(ExperienceRuntimeService);
   private readonly workApi = inject(WorkApiService);
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly router = inject(Router);
   readonly i18n = inject(I18nService);
   readonly workspace = inject(WorkspaceService);
   /**
@@ -648,6 +652,16 @@ export class PrToPoStudioComponent implements OnInit, OnDestroy {
     this.loadRail();
     this.loadSystem();
     this.loadPendingGate();
+    queueMicrotask(() => this.focusRouteTarget());
+  }
+
+  private focusRouteTarget(): void {
+    focusAfterRoute(this.host.nativeElement, {
+      focus: navigationFocusFromState(
+        this.router.lastSuccessfulNavigation?.extras?.state
+          ?? (globalThis.history?.state as Record<string, unknown> | null),
+      ),
+    });
   }
 
   ngOnDestroy(): void {

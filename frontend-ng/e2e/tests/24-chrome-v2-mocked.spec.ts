@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Route, type TestInfo } from '@playwright/test';
 
 /**
@@ -244,6 +245,74 @@ test.describe('L1 — swallowed gestures', () => {
   });
 });
 
+// --- L3 — Focus de route sur le titre ---------------------------------------
+
+test.describe('L3 — route focus on the title', () => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    test.skip(process.env['E2E_CHROME_V2_MOCKED'] !== '1', 'Set E2E_CHROME_V2_MOCKED=1 to run the mocked chrome net.');
+    test.skip(!localOnly(testInfo), 'This mocked chrome net is local-only; set E2E_BASE_URL=http://localhost:4200.');
+    await mockCockpit(page);
+    // Impact is hidden in builder mode; L3 needs all three zones.
+    const operatorWorkspace = { ...workspace, mode: 'operator' };
+    await page.route('**/api/v1/auth/workspaces', async (route) => json(route, [operatorWorkspace]));
+    await page.route(`**/api/v1/auth/workspaces/${WORKSPACE_SLUG}`, async (route) => json(route, operatorWorkspace));
+    await page.route('**/api/v1/auth/me', async (route) => {
+      return json(route, {
+        id: 'user-chrome-v2',
+        username: 'chrome',
+        email: 'chrome@example.test',
+        role: 'admin',
+        is_active: true,
+        mfa_enabled: false,
+        workspaces: [operatorWorkspace],
+      });
+    });
+  });
+
+  test('Enter on a rail item focuses the h1 without a ring; Tab shows a 2px ring', async ({ page }) => {
+    await page.goto('/systems');
+    const title = page.locator('#main-content h1').first();
+    await expect(title).toBeVisible({ timeout: 30_000 });
+
+    const operate = page.locator('app-side-rail').getByRole('link', { name: /Monitor|Suivre|Operate/i });
+    await operate.focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/runs(\?|$)/);
+
+    const h1 = page.locator('#main-content h1').first();
+    await expect.poll(async () => h1.evaluate((el) => document.activeElement === el)).toBe(true);
+    expect(await h1.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe('none');
+
+    const status = page.locator('.shell-route-status');
+    await expect(status).toHaveAttribute('role', 'status');
+    await expect.poll(async () => (await status.textContent())?.trim() ?? '').not.toBe('');
+
+    await page.keyboard.press('Tab');
+    const ring = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return null;
+      const style = getComputedStyle(el);
+      return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
+    });
+    expect(ring?.outlineStyle).not.toBe('none');
+    expect(ring?.outlineWidth).toBe('2px');
+  });
+
+  test('axe-core finds no violations on Impact, Create and Monitor', async ({ page }) => {
+    const AxeBuilder = (await import('@axe-core/playwright')).default;
+
+    for (const path of ['/hypervisor', '/systems', '/runs'] as const) {
+      await page.goto(path);
+      await expect(page.locator('#main-content h1').first()).toBeVisible({ timeout: 30_000 });
+      // Same WCAG AA tag set as the accessibility matrix canary — not best-practice extras.
+      const results = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(results.violations, `${path}: ${results.violations.map((v) => v.id).join(', ')}`).toEqual([]);
+    }
+  });
+});
+
 // --- L4 — Tokens v2 and fonts -----------------------------------------------
 
 const enabled = process.env['E2E_CHROME_V2_MOCKED'] === '1';
@@ -334,5 +403,78 @@ test.describe('Chrome v2 — mocked', () => {
     ).toBe('#1fb8cc');
     expect(fontRequests.some((url) => url.includes('/s/spacegrotesk/'))).toBe(true);
     expect(fontRequests.filter((url) => /family=(?:Inter|JetBrains)|\/s\/(?:inter|intertight|jetbrainsmono)\//i.test(url))).toEqual([]);
+  });
+
+  test('L6 — icon rail stays 56px, tooltip on Tab, Escape closes, no link-name', async ({ page }) => {
+    await installMocks(page);
+    await page.goto('/systems');
+
+    const rail = page.locator('app-side-rail .ck-rail');
+    await expect(rail).toBeVisible({ timeout: 30_000 });
+
+    const widthAtRest = await rail.evaluate((el) => el.getBoundingClientRect().width);
+    expect(Math.round(widthAtRest)).toBe(56);
+
+    const main = page.locator('#main-content');
+    const mainXBefore = (await main.boundingBox())!.x;
+
+    await rail.hover({ position: { x: 28, y: 80 } });
+    expect(Math.round(await rail.evaluate((el) => el.getBoundingClientRect().width))).toBe(56);
+    expect((await main.boundingBox())!.x).toBe(mainXBefore);
+
+    const firstLink = page.locator('app-side-rail a.ck-rail-item').first();
+    await firstLink.focus();
+    // Keyboard focus so :focus-visible opens the tooltip immediately.
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(firstLink).toBeFocused();
+
+    const tooltip = page.locator('app-side-rail [role="tooltip"]');
+    await expect(tooltip).toBeVisible();
+    const describedBy = await firstLink.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(await tooltip.getAttribute('id')).toBe(describedBy);
+    await expect(firstLink).toHaveAttribute('aria-label', /.+/);
+
+    await page.keyboard.press('Escape');
+    await expect(tooltip).toHaveCount(0);
+    await expect(firstLink).not.toHaveAttribute('aria-describedby');
+
+    const axe = await new AxeBuilder({ page })
+      .include('app-side-rail')
+      .withRules(['link-name'])
+      .analyze();
+    expect(axe.violations).toEqual([]);
+  });
+});
+
+// --- L5 — Visual guardrails (cliquet) + reduced-motion orb -----------------
+
+test.describe('L5 — chrome ratchet / reduced-motion orb', () => {
+  test.use({ locale: 'fr-FR', colorScheme: 'dark' });
+  test.skip(!enabled, 'Set E2E_CHROME_V2_MOCKED=1 to run the mocked chrome safety net');
+
+  test('reduced-motion freezes the auth thinking orb across 500 ms', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.addInitScript(() => {
+      localStorage.removeItem('agentium_token');
+      localStorage.removeItem('agentium_workspace_slug');
+      localStorage.setItem('agentium_locale', 'en');
+      localStorage.setItem('agentium_theme', 'dark');
+    });
+    await page.route('**/api/v1/**', async (route) => {
+      const method = route.request().method();
+      if (method === 'GET') return json(route, {});
+      return json(route, { ok: true });
+    });
+
+    await page.goto('/auth/signin');
+    const canvas = page.locator('ck-thinking-orb canvas').first();
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+    const first = await canvas.evaluate((node) => (node as HTMLCanvasElement).toDataURL('image/png'));
+    await page.waitForTimeout(500);
+    const second = await canvas.evaluate((node) => (node as HTMLCanvasElement).toDataURL('image/png'));
+    expect(second).toBe(first);
   });
 });

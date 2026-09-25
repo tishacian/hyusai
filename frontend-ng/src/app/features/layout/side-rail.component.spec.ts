@@ -146,3 +146,70 @@ test('experience_v1 Build verb opens the Create hub', () => {
   assert.equal(rail.routeFor(build), '/create');
   assert.equal(rail.verbLabel(build), 'experience.adoption.nav.build');
 });
+
+test('each rail item aria-label equals the adoption zone name', () => {
+  const injector = Injector.create({
+    providers: [
+      SideRailComponent,
+      {
+        provide: WorkspaceService,
+        useValue: {
+          mode: () => 'portfolio',
+          isDemoMode: () => false,
+          current: () => ({ settings: { features: {} } }),
+          experienceV1Enabled: () => false,
+          experienceStudioV1Enabled: () => false,
+        },
+      },
+      {
+        provide: ZoomContextService,
+        useValue: {
+          lens: () => 'operate',
+          axesV4Enabled: () => false,
+          urlForLens: (_target: string, fallback: string) => fallback,
+        },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  const rail = injector.get(SideRailComponent);
+  for (const verb of rail.visibleVerbs()) {
+    assert.equal(
+      rail.verbLabel(verb),
+      `experience.adoption.nav.${verb.key}`,
+      `aria-label source for ${verb.key}`,
+    );
+  }
+  assert.equal(rail.paletteLabel(), 'titlebar.palette.tooltip');
+});
+
+test('side rail has no expanded state', () => {
+  const injector = Injector.create({
+    providers: [
+      SideRailComponent,
+      {
+        provide: WorkspaceService,
+        useValue: {
+          mode: () => 'portfolio',
+          isDemoMode: () => false,
+          current: () => ({ settings: { features: {} } }),
+          experienceV1Enabled: () => false,
+          experienceStudioV1Enabled: () => false,
+        },
+      },
+      {
+        provide: ZoomContextService,
+        useValue: {
+          lens: () => 'operate',
+          axesV4Enabled: () => false,
+          urlForLens: (_target: string, fallback: string) => fallback,
+        },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  const rail = injector.get(SideRailComponent) as SideRailComponent & { expanded?: unknown };
+  assert.equal('expanded' in rail, false);
+  assert.equal(rail.expanded, undefined);
+  assert.equal(rail.tooltipKey(), null);
+});
