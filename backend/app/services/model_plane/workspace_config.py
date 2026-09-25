@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ENV_MASTER_KEY = "LLM_PORTAL_FERNET_KEY"
+ENV_MASTER_KEY_FALLBACK = "HANA_CONNECTOR_FERNET_KEY"
 SETTINGS_KEY = "llm_portal"
 ENVELOPE_VERSION = 1
 
@@ -52,7 +53,7 @@ def _portal_blob(workspace: "Workspace") -> Dict[str, Any]:
 
 
 def _fernet_from_env():
-    raw = os.environ.get(ENV_MASTER_KEY) or os.environ.get("HANA_CONNECTOR_FERNET_KEY")
+    raw = os.environ.get(ENV_MASTER_KEY) or os.environ.get(ENV_MASTER_KEY_FALLBACK)
     if not raw:
         return None
     try:

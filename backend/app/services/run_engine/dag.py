@@ -62,6 +62,7 @@ from app.services.system_catalog_bindings import (
     SystemCatalogBindingError,
     resolve_run_system_catalog_bindings,
 )
+from app.services.workspace_secrets import public_workspace_settings
 
 from .condition import ConditionError
 from .condition import evaluate as evaluate_condition
@@ -4236,7 +4237,7 @@ def _seed_pool(
             "slug": getattr(workspace, "slug", None),
             "name": getattr(workspace, "name", None),
             "mode": getattr(workspace, "mode", None),
-            "settings": _without_secret_values(workspace_settings),
+            "settings": _without_secret_values(public_workspace_settings(workspace_settings)),
         },
     )
 

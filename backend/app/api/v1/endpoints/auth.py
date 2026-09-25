@@ -59,6 +59,11 @@ from app.services.workspace_app_runtime import (
     WORKSPACE_APP_ROLLOUT_STATE_KEY,
     safe_workspace_app_runtime_payload,
 )
+from app.services.workspace_secrets import (
+    public_workspace_settings,
+    secret_paths,
+    with_stored_secrets,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -1217,17 +1222,6 @@ def _settings_with_managed_workspace_fields_preserved(
     return next_settings
 
 
-def _public_workspace_settings(settings: object) -> dict:
-    """Workspace settings as any member reads them.
-
-    Connector secrets are write-only: ``/connectors`` reports whether they
-    are set, and the workspace payload never carries them.
-    """
-    public = dict(settings) if isinstance(settings, Mapping) else {}
-    public.pop(GENERIC_CONNECTORS_KEY, None)
-    return public
-
-
 @router.post("/workspaces", status_code=201, response_model=WorkspaceDetail)
 async def create_workspace(
     body: WorkspaceCreate,
@@ -1267,7 +1261,7 @@ async def create_workspace(
         is_active=workspace.is_active,
         member_count=1,
         created_at=workspace.created_at,
-        settings=_public_workspace_settings(workspace.settings),
+        settings=public_workspace_settings(workspace.settings),
         effective_features=_effective_workspace_features(db, workspace),
         mode=getattr(workspace, "mode", "executive") or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
@@ -1304,7 +1298,7 @@ async def list_workspaces(user: User = Depends(get_current_user), db: DBSession 
                     ),
                     "member_count": member_count,
                     "created_at": ws.created_at.isoformat() if ws.created_at else None,
-                    "settings": _public_workspace_settings(ws.settings),
+                    "settings": public_workspace_settings(ws.settings),
                     "effective_features": _effective_workspace_features(db, ws),
                     "mode": getattr(ws, "mode", "executive") or "executive",
                     "app_entitlements": list_member_app_entitlements(db, m),
@@ -1336,7 +1330,7 @@ async def get_workspace(
         member_count=member_count,
         created_at=workspace.created_at,
         deleted_at=workspace.deleted_at,
-        settings=_public_workspace_settings(workspace.settings),
+        settings=public_workspace_settings(workspace.settings),
         effective_features=_effective_workspace_features(db, workspace),
         mode=getattr(workspace, "mode", "executive") or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
@@ -1358,6 +1352,16 @@ async def update_workspace(
         workspace,
     )
     _require_admin(membership)
+    written_secrets = secret_paths(body.settings) if body.settings is not None else []
+    if written_secrets:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "WORKSPACE_SECRET_WRITE_ONLY",
+                "message": "A connector secret is set on its connector, not in workspace settings",
+                "fields": written_secrets,
+            },
+        )
 
     if "platform_brand" in body.model_fields_set:
         # Narrow compare-and-set under the existing workspace lock. Branding
@@ -1390,7 +1394,7 @@ async def update_workspace(
     if body.settings is not None:
         workspace.settings = _settings_with_managed_workspace_fields_preserved(
             workspace.settings,
-            body.settings,
+            with_stored_secrets(workspace.settings, body.settings),
         )
     if body.mode is not None:
         workspace.mode = body.mode.value
@@ -1429,7 +1433,7 @@ async def update_workspace(
         is_active=workspace.is_active,
         member_count=member_count,
         created_at=workspace.created_at,
-        settings=_public_workspace_settings(workspace.settings),
+        settings=public_workspace_settings(workspace.settings),
         effective_features=_effective_workspace_features(db, workspace),
         mode=getattr(workspace, "mode", "executive") or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
@@ -1477,7 +1481,7 @@ async def update_workspace_mode(
         is_active=workspace.is_active,
         member_count=member_count,
         created_at=workspace.created_at,
-        settings=_public_workspace_settings(workspace.settings),
+        settings=public_workspace_settings(workspace.settings),
         effective_features=_effective_workspace_features(db, workspace),
         mode=workspace.mode or "executive",
         app_entitlements=list_member_app_entitlements(db, membership),
