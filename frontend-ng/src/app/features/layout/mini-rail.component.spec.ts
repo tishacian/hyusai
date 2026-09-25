@@ -15,6 +15,7 @@ import {
 import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { MiniRailComponent } from './mini-rail.component';
 
 const workspaceStub = { mode: () => 'executive' as const, isBuilderMode: () => false };
@@ -73,7 +74,11 @@ test('Capability scope hides its own level and routes Systems inside the same an
 });
 
 /** The nav v5 Create sommaire on `path`, recording the triggers it registers. */
-function createSommaire(path: string, triggers: string[]): MiniRailComponent {
+function createSommaire(
+  path: string,
+  triggers: string[],
+  flags: { experienceStudio?: boolean; client360?: boolean } = {},
+): MiniRailComponent {
   const injector = Injector.create({
     providers: [
       MiniRailComponent,
@@ -85,7 +90,7 @@ function createSommaire(path: string, triggers: string[]): MiniRailComponent {
           axesV4Enabled: () => true,
           navV5Enabled: () => true,
           experienceV1Enabled: () => false,
-          experienceStudioV1Enabled: () => false,
+          experienceStudioV1Enabled: () => flags.experienceStudio === true,
           loading: () => false,
           route: () => navigationRouteContext(path),
           scope: () => null,
@@ -97,6 +102,10 @@ function createSommaire(path: string, triggers: string[]): MiniRailComponent {
         useValue: { registerTrigger: (trigger: string) => triggers.push(trigger) },
       },
       { provide: WorkspaceService, useValue: workspaceStub },
+      {
+        provide: NavigationProfileService,
+        useValue: { businessSurfaceEnabled: () => flags.client360 === true },
+      },
       { provide: I18nService, useValue: { t: (key: string) => key } },
     ],
   });
@@ -123,6 +132,7 @@ test('the active item leads back to its list from a child', () => {
   const systems = rail.visibleSections().find((section) => section.key === 'systems')!;
   assert.equal(rail.isSectionActive(systems), true);
   assert.equal(rail.routeFor(systems), '/systems');
+  assert.equal(rail.sectionLabel(systems), 'nav.sommaire.back_to_list');
 
   rail.onItemClick(systems);
   assert.deepEqual(triggers, ['minirail']);
@@ -137,7 +147,6 @@ test('on the list itself, the active item returns to the top without navigating'
   const triggers: string[] = [];
   const rail = createSommaire('/systems', triggers);
   const systems = rail.visibleSections().find((section) => section.key === 'systems')!;
-  // The link is the current URL, so the router ignores it.
   assert.equal(rail.routeFor(systems), '/systems');
 
   const attributes = new Map<string, string>();
@@ -249,11 +258,12 @@ function railWithFlowScope(axesV3: boolean, systemId: string | null): MiniRailCo
           runLabel: () => null,
           skillInvocationLabel: () => null,
           skillLabel: () => null,
-          urlForScope: (section: CockpitSection) => (
-            section.key === 'flows' && systemId
+          urlForScope: (section: CockpitSection) => {
+            if (!section) return '/';
+            return section.key === 'flows' && systemId
               ? `/systems/${systemId}/flow`
-              : section.route
-          ),
+              : section.route;
+          },
         },
       },
       { provide: WorkspaceService, useValue: workspaceStub },
@@ -263,17 +273,16 @@ function railWithFlowScope(axesV3: boolean, systemId: string | null): MiniRailCo
   return injector.get(MiniRailComponent);
 }
 
-test('the Flow entry reads Scratchpad only while it opens the scratchpad', () => {
+test('the Flow action reads Nouveau flux only while it opens the free draft', () => {
   for (const axesV3 of [true, false]) {
     const scratchpad = railWithFlowScope(axesV3, null);
     const flows = scratchpad.visibleSections().find((section) => section.key === 'flows')!;
-    assert.equal(scratchpad.sectionLabel(flows), 'Scratchpad', `axesV3=${axesV3}`);
+    assert.equal(scratchpad.sectionLabel(flows), '+ Nouveau flux', `axesV3=${axesV3}`);
 
     const opened = railWithFlowScope(axesV3, 'sys-42');
     const openedFlows = opened.visibleSections().find((section) => section.key === 'flows')!;
     assert.equal(opened.sectionLabel(openedFlows), 'Flow builder', `axesV3=${axesV3}`);
 
-    // The section key and glyph are the rail's identity — naming must not move them.
     assert.equal(openedFlows.key, 'flows');
     assert.equal(openedFlows.glyph, flows.glyph);
   }
@@ -288,7 +297,7 @@ test('sections other than Flow are named from the catalog whatever the URL', () 
   assert.equal(rail.sectionLabel(skills), 'Skills');
 });
 
-test('axes v4 exposes no object index under the Portfolio-only Hypervisor destination', () => {
+test('Impact lists its six views in the sommaire', () => {
   const injector = Injector.create({
     providers: [
       MiniRailComponent,
@@ -298,10 +307,11 @@ test('axes v4 exposes no object index under the Portfolio-only Hypervisor destin
           lens: () => 'hypervisor',
           axesV3Enabled: () => true,
           axesV4Enabled: () => true,
+          navV5Enabled: () => true,
           experienceV1Enabled: () => false,
           experienceStudioV1Enabled: () => false,
           loading: () => false,
-          route: () => navigationRouteContext('/hypervisor'),
+          route: () => navigationRouteContext('/hypervisor?facet=bases'),
           scope: () => null,
           capabilityId: () => null,
           systemId: () => null,
@@ -313,42 +323,7 @@ test('axes v4 exposes no object index under the Portfolio-only Hypervisor destin
           runLabel: () => null,
           skillInvocationLabel: () => null,
           skillLabel: () => null,
-          urlForScope: (section: CockpitSection) => section.route,
-        },
-      },
-      { provide: WorkspaceService, useValue: workspaceStub },
-      { provide: I18nService, useValue: { t: (key: string) => key } },
-    ],
-  });
-  assert.deepEqual(injector.get(MiniRailComponent).visibleSections(), []);
-});
-
-test('experience studio prepends Business application to the Create catalogues', () => {
-  const injector = Injector.create({
-    providers: [
-      MiniRailComponent,
-      {
-        provide: ZoomContextService,
-        useValue: {
-          lens: () => 'build',
-          axesV3Enabled: () => true,
-          axesV4Enabled: () => false,
-          experienceV1Enabled: () => true,
-          experienceStudioV1Enabled: () => true,
-          loading: () => false,
-          route: () => navigationRouteContext('/create'),
-          scope: () => null,
-          capabilityId: () => null,
-          systemId: () => null,
-          runId: () => null,
-          skillInvocationId: () => null,
-          skillRef: () => null,
-          capabilityLabel: () => null,
-          systemLabel: () => null,
-          runLabel: () => null,
-          skillInvocationLabel: () => null,
-          skillLabel: () => null,
-          urlForScope: (section: CockpitSection) => section.route,
+          urlForScope: (section: CockpitSection) => navigationZoneSurfaceUrl(section, 'hypervisor'),
         },
       },
       { provide: WorkspaceService, useValue: workspaceStub },
@@ -356,21 +331,39 @@ test('experience studio prepends Business application to the Create catalogues',
     ],
   });
   const rail = injector.get(MiniRailComponent);
-  const keys = rail.visibleSections().map((section) => section.key);
-  assert.deepEqual(keys, [
-    'business_apps',
-    'systems',
-    'capabilities',
-    'skills',
-    'knowledge',
-    'data',
-    'models',
-    'flows',
-  ]);
-  assert.equal(rail.sectionLabel(rail.visibleSections()[0]), 'Business application');
+  assert.deepEqual(
+    rail.visibleSections().map((section) => section.key),
+    ['synthese', 'registre', 'couts', 'bases', 'decisions', 'journal'],
+  );
+  assert.equal(rail.verbLabel(rail.activeVerb()!), 'experience.adoption.nav.hypervisor');
+  assert.equal(rail.zonePhrase(rail.activeVerb()!), 'nav.sommaire.phrase.hypervisor');
+  const bases = rail.visibleSections().find((section) => section.key === 'bases')!;
+  assert.equal(rail.isSectionActive(bases), true);
+  assert.equal(rail.routeFor(bases), '/hypervisor?facet=bases');
 });
 
-test('nav v5 Operate sommaire has no object ladder and exposes a System facet branch (I1)', () => {
+test('Create sommaire keeps a fixed order with Applications métier then Nouveau flux', () => {
+  const rail = createSommaire('/create/apps', [], { experienceStudio: true });
+  assert.deepEqual(
+    rail.visibleSections().map((section) => section.key),
+    [
+      'business_apps',
+      'systems',
+      'capabilities',
+      'skills',
+      'knowledge',
+      'data',
+      'models',
+      'flows',
+    ],
+  );
+  const flows = rail.visibleSections().find((section) => section.key === 'flows')!;
+  assert.equal(flows.role, 'action');
+  assert.equal(rail.sectionLabel(flows), '+ Nouveau flux');
+  assert.equal(rail.sectionLabel(rail.visibleSections()[0]!), 'Business applications');
+});
+
+test('nav v5 Operate sommaire has no object ladder and no System facet branch', () => {
   const injector = Injector.create({
     providers: [
       MiniRailComponent,
@@ -401,6 +394,10 @@ test('nav v5 Operate sommaire has no object ladder and exposes a System facet br
         },
       },
       { provide: WorkspaceService, useValue: workspaceStub },
+      {
+        provide: NavigationProfileService,
+        useValue: { businessSurfaceEnabled: (id: string) => id === 'client360-pdr' },
+      },
       { provide: I18nService, useValue: { t: (key: string) => key } },
     ],
   });
@@ -411,13 +408,44 @@ test('nav v5 Operate sommaire has no object ladder and exposes a System facet br
     false,
   );
   assert.equal(rail.stableLayout(), true);
-  const branch = rail.systemBranch();
-  assert.ok(branch);
-  assert.deepEqual(branch.facets.map((facet) => facet.id), [
-    'overview',
-    'runs',
-    'design',
-    'context',
-  ]);
-  assert.equal(branch.activeId, 'runs');
+  assert.equal(rail.verbLabel(rail.activeVerb()!), 'experience.adoption.nav.operate');
+  assert.deepEqual(
+    rail.visibleSections().map((section) => section.key),
+    ['runs', 'observability', 'intelligence', 'missions', 'client360'],
+  );
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/features/layout/mini-rail.component.ts'),
+    'utf8',
+  );
+  assert.doesNotMatch(source, /systemBranch|in_system/);
+});
+
+test('Administrer sommaire exposes three groups', () => {
+  const injector = Injector.create({
+    providers: [
+      MiniRailComponent,
+      {
+        provide: ZoomContextService,
+        useValue: {
+          lens: () => 'govern',
+          axesV3Enabled: () => true,
+          axesV4Enabled: () => true,
+          navV5Enabled: () => true,
+          experienceV1Enabled: () => false,
+          experienceStudioV1Enabled: () => false,
+          loading: () => false,
+          route: () => navigationRouteContext('/workspace'),
+          scope: () => null,
+          urlForScope: (section: CockpitSection) => section.route,
+        },
+      },
+      { provide: WorkspaceService, useValue: workspaceStub },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+    ],
+  });
+  const rail = injector.get(MiniRailComponent);
+  const groups = rail.navEntries()
+    .filter((entry) => entry.kind === 'group')
+    .map((entry) => (entry.kind === 'group' ? entry.group : null));
+  assert.deepEqual(groups, ['workspace', 'integrations', 'governance']);
 });

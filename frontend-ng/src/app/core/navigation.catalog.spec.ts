@@ -41,7 +41,7 @@ test('the Flow entry is named after the destination it resolves to', () => {
   const section = flowSection();
 
   const scratchpad = navigationScopeUrl(section, EMPTY_ANCESTRY, 'build');
-  assert.equal(navigationSectionNaming(section, scratchpad).label, 'Scratchpad');
+  assert.equal(navigationSectionNaming(section, scratchpad).label, 'Nouveau flux');
 
   const systemFlow = navigationScopeUrl(
     section,
@@ -70,7 +70,7 @@ test('destination naming exposes a dedicated key so a locale can override it', (
 test('sections without a dynamic destination keep their catalog naming', () => {
   for (const verb of COCKPIT_VERBS) {
     for (const section of verb.sections ?? []) {
-      if (section.key === 'flows') continue;
+      if (section.key === 'flows' || section.facet) continue;
       const naming = navigationSectionNaming(section, section.route);
       assert.equal(naming.label, section.label, section.key);
       assert.equal(naming.i18nKey, `nav.${section.key}`, section.key);
@@ -257,7 +257,10 @@ test('axes v4 has four object lenses and a distinct Portfolio destination', () =
     COCKPIT_VERBS.filter((verb) => isObjectLens(verb.key)).map((verb) => verb.key),
     ['build', 'operate', 'steer', 'govern'],
   );
-  assert.deepEqual(COCKPIT_VERBS.find((verb) => verb.key === 'hypervisor')?.sections, []);
+  assert.deepEqual(
+    COCKPIT_VERBS.find((verb) => verb.key === 'hypervisor')?.sections?.map((section) => section.key),
+    ['synthese', 'registre', 'couts', 'bases', 'decisions', 'journal'],
+  );
   assert.equal(isObjectLens('hypervisor'), false);
   assert.equal(
     navigationLensUrl(
@@ -303,6 +306,8 @@ test('experience studio adds one Create entry and keeps the zone catalogues', ()
     'models',
     'flows',
   ]);
+  assert.equal(on[0]?.label, 'Business applications');
+  assert.equal(on.find((section) => section.key === 'flows')?.role, 'action');
   assert.equal(matchCockpitVerb('/create')?.key, 'build');
   assert.equal(matchCockpitVerb('/create/apps')?.key, 'build');
 });
@@ -381,7 +386,7 @@ test('nav v5 sommaire has no object-type index outside Create (I1)', () => {
   }
 });
 
-test('OBJECT_FACETS lists System descendants used by the sommaire branch', () => {
+test('OBJECT_FACETS lists System descendants used by object facets', () => {
   const facets = objectFacetsFor('system', 'operate');
   assert.deepEqual(facets.map((facet) => facet.id), [
     'overview',
@@ -392,6 +397,21 @@ test('OBJECT_FACETS lists System descendants used by the sommaire branch', () =>
   assert.equal(systemFacetForChild('run'), 'runs');
   assert.equal(systemFacetForChild('skill'), 'design');
   assert.equal(systemFacetForChild('capability'), null);
+});
+
+test('Administrer sections carry Workspace, Integrations and Governance groups', () => {
+  const govern = COCKPIT_VERBS.find((verb) => verb.key === 'govern')!;
+  assert.deepEqual(
+    govern.sections!.map((section) => [section.key, section.group]),
+    [
+      ['workspace', 'workspace'],
+      ['presets', 'workspace'],
+      ['apps', 'integrations'],
+      ['resources', 'integrations'],
+      ['connectors', 'integrations'],
+      ['audit', 'governance'],
+    ],
+  );
 });
 
 test('a page link keeps lens and ancestry (I3)', () => {

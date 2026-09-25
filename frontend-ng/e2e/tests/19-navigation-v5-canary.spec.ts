@@ -149,6 +149,14 @@ test.describe.serial('Lot 6 — navigation v5 canary', () => {
     const mainBox = await page.locator('main').boundingBox();
     expect(mainBox, 'canvas must have a stable box').toBeTruthy();
 
+    for (const path of ['/hypervisor', '/systems', '/runs', '/steering', '/governance/audit'] as const) {
+      await page.goto(path);
+      const box = await page.locator('main').boundingBox();
+      if (mainBox && box) {
+        expect(Math.abs(box.x - mainBox.x), `main.x must match on ${path}`).toBeLessThan(8);
+      }
+    }
+
     for (const lens of ['build', 'operate', 'steer', 'govern'] as const) {
       await page.goto(
         `/systems/${encodeURIComponent(system.id)}?lens=${lens}&facet=runs&capabilityId=${encodeURIComponent(capability.id)}`,

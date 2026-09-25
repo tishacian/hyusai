@@ -158,9 +158,6 @@
     "src/app/features/layout/command-palette.component.ts": {
       "violet": 6
     },
-    "src/app/features/layout/mini-rail.component.ts": {
-      "halo": 1
-    },
     "src/app/features/mandate/run-mandate.component.css": {
       "violet": 1,
       "pill": 2

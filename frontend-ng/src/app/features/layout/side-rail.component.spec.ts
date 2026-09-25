@@ -116,7 +116,7 @@ test('axes v4 makes Hypervisor the Portfolio home even in a demo workspace', () 
   assert.equal(rail.routeFor(hypervisor), '/hypervisor');
 });
 
-test('experience_v1 Build verb opens the Create hub', () => {
+test('experience_v1 Build verb opens the first Create sommaire entry', () => {
   const injector = Injector.create({
     providers: [
       SideRailComponent,
@@ -143,7 +143,7 @@ test('experience_v1 Build verb opens the Create hub', () => {
   });
   const rail = injector.get(SideRailComponent);
   const build = rail.visibleVerbs().find((verb) => verb.key === 'build')!;
-  assert.equal(rail.routeFor(build), '/create');
+  assert.equal(rail.routeFor(build), '/create/apps');
   assert.equal(rail.verbLabel(build), 'experience.adoption.nav.build');
 });
 
