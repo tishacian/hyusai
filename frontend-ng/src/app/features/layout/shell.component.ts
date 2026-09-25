@@ -190,7 +190,7 @@ import { I18nService } from '@app/core/i18n.service';
     @media (max-width: 700px) {
       .shell-body-with-rails {
         display: grid;
-        grid-template-columns: 48px minmax(0, 1fr);
+        grid-template-columns: 56px minmax(0, 1fr);
         grid-template-rows: auto minmax(0, 1fr);
       }
 
