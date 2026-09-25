@@ -46,6 +46,7 @@ def test_feature_gate_is_the_workspace_setting_only():
 
 def test_set_and_get_config_masks_token(monkeypatch):
     monkeypatch.delenv(rpa_service.ENV_MASTER_KEY, raising=False)
+    monkeypatch.delenv(rpa_service.ENV_MASTER_KEY_FALLBACK, raising=False)
     monkeypatch.delenv(rpa_service.ENV_FALLBACK_TOKEN, raising=False)
     monkeypatch.setattr(rpa_service, "flag_modified", lambda *_a, **_k: None)
     ws = _workspace()
@@ -73,6 +74,7 @@ def test_set_and_get_config_masks_token(monkeypatch):
 
 def test_set_config_keeps_existing_token_when_omitted(monkeypatch):
     monkeypatch.delenv(rpa_service.ENV_MASTER_KEY, raising=False)
+    monkeypatch.delenv(rpa_service.ENV_MASTER_KEY_FALLBACK, raising=False)
     monkeypatch.delenv(rpa_service.ENV_FALLBACK_TOKEN, raising=False)
     monkeypatch.setattr(rpa_service, "flag_modified", lambda *_a, **_k: None)
     ws = _workspace()
@@ -211,3 +213,54 @@ def test_test_connection_health(monkeypatch):
     )
     assert out["ok"] is True
     assert out["body"]["ok"] is True
+
+
+def test_hana_key_seals_a_new_token_when_the_rpa_key_is_absent(monkeypatch):
+    from cryptography.fernet import Fernet
+
+    monkeypatch.delenv(rpa_service.ENV_MASTER_KEY, raising=False)
+    monkeypatch.delenv(rpa_service.ENV_FALLBACK_TOKEN, raising=False)
+    monkeypatch.setenv(rpa_service.ENV_MASTER_KEY_FALLBACK, Fernet.generate_key().decode())
+    monkeypatch.setattr(rpa_service, "flag_modified", lambda *_a, **_k: None)
+    ws = _workspace()
+    rpa_service.set_config(
+        _mock_db(),
+        ws,
+        {"base_url": "https://rpa.example.test", "auth_token": "secret-token"},
+    )
+    stored = ws.settings["connectors"]["rpa_bridge"]["auth_token_encrypted"]
+    envelope = json.loads(stored)
+    assert "ciphertext" in envelope
+    assert "plaintext" not in envelope
+    assert "secret-token" not in stored
+    assert rpa_service.get_config(ws, include_secrets=True)["auth_token"] == "secret-token"
+
+
+def test_reencrypt_seals_a_plaintext_envelope_with_the_hana_key(monkeypatch):
+    from cryptography.fernet import Fernet
+
+    monkeypatch.delenv(rpa_service.ENV_MASTER_KEY, raising=False)
+    monkeypatch.delenv(rpa_service.ENV_FALLBACK_TOKEN, raising=False)
+    monkeypatch.delenv(rpa_service.ENV_MASTER_KEY_FALLBACK, raising=False)
+    monkeypatch.setattr(rpa_service, "flag_modified", lambda *_a, **_k: None)
+    ws = _workspace()
+    rpa_service.set_config(
+        _mock_db(),
+        ws,
+        {"base_url": "https://rpa.example.test", "auth_token": "secret-token"},
+    )
+    assert "plaintext" in json.loads(ws.settings["connectors"]["rpa_bridge"]["auth_token_encrypted"])
+
+    monkeypatch.setenv(rpa_service.ENV_MASTER_KEY_FALLBACK, Fernet.generate_key().decode())
+    rewritten, changed = rpa_service.reencrypt_workspace_rpa_token(ws.settings)
+    assert changed is True
+    envelope = json.loads(rewritten["connectors"]["rpa_bridge"]["auth_token_encrypted"])
+    assert "ciphertext" in envelope
+    assert "plaintext" not in envelope
+    assert "secret-token" not in json.dumps(rewritten)
+    ws.settings = rewritten
+    assert rpa_service.get_config(ws, include_secrets=True)["auth_token"] == "secret-token"
+
+    again, changed_again = rpa_service.reencrypt_workspace_rpa_token(rewritten)
+    assert changed_again is False
+    assert again["connectors"]["rpa_bridge"]["auth_token_encrypted"] == rewritten["connectors"]["rpa_bridge"]["auth_token_encrypted"]

@@ -2,10 +2,11 @@
 
 Config lives under ``workspace.settings["connectors"]["rpa_bridge"]``. The
 auth token is encrypted at rest with a Fernet master key
-(``RPA_CONNECTOR_FERNET_KEY``), using the same envelope pattern as the SAP
-HANA connector. When no key is configured (dev), the token is stored in a
-plaintext envelope. ``RPA_CONNECTOR_AUTH_TOKEN`` can supply a demo token
-when none is stored on the workspace.
+(``RPA_CONNECTOR_FERNET_KEY``, demo fallback ``HANA_CONNECTOR_FERNET_KEY``),
+using the same envelope pattern as the SAP HANA and MCP connectors. When no
+key is configured (dev), the token is stored in a plaintext envelope.
+``RPA_CONNECTOR_AUTH_TOKEN`` can supply a demo token when none is stored on
+the workspace.
 
 Generic orchestrator contract (no UiPath SDK):
   POST {base_url}/jobs          → start job
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ENV_MASTER_KEY = "RPA_CONNECTOR_FERNET_KEY"
+ENV_MASTER_KEY_FALLBACK = "HANA_CONNECTOR_FERNET_KEY"
 ENV_FALLBACK_TOKEN = "RPA_CONNECTOR_AUTH_TOKEN"
 CONNECTOR_KEY = "rpa_bridge"
 FEATURE_FLAG = "rpa_bridge"
@@ -60,8 +62,12 @@ def _connectors(workspace: "Workspace") -> dict[str, Any]:
     return dict(raw) if isinstance(raw, Mapping) else {}
 
 
+def _env_master_key() -> str:
+    return (os.environ.get(ENV_MASTER_KEY) or os.environ.get(ENV_MASTER_KEY_FALLBACK) or "").strip()
+
+
 def _fernet_from_env():
-    raw = os.environ.get(ENV_MASTER_KEY)
+    raw = _env_master_key()
     if not raw:
         return None
     try:
@@ -92,9 +98,10 @@ def _encrypt_secret(plaintext: str) -> str:
     if fernet is None:
         logger.warning(
             "%s not set; persisting RPA connector auth token in PLAINTEXT. "
-            "Set %s to a urlsafe-base64 Fernet key before going to production.",
+            "Set %s or %s to a urlsafe-base64 Fernet key before going to production.",
             ENV_MASTER_KEY,
             ENV_MASTER_KEY,
+            ENV_MASTER_KEY_FALLBACK,
         )
         envelope = {
             "v": ENVELOPE_VERSION,
@@ -127,6 +134,42 @@ def _decrypt_secret(blob: str) -> str:
             )
         return fernet.decrypt(envelope["ciphertext"].encode("ascii")).decode("utf-8")
     raise ValueError(f"Unknown auth token envelope keys={sorted(envelope)}")
+
+
+def _envelope_is_sealed(blob: str) -> bool:
+    try:
+        envelope = json.loads(blob)
+    except Exception:
+        return False
+    return isinstance(envelope, dict) and bool(envelope.get("ciphertext")) and "plaintext" not in envelope
+
+
+def reencrypt_auth_token_blob(blob: str) -> str:
+    """Seal a stored token with the resolved Fernet key.
+
+    A plaintext envelope (or a bare leftover string) is rewritten when a key
+    is available. An already-sealed envelope is left alone. No key means the
+    blob is unchanged. The token itself is never logged.
+    """
+    if not blob or not _env_master_key() or _envelope_is_sealed(blob):
+        return blob
+    token = _decrypt_secret(blob)
+    return _encrypt_secret(token) if token else blob
+
+
+def reencrypt_workspace_rpa_token(settings: Any) -> tuple[dict[str, Any], bool]:
+    """Rewrite ``connectors.rpa_bridge.auth_token_encrypted`` if it is unsealed."""
+    current = dict(settings) if isinstance(settings, Mapping) else {}
+    connectors = dict(current.get("connectors") or {}) if isinstance(current.get("connectors"), Mapping) else {}
+    stored = dict(connectors.get(CONNECTOR_KEY) or {}) if isinstance(connectors.get(CONNECTOR_KEY), Mapping) else {}
+    blob = str(stored.get("auth_token_encrypted") or "")
+    sealed = reencrypt_auth_token_blob(blob)
+    if sealed == blob:
+        return current, False
+    stored["auth_token_encrypted"] = sealed
+    connectors[CONNECTOR_KEY] = stored
+    current["connectors"] = connectors
+    return current, True
 
 
 def _normalize_job_mapping(raw: Any) -> dict[str, str]:
