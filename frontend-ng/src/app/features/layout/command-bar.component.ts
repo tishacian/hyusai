@@ -53,16 +53,16 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
       ><ck-kbd>⌘K</ck-kbd>{{ i18n.t('nav.footer.command') }}</span>
       <span
         class="ck-mono"
-        [title]="zoomHint()"
+        [title]="zoomHintTitle()"
         [style.fontSize.px]="9"
-        [style.letterSpacing]="'0.14em'"
-        [style.textTransform]="'uppercase'"
+        [style.letterSpacing]="'0.04em'"
+        [style.textTransform]="'none'"
         [style.color]="'var(--ck-fg-4)'"
         [style.display]="'inline-flex'"
         [style.alignItems]="'center'"
         [style.gap.px]="6"
         [style.cursor]="'help'"
-      ><ck-kbd>⌘Z</ck-kbd>{{ i18n.t('nav.footer.zoom') }}</span>
+      ><ck-kbd>⌘Z</ck-kbd>{{ zoomHint() }}</span>
       <span class="ck-hairline-v" [style.height.px]="14"></span>
       <span
         class="ck-mono"
@@ -98,7 +98,7 @@ export class CommandBarComponent {
 
   readonly position = computed(() => {
     if (!this.navigation.navV5Enabled?.()) return this.path();
-    const depth = this.depth();
+    const { depth, total } = this.navigation.depthPair();
     const zone = this.i18n.t(this.navigation.zoneI18nKey());
     const filtered = Boolean(
       !this.navigation.deepestResolvedType()
@@ -107,29 +107,21 @@ export class CommandBarComponent {
     return this.i18n.t(filtered ? 'nav.command.position_filter' : 'nav.command.position', {
       zone,
       depth: String(depth),
+      total: String(total),
     });
   });
 
-  private depth(): number {
-    switch (this.navigation.deepestResolvedType()) {
-      case 'skill':
-      case 'skill_invocation':
-        return 5;
-      case 'run':
-        return 4;
-      case 'system':
-        return 3;
-      case 'capability':
-        return 2;
-      default:
-        return 1;
-    }
-  }
-
-  /** Canonical zoom chain, in the order `SemanticZoomBreadcrumbComponent` walks it. */
+  /** Short ⌘Z target named by the parent crumb. */
   readonly zoomHint = computed(() => {
-    const chain = (['portfolio', 'capability', 'system', 'run', 'skill'] as const)
-      .map((key) => this.i18n.t(`nav.zoom.${key}`))
+    if (!this.navigation.navV5Enabled?.()) {
+      return this.i18n.t('nav.footer.zoom');
+    }
+    return this.navigation.zoomParentHint();
+  });
+
+  readonly zoomHintTitle = computed(() => {
+    const chain = this.navigation.nodes()
+      .map((node) => node.label)
       .join(' › ');
     return this.i18n.t(
       this.navigation.navV5Enabled?.() ? 'nav.zoom.hint_v5' : 'nav.zoom.hint',

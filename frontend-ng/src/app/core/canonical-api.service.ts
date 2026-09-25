@@ -2139,6 +2139,83 @@ export class CanonicalApiService {
     return this.api.get<Context>(`/contexts/${id}`).pipe(catchError(() => of(null)));
   }
 
+  /** Knowledge collection display name (slug → name from the documents meta list). */
+  getCollection(slug: string): Observable<{ slug: string; name: string } | null> {
+    return this.api
+      .get<{ items?: Array<{ slug?: string; name?: string }> }>('/documents/collections')
+      .pipe(
+        map((payload) => {
+          const item = (payload.items ?? []).find((row) => row.slug === slug);
+          if (!item?.slug) return null;
+          return { slug: item.slug, name: item.name || item.slug };
+        }),
+        catchError(() => of(null)),
+      );
+  }
+
+  getDataset(id: string): Observable<{ id: string; name: string; version?: number } | null> {
+    return this.api
+      .get<{ dataset?: { id: string; name: string; version?: number } } | { id: string; name: string; version?: number }>(
+        `/datasets/${encodeURIComponent(id)}`,
+      )
+      .pipe(
+        map((payload) => {
+          const dataset = 'dataset' in payload && payload.dataset ? payload.dataset : payload as { id: string; name: string; version?: number };
+          return dataset?.id ? { id: dataset.id, name: dataset.name, version: dataset.version } : null;
+        }),
+        catchError(() => of(null)),
+      );
+  }
+
+  getMlModel(id: string): Observable<{ id: string; name: string; version: number } | null> {
+    return this.api
+      .get<{ model?: { id: string; name: string; version: number } } | { id: string; name: string; version: number }>(
+        `/ml-models/${encodeURIComponent(id)}`,
+      )
+      .pipe(
+        map((payload) => {
+          const model = 'model' in payload && payload.model ? payload.model : payload as { id: string; name: string; version: number };
+          return model?.id
+            ? { id: model.id, name: model.name, version: model.version ?? 1 }
+            : null;
+        }),
+        catchError(() => of(null)),
+      );
+  }
+
+  getExperienceSummary(id: string): Observable<{ id: string; name: string } | null> {
+    return this.api
+      .get<{ id: string; name: string }>(`/experiences/${encodeURIComponent(id)}`)
+      .pipe(
+        map((row) => (row?.id ? { id: row.id, name: row.name || row.id } : null)),
+        catchError(() => of(null)),
+      );
+  }
+
+  getChatSessionSummary(id: string): Observable<{ id: string; title: string; system_id?: string | null } | null> {
+    return this.api
+      .get<{ id: string; title?: string | null; meta_data?: Record<string, unknown> }>(
+        `/sessions/${encodeURIComponent(id)}`,
+      )
+      .pipe(
+        map((row) => {
+          if (!row?.id) return null;
+          const meta = row.meta_data && typeof row.meta_data === 'object' ? row.meta_data : {};
+          const linked = meta['linked_object'];
+          const systemId = linked && typeof linked === 'object' && !Array.isArray(linked)
+            && (linked as Record<string, unknown>)['type'] === 'system'
+            ? String((linked as Record<string, unknown>)['id'] ?? '') || null
+            : null;
+          return {
+            id: row.id,
+            title: (row.title && String(row.title).trim()) || row.id,
+            system_id: systemId,
+          };
+        }),
+        catchError(() => of(null)),
+      );
+  }
+
   createContext(
     body: Partial<Context>,
     options?: { workspaceSlug?: string | null },

@@ -11,23 +11,16 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
 interface ZoomLevel {
   key: ZoomHierarchyKey;
   label: string;
+  mono?: string | null;
   sub?: string;
   href?: string | any[];
   active: boolean;
+  current: boolean;
 }
 
 /**
- * Semantic zoom breadcrumb — Portfolio › Capability › System › Run › SkillInvocation.
+ * Semantic zoom breadcrumb — Portfolio › Capability › System › Run › …
  * Lives inside the title bar and reflects the current navigation depth.
- *
- * Canonical order (see docs/mental-model.md §5bis.2): a Run is an instance
- * of a System; a SkillInvocation is one concrete runtime execution beneath
- * that Run. A catalog Skill remains a Build component and is never relabelled
- * as the runtime invocation.
- *
- * Levels are clickable to navigate while preserving context (e.g. clicking
- * "System" from a Run keeps the system in scope). ⌘Z / ⇧⌘Z traverse the
- * chain respecting this canonical order.
  *
  * The Router owns the leaf; `ZoomContextService` validates its parents from
  * the canonical graph and exposes this component a read-only projection.
@@ -39,65 +32,101 @@ interface ZoomLevel {
   imports: [GlyphComponent],
   template: `
     <nav
-      class="ck-mono"
-      [style.display]="'flex'"
-      [style.alignItems]="'center'"
-      [style.gap.px]="6"
-      [style.fontSize.px]="10"
-      [style.letterSpacing]="'0.10em'"
-      [style.textTransform]="'uppercase'"
-      [style.color]="'var(--ck-fg-3)'"
+      [attr.aria-label]="i18n.t('nav.breadcrumb')"
       [style.minWidth]="'0'"
       [style.overflowX]="'auto'"
     >
-      @for (lv of levels(); track lv.key; let last = $last) {
-        <button
-          type="button"
-          (click)="goto(lv)"
-          [disabled]="!lv.href"
-          [style.background]="'transparent'"
-          [style.border]="'none'"
-          [style.padding]="'0 4px'"
-          [style.cursor]="lv.href ? 'pointer' : 'default'"
-          [style.color]="lv.active ? 'var(--ck-signal-cool)' : (lv.href ? 'var(--ck-fg-2)' : 'var(--ck-fg-4)')"
-          [style.opacity]="lv.active || lv.href ? 1 : 0.5"
-          [style.transition]="'color 120ms var(--ck-ease-out)'"
-          [title]="lv.sub || lv.label"
-        >
-          <span [style.fontWeight]="lv.active ? 600 : 400">{{ lv.label }}</span>
-        </button>
-        @if (!last) {
-          <ck-glyph name="arrow-right" [size]="10" color="var(--ck-fg-5)" />
+      <ol
+        [style.display]="'flex'"
+        [style.alignItems]="'center'"
+        [style.gap.px]="6"
+        [style.margin]="'0'"
+        [style.padding]="'0'"
+        [style.listStyle]="'none'"
+        [style.fontFamily]="'var(--ck-font-sans)'"
+        [style.fontSize.px]="12"
+        [style.color]="'var(--ck-fg-3)'"
+      >
+        @for (lv of levels(); track lv.key + '-' + $index; let last = $last) {
+          <li [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6">
+            @if (lv.href) {
+              <a
+                [attr.href]="hrefAttr(lv)"
+                [attr.aria-current]="lv.current ? 'page' : null"
+                (click)="goto(lv, $event)"
+                [style.background]="'transparent'"
+                [style.border]="'none'"
+                [style.padding]="'0 2px'"
+                [style.textDecoration]="'none'"
+                [style.cursor]="'pointer'"
+                [style.color]="lv.active ? 'var(--ck-signal-cool)' : 'var(--ck-fg-2)'"
+                [style.fontWeight]="lv.active ? 600 : 400"
+                [title]="lv.sub || lv.label"
+              >
+                <span>{{ lv.label }}</span>
+                @if (lv.mono) {
+                  <span
+                    class="ck-mono"
+                    [style.marginLeft.px]="4"
+                    [style.fontSize.px]="11"
+                  >{{ lv.mono }}</span>
+                }
+              </a>
+            } @else {
+              <span
+                [attr.aria-current]="lv.current ? 'page' : null"
+                [style.color]="lv.active ? 'var(--ck-signal-cool)' : 'var(--ck-fg-4)'"
+                [style.fontWeight]="lv.active ? 600 : 400"
+                [title]="lv.sub || lv.label"
+              >{{ lv.label }}</span>
+            }
+            @if (!last) {
+              <ck-glyph name="arrow-right" [size]="10" color="var(--ck-fg-5)" />
+            }
+          </li>
         }
-      }
+      </ol>
     </nav>
   `,
 })
 export class SemanticZoomBreadcrumbComponent {
   private readonly router = inject(Router);
   private readonly navigation = inject(ZoomContextService);
-  private readonly i18n = inject(I18nService);
+  readonly i18n = inject(I18nService);
   private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
 
   readonly levels = computed<ZoomLevel[]>(() => {
-    const nodes = this.navigation.nodes();
+    const nodes = this.navigation.visibleNodes();
     const selected = this.navigation.route().selectedType;
     const activeKey: ZoomHierarchyKey = selected && nodes.some((node) => node.key === selected)
       ? selected
-      : (this.navigation.deepestResolvedType() ?? 'portfolio');
-    return nodes.map((node) => ({
+      : (this.navigation.deepestResolvedType()
+        ?? (nodes.some((node) => node.key === 'conversations') ? 'conversations' : 'portfolio'));
+    return nodes.map((node, index) => ({
       key: node.key,
-      // Every other node is named after the object it points at; the
-      // portfolio root is the one generic word, so it follows the locale.
-      label: node.key === 'portfolio' ? this.i18n.t('nav.zoom.portfolio') : node.label,
+      label: node.key === 'portfolio'
+        ? this.i18n.t('nav.zoom.portfolio')
+        : node.key === 'conversations'
+          ? this.i18n.t('nav.conversations')
+          : node.key === 'business_apps'
+            ? this.i18n.t('nav.business_apps')
+            : node.label,
+      mono: node.mono,
       sub: node.sub,
-      href: node.href,
+      href: node.href || undefined,
       active: node.key === activeKey,
+      current: index === nodes.length - 1,
     }));
   });
 
-  goto(lv: ZoomLevel): void {
+  hrefAttr(lv: ZoomLevel): string | null {
+    if (!lv.href) return null;
+    return Array.isArray(lv.href) ? null : lv.href;
+  }
+
+  goto(lv: ZoomLevel, event?: Event): void {
     if (!lv.href) return;
+    event?.preventDefault();
     this.telemetry?.registerTrigger('breadcrumb');
     if (Array.isArray(lv.href)) this.router.navigate(lv.href);
     else this.router.navigateByUrl(lv.href);
@@ -134,17 +163,31 @@ export class SemanticZoomBreadcrumbComponent {
     ev.preventDefault();
     ev.stopPropagation();
 
-    const levels = this.levels();
-    const currentIdx = levels.findIndex((lv) => lv.active);
-    const fallback = 0; // Portfolio when nothing is active (e.g. on root redirect).
+    // Zoom walks the full graph, not the collapsed display.
+    const chain = this.navigation.nodes().map((node) => ({
+      key: node.key,
+      label: node.label,
+      href: node.href || undefined,
+      active: false,
+      current: false,
+    }));
+    const selected = this.navigation.route().selectedType;
+    const activeKey = selected && chain.some((node) => node.key === selected)
+      ? selected
+      : (this.navigation.deepestResolvedType() ?? chain[0]?.key);
+    const currentIdx = chain.findIndex((lv) => lv.key === activeKey);
+    const fallback = 0;
     const idx = currentIdx === -1 ? fallback : currentIdx;
 
     const nextIdx = ev.shiftKey
-      ? Math.min(levels.length - 1, idx + 1) // zoom in
-      : Math.max(0, idx - 1);                 // zoom out
+      ? Math.min(chain.length - 1, idx + 1)
+      : Math.max(0, idx - 1);
 
     if (nextIdx === idx && currentIdx !== -1) return;
-    this.goto(levels[nextIdx]);
+    const next = chain[nextIdx];
+    if (!next?.href) return;
+    this.telemetry?.registerTrigger('breadcrumb');
+    this.router.navigateByUrl(next.href);
   }
 
   private isEditable(el: HTMLElement): boolean {

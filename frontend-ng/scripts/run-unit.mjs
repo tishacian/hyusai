@@ -182,6 +182,7 @@ const storeSpecs = [
   'src/app/features/layout/side-rail.component.spec.ts',
   'src/app/features/layout/mini-rail.component.spec.ts',
   'src/app/features/layout/semantic-zoom-breadcrumb.component.spec.ts',
+  'src/app/features/layout/command-bar.component.spec.ts',
   'src/app/features/layout/title-bar.component.spec.ts',
   'src/app/features/layout/business-shell-header.component.spec.ts',
   'src/app/features/mission-room/mission-room.component.spec.ts',

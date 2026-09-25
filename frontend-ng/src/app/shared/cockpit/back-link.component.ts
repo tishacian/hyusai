@@ -29,10 +29,10 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      font-family: var(--ck-font-mono);
-      font-size: 11px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
+      font-family: var(--ck-font-sans);
+      font-size: 12px;
+      letter-spacing: 0;
+      text-transform: none;
       color: var(--ck-fg-3);
       text-decoration: none;
     }

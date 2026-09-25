@@ -24,7 +24,7 @@ export interface CkObjectKpi {
  * docs/mental-model.md §5bis.5 (object invariance) for the contract.
  *
  * Composition:
- *   - `eyebrow`      small ALL-CAPS mono label (breadcrumb tail / type).
+ *   - `eyebrow`      small sentence-case label (breadcrumb tail / type).
  *   - `title`        object name.
  *   - `subtitle`     one-line description.
  *   - `kpis`         up to 4–5 KPI pills (ROI, Cost, Yield…).
@@ -59,10 +59,10 @@ export interface CkObjectKpi {
         <div [style.minWidth]="'280px'" [style.flex]="'1 1 360px'">
           @if (eyebrow) {
             <div
-              class="ck-mono"
-              [style.fontSize.px]="10"
-              [style.letterSpacing]="'0.14em'"
-              [style.textTransform]="'uppercase'"
+              [style.fontFamily]="'var(--ck-font-sans)'"
+              [style.fontSize.px]="12"
+              [style.letterSpacing]="'0'"
+              [style.textTransform]="'none'"
               [style.color]="'var(--ck-fg-4)'"
               [style.marginBottom.px]="4"
             >
