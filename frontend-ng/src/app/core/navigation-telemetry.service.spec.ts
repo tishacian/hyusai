@@ -160,15 +160,15 @@ test('explicit redirect records the final destination after a chained Angular re
     NavigationCancellationCode.Redirect,
   ));
   router.events.next(new NavigationStart(2, '/settings'));
-  router.events.next(new NavigationEnd(2, '/settings', '/presets'));
+  router.events.next(new NavigationEnd(2, '/settings', '/workspace'));
 
   assert.equal(api.calls.length, 1);
   assert.deepEqual(api.calls[0].body.details, {
     schema_version: 1,
     requested_route: '/hypervisor',
-    resolved_route: '/presets',
+    resolved_route: '/workspace',
     effective_workspace: 'andritz',
-    effective_surface: 'presets',
+    effective_surface: 'unknown',
     redirect_owner: 'navigation_resolver',
     redirect_reason: 'workspace_default_route',
     redirected: true,
@@ -309,15 +309,15 @@ test('cancelled or failed redirects cannot leak into a later navigation', () => 
 test('static Angular redirect is inferred from urlAfterRedirects', () => {
   const { router, api } = makeHarness();
   router.events.next(new NavigationStart(1, '/settings'));
-  router.events.next(new NavigationEnd(1, '/settings', '/presets'));
+  router.events.next(new NavigationEnd(1, '/settings', '/workspace'));
 
   assert.equal(api.calls.length, 1);
   assert.equal(api.calls[0].body.details.redirect_owner, 'angular_router');
   assert.equal(api.calls[0].body.details.redirect_reason, 'angular_route_redirect');
   assert.equal(api.calls[0].body.details.redirected, true);
   assert.equal(api.calls[0].body.details.requested_route, '/settings');
-  assert.equal(api.calls[0].body.details.resolved_route, '/presets');
-  assert.equal(api.calls[0].body.details.effective_surface, 'presets');
+  assert.equal(api.calls[0].body.details.resolved_route, '/workspace');
+  assert.equal(api.calls[0].body.details.effective_surface, 'unknown');
 });
 
 test('public/auth routes and navigations without a workspace are not emitted', () => {

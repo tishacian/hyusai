@@ -681,10 +681,18 @@ export type CockpitSectionKey =
   | 'review'
   | 'audit'
   | 'workspace'
+  | 'access'
+  | 'workspace_apps'
   | 'apps'
   | 'resources'
+  | 'outils'
   | 'connectors'
+  | 'language_models'
   | 'presets'
+  | 'experiences'
+  | 'canonical'
+  | 'blueprints'
+  | 'surface_map'
   | 'business_apps'
   | 'certified'
   | 'integrations'
@@ -695,7 +703,7 @@ export type CockpitSectionKey =
   | 'decisions'
   | 'journal';
 
-/** Administrer sommaire groups (L8 structure; destinations fill in L12). */
+/** Administrer sommaire groups (L8 structure; L12 destinations). */
 export type CockpitSectionGroup = 'workspace' | 'integrations' | 'governance';
 
 export interface CockpitSection {
@@ -714,6 +722,10 @@ export interface CockpitSection {
   group?: CockpitSectionGroup;
   /** Action row after a separator (Créer › Nouveau flux). */
   role?: 'action';
+  /** Hidden from non-admin members (e.g. Apps du workspace). */
+  adminOnly?: boolean;
+  /** Hidden unless experience governance is allowed (Expériences). */
+  experienceGovernance?: boolean;
 }
 
 export interface CockpitVerb {
@@ -1020,7 +1032,7 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
   {
     key: 'govern',
     label: 'Govern',
-    hint: 'Control · audit, apps, resources, presets',
+    hint: 'Control · workspace, integrations, governance',
     glyph: 'shield',
     primarySurfaceId: 'governance',
     primaryRoute: agentiumSurfaceRoute('governance'),
@@ -1028,11 +1040,39 @@ export const COCKPIT_VERBS: CockpitVerb[] = [
     sections: [
       // `/workspace` is the registry-owned entry alias resolved to the active slug.
       { ...section('workspace', 'Workspace settings', 'sliders', 'workspace-admin', 'surface'), route: '/workspace', group: 'workspace' },
-      { ...section('presets', 'Presets', 'sliders', 'presets', 'preset'), group: 'workspace' },
-      { ...section('apps', 'Apps', 'bolt', 'apps', 'app'), group: 'integrations' },
-      { ...section('resources', 'Resources', 'orbit', 'resources', 'surface'), group: 'integrations' },
+      { ...section('access', 'Access & roles', 'focus', 'governance', 'surface'), route: '/governance/access', matches: ['/governance/access'], group: 'workspace' },
+      {
+        ...section('workspace_apps', 'Workspace apps', 'layers', 'workspace-app-platform', 'surface'),
+        group: 'workspace',
+        adminOnly: true,
+      },
+      { ...section('presets', 'RAG & evaluation presets', 'sliders', 'presets', 'preset'), group: 'workspace' },
+      { ...section('resources', 'Integrations map', 'orbit', 'resources', 'surface'), group: 'integrations' },
+      { ...section('outils', 'Tools', 'bolt', 'skills', 'surface'), route: '/skills', matches: ['/skills'], group: 'integrations' },
+      { ...section('apps', 'Extensions', 'bolt', 'apps', 'app'), group: 'integrations' },
       { ...section('connectors', 'Connectors', 'layers', 'connectors', 'connector'), group: 'integrations' },
-      { ...section('audit', 'Governance', 'shield', 'governance', 'surface'), group: 'governance' },
+      { ...section('language_models', 'Language models', 'chart', 'model-portal', 'surface'), group: 'integrations' },
+      {
+        ...section('audit', 'Audit log', 'ledger', 'governance', 'surface'),
+        route: '/governance/audit',
+        matches: ['/governance/audit'],
+        group: 'governance',
+      },
+      {
+        ...section('experiences', 'Experiences', 'layers', 'governance', 'surface'),
+        route: '/governance/experiences',
+        matches: ['/governance/experiences'],
+        group: 'governance',
+        experienceGovernance: true,
+      },
+      {
+        ...section('canonical', 'Canonical answers', 'focus', 'governance', 'surface'),
+        route: '/governance/canonical-answers',
+        matches: ['/governance/canonical-answers'],
+        group: 'governance',
+      },
+      { ...section('blueprints', 'Blueprints', 'layers', 'workspace-blueprints', 'surface'), group: 'governance' },
+      { ...section('surface_map', 'Surface map', 'layers', 'surface-map', 'surface'), group: 'governance' },
     ],
   },
 ];
@@ -1052,14 +1092,33 @@ export const LENS_MATCHES: Record<CockpitLens, string[]> = COCKPIT_VERBS.reduce(
 
 export function cockpitVerbSections(
   verb: CockpitVerb,
-  flags: { experienceStudio?: boolean; client360?: boolean } = {},
+  flags: {
+    experienceStudio?: boolean;
+    client360?: boolean;
+    /** When false, hide adminOnly Administrer rows. Omit to keep them (catalog checks). */
+    isAdmin?: boolean;
+    /** When false, hide experienceGovernance rows. */
+    canGovernExperiences?: boolean;
+    /** When false, hide experienceGovernance rows. */
+    experienceV1?: boolean;
+  } = {},
 ): CockpitSection[] {
   let sections = verb.sections ?? [];
   if (verb.key === 'operate' && !flags.client360) {
     sections = sections.filter((item) => item.key !== 'client360');
   }
   if (verb.key === 'build' && flags.experienceStudio) {
-    return [CREATE_STUDIO_SECTION, ...sections];
+    sections = [CREATE_STUDIO_SECTION, ...sections];
+  }
+  if (verb.key === 'govern') {
+    sections = sections.filter((item) => {
+      if (item.adminOnly && flags.isAdmin === false) return false;
+      if (item.experienceGovernance) {
+        if (flags.experienceV1 === false) return false;
+        if (flags.canGovernExperiences === false) return false;
+      }
+      return true;
+    });
   }
   return sections;
 }
@@ -1157,10 +1216,12 @@ export function navigationZoneSurfaceUrl(
   lens: CockpitLens,
   currentUrl?: string,
 ): string {
-  const impactKeys = impactQueryForPath(section.route, currentUrl);
-  return appendNavigationQuery(section.route, {
-    lens: lensQueryForPath(section.route, lens),
-    facet: section.facet ?? null,
+  const path = pathOnly(section.route);
+  const catalogQuery = queryFromRoute(section.route);
+  const impactKeys = impactQueryForPath(path, currentUrl);
+  return appendNavigationQuery(path, {
+    lens: lensQueryForPath(path, lens),
+    facet: section.facet ?? catalogQuery['facet'] ?? null,
     ...impactKeys,
   });
 }

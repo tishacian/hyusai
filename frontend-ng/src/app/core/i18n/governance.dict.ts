@@ -16,16 +16,19 @@ export const GOVERNANCE_FR = {
   // --- Suite-wide --------------------------------------------------
   'governance.breadcrumb': 'Gouverner',
   'governance.load_more': 'Charger plus',
+  'governance.home.title': 'Administrer',
+  'governance.home.lead':
+    'Workspace, intégrations et gouvernance — une liste unique, sans second menu.',
 
-  // --- Shell tabs --------------------------------------------------
+  // --- Shell tabs (legacy keys; destinations now live in the sommaire) ---
   'governance.shell.audit': "Journal d'audit",
-  'governance.shell.experiences': 'Applications métier',
+  'governance.shell.experiences': 'Expériences',
   'governance.shell.chat_history': 'Historique des conversations',
   'governance.shell.canonical': 'Réponses canoniques',
-  'governance.shell.access': 'Accès & rôles',
+  'governance.shell.access': 'Accès et rôles',
   'governance.shell.blueprints': 'Blueprints',
-  'governance.shell.apps': 'Workspace Apps',
-  'governance.shell.surface': 'Cartographie des surfaces',
+  'governance.shell.apps': 'Apps du workspace',
+  'governance.shell.surface': 'Carte des surfaces',
 
   // --- Audit logs --------------------------------------------------
   'governance.audit.title': "Journal d'audit",
@@ -540,15 +543,18 @@ export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   // --- Suite-wide --------------------------------------------------
   'governance.breadcrumb': 'Govern',
   'governance.load_more': 'Load more',
+  'governance.home.title': 'Administer',
+  'governance.home.lead':
+    'Workspace, integrations and governance — one list, no second menu.',
 
-  // --- Shell tabs --------------------------------------------------
+  // --- Shell tabs (legacy keys; destinations now live in the sommaire) ---
   'governance.shell.audit': 'Audit log',
-  'governance.shell.experiences': 'Business applications',
+  'governance.shell.experiences': 'Experiences',
   'governance.shell.chat_history': 'Chat history',
   'governance.shell.canonical': 'Canonical answers',
   'governance.shell.access': 'Access & roles',
   'governance.shell.blueprints': 'Blueprints',
-  'governance.shell.apps': 'Workspace Apps',
+  'governance.shell.apps': 'Workspace apps',
   'governance.shell.surface': 'Surface map',
 
   // --- Audit logs --------------------------------------------------

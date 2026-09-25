@@ -16,6 +16,7 @@ import {
   type CockpitVerb,
   type NavLinkInput,
 } from '@app/core/navigation.catalog';
+import { canGovernExperiences } from '@app/features/governance/experience-governance.models';
 
 /**
  * Ordered ancestry for scope filtering: a section is hidden if its
@@ -356,9 +357,17 @@ export class MiniRailComponent {
   readonly visibleSections = computed<CockpitSection[]>(() => {
     const verb = this.activeVerb();
     if (!verb) return [];
+    const current = this.workspace.current?.() ?? null;
     const sections = cockpitVerbSections(verb, {
       experienceStudio: this.navigation.experienceStudioV1Enabled(),
       client360: this.profile?.businessSurfaceEnabled('client360-pdr') === true,
+      isAdmin: this.workspace.isAdmin?.() ?? true,
+      experienceV1: this.navigation.experienceV1Enabled?.() ?? true,
+      canGovernExperiences: canGovernExperiences(
+        current?.role_template,
+        current?.role,
+        this.workspace.isAdmin?.() ?? false,
+      ),
     });
     if (!sections.length) return [];
     if (this.stableLayout()) return sections;
@@ -458,6 +467,18 @@ export class MiniRailComponent {
       if (s.facet) {
         const facet = this.navigation.route().query['facet'] || 'synthese';
         return facet === s.facet;
+      }
+      const routeFacet = s.route.includes('?')
+        ? new URLSearchParams(s.route.slice(s.route.indexOf('?') + 1)).get('facet')
+        : null;
+      const urlFacet = this.navigation.route().query['facet'] || null;
+      if (routeFacet) return urlFacet === routeFacet;
+      // Sibling with a facet query on the same path (Integrations map vs language models).
+      if (urlFacet && this.visibleSections().some((other) => {
+        if (other === s || other.route.split('?')[0] !== route) return false;
+        return other.route.includes('facet=') || Boolean(other.facet);
+      })) {
+        return false;
       }
       return true;
     }

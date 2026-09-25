@@ -85,14 +85,11 @@ test('unavailable drift data never renders a healthy zero or green state', () =>
   assert.match(source, /this\.driftState\.set\(result\.drifts\.failed \? 'error' : 'ready'\)/);
 });
 
-test('Govern navigation remains contained and keyboard-reachable on narrow viewports', () => {
+test('Govern shell is a pass-through without a second tab menu', () => {
   const source = readFileSync(
     join(process.cwd(), 'src/app/features/governance/governance-shell.component.ts'),
     'utf8',
   );
-  assert.match(source, /\[style\.overflowX\]="'auto'"/);
-  assert.match(source, /\[style\.overscrollBehaviorX\]="'contain'"/);
-  assert.match(source, /\[style\.minWidth\]="'max-content'"/);
-  assert.match(source, /\(focus\)="revealTab\(\$event\)"/);
-  assert.match(source, /scrollIntoView\(\{ block: 'nearest', inline: 'nearest' \}\)/);
+  assert.match(source, /<router-outlet\s*\/>/);
+  assert.doesNotMatch(source, /visibleTabs|overflowX|revealTab/);
 });

@@ -200,7 +200,7 @@ export const routes: Routes = [
       },
       {
         path: 'settings',
-        redirectTo: 'presets',
+        redirectTo: 'workspace',
         pathMatch: 'full',
       },
       {

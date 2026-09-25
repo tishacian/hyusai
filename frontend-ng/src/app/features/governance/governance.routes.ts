@@ -9,7 +9,12 @@ export const governanceRoutes: Routes = [
     loadComponent: () =>
       import('./governance-shell.component').then((m) => m.GovernanceShellComponent),
     children: [
-      { path: '', redirectTo: 'audit', pathMatch: 'full' },
+      {
+        path: '',
+        pathMatch: 'full',
+        loadComponent: () =>
+          import('./administrer-home.component').then((m) => m.AdministrerHomeComponent),
+      },
       {
         path: 'audit',
         loadComponent: () =>

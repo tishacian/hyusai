@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   AGENTIUM_SURFACE_LEAVES,
   AGENTIUM_SURFACE_ROUTES,
@@ -405,13 +407,48 @@ test('Administrer sections carry Workspace, Integrations and Governance groups',
     govern.sections!.map((section) => [section.key, section.group]),
     [
       ['workspace', 'workspace'],
+      ['access', 'workspace'],
+      ['workspace_apps', 'workspace'],
       ['presets', 'workspace'],
-      ['apps', 'integrations'],
       ['resources', 'integrations'],
+      ['outils', 'integrations'],
+      ['apps', 'integrations'],
       ['connectors', 'integrations'],
+      ['language_models', 'integrations'],
       ['audit', 'governance'],
+      ['experiences', 'governance'],
+      ['canonical', 'governance'],
+      ['blueprints', 'governance'],
+      ['surface_map', 'governance'],
     ],
   );
+});
+
+test('Administrer lists destinations in three groups including Outils and Extensions', () => {
+  const govern = COCKPIT_VERBS.find((verb) => verb.key === 'govern')!;
+  const sections = cockpitVerbSections(govern);
+  const groups = [...new Set(sections.map((section) => section.group))];
+  assert.deepEqual(groups, ['workspace', 'integrations', 'governance']);
+  assert.ok(sections.some((section) => section.key === 'outils' && section.route === '/skills'));
+  assert.ok(sections.some((section) => section.key === 'apps' && section.route === '/apps'));
+  assert.equal(
+    sections.find((section) => section.key === 'resources')?.route,
+    '/resources',
+  );
+});
+
+test('a member cannot see Apps du workspace in Administrer', () => {
+  const govern = COCKPIT_VERBS.find((verb) => verb.key === 'govern')!;
+  const asMember = cockpitVerbSections(govern, { isAdmin: false });
+  assert.equal(asMember.some((section) => section.key === 'workspace_apps'), false);
+  const asAdmin = cockpitVerbSections(govern, { isAdmin: true });
+  assert.ok(asAdmin.some((section) => section.key === 'workspace_apps' && section.adminOnly));
+});
+
+test('/settings routes to workspace settings (not presets)', () => {
+  const source = readFileSync(join(process.cwd(), 'src/app/app.routes.ts'), 'utf8');
+  assert.match(source, /path:\s*'settings'[\s\S]*?redirectTo:\s*'workspace'/);
+  assert.doesNotMatch(source, /path:\s*'settings'[\s\S]*?redirectTo:\s*'presets'/);
 });
 
 test('a page link keeps lens and ancestry (I3)', () => {
