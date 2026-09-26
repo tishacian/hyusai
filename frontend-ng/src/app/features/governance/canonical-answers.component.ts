@@ -30,10 +30,36 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
       </button>
     </app-section-header>
 
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+      <label class="flex min-w-[220px] flex-1 flex-col gap-1 text-xs text-gray-400">
+        {{ i18n.t('governance.canonical.search') }}
+        <input
+          type="search"
+          class="ck-field-input rounded px-3 py-2 text-sm text-white"
+          [value]="query()"
+          (input)="query.set(($any($event.target).value || '').toString())"
+          [placeholder]="i18n.t('governance.canonical.search_placeholder')"
+        />
+      </label>
+      <label class="flex flex-col gap-1 text-xs text-gray-400">
+        {{ i18n.t('governance.canonical.sort') }}
+        <select
+          class="ck-field-input rounded px-3 py-2 text-sm text-white"
+          [value]="sort()"
+          (change)="onSortChange($event)"
+        >
+          <option value="updated">{{ i18n.t('governance.canonical.sort_updated') }}</option>
+          <option value="hits">{{ i18n.t('governance.canonical.sort_hits') }}</option>
+          <option value="question">{{ i18n.t('governance.canonical.sort_question') }}</option>
+        </select>
+      </label>
+      <p class="text-xs text-gray-500">{{ i18n.t('governance.canonical.count', { count: filteredItems().length }) }}</p>
+    </div>
+
     <section class="ck-surface rounded-md overflow-hidden">
       @if (loading()) {
         <div class="p-6 text-sm text-gray-400">{{ i18n.t('governance.canonical.loading') }}</div>
-      } @else if (!items().length) {
+      } @else if (!filteredItems().length) {
         <app-empty-state
           icon="shield-check"
           [title]="i18n.t('governance.canonical.empty.title')"
@@ -41,7 +67,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
         />
       } @else {
         <ul class="divide-y divide-white/5">
-          @for (item of items(); track item.id) {
+          @for (item of filteredItems(); track item.id) {
             <li class="p-5 flex gap-4 items-start">
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap mb-2">
@@ -95,7 +121,26 @@ export class CanonicalAnswersComponent implements OnInit {
   readonly loading = signal(false);
   readonly items = signal<CanonicalAnswerRow[]>([]);
   readonly deletingId = signal<string | null>(null);
+  readonly query = signal('');
+  readonly sort = signal<'updated' | 'hits' | 'question'>('updated');
   readonly total = computed(() => this.items().length);
+  readonly filteredItems = computed(() => {
+    const needle = this.query().trim().toLowerCase();
+    let rows = this.items();
+    if (needle) {
+      rows = rows.filter((row) =>
+        [row.question, row.answer, row.created_by, row.source_run_id]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(needle)),
+      );
+    }
+    const sort = this.sort();
+    return [...rows].sort((a, b) => {
+      if (sort === 'hits') return (b.hit_count || 0) - (a.hit_count || 0);
+      if (sort === 'question') return String(a.question || '').localeCompare(String(b.question || ''));
+      return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+    });
+  });
 
   ngOnInit(): void {
     this.reload();
@@ -129,5 +174,12 @@ export class CanonicalAnswersComponent implements OnInit {
 
   short(id: string): string {
     return id.slice(0, 8);
+  }
+
+  onSortChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    if (value === 'hits' || value === 'question' || value === 'updated') {
+      this.sort.set(value);
+    }
   }
 }

@@ -1257,7 +1257,12 @@ def serialize_link(link: DepositAccessLink, *, reveal_password: str | None = Non
     }
 
 
-def serialize_public_link(link: DepositAccessLink) -> dict[str, Any]:
+def serialize_public_link(
+    link: DepositAccessLink,
+    *,
+    workspace_name: str | None = None,
+    requester_label: str | None = None,
+) -> dict[str, Any]:
     return {
         "label": link.label,
         "access_id": link.access_id,
@@ -1266,6 +1271,8 @@ def serialize_public_link(link: DepositAccessLink) -> dict[str, Any]:
         "expires_at": link.expires_at.isoformat() if link.expires_at else None,
         "max_file_size_mb": link.max_file_size_mb,
         "allowed_extensions": link.allowed_extensions or [],
+        "workspace_name": workspace_name,
+        "requester_label": requester_label,
     }
 
 
@@ -1297,7 +1304,36 @@ def serialize_public_file(file: DepositFile) -> dict[str, Any]:
         "status": file.status,
         "uploaded_at": file.uploaded_at.isoformat() if file.uploaded_at else None,
         "promoted_at": file.promoted_at.isoformat() if file.promoted_at else None,
+        "rejection_reason": file.rejection_reason,
     }
+
+
+def public_requester_label(username: str | None, email: str | None = None) -> str | None:
+    """Never expose an e-mail as the requester label on the public portal."""
+    candidate = (username or "").strip()
+    if not candidate:
+        return None
+    if "@" in candidate:
+        return None
+    if email and candidate.lower() == email.strip().lower():
+        return None
+    return candidate
+
+
+def serialize_public_link_for_portal(db: DBSession, link: DepositAccessLink) -> dict[str, Any]:
+    workspace = db.query(Workspace).filter(Workspace.id == link.workspace_id).first()
+    requester = None
+    if link.created_by_user_id:
+        requester = db.query(User).filter(User.id == link.created_by_user_id).first()
+    return serialize_public_link(
+        link,
+        workspace_name=(workspace.name if workspace else None) or (workspace.slug if workspace else None),
+        requester_label=public_requester_label(
+            getattr(requester, "username", None),
+            getattr(requester, "email", None),
+        ),
+    )
+
 
 
 def _target_collection_slug(workspace: Workspace, collection_slug: str | None) -> str:

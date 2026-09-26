@@ -40,7 +40,7 @@ from app.services.secure_deposit import (
     serialize_file,
     serialize_link,
     serialize_public_file,
-    serialize_public_link,
+    serialize_public_link_for_portal,
     staged_file_download_name,
     staged_file_media_type,
     staged_file_path,
@@ -224,7 +224,7 @@ def create_public_deposit_session(
     return {
         "token": token,
         "expires_at": expires_at.isoformat(),
-        "link": serialize_public_link(link),
+        "link": serialize_public_link_for_portal(db, link),
         "files": [serialize_public_file(file) for file in link.files],
     }
 
@@ -242,7 +242,7 @@ def list_public_deposit_files(
         .order_by(DepositFile.uploaded_at.desc())
         .all()
     )
-    return {"link": serialize_public_link(link), "files": [serialize_public_file(file) for file in files]}
+    return {"link": serialize_public_link_for_portal(db, link), "files": [serialize_public_file(file) for file in files]}
 
 
 @public_router.post("/{access_id}/files")

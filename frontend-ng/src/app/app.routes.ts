@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { Route, Routes } from '@angular/router';
+import { Route, Router, Routes } from '@angular/router';
 import { authGuard } from './core/auth.guard';
 import { CLIENT_APPLICATION_ROUTES } from './core/client-application-routes';
 import { loginGuard } from './core/login.guard';
@@ -11,6 +11,14 @@ import { WorkspaceService } from './core/workspace.service';
 import { workspaceAppAdminGuard } from './features/governance/workspace-app-admin.guard';
 import { experienceV1Guard } from './features/experience/experience.guard';
 
+function workspaceSettingsRedirect() {
+  const workspace = inject(WorkspaceService);
+  const slug = workspace.currentSlug() || workspace.current()?.slug;
+  if (slug) {
+    return inject(Router).parseUrl(`/workspace/${encodeURIComponent(slug)}/settings`);
+  }
+  return inject(Router).parseUrl('/workspace');
+}
 export const routes: Routes = [
   { path: 'help/:guideId', loadComponent: () => import('./features/help/help-guide.component').then(m => m.HelpGuideComponent) },
   {
@@ -200,7 +208,7 @@ export const routes: Routes = [
       },
       {
         path: 'settings',
-        redirectTo: 'workspace',
+        redirectTo: workspaceSettingsRedirect,
         pathMatch: 'full',
       },
       {

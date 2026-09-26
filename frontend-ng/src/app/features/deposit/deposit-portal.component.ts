@@ -14,6 +14,7 @@ interface DepositFile {
   sha256: string;
   status: 'received' | 'rejected' | 'promoted';
   uploaded_at: string | null;
+  rejection_reason?: string | null;
 }
 
 interface DepositLink {
@@ -23,6 +24,8 @@ interface DepositLink {
   expires_at: string | null;
   max_file_size_mb: number;
   allowed_extensions: string[];
+  workspace_name?: string | null;
+  requester_label?: string | null;
 }
 
 @Component({
@@ -57,13 +60,22 @@ interface DepositLink {
             <form class="mt-5 space-y-4" (ngSubmit)="unlock()">
               <label class="block">
                 <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ i18n.t('deposit.portal.password') }}</span>
-                <input
-                  name="password"
-                  type="password"
-                  [(ngModel)]="password"
-                  class="w-full rounded-md border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/40"
-                  autocomplete="current-password"
-                />
+                <div class="flex gap-2">
+                  <input
+                    name="password"
+                    [type]="showPassword() ? 'text' : 'password'"
+                    [(ngModel)]="password"
+                    class="w-full rounded-md border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/40"
+                    autocomplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    class="shrink-0 rounded-md bg-white/5 px-3 text-xs text-gray-300 ring-1 ring-white/10 hover:bg-white/10"
+                    (click)="showPassword.set(!showPassword())"
+                  >
+                    {{ i18n.t(showPassword() ? 'deposit.portal.password_hide' : 'deposit.portal.password_show') }}
+                  </button>
+                </div>
               </label>
               @if (error()) {
                 <p class="rounded bg-red-500/10 px-3 py-2 text-sm text-red-100 ring-1 ring-red-400/25">{{ error() }}</p>
@@ -131,14 +143,30 @@ interface DepositLink {
                 } @else {
                   <ul class="divide-y divide-white/10">
                     @for (file of files(); track file.id) {
-                      <li class="grid grid-cols-[minmax(0,1fr)_110px_92px] gap-3 px-4 py-3 text-sm">
+                      <li class="grid grid-cols-[minmax(0,1fr)_110px_100px] gap-3 px-4 py-3 text-sm">
                         <div class="min-w-0">
                           <div class="truncate font-medium text-white">{{ file.filename }}</div>
-                          <div class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ file.sha256 }}</div>
+                          @if (file.uploaded_at) {
+                            <div class="mt-1 text-[11px] text-gray-400">{{ file.uploaded_at | date:'short' }}</div>
+                          }
+                          @if (file.status === 'rejected' && file.rejection_reason) {
+                            <div class="mt-1 text-[11px] text-red-200">{{ file.rejection_reason }}</div>
+                          }
                         </div>
                         <div class="text-right text-xs text-gray-400">{{ formatBytes(file.size_bytes) }}</div>
                         <div class="text-right">
-                          <span class="rounded bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200 ring-1 ring-emerald-500/20">
+                          <span
+                            class="rounded px-2 py-1 text-[11px] ring-1"
+                            [class.bg-emerald-500/10]="file.status === 'received'"
+                            [class.text-emerald-200]="file.status === 'received'"
+                            [class.ring-emerald-500/20]="file.status === 'received'"
+                            [class.bg-red-500/10]="file.status === 'rejected'"
+                            [class.text-red-200]="file.status === 'rejected'"
+                            [class.ring-red-500/25]="file.status === 'rejected'"
+                            [class.bg-sky-500/10]="file.status === 'promoted'"
+                            [class.text-sky-200]="file.status === 'promoted'"
+                            [class.ring-sky-500/20]="file.status === 'promoted'"
+                          >
                             {{ fileStatusLabel(file.status) }}
                           </span>
                         </div>
@@ -153,15 +181,27 @@ interface DepositLink {
               <section class="rounded-md bg-[#111827] p-4 ring-1 ring-cyan-400/30">
                 <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300">{{ i18n.t('deposit.portal.scope') }}</p>
                 <h2 class="mt-2 text-base font-semibold">{{ link()?.label || accessId() }}</h2>
+                @if (link()?.workspace_name) {
+                  <p class="mt-2 text-sm text-gray-300">{{ i18n.t('deposit.portal.organization', { name: link()!.workspace_name }) }}</p>
+                }
+                @if (link()?.requester_label) {
+                  <p class="mt-1 text-sm text-gray-400">{{ i18n.t('deposit.portal.requester', { name: link()!.requester_label }) }}</p>
+                }
                 <dl class="mt-4 space-y-3 text-sm">
                   <div class="flex justify-between gap-3">
                     <dt class="text-gray-500">{{ i18n.t('deposit.portal.max_file') }}</dt>
-                    <dd class="text-gray-200">{{ link()?.max_file_size_mb || 100 }} MB</dd>
+                    <dd class="text-gray-200">{{ link()?.max_file_size_mb || 100 }} {{ i18n.t('deposit.portal.unit_mb') }}</dd>
                   </div>
                   <div class="flex justify-between gap-3">
                     <dt class="text-gray-500">{{ i18n.t('deposit.portal.expires') }}</dt>
                     <dd class="text-gray-200">{{ link()?.expires_at ? (link()!.expires_at | date:'mediumDate') : i18n.t('deposit.portal.no_expiry') }}</dd>
                   </div>
+                  @if ((link()?.allowed_extensions || []).length) {
+                    <div class="flex justify-between gap-3">
+                      <dt class="text-gray-500">{{ i18n.t('deposit.portal.extensions') }}</dt>
+                      <dd class="text-right text-gray-200">{{ (link()?.allowed_extensions || []).join(', ') }}</dd>
+                    </div>
+                  }
                 </dl>
               </section>
               @if (error()) {
@@ -188,6 +228,7 @@ export class DepositPortalComponent implements OnInit {
   readonly uploading = signal(false);
   readonly dragging = signal(false);
   readonly error = signal<string | null>(null);
+  readonly showPassword = signal(false);
   readonly storageKey = computed(() => `deposit:${this.accessId()}:token`);
 
   password = '';
@@ -312,8 +353,13 @@ export class DepositPortalComponent implements OnInit {
   }
 
   formatBytes(size: number): string {
-    if (!size) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB'];
+    if (!size) return `0 ${this.i18n.t('deposit.portal.unit_b')}`;
+    const units = [
+      this.i18n.t('deposit.portal.unit_b'),
+      this.i18n.t('deposit.portal.unit_kb'),
+      this.i18n.t('deposit.portal.unit_mb'),
+      this.i18n.t('deposit.portal.unit_gb'),
+    ];
     const index = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length - 1);
     return `${(size / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
   }
