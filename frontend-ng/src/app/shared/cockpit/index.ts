@@ -40,12 +40,12 @@ export {
 } from './arrival-provenance';
 export { CkBackLinkComponent } from './back-link.component';
 export {
-  CkPanelComponent,
   CkPanelHostComponent,
   PanelHostService,
   type CkPanelPosition,
   type CkPanelRef,
-} from './panel.component';
+} from './panel-host';
+export { CkPanelComponent } from './panel.component';
 export {
   ThinkingOrbComponent,
   type CkOrbSize,
