@@ -886,6 +886,92 @@ def test_work_validations_limits_after_approval_authority(db_session) -> None:
     assert [row["id"] for row in response.json()["runs"]] == [own.id]
 
 
+def test_work_catalog_pending_decisions_match_validations_for_same_reader(db_session) -> None:
+    """L17 — GET /work counter equals /{slug}/validations for the same reader."""
+    workspace, admin = _seed(db_session)
+    system, _version, _binding = _seed_binding(db_session, workspace, admin)
+    _publish(
+        _experiences_client(db_session, workspace, admin),
+        binding_key="work.reset",
+        channel="live",
+    )
+    viewer = User(
+        id="user-work-pending-viewer",
+        username="work-pending-viewer@example.invalid",
+        email="work-pending-viewer@example.invalid",
+        role="member",
+    )
+    db_session.add_all(
+        [
+            viewer,
+            WorkspaceMember(
+                workspace_id=workspace.id,
+                user_id=viewer.id,
+                role="member",
+                role_template="workspace_viewer",
+            ),
+        ]
+    )
+    origin = {"_ingress": {"adapter": {"origin": "experience:password-reset"}}}
+    older = Run(
+        id="work-pending-old",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        initiated_by_user_id=viewer.id,
+        status="hitl_pending",
+        started_at=datetime(2026, 3, 1, 10, 0, 0),
+        input_ref=origin,
+        checkpoints=[{"kind": "hitl_pause", "prompt": "Older"}],
+    )
+    newer = Run(
+        id="work-pending-new",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        initiated_by_user_id=viewer.id,
+        status="hitl_pending",
+        started_at=datetime(2026, 3, 2, 10, 0, 0),
+        input_ref=origin,
+        checkpoints=[{"kind": "hitl_pause", "prompt": "Newer"}],
+    )
+    foreign = Run(
+        id="work-pending-foreign",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        initiated_by_user_id=admin.id,
+        status="hitl_pending",
+        started_at=datetime(2026, 2, 1, 10, 0, 0),
+        input_ref=origin,
+        checkpoints=[{"kind": "hitl_pause", "prompt": "Admin only"}],
+    )
+    db_session.add_all([older, newer, foreign])
+    db_session.commit()
+
+    client = _client(db_session, workspace, viewer)
+    catalog = client.get("/work")
+    validations = client.get("/work/password-reset/validations")
+
+    assert catalog.status_code == 200, catalog.text
+    assert validations.status_code == 200, validations.text
+    item = next(
+        row
+        for row in catalog.json()["experiences"]
+        if row["experience"]["slug"] == "password-reset"
+    )
+    pending = item["pending_decisions"]
+    runs = validations.json()["runs"]
+    assert pending["count"] == len(runs) == 2
+    assert {row["id"] for row in runs} == {older.id, newer.id}
+    assert pending["oldest_at"] == older.started_at.isoformat()
+
+    admin_catalog = _client(db_session, workspace, admin).get("/work")
+    admin_item = next(
+        row
+        for row in admin_catalog.json()["experiences"]
+        if row["experience"]["slug"] == "password-reset"
+    )
+    assert admin_item["pending_decisions"]["count"] == 3
+
+
 def test_work_rejects_component_context_that_does_not_own_binding(
     db_session, monkeypatch
 ) -> None:

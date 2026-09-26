@@ -21,6 +21,28 @@ import { WorkAppHeaderComponent } from "./work-app-header.component";
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, ChatPanelComponent, NavLinkDirective],
   template: `@if (adoption.enabled()) {
+    @if (compact()) {
+      @if (!adoption.progress()?.dismissed) {
+        <aside class="xp-work-adoption-card" aria-labelledby="adoption-compact-title">
+          <div>
+            <h2 id="adoption-compact-title">{{ i18n.t("experience.adoption.title") }}</h2>
+            <p>{{ i18n.t("experience.adoption.compact.body") }}</p>
+          </div>
+          <div class="xp-work-adoption-card-actions">
+            <a class="xp-work-btn xp-work-btn-primary" [routerLink]="['/work', 'getting-started']">
+              {{ i18n.t(adoption.progress()?.completed_steps?.length ? "experience.adoption.resume" : "experience.adoption.start") }}
+            </a>
+            <button
+              type="button"
+              class="xp-work-btn xp-work-btn-icon"
+              [attr.aria-label]="i18n.t('experience.adoption.dismiss')"
+              [disabled]="adoption.saving()"
+              (click)="adoption.update({ dismissed: true })"
+            >×</button>
+          </div>
+        </aside>
+      }
+    } @else {
     <section
       class="ck-surface journey"
       style="padding:1.5rem;margin:1rem 0"
@@ -134,6 +156,7 @@ import { WorkAppHeaderComponent } from "./work-app-header.component";
         }}
       </button>
     </section>
+    }
   }`,
   styles: [
     `
@@ -199,6 +222,7 @@ export class AdoptionJourneyComponent {
   readonly profile = inject(NavigationProfileService);
   readonly chat = viewChild(ChatPanelComponent);
   readonly full = input(false);
+  readonly compact = input(false);
   readonly started = signal(false);
   readonly runId = signal<string | null>(null);
   readonly steps: AdoptionStep[] = ["example", "question", "source", "result"];

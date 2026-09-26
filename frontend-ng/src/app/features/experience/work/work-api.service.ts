@@ -4,7 +4,7 @@ import { Observable, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
-import type { WorkCatalogItem, WorkResolve, SystemLinkedWorkApp } from './work-catalog';
+import type { WorkCatalogItem, WorkResolve, SystemLinkedWorkApp, PendingDecisions } from './work-catalog';
 
 export type WorkResolveResult =
   | { kind: 'ok'; body: WorkResolve }
@@ -17,6 +17,8 @@ export interface WorkAutomationJob {
   convention: { status?: string; value_per_unit?: number | null; currency?: string | null; unit?: string | null };
   gap: { status?: string };
   proof: { run_id?: string; status?: string; sap?: { sealed?: boolean; called?: boolean } | null } | null;
+  /** Additive L17: decisions this reader may treat for this automation. */
+  pending_decisions?: PendingDecisions | null;
 }
 
 export type WorkListResult =

@@ -33,6 +33,12 @@ export interface WorkExperience {
   deployments?: WorkDeployment[];
 }
 
+/** L17 — optional; missing field keeps the launcher title fixed. */
+export interface PendingDecisions {
+  count: number;
+  oldest_at?: string | null;
+}
+
 export interface WorkCatalogItem {
   experience: WorkExperience;
   channel: WorkChannel | string;
@@ -46,6 +52,8 @@ export interface WorkCatalogItem {
   };
   /** Additive L14: Systems targeted by this release's bindings. */
   binding_system_ids?: string[];
+  /** Additive L17: decisions this reader may treat for this app. */
+  pending_decisions?: PendingDecisions | null;
 }
 
 export interface WorkResolve {

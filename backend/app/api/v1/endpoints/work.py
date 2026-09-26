@@ -192,6 +192,202 @@ def _resolve_for_user(
     )
 
 
+def _project_decidable_hitl(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    origin: str | None = None,
+    bound_system_ids: set[str] | frozenset[str] = frozenset(),
+    limit: int = 100,
+    emit_shadow: bool = True,
+) -> list[dict[str, Any]]:
+    """HITL pauses this reader may decide — same rights filter as /{slug}/validations."""
+    membership_clauses: list[Any] = []
+    if origin:
+        membership_clauses.append(
+            Run.input_ref["_ingress"]["adapter"]["origin"].as_string() == origin
+        )
+    if bound_system_ids:
+        # Scheduled ticks stay out: they are not someone's approval.
+        membership_clauses.append(
+            and_(
+                Run.system_id.in_(bound_system_ids),
+                or_(Run.trigger.is_(None), Run.trigger != "scheduler"),
+            )
+        )
+    if not membership_clauses:
+        return []
+    rows = (
+        db.query(Run)
+        .filter(
+            Run.workspace_id == workspace.id,
+            Run.status == "hitl_pending",
+            or_(*membership_clauses),
+        )
+        .order_by(Run.started_at.desc())
+        .yield_per(100)
+    )
+    membership = current_membership(db, user, workspace)
+    admin = getattr(user, "role", None) == "admin" or bool(
+        membership and is_admin_template(membership.role_template, membership.role)
+    )
+    config = load_iam_config(db, workspace.id, create=False)
+    mode_cache: ModeResolutionCache = {}
+    managed_system_id = migration_059_system_id(workspace)
+    visible: list[dict[str, Any]] = []
+    resolutions = []
+
+    def project_batch(batch: list[Run]) -> None:
+        system_ids = {str(run.system_id) for run in batch if run.system_id}
+        known_system_ids = {
+            row[0]
+            for row in db.query(System.id)
+            .filter(System.workspace_id == workspace.id, System.id.in_(system_ids))
+            .all()
+        } if system_ids else set()
+        decision_ids = {
+            checkpoint.get("decision_id")
+            for run in batch
+            for checkpoint in list(run.checkpoints or [])
+            if isinstance(checkpoint, dict)
+            and checkpoint.get("kind") == "hitl_pause"
+            and checkpoint.get("decision_id")
+        }
+        decision_status = {
+            row.id: row.status
+            for row in db.query(Decision.id, Decision.status)
+            .filter(
+                Decision.id.in_(decision_ids),
+                or_(
+                    Decision.workspace_id == workspace.id,
+                    Decision.workspace_id.is_(None),
+                ),
+            )
+            .all()
+        } if decision_ids else {}
+        managed_decision_ids = {
+            row[0]
+            for row in db.query(Decision.id)
+            .join(Run, Decision.target_id == Run.id)
+            .filter(
+                Decision.id.in_(decision_ids),
+                Decision.scope == "run",
+                or_(
+                    Decision.workspace_id == workspace.id,
+                    Decision.workspace_id.is_(None),
+                ),
+                Run.workspace_id == workspace.id,
+                Run.system_id == managed_system_id,
+            )
+            .all()
+        } if managed_system_id and decision_ids else set()
+
+        for run in batch:
+            managed = run.system_id == managed_system_id or any(
+                isinstance(checkpoint, dict)
+                and checkpoint.get("decision_id") in managed_decision_ids
+                for checkpoint in list(run.checkpoints or [])
+            )
+            if managed and not admin:
+                continue
+            lineage_valid = not run.system_id or str(run.system_id) in known_system_ids
+            legacy_allowed = lineage_valid and (
+                admin or run.initiated_by_user_id == user.id
+            )
+            resolution = resolve_action(
+                db,
+                user=user,
+                workspace=workspace,
+                resource_kind="run",
+                action="approve",
+                legacy_allowed=legacy_allowed,
+                resource_attrs=run_read_attrs(run),
+                membership=membership,
+                config=config,
+                mode_cache=mode_cache,
+                audit_shadow_diff=False,
+                audit_shadow_evidence=False,
+            )
+            resolutions.append((run.id, resolution))
+            if not resolution.effective_allowed:
+                continue
+            checkpoint = next(
+                (
+                    item
+                    for item in reversed(list(run.checkpoints or []))
+                    if isinstance(item, dict) and item.get("kind") == "hitl_pause"
+                ),
+                {},
+            )
+            visible.append(
+                {
+                    "id": run.id,
+                    "system_id": run.system_id,
+                    "capability_id": run.capability_id,
+                    "status": run.status,
+                    "started_at": run.started_at.isoformat() if run.started_at else None,
+                    "hitl": {
+                        "node_id": checkpoint.get("node_id"),
+                        "prompt": checkpoint.get("prompt"),
+                        "decision_id": checkpoint.get("decision_id"),
+                        "decision_title": checkpoint.get("decision_title"),
+                        "decision_status": decision_status.get(checkpoint.get("decision_id")),
+                        "expires_at": checkpoint.get("expires_at"),
+                    },
+                }
+            )
+            if len(visible) == limit:
+                return
+
+    batch: list[Run] = []
+    for run in rows.execution_options(stream_results=True).yield_per(200):
+        batch.append(run)
+        if len(batch) < 200:
+            continue
+        project_batch(batch)
+        if len(visible) == limit:
+            break
+        batch = []
+    if batch and len(visible) < limit:
+        project_batch(batch)
+    if emit_shadow:
+        emit_shadow_diff_summary(
+            workspace=workspace,
+            user=user,
+            resource_kind="run",
+            action="approve",
+            resolutions=resolutions,
+        )
+    return visible
+
+
+def _pending_decisions_payload(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    origin: str | None = None,
+    bound_system_ids: set[str] | frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    """L17 — count and oldest pause, same filter as validations for this reader."""
+    visible = _project_decidable_hitl(
+        db,
+        workspace=workspace,
+        user=user,
+        origin=origin,
+        bound_system_ids=bound_system_ids,
+        limit=100,
+        emit_shadow=False,
+    )
+    oldest_at: str | None = None
+    for item in visible:
+        started = item.get("started_at")
+        if isinstance(started, str) and started and (oldest_at is None or started < oldest_at):
+            oldest_at = started
+    return {"count": len(visible), "oldest_at": oldest_at}
+
+
 @router.get("")
 async def list_work_apps(
     workspace: Workspace = Depends(get_current_workspace),
@@ -204,11 +400,39 @@ async def list_work_apps(
     rows = experience_service.list_work(
         db, workspace_id=workspace.id, role=role, groups=groups
     )
+    experiences: list[dict[str, Any]] = []
+    for experience, deployment, release in rows:
+        item = experience_service.serialize_work_catalog_item(
+            experience, deployment, release
+        )
+        try:
+            identity = experience_service.release_identity(release)
+            slug = identity["slug"]
+        except experience_service.ExperienceError:
+            slug = experience.slug
+        bound = set(experience_service.binding_system_ids_from_release(release))
+        item["pending_decisions"] = _pending_decisions_payload(
+            db,
+            workspace=workspace,
+            user=user,
+            origin=f"experience:{slug}",
+            bound_system_ids=bound,
+        )
+        experiences.append(item)
+    jobs = automation_portfolio.list_job_explanations(db, workspace, user)
+    for card in jobs:
+        system_id = card.get("job", {}).get("system_id")
+        bound = {str(system_id)} if system_id else set()
+        card["pending_decisions"] = _pending_decisions_payload(
+            db,
+            workspace=workspace,
+            user=user,
+            origin=None,
+            bound_system_ids=bound,
+        )
     return {
-        "experiences": [
-            experience_service.serialize_work_catalog_item(*item) for item in rows
-        ],
-        "automation_jobs": automation_portfolio.list_job_explanations(db, workspace, user),
+        "experiences": experiences,
+        "automation_jobs": jobs,
     }
 
 
@@ -345,157 +569,17 @@ async def list_work_validations(
     # The queue is the paused Run itself. A decision on a bound System counts
     # even when Work did not start it. Scheduled ticks stay out: they are not
     # someone's approval.
-    membership = [
-        Run.input_ref["_ingress"]["adapter"]["origin"].as_string() == origin,
-    ]
-    if bound_system_ids:
-        membership.append(
-            and_(
-                Run.system_id.in_(bound_system_ids),
-                or_(Run.trigger.is_(None), Run.trigger != "scheduler"),
-            )
+    return {
+        "runs": _project_decidable_hitl(
+            db,
+            workspace=workspace,
+            user=user,
+            origin=origin,
+            bound_system_ids=bound_system_ids,
+            limit=100,
+            emit_shadow=True,
         )
-    rows = (
-        db.query(Run)
-        .filter(
-            Run.workspace_id == workspace.id,
-            Run.status == "hitl_pending",
-            or_(*membership),
-        )
-        .order_by(Run.started_at.desc())
-        .yield_per(100)
-    )
-    membership = current_membership(db, user, workspace)
-    admin = getattr(user, "role", None) == "admin" or bool(
-        membership and is_admin_template(membership.role_template, membership.role)
-    )
-    config = load_iam_config(db, workspace.id, create=False)
-    mode_cache: ModeResolutionCache = {}
-    managed_system_id = migration_059_system_id(workspace)
-    visible: list[dict[str, Any]] = []
-    resolutions = []
-
-    def project_batch(batch: list[Run]) -> None:
-        system_ids = {str(run.system_id) for run in batch if run.system_id}
-        known_system_ids = {
-            row[0]
-            for row in db.query(System.id)
-            .filter(System.workspace_id == workspace.id, System.id.in_(system_ids))
-            .all()
-        } if system_ids else set()
-        decision_ids = {
-            checkpoint.get("decision_id")
-            for run in batch
-            for checkpoint in list(run.checkpoints or [])
-            if isinstance(checkpoint, dict)
-            and checkpoint.get("kind") == "hitl_pause"
-            and checkpoint.get("decision_id")
-        }
-        decision_status = {
-            row.id: row.status
-            for row in db.query(Decision.id, Decision.status)
-            .filter(
-                Decision.id.in_(decision_ids),
-                or_(
-                    Decision.workspace_id == workspace.id,
-                    Decision.workspace_id.is_(None),
-                ),
-            )
-            .all()
-        } if decision_ids else {}
-        managed_decision_ids = {
-            row[0]
-            for row in db.query(Decision.id)
-            .join(Run, Decision.target_id == Run.id)
-            .filter(
-                Decision.id.in_(decision_ids),
-                Decision.scope == "run",
-                or_(
-                    Decision.workspace_id == workspace.id,
-                    Decision.workspace_id.is_(None),
-                ),
-                Run.workspace_id == workspace.id,
-                Run.system_id == managed_system_id,
-            )
-            .all()
-        } if managed_system_id and decision_ids else set()
-
-        for run in batch:
-            managed = run.system_id == managed_system_id or any(
-                isinstance(checkpoint, dict)
-                and checkpoint.get("decision_id") in managed_decision_ids
-                for checkpoint in list(run.checkpoints or [])
-            )
-            if managed and not admin:
-                continue
-            lineage_valid = not run.system_id or str(run.system_id) in known_system_ids
-            legacy_allowed = lineage_valid and (
-                admin or run.initiated_by_user_id == user.id
-            )
-            resolution = resolve_action(
-                db,
-                user=user,
-                workspace=workspace,
-                resource_kind="run",
-                action="approve",
-                legacy_allowed=legacy_allowed,
-                resource_attrs=run_read_attrs(run),
-                membership=membership,
-                config=config,
-                mode_cache=mode_cache,
-                audit_shadow_diff=False,
-                audit_shadow_evidence=False,
-            )
-            resolutions.append((run.id, resolution))
-            if not resolution.effective_allowed:
-                continue
-            checkpoint = next(
-                (
-                    item
-                    for item in reversed(list(run.checkpoints or []))
-                    if isinstance(item, dict) and item.get("kind") == "hitl_pause"
-                ),
-                {},
-            )
-            visible.append(
-                {
-                    "id": run.id,
-                    "system_id": run.system_id,
-                    "capability_id": run.capability_id,
-                    "status": run.status,
-                    "started_at": run.started_at.isoformat() if run.started_at else None,
-                    "hitl": {
-                        "node_id": checkpoint.get("node_id"),
-                        "prompt": checkpoint.get("prompt"),
-                        "decision_id": checkpoint.get("decision_id"),
-                        "decision_title": checkpoint.get("decision_title"),
-                        "decision_status": decision_status.get(checkpoint.get("decision_id")),
-                        "expires_at": checkpoint.get("expires_at"),
-                    },
-                }
-            )
-            if len(visible) == 100:
-                return
-
-    batch: list[Run] = []
-    for run in rows.execution_options(stream_results=True).yield_per(200):
-        batch.append(run)
-        if len(batch) < 200:
-            continue
-        project_batch(batch)
-        if len(visible) == 100:
-            break
-        batch = []
-    if batch and len(visible) < 100:
-        project_batch(batch)
-    emit_shadow_diff_summary(
-        workspace=workspace,
-        user=user,
-        resource_kind="run",
-        action="approve",
-        resolutions=resolutions,
-    )
-    return {"runs": visible}
+    }
 
 
 @router.get("/{slug}/bindings/{key}/resolve")
