@@ -84,6 +84,7 @@ export const MISSION_FR = {
   // --- Map ----------------------------------------------------------
   'mission.map.attribution': 'Couches workspace {brand}',
   'mission.map.attribution_octocity': 'Salle opérationnelle France · carte {brand} synthétique',
+  'mission.map.place_default': 'territoire',
   'mission.map.recenter': 'Recentrer {place}',
   'mission.map.ask_assistant': 'Demander à {name}',
   'mission.map.layers': 'Couches carte',
@@ -526,6 +527,7 @@ export const MISSION_EN: Record<keyof typeof MISSION_FR, string> = {
   // --- Map ----------------------------------------------------------
   'mission.map.attribution': '{brand} workspace layers',
   'mission.map.attribution_octocity': 'France operating room · synthetic {brand} map',
+  'mission.map.place_default': 'territory',
   'mission.map.recenter': 'Recenter {place}',
   'mission.map.ask_assistant': 'Ask {name}',
   'mission.map.layers': 'Map layers',

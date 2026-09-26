@@ -1141,18 +1141,28 @@ export interface HypervisorValueBasisUpdate {
   note?: string | null;
 }
 
+export interface HypervisorBlockRef {
+  type: string;
+  source?: string;
+  title?: string;
+  width?: '1/2' | '2/3' | 'full';
+  settings: Record<string, unknown>;
+  exit?: string;
+}
+
 export interface HypervisorNamedView {
   id: string;
   label: string;
   denominator: HypervisorViewDenominator;
   period: string;
   strata: {
-    comprendre: string[];
-    detailler: string[];
-    decider: string[];
+    comprendre: Array<string | HypervisorBlockRef>;
+    detailler: Array<string | HypervisorBlockRef>;
+    decider: Array<string | HypervisorBlockRef>;
   };
   register_columns: string[];
   sort: string;
+  schema_version?: number;
 }
 
 export interface HypervisorViewsPayload {
@@ -2738,6 +2748,24 @@ export class CanonicalApiService {
     return this.api.put<HypervisorViewsPayload>('/hypervisor/views', { views });
   }
 
+  hypervisorMapSettings(): Observable<{
+    external_tiles_enabled: boolean;
+    tile_provider: string;
+    attribution: string;
+    tile_url_template?: string | null;
+    tile_url_template_dark?: string | null;
+  } | null> {
+    return this.api
+      .get<{
+        external_tiles_enabled: boolean;
+        tile_provider: string;
+        attribution: string;
+        tile_url_template?: string | null;
+        tile_url_template_dark?: string | null;
+      }>('/hypervisor/map-settings')
+      .pipe(catchError(() => of(null)));
+  }
+
   hypervisorValueLoop(): Observable<PortfolioValueLoop> {
     return this.api.get<PortfolioValueLoop>('/hypervisor/value-loop');
   }
@@ -2805,6 +2833,10 @@ export class CanonicalApiService {
     rationale?: Record<string, unknown>;
     impact_estimate?: Record<string, unknown>;
     notes?: string;
+    origin?: 'meeting';
+    meeting_event_id?: string;
+    agenda_item_ref?: string;
+    meeting_decision_id?: string;
   }): Observable<DecisionDetail | null> {
     return this.api
       .post<DecisionDetail>('/hypervisor/decisions', body)
@@ -3120,6 +3152,12 @@ export interface DecisionRow {
   created_at?: string | null;
   approved_by?: string | null;
   applied_at?: string | null;
+  origin?: string | null;
+  effect?: string | null;
+  notes?: string;
+  rationale?: Record<string, unknown>;
+  impact_estimate?: Record<string, unknown>;
+  agent_suggested?: boolean;
 }
 
 export interface DecisionDetail extends DecisionRow {

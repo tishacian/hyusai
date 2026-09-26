@@ -177,3 +177,95 @@ def test_disabled_actuator_does_not_attempt_an_audit_write(db_session, monkeypat
     assert system.status == "active"
     assert decision.status == "accepted"
     assert decision.applied_at is None
+
+
+def test_meeting_decision_requires_note_and_emits_audit(db_session, monkeypatch):
+    workspace, user, _system, _decision = _seed(db_session, status="proposed")
+    events: list[dict] = []
+
+    def _capture_audit(**kwargs):
+        events.append(kwargs)
+        return "audit-1"
+
+    monkeypatch.setattr(hypervisor, "emit_audit_event", _capture_audit)
+
+    with pytest.raises(Exception) as missing_note:
+        asyncio.run(
+            hypervisor.create_decision(
+                body=hypervisor.DecisionCreate(
+                    scope="portfolio",
+                    target_id=None,
+                    title="Meeting call",
+                    origin="meeting",
+                    meeting_event_id="evt-1",
+                    notes="",
+                ),
+                workspace=workspace,
+                user=user,
+                db=db_session,
+            )
+        )
+    assert "notes" in str(missing_note.value).lower()
+
+    created = asyncio.run(
+        hypervisor.create_decision(
+            body=hypervisor.DecisionCreate(
+                scope="portfolio",
+                target_id=None,
+                title="Meeting call",
+                origin="meeting",
+                meeting_event_id="evt-1",
+                agenda_item_ref="point-1",
+                notes="Required meeting rationale",
+            ),
+            workspace=workspace,
+            user=user,
+            db=db_session,
+        )
+    )
+    assert created["origin"] == "meeting"
+    assert created["notes"] == "Required meeting rationale"
+    assert created["rationale"]["meeting_event_id"] == "evt-1"
+    assert events
+    assert events[-1]["event_type"] == "hypervisor.decision.created"
+    assert events[-1]["details"]["origin"] == "meeting"
+
+    listed = asyncio.run(
+        hypervisor.list_decisions(
+            status=None,
+            scope=None,
+            kind=None,
+            limit=50,
+            offset=0,
+            workspace=workspace,
+            user=user,
+            db=db_session,
+        )
+    )
+    assert any(item["id"] == created["id"] for item in listed["items"])
+
+
+def test_ordinary_decision_create_still_emits_audit(db_session, monkeypatch):
+    workspace, user, system, _decision = _seed(db_session, status="proposed")
+    events: list[dict] = []
+    monkeypatch.setattr(
+        hypervisor,
+        "emit_audit_event",
+        lambda **kwargs: events.append(kwargs) or "audit-2",
+    )
+
+    created = asyncio.run(
+        hypervisor.create_decision(
+            body=hypervisor.DecisionCreate(
+                scope="system",
+                target_id=system.id,
+                title="Scale the System",
+                notes="optional",
+            ),
+            workspace=workspace,
+            user=user,
+            db=db_session,
+        )
+    )
+    assert created["title"] == "Scale the System"
+    assert events[-1]["event_type"] == "hypervisor.decision.created"

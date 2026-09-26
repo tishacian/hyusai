@@ -9,6 +9,10 @@
     "src/app/features/workspace/chat-knowledge-settings.component.ts": {
       "max": 4,
       "reason": "Permanent. The accented lines are `placeholder` examples of the French values an admin types into this form — stop phrases (\"on peut s'arrêter là\") and synonym lists for the French voice gateway. The sample must be in the language of the data, not of the chrome; translating it would show the admin an example they cannot use. The chrome that used to share this entry moved to chrome.dict.ts in the P2 i18n sweep."
+    },
+    "src/app/features/hypervisor/v2/blocks/impact-block-ordre-du-jour.component.ts": {
+      "max": 2,
+      "reason": "DATA — L13b block type id ordre_du_jour inside i18n key paths. Not chrome; displayed label comes from hypervisor.dict.ts."
     }
   },
   "$hardcodedCodeNote": "Two kinds of entry live below, and the difference matters. A DATA entry is permanent: the literal is scenario content, a backend contract value or a sample in the language of the data, and translating it would be wrong. A DEBT entry is a ratchet at its measured value: it is real French chrome that nobody has moved to a key yet, the number may only go down, and the entry is deleted when it reaches zero. Never turn a DEBT entry into a DATA entry to make the guard green.",
@@ -46,7 +50,7 @@
       "reason": "DATA — the demo theatre's proper noun, used as the fallback when the snapshot carries no `theater_label`. A geographic name is not translated; the surrounding chrome is already keyed."
     },
     "src/app/features/mission-room/workspace-map.component.ts": {
-      "max": 2,
+      "max": 1,
       "reason": "DATA — the country name, passed as the `{place}` parameter of an already-keyed sentence and as the selected-zone fallback. The wording around it comes from mission.dict.ts; only the toponym is literal."
     },
     "src/app/features/workspace/chat-knowledge-settings.component.ts": {

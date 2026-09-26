@@ -6,11 +6,11 @@ the executive cockpit. Designed to be a single roundtrip per surface.
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -28,6 +28,7 @@ from app.models.user import User
 from app.models.value_loop import ValueMeasurement, ValueScenario
 from app.models.workspace import Workspace
 from app.services import automation_portfolio
+from app.services.audit_logger import emit_audit_event
 from app.services.catalog_visibility import visible_capabilities, workspace_catalog_policy
 from app.services.decision_access import readable_decisions
 from app.services.decisions import InvalidTransition
@@ -62,23 +63,34 @@ SERIES_RUN_SCOPE = {
     "aggregation": "post_authorization_filter",
     "counts_include_only_readable_runs": True,
 }
+def _block(type_: str, settings: Dict[str, Any] | None = None, **extras: Any) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {"type": type_, "settings": dict(settings or {})}
+    payload.update({key: value for key, value in extras.items() if value is not None})
+    return payload
+
+
+def _blocks(*types: str) -> List[Dict[str, Any]]:
+    return [_block(type_) for type_ in types]
+
+
 DEFAULT_HYPERVISOR_VIEWS: List[Dict[str, Any]] = [
     {
         "id": "direction",
         "label": "Direction",
         "denominator": "hours",
         "period": "90d",
+        "schema_version": 2,
         "strata": {
-            "comprendre": [
+            "comprendre": _blocks(
                 "monument",
                 "provenance",
                 "cadran",
                 "sankey",
                 "rivers",
                 "hors_denominateur",
-            ],
-            "detailler": ["registre"],
-            "decider": ["signal", "decisions"],
+            ),
+            "detailler": _blocks("registre"),
+            "decider": _blocks("signal", "decisions"),
         },
         "register_columns": ["unit", "spark", "cost", "basis", "value"],
         "sort": "value",
@@ -88,9 +100,10 @@ DEFAULT_HYPERVISOR_VIEWS: List[Dict[str, Any]] = [
         "label": "Operations",
         "denominator": "runs",
         "period": "30d",
+        "schema_version": 2,
         "strata": {
-            "comprendre": ["monument", "cadran", "rivers", "signal"],
-            "detailler": ["registre"],
+            "comprendre": _blocks("monument", "cadran", "rivers", "signal"),
+            "detailler": _blocks("registre"),
             "decider": [],
         },
         "register_columns": ["unit", "spark"],
@@ -101,9 +114,10 @@ DEFAULT_HYPERVISOR_VIEWS: List[Dict[str, Any]] = [
         "label": "Conformite",
         "denominator": "runs",
         "period": "90d",
+        "schema_version": 2,
         "strata": {
-            "comprendre": ["unites", "couverture", "decisions"],
-            "detailler": ["registre"],
+            "comprendre": _blocks("unites", "couverture", "decisions"),
+            "detailler": _blocks("registre"),
             "decider": [],
         },
         "register_columns": ["unit", "basis"],
@@ -195,10 +209,22 @@ async def balance_sheet(
     }
 
 
+class HypervisorBlockRef(BaseModel):
+    type: str
+    source: Optional[str] = None
+    title: Optional[str] = None
+    width: Optional[str] = None
+    settings: Dict[str, Any] = Field(default_factory=dict)
+    exit: Optional[str] = None
+
+
+BlockInput = Union[str, HypervisorBlockRef]
+
+
 class HypervisorViewStrata(BaseModel):
-    comprendre: List[str] = []
-    detailler: List[str] = []
-    decider: List[str] = []
+    comprendre: List[BlockInput] = []
+    detailler: List[BlockInput] = []
+    decider: List[BlockInput] = []
 
 
 class HypervisorView(BaseModel):
@@ -209,6 +235,7 @@ class HypervisorView(BaseModel):
     strata: HypervisorViewStrata
     register_columns: List[str] = []
     sort: str = "name"
+    schema_version: Optional[int] = None
 
 
 class HypervisorViewsUpdate(BaseModel):
@@ -310,9 +337,50 @@ def _coerce_view_denominator(value: Any) -> str:
     return "runs" if value == "units" else str(value or "hours")
 
 
+def _normalize_block_ref(raw: Any) -> dict[str, Any] | None:
+    if isinstance(raw, str):
+        type_ = raw.strip()
+        return _block(type_) if type_ else None
+    if isinstance(raw, Mapping):
+        type_ = str(raw.get("type") or "").strip()
+        if not type_:
+            return None
+        settings = raw.get("settings")
+        payload = _block(
+            type_,
+            settings if isinstance(settings, Mapping) else {},
+            source=raw.get("source"),
+            title=raw.get("title"),
+            width=raw.get("width"),
+            exit=raw.get("exit"),
+        )
+        return payload
+    return None
+
+
+def _normalize_stratum(raw: Any) -> List[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: List[dict[str, Any]] = []
+    for item in raw:
+        normalized = _normalize_block_ref(item)
+        if normalized is not None:
+            out.append(normalized)
+    return out
+
+
 def _normalize_view(view: dict[str, Any]) -> dict[str, Any]:
     next_view = dict(view)
     next_view["denominator"] = _coerce_view_denominator(view.get("denominator"))
+    strata = view.get("strata") if isinstance(view.get("strata"), Mapping) else {}
+    next_view["strata"] = {
+        "comprendre": _normalize_stratum(strata.get("comprendre")),
+        "detailler": _normalize_stratum(strata.get("detailler")),
+        "decider": _normalize_stratum(strata.get("decider")),
+    }
+    next_view["schema_version"] = 2
+    next_view["register_columns"] = list(view.get("register_columns") or [])
+    next_view["sort"] = str(view.get("sort") or "name")
     return next_view
 
 
@@ -321,6 +389,28 @@ def _views_payload(workspace: Workspace, *, can_edit: bool) -> dict[str, Any]:
     raw = stored if isinstance(stored, list) else DEFAULT_HYPERVISOR_VIEWS
     views = [_normalize_view(view) if isinstance(view, dict) else view for view in raw]
     return {"views": views, "can_edit": can_edit}
+
+
+MAP_SETTINGS_KEY = "map"
+
+
+def _map_settings(workspace: Workspace) -> dict[str, Any]:
+    settings = workspace.settings if isinstance(workspace.settings, Mapping) else {}
+    raw = settings.get(MAP_SETTINGS_KEY)
+    payload = dict(raw) if isinstance(raw, Mapping) else {}
+    external = payload.get("external_tiles_enabled")
+    if external is None:
+        external = True
+    return {
+        "external_tiles_enabled": bool(external),
+        "tile_provider": str(payload.get("tile_provider") or "carto"),
+        "attribution": str(
+            payload.get("attribution")
+            or "OpenStreetMap contributors / CARTO"
+        ),
+        "tile_url_template": payload.get("tile_url_template"),
+        "tile_url_template_dark": payload.get("tile_url_template_dark"),
+    }
 
 
 @router.get("/value-bases")
@@ -489,13 +579,54 @@ async def put_hypervisor_views(
 ):
     _require_workspace_admin(db, user, workspace)
     settings = dict(workspace.settings or {})
-    settings[HYPERVISOR_VIEWS_KEY] = [_normalize_view(view.model_dump()) for view in body.views]
+    settings[HYPERVISOR_VIEWS_KEY] = [
+        _normalize_view(view.model_dump(exclude_none=True)) for view in body.views
+    ]
     workspace.settings = settings
     flag_modified(workspace, "settings")
     db.add(workspace)
     db.commit()
     db.refresh(workspace)
     return _views_payload(workspace, can_edit=True)
+
+
+class MapSettingsUpdate(BaseModel):
+    external_tiles_enabled: Optional[bool] = None
+    tile_provider: Optional[str] = None
+    attribution: Optional[str] = None
+    tile_url_template: Optional[str] = None
+    tile_url_template_dark: Optional[str] = None
+
+
+@router.get("/map-settings")
+async def get_map_settings(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    del user, db
+    return _map_settings(workspace)
+
+
+@router.patch("/map-settings")
+async def patch_map_settings(
+    body: MapSettingsUpdate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    _require_workspace_admin(db, user, workspace)
+    settings = dict(workspace.settings or {})
+    current = dict(settings.get(MAP_SETTINGS_KEY) or {}) if isinstance(settings.get(MAP_SETTINGS_KEY), Mapping) else {}
+    patch = body.model_dump(exclude_none=True)
+    current.update(patch)
+    settings[MAP_SETTINGS_KEY] = current
+    workspace.settings = settings
+    flag_modified(workspace, "settings")
+    db.add(workspace)
+    db.commit()
+    db.refresh(workspace)
+    return _map_settings(workspace)
 
 
 @router.get("/value-loop")
@@ -1100,6 +1231,10 @@ async def simulate_what_if(
 
 
 def _serialize_decision(d: Decision, *, full: bool = False) -> dict:
+    rationale = d.rationale or {}
+    impact = d.impact_estimate or {}
+    origin = rationale.get("origin") if isinstance(rationale, Mapping) else None
+    effect = impact.get("effect") if isinstance(impact, Mapping) else None
     base = {
         "id": d.id,
         "scope": d.scope,
@@ -1110,12 +1245,18 @@ def _serialize_decision(d: Decision, *, full: bool = False) -> dict:
         "created_at": d.created_at.isoformat() if d.created_at else None,
         "approved_by": d.approved_by,
         "applied_at": d.applied_at.isoformat() if getattr(d, "applied_at", None) else None,
+        "origin": origin,
+        "effect": effect,
+        "notes": d.notes or "",
+        "rationale": rationale,
+        "impact_estimate": impact,
+        "agent_suggested": bool(
+            isinstance(rationale, Mapping)
+            and (rationale.get("agent") or rationale.get("suggested_by") == "agent")
+        ),
     }
     if full:
         base.update({
-            "rationale": d.rationale or {},
-            "impact_estimate": d.impact_estimate or {},
-            "notes": d.notes or "",
             "approved_at": d.approved_at.isoformat() if d.approved_at else None,
             "applied_by": getattr(d, "applied_by", None),
             "applied_patch": getattr(d, "applied_patch", None) or {},
@@ -1154,6 +1295,10 @@ class DecisionCreate(BaseModel):
     rationale: Dict[str, Any] = {}
     impact_estimate: Dict[str, Any] = {}
     notes: Optional[str] = None
+    origin: Optional[Literal["meeting"]] = None
+    meeting_event_id: Optional[str] = None
+    agenda_item_ref: Optional[str] = None
+    meeting_decision_id: Optional[str] = None
 
     @model_validator(mode="after")
     def _validate_target(self):
@@ -1161,6 +1306,12 @@ class DecisionCreate(BaseModel):
             raise ValueError("target_id must be null for a portfolio Decision")
         if self.scope != "portfolio" and not self.target_id:
             raise ValueError(f"target_id is required for scope={self.scope}")
+        if self.origin == "meeting":
+            note = (self.notes or "").strip()
+            if not note:
+                raise ValueError("notes are required when origin is meeting")
+            if not self.meeting_event_id:
+                raise ValueError("meeting_event_id is required when origin is meeting")
         return self
 
 
@@ -1219,6 +1370,7 @@ async def create_decision(
 ):
     """Create a Decision record — used by cockpit CTAs (Scale, Adjust, …)
     to surface a proposal that an operator can then Accept/Reject/Apply.
+    Meeting-origin decisions require a note and emit an audit event.
     """
     enforce_action(
         db,
@@ -1229,6 +1381,16 @@ async def create_decision(
         legacy_allowed=True,
         resource_attrs={"target_id": body.target_id},
     )
+    rationale = dict(body.rationale or {})
+    if body.origin == "meeting":
+        rationale["origin"] = "meeting"
+        if body.meeting_event_id:
+            rationale["meeting_event_id"] = body.meeting_event_id
+        if body.agenda_item_ref:
+            rationale["agenda_item_ref"] = body.agenda_item_ref
+        if body.meeting_decision_id:
+            rationale["meeting_decision_id"] = body.meeting_decision_id
+    notes = (body.notes or "").strip()
     row = Decision(
         id=str(uuid4()),
         workspace_id=workspace.id,
@@ -1237,11 +1399,27 @@ async def create_decision(
         kind=body.kind,
         status=body.status or "proposed",
         title=body.title,
-        rationale=body.rationale or {},
+        rationale=rationale,
         impact_estimate=body.impact_estimate or {},
-        notes=body.notes or "",
+        notes=notes,
     )
     db.add(row)
+    db.flush()
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type="hypervisor.decision.created",
+        actor=_actor_label(user),
+        details={
+            "decision_id": row.id,
+            "origin": body.origin,
+            "meeting_event_id": body.meeting_event_id,
+            "agenda_item_ref": body.agenda_item_ref,
+            "title": row.title,
+            "scope": row.scope,
+            "target_id": row.target_id,
+        },
+    )
     db.commit()
     db.refresh(row)
     return _serialize_decision(row, full=True)

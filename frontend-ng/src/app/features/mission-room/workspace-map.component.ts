@@ -141,66 +141,77 @@ const OCTOCITY_CITY_MARKERS: OctocityCityMarker[] = [
   { name: 'Brest', x: 140, y: 206, labelX: 96, labelY: 206 },
 ];
 const EMPTY_FEATURE_COLLECTION = { type: 'FeatureCollection', features: [] } as const;
-const OCTOCITY_CARTO_VOYAGER_STYLE = {
-  version: 8,
-  sources: {
-    'carto-voyager-france': {
-      type: 'raster',
-      tiles: [
-        'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-        'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-        'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-        'https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-      ],
-      tileSize: 256,
-      attribution: 'OpenStreetMap contributors / CARTO',
-    },
-  },
-  layers: [
-    { id: 'octocity-background', type: 'background', paint: { 'background-color': '#dce6ea' } },
-    {
-      id: 'carto-voyager-france-base',
-      type: 'raster',
-      source: 'carto-voyager-france',
-      paint: {
-        'raster-opacity': 0.98,
-        'raster-saturation': -0.04,
-        'raster-contrast': 0.04,
+
+const DEFAULT_TILE_ATTRIBUTION = 'OpenStreetMap contributors / CARTO';
+const DEFAULT_CARTO_VOYAGER_TILES = [
+  'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+  'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+  'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+  'https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+];
+const DEFAULT_CARTO_DARK_TILES = [
+  'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+  'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+  'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+  'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+];
+
+function rasterStyle(
+  sourceId: string,
+  tiles: string[],
+  attribution: string,
+  background: string,
+  paint: Record<string, number>,
+): Record<string, unknown> {
+  return {
+    version: 8,
+    sources: {
+      [sourceId]: {
+        type: 'raster',
+        tiles,
+        tileSize: 256,
+        attribution,
       },
     },
-  ],
-};
-const OCTOCITY_CARTO_DARK_STYLE = {
-  version: 8,
-  sources: {
-    'carto-dark-france': {
-      type: 'raster',
-      tiles: [
-        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-        'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      ],
-      tileSize: 256,
-      attribution: 'OpenStreetMap contributors / CARTO',
-    },
-  },
-  layers: [
-    { id: 'octocity-dark-background', type: 'background', paint: { 'background-color': '#060b10' } },
-    {
-      id: 'carto-dark-france-base',
-      type: 'raster',
-      source: 'carto-dark-france',
-      paint: {
-        'raster-opacity': 0.95,
-        'raster-brightness-min': 0,
-        'raster-brightness-max': 0.9,
-        'raster-saturation': -0.12,
-        'raster-contrast': 0.15,
+    layers: [
+      { id: `${sourceId}-background`, type: 'background', paint: { 'background-color': background } },
+      {
+        id: `${sourceId}-base`,
+        type: 'raster',
+        source: sourceId,
+        paint,
       },
-    },
-  ],
-};
+    ],
+  };
+}
+
+function expandTileTemplate(template: string): string[] {
+  if (template.includes('{s}')) {
+    return ['a', 'b', 'c', 'd'].map((s) => template.replace('{s}', s));
+  }
+  return [template];
+}
+
+function buildCartoVoyagerStyle(tiles: string[], attribution: string): Record<string, unknown> {
+  return rasterStyle('carto-voyager', tiles, attribution, '#dce6ea', {
+    'raster-opacity': 0.98,
+    'raster-saturation': -0.04,
+    'raster-contrast': 0.04,
+  });
+}
+
+function buildCartoDarkStyle(tiles: string[], attribution: string): Record<string, unknown> {
+  return rasterStyle('carto-dark', tiles, attribution, '#060b10', {
+    'raster-opacity': 0.95,
+    'raster-brightness-min': 0,
+    'raster-brightness-max': 0.9,
+    'raster-saturation': -0.12,
+    'raster-contrast': 0.15,
+  });
+}
+
+const OCTOCITY_CARTO_VOYAGER_STYLE = buildCartoVoyagerStyle(DEFAULT_CARTO_VOYAGER_TILES, DEFAULT_TILE_ATTRIBUTION);
+const OCTOCITY_CARTO_DARK_STYLE = buildCartoDarkStyle(DEFAULT_CARTO_DARK_TILES, DEFAULT_TILE_ATTRIBUTION);
 const OCTOCITY_CONTEXT_CITIES = [
   { id: 'paris', name: 'Paris', coordinates: [2.3522, 48.8566], weight: 96, kind: 'coordination' },
   { id: 'lille', name: 'Lille', coordinates: [3.0573, 50.6292], weight: 78, kind: 'news_flow' },
@@ -1604,6 +1615,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   @Input() compact = false;
   @Input() previewMode = false;
   @Input() previewLayers: string[] | null = null;
+  /** When false, render a neutral base with zero third-party tile requests. */
+  @Input() externalTilesEnabled = true;
+  @Input() tileProvider = 'carto';
+  @Input() tileAttribution = DEFAULT_TILE_ATTRIBUTION;
+  @Input() tileUrlTemplate: string | null = null;
+  @Input() tileUrlTemplateDark: string | null = null;
   /**
    * AIS vessel positions to render on top of the basemap when the
    * `maritime-traffic` layer is active. Rendering is delegated to deck.gl
@@ -1756,18 +1773,18 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   get mapAttribution(): string {
-    if (this.isOctocityMode) return this.i18n.t('mission.map.attribution_octocity');
-    return (
-      this.effectiveMapSystem?.['renderer_config']?.attribution
-      || this.i18n.t('mission.map.attribution')
-    );
+    const configured =
+      this.tileAttribution
+      || this.effectiveMapSystem?.['renderer_config']?.attribution;
+    if (configured) return String(configured);
+    return this.i18n.t('mission.map.attribution');
   }
 
   /** The demo tenant decides *which* country is on screen; the locale decides the wording. */
   get resetMapLabel(): string {
-    return this.i18n.t('mission.map.recenter', {
-      place: this.isOctocityMode ? 'Octocity' : 'Côte d’Ivoire',
-    });
+    const place = this.effectiveMapSystem?.['renderer_config']?.place_label
+      || this.i18n.t('mission.map.place_default');
+    return this.i18n.t('mission.map.recenter', { place });
   }
 
   get askAssistantLabel(): string {
@@ -2125,7 +2142,26 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   private currentBasemapStyle(): Record<string, any> | string | null {
-    return this.basemapOptions.find((option) => option.key === this.selectedBasemapKey)?.style || null;
+    if (!this.externalTilesEnabled) {
+      return this.defaultStyle(this.selectedBasemapKey === 'dark' ? '#05080d' : '#dce6ea');
+    }
+    const option = this.basemapOptions.find((item) => item.key === this.selectedBasemapKey);
+    if (option?.style) return option.style;
+    return this.providerBasemapStyle(this.selectedBasemapKey);
+  }
+
+  private providerBasemapStyle(key: string): Record<string, any> {
+    const attribution = this.tileAttribution || DEFAULT_TILE_ATTRIBUTION;
+    const lightTiles = this.tileUrlTemplate
+      ? expandTileTemplate(this.tileUrlTemplate)
+      : DEFAULT_CARTO_VOYAGER_TILES;
+    const darkTiles = this.tileUrlTemplateDark
+      ? expandTileTemplate(this.tileUrlTemplateDark)
+      : DEFAULT_CARTO_DARK_TILES;
+    if (key === 'command' || key === 'dark') {
+      return buildCartoDarkStyle(darkTiles, attribution);
+    }
+    return buildCartoVoyagerStyle(lightTiles, attribution);
   }
 
   private applyCurrentBasemap(): void {
