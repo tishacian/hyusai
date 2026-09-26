@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
+import { OPEN_IN_WORK_FOCUS } from './work-catalog';
 import { isCataloguedReturnTo } from './work-return';
 
 /**
@@ -16,7 +17,12 @@ import { isCataloguedReturnTo } from './work-return';
   template: `
     <div class="xp-work-app-header" data-work-chrome="app-header">
       <div class="xp-work-app-header-main">
-        <a class="xp-work-back" [routerLink]="backHref()" [attr.title]="backLabel()">
+        <a
+          class="xp-work-back"
+          [routerLink]="backHref()"
+          [state]="backState()"
+          [attr.title]="backLabel()"
+        >
           ← {{ backLabel() }}
         </a>
         <div class="xp-work-app-identity">
@@ -67,6 +73,15 @@ export class WorkAppHeaderComponent {
   readonly backHref = computed(() => {
     const target = this.returnTo();
     return target && isCataloguedReturnTo(target) ? target : this.defaultBackHref();
+  });
+
+  /** L14: restore focus on « Ouvrir dans Work » when returning to a System fiche. */
+  readonly backState = computed(() => {
+    const target = this.returnTo();
+    if (target && isCataloguedReturnTo(target) && target.startsWith('/systems/')) {
+      return { focus: OPEN_IN_WORK_FOCUS };
+    }
+    return null;
   });
 
   readonly backLabel = computed(() => {

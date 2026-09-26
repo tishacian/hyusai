@@ -1005,6 +1005,34 @@ def serialize_public_binding_resolution(resolved: Mapping[str, Any]) -> dict[str
     }
 
 
+def binding_system_ids_from_release(release: ExperienceRelease) -> list[str]:
+    """System ids targeted by a release's bindings (order preserved, unique)."""
+    ids: list[str] = []
+    seen: set[str] = set()
+    for item in release.bindings_snapshot or []:
+        if not isinstance(item, Mapping):
+            continue
+        raw = item.get("system_id")
+        if isinstance(raw, str) and raw and raw not in seen:
+            seen.add(raw)
+            ids.append(raw)
+    return ids
+
+
+def _catalog_launch_href(release: ExperienceRelease, *, slug: str) -> str:
+    theme = release.theme if isinstance(release.theme, Mapping) else {}
+    live = theme.get("live_href")
+    if (
+        isinstance(live, str)
+        and live.startswith("/")
+        and not live.startswith("//")
+        and "\\" not in live
+        and "://" not in live
+    ):
+        return live.strip()
+    return f"/work/{slug}"
+
+
 def serialize_work_catalog_item(
     experience: Experience,
     deployment: ExperienceDeployment,
@@ -1027,7 +1055,67 @@ def serialize_work_catalog_item(
             "theme": copy.deepcopy(release.theme or {}),
             "renderer_version": release.renderer_version,
         },
+        # Additive for L14: Cockpit System fiche filters apps without a second fetch.
+        "binding_system_ids": binding_system_ids_from_release(release),
     }
+
+
+def serialize_system_work_app(
+    experience: Experience,
+    deployment: ExperienceDeployment,
+    release: ExperienceRelease,
+) -> dict[str, Any]:
+    """Public projection for GET …/work-apps (name, emblem, type, channel, link)."""
+    identity = release_identity(release)
+    return {
+        "id": experience.id,
+        "name": identity["name"],
+        "emblem": identity.get("emblem") or "",
+        "type": experience.pattern,
+        "kind": "experience",
+        "channel": deployment.channel,
+        "status": deployment.channel,
+        "href": _catalog_launch_href(release, slug=identity["slug"]),
+        "last_opened_at": None,
+    }
+
+
+def serialize_system_automation_work_app(job_card: Mapping[str, Any]) -> dict[str, Any]:
+    job = job_card.get("job") if isinstance(job_card.get("job"), Mapping) else {}
+    system_id = str(job.get("system_id") or "")
+    name = str(job.get("name") or "").strip() or system_id
+    return {
+        "id": system_id,
+        "name": name,
+        "emblem": "",
+        "type": "automation",
+        "kind": "automation",
+        "channel": "live",
+        "status": "live",
+        "href": f"/work/automation/{system_id}",
+        "last_opened_at": None,
+    }
+
+
+def list_system_work_apps(
+    rows: list[tuple[Experience, ExperienceDeployment, ExperienceRelease]],
+    *,
+    system_id: str,
+    automation_jobs: list[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Apps the reader may open that target ``system_id`` (experiences + automations)."""
+    target = (system_id or "").strip()
+    if not target:
+        return []
+    apps: list[dict[str, Any]] = []
+    for experience, deployment, release in rows:
+        if target in binding_system_ids_from_release(release):
+            apps.append(serialize_system_work_app(experience, deployment, release))
+    for card in automation_jobs or []:
+        job = card.get("job") if isinstance(card, Mapping) else None
+        if isinstance(job, Mapping) and job.get("system_id") == target:
+            apps.append(serialize_system_automation_work_app(card))
+    return apps
 
 
 def work_binding_snapshot(release: ExperienceRelease, *, binding_key: str) -> dict[str, Any]:

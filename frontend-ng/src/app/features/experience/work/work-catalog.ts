@@ -10,6 +10,7 @@
 import { onAccentColor } from '../runtime/style';
 import { CERTIFIED_RENDERER_VERSION as CURRENT_RENDERER_VERSION } from '../runtime/model';
 import { CERTIFIED_RENDERER_VERSION as LEGACY_RENDERER_VERSION } from '../runtime/v0_1/model';
+import { isCataloguedReturnTo } from './work-return';
 
 export type WorkChannel = 'live' | 'pilot';
 
@@ -43,6 +44,8 @@ export interface WorkCatalogItem {
     renderer_version?: string | null;
     identity_snapshot?: Record<string, unknown>;
   };
+  /** Additive L14: Systems targeted by this release's bindings. */
+  binding_system_ids?: string[];
 }
 
 export interface WorkResolve {
@@ -222,6 +225,47 @@ export function bindingKeys(snapshot: readonly Record<string, unknown>[]): strin
     }
   }
   return keys;
+}
+
+/** Focus selector restored on Cockpit return from Work (L14 / L3). */
+export const OPEN_IN_WORK_FOCUS = '#open-in-work';
+
+/** Public row for System → Work links (GET /work/systems/:id/apps). */
+export interface SystemLinkedWorkApp {
+  id: string;
+  name: string;
+  emblem: string;
+  type: string;
+  kind: 'experience' | 'automation' | string;
+  channel: string;
+  status: string;
+  href: string;
+  last_opened_at?: string | null;
+}
+
+export function withWorkReturnTo(href: string, returnTo: string | null | undefined): string {
+  const back = returnTo?.trim() ?? '';
+  if (!isCataloguedReturnTo(back)) return href;
+  const sep = href.includes('?') ? '&' : '?';
+  return `${href}${sep}returnTo=${encodeURIComponent(back)}`;
+}
+
+const STATUS_RANK: Record<string, number> = { live: 0, pilot: 1 };
+
+export function sortSystemLinkedWorkApps(
+  apps: readonly SystemLinkedWorkApp[],
+): SystemLinkedWorkApp[] {
+  return [...apps].sort((a, b) => {
+    const aOpened = a.last_opened_at?.trim() || '';
+    const bOpened = b.last_opened_at?.trim() || '';
+    if (aOpened || bOpened) {
+      if (aOpened && bOpened && aOpened !== bOpened) return aOpened < bOpened ? 1 : -1;
+      if (aOpened !== bOpened) return aOpened ? -1 : 1;
+    }
+    const status = (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9);
+    if (status !== 0) return status;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  });
 }
 
 export function workLocales(languages: readonly string[] | undefined): Array<'fr' | 'en'> {
