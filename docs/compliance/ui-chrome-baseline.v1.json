@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-26T01:29:56.626Z",
+  "generated_at": "2026-09-26T06:17:04.221Z",
   "rules": {
     "font": "banned font",
     "violet": "banned violet",
@@ -311,7 +311,7 @@
     },
     "src/app/features/systems/system-view.component.ts": {
       "violet": 5,
-      "pill": 4
+      "pill": 3
     },
     "src/app/features/systems/systems-grid.component.ts": {
       "violet": 1

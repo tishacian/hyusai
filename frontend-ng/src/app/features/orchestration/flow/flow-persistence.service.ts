@@ -38,6 +38,7 @@ import {
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
+import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { Subscription } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
@@ -213,6 +214,7 @@ export class FlowPersistenceService {
   private readonly toastr = inject(ToastrService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly workspace = inject(WorkspaceService);
+  private readonly i18n = inject(I18nService);
   /** `<app-flow-builder>`, which provides this service. */
   private readonly host = inject(ElementRef<HTMLElement>);
 
@@ -221,6 +223,11 @@ export class FlowPersistenceService {
   readonly hydrationReady = signal(false);
   readonly hydrationError = signal<string | null>(null);
   readonly promoting = signal(false);
+  /** Promotion modal: open flag, draft fields, and in-modal FR error (L20a). */
+  readonly promoteModalOpen = signal(false);
+  readonly promoteName = signal('');
+  readonly promoteObjective = signal('');
+  readonly promotionError = signal<string | null>(null);
   /** Hash of the authoritative saved Flow. Execute uses it as both a local
    * readiness gate and the backend optimistic precondition. */
   readonly savedFlowSha256 = signal<string | null>(null);
@@ -1016,19 +1023,25 @@ export class FlowPersistenceService {
   }
 
   /**
-   * Promote the scratchpad draft into a real System atomically. The initial
-   * graph is part of POST /systems so publication-enabled workspaces initialise
-   * their Draft/Published authority from this exact snapshot and legacy
-   * workspaces persist it in the same transaction. There is deliberately no
-   * follow-up PATCH: a failed create can never leave a known-empty shell.
+   * Promote the free draft (« brouillon libre ») into a real System.
+   * Callers must pass an explicit name — never a native browser prompt. Objective
+   * is optional and sent empty when omitted (L20a).
    */
-  promoteToSystem(name?: string): void {
+  promoteToSystem(nameOrOptions?: string | { name: string; objective?: string }): void {
     if (this.systemId() || this.promoting() || !this.hydrationReady()) return;
-    const resolved =
-      name ?? window.prompt('Name this System', 'Scratchpad flow')?.trim();
-    if (!resolved) return;
+    const options =
+      typeof nameOrOptions === 'string'
+        ? { name: nameOrOptions, objective: '' }
+        : nameOrOptions;
+    const resolved = options?.name?.trim();
+    if (!resolved) {
+      this.promotionError.set(this.i18n.t('flow.promote.error.name_required'));
+      return;
+    }
+    const objective = (options?.objective ?? '').trim();
 
     this.promoting.set(true);
+    this.promotionError.set(null);
     const scope = this.workspace.captureRequestScope();
     const flow = this.serializer.annotateSidecars(this.store.snapshot());
     const sentRevision = this.store.revision();
@@ -1036,7 +1049,7 @@ export class FlowPersistenceService {
     const request = this.canonical
       .createSystem({
         name: resolved,
-        objective: 'Promoted from scratchpad flow',
+        objective,
         flow_definition: flow as unknown as Record<string, unknown>,
         // Durable provenance: the catalog can label these Systems without
         // pattern-matching a name an operator is free to change.
@@ -1047,10 +1060,7 @@ export class FlowPersistenceService {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.promoting.set(false);
           if (!system) {
-            this.toastr.error(
-              'The System and its Flow could not be created atomically. Your local draft was kept.',
-              'Promotion failed',
-            );
+            this.promotionError.set(this.i18n.t('flow.promote.error.failed'));
             return;
           }
 
@@ -1060,10 +1070,7 @@ export class FlowPersistenceService {
             isFlowLike(returnedFlow) &&
             flowValidationFingerprint(returnedFlow) === flowValidationFingerprint(flow);
           if (!returnedFlowVerified) {
-            this.toastr.error(
-              `System "${system.name}" (${system.id}) was created, but its Flow response could not be verified. Your local draft was kept; review that System before retrying.`,
-              'Promotion needs review',
-            );
+            this.promotionError.set(this.i18n.t('flow.promote.error.verify'));
             return;
           }
 
@@ -1076,14 +1083,15 @@ export class FlowPersistenceService {
               this.store.snapshot(),
             );
             this.draftAvailable.set(true);
-            this.toastr.warning(
-              `System "${system.name}" was created from the earlier revision. Newer local edits were kept in this scratchpad.`,
-              'Promotion needs review',
-            );
+            this.promotionError.set(this.i18n.t('flow.promote.error.race'));
             return;
           }
 
-          this.toastr.success(`Promoted to System "${system.name}".`, 'Flow builder');
+          this.promoteModalOpen.set(false);
+          this.toastr.success(
+            this.i18n.t('flow.promote.success', { name: system.name }),
+            this.i18n.t('flow.promote.toast_title'),
+          );
           this.consumeShareLink();
           this.clearDraftForWorkspace(scope.workspaceSlug);
           void this.router.navigateByUrl(this.navigation.leafUrl('system-flow', { ref: system.id }));
@@ -1091,16 +1099,34 @@ export class FlowPersistenceService {
         error: () => {
           if (!this.workspace.isRequestScopeCurrent(scope)) return;
           this.promoting.set(false);
-          this.toastr.error(
-            'The System creation result could not be confirmed. Your local draft was kept.',
-            'Promotion failed',
-          );
+          this.promotionError.set(this.i18n.t('flow.promote.error.failed'));
         },
         complete: () => {
           if (this.workspace.isRequestScopeCurrent(scope)) this.promoting.set(false);
         },
       });
     this.promotionRequest = request.closed ? null : request;
+  }
+
+  openPromoteModal(): void {
+    if (this.systemId() || this.promoting() || !this.hydrationReady()) return;
+    this.promotionError.set(null);
+    this.promoteName.set('');
+    this.promoteObjective.set('');
+    this.promoteModalOpen.set(true);
+  }
+
+  closePromoteModal(): void {
+    if (this.promoting()) return;
+    this.promoteModalOpen.set(false);
+    this.promotionError.set(null);
+  }
+
+  confirmPromoteModal(): void {
+    this.promoteToSystem({
+      name: this.promoteName(),
+      objective: this.promoteObjective(),
+    });
   }
 
   /** Discard the persisted scratchpad draft. */

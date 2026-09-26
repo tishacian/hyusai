@@ -174,12 +174,13 @@ interface ContextConfigRow {
           type="button"
           (click)="triggerRun()"
           [disabled]="triggering() || isDraft()"
-          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium ck-mono transition"
-          style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:var(--ck-on-signal);"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium transition"
+          style="border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-1); background:transparent;"
           [style.opacity]="triggering() || isDraft() ? '0.4' : '1'"
+          data-testid="system-launch-run"
         >
           <app-icon name="play" [size]="12" />
-          {{ triggering() ? 'Queueing…' : 'Run now' }}
+          {{ triggering() ? i18n.t('systems.run.queueing') : launchRunLabel() }}
         </button>
       }
       @if (isExpertKnowledgeCapture()) {
@@ -298,51 +299,15 @@ interface ContextConfigRow {
           </div>
         } @else if (flowProfile(); as flow) {
           <div class="space-y-6">
-            <section
-              class="relative overflow-hidden ck-surface rounded-md p-5"
-              style="background: linear-gradient(135deg, rgba(0,188,212,0.08) 0%, rgba(139,92,246,0.08) 100%); border: 1px solid rgba(0,188,212,0.25);"
-              data-testid="system-flow-overview"
-            >
-              <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none"></div>
-              <div class="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div class="min-w-0">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <app-icon name="workflow" set="phosphor" [size]="18" class="ck-accent" />
-                    <span class="ck-accent text-xs uppercase tracking-wider font-semibold">Executable flow</span>
-                    <span
-                      class="ck-pill"
-                      [ngClass]="flow.publishedVersionId ? 'ck-tone-ok' : 'ck-tone-warn'"
-                    >
-                      {{ flowPublicationLabel() }}
-                    </span>
-                    @if (flow.promotedFromScratchpad) {
-                      <span class="ck-pill ck-tone-neutral">From scratchpad</span>
-                    }
-                  </div>
-                  <p class="mt-3 text-sm leading-relaxed text-gray-400 max-w-2xl">
-                    {{ flowSummaryLine() }}
-                  </p>
-                </div>
-                <a
-                  [navLink]="{ leaf: 'system-flow', ref: systemId }"
-                  class="ck-cta inline-flex shrink-0 items-center gap-2 rounded px-4 py-2.5 text-sm font-semibold"
-                  data-testid="system-flow-open-builder"
-                >
-                  <app-icon name="workflow" [size]="14" /> Open in flow builder
-                </a>
-              </div>
-            </section>
-
             <section class="ck-surface t-elevated rounded-md p-5">
               <div class="flex items-center gap-2 mb-3">
                 <app-icon name="play-circle" set="phosphor" [size]="16" class="ck-accent" />
-                <h3 class="text-sm font-semibold text-white">Triggers</h3>
-                <span class="ml-auto text-[11px] text-gray-500">{{ flow.triggers.length }} declared</span>
+                <h3 class="text-sm font-semibold text-white">{{ i18n.t('systems.flow.triggers') }}</h3>
+                <span class="ml-auto text-[11px] text-gray-500">{{ flow.triggers.length }}</span>
               </div>
               @if (flow.triggers.length === 0) {
                 <p class="text-xs text-gray-400 leading-relaxed">
-                  No entry point is declared on this graph. It runs only when triggered manually
-                  from this page or the flow builder.
+                  {{ i18n.t('systems.flow.triggers.empty') }}
                 </p>
               } @else {
                 <ul class="grid gap-2 md:grid-cols-2">
@@ -1313,6 +1278,18 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   readonly flowPublicationLabel = computed(() =>
     this.flowProfile()?.publishedVersionId ? 'Published' : 'Draft only',
   );
+
+  launchRunLabel(): string {
+    const versionId = this.flowProfile()?.publishedVersionId;
+    if (versionId) {
+      const short = String(versionId).startsWith('v')
+        ? String(versionId)
+        : `v${String(versionId).slice(0, 8)}`;
+      return this.i18n.t('systems.run.launch_version', { version: short });
+    }
+    return this.i18n.t('systems.run.launch');
+  }
+
   readonly flowPublicationDetail = computed(() => {
     const flow = this.flowProfile();
     if (!flow) return '';
