@@ -30,8 +30,8 @@
       "reason": "DATA — two verbatim prompts the demo scenario sends as the user's own message (social pulse, Sahel theatre before the 15h Council). Scenario script, like the mission-room fixtures."
     },
     "src/app/features/knowledge/capture-fil/capture-templates.ts": {
-      "max": 24,
-      "reason": "DATA — front-end mirror of the backend `capture_templates` registry (see the module header). These are the customer's report field names and must match the backend contract and the delivered report, which is why the file already mixes French and English ('Constat', 'Customer Specific Needs', 'Project manager'). Translating them client-side would desynchronise the report."
+      "max": 29,
+      "reason": "DATA — front-end mirror of the backend `capture_templates` registry (see the module header). These are the customer's report field names and must match the backend contract and the delivered report. L19 finishes the remaining English FSE role/rubric labels in French."
     },
     "src/app/features/mission-room/mission-room.presentation.ts": {
       "max": 23,

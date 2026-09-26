@@ -21,12 +21,14 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
+import { collectionIndexPresentation } from './knowledge-facets';
 
 interface CollectionInfo {
   slug: string;
   name: string;
   chunks: number;
   docs: number;
+  status?: string;
   loading?: boolean;
 }
 
@@ -36,6 +38,7 @@ interface CollectionItemPayload {
   document_count?: number;
   source_count?: number;
   chunk_count?: number;
+  status?: string;
 }
 
 interface CollectionsPayload {
@@ -283,7 +286,10 @@ interface SearchResult {
             </div>
 
             <div class="flex items-center justify-between">
-              <app-status-pulse tone="success" [label]="i18n.t('knowledge.collections.indexed')" />
+              <app-status-pulse
+                [tone]="collectionPulse(doc).tone"
+                [label]="i18n.t(collectionPulse(doc).labelKey)"
+              />
               <div class="flex items-center gap-1">
                 <a
                   [navLink]="{ leaf: 'knowledge-doc', ref: doc.slug }"
@@ -839,10 +845,14 @@ export class KnowledgeBaseComponent implements OnInit {
     {
       label: this.i18n.t('knowledge.kpi.vector_db'),
       value: this.vectorDbType() || '—',
-      tone: 'violet',
+      tone: 'cool',
       hint: this.indexingLabel(),
     },
   ]);
+
+  collectionPulse(doc: CollectionInfo) {
+    return collectionIndexPresentation(doc.status);
+  }
 
   ngOnInit(): void {
     this.loadCollections();
@@ -874,6 +884,7 @@ export class KnowledgeBaseComponent implements OnInit {
               name: item.name || slug,
               chunks: item.chunk_count ?? 0,
               docs: item.source_count ?? item.document_count ?? 0,
+              status: item.status,
               loading: false,
             };
           }).filter((item) => !!item.slug);

@@ -1141,6 +1141,7 @@ const SYSTEM_OBJECT_FACETS: readonly ObjectFacet[] = [
   { id: 'runs', i18nKey: 'nav.runs', glyph: 'ledger' },
   { id: 'design', i18nKey: 'systems.view.tab.design', glyph: 'flow' },
   { id: 'context', i18nKey: 'systems.view.tab.context', glyph: 'layers' },
+  { id: 'capture', i18nKey: 'nav.facet.capture', glyph: 'layers' },
 ];
 
 /** Object type × lens → facets. Source for `?facet=`, `ck-tabs`, and the sommaire branch (D7). */

@@ -395,6 +395,7 @@ test('OBJECT_FACETS lists System descendants used by object facets', () => {
     'runs',
     'design',
     'context',
+    'capture',
   ]);
   assert.equal(systemFacetForChild('run'), 'runs');
   assert.equal(systemFacetForChild('skill'), 'design');

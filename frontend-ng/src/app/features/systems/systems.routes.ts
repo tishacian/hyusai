@@ -1,4 +1,6 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { Router, type Routes } from '@angular/router';
+import { systemCaptureFacetUrl } from '../knowledge/knowledge-capture-redirect';
 
 export const systemsRoutes: Routes = [
   {
@@ -22,14 +24,10 @@ export const systemsRoutes: Routes = [
       import('./flow-runner.component').then((m) => m.FlowRunnerComponent),
   },
   {
-    // Route through the flag-aware wrapper (not the v0 monolith directly) so the
-    // system-scoped entry honours `capture_experience` like `/knowledge/capture`.
-    // The v0 child still reads `:systemId` from the same ActivatedRoute.
+    // L19 — Capture is a System facet (`?facet=capture`), not a child route.
     path: ':systemId/capture',
-    loadComponent: () =>
-      import('../knowledge/capture-fil/capture-router.component').then(
-        (m) => m.CaptureRouterComponent,
-      ),
+    redirectTo: ({ params }) =>
+      inject(Router).parseUrl(systemCaptureFacetUrl(String(params['systemId'] || ''))),
   },
   {
     path: ':systemId',

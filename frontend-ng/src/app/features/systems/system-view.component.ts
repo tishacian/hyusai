@@ -21,6 +21,7 @@ import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run, type System, type SystemFlowState } from '@app/core/canonical-api.service';
 import { NewsLabComponent } from '@app/features/intelligence/news-lab.component';
+import { CaptureRouterComponent } from '@app/features/knowledge/capture-fil/capture-router.component';
 import { I18nService } from '@app/core/i18n.service';
 import { LensService } from '@app/core/lens';
 import { SettingsService } from '@app/core/settings.service';
@@ -74,6 +75,7 @@ type SystemTabId =
   | 'runs'
   | 'design'
   | 'context'
+  | 'capture'
   | 'chat';
 
 /**
@@ -137,6 +139,7 @@ interface ContextConfigRow {
     CkTabComponent,
     CkPanelComponent,
     NewsLabComponent,
+    CaptureRouterComponent,
     SystemPerspectiveComponent,
     SystemValueLoopComponent,
     OperationalObjectiveComponent,
@@ -974,6 +977,12 @@ interface ContextConfigRow {
         </div>
         }
       </ck-tab>
+
+      <ck-tab id="capture" [label]="i18n.t('nav.facet.capture')">
+        @if (activeTab() === 'capture') {
+          <app-capture-router />
+        }
+      </ck-tab>
     </ck-tabs>
 
     <!-- Settings side panel — opened via header button; never a tab. -->
@@ -1752,8 +1761,8 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     const requestedFacet = this.route.snapshot.queryParamMap.get('facet');
     const facet = ({ skills: 'design', flow: 'design', knowledge: 'context' } as Record<string, string>)[requestedFacet || ''] || requestedFacet;
     const allowed: SystemTabId[] = this.isIntelligence()
-      ? ['intelligence', 'overview', 'runs', 'design', 'context']
-      : ['overview', 'runs', 'design', 'context'];
+      ? ['intelligence', 'overview', 'runs', 'design', 'context', 'capture']
+      : ['overview', 'runs', 'design', 'context', 'capture'];
     if (facet && (allowed as string[]).includes(facet)) {
       this.activeTab.set(facet as SystemTabId);
       return;

@@ -1933,21 +1933,27 @@ const STEP_ICONS: Record<string, string> = {
                    top toast for everyone; operators additionally get the raw
                    breach metrics inline (and still receive the verbose toast). -->
               @if (msg.qaReview; as qa) {
-                <div class="ml-2 mt-1.5 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    class="qa-review-badge inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/25 hover:bg-amber-500/15 transition"
-                    [title]="qaReviewTooltip()"
-                    (click)="openQaReview(qa.decisionId, qa.runId)"
-                  >
-                    <app-icon name="shield-alert" [size]="12" />
-                    <span>{{ i18n.t('chat.qa.verify') }}</span>
-                  </button>
-                  @if (!isDemoMode() && qa.reasons.length) {
-                    <span class="text-[10px] font-mono text-gray-500">
-                      {{ qa.compositeScore != null ? qa.compositeScore + '/100 · ' : '' }}{{ qa.reasons.slice(0, 3).join(', ') }}
-                    </span>
-                  }
+                <div class="ml-2 mt-1.5 space-y-1">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      class="qa-review-badge inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/25 hover:bg-amber-500/15 transition"
+                      [title]="qaReviewTooltip()"
+                      (click)="openQaReview(qa.decisionId, qa.runId)"
+                    >
+                      <app-icon name="shield-alert" [size]="12" />
+                      <span>{{ i18n.t('chat.qa.verify') }}</span>
+                    </button>
+                    @if (!isDemoMode() && qa.reasons.length) {
+                      <span class="text-[10px] font-mono text-gray-500">
+                        {{ qa.compositeScore != null ? qa.compositeScore + '/100 · ' : '' }}{{ qa.reasons.slice(0, 3).join(', ') }}
+                      </span>
+                    }
+                  </div>
+                  <p class="qa-review-reason flex items-start gap-1.5 text-[12px] text-amber-800 dark:text-amber-200/90 max-w-xl">
+                    <app-icon name="info" [size]="12" class="mt-0.5 shrink-0" />
+                    <span>{{ qaReviewReasonText(qa) }}</span>
+                  </p>
                 </div>
               }
 
@@ -7441,6 +7447,16 @@ export class ChatPanelComponent implements AfterViewInit {
   /** Plain-language tooltip for the "Réponse à vérifier" badge. */
   qaReviewTooltip(): string {
     return this.i18n.t('chat.qa.review_tooltip');
+  }
+
+  /** Visible reason under the badge (L19 — not tooltip-only). */
+  qaReviewReasonText(qa: NonNullable<ChatMessage['qaReview']>): string {
+    const scoreLabel = qa.compositeScore != null ? String(qa.compositeScore) : '—';
+    const metrics = (qa.reasons || []).slice(0, 3).join(', ');
+    if (metrics) {
+      return this.i18n.t('chat.qa.flagged_breaches', { score: scoreLabel, metrics });
+    }
+    return this.i18n.t('chat.qa.flagged_review', { score: scoreLabel });
   }
 
   /** Navigate to the detailed QA review for a flagged reply (opt-in). */
