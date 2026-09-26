@@ -10,7 +10,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { HelpTooltipComponent } from '@app/shared/cockpit';
 import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component';
@@ -129,7 +129,16 @@ const QUERY_TARGETS = new Set<string>([
   'decision_queue',
 ]);
 
-type Tab = 'content' | 'action' | 'appearance' | 'a11y';
+type Tab = 'content' | 'action' | 'appearance';
+type AppFacet = 'edition' | 'accessibilite';
+type A11yControlKind = 'title' | 'contrast' | 'keyboard' | 'empty';
+type A11yControl = {
+  pageId: string;
+  nodeId: string;
+  kind: A11yControlKind;
+  warn: boolean;
+  nodeLabel: string;
+};
 type LeftTab = 'pages' | 'components';
 type Viewport = 'desktop' | 'tablet' | 'mobile';
 type BottomTab = 'data' | 'actions' | 'access' | 'tests' | 'journal';
@@ -169,6 +178,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
     <div
       class="xp-ed"
       [class.is-readonly]="readOnly()"
+      [class.is-focus-mode]="focusMode()"
       [attr.inert]="draftHistoryBusy() ? '' : null"
       [attr.aria-busy]="draftHistoryBusy()"
     >
@@ -200,6 +210,16 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
           }
         </div>
         <div class="xp-ed-tools">
+          <div class="xp-ed-group xp-ed-focus-group">
+            <button
+              type="button"
+              class="xp-btn"
+              [attr.aria-pressed]="focusMode()"
+              (click)="toggleFocusMode()"
+            >
+              {{ i18n.t(focusMode() ? 'experience.editor.focus.exit' : 'experience.editor.focus') }}
+            </button>
+          </div>
           <button type="button" class="xp-btn" (click)="openVisualIdentity()">{{ i18n.t('experience.brand.title') }}</button>
           @if (!readOnly()) {
           <div class="xp-ed-group">
@@ -272,6 +292,93 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
         </div>
       }
 
+      <nav class="xp-ed-facets" role="tablist" [attr.aria-label]="i18n.t('experience.editor.facets')">
+        <button
+          type="button"
+          role="tab"
+          [class.is-on]="appFacet() === 'edition'"
+          [attr.aria-selected]="appFacet() === 'edition'"
+          (click)="setAppFacet('edition')"
+        >{{ i18n.t('experience.editor.facet.edition') }}</button>
+        <button
+          type="button"
+          role="tab"
+          [class.is-on]="appFacet() === 'accessibilite'"
+          [attr.aria-selected]="appFacet() === 'accessibilite'"
+          (click)="setAppFacet('accessibilite')"
+        >{{ i18n.t('experience.editor.facet.accessibilite') }}</button>
+      </nav>
+
+      @if (appFacet() === 'accessibilite') {
+        <div class="xp-ed-a11y-facet" [attr.aria-label]="i18n.t('experience.editor.facet.accessibilite')">
+          <ul class="xp-ed-a11y-list">
+            @for (row of a11yControls(); track row.pageId + ':' + row.nodeId + ':' + row.kind) {
+              <li>
+                <button
+                  type="button"
+                  [class.is-on]="isNodeSelected(row.nodeId)"
+                  [class.is-warn]="row.warn"
+                  (click)="selectNode(row.pageId, row.nodeId)"
+                >
+                  <span>
+                    <strong>{{ i18n.t('experience.editor.a11y.control.' + row.kind) }}</strong>
+                    · {{ row.nodeLabel }}
+                  </span>
+                  @if (row.warn) {
+                    <span class="xp-tag xp-tag-warn">{{ i18n.t('experience.editor.a11y.control.warn') }}</span>
+                  }
+                </button>
+              </li>
+            } @empty {
+              <li><p class="xp-hint">{{ i18n.t('experience.editor.a11y.controls.empty') }}</p></li>
+            }
+          </ul>
+          <aside class="xp-ed-a11y-detail" [attr.aria-label]="i18n.t('experience.editor.inspector')">
+            <fieldset class="xp-inspector-fields" [disabled]="readOnly()">
+              @if (selectedNode(); as node) {
+                <label class="xp-field">
+                  <span>{{ i18n.t('experience.editor.a11y.label') }}</span>
+                  <input [value]="localizedA11y(node, 'ariaLabel')" (input)="setLocalizedA11y(node, 'ariaLabel', inputValue($event))" />
+                </label>
+                @if (supportsHeading(node.type)) {
+                  <label class="xp-field">
+                    <span>{{ i18n.t('experience.editor.a11y.heading') }}</span>
+                    <select [value]="headingValue(node)" (change)="setA11y(node, 'headingLevel', headingNumber(selectValue($event)))">
+                      <option value="2">{{ i18n.t('experience.editor.a11y.heading.2') }}</option>
+                      <option value="3">{{ i18n.t('experience.editor.a11y.heading.3') }}</option>
+                      <option value="4">{{ i18n.t('experience.editor.a11y.heading.4') }}</option>
+                    </select>
+                  </label>
+                }
+                @if (needsEmptyText(node.type)) {
+                  <label class="xp-field">
+                    <span>{{ i18n.t('experience.editor.a11y.empty') }}</span>
+                    <textarea
+                      [value]="localizedA11y(node, 'emptyText')"
+                      (input)="setLocalizedA11y(node, 'emptyText', inputValue($event))"
+                    ></textarea>
+                  </label>
+                  @if (!localizedA11y(node, 'emptyText')) {
+                    <p class="xp-error" role="status">{{ i18n.t('experience.editor.a11y.empty.required') }}</p>
+                  }
+                }
+                <label class="xp-field">
+                  <span>{{ i18n.t('experience.editor.a11y.keyboard') }}</span>
+                  <textarea
+                    [value]="localizedA11y(node, 'keyboardHint')"
+                    (input)="setLocalizedA11y(node, 'keyboardHint', inputValue($event))"
+                  ></textarea>
+                </label>
+                @if (contrastWarn(node)) {
+                  <p class="xp-error" role="status">{{ i18n.t('experience.editor.a11y.contrast') }}</p>
+                }
+              } @else {
+                <p class="xp-hint">{{ i18n.t('experience.editor.a11y.none') }}</p>
+              }
+            </fieldset>
+          </aside>
+        </div>
+      } @else {
       <div class="xp-ed-grid">
         <aside class="xp-ed-col xp-ed-left" [attr.aria-label]="i18n.t('experience.editor.tree')">
           <div class="xp-tabs xp-left-tabs" role="tablist" [attr.aria-label]="i18n.t('experience.editor.tree')">
@@ -945,48 +1052,6 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
             <p class="xp-hint">{{ i18n.t('experience.editor.appearance.note') }}</p>
           }
 
-          @if (inspectorTab() === 'a11y') {
-            @if (selectedNode(); as node) {
-              <label class="xp-field">
-                <span>{{ i18n.t('experience.editor.a11y.label') }}</span>
-                <input [value]="localizedA11y(node, 'ariaLabel')" (input)="setLocalizedA11y(node, 'ariaLabel', inputValue($event))" />
-              </label>
-              @if (supportsHeading(node.type)) {
-                <label class="xp-field">
-                  <span>{{ i18n.t('experience.editor.a11y.heading') }}</span>
-                  <select [value]="headingValue(node)" (change)="setA11y(node, 'headingLevel', headingNumber(selectValue($event)))">
-                    <option value="2">{{ i18n.t('experience.editor.a11y.heading.2') }}</option>
-                    <option value="3">{{ i18n.t('experience.editor.a11y.heading.3') }}</option>
-                    <option value="4">{{ i18n.t('experience.editor.a11y.heading.4') }}</option>
-                  </select>
-                </label>
-              }
-              @if (needsEmptyText(node.type)) {
-                <label class="xp-field">
-                  <span>{{ i18n.t('experience.editor.a11y.empty') }}</span>
-                  <textarea
-                    [value]="localizedA11y(node, 'emptyText')"
-                    (input)="setLocalizedA11y(node, 'emptyText', inputValue($event))"
-                  ></textarea>
-                </label>
-                @if (!localizedA11y(node, 'emptyText')) {
-                  <p class="xp-error" role="status">{{ i18n.t('experience.editor.a11y.empty.required') }}</p>
-                }
-              }
-              <label class="xp-field">
-                <span>{{ i18n.t('experience.editor.a11y.keyboard') }}</span>
-                <textarea
-                  [value]="localizedA11y(node, 'keyboardHint')"
-                  (input)="setLocalizedA11y(node, 'keyboardHint', inputValue($event))"
-                ></textarea>
-              </label>
-              @if (contrastWarn(node)) {
-                <p class="xp-error" role="status">{{ i18n.t('experience.editor.a11y.contrast') }}</p>
-              }
-            } @else {
-              <p class="xp-hint">{{ i18n.t('experience.editor.a11y.none') }}</p>
-            }
-          }
           </fieldset>
         </aside>
       </div>
@@ -1256,7 +1321,7 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
           </section>
         }
       </div>
-    </div>
+      }
 
     <p class="sr-only" role="status" aria-live="polite" aria-atomic="true">
       {{ draftHistoryStatus() }}
@@ -1293,17 +1358,19 @@ function documentBindingKeys(document: ExperienceDocument): string[] {
       />
       }
     }
+    </div>
   `,
 })
 export class ExperienceEditorComponent implements OnDestroy {
   readonly i18n = inject(I18nService);
   private readonly api = inject(StudioApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   protected readonly workspace = inject(WorkspaceService);
   readonly addable = ADDABLE_TYPES;
   readonly confirms = CONFIRMATION_POLICIES;
   readonly unavailable = UNAVAILABLE_POLICIES;
-  readonly tabs: Tab[] = ['content', 'action', 'appearance', 'a11y'];
+  readonly tabs: Tab[] = ['content', 'action', 'appearance'];
   readonly leftTabs: LeftTab[] = ['pages', 'components'];
   readonly viewports: Viewport[] = ['desktop', 'tablet', 'mobile'];
   readonly bottomTabs: BottomTab[] = ['data', 'actions', 'access', 'tests', 'journal'];
@@ -1330,6 +1397,8 @@ export class ExperienceEditorComponent implements OnDestroy {
   readonly stack = signal<RevisionStack>(emptyStack({ pages: [] }));
   readonly selection = signal<Selection | null>(null);
   readonly inspectorTab = signal<Tab>('content');
+  readonly appFacet = signal<AppFacet>('edition');
+  readonly focusMode = signal(false);
   readonly leftTab = signal<LeftTab>('pages');
   readonly viewport = signal<Viewport>('desktop');
   readonly previewRole = signal('workspace_viewer');
@@ -1489,6 +1558,52 @@ export class ExperienceEditorComponent implements OnDestroy {
     languages: this.detail()?.languages ?? [],
   }));
 
+  readonly a11yControls = computed((): A11yControl[] => {
+    const rows: A11yControl[] = [];
+    for (const page of this.doc().pages) {
+      for (const node of page.components) {
+        if (!node.id) continue;
+        const nodeLabel = this.localizedProp(node, 'title')
+          || this.localizedA11y(node, 'ariaLabel')
+          || node.type;
+        rows.push({
+          pageId: page.id,
+          nodeId: node.id,
+          kind: 'title',
+          warn: !this.localizedA11y(node, 'ariaLabel').trim() && !this.localizedProp(node, 'title').trim(),
+          nodeLabel,
+        });
+        if (supportsAccent(node.type)) {
+          const accent = appearanceOf(node).accent;
+          rows.push({
+            pageId: page.id,
+            nodeId: node.id,
+            kind: 'contrast',
+            warn: !!accent && accentContrastWarning(accent, pageAppearance(page).theme),
+            nodeLabel,
+          });
+        }
+        rows.push({
+          pageId: page.id,
+          nodeId: node.id,
+          kind: 'keyboard',
+          warn: !this.localizedA11y(node, 'keyboardHint').trim(),
+          nodeLabel,
+        });
+        if (needsEmptyText(node.type)) {
+          rows.push({
+            pageId: page.id,
+            nodeId: node.id,
+            kind: 'empty',
+            warn: !this.localizedA11y(node, 'emptyText').trim(),
+            nodeLabel,
+          });
+        }
+      }
+    }
+    return rows;
+  });
+
   constructor() {
     this.routeSubscription = this.route.paramMap.subscribe((params) => this.openRoute(params.get('id')));
     this.querySubscription = this.route.queryParamMap.subscribe((params) => {
@@ -1504,6 +1619,8 @@ export class ExperienceEditorComponent implements OnDestroy {
       this.originReleaseNumber.set(
         Number.isSafeInteger(releaseNumber) && releaseNumber > 0 ? releaseNumber : null,
       );
+      const facet = params.get('facet');
+      this.appFacet.set(facet === 'accessibilite' ? 'accessibilite' : 'edition');
       this.selectRequestedPage();
     });
     this.loadCatalogs();
@@ -1557,12 +1674,31 @@ export class ExperienceEditorComponent implements OnDestroy {
 
   @HostListener('document:keydown', ['$event'])
   onKey(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && this.focusMode()) {
+      event.preventDefault();
+      this.focusMode.set(false);
+      return;
+    }
     if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'z') return;
     const target = event.target as HTMLElement | null;
     if (target?.closest('input, textarea, select')) return;
     event.preventDefault();
     if (event.shiftKey) this.redo();
     else this.undo();
+  }
+
+  toggleFocusMode(): void {
+    this.focusMode.update((value) => !value);
+  }
+
+  setAppFacet(facet: AppFacet): void {
+    this.appFacet.set(facet);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { facet: facet === 'edition' ? null : facet },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   isPageSelected(pageId: string): boolean {
