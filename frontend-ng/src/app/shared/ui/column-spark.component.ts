@@ -64,10 +64,10 @@ import {
         flex: 1 1 auto;
         min-width: 1px;
         border-radius: 1px 1px 0 0;
-        background: var(--ck-signal-cool, #7dd3fc);
+        background: var(--ck-fg-3, #a6aebc);
       }
       .ck-spark--cat .ck-spark__bar {
-        background: var(--ck-signal-violet, #a78bfa);
+        background: var(--ck-fg-4, #8891a0);
       }
     `,
   ],

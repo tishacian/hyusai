@@ -256,7 +256,7 @@ export class CurveChartComponent {
   readonly reference = input<CurveReference>({ kind: 'none' });
   /** Fill under the curve — on for ROC, where the area *is* the metric. */
   readonly fill = input(false);
-  readonly tone = input<'accent' | 'violet'>('accent');
+  readonly tone = input<'accent' | 'neutral'>('accent');
   /** Screen-reader label. Required: a bare `role="img"` announces nothing. */
   readonly label = input.required<string>();
   /** Axis names. Empty means no title, for a plot whose axes need no saying. */
@@ -278,8 +278,8 @@ export class CurveChartComponent {
   private readonly palette = computed(() => {
     this.theme.resolved();
     const line = this.token(
-      this.tone() === 'violet' ? '--ck-signal-violet' : '--ck-accent',
-      this.tone() === 'violet' ? '#a78bfa' : '#7dd3fc',
+      this.tone() === 'neutral' ? '--ck-fg-2' : '--ck-accent',
+      this.tone() === 'neutral' ? '#c3c9d4' : '#7dd3fc',
     );
     return {
       line,

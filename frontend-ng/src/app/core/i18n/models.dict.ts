@@ -52,6 +52,8 @@ export const MODELS_FR = {
   'models.list.monitor.ok': 'Stable',
   'models.list.monitor.watch': 'Attention',
   'models.list.monitor.alert': 'Alerte',
+  'models.list.served': 'v{version} répond',
+  'models.list.served.none': 'aucune ne répond',
 
   // ---- statuts ------------------------------------------------------------
   'models.status.pending': 'En attente',
@@ -155,7 +157,7 @@ export const MODELS_FR = {
   'models.detail.challenger': 'Prétendante',
   'models.detail.challenger_hint':
     'La meilleure version qui ne répond pas : le registre la nomme « challenger », donc models:/<modèle>@challenger la résout sans passer par Agentium.',
-  'models.detail.promote': 'Mettre en service',
+  'models.detail.promote': 'Mettre la v{version} en service',
   'models.detail.promoted': '« {name} » v{version} répond désormais',
   'models.detail.promote_hint':
     'Une seule version répond par modèle : celle-ci prendra la place de la précédente.',
@@ -597,6 +599,8 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.list.monitor.ok': 'Steady',
   'models.list.monitor.watch': 'Watch',
   'models.list.monitor.alert': 'Alert',
+  'models.list.served': 'v{version} answers',
+  'models.list.served.none': 'none answers',
 
   'models.status.pending': 'Queued',
   'models.status.training': 'Training',
@@ -696,7 +700,7 @@ export const MODELS_EN: Record<keyof typeof MODELS_FR, string> = {
   'models.detail.challenger': 'Challenger',
   'models.detail.challenger_hint':
     'The best version that is not answering. The registry names it “challenger”, so models:/<model>@challenger resolves it without going through Agentium.',
-  'models.detail.promote': 'Put in service',
+  'models.detail.promote': 'Put v{version} in service',
   'models.detail.promoted': '“{name}” v{version} now answers',
   'models.detail.promote_hint':
     'One version answers per model: this one takes the place of the previous.',

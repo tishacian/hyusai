@@ -26,6 +26,7 @@ from app.services.tabular_datasets import (
     DATASET_INGEST_TASK,
     TabularError,
     create_upload,
+    dataset_used_by,
     get_dataset,
     ingest_dataset,
     read_page,
@@ -367,6 +368,7 @@ async def get_dataset_detail(
             "children": descendants,
         },
         "versions": [serialize_dataset(row) for row in versions],
+        "used_by": dataset_used_by(db, dataset=dataset),
         "feature": _feature_payload(),
     }
 

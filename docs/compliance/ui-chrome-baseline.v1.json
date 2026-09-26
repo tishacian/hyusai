@@ -56,17 +56,7 @@
       "violet": 1
     },
     "src/app/features/data/data-list.component.ts": {
-      "pill": 3
-    },
-    "src/app/features/data/data-view.component.ts": {
-      "violet": 4,
       "pill": 2
-    },
-    "src/app/features/data/viz/bar-list.component.ts": {
-      "pill": 2
-    },
-    "src/app/features/data/viz/curve-chart.component.ts": {
-      "violet": 5
     },
     "src/app/features/experience/runtime/runtime-blocks.ts": {
       "violet": 4
@@ -161,17 +151,16 @@
       "pill": 2
     },
     "src/app/features/models/model-playground.component.ts": {
-      "pill": 2
+      "pill": 1
     },
     "src/app/features/models/model-train.component.ts": {
-      "pill": 3
+      "pill": 2
     },
     "src/app/features/models/model-view.component.ts": {
-      "violet": 3,
-      "pill": 4
+      "pill": 2
     },
     "src/app/features/models/models-list.component.ts": {
-      "pill": 3
+      "pill": 2
     },
     "src/app/features/observability/quality-dashboard.component.ts": {
       "pill": 1
@@ -355,9 +344,6 @@
     },
     "src/app/shared/ui/code-editor.component.ts": {
       "halo": 1
-    },
-    "src/app/shared/ui/column-spark.component.ts": {
-      "violet": 2
     },
     "src/app/shared/ui/data-table.component.ts": {
       "violet": 4,

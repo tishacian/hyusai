@@ -157,11 +157,13 @@ const CHART_ASPECT = 300 / 190;
           @if (row.status === 'ready' && !row.is_champion) {
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-emerald-500 hover:bg-emerald-600 text-white transition"
+              class="ck-cta inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+              data-testid="promote-serving"
               [title]="i18n.t('models.detail.promote_hint')"
               (click)="promote()"
             >
-              <app-icon name="crown" [size]="14" /> {{ i18n.t('models.detail.promote') }}
+              <app-icon name="crown" [size]="14" />
+              {{ i18n.t('models.detail.promote', { version: row.version }) }}
             </button>
           }
           @if (isActive(row)) {
@@ -280,7 +282,7 @@ const CHART_ASPECT = 300 / 190;
                 <div class="ck-scores">
                   @for (score of scores(); track score.key) {
                     <div class="ck-score-card" [title]="i18n.t('models.metric.' + score.key + '.hint')">
-                      <div class="ck-score-card__value" [attr.data-tone]="score.tone">
+                      <div class="ck-score-card__value">
                         {{ score.display }}
                       </div>
                       <div class="ck-score-card__label">
@@ -338,7 +340,6 @@ const CHART_ASPECT = 300 / 190;
                       [points]="pr()"
                       [aspect]="chart"
                       [reference]="prevalence()"
-                      tone="violet"
                       [label]="i18n.t('models.evidence.pr')"
                       [xLabel]="i18n.t('models.evidence.pr.x')"
                       [yLabel]="i18n.t('models.evidence.pr.y')"
@@ -706,7 +707,7 @@ const CHART_ASPECT = 300 / 190;
                   @if (feedbackDataset(); as ds) {
                     <button
                       type="button"
-                      class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-emerald-500 hover:bg-emerald-600 text-white transition"
+                      class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm"
                       (click)="retrainFromFeedback()"
                     >
                       {{ i18n.t('models.monitor.retrain') }}
@@ -832,7 +833,7 @@ const CHART_ASPECT = 300 / 190;
                       {{ versionLine(version) }}
                     </span>
                     @if (scoreOf(version); as score) {
-                      <span class="ck-score-inline" [attr.data-tone]="score.tone">
+                      <span class="ck-score-inline">
                         {{ score.display }}
                       </span>
                     }
@@ -1025,7 +1026,7 @@ const CHART_ASPECT = 300 / 190;
         align-items: center;
         gap: 4px;
         padding: 3px 8px;
-        border-radius: 999px;
+        border-radius: 4px;
         font: 10.5px / 1 var(--ck-font-mono, monospace);
         color: var(--ck-fg-3, #a6aebc);
         box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
@@ -1076,15 +1077,6 @@ const CHART_ASPECT = 300 / 190;
         font-variant-numeric: tabular-nums;
         color: var(--ck-fg-1, #e6e9ef);
         line-height: 1.15;
-      }
-      .ck-score-card__value[data-tone='pos'] {
-        color: var(--ck-signal-pos, #34d399);
-      }
-      .ck-score-card__value[data-tone='warn'] {
-        color: var(--ck-signal-warn, #fbbf24);
-      }
-      .ck-score-card__value[data-tone='neg'] {
-        color: var(--ck-signal-neg, #ef5a6f);
       }
       .ck-score-card__label {
         font-size: 10px;
@@ -1150,7 +1142,7 @@ const CHART_ASPECT = 300 / 190;
       .ck-fold {
         font-size: 10.5px;
         padding: 2px 7px;
-        border-radius: 999px;
+        border-radius: 4px;
         color: var(--ck-fg-3, #a6aebc);
         background: rgba(255, 255, 255, 0.04);
         box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.07));
@@ -1184,9 +1176,9 @@ const CHART_ASPECT = 300 / 190;
         text-transform: uppercase;
         letter-spacing: 0.06em;
         padding: 2px 5px;
-        border-radius: 3px;
-        color: var(--ck-signal-violet, #a78bfa);
-        background: rgba(167, 139, 250, 0.1);
+        border-radius: 4px;
+        color: var(--ck-fg-3, #a6aebc);
+        background: rgba(255, 255, 255, 0.06);
       }
       .ck-code {
         font-size: 11px;
@@ -1245,15 +1237,6 @@ const CHART_ASPECT = 300 / 190;
         font-weight: 600;
         font-variant-numeric: tabular-nums;
         color: var(--ck-fg-1, #e6e9ef);
-      }
-      .ck-score-inline[data-tone='pos'] {
-        color: var(--ck-signal-pos, #34d399);
-      }
-      .ck-score-inline[data-tone='warn'] {
-        color: var(--ck-signal-warn, #fbbf24);
-      }
-      .ck-score-inline[data-tone='neg'] {
-        color: var(--ck-signal-neg, #ef5a6f);
       }
       .ck-field {
         display: flex;

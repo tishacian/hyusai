@@ -74,35 +74,38 @@ type OriginFilter = 'all' | DatasetSource;
           <app-icon name="refresh-cw" [size]="14" [class.animate-spin]="data.loading()" />
           {{ i18n.t('data.list.refresh') }}
         </button>
+        <button
+          type="button"
+          class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
+          (click)="picker.click()"
+        >
+          <app-icon name="upload" [size]="14" /> {{ i18n.t('data.list.import') }}
+        </button>
       </div>
     </ck-object-header>
 
+    <input
+      #picker
+      type="file"
+      class="hidden"
+      accept=".csv,.tsv,.txt,.parquet,.json,.jsonl,.ndjson,.xlsx,.xlsm"
+      (change)="onPicked($event)"
+    />
+
     <div
-      class="ck-drop rounded-md p-7 text-center mb-4 cursor-pointer"
+      class="ck-drop rounded-md px-4 py-3 text-center mb-4 cursor-pointer"
       [class.ck-drop--active]="dragging()"
       (dragover)="onDragOver($event)"
       (dragleave)="onDragLeave($event)"
       (drop)="onDrop($event)"
       (click)="picker.click()"
     >
-      <input
-        #picker
-        type="file"
-        class="hidden"
-        accept=".csv,.tsv,.txt,.parquet,.json,.jsonl,.ndjson,.xlsx,.xlsm"
-        (change)="onPicked($event)"
-      />
-      <div class="flex flex-col items-center gap-1.5">
-        <app-icon name="upload-cloud" [size]="26" class="ck-drop__icon" />
-        <div class="text-sm font-medium" style="color: var(--ck-fg-1)">
-          {{ i18n.t('data.upload.dropzone.title') }}
-        </div>
-        <div class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">
-          {{ i18n.t('data.upload.dropzone.hint', { size: uploadLimit() }) }}
-        </div>
+      <div class="flex items-center justify-center gap-2 text-[11px] ck-mono" style="color: var(--ck-fg-4)">
+        <app-icon name="upload-cloud" [size]="14" class="ck-drop__icon" />
+        {{ i18n.t('data.upload.dropzone.hint', { size: uploadLimit() }) }}
       </div>
       @if (uploadingName()) {
-        <div class="mt-3 inline-flex items-center gap-2 text-[11px] ck-mono" style="color: var(--ck-signal-cool)">
+        <div class="mt-2 inline-flex items-center gap-2 text-[11px] ck-mono" style="color: var(--ck-signal-cool)">
           <app-icon name="loader-2" [size]="13" class="animate-spin" />
           {{ i18n.t('data.upload.sending', { name: uploadingName()! }) }}
         </div>
@@ -138,7 +141,7 @@ type OriginFilter = 'all' | DatasetSource;
       >
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
+          class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
           (click)="picker.click()"
         >
           <app-icon name="upload" [size]="14" /> {{ i18n.t('data.list.import') }}
@@ -166,15 +169,6 @@ type OriginFilter = 'all' | DatasetSource;
                   <span class="ck-badge ck-mono">{{
                     i18n.t('data.source.' + row.source)
                   }}</span>
-                  @if (row.status !== 'ready') {
-                    <span
-                      class="ck-badge ck-mono"
-                      [class.ck-badge--warn]="row.status === 'failed'"
-                      [class.ck-badge--live]="isActive(row)"
-                    >
-                      {{ i18n.t('data.status.' + row.status) }}
-                    </span>
-                  }
                 </div>
                 @if (isActive(row)) {
                   <ol class="ck-steps" data-testid="ingest-checklist">
@@ -194,11 +188,11 @@ type OriginFilter = 'all' | DatasetSource;
                     }
                   </ol>
                 } @else if (row.status === 'failed') {
-                  <div class="text-[11px] ck-mono mt-1" style="color: var(--ck-signal-neg)">
+                  <div class="text-[11px] ck-mono mt-1 truncate" style="color: var(--ck-signal-neg)">
                     {{ row.error }}
                   </div>
                 } @else {
-                  <div class="text-[11px] ck-mono mt-1" style="color: var(--ck-fg-4)">
+                  <div class="text-[11px] ck-mono mt-1 truncate" style="color: var(--ck-fg-4)">
                     {{
                       i18n.t('data.list.meta', {
                         rows: (row.row_count ?? 0).toLocaleString(i18n.locale()),
@@ -208,6 +202,16 @@ type OriginFilter = 'all' | DatasetSource;
                     }}
                   </div>
                 }
+              </div>
+              <div class="shrink-0" data-testid="dataset-status">
+                <span
+                  class="ck-badge ck-mono"
+                  [class.ck-badge--warn]="row.status === 'failed'"
+                  [class.ck-badge--live]="isActive(row)"
+                  [class.ck-badge--on]="row.status === 'ready'"
+                >
+                  {{ i18n.t('data.status.' + row.status) }}
+                </span>
               </div>
               <app-icon
                 name="chevron-right"
@@ -276,6 +280,10 @@ type OriginFilter = 'all' | DatasetSource;
         color: var(--ck-signal-cool, #7dd3fc);
         background: rgba(125, 211, 252, 0.1);
       }
+      .ck-badge--on {
+        color: var(--ck-signal-pos, #34d399);
+        background: rgba(52, 211, 153, 0.1);
+      }
       /* A dataset being prepared must look alive, not stalled. */
       .ck-pulse {
         width: 6px;
@@ -341,7 +349,7 @@ type OriginFilter = 'all' | DatasetSource;
       .ck-chip {
         font-size: 11px;
         padding: 4px 9px;
-        border-radius: 999px;
+        border-radius: 4px;
         color: var(--ck-fg-3, #a6aebc);
         background: transparent;
         box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.08));

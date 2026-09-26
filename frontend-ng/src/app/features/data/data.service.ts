@@ -66,6 +66,19 @@ export interface DatasetDetailDto {
   lineage: { parents: DatasetDto[]; children: DatasetDto[] };
   versions: DatasetDto[];
   feature: DatasetFeature;
+  /** Systems and models that consume this dataset (L20b « Utilisé par »). */
+  used_by?: {
+    models: Array<{
+      id: string;
+      name: string;
+      slug: string;
+      version: number;
+      target?: string | null;
+      is_champion: boolean;
+      status: string;
+    }>;
+    systems: Array<{ id: string; name: string }>;
+  };
 }
 
 /** A window of rows read from the Parquet, past the ones cached at ingest. */

@@ -37,6 +37,7 @@ import {
   importanceBars,
   isActiveStatus,
   knobIsAuto,
+  groupModelsBySlug,
   metricDelta,
   metricScale,
   metricTone,
@@ -177,6 +178,90 @@ test('the best score never ranks one metric against another', () => {
     scored('roc_auc', 0.64),
   ]);
   assert.deepEqual(best, { key: 'roc_auc', value: 0.88 });
+});
+
+test('the models list collapses versions into one row per slug', () => {
+  const rows = groupModelsBySlug([
+    {
+      id: 'v3',
+      name: 'Churn Radar',
+      slug: 'churn-radar',
+      version: 3,
+      task: 'classification',
+      algo: 'gradient_boosting',
+      target: 'churn',
+      features: [],
+      status: 'ready',
+      is_champion: true,
+      created_at: '2026-09-20T10:00:00Z',
+    } as ModelDto,
+    {
+      id: 'v4',
+      name: 'Churn Radar',
+      slug: 'churn-radar',
+      version: 4,
+      task: 'classification',
+      algo: 'gradient_boosting',
+      target: 'churn',
+      features: [],
+      status: 'ready',
+      is_champion: false,
+      created_at: '2026-09-22T10:00:00Z',
+    } as ModelDto,
+    {
+      id: 'delay-v1',
+      name: 'Delay',
+      slug: 'delay',
+      version: 1,
+      task: 'regression',
+      algo: 'linear',
+      target: 'days',
+      features: [],
+      status: 'ready',
+      is_champion: true,
+      created_at: '2026-09-21T10:00:00Z',
+    } as ModelDto,
+  ]);
+  assert.equal(rows.length, 2);
+  const churn = rows.find((row) => row.slug === 'churn-radar');
+  assert.ok(churn);
+  assert.equal(churn!.served_version, 3);
+  assert.equal(churn!.served_id, 'v3');
+  assert.equal(churn!.version_count, 2);
+  // Navigation prefers the champion when nothing is mid-fit.
+  assert.equal(churn!.id, 'v3');
+});
+
+test('an active fit is the list row, while the served version stays a column', () => {
+  const [row] = groupModelsBySlug([
+    {
+      id: 'v3',
+      name: 'Churn',
+      slug: 'churn',
+      version: 3,
+      task: 'classification',
+      algo: 'linear',
+      target: 'y',
+      features: [],
+      status: 'ready',
+      is_champion: true,
+    } as ModelDto,
+    {
+      id: 'v4',
+      name: 'Churn',
+      slug: 'churn',
+      version: 4,
+      task: 'classification',
+      algo: 'linear',
+      target: 'y',
+      features: [],
+      status: 'training',
+      is_champion: false,
+    } as ModelDto,
+  ]);
+  assert.equal(row.served_version, 3);
+  assert.equal(row.id, 'v4');
+  assert.equal(row.row.status, 'training');
 });
 
 test('the best score minimises a metric where lower is better', () => {

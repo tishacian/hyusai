@@ -956,6 +956,58 @@ def _public_lineage(dataset: TabularDataset) -> dict[str, Any]:
     return {key: raw[key] for key in _PUBLIC_LINEAGE_KEYS if key in raw}
 
 
+def dataset_used_by(db: DBSession, *, dataset: TabularDataset) -> dict[str, Any]:
+    """Systems and models that consume this dataset (« Utilisé par »).
+
+    Models are the straightforward half: every fit stores ``dataset_id``.
+    Systems are the ones that authored a transform or score on this table, or
+    that trained a model from it — both already leave ``system_id`` on the row.
+    """
+
+    from app.models.system import System
+    from app.models.tabular import MLModel
+
+    models = (
+        db.query(MLModel)
+        .filter(
+            MLModel.workspace_id == dataset.workspace_id,
+            MLModel.dataset_id == dataset.id,
+        )
+        .order_by(MLModel.version.desc())
+        .limit(50)
+        .all()
+    )
+    system_ids: set[str] = set()
+    if dataset.system_id:
+        system_ids.add(str(dataset.system_id))
+    for model in models:
+        if model.system_id:
+            system_ids.add(str(model.system_id))
+    systems = (
+        db.query(System)
+        .filter(System.id.in_(list(system_ids)))
+        .order_by(System.name.asc())
+        .all()
+        if system_ids
+        else []
+    )
+    return {
+        "models": [
+            {
+                "id": model.id,
+                "name": model.name,
+                "slug": model.slug,
+                "version": int(model.version or 1),
+                "target": model.target,
+                "is_champion": bool(model.is_champion),
+                "status": model.status,
+            }
+            for model in models
+        ],
+        "systems": [{"id": system.id, "name": system.name} for system in systems],
+    }
+
+
 def dataset_reference(dataset: TabularDataset) -> dict[str, Any]:
     """The envelope shape datasets travel as inside the DAG.
 
@@ -1066,6 +1118,7 @@ __all__ = [
     "create_upload",
     "dataset_prefix",
     "dataset_reference",
+    "dataset_used_by",
     "detect_format",
     "get_dataset",
     "ingest_dataset",
