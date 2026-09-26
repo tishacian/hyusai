@@ -6,18 +6,19 @@ import {
   input,
   output,
 } from '@angular/core';
-import { RouterLink, type UrlTree } from '@angular/router';
+import { Router, RouterLink, type UrlTree } from '@angular/router';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import { ThemeService } from '@app/core/theme.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { AuthStore } from '@app/store/auth.store';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
+import { HelpOverlayService, helpPrefersPanel } from '@app/features/help/help-overlay.service';
 import { platformBrand } from '@app/core/platform-brand';
 import { canEditExperience } from './work-catalog';
 
 /**
  * Shared 48 px Work chrome bar (L15): brand line, optional search,
- * help stub (L16), Chat ⌘J, locale, creator hand-off, avatar.
+ * help panel (L16), Chat ⌘J, locale, creator hand-off, avatar.
  */
 @Component({
   selector: 'app-work-bar',
@@ -55,12 +56,15 @@ import { canEditExperience } from './work-catalog';
       }
 
       <div class="xp-work-actions">
-        <a
+        <button
+          type="button"
           class="xp-work-btn xp-work-btn-icon"
-          [routerLink]="['/help', 'start']"
+          data-testid="work-bar-help"
           [title]="i18n.t('titlebar.help')"
           [attr.aria-label]="i18n.t('titlebar.help')"
-        >?</a>
+          [attr.aria-pressed]="help.isOpen()"
+          (click)="openHelp()"
+        >?</button>
 
         <button
           type="button"
@@ -105,8 +109,10 @@ export class WorkBarComponent {
   readonly i18n = inject(I18nService);
   readonly workspace = inject(WorkspaceService);
   readonly chat = inject(ChatOverlayService);
+  readonly help = inject(HelpOverlayService);
   readonly auth = inject(AuthStore);
   private readonly theme = inject(ThemeService);
+  private readonly router = inject(Router);
 
   readonly showSearch = input(false);
   readonly searchQuery = input('');
@@ -129,6 +135,21 @@ export class WorkBarComponent {
 
   inputValue(event: Event): string {
     return (event.target as HTMLInputElement).value;
+  }
+
+  openHelp(): void {
+    if (this.help.isOpen()) {
+      this.help.close();
+      return;
+    }
+    const app = this.appContext()?.trim();
+    const originLabel = app || this.workspace.current()?.name || this.i18n.t('experience.work.title');
+    if (!helpPrefersPanel()) {
+      this.help.open({ originLabel, originUrl: this.router.url });
+      this.help.openFullPage();
+      return;
+    }
+    this.help.open({ originLabel, originUrl: this.router.url });
   }
 
   openChat(): void {

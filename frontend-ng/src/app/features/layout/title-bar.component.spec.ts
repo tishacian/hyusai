@@ -11,6 +11,7 @@ import { ApiService } from '@app/core/api.service';
 import { AuthApiService } from '@app/core/auth-api.service';
 import { AuthBootstrapService } from '@app/core/auth-bootstrap.service';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
+import { HelpOverlayService } from '@app/features/help/help-overlay.service';
 import { experienceUnsavedChangesGuard } from '@app/features/experience/experience.guard';
 import { I18nService } from '@app/core/i18n.service';
 import { ThemeService } from '@app/core/theme.service';
@@ -162,6 +163,15 @@ function harness(options: { api?: unknown } = {}) {
       {
         provide: ChatOverlayService,
         useValue: { isOpen: () => false, open: () => undefined, close: () => undefined },
+      },
+      {
+        provide: HelpOverlayService,
+        useValue: {
+          isOpen: () => false,
+          open: () => undefined,
+          close: () => undefined,
+          openFullPage: () => undefined,
+        },
       },
       {
         provide: I18nService,

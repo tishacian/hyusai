@@ -25,6 +25,7 @@ import { GlyphComponent, LiveDotComponent, NavLinkDirective, StatReadoutComponen
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { SemanticZoomBreadcrumbComponent } from './semantic-zoom-breadcrumb.component';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
+import { HelpOverlayService, helpPrefersPanel } from '@app/features/help/help-overlay.service';
 
 /** Sun, moon and screen: the same three glyphs as every other theme switch. */
 const THEME_ICONS: Record<ThemeMode, string> = {
@@ -219,6 +220,8 @@ const THEME_ICONS: Record<ThemeMode, string> = {
           data-testid="titlebar-help"
           [title]="i18n.t('titlebar.help')"
           [attr.aria-label]="i18n.t('titlebar.help')"
+          [attr.aria-pressed]="helpOverlay.isOpen()"
+          (click)="openHelp()"
         >?</button>
 
         <button
@@ -842,6 +845,7 @@ export class TitleBarComponent {
   protected readonly workspaceService = inject(WorkspaceService);
   protected readonly authStore = inject(AuthStore);
   protected readonly chatOverlay = inject(ChatOverlayService);
+  protected readonly helpOverlay = inject(HelpOverlayService);
   protected readonly i18n = inject(I18nService);
   private readonly switcher = inject(WorkspaceSwitchService);
   /** « Vous êtes dans B — Zone › Surface · Revenir à A », once B is on screen. */
@@ -867,6 +871,21 @@ export class TitleBarComponent {
   private telemetryPolling: Subscription | null = null;
   private unregisterWorkspaceReset: (() => void) | null = null;
   private destroyed = false;
+
+  openHelp(): void {
+    if (this.helpOverlay.isOpen()) {
+      this.helpOverlay.close();
+      return;
+    }
+    const originLabel = this.workspaceService.current()?.name
+      || this.i18n.t('titlebar.help');
+    if (!helpPrefersPanel()) {
+      this.helpOverlay.open({ originLabel, originUrl: this.router.url });
+      this.helpOverlay.openFullPage();
+      return;
+    }
+    this.helpOverlay.open({ originLabel, originUrl: this.router.url });
+  }
 
   openChat(): void {
     if (this.chatOverlay.isOpen()) {

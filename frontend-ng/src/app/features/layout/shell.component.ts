@@ -14,7 +14,6 @@ import { MiniRailComponent } from './mini-rail.component';
 import { CommandBarComponent } from './command-bar.component';
 import { CommandPaletteComponent } from './command-palette.component';
 import { BusinessShellHeaderComponent } from './business-shell-header.component';
-import { CkPanelHostComponent } from '@app/shared/cockpit/panel.component';
 import { FilterChipComponent } from '@app/shared/cockpit/filter-chip.component';
 import {
   arrivalProvenanceLabel,
@@ -46,7 +45,6 @@ import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
     CommandBarComponent,
     CommandPaletteComponent,
     BusinessShellHeaderComponent,
-    CkPanelHostComponent,
     FilterChipComponent,
     AssistantDraftDrawerComponent,
   ],
@@ -147,10 +145,6 @@ import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
             [attr.aria-hidden]="chromeInert() ? 'true' : null"
           ></app-command-palette>
         }
-        <app-panel-host
-          [attr.inert]="chromeInert() ? '' : null"
-          [attr.aria-hidden]="chromeInert() ? 'true' : null"
-        ></app-panel-host>
         <app-assistant-draft-drawer
           [attr.inert]="chromeInert() ? '' : null"
           [attr.aria-hidden]="chromeInert() ? 'true' : null"
