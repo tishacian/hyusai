@@ -805,7 +805,7 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
         align-items: center;
         font-size: 10.5px;
         padding: 2px 7px;
-        border-radius: 999px;
+        border-radius: 4px;
         color: var(--ck-fg-3, #a6aebc);
         background: rgba(255, 255, 255, 0.04);
         box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.07));

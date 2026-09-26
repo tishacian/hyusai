@@ -499,3 +499,15 @@ test('a fit reads as a check-list wherever it is watched, and says when it lands
     assert.ok(MODELS_EN[key], `${key} has EN copy`);
   }
 });
+
+test('the serving button is the primary CTA, never emerald', () => {
+  // L20b: « Mettre la v4 en service » is the only full button on the sheet, and
+  // it wears the primary cyan rather than the old emerald promote.
+  assert.match(CARD, /data-testid="promote-serving"/);
+  assert.match(CARD, /class="ck-cta[^"]*"/);
+  assert.match(CARD, /models\.detail\.promote', \{ version: row\.version \}/);
+  assert.doesNotMatch(CARD, /bg-emerald-500/);
+  assert.match(LIST, /groupModelsBySlug\(/);
+  assert.match(LIST, /data-testid="served-version"/);
+  assert.match(LIST, /models\.list\.served/);
+});

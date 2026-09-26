@@ -332,3 +332,32 @@ test('a scored table reports its own steps, not the ingest’s', () => {
     ingestChecklist('ready', null, 'score').every((step) => step.state === 'done'),
   );
 });
+
+test('L20b data surfaces drop violet profiles and pill radii', () => {
+  const list = readFileSync(
+    join(process.cwd(), 'src/app/features/data/data-list.component.ts'),
+    'utf8',
+  );
+  const view = readFileSync(
+    join(process.cwd(), 'src/app/features/data/data-view.component.ts'),
+    'utf8',
+  );
+  assert.doesNotMatch(view, /ck-signal-violet|#a78bfa/);
+  assert.doesNotMatch(list, /border-radius:\s*999px/);
+  assert.doesNotMatch(view, /border-radius:\s*999px/);
+  assert.match(list, /ck-cta/);
+  assert.match(list, /data-testid="dataset-status"/);
+  assert.match(view, /data-testid="lineage-graph"/);
+  assert.match(view, /data\.lineage\.used_by/);
+  for (const key of [
+    'data.lineage.source',
+    'data.lineage.transform',
+    'data.lineage.here',
+    'data.lineage.used_by',
+    'data.lineage.used_by.none',
+    'data.lineage.serving',
+  ]) {
+    assert.ok((DATA_FR as Record<string, string>)[key]?.trim(), `${key} has FR copy`);
+    assert.ok((DATA_EN as Record<string, string>)[key]?.trim(), `${key} has EN copy`);
+  }
+});

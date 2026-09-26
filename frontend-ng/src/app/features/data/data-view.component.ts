@@ -222,52 +222,113 @@ const PAGE_SIZE = 50;
         </ck-tab>
 
         <ck-tab id="lineage" [label]="i18n.t('data.detail.tab.lineage')">
-          <div class="space-y-4">
-            <div>
-              <div class="ck-section-label">{{ i18n.t('data.lineage.parents') }}</div>
-              @if (parents().length) {
-                <div class="flex items-center gap-2 flex-wrap">
+          <div class="space-y-4" data-testid="lineage-graph">
+            <div class="ck-lineage-graph" [attr.aria-label]="i18n.t('data.detail.tab.lineage')">
+              <section class="ck-lineage-col">
+                <div class="ck-section-label">{{ i18n.t('data.lineage.source') }}</div>
+                @if (parents().length) {
                   @for (parent of parents(); track parent.id) {
-                    <a [navLink]="{ leaf: 'data-doc', ref: parent.id }" class="ck-lineage-chip">
-                      <app-icon name="table" [size]="12" />
-                      {{ parent.name }}
-                      <span class="ck-mono" style="color: var(--ck-fg-4)">
+                    <a [navLink]="{ leaf: 'data-doc', ref: parent.id }" class="ck-lineage-card">
+                      <div class="font-medium truncate" style="color: var(--ck-fg-1)">{{ parent.name }}</div>
+                      <div class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">
                         {{ i18n.t('data.versions.label', { version: parent.version }) }}
-                      </span>
+                        · {{ i18n.t('data.source.' + parent.source) }}
+                      </div>
                     </a>
                   }
-                </div>
-              } @else {
-                <div class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">
-                  {{ originLabel() }}
-                </div>
+                } @else {
+                  <div class="ck-lineage-card ck-lineage-card--muted">
+                    <div class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">{{ originLabel() }}</div>
+                  </div>
+                }
+              </section>
+
+              @if (dataset()?.produced_by || dataset()?.system_id) {
+                <section class="ck-lineage-col">
+                  <div class="ck-section-label">{{ i18n.t('data.lineage.transform') }}</div>
+                  <div class="ck-lineage-card" data-testid="origin-system">
+                    @if (dataset()?.produced_by) {
+                      <div class="font-medium truncate" style="color: var(--ck-fg-1)">
+                        {{ dataset()!.produced_by }}
+                      </div>
+                    }
+                    @if (dataset()?.system_id; as systemId) {
+                      <a [navLink]="{ type: 'system', ref: systemId }" class="ck-lineage-chip mt-2">
+                        <app-icon name="box" [size]="12" />
+                        {{ i18n.t('data.lineage.system_chip') }}
+                      </a>
+                      @if (dataset()?.run_id; as runId) {
+                        <a [navLink]="{ type: 'run', ref: runId }" class="ck-lineage-chip mt-1">
+                          <app-icon name="play" [size]="12" />
+                          {{ i18n.t('data.lineage.run_chip') }}
+                          <span class="ck-mono" style="color: var(--ck-fg-4)">{{ runId.slice(0, 8) }}</span>
+                        </a>
+                      }
+                    }
+                  </div>
+                </section>
               }
-            </div>
 
-            @if (dataset()?.produced_by) {
-              <div class="text-[11px] ck-mono" style="color: var(--ck-fg-3)">
-                {{ i18n.t('data.lineage.produced_by', { producer: dataset()!.produced_by! }) }}
-              </div>
-            }
+              <section class="ck-lineage-col">
+                <div class="ck-section-label">{{ i18n.t('data.lineage.here') }}</div>
+                <div class="ck-lineage-card ck-lineage-card--current">
+                  <div class="font-medium truncate" style="color: var(--ck-fg-1)">{{ dataset()!.name }}</div>
+                  <div class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">
+                    {{ i18n.t('data.versions.label', { version: dataset()!.version }) }}
+                    · {{ i18n.t('data.versions.current') }}
+                  </div>
+                </div>
+              </section>
 
-            @if (dataset()?.system_id; as systemId) {
-              <div>
-                <div class="ck-section-label">{{ i18n.t('data.lineage.origin_system') }}</div>
-                <div class="flex items-center gap-2 flex-wrap" data-testid="origin-system">
-                  <a [navLink]="{ type: 'system', ref: systemId }" class="ck-lineage-chip">
-                    <app-icon name="box" [size]="12" />
-                    {{ i18n.t('data.lineage.system_chip') }}
-                  </a>
-                  @if (dataset()?.run_id; as runId) {
-                    <a [navLink]="{ type: 'run', ref: runId }" class="ck-lineage-chip">
-                      <app-icon name="play" [size]="12" />
-                      {{ i18n.t('data.lineage.run_chip') }}
-                      <span class="ck-mono" style="color: var(--ck-fg-4)">{{ runId.slice(0, 8) }}</span>
+              <section class="ck-lineage-col">
+                <div class="ck-section-label">{{ i18n.t('data.lineage.used_by') }}</div>
+                @if (usedByModels().length || usedBySystems().length || children().length) {
+                  @for (model of usedByModels(); track model.id) {
+                    <a [navLink]="{ leaf: 'model-doc', ref: model.id }" class="ck-lineage-card">
+                      <div class="flex items-center gap-1.5 min-w-0">
+                        <app-icon name="brain" [size]="12" class="shrink-0" />
+                        <span class="font-medium truncate" style="color: var(--ck-fg-1)">{{ model.name }}</span>
+                        @if (model.is_champion) {
+                          <span class="ck-badge ck-badge--on ck-mono">{{ i18n.t('data.lineage.serving') }}</span>
+                        }
+                      </div>
+                      <div class="text-[11px] ck-mono truncate" style="color: var(--ck-fg-4)">
+                        {{ i18n.t('data.versions.label', { version: model.version }) }}
+                        @if (model.target) {
+                          · {{ model.target }}
+                        }
+                      </div>
                     </a>
                   }
-                </div>
-              </div>
-            }
+                  @for (system of usedBySystems(); track system.id) {
+                    <a [navLink]="{ type: 'system', ref: system.id }" class="ck-lineage-card">
+                      <div class="flex items-center gap-1.5 min-w-0">
+                        <app-icon name="box" [size]="12" class="shrink-0" />
+                        <span class="font-medium truncate" style="color: var(--ck-fg-1)">{{ system.name }}</span>
+                      </div>
+                    </a>
+                  }
+                  @for (child of children(); track child.id) {
+                    <a [navLink]="{ leaf: 'data-doc', ref: child.id }" class="ck-lineage-card">
+                      <div class="flex items-center gap-1.5 min-w-0">
+                        <app-icon [name]="child.source === 'score' ? 'target' : 'git-branch'" [size]="12" class="shrink-0" />
+                        <span class="font-medium truncate" style="color: var(--ck-fg-1)">{{ child.name }}</span>
+                      </div>
+                      <div class="text-[11px] ck-mono truncate" style="color: var(--ck-fg-4)">
+                        {{ i18n.t('data.versions.label', { version: child.version }) }}
+                        · {{ i18n.t('data.source.' + child.source) }}
+                      </div>
+                    </a>
+                  }
+                } @else {
+                  <div class="ck-lineage-card ck-lineage-card--muted">
+                    <div class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">
+                      {{ i18n.t('data.lineage.used_by.none') }}
+                    </div>
+                  </div>
+                }
+              </section>
+            </div>
 
             @if (scoredBy(); as model) {
               <div>
@@ -293,24 +354,6 @@ const PAGE_SIZE = 50;
                 </div>
               </div>
             }
-
-            <div>
-              <div class="ck-section-label">{{ i18n.t('data.lineage.children') }}</div>
-              @if (children().length) {
-                <div class="flex items-center gap-2 flex-wrap">
-                  @for (child of children(); track child.id) {
-                    <a [navLink]="{ leaf: 'data-doc', ref: child.id }" class="ck-lineage-chip">
-                      <app-icon [name]="child.source === 'score' ? 'target' : 'git-branch'" [size]="12" />
-                      {{ child.name }}
-                    </a>
-                  }
-                </div>
-              } @else {
-                <div class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">
-                  {{ i18n.t('data.lineage.none') }}
-                </div>
-              }
-            </div>
           </div>
         </ck-tab>
 
@@ -425,15 +468,15 @@ const PAGE_SIZE = 50;
         border-radius: 1px 1px 0 0;
         background: linear-gradient(
           180deg,
-          var(--ck-signal-cool, #7dd3fc) 0%,
-          rgba(125, 211, 252, 0.3) 100%
+          var(--ck-fg-3, #a6aebc) 0%,
+          color-mix(in srgb, var(--ck-fg-3, #a6aebc) 30%, transparent) 100%
         );
       }
       .ck-profile__bar--cat {
         background: linear-gradient(
           180deg,
-          var(--ck-signal-violet, #a78bfa) 0%,
-          rgba(167, 139, 250, 0.3) 100%
+          var(--ck-fg-4, #8891a0) 0%,
+          color-mix(in srgb, var(--ck-fg-4, #8891a0) 28%, transparent) 100%
         );
       }
       .ck-section-label {
@@ -449,7 +492,7 @@ const PAGE_SIZE = 50;
         gap: 6px;
         font-size: 11.5px;
         padding: 5px 9px;
-        border-radius: 999px;
+        border-radius: 4px;
         color: var(--ck-fg-2, #c3c9d4);
         background: rgba(255, 255, 255, 0.03);
         box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
@@ -506,11 +549,42 @@ const PAGE_SIZE = 50;
         margin-left: 6px;
         font-size: 9.5px;
         padding: 1.5px 5px;
-        border-radius: 999px;
-        color: var(--ck-signal-violet, #a78bfa);
-        background: rgba(167, 139, 250, 0.12);
+        border-radius: 4px;
+        color: var(--ck-signal-warm, #f5b84a);
+        background: color-mix(in srgb, var(--ck-signal-warm, #f5b84a) 12%, transparent);
         vertical-align: middle;
         white-space: nowrap;
+      }
+      .ck-lineage-graph {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+      }
+      .ck-lineage-col {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .ck-lineage-card {
+        display: block;
+        padding: 10px 12px;
+        border-radius: 4px;
+        background: var(--ck-bg-panel-hi, rgba(255, 255, 255, 0.03));
+        box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+        transition:
+          box-shadow var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease),
+          background var(--ck-dur-fast, 120ms) var(--ck-ease-out, ease);
+      }
+      a.ck-lineage-card:hover {
+        box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.35);
+      }
+      .ck-lineage-card--current {
+        background: rgba(125, 211, 252, 0.06);
+        box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.28);
+      }
+      .ck-lineage-card--muted {
+        opacity: 0.85;
       }
     `,
   ],
@@ -560,6 +634,8 @@ export class DataViewComponent implements OnInit {
   protected readonly parents = computed(() => this.detail()?.lineage.parents ?? []);
   protected readonly children = computed(() => this.detail()?.lineage.children ?? []);
   protected readonly versions = computed(() => this.detail()?.versions ?? []);
+  protected readonly usedByModels = computed(() => this.detail()?.used_by?.models ?? []);
+  protected readonly usedBySystems = computed(() => this.detail()?.used_by?.systems ?? []);
 
   protected readonly kpis = computed<CkObjectKpi[]>(() => {
     const ds = this.dataset();

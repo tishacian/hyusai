@@ -35,6 +35,7 @@ import {
   algoIcon,
   bestScore,
   formatMetric,
+  groupModelsBySlug,
   metricTone,
   primaryScore,
   trainChecklist,
@@ -84,7 +85,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
         @if (canTrain()) {
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
+            class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
             (click)="openStudio()"
           >
             <app-icon name="brain" [size]="14" /> {{ i18n.t('models.list.train') }}
@@ -134,7 +135,7 @@ type ModelFilter = 'all' | ModelTask | 'serving';
           @if (hasDataset()) {
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
+              class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
               (click)="openStudio()"
             >
               <app-icon name="brain" [size]="14" /> {{ i18n.t('models.list.train') }}
@@ -142,70 +143,62 @@ type ModelFilter = 'all' | ModelTask | 'serving';
           } @else {
             <a
               [navLink]="{ surface: 'data' }"
-              class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
+              class="ck-cta inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
             >
               <app-icon name="table" [size]="14" /> {{ i18n.t('models.list.import_data') }}
             </a>
           }
         </app-empty-state>
       } @else {
-        <ul class="space-y-2">
-          @for (row of visible(); track row.id) {
+        <ul class="space-y-2" data-testid="models-list">
+          @for (entry of visible(); track entry.slug) {
             <li>
               <a
-                [navLink]="{ leaf: 'model-doc', ref: row.id }"
+                [navLink]="{ leaf: 'model-doc', ref: entry.id }"
                 class="flex items-center gap-3 ck-surface rounded-md px-4 py-3 transition group ck-row"
               >
                 <div
                   class="ck-icon-tile"
-                  [class.ck-icon-tile--warn]="row.status === 'failed'"
-                  [class.ck-icon-tile--champion]="row.is_champion"
+                  [class.ck-icon-tile--warn]="entry.row.status === 'failed'"
+                  [class.ck-icon-tile--champion]="entry.served_version !== null"
                 >
-                  <app-icon [name]="algoIcon(row.algo)" [size]="16" />
+                  <app-icon [name]="algoIcon(entry.algo)" [size]="16" />
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-sm font-medium truncate" style="color: var(--ck-fg-1)">
-                      {{ row.name }}
+                      {{ entry.name }}
                     </span>
-                    <span class="ck-badge ck-mono">{{
-                      i18n.t('models.versions.label', { version: row.version })
-                    }}</span>
                     <span class="ck-badge ck-mono">
-                      {{ i18n.t('models.task.' + row.task) }}
+                      {{ i18n.t('models.task.' + entry.task) }}
                     </span>
-                    @if (row.is_champion) {
-                      <span class="ck-badge ck-badge--champion ck-mono">
-                        <app-icon name="crown" [size]="9" />
-                        {{ i18n.t('models.detail.serving') }}
+                    @if (entry.row.status !== 'ready') {
+                      <span
+                        class="ck-badge ck-mono"
+                        data-testid="model-status"
+                        [class.ck-badge--warn]="entry.row.status === 'failed'"
+                        [class.ck-badge--live]="isActive(entry.row)"
+                      >
+                        {{ i18n.t('models.status.' + entry.row.status) }}
                       </span>
                     }
-                    @if (row.monitor_status) {
+                    @if (entry.row.monitor_status) {
                       <span
                         class="ck-badge ck-mono"
                         data-testid="monitor-badge"
-                        [attr.data-tone]="row.monitor_status"
+                        [attr.data-tone]="entry.row.monitor_status"
                         [class.ck-badge--warn]="
-                          row.monitor_status === 'watch' || row.monitor_status === 'alert'
+                          entry.row.monitor_status === 'watch' || entry.row.monitor_status === 'alert'
                         "
-                        [class.ck-badge--live]="row.monitor_status === 'ok'"
+                        [class.ck-badge--live]="entry.row.monitor_status === 'ok'"
                       >
-                        {{ i18n.t('models.list.monitor.' + row.monitor_status) }}
-                      </span>
-                    }
-                    @if (row.status !== 'ready') {
-                      <span
-                        class="ck-badge ck-mono"
-                        [class.ck-badge--warn]="row.status === 'failed'"
-                        [class.ck-badge--live]="isActive(row)"
-                      >
-                        {{ i18n.t('models.status.' + row.status) }}
+                        {{ i18n.t('models.list.monitor.' + entry.row.monitor_status) }}
                       </span>
                     }
                   </div>
-                  @if (isActive(row)) {
+                  @if (isActive(entry.row)) {
                     <ol class="ck-steps" data-testid="train-checklist">
-                      @for (step of checklist(row); track step.step) {
+                      @for (step of checklist(entry.row); track step.step) {
                         <li class="ck-steps__item" [attr.data-state]="step.state">
                           @if (step.state === 'done') {
                             <app-icon name="check" [size]="11" class="shrink-0" />
@@ -218,26 +211,39 @@ type ModelFilter = 'all' | ModelTask | 'serving';
                         </li>
                       }
                     </ol>
-                  } @else if (row.status === 'failed') {
-                    <div class="text-[11px] ck-mono mt-1" style="color: var(--ck-signal-neg)">
-                      {{ row.error }}
+                  } @else if (entry.row.status === 'failed') {
+                    <div class="text-[11px] ck-mono mt-1 truncate" style="color: var(--ck-signal-neg)">
+                      {{ entry.row.error }}
                     </div>
                   } @else {
-                    <div class="text-[11px] ck-mono mt-1" style="color: var(--ck-fg-4)">
-                      {{ i18n.t('models.list.target', { target: row.target }) }} ·
+                    <div class="text-[11px] ck-mono mt-1 truncate" style="color: var(--ck-fg-4)">
+                      {{ i18n.t('models.list.target', { target: entry.target }) }} ·
                       {{
                         i18n.t('models.list.meta', {
-                          rows: (row.row_count ?? 0).toLocaleString(i18n.locale()),
-                          features: row.features.length,
-                          duration: duration(row.train_duration_ms)
+                          rows: (entry.row.row_count ?? 0).toLocaleString(i18n.locale()),
+                          features: entry.row.features.length,
+                          duration: duration(entry.row.train_duration_ms)
                         })
                       }}
                     </div>
                   }
                 </div>
-                @if (scoreOf(row); as score) {
+                <div class="text-right shrink-0 min-w-[4.5rem]" data-testid="served-version">
+                  @if (entry.served_version !== null) {
+                    <div class="text-[12px] font-medium" style="color: var(--ck-fg-1)">
+                      {{
+                        i18n.t('models.list.served', { version: entry.served_version })
+                      }}
+                    </div>
+                  } @else {
+                    <div class="text-[11px] ck-mono" style="color: var(--ck-fg-4)">
+                      {{ i18n.t('models.list.served.none') }}
+                    </div>
+                  }
+                </div>
+                @if (scoreOf(entry.row); as score) {
                   <div class="text-right shrink-0">
-                    <div class="ck-score" [attr.data-tone]="score.tone">{{ score.value }}</div>
+                    <div class="ck-score">{{ score.value }}</div>
                     <div class="text-[10px] ck-mono" style="color: var(--ck-fg-4)">
                       {{ score.label }}
                     </div>
@@ -381,19 +387,10 @@ type ModelFilter = 'all' | ModelTask | 'serving';
         font-variant-numeric: tabular-nums;
         color: var(--ck-fg-1, #e6e9ef);
       }
-      .ck-score[data-tone='pos'] {
-        color: var(--ck-signal-pos, #34d399);
-      }
-      .ck-score[data-tone='warn'] {
-        color: var(--ck-signal-warn, #fbbf24);
-      }
-      .ck-score[data-tone='neg'] {
-        color: var(--ck-signal-neg, #ef5a6f);
-      }
       .ck-chip {
         font-size: 11px;
         padding: 4px 9px;
-        border-radius: 999px;
+        border-radius: 4px;
         color: var(--ck-fg-3, #a6aebc);
         background: transparent;
         box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
@@ -443,16 +440,16 @@ export class ModelsListComponent implements OnInit {
 
   protected readonly visible = computed(() => {
     const filter = this.filter();
-    const rows = this.models.models();
+    const rows = groupModelsBySlug(this.models.models());
     if (filter === 'all') return rows;
-    if (filter === 'serving') return rows.filter((row) => row.is_champion);
-    return rows.filter((row) => row.task === filter);
+    if (filter === 'serving') return rows.filter((entry) => entry.served_version !== null);
+    return rows.filter((entry) => entry.task === filter);
   });
 
   protected readonly kpis = computed<CkObjectKpi[]>(() => {
-    const rows = this.models.models();
-    const serving = rows.filter((row) => row.is_champion);
-    const best = this.bestScore(rows);
+    const rows = groupModelsBySlug(this.models.models());
+    const serving = rows.filter((entry) => entry.served_version !== null);
+    const best = this.bestScore(rows.map((entry) => entry.row));
     const kpis: CkObjectKpi[] = [
       { label: this.i18n.t('models.kpi.models'), value: String(rows.length), tone: 'cool' },
       { label: this.i18n.t('models.kpi.serving'), value: String(serving.length) },

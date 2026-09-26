@@ -109,7 +109,54 @@ def test_detail_returns_preview_stats_versions_and_lineage(client, db_session, w
     # Same name uploaded twice ⇒ two versions of one logical table.
     assert [row["version"] for row in body["versions"]] == [2, 1]
     assert body["lineage"] == {"parents": [], "children": []}
+    assert body["used_by"] == {"models": [], "systems": []}
     assert first["slug"] == second["slug"]
+
+
+def test_detail_lists_models_and_systems_that_use_the_dataset(
+    client, db_session, workspace
+):
+    """L20b « Utilisé par »: models trained here, and the System that authored it."""
+
+    from uuid import uuid4
+
+    from app.models.system import System
+    from app.models.tabular import MLModel, TabularDataset
+
+    dataset = _upload(client).json()["dataset"]
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name="Qualité commandes",
+        objective="",
+    )
+    db_session.add(system)
+    db_session.flush()
+    row = db_session.query(TabularDataset).filter(TabularDataset.id == dataset["id"]).one()
+    row.system_id = system.id
+    db_session.add(
+        MLModel(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            name="Prévision retards",
+            slug="prevision-retards",
+            version=3,
+            task="classification",
+            algo="gradient_boosting",
+            target="en_retard",
+            features=["delai"],
+            status="ready",
+            is_champion=True,
+            dataset_id=dataset["id"],
+            system_id=system.id,
+        )
+    )
+    db_session.commit()
+
+    body = client.get(f"/datasets/{dataset['id']}").json()
+    assert [model["slug"] for model in body["used_by"]["models"]] == ["prevision-retards"]
+    assert body["used_by"]["models"][0]["is_champion"] is True
+    assert body["used_by"]["systems"] == [{"id": system.id, "name": "Qualité commandes"}]
 
 
 def test_a_reader_can_page_past_the_rows_the_ingest_cached(client, db_session, workspace):

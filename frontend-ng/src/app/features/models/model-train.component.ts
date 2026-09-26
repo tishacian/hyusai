@@ -668,7 +668,7 @@ export interface TrainSeed {
         gap: 5px;
         font-size: 10.5px;
         padding: 3px 8px;
-        border-radius: 999px;
+        border-radius: 4px;
         color: var(--ck-fg-2, #c3c9d4);
         background: rgba(255, 255, 255, 0.04);
         box-shadow: inset 0 0 0 1px var(--ck-stroke-2, rgba(255, 255, 255, 0.07));

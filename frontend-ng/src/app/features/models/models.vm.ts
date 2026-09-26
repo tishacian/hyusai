@@ -1035,6 +1035,73 @@ export function primaryScore(model: ModelDto | null | undefined): MetricScore | 
 }
 
 /**
+ * One Models-list row: a lineage, not a training attempt.
+ *
+ * The registry stores every fit as its own row. The list is about models (mo1):
+ * versions live on the sheet (mo3), and the served version is a column rather
+ * than a duplicate line. Navigation opens the version the row is about — an
+ * active fit when one is running, otherwise the champion, otherwise the newest.
+ */
+export interface ModelListRow {
+  /** Id used for navigation. */
+  id: string;
+  slug: string;
+  name: string;
+  task: ModelTask;
+  algo: string;
+  target: string;
+  /** Version that currently answers, or null when none serves. */
+  served_version: number | null;
+  served_id: string | null;
+  version_count: number;
+  /** Representative version for status, score and progress. */
+  row: ModelDto;
+  versions: ModelDto[];
+}
+
+/**
+ * Collapse version rows into one list row per model slug.
+ *
+ * Order follows the newest activity in each lineage so a fit in flight stays
+ * at the top of the page rather than buried under older siblings.
+ */
+export function groupModelsBySlug(models: readonly ModelDto[]): ModelListRow[] {
+  const bySlug = new Map<string, ModelDto[]>();
+  for (const model of models) {
+    const key = (model.slug || model.id || '').trim() || model.id;
+    const bucket = bySlug.get(key);
+    if (bucket) bucket.push(model);
+    else bySlug.set(key, [model]);
+  }
+  const grouped: ModelListRow[] = [];
+  for (const versions of bySlug.values()) {
+    const ordered = [...versions].sort((left, right) => right.version - left.version);
+    const champion = ordered.find((version) => version.is_champion) ?? null;
+    const active = ordered.find((version) => isActiveStatus(version.status));
+    const row = active ?? champion ?? ordered[0];
+    const open = champion ?? ordered[0];
+    grouped.push({
+      id: (active ?? open).id,
+      slug: row.slug,
+      name: row.name,
+      task: row.task,
+      algo: row.algo,
+      target: row.target,
+      served_version: champion?.version ?? null,
+      served_id: champion?.id ?? null,
+      version_count: ordered.length,
+      row,
+      versions: ordered,
+    });
+  }
+  return grouped.sort((left, right) => {
+    const leftAt = left.row.updated_at || left.row.created_at || '';
+    const rightAt = right.row.updated_at || right.row.created_at || '';
+    return rightAt.localeCompare(leftAt);
+  });
+}
+
+/**
  * The best score in a set — compared only against scores on the same metric.
  *
  * A workspace holds churn models scored in AUC next to revenue models scored in

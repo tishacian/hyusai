@@ -105,7 +105,7 @@ import { staggerDelay, type VizBar } from './viz.vm';
         position: relative;
         height: 9px;
         margin-top: 5px;
-        border-radius: 999px;
+        border-radius: 4px;
         background: color-mix(
           in srgb,
           var(--ck-fg-5, #6b7280) 12%,
@@ -118,7 +118,7 @@ import { staggerDelay, type VizBar } from './viz.vm';
       .ck-viz-bars__fill {
         position: absolute;
         inset: 0 auto 0 0;
-        border-radius: 999px;
+        border-radius: 4px;
         background: linear-gradient(
           90deg,
           color-mix(in srgb, var(--viz-bar, var(--ck-accent, #7dd3fc)) 42%, transparent),
