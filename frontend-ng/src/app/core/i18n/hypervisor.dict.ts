@@ -408,7 +408,7 @@ export const HYPERVISOR_FR = {
   'steering.value_loop.not_configured':
     'Les leviers du portefeuille ne sont pas configurés. Ouvrez un Système dans Steer pour créer, simuler, approuver, agir et mesurer un scénario de valeur gouverné.',
   'steering.control.title': 'Politiques de contrôle',
-  'steering.control.empty': 'AUCUNE POLITIQUE DE CONTRÔLE — APPLIQUEZ LES LEVIERS CI-DESSUS',
+  'steering.control.empty': 'Aucune politique de contrôle',
   'steering.control.max_cost': 'COÛT MAX',
   'steering.control.max_latency': 'LATENCE MAX',
   'steering.adaptive.title': 'Politiques adaptatives',
@@ -430,6 +430,15 @@ export const HYPERVISOR_FR = {
   'steering.adaptation.moderate': 'Modéré',
   'steering.adaptation.aggressive': 'Agressif',
   // --- Steering · review queue ----------------------------------------------
+  'steering.systems.title': 'Systèmes et boucles de valeur',
+  'steering.systems.empty': 'Aucun Système dans cet espace',
+  'steering.systems.open_levers': 'Ouvrir les leviers',
+  'steering.systems.loop_absent': 'Boucle de valeur indisponible',
+  'steering.systems.loop_empty': 'Aucune boucle de valeur configurée',
+  'steering.systems.loop_status': '{status} · {count} scénario(s)',
+  'steering.review.confirm_accept': 'Décision acceptée',
+  'steering.review.confirm_reject': 'Décision rejetée',
+  'steering.review.open_impact': 'Voir la décision dans Impact ↗ · change de zone',
   'steering.review.eyebrow': 'Steering · File de revue',
   'steering.review.title': 'File de revue des évaluations',
   'steering.review.description':
@@ -894,7 +903,7 @@ export const HYPERVISOR_EN: Record<keyof typeof HYPERVISOR_FR, string> = {
   'steering.value_loop.not_configured':
     'Portfolio levers are not configured. Open a System in Steer to create, simulate, approve, act and measure a governed value scenario.',
   'steering.control.title': 'Control policies',
-  'steering.control.empty': 'NO CONTROL POLICY — APPLY LEVERS ABOVE',
+  'steering.control.empty': 'No control policy',
   'steering.control.max_cost': 'MAX COST',
   'steering.control.max_latency': 'MAX LATENCY',
   'steering.adaptive.title': 'Adaptive policies',
@@ -915,6 +924,15 @@ export const HYPERVISOR_EN: Record<keyof typeof HYPERVISOR_FR, string> = {
   'steering.adaptation.moderate': 'Moderate',
   'steering.adaptation.aggressive': 'Aggressive',
   // --- Steering · review queue ----------------------------------------------
+  'steering.systems.title': 'Systems and value loops',
+  'steering.systems.empty': 'No System in this workspace',
+  'steering.systems.open_levers': 'Open the levers',
+  'steering.systems.loop_absent': 'Value loop unavailable',
+  'steering.systems.loop_empty': 'No value loop configured',
+  'steering.systems.loop_status': '{status} · {count} scenario(s)',
+  'steering.review.confirm_accept': 'Decision accepted',
+  'steering.review.confirm_reject': 'Decision rejected',
+  'steering.review.open_impact': 'View the decision in Impact ↗ · leaves this zone',
   'steering.review.eyebrow': 'Steering · Review queue',
   'steering.review.title': 'Evaluation review queue',
   'steering.review.description':

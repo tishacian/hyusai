@@ -284,17 +284,34 @@ function statusFromFacet(facet: string | null): ReviewStatus {
                       }
                     </div>
 
-                    <!-- Actions -->
-                    <div class="flex flex-col gap-2" style="min-width:120px;">
+                    <!-- Actions (L21b: equal outline weight + in-place confirm) -->
+                    <div class="flex flex-col gap-2" style="min-width:140px;">
+                      @if (confirmBanner()?.id === item.decision.id) {
+                        <p
+                          class="ck-mono"
+                          role="status"
+                          data-testid="review-confirm-status"
+                          style="padding:6px 8px; border-radius:3px; font-size:10px; letter-spacing:0.08em; color:var(--ck-fg-2); background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2);"
+                        >
+                          {{ confirmBanner()!.message }}
+                        </p>
+                        <a
+                          class="ck-mono"
+                          [navLink]="{ surface: 'hypervisor', params: { decision: item.decision.id } }"
+                          data-testid="review-open-impact"
+                          style="font-size:10px; letter-spacing:0.06em; color:var(--ck-signal-cool); text-decoration:none;"
+                        >{{ i18n.t('steering.review.open_impact') }}</a>
+                      }
                       @if (item.decision.status === 'proposed') {
                         <button
                           type="button"
                           (click)="accept(item)"
                           [disabled]="pendingId() === item.decision.id"
-                          class="ck-mono"
-                          style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; background:var(--ck-signal-pos); color:var(--ck-on-signal); font-weight:500;"
+                          class="ck-mono review-outline-btn"
+                          style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-1); background:transparent; font-weight:500;"
                           [style.opacity]="pendingId() === item.decision.id ? '0.5' : '1'"
                           [title]="i18n.t('steering.review.accept_hint')"
+                          data-testid="review-accept"
                         >
                           {{ i18n.t('hypervisor.decisions.accept') }}
                         </button>
@@ -302,10 +319,11 @@ function statusFromFacet(facet: string | null): ReviewStatus {
                           type="button"
                           (click)="reject(item)"
                           [disabled]="pendingId() === item.decision.id"
-                          class="ck-mono"
-                          style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-signal-neg); background:transparent;"
+                          class="ck-mono review-outline-btn"
+                          style="padding:6px 10px; border-radius:3px; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; border:1px solid var(--ck-stroke-soft); color:var(--ck-fg-1); background:transparent; font-weight:500;"
                           [style.opacity]="pendingId() === item.decision.id ? '0.5' : '1'"
                           [title]="i18n.t('steering.review.reject_hint')"
+                          data-testid="review-reject"
                         >
                           {{ i18n.t('hypervisor.decisions.reject') }}
                         </button>
@@ -505,6 +523,7 @@ export class SteeringReviewQueueComponent implements OnInit {
    * filter change so the highlight doesn't stick around.
    */
   readonly focusedDecisionId = signal<string | null>(null);
+  readonly confirmBanner = signal<{ id: string; message: string } | null>(null);
 
   protected readonly statusOptions = computed(() => [
     { value: 'proposed' as const, label: this.i18n.t('steering.review.filter.open') },
@@ -619,6 +638,10 @@ export class SteeringReviewQueueComponent implements OnInit {
     this.canonical.acceptDecision(item.decision.id).subscribe({
       next: () => {
         this.pendingId.set(null);
+        this.confirmBanner.set({
+          id: item.decision.id,
+          message: this.i18n.t('steering.review.confirm_accept'),
+        });
         this.refresh();
       },
       error: () => this.pendingId.set(null),
@@ -631,6 +654,10 @@ export class SteeringReviewQueueComponent implements OnInit {
     this.canonical.rejectDecision(item.decision.id).subscribe({
       next: () => {
         this.pendingId.set(null);
+        this.confirmBanner.set({
+          id: item.decision.id,
+          message: this.i18n.t('steering.review.confirm_reject'),
+        });
         this.refresh();
       },
       error: () => this.pendingId.set(null),

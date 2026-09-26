@@ -195,6 +195,7 @@ const storeSpecs = [
   'src/app/features/runs/run-view.component.spec.ts',
   'src/app/features/runs/correction-review.component.spec.ts',
   'src/app/features/steering/review-queue-scope.spec.ts',
+  'src/app/features/steering/steering-l21b.spec.ts',
   'src/app/features/orchestration/flow/flow-correction-context.spec.ts',
   'src/app/features/runs/skill-invocation-view.component.spec.ts',
   'src/app/features/systems/system-value-loop.component.spec.ts',

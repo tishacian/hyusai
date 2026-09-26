@@ -146,7 +146,7 @@ test('value-loop helpers distinguish simulation, missing measurement and observe
   assert.equal(valueLoopMeasurementLabel(missing), 'Not measured');
   assert.equal(latestValueLoopMeasurement(missing)?.reason, 'no_comparable_post_action_run');
   assert.equal(
-    valueLoopStepRows(missing).find((step) => step.label === 'Measure')?.complete,
+    valueLoopStepRows(missing).find((step) => step.label === 'measure' || step.index === 6)?.complete,
     false,
     'a not_measured record must not falsely close the value loop',
   );

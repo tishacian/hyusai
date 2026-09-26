@@ -131,6 +131,18 @@ export const SYSTEMS_FR = {
   'systems.value_contract.refused.forbidden': 'Proposer un contrat demande l’administration de ce System.',
   'systems.value_contract.refused.invalid': 'La proposition n’est pas valide.',
   'systems.value_contract.refused.error': 'Le contrat n’a pas pu être enregistré.',
+  'systems.value_loop.steps_chain': 'Chaîne de la boucle de valeur',
+  'systems.value_loop.step.outcome': 'Résultat visé',
+  'systems.value_loop.step.decision': 'Décision',
+  'systems.value_loop.step.simulate': 'Simulation',
+  'systems.value_loop.step.approve': 'Approbation',
+  'systems.value_loop.step.act': 'Action',
+  'systems.value_loop.step.measure': 'Mesure',
+  'systems.value_loop.status.decision_proposed': 'Décision proposée',
+  'systems.value_loop.status.simulated': 'Simulée',
+  'systems.value_loop.status.approved': 'Approuvée',
+  'systems.value_loop.status.acted': 'Agie',
+  'systems.value_loop.status.measured': 'Mesurée',
 } as const satisfies Record<string, string>;
 
 /**
@@ -138,6 +150,7 @@ export const SYSTEMS_FR = {
  * contract: `tsc` fails on a key present in one locale and missing in the
  * other, before the guard even runs.
  */
+
 export const SYSTEMS_EN: Record<keyof typeof SYSTEMS_FR, string> = {
   'systems.design.loading': "Loading the saved draft…",
   'systems.design.unavailable': "The draft could not be read. Retry before comparing its configuration with the published version.",
@@ -264,4 +277,16 @@ export const SYSTEMS_EN: Record<keyof typeof SYSTEMS_FR, string> = {
   'systems.value_contract.refused.forbidden': 'Proposing a contract requires administering this System.',
   'systems.value_contract.refused.invalid': 'The proposal is not valid.',
   'systems.value_contract.refused.error': 'The contract could not be saved.',
+  'systems.value_loop.steps_chain': 'Value loop chain',
+  'systems.value_loop.step.outcome': 'Targeted outcome',
+  'systems.value_loop.step.decision': 'Decision',
+  'systems.value_loop.step.simulate': 'Simulation',
+  'systems.value_loop.step.approve': 'Approval',
+  'systems.value_loop.step.act': 'Action',
+  'systems.value_loop.step.measure': 'Measure',
+  'systems.value_loop.status.decision_proposed': 'Decision proposed',
+  'systems.value_loop.status.simulated': 'Simulated',
+  'systems.value_loop.status.approved': 'Approved',
+  'systems.value_loop.status.acted': 'Acted',
+  'systems.value_loop.status.measured': 'Measured',
 };

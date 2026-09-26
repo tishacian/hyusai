@@ -56,12 +56,12 @@ export function valueLoopMeasurementLabel(scenario: ValueScenario): string {
 export function valueLoopStepRows(scenario: ValueScenario): ValueLoopStepRow[] {
   const position = VALUE_LOOP_STATUS_ORDER.indexOf(scenario.status);
   return [
-    { index: 1, label: 'Outcome', complete: true },
-    { index: 2, label: 'Decision', complete: position >= 0 },
-    { index: 3, label: 'Simulate', complete: position >= 1 },
-    { index: 4, label: 'Approve', complete: position >= 2 },
-    { index: 5, label: 'Act', complete: position >= 3 },
-    { index: 6, label: 'Measure', complete: position >= 4 },
+    { index: 1, label: 'outcome', complete: true },
+    { index: 2, label: 'decision', complete: position >= 0 },
+    { index: 3, label: 'simulate', complete: position >= 1 },
+    { index: 4, label: 'approve', complete: position >= 2 },
+    { index: 5, label: 'act', complete: position >= 3 },
+    { index: 6, label: 'measure', complete: position >= 4 },
   ];
 }
 
@@ -120,7 +120,7 @@ export class ValueLoopCommandLedger {
       <header class="loop-header">
         <div>
           <p>Authoritative value loop</p>
-          <h3>Outcome → Decision → Simulate → Approve → Act → Measure</h3>
+          <h3>{{ i18n.t('systems.value_loop.steps_chain') }}</h3>
         </div>
         <button type="button" class="secondary" (click)="load()" [disabled]="loading() || busy()">
           Refresh
@@ -193,7 +193,7 @@ export class ValueLoopCommandLedger {
               @for (step of stepRows(scenario); track step.label) {
                 <div [class.complete]="step.complete">
                   <span>{{ step.index }}</span>
-                  <strong>{{ step.label }}</strong>
+                  <strong>{{ i18n.t('systems.value_loop.step.' + step.label) }}</strong>
                 </div>
               }
             </div>

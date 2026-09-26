@@ -532,13 +532,21 @@ export const GOVERNANCE_FR = {
   'governance.canonical.system': 'système',
   'governance.canonical.deleting': 'Suppression…',
   'governance.canonical.confirm_delete': 'Supprimer la réponse canonique pour : {question} ?',
+  'intelligence.page.title': 'Intelligence',
+  'intelligence.page.description': 'Travaux de veille : état, objet, mesure et date.',
+  'intelligence.kpi.total': 'Total',
+  'intelligence.kpi.live': 'En direct',
+  'intelligence.empty.title': 'Aucune veille pour l’instant',
+  'intelligence.empty.body': 'Les Systèmes de veille apparaîtront ici.',
+  'intelligence.measure.absent': 'Mesure absente',
+  'intelligence.status.live': 'En direct',
+  'intelligence.status.ready': 'Prêt',
+  'intelligence.status.draft': 'Brouillon',
+  'intelligence.status.error': 'Erreur',
+  'intelligence.status.failed': 'Échec',
+
 } as const satisfies Record<string, string>;
 
-/**
- * The `Record<keyof typeof GOVERNANCE_FR, string>` annotation is the parity
- * contract: `tsc` fails on a key present in one locale and missing in the
- * other, before the guard even runs.
- */
 export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   // --- Suite-wide --------------------------------------------------
   'governance.breadcrumb': 'Govern',
@@ -1031,4 +1039,16 @@ export const GOVERNANCE_EN: Record<keyof typeof GOVERNANCE_FR, string> = {
   'governance.canonical.system': 'system',
   'governance.canonical.deleting': 'Deleting…',
   'governance.canonical.confirm_delete': 'Delete canonical answer for: {question}?',
+  'intelligence.page.title': 'Intelligence',
+  'intelligence.page.description': 'Watch work: status, object, measure and date.',
+  'intelligence.kpi.total': 'Total',
+  'intelligence.kpi.live': 'Live',
+  'intelligence.empty.title': 'No watch work yet',
+  'intelligence.empty.body': 'Intelligence Systems will show up here.',
+  'intelligence.measure.absent': 'No measure',
+  'intelligence.status.live': 'Live',
+  'intelligence.status.ready': 'Ready',
+  'intelligence.status.draft': 'Draft',
+  'intelligence.status.error': 'Error',
+  'intelligence.status.failed': 'Failed',
 };

@@ -80,7 +80,7 @@ export const I18N_DOMAINS = {
   contexts: { prefixes: ['contexts'], fr: CONTEXTS_FR, en: CONTEXTS_EN },
   data: { prefixes: ['data'], fr: DATA_FR, en: DATA_EN },
   models: { prefixes: ['models'], fr: MODELS_FR, en: MODELS_EN },
-  governance: { prefixes: ['governance'], fr: GOVERNANCE_FR, en: GOVERNANCE_EN },
+  governance: { prefixes: ['governance', 'intelligence'], fr: GOVERNANCE_FR, en: GOVERNANCE_EN },
   settings: { prefixes: ['settings', 'presets'], fr: SETTINGS_FR, en: SETTINGS_EN },
   tasks: { prefixes: ['tasks'], fr: TASKS_FR, en: TASKS_EN },
   resources: {
