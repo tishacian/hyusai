@@ -9,14 +9,18 @@ import {
   launchHref,
   launcherDecision,
   liveHref,
+  sortSystemLinkedWorkApps,
   studioHref,
+  withWorkReturnTo,
   workLocales,
   workEmblem,
   workIdentity,
   workPageHref,
   workTheme,
+  type SystemLinkedWorkApp,
   type WorkExperience,
 } from './work-catalog';
+import { isCataloguedReturnTo, returnToFromParams } from './work-return';
 
 function app(over: Partial<WorkExperience> = {}): WorkExperience {
   return {
@@ -152,4 +156,52 @@ test('Work renders the immutable release identity with a legacy fallback', () =>
   assert.equal(workEmblem({ name: 'NAWA — IT Help Desk', description: '', emblem: '' }), 'NI');
   assert.equal(workEmblem({ name: 'PR to PO', description: '', emblem: '' }), 'PT');
   assert.equal(workEmblem({ name: 'PO vs Invoice Reconciliation', description: '', emblem: '' }), 'PV');
+});
+
+test('L14: returnTo validation rejects //, backslash and external URLs', () => {
+  assert.equal(isCataloguedReturnTo('/systems/sys-1?facet=design'), true);
+  assert.equal(isCataloguedReturnTo('/work/password-reset'), true);
+  assert.equal(isCataloguedReturnTo('//evil.test'), false);
+  assert.equal(isCataloguedReturnTo('/systems/sys-1\\evil'), false);
+  assert.equal(isCataloguedReturnTo('https://evil.test/systems'), false);
+  assert.equal(isCataloguedReturnTo('/systems/../etc'), false);
+  assert.equal(returnToFromParams('//evil'), null);
+  assert.equal(returnToFromParams('/systems/a?facet=runs'), '/systems/a?facet=runs');
+  assert.equal(
+    withWorkReturnTo('/work/app', '/systems/sys-1?facet=overview'),
+    '/work/app?returnTo=%2Fsystems%2Fsys-1%3Ffacet%3Doverview',
+  );
+  assert.equal(withWorkReturnTo('/work/app', '//evil'), '/work/app');
+  assert.equal(withWorkReturnTo('/work/app', 'https://x'), '/work/app');
+  assert.equal(withWorkReturnTo('/work/app', '/work\\evil'), '/work/app');
+});
+
+test('L14: linked Work apps sort by last opened, else status then name', () => {
+  const row = (over: Partial<SystemLinkedWorkApp>): SystemLinkedWorkApp => ({
+    id: over.id ?? 'x',
+    name: over.name ?? 'App',
+    emblem: '',
+    type: 'form_result',
+    kind: 'experience',
+    channel: over.channel ?? over.status ?? 'live',
+    status: over.status ?? 'live',
+    href: over.href ?? '/work/x',
+    last_opened_at: over.last_opened_at,
+  });
+  assert.deepEqual(
+    sortSystemLinkedWorkApps([
+      row({ id: 'b', name: 'Beta', status: 'live' }),
+      row({ id: 'a', name: 'Alpha', status: 'pilot' }),
+      row({ id: 'c', name: 'Charlie', status: 'live' }),
+    ]).map((item) => item.id),
+    ['b', 'c', 'a'],
+  );
+  assert.deepEqual(
+    sortSystemLinkedWorkApps([
+      row({ id: 'old', name: 'Old', last_opened_at: '2026-01-01T00:00:00Z' }),
+      row({ id: 'new', name: 'New', last_opened_at: '2026-09-01T00:00:00Z' }),
+      row({ id: 'never', name: 'Never' }),
+    ]).map((item) => item.id),
+    ['new', 'old', 'never'],
+  );
 });

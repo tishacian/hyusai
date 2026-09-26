@@ -30,6 +30,13 @@ import { isObjectLens, type ObjectLens } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkApiService } from '@app/features/experience/work/work-api.service';
 import {
+  sortSystemLinkedWorkApps,
+  withWorkReturnTo,
+  workEmblem,
+  type SystemLinkedWorkApp,
+} from '@app/features/experience/work/work-catalog';
+import { isCataloguedReturnTo } from '@app/features/experience/work/work-return';
+import {
   WorkspaceViewContext,
   type WorkspaceViewRequest,
 } from '@app/core/workspace-view-context';
@@ -196,12 +203,51 @@ interface ContextConfigRow {
           <app-icon name="mic" [size]="14" /> {{ i18n.t('systems.view.capture.cta') }}
         </a>
       }
-      @if (workOpenHref(); as workHref) {
+      @if (workLinkedApps().length === 1) {
         <a
           actions
-          [navLink]="{ surface: 'work' }"
+          id="open-in-work"
+          data-testid="system-open-in-work"
+          [routerLink]="workAppUrlTree(workLinkedApps()[0]!)"
           class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
-        >{{ i18n.t('nav.open_in_work') }}</a>
+          [attr.title]="workOpenPreview(workLinkedApps()[0]!)"
+        >{{ i18n.t('nav.open_in_work') }} ↗</a>
+      } @else if (workLinkedApps().length > 1) {
+        <div actions class="relative inline-flex" data-testid="system-open-in-work-menu">
+          <button
+            type="button"
+            id="open-in-work"
+            class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+            [attr.aria-expanded]="workMenuOpen()"
+            aria-haspopup="menu"
+            (click)="workMenuOpen.set(!workMenuOpen())"
+          >{{ i18n.t('nav.open_in_work_menu', { count: workLinkedApps().length }) }}</button>
+          @if (workMenuOpen()) {
+            <ul
+              role="menu"
+              class="absolute right-0 top-full mt-1 z-20 min-w-[16rem] py-1 rounded text-sm"
+              style="background:var(--ck-bg-panel-hi); border:1px solid var(--ck-stroke-soft); box-shadow:var(--ck-shadow-popover);"
+            >
+              @for (app of workLinkedApps(); track app.id) {
+                <li role="none">
+                  <a
+                    role="menuitem"
+                    class="flex items-center gap-2 px-3 py-2"
+                    style="color:var(--ck-fg-1);"
+                    [routerLink]="workAppUrlTree(app)"
+                    (click)="workMenuOpen.set(false)"
+                  >
+                    <span class="ck-mono shrink-0 w-6 text-center" aria-hidden="true">{{ workAppEmblem(app) }}</span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate font-medium">{{ app.name }}</span>
+                      <span class="block truncate text-xs" style="color:var(--ck-fg-3);">{{ workAppTypeLabel(app) }} · {{ workAppStatusLabel(app) }}</span>
+                    </span>
+                  </a>
+                </li>
+              }
+            </ul>
+          }
+        </div>
       }
       <button
         actions
@@ -1114,7 +1160,9 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   readonly lensService = inject(LensService);
   readonly navigation = inject(ZoomContextService);
   private readonly workApi = inject(WorkApiService);
-  readonly workOpenHref = signal(false);
+  readonly workLinkedApps = signal<SystemLinkedWorkApp[]>([]);
+  readonly workMenuOpen = signal(false);
+  private workAppsSubscription: Subscription | null = null;
   private systemRouteSubscription: Subscription | null = null;
   private facetRouteSubscription: Subscription | null = null;
   private viewSubscriptions = new Subscription();
@@ -1654,11 +1702,6 @@ export class SystemViewComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    if (this.workspace.experienceV1Enabled()) {
-      this.workApi.listExperiences().subscribe((result) => {
-        this.workOpenHref.set(result.kind === 'ok' && result.items.length > 0);
-      });
-    }
     this.systemRouteSubscription = this.route.paramMap.pipe(
       map((params) => params.get('systemId') ?? ''),
       distinctUntilChanged(),
@@ -1668,6 +1711,7 @@ export class SystemViewComponent implements OnInit, OnDestroy {
       this.systemId = systemId;
       this.clearSystemData();
       this.reloadCurrentSystem();
+      this.refreshWorkLinkedApps(systemId);
     });
     this.facetRouteSubscription = this.route.queryParamMap.pipe(
       map((params) => params.get('facet')),
@@ -1680,7 +1724,85 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     this.systemRouteSubscription = null;
     this.facetRouteSubscription?.unsubscribe();
     this.facetRouteSubscription = null;
+    this.workAppsSubscription?.unsubscribe();
+    this.workAppsSubscription = null;
     this.workspaceView.destroy();
+  }
+
+  /** Cockpit URL with the active facet — carried as Work `returnTo`. */
+  cockpitReturnTo(): string {
+    if (!this.systemId) return '/systems';
+    return this.navigation.resolveLink({
+      type: 'system',
+      ref: this.systemId,
+      facet: this.activeTab(),
+    }).url;
+  }
+
+  workAppUrlTree(app: SystemLinkedWorkApp): UrlTree {
+    const returnTo = this.cockpitReturnTo();
+    const href = withWorkReturnTo(
+      app.href,
+      isCataloguedReturnTo(returnTo) ? returnTo : null,
+    );
+    return this.router.parseUrl(href);
+  }
+
+  workAppEmblem(app: SystemLinkedWorkApp): string {
+    return workEmblem({
+      name: app.name,
+      description: '',
+      emblem: app.emblem || '',
+    });
+  }
+
+  workAppTypeLabel(app: SystemLinkedWorkApp): string {
+    if (app.kind === 'automation' || app.type === 'automation') {
+      return this.i18n.t('experience.work.eyebrow.automation');
+    }
+    const key = `experience.work.pattern.${app.type}`;
+    const label = this.i18n.t(key);
+    return label === key ? this.i18n.t('experience.work.pattern.other') : label;
+  }
+
+  workAppStatusLabel(app: SystemLinkedWorkApp): string {
+    const status = (app.status || app.channel || '').toLowerCase();
+    if (status === 'pilot') return this.i18n.t('experience.work.status.pilot');
+    if (status === 'live') return this.i18n.t('experience.work.status.live');
+    return status || this.i18n.t('experience.work.status.live');
+  }
+
+  workOpenPreview(app: SystemLinkedWorkApp): string {
+    return this.i18n.t('nav.open_in_work_preview', {
+      name: app.name,
+      type: this.workAppTypeLabel(app),
+      facet: this.facetLabelForReturn(),
+    });
+  }
+
+  facetLabelForReturn(): string {
+    const tab = this.activeTab();
+    const key = `systems.view.tab.${tab}`;
+    const label = this.i18n.t(key);
+    if (label !== key) return label;
+    const navKey = `nav.facet.${tab}`;
+    const nav = this.i18n.t(navKey);
+    return nav !== navKey ? nav : tab;
+  }
+
+  private refreshWorkLinkedApps(systemId: string): void {
+    this.workAppsSubscription?.unsubscribe();
+    this.workAppsSubscription = null;
+    this.workLinkedApps.set([]);
+    this.workMenuOpen.set(false);
+    if (!systemId || !this.workspace.experienceV1Enabled()) return;
+    this.workAppsSubscription = this.workApi.listSystemWorkApps(systemId).subscribe((result) => {
+      if (result.kind !== 'ok') {
+        this.workLinkedApps.set([]);
+        return;
+      }
+      this.workLinkedApps.set(sortSystemLinkedWorkApps(result.apps));
+    });
   }
 
   /**

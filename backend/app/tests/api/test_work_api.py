@@ -1144,3 +1144,74 @@ def test_work_binding_snapshot_corruption_fails_closed(
 
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "RELEASE_BINDING_SNAPSHOT_INVALID"
+
+
+def test_system_linked_work_apps_are_filtered_by_reader_rights(db_session) -> None:
+    """L14 — GET /work/systems/{id}/apps returns only apps the reader can open."""
+    workspace, admin = _seed(db_session)
+    system, _version, _binding = _seed_binding(db_session, workspace, admin)
+    studio = _experiences_client(db_session, workspace, admin)
+    experience_id, _release_id = _publish(
+        studio,
+        binding_key="work.reset",
+        channel="live",
+        audience={"roles": ["workspace_admin"]},
+    )
+    other = System(
+        id="work-unrelated-system",
+        workspace_id=workspace.id,
+        name="Unrelated",
+        objective="test",
+        status="active",
+        flow_definition=_flow(),
+    )
+    db_session.add(other)
+    db_session.commit()
+
+    viewer = User(
+        id="user-work-linked-viewer",
+        username="linked-viewer@example.invalid",
+        email="linked-viewer@example.invalid",
+        role="member",
+    )
+    db_session.add_all(
+        [
+            viewer,
+            WorkspaceMember(
+                workspace_id=workspace.id,
+                user_id=viewer.id,
+                role="member",
+                role_template="workspace_viewer",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    admin_client = _client(db_session, workspace, admin)
+    catalog = admin_client.get("/work")
+    assert catalog.status_code == 200, catalog.text
+    item = catalog.json()["experiences"][0]
+    assert item["binding_system_ids"] == [system.id]
+
+    linked = admin_client.get(f"/work/systems/{system.id}/apps")
+    assert linked.status_code == 200, linked.text
+    apps = linked.json()["apps"]
+    assert len(apps) == 1
+    assert apps[0]["id"] == experience_id
+    assert apps[0]["href"] == "/work/password-reset"
+    assert apps[0]["type"] == "form_result"
+    assert apps[0]["channel"] == "live"
+    assert apps[0]["kind"] == "experience"
+
+    empty = admin_client.get(f"/work/systems/{other.id}/apps")
+    assert empty.status_code == 200
+    assert empty.json()["apps"] == []
+
+    missing = admin_client.get("/work/systems/missing-system/apps")
+    assert missing.status_code == 404
+
+    viewer_client = _client(db_session, workspace, viewer)
+    denied = viewer_client.get(f"/work/systems/{system.id}/apps")
+    assert denied.status_code == 200
+    assert denied.json()["apps"] == []
+    assert viewer_client.get("/work").json()["experiences"] == []

@@ -136,3 +136,97 @@ test('L20a: System sheet has no Executable flow door and Launch run is outline',
   assert.match(source, /systems\.run\.launch/);
   assert.doesNotMatch(source, /background:var\(--ck-signal-pos\); color:var\(--ck-on-signal\);[\s\S]{0,200}Run now/);
 });
+
+test('L14: without linked apps there is no Open in Work control', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/features/systems/system-view.component.ts'),
+    'utf8',
+  );
+  assert.match(source, /workLinkedApps\(\)\.length === 1/);
+  assert.match(source, /workLinkedApps\(\)\.length > 1/);
+  assert.doesNotMatch(source, /workOpenHref/);
+  assert.doesNotMatch(source, /\[navLink\]="\{ surface: 'work' \}"/);
+});
+
+function workLinkedView() {
+  const injector = Injector.create({ providers: [
+    ...[ActivatedRoute, Router, ApiService, SystemsStore, ToastrService, SettingsService,
+      LensService, ZoomContextService, WorkApiService].map(provide => ({ provide, useValue: {} })),
+    { provide: CanonicalApiService, useValue: {} },
+    { provide: WorkspaceService, useValue: {
+      current: signal({ settings: { features: { experience_v1: true } } }),
+      experienceV1Enabled: () => true,
+      captureRequestScope: () => ({}),
+      isRequestScopeCurrent: () => true, registerContextReset: () => () => {},
+    } },
+    { provide: FlowManifestService, useValue: { manifest: () => null } },
+    { provide: I18nService, useValue: { t: (key: string, params?: Record<string, unknown>) => {
+      if (params?.['count'] != null) return `${key}:${params['count']}`;
+      if (params?.['name']) return `${key}:${params['name']}`;
+      return key;
+    } } },
+    { provide: SystemViewComponent, useFactory: () => new SystemViewComponent() },
+  ] });
+  const view = injector.get(SystemViewComponent);
+  view.systemId = 'sys-1';
+  Object.assign(view, {
+    navigation: {
+      resolveLink: (input: { type?: string; ref?: string; facet?: string }) => ({
+        url: `/systems/${input.ref}?facet=${input.facet ?? 'overview'}`,
+      }),
+    },
+    router: {
+      parseUrl: (href: string) => {
+        const [path, query = ''] = href.split('?');
+        const queryParams: Record<string, string> = {};
+        for (const part of query.split('&').filter(Boolean)) {
+          const [k, v] = part.split('=');
+          queryParams[decodeURIComponent(k!)] = decodeURIComponent(v ?? '');
+        }
+        return { path, queryParams };
+      },
+    },
+  });
+  return view;
+}
+
+test('L14: one linked app yields a direct link with returnTo', () => {
+  const view = workLinkedView();
+  view.workLinkedApps.set([{
+    id: 'exp-1',
+    name: 'Password reset',
+    emblem: 'PR',
+    type: 'form_result',
+    kind: 'experience',
+    channel: 'live',
+    status: 'live',
+    href: '/work/password-reset',
+  }]);
+  assert.equal(view.workLinkedApps().length, 1);
+  const tree = view.workAppUrlTree(view.workLinkedApps()[0]!);
+  assert.equal(tree.path, '/work/password-reset');
+  assert.equal(tree.queryParams['returnTo'], '/systems/sys-1?facet=overview');
+  assert.match(view.workOpenPreview(view.workLinkedApps()[0]!), /Password reset/);
+});
+
+test('L14: several linked apps open a menu', () => {
+  const view = workLinkedView();
+  view.workLinkedApps.set([
+    {
+      id: 'exp-1', name: 'Alpha', emblem: 'A', type: 'form_result', kind: 'experience',
+      channel: 'live', status: 'live', href: '/work/alpha',
+    },
+    {
+      id: 'exp-2', name: 'Beta', emblem: 'B', type: 'queue', kind: 'experience',
+      channel: 'pilot', status: 'pilot', href: '/work/beta',
+    },
+  ]);
+  assert.equal(view.workLinkedApps().length, 2);
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/features/systems/system-view.component.ts'),
+    'utf8',
+  );
+  assert.match(source, /data-testid="system-open-in-work-menu"/);
+  assert.match(source, /nav\.open_in_work_menu/);
+  assert.equal(view.i18n.t('nav.open_in_work_menu', { count: 2 }), 'nav.open_in_work_menu:2');
+});

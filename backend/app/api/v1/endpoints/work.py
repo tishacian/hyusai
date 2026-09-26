@@ -227,6 +227,37 @@ async def get_automation_job(
     raise HTTPException(404, "Automation not found")
 
 
+@router.get("/systems/{system_id}/apps")
+async def list_work_apps_for_system(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """L14 — apps linked to a System that this reader may open."""
+    _require_enabled(workspace)
+    _enforce_consume(db, user=user, workspace=workspace)
+    owned = (
+        db.query(System.id)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .one_or_none()
+    )
+    if owned is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "SYSTEM_NOT_FOUND", "message": "System not found."},
+        )
+    role, groups = _viewer_claims(db, user=user, workspace=workspace)
+    rows = experience_service.list_work(
+        db, workspace_id=workspace.id, role=role, groups=groups
+    )
+    jobs = automation_portfolio.list_job_explanations(db, workspace, user)
+    apps = experience_service.list_system_work_apps(
+        rows, system_id=system_id, automation_jobs=jobs
+    )
+    return {"apps": apps}
+
+
 @router.get("/automation-jobs/{system_id}/package")
 async def export_automation_package(
     system_id: str,

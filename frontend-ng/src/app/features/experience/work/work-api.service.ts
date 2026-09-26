@@ -4,7 +4,7 @@ import { Observable, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { CanonicalApiService, type Run } from '@app/core/canonical-api.service';
-import type { WorkCatalogItem, WorkResolve } from './work-catalog';
+import type { WorkCatalogItem, WorkResolve, SystemLinkedWorkApp } from './work-catalog';
 
 export type WorkResolveResult =
   | { kind: 'ok'; body: WorkResolve }
@@ -21,6 +21,10 @@ export interface WorkAutomationJob {
 
 export type WorkListResult =
   | { kind: 'ok'; items: WorkCatalogItem[]; jobs: WorkAutomationJob[] }
+  | { kind: 'unavailable' };
+
+export type SystemWorkAppsResult =
+  | { kind: 'ok'; apps: SystemLinkedWorkApp[] }
   | { kind: 'unavailable' };
 
 export type WorkValidationsResult =
@@ -41,6 +45,17 @@ export class WorkApiService {
       })),
       catchError(() => of({ kind: 'unavailable' as const })),
     );
+  }
+
+  listSystemWorkApps(systemId: string): Observable<SystemWorkAppsResult> {
+    return this.api
+      .get<{ apps: SystemLinkedWorkApp[] }>(
+        `/work/systems/${encodeURIComponent(systemId)}/apps`,
+      )
+      .pipe(
+        map((body) => ({ kind: 'ok' as const, apps: body.apps ?? [] })),
+        catchError(() => of({ kind: 'unavailable' as const })),
+      );
   }
 
   automation(systemId: string): Observable<WorkAutomationJob> {

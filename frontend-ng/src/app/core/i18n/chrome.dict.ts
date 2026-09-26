@@ -150,6 +150,9 @@ export const CHROME_FR = {
   'nav.provenance.came_from': 'Vous venez d\'ici',
   'nav.work': 'Work ↗',
   'nav.open_in_work': 'Ouvrir dans Work',
+  'nav.open_in_work_menu': 'Ouvrir dans Work · {count} applications liées',
+  'nav.open_in_work_preview':
+    'S\'ouvre dans Work — {name} — {type}. Le retour vous ramène ici, sur {facet}.',
   'nav.cockpit': 'Cockpit',
   'nav.zoom.hint_v5': '⌘Z dézoomer ({chain})',
   // --- Semantic zoom breadcrumb (title bar) ------------------------
@@ -1023,6 +1026,9 @@ export const CHROME_EN: Record<keyof typeof CHROME_FR, string> = {
   'nav.provenance.came_from': 'You came from here',
   'nav.work': 'Work ↗',
   'nav.open_in_work': 'Open in Work',
+  'nav.open_in_work_menu': 'Open in Work · {count} linked apps',
+  'nav.open_in_work_preview':
+    'Opens in Work — {name} — {type}. Return brings you back here, on {facet}.',
   'nav.cockpit': 'Cockpit',
   'nav.zoom.hint_v5': '⌘Z zoom out ({chain})',
   'nav.breadcrumb': 'Breadcrumb',
