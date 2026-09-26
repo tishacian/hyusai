@@ -20,7 +20,11 @@ function workspaceSettingsRedirect() {
   return inject(Router).parseUrl('/workspace');
 }
 export const routes: Routes = [
-  { path: 'help/:guideId', loadComponent: () => import('./features/help/help-guide.component').then(m => m.HelpGuideComponent) },
+  {
+    path: 'help/:guideId',
+    canActivate: [authGuard, workspaceHydrationGuard],
+    loadComponent: () => import('./features/help/help-guide.component').then(m => m.HelpGuideComponent),
+  },
   {
     path: 'auth',
     canActivate: [loginGuard],

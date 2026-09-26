@@ -4,6 +4,9 @@ import { NavigationTelemetryService } from '@app/core/navigation-telemetry.servi
 import type { NavigationTransitionTrigger } from '@app/core/navigation-telemetry.service';
 import type { NavLinkInput } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { HelpOverlayService } from '@app/features/help/help-overlay.service';
+import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 
 /**
  * Catalogue-backed in-page link. Keeps zone and ancestry by default (I3).
@@ -12,6 +15,9 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
  *   [navLink]="{ surface: 'knowledge' }"
  *   [navLink]="{ leaf: 'system-flow', ref }"
  *   [navLink]="{ facet: 'runs' }"   // replaceUrl (D3)
+ *
+ * `help-guide` opens the help panel on desktop (L16); shared / narrow
+ * clicks keep the `/help/:guideId` href navigation.
  */
 @Directive({
   selector: 'a[navLink]',
@@ -25,6 +31,9 @@ export class NavLinkDirective {
   private readonly router = inject(Router);
   private readonly navigation = inject(ZoomContextService);
   private readonly telemetry = inject(NavigationTelemetryService);
+  private readonly help = inject(HelpOverlayService);
+  private readonly workspace = inject(WorkspaceService);
+  private readonly i18n = inject(I18nService);
 
   readonly navLink = input.required<NavLinkInput>();
   readonly navTrigger = input<NavigationTransitionTrigger>('inpage');
@@ -46,8 +55,21 @@ export class NavLinkDirective {
     ) {
       return;
     }
+    const input = this.navLink();
+    if ('leaf' in input && input.leaf === 'help-guide') {
+      const guideId = input.params?.['guideId'] || input.ref || 'start';
+      const originLabel = this.workspace.current()?.name || this.i18n.t('experience.work.title');
+      if (this.help.openFromLink(guideId, {
+        originLabel,
+        originUrl: this.router.url,
+      })) {
+        event.preventDefault();
+        this.telemetry.registerTrigger(this.navTrigger());
+        return;
+      }
+    }
     event.preventDefault();
-    const resolved = this.navigation.resolveLink(this.navLink());
+    const resolved = this.navigation.resolveLink(input);
     this.telemetry.registerTrigger(this.navTrigger());
     const state = this.navState();
     void this.router.navigateByUrl(resolved.url, {

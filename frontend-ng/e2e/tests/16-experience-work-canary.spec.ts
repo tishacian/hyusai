@@ -202,11 +202,18 @@ test.describe('Adoption local contract', () => {
     // A desktop companion must leave the page usable.
     await expect(page.locator('app-chat-overlay [aria-modal="true"]')).toHaveCount(0);
     await page.locator('app-work-launcher nav').getByRole('link',{name:'Getting started help',exact:true}).click();
-    await expect(page.locator('app-help-guide h1')).toHaveText('Getting started');
+    await expect(page.locator('app-help-panel')).toBeVisible();
+    await expect(page.locator('app-help-panel h3')).toHaveText('Getting started');
+    await expect(page).toHaveURL(/\/work$/);
     await expect(pilot).toContainText('35 minutes');
     await page.screenshot({path:testInfo.outputPath('adoption-companion-local-fixture.png'),fullPage:true});
+    await page.getByTestId('help-panel-full-page').click();
+    await expect(page).toHaveURL(/\/help\/start/);
+    await expect(page.locator('app-help-guide h1')).toHaveText('Getting started');
+    await expect(page.locator('app-work-bar')).toBeVisible();
     await page.locator('app-help-guide').getByRole('button',{name:'FR',exact:true}).click();
     await expect(page.locator('app-help-guide h1')).toHaveText('Bien démarrer');
+    await expect(page.locator('app-help-guide .help-guide-back')).toBeVisible();
     await page.setViewportSize({width:390,height:844});
     await expect(page.locator('app-chat-overlay [aria-modal="true"]')).toHaveCount(1);
     const panel=page.locator('app-chat-overlay [aria-modal="true"]');
