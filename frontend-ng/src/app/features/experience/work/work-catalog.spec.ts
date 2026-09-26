@@ -6,6 +6,8 @@ import {
   canEditExperience,
   documentNeedsValidations,
   isInternalWorkHref,
+  isNawaLiveHref,
+  isNawaLiveLaunch,
   launchHref,
   launcherDecision,
   liveHref,
@@ -67,6 +69,42 @@ test('live_href on theme is the launch target for dual-run apps', () => {
     }),
     '/work/pr-to-po',
   );
+});
+
+test('Nawa live_href tiles are the dedicated shell that leaves Work', () => {
+  const nawa = {
+    experience: app({ slug: 'nawa', theme: { live_href: '/nawa' } }),
+    channel: 'live' as const,
+    release: {
+      id: 'r-nawa',
+      theme: { live_href: '/nawa' },
+      renderer_version: 'certified-components-0.2.0',
+    },
+  };
+  const reset = {
+    experience: app({ slug: 'nawa-reset', theme: { live_href: '/nawa/itsd/password-reset' } }),
+    channel: 'live' as const,
+    release: {
+      id: 'r-reset',
+      theme: { live_href: '/nawa/itsd/password-reset' },
+      renderer_version: 'certified-components-0.2.0',
+    },
+  };
+  const workApp = {
+    experience: app({ slug: 'pr-to-po', theme: { live_href: '/work/pr-to-po' } }),
+    channel: 'live' as const,
+    release: {
+      id: 'r-factory',
+      theme: { live_href: '/work/pr-to-po' },
+      renderer_version: 'certified-components-0.2.0',
+    },
+  };
+  assert.equal(isNawaLiveHref('/nawa'), true);
+  assert.equal(isNawaLiveHref('/nawa/itsd'), true);
+  assert.equal(isNawaLiveHref('/work/pr-to-po'), false);
+  assert.equal(isNawaLiveLaunch(nawa), true);
+  assert.equal(isNawaLiveLaunch(reset), true);
+  assert.equal(isNawaLiveLaunch(workApp), false);
 });
 
 test('validations surface from pattern or certified nodes', () => {

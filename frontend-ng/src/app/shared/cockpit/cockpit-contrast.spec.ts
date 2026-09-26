@@ -209,3 +209,27 @@ test('every cockpit token a component names is a token the theme defines', () =>
     [],
   );
 });
+
+test('Nawa Tokens v2 secondary text meets WCAG AA on the canvas', () => {
+  const nawa = readFileSync(join(process.cwd(), 'src/app/features/nawa/nawa-theme.scss'), 'utf8');
+  const dark = nawa.slice(0, nawa.indexOf(":host([data-theme='light'])"));
+  const light = nawa.slice(nawa.indexOf(":host([data-theme='light'])"));
+  const read = (block: string, name: string): string => {
+    const match = block.match(new RegExp(`${name}:\\s*([^;]+);`));
+    assert.ok(match, `missing ${name}`);
+    return match[1].trim();
+  };
+  assert.equal(read(dark, '--nawa-bg'), '#0d1116');
+  assert.equal(read(dark, '--nawa-surface'), '#121820');
+  assert.equal(read(dark, '--nawa-surface-2'), '#182029');
+  assert.equal(read(dark, '--nawa-fg'), '#f2f5f8');
+  assert.equal(read(dark, '--nawa-fg-dim'), '#a0a9b5');
+  assert.equal(read(dark, '--nawa-accent'), '#1fb8cc');
+  assert.equal(read(dark, '--nawa-warn'), '#f5b84a');
+  assert.ok(contrast(read(dark, '--nawa-fg-dim'), read(dark, '--nawa-bg')) >= 4.5);
+  assert.ok(contrast(read(dark, '--nawa-fg-dim'), read(dark, '--nawa-surface')) >= 4.5);
+  assert.equal(read(light, '--nawa-bg'), '#f2f4f6');
+  assert.equal(read(light, '--nawa-accent'), '#0a7483');
+  assert.doesNotMatch(nawa, /#c62f00|#b52a00/);
+  assert.doesNotMatch(nawa, /border-radius:\s*999px/);
+});

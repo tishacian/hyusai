@@ -13,6 +13,7 @@ import { WorkApiService, type WorkAutomationJob } from './work-api.service';
 import {
   canEditExperience,
   catalogLaunchHref,
+  isNawaLiveLaunch,
   studioHref,
   workEmblem,
   workIdentity,
@@ -44,6 +45,7 @@ import {
         (searchChange)="query.set($event)"
       />
       <section class="xp-work-main xp-work-home" role="main" aria-labelledby="work-launcher-title">
+        <p class="sr-only" role="status" aria-live="polite">{{ exitAnnouncement() }}</p>
         <div class="xp-work-intro">
           <div class="xp-work-intro-copy">
             <h1 id="work-launcher-title">{{ titleText() }}</h1>
@@ -112,21 +114,54 @@ import {
                 </h2>
                 <div class="xp-work-grid">
                   @for (item of section.items; track item.experience.id) {
-                    <a class="xp-work-card" [routerLink]="launchHref(item)">
-                      <div class="xp-work-card-head">
-                        <span class="xp-work-app-icon" aria-hidden="true">{{ emblem(item) }}</span>
-                        <span class="xp-work-pattern">{{ patternLabel(item.experience.pattern) }}</span>
+                    @if (isNawaLive(item)) {
+                      <a
+                        class="xp-work-card xp-work-card-nawa"
+                        [href]="launchHref(item)"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        [attr.aria-describedby]="'nawa-exit-' + item.experience.id"
+                        (click)="openNawaLive($event, item)"
+                      >
+                        <div class="xp-work-card-head">
+                          <span class="xp-work-app-icon" aria-hidden="true">{{ emblem(item) }}</span>
+                          <span class="xp-work-pattern">{{ patternLabel(item.experience.pattern) }}</span>
+                          <span
+                            class="xp-work-status"
+                            [class.xp-work-status-live]="item.channel === 'live'"
+                          >
+                            {{ i18n.t(item.channel === 'live' ? 'experience.work.status.live' : 'experience.work.status.pilot') }}
+                          </span>
+                        </div>
+                        <h3>{{ identity(item).name }}</h3>
+                        <p>{{ identity(item).description || patternLabel(item.experience.pattern) }}</p>
+                        <span class="xp-work-open">{{ i18n.t('experience.work.open_nawa') }}</span>
                         <span
-                          class="xp-work-status"
-                          [class.xp-work-status-live]="item.channel === 'live'"
+                          [id]="'nawa-exit-' + item.experience.id"
+                          class="xp-work-exit-preview"
+                          role="tooltip"
                         >
-                          {{ i18n.t(item.channel === 'live' ? 'experience.work.status.live' : 'experience.work.status.pilot') }}
+                          <strong>{{ i18n.t('experience.work.open_nawa.announce.title') }}</strong>
+                          <p>{{ i18n.t('experience.work.open_nawa.announce.body') }}</p>
                         </span>
-                      </div>
-                      <h3>{{ identity(item).name }}</h3>
-                      <p>{{ identity(item).description || patternLabel(item.experience.pattern) }}</p>
-                      <span class="xp-work-open">{{ i18n.t('experience.work.open') }} →</span>
-                    </a>
+                      </a>
+                    } @else {
+                      <a class="xp-work-card" [routerLink]="launchHref(item)">
+                        <div class="xp-work-card-head">
+                          <span class="xp-work-app-icon" aria-hidden="true">{{ emblem(item) }}</span>
+                          <span class="xp-work-pattern">{{ patternLabel(item.experience.pattern) }}</span>
+                          <span
+                            class="xp-work-status"
+                            [class.xp-work-status-live]="item.channel === 'live'"
+                          >
+                            {{ i18n.t(item.channel === 'live' ? 'experience.work.status.live' : 'experience.work.status.pilot') }}
+                          </span>
+                        </div>
+                        <h3>{{ identity(item).name }}</h3>
+                        <p>{{ identity(item).description || patternLabel(item.experience.pattern) }}</p>
+                        <span class="xp-work-open">{{ i18n.t('experience.work.open') }} →</span>
+                      </a>
+                    }
                   }
                 </div>
               </section>
@@ -174,6 +209,8 @@ export class WorkLauncherComponent {
   readonly hasQuery = computed(() => this.query().trim().length > 0);
   readonly studioLink = studioHref(null);
   readonly launchHref = catalogLaunchHref;
+  readonly isNawaLive = isNawaLiveLaunch;
+  readonly exitAnnouncement = signal('');
   readonly items = computed(() => {
     const query = this.query().trim().toLocaleLowerCase(this.i18n.locale());
     if (!query) return this.allItems();
@@ -272,5 +309,13 @@ export class WorkLauncherComponent {
 
   sectionLabel(id: LauncherSectionId): string {
     return this.i18n.t(`experience.work.section.${id}`);
+  }
+
+  /** Announce the leave-Work preview, then open Nawa in a new tab (L18 / n1). */
+  openNawaLive(event: Event, item: WorkCatalogItem): void {
+    event.preventDefault();
+    this.exitAnnouncement.set(this.i18n.t('experience.work.open_nawa.announce.body'));
+    const href = catalogLaunchHref(item);
+    window.open(href, '_blank', 'noopener,noreferrer');
   }
 }

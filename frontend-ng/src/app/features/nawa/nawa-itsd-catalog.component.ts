@@ -21,6 +21,7 @@ import {
   staffingLines,
 } from './nawa-catalog-view';
 import { NawaItsdService } from './nawa-itsd.service';
+import { NawaCreatorBannerComponent } from './nawa-creator-banner.component';
 import { NawaThemeToggleComponent } from './nawa-theme-toggle.component';
 import { ThemeService } from '@app/core/theme.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -57,11 +58,15 @@ interface CatalogRow {
     FormsModule,
     RouterLink,
     GlyphComponent,
+    NawaCreatorBannerComponent,
     NawaThemeToggleComponent,
   ],
   styleUrls: ['./nawa-theme.scss', './nawa-itsd-catalog.component.scss'],
   host: { '[attr.data-theme]': 'theme()' },
   template: `
+    @if (platform()) {
+      <app-nawa-creator-banner />
+    }
     <header class="nawa-header">
       <img class="nawa-logo" [src]="logo()" alt="NAWA" />
       <div class="nawa-header-copy">
@@ -70,12 +75,6 @@ interface CatalogRow {
       </div>
       <div class="nawa-header-spacer"></div>
       <app-nawa-theme-toggle />
-      @if (platform()) {
-        <a class="nawa-link" routerLink="/systems">
-          <ck-glyph name="cube" [size]="12" />
-          Builder view
-        </a>
-      }
     </header>
 
     <div class="nawa-body">
