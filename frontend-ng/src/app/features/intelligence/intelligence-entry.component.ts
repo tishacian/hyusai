@@ -6,11 +6,12 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { ZoomContextService } from '@app/core/zoom-context.service';
 import {
   CkObjectHeaderComponent,
-  NavLinkDirective,
   PageFrameComponent,
   type CkObjectKpi,
 } from '@app/shared/cockpit';
