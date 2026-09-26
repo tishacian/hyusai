@@ -4,68 +4,23 @@ import {
   ChangeDetectionStrategy,
   Component,
   EventEmitter,
-  HostListener,
-  Injectable,
   Input,
   OnDestroy,
   OnInit,
   Output,
-  computed,
   inject,
-  signal,
   NgZone,
 } from '@angular/core';
 import { GlyphComponent } from './glyph.component';
-import { WorkspaceService } from '@app/core/workspace.service';
 import { I18nService } from '@app/core/i18n.service';
 import { CK_PANEL_MAX_WIDTH, CK_PANEL_MIN_WIDTH, clampPanelWidth } from './panel-resize';
+import {
+  PanelHostService,
+  type CkPanelPosition,
+} from './panel-host';
 
-export type CkPanelPosition = 'side' | 'bottom' | 'floating';
-
-export interface CkPanelRef {
-  id: string;
-  position: CkPanelPosition;
-  close: () => void;
-}
-
-/**
- * `PanelHostService` — coordinates open `<ck-panel>` instances so only the
- * topmost one consumes Escape. Also lets feature code open panels via a
- * future imperative API (not used yet; kept minimal).
- */
-@Injectable({ providedIn: 'root' })
-export class PanelHostService {
-  private readonly workspace = inject(WorkspaceService);
-  private readonly stack = signal<CkPanelRef[]>([]);
-  readonly open = computed(() => this.stack().length > 0);
-  readonly top = computed(() => {
-    const s = this.stack();
-    return s.length > 0 ? s[s.length - 1] : null;
-  });
-
-  constructor() {
-    this.workspace.registerContextReset(() => this.closeAll());
-  }
-
-  push(ref: CkPanelRef): void {
-    this.stack.update((s) => [...s, ref]);
-  }
-
-  pop(id: string): void {
-    this.stack.update((s) => s.filter((r) => r.id !== id));
-  }
-
-  /** Close the topmost panel (used by global Escape in the shell outlet). */
-  closeTop(): void {
-    const ref = this.top();
-    if (ref) ref.close();
-  }
-
-  closeAll(): void {
-    for (const ref of [...this.stack()].reverse()) ref.close();
-    this.stack.set([]);
-  }
-}
+export type { CkPanelPosition, CkPanelRef } from './panel-host';
+export { PanelHostService, CkPanelHostComponent } from './panel-host';
 
 let panelCounter = 0;
 
@@ -467,27 +422,5 @@ export class CkPanelComponent implements OnInit, OnDestroy {
       case 'bottom':   return 'ckPanelSlideUp 200ms var(--ck-ease-out, ease-out)';
       case 'floating': return 'ckPanelPop 180ms var(--ck-ease-out, ease-out)';
     }
-  }
-}
-
-/**
- * `<app-panel-host>` — shell-level placeholder that owns the global Escape
- * handler so the topmost panel closes without each panel duplicating the
- * listener. Place once inside `ShellComponent`.
- */
-@Component({
-  selector: 'app-panel-host',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: ``,
-})
-export class CkPanelHostComponent {
-  private readonly panelHost = inject(PanelHostService);
-
-  @HostListener('window:keydown.escape', ['$event'])
-  onEscape(ev: Event): void {
-    if (!this.panelHost.open()) return;
-    ev.preventDefault();
-    this.panelHost.closeTop();
   }
 }

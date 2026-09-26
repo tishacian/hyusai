@@ -76,12 +76,12 @@ export class WorkAppHeaderComponent {
   });
 
   /** L14: restore focus on « Ouvrir dans Work » when returning to a System fiche. */
-  readonly backState = computed(() => {
+  readonly backState = computed((): { focus: string } | undefined => {
     const target = this.returnTo();
     if (target && isCataloguedReturnTo(target) && target.startsWith('/systems/')) {
       return { focus: OPEN_IN_WORK_FOCUS };
     }
-    return null;
+    return undefined;
   });
 
   readonly backLabel = computed(() => {
