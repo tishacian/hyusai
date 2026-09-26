@@ -26,12 +26,13 @@
 }
 
 .xp-btn-primary {
-  background: var(--ck-signal-cool);
+  background: var(--ck-primary);
   border-color: transparent;
   color: var(--ck-on-signal, #0b1220);
 }
 
 .xp-btn-primary:hover {
+  background: var(--ck-primary-hover);
   color: var(--ck-on-signal, #0b1220);
 }
 
@@ -583,7 +584,7 @@
   align-items: center;
   gap: 6px;
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--ck-bg-inset);
   color: var(--ck-fg-3);
   font-family: var(--ck-font-mono);
@@ -919,7 +920,7 @@
   flex: 0 0 auto;
   padding: 2px 6px;
   border: 1px solid var(--ck-signal-neg);
-  border-radius: 999px;
+  border-radius: 4px;
   color: var(--ck-fg-1);
   font-size: 10px;
   font-weight: 600;
@@ -959,8 +960,7 @@
   }
 }
 
-/* Paper Studio shell: one full-viewport authoring surface, never a nested page layout. */
-.xp-ed,
+/* Wizard stays a route overlay; the editor sits in Cockpit chrome (L20c). */
 .xp-wizard {
   position: fixed;
   inset: 0;
@@ -971,6 +971,124 @@
   overflow: hidden;
   background: var(--ck-bg-0, #05070a);
   color: var(--ck-fg-2);
+}
+
+.xp-ed {
+  position: relative;
+  z-index: auto;
+  gap: 0;
+  min-width: 0;
+  height: calc(100dvh - 76px);
+  max-height: calc(100dvh - 76px);
+  overflow: hidden;
+  background: var(--ck-bg-0, #05070a);
+  color: var(--ck-fg-2);
+}
+
+.xp-ed.is-focus-mode {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  width: 100vw;
+  height: 100dvh;
+  max-height: none;
+  background: var(--ck-bg-0, #05070a);
+}
+
+.xp-ed.is-focus-mode .xp-ed-facets,
+.xp-ed.is-focus-mode .xp-ed-left,
+.xp-ed.is-focus-mode .xp-ed-inspector,
+.xp-ed.is-focus-mode .xp-bottom,
+.xp-ed.is-focus-mode .xp-ed-tools > :not(.xp-ed-focus-group) {
+  display: none;
+}
+
+.xp-ed.is-focus-mode .xp-ed-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.xp-ed-facets {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--ck-stroke-2);
+  background: var(--ck-bg-1, #070a0f);
+}
+
+.xp-ed-facets button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ck-fg-3);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.xp-ed-facets button.is-on {
+  border-bottom-color: var(--ck-primary);
+  color: var(--ck-fg-1);
+}
+
+.xp-ed-a11y-facet {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.xp-ed-a11y-list {
+  margin: 0;
+  padding: 12px 16px;
+  overflow: auto;
+  list-style: none;
+  border-right: 1px solid var(--ck-stroke-2);
+}
+
+.xp-ed-a11y-list li + li {
+  margin-top: 6px;
+}
+
+.xp-ed-a11y-list button {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--ck-stroke-2);
+  border-radius: 6px;
+  background: var(--ck-bg-1, #070a0f);
+  color: var(--ck-fg-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.xp-ed-a11y-list button.is-on {
+  border-color: var(--ck-primary);
+}
+
+.xp-ed-a11y-list button.is-warn {
+  border-color: color-mix(in srgb, var(--ck-signal-warn) 55%, var(--ck-stroke-2));
+}
+
+.xp-ed-a11y-detail {
+  min-height: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  background: var(--ck-bg-1, #070a0f);
+}
+
+@media (max-width: 900px) {
+  .xp-ed-a11y-facet {
+    grid-template-columns: 1fr;
+  }
 }
 
 .xp-ed-chrome,

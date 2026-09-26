@@ -34,33 +34,7 @@
       </form>
     }
 
-    @if (canEdit()) {
-    <div class="xp-intents">
-      @for (intent of intents; track intent.titleKey) {
-        <article class="xp-card">
-          <header class="xp-card-head">
-            <span class="xp-card-glyph" aria-hidden="true">
-              <ck-glyph [name]="intent.glyph" [size]="16" />
-            </span>
-            <h2>{{ i18n.t(intent.titleKey) }}</h2>
-            @if (intent.helpId) {
-              <ck-help [id]="intent.helpId" />
-            }
-          </header>
-          <p>{{ i18n.t(intent.bodyKey) }}</p>
-          <div class="xp-card-badges">
-            @for (badge of intent.badges; track badge) {
-              <ck-tag tone="cool">{{ i18n.t(badge) }}</ck-tag>
-            }
-          </div>
-          <a [navLink]="intent.link" class="xp-card-cta">
-            {{ i18n.t(intent.ctaKey) }}
-            <ck-glyph name="arrow-right" [size]="12" />
-          </a>
-        </article>
-      }
-    </div>
-    } @else {
+    @if (!canEdit()) {
       <section class="xp-review-card">
         <div>
           <h2>{{ i18n.t('experience.hub.review.title') }}</h2>

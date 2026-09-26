@@ -250,8 +250,8 @@ export class ShellComponent {
   );
 
   readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
-  readonly routeOverlayOpen = computed(() => this.currentPath().startsWith('/create/apps/'));
-  readonly chromeInert = computed(() => this.routeOverlayOpen() || this.chatOverlay.blocksPage());
+  /** Studio editor lives in Cockpit chrome; only the chat overlay blocks the page. */
+  readonly chromeInert = computed(() => this.chatOverlay.blocksPage());
   readonly mainInert = computed(() => this.chatOverlay.blocksPage());
   readonly workspaceAppUnavailable = this.navigationProfile.workspaceAppUnavailable;
   readonly workspaceAppBranding = computed(() => {

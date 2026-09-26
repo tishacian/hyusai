@@ -833,7 +833,7 @@ test('applying appearance props updates node and page', () => {
 test('Appearance owns only visual properties while localised copy stays in Content', () => {
   const appearance = EDITOR_SOURCE.slice(
     EDITOR_SOURCE.indexOf("inspectorTab() === 'appearance'"),
-    EDITOR_SOURCE.indexOf("inspectorTab() === 'a11y'"),
+    EDITOR_SOURCE.indexOf('experience.editor.appearance.note'),
   );
   assert.doesNotMatch(appearance, /setProp\(node, '(?:title|description)'/);
   assert.doesNotMatch(appearance, /renamePage|setPageProp\(page\.id, 'description'/);
@@ -848,7 +848,7 @@ test('Appearance offers a width to the blocks that may share a row', () => {
   // predicate so neither can drift into offering what the other ignores.
   const appearance = EDITOR_SOURCE.slice(
     EDITOR_SOURCE.indexOf("inspectorTab() === 'appearance'"),
-    EDITOR_SOURCE.indexOf("inspectorTab() === 'a11y'"),
+    EDITOR_SOURCE.indexOf('experience.editor.appearance.note'),
   );
   assert.match(appearance, /@if \(supportsSpan\(node\.type\)\)/);
   assert.match(appearance, /i18n\.t\('experience\.editor\.field\.span'\)/);
@@ -862,7 +862,7 @@ test('Appearance offers a width to the blocks that may share a row', () => {
 test('the palette is offered on charts, with the warning that earns the ramp', () => {
   const appearance = EDITOR_SOURCE.slice(
     EDITOR_SOURCE.indexOf("inspectorTab() === 'appearance'"),
-    EDITOR_SOURCE.indexOf("inspectorTab() === 'a11y'"),
+    EDITOR_SOURCE.indexOf('experience.editor.appearance.note'),
   );
 
   // Only a chart has a series to ramp, so only a chart is asked.
@@ -920,4 +920,31 @@ test('assistant proposes local patches for empty-state, rename, approval_card', 
   assert.equal(card?.after.pages[0]?.components.some((node) => node.type === 'approval_card'), true);
 
   assert.equal(proposeAssistantPatch('write a poem', DOC, 'home', labels), null);
+});
+
+test('Studio editor renders in Cockpit chrome with sommaire, fil, and focus mode', () => {
+  const shell = readFileSync('src/app/features/layout/shell.component.ts', 'utf8');
+  const styles = readFileSync('src/app/features/experience/studio/studio.scss', 'utf8');
+  const hub = readFileSync('src/app/features/experience/create-hub.component.html', 'utf8');
+  // Chrome stays interactive on /create/apps/… so sommaire and fil remain usable.
+  assert.doesNotMatch(shell, /routeOverlayOpen/);
+  assert.match(shell, /chromeInert = computed\(\(\) => this\.chatOverlay\.blocksPage\(\)\)/);
+  // Editor fills the main column instead of covering the viewport.
+  assert.match(styles, /\.xp-ed \{[\s\S]*?position:\s*relative/);
+  assert.match(styles, /\.xp-ed\.is-focus-mode/);
+  assert.match(EDITOR_SOURCE, /\[class\.is-focus-mode\]="focusMode\(\)"/);
+  assert.match(EDITOR_SOURCE, /toggleFocusMode|Escape.*focusMode/);
+  assert.match(EDITOR_SOURCE, /experience\.editor\.focus\.exit/);
+  assert.doesNotMatch(hub, /xp-intents|hub\.intent\./);
+});
+
+test('Accessibility facet lists app-wide controls and selects the concerned block', () => {
+  assert.match(EDITOR_SOURCE, /setAppFacet\('accessibilite'\)/);
+  assert.match(EDITOR_SOURCE, /facet === 'accessibilite'/);
+  assert.match(EDITOR_SOURCE, /readonly a11yControls = computed/);
+  assert.match(EDITOR_SOURCE, /experience\.editor\.a11y\.control\./);
+  assert.match(EDITOR_SOURCE, /selectNode\(row\.pageId, row\.nodeId\)/);
+  assert.doesNotMatch(EDITOR_SOURCE, /inspectorTab\(\) === 'a11y'/);
+  assert.doesNotMatch(EDITOR_SOURCE, /\['content', 'action', 'appearance', 'a11y'\]/);
+  assert.match(EDITOR_SOURCE, /\['content', 'action', 'appearance'\]/);
 });

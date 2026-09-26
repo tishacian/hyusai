@@ -9,10 +9,8 @@ import {
   HelpTooltipComponent,
   NavLinkDirective,
   PageFrameComponent,
-  TagComponent,
-  type CkGlyphName,
 } from '@app/shared/cockpit';
-import { type NavLinkInput, navigationLeafUrl } from '@app/core/navigation.catalog';
+import { navigationLeafUrl } from '@app/core/navigation.catalog';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { canEditExperienceStudio } from './experience-access';
@@ -31,7 +29,6 @@ import { automationSystemBody, selectAutomationSkill } from './hub/automation-dr
     GlyphComponent,
     HelpTooltipComponent,
     PageFrameComponent,
-    TagComponent,
   ],
   templateUrl: './create-hub.component.html',
   styleUrl: './create-hub.component.scss',
@@ -104,44 +101,4 @@ export class CreateHubComponent {
       });
   }
 
-  readonly intents: readonly {
-    glyph: CkGlyphName;
-    titleKey: 'nav.business_apps' | 'nav.systems' | 'nav.knowledge';
-    helpId: string;
-    bodyKey: 'experience.hub.intent.app.body' | 'experience.hub.intent.system.body' | 'experience.hub.intent.knowledge.body';
-    badges: readonly string[];
-    ctaKey: 'experience.hub.intent.app.cta' | 'experience.hub.intent.system.cta' | 'experience.hub.intent.knowledge.cta';
-    link: NavLinkInput;
-  }[] = [
-    {
-      glyph: 'orbit',
-      titleKey: 'nav.business_apps',
-      helpId: '',
-      bodyKey: 'experience.hub.intent.app.body',
-      badges: [
-        'experience.hub.intent.app.badge.templates',
-        'experience.hub.intent.app.badge.nocode',
-      ],
-      ctaKey: 'experience.hub.intent.app.cta',
-      link: { leaf: 'create-app-new' },
-    },
-    {
-      glyph: 'cube',
-      titleKey: 'nav.systems',
-      helpId: 'concept.system',
-      bodyKey: 'experience.hub.intent.system.body',
-      badges: ['experience.hub.intent.system.badge'],
-      ctaKey: 'experience.hub.intent.system.cta',
-      link: { leaf: 'system-new' },
-    },
-    {
-      glyph: 'layers',
-      titleKey: 'nav.knowledge',
-      helpId: '',
-      bodyKey: 'experience.hub.intent.knowledge.body',
-      badges: ['experience.hub.intent.knowledge.badge'],
-      ctaKey: 'experience.hub.intent.knowledge.cta',
-      link: { surface: 'knowledge' },
-    },
-  ];
 }

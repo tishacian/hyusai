@@ -8,11 +8,9 @@
   display: grid;
   gap: 12px;
   padding: 18px;
-  border: 1px solid color-mix(in oklab, var(--ck-signal-cool, #67d5f6) 26%, transparent);
+  border: 1px solid var(--ck-stroke-2);
   border-radius: 8px;
-  background:
-    linear-gradient(135deg, color-mix(in oklab, var(--ck-signal-cool, #67d5f6) 10%, transparent), transparent 58%),
-    var(--ck-bg-panel);
+  background: var(--ck-bg-panel);
 }
 
 .xp-automation-head {
@@ -85,12 +83,6 @@
   font-size: 12px;
 }
 
-.xp-intents {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
 .xp-review-card {
   display: flex;
   align-items: center;
@@ -106,49 +98,6 @@
 .xp-review-card p { margin: 0; }
 .xp-review-card h2 { color: var(--ck-fg-1); font-size: 16px; }
 .xp-review-card p { margin-top: 6px; color: var(--ck-fg-3); font-size: 13px; }
-
-.xp-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-  background: var(--ck-bg-panel);
-  border: 1px solid var(--ck-stroke-2);
-  border-radius: 8px;
-  min-height: 180px;
-}
-
-.xp-card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.xp-card-glyph {
-  color: var(--ck-signal-cool);
-}
-
-.xp-card h2 {
-  margin: 0;
-  font-family: var(--ck-font-sans);
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--ck-fg-1);
-}
-
-.xp-card p {
-  margin: 0;
-  flex: 1 1 auto;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--ck-fg-3);
-}
-
-.xp-card-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 
 .xp-card-cta {
   display: inline-flex;
@@ -296,8 +245,3 @@
   text-align: center;
 }
 
-@media (max-width: 900px) {
-  .xp-intents {
-    grid-template-columns: 1fr;
-  }
-}
