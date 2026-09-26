@@ -173,19 +173,6 @@
     "src/app/features/models/models-list.component.ts": {
       "pill": 3
     },
-    "src/app/features/nawa/nawa-assistant.component.scss": {
-      "pill": 2
-    },
-    "src/app/features/nawa/nawa-itsd-catalog.component.scss": {
-      "pill": 2
-    },
-    "src/app/features/nawa/nawa-password-reset.component.scss": {
-      "pill": 1,
-      "halo": 2
-    },
-    "src/app/features/nawa/nawa-theme.scss": {
-      "pill": 1
-    },
     "src/app/features/observability/quality-dashboard.component.ts": {
       "pill": 1
     },

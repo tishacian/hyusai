@@ -126,7 +126,7 @@ interface Launch {
   requestCase: Record<string, unknown>;
 }
 
-function makeHarness(options: { system?: System | null } = {}) {
+function makeHarness(options: { system?: System | null; admin?: boolean } = {}) {
   const rooms: RoomStub[] = [];
   const launches: Launch[] = [];
   /** Every utterance the engine was asked to answer. */
@@ -185,7 +185,7 @@ function makeHarness(options: { system?: System | null } = {}) {
           resolveHitl: () => of(null),
         },
       },
-      { provide: WorkspaceService, useValue: { isAdmin: () => false } },
+      { provide: WorkspaceService, useValue: { isAdmin: () => options.admin === true } },
       {
         provide: ActivatedRoute,
         useValue: { snapshot: { queryParamMap: { get: () => null } } },
@@ -218,6 +218,7 @@ function makeHarness(options: { system?: System | null } = {}) {
     speak(): Promise<void>;
     conversing(): boolean;
     pending(): boolean;
+    platform(): boolean;
     voiceNote(): string | null;
     turns(): Array<{
       engine: { question: string; action: { service: string } | null };
@@ -518,4 +519,42 @@ test('the NAWA transcript announces appended turns and its pending state', () =>
   assert.match(source, /aria-relevant="additions text"/);
   assert.match(source, /\[attr\.aria-busy\]="pending\(\)"/);
   assert.match(source, /class="as-pending" role="status"/);
+});
+
+test('creator banner is present for authors and absent for guests', () => {
+  const source = readFileSync(
+    'src/app/features/nawa/nawa-assistant.component.ts',
+    'utf8',
+  );
+  assert.match(source, /@if \(platform\(\)\)[\s\S]{0,120}app-nawa-creator-banner/);
+  assert.doesNotMatch(source, /Builder view|Library view/);
+
+  const catalog = readFileSync(
+    'src/app/features/nawa/nawa-itsd-catalog.component.ts',
+    'utf8',
+  );
+  assert.match(catalog, /app-nawa-creator-banner/);
+  assert.doesNotMatch(catalog, /Builder view/);
+
+  const reset = readFileSync(
+    'src/app/features/nawa/nawa-password-reset.component.ts',
+    'utf8',
+  );
+  assert.match(reset, /app-nawa-creator-banner/);
+  const resetHeader = reset.match(/<header class="nawa-header">[\s\S]*?<\/header>/)?.[0] ?? '';
+  assert.doesNotMatch(resetHeader, /Flow Builder|Builder view|Library view/);
+
+  const guest = makeHarness();
+  try {
+    assert.equal(guest.component.platform(), false);
+  } finally {
+    guest.injector.destroy();
+  }
+
+  const author = makeHarness({ admin: true });
+  try {
+    assert.equal(author.component.platform(), true);
+  } finally {
+    author.injector.destroy();
+  }
 });

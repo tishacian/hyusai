@@ -24,6 +24,7 @@ import {
   type NawaStepState,
 } from './nawa-itsd.model';
 import { NawaItsdService } from './nawa-itsd.service';
+import { NawaCreatorBannerComponent } from './nawa-creator-banner.component';
 import { NawaThemeToggleComponent } from './nawa-theme-toggle.component';
 import { buildInboundQueue, type NawaInboundRequest } from './nawa-inbound-queue';
 import { projectConversation } from './nawa-conversation';
@@ -93,10 +94,19 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
   selector: 'app-nawa-password-reset',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, GlyphComponent, NawaThemeToggleComponent, ThinkingOrbComponent],
+  imports: [
+    RouterLink,
+    GlyphComponent,
+    NawaCreatorBannerComponent,
+    NawaThemeToggleComponent,
+    ThinkingOrbComponent,
+  ],
   styleUrls: ['./nawa-theme.scss', './nawa-password-reset.component.scss'],
   host: { '[attr.data-theme]': 'theme()' },
   template: `
+    @if (platform()) {
+      <app-nawa-creator-banner [editHref]="editHref()" />
+    }
     <header class="nawa-header">
       <img class="nawa-logo" [src]="logo()" alt="NAWA" />
       <div class="nawa-header-copy">
@@ -105,14 +115,6 @@ const OUTCOME_TITLE: Record<NawaOutcome, string> = {
       </div>
       <div class="nawa-header-spacer"></div>
       <app-nawa-theme-toggle />
-      @if (platform()) {
-        @if (system(); as installed) {
-          <a class="nawa-link" [routerLink]="['/systems', installed.id, 'flow']">
-            <ck-glyph name="flow" [size]="12" />
-            Flow Builder
-          </a>
-        }
-      }
       <a class="nawa-link" routerLink="/nawa/itsd">Back to the catalogue</a>
     </header>
 
@@ -492,6 +494,12 @@ export class NawaPasswordResetComponent implements OnDestroy {
   protected readonly platform = computed(() =>
     this.workspace.isAdmin() || this.route.snapshot.queryParamMap.get('platform') === '1',
   );
+
+  /** Flow Builder when the System is known; otherwise the Systems list. */
+  protected readonly editHref = computed(() => {
+    const installed = this.system();
+    return installed ? (['/systems', installed.id, 'flow'] as const) : '/systems';
+  });
 
   protected readonly scenario = signal<NawaScenario>(NAWA_SCENARIOS[0]);
   protected readonly system = signal<System | null>(null);

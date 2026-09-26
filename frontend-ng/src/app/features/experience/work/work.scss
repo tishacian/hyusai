@@ -454,6 +454,54 @@
   border-color: var(--ck-stroke-hot);
 }
 
+.xp-work-card-nawa {
+  position: relative;
+}
+
+.xp-work-card-nawa:hover,
+.xp-work-card-nawa:focus-visible {
+  border-color: var(--ck-primary);
+}
+
+.xp-work-exit-preview {
+  display: none;
+  position: absolute;
+  z-index: 2;
+  left: 16px;
+  right: 16px;
+  bottom: calc(100% + 8px);
+  padding: 12px 14px;
+  border: 1px solid var(--ck-stroke-3);
+  border-radius: var(--ck-radius-md);
+  background: var(--ck-bg-panel-hi);
+  box-shadow: var(--ck-shadow-popover);
+  color: var(--ck-fg-3);
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.xp-work-exit-preview strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ck-fg-1);
+  font-weight: 600;
+}
+
+.xp-work-exit-preview p {
+  margin: 0;
+  flex: none;
+  color: var(--ck-fg-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.xp-work-card-nawa:hover .xp-work-exit-preview,
+.xp-work-card-nawa:focus-visible .xp-work-exit-preview,
+.xp-work-card-nawa:focus-within .xp-work-exit-preview {
+  display: block;
+}
+
 .xp-work-card h2 {
   margin: 0;
   font-size: 16px;

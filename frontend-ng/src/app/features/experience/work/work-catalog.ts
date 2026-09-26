@@ -119,6 +119,15 @@ export function liveHref(theme: Record<string, unknown> | null | undefined): str
   return trimmed;
 }
 
+/** Dedicated Nawa shell opened from Work (L18) — leaves Work for a new tab. */
+export function isNawaLiveHref(href: string): boolean {
+  return href === '/nawa' || href.startsWith('/nawa/');
+}
+
+export function isNawaLiveLaunch(item: WorkCatalogItem): boolean {
+  return isNawaLiveHref(catalogLaunchHref(item));
+}
+
 export function launchHref(app: WorkExperience): string {
   return liveHref(app.theme) ?? `/work/${app.slug}`;
 }

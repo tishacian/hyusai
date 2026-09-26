@@ -52,6 +52,7 @@ import {
   NAWA_LOGO,
   type NawaUseCase,
 } from './nawa-itsd.model';
+import { NawaCreatorBannerComponent } from './nawa-creator-banner.component';
 import { NawaThemeToggleComponent } from './nawa-theme-toggle.component';
 import { NawaAssistantService } from './nawa-assistant.service';
 import { NawaItsdService } from './nawa-itsd.service';
@@ -169,12 +170,16 @@ function hasBothProofs(reply: string): boolean {
     RouterLink,
     GlyphComponent,
     IconComponent,
+    NawaCreatorBannerComponent,
     NawaThemeToggleComponent,
     ThinkingOrbComponent,
   ],
   styleUrls: ['./nawa-theme.scss', './nawa-assistant.component.scss'],
   host: { '[attr.data-theme]': 'theme()' },
   template: `
+    @if (platform()) {
+      <app-nawa-creator-banner />
+    }
     <header class="nawa-header">
       <img class="nawa-logo" [src]="logo()" alt="NAWA" />
       <div class="nawa-header-copy">
@@ -203,12 +208,6 @@ function hasBothProofs(reply: string): boolean {
         <ck-glyph name="focus" [size]="12" />
         Service catalogue
       </a>
-      @if (platform()) {
-        <a class="nawa-link" routerLink="/knowledge">
-          <ck-glyph name="cube" [size]="12" />
-          Library view
-        </a>
-      }
     </header>
 
     <div class="as-body">
