@@ -1,17 +1,18 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { CaptureExperienceService } from '@app/core/capture-experience.service';
+import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { KnowledgeCaptureComponent } from '../knowledge-capture.component';
 import { CaptureFilShellComponent } from './capture-fil-shell.component';
+import {
+  collectionCaptureFacetUrl,
+  systemCaptureFacetUrl,
+} from '../knowledge-capture-redirect';
 
 /**
- * URL-stable wrapper for `/knowledge/capture`. Renders the official cockpit
- * experience (`<app-capture-fil-shell>`, default) or the frozen v0 monolith
- * (`<app-knowledge-capture>`) when the `capture_experience` flag is forced to
- * `v0`.
- *
- * Both heavy components are loaded via `@defer` so only the active experience's
- * chunk is fetched — the v0 path is byte-for-byte the same monolith chunk as
- * before, just reached through this wrapper for explicit legacy fallback.
+ * URL-stable wrapper for `/knowledge/capture`. L19 redirects hosted Capture to
+ * the owning object's Capture facet in the full chrome; the business shell keeps
+ * `/knowledge/capture?systemId=` (allowed primary surface).
  */
 @Component({
   selector: 'app-capture-router',
@@ -32,12 +33,32 @@ import { CaptureFilShellComponent } from './capture-fil-shell.component';
 })
 export class CaptureRouterComponent {
   private readonly captureExperience = inject(CaptureExperienceService);
+  private readonly navigationProfile = inject(NavigationProfileService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
   protected readonly experience = computed(() => this.captureExperience.experience());
 
   constructor() {
-    // The root flag service is created at app start (before this route
-    // activates), so re-read the `?exp=` deep-link override now.
     this.captureExperience.syncFromUrl();
+    const params = this.route.snapshot.queryParamMap;
+    const systemId = (params.get('systemId') || params.get('system_id') || '').trim();
+    const collection = (
+      params.get('collection') || params.get('collectionId') || params.get('kbId') || ''
+    ).trim();
+
+    if (systemId && !this.navigationProfile.businessShellActive()) {
+      void this.router.navigateByUrl(systemCaptureFacetUrl(systemId), { replaceUrl: true });
+      return;
+    }
+    if (collection) {
+      const query: Record<string, string | null> = {};
+      params.keys.forEach((key) => {
+        query[key] = params.get(key);
+      });
+      void this.router.navigateByUrl(collectionCaptureFacetUrl(collection, query), {
+        replaceUrl: true,
+      });
+    }
   }
 }

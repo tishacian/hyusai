@@ -97,14 +97,14 @@ const OPPORTUNITIES_TOPIC: CaptureTemplatePlanTopic = {
 };
 
 const DISTRIBUTION_OPTIONS: CaptureTemplateFieldOption[] = [
-  { value: 'project_manager', label: 'Project manager' },
-  { value: 'head_of_site_management', label: 'Head of site management' },
-  { value: 'customer_care_manager', label: 'Customer Care Manager' },
-  { value: 'global_service_director', label: 'Global Service Director' },
-  { value: 'service_coordinator', label: 'Service coordinator' },
-  { value: 'quality', label: 'Quality' },
-  { value: 'spare_parts', label: 'Spare Parts' },
-  { value: 'field_service', label: 'Field Service' },
+  { value: 'project_manager', label: 'Chef de projet' },
+  { value: 'head_of_site_management', label: 'Responsable de site' },
+  { value: 'customer_care_manager', label: 'Responsable relation client' },
+  { value: 'global_service_director', label: 'Directeur service global' },
+  { value: 'service_coordinator', label: 'Coordinateur de service' },
+  { value: 'quality', label: 'Qualité' },
+  { value: 'spare_parts', label: 'Pièces de rechange' },
+  { value: 'field_service', label: 'Service terrain' },
 ];
 
 /** FE UX preselection (backend has no distribution default). */
@@ -117,10 +117,10 @@ const DISTRIBUTION_DEFAULT = [
 ];
 
 const SITE_MODIFICATION_OPTIONS: CaptureTemplateFieldOption[] = [
-  { value: 'none', label: 'None / aucune modification' },
-  { value: 'plc_hmi', label: 'HMI/PLC Modification' },
-  { value: 'electrical_diagram', label: 'Electrical diagram modification' },
-  { value: 'fa', label: 'FA Modification' },
+  { value: 'none', label: 'Aucune modification' },
+  { value: 'plc_hmi', label: 'Modification IHM/PLC' },
+  { value: 'electrical_diagram', label: 'Modification schéma électrique' },
+  { value: 'fa', label: 'Modification FA' },
 ];
 
 const HSE_DEFAULT = 'None / rien à signaler';
@@ -138,7 +138,7 @@ const WEEKLY_SITE_PLAN: CaptureTemplatePlanTopic[] = [
     subtopics: [
       { title: 'Incidents (new/total)' },
       { title: 'Accidents (new/total)' },
-      { title: 'Safety deviation' },
+      { title: 'Écart sécurité' },
       { title: 'Environmental measures & deviation' },
     ],
   },
@@ -170,7 +170,7 @@ const WEEKLY_SITE_PLAN: CaptureTemplatePlanTopic[] = [
   {
     title: 'Autres points & annexes',
     subtopics: [
-      { title: 'Open list' },
+      { title: 'Liste ouverte' },
       { title: 'NCR' },
       { title: 'Attachments' },
     ],
@@ -195,7 +195,7 @@ const PROCESS_PLAN: CaptureTemplatePlanTopic[] = [
     subtopics: [
       { title: 'Incidents (new/total)' },
       { title: 'Accidents (new/total)' },
-      { title: 'Safety deviation' },
+      { title: 'Écart sécurité' },
       { title: 'Environmental measures & deviation' },
     ],
   },

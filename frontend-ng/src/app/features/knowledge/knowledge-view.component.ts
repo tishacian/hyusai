@@ -7,6 +7,13 @@ import {
   signal,
 } from '@angular/core';
 import { IngestionStatusComponent } from './ingestion-status.component';
+import {
+  KNOWLEDGE_CONTENT_PANELS,
+  contentPanelFromLegacy,
+  normalizeKnowledgeFacet,
+  type KnowledgeContentPanel,
+  type KnowledgeFacetId,
+} from './knowledge-facets';
 import { I18nService } from '@app/core/i18n.service';
 import { HttpClient } from '@angular/common/http';
 import { SlicePipe } from '@angular/common';
@@ -34,7 +41,7 @@ import {
 /**
  * `KnowledgeViewComponent` — detail page for a single Knowledge Base
  * (Qdrant collection). Uses the canonical `<ck-object-header>` +
- * `<ck-tabs>` pattern with **live** facets:
+ * `ck-tabs` pattern with **live** facets:
  *
  *   - **Overview**  — resolved counts, vector DB, last indexed
  *   - **Sources**   — table of ingested documents
@@ -219,18 +226,7 @@ interface GuideBlock {
   text: string;
 }
 
-type KbTabId =
-  | 'overview'
-  | 'sources'
-  | 'chunks'
-  | 'graph'
-  | 'structure'
-  | 'facts'
-  | 'ocr'
-  | 'table-facts'
-  | 'guides'
-  | 'diagnostics'
-  | 'bindings';
+type KbTabId = KnowledgeFacetId;
 
 @Component({
   selector: 'app-knowledge-view',
@@ -259,27 +255,27 @@ type KbTabId =
       <button
         actions
         type="button"
-        (click)="onTabChange('guides')"
+        (click)="onTabChange('usage')"
         class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
         style="color:var(--ck-signal-cool); border-color:var(--ck-stroke-hot);"
       >
-        <app-icon name="book-open" [size]="14" /> Guide
+        <app-icon name="book-open" [size]="14" /> {{ i18n.t('knowledge.action.guides') }}
       </button>
       <button
         actions
         type="button"
-        (click)="onTabChange('table-facts')"
+        (click)="setContentPanel('table-facts'); onTabChange('content')"
         class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
       >
-        <app-icon name="table" [size]="14" /> Table facts
+        <app-icon name="table" [size]="14" /> {{ i18n.t('knowledge.action.table_facts') }}
       </button>
       <button
         actions
         type="button"
-        (click)="onTabChange('bindings')"
+        (click)="onTabChange('usage')"
         class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
       >
-        <app-icon name="link" [size]="14" /> Bindings
+        <app-icon name="link" [size]="14" /> {{ i18n.t('knowledge.action.bindings') }}
       </button>
       <ck-back-link />
     </ck-object-header>
@@ -299,11 +295,12 @@ type KbTabId =
 
     <ck-tabs
       [active]="activeTab()"
-      [maxVisible]="8"
+      [maxVisible]="5"
       (activeChange)="onTabChange($event)"
-      ariaLabel="Knowledge facets"
+      [ariaLabel]="i18n.t('knowledge.facets_aria')"
     >
-      <ck-tab id="overview" label="Overview">
+      <ck-tab id="overview" [label]="i18n.t('knowledge.facet.overview')">
+
         <section class="ck-surface rounded-md p-5 space-y-4">
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
@@ -377,9 +374,175 @@ type KbTabId =
             </div>
           }
         </section>
+      
+        <div class="mt-6 space-y-4" data-testid="knowledge-diagnostics-section">
+        <section class="grid gap-4 lg:grid-cols-2">
+          <article class="ck-surface rounded-md p-5">
+            <div class="ck-label" style="color:var(--ck-signal-cool);">Index health</div>
+            <h3 class="mt-1 text-base font-semibold ck-fg-1">Collection diagnostics</h3>
+            @if (loadingDiagnostics()) {
+              <p class="mt-3 text-sm ck-fg-3">
+                <app-icon name="loader-2" [size]="14" class="mr-2 inline-block animate-spin" />
+                Loading corpus diagnostics…
+              </p>
+            }
+            <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
+              @for (row of diagnosticRows(); track row.label) {
+                <div class="ck-inset rounded p-3">
+                  <dt class="ck-label">{{ row.label }}</dt>
+                  <dd class="mt-1 text-lg font-semibold ck-fg-1 tabular-nums">{{ row.value }}</dd>
+                  <p class="mt-1 text-[11px] ck-fg-4">{{ row.hint }}</p>
+                </div>
+              }
+            </dl>
+            @if (diagnostics()) {
+              <div class="mt-4 grid gap-3 text-xs md:grid-cols-3">
+                <div class="ck-inset rounded p-3">
+                  <div class="ck-label">Zero chunks</div>
+                  <div class="mt-1 text-lg font-semibold ck-fg-1">{{ diagnostics()?.zero_chunk_sources ?? 0 }}</div>
+                </div>
+                <div class="ck-inset rounded p-3">
+                  <div class="ck-label">Errors</div>
+                  <div class="mt-1 text-lg font-semibold ck-fg-1">{{ diagnostics()?.error_sources ?? 0 }}</div>
+                </div>
+                <div class="ck-inset rounded p-3">
+                  <div class="ck-label">Heavy sources</div>
+                  <div class="mt-1 text-lg font-semibold ck-fg-1">{{ diagnostics()?.heavy_sources ?? 0 }}</div>
+                </div>
+              </div>
+            }
+          </article>
+          <article class="ck-surface rounded-md p-5">
+            <div class="ck-label" style="color:var(--ck-signal-cool);">Retrieval layers</div>
+            <h3 class="mt-1 text-base font-semibold ck-fg-1">How this collection is queried</h3>
+            <div class="mt-4 space-y-3 text-xs leading-relaxed ck-fg-3">
+              @for (row of featureRows(); track row.label) {
+                <article class="ck-inset rounded p-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="font-medium ck-fg-2">{{ row.label }}</span>
+                    <span class="rounded px-2 py-0.5 font-mono text-[10px]" [class.ck-posbg]="row.state === 'available'" [class.ck-pos]="row.state === 'available'" [class.ck-bg-inset]="row.state !== 'available'" [class.ck-fg-3]="row.state !== 'available'">
+                      {{ row.state }}
+                    </span>
+                  </div>
+                  @if (row.reason) {
+                    <p class="mt-2 ck-fg-4">{{ row.reason }}</p>
+                  }
+                </article>
+              }
+              <p class="ck-inset rounded p-3 font-mono text-[11px] ck-fg-2">
+                collection={{ kbId }} · vector={{ vectorDbType() || 'unknown' }} · docs={{ docCount() }} · chunks={{ chunkCount() }} · drift={{ diagnostics()?.drift ?? '—' }}
+              </p>
+              <article class="ck-inset rounded p-3">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <span class="font-medium ck-fg-2">Retrieval artifacts</span>
+                  @if (retrievalArtifactJob(); as job) {
+                    <span class="ck-chip rounded px-2 py-0.5 font-mono text-[10px] ck-fg-2">
+                      {{ artifactJobLabel(job) }}
+                    </span>
+                  }
+                </div>
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium"
+                    [disabled]="artifactJobLaunching() !== null"
+                    title="Rebuild document/section summary artifacts"
+                    (click)="launchRetrievalArtifactJob('summary_index_rebuild')"
+                  >
+                    @if (artifactJobLaunching() === 'summary_index_rebuild') {
+                      <app-icon name="loader-2" [size]="13" class="animate-spin" />
+                    } @else {
+                      <app-icon name="file-text" [size]="13" />
+                    }
+                    Summaries
+                  </button>
+                  <button
+                    type="button"
+                    class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium"
+                    [disabled]="artifactJobLaunching() !== null"
+                    title="Rebuild production sparse retrieval artifact"
+                    (click)="launchRetrievalArtifactJob('sparse_index_rebuild')"
+                  >
+                    @if (artifactJobLaunching() === 'sparse_index_rebuild') {
+                      <app-icon name="loader-2" [size]="13" class="animate-spin" />
+                    } @else {
+                      <app-icon name="search" [size]="13" />
+                    }
+                    Sparse
+                  </button>
+                  <button
+                    type="button"
+                    class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium"
+                    [disabled]="artifactJobLaunching() !== null"
+                    title="Prepare experimental Qdrant sparse reindex job"
+                    (click)="launchRetrievalArtifactJob('qdrant_sparse_reindex')"
+                  >
+                    @if (artifactJobLaunching() === 'qdrant_sparse_reindex') {
+                      <app-icon name="loader-2" [size]="13" class="animate-spin" />
+                    } @else {
+                      <app-icon name="database" [size]="13" />
+                    }
+                    Qdrant sparse
+                  </button>
+                </div>
+                @if (artifactJobError()) {
+                  <p class="mt-2 text-[11px] ck-neg">{{ artifactJobError() }}</p>
+                }
+                @if (retrievalArtifactJob(); as job) {
+                  <dl class="mt-3 grid gap-2 text-[11px] md:grid-cols-3">
+                    <div>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Status</dt>
+                      <dd class="ck-fg-2">{{ job.status || 'queued' }}</dd>
+                    </div>
+                    <div>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Progress</dt>
+                      <dd class="ck-fg-2 tabular-nums">{{ job.progress ?? 0 }}%</dd>
+                    </div>
+                    <div>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Stage</dt>
+                      <dd class="ck-fg-2">{{ job.stage || job.result?.['stage'] || 'queued' }}</dd>
+                    </div>
+                  </dl>
+                }
+              </article>
+              @if (diagnostics()?.offline_clustering) {
+                <article class="ck-inset rounded p-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="font-medium ck-fg-2">Offline clustering artifact</span>
+                    <span class="rounded px-2 py-0.5 font-mono text-[10px]" [class.ck-warnbox]="diagnostics()?.offline_clustering?.state === 'recommended'" [class.ck-warn]="diagnostics()?.offline_clustering?.state === 'recommended'" [class.ck-bg-inset]="diagnostics()?.offline_clustering?.state !== 'recommended'" [class.ck-fg-3]="diagnostics()?.offline_clustering?.state !== 'recommended'">
+                      {{ diagnostics()?.offline_clustering?.state || 'unknown' }}
+                    </span>
+                  </div>
+                  <p class="mt-2 ck-fg-4">{{ diagnostics()?.offline_clustering?.reason }}</p>
+                  <dl class="mt-3 grid gap-2 text-[11px] md:grid-cols-2">
+                    <div>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Launch</dt>
+                      <dd class="ck-fg-2">{{ diagnostics()?.offline_clustering?.launch_policy || 'manual_only' }}</dd>
+                    </div>
+                    <div>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Sample</dt>
+                      <dd class="ck-fg-2 tabular-nums">{{ diagnostics()?.offline_clustering?.default_sample ?? '—' }}</dd>
+                    </div>
+                    <div class="md:col-span-2">
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Artifact</dt>
+                      <dd class="break-all font-mono ck-fg-2">{{ diagnostics()?.offline_clustering?.artifact_key || '—' }}</dd>
+                    </div>
+                    <div class="md:col-span-2">
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Stratification</dt>
+                      <dd class="ck-fg-2">{{ (diagnostics()?.offline_clustering?.stratification || []).join(', ') || '—' }}</dd>
+                    </div>
+                  </dl>
+                </article>
+              }
+            </div>
+          </article>
+        </section>
+      
+        </div>
       </ck-tab>
 
-      <ck-tab id="sources" label="Sources">
+      <ck-tab id="documents" [label]="i18n.t('knowledge.facet.documents')">
+
         <section class="ck-surface rounded-md p-4 mb-4">
           <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_140px_140px_170px]">
             <label class="block">
@@ -549,9 +712,28 @@ type KbTabId =
             </div>
           </div>
         }
+      
       </ck-tab>
 
-      <ck-tab id="chunks" label="Chunks">
+      <ck-tab id="content" [label]="i18n.t('knowledge.facet.content')">
+
+        <div class="mb-4 flex flex-wrap gap-2" role="tablist" [attr.aria-label]="i18n.t('knowledge.facet.content_panels_aria')">
+          @for (panel of contentPanels; track panel) {
+            <button
+              type="button"
+              role="tab"
+              class="ck-btn-soft rounded px-3 py-1.5 text-sm"
+              [attr.aria-selected]="contentPanel() === panel"
+              [attr.data-active]="contentPanel() === panel ? 'true' : null"
+              [style.border-color]="contentPanel() === panel ? 'var(--ck-stroke-hot)' : null"
+              (click)="setContentPanel(panel)"
+            >
+              {{ i18n.t('knowledge.content.' + panel) }}
+            </button>
+          }
+        </div>
+        @if (contentPanel() === 'chunks') {
+
         <section class="ck-surface rounded-md p-5 space-y-4">
           <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
             <div>
@@ -706,18 +888,10 @@ type KbTabId =
             </div>
           }
         </section>
-      </ck-tab>
+      
+        }
+        @if (contentPanel() === 'structure') {
 
-      <ck-tab id="graph" label="Graph">
-        <app-embedding-map
-          [collection]="kbId"
-          [active]="activeTab() === 'graph'"
-          [documents]="sources()"
-          (previewRequested)="previewFromNode($event)"
-        />
-      </ck-tab>
-
-      <ck-tab id="structure" label="Structure">
         <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b ck-bd-1 flex items-start justify-between gap-3">
             <div>
@@ -786,9 +960,10 @@ type KbTabId =
             </div>
           }
         </section>
-      </ck-tab>
+      
+        }
+        @if (contentPanel() === 'facts') {
 
-      <ck-tab id="facts" label="Facts">
         <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b ck-bd-1 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
             <div>
@@ -924,9 +1099,10 @@ type KbTabId =
             </div>
           }
         </section>
-      </ck-tab>
+      
+        }
+        @if (contentPanel() === 'ocr') {
 
-      <ck-tab id="ocr" label="OCR">
         <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b ck-bd-1 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
             <div>
@@ -1036,9 +1212,10 @@ type KbTabId =
             </div>
           }
         </section>
-      </ck-tab>
+      
+        }
+        @if (contentPanel() === 'table-facts') {
 
-      <ck-tab id="table-facts" label="Table facts">
         <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b ck-bd-1 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
             <div>
@@ -1188,9 +1365,70 @@ type KbTabId =
             </div>
           }
         </section>
+      
+        }
       </ck-tab>
 
-      <ck-tab id="guides" label="Guides">
+      <ck-tab id="usage" [label]="i18n.t('knowledge.facet.usage')">
+
+        <section class="ck-surface rounded-md p-5 mb-4 space-y-2" data-testid="knowledge-chat-scopes">
+          <h2 class="text-sm font-semibold ck-fg-1">{{ i18n.t('knowledge.usage.chat_scopes_title') }}</h2>
+          @if (chatScopesLoading()) {
+            <p class="text-sm ck-fg-3">{{ i18n.t('knowledge.usage.chat_scopes_loading') }}</p>
+          } @else if (chatScopes().length === 0) {
+            <p class="text-sm ck-fg-3">{{ i18n.t('knowledge.usage.chat_scopes_empty') }}</p>
+          } @else {
+            <p class="text-sm ck-fg-2">
+              {{ i18n.t('knowledge.usage.chat_scopes_queried_by', { scopes: chatScopeLabels() }) }}
+            </p>
+          }
+          <a
+            class="ck-link text-sm inline-flex items-center gap-1"
+            [navLink]="{ leaf: 'workspace-chat-knowledge', ref: workspaceSlug() }"
+            data-testid="knowledge-chat-scopes-admin"
+          >
+            {{ i18n.t('knowledge.usage.edit_in_admin') }}
+          </a>
+        </section>
+
+        @if (loadingBindings()) {
+          <div class="ck-surface rounded-md p-5 text-center ck-fg-3 text-sm">
+            <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
+            Scanning Systems…
+          </div>
+        } @else if (bindings().length === 0) {
+          <app-empty-state
+            icon="link"
+            title="No Systems bound"
+            description="No System references this collection in its flow yet."
+          />
+        } @else {
+          <ul class="space-y-2">
+            @for (sys of bindings(); track sys.id) {
+              <li class="ck-surface rounded-md p-4 flex items-center gap-3">
+                <div class="w-9 h-9 rounded flex items-center justify-center shrink-0" style="background:rgba(125, 211, 252, 0.15); color:var(--ck-signal-cool);">
+                  <app-icon name="box" [size]="16" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <a
+                    [navLink]="{ type: 'system', ref: sys.id }"
+                    class="ck-link text-sm font-medium transition truncate block"
+                  >
+                    {{ sys.name }}
+                  </a>
+                  <div class="text-[11px] ck-fg-4 truncate">{{ sys.objective || '—' }}</div>
+                </div>
+                <span
+                  class="ck-label px-2 py-1 rounded ck-bg-inset"
+                >
+                  {{ sys.retrieval_mode_default || 'auto' }}
+                </span>
+              </li>
+            }
+          </ul>
+        }
+      
+        <div class="mt-6">
         <section class="ck-surface rounded-md overflow-hidden mb-4">
           <div class="px-5 py-4 border-b ck-bd-1 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
@@ -1337,209 +1575,19 @@ type KbTabId =
             }
           </section>
         }
+      
+        </div>
       </ck-tab>
 
-      <ck-tab id="diagnostics" label="Diagnostics">
-        <section class="grid gap-4 lg:grid-cols-2">
-          <article class="ck-surface rounded-md p-5">
-            <div class="ck-label" style="color:var(--ck-signal-cool);">Index health</div>
-            <h3 class="mt-1 text-base font-semibold ck-fg-1">Collection diagnostics</h3>
-            @if (loadingDiagnostics()) {
-              <p class="mt-3 text-sm ck-fg-3">
-                <app-icon name="loader-2" [size]="14" class="mr-2 inline-block animate-spin" />
-                Loading corpus diagnostics…
-              </p>
-            }
-            <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
-              @for (row of diagnosticRows(); track row.label) {
-                <div class="ck-inset rounded p-3">
-                  <dt class="ck-label">{{ row.label }}</dt>
-                  <dd class="mt-1 text-lg font-semibold ck-fg-1 tabular-nums">{{ row.value }}</dd>
-                  <p class="mt-1 text-[11px] ck-fg-4">{{ row.hint }}</p>
-                </div>
-              }
-            </dl>
-            @if (diagnostics()) {
-              <div class="mt-4 grid gap-3 text-xs md:grid-cols-3">
-                <div class="ck-inset rounded p-3">
-                  <div class="ck-label">Zero chunks</div>
-                  <div class="mt-1 text-lg font-semibold ck-fg-1">{{ diagnostics()?.zero_chunk_sources ?? 0 }}</div>
-                </div>
-                <div class="ck-inset rounded p-3">
-                  <div class="ck-label">Errors</div>
-                  <div class="mt-1 text-lg font-semibold ck-fg-1">{{ diagnostics()?.error_sources ?? 0 }}</div>
-                </div>
-                <div class="ck-inset rounded p-3">
-                  <div class="ck-label">Heavy sources</div>
-                  <div class="mt-1 text-lg font-semibold ck-fg-1">{{ diagnostics()?.heavy_sources ?? 0 }}</div>
-                </div>
-              </div>
-            }
-          </article>
-          <article class="ck-surface rounded-md p-5">
-            <div class="ck-label" style="color:var(--ck-signal-cool);">Retrieval layers</div>
-            <h3 class="mt-1 text-base font-semibold ck-fg-1">How this collection is queried</h3>
-            <div class="mt-4 space-y-3 text-xs leading-relaxed ck-fg-3">
-              @for (row of featureRows(); track row.label) {
-                <article class="ck-inset rounded p-3">
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="font-medium ck-fg-2">{{ row.label }}</span>
-                    <span class="rounded px-2 py-0.5 font-mono text-[10px]" [class.ck-posbg]="row.state === 'available'" [class.ck-pos]="row.state === 'available'" [class.ck-bg-inset]="row.state !== 'available'" [class.ck-fg-3]="row.state !== 'available'">
-                      {{ row.state }}
-                    </span>
-                  </div>
-                  @if (row.reason) {
-                    <p class="mt-2 ck-fg-4">{{ row.reason }}</p>
-                  }
-                </article>
-              }
-              <p class="ck-inset rounded p-3 font-mono text-[11px] ck-fg-2">
-                collection={{ kbId }} · vector={{ vectorDbType() || 'unknown' }} · docs={{ docCount() }} · chunks={{ chunkCount() }} · drift={{ diagnostics()?.drift ?? '—' }}
-              </p>
-              <article class="ck-inset rounded p-3">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                  <span class="font-medium ck-fg-2">Retrieval artifacts</span>
-                  @if (retrievalArtifactJob(); as job) {
-                    <span class="ck-chip rounded px-2 py-0.5 font-mono text-[10px] ck-fg-2">
-                      {{ artifactJobLabel(job) }}
-                    </span>
-                  }
-                </div>
-                <div class="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium"
-                    [disabled]="artifactJobLaunching() !== null"
-                    title="Rebuild document/section summary artifacts"
-                    (click)="launchRetrievalArtifactJob('summary_index_rebuild')"
-                  >
-                    @if (artifactJobLaunching() === 'summary_index_rebuild') {
-                      <app-icon name="loader-2" [size]="13" class="animate-spin" />
-                    } @else {
-                      <app-icon name="file-text" [size]="13" />
-                    }
-                    Summaries
-                  </button>
-                  <button
-                    type="button"
-                    class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium"
-                    [disabled]="artifactJobLaunching() !== null"
-                    title="Rebuild production sparse retrieval artifact"
-                    (click)="launchRetrievalArtifactJob('sparse_index_rebuild')"
-                  >
-                    @if (artifactJobLaunching() === 'sparse_index_rebuild') {
-                      <app-icon name="loader-2" [size]="13" class="animate-spin" />
-                    } @else {
-                      <app-icon name="search" [size]="13" />
-                    }
-                    Sparse
-                  </button>
-                  <button
-                    type="button"
-                    class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium"
-                    [disabled]="artifactJobLaunching() !== null"
-                    title="Prepare experimental Qdrant sparse reindex job"
-                    (click)="launchRetrievalArtifactJob('qdrant_sparse_reindex')"
-                  >
-                    @if (artifactJobLaunching() === 'qdrant_sparse_reindex') {
-                      <app-icon name="loader-2" [size]="13" class="animate-spin" />
-                    } @else {
-                      <app-icon name="database" [size]="13" />
-                    }
-                    Qdrant sparse
-                  </button>
-                </div>
-                @if (artifactJobError()) {
-                  <p class="mt-2 text-[11px] ck-neg">{{ artifactJobError() }}</p>
-                }
-                @if (retrievalArtifactJob(); as job) {
-                  <dl class="mt-3 grid gap-2 text-[11px] md:grid-cols-3">
-                    <div>
-                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Status</dt>
-                      <dd class="ck-fg-2">{{ job.status || 'queued' }}</dd>
-                    </div>
-                    <div>
-                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Progress</dt>
-                      <dd class="ck-fg-2 tabular-nums">{{ job.progress ?? 0 }}%</dd>
-                    </div>
-                    <div>
-                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Stage</dt>
-                      <dd class="ck-fg-2">{{ job.stage || job.result?.['stage'] || 'queued' }}</dd>
-                    </div>
-                  </dl>
-                }
-              </article>
-              @if (diagnostics()?.offline_clustering) {
-                <article class="ck-inset rounded p-3">
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="font-medium ck-fg-2">Offline clustering artifact</span>
-                    <span class="rounded px-2 py-0.5 font-mono text-[10px]" [class.ck-warnbox]="diagnostics()?.offline_clustering?.state === 'recommended'" [class.ck-warn]="diagnostics()?.offline_clustering?.state === 'recommended'" [class.ck-bg-inset]="diagnostics()?.offline_clustering?.state !== 'recommended'" [class.ck-fg-3]="diagnostics()?.offline_clustering?.state !== 'recommended'">
-                      {{ diagnostics()?.offline_clustering?.state || 'unknown' }}
-                    </span>
-                  </div>
-                  <p class="mt-2 ck-fg-4">{{ diagnostics()?.offline_clustering?.reason }}</p>
-                  <dl class="mt-3 grid gap-2 text-[11px] md:grid-cols-2">
-                    <div>
-                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Launch</dt>
-                      <dd class="ck-fg-2">{{ diagnostics()?.offline_clustering?.launch_policy || 'manual_only' }}</dd>
-                    </div>
-                    <div>
-                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Sample</dt>
-                      <dd class="ck-fg-2 tabular-nums">{{ diagnostics()?.offline_clustering?.default_sample ?? '—' }}</dd>
-                    </div>
-                    <div class="md:col-span-2">
-                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Artifact</dt>
-                      <dd class="break-all font-mono ck-fg-2">{{ diagnostics()?.offline_clustering?.artifact_key || '—' }}</dd>
-                    </div>
-                    <div class="md:col-span-2">
-                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Stratification</dt>
-                      <dd class="ck-fg-2">{{ (diagnostics()?.offline_clustering?.stratification || []).join(', ') || '—' }}</dd>
-                    </div>
-                  </dl>
-                </article>
-              }
-            </div>
-          </article>
-        </section>
-      </ck-tab>
+      <ck-tab id="graph" [label]="i18n.t('knowledge.facet.graph')">
 
-      <ck-tab id="bindings" label="Bindings">
-        @if (loadingBindings()) {
-          <div class="ck-surface rounded-md p-5 text-center ck-fg-3 text-sm">
-            <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
-            Scanning Systems…
-          </div>
-        } @else if (bindings().length === 0) {
-          <app-empty-state
-            icon="link"
-            title="No Systems bound"
-            description="No System references this collection in its flow yet."
-          />
-        } @else {
-          <ul class="space-y-2">
-            @for (sys of bindings(); track sys.id) {
-              <li class="ck-surface rounded-md p-4 flex items-center gap-3">
-                <div class="w-9 h-9 rounded flex items-center justify-center shrink-0" style="background:rgba(125, 211, 252, 0.15); color:var(--ck-signal-cool);">
-                  <app-icon name="box" [size]="16" />
-                </div>
-                <div class="flex-1 min-w-0">
-                  <a
-                    [navLink]="{ type: 'system', ref: sys.id }"
-                    class="ck-link text-sm font-medium transition truncate block"
-                  >
-                    {{ sys.name }}
-                  </a>
-                  <div class="text-[11px] ck-fg-4 truncate">{{ sys.objective || '—' }}</div>
-                </div>
-                <span
-                  class="ck-label px-2 py-1 rounded ck-bg-inset"
-                >
-                  {{ sys.retrieval_mode_default || 'auto' }}
-                </span>
-              </li>
-            }
-          </ul>
-        }
+        <app-embedding-map
+          [collection]="kbId"
+          [active]="activeTab() === 'graph'"
+          [documents]="sources()"
+          (previewRequested)="previewFromNode($event)"
+        />
+      
       </ck-tab>
     </ck-tabs>
 
@@ -1695,6 +1743,19 @@ export class KnowledgeViewComponent implements OnInit {
   kbId = '';
   readonly title = signal('Knowledge base');
   readonly activeTab = signal<KbTabId>('overview');
+  readonly contentPanels = KNOWLEDGE_CONTENT_PANELS;
+  readonly contentPanel = signal<KnowledgeContentPanel>('chunks');
+  readonly chatScopesLoading = signal(true);
+
+  readonly chatScopes = computed(() =>
+    this.knowledgeScopes().filter((scope) => (scope.collection_slugs || []).includes(this.kbId)),
+  );
+  readonly chatScopeLabels = computed(() =>
+    this.chatScopes()
+      .map((scope) => scope.label || scope.key)
+      .filter(Boolean)
+      .join(', '),
+  );
 
   // Source document preview (shared with Secure Deposit viewer).
   readonly previewOpen = signal(false);
@@ -1810,7 +1871,7 @@ export class KnowledgeViewComponent implements OnInit {
     {
       label: 'Bindings',
       value: this.loadingBindings() ? '…' : String(this.bindings().length),
-      tone: this.bindings().length > 0 ? 'violet' : 'neutral',
+      tone: this.bindings().length > 0 ? 'cool' : 'neutral',
       hint: 'Systems consuming this knowledge base.',
     },
     {
@@ -2018,36 +2079,63 @@ export class KnowledgeViewComponent implements OnInit {
   ngOnInit(): void {
     this.kbId = this.route.snapshot.paramMap.get('kbId') ?? '';
     this.title.set(this.kbId || 'Knowledge base');
-    const facet = this.route.snapshot.queryParamMap.get('facet');
-    if (facet) this.activeTab.set(facet as KbTabId);
+    const rawFacet =
+      this.route.snapshot.queryParamMap.get('facet')
+      || this.route.snapshot.queryParamMap.get('tab');
+    const facet = normalizeKnowledgeFacet(rawFacet);
+    this.activeTab.set(facet);
+    const panel = contentPanelFromLegacy(rawFacet);
+    if (panel) this.contentPanel.set(panel);
+    if (rawFacet && rawFacet !== facet) {
+      void this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { facet, tab: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+    }
     this.loadAll();
+    this.ensureFacetData(facet);
+  }
+
+  setContentPanel(panel: KnowledgeContentPanel): void {
+    this.contentPanel.set(panel);
+    this.ensureContentPanelData(panel);
   }
 
   onTabChange(id: string): void {
-    this.activeTab.set(id as KbTabId);
+    const facet = normalizeKnowledgeFacet(id);
+    this.activeTab.set(facet);
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { facet: id },
+      queryParams: { facet, tab: null },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
-    if (id === 'diagnostics' && !this.diagnostics()) {
+    this.ensureFacetData(facet);
+  }
+
+  private ensureFacetData(facet: KnowledgeFacetId): void {
+    if (facet === 'overview' && !this.diagnostics()) {
       this.loadDiagnostics();
     }
-    if (id === 'table-facts' && this.tableFacts().length === 0) {
-      this.loadTableFacts(0);
+    if (facet === 'content') {
+      this.ensureContentPanelData(this.contentPanel());
     }
-    if ((id === 'structure' || id === 'facts' || id === 'diagnostics') && this.documentFacts().length === 0) {
+  }
+
+  private ensureContentPanelData(panel: KnowledgeContentPanel): void {
+    if (panel === 'chunks' && this.chunks().length === 0) {
+      this.loadChunks(0);
+    }
+    if ((panel === 'structure' || panel === 'facts') && this.documentFacts().length === 0) {
       this.loadDocumentFacts(0);
     }
-    if (id === 'ocr' && this.ocrFacts().length === 0) {
+    if (panel === 'ocr' && this.ocrFacts().length === 0) {
       this.loadOcrFacts();
     }
-    if (id === 'diagnostics' && this.tableFacts().length === 0) {
+    if (panel === 'table-facts' && this.tableFacts().length === 0) {
       this.loadTableFacts(0);
-    }
-    if (id === 'diagnostics' && this.ocrFacts().length === 0) {
-      this.loadOcrFacts();
     }
   }
 
@@ -2374,6 +2462,7 @@ export class KnowledgeViewComponent implements OnInit {
     }).subscribe(({ guides, scopes }) => {
       this.knowledgeGuides.set(guides.items || []);
       this.knowledgeScopes.set(scopes.scopes || []);
+      this.chatScopesLoading.set(false);
       this.hydrateGuideEditor();
     });
 

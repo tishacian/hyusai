@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-26T06:17:04.221Z",
+  "generated_at": "2026-09-26T06:28:44.404Z",
   "rules": {
     "font": "banned font",
     "violet": "banned violet",
@@ -39,7 +39,7 @@
       "violet": 1
     },
     "src/app/features/chat/chat-panel.component.ts": {
-      "pill": 24,
+      "pill": 23,
       "halo": 4
     },
     "src/app/features/chat/chat-workspace.component.ts": {
@@ -145,11 +145,9 @@
       "halo": 1
     },
     "src/app/features/knowledge/knowledge-base.component.ts": {
-      "violet": 1,
       "halo": 1
     },
     "src/app/features/knowledge/knowledge-view.component.ts": {
-      "violet": 1,
       "halo": 1
     },
     "src/app/features/layout/business-shell-header.component.ts": {
