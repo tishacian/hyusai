@@ -1,122 +1,174 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  OnDestroy,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
-import { Router } from '@angular/router';
-import { ZoomContextService } from '@app/core/zoom-context.service';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
+import {
+  CkObjectHeaderComponent,
+  NavLinkDirective,
+  PageFrameComponent,
+  type CkObjectKpi,
+} from '@app/shared/cockpit';
+import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
+
+export type IntelligenceRow = {
+  id: string;
+  name: string;
+  status: string;
+  measure: string;
+  updatedAt: string | null;
+  systemId: string;
+};
 
 /**
- * `/intelligence` is not a bespoke page anymore — it is a *pre-selected*
- * System. This thin resolver looks up the workspace's Intelligence System
- * (seeded at backend boot, see `app/services/systems/bootstrap.py`) and
- * redirects the user to `/systems/:id?facet=intelligence`.
- *
- * Fallback: if the seed hasn't run yet, we display a tiny placeholder and
- * retry once a few seconds later. This keeps the cockpit deterministic
- * even when the backend is still initializing.
+ * Suivre › Intelligence (L21b): a real list (state, object, measure, date).
+ * Detail opens the System intelligence facet. No infinite News Lab retry.
  */
 @Component({
   selector: 'app-intelligence-entry',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [RouterLink, PageFrameComponent, CkObjectHeaderComponent, EmptyStateComponent],
   template: `
-    @if (error()) {
-      <div class="ck-surface rounded-md p-8 text-center">
-        <h2 class="text-base font-semibold text-white mb-2">
-          Initializing your News Lab…
-        </h2>
-        <p class="text-xs text-gray-400 max-w-lg mx-auto leading-relaxed">
-          The intelligence System is being provisioned for this workspace.
-          This usually takes a few seconds at first boot — we'll redirect
-          you automatically.
-        </p>
-        <p class="text-[11px] text-gray-500 mt-3 ck-mono">
-          Retry in {{ retryIn() }}s
-        </p>
-      </div>
-    } @else {
-      <div class="ck-surface rounded-md p-5 text-center text-xs text-gray-400">
-        Resolving Intelligence System…
-      </div>
+    <ck-page-frame>
+      <ck-object-header
+        [title]="i18n.t('intelligence.page.title')"
+        [subtitle]="i18n.t('intelligence.page.description')"
+        [kpis]="kpis()"
+      />
+      @if (loading()) {
+        <app-empty-state icon="sparkles" size="md" [title]="i18n.t('common.loading')" />
+      } @else if (rows().length === 0) {
+        <app-empty-state
+          icon="radar"
+          size="md"
+          [title]="i18n.t('intelligence.empty.title')"
+          [description]="i18n.t('intelligence.empty.body')"
+        />
+      } @else {
+        <ul class="intel-list" role="list">
+          @for (row of rows(); track row.id) {
+            <li>
+              <a class="intel-row" [routerLink]="detailHref(row)">
+                <span class="intel-status" [attr.data-tone]="statusTone(row.status)">{{ statusLabel(row.status) }}</span>
+                <span class="intel-name">{{ row.name }}</span>
+                <span class="intel-measure">{{ row.measure }}</span>
+                <span class="intel-date">{{ formatDate(row.updatedAt) }}</span>
+              </a>
+            </li>
+          }
+        </ul>
+      }
+    </ck-page-frame>
+  `,
+  styles: `
+    .intel-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--ck-stroke-2); border-radius: 4px; overflow: hidden; }
+    .intel-row {
+      display: grid;
+      grid-template-columns: 7rem minmax(0, 1.4fr) minmax(0, 1fr) 8rem;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--ck-stroke-2);
+      color: var(--ck-fg-1);
+      text-decoration: none;
+      background: var(--ck-bg-panel);
+    }
+    .intel-row:hover { background: var(--ck-bg-panel-hi); }
+    li:last-child .intel-row { border-bottom: 0; }
+    .intel-status {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--ck-fg-3);
+    }
+    .intel-status[data-tone='ok'] { color: var(--ck-signal-pos); }
+    .intel-status[data-tone='warn'] { color: var(--ck-signal-warn); }
+    .intel-status[data-tone='info'] { color: var(--ck-signal-cool); }
+    .intel-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .intel-measure, .intel-date { color: var(--ck-fg-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 720px) {
+      .intel-row { grid-template-columns: 1fr; gap: 4px; }
     }
   `,
 })
-export class IntelligenceEntryComponent implements OnInit, OnDestroy {
+export class IntelligenceEntryComponent implements OnInit {
   private readonly canonical = inject(CanonicalApiService);
-  private readonly router = inject(Router);
   private readonly navigation = inject(ZoomContextService);
+  readonly i18n = inject(I18nService);
 
-  readonly error = signal(false);
-  readonly retryIn = signal(3);
+  readonly loading = signal(true);
+  readonly rows = signal<IntelligenceRow[]>([]);
 
-  private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private countdown: ReturnType<typeof setInterval> | null = null;
+  readonly kpis = computed<CkObjectKpi[]>(() => {
+    const rows = this.rows();
+    const live = rows.filter((r) => r.status === 'live' || r.status === 'ready').length;
+    return [
+      { label: this.i18n.t('intelligence.kpi.total'), value: String(rows.length), tone: 'cool' },
+      { label: this.i18n.t('intelligence.kpi.live'), value: String(live), tone: live ? 'pos' : 'neutral' },
+    ];
+  });
 
   ngOnInit(): void {
-    // Intelligence is a canonical System — surface the redirect to the
-    // breadcrumb by clearing any stale focus first; `SystemViewComponent`
-    // The destination route is the sole owner of the selected System.
-    this.resolve();
-  }
-
-  ngOnDestroy(): void {
-    if (this.retryTimer) clearTimeout(this.retryTimer);
-    if (this.countdown) clearInterval(this.countdown);
-  }
-
-  private resolve(): void {
     this.canonical.listSystems().subscribe({
       next: (systems) => {
-        const intel = this.pickIntelligenceSystem(systems);
-        if (intel) {
-          void this.router.navigateByUrl(
-            this.navigation.objectUrl('system', intel.id, { facet: 'intelligence' }),
-            { replaceUrl: true },
-          );
-        } else {
-          this.scheduleRetry();
-        }
+        this.rows.set(this.toRows(systems ?? []));
+        this.loading.set(false);
       },
-      error: () => this.scheduleRetry(),
+      error: () => {
+        this.rows.set([]);
+        this.loading.set(false);
+      },
     });
   }
 
-  private pickIntelligenceSystem(systems: System[]): System | null {
-    if (!systems || systems.length === 0) return null;
-    const byTemplate = systems.find((s) => {
-      const flow = (s.flow_definition ?? {}) as Record<string, unknown>;
-      return flow['template_id'] === 'sentinel-ci-intelligence';
-    });
-    if (byTemplate) return byTemplate;
-    const byVariant = systems.find((s) => {
-      const flow = (s.flow_definition ?? {}) as Record<string, unknown>;
-      return flow['variant'] === 'intelligence';
-    });
-    if (byVariant) return byVariant;
-    // Fallback: match by conventional name so older seeds still resolve.
-    return (
-      systems.find((s) => s.name === 'News Lab') ??
-      systems.find((s) => /news\s*lab/i.test(s.name ?? '')) ??
-      null
-    );
+  detailHref(row: IntelligenceRow): string {
+    return this.navigation.objectUrl('system', row.systemId, { facet: 'intelligence' });
   }
 
-  private scheduleRetry(): void {
-    this.error.set(true);
-    this.retryIn.set(3);
-    if (this.countdown) clearInterval(this.countdown);
-    this.countdown = setInterval(() => {
-      this.retryIn.update((n) => Math.max(0, n - 1));
-    }, 1000);
-    this.retryTimer = setTimeout(() => {
-      if (this.countdown) clearInterval(this.countdown);
-      this.error.set(false);
-      this.resolve();
-    }, 3000);
+  statusTone(status: string): string {
+    if (status === 'live' || status === 'ready') return 'ok';
+    if (status === 'error' || status === 'failed') return 'warn';
+    return 'info';
+  }
+
+  statusLabel(status: string): string {
+    const key = `intelligence.status.${status}`;
+    const label = this.i18n.t(key);
+    return label === key ? status : label;
+  }
+
+  formatDate(value: string | null): string {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return new Intl.DateTimeFormat(this.i18n.locale(), { dateStyle: 'medium' }).format(date);
+  }
+
+  private toRows(systems: System[]): IntelligenceRow[] {
+    const intel = systems.filter((s) => this.isIntelligenceSystem(s));
+    const source = intel.length > 0 ? intel : systems.slice(0, 12);
+    return source.map((s) => ({
+      id: s.id,
+      systemId: s.id,
+      name: s.name || s.id,
+      status: (s.status || 'draft').toLowerCase(),
+      measure: s.objective?.trim() || this.i18n.t('intelligence.measure.absent'),
+      updatedAt: s.updated_at ?? s.created_at ?? null,
+    }));
+  }
+
+  private isIntelligenceSystem(system: System): boolean {
+    const flow = (system.flow_definition ?? {}) as Record<string, unknown>;
+    if (flow['template_id'] === 'sentinel-ci-intelligence') return true;
+    if (flow['variant'] === 'intelligence') return true;
+    const name = (system.name || '').toLowerCase();
+    return name.includes('news lab') || name.includes('intelligence') || name.includes('veille');
   }
 }

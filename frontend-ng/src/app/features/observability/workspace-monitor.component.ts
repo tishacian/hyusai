@@ -88,7 +88,7 @@ type WindowKey = '24h' | '7d';
               @for (alert of alerts().slice(0, 4); track alert.id) {
                 <a [routerLink]="alert.route" class="rounded border border-white/5 bg-black/20 px-3 py-2 text-sm text-gray-200 hover:border-cyan-400/40">
                   <div class="flex items-center gap-2">
-                    <span class="h-1.5 w-1.5 rounded-full" [style.background]="toneColor(alert.tone)"></span>
+                    <span class="h-1.5 w-1.5 rounded" [style.background]="toneColor(alert.tone)"></span>
                     <span class="truncate">{{ alert.label }}</span>
                     <span class="ck-mono ml-auto text-[10px] text-gray-500">{{ relative(alert.timestamp) }}</span>
                   </div>
@@ -103,7 +103,7 @@ type WindowKey = '24h' | '7d';
           <ck-stat-readout variant="tile" label="Completed" [value]="summary().runs_completed" icon="check" tone="pos" />
           <ck-stat-readout variant="tile" label="Running" [value]="summary().runs_running" icon="play" tone="warn" />
           <ck-stat-readout variant="tile" label="Failed" [value]="summary().runs_failed" icon="warn" tone="neg" />
-          <ck-stat-readout variant="tile" label="P95 latency" [value]="duration(summary().p95_latency_ms)" icon="telemetry" tone="violet" />
+          <ck-stat-readout variant="tile" label="P95 latency" [value]="duration(summary().p95_latency_ms)" icon="telemetry" tone="cool" />
           <ck-stat-readout variant="tile" label="Eval breaches" [value]="overview()!.evaluations.breaches" icon="shield" tone="warn" />
         </section>
 
@@ -137,7 +137,7 @@ type WindowKey = '24h' | '7d';
               <ck-stat-readout variant="tile" label="Sparse fallbacks" [value]="summary().sparse_fallbacks || 0" icon="warn" tone="warn" />
               <ck-stat-readout variant="tile" label="Sparse timeouts" [value]="summary().sparse_timeouts || 0" icon="timer" tone="warn" />
               <ck-stat-readout variant="tile" label="Cross issues" [value]="summary().cross_encoder_issues || 0" icon="shield" tone="neg" />
-              <ck-stat-readout variant="tile" label="Deep launched" [value]="summary().deep_launched || 0" icon="rocket" tone="violet" />
+              <ck-stat-readout variant="tile" label="Deep launched" [value]="summary().deep_launched || 0" icon="rocket" tone="cool" />
             </div>
           </div>
         </section>
@@ -186,7 +186,7 @@ type WindowKey = '24h' | '7d';
                 @for (job of jobs().slice(0, 8); track job.id) {
                   <a [routerLink]="job.route || '/observability'" class="block px-4 py-3 hover:bg-white/[0.035]">
                     <div class="flex items-center gap-2">
-                      <span class="h-1.5 w-1.5 rounded-full" [style.background]="toneColor(statusTone(job.status))"></span>
+                      <span class="h-1.5 w-1.5 rounded" [style.background]="toneColor(statusTone(job.status))"></span>
                       <span class="truncate text-sm font-medium text-white">{{ job.title || job.kind }}</span>
                       <span class="ck-mono ml-auto text-[10px] text-gray-500">{{ relative(job.updated_at || job.created_at) }}</span>
                     </div>
@@ -217,7 +217,7 @@ type WindowKey = '24h' | '7d';
                 <li>
                   <a [routerLink]="item.route" class="grid grid-cols-12 gap-3 px-4 py-2.5 text-sm hover:bg-white/[0.035]">
                     <div class="col-span-1 flex items-center">
-                      <span class="h-2 w-2 rounded-full" [style.background]="toneColor(item.tone)"></span>
+                      <span class="h-2 w-2 rounded" [style.background]="toneColor(item.tone)"></span>
                     </div>
                     <div class="col-span-7 truncate text-gray-200">{{ item.label }}</div>
                     <div class="ck-mono col-span-2 text-[10px] uppercase tracking-[0.12em] text-gray-500">{{ item.kind }}</div>
@@ -346,7 +346,7 @@ export class WorkspaceMonitorComponent implements OnInit, OnDestroy {
     if (tone === 'pos') return 'var(--ck-signal-pos)';
     if (tone === 'neg') return 'var(--ck-signal-neg)';
     if (tone === 'warn') return 'var(--ck-signal-warn)';
-    if (tone === 'violet') return 'var(--ck-signal-violet)';
+    if (tone === 'cool' || tone === 'info') return 'var(--ck-signal-cool)';
     return 'var(--ck-signal-cool)';
   }
 }

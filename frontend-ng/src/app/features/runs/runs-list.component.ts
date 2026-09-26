@@ -19,6 +19,7 @@ import { I18nService } from '@app/core/i18n.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkspaceViewContext } from '@app/core/workspace-view-context';
+import { formatSkillCost } from '@app/features/skills/skill-cost';
 import { experienceOrigin, experienceSlugFromOrigin, normalizedExperienceOrigin } from './runs-origin';
 
 type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
@@ -247,7 +248,7 @@ type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
                 </div>
                 <div class="col-span-1 text-right text-xs text-gray-300 font-mono tabular-nums">
                   @if (r.outcome?.cost_internal != null) {
-                    \${{ (r.outcome!.cost_internal ?? 0).toFixed(3) }}
+                    {{ formatRunCost(r.outcome!.cost_internal ?? 0) }}
                   }
                 </div>
                 </a>
@@ -434,6 +435,20 @@ export class RunsListComponent implements OnInit, OnDestroy {
     } catch {
       return ts;
     }
+  }
+
+  formatRunCost(amount: number): string {
+    const settings = this.workspace.current()?.settings as Record<string, unknown> | undefined;
+    const publicSettings = settings?.['public'];
+    const fromPublic =
+      publicSettings && typeof publicSettings === 'object' && !Array.isArray(publicSettings)
+        ? (publicSettings as Record<string, unknown>)['currency']
+        : null;
+    const currency =
+      (typeof fromPublic === 'string' && fromPublic) ||
+      (typeof settings?.['currency'] === 'string' && settings['currency']) ||
+      'USD';
+    return formatSkillCost(amount, currency, this.i18n.locale());
   }
 
   private effectiveScope(

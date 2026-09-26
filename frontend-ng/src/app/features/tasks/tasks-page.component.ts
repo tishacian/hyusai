@@ -9,6 +9,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { ActivatedRoute, Router } from '@angular/router';
 import { I18nService } from '@app/core/i18n.service';
 import { SseChunk, SseService } from '@app/core/sse.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -152,7 +153,7 @@ interface TaskEvent {
             </div>
           }
         </div>
-      } @else if (tasks().length === 0) {
+      } @else if (visibleTasks().length === 0) {
         <app-empty-state
           icon="list-todo"
           [title]="i18n.t('tasks.empty.title')"
@@ -160,7 +161,7 @@ interface TaskEvent {
         />
       } @else {
         <ul class="divide-y divide-white/5">
-          @for (t of tasks(); track t.id) {
+          @for (t of visibleTasks(); track t.id) {
             <li
               class="px-5 py-3 cursor-pointer hover:bg-white/5 transition"
               (click)="openDetail(t)"
@@ -192,7 +193,7 @@ interface TaskEvent {
                   </div>
                 </div>
                 <div class="w-32 shrink-0">
-                  <div class="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                  <div class="h-1.5 rounded bg-white/5 overflow-hidden">
                     <div
                       class="h-full transition-all duration-300"
                       [class.bg-cyan-500]="t.status === 'running'"
@@ -292,7 +293,7 @@ interface TaskEvent {
         <div class="space-y-4">
           <div class="flex items-center gap-2">
             <span
-              class="text-[10px] tracking-wider font-semibold px-2 py-1 rounded-full ring-1"
+              class="text-[10px] tracking-wider font-semibold px-2 py-1 rounded ring-1"
               [class.bg-cyan-500\\/10]="d.status === 'running'"
               [class.text-cyan-300]="d.status === 'running'"
               [class.ring-cyan-500\\/30]="d.status === 'running'"
@@ -333,7 +334,7 @@ interface TaskEvent {
                 <span>{{ i18n.t('tasks.detail.progress') }}</span>
                 <span class="font-mono">{{ d.progress ?? 0 }}%</span>
               </div>
-              <div class="h-1.5 rounded-full bg-white/5 overflow-hidden">
+              <div class="h-1.5 rounded bg-white/5 overflow-hidden">
                 <div
                   class="h-full bg-cyan-400 transition-all duration-300"
                   [style.width.%]="d.progress ?? 0"
@@ -360,7 +361,7 @@ interface TaskEvent {
                     <div class="flex items-center justify-between">
                       <div class="flex items-center gap-2 min-w-0">
                         <span
-                          class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0"
+                          class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-mono shrink-0"
                           [class.bg-emerald-500\\/20]="s.status === 'completed'"
                           [class.text-emerald-300]="s.status === 'completed'"
                           [class.bg-cyan-500\\/20]="s.status === 'running' || s.status === 'in_progress'"
@@ -425,11 +426,14 @@ interface TaskEvent {
 })
 export class TasksPageComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly sse = inject(SseService);
   private readonly toast = inject(ToastrService);
   readonly i18n = inject(I18nService);
 
   tasks = signal<TaskSummary[]>([]);
+  readonly facetFilter = signal<'all' | 'running' | 'completed' | 'failed' | 'pending'>('all');
   agents = signal<Agent[]>([]);
   loading = signal(false);
   detail = signal<TaskDetail | null>(null);
@@ -450,6 +454,13 @@ export class TasksPageComponent implements OnInit {
     () => this.tasks().filter((t) => t.status === 'failed').length,
   );
 
+  readonly visibleTasks = computed(() => {
+    const facet = this.facetFilter();
+    const all = this.tasks();
+    if (facet === 'all') return all;
+    return all.filter((t) => t.status === facet);
+  });
+
   readonly detailSubtitle = computed(() => {
     const d = this.detail();
     if (!d) return '';
@@ -460,6 +471,14 @@ export class TasksPageComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.route.queryParamMap.subscribe((params) => {
+      const facet = params.get('facet');
+      if (facet === 'running' || facet === 'completed' || facet === 'failed' || facet === 'pending' || facet === 'all') {
+        this.facetFilter.set(facet);
+      } else {
+        this.facetFilter.set('all');
+      }
+    });
     this.refresh();
     // Canonical `/systems` — `/agents` is a deprecated alias.
     this.api.get<{ systems: Agent[] } | Agent[]>('/systems').subscribe({

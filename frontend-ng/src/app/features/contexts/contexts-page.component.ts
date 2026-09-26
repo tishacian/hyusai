@@ -104,7 +104,17 @@ import { I18nService } from '@app/core/i18n.service';
                     >
                       {{ i18n.t('contexts.list.in_use') }}
                     </span>
+                  } @else {
+                    <span
+                      class="ck-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                      style="color: var(--ck-signal-warn); border: 1px solid color-mix(in srgb, var(--ck-signal-warn) 35%, transparent); background: color-mix(in srgb, var(--ck-signal-warn) 8%, transparent);"
+                    >
+                      {{ i18n.t('contexts.list.orphan') }}
+                    </span>
                   }
+                  <span class="text-[11px] text-gray-400 truncate max-w-[12rem]" [title]="systemNames(c)">
+                    {{ systemNames(c) || '—' }}
+                  </span>
                 </div>
                 <div class="text-[11px] text-gray-500 font-mono mt-0.5">
                   {{
@@ -173,5 +183,11 @@ export class ContextsPageComponent implements OnInit {
 
   isUsed(c: Context): boolean {
     return this.systemsBound(c).length > 0;
+  }
+
+  systemNames(c: Context): string {
+    return this.systemsBound(c)
+      .map((s) => s.name || s.id)
+      .join(', ');
   }
 }

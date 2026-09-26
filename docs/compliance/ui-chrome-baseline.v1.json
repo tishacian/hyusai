@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-25T07:36:23.235Z",
+  "generated_at": "2026-09-26T01:29:56.626Z",
   "rules": {
     "font": "banned font",
     "violet": "banned violet",
@@ -188,15 +188,8 @@
     "src/app/features/nawa/nawa-theme.scss": {
       "pill": 1
     },
-    "src/app/features/observability/performance-dashboard.component.ts": {
-      "pill": 1
-    },
     "src/app/features/observability/quality-dashboard.component.ts": {
       "pill": 1
-    },
-    "src/app/features/observability/workspace-monitor.component.ts": {
-      "violet": 4,
-      "pill": 3
     },
     "src/app/features/orchestration/flow/flow-canvas.component.scss": {
       "violet": 6,
@@ -302,9 +295,6 @@
       "violet": 3,
       "pill": 1
     },
-    "src/app/features/steering/steering.component.ts": {
-      "violet": 3
-    },
     "src/app/features/systems/flow-runner.component.ts": {
       "halo": 1
     },
@@ -325,9 +315,6 @@
     },
     "src/app/features/systems/systems-grid.component.ts": {
       "violet": 1
-    },
-    "src/app/features/tasks/tasks-page.component.ts": {
-      "pill": 4
     },
     "src/app/features/workspace-app-runtime/workspace-app-unavailable.component.ts": {
       "pill": 1,

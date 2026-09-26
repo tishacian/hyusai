@@ -24,6 +24,9 @@ export const CONTEXTS_FR = {
   'contexts.empty.description': 'Les contextes se créent depuis le System Builder (étape Contexte).',
   'contexts.empty.open_builder': 'Ouvrir le System Builder',
   'contexts.list.in_use': 'Utilisé',
+  'contexts.list.orphan': 'Orphelin',
+  'contexts.list.system_col': 'Système',
+  'contexts.list.last_run': 'Dernière exécution',
   'contexts.list.meta': '{data} données · {mem} mém. · {systems} systèmes',
   // --- Detail view -------------------------------------------------------
   'contexts.view.eyebrow': 'Contextes · Contexte',
@@ -111,6 +114,9 @@ export const CONTEXTS_EN: Record<keyof typeof CONTEXTS_FR, string> = {
   'contexts.empty.description': 'Contexts are created from the System Builder (Context step).',
   'contexts.empty.open_builder': 'Open System Builder',
   'contexts.list.in_use': 'In use',
+  'contexts.list.orphan': 'Orphan',
+  'contexts.list.system_col': 'System',
+  'contexts.list.last_run': 'Last run',
   'contexts.list.meta': '{data} data · {mem} mem · {systems} systems',
   // --- Detail view -------------------------------------------------------
   'contexts.view.eyebrow': 'Contexts · Context',

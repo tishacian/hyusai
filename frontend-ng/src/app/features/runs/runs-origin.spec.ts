@@ -39,6 +39,16 @@ test('the status selector invalidates the visible Runs projection', () => {
   assert.match(source, /\(ngModelChange\)="statusFilter\.set\(\$event\)"/);
 });
 
+test('Runs format cost with workspace currency via formatSkillCost', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/features/runs/runs-list.component.ts'),
+    'utf8',
+  );
+  assert.match(source, /formatRunCost\(/);
+  assert.match(source, /formatSkillCost\(/);
+  assert.match(source, /settings\?\.\['currency'\]|publicSettings/);
+});
+
 test('Runs API failures remain distinct from an empty successful list', () => {
   const listSource = readFileSync(
     join(process.cwd(), 'src/app/features/runs/runs-list.component.ts'),

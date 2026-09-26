@@ -201,7 +201,7 @@ interface MetricsResponse {
             <span>Used</span>
             <span class="font-mono">{{ cache()?.size ?? 0 }} / {{ cache()?.max_size ?? 0 }}</span>
           </div>
-          <div class="h-2 rounded-full bg-white/5 overflow-hidden">
+          <div class="h-2 rounded bg-white/5 overflow-hidden">
             <div
               class="h-full bg-cyan-400 transition-all duration-300"
               [style.width.%]="cache()?.usage_percent ?? 0"
