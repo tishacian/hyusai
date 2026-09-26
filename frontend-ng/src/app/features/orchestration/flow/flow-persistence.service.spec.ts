@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import '@angular/compiler';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,6 +14,7 @@ import {
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ToastrService } from 'ngx-toastr';
+import { I18nService } from '@app/core/i18n.service';
 import { Subject } from 'rxjs';
 import {
   CanonicalApiService,
@@ -419,6 +422,14 @@ function makeHarness(systemId: string | null = null): Harness {
           info() {},
           warning() {},
           error: (message: string) => toastErrors.push(message),
+        },
+      },
+      {
+        provide: I18nService,
+        useValue: {
+          t: (key: string, params?: Record<string, string>) =>
+            params ? `${key}:${JSON.stringify(params)}` : key,
+          locale: () => 'fr',
         },
       },
       {
@@ -1111,7 +1122,7 @@ test('failed promotion keeps the local draft and does not navigate away', () => 
 
     assert.deepEqual(harness.navigations, []);
     assert.equal(harness.canonical.saveCalls.length, 0);
-    assert.match(harness.toastErrors.at(-1) ?? '', /created atomically/i);
+    assert.match(harness.service.promotionError() ?? '', /flow\.promote\.error\.failed/);
     assert.notEqual(
       harness.storage.getItem(workspaceLocalStorageKey(SCRATCH_DRAFT_STORAGE_KEY, 'workspace-a')),
       null,
@@ -1159,7 +1170,7 @@ test('promotion keeps the draft when the atomic create response cannot prove the
       harness.storage.getItem(workspaceLocalStorageKey(SCRATCH_DRAFT_STORAGE_KEY, 'workspace-a')),
       null,
     );
-    assert.match(harness.toastErrors.at(-1) ?? '', /could not be verified/i);
+    assert.match(harness.service.promotionError() ?? '', /flow\.promote\.error\.verify/);
     assert.equal(harness.canonical.saveCalls.length, 0);
   } finally {
     harness.cleanup();
@@ -1498,4 +1509,16 @@ test('a ⌘Z from the chrome around the builder is left to the breadcrumb', () =
     assert.equal(harness.store.nodeCount(), edited);
     assert.equal(harness.store.canUndo(), true);
   } finally { harness.cleanup(); }
+});
+
+
+test('L20a: promotion never uses window.prompt and sends an empty objective by default', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/features/orchestration/flow/flow-persistence.service.ts'),
+    'utf8',
+  );
+  assert.doesNotMatch(source, /window\.prompt/);
+  assert.match(source, /objective,/);
+  assert.match(source, /promoteModalOpen|openPromoteModal/);
+  assert.match(source, /promotionError/);
 });

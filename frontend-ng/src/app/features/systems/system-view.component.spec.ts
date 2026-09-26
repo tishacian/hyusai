@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import '@angular/compiler';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -120,4 +122,17 @@ test('explicit feature opt-out and specialist/360 surfaces keep their existing p
   workspace.set({settings: {features: {cockpit_router_axes_v4: true, system_360_projection_v1: true}}});
   view.systemSnapshot.update(system => ({...system!, settings: {experience: {system_360_canary: 'v1'}}}));
   assert.equal(view.designUsesPublication(), false);
+});
+
+
+test('L20a: System sheet has no Executable flow door and Launch run is outline', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/features/systems/system-view.component.ts'),
+    'utf8',
+  );
+  assert.doesNotMatch(source, /Executable flow/);
+  assert.doesNotMatch(source, /Open in flow builder|system-flow-open-builder/);
+  assert.match(source, /data-testid="system-launch-run"/);
+  assert.match(source, /systems\.run\.launch/);
+  assert.doesNotMatch(source, /background:var\(--ck-signal-pos\); color:var\(--ck-on-signal\);[\s\S]{0,200}Run now/);
 });

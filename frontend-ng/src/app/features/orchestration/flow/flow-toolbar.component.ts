@@ -245,10 +245,11 @@ type PillState = SaveState | 'hold';
           <button
             type="button"
             class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide ck-flow-toolbar__btn--accent"
-            (click)="persistence.promoteToSystem()"
+            (click)="persistence.openPromoteModal()"
             [disabled]="controlsDisabled() || persistence.promoting()"
             [title]="i18n.t('flow.toolbar.promote.hint')"
             [attr.aria-label]="i18n.t('flow.toolbar.promote.aria')"
+            data-testid="flow-promote-open"
           >
             <app-icon name="rocket" [size]="14" />
             <span>{{
@@ -496,6 +497,91 @@ type PillState = SaveState | 'hold';
         (change)="onImportFile($event)"
       />
     </div>
+
+    @if (persistence.promoteModalOpen()) {
+      <div class="ck-flow-promote-backdrop" role="presentation" (click)="persistence.closePromoteModal()">
+        <div
+          class="ck-flow-promote-modal"
+          role="dialog"
+          aria-modal="true"
+          [attr.aria-label]="i18n.t('flow.promote.title')"
+          data-testid="flow-promote-modal"
+          (click)="$event.stopPropagation()"
+        >
+          <h2>{{ i18n.t('flow.promote.title') }}</h2>
+          <p>{{ i18n.t('flow.promote.lead') }}</p>
+          <label>
+            <span>{{ i18n.t('flow.promote.name') }}</span>
+            <input
+              type="text"
+              [value]="persistence.promoteName()"
+              (input)="persistence.promoteName.set(($any($event.target)).value)"
+              [disabled]="persistence.promoting()"
+              data-testid="flow-promote-name"
+              required
+            />
+          </label>
+          <label>
+            <span>{{ i18n.t('flow.promote.objective') }}</span>
+            <textarea
+              rows="2"
+              [value]="persistence.promoteObjective()"
+              (input)="persistence.promoteObjective.set(($any($event.target)).value)"
+              [disabled]="persistence.promoting()"
+              data-testid="flow-promote-objective"
+            ></textarea>
+          </label>
+          @if (persistence.promotionError(); as err) {
+            <p class="ck-flow-promote-error" role="alert">{{ err }}</p>
+          }
+          <div class="ck-flow-promote-actions">
+            <button
+              type="button"
+              class="ck-flow-toolbar__btn"
+              (click)="persistence.closePromoteModal()"
+              [disabled]="persistence.promoting()"
+            >{{ i18n.t('common.cancel') }}</button>
+            <button
+              type="button"
+              class="ck-flow-toolbar__btn ck-flow-toolbar__btn--accent"
+              (click)="persistence.confirmPromoteModal()"
+              [disabled]="persistence.promoting() || !persistence.promoteName().trim()"
+              data-testid="flow-promote-submit"
+            >{{ i18n.t('flow.promote.submit') }}</button>
+          </div>
+        </div>
+      </div>
+    }
+  `,
+  styles: `
+    .ck-flow-promote-backdrop {
+      position: fixed; inset: 0; z-index: 80;
+      background: color-mix(in srgb, var(--ck-bg-0) 55%, transparent);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .ck-flow-promote-modal {
+      width: min(420px, 100%);
+      background: var(--ck-bg-panel);
+      border: 1px solid var(--ck-stroke-2);
+      border-radius: 4px;
+      padding: 18px 20px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .ck-flow-promote-modal h2 { margin: 0; font-size: 16px; color: var(--ck-fg-1); }
+    .ck-flow-promote-modal p { margin: 0; font-size: 13px; color: var(--ck-fg-3); }
+    .ck-flow-promote-modal label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ck-fg-2); }
+    .ck-flow-promote-modal input,
+    .ck-flow-promote-modal textarea {
+      border: 1px solid var(--ck-stroke-soft);
+      border-radius: 3px;
+      background: var(--ck-bg-inset);
+      color: var(--ck-fg-1);
+      padding: 8px 10px;
+      font: inherit;
+    }
+    .ck-flow-promote-error { color: var(--ck-signal-neg); font-size: 12px; }
+    .ck-flow-promote-actions { display: flex; justify-content: flex-end; gap: 8px; }
   `,
 })
 export class FlowToolbarComponent {

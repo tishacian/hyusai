@@ -1619,13 +1619,20 @@ export const FLOW_FR = {
   // (nom/indice fabriqués par la VM, traduits au rendu via le slug sentinelle).
   'flow.palette.uncarried.name': 'Sans Capability',
   'flow.palette.uncarried.hint': 'Visibles ici sans Capability pour les porter',
+  'flow.promote.title': 'Créer le Système',
+  'flow.promote.lead': 'Ce brouillon libre devient un Système. L’objectif est facultatif.',
+  'flow.promote.name': 'Nom',
+  'flow.promote.objective': 'Objectif (facultatif)',
+  'flow.promote.submit': 'Créer le Système',
+  'flow.promote.toast_title': 'Promotion',
+  'flow.promote.success': 'Promu en Système « {name} ».',
+  'flow.promote.error.name_required': 'Le nom est obligatoire.',
+  'flow.promote.error.failed': 'Le Système n’a pas pu être créé. Votre brouillon local a été conservé.',
+  'flow.promote.error.verify': 'Le Système a été créé, mais le flux n’a pas pu être vérifié. Relisez-le avant de réessayer.',
+  'flow.promote.error.race': 'Le Système a été créé à partir d’une révision antérieure. Les modifications locales plus récentes restent dans ce brouillon.',
+
 } as const satisfies Record<string, string>;
 
-/**
- * The `Record<keyof typeof FLOW_FR, string>` annotation is the parity
- * contract: `tsc` fails on a key present in one locale and missing in the
- * other, before the guard even runs.
- */
 export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   // ---- shell -------------------------------------------------------------
   'flow.builder.crumb.systems': 'Systems',
@@ -3201,4 +3208,15 @@ export const FLOW_EN: Record<keyof typeof FLOW_FR, string> = {
   // (name/hint built by the VM, translated at render via the sentinel slug).
   'flow.palette.uncarried.name': 'No capability',
   'flow.palette.uncarried.hint': 'Visible here without a capability carrying them',
+  'flow.promote.title': 'Create the System',
+  'flow.promote.lead': 'This free draft becomes a System. The objective is optional.',
+  'flow.promote.name': 'Name',
+  'flow.promote.objective': 'Objective (optional)',
+  'flow.promote.submit': 'Create the System',
+  'flow.promote.toast_title': 'Promotion',
+  'flow.promote.success': 'Promoted to System “{name}”.',
+  'flow.promote.error.name_required': 'A name is required.',
+  'flow.promote.error.failed': 'The System could not be created. Your local draft was kept.',
+  'flow.promote.error.verify': 'The System was created, but its Flow could not be verified. Review it before retrying.',
+  'flow.promote.error.race': 'The System was created from an earlier revision. Newer local edits remain in this draft.',
 };
