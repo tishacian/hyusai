@@ -448,7 +448,9 @@ test('a member cannot see Apps du workspace in Administrer', () => {
 
 test('/settings routes to workspace settings (not presets)', () => {
   const source = readFileSync(join(process.cwd(), 'src/app/app.routes.ts'), 'utf8');
-  assert.match(source, /path:\s*'settings'[\s\S]*?redirectTo:\s*'workspace'/);
+  assert.match(source, /function workspaceSettingsRedirect\(/);
+  assert.match(source, /path:\s*'settings'[\s\S]*?redirectTo:\s*workspaceSettingsRedirect/);
+  assert.match(source, /\/workspace\/\$\{encodeURIComponent\(slug\)\}\/settings/);
   assert.doesNotMatch(source, /path:\s*'settings'[\s\S]*?redirectTo:\s*'presets'/);
 });
 

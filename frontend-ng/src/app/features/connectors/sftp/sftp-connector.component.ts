@@ -7,6 +7,7 @@ import { CkBackLinkComponent, NavLinkDirective } from '@app/shared/cockpit';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { DrawerComponent } from '@app/shared/ui/drawer.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -332,20 +333,27 @@ const BULK_PROMOTE_LIMIT = 25;
       <section class="mb-5 rounded-md bg-cyan-500/10 p-4 ring-1 ring-cyan-400/30">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div class="min-w-0">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Share once</p>
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">{{ i18n.t('deposit.sftp.share_once') }}</p>
             <h2 class="mt-1 text-sm font-semibold text-white">{{ link.label }}</h2>
             <p class="mt-2 break-all font-mono text-xs text-cyan-100">{{ absoluteUrl(link.public_url) }}</p>
-            <p class="mt-2 break-all font-mono text-xs text-amber-100">Password: {{ link.generated_password }}</p>
+            <p class="mt-2 break-all font-mono text-xs text-amber-100">
+              {{ i18n.t('deposit.sftp.password_label') }}:
+              {{ revealSecretPassword() ? (link.generated_password || '—') : '••••••••' }}
+            </p>
+            <p class="mt-2 text-[11px] text-gray-300">{{ i18n.t('deposit.sftp.share_once_hint') }}</p>
           </div>
           <div class="flex shrink-0 flex-wrap gap-2">
-            <button type="button" class="rounded bg-white/10 px-3 py-2 text-xs text-white ring-1 ring-white/15 hover:bg-white/15" (click)="copy(absoluteUrl(link.public_url), 'URL copied')">
-              <app-icon name="copy" [size]="13" /> URL
+            <button type="button" class="rounded bg-white/10 px-3 py-2 text-xs text-white ring-1 ring-white/15 hover:bg-white/15" (click)="copy(absoluteUrl(link.public_url), i18n.t('deposit.sftp.copied_url'))">
+              <app-icon name="copy" [size]="13" /> {{ i18n.t('deposit.sftp.copy_url') }}
             </button>
-            <button type="button" class="rounded bg-white/10 px-3 py-2 text-xs text-white ring-1 ring-white/15 hover:bg-white/15" (click)="copy(link.generated_password || '', 'Password copied')">
-              <app-icon name="copy" [size]="13" /> Password
+            <button type="button" class="rounded bg-white/10 px-3 py-2 text-xs text-white ring-1 ring-white/15 hover:bg-white/15" (click)="revealSecretPassword.set(!revealSecretPassword())">
+              {{ i18n.t(revealSecretPassword() ? 'deposit.sftp.hide_password' : 'deposit.sftp.show_password') }}
             </button>
-            <button type="button" class="rounded bg-black/20 px-3 py-2 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-black/30" (click)="secretLink.set(null)">
-              Hide
+            <button type="button" class="rounded bg-white/10 px-3 py-2 text-xs text-white ring-1 ring-white/15 hover:bg-white/15" (click)="copy(link.generated_password || '', i18n.t('deposit.sftp.copied_password'))">
+              <app-icon name="copy" [size]="13" /> {{ i18n.t('deposit.sftp.copy_password') }}
+            </button>
+            <button type="button" class="rounded bg-black/20 px-3 py-2 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-black/30" (click)="dismissSecretLink()">
+              {{ i18n.t('deposit.sftp.dismiss') }}
             </button>
           </div>
         </div>
@@ -1586,6 +1594,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   private readonly workspace = inject(WorkspaceService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly toast = inject(ToastrService);
+  readonly i18n = inject(I18nService);
 
   readonly health = signal<SecureDepositHealth | null>(null);
   readonly workspaceName = computed(() => this.workspace.current()?.name || this.workspace.currentSlug() || 'current workspace');
@@ -1594,6 +1603,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   readonly links = signal<DepositLink[]>([]);
   readonly files = signal<DepositFile[]>([]);
   readonly secretLink = signal<DepositLink | null>(null);
+  readonly revealSecretPassword = signal(false);
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly bulkPromoting = signal(false);
@@ -1768,7 +1778,13 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
       clearInterval(this.indexingPollId);
       this.indexingPollId = null;
     }
+    this.dismissSecretLink();
     this.revokePreviewObjectUrl();
+  }
+
+  dismissSecretLink(): void {
+    this.secretLink.set(null);
+    this.revealSecretPassword.set(false);
   }
 
   load(): void {
@@ -2013,6 +2029,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
       })
       .subscribe({
         next: (res) => {
+          this.revealSecretPassword.set(false);
           this.secretLink.set(res.link);
           this.toast.success('Deposit link created', 'Secure Deposit');
           this.saving.set(false);
@@ -2029,6 +2046,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     this.saving.set(true);
     this.api.post<{ link: DepositLink }>(`/sftp/links/${link.id}/rotate`, {}).subscribe({
       next: (res) => {
+        this.revealSecretPassword.set(false);
         this.secretLink.set(res.link);
         this.toast.info('Password rotated', 'Secure Deposit');
         this.saving.set(false);
