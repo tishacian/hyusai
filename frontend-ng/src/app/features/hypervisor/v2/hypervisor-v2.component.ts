@@ -76,22 +76,36 @@ import {
   DECIDER_BLOCKS,
   DEFAULT_HYPERVISOR_VIEWS,
   DETAILLER_BLOCKS,
+  IMPACT_GENERIC_VIEWS,
   REGISTER_COLUMNS,
   VIEW_SORTS,
   cloneView,
+  impactGenericView,
+  isImpactViewId,
   moveStratumBlock,
+  parseImpactViewQuery,
   parseViewsPayload,
+  removeStratumBlock,
   replaceView,
+  serializeViewsForWrite,
   showsBlock,
   showsColumn,
   toggleRegisterColumn,
   toggleStratumBlock,
   viewDenominator,
   viewPeriod,
+  type HypervisorBlockRef,
   type HypervisorNamedView,
   type HypervisorStratumId,
   type HypervisorViewDenominator,
+  type ImpactViewId,
 } from './hypervisor-v2-views';
+import { ImpactBlockAlertesComponent } from './blocks/impact-block-alertes.component';
+import { ImpactBlockCarteComponent } from './blocks/impact-block-carte.component';
+import { ImpactBlockEcheancierComponent } from './blocks/impact-block-echeancier.component';
+import { ImpactBlockFluxComponent } from './blocks/impact-block-flux.component';
+import { ImpactBlockIndicateursComponent } from './blocks/impact-block-indicateurs.component';
+import { ImpactBlockOrdreDuJourComponent } from './blocks/impact-block-ordre-du-jour.component';
 
 interface BasisDraft {
   unit: string;
@@ -136,6 +150,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     NavLinkDirective,
     KbdComponent,
     TagComponent,
+    FilterChipComponent,
     CkPanelComponent,
     CkChartRadialDaysComponent,
     CkChartSankeyFlowComponent,
@@ -144,7 +159,12 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     CkChartUnitDotsComponent,
     CkChartPulseComponent,
     CkChartTipComponent,
-    FilterChipComponent,
+    ImpactBlockEcheancierComponent,
+    ImpactBlockFluxComponent,
+    ImpactBlockCarteComponent,
+    ImpactBlockAlertesComponent,
+    ImpactBlockOrdreDuJourComponent,
+    ImpactBlockIndicateursComponent,
   ],
   template: `
     @if (presentationTheme()) {
@@ -177,15 +197,15 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           </button>
         } @else {
           <div class="hv2-switch" role="tablist">
-            @for (view of views(); track view.id) {
+            @for (view of switcherViews(); track view.id) {
               <button
                 type="button"
                 role="tab"
                 class="ck-mono"
                 [attr.data-testid]="'hypervisor-v2-view-' + view.id"
-                [attr.aria-selected]="view.id === activeViewId()"
-                [class.hv2-switch-on]="view.id === activeViewId()"
-                (click)="selectView(view.id)"
+                [attr.aria-selected]="view.id === switcherActiveId()"
+                [class.hv2-switch-on]="view.id === switcherActiveId()"
+                (click)="selectSwitcherView(view.id)"
               >{{ viewLabel(view) }}</button>
             }
           </div>
@@ -217,7 +237,87 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       } @else {
         <div data-testid="hypervisor-v2-facets">
         @if (activeFacet() === 'synthese') {
-          @if (presentationTheme()) {
+          @if (activeImpactView(); as impactView) {
+            <section
+              class="hv2-impact-blocks"
+              data-testid="hypervisor-v2-impact-blocks"
+              [attr.data-view]="impactView.id"
+            >
+              @for (block of impactComprendreBlocks(); track block.type + '-' + $index) {
+                @switch (block.type) {
+                  @case ('echeancier') {
+                    <app-impact-block-echeancier
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [items]="impactEcheancierItems()"
+                    />
+                  }
+                  @case ('flux') {
+                    <app-impact-block-flux
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [items]="impactFluxItems()"
+                    />
+                  }
+                  @case ('carte') {
+                    <app-impact-block-carte
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [zones]="impactCarteZones()"
+                      [selectedZoneId]="impactSelectedZone()"
+                      [attribution]="mapAttribution()"
+                      (zoneSelect)="onImpactZoneSelect($event)"
+                    />
+                  }
+                  @case ('alertes') {
+                    <app-impact-block-alertes
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [items]="impactAlerteItems()"
+                    />
+                  }
+                  @case ('ordre_du_jour') {
+                    <app-impact-block-agenda
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [points]="impactOrdrePoints()"
+                      (logDecision)="onMeetingDecision($event)"
+                    />
+                  }
+                  @case ('indicateurs') {
+                    <app-impact-block-indicateurs
+                      [source]="block.source || null"
+                      [title]="block.title || null"
+                      [width]="block.width || null"
+                      [settings]="block.settings"
+                      [exit]="block.exit || null"
+                      [items]="impactIndicateurItems()"
+                    />
+                  }
+                }
+              }
+              @if (showsBlock(impactView, 'decider', 'decisions') && !presentationTheme()) {
+                <article class="hv2-card hv2-card-decision">
+                  <ng-container [ngTemplateOutlet]="decisionTpl"></ng-container>
+                </article>
+              }
+            </section>
+          } @else if (presentationTheme()) {
             <ng-container [ngTemplateOutlet]="presentationTpl"></ng-container>
           } @else {
             <app-operational-objective />
@@ -571,15 +671,21 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                 <ul class="hv2-list">
                   @for (item of proposedDecisions(); track item.id) {
                     <li class="hv2-list-row">
+                      @if (isAgentSuggested(item)) {
+                        <span class="hv2-agent-orb" data-testid="hypervisor-decision-agent-orb" [attr.aria-label]="i18n.t('hypervisor.v2.decisions.agent_orb')"></span>
+                      }
                       <span class="hv2-grow">{{ item.title }}</span>
                       <span class="ck-mono hv2-muted">{{ formatDate(item.created_at) }}</span>
-                      <button type="button" class="hv2-btn hv2-btn-primary" (click)="accept(item)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
+                      <button type="button" class="hv2-btn" (click)="accept(item)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
                       <button type="button" class="hv2-btn" (click)="reject(item)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
                     </li>
                   }
                 </ul>
               }
             </article>
+            <a class="hv2-link" data-testid="hypervisor-decisions-review-queue" [navLink]="{ leaf: 'review-queue' }">
+              {{ i18n.t('hypervisor.v2.decisions.review_queue') }}
+            </a>
             <article class="hv2-card">
               <header class="hv2-card-head">
                 <h3 class="hv2-card-title">{{ i18n.t('hypervisor.v2.decisions.recommendations') }} <span class="ck-mono hv2-count">{{ recommendationGroups().length }}</span></h3>
@@ -638,6 +744,25 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                 [zeroLabel]="i18n.t('hypervisor.v2.journal.zero')"
                 [valueLabel]="pulseTip"
               />
+            }
+            @if (journalEntries().length === 0) {
+              <p class="hv2-muted">{{ i18n.t('hypervisor.v2.journal.empty') }}</p>
+            } @else {
+              <ul class="hv2-list" data-testid="hypervisor-v2-journal-entries">
+                @for (entry of journalEntries(); track entry.id) {
+                  <li class="hv2-journal-entry">
+                    <div class="hv2-list-row">
+                      <span class="hv2-grow">{{ i18n.t('hypervisor.v2.journal.decision', { title: entry.title }) }}</span>
+                      <span class="ck-mono hv2-muted">{{ formatDate(entry.at) }}</span>
+                    </div>
+                    <div class="hv2-list-row hv2-journal-effect">
+                      <span class="hv2-grow">{{ entry.effect
+                        ? i18n.t('hypervisor.v2.journal.effect', { effect: entry.effect })
+                        : i18n.t('hypervisor.v2.journal.effect_pending') }}</span>
+                    </div>
+                  </li>
+                }
+              </ul>
             }
             <ul class="hv2-list">
               @for (item of signals(); track item.id) {
@@ -732,7 +857,12 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     <ng-template #decisionTpl>
       @if (firstProposed(); as decision) {
         <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker', { date: formatDate(decision.created_at, true) }) }}</div>
-        <h3 class="hv2-card-title">{{ decision.title }}</h3>
+        <h3 class="hv2-card-title">
+          @if (isAgentSuggested(decision)) {
+            <span class="hv2-agent-orb" data-testid="hypervisor-decision-agent-orb" [attr.aria-label]="i18n.t('hypervisor.v2.decisions.agent_orb')"></span>
+          }
+          {{ decision.title }}
+        </h3>
         <dl class="hv2-facts hv2-facts-plain">
           <div class="hv2-fact"><dt>{{ i18n.t('hypervisor.v2.decision.scope') }}</dt><dd>{{ scopeLabel(decision.scope) }}</dd></div>
           <div class="hv2-fact"><dt>{{ i18n.t('hypervisor.v2.decision.kind') }}</dt><dd>{{ kindLabel(decision.kind) }}</dd></div>
@@ -741,9 +871,10 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
           }
         </dl>
         <div class="hv2-btn-row">
-          <button type="button" class="hv2-btn hv2-btn-primary" (click)="accept(decision)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
+          <button type="button" class="hv2-btn" (click)="accept(decision)">{{ i18n.t('hypervisor.v2.decision.accept') }}</button>
           <button type="button" class="hv2-btn" (click)="reject(decision)">{{ i18n.t('hypervisor.v2.decision.reject') }}</button>
         </div>
+        <a class="hv2-link" [navLink]="{ leaf: 'review-queue' }">{{ i18n.t('hypervisor.v2.decisions.review_queue') }}</a>
       } @else {
         <div class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.decision.kicker_none') }}</div>
         <p class="hv2-card-sub">{{ i18n.t('hypervisor.v2.decision.empty') }}</p>
@@ -887,7 +1018,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                   }
                   @if (showCol('cost')) { <td class="ck-mono ck-tnum hv2-num">{{ formatFact(row.cost, 'currency') }}</td> }
                   @if (showCol('basis')) {
-                    <td class="ck-mono hv2-basis" [class.hv2-teal]="row.basisStatus === 'declared'">
+                    <td class="ck-mono hv2-basis" [class.hv2-teal]="row.basisStatus === 'declared'" [class.hv2-basis-absent]="!row.basisStatus || row.basisStatus === 'none'">
                       {{ basisLabel(row) }}
                       @if (!row.basisStatus || row.basisStatus === 'none') {
                         @if (row.capabilityId) {
@@ -949,7 +1080,26 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
             <tbody>
               @for (row of bases(); track row.capability_id) {
                 <tr [class.hv2-row-focus]="focusCapabilityId() === row.capability_id">
-                  <td>{{ row.name }}</td>
+                  <td>
+                    <div>{{ row.name }}</div>
+                    @if (posedByCopy(row); as posed) {
+                      <div class="ck-mono hv2-muted hv2-posed" data-testid="hypervisor-bases-posed-by">{{ posed }}</div>
+                    }
+                    <button
+                      type="button"
+                      class="hv2-text-btn"
+                      [attr.aria-expanded]="expandedBasisId() === row.capability_id"
+                      (click)="toggleBasisContract(row.capability_id)"
+                    >{{ i18n.t('hypervisor.v2.bases.contract_toggle') }}</button>
+                    @if (expandedBasisId() === row.capability_id) {
+                      <div class="hv2-basis-contract" data-testid="hypervisor-bases-contract">
+                        <div class="ck-mono">{{ row.value_basis?.unit || row.output_unit || '—' }}</div>
+                        <div class="ck-mono">{{ formatMaybeNumber(row.value_basis?.hours_per_unit) }} h</div>
+                        <div class="ck-mono">{{ formatMoney(row.value_basis?.value_per_unit, row.value_basis?.currency) }}</div>
+                        <div>{{ provenanceCopy(row) }}</div>
+                      </div>
+                    }
+                  </td>
                   <td>{{ row.value_basis?.unit || row.output_unit || '' }}</td>
                   <td class="ck-mono ck-tnum">{{ formatMaybeNumber(row.value_basis?.hours_per_unit) }}</td>
                   <td class="ck-mono ck-tnum">{{ formatMoney(row.value_basis?.value_per_unit, row.value_basis?.currency) }}</td>
@@ -1008,63 +1158,85 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       (openChange)="customizeOpen.set($event)"
       position="side"
       [title]="i18n.t('hypervisor.v2.customize.title')"
-      width="420px"
+      width="720px"
     >
       @if (activeView(); as view) {
         @if (!canEdit()) {
           <p class="hv2-muted">{{ i18n.t('hypervisor.v2.customize.preview_only') }}</p>
         }
-        <fieldset class="hv2-fieldset">
-          <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.denominator') }}</legend>
-          @for (item of denominators; track item) {
-            <label>
-              <input type="radio" name="denominator" [checked]="view.denominator === item" (change)="setDenominator(item)" />
-              {{ i18n.t('hypervisor.v2.denominator.' + item) }}
-            </label>
-          }
-        </fieldset>
-        <fieldset class="hv2-fieldset">
-          <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.period') }}</legend>
-          @for (item of periods; track item) {
-            <label>
-              <input type="radio" name="period" [checked]="viewPeriod(view) === item" (change)="setPeriod(item)" />
-              {{ i18n.t('hypervisor.v2.period.' + item) }}
-            </label>
-          }
-        </fieldset>
-        <fieldset class="hv2-fieldset">
-          <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.sort') }}</legend>
-          @for (item of sorts; track item) {
-            <label>
-              <input type="radio" name="sort" [checked]="view.sort === item" (change)="setSort(item)" />
-              {{ i18n.t('hypervisor.v2.sort.' + item) }}
-            </label>
-          }
-        </fieldset>
-        <fieldset class="hv2-fieldset">
-          <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.columns') }}</legend>
-          @for (item of columns; track item) {
-            <label>
-              <input type="checkbox" [checked]="showsColumn(view, item)" (change)="toggleColumn(item)" />
-              {{ i18n.t('hypervisor.v2.col.' + item) }}
-            </label>
-          }
-        </fieldset>
-        @for (stratum of strata; track stratum.id) {
-          <fieldset class="hv2-fieldset">
-            <legend class="ck-mono hv2-kicker">{{ i18n.t(stratum.label) }}</legend>
-            @for (block of stratum.blocks; track block) {
-              <div class="hv2-block-row">
+        <div class="hv2-customize-grid">
+          <div class="hv2-customize-assembly" data-testid="hypervisor-customize-assembly">
+            <p class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.assembly') }}</p>
+            <fieldset class="hv2-fieldset">
+              <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.denominator') }}</legend>
+              @for (item of denominators; track item) {
                 <label>
-                  <input type="checkbox" [checked]="showsBlock(view, stratum.id, block)" (change)="toggleBlock(stratum.id, block)" />
-                  {{ i18n.t('hypervisor.v2.block.' + block) }}
+                  <input type="radio" name="denominator" [checked]="view.denominator === item" (change)="setDenominator(item)" />
+                  {{ i18n.t('hypervisor.v2.denominator.' + item) }}
                 </label>
-                <button type="button" class="hv2-text-btn" (click)="moveBlock(stratum.id, block, -1)">{{ i18n.t('hypervisor.v2.customize.move_up') }}</button>
-                <button type="button" class="hv2-text-btn" (click)="moveBlock(stratum.id, block, 1)">{{ i18n.t('hypervisor.v2.customize.move_down') }}</button>
-              </div>
+              }
+            </fieldset>
+            <fieldset class="hv2-fieldset">
+              <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.period') }}</legend>
+              @for (item of periods; track item) {
+                <label>
+                  <input type="radio" name="period" [checked]="viewPeriod(view) === item" (change)="setPeriod(item)" />
+                  {{ i18n.t('hypervisor.v2.period.' + item) }}
+                </label>
+              }
+            </fieldset>
+            <fieldset class="hv2-fieldset">
+              <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.sort') }}</legend>
+              @for (item of sorts; track item) {
+                <label>
+                  <input type="radio" name="sort" [checked]="view.sort === item" (change)="setSort(item)" />
+                  {{ i18n.t('hypervisor.v2.sort.' + item) }}
+                </label>
+              }
+            </fieldset>
+            <fieldset class="hv2-fieldset">
+              <legend class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.columns') }}</legend>
+              @for (item of columns; track item) {
+                <label>
+                  <input type="checkbox" [checked]="showsColumn(view, item)" (change)="toggleColumn(item)" />
+                  {{ i18n.t('hypervisor.v2.col.' + item) }}
+                </label>
+              }
+            </fieldset>
+            @for (stratum of strata; track stratum.id) {
+              <fieldset class="hv2-fieldset">
+                <legend class="ck-mono hv2-kicker">{{ i18n.t(stratum.label) }}</legend>
+                @for (block of assembledBlocks(view, stratum.id); track block.type) {
+                  <div
+                    class="hv2-block-row"
+                    [attr.data-testid]="'hypervisor-customize-block-' + block.type"
+                    tabindex="0"
+                    (keydown)="onCustomizeKeydown($event, stratum.id, block.type)"
+                  >
+                    <span>{{ i18n.t('hypervisor.v2.block.' + block.type) }}</span>
+                    <button type="button" class="hv2-text-btn" (click)="moveBlock(stratum.id, block.type, -1)" [attr.aria-label]="i18n.t('hypervisor.v2.customize.move_up')">↑</button>
+                    <button type="button" class="hv2-text-btn" (click)="moveBlock(stratum.id, block.type, 1)" [attr.aria-label]="i18n.t('hypervisor.v2.customize.move_down')">↓</button>
+                    <button type="button" class="hv2-text-btn" (click)="removeBlock(stratum.id, block.type)" [attr.aria-label]="i18n.t('hypervisor.v2.customize.remove')">×</button>
+                  </div>
+                }
+              </fieldset>
             }
-          </fieldset>
-        }
+          </div>
+          <div class="hv2-customize-catalog" data-testid="hypervisor-customize-catalog">
+            <p class="ck-mono hv2-kicker">{{ i18n.t('hypervisor.v2.customize.catalog') }}</p>
+            @for (stratum of strata; track stratum.id) {
+              <fieldset class="hv2-fieldset">
+                <legend class="ck-mono hv2-kicker">{{ i18n.t(stratum.label) }}</legend>
+                @for (block of stratum.blocks; track block) {
+                  <label>
+                    <input type="checkbox" [checked]="showsBlock(view, stratum.id, block)" (change)="toggleBlock(stratum.id, block)" />
+                    {{ i18n.t('hypervisor.v2.block.' + block) }}
+                  </label>
+                }
+              </fieldset>
+            }
+          </div>
+        </div>
         @if (canEdit()) {
           <button type="button" class="hv2-text-btn" (click)="saveViews()" [disabled]="savingViews()">
             {{ i18n.t('hypervisor.v2.customize.save') }}
@@ -1085,7 +1257,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
       background: var(--hv2-presentation-mark, var(--sentinel-accent, #65d66e));
     }
     :host.hv2-theme-presentation .hv2-monument { font-size: 112px; }
-    :host.hv2-theme-presentation .hv2-presentation-num { font-size: 56px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; color: var(--ck-fg-1); }
+    :host.hv2-theme-presentation .hv2-presentation-num { font-size: 48px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; color: var(--ck-fg-1); }
     :host.hv2-theme-presentation .hv2-presentation-warn { color: var(--ck-signal-warn, #f1b45a); }
     .hv2-presentation { display: flex; flex-direction: column; gap: 28px; }
     .hv2-presentation-kpis {
@@ -1105,6 +1277,37 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
     .hv2-presentation-status[data-tone='warn'] { color: var(--ck-signal-warn, #f1b45a); }
     .hv2-presentation-status[data-tone='pos'] { color: var(--ck-signal-pos); }
     .hv2-actions, .hv2-list-row, .hv2-block-row, .hv2-btn-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .hv2-customize-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 24px;
+      align-items: start;
+    }
+    .hv2-customize-assembly, .hv2-customize-catalog { min-width: 0; }
+    .hv2-agent-orb {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      margin-right: 8px;
+      border: 2px solid var(--ck-fg-1);
+      background: transparent;
+      vertical-align: middle;
+    }
+    .hv2-basis-absent { border-bottom: 1px dotted var(--ck-stroke-2); }
+    .hv2-posed { font-size: 11px; margin-top: 4px; }
+    .hv2-basis-contract {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--ck-stroke-2);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .hv2-journal-entry { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--ck-stroke-2); }
+    .hv2-journal-effect { color: var(--ck-fg-2); font-size: 12px; }
+    :host.hv2-theme-presentation .hv2-btn,
+    :host.hv2-theme-presentation .hv2-btn-primary { display: none; }
+    :host.hv2-theme-presentation .hv2-agent-orb { display: none; }
     .hv2-stack { display: flex; flex-direction: column; gap: 20px; }
     .hv2-switch { display: flex; gap: 4px; padding: 4px; background: var(--ck-bg-panel); border: 1px solid var(--ck-stroke-2); border-radius: 8px; }
     .hv2-switch button, .hv2-text-btn {
@@ -1337,6 +1540,11 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly views = signal<HypervisorNamedView[]>([]);
   readonly canEdit = signal(false);
   readonly activeViewId = signal('direction');
+  readonly activeImpactViewId = signal<ImpactViewId | null>(null);
+  readonly meetingEventId = signal<string | null>(null);
+  readonly impactSelectedZone = signal<string | null>(null);
+  readonly expandedBasisId = signal<string | null>(null);
+  readonly mapAttribution = signal('OpenStreetMap contributors / CARTO');
   readonly activeFacet = signal<HypervisorFacetId>('synthese');
   readonly presentationTheme = signal(false);
   readonly focusCapabilityId = signal<string | null>(null);
@@ -1380,6 +1588,24 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   readonly activeView = computed(() =>
     this.views().find((view) => view.id === this.activeViewId()) ?? this.views()[0] ?? null,
   );
+  readonly activeImpactView = computed(() => impactGenericView(this.activeImpactViewId()));
+  readonly switcherViews = computed(() => {
+    const portfolio = this.views();
+    if (this.activeFacet() !== 'synthese') return portfolio;
+    return [...portfolio, ...IMPACT_GENERIC_VIEWS.map(cloneView)];
+  });
+  readonly switcherActiveId = computed(() => this.activeImpactViewId() ?? this.activeViewId());
+  readonly impactComprendreBlocks = computed(() => this.activeImpactView()?.strata.comprendre ?? []);
+  readonly journalEntries = computed(() => {
+    return this.decisions()
+      .filter((row) => row.status === 'applied' || row.status === 'accepted')
+      .map((row) => ({
+        id: row.id,
+        title: row.title,
+        at: row.applied_at || row.created_at || null,
+        effect: typeof row.effect === 'string' ? row.effect : null,
+      }));
+  });
   readonly registerRows = computed(() => {
     const view = this.series();
     const active = this.activeView();
@@ -1592,6 +1818,12 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       this.focusCapabilityId.set(params.get('capabilityId'));
       const theme = params.get('theme');
       this.presentationTheme.set(theme === 'presentation');
+      const impactView = parseImpactViewQuery(params.get('view'));
+      this.activeImpactViewId.set(impactView);
+      this.meetingEventId.set(params.get('eventId'));
+      if (impactView && this.activeFacet() !== 'synthese') {
+        this.activeFacet.set('synthese');
+      }
     });
     this.reload();
   }
@@ -2180,7 +2412,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   basisLabel(row: HypervisorRegisterRow): string {
     if (!row.basisStatus || row.basisStatus === 'none') {
-      return `— ${this.i18n.t('hypervisor.v2.register.basis_state.none')}`;
+      return `${MARK_NONE} ${this.i18n.t('hypervisor.v2.register.basis_state.none')}`;
     }
     const rate = this.basisRate(row);
     const state = this.i18n.t(`hypervisor.v2.register.basis_state.${row.basisStatus}`);
@@ -2275,11 +2507,136 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
 
   selectView(id: string): void {
     const current = this.activeView();
+    this.activeImpactViewId.set(null);
     this.activeViewId.set(id);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { view: null, eventId: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
     const next = this.views().find((view) => view.id === id);
     if (!current || !next) return;
     if (viewPeriod(current) !== viewPeriod(next)) this.reload();
     else if (viewDenominator(current) !== viewDenominator(next)) this.reproject();
+  }
+
+  selectImpactView(id: ImpactViewId): void {
+    this.activeImpactViewId.set(id);
+    this.activeFacet.set('synthese');
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { view: id, facet: 'synthese' },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  selectSwitcherView(id: string): void {
+    if (isImpactViewId(id)) this.selectImpactView(id);
+    else this.selectView(id);
+  }
+
+  assembledBlocks(view: HypervisorNamedView, stratum: HypervisorStratumId): HypervisorBlockRef[] {
+    return view.strata[stratum] ?? [];
+  }
+
+  removeBlock(stratum: HypervisorStratumId, block: string): void {
+    this.patchActive((view) => removeStratumBlock(view, stratum, block));
+  }
+
+  onCustomizeKeydown(event: KeyboardEvent, stratum: HypervisorStratumId, block: string): void {
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.moveBlock(stratum, block, -1);
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.moveBlock(stratum, block, 1);
+    } else if (event.key === 'x' || event.key === 'X' || event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault();
+      this.removeBlock(stratum, block);
+    }
+  }
+
+  workspaceCurrency(): string | null {
+    const settings = this.workspace.current()?.settings;
+    const raw = settings?.['currency'] ?? settings?.['default_currency'];
+    return typeof raw === 'string' && /^[A-Z]{3}$/.test(raw) ? raw : null;
+  }
+
+  posedByCopy(row: HypervisorValueBasisItem): string {
+    const who = row.value_basis?.declared_by;
+    const when = row.value_basis?.declared_at;
+    if (!who || !when) return '';
+    return this.i18n.t('hypervisor.v2.bases.posed_by', { who, when: this.formatDate(when) });
+  }
+
+  toggleBasisContract(id: string): void {
+    this.expandedBasisId.set(this.expandedBasisId() === id ? null : id);
+  }
+
+  isAgentSuggested(row: DecisionRow): boolean {
+    return row.agent_suggested === true
+      || row.rationale?.['suggested_by'] === 'agent'
+      || row.rationale?.['agent'] != null;
+  }
+
+  onImpactZoneSelect(zoneId: string): void {
+    this.impactSelectedZone.set(this.impactSelectedZone() === zoneId ? null : zoneId);
+  }
+
+  impactEcheancierItems() {
+    return [] as Array<{ id: string; title: string; place?: string | null; status?: string | null }>;
+  }
+
+  impactFluxItems() {
+    return [] as Array<{ id: string; title: string; klass?: string | null }>;
+  }
+
+  impactCarteZones() {
+    return [] as Array<{ id: string; name: string; level?: number | null }>;
+  }
+
+  impactAlerteItems() {
+    const zone = this.impactSelectedZone();
+    const items = [] as Array<{ id: string; title: string; severity?: string | null; zone?: string | null }>;
+    return zone ? items.filter((item) => item.zone === zone) : items;
+  }
+
+  impactOrdrePoints() {
+    return [] as Array<{
+      id: string;
+      title: string;
+      origin?: string | null;
+      options?: Array<{ id: string; label: string; recommended?: boolean }>;
+    }>;
+  }
+
+  impactIndicateurItems() {
+    return [] as Array<{
+      id: string;
+      label: string;
+      value: string;
+      state: 'measured' | 'declared' | 'absent';
+      source?: string | null;
+    }>;
+  }
+
+  onMeetingDecision(payload: { pointId: string; optionId: string }): void {
+    const eventId = this.meetingEventId();
+    if (!eventId) return;
+    const note = `Meeting decision · ${payload.pointId} · ${payload.optionId}`;
+    this.api.createDecision({
+      scope: 'portfolio',
+      target_id: null,
+      kind: 'meeting',
+      title: note,
+      notes: note,
+      origin: 'meeting',
+      meeting_event_id: eventId,
+      agenda_item_ref: payload.pointId,
+      rationale: { origin: 'meeting', option_id: payload.optionId },
+    }).subscribe(() => this.reload());
   }
 
   setDenominator(value: HypervisorViewDenominator): void {
@@ -2311,7 +2668,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   saveViews(): void {
     if (!this.canEdit()) return;
     this.savingViews.set(true);
-    this.api.putHypervisorViews(this.views()).subscribe({
+    this.api.putHypervisorViews(serializeViewsForWrite(this.views())).subscribe({
       next: (payload) => {
         const parsed = parseViewsPayload(payload);
         this.views.set(parsed.views);
@@ -2338,7 +2695,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       unit: row.value_basis?.unit || row.output_unit || '',
       hours_per_unit: row.value_basis?.hours_per_unit != null ? String(row.value_basis.hours_per_unit) : '',
       value_per_unit: row.value_basis?.value_per_unit != null ? String(row.value_basis.value_per_unit) : '',
-      currency: row.value_basis?.currency || 'EUR',
+      currency: row.value_basis?.currency || this.workspaceCurrency() || '',
       status: row.value_basis?.status ?? 'declared',
       note: row.value_basis?.note || '',
     });
@@ -2503,7 +2860,8 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
   }
 
   private currencySymbol(currency: string | null | undefined): string {
-    const code = currency && /^[A-Z]{3}$/.test(currency) ? currency : 'EUR';
+    const code = currency && /^[A-Z]{3}$/.test(currency) ? currency : null;
+    if (!code) return '';
     const part = new Intl.NumberFormat(this.localeTag(), { style: 'currency', currency: code })
       .formatToParts(0)
       .find((item) => item.type === 'currency');
@@ -2560,6 +2918,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       balance: this.api.hypervisorBalanceSheet(period === '90d' ? 'rolling_90d' : 'rolling_30d'),
       recos: this.api.hypervisorRecommendations(),
       decisions: this.api.listDecisions({ limit: 20 }),
+      mapSettings: this.api.hypervisorMapSettings(),
     }).pipe(
       catchError((error: unknown) => {
         if (this.workspaceView.isCurrent(request)) this.loadProblem.set(
@@ -2573,6 +2932,7 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
         balance: null,
         recos: [] as Recommendation[],
         decisions: { items: [] as DecisionRow[], total: 0, limit: 20, offset: 0 },
+        mapSettings: null,
       }); }),
     ).subscribe((bundle) => {
       if (!this.workspaceView.isCurrent(request)) return;
@@ -2580,6 +2940,9 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       const parsed = parseViewsPayload(bundle.views);
       this.views.set(parsed.views);
       this.canEdit.set(parsed.can_edit);
+      if (bundle.mapSettings?.attribution) {
+        this.mapAttribution.set(bundle.mapSettings.attribution);
+      }
       if (!parsed.views.some((view) => view.id === this.activeViewId())) {
         this.activeViewId.set(parsed.views[0]?.id ?? 'direction');
       }

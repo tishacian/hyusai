@@ -526,6 +526,8 @@ def test_views_default_for_members_and_put_is_admin_only(db_session):
     ]
     assert defaults.json()["views"][1]["denominator"] == "runs"
     assert defaults.json()["views"][2]["denominator"] == "runs"
+    assert defaults.json()["views"][0]["schema_version"] == 2
+    assert defaults.json()["views"][0]["strata"]["comprendre"][0]["type"] == "monument"
 
     denied = contributor.put(
         "/hypervisor/views",
@@ -553,9 +555,13 @@ def test_views_default_for_members_and_put_is_admin_only(db_session):
     written = admin.put("/hypervisor/views", json={"views": custom})
     assert written.status_code == 200
     assert written.json()["can_edit"] is True
-    assert written.json()["views"] == custom
+    written_view = written.json()["views"][0]
+    assert written_view["schema_version"] == 2
+    assert written_view["strata"]["comprendre"] == [{"type": "monument", "settings": {}}]
+    assert written_view["strata"]["detailler"] == [{"type": "registre", "settings": {}}]
+    assert written_view["strata"]["decider"] == [{"type": "signal", "settings": {}}]
     reread = contributor.get("/hypervisor/views")
-    assert reread.json()["views"] == custom
+    assert reread.json()["views"][0]["strata"]["comprendre"][0]["type"] == "monument"
     assert reread.json()["can_edit"] is False
     assert admin.get("/hypervisor/views").json()["can_edit"] is True
 
@@ -563,3 +569,61 @@ def test_views_default_for_members_and_put_is_admin_only(db_session):
     aliased = admin.put("/hypervisor/views", json={"views": legacy})
     assert aliased.status_code == 200
     assert aliased.json()["views"][0]["denominator"] == "runs"
+
+
+def test_views_dual_read_form1_and_form2(db_session):
+    seeded = _seed(db_session)
+    workspace = seeded["workspace"]
+    admin = _client(db_session, workspace, seeded["admin"])
+
+    from sqlalchemy.orm.attributes import flag_modified
+    workspace.settings = {
+        **(workspace.settings or {}),
+        "hypervisor_views": [
+            {
+                "id": "legacy",
+                "label": "Legacy",
+                "denominator": "hours",
+                "period": "30d",
+                "strata": {
+                    "comprendre": ["monument", "sankey"],
+                    "detailler": [],
+                    "decider": [],
+                },
+                "register_columns": [],
+                "sort": "name",
+            }
+        ],
+    }
+    flag_modified(workspace, "settings")
+    db_session.add(workspace)
+    db_session.commit()
+
+    read = admin.get("/hypervisor/views")
+    assert read.status_code == 200
+    view = read.json()["views"][0]
+    assert view["schema_version"] == 2
+    assert [block["type"] for block in view["strata"]["comprendre"]] == ["monument", "sankey"]
+
+    form2 = [
+        {
+            "id": "agenda",
+            "label": "Agenda",
+            "denominator": "hours",
+            "period": "30d",
+            "schema_version": 2,
+            "strata": {
+                "comprendre": [
+                    {"type": "echeancier", "settings": {"mode": "liste"}},
+                    {"type": "ordre_du_jour", "settings": {"mode": "prep"}},
+                ],
+                "detailler": [],
+                "decider": [{"type": "decisions", "settings": {}}],
+            },
+            "register_columns": [],
+            "sort": "name",
+        }
+    ]
+    written = admin.put("/hypervisor/views", json={"views": form2})
+    assert written.status_code == 200
+    assert written.json()["views"][0]["strata"]["comprendre"][0]["settings"]["mode"] == "liste"

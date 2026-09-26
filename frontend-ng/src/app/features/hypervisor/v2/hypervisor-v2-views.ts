@@ -1,6 +1,7 @@
 export type HypervisorViewDenominator = 'hours' | 'runs' | 'value';
 export type HypervisorViewPeriod = '30d' | '90d';
 export type HypervisorStratumId = 'comprendre' | 'detailler' | 'decider';
+export type HypervisorBlockWidth = '1/2' | '2/3' | 'full';
 
 export const COMPRENDRE_BLOCKS = [
   'monument',
@@ -20,16 +21,45 @@ export const DECIDER_BLOCKS = ['signal', 'decisions'] as const;
 export const REGISTER_COLUMNS = ['unit', 'spark', 'cost', 'basis', 'value'] as const;
 export const VIEW_SORTS = ['value', 'name', 'days_since_last_run', 'cost'] as const;
 
+/** Six generic Impact blocks (L13b). */
+export const IMPACT_GENERIC_BLOCKS = [
+  'echeancier',
+  'flux',
+  'carte',
+  'alertes',
+  'ordre_du_jour',
+  'indicateurs',
+] as const;
+
+export const IMPACT_VIEW_IDS = [
+  'agenda',
+  'veille',
+  'securite',
+  'reunion',
+  'carte',
+] as const;
+
 export type ComprendreBlock = (typeof COMPRENDRE_BLOCKS)[number];
 export type DetaillerBlock = (typeof DETAILLER_BLOCKS)[number];
 export type DeciderBlock = (typeof DECIDER_BLOCKS)[number];
 export type RegisterColumn = (typeof REGISTER_COLUMNS)[number];
 export type ViewSort = (typeof VIEW_SORTS)[number];
+export type ImpactGenericBlock = (typeof IMPACT_GENERIC_BLOCKS)[number];
+export type ImpactViewId = (typeof IMPACT_VIEW_IDS)[number];
+
+export interface HypervisorBlockRef {
+  type: string;
+  source?: string;
+  title?: string;
+  width?: HypervisorBlockWidth;
+  settings: Record<string, unknown>;
+  exit?: string;
+}
 
 export interface HypervisorViewStrata {
-  comprendre: string[];
-  detailler: string[];
-  decider: string[];
+  comprendre: HypervisorBlockRef[];
+  detailler: HypervisorBlockRef[];
+  decider: HypervisorBlockRef[];
 }
 
 export interface HypervisorNamedView {
@@ -40,11 +70,24 @@ export interface HypervisorNamedView {
   strata: HypervisorViewStrata;
   register_columns: string[];
   sort: string;
+  schema_version?: number;
 }
 
 export interface HypervisorViewsPayload {
   views: HypervisorNamedView[];
   can_edit: boolean;
+}
+
+function block(
+  type: string,
+  settings: Record<string, unknown> = {},
+  extras: Partial<Omit<HypervisorBlockRef, 'type' | 'settings'>> = {},
+): HypervisorBlockRef {
+  return { type, settings, ...extras };
+}
+
+function blocks(...types: string[]): HypervisorBlockRef[] {
+  return types.map((type) => block(type));
 }
 
 export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
@@ -53,10 +96,11 @@ export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
     label: 'Direction',
     denominator: 'hours',
     period: '90d',
+    schema_version: 2,
     strata: {
-      comprendre: ['monument', 'provenance', 'cadran', 'sankey', 'rivers', 'hors_denominateur'],
-      detailler: [...DETAILLER_BLOCKS],
-      decider: [...DECIDER_BLOCKS],
+      comprendre: blocks('monument', 'provenance', 'cadran', 'sankey', 'rivers', 'hors_denominateur'),
+      detailler: blocks(...DETAILLER_BLOCKS),
+      decider: blocks(...DECIDER_BLOCKS),
     },
     register_columns: [...REGISTER_COLUMNS],
     sort: 'value',
@@ -66,9 +110,10 @@ export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
     label: 'Operations',
     denominator: 'runs',
     period: '30d',
+    schema_version: 2,
     strata: {
-      comprendre: ['monument', 'cadran', 'rivers', 'signal'],
-      detailler: ['registre'],
+      comprendre: blocks('monument', 'cadran', 'rivers', 'signal'),
+      detailler: blocks('registre'),
       decider: [],
     },
     register_columns: ['unit', 'spark'],
@@ -79,9 +124,10 @@ export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
     label: 'Conformite',
     denominator: 'runs',
     period: '90d',
+    schema_version: 2,
     strata: {
-      comprendre: ['unites', 'couverture', 'decisions'],
-      detailler: ['registre'],
+      comprendre: blocks('unites', 'couverture', 'decisions'),
+      detailler: blocks('registre'),
       decider: [],
     },
     register_columns: ['unit', 'basis'],
@@ -89,13 +135,127 @@ export const DEFAULT_HYPERVISOR_VIEWS: readonly HypervisorNamedView[] = [
   },
 ];
 
+/** Five named Impact views assembled from the six generic blocks. */
+export const IMPACT_GENERIC_VIEWS: readonly HypervisorNamedView[] = [
+  {
+    id: 'agenda',
+    label: 'Agenda',
+    denominator: 'hours',
+    period: '30d',
+    schema_version: 2,
+    strata: {
+      comprendre: [
+        block('echeancier', { window: '48h', mode: 'liste' }),
+        block('ordre_du_jour', { mode: 'prep' }),
+      ],
+      detailler: [],
+      decider: [block('decisions')],
+    },
+    register_columns: [],
+    sort: 'name',
+  },
+  {
+    id: 'veille',
+    label: 'Veille',
+    denominator: 'hours',
+    period: '30d',
+    schema_version: 2,
+    strata: {
+      comprendre: [
+        block('indicateurs'),
+        block('flux'),
+        block('alertes'),
+      ],
+      detailler: [],
+      decider: [],
+    },
+    register_columns: [],
+    sort: 'name',
+  },
+  {
+    id: 'securite',
+    label: 'Securite',
+    denominator: 'hours',
+    period: '30d',
+    schema_version: 2,
+    strata: {
+      comprendre: [
+        block('carte', { layers: 'incidents' }),
+        block('alertes'),
+        block('echeancier', { mode: 'compact' }, { width: '1/2' }),
+      ],
+      detailler: [],
+      decider: [],
+    },
+    register_columns: [],
+    sort: 'name',
+  },
+  {
+    id: 'reunion',
+    label: 'Reunion',
+    denominator: 'hours',
+    period: '30d',
+    schema_version: 2,
+    strata: {
+      comprendre: [
+        block('echeancier', { mode: 'fiche' }),
+        block('ordre_du_jour', { mode: 'seance' }),
+      ],
+      detailler: [],
+      decider: [block('decisions')],
+    },
+    register_columns: [],
+    sort: 'name',
+  },
+  {
+    id: 'carte',
+    label: 'Carte',
+    denominator: 'hours',
+    period: '30d',
+    schema_version: 2,
+    strata: {
+      comprendre: [
+        block('indicateurs'),
+        block('carte', { layers: 'economie' }),
+        block('alertes'),
+      ],
+      detailler: [],
+      decider: [],
+    },
+    register_columns: [],
+    sort: 'name',
+  },
+];
+
+export function isImpactViewId(id: string | null | undefined): id is ImpactViewId {
+  return Boolean(id && (IMPACT_VIEW_IDS as readonly string[]).includes(id));
+}
+
+/** Parse `?view=` for the five Impact variants; unknown values return null. */
+export function parseImpactViewQuery(raw: string | null | undefined): ImpactViewId | null {
+  const value = (raw || '').trim().toLowerCase();
+  return isImpactViewId(value) ? value : null;
+}
+
+export function cloneBlock(ref: HypervisorBlockRef): HypervisorBlockRef {
+  return {
+    type: ref.type,
+    ...(ref.source != null ? { source: ref.source } : {}),
+    ...(ref.title != null ? { title: ref.title } : {}),
+    ...(ref.width != null ? { width: ref.width } : {}),
+    settings: { ...(ref.settings || {}) },
+    ...(ref.exit != null ? { exit: ref.exit } : {}),
+  };
+}
+
 export function cloneView(view: HypervisorNamedView): HypervisorNamedView {
   return {
     ...view,
+    schema_version: view.schema_version ?? 2,
     strata: {
-      comprendre: [...view.strata.comprendre],
-      detailler: [...view.strata.detailler],
-      decider: [...view.strata.decider],
+      comprendre: view.strata.comprendre.map(cloneBlock),
+      detailler: view.strata.detailler.map(cloneBlock),
+      decider: view.strata.decider.map(cloneBlock),
     },
     register_columns: [...view.register_columns],
   };
@@ -121,8 +281,12 @@ export function viewDenominator(view: HypervisorNamedView | null | undefined): H
   return 'hours';
 }
 
-export function showsBlock(view: HypervisorNamedView | null | undefined, stratum: HypervisorStratumId, block: string): boolean {
-  return Boolean(view?.strata[stratum]?.includes(block));
+export function showsBlock(
+  view: HypervisorNamedView | null | undefined,
+  stratum: HypervisorStratumId,
+  blockType: string,
+): boolean {
+  return Boolean(view?.strata[stratum]?.some((item) => item.type === blockType));
 }
 
 export function showsColumn(view: HypervisorNamedView | null | undefined, column: string): boolean {
@@ -132,29 +296,39 @@ export function showsColumn(view: HypervisorNamedView | null | undefined, column
 export function toggleStratumBlock(
   view: HypervisorNamedView,
   stratum: HypervisorStratumId,
-  block: string,
+  blockType: string,
 ): HypervisorNamedView {
   const next = cloneView(view);
   const list = next.strata[stratum];
-  const index = list.indexOf(block);
+  const index = list.findIndex((item) => item.type === blockType);
   if (index >= 0) list.splice(index, 1);
-  else list.push(block);
+  else list.push(block(blockType));
   return next;
 }
 
 export function moveStratumBlock(
   view: HypervisorNamedView,
   stratum: HypervisorStratumId,
-  block: string,
+  blockType: string,
   direction: -1 | 1,
 ): HypervisorNamedView {
   const next = cloneView(view);
   const list = next.strata[stratum];
-  const index = list.indexOf(block);
+  const index = list.findIndex((item) => item.type === blockType);
   const target = index + direction;
   if (index < 0 || target < 0 || target >= list.length) return next;
   const [item] = list.splice(index, 1);
   list.splice(target, 0, item!);
+  return next;
+}
+
+export function removeStratumBlock(
+  view: HypervisorNamedView,
+  stratum: HypervisorStratumId,
+  blockType: string,
+): HypervisorNamedView {
+  const next = cloneView(view);
+  next.strata[stratum] = next.strata[stratum].filter((item) => item.type !== blockType);
   return next;
 }
 
@@ -166,35 +340,93 @@ export function toggleRegisterColumn(view: HypervisorNamedView, column: string):
   return next;
 }
 
+export function stratumBlockTypes(view: HypervisorNamedView | null | undefined, stratum: HypervisorStratumId): string[] {
+  return (view?.strata[stratum] ?? []).map((item) => item.type);
+}
+
+export function serializeViewsForWrite(views: readonly HypervisorNamedView[]): HypervisorNamedView[] {
+  return views.map((view) => {
+    const cloned = cloneView(view);
+    cloned.schema_version = 2;
+    return cloned;
+  });
+}
+
 export function parseViewsPayload(
   raw: { views?: readonly RawNamedView[]; can_edit?: boolean } | null | undefined,
 ): HypervisorViewsPayload {
-  const views = raw?.views?.length ? raw.views.map(normalizeView) : DEFAULT_HYPERVISOR_VIEWS.map(cloneView);
+  const views = raw?.views?.length
+    ? raw.views.map(normalizeView)
+    : DEFAULT_HYPERVISOR_VIEWS.map(cloneView);
   return { views, can_edit: raw?.can_edit === true };
 }
+
+type RawBlock = string | Partial<HypervisorBlockRef> | null | undefined;
 
 interface RawNamedView {
   id: string;
   label: string;
   denominator?: string;
   period?: string;
-  strata?: Partial<HypervisorViewStrata>;
+  schema_version?: number;
+  strata?: Partial<Record<HypervisorStratumId, RawBlock[]>>;
   register_columns?: string[];
   sort?: string;
 }
 
-function normalizeView(view: RawNamedView): HypervisorNamedView {
+export function normalizeBlockRef(raw: RawBlock): HypervisorBlockRef | null {
+  if (raw == null) return null;
+  if (typeof raw === 'string') {
+    const type = raw.trim();
+    return type ? block(type) : null;
+  }
+  if (typeof raw !== 'object') return null;
+  const type = typeof raw.type === 'string' ? raw.type.trim() : '';
+  if (!type) return null;
+  const settings =
+    raw.settings && typeof raw.settings === 'object' && !Array.isArray(raw.settings)
+      ? { ...(raw.settings as Record<string, unknown>) }
+      : {};
+  return {
+    type,
+    settings,
+    ...(typeof raw.source === 'string' ? { source: raw.source } : {}),
+    ...(typeof raw.title === 'string' ? { title: raw.title } : {}),
+    ...(raw.width === '1/2' || raw.width === '2/3' || raw.width === 'full' ? { width: raw.width } : {}),
+    ...(typeof raw.exit === 'string' ? { exit: raw.exit } : {}),
+  };
+}
+
+function normalizeStratum(raw: RawBlock[] | undefined): HypervisorBlockRef[] {
+  if (!raw?.length) return [];
+  const out: HypervisorBlockRef[] = [];
+  for (const item of raw) {
+    const normalized = normalizeBlockRef(item);
+    if (normalized) out.push(normalized);
+  }
+  return out;
+}
+
+export function normalizeView(view: RawNamedView): HypervisorNamedView {
   return {
     id: view.id,
     label: view.label,
     denominator: viewDenominator(view as HypervisorNamedView),
     period: viewPeriod(view as HypervisorNamedView),
+    schema_version: 2,
     strata: {
-      comprendre: [...(view.strata?.comprendre ?? [])],
-      detailler: [...(view.strata?.detailler ?? [])],
-      decider: [...(view.strata?.decider ?? [])],
+      comprendre: normalizeStratum(view.strata?.comprendre),
+      detailler: normalizeStratum(view.strata?.detailler),
+      decider: normalizeStratum(view.strata?.decider),
     },
     register_columns: [...(view.register_columns ?? [])],
     sort: view.sort || 'name',
   };
+}
+
+/** Resolve the active Impact generic view definition (or null). */
+export function impactGenericView(id: string | null | undefined): HypervisorNamedView | null {
+  if (!isImpactViewId(id)) return null;
+  const found = IMPACT_GENERIC_VIEWS.find((view) => view.id === id);
+  return found ? cloneView(found) : null;
 }
