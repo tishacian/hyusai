@@ -181,11 +181,11 @@ interface DepositLink {
               <section class="rounded-md bg-[#111827] p-4 ring-1 ring-cyan-400/30">
                 <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300">{{ i18n.t('deposit.portal.scope') }}</p>
                 <h2 class="mt-2 text-base font-semibold">{{ link()?.label || accessId() }}</h2>
-                @if (link()?.workspace_name) {
-                  <p class="mt-2 text-sm text-gray-300">{{ i18n.t('deposit.portal.organization', { name: link()!.workspace_name }) }}</p>
+                @if (link()?.workspace_name; as orgName) {
+                  <p class="mt-2 text-sm text-gray-300">{{ i18n.t('deposit.portal.organization', { name: orgName }) }}</p>
                 }
-                @if (link()?.requester_label) {
-                  <p class="mt-1 text-sm text-gray-400">{{ i18n.t('deposit.portal.requester', { name: link()!.requester_label }) }}</p>
+                @if (link()?.requester_label; as requester) {
+                  <p class="mt-1 text-sm text-gray-400">{{ i18n.t('deposit.portal.requester', { name: requester }) }}</p>
                 }
                 <dl class="mt-4 space-y-3 text-sm">
                   <div class="flex justify-between gap-3">
