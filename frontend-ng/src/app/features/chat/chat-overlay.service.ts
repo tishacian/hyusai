@@ -47,6 +47,12 @@ export class ChatOverlayService {
   readonly sessionId = signal<string | null>(null);
   /** Display label for « Conversation · Liée à {objet} ». */
   readonly linkedLabel = signal<string | null>(null);
+  /** L30 — the proof rail is open beside the thread, so the panel widens. */
+  readonly proofOpen = signal(false);
+  /** A pointer opened the proof: only then may the panel animate its widening. */
+  readonly proofAnimate = signal(false);
+  /** Source scope the thread reads from, shown in the overlay's meta line. */
+  readonly threadScope = signal<string | null>(null);
 
   constructor() {
     this.workspace.registerContextReset(() => this.reset());
@@ -110,6 +116,8 @@ export class ChatOverlayService {
     this.autoStartVoiceLoop.set(false);
     this.sessionId.set(null);
     this.linkedLabel.set(null);
+    this.proofOpen.set(false);
+    this.proofAnimate.set(false);
   }
 
   toggle(): void {

@@ -72,6 +72,7 @@ let panelCounter = 0;
         [style.flexDirection]="'column'"
         [style.zIndex]="modal || position === 'floating' ? 1400 : 40"
         [style.animation]="open ? enterAnim : 'none'"
+        [class.panel-width-animated]="animateWidth && !resizing"
       >
         @if (resizable && position === 'side') {
           <button
@@ -206,6 +207,12 @@ let panelCounter = 0;
       outline: 2px solid var(--ck-signal-cool, #67d5f6);
       outline-offset: -2px;
     }
+    .panel-width-animated {
+      transition: width var(--ck-dur-med, 200ms) var(--ck-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .panel-width-animated { transition: none; }
+    }
     .panel-resizing {
       will-change: width;
       user-select: none;
@@ -241,6 +248,13 @@ export class CkPanelComponent implements OnInit, OnDestroy {
   @Input() resizeStorageKey = '';
   /** Keep projected content mounted while closed (chat overlay stream survival). */
   @Input() retainContent = false;
+  /**
+   * Pixels added beside the (possibly resized) side width, e.g. a proof rail
+   * opened next to the chat thread. The user's own width stays untouched.
+   */
+  @Input() extraWidth = 0;
+  /** Animate a width change (pointer-driven only; never on keyboard actions). */
+  @Input() animateWidth = false;
 
   readonly CK_PANEL_MIN_WIDTH = CK_PANEL_MIN_WIDTH;
   manualWidth = 0;
@@ -307,9 +321,17 @@ export class CkPanelComponent implements OnInit, OnDestroy {
   }
 
   get effectiveWidth(): string {
+    return this.withExtra(this.baseWidth);
+  }
+
+  private get baseWidth(): string {
     if (this.resizing && this.dragWidth) return `${this.dragWidth}px`;
     if (this.resizable && this.manualWidth) return `${this.manualWidth}px`;
     return this.width;
+  }
+
+  private withExtra(width: string): string {
+    return this.extraWidth > 0 ? `calc(${width} + ${this.extraWidth}px)` : width;
   }
 
   get maxWidth(): number {
@@ -376,7 +398,7 @@ export class CkPanelComponent implements OnInit, OnDestroy {
     const width = this.dragWidth;
     this.resizeFrame = this.document.defaultView?.requestAnimationFrame(() => {
       this.resizeFrame = 0;
-      if (root.isConnected) root.style.width = `${width}px`;
+      if (root.isConnected) root.style.width = this.withExtra(`${width}px`);
     }) || 0;
   };
 
