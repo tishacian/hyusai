@@ -398,7 +398,13 @@ export class ZoomContextService implements OnDestroy {
     }
     const path = this.route().path;
     const surface = matchAgentiumSurface(path);
-    if (surface && pathOnly(surface.route) !== path) return surface.label;
+    if (surface && pathOnly(surface.route) !== path) {
+      // The catalog label is the English reference; the rail's key speaks
+      // the reader's language (« ← Systèmes » on /systems/new).
+      const key = `nav.${surface.id}`;
+      const label = this.i18n.t(key);
+      return label === key ? surface.label : label;
+    }
     return this.i18n.t('nav.zoom.portfolio');
   }
 

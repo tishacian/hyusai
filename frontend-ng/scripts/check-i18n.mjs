@@ -10,11 +10,14 @@
  *      TypeScript around it (3b): computed labels, suggestion cards, menu
  *      options, config constants — the half a template-only scan never saw;
  *   4. lexicon — banned synonyms and internal jargon in UI strings;
+ *   4b. French terms — an English lexicon term left in a French string
+ *      (« Nouveau System »), ratcheted per dictionary;
  *   5. keys no dictionary answers.
  *
  * Every failure prints the fix, not just the fault. Legitimate exceptions
  * live in `scripts/i18n-allowlist.json` with a written reason; the
- * hard-coded-text budget is a ratchet — it may shrink, never grow.
+ * hard-coded-text and French-term budgets are ratchets — they may shrink,
+ * never grow.
  *
  * Runs in ~1s: one esbuild pass over the dictionary and the lexicon (so the
  * guard reads real values, not a regex approximation of them), then a single
@@ -78,6 +81,7 @@ const { I18N_DOMAINS, FR_DICT, EN_DICT } = dict;
  *   hardcodedText: Record<string, { max: number, reason: string }>,
  *   hardcodedCode: Record<string, { max: number, reason: string }>,
  *   lexicon: Record<string, { words: string[], reason: string }>,
+ *   frenchTerms: Record<string, { max: number, reason: string }>,
  * }} Allowlist
  */
 /** @type {Allowlist} */
@@ -85,6 +89,7 @@ const allowlist = JSON.parse(readFileSync(join(root, ALLOWLIST_PATH), 'utf8'));
 const textBudget = allowlist.hardcodedText ?? {};
 const codeBudget = allowlist.hardcodedCode ?? {};
 const lexiconAllowed = allowlist.lexicon ?? {};
+const frenchTermBudget = allowlist.frenchTerms ?? {};
 
 // ---------------------------------------------------------------------------
 // 1. Dictionary hygiene
@@ -743,6 +748,63 @@ if (lexiconHits.length > 0) {
 }
 
 // ---------------------------------------------------------------------------
+// 4b. French strings that keep the English term
+// ---------------------------------------------------------------------------
+
+/**
+ * The lexicon says System is « Système » and Run is « Exécution » in French,
+ * yet « Nouveau System » and « Voir dans Runs → » shipped behind a green
+ * guard: the banned-word pass only knows synonyms, not a term left in
+ * English. This pass reads every French value — dictionary and lexicon
+ * definitions — for the `untranslated` forms the lexicon declares.
+ *
+ * One hit per key, whatever the number of words in it. A ratchet, not a hard
+ * fail: `frenchTerms[path].max` in the allowlist may only go down, so a
+ * dictionary another stream is still sweeping stays green without letting a
+ * new occurrence in.
+ */
+/** @type {Map<string, {count:number, samples:string[]}>} */
+const untranslated = new Map();
+/** @param {string} path @param {string} key @param {string} text */
+function checkFrench(path, key, text) {
+  const words = lexicon.untranslatedInFrench(text);
+  if (words.length === 0) return;
+  const entry = untranslated.get(path) ?? { count: 0, samples: [] };
+  entry.count += 1;
+  if (entry.samples.length < SAMPLE_CAP) {
+    const say = words.map((w) => `"${w.word}" → « ${w.fr} »`).join(', ');
+    entry.samples.push(`${key}: ${say} — ${text.trim().slice(0, 70)}`);
+  }
+  untranslated.set(path, entry);
+}
+for (const [key, value] of Object.entries(FR_DICT)) {
+  const domain = owningDomain.get(key) ?? 'unknown';
+  checkFrench(`src/app/core/i18n/${domain}.dict.ts`, key, String(value));
+}
+for (const entry of lexicon.UI_LEXICON) {
+  checkFrench('src/app/core/i18n.lexicon.ts', `${entry.id}.definition.fr`, entry.definition.fr);
+}
+
+const frenchTerms = ratchet(untranslated, frenchTermBudget, 'French string(s) with an English term');
+if (frenchTerms.over.length > 0) {
+  fail('English term left in a French string', [
+    ...frenchTerms.over,
+    '',
+    'Fix: say the French term of src/app/core/i18n.lexicon.ts, with its',
+    'agreement — « Nouveau système », « Exécutions terminées », « Ouvrir',
+    "l'exécution ». Skill, Capability and Flow are product nouns and stay as is.",
+    `A genuine exception (a product name) goes to ${ALLOWLIST_PATH} under`,
+    '"frenchTerms" with a "max" and a "reason".',
+  ]);
+}
+if (frenchTerms.shrunk.length > 0) {
+  notes.push(
+    'French-term budget can be tightened (a sweep landed — please ratchet it down):',
+    ...frenchTerms.shrunk.map((line) => `  ${line}`),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 5. Keys that no dictionary answers
 // ---------------------------------------------------------------------------
 
@@ -801,5 +863,5 @@ console.log(
   `i18n OK — ${frCount} keys across ${Object.keys(I18N_DOMAINS).length} domains, ` +
     `${primaryVerbKeys.length + sectionKeys.length + sideRailKeys.length} navigation keys, ` +
     `${templates.length} templates and ${codeFiles.length} code files scanned, ` +
-    `${forbidden.length} lexicon rules enforced.`,
+    `${forbidden.length} lexicon rules and ${lexicon.untranslatedTerms().length} French-term rules enforced.`,
 );

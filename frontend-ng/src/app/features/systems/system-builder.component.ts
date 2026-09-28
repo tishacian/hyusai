@@ -18,6 +18,7 @@ import {
   type CanonicalFlow,
   type SystemBuilderDraft,
 } from '@app/core/flow-serializer.service';
+import { I18nService } from '@app/core/i18n.service';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { SettingsService } from '@app/core/settings.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -61,11 +62,13 @@ interface WorkspaceAppsResponse {
 
 interface CanvasSection {
   key: CanvasSectionKey;
-  title: string;
-  description: string;
   glyph: CkGlyphName;
 }
 
+/**
+ * Execution modes, by API id. Label, short line and description are read
+ * from `systems.builder.execution.<id>.*`.
+ */
 const EXECUTION_MODES: {
   id:
     | 'real_time_decision'
@@ -73,23 +76,25 @@ const EXECUTION_MODES: {
     | 'event_driven_automation'
     | 'continuous_monitoring'
     | 'human_augmented';
-  label: string;
-  short: string;
-  description: string;
 }[] = [
-  { id: 'real_time_decision', label: 'Real-time', short: 'Synchronous per query', description: 'Synchronous — one outcome per user-initiated query (chat, API).' },
-  { id: 'batch_processing', label: 'Batch', short: 'Scheduled batches', description: 'Runs over a batch of inputs on a schedule; outcomes aggregated.' },
-  { id: 'event_driven_automation', label: 'Event-driven', short: 'Triggers from connectors', description: 'Triggered by external events (webhooks, connectors).' },
-  { id: 'continuous_monitoring', label: 'Continuous', short: 'Always-on watcher', description: 'Always-on monitoring, emits decisions on anomalies.' },
-  { id: 'human_augmented', label: 'Human-augmented', short: 'Pairs with operator', description: 'Requires human-in-the-loop for every material decision.' },
+  { id: 'real_time_decision' },
+  { id: 'batch_processing' },
+  { id: 'event_driven_automation' },
+  { id: 'continuous_monitoring' },
+  { id: 'human_augmented' },
 ];
 
-const RAG_PIPELINES: { id: string; canonical: string; label: string; description: string }[] = [
-  { id: 'OmniRAG', canonical: 'chah', label: 'OmniRAG (C-HAH)', description: 'Composite, budget-aware variants + RRF' },
-  { id: 'HAH', canonical: 'hah', label: 'HAH', description: 'Hierarchical answer harvesting' },
-  { id: 'Hybrid', canonical: 'hybrid', label: 'Hybrid', description: 'Sparse + dense, single-pass' },
-  { id: 'Semantic', canonical: 'naive', label: 'Semantic', description: 'Dense vectors only, single-pass' },
-  { id: 'None', canonical: 'auto', label: 'Direct LLM', description: 'No retrieval — LLM only' },
+/**
+ * Retrieval modes. `id` is the value the draft and the serializer carry,
+ * `canonical` the API's; the label and description are read from
+ * `systems.builder.rag.<canonical>.*`.
+ */
+const RAG_PIPELINES: { id: string; canonical: string }[] = [
+  { id: 'OmniRAG', canonical: 'chah' },
+  { id: 'HAH', canonical: 'hah' },
+  { id: 'Hybrid', canonical: 'hybrid' },
+  { id: 'Semantic', canonical: 'naive' },
+  { id: 'None', canonical: 'auto' },
 ];
 
 interface ReasoningTemplateOpt {
@@ -148,9 +153,9 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
   ],
   template: `
     <ck-object-header
-      eyebrow="Build · System"
-      [title]="draft.name || 'New system'"
-      [subtitle]="draft.objective || 'Compose a system on a single canvas — every gate must turn green before launch.'"
+      [eyebrow]="i18n.t('experience.adoption.nav.build') + ' · ' + i18n.t('nav.zoom.system')"
+      [title]="draft.name || i18n.t('systems.builder.new_title')"
+      [subtitle]="draft.objective || i18n.t('systems.builder.subtitle')"
       [kpis]="headerKpis()"
     >
       <span actions>
@@ -160,21 +165,23 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
           (click)="switchToFlow()"
           [disabled]="!canSwitchToFlow() || launching()"
           class="ck-btn-quiet inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium mr-2"
-          [title]="canSwitchToFlow() ? 'Open this draft as a flow graph' : 'Pick a name and a capability first'"
+          [title]="canSwitchToFlow() ? i18n.t('systems.builder.switch_flow.title') : i18n.t('systems.builder.switch_flow.disabled')"
         >
-          <app-icon name="workflow" [size]="14" /> Switch to Flow
+          <app-icon name="workflow" [size]="14" /> {{ i18n.t('systems.builder.switch_flow') }}
         </button>
         <button
           type="button"
           (click)="launch()"
           [disabled]="!allGatesValid() || launching()"
-          class="ck-mono inline-flex items-center gap-2 px-3 py-2 rounded text-xs font-semibold transition"
-          style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:var(--ck-on-signal);"
+          class="inline-flex items-center gap-2 px-3 py-2 rounded text-sm font-semibold transition"
+          style="background:var(--ck-signal-pos); color:var(--ck-on-signal);"
           [style.opacity]="!allGatesValid() || launching() ? '0.4' : '1'"
-          [title]="allGatesValid() ? (editingSystemId() ? 'Save this system' : 'Create this system') : firstInvalidGateMessage()"
+          [title]="allGatesValid() ? i18n.t(editingSystemId() ? 'systems.builder.save.title' : 'systems.builder.create.title') : firstInvalidGateMessage()"
         >
           <ck-glyph name="bolt" [size]="12" />
-          {{ launching() ? (editingSystemId() ? 'SAVING…' : 'CREATING…') : (editingSystemId() ? 'SAVE SYSTEM' : 'CREATE SYSTEM') }}
+          {{ launching()
+            ? i18n.t(editingSystemId() ? 'systems.builder.saving' : 'systems.builder.creating')
+            : i18n.t(editingSystemId() ? 'systems.builder.save' : 'systems.builder.create') }}
         </button>
       </span>
     </ck-object-header>
@@ -187,6 +194,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
         @for (section of sections; track section.key) {
           <section
             class="ck-surface rounded-md overflow-hidden"
+            [attr.data-section-key]="section.key"
             [style.borderColor]="isSectionValid(section.key) ? 'var(--ck-stroke-soft)' : 'var(--ck-signal-warn)'"
             [style.borderWidth]="isSectionValid(section.key) ? '1px' : '1px'"
           >
@@ -195,6 +203,8 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               (click)="toggleSection(section.key)"
               class="w-full flex items-center gap-3 text-left transition"
               style="padding:14px 18px; background: var(--ck-bg-inset);"
+              [attr.aria-expanded]="isSectionOpen(section.key)"
+              [attr.aria-controls]="isSectionOpen(section.key) ? 'sb-panel-' + section.key : null"
             >
               <div
                 class="w-8 h-8 rounded-md flex items-center justify-center shrink-0 ck-surface"
@@ -209,16 +219,16 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2">
-                  <span class="text-sm font-medium text-white">{{ section.title }}</span>
+                  <span class="text-sm font-medium text-white">{{ sectionTitle(section.key) }}</span>
                   <span
-                    class="ck-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                    class="text-[11px] px-1.5 py-0.5 rounded"
                     [class.ck-tone-ok]="isSectionValid(section.key)"
                     [class.ck-tone-warn]="!isSectionValid(section.key)"
                   >
-                    {{ isSectionValid(section.key) ? 'READY' : 'PENDING' }}
+                    {{ i18n.t(isSectionValid(section.key) ? 'systems.builder.status.ready' : 'systems.builder.status.pending') }}
                   </span>
                 </div>
-                <div class="ck-mono text-[11px]" style="color:var(--ck-fg-4); margin-top:2px;">
+                <div class="text-[12px]" style="color:var(--ck-fg-3); margin-top:2px;">
                   {{ sectionSummary(section.key) }}
                 </div>
               </div>
@@ -230,6 +240,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             </button>
             @if (isSectionOpen(section.key)) {
               <div
+                [id]="'sb-panel-' + section.key"
                 style="padding:20px 22px; border-top: 1px solid var(--ck-hair);"
                 [style.opacity]="isSectionLocked(section.key) ? '0.55' : '1'"
                 [style.pointerEvents]="isSectionLocked(section.key) ? 'none' : 'auto'"
@@ -240,15 +251,15 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                   style="padding:8px 12px; margin-bottom:14px; border-radius:6px; pointer-events:auto;"
                 >
                   <ck-glyph name="bolt" [size]="12" />
-                  <div class="flex-1 text-xs ck-mono">
-                    Edited in Flow — re-open this section from the flow builder to adjust it.
+                  <div class="flex-1 text-xs">
+                    {{ i18n.t('systems.builder.locked') }}
                   </div>
                   <a
                     [navLink]="{ leaf: 'system-flow', ref: editingSystemId()! }"
-                    class="ck-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded"
+                    class="text-[11px] px-2 py-1 rounded"
                     style="border:1px solid currentColor; pointer-events:auto;"
                   >
-                    Open in Flow
+                    {{ i18n.t('systems.builder.open_in_flow') }}
                   </a>
                 </div>
               }
@@ -257,41 +268,42 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <ck-glyph name="focus" [size]="16" />
-                Objective
+                {{ sectionTitle('objective') }}
                 <ck-help id="builder.steps.overview" />
               </h2>
-              <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
-                Define what this system should achieve — a single, measurable objective the Hypervisor can track.
-              </p>
+              <p class="sb-intro">{{ i18n.t('systems.builder.objective.intro') }}</p>
             </header>
             <div>
-              <label class="ck-mono" style="display:block; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:6px;">
-                Name <span style="color:var(--ck-signal-neg);">*</span>
+              <label class="sb-label" for="sb-name">
+                {{ i18n.t('systems.builder.objective.name') }} <span aria-hidden="true" style="color:var(--ck-signal-neg);">*</span>
               </label>
               <input
+                id="sb-name"
                 type="text"
                 [(ngModel)]="draft.name"
                 name="name"
                 required
                 class="ck-surface ck-mono w-full"
                 style="padding: 10px 12px; border-radius:4px; font-size:14px; background:var(--ck-bg-inset);"
-                placeholder="Contract Analyzer"
+                [placeholder]="i18n.t('systems.builder.objective.name_placeholder')"
               />
             </div>
             <div>
-              <label class="ck-mono" style="display:block; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:6px;">
-                Objective
+              <label class="sb-label" for="sb-objective">
+                {{ sectionTitle('objective') }}
               </label>
               <textarea
+                id="sb-objective"
                 [(ngModel)]="draft.objective"
                 name="objective"
                 rows="3"
                 class="ck-surface w-full"
                 style="padding: 10px 12px; border-radius:4px; font-size:13px; background:var(--ck-bg-inset); resize: none;"
-                placeholder="Flag risky clauses in NDAs with legal rationale and severity."
+                aria-describedby="sb-objective-hint"
+                [placeholder]="i18n.t('systems.builder.objective.placeholder')"
               ></textarea>
-              <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:4px;">
-                One sentence. Outcome-oriented. Drives the Hypervisor's value metric for this system.
+              <p id="sb-objective-hint" class="sb-hint" style="margin-top:4px;">
+                {{ i18n.t('systems.builder.objective.hint') }}
               </p>
             </div>
           </div>
@@ -302,11 +314,9 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <ck-glyph name="cube" [size]="16" />
-                Capability
+                {{ sectionTitle('capability') }}
               </h2>
-              <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
-                Pick the value-producing unit. Skills are bundled automatically.
-              </p>
+              <p class="sb-intro">{{ i18n.t('systems.builder.capability.intro') }}</p>
             </header>
 
             @if (loadingCaps()) {
@@ -318,8 +328,8 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             } @else if (capabilities().length === 0) {
               <app-empty-state
                 icon="database"
-                title="No capability"
-                description="Seed the catalog by restarting the backend or create one from the Catalog."
+                [title]="i18n.t('systems.builder.capability.empty.title')"
+                [description]="i18n.t('systems.builder.capability.empty.description')"
               />
             } @else {
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -328,6 +338,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                     type="button"
                     (click)="selectCapability(cap)"
                     class="text-left transition ck-surface rounded-md"
+                    [attr.aria-pressed]="draft.capability_id === cap.id"
                     [style.padding]="'14px 16px'"
                     [style.borderColor]="draft.capability_id === cap.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
                     [style.boxShadow]="draft.capability_id === cap.id ? 'var(--ck-glow-cool)' : 'none'"
@@ -335,7 +346,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                     <div class="flex items-start justify-between gap-3 mb-2">
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1">
-                          <ck-tag [tone]="tierTone(cap.tier)" variant="soft">{{ cap.tier || 'UNIV' }}</ck-tag>
+                          <ck-tag [tone]="tierTone(cap.tier)" variant="soft">{{ tierLabel(cap.tier) }}</ck-tag>
                           @if (cap.industry) {
                             <ck-tag tone="violet" variant="outline">{{ cap.industry }}</ck-tag>
                           }
@@ -346,12 +357,12 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                         <ck-live-dot tone="cool" />
                       }
                     </div>
-                    <p class="ck-mono" style="font-size:11px; color:var(--ck-fg-3); line-height:1.5; margin-bottom:10px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">
+                    <p style="font-size:12px; color:var(--ck-fg-3); line-height:1.5; margin-bottom:10px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">
                       {{ cap.description || '—' }}
                     </p>
                     <div class="flex items-center justify-between">
-                      <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
-                        {{ cap.skill_ids?.length || 0 }} SKILLS · {{ cap.input_unit || '—' }} → {{ cap.output_unit || '—' }}
+                      <span class="sb-hint">
+                        {{ i18n.t('systems.builder.capability.skills_count', { count: '' + (cap.skill_ids?.length || 0) }) }} · {{ cap.input_unit || '—' }} → {{ cap.output_unit || '—' }}
                       </span>
                       <span class="ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-2);">
                         {{ formatPrice(cap.pricing?.unit_price) }}
@@ -370,41 +381,39 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <ck-glyph name="cube" [size]="16" />
-                Skills
+                {{ sectionTitle('skills') }}
                 <ck-help id="builder.steps.skills" />
               </h2>
-              <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
-                Capability bundles a validated skill set. Enabled workspace apps (tools &amp; integrations) appear below.
-              </p>
+              <p class="sb-intro">{{ i18n.t('systems.builder.skills.intro') }}</p>
             </header>
 
             @if (!draft.capability_id) {
               <app-empty-state
                 icon="cube"
-                title="Pick a capability first"
-                description="Skills are derived from the capability you select in the previous step."
+                [title]="i18n.t('systems.builder.skills.empty_pick.title')"
+                [description]="i18n.t('systems.builder.skills.empty_pick.description')"
               />
             } @else if (bundledSkills().length === 0) {
               <app-empty-state
                 icon="cube"
-                title="No bundled skill"
-                description="This capability has no attached skills yet. Launch will still succeed but will route through defaults."
+                [title]="i18n.t('systems.builder.skills.empty_none.title')"
+                [description]="i18n.t('systems.builder.skills.empty_none.description')"
               />
             } @else {
               <div>
-                <div class="ck-mono flex items-center gap-2 mb-3" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
+                <div class="sb-label flex items-center gap-2" style="margin-bottom:12px;">
                   <ck-glyph name="ledger" [size]="12" />
-                  BUNDLED SKILLS · {{ bundledSkills().length }}
+                  {{ i18n.t('systems.builder.skills.bundled', { count: '' + bundledSkills().length }) }}
                 </div>
                 <ul style="display:flex; flex-direction:column; gap:4px;">
                   @for (sk of bundledSkills(); track sk.id) {
-                    <li style="display:grid; grid-template-columns: 70px 90px 1fr 80px 70px; gap:10px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
+                    <li style="display:grid; grid-template-columns: 96px 110px 1fr 80px 70px; gap:10px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
                       <ck-tag [tone]="certTone(sk.certification_level)" variant="outline">
-                        {{ (sk.certification_level || 'basic').slice(0, 4).toUpperCase() }}
+                        {{ certLabel(sk.certification_level) }}
                       </ck-tag>
                       <ck-runtime-status [status]="sk.runtime_status" />
                       <div style="min-width:0;">
-                        <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                        <div style="font-size:12px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                           {{ sk.name }}
                         </div>
                         <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
@@ -421,32 +430,32 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                   }
                 </ul>
                 @if (stubSkillsCount() > 0 || unboundSkillsCount() > 0) {
-                  <div class="ck-mono mt-3" style="font-size:10px; color:var(--ck-signal-warn); letter-spacing:0.06em;">
-                    WARNING · {{ stubSkillsCount() }} stub · {{ unboundSkillsCount() }} unbound — runs may return degraded payloads.
+                  <div class="mt-3" style="font-size:12px; color:var(--ck-signal-warn);">
+                    {{ i18n.t('systems.builder.skills.warning', { stubs: '' + stubSkillsCount(), missing: '' + unboundSkillsCount() }) }}
                   </div>
                 }
               </div>
             }
 
             <div style="border-top: 1px solid var(--ck-hair); padding-top:16px;">
-              <div class="ck-mono flex items-center gap-2 mb-3" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
+              <div class="sb-label flex items-center gap-2" style="margin-bottom:12px;">
                 <ck-glyph name="cube" [size]="12" />
-                WORKSPACE APPS · {{ enabledApps().length }}
+                {{ i18n.t('systems.builder.apps.title', { count: '' + enabledApps().length }) }}
               </div>
               @if (enabledApps().length === 0) {
                 <p class="text-xs" style="color:var(--ck-fg-4);">
-                  No apps enabled for this workspace.
-                  <a [navLink]="{ surface: 'apps' }" class="ck-accent">Manage apps</a>
+                  {{ i18n.t('systems.builder.apps.empty') }}
+                  <a [navLink]="{ surface: 'apps' }" class="ck-accent">{{ i18n.t('systems.builder.apps.manage') }}</a>
                 </p>
               } @else {
                 <ul style="display:flex; flex-direction:column; gap:4px;">
                   @for (app of enabledApps(); track app.id) {
-                    <li style="display:grid; grid-template-columns: 70px 1fr auto; gap:10px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
+                    <li style="display:grid; grid-template-columns: 84px 1fr auto; gap:10px; align-items:center; padding:8px 12px; border-radius:4px; background:var(--ck-bg-inset);">
                       <ck-tag [tone]="app.wiring === 'wired' ? 'cool' : 'warn'" variant="outline">
-                        {{ app.wiring === 'wired' ? 'WIRED' : 'CATALOG' }}
+                        {{ i18n.t(app.wiring === 'wired' ? 'systems.builder.apps.wired' : 'systems.builder.apps.catalog') }}
                       </ck-tag>
                       <div style="min-width:0;">
-                        <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                        <div style="font-size:12px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                           {{ app.name }}
                         </div>
                         <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
@@ -461,18 +470,17 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                       @if (app.wiring === 'wired' && app.connectorRoute) {
                         <a
                           [navLink]="{ leaf: 'connector-rpa-bridge' }"
-                          class="ck-mono ck-accent"
-                          style="font-size:10px; white-space:nowrap;"
+                          class="ck-accent"
+                          style="font-size:11px; white-space:nowrap;"
                         >
-                          Configure connector
+                          {{ i18n.t('systems.builder.apps.configure') }}
                         </a>
                       } @else {
                         <a
                           [navLink]="{ surface: 'apps' }"
-                          class="ck-mono"
-                          style="font-size:10px; color:var(--ck-fg-4); white-space:nowrap;"
+                          style="font-size:11px; color:var(--ck-fg-3); white-space:nowrap;"
                         >
-                          Catalog
+                          {{ i18n.t('systems.builder.apps.catalog') }}
                         </a>
                       }
                     </li>
@@ -488,33 +496,31 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <ck-glyph name="ledger" [size]="16" />
-                Context
+                {{ sectionTitle('context') }}
                 <ck-help id="builder.steps.context" />
               </h2>
-              <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
-                Knowledge collections and the retrieval pipeline. Becomes the versioned Context attached to every Run —
-                or pick an existing one to reuse.
-              </p>
+              <p class="sb-intro">{{ i18n.t('systems.builder.context.intro') }}</p>
             </header>
 
             <!-- Reuse existing context -->
             @if (existingContexts().length > 0) {
               <div style="border-bottom: 1px solid var(--ck-hair); padding-bottom:16px;">
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  Reuse an existing context
+                <div class="sb-label" id="sb-reuse-label">
+                  {{ i18n.t('systems.builder.context.reuse') }}
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2" role="group" aria-labelledby="sb-reuse-label">
                   @for (ctx of existingContexts(); track ctx.id) {
                     <button
                       type="button"
                       (click)="pickExistingContext(ctx.id)"
                       class="text-left ck-surface rounded"
                       style="padding:10px 12px;"
+                      [attr.aria-pressed]="draft.reuse_context_id === ctx.id"
                       [style.borderColor]="draft.reuse_context_id === ctx.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
                     >
                       <div class="text-sm font-medium text-white truncate">{{ ctx.name }}</div>
                       <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:2px;">
-                        v{{ ctx.version ?? 1 }} · {{ (ctx.data_refs?.length ?? 0) }} refs
+                        {{ i18n.t('systems.builder.context.refs', { version: '' + (ctx.version ?? 1), count: '' + (ctx.data_refs?.length ?? 0) }) }}
                       </div>
                     </button>
                   }
@@ -522,11 +528,11 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                 @if (draft.reuse_context_id) {
                   <button
                     type="button"
-                    class="mt-2 text-[11px] ck-mono"
+                    class="mt-2 text-[12px]"
                     style="color: var(--ck-signal-warn);"
                     (click)="clearContextReuse()"
                   >
-                    Clear selection — create a new context instead
+                    {{ i18n.t('systems.builder.context.clear') }}
                   </button>
                 }
               </div>
@@ -541,15 +547,15 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             } @else if (collections().length === 0) {
               <app-empty-state
                 icon="database"
-                title="No collection yet"
-                description="Upload documents in Knowledge to create one."
+                [title]="i18n.t('systems.builder.context.empty.title')"
+                [description]="i18n.t('systems.builder.context.empty.description')"
               >
                 <a
                   [navLink]="{ surface: 'knowledge' }"
                   class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium text-white transition"
                   style="background: var(--ck-signal-cool); color: var(--ck-on-signal);"
                 >
-                  Open Knowledge
+                  {{ i18n.t('systems.builder.context.empty.open') }}
                 </a>
               </app-empty-state>
             } @else {
@@ -575,10 +581,10 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             }
 
             <div style="border-top: 1px solid var(--ck-hair); padding-top:16px;">
-              <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                Retrieval pipeline
+              <div class="sb-label" id="sb-retrieval-label">
+                {{ i18n.t('systems.builder.context.retrieval') }}
               </div>
-              <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-2" role="group" aria-labelledby="sb-retrieval-label">
                 @for (mode of ragPipelines; track mode.id) {
                   <button
                     type="button"
@@ -586,17 +592,18 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                     class="text-left transition ck-surface rounded"
                     style="padding:10px 12px;"
                     [title]="presetHealthTitle(mode.id)"
+                    [attr.aria-pressed]="draft.rag_mode === mode.id"
                     [style.opacity]="presetStatus(mode.id) === 'bound' ? 1 : 0.82"
                     [style.borderColor]="draft.rag_mode === mode.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
                   >
                     <div class="flex items-center gap-2 mb-1" style="justify-content:space-between;">
                       <div class="text-sm font-medium" [style.color]="draft.rag_mode === mode.id ? 'var(--ck-fg-1)' : 'var(--ck-fg-2)'">
-                        {{ mode.label }}
+                        {{ ragLabel(mode.id) }}
                       </div>
                       <ck-runtime-status [status]="presetStatus(mode.id)" />
                     </div>
-                    <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
-                      {{ mode.description }}
+                    <div class="sb-hint">
+                      {{ ragDescription(mode.canonical) }}
                     </div>
                   </button>
                 }
@@ -610,68 +617,67 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <ck-glyph name="sliders" [size]="16" />
-                Policy
+                {{ sectionTitle('policy') }}
                 <ck-help id="builder.steps.policy" />
               </h2>
-              <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
-                Control guardrails and adaptive levers. Control = hard limits, Adaptive = soft directives.
-              </p>
+              <p class="sb-intro">{{ i18n.t('systems.builder.policy.intro') }}</p>
             </header>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
-                <label class="ck-mono" style="display:flex; align-items:center; justify-content:space-between; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  <span>CONTROL · max cost / outcome</span>
-                  <span class="ck-tnum" style="color:var(--ck-signal-cool);">\${{ draft.max_cost.toFixed(2) }}</span>
+                <label class="sb-label sb-label-row" for="sb-max-cost">
+                  <span>{{ i18n.t('systems.builder.policy.max_cost') }}</span>
+                  <span class="ck-mono ck-tnum" style="color:var(--ck-signal-cool);">\${{ draft.max_cost.toFixed(2) }}</span>
                 </label>
-                <input type="range" min="0.01" max="5" step="0.01" [(ngModel)]="draft.max_cost" class="w-full accent-cyan-400" />
+                <input id="sb-max-cost" type="range" min="0.01" max="5" step="0.01" [(ngModel)]="draft.max_cost" class="w-full accent-cyan-400" />
               </div>
               <div>
-                <label class="ck-mono" style="display:flex; align-items:center; justify-content:space-between; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  <span>CONTROL · max latency (ms)</span>
-                  <span class="ck-tnum" style="color:var(--ck-signal-cool);">{{ draft.max_latency_ms }}</span>
+                <label class="sb-label sb-label-row" for="sb-max-latency">
+                  <span>{{ i18n.t('systems.builder.policy.max_latency') }}</span>
+                  <span class="ck-mono ck-tnum" style="color:var(--ck-signal-cool);">{{ draft.max_latency_ms }}</span>
                 </label>
-                <input type="range" min="500" max="60000" step="500" [(ngModel)]="draft.max_latency_ms" class="w-full accent-cyan-400" />
+                <input id="sb-max-latency" type="range" min="500" max="60000" step="500" [(ngModel)]="draft.max_latency_ms" class="w-full accent-cyan-400" />
               </div>
               <div>
-                <label class="ck-mono" style="display:flex; align-items:center; justify-content:space-between; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  <span>ADAPTIVE · confidence threshold</span>
-                  <span class="ck-tnum" style="color:var(--ck-signal-violet);">{{ draft.confidence_threshold.toFixed(2) }}</span>
+                <label class="sb-label sb-label-row" for="sb-confidence">
+                  <span>{{ i18n.t('systems.builder.policy.confidence') }}</span>
+                  <span class="ck-mono ck-tnum" style="color:var(--ck-signal-violet);">{{ draft.confidence_threshold.toFixed(2) }}</span>
                 </label>
-                <input type="range" min="0" max="1" step="0.01" [(ngModel)]="draft.confidence_threshold" class="w-full accent-sky-400" />
-                <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:4px;">
-                  Below this score → HITL escalation (auto).
+                <input id="sb-confidence" type="range" min="0" max="1" step="0.01" [(ngModel)]="draft.confidence_threshold" class="w-full accent-sky-400" aria-describedby="sb-confidence-hint" />
+                <p id="sb-confidence-hint" class="sb-hint" style="margin-top:4px;">
+                  {{ i18n.t('systems.builder.policy.confidence_hint') }}
                 </p>
               </div>
               <div>
-                <label class="ck-mono" style="display:flex; align-items:center; justify-content:space-between; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  <span>ADAPTIVE · temperature</span>
-                  <span class="ck-tnum" style="color:var(--ck-signal-violet);">{{ draft.temperature.toFixed(2) }}</span>
+                <label class="sb-label sb-label-row" for="sb-temperature">
+                  <span>{{ i18n.t('systems.builder.policy.temperature') }}</span>
+                  <span class="ck-mono ck-tnum" style="color:var(--ck-signal-violet);">{{ draft.temperature.toFixed(2) }}</span>
                 </label>
-                <input type="range" min="0" max="2" step="0.05" [(ngModel)]="draft.temperature" class="w-full accent-sky-400" />
+                <input id="sb-temperature" type="range" min="0" max="2" step="0.05" [(ngModel)]="draft.temperature" class="w-full accent-sky-400" />
               </div>
             </div>
 
             <div style="border-top: 1px solid var(--ck-hair); padding-top:16px;">
-              <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                Execution mode
+              <div class="sb-label" id="sb-execution-label">
+                {{ i18n.t('systems.builder.policy.execution_mode') }}
               </div>
-              <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+              <div class="grid grid-cols-2 md:grid-cols-5 gap-2" role="group" aria-labelledby="sb-execution-label">
                 @for (mode of executionModes; track mode.id) {
                   <button
                     type="button"
                     (click)="draft.execution_mode = mode.id"
                     class="text-left transition ck-surface rounded"
                     style="padding:10px 12px;"
-                    [title]="mode.description"
+                    [title]="executionModeText(mode.id, 'description')"
+                    [attr.aria-pressed]="draft.execution_mode === mode.id"
                     [style.borderColor]="draft.execution_mode === mode.id ? 'var(--ck-stroke-strong)' : 'var(--ck-stroke-soft)'"
                     [style.boxShadow]="draft.execution_mode === mode.id ? 'var(--ck-glow-cool)' : 'none'"
                   >
                     <div class="text-sm font-medium" [style.color]="draft.execution_mode === mode.id ? 'var(--ck-fg-1)' : 'var(--ck-fg-2)'">
-                      {{ mode.label }}
+                      {{ executionModeText(mode.id, 'label') }}
                     </div>
-                    <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:2px;">
-                      {{ mode.short }}
+                    <div class="sb-hint" style="margin-top:2px;">
+                      {{ executionModeText(mode.id, 'short') }}
                     </div>
                   </button>
                 }
@@ -680,47 +686,54 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-5" style="border-top: 1px solid var(--ck-hair); padding-top:16px;">
               <div>
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  Reasoning template (default)
-                </div>
+                <label class="sb-label" for="sb-reasoning">
+                  {{ i18n.t('systems.builder.policy.reasoning') }}
+                </label>
                 <select
+                  id="sb-reasoning"
                   [(ngModel)]="draft.default_prompt_type"
                   class="w-full ck-surface rounded"
                   style="padding:10px 12px; background:var(--ck-bg-inset); color:var(--ck-fg-1); font-size:13px;"
+                  aria-describedby="sb-reasoning-hint"
                 >
-                  <option value="auto">Auto — heuristic selector per run</option>
+                  <option value="auto">{{ i18n.t('systems.builder.policy.reasoning_auto') }}</option>
                   @for (t of reasoningTemplates(); track t.slug) {
                     <option [value]="t.slug">{{ t.label }} — {{ t.description }}</option>
                   }
                 </select>
-                <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
-                  Drives the system prompt on every run; chat can still override per-message.
+                <p id="sb-reasoning-hint" class="sb-hint" style="margin-top:6px;">
+                  {{ i18n.t('systems.builder.policy.reasoning_hint') }}
                 </p>
               </div>
               <div>
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:8px;">
-                  {{ isDemoMode() ? 'Runtime policy' : 'Model override (optional)' }}
-                </div>
                 @if (isDemoMode()) {
-                  <div class="w-full ck-surface rounded" style="padding:10px 12px; background:var(--ck-bg-inset); color:var(--ck-fg-2); font-size:13px;">
-                    Managed by workspace
+                  <div class="sb-label">
+                    {{ i18n.t('systems.builder.policy.runtime') }}
                   </div>
-                  <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
-                    Provider and model details are hidden by demo-safe presentation.
+                  <div class="w-full ck-surface rounded" style="padding:10px 12px; background:var(--ck-bg-inset); color:var(--ck-fg-2); font-size:13px;">
+                    {{ i18n.t('systems.builder.policy.managed') }}
+                  </div>
+                  <p class="sb-hint" style="margin-top:6px;">
+                    {{ i18n.t('systems.builder.policy.managed_hint') }}
                   </p>
                 } @else {
+                  <label class="sb-label" for="sb-model">
+                    {{ i18n.t('systems.builder.policy.model_override') }}
+                  </label>
                   <select
+                    id="sb-model"
                     [(ngModel)]="draft.default_model"
                     class="w-full ck-surface rounded"
                     style="padding:10px 12px; background:var(--ck-bg-inset); color:var(--ck-fg-1); font-size:13px;"
+                    aria-describedby="sb-model-hint"
                   >
-                    <option value="">Workspace default</option>
+                    <option value="">{{ i18n.t('systems.builder.policy.model_default') }}</option>
                     @for (m of availableModels(); track m.id) {
                       <option [value]="m.id">{{ m.label }}</option>
                     }
                   </select>
-                  <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:6px;">
-                    Pins a specific provider/model for every Run of this System.
+                  <p id="sb-model-hint" class="sb-hint" style="margin-top:6px;">
+                    {{ i18n.t('systems.builder.policy.model_hint') }}
                   </p>
                 }
               </div>
@@ -728,20 +741,20 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
 
             <div class="space-y-2" style="border-top: 1px solid var(--ck-hair); padding-top:16px;">
               <label class="flex items-start gap-3 ck-surface cursor-pointer" style="padding:12px 14px; border-radius:4px;">
-                <input type="checkbox" [(ngModel)]="draft.require_citations" class="accent-cyan-400 mt-0.5" />
+                <input type="checkbox" [(ngModel)]="draft.require_citations" class="accent-cyan-400 mt-0.5" aria-describedby="sb-citations-hint" />
                 <div class="flex-1">
-                  <div class="text-sm text-white font-medium">Require citations</div>
-                  <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
-                    Answers without a citation are blocked before returning.
+                  <div class="text-sm text-white font-medium">{{ i18n.t('systems.builder.policy.citations') }}</div>
+                  <div id="sb-citations-hint" class="sb-hint">
+                    {{ i18n.t('systems.builder.policy.citations_hint') }}
                   </div>
                 </div>
               </label>
               <label class="flex items-start gap-3 ck-surface cursor-pointer" style="padding:12px 14px; border-radius:4px;">
-                <input type="checkbox" [(ngModel)]="draft.enable_audit" class="accent-cyan-400 mt-0.5" />
+                <input type="checkbox" [(ngModel)]="draft.enable_audit" class="accent-cyan-400 mt-0.5" aria-describedby="sb-audit-hint" />
                 <div class="flex-1">
-                  <div class="text-sm text-white font-medium">Audit every run</div>
-                  <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-4);">
-                    Emit a typed audit event per run (required for enterprise tier).
+                  <div class="text-sm text-white font-medium">{{ i18n.t('systems.builder.policy.audit') }}</div>
+                  <div id="sb-audit-hint" class="sb-hint">
+                    {{ i18n.t('systems.builder.policy.audit_hint') }}
                   </div>
                 </div>
               </label>
@@ -754,58 +767,56 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
             <header class="mb-2">
               <h2 class="text-lg font-semibold text-white flex items-center gap-2">
                 <ck-glyph name="bolt" [size]="16" />
-                Launch
+                {{ sectionTitle('launch') }}
               </h2>
-              <p class="text-xs ck-mono" style="color:var(--ck-fg-3); margin-top:4px; letter-spacing:0.02em;">
-                Final review before creating the System.
-              </p>
+              <p class="sb-intro">{{ i18n.t('systems.builder.launch.intro') }}</p>
             </header>
 
             <!-- ROI projection -->
             <div class="ck-surface rounded" style="padding:16px 18px; background: var(--ck-bg-inset);">
-              <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:12px;">
-                PROJECTED OUTCOME (PER RUN)
+              <div class="sb-label" style="margin-bottom:12px;">
+                {{ i18n.t('systems.builder.launch.projected') }}
               </div>
               <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:18px;">
-                <ck-stat-readout label="COST" [value]="formatPrice(selectedCapability()?.pricing?.unit_price)" tone="cool" [size]="16" />
-                <ck-stat-readout label="VALUE" [value]="formatPrice(selectedCapability()?.value_per_outcome)" tone="pos" [size]="16" />
-                <ck-stat-readout label="MARGIN" [value]="projectedMargin()" tone="pos" [size]="16" />
-                <ck-stat-readout label="ROI" [value]="projectedRoi()" tone="violet" [size]="16" />
+                <ck-stat-readout [label]="i18n.t('systems.builder.launch.cost')" [value]="formatPrice(selectedCapability()?.pricing?.unit_price)" tone="cool" [size]="16" />
+                <ck-stat-readout [label]="i18n.t('systems.builder.launch.value')" [value]="formatPrice(selectedCapability()?.value_per_outcome)" tone="pos" [size]="16" />
+                <ck-stat-readout [label]="i18n.t('systems.builder.launch.margin')" [value]="projectedMargin()" tone="pos" [size]="16" />
+                <ck-stat-readout [label]="i18n.t('systems.builder.launch.roi')" [value]="projectedRoi()" tone="violet" [size]="16" />
               </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div class="ck-surface rounded" style="padding:14px 16px;">
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:6px;">OBJECTIVE</div>
-                <div class="text-sm font-medium text-white">{{ draft.name || 'Untitled' }}</div>
-                <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-3); margin-top:4px; line-height:1.5; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">
-                  {{ draft.objective || 'No objective set.' }}
+                <div class="sb-label">{{ sectionTitle('objective') }}</div>
+                <div class="text-sm font-medium text-white">{{ draft.name || i18n.t('systems.builder.launch.untitled') }}</div>
+                <div style="font-size:12px; color:var(--ck-fg-3); margin-top:4px; line-height:1.5; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">
+                  {{ draft.objective || i18n.t('systems.builder.launch.no_objective') }}
                 </div>
               </div>
               <div class="ck-surface rounded" style="padding:14px 16px;">
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:6px;">CAPABILITY</div>
+                <div class="sb-label">{{ sectionTitle('capability') }}</div>
                 <div class="text-sm font-medium text-white">{{ selectedCapability()?.name || '—' }}</div>
-                <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-3); margin-top:4px;">
-                  {{ selectedCapability()?.tier || '—' }} · {{ bundledSkills().length }} skills bundled
+                <div style="font-size:12px; color:var(--ck-fg-3); margin-top:4px;">
+                  {{ i18n.t('systems.builder.launch.skills_bundled', { tier: selectedCapability() ? tierLabel(selectedCapability()?.tier) : '—', count: '' + bundledSkills().length }) }}
                 </div>
               </div>
               <div class="ck-surface rounded" style="padding:14px 16px;">
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:6px;">CONTEXT</div>
+                <div class="sb-label">{{ sectionTitle('context') }}</div>
                 <div class="text-sm text-white">
-                  {{ draft.collections.length }} collection{{ draft.collections.length === 1 ? '' : 's' }}
+                  {{ collectionsLabel(draft.collections.length) }}
                 </div>
-                <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-3); margin-top:4px;">
-                  Pipeline: {{ draft.rag_mode }}
+                <div style="font-size:12px; color:var(--ck-fg-3); margin-top:4px;">
+                  {{ i18n.t('systems.builder.launch.retrieval', { mode: ragLabel(draft.rag_mode) }) }}
                 </div>
               </div>
               <div class="ck-surface rounded" style="padding:14px 16px;">
-                <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4); margin-bottom:6px;">POLICY</div>
-                <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-3); line-height:1.7;">
-                  EXECUTION <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ executionModeLabel() }}</span><br />
-                  MAX COST <span class="ck-tnum" style="color:var(--ck-fg-2);">\${{ draft.max_cost.toFixed(2) }}</span> ·
-                  MAX LATENCY <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ draft.max_latency_ms }} ms</span><br />
-                  CONFIDENCE ≥ <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ draft.confidence_threshold.toFixed(2) }}</span> ·
-                  TEMP <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ isDemoMode() ? 'managed' : draft.temperature.toFixed(2) }}</span>
+                <div class="sb-label">{{ sectionTitle('policy') }}</div>
+                <div style="font-size:12px; color:var(--ck-fg-3); line-height:1.7;">
+                  {{ i18n.t('systems.builder.launch.mode') }} <span style="color:var(--ck-fg-2);">{{ executionModeLabel() }}</span><br />
+                  {{ i18n.t('systems.builder.launch.max_cost') }} <span class="ck-mono ck-tnum" style="color:var(--ck-fg-2);">\${{ draft.max_cost.toFixed(2) }}</span> ·
+                  {{ i18n.t('systems.builder.launch.max_latency') }} <span class="ck-mono ck-tnum" style="color:var(--ck-fg-2);">{{ draft.max_latency_ms }} ms</span><br />
+                  {{ i18n.t('systems.builder.launch.confidence') }} <span class="ck-mono ck-tnum" style="color:var(--ck-fg-2);">{{ draft.confidence_threshold.toFixed(2) }}</span> ·
+                  {{ i18n.t('systems.builder.launch.temperature') }} <span class="ck-mono ck-tnum" style="color:var(--ck-fg-2);">{{ isDemoMode() ? i18n.t('systems.builder.launch.managed') : draft.temperature.toFixed(2) }}</span>
                 </div>
               </div>
             </div>
@@ -817,44 +828,44 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
         }
       </div>
 
-      <aside class="ck-surface rounded-md self-start sticky top-4" style="padding:20px;">
+      <aside class="ck-surface rounded-md self-start sticky top-4" style="padding:20px;" [attr.aria-label]="i18n.t('systems.builder.preview.title')">
         <div class="flex items-center gap-3 mb-4 pb-3" style="border-bottom: 1px solid var(--ck-hair);">
           <div class="w-10 h-10 rounded-md flex items-center justify-center ck-surface" style="background:var(--ck-bg-inset); border-color: var(--ck-stroke-soft);">
             <ck-glyph name="focus" [size]="18" />
           </div>
           <div>
-            <div class="ck-mono" style="font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ck-fg-4);">
-              LIVE PREVIEW
+            <div class="sb-label" style="margin-bottom:0;">
+              {{ i18n.t('systems.builder.preview.title') }}
             </div>
-            <div class="text-sm font-medium text-white truncate">{{ draft.name || 'New system' }}</div>
+            <div class="text-sm font-medium text-white truncate">{{ draft.name || i18n.t('systems.builder.new_title') }}</div>
           </div>
         </div>
 
         <ul class="space-y-3">
           <li class="flex items-center gap-2">
             <ck-glyph name="focus" [size]="12" />
-            <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">OBJECTIVE</span>
-            <span class="ml-auto ck-mono" style="font-size:11px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:140px;">
+            <span class="sb-label" style="margin-bottom:0;">{{ sectionTitle('objective') }}</span>
+            <span class="ml-auto" style="font-size:12px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:140px;">
               {{ draft.name || '—' }}
             </span>
           </li>
           <li class="flex items-center gap-2">
             <ck-glyph name="cube" [size]="12" />
-            <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">CAPABILITY</span>
-            <span class="ml-auto ck-mono" style="font-size:11px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:140px;">
+            <span class="sb-label" style="margin-bottom:0;">{{ sectionTitle('capability') }}</span>
+            <span class="ml-auto" style="font-size:12px; color:var(--ck-fg-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:140px;">
               {{ selectedCapability()?.name || '—' }}
             </span>
           </li>
           <li class="flex items-center gap-2">
             <ck-glyph name="ledger" [size]="12" />
-            <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">CONTEXT</span>
+            <span class="sb-label" style="margin-bottom:0;">{{ sectionTitle('context') }}</span>
             <span class="ml-auto ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-2);">
-              {{ draft.collections.length }} · {{ draft.rag_mode }}
+              {{ draft.collections.length }} · {{ ragLabel(draft.rag_mode) }}
             </span>
           </li>
           <li class="flex items-center gap-2">
             <ck-glyph name="sliders" [size]="12" />
-            <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">POLICY</span>
+            <span class="sb-label" style="margin-bottom:0;">{{ sectionTitle('policy') }}</span>
             <span class="ml-auto ck-mono ck-tnum" style="font-size:11px; color:var(--ck-fg-2);">
               \${{ draft.max_cost.toFixed(2) }} · τ{{ draft.confidence_threshold.toFixed(2) }}
             </span>
@@ -863,7 +874,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
 
         <div class="mt-4 pt-4" style="border-top: 1px solid var(--ck-hair);">
           <div class="flex items-center justify-between mb-2">
-            <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">GATES</span>
+            <span class="sb-label" style="margin-bottom:0;">{{ i18n.t('systems.builder.gates.title') }}</span>
             <span
               class="ck-mono ck-tnum"
               style="font-size:11px;"
@@ -877,19 +888,21 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
               <li class="flex items-center gap-2">
                 <span
                   class="inline-block w-2 h-2 rounded-full"
+                  aria-hidden="true"
                   [style.background]="isSectionValid(section.key) ? 'var(--ck-signal-pos)' : 'var(--ck-signal-warn)'"
                 ></span>
-                <span class="ck-mono" style="font-size:11px; color:var(--ck-fg-3);">
-                  {{ section.title }}
+                <span style="font-size:12px; color:var(--ck-fg-3);">
+                  {{ sectionTitle(section.key) }}
                 </span>
                 @if (!isSectionValid(section.key)) {
                   <button
                     type="button"
                     (click)="expandSection(section.key)"
-                    class="ml-auto ck-mono text-[10px]"
-                    style="color:var(--ck-signal-warn); letter-spacing:0.08em; text-transform:uppercase;"
+                    class="ml-auto text-[12px]"
+                    style="color:var(--ck-signal-warn);"
+                    [attr.aria-label]="i18n.t('systems.builder.gates.fix_label', { section: sectionTitle(section.key) })"
                   >
-                    FIX
+                    {{ i18n.t('systems.builder.gates.fix') }}
                   </button>
                 }
               </li>
@@ -898,13 +911,41 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
         </div>
 
         @if (!allGatesValid()) {
-          <div class="ck-mono mt-4" style="font-size:10px; color:var(--ck-signal-warn); letter-spacing:0.02em;">
+          <div class="mt-4" style="font-size:12px; color:var(--ck-signal-warn);">
             ⚠ {{ firstInvalidGateMessage() }}
           </div>
         }
       </aside>
     </div>
   `,
+  styles: [`
+    /* Field and group labels: sentence case, readable size — no mono capitals. */
+    .sb-label {
+      display: block;
+      font-size: 12px;
+      line-height: 16px;
+      font-weight: 500;
+      color: var(--ck-fg-3);
+      margin-bottom: 8px;
+    }
+    .sb-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .sb-intro {
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--ck-fg-3);
+      margin-top: 4px;
+    }
+    .sb-hint {
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--ck-fg-3);
+    }
+  `],
 })
 export class SystemBuilderComponent implements OnInit {
   private readonly router = inject(Router);
@@ -918,6 +959,7 @@ export class SystemBuilderComponent implements OnInit {
   private readonly serializer = inject(FlowSerializerService);
   private readonly workspace = inject(WorkspaceService);
   readonly settings = inject(SettingsService);
+  readonly i18n = inject(I18nService);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
 
   /**
@@ -935,10 +977,52 @@ export class SystemBuilderComponent implements OnInit {
   readonly ragPipelines = RAG_PIPELINES;
   readonly executionModes = EXECUTION_MODES;
 
-  readonly executionModeLabel = computed(() => {
-    const id = this.draft.execution_mode;
-    return EXECUTION_MODES.find((m) => m.id === id)?.label ?? id;
-  });
+  /** Label of the draft's execution mode; the raw id when the API sends an unknown one. */
+  executionModeLabel(): string {
+    return this.executionModeText(this.draft.execution_mode, 'label');
+  }
+
+  executionModeText(id: string, part: 'label' | 'short' | 'description'): string {
+    const key = `systems.builder.execution.${id}.${part}`;
+    const text = this.i18n.t(key);
+    return text === key ? id : text;
+  }
+
+  /** Label of a retrieval mode by draft id (`OmniRAG`, `Hybrid`…). */
+  ragLabel(id: string): string {
+    const canonical = RAG_PIPELINES.find((p) => p.id === id)?.canonical;
+    return canonical ? this.i18n.t(`systems.builder.rag.${canonical}.label`) : id;
+  }
+
+  ragDescription(canonical: string): string {
+    return this.i18n.t(`systems.builder.rag.${canonical}.description`);
+  }
+
+  sectionTitle(key: CanvasSectionKey): string {
+    return this.i18n.t(`systems.builder.section.${key}`);
+  }
+
+  /** Capability tier (`universal`, `industry`, `client`), in words. */
+  tierLabel(tier: string | undefined): string {
+    const value = tier || 'universal';
+    const key = `hypervisor.tier.${value}`;
+    const text = this.i18n.t(key);
+    return text === key ? value : text;
+  }
+
+  /** Skill certification (`basic`, `production`, `enterprise`), in words. */
+  certLabel(cert: string | undefined): string {
+    const value = cert || 'basic';
+    const key = `skills.cert.${value}`;
+    const text = this.i18n.t(key);
+    return text === key ? value : text;
+  }
+
+  collectionsLabel(count: number): string {
+    return count === 1
+      ? this.i18n.t('systems.builder.collections_one', { count: String(count) })
+      : this.i18n.t('systems.builder.collections', { count: String(count) });
+  }
 
   /**
    * Single-surface canvas — all sections are available at once (no linear
@@ -946,12 +1030,12 @@ export class SystemBuilderComponent implements OnInit {
    * launch action unlocks only when every gate turns green.
    */
   readonly sections: CanvasSection[] = [
-    { key: 'objective', title: 'Objective', description: 'Name & outcome', glyph: 'focus' },
-    { key: 'capability', title: 'Capability', description: 'Value-producing unit', glyph: 'cube' },
-    { key: 'skills', title: 'Skills', description: 'Bundled skills + apps', glyph: 'cube' },
-    { key: 'context', title: 'Context', description: 'Knowledge + retrieval', glyph: 'ledger' },
-    { key: 'policy', title: 'Policy', description: 'Guardrails + levers', glyph: 'sliders' },
-    { key: 'launch', title: 'Launch', description: 'Review & create', glyph: 'bolt' },
+    { key: 'objective', glyph: 'focus' },
+    { key: 'capability', glyph: 'cube' },
+    { key: 'skills', glyph: 'cube' },
+    { key: 'context', glyph: 'ledger' },
+    { key: 'policy', glyph: 'sliders' },
+    { key: 'launch', glyph: 'bolt' },
   ];
 
   /** Set of expanded accordion sections; all open by default. */
@@ -1019,8 +1103,16 @@ export class SystemBuilderComponent implements OnInit {
   readonly availableModels = signal<ModelOpt[]>([]);
   readonly existingContexts = signal<Context[]>([]);
 
+  /**
+   * Signal mirror of `draft.capability_id`. `draft` is a plain object, so a
+   * `computed` reading it alone kept the capability found at first render:
+   * picking a card left the Launch review, the preview and the Skills list
+   * on "—". Every write to the draft's capability goes through here too.
+   */
+  private readonly capabilityId = signal<string | null>(null);
+
   readonly selectedCapability = computed<Capability | null>(() => {
-    const id = this.draft.capability_id;
+    const id = this.capabilityId();
     if (!id) return null;
     return this.capabilities().find((c) => c.id === id) ?? null;
   });
@@ -1125,6 +1217,7 @@ export class SystemBuilderComponent implements OnInit {
 
   selectCapability(cap: Capability): void {
     this.draft.capability_id = cap.id;
+    this.capabilityId.set(cap.id);
     if (!this.draft.name) this.draft.name = cap.name;
     if (!this.draft.objective && cap.description) this.draft.objective = cap.description;
     if (cap.confidence_threshold != null) this.draft.confidence_threshold = cap.confidence_threshold;
@@ -1193,10 +1286,10 @@ export class SystemBuilderComponent implements OnInit {
 
   presetHealthTitle(presetId: string): string {
     const st = this.presetStatus(presetId);
-    if (st === 'bound') return 'Preset available — all required skills are bound.';
-    if (st === 'stub') return 'Preset available but at least one underlying skill is a stub.';
-    if (st === 'unbound') return 'Warning — at least one underlying skill has no wrapper. Runs may fail.';
-    return 'Warning — at least one underlying skill is only in the catalog, not registered at runtime.';
+    if (st === 'bound') return this.i18n.t('systems.builder.preset.bound');
+    if (st === 'stub') return this.i18n.t('systems.builder.preset.stub');
+    if (st === 'unbound') return this.i18n.t('systems.builder.preset.unbound');
+    return this.i18n.t('systems.builder.preset.catalog_only');
   }
 
   /**
@@ -1235,36 +1328,42 @@ export class SystemBuilderComponent implements OnInit {
     if (!first) return '';
     switch (first.key) {
       case 'objective':
-        return 'Give this system a name.';
+        return this.i18n.t('systems.builder.gate.objective');
       case 'capability':
-        return 'Pick the capability this system will produce.';
+        return this.i18n.t('systems.builder.gate.capability');
       case 'launch':
-        return 'Fill the name and pick a capability before launching.';
+        return this.i18n.t('systems.builder.gate.launch');
       default:
-        return `Complete the ${first.title} section.`;
+        return this.i18n.t('systems.builder.gate.complete', { section: this.sectionTitle(first.key) });
     }
   }
 
   sectionSummary(key: CanvasSectionKey): string {
     switch (key) {
       case 'objective':
-        return this.draft.name.trim() || 'Name & one-sentence outcome.';
+        return this.draft.name.trim() || this.i18n.t('systems.builder.summary.objective');
       case 'capability':
-        return this.selectedCapability()?.name || 'Pick a value-producing unit.';
+        return this.selectedCapability()?.name || this.i18n.t('systems.builder.summary.capability');
       case 'skills': {
         const n = this.bundledSkills().length;
         const stubs = this.stubSkillsCount();
         const unbound = this.unboundSkillsCount();
-        if (!this.draft.capability_id) return 'Bundled automatically once a capability is picked.';
-        if (!n) return 'No bundled skill — runs will fall back to defaults.';
-        return `${n} bundled · ${stubs} stub · ${unbound} unbound`;
+        if (!this.draft.capability_id) return this.i18n.t('systems.builder.summary.skills_pending');
+        if (!n) return this.i18n.t('systems.builder.summary.skills_none');
+        return this.i18n.t('systems.builder.summary.skills', {
+          count: String(n),
+          stubs: String(stubs),
+          missing: String(unbound),
+        });
       }
       case 'context':
-        return `${this.draft.collections.length} collection${this.draft.collections.length === 1 ? '' : 's'} · ${this.draft.rag_mode}`;
+        return `${this.collectionsLabel(this.draft.collections.length)} · ${this.ragLabel(this.draft.rag_mode)}`;
       case 'policy':
         return `${this.executionModeLabel()} · $${this.draft.max_cost.toFixed(2)} · τ${this.draft.confidence_threshold.toFixed(2)}`;
       case 'launch':
-        return this.allGatesValid() ? 'Ready to create this system.' : 'Unlocks once all gates are green.';
+        return this.allGatesValid()
+          ? this.i18n.t('systems.builder.summary.launch_ready')
+          : this.i18n.t('systems.builder.summary.launch_locked');
       default:
         return '';
     }
@@ -1325,12 +1424,15 @@ export class SystemBuilderComponent implements OnInit {
       this.launching.set(false);
       if (!sys) {
         this.toast.error(
-          'Draft not persisted. Reload if the System changed, or confirm structural replacements in Flow Builder.',
-          'Switch to Flow blocked',
+          this.i18n.t('systems.builder.toast.switch_failed'),
+          this.i18n.t('systems.builder.toast.switch_failed_title'),
         );
         return;
       }
-      this.toast.info(`"${sys.name}" opened in Flow`, 'Draft saved');
+      this.toast.info(
+        this.i18n.t('systems.builder.toast.switched', { name: sys.name }),
+        this.i18n.t('systems.builder.toast.switched_title'),
+      );
       void this.router.navigateByUrl(this.navigation.leafUrl('system-flow', { ref: sys.id }));
     });
   }
@@ -1411,6 +1513,7 @@ export class SystemBuilderComponent implements OnInit {
     this.draft.name = hydrated.name;
     this.draft.objective = hydrated.objective;
     this.draft.capability_id = hydrated.capability_id ?? null;
+    this.capabilityId.set(this.draft.capability_id);
     this.draft.collections = [...hydrated.collections];
     this.draft.rag_mode = hydrated.rag_mode;
     this.draft.reuse_context_id = hydrated.reuse_context_id ?? null;
@@ -1464,30 +1567,30 @@ export class SystemBuilderComponent implements OnInit {
     const gatesLabel = `${this.gatesValidCount()}/${this.sections.length}`;
     return [
       {
-        label: 'Gates',
+        label: this.i18n.t('systems.builder.gates.title'),
         value: gatesLabel,
         tone: this.allGatesValid() ? 'pos' : 'warn',
         hint: this.allGatesValid()
-          ? 'All sections validated — launch is unlocked.'
+          ? this.i18n.t('systems.builder.kpi.gates_ok')
           : this.firstInvalidGateMessage(),
       },
       {
-        label: 'Capability',
-        value: cap?.tier ? cap.tier.toUpperCase() : '—',
+        label: this.sectionTitle('capability'),
+        value: cap?.tier ? this.tierLabel(cap.tier) : '—',
         tone: cap ? 'cool' : 'neutral',
-        hint: cap?.name ?? 'Pick the capability this system will produce.',
+        hint: cap?.name ?? this.i18n.t('systems.builder.gate.capability'),
       },
       {
-        label: 'Skills',
+        label: this.sectionTitle('skills'),
         value: String(this.bundledSkills().length || 0),
         tone: this.unboundSkillsCount() ? 'warn' : 'neutral',
-        hint: 'Skills bundled by the selected capability.',
+        hint: this.i18n.t('systems.builder.kpi.skills_hint'),
       },
       {
-        label: 'Est. cost',
+        label: this.i18n.t('systems.builder.kpi.cost'),
         value: this.formatPrice(cap?.pricing?.unit_price),
         tone: 'neutral',
-        hint: 'Projected unit cost per run based on the capability pricing.',
+        hint: this.i18n.t('systems.builder.kpi.cost_hint'),
       },
     ];
   }
@@ -1511,7 +1614,9 @@ export class SystemBuilderComponent implements OnInit {
       ? of({ id: reuseId } as Context)
       : this.draft.collections.length > 0
       ? this.canonical.createContext({
-          name: `${this.draft.name.trim() || 'System'} context`,
+          name: this.i18n.t('systems.builder.context_name', {
+            name: this.draft.name.trim() || this.i18n.t('systems.builder.context_name_fallback'),
+          }),
           data_refs: [...this.draft.collections],
         })
       : of(null);
@@ -1559,14 +1664,17 @@ export class SystemBuilderComponent implements OnInit {
       op$.subscribe((sys) => {
         this.launching.set(false);
         if (sys) {
-          this.toast.success(`"${sys.name}" is live`, sid ? 'System saved' : 'System created');
+          this.toast.success(
+            this.i18n.t('systems.builder.toast.live', { name: sys.name }),
+            this.i18n.t(sid ? 'systems.builder.toast.saved_title' : 'systems.builder.toast.created_title'),
+          );
           void this.router.navigateByUrl(this.navigation.objectUrl('system', sys.id));
           return;
         }
         if (sid) {
           this.toast.error(
-            'Changes were not saved. Reload if the System changed; structural Flow replacements require explicit confirmation in Flow Builder.',
-            'Save blocked',
+            this.i18n.t('systems.builder.toast.save_failed'),
+            this.i18n.t('systems.builder.toast.save_failed_title'),
           );
           return;
         }
@@ -1578,7 +1686,10 @@ export class SystemBuilderComponent implements OnInit {
           skills: cap?.skill_ids ?? [],
           collections: [...this.draft.collections],
         });
-        this.toast.warning('Created as local draft (API unreachable)', 'System draft');
+        this.toast.warning(
+          this.i18n.t('systems.builder.toast.local_draft'),
+          this.i18n.t('systems.builder.toast.local_draft_title'),
+        );
         void this.router.navigateByUrl(this.navigation.objectUrl('system', draft.id));
       });
     });

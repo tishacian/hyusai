@@ -427,7 +427,7 @@ export const MODELS_FR = {
   // ---- publier comme skill ------------------------------------------------
   'models.publish.title': 'Publier comme skill',
   'models.publish.hint':
-    'Le modèle devient une skill de l’espace de travail, typée depuis son contrat : appelable dans un system ou dans le chat, figée sur cette lignée.',
+    'Le modèle devient une skill de l’espace de travail, typée depuis son contrat : appelable dans un système ou dans le chat, figée sur cette lignée.',
   'models.publish.action': 'Publier comme skill',
   'models.publish.live': 'Publiée',
   'models.publish.open': 'Ouvrir dans le catalogue',
