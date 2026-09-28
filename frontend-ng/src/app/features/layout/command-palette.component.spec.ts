@@ -229,3 +229,96 @@ test('Thème Présentation opens /hypervisor?theme=presentation', () => {
   assert.deepEqual(navigations, ['/hypervisor?theme=presentation']);
   palette.ngOnDestroy();
 });
+
+function paletteWithChat(opens: unknown[]) {
+  const workspace = new WorkspaceStub();
+  const canonical = new CanonicalStub();
+  const navigations: string[] = [];
+  const injector = Injector.create({
+    providers: [
+      CommandPaletteComponent,
+      { provide: WorkspaceService, useValue: workspace },
+      { provide: CanonicalApiService, useValue: canonical },
+      { provide: ChatOverlayService, useValue: { open: (options: unknown) => opens.push(options) } },
+      { provide: Router, useValue: { navigateByUrl: (url: string) => navigations.push(url) } },
+      { provide: ZoomContextService, useValue: { objectUrl: navigationObjectUrl } },
+      {
+        provide: I18nService,
+        useValue: {
+          locale: () => 'fr',
+          t: (key: string, params?: Record<string, unknown>) =>
+            params ? `${key}|${JSON.stringify(params)}` : key,
+        },
+      },
+      { provide: ChangeDetectionScheduler, useValue: { notify() {}, runningTick: false } },
+      { provide: EffectScheduler, useValue: { add() {}, schedule() {}, flush() {}, remove() {} } },
+    ],
+  });
+  const palette = injector.get(CommandPaletteComponent);
+  palette.ngOnInit();
+  canonical.capabilities[0].next([]);
+  canonical.runs[0].next([]);
+  canonical.skills[0].next([]);
+  canonical.systems[0].next([]);
+  return { palette, navigations };
+}
+
+const enter = { key: 'Enter', preventDefault() {} } as KeyboardEvent;
+
+test('L27 — a query with no match offers « Ask the agent » first; Enter prefills the chat', () => {
+  const opens: unknown[] = [];
+  const { palette, navigations } = paletteWithChat(opens);
+  palette.query.set('  quels runs ont échoué hier  ');
+
+  const [ask, ...rest] = palette.results();
+  assert.equal(ask.id, 'agent.ask');
+  assert.equal(ask.kind, 'agent');
+  assert.equal(ask.label, 'palette.ask_agent|{"query":"quels runs ont échoué hier"}');
+  assert.equal(rest.some((row) => row.id === 'agent.ask'), false, 'one agent row only');
+  assert.equal(palette.selectedIndex(), 0, 'selected by default');
+  assert.equal(palette.noMatch(), true);
+  assert.equal(palette.activeDescendant(), 'ck-palette-option-0');
+  assert.equal(palette.announcement(), 'palette.announce.fallback');
+
+  palette.onKey(enter);
+  assert.deepEqual(opens, [{ mode: 'quick', initialPrompt: 'quels runs ont échoué hier' }]);
+  assert.deepEqual(navigations, []);
+  assert.equal(palette.open(), false, 'the palette closes');
+  palette.ngOnDestroy();
+});
+
+test('L27 — a lexicon term shows « Qu’est-ce que … ? » with its definition in place', () => {
+  const opens: unknown[] = [];
+  const { palette } = paletteWithChat(opens);
+  palette.query.set('draft');
+  const define = palette.results().find((row) => row.id === 'define.draft');
+  assert.ok(define, 'the definition row is listed');
+  assert.equal(define.kind, 'definition');
+  assert.equal(define.label, 'palette.what_is|{"term":"Brouillon"}');
+  assert.match(define.hint, /brouillon|version/i, 'the secondary line is the lexicon definition');
+
+  palette.go(define);
+  assert.deepEqual(opens, [{
+    mode: 'quick',
+    initialPrompt: 'palette.what_is.prompt|{"term":"Brouillon"}',
+  }]);
+
+  palette.query.set('exécution');
+  const run = palette.results().find((row) => row.id === 'define.run');
+  assert.equal(run?.label, 'palette.what_is.elided|{"term":"Exécution"}', 'French elision');
+  palette.ngOnDestroy();
+});
+
+test('L27 — matching commands keep Enter; definitions follow them', () => {
+  const { palette, navigations } = paletteWithChat([]);
+  palette.query.set('skill');
+  const rows = palette.results();
+  assert.equal(rows[0].id, 'view.skills');
+  assert.equal(rows.at(-1)?.id, 'define.skill');
+  assert.equal(rows.some((row) => row.id === 'agent.ask'), false);
+  assert.equal(palette.noMatch(), false);
+  assert.equal(palette.announcement(), `palette.footer.results|{"count":${rows.length}}`);
+  palette.onKey(enter);
+  assert.deepEqual(navigations, ['/skills']);
+  palette.ngOnDestroy();
+});

@@ -37,6 +37,11 @@ export class ChatOverlayService {
   readonly preselectedContextId = signal<string | null>(null);
   readonly assistantProfile = signal<string | null>(null);
   readonly initialPrompt = signal<string | null>(null);
+  /**
+   * Bumped on every open that carries a prompt, so the retained chat panel
+   * prefills again even when the text equals the previous one (L27, ⌘K).
+   */
+  readonly initialPromptRevision = signal(0);
   readonly autoStartVoiceLoop = signal(false);
   /** Resume a durable session when opened from Conversations › Reprendre. */
   readonly sessionId = signal<string | null>(null);
@@ -82,6 +87,7 @@ export class ChatOverlayService {
     this.preselectedContextId.set(options?.contextId ?? null);
     this.assistantProfile.set(options?.assistantProfile ?? null);
     this.initialPrompt.set(options?.initialPrompt ?? null);
+    if (options?.initialPrompt) this.initialPromptRevision.update((revision) => revision + 1);
     this.autoStartVoiceLoop.set(!!options?.autoStartVoiceLoop);
     this.sessionId.set(options?.sessionId ?? null);
     this.linkedLabel.set(options?.linkedLabel ?? null);

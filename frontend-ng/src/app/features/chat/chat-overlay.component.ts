@@ -105,6 +105,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [initialContextId]="overlay.preselectedContextId()"
             [assistantProfileKey]="overlay.assistantProfile()"
             [initialPrompt]="overlay.initialPrompt()"
+            [initialPromptRevision]="overlay.initialPromptRevision()"
             [autoStartVoiceLoop]="overlay.autoStartVoiceLoop()"
             [resumeSessionId]="overlay.sessionId()"
           />
