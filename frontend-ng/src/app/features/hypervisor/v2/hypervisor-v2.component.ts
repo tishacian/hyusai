@@ -14,7 +14,7 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
-import { Subscription, forkJoin, of } from 'rxjs';
+import { Subscription, forkJoin, of, type Observable } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import {
@@ -3014,13 +3014,22 @@ export class HypervisorV2Component implements OnInit, OnDestroy {
       return;
     }
     const scope = this.workspaceView.captureRequest();
-    const empty = <T>() => of(null as T | null);
     this.impactLiveSub = forkJoin({
-      timeline: this.http.get<ImpactTimelineRaw>('/mission-room/timeline').pipe(catchError(empty)),
-      news: this.http.get<ImpactNewsRaw>('/mission-room/news').pipe(catchError(empty)),
-      map: this.http.get<ImpactMapRaw>('/mission-room/map').pipe(catchError(empty)),
-      monitor: this.http.get<ImpactMonitorRaw>('/mission-room/monitor').pipe(catchError(empty)),
-      macro: this.http.get<ImpactMacroRaw>('/mission-room/macro-indicators').pipe(catchError(empty)),
+      timeline: this.http.get<ImpactTimelineRaw>('/mission-room/timeline').pipe(
+        catchError((): Observable<ImpactTimelineRaw | null> => of(null)),
+      ),
+      news: this.http.get<ImpactNewsRaw>('/mission-room/news').pipe(
+        catchError((): Observable<ImpactNewsRaw | null> => of(null)),
+      ),
+      map: this.http.get<ImpactMapRaw>('/mission-room/map').pipe(
+        catchError((): Observable<ImpactMapRaw | null> => of(null)),
+      ),
+      monitor: this.http.get<ImpactMonitorRaw>('/mission-room/monitor').pipe(
+        catchError((): Observable<ImpactMonitorRaw | null> => of(null)),
+      ),
+      macro: this.http.get<ImpactMacroRaw>('/mission-room/macro-indicators').pipe(
+        catchError((): Observable<ImpactMacroRaw | null> => of(null)),
+      ),
     }).subscribe((bundle) => {
       if (generation !== this.impactLiveGeneration) return;
       if (!this.workspaceView.isCurrent(scope)) return;
