@@ -16,7 +16,18 @@ export {
   type SvgSegment,
 } from './svg-path';
 
-export { ckChartToneVar, ckChartUid, type CkChartTick, type CkChartTone, type CkStreamTone } from './chart.types';
+export {
+  CK_DECLARED_DASH_BOLD,
+  CK_DECLARED_DASH_THIN,
+  CK_DECLARED_HATCH_PERIOD,
+  CK_DECLARED_HATCH_WIDTH,
+  ckChartIsDeclared,
+  ckChartToneVar,
+  ckChartUid,
+  type CkChartTick,
+  type CkChartTone,
+  type CkStreamTone,
+} from './chart.types';
 
 export {
   easeOutProgress,

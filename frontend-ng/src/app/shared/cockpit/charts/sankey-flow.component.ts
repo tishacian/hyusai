@@ -20,7 +20,7 @@ import {
   shouldRebuildLayout,
 } from './chart-interact';
 import { CkChartTipComponent, type CkChartTipLine } from './chart-tip.component';
-import { ckChartUid } from './chart.types';
+import { CK_DECLARED_DASH_THIN, CK_DECLARED_HATCH_PERIOD, CK_DECLARED_HATCH_WIDTH, ckChartUid } from './chart.types';
 import {
   layoutSankey,
   type CkSankeySource,
@@ -53,14 +53,32 @@ export type { CkSankeySource } from './sankey-layout';
     >
       <defs>
         <linearGradient [attr.id]="runsId" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stop-color="var(--ck-fg-1)" stop-opacity="0.4" />
-          <stop offset="1" stop-color="var(--ck-fg-1)" stop-opacity="0.15" />
+          <stop offset="0" stop-color="var(--ck-data-measured)" stop-opacity="0.4" />
+          <stop offset="1" stop-color="var(--ck-data-measured)" stop-opacity="0.15" />
         </linearGradient>
+        <!-- The declared end stays a tint (≤ 0.22) so the hatch keeps 3:1 on it. -->
         <linearGradient [attr.id]="valueId" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stop-color="var(--ck-fg-1)" stop-opacity="0.15" />
-          <stop offset="0.35" stop-color="var(--ck-signal-cool)" stop-opacity="0.55" />
-          <stop offset="1" stop-color="var(--ck-signal-cool)" stop-opacity="0.85" />
+          <stop offset="0" stop-color="var(--ck-data-measured)" stop-opacity="0.15" />
+          <stop offset="0.35" stop-color="var(--ck-data-declared)" stop-opacity="0.16" />
+          <stop offset="1" stop-color="var(--ck-data-declared)" stop-opacity="0.22" />
         </linearGradient>
+        <pattern
+          [attr.id]="hatchId"
+          patternUnits="userSpaceOnUse"
+          [attr.width]="hatchPeriod"
+          [attr.height]="hatchPeriod"
+          patternTransform="rotate(45)"
+        >
+          <rect [attr.width]="hatchWidth" [attr.height]="hatchPeriod" fill="var(--ck-data-declared)" />
+        </pattern>
+        <!-- The hatch arrives with the teal: absent where the ribbon leaves the measured hours. -->
+        <linearGradient [attr.id]="hatchFadeId" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="var(--ck-data-declared)" stop-opacity="0" />
+          <stop offset="0.35" stop-color="var(--ck-data-declared)" stop-opacity="1" />
+        </linearGradient>
+        <mask [attr.id]="hatchMaskId" maskContentUnits="objectBoundingBox" style="mask-type:alpha">
+          <rect width="1" height="1" [attr.fill]="'url(#' + hatchFadeId + ')'" />
+        </mask>
       </defs>
       @for (ribbon of ribbons; track $index) {
         <path
@@ -72,6 +90,17 @@ export type { CkSankeySource } from './sankey-layout';
           [attr.data-system]="ribbon.sourceId || null"
           [attr.data-node]="ribbon.kind === 'value' ? 'hours' : null"
         />
+        @if (ribbon.declared) {
+          <path
+            class="ck-ribbon ck-ribbon-hatch"
+            [class.is-lit]="isRibbonLit(ribbon)"
+            [class.is-dim]="isDimmed() && !isRibbonLit(ribbon)"
+            [attr.d]="ribbon.d"
+            [attr.fill]="hatchFill"
+            [attr.mask]="'url(#' + hatchMaskId + ')'"
+            pointer-events="none"
+          />
+        }
       }
       @for (node of nodes; track $index) {
         <rect
@@ -83,12 +112,30 @@ export type { CkSankeySource } from './sankey-layout';
           [attr.width]="node.w"
           [attr.height]="node.h"
           rx="1.5"
-          [attr.fill]="node.fill"
+          [attr.fill]="node.declared ? 'transparent' : node.fill"
           [attr.data-system]="node.sourceId || null"
           [attr.data-node]="node.role && node.role !== 'source' && node.role !== 'stub' ? node.role : null"
           [attr.tabindex]="node.role === 'source' ? 0 : -1"
-          [attr.aria-label]="ariaFor(node)"
+          [attr.role]="node.role === 'source' || node.role === 'hours' || node.role === 'value' ? 'img' : null"
+          [attr.aria-label]="ariaFor(node) || null"
         />
+        @if (node.declared) {
+          <!-- A 6-unit bar is a thin mark: dashed, like a declared spoke, so the
+               column still ends visibly next to the hatched ribbon. -->
+          <line
+            class="ck-node ck-node-dash"
+            [class.is-lit]="isNodeLit(node)"
+            [class.is-dim]="isDimmed() && !isNodeLit(node)"
+            [attr.x1]="node.x + node.w / 2"
+            [attr.y1]="node.y"
+            [attr.x2]="node.x + node.w / 2"
+            [attr.y2]="node.y + node.h"
+            [attr.stroke]="node.fill"
+            [attr.stroke-width]="node.w"
+            [attr.stroke-dasharray]="nodeDash"
+            pointer-events="none"
+          />
+        }
       }
       @for (stub of stubs; track $index) {
         <line
@@ -170,6 +217,12 @@ export class CkChartSankeyFlowComponent implements OnChanges, AfterViewInit, OnD
 
   readonly runsId = ckChartUid('ck-sankey-runs');
   readonly valueId = ckChartUid('ck-sankey-val');
+  readonly hatchId = ckChartUid('ck-sankey-hatch');
+  readonly hatchFadeId = ckChartUid('ck-sankey-hatch-fade');
+  readonly hatchMaskId = ckChartUid('ck-sankey-hatch-mask');
+  readonly hatchPeriod = CK_DECLARED_HATCH_PERIOD;
+  readonly hatchWidth = CK_DECLARED_HATCH_WIDTH;
+  readonly nodeDash = CK_DECLARED_DASH_THIN;
 
   tipOpen = false;
   tipTitle = '';
@@ -181,6 +234,11 @@ export class CkChartSankeyFlowComponent implements OnChanges, AfterViewInit, OnD
   private localNode: 'hours' | 'value' | null = null;
   private built: SankeyLayout | null = null;
   private stopWidth: (() => void) | null = null;
+
+  /** Paint for the declared ribbon overlay. */
+  get hatchFill(): string {
+    return `url(#${this.hatchId})`;
+  }
 
   get ribbons(): SankeyRibbon[] {
     return this.layout().ribbons;

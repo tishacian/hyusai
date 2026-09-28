@@ -117,6 +117,19 @@
   --ck-signal-violet: var(--ck-fg-3);
   --ck-signal-ice:    var(--ck-fg-1);
 
+  /* ---- DATA (chart marks in shared/cockpit/charts, never chrome) ----
+     The four inks of the chart grammar (docs/hypervisor-v2-chart-grammar.md).
+     `declared` is the primary, so a declared mark always carries a pattern
+     too (hatch on areas, dashes on thin strokes, ◐ in text): colour alone
+     would read as "clickable". `muted` is the mid-tone the text scale gave
+     up; it clears 3:1 as a graphic on the canvas and on panels (4.96 and
+     4.67:1) but only 4.30:1 on the relief surface, so it never colours
+     text: captions stay on --ck-fg-3. */
+  --ck-data-measured: var(--ck-fg-1);
+  --ck-data-declared: var(--ck-primary);
+  --ck-data-muted:    #7b8391;
+  --ck-data-zero:     var(--ck-signal-neg);
+
   /* ---- STATUS TRIOS (semantic, theme-aware) ----
      One trio per meaning: `-fg` for text and icons, `-bg` for the soft pill
      behind them, `-line` for its ring. This is what replaces the hard-coded
@@ -253,6 +266,14 @@ html:not(.dark),
   --ck-signal-cool:   var(--ck-primary);
   --ck-signal-violet: var(--ck-fg-3);
   --ck-signal-ice:    #1a4b70;
+
+  /* ---- DATA ----
+     `muted` clears 3:1 as a graphic on every light surface (3.34:1 on the
+     canvas, 3.49:1 on panels). */
+  --ck-data-measured: var(--ck-fg-1);
+  --ck-data-declared: var(--ck-primary);
+  --ck-data-muted:    #7d8693;
+  --ck-data-zero:     var(--ck-signal-neg);
 
   /* ---- STATUS TRIOS ----
      The tint keeps the dark theme's weight and the foreground drops to a dark

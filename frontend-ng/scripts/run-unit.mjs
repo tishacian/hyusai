@@ -164,6 +164,7 @@ const storeSpecs = [
   'src/app/core/object-perspective.store.spec.ts',
   'src/app/core/zoom-context.service.spec.ts',
   'src/app/shared/cockpit/run-outcome-card.component.spec.ts',
+  'src/app/shared/cockpit/charts/chart-declared.spec.ts',
   'src/app/core/workspace-experience-shadow.service.spec.ts',
   'src/app/core/navigation-profile.service.spec.ts',
   'src/app/core/navigation-resolver.service.spec.ts',
