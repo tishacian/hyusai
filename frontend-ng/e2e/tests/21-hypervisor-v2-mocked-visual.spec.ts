@@ -820,6 +820,68 @@ test.describe('Hypervisor V2 — mocked visual', () => {
   });
 });
 
+test.describe('Hypervisor V2 — L24 honest labels and per-block degraded state', () => {
+  test.skip(!visualEnabled, 'Set E2E_HYPERVISOR_V2_VISUAL=1 to run');
+  test.setTimeout(3 * 60 * 1_000);
+
+  for (const theme of ['dark', 'light'] as const) {
+    test(`hero wording, ratio in Coûts, one failed source (${theme})`, async ({ browser }) => {
+      await mkdir(RESULTS, { recursive: true });
+      const context = await browser.newContext({
+        viewport: { width: 1680, height: 1100 },
+        locale: 'fr-FR',
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      await installMocks(page, 'dense', theme);
+      await openHypervisor(page);
+
+      const hero = page.getByTestId('hypervisor-v2-hero');
+      await expect(hero).toContainText('heures de travail attribuées aux agents en 30 jours');
+      await expect(hero).not.toContainText(/rendues aux équipes/);
+      await expect(hero.getByTestId('hypervisor-v2-measured-part')).toContainText(/dont \d+\s*% mesurées/);
+      await expect(hero.locator('[data-fact="ratio"]'), 'the ratio never sits in the hero').toHaveCount(0);
+      await expect(hero.getByTestId('hypervisor-v2-monument').locator('.sr-only')).toHaveText(
+        /^1\s*284 heures de travail attribuées aux agents en 30 jours, dont \d+\s*% mesurées$/,
+      );
+      await expect(page.locator('app-hypervisor-v2.hv2-enter')).toHaveCount(0, { timeout: 4_000 });
+      await page.screenshot({ path: path.join(RESULTS, `l24-${theme}-hero.png`), animations: 'disabled' });
+
+      // Facets live in the zone summary on this branch; the URL is the stable entry point.
+      await page.goto('/hypervisor?facet=couts');
+      const ratio = page.getByTestId('hypervisor-v2-couts-ratio');
+      await expect(ratio).toContainText('Valeur déclarée / coût mesuré');
+      await expect(ratio.locator('[data-fact="ratio"]')).toContainText(/×\s*13/);
+      await expect(ratio.getByTestId('hypervisor-v2-couts-declared-share')).toContainText(/part déclarée/);
+      await page.screenshot({ path: path.join(RESULTS, `l24-${theme}-couts.png`), animations: 'disabled' });
+
+      await page.route('**/api/v1/hypervisor/decisions**', (route) => json(route, { detail: 'down' }, 500));
+      await page.goto('/hypervisor');
+      await expect(page.getByTestId('hypervisor-v2-hero')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('hypervisor-v2-register')).toBeVisible();
+      const unavailable = page.getByTestId('hypervisor-v2-unavailable-decisions').first();
+      await expect(unavailable).toBeVisible();
+      await expect(unavailable.getByRole('status')).toHaveText('Cette donnée n’a pas pu être chargée.');
+      await captureFullLedger(page, path.join(RESULTS, `l24-${theme}-degraded-decisions.png`));
+
+      await page.unroute('**/api/v1/hypervisor/decisions**');
+      await unavailable.getByRole('button', { name: /^Réessayer/ }).focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByTestId('hypervisor-v2-unavailable-decisions')).toHaveCount(0);
+      await expect(page.getByTestId('hypervisor-v2-source-announcer')).toHaveText('Décisions : donnée chargée.');
+
+      await page.route('**/api/v1/hypervisor/series**', (route) => json(route, { detail: 'down' }, 500));
+      await page.goto('/hypervisor');
+      await expect(page.getByTestId('hypervisor-v2-series-degraded')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('hypervisor-v2-unavailable-series')).toBeVisible();
+      await expect(page.getByText('Aucune série visible sur cette fenêtre.')).toHaveCount(0);
+      await expect(page.locator('.hv2-card-decision')).toBeVisible();
+      await captureFullLedger(page, path.join(RESULTS, `l24-${theme}-degraded-series.png`));
+      await context.close();
+    });
+  }
+});
+
 async function captureHoverProof(
   page: Page,
   theme: ThemeKind,
