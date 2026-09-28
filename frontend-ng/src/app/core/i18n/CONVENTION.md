@@ -104,6 +104,11 @@ the internal jargon the term replaces on screen.
   it in templates. It stays legitimate in code, in a `title`, or on a
   "Runtime details" secondary line: **the two-register rule** — plain word as
   the primary label, technical term one level down, never removed.
+- `untranslated` — English forms of a term whose French word differs
+  (`System`/`Systems` for « Système », `Run`/`Runs` for « Exécution »). The
+  guard counts French strings that still use them as words; placeholders
+  (`{runs}`), identifiers (`run_id`, `dry-run`) and `` `code` `` don't count.
+  Skill, Capability and Flow are product nouns: they have no such list.
 - The definition must fit a tooltip in one breath. It is the *only* copy of
   that wording: `ck-help` renders it, docs quote it, nobody rewrites it.
 
@@ -183,7 +188,12 @@ It fails on:
    of a new screen; retro-fitting is what leaves this residue.
 5. **Lexicon violations** — a banned synonym or an internal term in a
    dictionary value or a template.
-6. **A literal key `t()` cannot answer** — see §3. The type system can't do
+6. **An English term in a French string** — « Nouveau System », « Voir
+   dans Runs » — for the `untranslated` forms of the lexicon, in the French
+   dictionary and the French definitions. One count per key, ratcheted per
+   dictionary in `frenchTerms` (see below): write the French term with its
+   agreement, « Nouveau système », « Exécutions terminées ».
+7. **A literal key `t()` cannot answer** — see §3. The type system can't do
    this one, and the symptom is a raw `flow.toolbar.state.hold` rendered
    where a label belongs.
 
@@ -193,6 +203,9 @@ Exceptions live in `frontend-ng/scripts/i18n-allowlist.json`, each with a
 - `hardcodedText[path].max` is a **ratchet**: it may shrink, never grow. The
   guard prints the new number when a sweep lets you lower it, and asks you to
   delete the entry once the file is clean.
+- `frenchTerms[path].max` is the same kind of ratchet for check 6. A
+  product name that genuinely keeps the English word is the only permanent
+  entry it should ever hold.
 - `lexicon[path].words` allows specific words in one file — for a genuinely
   different object (a connector ingestion *job* is not a Run) or a pending
   rename that another work stream owns.

@@ -4,12 +4,17 @@ import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { KbdComponent, LiveDotComponent } from '@app/shared/cockpit';
 import { I18nService } from '@app/core/i18n.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 
 /**
  * Bottom command bar (28px). Mirrors the BottomCommand region of the
  * mockup: system status pulse, current path, command-palette hint,
  * semantic-zoom hint and build identifier.
+ *
+ * The zoom depth (« niveau 2 sur 3 ») and the ⌘Z hint are engineering
+ * detail: only the builder mode sees them. Every other mode keeps the bar,
+ * its landmark and the zone it is in.
  */
 @Component({
   selector: 'app-command-bar',
@@ -51,6 +56,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
         [style.alignItems]="'center'"
         [style.gap.px]="6"
       ><ck-kbd>⌘K</ck-kbd>{{ i18n.t('nav.footer.command') }}</span>
+      @if (showZoomDepth()) {
       <span
         class="ck-mono"
         [title]="zoomHintTitle()"
@@ -63,6 +69,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
         [style.gap.px]="6"
         [style.cursor]="'help'"
       ><ck-kbd>⌘Z</ck-kbd>{{ zoomHint() }}</span>
+      }
       <span class="ck-hairline-v" [style.height.px]="14"></span>
       <span
         class="ck-mono"
@@ -84,6 +91,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
 export class CommandBarComponent {
   readonly i18n = inject(I18nService);
   private readonly navigation = inject(ZoomContextService);
+  private readonly workspace = inject(WorkspaceService);
   private readonly router = inject(Router);
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -96,6 +104,9 @@ export class CommandBarComponent {
 
   readonly path = computed(() => (this.url() || '/').split('?')[0]);
 
+  /** Zoom depth and ⌘Z hint: builder mode only. */
+  readonly showZoomDepth = computed(() => this.workspace.isBuilderMode());
+
   readonly position = computed(() => {
     if (!this.navigation.navV5Enabled?.()) return this.path();
     const { depth, total } = this.navigation.depthPair();
@@ -104,6 +115,9 @@ export class CommandBarComponent {
       !this.navigation.deepestResolvedType()
       && (this.navigation.systemId() || this.navigation.capabilityId()),
     );
+    if (!this.showZoomDepth()) {
+      return this.i18n.t(filtered ? 'nav.command.zone_filter' : 'nav.command.zone', { zone });
+    }
     return this.i18n.t(filtered ? 'nav.command.position_filter' : 'nav.command.position', {
       zone,
       depth: String(depth),

@@ -15,6 +15,8 @@ import {
   lexiconDefinition,
   lexiconEntry,
   lexiconTerm,
+  untranslatedInFrench,
+  untranslatedTerms,
 } from './i18n.lexicon';
 
 test('every lexicon entry is complete in both languages', () => {
@@ -136,5 +138,47 @@ test('the English PR to PO desk does not keep French dossier or terrain', () => 
     if (!key.startsWith('experience.pr_to_po.')) continue;
     assert.doesNotMatch(value, /\bdossier\b/i, `${key}: EN still says dossier`);
     assert.doesNotMatch(value, /\bterrain\b/i, `${key}: EN still says terrain`);
+  }
+});
+
+const english = (text: string) => untranslatedInFrench(text).map((hit) => hit.word);
+
+test('a French string that keeps System or Run in English is caught', () => {
+  assert.deepEqual(english('Nouveau System'), ['System']);
+  assert.deepEqual(english('Registre des Systems'), ['Systems']);
+  assert.deepEqual(english('Voir dans Runs →'), ['Runs']);
+  assert.deepEqual(english('Ouvrir le Run'), ['Run']);
+  // Lower case is English too: « le même run ».
+  assert.deepEqual(english('puis reprend sur le même run.'), ['Run']);
+  assert.deepEqual(english('Nouvelle automation'), ['automation']);
+});
+
+test('the French term, placeholders, identifiers and code are not English copy', () => {
+  assert.deepEqual(english('Nouveau système'), []);
+  assert.deepEqual(english('Systèmes publiés · Exécutions terminées'), []);
+  assert.deepEqual(english('Épinglé par : {systems}'), []);
+  assert.deepEqual(english('Exécution {run}'), []);
+  assert.deepEqual(english('Clé run_id, mode dry-run, champ system.prompt'), []);
+  assert.deepEqual(english('Lancez `npm run build` puis réessayez.'), []);
+  // The placeholder is skipped, the visible word is not.
+  assert.deepEqual(english('{runs} Runs × {facets} familles'), ['Runs']);
+});
+
+test('only concepts whose French term differs carry untranslated forms', () => {
+  for (const { word, conceptId, fr } of untranslatedTerms()) {
+    const entry = lexiconEntry(conceptId);
+    assert.ok(entry, `${conceptId}: unknown concept`);
+    assert.notEqual(entry.fr, entry.en, `${conceptId}: product noun, nothing to translate`);
+    assert.equal(fr, entry.fr);
+    assert.ok(!untranslatedInFrench(entry.fr).length, `${conceptId}: FR term "${fr}" matches "${word}"`);
+  }
+  for (const noun of ['skill', 'capability', 'flow']) {
+    assert.equal(lexiconEntry(noun)?.untranslated, undefined, `${noun} stays a product noun`);
+  }
+});
+
+test('no French definition keeps an English term', () => {
+  for (const entry of UI_LEXICON) {
+    assert.deepEqual(english(entry.definition.fr), [], `${entry.id}: French definition`);
   }
 });
