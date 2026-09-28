@@ -335,13 +335,13 @@ const USER = {
   workspaces: [WORKSPACE],
 };
 
-async function installMocks(page: Page): Promise<void> {
-  await page.addInitScript((slug) => {
+async function installMocks(page: Page, theme: 'dark' | 'light' = 'dark'): Promise<void> {
+  await page.addInitScript(({ slug, theme }) => {
     localStorage.setItem('agentium_token', 'Bearer mocked-chrome-v2');
     localStorage.setItem('agentium_workspace_slug', slug);
-    localStorage.setItem('agentium_theme', 'dark');
+    localStorage.setItem('agentium_theme', theme);
     localStorage.setItem('agentium_locale', 'fr');
-  }, WORKSPACE.slug);
+  }, { slug: WORKSPACE.slug, theme });
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -366,12 +366,62 @@ async function installMocks(page: Page): Promise<void> {
       });
     }
     if (apiPath === '/systems') return json(route, []);
+    // An empty object makes the help tooltips throw on every change detection.
+    if (apiPath === '/help-content') {
+      return json(route, { version: 'local', personas: [], languages: [], items: [] });
+    }
 
     if (method === 'GET') {
       if (apiPath.endsWith('s') || apiPath.includes('items')) return json(route, []);
       return json(route, {});
     }
     return json(route, { ok: true });
+  });
+}
+
+const SHOT_DIR = process.env['E2E_SHOT_DIR'] ?? 'test-results/chrome-v2-shots';
+
+function shot(name: string): string {
+  return `${SHOT_DIR}/${name}`;
+}
+
+function daysAgo(days: number): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function experience(overrides: Record<string, unknown>): Record<string, unknown> {
+  return {
+    version: 1,
+    persona: 'operator',
+    journey: 'northforge_sources',
+    completed_steps: [],
+    dismissed: true,
+    example_available: false,
+    ...overrides,
+  };
+}
+
+/** L27 — the member experience record that drives the readable rail. */
+async function mockExperience(page: Page, overrides: Record<string, unknown>): Promise<void> {
+  let state = experience(overrides);
+  await page.route(`**/api/v1/auth/workspaces/${WORKSPACE.slug}/me/experience`, async (route) => {
+    if (route.request().method() === 'PATCH') {
+      state = { ...state, ...(route.request().postDataJSON() as Record<string, unknown>) };
+    }
+    return json(route, state);
+  });
+}
+
+/** Left edge of the first laid-out column after the rail (sommaire or main). */
+async function firstContentX(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const rail = document.querySelector('app-side-rail');
+    const candidates = [
+      document.querySelector('app-mini-rail aside'),
+      document.querySelector('#main-content'),
+    ].filter((el): el is Element => !!el && el.getBoundingClientRect().width > 0);
+    const railRight = rail ? rail.getBoundingClientRect().right : 0;
+    return Math.round(Math.min(...candidates.map((el) => el.getBoundingClientRect().x), Infinity) || railRight);
   });
 }
 
@@ -405,18 +455,21 @@ test.describe('Chrome v2 — mocked', () => {
     expect(fontRequests.filter((url) => /family=(?:Inter|JetBrains)|\/s\/(?:inter|intertight|jetbrainsmono)\//i.test(url))).toEqual([]);
   });
 
-  test('L6 — icon rail stays 56px, tooltip on Tab, Escape closes, no link-name', async ({ page }) => {
+  test('L6/L27 — hidden labels: icon rail stays 56px, tooltip on Tab, Escape closes, no link-name', async ({ page }) => {
     await installMocks(page);
+    await mockExperience(page, { rail_labels: 'hidden', first_seen_at: daysAgo(2) });
     await page.goto('/systems');
 
     const rail = page.locator('app-side-rail .ck-rail');
     await expect(rail).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('rail-labels-toggle')).toHaveAttribute('aria-pressed', 'false');
 
     const widthAtRest = await rail.evaluate((el) => el.getBoundingClientRect().width);
     expect(Math.round(widthAtRest)).toBe(56);
 
     const main = page.locator('#main-content');
     const mainXBefore = (await main.boundingBox())!.x;
+    expect(await firstContentX(page)).toBe(56);
 
     await rail.hover({ position: { x: 28, y: 80 } });
     expect(Math.round(await rail.evaluate((el) => el.getBoundingClientRect().width))).toBe(56);
@@ -446,6 +499,165 @@ test.describe('Chrome v2 — mocked', () => {
       .analyze();
     expect(axe.violations).toEqual([]);
   });
+
+  test('L27 — before the preference is known the rail never flashes labels', async ({ page }) => {
+    await installMocks(page);
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route(`**/api/v1/auth/workspaces/${WORKSPACE.slug}/me/experience`, async (route) => {
+      await held;
+      return json(route, experience({ rail_labels: 'auto', first_seen_at: daysAgo(1) }));
+    });
+    await page.goto('/systems');
+    const rail = page.locator('app-side-rail .ck-rail');
+    await expect(rail).toBeVisible({ timeout: 30_000 });
+    expect(Math.round(await rail.evaluate((el) => el.getBoundingClientRect().width))).toBe(56);
+    await expect(page.getByTestId('rail-labels-toggle')).toHaveCount(0);
+    release();
+    await expect.poll(() => rail.evaluate((el) => Math.round(el.getBoundingClientRect().width))).toBe(184);
+  });
+
+  for (const theme of ['dark', 'light'] as const) {
+    test(`L27 — a newcomer's labelled rail pushes the content, names = labels, axe clean (${theme})`, async ({ page }) => {
+      await installMocks(page, theme);
+      await mockExperience(page, { rail_labels: 'auto', first_seen_at: daysAgo(2) });
+      await page.goto('/systems');
+
+      const rail = page.locator('app-side-rail .ck-rail');
+      await expect(rail).toBeVisible({ timeout: 30_000 });
+      await expect.poll(() => rail.evaluate((el) => Math.round(el.getBoundingClientRect().width))).toBe(184);
+      const host = await page.locator('app-side-rail').boundingBox();
+      expect(Math.round(host!.width)).toBe(184);
+      // Pushed, never covered: the first content column starts at the rail edge.
+      expect(await firstContentX(page)).toBe(184);
+      expect((await page.locator('#main-content').boundingBox())!.x).toBeGreaterThanOrEqual(184);
+      // Width changes are instant: no transition on the rail.
+      expect(await page.locator('app-side-rail').evaluate((el) => getComputedStyle(el).transitionDuration)).toBe('0s');
+
+      const links = page.locator('app-side-rail nav a.ck-rail-item');
+      const count = await links.count();
+      expect(count).toBeGreaterThan(2);
+      for (let i = 0; i < count; i += 1) {
+        const link = links.nth(i);
+        const text = (await link.innerText()).trim();
+        expect(text.length).toBeGreaterThan(0);
+        await expect(link).toHaveAccessibleName(text);
+        await expect(link).not.toHaveAttribute('aria-label');
+      }
+      await expect(page.locator('app-side-rail nav a[aria-current="page"]')).toHaveCount(1);
+
+      const toggle = page.getByTestId('rail-labels-toggle');
+      await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      await expect(toggle).toHaveAccessibleName('Libellés du rail');
+      const toggleBox = await toggle.boundingBox();
+      expect(toggleBox!.height).toBeGreaterThanOrEqual(24);
+
+      await links.first().hover();
+      await expect(page.locator('app-side-rail [role="tooltip"]')).toHaveCount(0);
+
+      await page.screenshot({ path: shot(`rail-labelled-${theme}.png`) });
+      // The sommaire's active item misses 4.5:1 in light (#0a7483 on #dfeaed,
+      // 4.46:1) — owned by the sommaire lot, reported there, excluded here.
+      const results = await new AxeBuilder({ page })
+        .exclude('app-mini-rail')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(results.violations, results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`).join('\n')).toEqual([]);
+
+      await page.getByTestId('rail-labels-toggle').click();
+      await expect.poll(() => rail.evaluate((el) => Math.round(el.getBoundingClientRect().width))).toBe(56);
+      await page.screenshot({ path: shot(`rail-icons-${theme}.png`) });
+      const hidden = await new AxeBuilder({ page })
+        .exclude('app-mini-rail')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(hidden.violations, hidden.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`).join('\n')).toEqual([]);
+    });
+  }
+
+  test('L27 — the toggle saves at once, by keyboard, and a failed save reverts politely', async ({ page }) => {
+    await installMocks(page);
+    const writes: unknown[] = [];
+    let failNext = true;
+    let state = experience({ rail_labels: 'auto', first_seen_at: daysAgo(3) });
+    await page.route(`**/api/v1/auth/workspaces/${WORKSPACE.slug}/me/experience`, async (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = route.request().postDataJSON() as Record<string, unknown>;
+        writes.push(body);
+        if (failNext) {
+          failNext = false;
+          return json(route, { detail: 'unavailable' }, 503);
+        }
+        state = { ...state, ...body };
+        return json(route, state);
+      }
+      return json(route, state);
+    });
+    await page.goto('/systems');
+    const rail = page.locator('app-side-rail .ck-rail');
+    await expect.poll(() => rail.evaluate((el) => Math.round(el.getBoundingClientRect().width)), { timeout: 30_000 }).toBe(184);
+
+    const toggle = page.getByTestId('rail-labels-toggle');
+    await toggle.focus();
+    await page.keyboard.press('Space');
+    // The write failed: labels come back and the status says so.
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    const status = page.locator('app-side-rail [role="status"]');
+    await expect(status).toHaveText('Préférence non enregistrée. Réessayez.');
+    await expect(status).toBeVisible();
+    await page.screenshot({ path: shot('rail-save-failed-dark.png') });
+
+    await page.keyboard.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(toggle).toBeFocused();
+    expect(Math.round(await rail.evaluate((el) => el.getBoundingClientRect().width))).toBe(56);
+    await expect(status).toHaveText('');
+    await expect.poll(() => writes).toEqual([{ rail_labels: 'hidden' }, { rail_labels: 'hidden' }]);
+  });
+
+  for (const theme of ['dark', 'light'] as const) {
+    test(`L27 — ⌘K asks the agent when nothing matches and defines lexicon terms (${theme})`, async ({ page }) => {
+      // The chat overlay is a heavy lazy chunk on a cold dev server.
+      test.setTimeout(120_000);
+      await installMocks(page, theme);
+      await mockExperience(page, { rail_labels: 'hidden', first_seen_at: daysAgo(30) });
+      await page.goto('/systems');
+      await expect(page.locator('#main-content h1').first()).toBeVisible({ timeout: 30_000 });
+
+      await page.keyboard.press('ControlOrMeta+k');
+      const input = page.getByRole('combobox');
+      await expect(input).toBeFocused();
+      await expect(input).toHaveAttribute('aria-expanded', 'true');
+      const listbox = page.getByRole('listbox');
+      await expect(input).toHaveAttribute('aria-controls', (await listbox.getAttribute('id'))!);
+
+      await input.fill('quels runs ont échoué hier');
+      const first = listbox.getByRole('option').first();
+      await expect(first).toContainText('Demander à l’agent : “quels runs ont échoué hier”');
+      await expect(first).toHaveAttribute('aria-selected', 'true');
+      await expect(input).toHaveAttribute('aria-activedescendant', (await first.getAttribute('id'))!);
+      await expect(page.locator('app-command-palette [role="status"]')).toHaveText('Aucune commande ne correspond. Entrée pour demander à l’agent.');
+      await page.screenshot({ path: shot(`palette-agent-${theme}.png`) });
+      const axePalette = await new AxeBuilder({ page })
+        .include('app-command-palette')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(axePalette.violations, axePalette.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`).join('\n')).toEqual([]);
+
+      await input.fill('brouillon');
+      const define = listbox.getByRole('option', { name: /Qu’est-ce que Brouillon/ });
+      await expect(define).toBeVisible();
+      await expect(define).toContainText('Une version encore modifiable');
+      await page.screenshot({ path: shot(`palette-definition-${theme}.png`) });
+
+      await input.fill('quels runs ont échoué hier');
+      await page.keyboard.press('Enter');
+      await expect(page.locator('app-command-palette [role="dialog"]')).toHaveCount(0);
+      const chatInput = page.locator('app-chat-overlay textarea[name="userInput"]');
+      await expect(chatInput).toHaveValue('quels runs ont échoué hier', { timeout: 15_000 });
+      await page.screenshot({ path: shot(`chat-prefilled-${theme}.png`) });
+    });
+  }
 });
 
 // --- L5 — Visual guardrails (cliquet) + reduced-motion orb -----------------

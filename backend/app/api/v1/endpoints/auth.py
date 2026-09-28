@@ -74,12 +74,22 @@ router = APIRouter()
 async def get_member_experience(
     slug: str, user: User = Depends(get_current_user), db: DBSession = Depends(get_db),
 ):
-    from app.schemas.adoption import ExperienceProgress
+    from app.schemas.adoption import ExperienceProgress, with_first_seen
     workspace, member = _resolve_workspace_and_role(db, user, slug)
+    progress = ExperienceProgress.model_validate(member.experience_progress or {})
+    if progress.first_seen_at is None:
+        # First read by this member in this workspace: record it once, under
+        # the row lock, so a concurrent first read cannot move it. It starts
+        # at the membership's join date when there is one.
+        member = db.query(WorkspaceMember).filter(WorkspaceMember.id == member.id).populate_existing().with_for_update().one()
+        progress, created = with_first_seen(member.experience_progress or {}, joined_at=member.joined_at)
+        if created:
+            member.experience_progress = progress.model_dump(mode="json")
+        db.commit()
     from app.models.knowledge_collection import KnowledgeCollection
     available = workspace.slug == "agentium-showcase" and db.query(KnowledgeCollection).filter_by(
         workspace_id=workspace.id, slug="agentium-showcase-notices", status="ready").filter(KnowledgeCollection.document_count > 0, KnowledgeCollection.chunk_count > 0).first() is not None
-    return {**ExperienceProgress.model_validate(member.experience_progress or {}).model_dump(), "example_available": available}
+    return {**progress.model_dump(mode="json"), "example_available": available}
 
 
 @router.patch("/workspaces/{slug}/me/experience")
@@ -102,13 +112,14 @@ async def update_member_experience(
         if run is None or not run_is_visible(db, run=run, user=user, workspace=workspace):
             raise HTTPException(404, "Run unavailable")
     progress = update_progress(member.experience_progress or {}, body)
-    member.experience_progress = progress.model_dump()
+    # JSON mode: ``first_seen_at`` is a datetime and the column is plain JSON.
+    member.experience_progress = progress.model_dump(mode="json")
     emit_audit_event(
         event_type="adoption.progress", workspace_id=workspace.id, actor=user.id,
         details={"journey": progress.journey, **body.model_dump(exclude_none=True)}, db=db,
     )
     db.commit()
-    return progress.model_dump()
+    return progress.model_dump(mode="json")
 
 
 # ---------------------------------------------------------------------------

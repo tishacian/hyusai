@@ -5,6 +5,8 @@ import { Injector, signal } from '@angular/core';
 import { I18nService } from '@app/core/i18n.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { AdoptionService } from '@app/core/adoption.service';
+import type { RailLabelsPreference } from '@app/core/rail-labels';
 import { SideRailComponent } from './side-rail.component';
 
 test('side rail delegates every lens route to the route-owned navigation projection', () => {
@@ -180,7 +182,9 @@ test('each rail item aria-label equals the adoption zone name', () => {
       `aria-label source for ${verb.key}`,
     );
   }
-  assert.equal(rail.paletteLabel(), 'titlebar.palette.tooltip');
+  assert.equal(rail.paletteLabel(), 'nav.rail.search');
+  assert.equal(rail.paletteTooltip(), 'nav.rail.search.tooltip');
+  assert.equal(rail.labelsToggleLabel(), 'nav.rail.labels.toggle');
 });
 
 test('side rail has no expanded state', () => {
@@ -212,4 +216,89 @@ test('side rail has no expanded state', () => {
   assert.equal('expanded' in rail, false);
   assert.equal(rail.expanded, undefined);
   assert.equal(rail.tooltipKey(), null);
+});
+
+function railWithAdoption(adoption: unknown): SideRailComponent {
+  const injector = Injector.create({
+    providers: [
+      SideRailComponent,
+      {
+        provide: WorkspaceService,
+        useValue: {
+          mode: () => 'portfolio',
+          isDemoMode: () => false,
+          current: () => ({ settings: { features: {} } }),
+          experienceV1Enabled: () => false,
+          experienceStudioV1Enabled: () => false,
+        },
+      },
+      {
+        provide: ZoomContextService,
+        useValue: {
+          lens: () => 'operate',
+          axesV4Enabled: () => false,
+          urlForLens: (_target: string, fallback: string) => fallback,
+        },
+      },
+      { provide: I18nService, useValue: { t: (key: string) => key } },
+      { provide: AdoptionService, useValue: adoption },
+    ],
+  });
+  return injector.get(SideRailComponent);
+}
+
+test('L27 — no labels and no toggle while the preference is unknown', () => {
+  const visible = signal<boolean | null>(null);
+  const rail = railWithAdoption({
+    enabled: () => true,
+    railLabelsVisible: visible,
+    railLabelsError: () => false,
+    setRailLabels: () => undefined,
+  });
+  assert.equal(rail.labelsVisible(), false, 'never flash labels before the record is known');
+  assert.equal(rail.labelsToggleAvailable(), false);
+  visible.set(false);
+  assert.equal(rail.labelsVisible(), false);
+  assert.equal(rail.labelsToggleAvailable(), true, 'an expert can turn labels on');
+});
+
+test('L27 — the toggle writes the opposite of what the rail shows', () => {
+  const visible = signal<boolean | null>(true);
+  const writes: RailLabelsPreference[] = [];
+  const rail = railWithAdoption({
+    enabled: () => true,
+    railLabelsVisible: visible,
+    railLabelsError: () => false,
+    setRailLabels: (value: RailLabelsPreference) => {
+      writes.push(value);
+      visible.set(value === 'shown');
+    },
+  });
+  assert.equal(rail.labelsVisible(), true);
+  rail.toggleLabels();
+  assert.equal(rail.labelsVisible(), false);
+  rail.toggleLabels();
+  assert.deepEqual(writes, ['hidden', 'shown']);
+  assert.equal(rail.tooltipKey(), null, 'toggling closes any open tooltip');
+});
+
+test('L27 — without the adoption experience the toggle is not offered', () => {
+  const rail = railWithAdoption({
+    enabled: () => false,
+    railLabelsVisible: () => false,
+    railLabelsError: () => false,
+    setRailLabels: () => assert.fail('must not write'),
+  });
+  assert.equal(rail.labelsVisible(), false);
+  assert.equal(rail.labelsToggleAvailable(), false);
+});
+
+test('L27 — a failed save is exposed for the polite status', () => {
+  const rail = railWithAdoption({
+    enabled: () => true,
+    railLabelsVisible: () => true,
+    railLabelsError: () => true,
+    setRailLabels: () => undefined,
+  });
+  assert.equal(rail.labelsError(), true);
 });
