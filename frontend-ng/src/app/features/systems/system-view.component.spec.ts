@@ -228,5 +228,13 @@ test('L14: several linked apps open a menu', () => {
   );
   assert.match(source, /data-testid="system-open-in-work-menu"/);
   assert.match(source, /nav\.open_in_work_menu/);
+  assert.match(source, /@HostListener\('document:keydown\.escape'\)/);
+  assert.match(source, /@HostListener\('document:click'\)/);
   assert.equal(view.i18n.t('nav.open_in_work_menu', { count: 2 }), 'nav.open_in_work_menu:2');
+  view.workMenuOpen.set(true);
+  view.onEscape();
+  assert.equal(view.workMenuOpen(), false);
+  view.workMenuOpen.set(true);
+  view.onDocumentClick();
+  assert.equal(view.workMenuOpen(), false);
 });
