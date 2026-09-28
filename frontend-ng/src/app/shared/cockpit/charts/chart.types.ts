@@ -33,14 +33,17 @@ export function ckChartIsDeclared(tone: CkChartTone | CkStreamTone | null | unde
 }
 
 /**
- * Declared hatch for areas: 2-unit lines of the declared ink every 6 user
+ * Declared hatch for areas: 1.5-unit lines of the declared ink every 10 user
  * units, tilted 45° (the soft variant tilts -45° so two declared neighbours
- * stay apart). A thinner line loses its core to anti-aliasing at 1x. The tint
- * under the hatch stays at or below 0.22 so the lines keep 3:1 on it in both
- * themes, measured on the rendered page at 1x and 2x.
+ * stay apart). L28 opened it from 2 every 6: on the rivers and the Flux value
+ * ribbon the denser hatch read as zebra noise. At 45° a 1.5-unit line still
+ * fully covers one device pixel in the worst phase at 1x (≥ 90 % coverage),
+ * so its core keeps the ink. The tint under the hatch stays at or below 0.18
+ * so the lines keep 3:1 on it in both themes (worst case, light theme at 1x:
+ * 3.35:1 computed, see docs/hypervisor-v2-chart-grammar.md).
  */
-export const CK_DECLARED_HATCH_PERIOD = 6;
-export const CK_DECLARED_HATCH_WIDTH = 2;
+export const CK_DECLARED_HATCH_PERIOD = 10;
+export const CK_DECLARED_HATCH_WIDTH = 1.5;
 
 /**
  * Declared dashes for strokes and bars, where a hatch would not read. `BOLD`

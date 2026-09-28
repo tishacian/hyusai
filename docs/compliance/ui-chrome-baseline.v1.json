@@ -99,9 +99,6 @@
       "violet": 8,
       "pill": 1
     },
-    "src/app/features/hypervisor/v2/hypervisor-v2.component.ts": {
-      "pill": 1
-    },
     "src/app/features/intelligence/news-lab.component.ts": {
       "pill": 5
     },
