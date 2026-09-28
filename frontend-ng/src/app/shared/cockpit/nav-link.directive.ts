@@ -58,7 +58,11 @@ export class NavLinkDirective {
     const input = this.navLink();
     if ('leaf' in input && input.leaf === 'help-guide') {
       const guideId = input.params?.['guideId'] || input.ref || 'start';
-      const originLabel = this.workspace.current()?.name || this.i18n.t('experience.work.title');
+      // L16 — same origin rule as title-bar « ? »: page title, not workspace name.
+      const heading = typeof document !== 'undefined'
+        ? document.querySelector<HTMLElement>('main h1, [role="main"] h1, h1')?.textContent?.trim()
+        : '';
+      const originLabel = heading || this.i18n.t('experience.work.title');
       if (this.help.openFromLink(guideId, {
         originLabel,
         originUrl: this.router.url,

@@ -481,6 +481,19 @@ test('Télémétrie replaces Diagnostics and throughput uses /min from throughpu
   }
 });
 
+test('L16: help origin uses the page title, not the workspace name', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src/app/features/layout/title-bar.component.ts'),
+    'utf8',
+  );
+  assert.match(source, /helpOriginLabel/);
+  assert.match(source, /main h1/);
+  assert.doesNotMatch(
+    source.slice(source.indexOf('openHelp()'), source.indexOf('openChat()')),
+    /workspaceService\.current\(\)\?\.name/,
+  );
+});
+
 test('in builder mode the chip announces two hidden zones', () => {
   const { workspace, view, injector } = harness();
   workspace.modeValue = 'builder';
