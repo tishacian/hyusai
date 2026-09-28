@@ -1,18 +1,18 @@
 export const WORK_MANDATE_FR = {
   'workMandate.review': 'Examiner la demande',
-  'workMandate.review_scope': 'Ce Run attend votre accord',
+  'workMandate.review_scope': 'Cette exécution attend votre accord',
   'workMandate.exact_decision': 'Votre décision porte sur la demande présentée ci-dessous. Si elle change, une nouvelle lecture est nécessaire.',
   'workMandate.decision': 'Demande',
   'workMandate.operation': 'Opération en attente',
   'workMandate.executed_version': 'Version exécutée',
   'workMandate.deadline': 'Échéance',
   'workMandate.submitted_context': 'Examiner les données soumises à la décision',
-  'workMandate.no_context': 'Aucun contenu prévisualisable n’est joint à cette porte. Consultez le Run et ses preuves avant de décider.',
+  'workMandate.no_context': 'Aucun contenu prévisualisable n’est joint à cette porte. Consultez l’exécution et ses preuves avant de décider.',
   'workMandate.after_approval': 'Un accord autorise la reprise prévue par le Flow. Seule la preuve du traitement suivant établit ce qui a effectivement été réalisé.',
-  'workMandate.run_proof': 'Ouvrir ce Run et ses preuves',
+  'workMandate.run_proof': 'Ouvrir cette exécution et ses preuves',
   'workMandate.unavailable': 'Cette demande n’est plus disponible pour décision. Actualisez la liste pour retrouver son état.',
   'workMandate.review_changed': 'La demande a changé ou n’est plus disponible. Examinez de nouveau son état avant de décider.',
-  'workMandate.recorded': 'Votre décision est enregistrée. Suivez le Run pour vérifier la reprise et ses effets.',
+  'workMandate.recorded': 'Votre décision est enregistrée. Suivez l’exécution pour vérifier la reprise et ses effets.',
 } as const;
 
 export const WORK_MANDATE_EN: Record<keyof typeof WORK_MANDATE_FR, string> = {

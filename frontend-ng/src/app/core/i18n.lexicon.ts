@@ -50,6 +50,13 @@ export interface LexiconEntry {
    * secondary line, never as the primary label.
    */
   readonly internal?: readonly string[];
+  /**
+   * English forms of the term that must not stand as words in a French
+   * string. Only for a concept whose French term differs from the English
+   * one: « Nouveau System » reads as a half-translated screen. The guard
+   * ratchets them in the French dictionary and in the French definitions.
+   */
+  readonly untranslated?: readonly string[];
 }
 
 /** `<ck-help>` ids served from this lexicon rather than the help YAML. */
@@ -104,6 +111,42 @@ export const UI_LEXICON: readonly LexiconEntry[] = [
       fr: "Un assemblage déployé d'une capability, d'un contexte et d'une politique, prêt à être exécuté.",
     },
     banned: [],
+    untranslated: ['System', 'Systems'],
+  },
+  {
+    // "Automation" is what the Create hub and Work call a System started by
+    // a trigger rather than by a person; the French word is the full one.
+    id: 'automation',
+    en: 'Automation',
+    fr: 'Automatisation',
+    definition: {
+      en: 'A system that starts from a trigger, lets an agent do the work and delivers an output.',
+      fr: "Un système qui part d'un déclencheur, confie le travail à un agent et livre une sortie.",
+    },
+    banned: [],
+    untranslated: ['automation', 'automations'],
+  },
+  {
+    id: 'context',
+    en: 'Context',
+    fr: 'Contexte',
+    definition: {
+      en: 'The versioned data a system works with: its knowledge collections, memory and constraints, attached to every run.',
+      fr: "Les données versionnées d'un système : ses collections, sa mémoire et ses contraintes, jointes à chaque exécution.",
+    },
+    banned: [],
+  },
+  {
+    // The zone keeps its product name in French (« Knowledge » in the rail,
+    // per the navigation mockups); running French text says « connaissances ».
+    id: 'knowledge',
+    en: 'Knowledge',
+    fr: 'Knowledge',
+    definition: {
+      en: 'The documents, collections and expert input a system searches to ground its answers.',
+      fr: "Les connaissances d'un workspace : documents, collections et apports d'experts qu'un système consulte pour fonder ses réponses.",
+    },
+    banned: [],
   },
   {
     id: 'suite',
@@ -121,10 +164,22 @@ export const UI_LEXICON: readonly LexiconEntry[] = [
     fr: 'Application métier',
     definition: {
       en: 'The interface teams use every day, assembled from published Systems and served on /work.',
-      fr: "L'interface que les équipes utilisent au quotidien, assemblée à partir de Systems publiés.",
+      fr: "L'interface que les équipes utilisent au quotidien, assemblée à partir de systèmes publiés.",
     },
     banned: [],
     internal: ['ExperienceDraft'],
+  },
+  {
+    // The space of business applications. A product noun in both languages,
+    // like Cockpit: « Ouvrir dans Work ».
+    id: 'work',
+    en: 'Work',
+    fr: 'Work',
+    definition: {
+      en: 'The space where teams use published business applications for their daily tasks, without engine jargon.',
+      fr: "L'espace où les équipes utilisent les applications métier publiées pour leurs tâches, sans jargon technique.",
+    },
+    banned: [],
   },
   {
     // The human surface of a business application: where a person watches
@@ -150,7 +205,7 @@ export const UI_LEXICON: readonly LexiconEntry[] = [
     fr: 'Cockpit',
     definition: {
       en: 'The space where you build Systems, run and steer them, and govern them.',
-      fr: 'L’espace où l’on construit les Systems, les exécute, les pilote et les gouverne.',
+      fr: 'L’espace où l’on construit les systèmes, les exécute, les pilote et les gouverne.',
     },
     banned: [],
   },
@@ -160,7 +215,7 @@ export const UI_LEXICON: readonly LexiconEntry[] = [
     fr: 'Liaison',
     definition: {
       en: 'A stable link from an app action to one published System version and its contract.',
-      fr: "Le lien stable d'une action vers une version publiée d'un System et son contrat.",
+      fr: "Le lien stable d'une action vers une version publiée d'un système et son contrat.",
     },
     banned: [],
     internal: ['SystemBinding'],
@@ -174,6 +229,27 @@ export const UI_LEXICON: readonly LexiconEntry[] = [
       fr: "Une exécution d'un système ou d'un flow, avec son entrée, son résultat et sa trace.",
     },
     banned: ['job', 'jobs'],
+    untranslated: ['Run', 'Runs'],
+  },
+  {
+    id: 'invocation',
+    en: 'Invocation',
+    fr: 'Invocation',
+    definition: {
+      en: 'One call to a skill during a run, with its input, output, cost and duration.',
+      fr: 'Un appel à une skill pendant une exécution, avec son entrée, sa sortie, son coût et sa durée.',
+    },
+    banned: [],
+  },
+  {
+    id: 'provenance',
+    en: 'Provenance',
+    fr: 'Provenance',
+    definition: {
+      en: 'Where a value or an answer comes from: its source document, the run that produced it, or who declared it.',
+      fr: "D'où vient une valeur ou une réponse : son document source, l'exécution qui l'a produite ou la personne qui l'a déclarée.",
+    },
+    banned: [],
   },
   {
     id: 'flow',
@@ -268,6 +344,47 @@ export const UI_LEXICON: readonly LexiconEntry[] = [
     // the concept is a recommendation; a non-binding datum is "consultatif" /
     // "for information only".
     banned: ['advisory'],
+  },
+  // --- Value: how Impact adds systems up ---------------------------------
+  {
+    id: 'portfolio',
+    en: 'Portfolio',
+    fr: 'Portefeuille',
+    definition: {
+      en: 'Every system and capability of the workspace, seen together to weigh their activity, cost and value.',
+      fr: "L'ensemble des systèmes et capabilities du workspace, vus ensemble pour peser leur activité, leur coût et leur valeur.",
+    },
+    banned: [],
+  },
+  {
+    id: 'register',
+    en: 'Register',
+    fr: 'Registre',
+    definition: {
+      en: 'The list of every system in the portfolio, one row each, with its activity and the value it declares.',
+      fr: 'La liste de tous les systèmes du portefeuille, une ligne par système, avec son activité et la valeur qu’il déclare.',
+    },
+    banned: [],
+  },
+  {
+    id: 'value-basis',
+    en: 'Value basis',
+    fr: 'Base de valeur',
+    definition: {
+      en: 'What one result of a capability is worth, in hours or money, declared by a named person so results can be added up.',
+      fr: "Ce que vaut un résultat d'une capability, en heures ou en argent, déclaré par une personne nommée pour pouvoir l'additionner.",
+    },
+    banned: [],
+  },
+  {
+    id: 'value-contract',
+    en: 'Value contract',
+    fr: 'Contrat de valeur',
+    definition: {
+      en: 'The target a system must reach and what one unit is worth, approved by its owner; the gap is measured, never typed in.',
+      fr: "L'objectif qu'un système doit atteindre et ce que vaut une unité, approuvés par son responsable ; l'écart est mesuré, jamais saisi.",
+    },
+    banned: [],
   },
   {
     id: 'entry-point',
@@ -403,4 +520,46 @@ export function forbiddenWords(): readonly ForbiddenWord[] {
     }
   }
   return out;
+}
+
+/**
+ * An English form of a term, left standing in a French string. Consumed by
+ * the guard's French-term ratchet; see {@link LexiconEntry.untranslated}.
+ */
+export interface UntranslatedWord {
+  readonly word: string;
+  readonly conceptId: string;
+  /** What the French string should say instead. */
+  readonly fr: string;
+}
+
+export function untranslatedTerms(): readonly UntranslatedWord[] {
+  const out: UntranslatedWord[] = [];
+  for (const entry of UI_LEXICON) {
+    for (const word of entry.untranslated ?? []) {
+      out.push({ word, conceptId: entry.id, fr: entry.fr });
+    }
+  }
+  return out;
+}
+
+/**
+ * The English forms a French string still uses as words.
+ *
+ * - Case-insensitive: « le même run » is as English as « le même Run ».
+ * - A word, not a fragment: letters, digits, `_`, `-` and `.` on either side
+ *   make it part of something else (`Systèmes`, `run_id`, `dry-run`,
+ *   `system.prompt`).
+ * - `{placeholders}` and `` `code` `` are not copy: `{runs} Runs` counts the
+ *   visible word once, never the placeholder name.
+ *
+ * Product names carrying the word are not exempted here on purpose — none
+ * ships in French today; a future one goes to the guard's allowlist with
+ * its reason, like any other exception.
+ */
+export function untranslatedInFrench(text: string): readonly UntranslatedWord[] {
+  const copy = text.replace(/\{[^{}]*\}/g, ' ').replace(/`[^`]*`/g, ' ');
+  return untranslatedTerms().filter(({ word }) =>
+    new RegExp(`(?<![\\p{L}\\p{N}_.-])${word}(?![\\p{L}\\p{N}_-]|\\.\\p{L})`, 'iu').test(copy),
+  );
 }
