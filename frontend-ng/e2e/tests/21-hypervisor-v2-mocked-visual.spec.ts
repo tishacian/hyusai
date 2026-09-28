@@ -613,15 +613,16 @@ async function captureFullLedger(page: Page, dest: string): Promise<void> {
 }
 
 async function selectFacet(page: Page, facet: (typeof FACETS)[number]): Promise<void> {
-  if (facet === 'synthese') {
-    const tab = page.locator('#ck-tab-synthese');
-    if ((await tab.getAttribute('aria-selected')) !== 'true') await tab.click();
-    await expect(tab).toHaveAttribute('aria-selected', 'true');
-    return;
-  }
-  await page.locator(`#ck-tab-${facet}`).click();
-  await expect(page.locator(`#ck-tab-${facet}`)).toHaveAttribute('aria-selected', 'true');
-  await expect.poll(() => new URL(page.url()).searchParams.get('facet')).toBe(facet);
+  // L8 moved the Impact facets from in-page tabs to the zone sommaire; a
+  // facet is URL state, so the capture opens it by URL.
+  const url = new URL(page.url());
+  if (facet === 'synthese') url.searchParams.delete('facet');
+  else url.searchParams.set('facet', facet);
+  await page.goto(url.pathname + url.search);
+  await expect(page.locator('app-hypervisor-v2')).toBeVisible();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get('facet'))
+    .toBe(facet === 'synthese' ? null : facet);
 }
 
 test.use({
