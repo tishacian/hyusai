@@ -3,6 +3,7 @@ import { EMPTY, Observable, catchError, filter, of, shareReplay, tap } from 'rxj
 
 import { ApiService } from './api.service';
 import { CONCEPT_HELP_PREFIX, lexiconEntry } from './i18n.lexicon';
+import { InterfaceLocale } from './interface-locale';
 import { WorkspaceService } from './workspace.service';
 
 export type Persona = 'builder' | 'operator' | 'executive';
@@ -75,7 +76,6 @@ function conceptHelpContent(id: string): HelpContent | null {
 const PERSONA_STORAGE_KEY = 'agentium.persona';
 const LANGUAGE_STORAGE_KEY = 'agentium.help.lang';
 const DEFAULT_PERSONA: Persona = 'operator';
-const DEFAULT_LANGUAGE: Language = 'en';
 const FALLBACK_ORDER: Language[] = ['en', 'fr'];
 
 /**
@@ -83,10 +83,9 @@ const FALLBACK_ORDER: Language[] = ['en', 'fr'];
  * served by `/api/v1/help-content` and resolves copy for a given
  * id × persona × language.
  *
- * The app is English-first; French is preserved so francophone
- * operators can stay in their language of choice. Both the persona
- * and the language are user preferences, persisted in localStorage
- * so they travel across sessions.
+ * Guides open in the interface language. A reader who picks another
+ * guide language keeps that choice; it is persisted in localStorage with
+ * the persona so both travel across sessions.
  */
 @Injectable({ providedIn: 'root' })
 export class HelpService {
@@ -98,7 +97,12 @@ export class HelpService {
   readonly persona = signal<Persona>(this.readStoredPersona());
   readonly personaLabel = computed(() => this.personaLabelOf(this.persona()));
 
-  readonly language = signal<Language>(this.readStoredLanguage());
+  private readonly interfaceLocale = inject(InterfaceLocale);
+  /** An explicit guide-language choice; `null` follows the interface. */
+  private readonly chosenLanguage = signal<Language | null>(this.readStoredLanguage());
+  readonly language = computed<Language>(
+    () => this.chosenLanguage() ?? this.interfaceLocale.locale(),
+  );
   readonly languageLabel = computed(() => this.languageLabelOf(this.language()));
 
   constructor() {
@@ -142,7 +146,7 @@ export class HelpService {
   }
 
   setLanguage(lang: Language): void {
-    this.language.set(lang);
+    this.chosenLanguage.set(lang);
     try {
       localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
     } catch {
@@ -220,7 +224,7 @@ export class HelpService {
     return DEFAULT_PERSONA;
   }
 
-  private readStoredLanguage(): Language {
+  private readStoredLanguage(): Language | null {
     try {
       const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
       if (stored === 'en' || stored === 'fr') {
@@ -229,6 +233,6 @@ export class HelpService {
     } catch {
       // Ignore.
     }
-    return DEFAULT_LANGUAGE;
+    return null;
   }
 }

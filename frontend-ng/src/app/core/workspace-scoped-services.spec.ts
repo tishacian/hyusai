@@ -10,6 +10,7 @@ import { HttpClient } from '@angular/common/http';
 import { Subject, lastValueFrom, toArray } from 'rxjs';
 import { ApiService } from './api.service';
 import { HelpService, type HelpContentIndex } from './help.service';
+import { InterfaceLocale } from './interface-locale';
 import {
   MaritimeTrackingService,
   type MaritimeVesselsSnapshot,
@@ -156,6 +157,7 @@ test('HelpService pins A and completes a stale public load without replaying it 
   const injector = Injector.create({
     providers: [
       HelpService,
+      InterfaceLocale,
       { provide: WorkspaceService, useValue: workspace },
       { provide: ApiService, useValue: api },
     ],

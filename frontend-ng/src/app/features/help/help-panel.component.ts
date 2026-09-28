@@ -81,9 +81,10 @@ interface GuideBody {
 
         @if (guide(); as g) {
           <p class="help-panel-tag ck-mono">{{ i18n.t('experience.help.panel.guide_tag', { name: guideLabel(g.id) }) }}</p>
-          <h3>{{ g.title }}</h3>
+          <!-- The guide may be in another language than the interface (WCAG 3.1.2). -->
+          <h3 [attr.lang]="help.language()">{{ g.title }}</h3>
           @for (p of g.paragraphs; track $index) {
-            <p>{{ p }}</p>
+            <p [attr.lang]="help.language()">{{ p }}</p>
           }
         } @else if (error()) {
           <p role="alert">{{ i18n.t('experience.adoption.guide_error') }}</p>
@@ -232,7 +233,7 @@ interface GuideBody {
 export class HelpPanelComponent {
   readonly overlay = inject(HelpOverlayService);
   readonly i18n = inject(I18nService);
-  private readonly help = inject(HelpService);
+  protected readonly help = inject(HelpService);
   private readonly api = inject(ApiService);
 
   readonly guide = signal<GuideBody | null>(null);

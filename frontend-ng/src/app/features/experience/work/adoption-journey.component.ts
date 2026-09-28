@@ -23,7 +23,8 @@ import { WorkAppHeaderComponent } from "./work-app-header.component";
   imports: [RouterLink, ChatPanelComponent, NavLinkDirective],
   template: `@if (adoption.enabled()) {
     @if (compact()) {
-      @if (!adoption.progress()?.dismissed) {
+      <!-- The card only promises what this workspace can run: the example needs the Showcase corpus. -->
+      @if (adoption.exampleAvailable() && !adoption.progress()?.dismissed) {
         <aside class="xp-work-adoption-card" aria-labelledby="adoption-compact-title">
           <div>
             <h2 id="adoption-compact-title">{{ i18n.t("experience.adoption.title") }}</h2>
