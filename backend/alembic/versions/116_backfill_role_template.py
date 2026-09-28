@@ -3,7 +3,7 @@
 Idempotent fill for rows where role_template is NULL. Rights stay the same:
 member → workspace_contributor, admin → workspace_admin, owner → workspace_owner.
 
-Revision ID: 116_backfill_workspace_role_template
+Revision ID: 116_backfill_role_template
 Revises: 115_rpa_smtp_reencrypt
 Create Date: 2026-09-28
 """
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "116_backfill_workspace_role_template"
+revision = "116_backfill_role_template"
 down_revision = "115_rpa_smtp_reencrypt"
 branch_labels = None
 depends_on = None
