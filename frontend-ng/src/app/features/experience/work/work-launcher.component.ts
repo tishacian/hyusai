@@ -8,6 +8,7 @@ import { Router, RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { I18nService } from '@app/core/i18n.service';
 import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus';
+import { ThemeService } from '@app/core/theme.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { WorkApiService, type WorkAutomationJob } from './work-api.service';
 import {
@@ -36,7 +37,7 @@ import {
   imports: [NgStyle, RouterLink, EmptyStateComponent, AdoptionJourneyComponent, WorkBarComponent],
   styleUrl: './work.scss',
   template: `
-    <div class="xp-work xp-work-launcher" data-brand-scope data-theme="light" [ngStyle]="brandStyles()">
+    <div class="xp-work xp-work-launcher" data-brand-scope [attr.data-theme]="theme.resolved()" [ngStyle]="brandStyles()">
       <app-work-bar
         [showSearch]="true"
         [searchQuery]="query()"
@@ -196,9 +197,10 @@ export class WorkLauncherComponent {
   private readonly router = inject(Router);
   private readonly host = inject(ElementRef<HTMLElement>);
   readonly workspace = inject(WorkspaceService);
+  readonly theme = inject(ThemeService);
   readonly brandStyles = computed(() => {
     const brand = this.workspace.current()?.settings?.['platform_brand'] as Record<string, unknown> | undefined;
-    return appearanceStyles(brand?.['appearance'], 'light');
+    return appearanceStyles(brand?.['appearance'], this.theme.resolved());
   });
   readonly i18n = inject(I18nService);
 

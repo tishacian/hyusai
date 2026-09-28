@@ -36,9 +36,15 @@ import { canEditExperience } from './work-catalog';
             alt=""
           />
         } @else {
-          <span class="xp-work-logo" aria-hidden="true">◇</span>
+          <img
+            class="xp-work-mark"
+            src="/assets/brand/agentium-mark.svg"
+            alt="Agentium"
+            width="28"
+            height="28"
+          />
         }
-        <strong>A Work</strong>
+        <strong>Work</strong>
         <span class="xp-work-divider" aria-hidden="true"></span>
         <span>{{ workspace.current()?.name }}</span>
       </div>

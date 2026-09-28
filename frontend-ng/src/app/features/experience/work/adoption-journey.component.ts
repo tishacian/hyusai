@@ -9,6 +9,7 @@ import {
 import { RouterLink } from "@angular/router";
 import { AdoptionService, type AdoptionStep } from "@app/core/adoption.service";
 import { I18nService } from "@app/core/i18n.service";
+import { ThemeService } from "@app/core/theme.service";
 import { WorkspaceService } from "@app/core/workspace.service";
 import { NavigationProfileService } from "@app/core/navigation-profile.service";
 import { ChatPanelComponent } from "@app/features/chat/chat-panel.component";
@@ -255,7 +256,7 @@ export class AdoptionJourneyComponent {
   imports: [AdoptionJourneyComponent, RouterLink, WorkBarComponent, WorkAppHeaderComponent],
   styleUrl: "./work.scss",
   template: `
-    <div class="xp-work" data-brand-scope data-theme="light">
+    <div class="xp-work" data-brand-scope [attr.data-theme]="theme.resolved()">
       <app-work-bar />
       <app-work-app-header
         [title]="i18n.t('experience.adoption.resume')"
@@ -270,4 +271,5 @@ export class AdoptionJourneyComponent {
 })
 export class AdoptionPageComponent {
   readonly i18n = inject(I18nService);
+  readonly theme = inject(ThemeService);
 }

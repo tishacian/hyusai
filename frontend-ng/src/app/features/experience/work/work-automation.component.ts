@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, ElementRef, inject, signal } from '
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { I18nService } from '@app/core/i18n.service';
+import { ThemeService } from '@app/core/theme.service';
 import { focusAfterRoute, navigationFocusFromState } from '@app/core/route-focus';
 import { automationJobLines, jobLineText, type JobLine } from '@app/features/orchestration/flow/automation-job';
 import { WorkApiService, type WorkAutomationJob } from './work-api.service';
@@ -16,7 +17,7 @@ import { returnToFromParams } from './work-return';
   imports: [RouterLink, WorkBarComponent, WorkAppHeaderComponent],
   styleUrl: './work.scss',
   template: `
-    <div class="xp-work" data-brand-scope data-theme="light">
+    <div class="xp-work" data-brand-scope [attr.data-theme]="theme.resolved()">
       <app-work-bar [appContext]="name() || null" />
       <app-work-app-header
         [title]="name() || i18n.t('experience.work.automation.section')"
@@ -52,6 +53,7 @@ import { returnToFromParams } from './work-return';
 })
 export class WorkAutomationComponent {
   readonly i18n = inject(I18nService);
+  readonly theme = inject(ThemeService);
   protected readonly lineText = (line: JobLine): string => jobLineText(this.i18n.t, line);
   private readonly api = inject(WorkApiService);
   private readonly canonical = inject(CanonicalApiService);
