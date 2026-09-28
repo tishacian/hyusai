@@ -418,6 +418,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                                 <div class="hv2-provenance">
                                   <span
                                     class="hv2-provenance-ink"
+                                    role="img"
                                     tabindex="0"
                                     [style.flexGrow]="prov.measured"
                                     [attr.aria-label]="provenanceMeasuredTip()"
@@ -428,6 +429,7 @@ function humanizeOutputUnit(unit: string | null | undefined, fallback: string): 
                                   ></span>
                                   <span
                                     class="hv2-provenance-teal"
+                                    role="img"
                                     tabindex="0"
                                     [style.flexGrow]="prov.declared"
                                     [attr.aria-label]="provenanceDeclaredTip()"
