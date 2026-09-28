@@ -54,9 +54,10 @@ import {
           }
         </nav>
         @if (guide(); as g) {
-          <h1>{{ g.title }}</h1>
+          <!-- The guide may be in another language than the interface (WCAG 3.1.2). -->
+          <h1 [attr.lang]="help.language()">{{ g.title }}</h1>
           @for (p of g.paragraphs; track $index) {
-            <p>{{ p }}</p>
+            <p [attr.lang]="help.language()">{{ p }}</p>
           }
         } @else if (error()) {
           <p role="alert">{{ i18n.t('experience.adoption.guide_error') }}</p>

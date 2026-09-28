@@ -17,6 +17,7 @@ import {
 } from '@app/core/workspace.service';
 import { DEFAULT_BRAND_NAME } from '@app/core/platform-brand';
 import { I18nService } from '@app/core/i18n.service';
+import { InterfaceLocale } from '@app/core/interface-locale';
 import { AccessRolesComponent } from '@app/features/governance/access-roles.component';
 import { WorkspaceMembersComponent } from './members.component';
 
@@ -85,6 +86,7 @@ test('Members displays and sends a manifest-defined non-Andritz entitlement on i
   const injector = Injector.create({ providers: [
     WorkspaceMembersComponent,
     I18nService,
+    InterfaceLocale,
     { provide: WorkspaceService, useValue: workspace },
     {
       provide: ActivatedRoute,
@@ -134,6 +136,7 @@ test('Governance toggle preserves a future active key and saves it unchanged', (
   const injector = Injector.create({ providers: [
     AccessRolesComponent,
     I18nService,
+    InterfaceLocale,
     { provide: WorkspaceService, useValue: workspace },
     { provide: ChangeDetectionScheduler, useValue: { notify() {}, runningTick: false } },
     { provide: EffectScheduler, useValue: { add() {}, schedule() {}, flush() {}, remove() {} } },
