@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, ElementRef, Input, inject } from '@
 
 import { hostPointerPoint, nearestDayIndex } from './chart-interact';
 import { CkChartTipComponent } from './chart-tip.component';
-import { ckChartToneVar, ckChartUid, type CkChartTone } from './chart.types';
+import { CK_DECLARED_DASH_THIN, ckChartIsDeclared, ckChartToneVar, ckChartUid, type CkChartTone } from './chart.types';
 import { cubicSmoothAreaPath, cubicSmoothPath } from './svg-path';
 
 @Component({
@@ -33,6 +33,7 @@ import { cubicSmoothAreaPath, cubicSmoothPath } from './svg-path';
           [attr.stroke]="color"
           stroke-width="1.5"
           stroke-linejoin="round"
+          [attr.stroke-dasharray]="lineDash"
         />
         <circle
           [attr.cx]="end.x"
@@ -65,6 +66,11 @@ export class CkChartMiniAreaComponent {
 
   get color(): string {
     return ckChartToneVar(this.tone);
+  }
+
+  /** Declared sparks are dashed: an estimate must read without its colour. */
+  get lineDash(): string | null {
+    return ckChartIsDeclared(this.tone) ? CK_DECLARED_DASH_THIN : null;
   }
 
   get points(): { x: number; y: number }[] {

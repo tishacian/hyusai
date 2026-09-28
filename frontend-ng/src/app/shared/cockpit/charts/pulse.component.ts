@@ -23,12 +23,12 @@ export const CK_CHART_PULSE_VALUES: readonly number[] = [1, 2, 1, 2, 1, 2, 1, 0,
       >
         <defs>
           <linearGradient [attr.id]="fadeId" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="var(--ck-fg-1)" stop-opacity="0.22" />
-            <stop offset="1" stop-color="var(--ck-fg-1)" stop-opacity="0" />
+            <stop offset="0" stop-color="var(--ck-data-measured)" stop-opacity="0.22" />
+            <stop offset="1" stop-color="var(--ck-data-measured)" stop-opacity="0" />
           </linearGradient>
           <radialGradient [attr.id]="glowId">
-            <stop offset="0" stop-color="var(--ck-signal-neg)" stop-opacity="0.55" />
-            <stop offset="1" stop-color="var(--ck-signal-neg)" stop-opacity="0" />
+            <stop offset="0" stop-color="var(--ck-data-zero)" stop-opacity="0.55" />
+            <stop offset="1" stop-color="var(--ck-data-zero)" stop-opacity="0" />
           </radialGradient>
         </defs>
         @if (wash) {
@@ -38,7 +38,7 @@ export const CK_CHART_PULSE_VALUES: readonly number[] = [1, 2, 1, 2, 1, 2, 1, 0,
             [attr.width]="wash.w"
             [attr.height]="baselineY - 4"
             rx="4"
-            fill="var(--ck-signal-neg)"
+            fill="var(--ck-data-zero)"
             fill-opacity="0.07"
           />
         }
@@ -55,7 +55,7 @@ export const CK_CHART_PULSE_VALUES: readonly number[] = [1, 2, 1, 2, 1, 2, 1, 0,
         <path
           [attr.d]="liveLine"
           fill="none"
-          stroke="var(--ck-fg-1)"
+          stroke="var(--ck-data-measured)"
           stroke-width="1.5"
           stroke-linejoin="round"
         />
@@ -63,14 +63,14 @@ export const CK_CHART_PULSE_VALUES: readonly number[] = [1, 2, 1, 2, 1, 2, 1, 0,
           <path
             [attr.d]="staleLine"
             fill="none"
-            stroke="var(--ck-signal-neg)"
+            stroke="var(--ck-data-zero)"
             stroke-width="2.5"
             stroke-linecap="round"
             stroke-linejoin="round"
           />
         }
         <circle [attr.cx]="end.x" [attr.cy]="end.y" r="10" [attr.fill]="'url(#' + glowId + ')'" />
-        <circle [attr.cx]="end.x" [attr.cy]="end.y" r="3.2" fill="var(--ck-signal-neg)" />
+        <circle [attr.cx]="end.x" [attr.cy]="end.y" r="3.2" fill="var(--ck-data-zero)" />
         @if (zeroLabel) {
           <text
             [attr.x]="zeroX"

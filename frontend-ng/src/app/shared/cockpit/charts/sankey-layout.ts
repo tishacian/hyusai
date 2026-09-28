@@ -17,6 +17,8 @@ export interface SankeyRibbon {
   d: string;
   kind: 'runs' | 'value';
   sourceId?: string;
+  /** Carries an estimate (hours × a declared rate): hatched as well as teal. */
+  declared?: boolean;
 }
 
 export interface SankeyNode {
@@ -27,6 +29,8 @@ export interface SankeyNode {
   fill: string;
   sourceId?: string;
   role?: 'source' | 'hours' | 'value' | 'stub';
+  /** Carries an estimate: hatched as well as teal. */
+  declared?: boolean;
 }
 
 export interface SankeyLabel {
@@ -163,12 +167,13 @@ export function layoutSankey(
     ribbons.push({
       d: sankeyRibbonPath({ x: xb + nw, y: HOURS_TOP, height: hoursH }, { x: xc, y: HOURS_TOP, height: hoursH }),
       kind: 'value',
+      declared: true,
     });
   }
 
   for (const row of rows) {
     const sourceId = row.source.id;
-    nodes.push({ x: xa, y: row.y, w: nw, h: row.h, fill: 'var(--ck-fg-1)', sourceId, role: 'source' });
+    nodes.push({ x: xa, y: row.y, w: nw, h: row.h, fill: 'var(--ck-data-measured)', sourceId, role: 'source' });
     const lines = wrapLabelLines(row.source.label, maxChars);
     const mid = row.y + row.h / 2;
     const nameOffset = lines.length > 1 ? 6 : 0;
@@ -202,8 +207,8 @@ export function layoutSankey(
   }
 
   if (convertingCount > 0) {
-    nodes.push({ x: xb, y: HOURS_TOP, w: nw, h: hoursH, fill: 'var(--ck-fg-1)', role: 'hours' });
-    nodes.push({ x: xc, y: HOURS_TOP, w: nw, h: hoursH, fill: 'var(--ck-signal-cool)', role: 'value' });
+    nodes.push({ x: xb, y: HOURS_TOP, w: nw, h: hoursH, fill: 'var(--ck-data-measured)', role: 'hours' });
+    nodes.push({ x: xc, y: HOURS_TOP, w: nw, h: hoursH, fill: 'var(--ck-data-declared)', role: 'value', declared: true });
     if (options.middleLabel) {
       labels.push({
         x: xb + 3,
@@ -232,7 +237,7 @@ export function layoutSankey(
 
   for (const row of rows) {
     if (row.converts) continue;
-    nodes.push({ x: xb, y: row.y, w: nw, h: row.h, fill: 'var(--ck-fg-1)', sourceId: row.source.id, role: 'stub' });
+    nodes.push({ x: xb, y: row.y, w: nw, h: row.h, fill: 'var(--ck-data-measured)', sourceId: row.source.id, role: 'stub' });
     const midY = row.y + row.h / 2;
     stubs.push({ x1: xb + nw + 2, y1: midY, x2: xb + nw + 40, y2: midY });
     labels.push({
