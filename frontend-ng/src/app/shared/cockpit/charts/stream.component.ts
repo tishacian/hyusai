@@ -112,16 +112,18 @@ const LABEL_MIN = 150;
       (pointerleave)="onLeave()"
       (focusin)="onFocus($event)"
       (focusout)="onLeave()"
+      (click)="onClick($event)"
+      (keydown)="onKeydown($event)"
     >
       <defs>
         <linearGradient [attr.id]="inkId" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stop-color="var(--ck-data-measured)" stop-opacity="0.92" />
           <stop offset="1" stop-color="var(--ck-data-measured)" stop-opacity="0.7" />
         </linearGradient>
-        <!-- Declared tints stay at or below 0.22 so the hatch lines keep 3:1 on them. -->
+        <!-- Declared tints stay at or below 0.18 so the hatch lines keep 3:1 on them. -->
         <linearGradient [attr.id]="declaredId" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="var(--ck-data-declared)" stop-opacity="0.22" />
-          <stop offset="1" stop-color="var(--ck-data-declared)" stop-opacity="0.12" />
+          <stop offset="0" stop-color="var(--ck-data-declared)" stop-opacity="0.18" />
+          <stop offset="1" stop-color="var(--ck-data-declared)" stop-opacity="0.1" />
         </linearGradient>
         <linearGradient [attr.id]="declaredSoftId" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stop-color="var(--ck-data-declared)" stop-opacity="0.1" />
@@ -203,24 +205,30 @@ const LABEL_MIN = 150;
       @for (i of dayHits; track i) {
         <rect
           class="ck-day-hit"
+          role="button"
           [attr.data-day]="i"
           [attr.data-testid]="'ck-stream-day-' + i"
           [attr.x]="dayHitX(i)"
           [attr.y]="plotTop"
           [attr.width]="dayHitW()"
           [attr.height]="plotHeight"
+          [attr.tabindex]="i === rovingDay() ? 0 : -1"
+          [attr.aria-pressed]="i === lockedDay"
+          [attr.aria-label]="dayAria(i)"
         />
       }
       @if (crosshairX != null) {
         <line
           class="ck-crosshair"
+          [class.is-locked]="crosshairLocked"
           [attr.x1]="crosshairX"
           [attr.y1]="plotTop"
           [attr.x2]="crosshairX"
           [attr.y2]="plotTop + plotHeight"
-          stroke="var(--ck-fg-3)"
+          [attr.stroke]="crosshairLocked ? 'var(--ck-fg-1)' : 'var(--ck-fg-3)'"
           stroke-width="1"
-          stroke-dasharray="2 3"
+          [attr.stroke-dasharray]="crosshairLocked ? null : '2 3'"
+          pointer-events="none"
         />
         @for (dot of crosshairDots; track $index) {
           <circle [attr.cx]="crosshairX" [attr.cy]="dot" r="3" fill="var(--ck-fg-1)" />
@@ -285,9 +293,11 @@ const LABEL_MIN = 150;
   styles: [`
     :host { display: block; position: relative; width: 100%; }
     .ck-area, .ck-stream-label { transition: opacity 160ms var(--ck-ease-out, ease-out); }
+    svg:has(.ck-day-hit:focus-visible) .ck-area, svg:has(.ck-day-hit:focus-visible) .ck-stream-label { transition: none; }
     .is-dim { opacity: 0.35; }
     .is-lit { opacity: 1; }
-    .ck-day-hit { fill: transparent; }
+    .ck-day-hit { fill: transparent; cursor: pointer; }
+    .ck-day-hit:focus-visible { outline: 2px solid var(--ck-primary); outline-offset: -2px; }
     .ck-stream-label { cursor: pointer; }
     :host-context(.hv2-enter) .ck-area {
       transform: scaleY(0);
@@ -323,7 +333,18 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   @Input({ transform: booleanAttribute }) fluid = false;
   @Input() hoverDay: number | null = null;
   @Input() hoverSystem: string | null = null;
+  /** The day the page locked: solid crosshair, keyboard entry point, `aria-pressed`. */
+  @Input() lockedDay: number | null = null;
+  /**
+   * Dock the day tooltip on the crosshair when the day comes from the page
+   * (another chart, a lock) rather than from this chart's own pointer.
+   */
+  @Input({ transform: booleanAttribute }) followTip = false;
+  /** Formats the accessible name of a day (defaults to its label and total). */
+  @Input() dayAriaLabel: ((index: number) => string) | null = null;
   @Output() readonly dayHover = new EventEmitter<number | null>();
+  /** Click, Enter or Space on a day: the page toggles its lock on that day. */
+  @Output() readonly dayLock = new EventEmitter<number>();
   @Output() readonly systemHover = new EventEmitter<string | null>();
 
   readonly inkId = ckChartUid('ck-stream-ink');
@@ -346,6 +367,8 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   tipY = 0;
   private localDay: number | null = null;
   private localSystem: string | null = null;
+  /** Roving tab stop among the day columns. */
+  private focusDay: number | null = null;
   private built: StreamLayout | null = null;
   private stopWidth: (() => void) | null = null;
 
@@ -368,16 +391,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
 
   get grid(): Array<{ y: number; label: string }> {
     const max = this.resolvedMax();
-    if (this.gridLines.length) {
-      return this.gridLines.map((line) => ({ y: this.yOf(line.value, max), label: line.label }));
-    }
-    if (!this.series.length) return [];
-    const step = niceStep(max);
-    const lines: Array<{ y: number; label: string }> = [];
-    for (let value = step; value < max * 0.98 && lines.length < 6; value += step) {
-      lines.push({ y: this.yOf(value, max), label: this.gridLabel(value) });
-    }
-    return lines;
+    return this.gridValues().map((line) => ({ y: this.yOf(line.value, max), label: line.label }));
   }
 
   get weekendBands(): StreamBand[] {
@@ -431,6 +445,11 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
     return day == null ? null : this.xOf(day);
   }
 
+  get crosshairLocked(): boolean {
+    const day = this.activeDay();
+    return day != null && day === this.lockedDay;
+  }
+
   get crosshairDots(): number[] {
     const day = this.activeDay();
     if (day == null) return [];
@@ -441,6 +460,56 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
     if (shouldRebuildLayout(Object.keys(changes)) || !this.built) {
       this.built = this.build();
     }
+    if (this.focusDay != null && this.focusDay >= this.pointCount()) this.focusDay = null;
+    if (this.followTip && (changes['hoverDay'] || changes['series'])) this.syncDockedTip();
+  }
+
+  /** The one day column in the tab order: the last reached by arrows, else the lock, else the peak. */
+  rovingDay(): number {
+    const n = this.pointCount();
+    const pick = this.focusDay ?? this.lockedDay ?? this.peak?.index ?? null;
+    return pick != null && pick >= 0 && pick < n ? pick : Math.max(0, n - 1);
+  }
+
+  dayAria(index: number): string {
+    if (this.dayAriaLabel) return this.dayAriaLabel(index);
+    const total = this.layout().totals[index] ?? 0;
+    return [this.dayLabels[index], this.gridLabel(total)].filter(Boolean).join(' · ');
+  }
+
+  onClick(event: MouseEvent): void {
+    if (attrFromTarget(event.target, 'data-system')) return;
+    const dayAttr = attrFromTarget(event.target, 'data-day');
+    if (dayAttr == null) return;
+    this.dayLock.emit(Number(dayAttr));
+  }
+
+  onKeydown(event: KeyboardEvent): void {
+    const dayAttr = attrFromTarget(event.target, 'data-day');
+    if (dayAttr == null) return;
+    const index = Number(dayAttr);
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      this.dayLock.emit(index);
+      return;
+    }
+    const n = this.pointCount();
+    let next: number | null = null;
+    if (event.key === 'ArrowRight') next = Math.min(n - 1, index + 1);
+    else if (event.key === 'ArrowLeft') next = Math.max(0, index - 1);
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = n - 1;
+    if (next == null || next === index) return;
+    event.preventDefault();
+    const svg = event.currentTarget;
+    if (!(svg instanceof Element)) return;
+    const target = svg.querySelector(`[data-day="${next}"]`);
+    if (!(target instanceof SVGElement)) return;
+    // The global ring skips [tabindex="-1"]; the stop moves before focus does.
+    svg.querySelectorAll('.ck-day-hit[tabindex="0"]').forEach((node) => node.setAttribute('tabindex', '-1'));
+    target.setAttribute('tabindex', '0');
+    this.focusDay = next;
+    target.focus();
   }
 
   ngAfterViewInit(): void {
@@ -497,14 +566,40 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
 
   onFocus(event: FocusEvent): void {
     const system = attrFromTarget(event.target, 'data-system');
-    if (!system) return;
-    this.setSystem(system);
+    if (system) {
+      this.setSystem(system);
+      return;
+    }
+    const dayAttr = attrFromTarget(event.target, 'data-day');
+    if (dayAttr == null) return;
+    const index = Number(dayAttr);
+    this.setDay(index);
+    this.showDockedTip(index);
   }
 
   onLeave(): void {
     this.setDay(null);
     this.setSystem(null);
     this.tipOpen = false;
+    if (this.followTip) this.syncDockedTip();
+  }
+
+  private syncDockedTip(): void {
+    if (this.localDay != null) return;
+    const day = this.hoverDay;
+    if (day == null || day < 0 || day >= this.pointCount()) {
+      this.tipOpen = false;
+      return;
+    }
+    this.showDockedTip(day);
+  }
+
+  /** Tip beside the crosshair, for a day that did not come from this chart's pointer. */
+  private showDockedTip(index: number): void {
+    // Fluid or fixed, one viewBox unit is one CSS pixel of the host.
+    this.tipX = this.xOf(index);
+    this.tipY = this.plotTop + 8;
+    this.fillTip(index);
   }
 
   private activeDay(): number | null {
@@ -540,6 +635,10 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
     const pt = hostPointerPoint(this.host.nativeElement, event.clientX, event.clientY);
     this.tipX = pt.x;
     this.tipY = pt.y;
+    this.fillTip(index);
+  }
+
+  private fillTip(index: number): void {
     this.tipTitle = this.dayLabels[index] || '';
     const lines: CkChartTipLine[] = this.series.map((row) => ({
       label: row.label,
@@ -590,11 +689,12 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
       desired.push((upper[n - 1]!.y + lower[n - 1]!.y) / 2);
     });
     const rows = spreadLabelRows(desired, LABEL_ROW, this.plotTop + 6, this.plotTop + this.plotHeight - 12);
+    const labelX = this.plotLeft + plotWidth + 16 + this.gridGutter();
     series.forEach((row, index) => {
       const tone = row.tone ?? 'ink';
       const midY = rows[index]!;
       labels.push({
-        x: this.plotLeft + plotWidth + 16,
+        x: labelX,
         y: midY + 3,
         text: row.label,
         fill: ckChartToneVar(tone),
@@ -606,7 +706,7 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
       });
       if (row.detail) {
         labels.push({
-          x: this.plotLeft + plotWidth + 16,
+          x: labelX,
           y: midY + 14,
           text: row.detail,
           fill: ckChartToneVar(tone),
@@ -624,7 +724,28 @@ export class CkChartStreamComponent implements OnChanges, AfterViewInit, OnDestr
   private labelColumn(): number {
     const names = this.series.flatMap((row) => [row.label, row.detail ?? '']);
     const longest = names.reduce((max, text) => Math.max(max, measureLabelWidth(text)), 0);
-    return Math.max(LABEL_MIN, Math.ceil(longest) + 28);
+    return Math.max(LABEL_MIN, Math.ceil(longest) + 28) + this.gridGutter();
+  }
+
+  private gridValues(): CkStreamGridLine[] {
+    if (this.gridLines.length) return this.gridLines;
+    if (!this.series.length) return [];
+    const max = this.resolvedMax();
+    const step = niceStep(max);
+    const lines: CkStreamGridLine[] = [];
+    for (let value = step; value < max * 0.98 && lines.length < 6; value += step) {
+      lines.push({ value, label: this.gridLabel(value) });
+    }
+    return lines;
+  }
+
+  /** Room for the gridline values right of the plot, so ribbon names never sit on them. */
+  private gridGutter(): number {
+    const widest = this.gridValues().reduce(
+      (max, line) => Math.max(max, measureLabelWidth(line.label, '400 8px ui-monospace, monospace')),
+      0,
+    );
+    return widest > 0 ? Math.ceil(widest) + 4 : 0;
   }
 
   private fillFor(tone: CkStreamTone): string {

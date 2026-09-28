@@ -28,8 +28,9 @@ say nothing to a reader who cannot tell teal from grey (WCAG 1.4.1). Every
 declared mark carries a second, colour-free cue:
 
 - **Areas** (river bands, the Sankey value ribbon): an SVG `<pattern>` hatch,
-  2-unit lines of `--ck-data-declared` every 6 units at 45°, over a teal tint
-  of at most 0.22 opacity. Two declared neighbours hatch in opposite
+  1.5-unit lines of `--ck-data-declared` every 10 units at 45°, over a teal
+  tint of at most 0.18 opacity. L28 opened it from 2 every 6 (tint 0.22): on
+  those large areas the denser hatch read as zebra noise. Two declared neighbours hatch in opposite
   directions. Pattern ids are unique per chart (`ckChartUid`). The Sankey
   ribbon's hatch fades in with its teal, so the part that leaves the measured
   hours stays unhatched.
@@ -45,7 +46,11 @@ declared mark carries a second, colour-free cue:
 
 The tints stay low so the pattern lines keep 3:1 against what they sit on, in
 both themes and at 1x as well as 2x device pixel ratio (measured on the
-rendered page: 3.34:1 at worst, the light provenance bar).
+rendered page: 3.34:1 at worst, the light provenance bar). For the lighter
+area hatch, the worst case is the light theme at 1x: a 1.5-unit line at 45°
+covers at least 90 % of one device pixel in its worst phase, which gives
+3.35:1 on the 0.18 tint over the canvas (3.47:1 over a panel), and 3.88:1 at
+full coverage (2x). Dark theme: 5.09:1 and above.
 
 Constants live in `shared/cockpit/charts/chart.types.ts`
 (`CK_DECLARED_HATCH_*`, `CK_DECLARED_DASH_*`, `ckChartIsDeclared`) and

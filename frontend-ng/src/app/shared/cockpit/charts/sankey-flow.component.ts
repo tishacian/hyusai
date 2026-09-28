@@ -56,11 +56,11 @@ export type { CkSankeySource } from './sankey-layout';
           <stop offset="0" stop-color="var(--ck-data-measured)" stop-opacity="0.4" />
           <stop offset="1" stop-color="var(--ck-data-measured)" stop-opacity="0.15" />
         </linearGradient>
-        <!-- The declared end stays a tint (≤ 0.22) so the hatch keeps 3:1 on it. -->
+        <!-- The declared end stays a tint (≤ 0.18) so the hatch keeps 3:1 on it. -->
         <linearGradient [attr.id]="valueId" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0" stop-color="var(--ck-data-measured)" stop-opacity="0.15" />
-          <stop offset="0.35" stop-color="var(--ck-data-declared)" stop-opacity="0.16" />
-          <stop offset="1" stop-color="var(--ck-data-declared)" stop-opacity="0.22" />
+          <stop offset="0.35" stop-color="var(--ck-data-declared)" stop-opacity="0.14" />
+          <stop offset="1" stop-color="var(--ck-data-declared)" stop-opacity="0.18" />
         </linearGradient>
         <pattern
           [attr.id]="hatchId"
