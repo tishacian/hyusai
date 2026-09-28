@@ -114,55 +114,49 @@ function asTitle(value: unknown, fallback = ''): string {
 
 export function mapTimelineToEcheancier(timeline: ImpactTimelineRaw | null | undefined): EcheancierItem[] {
   const agenda = timeline?.agenda ?? [];
-  return agenda
-    .map((item, index) => {
-      const title = asTitle(item.title);
-      if (!title) return null;
-      return {
-        id: asId(item.id, `agenda-${index}`),
-        title,
-        starts_at: item.date && item.time ? `${item.date}T${item.time}` : item.time || item.date || null,
-        ends_at: item.end_time || null,
-        place: item.location || null,
-        status: item.status || null,
-        priority: item.priority || null,
-      } satisfies EcheancierItem;
-    })
-    .filter((item): item is EcheancierItem => item != null);
+  return agenda.flatMap((item, index) => {
+    const title = asTitle(item.title);
+    if (!title) return [];
+    return [{
+      id: asId(item.id, `agenda-${index}`),
+      title,
+      starts_at: item.date && item.time ? `${item.date}T${item.time}` : item.time || item.date || null,
+      ends_at: item.end_time || null,
+      place: item.location || null,
+      status: item.status || null,
+      priority: item.priority || null,
+    }];
+  });
 }
 
 export function mapNewsToFlux(news: ImpactNewsRaw | null | undefined): FluxItem[] {
   const signals = news?.all_signals?.length
     ? news.all_signals
     : (news?.signals ?? []);
-  return signals
-    .map((signal, index) => {
-      const title = asTitle(signal.title);
-      if (!title) return null;
-      return {
-        id: asId(signal.id, `flux-${index}`),
-        title,
-        klass: signal.source_category || null,
-        tone: signal.sentiment || null,
-        engagement: typeof signal.confidence === 'number' ? signal.confidence : null,
-      } satisfies FluxItem;
-    })
-    .filter((item): item is FluxItem => item != null);
+  return signals.flatMap((signal, index) => {
+    const title = asTitle(signal.title);
+    if (!title) return [];
+    return [{
+      id: asId(signal.id, `flux-${index}`),
+      title,
+      klass: signal.source_category || null,
+      tone: signal.sentiment || null,
+      engagement: typeof signal.confidence === 'number' ? signal.confidence : null,
+    }];
+  });
 }
 
 export function mapMapToZones(map: ImpactMapRaw | null | undefined): ImpactCarteZone[] {
-  return (map?.zones ?? [])
-    .map((zone, index) => {
-      const id = asId(zone.id ?? zone.zone_id, `zone-${index}`);
-      const name = asTitle(zone.name);
-      if (!name) return null;
-      return {
-        id,
-        name,
-        level: typeof zone.level === 'number' ? zone.level : null,
-      } satisfies ImpactCarteZone;
-    })
-    .filter((zone): zone is ImpactCarteZone => zone != null);
+  return (map?.zones ?? []).flatMap((zone, index) => {
+    const id = asId(zone.id ?? zone.zone_id, `zone-${index}`);
+    const name = asTitle(zone.name);
+    if (!name) return [];
+    return [{
+      id,
+      name,
+      level: typeof zone.level === 'number' ? zone.level : null,
+    }];
+  });
 }
 
 export function mapMonitorToAlertes(
@@ -221,29 +215,25 @@ export function mapAgendaMetadataToOrdre(
     : agenda[0];
   const items = target?.metadata?.agenda_items;
   if (!items?.length) return [];
-  return items
-    .map((point, index) => {
-      const title = asTitle(point.title);
-      if (!title) return null;
-      const options: OrdreOption[] = (point.options ?? [])
-        .map((option, optionIndex) => {
-          const label = asTitle(option.label);
-          if (!label) return null;
-          return {
-            id: asId(option.id, `opt-${index}-${optionIndex}`),
-            label,
-            recommended: option.recommended === true,
-          } satisfies OrdreOption;
-        })
-        .filter((option): option is OrdreOption => option != null);
-      return {
-        id: asId(point.id, `point-${index}`),
-        title,
-        origin: point.origin || null,
-        options,
-      } satisfies OrdrePoint;
-    })
-    .filter((point): point is OrdrePoint => point != null);
+  return items.flatMap((point, index) => {
+    const title = asTitle(point.title);
+    if (!title) return [];
+    const options: OrdreOption[] = (point.options ?? []).flatMap((option, optionIndex) => {
+      const label = asTitle(option.label);
+      if (!label) return [];
+      return [{
+        id: asId(option.id, `opt-${index}-${optionIndex}`),
+        label,
+        recommended: option.recommended === true,
+      }];
+    });
+    return [{
+      id: asId(point.id, `point-${index}`),
+      title,
+      origin: point.origin || null,
+      options,
+    }];
+  });
 }
 
 /** Fallback when no meeting agenda_items: proposed Impact decisions as points. */
