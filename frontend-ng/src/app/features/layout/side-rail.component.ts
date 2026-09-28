@@ -13,23 +13,35 @@ import { I18nService } from '@app/core/i18n.service';
 import { COCKPIT_VERBS, agentiumSurfaceRoute, type CockpitVerb } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
+import { AdoptionService } from '@app/core/adoption.service';
 
 /** Unique tooltip id shared by every rail control via aria-describedby. */
 export const SIDE_RAIL_TOOLTIP_ID = 'ck-rail-tooltip';
 
 /**
- * Primary rail — 5 cockpit verbs in a fixed 56px icon column.
+ * Primary rail — 5 cockpit verbs.
  *
- * Labels live only in aria-label + an immediate tooltip (no expand, no
- * native title delay). Zone names always come from experience.adoption.nav.*.
+ * Two states, never animated (L27):
+ * - readable (184px): the zone name is visible and is the link's accessible
+ *   name. Default during the member's first two weeks in the workspace, or
+ *   whenever the member turns « Libellés du rail » on;
+ * - icons (56px, L6): labels live in aria-label + an immediate tooltip.
+ *
+ * Both push the content: the rail never covers `main`. Until the member's
+ * experience record is known the rail stays icons-only, so an expert never
+ * sees labels flash in and out on load. Zone names always come from
+ * experience.adoption.nav.*.
  */
 @Component({
   selector: 'app-side-rail',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, GlyphComponent],
+  host: {
+    '[class.ck-rail-host-labelled]': 'labelsVisible()',
+  },
   template: `
-    <aside class="ck-rail">
+    <aside class="ck-rail" [class.ck-rail-labelled]="labelsVisible()">
       <nav class="ck-rail-nav" [attr.aria-label]="i18n.t('nav.primary')">
         @for (v of visibleVerbs(); track v.key) {
           <a
@@ -37,7 +49,7 @@ export const SIDE_RAIL_TOOLTIP_ID = 'ck-rail-tooltip';
             [state]="lensNavState(v)"
             class="ck-rail-item"
             [class.ck-rail-item-active]="isActive(v)"
-            [attr.aria-label]="verbLabel(v)"
+            [attr.aria-label]="labelsVisible() ? null : verbLabel(v)"
             [attr.aria-current]="isActive(v) ? 'page' : null"
             [attr.aria-describedby]="tooltipKey() === v.key ? tooltipId : null"
             (mouseenter)="onItemEnter(v.key, verbLabel(v), $event)"
@@ -52,6 +64,9 @@ export const SIDE_RAIL_TOOLTIP_ID = 'ck-rail-tooltip';
             <span class="ck-rail-glyph" aria-hidden="true">
               <ck-glyph [name]="v.glyph" [size]="18" />
             </span>
+            @if (labelsVisible()) {
+              <span class="ck-rail-label">{{ verbLabel(v) }}</span>
+            }
           </a>
         }
       </nav>
@@ -61,17 +76,47 @@ export const SIDE_RAIL_TOOLTIP_ID = 'ck-rail-tooltip';
           type="button"
           class="ck-rail-item ck-rail-item-ghost"
           (click)="openPalette()"
-          [attr.aria-label]="paletteLabel()"
+          [attr.aria-label]="labelsVisible() ? null : paletteLabel()"
+          aria-keyshortcuts="Meta+K Control+K"
           [attr.aria-describedby]="tooltipKey() === 'palette' ? tooltipId : null"
-          (mouseenter)="onItemEnter('palette', paletteLabel(), $event)"
+          (mouseenter)="onItemEnter('palette', paletteTooltip(), $event)"
           (mouseleave)="onItemLeave($event)"
-          (focus)="onItemFocus('palette', paletteLabel(), $event)"
+          (focus)="onItemFocus('palette', paletteTooltip(), $event)"
           (blur)="onItemBlur($event)"
         >
           <span class="ck-rail-glyph" aria-hidden="true">
             <ck-glyph name="crosshair" [size]="16" />
           </span>
+          @if (labelsVisible()) {
+            <span class="ck-rail-label">{{ paletteLabel() }}</span>
+            <kbd class="ck-rail-kbd" aria-hidden="true">⌘K</kbd>
+          }
         </button>
+        @if (labelsToggleAvailable()) {
+          <button
+            type="button"
+            class="ck-rail-item ck-rail-item-ghost ck-rail-toggle"
+            data-testid="rail-labels-toggle"
+            [attr.aria-pressed]="labelsVisible() ? 'true' : 'false'"
+            [attr.aria-label]="labelsVisible() ? null : labelsToggleLabel()"
+            [attr.aria-describedby]="tooltipKey() === 'labels' ? tooltipId : null"
+            (click)="toggleLabels()"
+            (mouseenter)="onItemEnter('labels', labelsToggleLabel(), $event)"
+            (mouseleave)="onItemLeave($event)"
+            (focus)="onItemFocus('labels', labelsToggleLabel(), $event)"
+            (blur)="onItemBlur($event)"
+          >
+            <span class="ck-rail-glyph" aria-hidden="true">
+              <span class="ck-rail-switch" [class.ck-rail-switch-on]="labelsVisible()"></span>
+            </span>
+            @if (labelsVisible()) {
+              <span class="ck-rail-label">{{ labelsToggleLabel() }}</span>
+            }
+          </button>
+        }
+        <p class="ck-rail-status" [class.ck-rail-sr-only]="!labelsVisible()" role="status">{{
+          labelsError() ? i18n.t('nav.rail.labels.save_failed') : ''
+        }}</p>
       </div>
 
       @if (tooltipKey()) {
@@ -95,6 +140,13 @@ export const SIDE_RAIL_TOOLTIP_ID = 'ck-rail-tooltip';
         height: 100%;
         z-index: 30;
       }
+      /* Readable rail: the host widens, so the content is pushed, never
+         covered. Frequent, keyboard-driven toggle: no width transition. */
+      :host(.ck-rail-host-labelled) {
+        width: 184px;
+        min-width: 184px;
+        flex-basis: 184px;
+      }
 
       .ck-rail {
         position: absolute;
@@ -109,6 +161,7 @@ export const SIDE_RAIL_TOOLTIP_ID = 'ck-rail-tooltip';
         padding: 10px 0;
         overflow: visible;
       }
+      .ck-rail-labelled { width: 184px; }
 
       .ck-rail-nav {
         display: flex;
@@ -118,6 +171,9 @@ export const SIDE_RAIL_TOOLTIP_ID = 'ck-rail-tooltip';
         flex: 1 1 auto;
       }
       .ck-rail-footer {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
         padding: 10px 8px 0;
         border-top: 1px dashed var(--ck-stroke-2);
       }
@@ -180,6 +236,112 @@ export const SIDE_RAIL_TOOLTIP_ID = 'ck-rail-tooltip';
         text-align: center;
       }
 
+      /* Readable rail — Tokens v2: sentence case, sans, no glow. */
+      .ck-rail-labelled .ck-rail-item {
+        justify-content: flex-start;
+        gap: 10px;
+        min-height: 36px;
+        text-align: left;
+      }
+      .ck-rail-label {
+        flex: 1 1 auto;
+        min-width: 0;
+        font-family: var(--ck-font-sans);
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.25;
+        color: inherit;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+      .ck-rail-footer .ck-rail-label { font-size: 12px; }
+      .ck-rail-item-active .ck-rail-label { font-weight: 600; }
+      .ck-rail-kbd {
+        flex: 0 0 auto;
+        padding: 1px 5px;
+        border: 1px solid var(--ck-stroke-2);
+        border-radius: 3px;
+        background: var(--ck-bg-inset);
+        color: var(--ck-fg-3);
+        font-family: var(--ck-font-sans);
+        font-size: 11px;
+        line-height: 1.3;
+      }
+
+      /* Square switch, same 1px language as the glyphs; state is instant. */
+      .ck-rail-switch {
+        position: relative;
+        display: block;
+        width: 20px;
+        height: 12px;
+        border: 1px solid currentColor;
+        border-radius: 3px;
+      }
+      .ck-rail-switch::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 6px;
+        height: 6px;
+        border-radius: 1px;
+        background: currentColor;
+      }
+      .ck-rail-switch-on {
+        border-color: var(--ck-primary);
+        background: var(--ck-primary);
+      }
+      .ck-rail-switch-on::after {
+        left: auto;
+        right: 2px;
+        background: var(--ck-bg-base);
+      }
+
+      .ck-rail-status {
+        margin: 0;
+        padding: 0 8px;
+        font-family: var(--ck-font-sans);
+        font-size: 12px;
+        line-height: 1.3;
+        color: var(--ck-fg-2);
+      }
+      /* Always rendered, so the live region exists before its message. */
+      .ck-rail-status:empty,
+      .ck-rail-sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* Phones keep the icon column: labels stay the accessible name, but
+         clipped, and the preference toggle waits for a wider screen. */
+      @media (max-width: 700px) {
+        :host(.ck-rail-host-labelled) {
+          width: 56px;
+          min-width: 56px;
+          flex-basis: 56px;
+        }
+        .ck-rail-labelled { width: 56px; }
+        .ck-rail-labelled .ck-rail-item { justify-content: center; }
+        .ck-rail-labelled .ck-rail-label,
+        .ck-rail-labelled .ck-rail-kbd {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          margin: -1px;
+          overflow: hidden;
+          clip: rect(0 0 0 0);
+          white-space: nowrap;
+        }
+        .ck-rail-toggle { display: none; }
+      }
+
       .ck-rail-tooltip {
         position: absolute;
         left: calc(100% + 8px);
@@ -205,7 +367,17 @@ export class SideRailComponent {
   private readonly workspace = inject(WorkspaceService);
   private readonly navigation = inject(ZoomContextService);
   private readonly telemetry = inject(NavigationTelemetryService, { optional: true });
+  private readonly adoption = inject(AdoptionService, { optional: true });
   protected readonly i18n = inject(I18nService);
+
+  /** Labels are visible; `false` too while the preference is still unknown. */
+  readonly labelsVisible = computed(() => this.adoption?.railLabelsVisible() === true);
+  /** The toggle only appears once the preference can be read and written. */
+  readonly labelsToggleAvailable = computed(() => {
+    const visible = this.adoption?.railLabelsVisible();
+    return visible !== null && visible !== undefined && this.adoption?.enabled() === true;
+  });
+  readonly labelsError = computed(() => this.adoption?.railLabelsError() === true);
 
   readonly tooltipId = SIDE_RAIL_TOOLTIP_ID;
   readonly tooltipKey = signal<string | null>(null);
@@ -227,7 +399,22 @@ export class SideRailComponent {
   }
 
   paletteLabel(): string {
-    return this.i18n.t('titlebar.palette.tooltip');
+    return this.i18n.t('nav.rail.search');
+  }
+
+  /** Icons-only tooltip: the name plus its shortcut. */
+  paletteTooltip(): string {
+    return this.i18n.t('nav.rail.search.tooltip');
+  }
+
+  /** Constant name: the state is carried by aria-pressed, never by the label. */
+  labelsToggleLabel(): string {
+    return this.i18n.t('nav.rail.labels.toggle');
+  }
+
+  toggleLabels(): void {
+    this.closeTooltip();
+    this.adoption?.setRailLabels(this.labelsVisible() ? 'hidden' : 'shown');
   }
 
   routeFor(v: CockpitVerb): string {
@@ -262,6 +449,7 @@ export class SideRailComponent {
   }
 
   onItemEnter(key: string, label: string, event: MouseEvent): void {
+    if (this.labelsVisible()) return;
     this.openTooltip(key, label, event.currentTarget as HTMLElement);
   }
 
@@ -273,7 +461,7 @@ export class SideRailComponent {
 
   onItemFocus(key: string, label: string, event: FocusEvent): void {
     const el = event.currentTarget as HTMLElement;
-    if (el.matches(':focus-visible')) {
+    if (!this.labelsVisible() && el.matches(':focus-visible')) {
       this.openTooltip(key, label, el);
     }
   }

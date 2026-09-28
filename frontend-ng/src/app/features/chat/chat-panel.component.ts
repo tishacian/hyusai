@@ -3373,6 +3373,12 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly contextCollection = input<string | null>(null);
   readonly assistantProfileKey = input<string | null>(null);
   readonly initialPrompt = input<string | null>(null);
+  /**
+   * A new value prefills `initialPrompt` again in a retained panel (the chat
+   * overlay keeps its panel alive across opens). Hosts that never set it keep
+   * the historical apply-once behaviour.
+   */
+  readonly initialPromptRevision = input<number>(0);
   readonly autoStartVoiceLoop = input(false);
   /** Hide the conversation rail. Used when the panel sits inside a Studio. */
   readonly compact = input(false);
@@ -4051,7 +4057,7 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly ttsSpeaking = signal(false);
   readonly ttsPaused = signal(false);
 
-  private initialPromptApplied = false;
+  private appliedInitialPromptRevision: number | null = null;
   private autoVoiceLoopStarted = false;
 
   constructor() {
@@ -4063,9 +4069,10 @@ export class ChatPanelComponent implements AfterViewInit {
     });
     effect(() => {
       const prompt = this.initialPrompt();
-      if (prompt && !this.initialPromptApplied) {
+      const revision = this.initialPromptRevision();
+      if (prompt && revision !== this.appliedInitialPromptRevision) {
         this.userInput = prompt;
-        this.initialPromptApplied = true;
+        this.appliedInitialPromptRevision = revision;
         this.cdr.markForCheck();
       }
     });

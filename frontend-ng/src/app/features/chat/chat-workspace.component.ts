@@ -336,6 +336,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
             [contextId]="ephemeralContextId()"
             [assistantProfileKey]="assistantProfileKey()"
             [initialPrompt]="initialPrompt()"
+            [initialPromptRevision]="initialPromptRevision()"
             [autoStartVoiceLoop]="autoStartVoiceLoop()"
             [resumeSessionId]="resumeSessionId()"
           />
@@ -842,6 +843,8 @@ export class ChatWorkspaceComponent implements OnInit {
   readonly assistantProfileKey = input<string | null>(null);
   /** Optional prompt prefilled when the assistant opens from a workspace app. */
   readonly initialPrompt = input<string | null>(null);
+  /** Changes when the same retained panel must prefill `initialPrompt` again. */
+  readonly initialPromptRevision = input<number>(0);
   /** When true, open the chat in persistent session voice loop mode. */
   readonly autoStartVoiceLoop = input(false);
   /** Open an existing durable session (Conversations › Reprendre). */
