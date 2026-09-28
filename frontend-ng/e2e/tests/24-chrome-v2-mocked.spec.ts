@@ -199,7 +199,7 @@ test.describe('L1 — swallowed gestures', () => {
 
   test('the active item leads back to its list, then to the top of it', async ({ page }) => {
     await page.goto(`/systems/${SYSTEM_ID}`);
-    const item = page.getByRole('complementary', { name: 'Summary' }).getByRole('link', { name: 'Systems', exact: true });
+    const item = page.getByRole('complementary', { name: 'Summary' }).getByRole('link', { name: /^Systems(, back to the list)?$/ });
     await expect(item).toHaveAttribute('aria-current', 'page');
     await item.click();
     await expect(page).toHaveURL(/\/systems(\?|$)/);
@@ -238,7 +238,7 @@ test.describe('L1 — swallowed gestures', () => {
     await expect(page).toHaveURL(flowUrl);
 
     await page.getByRole('complementary', { name: 'Summary' })
-      .getByRole('link', { name: 'Systems', exact: true })
+      .getByRole('link', { name: /^Systems(, back to the list)?$/ })
       .focus();
     await page.keyboard.press('ControlOrMeta+z');
     await expect(page).not.toHaveURL(flowUrl);
