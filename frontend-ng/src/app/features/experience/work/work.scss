@@ -1562,7 +1562,8 @@ li[data-status='waiting'] .xp-studio-node-status {
 .adoption-work-links a:focus-visible {outline:2px solid currentColor;outline-offset:3px;}
 
 /* Generated Work surfaces and the Agent Studio opt in; native client components retain their own skin. */
-.xp-work-brand-image { max-width:140px; max-height:40px; object-fit:contain; }
+.xp-work-brand-image { max-width:140px; max-height:28px; object-fit:contain; }
+.xp-work-mark { display:block; width:28px; height:28px; }
 .xp-work[data-brand-scope] {
   .xp-work-card, .xp-work-intro { border-radius:var(--ck-radius-lg); }
   .xp-work-btn, input, select { border-radius:var(--ck-radius-md); }
