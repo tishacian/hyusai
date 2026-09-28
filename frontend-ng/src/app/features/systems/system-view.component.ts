@@ -3,7 +3,7 @@ import { SystemMandateComponent } from '@app/features/mandate/system-mandate.com
 import { SystemMandateCoverageComponent } from './system-mandate-coverage.component';
 import { OperationalObjectiveComponent } from '@app/features/systems/operational-objective.component';
 import { ValueContractComponent } from '@app/features/systems/value-contract.component';
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink, type UrlTree } from '@angular/router';
 import { Subscription, forkJoin, of } from 'rxjs';
@@ -213,7 +213,12 @@ interface ContextConfigRow {
           [attr.title]="workOpenPreview(workLinkedApps()[0]!)"
         >{{ i18n.t('nav.open_in_work') }} ↗</a>
       } @else if (workLinkedApps().length > 1) {
-        <div actions class="relative inline-flex" data-testid="system-open-in-work-menu">
+        <div
+          actions
+          class="relative inline-flex"
+          data-testid="system-open-in-work-menu"
+          (click)="$event.stopPropagation()"
+        >
           <button
             type="button"
             id="open-in-work"
@@ -1173,6 +1178,16 @@ export class SystemViewComponent implements OnInit, OnDestroy {
     () => this.resetWorkspaceState(),
     () => this.reloadCurrentSystem(),
   );
+
+  @HostListener('document:click')
+  onDocumentClick(): void {
+    if (this.workMenuOpen()) this.workMenuOpen.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.workMenuOpen()) this.workMenuOpen.set(false);
+  }
 
   readonly runs = signal<Run[]>([]);
   readonly runsLoading = signal(false);

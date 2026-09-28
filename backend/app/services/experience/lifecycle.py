@@ -15,6 +15,7 @@ from uuid import uuid4
 from sqlalchemy import desc, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.experience import (
     DEFAULT_RENDERER_VERSION,
@@ -26,6 +27,7 @@ from app.models.experience import (
     ExperienceDraftRevision,
     ExperienceRelease,
 )
+from app.models.workspace import Workspace
 from app.models.system_binding import SystemBinding
 from app.services.audit_logger import emit_audit_event
 from app.services.experience import bindings as binding_service
@@ -1064,6 +1066,8 @@ def serialize_system_work_app(
     experience: Experience,
     deployment: ExperienceDeployment,
     release: ExperienceRelease,
+    *,
+    last_opened_at: str | None = None,
 ) -> dict[str, Any]:
     """Public projection for GET …/work-apps (name, emblem, type, channel, link)."""
     identity = release_identity(release)
@@ -1076,11 +1080,15 @@ def serialize_system_work_app(
         "channel": deployment.channel,
         "status": deployment.channel,
         "href": _catalog_launch_href(release, slug=identity["slug"]),
-        "last_opened_at": None,
+        "last_opened_at": last_opened_at,
     }
 
 
-def serialize_system_automation_work_app(job_card: Mapping[str, Any]) -> dict[str, Any]:
+def serialize_system_automation_work_app(
+    job_card: Mapping[str, Any],
+    *,
+    last_opened_at: str | None = None,
+) -> dict[str, Any]:
     job = job_card.get("job") if isinstance(job_card.get("job"), Mapping) else {}
     system_id = str(job.get("system_id") or "")
     name = str(job.get("name") or "").strip() or system_id
@@ -1093,8 +1101,53 @@ def serialize_system_automation_work_app(job_card: Mapping[str, Any]) -> dict[st
         "channel": "live",
         "status": "live",
         "href": f"/work/automation/{system_id}",
-        "last_opened_at": None,
+        "last_opened_at": last_opened_at,
     }
+
+
+WORK_LAST_OPENED_SETTINGS_KEY = "work_last_opened"
+
+
+def work_last_opened_key(*, kind: str, app_id: str) -> str:
+    cleaned = (app_id or "").strip()
+    prefix = "experience" if kind == "experience" else "automation"
+    return f"{prefix}:{cleaned}"
+
+
+def read_work_last_opened(workspace: Workspace, key: str) -> str | None:
+    settings = workspace.settings if isinstance(workspace.settings, Mapping) else {}
+    raw = settings.get(WORK_LAST_OPENED_SETTINGS_KEY)
+    if not isinstance(raw, Mapping):
+        return None
+    value = raw.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def touch_work_last_opened(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    kind: str,
+    app_id: str,
+    opened_at: datetime | None = None,
+) -> str:
+    """Persist last open timestamp in workspace.settings (no new table)."""
+    key = work_last_opened_key(kind=kind, app_id=app_id)
+    stamp = (opened_at or datetime.utcnow()).replace(microsecond=0).isoformat() + "Z"
+    settings = dict(workspace.settings or {}) if isinstance(workspace.settings, Mapping) else {}
+    current = (
+        dict(settings.get(WORK_LAST_OPENED_SETTINGS_KEY) or {})
+        if isinstance(settings.get(WORK_LAST_OPENED_SETTINGS_KEY), Mapping)
+        else {}
+    )
+    current[key] = stamp
+    settings[WORK_LAST_OPENED_SETTINGS_KEY] = current
+    workspace.settings = settings
+    flag_modified(workspace, "settings")
+    db.add(workspace)
+    db.commit()
+    db.refresh(workspace)
+    return stamp
 
 
 def list_system_work_apps(
@@ -1102,6 +1155,7 @@ def list_system_work_apps(
     *,
     system_id: str,
     automation_jobs: list[Mapping[str, Any]] | None = None,
+    workspace: Workspace | None = None,
 ) -> list[dict[str, Any]]:
     """Apps the reader may open that target ``system_id`` (experiences + automations)."""
     target = (system_id or "").strip()
@@ -1110,11 +1164,37 @@ def list_system_work_apps(
     apps: list[dict[str, Any]] = []
     for experience, deployment, release in rows:
         if target in binding_system_ids_from_release(release):
-            apps.append(serialize_system_work_app(experience, deployment, release))
+            opened = (
+                read_work_last_opened(
+                    workspace,
+                    work_last_opened_key(kind="experience", app_id=experience.id),
+                )
+                if workspace is not None
+                else None
+            )
+            apps.append(
+                serialize_system_work_app(
+                    experience,
+                    deployment,
+                    release,
+                    last_opened_at=opened,
+                )
+            )
     for card in automation_jobs or []:
         job = card.get("job") if isinstance(card, Mapping) else None
         if isinstance(job, Mapping) and job.get("system_id") == target:
-            apps.append(serialize_system_automation_work_app(card))
+            system_key = str(job.get("system_id") or "")
+            opened = (
+                read_work_last_opened(
+                    workspace,
+                    work_last_opened_key(kind="automation", app_id=system_key),
+                )
+                if workspace is not None
+                else None
+            )
+            apps.append(
+                serialize_system_automation_work_app(card, last_opened_at=opened)
+            )
     return apps
 
 

@@ -447,6 +447,12 @@ async def get_automation_job(
     _enforce_consume(db, user=user, workspace=workspace)
     for card in automation_portfolio.list_job_explanations(db, workspace, user):
         if card["job"].get("system_id") == system_id:
+            experience_service.touch_work_last_opened(
+                db,
+                workspace,
+                kind="automation",
+                app_id=system_id,
+            )
             return card
     raise HTTPException(404, "Automation not found")
 
@@ -477,7 +483,10 @@ async def list_work_apps_for_system(
     )
     jobs = automation_portfolio.list_job_explanations(db, workspace, user)
     apps = experience_service.list_system_work_apps(
-        rows, system_id=system_id, automation_jobs=jobs
+        rows,
+        system_id=system_id,
+        automation_jobs=jobs,
+        workspace=workspace,
     )
     return {"apps": apps}
 
@@ -540,6 +549,12 @@ async def get_work_app(
         )
     except experience_service.ExperienceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.payload()) from exc
+    experience_service.touch_work_last_opened(
+        db,
+        workspace,
+        kind="experience",
+        app_id=experience.id,
+    )
     return experience_service.serialize_work(experience, deployment, release)
 
 

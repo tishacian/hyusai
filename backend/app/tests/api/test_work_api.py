@@ -1301,3 +1301,31 @@ def test_system_linked_work_apps_are_filtered_by_reader_rights(db_session) -> No
     assert denied.status_code == 200
     assert denied.json()["apps"] == []
     assert viewer_client.get("/work").json()["experiences"] == []
+
+
+def test_work_last_opened_at_persists_on_open(db_session) -> None:
+    """L14 — opening a work app stamps last_opened_at in workspace.settings."""
+    workspace, admin = _seed(db_session)
+    system, _version, _binding = _seed_binding(db_session, workspace, admin)
+    studio = _experiences_client(db_session, workspace, admin)
+    experience_id, _release_id = _publish(
+        studio,
+        binding_key="work.reset",
+        channel="live",
+        audience={"roles": ["workspace_admin", "member"]},
+    )
+    client = _client(db_session, workspace, admin)
+
+    before = client.get(f"/work/systems/{system.id}/apps")
+    assert before.status_code == 200, before.text
+    row = next(a for a in before.json()["apps"] if a["id"] == experience_id)
+    assert row.get("last_opened_at") in (None, "")
+
+    opened = client.get("/work/password-reset")
+    assert opened.status_code == 200, opened.text
+
+    after = client.get(f"/work/systems/{system.id}/apps")
+    assert after.status_code == 200, after.text
+    stamped = next(a for a in after.json()["apps"] if a["id"] == experience_id)
+    assert isinstance(stamped.get("last_opened_at"), str)
+    assert stamped["last_opened_at"].endswith("Z")
