@@ -25,6 +25,13 @@ import { GlyphComponent, KbdComponent, TagComponent } from '@app/shared/cockpit'
 import { agentiumSurfaceRoute } from '@app/core/navigation.catalog';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { NavigationTelemetryService } from '@app/core/navigation-telemetry.service';
+import {
+  composePaletteResults,
+  frenchElides,
+  lexiconMatches,
+  type LexiconMatch,
+  type PaletteLocale,
+} from './command-palette.intent';
 
 type Tone = 'pos' | 'cool' | 'violet' | 'warn' | 'neg';
 
@@ -33,7 +40,7 @@ interface CommandItem {
   label: string;
   hint: string;
   tone: Tone;
-  kind: 'view' | 'system' | 'capability' | 'run' | 'skill' | 'action' | 'chat';
+  kind: 'view' | 'system' | 'capability' | 'run' | 'skill' | 'action' | 'chat' | 'agent' | 'definition';
   route: string;
   fragment?: string;
   keywords: string;
@@ -52,6 +59,11 @@ interface CommandItem {
  * view, system, capability, run or skill. Mirrors the "Semantic Zoom"
  * entry point from the mockup and is the single interaction the
  * cockpit exposes for navigation across hierarchies.
+ *
+ * L27 — entry by intention: a query nothing matches becomes « Ask the
+ * agent », selected so Enter opens the chat prefilled (never sent); a query
+ * naming a lexicon term shows « What is {term}? » with the definition in
+ * place. ARIA 1.2 combobox + listbox, polite result count, no animation.
  */
 @Component({
   selector: 'app-command-palette',
@@ -69,7 +81,11 @@ interface CommandItem {
         [style.backdropFilter]="'blur(14px) saturate(120%)'"
         style="-webkit-backdrop-filter: blur(14px) saturate(120%);"
       >
+        <!-- Raycast-style: no open/close animation, no row transition (L27). -->
         <div
+          role="dialog"
+          aria-modal="true"
+          [attr.aria-label]="i18n.t('titlebar.palette')"
           (click)="$event.stopPropagation()"
           [style.position]="'absolute'"
           [style.top.px]="120"
@@ -83,7 +99,7 @@ interface CommandItem {
           [style.boxShadow]="'0 30px 80px rgba(2,6,23,0.6), 0 0 0 1px var(--ck-stroke-soft)'"
           [style.overflow]="'hidden'"
         >
-          <!-- Input -->
+          <!-- Input: an ARIA 1.2 combobox; focus never leaves it. -->
           <div
             [style.display]="'flex'"
             [style.alignItems]="'center'"
@@ -91,93 +107,110 @@ interface CommandItem {
             [style.padding]="'14px 18px'"
             [style.borderBottom]="'1px solid var(--ck-hair)'"
           >
-            <ck-glyph name="focus" [size]="14" />
+            <span aria-hidden="true" [style.display]="'inline-flex'"><ck-glyph name="focus" [size]="14" /></span>
             <input
               #queryInput
               type="search"
+              class="ck-palette-input"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded="true"
+              [attr.aria-controls]="listboxId"
+              [attr.aria-activedescendant]="activeDescendant()"
+              [attr.aria-label]="i18n.t('palette.input.label')"
               [value]="query()"
               (input)="onQuery($event)"
               (keydown)="onKey($event)"
               [placeholder]="i18n.t('palette.placeholder')"
-              class="ck-mono"
               [style.flex]="'1 1 auto'"
+              [style.minWidth]="'0'"
               [style.background]="'transparent'"
               [style.border]="'0'"
               [style.outline]="'none'"
-              [style.fontSize.px]="13"
+              [style.fontFamily]="'var(--ck-font-sans)'"
+              [style.fontSize.px]="14"
               [style.color]="'var(--ck-fg-1)'"
               autocomplete="off"
+              spellcheck="false"
             />
-            <ck-kbd>ESC</ck-kbd>
+            <span aria-hidden="true"><ck-kbd>ESC</ck-kbd></span>
           </div>
 
+          @if (noMatch()) {
+            <p
+              data-testid="palette-no-match"
+              [style.margin]="'0'"
+              [style.padding]="'10px 18px 4px'"
+              [style.fontSize.px]="12"
+              [style.color]="'var(--ck-fg-3)'"
+            >{{ loading() ? i18n.t('common.loading') : i18n.t('palette.empty.query', { query: trimmedQuery() }) }}</p>
+          }
+
           <!-- Results -->
-          <div class="ck-scroll" [style.maxHeight.px]="360" [style.overflow]="'auto'">
-            @if (!results().length) {
-              <div
-                class="ck-mono"
-                [style.padding]="'28px'"
-                [style.textAlign]="'center'"
-                [style.color]="'var(--ck-fg-4)'"
-                [style.fontSize.px]="11"
-                [style.letterSpacing]="'0.14em'"
-                [style.textTransform]="'uppercase'"
-              >
-                @if (loading()) { {{ i18n.t('common.loading') }} } @else { {{ i18n.t('palette.empty') }} · "{{ query() }}" }
-              </div>
-            }
+          <div
+            role="listbox"
+            [id]="listboxId"
+            [attr.aria-label]="i18n.t('palette.results.label')"
+            class="ck-scroll"
+            [style.maxHeight.px]="360"
+            [style.overflow]="'auto'"
+          >
             @for (r of results(); track r.id; let i = $index) {
-              <button
-                type="button"
+              <div
+                role="option"
+                [id]="optionId(i)"
+                [attr.aria-selected]="selectedIndex() === i ? 'true' : 'false'"
+                [attr.data-kind]="r.kind"
                 (click)="go(r)"
-                (mouseenter)="selectedIndex.set(i)"
-                [style.width]="'100%'"
+                (mousemove)="hover(i)"
                 [style.display]="'grid'"
                 [style.gridTemplateColumns]="'24px 1fr auto'"
                 [style.gap.px]="12"
                 [style.alignItems]="'center'"
+                [style.minHeight.px]="44"
                 [style.padding]="'10px 18px'"
                 [style.borderBottom]="'1px solid var(--ck-hair)'"
+                [style.boxShadow]="selectedIndex() === i ? 'inset 2px 0 0 var(--ck-primary)' : 'none'"
                 [style.background]="selectedIndex() === i ? 'var(--ck-bg-inset)' : 'transparent'"
-                [style.textAlign]="'left'"
                 [style.cursor]="'pointer'"
-                [style.transition]="'background 120ms ease'"
               >
-                <ck-glyph [name]="glyphFor(r.kind)" [size]="14" />
+                <span aria-hidden="true" [style.display]="'inline-flex'"><ck-glyph [name]="glyphFor(r.kind)" [size]="14" /></span>
                 <div [style.display]="'flex'" [style.flexDirection]="'column'" [style.gap.px]="2" [style.minWidth]="0">
                   <span
                     [style.fontSize.px]="13"
                     [style.color]="'var(--ck-fg-1)'"
                     [style.fontWeight]="'500'"
-                    [style.whiteSpace]="'nowrap'"
+                    [style.whiteSpace]="r.kind === 'agent' ? 'normal' : 'nowrap'"
                     [style.overflow]="'hidden'"
                     [style.textOverflow]="'ellipsis'"
+                    [style.overflowWrap]="'anywhere'"
                   >{{ r.label }}</span>
                   <span
-                    class="ck-mono"
-                    [style.fontSize.px]="10"
-                    [style.color]="'var(--ck-fg-4)'"
-                    [style.whiteSpace]="'nowrap'"
+                    [style.fontSize.px]="12"
+                    [style.lineHeight]="'1.4'"
+                    [style.color]="'var(--ck-fg-3)'"
+                    [style.whiteSpace]="r.kind === 'definition' ? 'normal' : 'nowrap'"
                     [style.overflow]="'hidden'"
                     [style.textOverflow]="'ellipsis'"
                   >{{ r.hint }}</span>
                 </div>
                 <ck-tag [tone]="r.tone" variant="outline">{{ kindLabel(r.kind) }}</ck-tag>
-              </button>
+              </div>
             }
           </div>
 
+          <p class="ck-palette-status" role="status" aria-atomic="true">{{ announcement() }}</p>
+
           <!-- Footer hint -->
           <div
-            class="ck-mono"
+            aria-hidden="true"
             [style.display]="'flex'"
             [style.alignItems]="'center'"
             [style.justifyContent]="'space-between'"
+            [style.gap.px]="12"
             [style.padding]="'10px 18px'"
-            [style.fontSize.px]="9"
-            [style.letterSpacing]="'0.14em'"
-            [style.textTransform]="'uppercase'"
-            [style.color]="'var(--ck-fg-4)'"
+            [style.fontSize.px]="12"
+            [style.color]="'var(--ck-fg-3)'"
             [style.background]="'var(--ck-bg-inset)'"
           >
             <span>
@@ -194,6 +227,21 @@ interface CommandItem {
       </div>
     }
   `,
+  styles: [`
+    /* The native clear cross is off-brand blue and duplicates Escape. */
+    .ck-palette-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+    .ck-palette-status {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
+  `],
 })
 export class CommandPaletteComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
@@ -208,6 +256,8 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   readonly query = signal('');
   readonly loading = signal(false);
   readonly selectedIndex = signal(0);
+  readonly listboxId = 'ck-palette-listbox';
+  private returnFocus: HTMLElement | null = null;
 
   private readonly capabilities = signal<Capability[]>([]);
   private readonly runs = signal<Run[]>([]);
@@ -320,7 +370,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     return commands;
   }
 
-  readonly results = computed(() => {
+  private readonly matches = computed(() => {
     const q = this.query().trim().toLowerCase();
     const workspaceEpoch = this.workspace.contextEpoch();
     const caps: CommandItem[] = this.capabilities().map((c) => ({
@@ -369,16 +419,87 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     }));
 
     const all = [...this.chatCommands, ...this.viewCommands, ...caps, ...sys, ...runs, ...sks];
-    if (!q) return all.slice(0, 40);
-    return all
-      .filter(
-        (c) =>
-          c.label.toLowerCase().includes(q) ||
-          c.hint.toLowerCase().includes(q) ||
-          c.keywords.includes(q),
-      )
-      .slice(0, 40);
+    if (!q) return all;
+    return all.filter(
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.hint.toLowerCase().includes(q) ||
+        c.keywords.includes(q),
+    );
   });
+
+  readonly trimmedQuery = computed(() => this.query().trim());
+
+  /** A typed query that no command matches — the agent takes over. */
+  readonly noMatch = computed(() => this.trimmedQuery().length > 0 && this.matches().length === 0);
+
+  readonly results = computed(() => {
+    const query = this.trimmedQuery();
+    const definitions = query
+      ? lexiconMatches(query, this.locale()).map((match) => this.definitionCommand(match))
+      : [];
+    return composePaletteResults(
+      query,
+      this.matches(),
+      definitions,
+      query ? this.askAgentCommand(query) : null,
+    );
+  });
+
+  readonly activeDescendant = computed(() =>
+    this.results().length ? this.optionId(Math.min(this.selectedIndex(), this.results().length - 1)) : null,
+  );
+
+  /** Polite, only once the reader types: count, or how to reach the agent. */
+  readonly announcement = computed(() => {
+    if (!this.trimmedQuery() || this.loading()) return '';
+    if (this.noMatch()) return this.i18n.t('palette.announce.fallback');
+    return this.i18n.t('palette.footer.results', { count: this.results().length });
+  });
+
+  private locale(): PaletteLocale {
+    return this.i18n.locale?.() === 'en' ? 'en' : 'fr';
+  }
+
+  private askAgentCommand(query: string): CommandItem {
+    return {
+      id: 'agent.ask',
+      label: this.i18n.t('palette.ask_agent', { query }),
+      hint: this.i18n.t('palette.ask_agent.hint'),
+      tone: 'pos',
+      kind: 'agent',
+      route: '',
+      keywords: '',
+      action: () => this.openChat({ mode: 'quick', initialPrompt: query }),
+    };
+  }
+
+  /**
+   * « What is {term}? »: the definition is the secondary line, so the answer
+   * is read without leaving the palette; Enter asks the agent for more, with
+   * the question prefilled and not sent.
+   */
+  private definitionCommand(match: LexiconMatch): CommandItem {
+    const elided = this.locale() === 'fr' && frenchElides(match.term);
+    const suffix = elided ? '.elided' : '';
+    return {
+      id: `define.${match.id}`,
+      label: this.i18n.t(`palette.what_is${suffix}`, { term: match.term }),
+      hint: match.definition,
+      tone: 'cool',
+      kind: 'definition',
+      route: '',
+      keywords: '',
+      action: () => this.openChat({
+        mode: 'quick',
+        initialPrompt: this.i18n.t(`palette.what_is.prompt${suffix}`, { term: match.term }),
+      }),
+    };
+  }
+
+  optionId(index: number): string {
+    return `ck-palette-option-${index}`;
+  }
 
   constructor() {
     effect(() => {
@@ -472,7 +593,8 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     this.skills.set([]);
     this.systems.set([]);
     this.loading.set(false);
-    this.close();
+    // A workspace switch navigates; focus follows the new page, not the opener.
+    this.close(false);
   }
 
   @HostListener('window:keydown', ['$event'])
@@ -498,19 +620,29 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   }
 
   toggle(): void {
-    this.open.update((o) => !o);
     if (this.open()) {
-      this.query.set('');
-      this.selectedIndex.set(0);
-      setTimeout(() => {
-        const el = document.querySelector<HTMLInputElement>('app-command-palette input[type="search"]');
-        el?.focus();
-      }, 20);
+      this.close();
+      return;
     }
+    this.returnFocus = typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    this.open.set(true);
+    this.query.set('');
+    this.selectedIndex.set(0);
+    setTimeout(() => {
+      const el = document.querySelector<HTMLInputElement>('app-command-palette input[type="search"]');
+      el?.focus();
+    }, 20);
   }
 
-  close(): void {
+  /** Closing by Escape, backdrop or ⌘K gives focus back to the opener. */
+  close(restoreFocus = true): void {
+    const wasOpen = this.open();
     this.open.set(false);
+    const target = this.returnFocus;
+    this.returnFocus = null;
+    if (wasOpen && restoreFocus && target?.isConnected) target.focus();
   }
 
   onQuery(ev: Event): void {
@@ -521,18 +653,34 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     if (ev.key === 'ArrowDown') {
       ev.preventDefault();
       this.selectedIndex.update((i) => Math.min(this.results().length - 1, i + 1));
+      this.revealSelected();
     } else if (ev.key === 'ArrowUp') {
       ev.preventDefault();
       this.selectedIndex.update((i) => Math.max(0, i - 1));
+      this.revealSelected();
     } else if (ev.key === 'Enter') {
       ev.preventDefault();
       const r = this.results()[this.selectedIndex()];
       if (r) this.go(r);
+    } else if (ev.key === 'Tab') {
+      // The combobox is the dialog's only stop; Escape leaves (shown as ESC).
+      ev.preventDefault();
     }
   }
 
+  /** Pointer selection follows real movement only, not a list scrolling under it. */
+  hover(index: number): void {
+    if (this.selectedIndex() !== index) this.selectedIndex.set(index);
+  }
+
+  private revealSelected(): void {
+    if (typeof document === 'undefined') return;
+    document.getElementById(this.optionId(this.selectedIndex()))?.scrollIntoView({ block: 'nearest' });
+  }
+
   go(r: CommandItem): void {
-    this.close();
+    // Navigation focuses the page title and the chat focuses itself.
+    this.close(false);
     if (
       r.workspaceEpoch !== undefined
       && r.workspaceEpoch !== this.workspace.contextEpoch()
@@ -547,8 +695,10 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     this.router.navigateByUrl(r.route);
   }
 
-  glyphFor(kind: CommandItem['kind']): 'flow' | 'cube' | 'sliders' | 'bolt' | 'focus' | 'pulse' {
+  glyphFor(kind: CommandItem['kind']): 'flow' | 'cube' | 'sliders' | 'bolt' | 'focus' | 'pulse' | 'orbit' | 'ledger' {
     switch (kind) {
+      case 'agent':      return 'orbit';
+      case 'definition': return 'ledger';
       case 'system':     return 'flow';
       case 'capability': return 'cube';
       case 'run':        return 'pulse';

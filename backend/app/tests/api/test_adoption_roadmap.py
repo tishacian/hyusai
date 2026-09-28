@@ -103,6 +103,97 @@ def test_progress_is_per_member_and_workspace_and_never_changes_access(db_sessio
     assert client.get("/auth/workspaces/foreign/me/experience").status_code == 403
 
 
+def test_rail_labels_default_to_auto_and_first_seen_is_recorded_once(db_session):
+    from datetime import datetime, timezone
+
+    workspace, user = _seed(db_session)
+    client = auth_client(db_session, workspace, user)
+    url = "/auth/workspaces/assistant-api/me/experience"
+
+    first = client.get(url).json()
+    assert first["rail_labels"] == "auto"
+    first_seen = first["first_seen_at"]
+    assert first_seen, "the first read records when the member was first seen"
+    seen_at = datetime.fromisoformat(first_seen.replace("Z", "+00:00"))
+    assert abs((datetime.now(timezone.utc) - seen_at).total_seconds()) < 60
+    stored = db_session.query(WorkspaceMember).filter_by(user_id=user.id).one()
+    assert stored.experience_progress["first_seen_at"] == first_seen
+
+    # Stable across reads and across writes of any other field.
+    assert client.get(url).json()["first_seen_at"] == first_seen
+    assert client.patch(url, json={"persona": "builder"}).json()["first_seen_at"] == first_seen
+    assert client.get(url).json()["first_seen_at"] == first_seen
+
+
+def test_first_seen_starts_when_the_member_joined(db_session):
+    from datetime import datetime, timedelta
+
+    workspace, user = _seed(db_session)
+    member = db_session.query(WorkspaceMember).filter_by(user_id=user.id).one()
+    member.joined_at = datetime(2026, 7, 1, 9, 30, 0)
+    member.experience_progress = {}
+    db_session.commit()
+    client = auth_client(db_session, workspace, user)
+    url = "/auth/workspaces/assistant-api/me/experience"
+
+    # A long-standing member keeps their seniority: the newcomer period is
+    # counted from the join date, not from the first read after a deploy.
+    body = client.get(url).json()
+    assert datetime.fromisoformat(body["first_seen_at"].replace("Z", "+00:00")).replace(tzinfo=None) == member.joined_at
+    assert datetime.utcnow() - member.joined_at > timedelta(days=14)
+
+
+def test_first_seen_is_never_overwritten_nor_accepted_from_the_client(db_session):
+    workspace, user = _seed(db_session)
+    member = db_session.query(WorkspaceMember).filter_by(user_id=user.id).one()
+    member.experience_progress = {"persona": "executive", "first_seen_at": "2026-01-02T03:04:05Z"}
+    db_session.commit()
+    client = auth_client(db_session, workspace, user)
+    url = "/auth/workspaces/assistant-api/me/experience"
+
+    body = client.get(url).json()
+    assert body["first_seen_at"] == "2026-01-02T03:04:05Z"
+    assert body["persona"] == "executive"
+    assert body["rail_labels"] == "auto"
+    assert client.patch(url, json={"first_seen_at": "2030-01-01T00:00:00Z"}).status_code == 422
+    assert client.get(url).json()["first_seen_at"] == "2026-01-02T03:04:05Z"
+
+
+def test_rail_labels_patch_is_validated_and_leaves_other_fields_untouched(db_session):
+    workspace, user = _seed(db_session)
+    client = auth_client(db_session, workspace, user)
+    url = "/auth/workspaces/assistant-api/me/experience"
+    client.get(url)
+    assert client.patch(url, json={"persona": "builder", "completed_step": "example"}).status_code == 200
+    assert client.patch(url, json={"dismissed": True}).status_code == 200
+    before = client.get(url).json()
+
+    for invalid in ["sometimes", "", None, True, 1]:
+        response = client.patch(url, json={"rail_labels": invalid})
+        if invalid is None:
+            # ``null`` means "no change", like every other optional field.
+            assert response.status_code == 200
+        else:
+            assert response.status_code == 422, invalid
+    assert client.get(url).json() == before
+
+    for value in ["hidden", "shown", "auto"]:
+        response = client.patch(url, json={"rail_labels": value})
+        assert response.status_code == 200, response.text
+        after = response.json()
+        assert after["rail_labels"] == value
+        assert {k: v for k, v in after.items() if k != "rail_labels"} == {
+            k: v for k, v in before.items() if k not in {"rail_labels", "example_available"}
+        }
+    assert client.get(url).json()["rail_labels"] == "auto"
+    audited = [
+        row.details
+        for row in db_session.query(AuditLog).filter_by(event_type="adoption.progress")
+        if "rail_labels" in row.details
+    ]
+    assert [row["rail_labels"] for row in audited] == ["hidden", "shown", "auto"]
+
+
 def test_all_published_help_guides_resolve_in_both_languages(db_session):
     workspace, user = _seed(db_session)
     client = auth_client(db_session, workspace, user)
